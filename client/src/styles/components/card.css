@@ -1,0 +1,153 @@
+/* ============================================
+   卡片组件样式
+   ============================================ */
+
+.ant-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  transition: all var(--transition-base);
+}
+
+.ant-card:hover {
+  box-shadow: var(--shadow-sm);
+  border-color: var(--border-hover);
+}
+
+.ant-card-head {
+  border-bottom: 1px solid var(--border-color);
+  background: transparent;
+  padding: var(--space-4) var(--space-6);
+  min-height: 56px;
+}
+
+.ant-card-head-title {
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  padding: 0;
+}
+
+.ant-card-extra {
+  color: var(--text-secondary);
+}
+
+.ant-card-body {
+  background: transparent;
+  padding: var(--space-6);
+}
+
+.ant-card-actions {
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-elevated);
+}
+
+.ant-card-actions > li {
+  margin: var(--space-3) 0;
+  color: var(--text-secondary);
+  transition: color var(--transition-fast);
+}
+
+.ant-card-actions > li:hover {
+  color: var(--accent-primary);
+}
+
+.ant-card-meta-title {
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.ant-card-meta-description {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.ant-card-cover img {
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+/* 卡片尺寸变体 */
+.ant-card-small .ant-card-head {
+  padding: var(--space-2) var(--space-4);
+  min-height: 40px;
+}
+
+.ant-card-small .ant-card-body {
+  padding: var(--space-4);
+}
+
+/* 无边框卡片 */
+.ant-card-bordered {
+  border: 1px solid var(--border-color);
+}
+
+.ant-card:not(.ant-card-bordered) {
+  border: none;
+  box-shadow: none;
+}
+
+/* 可悬停卡片 */
+.ant-card-hoverable {
+  cursor: pointer;
+}
+
+.ant-card-hoverable:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-hover);
+}
+
+/* 加载卡片 */
+.ant-card-loading-content {
+  padding: var(--space-6);
+}
+
+.ant-card-loading-content p {
+  display: none;
+}
+
+/* 统计卡片 */
+.stat-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--accent-primary);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.stat-card:hover::before {
+  opacity: 1;
+}
+
+/* 快捷操作卡片 */
+.quick-action-card {
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.quick-action-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+/* 内嵌卡片 */
+.ant-card-contain-tabs .ant-card-head {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.ant-card-contain-tabs .ant-card-body {
+  padding-top: var(--space-4);
+}

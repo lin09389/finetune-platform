@@ -1,0 +1,143 @@
+inference:
+  default_backend: "huggingface"
+  max_concurrent_requests: 10
+  
+  model_cache:
+    max_size: 3
+    ttl_seconds: 3600
+  
+  prompt_injection:
+    enabled: true
+    patterns:
+      - "ignore\\s+(all\\s+)?previous\\s+instructions?"
+      - "ignore\\s+(all\\s+)?(the\\s+)?above"
+      - "disregard\\s+(all\\s+)?previous"
+      - "forget\\s+(all\\s+)?(previous\\s+)?instructions?"
+      - "you\\s+are\\s+now\\s+"
+      - "new\\s+instructions?:"
+      - "system:\\s*you\\s+are"
+      - "<\\|im_start\\|>system"
+      - "jailbreak"
+      - "dan\\s+mode"
+      - "developer\\s+mode"
+      - "sudo\\s+mode"
+  
+  limits:
+    max_message_length: 10000
+    max_messages_count: 100
+    max_tokens: 8192
+    min_tokens: 1
+
+knowledge:
+  retrieval:
+    default_top_k: 5
+    max_top_k: 20
+    min_score: 0.3
+  
+  exclusion_keywords:
+    - "写代码"
+    - "运行命令"
+    - "执行脚本"
+    - "创建文件"
+    - "修改文件"
+    - "删除文件"
+    - "帮我写"
+    - "生成代码"
+    - "翻译"
+    - "解释代码"
+  
+  domain_keywords:
+    law:
+      - "法律"
+      - "法规"
+      - "合同"
+      - "诉讼"
+      - "判决"
+      - "律师"
+      - "法庭"
+    medical:
+      - "医疗"
+      - "健康"
+      - "疾病"
+      - "症状"
+      - "治疗"
+      - "药物"
+      - "诊断"
+    financial:
+      - "金融"
+      - "投资"
+      - "股票"
+      - "基金"
+      - "理财"
+      - "银行"
+      - "贷款"
+    technical:
+      - "技术"
+      - "架构"
+      - "设计"
+      - "实现"
+      - "优化"
+      - "性能"
+
+memory:
+  short_term:
+    max_messages: 50
+    max_tokens: 4000
+    summary_threshold: 30
+  
+  long_term:
+    max_memories: 1000
+    embedding_model: "shibing624/text2vec-base-chinese"
+    similarity_threshold: 0.7
+  
+  knowledge_graph:
+    enabled: true
+    max_entities: 500
+    max_relations: 1000
+    entity_types:
+      - "person"
+      - "organization"
+      - "location"
+      - "event"
+      - "concept"
+      - "product"
+
+chat:
+  context_window:
+    max_tokens: 4096
+    compression_threshold: 0.8
+    compression_strategy: "sliding_window"
+  
+  session:
+    max_sessions: 100
+    session_timeout: 3600
+    auto_save: true
+  
+  streaming:
+    enabled: true
+    chunk_size: 100
+    timeout: 300
+
+backends:
+  huggingface:
+    enabled: true
+    device: "auto"
+    torch_dtype: "float16"
+    trust_remote_code: true
+    low_cpu_mem_usage: true
+  
+  ollama:
+    enabled: true
+    base_url: "http://localhost:11434"
+    timeout: 300
+    max_retries: 3
+  
+  cloud:
+    enabled: true
+    providers:
+      - "openai"
+      - "anthropic"
+      - "minimax"
+      - "zhipu"
+    timeout: 60
+    max_retries: 3

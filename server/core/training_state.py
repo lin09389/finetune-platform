@@ -1,0 +1,396 @@
+"""
+训练状态管理模块 - 线程安全版本（重构版）
+修复内容:
+- P0-1: 移除未使用的 asyncio.Lock，统一使用 threading.Lock
+- P1-1: 修复历史记录竞态条件，使用原子写入
+- P1-6: 修复内存泄漏，定期清理已完成任务引用
+"""
+import threading
+import json
+import tempfile
+import os
+from pathlib import Path
+from datetime import datetime
+from typing import Optional, Dict, Any, List
+from pydantic import BaseModel, Field
+from queue import Queue, Empty
+import logging
+import gc
+
+from core.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+class TrainingProgress(BaseModel):
+    """训练进度"""
+    epoch: int = 0
+    step: int = 0
+    total_steps: int = 0
+    loss: float = 0.0
+    lr: float = 0.0
+    vram_used: float = 0.0
+    elapsed_time: float = 0.0
+    eta: float = 0.0
+    status: str = "idle"
+    message: str = ""
+
+
+class TrainingRecord(BaseModel):
+    """训练记录"""
+    id: str
+    model_name: str
+    dataset_name: str
+    method: str
+    status: str
+    start_time: str
+    end_time: Optional[str] = None
+    config: dict
+    output_path: str
+    checkpoint_path: Optional[str] = None
+
+
+class StateUpdate:
+    """状态更新请求"""
+    def __init__(self, update_type: str, **kwargs):
+        self.update_type = update_type
+        self.data = kwargs
+
+
+class TrainingState:
+    """
+    训练状态管理器 - 线程安全版本（重构版）
+    修复:
+    - P0-1: 移除 asyncio.Lock，统一使用 threading.Lock
+    - P1-1: 历史记录原子写入
+    - P1-6: 定期清理已完成任务
+    使用队列 + 后台工作线程处理状态更新，消除 asyncio.new_event_loop() 开销
+    """
+
+    MAX_HISTORY_SIZE = 100
+    TASK_CLEANUP_INTERVAL = 60
+    MAX_COMPLETED_TASKS = 10
+
+    def __init__(self, history_file: Path):
+        self._lock = threading.Lock()
+        self._is_training: bool = False
+        self._current_record: Optional[TrainingRecord] = None
+        self._progress: TrainingProgress = TrainingProgress()
+        self._training_tasks: Dict[str, threading.Thread] = {}
+        self._completed_tasks: Dict[str, float] = {}
+        self._history_file = history_file
+        self._history_cache: Optional[List[TrainingRecord]] = None
+        self._history_dirty = False
+
+        self._update_queue: Queue = Queue()
+        self._worker_thread: Optional[threading.Thread] = None
+        self._worker_running = False
+
+        self._history_file.parent.mkdir(parents=True, exist_ok=True)
+
+        self._start_worker()
+
+        self._last_cleanup_time = datetime.now().timestamp()
+
+    def _start_worker(self):
+        """启动后台工作线程"""
+        self._worker_running = True
+        self._worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
+        self._worker_thread.start()
+        logger.debug("TrainingState worker started")
+
+    def _worker_loop(self):
+        """后台工作线程主循环"""
+        while self._worker_running:
+            try:
+                update: StateUpdate = self._update_queue.get(timeout=1.0)
+                self._process_update(update)
+            except Empty:
+                self._periodic_cleanup()
+                continue
+            except Exception as e:
+                logger.error(f"处理状态更新失败：{e}")
+
+    def _periodic_cleanup(self):
+        """P1-6: 定期清理已完成任务引用"""
+        now = datetime.now().timestamp()
+        if now - self._last_cleanup_time < self.TASK_CLEANUP_INTERVAL:
+            return
+
+        with self._lock:
+            self._last_cleanup_time = now
+
+            for task_id, completed_time in list(self._completed_tasks.items()):
+                if now - completed_time > 300:
+                    self._completed_tasks.pop(task_id, None)
+                    if task_id in self._training_tasks:
+                        del self._training_tasks[task_id]
+
+            if len(self._completed_tasks) > self.MAX_COMPLETED_TASKS:
+                oldest = sorted(self._completed_tasks.items(), key=lambda x: x[1])
+                for task_id, _ in oldest[:-self.MAX_COMPLETED_TASKS]:
+                    self._completed_tasks.pop(task_id, None)
+                    if task_id in self._training_tasks:
+                        del self._training_tasks[task_id]
+
+            if len(self._training_tasks) > 20:
+                active_tasks = {
+                    k: v for k, v in self._training_tasks.items()
+                    if v.is_alive()
+                }
+                self._training_tasks = active_tasks
+
+    def _process_update(self, update: StateUpdate):
+        """处理状态更新"""
+        try:
+            if update.update_type == 'progress':
+                with self._lock:
+                    for key, value in update.data.items():
+                        if hasattr(self._progress, key):
+                            setattr(self._progress, key, value)
+            elif update.update_type == 'training':
+                with self._lock:
+                    self._is_training = update.data.get('value', False)
+            elif update.update_type == 'record':
+                with self._lock:
+                    self._current_record = update.data.get('record')
+            elif update.update_type == 'history_add':
+                self._add_to_history_internal(update.data.get('record'))
+        except Exception as e:
+            logger.error(f"应用状态更新失败：{e}")
+
+    def queue_progress_update(self, **kwargs):
+        """队列式进度更新 - 线程安全"""
+        try:
+            self._update_queue.put(StateUpdate('progress', **kwargs))
+        except Exception as e:
+            logger.error(f"队列进度更新失败：{e}")
+
+    def queue_training_state(self, value: bool):
+        """队列式训练状态更新"""
+        try:
+            self._update_queue.put(StateUpdate('training', value=value))
+        except Exception as e:
+            logger.error(f"队列训练状态更新失败：{e}")
+
+    def queue_record_update(self, record: Optional[TrainingRecord]):
+        """队列式记录更新"""
+        try:
+            self._update_queue.put(StateUpdate('record', record=record))
+        except Exception as e:
+            logger.error(f"队列记录更新失败：{e}")
+
+    def queue_history_add(self, record: TrainingRecord):
+        """队列式添加历史记录"""
+        try:
+            self._update_queue.put(StateUpdate('history_add', record=record))
+        except Exception as e:
+            logger.error(f"队列历史记录添加失败：{e}")
+
+    def stop_worker(self):
+        """停止后台工作线程"""
+        self._worker_running = False
+        if self._worker_thread:
+            self._worker_thread.join(timeout=2.0)
+            logger.debug("TrainingState worker stopped")
+
+    def is_training(self) -> bool:
+        """检查是否正在训练"""
+        with self._lock:
+            return self._is_training
+
+    def set_training(self, value: bool):
+        """设置训练状态"""
+        self.queue_training_state(value)
+
+    def get_current_record(self) -> Optional[TrainingRecord]:
+        """获取当前训练记录"""
+        with self._lock:
+            return self._current_record.model_copy() if self._current_record else None
+
+    def set_current_record(self, record: Optional[TrainingRecord]):
+        """设置当前训练记录"""
+        self.queue_record_update(record)
+
+    def get_progress(self) -> TrainingProgress:
+        """获取训练进度"""
+        with self._lock:
+            return self._progress.model_copy()
+
+    def update_progress(self, **kwargs):
+        """更新训练进度"""
+        self.queue_progress_update(**kwargs)
+
+    def register_training_task(self, task_id: str, thread: threading.Thread):
+        """注册训练任务"""
+        with self._lock:
+            self._training_tasks[task_id] = thread
+
+    def unregister_training_task(self, task_id: str):
+        """注销训练任务"""
+        with self._lock:
+            self._training_tasks.pop(task_id, None)
+            self._completed_tasks[task_id] = datetime.now().timestamp()
+
+    def get_active_tasks(self) -> Dict[str, threading.Thread]:
+        """获取所有活跃任务"""
+        with self._lock:
+            return {k: v for k, v in self._training_tasks.items() if v.is_alive()}
+
+    def _load_history_internal(self) -> List[TrainingRecord]:
+        """内部加载历史记录（带缓存）"""
+        if self._history_cache is not None and not self._history_dirty:
+            return self._history_cache
+
+        if not self._history_file.exists():
+            self._history_cache = []
+            return self._history_cache
+
+        try:
+            with open(self._history_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                self._history_cache = [TrainingRecord(**r) for r in data]
+                self._history_dirty = False
+                return self._history_cache
+        except Exception as e:
+            logger.error(f"加载历史记录失败：{e}")
+            self._history_cache = []
+            return self._history_cache
+
+    def _save_history_internal(self, records: List[TrainingRecord]):
+        """P1-1: 原子写入历史记录"""
+        try:
+            self._history_file.parent.mkdir(parents=True, exist_ok=True)
+
+            fd, temp_path = tempfile.mkstemp(
+                suffix='.json',
+                prefix='history_',
+                dir=str(self._history_file.parent)
+            )
+
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(
+                        [r.model_dump() for r in records],
+                        f,
+                        ensure_ascii=False,
+                        indent=2
+                    )
+
+                if self._history_file.exists():
+                    backup_path = self._history_file.with_suffix('.json.bak')
+                    try:
+                        os.replace(str(self._history_file), str(backup_path))
+                    except Exception:
+                        pass
+
+                os.replace(temp_path, str(self._history_file))
+
+                self._history_cache = records
+                self._history_dirty = False
+
+            except Exception as e:
+                if os.path.exists(temp_path):
+                    os.unlink(temp_path)
+                raise e
+
+        except Exception as e:
+            logger.error(f"保存历史记录失败：{e}")
+
+    def _add_to_history_internal(self, record: TrainingRecord):
+        """内部添加记录到历史 - 带文件锁"""
+        with self._lock:
+            records = self._load_history_internal()
+
+            existing_idx = None
+            for i, r in enumerate(records):
+                if r.id == record.id:
+                    existing_idx = i
+                    break
+
+            if existing_idx is not None:
+                records[existing_idx] = record
+            else:
+                records.append(record)
+
+            if len(records) > self.MAX_HISTORY_SIZE:
+                records = records[-self.MAX_HISTORY_SIZE:]
+
+            self._save_history_internal(records)
+
+    def add_to_history_sync(self, record: TrainingRecord):
+        """同步添加记录到历史（用于后台线程）"""
+        self._add_to_history_internal(record)
+
+    def load_history(self) -> List[TrainingRecord]:
+        """加载历史记录"""
+        return self._load_history_internal()
+
+    def save_history(self, records: List[TrainingRecord]):
+        """保存历史记录"""
+        self._save_history_internal(records)
+
+    def add_to_history(self, record: TrainingRecord):
+        """添加记录到历史"""
+        self.queue_history_add(record)
+
+    def get_history(self) -> List[TrainingRecord]:
+        """获取历史记录"""
+        return self._load_history_internal()
+
+    def get_status(self) -> Dict[str, Any]:
+        """获取完整状态"""
+        with self._lock:
+            active_count = sum(1 for t in self._training_tasks.values() if t.is_alive())
+            return {
+                "is_training": self._is_training,
+                "record": self._current_record.model_dump() if self._current_record else None,
+                "progress": self._progress.model_dump(),
+                "active_tasks": active_count,
+                "total_tasks_registered": len(self._training_tasks),
+                "completed_tasks_cached": len(self._completed_tasks)
+            }
+
+    def cleanup(self):
+        """清理资源"""
+        self.stop_worker()
+
+        with self._lock:
+            self._training_tasks.clear()
+            self._completed_tasks.clear()
+            self._history_cache = None
+
+        gc.collect()
+        logger.info("TrainingState 资源已清理")
+
+
+_training_state: Optional[TrainingState] = None
+_state_lock = threading.Lock()
+
+
+def create_training_state(outputs_dir: Path) -> TrainingState:
+    """创建训练状态实例"""
+    history_file = outputs_dir / "training_history.json"
+    return TrainingState(history_file)
+
+
+def get_training_state(outputs_dir: Path = None) -> TrainingState:
+    """获取训练状态实例"""
+    global _training_state
+
+    with _state_lock:
+        if _training_state is None:
+            if outputs_dir is None:
+                outputs_dir = Path(__file__).parent.parent.parent / "outputs"
+            _training_state = create_training_state(outputs_dir)
+        return _training_state
+
+
+def reset_training_state():
+    """重置训练状态（用于测试）"""
+    global _training_state
+
+    with _state_lock:
+        if _training_state:
+            _training_state.cleanup()
+            _training_state = None

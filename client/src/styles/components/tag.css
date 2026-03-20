@@ -1,0 +1,93 @@
+/* ============================================
+   标签组件样式
+   ============================================ */
+
+.ant-tag {
+  border-radius: var(--radius-sm);
+  font-weight: var(--font-medium);
+  padding: 2px 8px;
+  border: 1px solid var(--border-color);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ant-tag-close-icon {
+  margin-left: 4px;
+  color: var(--text-tertiary);
+  transition: color var(--transition-fast);
+}
+
+.ant-tag-close-icon:hover {
+  color: var(--text-primary);
+}
+
+/* 预设颜色 */
+.ant-tag-success {
+  background: var(--success-light);
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.ant-tag-warning {
+  background: var(--warning-light);
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.ant-tag-error {
+  background: var(--error-light);
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.ant-tag-info {
+  background: var(--info-light);
+  border-color: var(--info);
+  color: var(--info);
+}
+
+/* 可选中标签 */
+.ant-tag-checkable {
+  cursor: pointer;
+  background: var(--bg-elevated);
+  border-color: var(--border-color);
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+
+.ant-tag-checkable:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.ant-tag-checkable-checked {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--text-inverse);
+}
+
+/* 可关闭标签 */
+.ant-tag-closable {
+  padding-right: 4px;
+}
+
+/* 标签尺寸 */
+.ant-tag-lg {
+  padding: 4px 12px;
+  font-size: var(--text-sm);
+}
+
+/* 圆形标签 */
+.ant-tag-round {
+  border-radius: var(--radius-full);
+  padding: 2px 12px;
+}
+
+/* 边框标签 */
+.ant-tag-borderless {
+  border: none;
+  background: var(--bg-elevated);
+}

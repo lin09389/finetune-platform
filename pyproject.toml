@@ -1,0 +1,131 @@
+[project]
+name = "finetune-platform"
+version = "2.1.0"
+description = "AI-powered fine-tuning platform with CUA and MCP integration"
+readme = "README.md"
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-asyncio>=0.21.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0",
+    "black>=23.0.0",
+    "playwright>=1.40.0",
+    "safety>=2.0.0",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "*.egg-info",
+    "backup_old_modules",
+    "data",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "W",
+    "F",
+    "I",
+    "B",
+    "C4",
+    "UP",
+    "ARG",
+    "SIM",
+]
+ignore = [
+    "E501",
+    "B008",
+    "B904",
+    "ARG001",
+    "ARG002",
+    "SIM108",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["agent", "api", "core", "cua", "mcp", "skills", "memory", "rag", "security", "context", "workspace", "ai", "backends"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+exclude = [
+    "backup_old_modules",
+    "data",
+    "tests/",
+]
+
+[[tool.mypy.overrides]]
+module = [
+    "pyautogui.*",
+    "mss.*",
+    "pytesseract.*",
+    "PIL.*",
+    "chromadb.*",
+    "transformers.*",
+    "torch.*",
+    "playwright.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["server/tests", "tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short --strict-markers"
+markers = [
+    "slow: marks tests as slow",
+    "integration: marks tests as integration tests",
+    "e2e: marks tests as end-to-end tests",
+]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["server"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/backup_old_modules/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+fail_under = 60
+show_missing = true
+skip_covered = true
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311"]
+exclude = '''
+/(
+    \.git
+    | \.venv
+    | __pycache__
+    | backup_old_modules
+    | data
+)/
+'''

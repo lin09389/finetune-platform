@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  # 后端 API 服务
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finetune-api
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - LOG_LEVEL=INFO
+      - ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - MAX_UPLOAD_SIZE=104857600
+    volumes:
+      - ./models:/app/models
+      - ./datasets:/app/datasets
+      - ./outputs:/app/outputs
+      - ./logs:/app/logs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - finetune-network
+    restart: unless-stopped
+
+  # 前端服务 (开发模式)
+  frontend:
+    image: node:20-slim
+    container_name: finetune-frontend
+    working_dir: /app/client
+    volumes:
+      - ./client:/app/client
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      - api
+    networks:
+      - finetune-network
+    profiles:
+      - dev
+
+  # Ollama 服务 (可选)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: finetune-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - finetune-network
+    profiles:
+      - ollama
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+
+networks:
+  finetune-network:
+    driver: bridge

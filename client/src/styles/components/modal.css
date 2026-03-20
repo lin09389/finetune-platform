@@ -1,0 +1,120 @@
+/* ============================================
+   模态框组件样式
+   ============================================ */
+
+.ant-modal-content {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+}
+
+.ant-modal-header {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  padding: var(--space-4) var(--space-6);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+}
+
+.ant-modal-title {
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.ant-modal-close {
+  top: var(--space-4);
+  right: var(--space-4);
+  color: var(--text-tertiary);
+  transition: color var(--transition-fast);
+}
+
+.ant-modal-close:hover {
+  color: var(--text-primary);
+}
+
+.ant-modal-body {
+  padding: var(--space-6);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.ant-modal-footer {
+  border-top: 1px solid var(--border-color);
+  padding: var(--space-4) var(--space-6);
+  background: var(--bg-elevated);
+  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+}
+
+.ant-modal-footer .ant-btn + .ant-btn {
+  margin-left: var(--space-2);
+}
+
+/* 确认对话框 */
+.ant-modal-confirm .ant-modal-body {
+  padding: var(--space-6);
+}
+
+.ant-modal-confirm-title {
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.ant-modal-confirm-content {
+  color: var(--text-secondary);
+  margin-top: var(--space-2);
+}
+
+.ant-modal-confirm-error .ant-modal-confirm-title {
+  color: var(--error);
+}
+
+.ant-modal-confirm-warning .ant-modal-confirm-title {
+  color: var(--warning);
+}
+
+.ant-modal-confirm-info .ant-modal-confirm-title {
+  color: var(--info);
+}
+
+.ant-modal-confirm-success .ant-modal-confirm-title {
+  color: var(--success);
+}
+
+/* 遮罩层 */
+.ant-modal-mask {
+  background: var(--bg-overlay);
+  backdrop-filter: blur(4px);
+}
+
+.ant-modal-wrap {
+  z-index: var(--z-modal);
+}
+
+/* 居中模态框 */
+.ant-modal-centered {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 全屏模态框 */
+.ant-modal-fullscreen {
+  margin: 0;
+  padding: 0;
+}
+
+.ant-modal-fullscreen .ant-modal-content {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+}
+
+.ant-modal-fullscreen .ant-modal-header {
+  border-radius: 0;
+}
+
+.ant-modal-fullscreen .ant-modal-footer {
+  border-radius: 0;
+}

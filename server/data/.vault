@@ -1,0 +1,38 @@
+{
+  "api_key:key_39b800ede9e8": {
+    "encrypted": "Z0FBQUFBQnB0VGdtRldDd3luUUdCaWhock5Uem8yWnU3c3poV2dYck9zS09zWXRfLUpkaTVvV2ZaV3poSUk1dVV4MUNaX1pqTlBleG5NSkpIcmdPQUwxaGlHcURacUdVZUdPSllsZTV2QkNHN011VHJMQk96RHdZdVQxbEtLODUyMU1LZWVmUEZac3pLZHlOcmgybnlON213dVE1MFBmdnZId3RwdGcwYjg5X0VJd3RiZ2t3XzM5emd2ZVVvT2RxUFlBbk8zcHpEZ3p4ODNqQ3psS3VUdFhPbzl3dkNWS3paMm0xbkJORGZudWxkMG5kSk5XV1U4cz0=",
+    "provider": "minimax-coding",
+    "group_id": "",
+    "base_url": "https://api.minimaxi.com/v1",
+    "created_at": "2026-03-14T18:27:50.159981",
+    "access_count": 169,
+    "last_accessed": "2026-03-19T21:26:17.468351"
+  },
+  "api_key:key_fc19a055236c": {
+    "encrypted": "Z0FBQUFBQnB0VHdKOHZONzZEajItN3NZUHZYcFViaTUyT2R3dkVyRll5d1ZHRkpOT3N1WHFlM1ZCUm1CczZUUVhXaGd5cE02MTNLLUlOcVdKN1YtY1BMODVnTlRPbEpEcl9wbWtIMmU4Q0RSNVF1NjZ2WTVmSTkxZnV4RWRwaWhPQkQ0aXhyZGFXMVVSVklraFZEaWFmeFduVDVHdVl0NVBKUUZqck1HV004ZTlVbHFleno3dGFDTFZvWml3TEhfVnZlbkRmbF9KYk1lYklHbGtoLTM3cVJGRUpNRzYyNUtxVW83QUN3VGJFa1FoaklKVGtjMy1Ubz0=",
+    "provider": "minimax-coding",
+    "group_id": "Z0FBQUFBQnB0VHdKWC03WFVZQkhGS3hCLXNSX0ozaU55YnhZQnZTLXdCTGZseURrUW14RDROM09rSWQydGVjV3F0dmhOVU50NGZ3WlpJV0g0TlJSOVV3RVdjSk5mUkxQWWloLWZoZ0NFbEVSeDl5V0lLSFRUZEU9",
+    "base_url": "https://api.minimaxi.com/v1",
+    "created_at": "2026-03-14T18:44:25.257208",
+    "access_count": 8,
+    "last_accessed": "2026-03-14T19:59:52.418703"
+  },
+  "api_key:test_3af6b012": {
+    "encrypted": "Z0FBQUFBQnB1VTF3aWkwVFFlNzRCYlVoNGlYbW1QTm1uaHpyc0V4eWxuaFM0WF8tN1g2cUt6c2RUNDZ6T0x1LWt5SGlRLThMZmtkaTJ0SEpoOWtBQVJVaktnRjhxa3RUc3kyNXNHdkJEVTdtYkdhUk5fVUpUams9",
+    "provider": "minimax",
+    "group_id": "Z0FBQUFBQnB1VTF3cy1ZMFFycG9MTzI5cGhrY1c4Vy1lMmxZNkxvczJlanRxWUdsY0lKZlBBcGd6SHNRaVBEVmZrb2xwRlRRZ203SUdiZ2tpbEZKT2ZYaW5Ebm05a2VPVVE9PQ==",
+    "base_url": "",
+    "created_at": "2026-03-17T20:47:44.492987",
+    "access_count": 2,
+    "last_accessed": "2026-03-17T20:47:44.535048"
+  },
+  "api_key:test_f7412819": {
+    "encrypted": "Z0FBQUFBQnB1VTgtcDRTdHFHakdpZlROQTJxNmpsT2F0UzBPVEh5ZnVpOHVjNWxGejNITFJnMWZXRkswN3RmZXhwalVsSFhfblZleDZBRDhiVkYzcldVemc1MHR1ZW5KTmU5bnJ1ZnlwazZmN193M3V0aEdtSjQ9",
+    "provider": "minimax",
+    "group_id": "Z0FBQUFBQnB1VTgtMGxjc0dJVHpNUW9MbGJLNzFDNE52ZnJ0eDdrNENEZXhoSjA2UG81eWpmSEZxWnB2ZjRGN0dFTm84SThVN1hIX0xSNjM3OFFhMThXWVdTYWhNc3BUVVE9PQ==",
+    "base_url": "",
+    "created_at": "2026-03-17T20:55:26.530961",
+    "access_count": 2,
+    "last_accessed": "2026-03-17T20:55:26.579023"
+  }
+}

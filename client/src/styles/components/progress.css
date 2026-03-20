@@ -1,0 +1,125 @@
+/* ============================================
+   进度条组件样式
+   ============================================ */
+
+.ant-progress {
+  font-size: var(--text-sm);
+}
+
+.ant-progress-outer {
+  display: inline-block;
+  width: 100%;
+}
+
+.ant-progress-inner {
+  background: var(--bg-elevated);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.ant-progress-bg {
+  background: var(--accent-primary);
+  border-radius: var(--radius-full);
+  transition: width var(--transition-slow);
+}
+
+/* 进度条状态 */
+.ant-progress-status-success .ant-progress-bg {
+  background: var(--success);
+}
+
+.ant-progress-status-exception .ant-progress-bg {
+  background: var(--error);
+}
+
+.ant-progress-status-active .ant-progress-bg::before {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.3),
+    transparent
+  );
+  animation: progress-active 2.4s infinite;
+}
+
+@keyframes progress-active {
+  0% {
+    width: 0;
+    opacity: 0.1;
+  }
+  20% {
+    width: 0;
+    opacity: 0.5;
+  }
+  100% {
+    width: 100%;
+    opacity: 0;
+  }
+}
+
+/* 进度文字 */
+.ant-progress-text {
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  margin-left: var(--space-2);
+}
+
+/* 圆形进度条 */
+.ant-progress-circle .ant-progress-inner {
+  background: transparent;
+}
+
+.ant-progress-circle .ant-progress-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+}
+
+.ant-progress-circle .ant-progress-circle-trail {
+  stroke: var(--bg-elevated);
+}
+
+.ant-progress-circle .ant-progress-circle-path {
+  stroke: var(--accent-primary);
+  transition: stroke-dashoffset var(--transition-slow);
+}
+
+.ant-progress-status-success .ant-progress-circle-path {
+  stroke: var(--success);
+}
+
+.ant-progress-status-exception .ant-progress-circle-path {
+  stroke: var(--error);
+}
+
+/* 小型进度条 */
+.ant-progress-small .ant-progress-inner {
+  height: 4px;
+}
+
+.ant-progress-small .ant-progress-bg {
+  height: 4px;
+}
+
+/* 步骤进度条 */
+.ant-progress-steps {
+  display: flex;
+  gap: 2px;
+}
+
+.ant-progress-steps-item {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition-fast);
+}
+
+.ant-progress-steps-item-active {
+  background: var(--accent-primary);
+}

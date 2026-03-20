@@ -1,0 +1,29 @@
+@echo off
+chcp 65001 >nul
+
+echo ========================================
+echo   Finetune Platform 启动说明
+echo ========================================
+echo.
+echo 请按以下步骤操作:
+echo.
+echo 1. 按 Win键 + R
+echo 2. 输入 cmd 并回车打开命令提示符
+echo.
+echo 3. 在命令提示符中依次输入以下命令:
+echo.
+echo    cd C:\Users\JHJ\Desktop\finetune-platform\server
+echo    python -m uvicorn main:app --host 127.0.0.1 --port 8000
+echo.
+echo 4. 打开第二个命令提示符窗口 (再次按 Win键 + R, 输入 cmd)
+echo.
+echo 5. 在第二个窗口中输入:
+echo.
+echo    cd C:\Users\JHJ\Desktop\finetune-platform\client
+echo    npm run dev
+echo.
+echo 6. 打开浏览器访问 http://localhost:5173
+echo.
+echo ========================================
+echo.
+pause

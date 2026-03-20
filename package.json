@@ -1,0 +1,61 @@
+{
+  "name": "finetune-platform",
+  "version": "1.0.0",
+  "description": "大模型微调平台 - 消费级显卡专用",
+  "main": "electron/main.js",
+  "author": "Finetune Team",
+  "license": "MIT",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:react\" \"npm run dev:electron\"",
+    "dev:react": "cd client && npm run dev",
+    "dev:electron": "wait-on http://localhost:5173 && electron .",
+    "build": "cd client && npm run build",
+    "build:electron": "electron-builder",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "concurrently": "^8.2.2",
+    "wait-on": "^7.2.0"
+  },
+  "devDependencies": {
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.finetune.platform",
+    "productName": "Finetune Platform",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "client/dist/**/*",
+      "server/**/*",
+      "models/**/*",
+      "datasets/**/*",
+      "outputs/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "server",
+        "to": "server"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "mac": {
+      "target": ["dmg"]
+    }
+  }
+}

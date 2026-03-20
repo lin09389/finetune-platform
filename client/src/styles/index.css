@@ -1,0 +1,440 @@
+/* ============================================
+   Finetune Platform - 样式入口
+   ============================================ */
+
+/* 设计令牌 */
+@import './variables.css';
+
+/* 工具类 */
+@import './utilities.css';
+
+/* 动画系统 */
+@import './animations.css';
+
+/* 组件样式 */
+@import './components/button.css';
+@import './components/card.css';
+@import './components/input.css';
+@import './components/table.css';
+@import './components/modal.css';
+@import './components/drawer.css';
+@import './components/tag.css';
+@import './components/progress.css';
+@import './components/menu.css';
+@import './components/index.css';
+
+/* 页面样式 */
+@import './pages/dashboard.css';
+@import './pages/chat.css';
+@import './pages/training.css';
+@import './pages/index.css';
+
+/* ============================================
+   基础重置
+   ============================================ */
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-sans);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color var(--transition-base), color var(--transition-base);
+}
+
+body, #root {
+  min-height: 100vh;
+}
+
+/* ============================================
+   滚动条样式
+   ============================================ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-hover);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-hover) transparent;
+}
+
+/* ============================================
+   选中文本样式
+   ============================================ */
+::selection {
+  background: var(--accent-primary);
+  color: var(--text-inverse);
+}
+
+/* ============================================
+   焦点样式
+   ============================================ */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ============================================
+   链接样式
+   ============================================ */
+a {
+  color: var(--text-link);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+a:hover {
+  color: var(--text-link-hover);
+}
+
+/* ============================================
+   图片样式
+   ============================================ */
+img, video {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ============================================
+   按钮重置
+   ============================================ */
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* ============================================
+   输入框重置
+   ============================================ */
+input, textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* ============================================
+   列表重置
+   ============================================ */
+ul, ol {
+  list-style: none;
+}
+
+/* ============================================
+   表格重置
+   ============================================ */
+table {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+
+/* ============================================
+   Ant Design 全局覆盖
+   ============================================ */
+.ant-layout {
+  min-height: 100vh;
+  background: var(--bg-primary);
+}
+
+.ant-layout-sider {
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  transition: all var(--transition-base);
+}
+
+.ant-layout-header {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.ant-layout-content {
+  background: var(--bg-primary);
+}
+
+.ant-layout-footer {
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+}
+
+/* ============================================
+   Markdown 内容样式
+   ============================================ */
+.markdown-content {
+  line-height: var(--leading-relaxed);
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4 {
+  margin-top: var(--space-6);
+  margin-bottom: var(--space-3);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+}
+
+.markdown-content h1 {
+  font-size: var(--text-3xl);
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: var(--space-3);
+}
+
+.markdown-content h2 {
+  font-size: var(--text-2xl);
+}
+
+.markdown-content h3 {
+  font-size: var(--text-xl);
+}
+
+.markdown-content p {
+  margin-bottom: var(--space-4);
+}
+
+.markdown-content pre {
+  background: #282c34;
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  overflow-x: auto;
+  margin: var(--space-4) 0;
+  position: relative;
+}
+
+.markdown-content code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.markdown-content pre code {
+  background: transparent;
+  padding: 0;
+  color: #abb2bf;
+}
+
+.markdown-content p code {
+  background: var(--bg-elevated);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--error);
+}
+
+.markdown-content blockquote {
+  margin: var(--space-4) 0;
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--accent-primary);
+  background: var(--bg-elevated);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  margin: var(--space-4) 0;
+  padding-left: var(--space-6);
+}
+
+.markdown-content li {
+  margin: var(--space-2) 0;
+}
+
+.markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: var(--space-4) 0;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.markdown-content th,
+.markdown-content td {
+  padding: var(--space-3);
+  border: 1px solid var(--border-color);
+  text-align: left;
+}
+
+.markdown-content th {
+  background: var(--bg-elevated);
+  font-weight: var(--font-semibold);
+}
+
+.markdown-content tr:nth-child(even) {
+  background: var(--bg-hover);
+}
+
+.markdown-content hr {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: var(--space-6) 0;
+}
+
+.markdown-content a {
+  color: var(--accent-primary);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+.markdown-content a:hover {
+  color: var(--accent-secondary);
+  text-decoration: underline;
+}
+
+.markdown-content img {
+  max-width: 100%;
+  border-radius: var(--radius-md);
+  margin: var(--space-4) 0;
+}
+
+/* ============================================
+   响应式设计
+   ============================================ */
+@media (max-width: 1200px) {
+  .page-container {
+    padding: var(--space-5);
+  }
+
+  .page-title {
+    font-size: var(--text-xl);
+  }
+}
+
+@media (max-width: 768px) {
+  .page-container {
+    padding: var(--space-4);
+    margin-bottom: var(--space-3);
+  }
+
+  .page-title {
+    font-size: var(--text-lg);
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+
+  .page-title::before {
+    width: 40px;
+    height: 3px;
+  }
+
+  .ant-layout-sider {
+    display: none;
+  }
+
+  .ant-card {
+    margin-bottom: var(--space-3);
+  }
+
+  .ant-table {
+    font-size: var(--text-sm);
+  }
+}
+
+@media (max-width: 576px) {
+  .page-container {
+    padding: var(--space-3);
+    border-radius: var(--radius-md);
+  }
+
+  .ant-btn {
+    font-size: var(--text-sm);
+  }
+
+  .ant-statistic-title {
+    font-size: var(--text-xs);
+  }
+
+  .ant-statistic-content {
+    font-size: var(--text-lg);
+  }
+}
+
+/* ============================================
+   深色模式特定覆盖
+   ============================================ */
+.dark-theme .ant-menu-item-selected {
+  background: var(--primary-100) !important;
+  color: var(--text-primary) !important;
+}
+
+.dark-theme .ant-input,
+.dark-theme .ant-input-affix-wrapper {
+  background: var(--bg-elevated);
+}
+
+.dark-theme .ant-select-selector {
+  background: var(--bg-elevated) !important;
+}
+
+.dark-theme .ant-card {
+  background: var(--bg-secondary);
+}
+
+.dark-theme .markdown-content pre {
+  background: #1e1e1e;
+  border: 1px solid var(--border-color);
+}
+
+.dark-theme .markdown-content code {
+  background: var(--bg-elevated);
+}
+
+.dark-theme .markdown-content blockquote {
+  background: var(--primary-50);
+  border-left-color: var(--accent-primary);
+}
+
+/* ============================================
+   打印样式
+   ============================================ */
+@media print {
+  .ant-layout-sider,
+  .ant-layout-header,
+  .ant-btn,
+  .ant-pagination {
+    display: none !important;
+  }
+
+  .ant-layout-content {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  body {
+    background: white;
+    color: black;
+  }
+}

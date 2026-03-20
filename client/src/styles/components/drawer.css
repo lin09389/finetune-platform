@@ -1,0 +1,76 @@
+/* ============================================
+   抽屉组件样式
+   ============================================ */
+
+.ant-drawer-content {
+  background: var(--bg-secondary);
+}
+
+.ant-drawer-header {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  padding: var(--space-4) var(--space-6);
+}
+
+.ant-drawer-title {
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.ant-drawer-close {
+  color: var(--text-tertiary);
+  transition: color var(--transition-fast);
+}
+
+.ant-drawer-close:hover {
+  color: var(--text-primary);
+}
+
+.ant-drawer-body {
+  padding: var(--space-6);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.ant-drawer-footer {
+  border-top: 1px solid var(--border-color);
+  padding: var(--space-4) var(--space-6);
+  background: var(--bg-elevated);
+}
+
+/* 遮罩层 */
+.ant-drawer-mask {
+  background: var(--bg-overlay);
+  backdrop-filter: blur(4px);
+}
+
+/* 位置变体 */
+.ant-drawer-left .ant-drawer-content {
+  border-radius: 0 var(--radius-xl) var(--radius-xl) 0;
+}
+
+.ant-drawer-right .ant-drawer-content {
+  border-radius: var(--radius-xl) 0 0 var(--radius-xl);
+}
+
+.ant-drawer-top .ant-drawer-content {
+  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+}
+
+.ant-drawer-bottom .ant-drawer-content {
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+}
+
+/* 抽屉尺寸 */
+.ant-drawer-small .ant-drawer-content {
+  width: 320px !important;
+}
+
+.ant-drawer-default .ant-drawer-content {
+  width: 480px !important;
+}
+
+.ant-drawer-large .ant-drawer-content {
+  width: 720px !important;
+}

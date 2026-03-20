@@ -1,0 +1,212 @@
+/* ============================================
+   训练页面样式
+   ============================================ */
+
+.training-page {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  gap: var(--space-6);
+  min-height: calc(100vh - 64px - 40px);
+}
+
+@media (max-width: 1200px) {
+  .training-page {
+    grid-template-columns: 1fr;
+  }
+}
+
+.training-config-section {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  padding: var(--space-6);
+}
+
+.training-config-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.training-config-group {
+  margin-bottom: var(--space-4);
+}
+
+.training-config-group-title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.training-config-group-title::before {
+  content: '';
+  width: 3px;
+  height: 14px;
+  background: var(--accent-primary);
+  border-radius: var(--radius-sm);
+}
+
+.training-config-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+}
+
+@media (max-width: 576px) {
+  .training-config-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.training-monitor-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.training-status-card {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  padding: var(--space-4);
+}
+
+.training-status-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.training-status-title {
+  font-size: var(--text-base);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.training-progress-bar {
+  margin-bottom: var(--space-4);
+}
+
+.training-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3);
+}
+
+.training-metric {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-3);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
+}
+
+.training-metric-label {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-1);
+}
+
+.training-metric-value {
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+}
+
+.training-chart-card {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  padding: var(--space-4);
+  flex: 1;
+  min-height: 300px;
+}
+
+.training-chart-title {
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+}
+
+.training-actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+/* 资源指示器 */
+.resource-indicator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-4);
+}
+
+.resource-indicator-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+}
+
+.resource-indicator-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+
+.resource-indicator-info {
+  flex: 1;
+}
+
+.resource-indicator-label {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+.resource-indicator-value {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+}
+
+/* 高级设置 */
+.advanced-settings {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-color);
+}
+
+.advanced-settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  transition: color var(--transition-fast);
+}
+
+.advanced-settings-toggle:hover {
+  color: var(--text-primary);
+}
+
+.advanced-settings-content {
+  margin-top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}

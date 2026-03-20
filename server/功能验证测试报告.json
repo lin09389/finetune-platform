@@ -1,0 +1,165 @@
+{
+  "timestamp": "2026-03-14T22:08:48.008017",
+  "base_url": "http://127.0.0.1:8000",
+  "summary": {
+    "total": 22,
+    "passed": 19,
+    "failed": 3
+  },
+  "results": [
+    {
+      "category": "推理",
+      "test": "获取推理后端",
+      "success": true,
+      "detail": "{'current': 'huggingface', 'backends': [{'id': 'huggingface', 'name': 'HuggingFace (本地模型)', 'available': True, 'description': '使用下载的 HuggingFace 模型'}, {'id': 'ollama', 'name': 'Ollama', 'available': True, 'description': 'Ollama 本地部署'}]}",
+      "time": "2026-03-14T22:08:12.228830"
+    },
+    {
+      "category": "推理",
+      "test": "获取可用模型 (1个)",
+      "success": true,
+      "detail": "[{'id': 'Qwen3.5-2B', 'name': 'Qwen3.5-2B', 'type': 'base', 'quantized': None}]",
+      "time": "2026-03-14T22:08:12.242010"
+    },
+    {
+      "category": "推理",
+      "test": "Ollama状态 (running=True, 2个模型)",
+      "success": true,
+      "detail": "",
+      "time": "2026-03-14T22:08:16.341679"
+    },
+    {
+      "category": "推理",
+      "test": "推理生成测试",
+      "success": true,
+      "detail": "响应: 收到！ 测试成功。 😊...",
+      "time": "2026-03-14T22:08:31.315191"
+    },
+    {
+      "category": "技能",
+      "test": "获取技能列表 (18个)",
+      "success": true,
+      "detail": "",
+      "time": "2026-03-14T22:08:31.348834"
+    },
+    {
+      "category": "技能",
+      "test": "获取技能统计",
+      "success": true,
+      "detail": "{'total_skills': 18, 'total_executions': 0, 'categories': {'code': 0, 'file': 4, 'data': 2, 'system': 1, 'text': 3, 'utility': 3, 'design': 1, 'analysis': 2, 'communication': 0, 'custom': 2}, 'tags': {}}",
+      "time": "2026-03-14T22:08:31.379166"
+    },
+    {
+      "category": "技能",
+      "test": "获取技能分类 (10个)",
+      "success": true,
+      "detail": "",
+      "time": "2026-03-14T22:08:31.384003"
+    },
+    {
+      "category": "技能",
+      "test": "计算器技能执行",
+      "success": false,
+      "detail": "{'execution_id': '298aa2f8-efa7-462e-b1d4-b058a7c949af', 'skill_name': 'calculator', 'status': 'completed', 'result': {'expression': '2+2', 'result': 4, 'type': 'int'}, 'error': None, 'started_at': '2026-03-14T22:08:31.387022', 'completed_at': '2026-03-14T22:08:31.387022', 'duration_ms': 0.0}",
+      "time": "2026-03-14T22:08:31.388543"
+    },
+    {
+      "category": "技能",
+      "test": "系统信息技能执行",
+      "success": false,
+      "detail": "{'execution_id': 'fa8eba32-573c-4d92-ad80-6b4c2969a94c', 'skill_name': 'system_info', 'status': 'com",
+      "time": "2026-03-14T22:08:31.407650"
+    },
+    {
+      "category": "记忆",
+      "test": "获取记忆列表 (0条)",
+      "success": true,
+      "detail": "",
+      "time": "2026-03-14T22:08:37.831581"
+    },
+    {
+      "category": "记忆",
+      "test": "获取记忆统计",
+      "success": true,
+      "detail": "{'success': True, 'stats': {'total_memories': 0, 'collection_name': 'memories_default'}}",
+      "time": "2026-03-14T22:08:37.856720"
+    },
+    {
+      "category": "记忆",
+      "test": "记忆提取 (2条)",
+      "success": true,
+      "detail": "{'success': True, 'extracted': 2, 'memories': [{'id': 'mem_c5cb4f62', 'content': '用户的名字是 张三，我喜欢编程和打篮球', 'type': 'personal'}, {'id': 'mem_a977e323', 'content': '用户喜欢用 编程和打篮球', 'type': 'preference'}]}",
+      "time": "2026-03-14T22:08:42.857248"
+    },
+    {
+      "category": "记忆",
+      "test": "记忆检索 (2条匹配)",
+      "success": true,
+      "detail": "",
+      "time": "2026-03-14T22:08:45.346051"
+    },
+    {
+      "category": "记忆",
+      "test": "记忆上下文获取",
+      "success": true,
+      "detail": "【相关记忆】\n- 用户的名字是 张三，我喜欢编程和打篮球\n- 用户喜欢用 编程和打篮球",
+      "time": "2026-03-14T22:08:47.842910"
+    },
+    {
+      "category": "Agent",
+      "test": "获取Agent能力 (7种操作)",
+      "success": true,
+      "detail": "",
+      "time": "2026-03-14T22:08:47.847558"
+    },
+    {
+      "category": "Agent",
+      "test": "获取审计统计",
+      "success": true,
+      "detail": "{'total': 0, 'success': 0, 'failed': 0, 'by_action': {}}",
+      "time": "2026-03-14T22:08:47.854104"
+    },
+    {
+      "category": "Agent",
+      "test": "意图检测 (detected=True)",
+      "success": true,
+      "detail": "{'detected': True, 'action': 'file_list', 'params': {'directory': '当前目录的'}, 'description': '列出文件', 'need_confirm': False}",
+      "time": "2026-03-14T22:08:47.858894"
+    },
+    {
+      "category": "Agent",
+      "test": "执行文件列表操作",
+      "success": true,
+      "detail": "{'success': True, 'message': '找到 34 个项目', 'data': {'directory': '.', 'count': 34, 'files': [{'name':",
+      "time": "2026-03-14T22:08:47.912231"
+    },
+    {
+      "category": "Agent",
+      "test": "执行系统信息操作",
+      "success": false,
+      "detail": "状态码: 400",
+      "time": "2026-03-14T22:08:47.929485"
+    },
+    {
+      "category": "聊天",
+      "test": "获取聊天历史 (3个会话)",
+      "success": true,
+      "detail": "",
+      "time": "2026-03-14T22:08:47.947043"
+    },
+    {
+      "category": "聊天",
+      "test": "创建会话 (session_20260314220847_7f53a692)",
+      "success": true,
+      "detail": "",
+      "time": "2026-03-14T22:08:47.954757"
+    },
+    {
+      "category": "聊天",
+      "test": "添加消息",
+      "success": true,
+      "detail": "",
+      "time": "2026-03-14T22:08:47.978389"
+    }
+  ]
+}

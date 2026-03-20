@@ -1,0 +1,176 @@
+/* ============================================
+   表格组件样式
+   ============================================ */
+
+.ant-table {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.ant-table-thead > tr > th {
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-color);
+  font-weight: var(--font-semibold);
+  color: var(--text-primary);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.ant-table-thead > tr > th::before {
+  background: transparent;
+}
+
+.ant-table-tbody > tr > td {
+  border-bottom: 1px solid var(--border-color);
+  padding: var(--space-3) var(--space-4);
+  transition: background var(--transition-fast);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.ant-table-tbody > tr:hover > td {
+  background: var(--bg-hover);
+}
+
+.ant-table-tbody > tr:last-child > td {
+  border-bottom: none;
+}
+
+.ant-table-placeholder {
+  background: var(--bg-secondary);
+  border-bottom: none;
+}
+
+.ant-table-placeholder .ant-empty-description {
+  color: var(--text-tertiary);
+}
+
+/* 表格排序 */
+.ant-table-column-sorter {
+  color: var(--text-tertiary);
+}
+
+.ant-table-column-sorter-up.active,
+.ant-table-column-sorter-down.active {
+  color: var(--accent-primary);
+}
+
+/* 表格筛选 */
+.ant-table-filter-trigger {
+  color: var(--text-tertiary);
+}
+
+.ant-table-filter-trigger:hover,
+.ant-table-filter-trigger.active {
+  color: var(--accent-primary);
+  background: var(--bg-hover);
+}
+
+/* 表格选择 */
+.ant-table-selection-column {
+  width: 48px;
+  min-width: 48px;
+}
+
+.ant-table-row-selected > td {
+  background: var(--primary-50) !important;
+}
+
+.ant-table-row-selected:hover > td {
+  background: var(--primary-100) !important;
+}
+
+/* 表格展开 */
+.ant-table-expand-icon-th {
+  width: 48px;
+}
+
+.ant-table-row-expand-icon {
+  color: var(--text-secondary);
+  border-color: var(--border-color);
+  background: transparent;
+}
+
+.ant-table-row-expand-icon:hover {
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+/* 表格固定列 */
+.ant-table-cell-fix-left,
+.ant-table-cell-fix-right {
+  background: var(--bg-secondary);
+}
+
+.ant-table-tbody > tr:hover > .ant-table-cell-fix-left,
+.ant-table-tbody > tr:hover > .ant-table-cell-fix-right {
+  background: var(--bg-hover);
+}
+
+/* 表格尺寸变体 */
+.ant-table-small .ant-table-thead > tr > th {
+  padding: var(--space-2) var(--space-3);
+}
+
+.ant-table-small .ant-table-tbody > tr > td {
+  padding: var(--space-2) var(--space-3);
+}
+
+.ant-table-middle .ant-table-thead > tr > th {
+  padding: var(--space-3) var(--space-4);
+}
+
+.ant-table-middle .ant-table-tbody > tr > td {
+  padding: var(--space-3) var(--space-4);
+}
+
+/* 分页 */
+.ant-pagination {
+  margin: var(--space-4) 0;
+}
+
+.ant-pagination-item {
+  border-radius: var(--radius-md);
+  border-color: var(--border-color);
+}
+
+.ant-pagination-item a {
+  color: var(--text-primary);
+}
+
+.ant-pagination-item:hover {
+  border-color: var(--accent-primary);
+}
+
+.ant-pagination-item:hover a {
+  color: var(--accent-primary);
+}
+
+.ant-pagination-item-active {
+  border-color: var(--accent-primary);
+  background: var(--accent-primary);
+}
+
+.ant-pagination-item-active a {
+  color: var(--text-inverse);
+}
+
+.ant-pagination-prev,
+.ant-pagination-next {
+  border-radius: var(--radius-md);
+}
+
+.ant-pagination-prev button,
+.ant-pagination-next button {
+  color: var(--text-secondary);
+}
+
+.ant-pagination-prev:hover button,
+.ant-pagination-next:hover button {
+  color: var(--accent-primary);
+}
+
+.ant-pagination-disabled button {
+  color: var(--text-disabled);
+}

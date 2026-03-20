@@ -1,0 +1,204 @@
+/* ============================================
+   聊天页面样式
+   ============================================ */
+
+.chat-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 64px - 40px);
+  background: var(--bg-primary);
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.chat-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.chat-header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+  background: var(--bg-primary);
+}
+
+.chat-messages-container {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.chat-message {
+  margin-bottom: var(--space-4);
+  animation: fadeInUp 0.3s var(--ease-smooth);
+}
+
+.chat-message-user {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.chat-message-user .chat-message-content {
+  background: var(--accent-primary);
+  color: var(--text-inverse);
+  border-radius: var(--radius-lg) var(--radius-sm) var(--radius-lg) var(--radius-lg);
+  max-width: 70%;
+}
+
+.chat-message-assistant {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.chat-message-assistant .chat-message-content {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm) var(--radius-lg) var(--radius-lg) var(--radius-lg);
+  max-width: 80%;
+}
+
+.chat-message-content {
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  line-height: var(--leading-relaxed);
+}
+
+.chat-input-area {
+  padding: var(--space-4);
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+.chat-input-container {
+  max-width: 800px;
+  margin: 0 auto;
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-end;
+}
+
+.chat-input {
+  flex: 1;
+  min-height: 44px;
+  max-height: 200px;
+  resize: none;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  padding: var(--space-3);
+  font-size: var(--text-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transition: all var(--transition-fast);
+}
+
+.chat-input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(212, 163, 115, 0.1);
+}
+
+.chat-send-button {
+  min-width: 44px;
+  height: 44px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Agent 状态 */
+.agent-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.agent-status-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.agent-status-executing {
+  color: var(--accent-primary);
+}
+
+.agent-status-completed {
+  color: var(--success);
+}
+
+.agent-status-failed {
+  color: var(--error);
+}
+
+/* 知识库选择器 */
+.knowledge-selector {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.knowledge-selector-label {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+}
+
+/* 云端 AI 配置 */
+.cloud-ai-config {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xs);
+}
+
+.cloud-ai-provider {
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+  .chat-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .chat-header-left {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .chat-header-right {
+    justify-content: flex-end;
+  }
+
+  .chat-message-user .chat-message-content,
+  .chat-message-assistant .chat-message-content {
+    max-width: 90%;
+  }
+}

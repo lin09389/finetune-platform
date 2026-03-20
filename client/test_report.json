@@ -1,0 +1,452 @@
+{
+  "timestamp": "2026-03-14T21:10:07.729555",
+  "base_url": "http://127.0.0.1:8000",
+  "summary": {
+    "total": 45,
+    "passed": 44,
+    "failed": 1,
+    "success_rate": "97.8%"
+  },
+  "results": [
+    {
+      "test": "GET /",
+      "status": "PASS",
+      "response": {
+        "message": "Finetune Platform API",
+        "version": "2.0.0",
+        "docs": "/docs",
+        "health": "/health"
+      }
+    },
+    {
+      "test": "GET /health",
+      "status": "PASS",
+      "response": {
+        "status": "healthy",
+        "timestamp": "2026-03-14T21:10:00.049239",
+        "version": "2.0.0",
+        "cuda_available": true,
+        "gpu_info": {
+          "device_name": "NVIDIA GeForce RTX 3060 Laptop GPU",
+          "memory": {
+            "total_gb": 6.0,
+            "allocated_gb": 0.0,
+            "reserved_gb": 0.0
+          }
+        }
+      }
+    },
+    {
+      "test": "GET /device/info",
+      "status": "PASS",
+      "response": {
+        "cuda_available": true,
+        "device_name": "NVIDIA GeForce RTX 3060 Laptop GPU",
+        "memory_total": 15.697128295898438
+      }
+    },
+    {
+      "test": "GET /device/vram",
+      "status": "PASS",
+      "response": {
+        "cuda_available": true,
+        "device_name": "NVIDIA GeForce RTX 3060 Laptop GPU",
+        "total_gb": 6.0,
+        "allocated_gb": 0.0,
+        "reserved_gb": 0.0,
+        "free_gb": 6.0
+      }
+    },
+    {
+      "test": "GET /device/memory",
+      "status": "PASS",
+      "response": {
+        "total_gb": 15.7,
+        "used_gb": 12.38,
+        "available_gb": 3.32,
+        "percent": 78.9
+      }
+    },
+    {
+      "test": "GET /device/disk",
+      "status": "PASS",
+      "response": "1 partitions"
+    },
+    {
+      "test": "GET /models",
+      "status": "PASS",
+      "response": "1 models"
+    },
+    {
+      "test": "GET /models/download/status",
+      "status": "PASS",
+      "response": {
+        "is_downloading": false,
+        "model_name": "",
+        "progress": 0,
+        "message": "",
+        "error": null
+      }
+    },
+    {
+      "test": "GET /models/stats",
+      "status": "FAIL",
+      "error": "Status 404",
+      "expected": null
+    },
+    {
+      "test": "GET /models/{invalid_id}",
+      "status": "PASS",
+      "response": "Correctly returns 404"
+    },
+    {
+      "test": "GET /datasets",
+      "status": "PASS",
+      "response": "1 datasets"
+    },
+    {
+      "test": "GET /datasets/{invalid_id}",
+      "status": "PASS",
+      "response": "Correctly returns 404"
+    },
+    {
+      "test": "GET /training/progress",
+      "status": "PASS",
+      "response": "idle"
+    },
+    {
+      "test": "GET /training/history",
+      "status": "PASS",
+      "response": "6 records"
+    },
+    {
+      "test": "GET /training/status",
+      "status": "PASS",
+      "response": {
+        "is_training": false,
+        "record": null,
+        "progress": {
+          "epoch": 0,
+          "step": 0,
+          "total_steps": 0,
+          "loss": 0.0,
+          "lr": 0.0,
+          "vram_used": 0.0,
+          "elapsed_time": 0.0,
+          "eta": 0.0,
+          "status": "idle",
+          "message": ""
+        },
+        "active_tasks": 0
+      }
+    },
+    {
+      "test": "GET /training/queue/status",
+      "status": "PASS",
+      "response": {
+        "queue_size": 0,
+        "running_count": 0,
+        "history_count": 0,
+        "max_concurrent": 1,
+        "max_queue_size": 10,
+        "running_tasks": []
+      }
+    },
+    {
+      "test": "POST /training/check-resources",
+      "status": "PASS",
+      "response": "Status 200"
+    },
+    {
+      "test": "POST /training/start (empty)",
+      "status": "PASS",
+      "response": "Correctly validates params"
+    },
+    {
+      "test": "POST /training/stop",
+      "status": "PASS",
+      "response": "Status 400"
+    },
+    {
+      "test": "GET /inference/backends",
+      "status": "PASS",
+      "response": {
+        "current": "huggingface",
+        "backends": [
+          {
+            "id": "huggingface",
+            "name": "HuggingFace (本地模型)",
+            "available": true,
+            "description": "使用下载的 HuggingFace 模型"
+          },
+          {
+            "id": "ollama",
+            "name": "Ollama",
+            "available": true,
+            "description": "Ollama 本地部署"
+          }
+        ]
+      }
+    },
+    {
+      "test": "GET /inference/models",
+      "status": "PASS",
+      "response": "1 models"
+    },
+    {
+      "test": "GET /inference/ollama/status",
+      "status": "PASS",
+      "response": "running=True"
+    },
+    {
+      "test": "GET /inference/cache/status",
+      "status": "PASS",
+      "response": {
+        "cached_models": [],
+        "cache_size": 0,
+        "max_size": 3
+      }
+    },
+    {
+      "test": "GET /inference/merge/status",
+      "status": "PASS",
+      "response": {
+        "is_merging": false,
+        "progress": 0,
+        "message": ""
+      }
+    },
+    {
+      "test": "POST /inference/generate (empty)",
+      "status": "PASS",
+      "response": "Correctly validates input"
+    },
+    {
+      "test": "GET /chat/history",
+      "status": "PASS",
+      "response": "3 sessions"
+    },
+    {
+      "test": "GET /chat/stats",
+      "status": "PASS",
+      "response": {
+        "total_sessions": 3,
+        "total_messages": 0,
+        "active_sessions_7d": 0
+      }
+    },
+    {
+      "test": "POST /chat/session",
+      "status": "PASS",
+      "response": "Created session: session_20260314211007_5a5c8d76"
+    },
+    {
+      "test": "GET /chat/session/{id}",
+      "status": "PASS",
+      "response": "Session retrieved"
+    },
+    {
+      "test": "DELETE /chat/session/{id}",
+      "status": "PASS",
+      "response": "Session deleted"
+    },
+    {
+      "test": "GET /rag/collections",
+      "status": "PASS",
+      "response": {
+        "collections": [
+          {
+            "name": "memories_default",
+            "count": 0
+          },
+          {
+            "name": "default",
+            "count": 0
+          }
+        ]
+      }
+    },
+    {
+      "test": "GET /context/projects",
+      "status": "PASS",
+      "response": {
+        "success": true,
+        "projects": []
+      }
+    },
+    {
+      "test": "GET /agent/capabilities",
+      "status": "PASS",
+      "response": "7 actions"
+    },
+    {
+      "test": "GET /agent/audit/stats",
+      "status": "PASS",
+      "response": {
+        "total": 0,
+        "success": 0,
+        "failed": 0,
+        "by_action": {}
+      }
+    },
+    {
+      "test": "POST /agent/detect-intent",
+      "status": "PASS",
+      "response": "detected=False"
+    },
+    {
+      "test": "GET /skills",
+      "status": "PASS",
+      "response": "18 skills"
+    },
+    {
+      "test": "GET /skills/stats",
+      "status": "PASS",
+      "response": {
+        "total_skills": 18,
+        "total_executions": 0,
+        "categories": {
+          "code": 0,
+          "file": 4,
+          "data": 2,
+          "system": 1,
+          "text": 3,
+          "utility": 3,
+          "design": 1,
+          "analysis": 2,
+          "communication": 0,
+          "custom": 2
+        },
+        "tags": {}
+      }
+    },
+    {
+      "test": "GET /skills/categories",
+      "status": "PASS",
+      "response": "10 categories"
+    },
+    {
+      "test": "GET /workspace/workspaces",
+      "status": "PASS",
+      "response": "0 workspaces"
+    },
+    {
+      "test": "GET /memory/list",
+      "status": "PASS",
+      "response": {
+        "success": true,
+        "count": 0,
+        "memories": []
+      }
+    },
+    {
+      "test": "GET /memory/stats",
+      "status": "PASS",
+      "response": {
+        "success": true,
+        "stats": {
+          "total_memories": 0,
+          "collection_name": "memories_default"
+        }
+      }
+    },
+    {
+      "test": "GET /sessions",
+      "status": "PASS",
+      "response": {
+        "sessions": [
+          {
+            "id": "session_20260313232842_f79558ee",
+            "title": "更新后的标题",
+            "description": "",
+            "model_id": "test-model",
+            "tags": [
+              "demo",
+              "test"
+            ],
+            "status": "active",
+            "starred": true,
+            "pinned": false,
+            "custom_data": {},
+            "created_at": "2026-03-13T23:28:42.950133",
+            "updated_at": "2026-03-13T23:28:43.068012",
+            "message_count": 2,
+            "total_tokens": 35
+          },
+          {
+            "id": "session_20260313225249_55018350",
+            "title": "Test Session",
+            "description": "",
+            "model_id": "",
+            "tags": [
+              "demo",
+              "test"
+            ],
+            "status": "active",
+            "starred": false,
+            "pinned": false,
+            "custom_data": {},
+            "created_at": "2026-03-13T22:52:49.526445",
+            "updated_at": "2026-03-13T22:52:49.526445",
+            "message_count": 0,
+            "total_tokens": 0
+          }
+        ],
+        "total": 2,
+        "limit": 50,
+        "offset": 0
+      }
+    },
+    {
+      "test": "GET /cloud/providers",
+      "status": "PASS",
+      "response": {
+        "providers": [
+          {
+            "id": "minimax",
+            "name": "Minimax",
+            "description": "国产 AI，中文优化好",
+            "models": [
+              "MiniMax-M2.5",
+              "MiniMax-M2.5-highspeed",
+              "MiniMax-Text-01",
+              "abab6.5s-chat",
+              "abab6.5g-chat"
+            ]
+          },
+          {
+            "id": "minimax-coding",
+            "name": "Minimax Coding",
+            "description": "编程专用，代码生成/优化",
+            "models": [
+              "MiniMax-M2.5",
+              "MiniMax-M2.5-highspeed",
+              "MiniMax-Text-01",
+              "abab6.5s-chat"
+            ]
+          },
+          {
+            "id": "glm",
+            "name": "智谱 GLM",
+            "description": "智谱 AI，中文能力强",
+            "models": [
+              "glm-4",
+              "glm-3-turbo",
+              "glm-4v"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "test": "GET /nonexistent (404 test)",
+      "status": "PASS",
+      "response": "Correctly returns 404"
+    },
+    {
+      "test": "POST invalid JSON",
+      "status": "PASS",
+      "response": "Correctly rejects with 422"
+    }
+  ]
+}
