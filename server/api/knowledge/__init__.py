@@ -1,7 +1,16 @@
+# -*- coding: utf-8 -*-
 """
-知识模块 - 统一知识库管�?整合�?rag.py, knowledge_base.py 功能
+知识库模块 - 整合 RAG 功能
 """
-from api.knowledge.routes import router
-from api.knowledge.service import get_knowledge_service
+from .routes import router
+from .service import KnowledgeService, get_knowledge_service
+from .models import KnowledgeBase, Document, Chunk
 
-__all__ = ["router", "get_knowledge_service"]
+__all__ = [
+    "router",
+    "KnowledgeService",
+    "get_knowledge_service",
+    "KnowledgeBase",
+    "Document",
+    "Chunk",
+]

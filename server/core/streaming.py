@@ -1,6 +1,6 @@
 """
 流式输出工具模块
-优化�?SSE 流式响应实现，支持批量推送、背压控制和延迟监控
+优化的 SSE 流式响应实现，支持批量推送、背压控制和延迟监控
 """
 from typing import AsyncGenerator, Callable, Any, Dict, Optional, List
 from dataclasses import dataclass, field
@@ -47,7 +47,7 @@ class StreamingLatencyStats:
         self.total_tokens += 1
 
     def start(self):
-        """开始计�?""
+        """开始计时"""
         self.start_time = time.time()
 
     def finish(self):
@@ -56,7 +56,7 @@ class StreamingLatencyStats:
 
     @property
     def elapsed_seconds(self) -> float:
-        """经过时间（秒�?""
+        """经过时间（秒）"""
         if self.end_time == 0:
             return time.time() - self.start_time
         return self.end_time - self.start_time
@@ -70,14 +70,14 @@ class StreamingLatencyStats:
 
     @property
     def max_latency_ms(self) -> float:
-        """最大延迟（毫秒�?""
+        """最大延迟（毫秒）"""
         if not self.records:
             return 0.0
         return max(r.latency_ms for r in self.records)
 
     @property
     def min_latency_ms(self) -> float:
-        """最小延迟（毫秒�?""
+        """最小延迟（毫秒）"""
         if not self.records:
             return 0.0
         return min(r.latency_ms for r in self.records)
@@ -93,14 +93,14 @@ class StreamingLatencyStats:
 
     @property
     def tokens_per_second(self) -> float:
-        """每秒 token �?""
+        """每秒 token 数"""
         elapsed = self.elapsed_seconds
         if elapsed == 0:
             return 0.0
         return self.total_tokens / elapsed
 
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字�?""
+        """转换为字典"""
         return {
             "total_tokens": self.total_tokens,
             "elapsed_seconds": round(self.elapsed_seconds, 3),
@@ -116,7 +116,7 @@ class StreamingLatencyStats:
 
 
 class BackpressureController:
-    """背压控制�?""
+    """背压控制器"""
 
     def __init__(
         self,
@@ -136,32 +136,32 @@ class BackpressureController:
         self._lock = asyncio.Lock()
 
     async def acquire(self, tokens: int = 1) -> bool:
-        """获取发送许可，返回是否需要等�?""
+        """获取发送许可，返回是否需要等待"""
         async with self._lock:
             self._buffer_size += tokens
             if self._buffer_size >= self.max_buffer_size * self.pause_threshold:
                 if not self._is_paused:
                     self._is_paused = True
                     self._pause_event.clear()
-                    logger.debug(f"背压控制：暂停生成，缓冲区大�?{self._buffer_size}")
+                    logger.debug(f"背压控制：暂停生成，缓冲区大小 {self._buffer_size}")
             return self._is_paused
 
     async def release(self, tokens: int = 1):
-        """释放缓冲区空�?""
+        """释放缓冲区空间"""
         async with self._lock:
             self._buffer_size = max(0, self._buffer_size - tokens)
             if self._is_paused and self._buffer_size <= self.max_buffer_size * self.resume_threshold:
                 self._is_paused = False
                 self._pause_event.set()
-                logger.debug(f"背压控制：恢复生成，缓冲区大�?{self._buffer_size}")
+                logger.debug(f"背压控制：恢复生成，缓冲区大小 {self._buffer_size}")
 
     async def wait_if_paused(self):
-        """如果暂停则等�?""
+        """如果暂停则等待"""
         await self._pause_event.wait()
 
     @property
     def is_paused(self) -> bool:
-        """是否处于暂停状�?""
+        """是否处于暂停状态"""
         return self._is_paused
 
     @property
@@ -170,7 +170,7 @@ class BackpressureController:
         return self._buffer_size / self.max_buffer_size
 
     def get_status(self) -> Dict[str, Any]:
-        """获取状�?""
+        """获取状态"""
         return {
             "is_paused": self._is_paused,
             "buffer_size": self._buffer_size,
@@ -217,13 +217,13 @@ class OptimizedStreamingResponse:
 
     @property
     def backpressure_status(self) -> Optional[Dict[str, Any]]:
-        """获取背压状�?""
+        """获取背压状态"""
         if self._backpressure:
             return self._backpressure.get_status()
         return None
 
     async def _should_flush(self) -> bool:
-        """判断是否应该刷新缓冲�?""
+        """判断是否应该刷新缓冲区"""
         if len(self._token_buffer) >= self.buffer_size:
             return True
         elapsed_ms = (time.time() - self._last_flush_time) * 1000
@@ -271,8 +271,7 @@ class OptimizedStreamingResponse:
                 await self._backpressure.wait_if_paused()
 
     async def stream(self) -> AsyncGenerator[str, None]:
-        """
-        流式生成器，支持批量推�?        """
+        """流式生成器，支持批量推送"""
         self._latency_stats.start()
         flush_task = None
 
@@ -341,7 +340,8 @@ async def create_sse_event(data: Dict[str, Any], event_type: str = "message") ->
         event_type: 事件类型
 
     Returns:
-        SSE 格式字符�?    """
+        SSE 格式字符串
+    """
     return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
@@ -352,9 +352,11 @@ async def stream_generator(
     on_error: Callable[[Exception], Any] = None
 ) -> AsyncGenerator[str, None]:
     """
-    流式生成器包�?
+    流式生成器包装器
     Args:
-        llm_generator: LLM 流式生成�?        on_chunk: 每个 chunk 的回�?        on_complete: 完成回调
+        llm_generator: LLM 流式生成器
+        on_chunk: 每个 chunk 的回调
+        on_complete: 完成回调
         on_error: 错误回调
 
     Yields:
@@ -401,10 +403,12 @@ async def optimized_stream_generator(
     优化的流式生成器，支持批量推送和延迟监控
 
     Args:
-        llm_generator: LLM 流式生成�?        buffer_size: 缓冲区大小（token 数）
+        llm_generator: LLM 流式生成器
+        buffer_size: 缓冲区大小（token 数）
         flush_interval_ms: 刷新间隔（毫秒）
         enable_backpressure: 是否启用背压控制
-        on_chunk: 每个 chunk 的回�?        on_complete: 完成回调
+        on_chunk: 每个 chunk 的回调
+        on_complete: 完成回调
         on_error: 错误回调
 
     Yields:
@@ -431,7 +435,7 @@ async def optimized_stream_generator(
 
 
 class TypewriterEffect:
-    """打字机效�?""
+    """打字机效果"""
 
     def __init__(self, text: str, speed: float = 0.03):
         self.text = text
@@ -459,7 +463,7 @@ class StreamStats:
         self.total_tokens += len(chunk) // 4
 
     def start(self):
-        """开始计�?""
+        """开始计时"""
         self.start_time = time.time()
 
     def finish(self):
@@ -473,13 +477,13 @@ class StreamStats:
 
     @property
     def tokens_per_second(self) -> float:
-        """每秒 token �?""
+        """每秒 token 数"""
         if self.elapsed == 0:
             return 0
         return self.total_tokens / self.elapsed
 
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字�?""
+        """转换为字典"""
         return {
             "total_tokens": self.total_tokens,
             "chunk_count": len(self.chunks),
@@ -497,7 +501,8 @@ async def streaming_context(
     """
     流式上下文管理器
 
-    用法�?        async with streaming_context() as ctx:
+    用法：
+        async with streaming_context() as ctx:
             async for chunk in ctx.wrap(generator):
                 yield chunk
     """
@@ -514,7 +519,7 @@ async def streaming_context(
 
 
 class StreamingContext:
-    """流式上下�?""
+    """流式上下文"""
 
     def __init__(
         self,
@@ -533,7 +538,7 @@ class StreamingContext:
         on_complete: Optional[Callable[[], Any]] = None,
         on_error: Optional[Callable[[Exception], Any]] = None
     ) -> OptimizedStreamingResponse:
-        """包装生成器为优化的流式响�?""
+        """包装生成器为优化的流式响应"""
         streaming = OptimizedStreamingResponse(
             generator=generator,
             buffer_size=self.buffer_size,
@@ -550,7 +555,7 @@ class StreamingContext:
         self._active_streams.clear()
 
     def get_stats(self) -> Dict[str, Any]:
-        """获取所有活跃流的统计信�?""
+        """获取所有活跃流的统计信息"""
         return {
             "active_streams": len(self._active_streams),
             "streams": [
@@ -568,7 +573,7 @@ def get_streaming_stats(streaming: OptimizedStreamingResponse) -> Dict[str, Any]
     获取流式传输统计信息
 
     Args:
-        streaming: 优化的流式响应实�?
+        streaming: 优化的流式响应实例
     Returns:
         统计信息字典
     """

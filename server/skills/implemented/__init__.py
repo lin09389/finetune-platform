@@ -1,6 +1,10 @@
+# -*- coding: utf-8 -*-
 """
-技能实现模�?
-此目录包含所有具体技能的实现�?每个技能应该是一个独立的 Python 文件，包含一个或多个继承�?SkillBase 的类�?"""
+技能实现模块
+
+此目录包含所有具体技能的实现。
+每个技能应该是一个独立的 Python 文件，包含一个或多个继承自 SkillBase 的类。
+"""
 
 from .file_skills import (
     FileReadSkill,
@@ -40,23 +44,23 @@ from .cua_skills import (
 )
 
 __all__ = [
-    # 文件技�?    "FileReadSkill",
+    "FileReadSkill",
     "FileWriteSkill",
     "FileListSkill",
     "FileDeleteSkill",
-    # 文本技�?    "TextRegexSkill",
+    "TextRegexSkill",
     "TextReplaceSkill",
     "TextSplitSkill",
     "JsonParseSkill",
     "JsonStringifySkill",
-    # 系统技�?    "SystemInfoSkill",
+    "SystemInfoSkill",
     "CommandExecuteSkill",
     "DelaySkill",
     "CalculatorSkill",
-    # GitHub技�?    "GitHubAnalyzerSkill",
+    "GitHubAnalyzerSkill",
     "CodePatternSkill",
-    # 前端设计技�?    "FrontendDesignSkill",
-    # CUA技�?    "ScreenshotSkill",
+    "FrontendDesignSkill",
+    "ScreenshotSkill",
     "MouseClickSkill",
     "MouseMoveSkill",
     "KeyboardTypeSkill",
@@ -66,7 +70,6 @@ __all__ = [
     "CUA_SKILLS",
 ]
 
-# 所有技能类列表
 ALL_SKILLS = [
     FileReadSkill,
     FileWriteSkill,
@@ -95,6 +98,6 @@ ALL_SKILLS = [
 
 
 def register_all_skills(registry):
-    """注册所有技能到注册�?""
+    """注册所有技能到注册表"""
     for skill_class in ALL_SKILLS:
         registry.register(skill_class)

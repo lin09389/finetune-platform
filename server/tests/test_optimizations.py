@@ -1,15 +1,17 @@
 """
 微调流程优化方案 - 测试脚本
 
-测试内容�?1. 资源预检功能
-2. 训练状态队列更�?3. 训练队列管理
+测试内容：
+1. 资源预检功能
+2. 训练状态队列更新
+3. 训练队列管理
 """
 import sys
 import os
 import time
 from pathlib import Path
 
-# 添加服务器路�?server_path = Path(__file__).parent.parent
+server_path = Path(__file__).parent.parent
 sys.path.insert(0, str(server_path))
 os.chdir(server_path)
 
@@ -24,7 +26,6 @@ def test_resource_check():
     print("测试 1: 资源预检功能")
     print("=" * 50)
     
-    # 测试不同场景
     scenarios = [
         {"method": "qlora", "model_size": "7B", "required_vram": 4.0},
         {"method": "lora", "model_size": "7B", "required_vram": 8.0},
@@ -32,7 +33,7 @@ def test_resource_check():
     ]
     
     for scenario in scenarios:
-        print(f"\n场景：{scenario['method']} - {scenario['model_size']} - 需�?{scenario['required_vram']}GB")
+        print(f"\n场景：{scenario['method']} - {scenario['model_size']} - 需要 {scenario['required_vram']}GB")
         result = pre_training_resource_check(
             required_vram_gb=scenario["required_vram"],
             method=scenario["method"],
@@ -56,9 +57,9 @@ def test_resource_check():
 
 
 def test_training_state():
-    """测试训练状态队列更�?""
+    """测试训练状态队列更新"""
     print("\n" + "=" * 50)
-    print("测试 2: 训练状态队列更�?)
+    print("测试 2: 训练状态队列更新")
     print("=" * 50)
     
     import tempfile
@@ -67,10 +68,9 @@ def test_training_state():
     with tempfile.TemporaryDirectory() as tmpdir:
         state = get_training_state(Path(tmpdir))
         
-        print("\n1. 测试队列式进度更�?..")
+        print("\n1. 测试队列式进度更新...")
         start_time = time.time()
         
-        # 模拟多次进度更新
         for i in range(10):
             state.queue_progress_update(
                 epoch=1,
@@ -85,10 +85,9 @@ def test_training_state():
                 message=f"Step {i * 10}"
             )
         
-        # 等待工作线程处理
         time.sleep(0.5)
         
-        # 获取最新进�?        import asyncio
+        import asyncio
         loop = asyncio.new_event_loop()
         try:
             progress = loop.run_until_complete(state.get_progress())
@@ -98,7 +97,7 @@ def test_training_state():
         
         print("  [OK] 队列更新正常")
         
-        print("\n2. 测试队列式状态更�?..")
+        print("\n2. 测试队列式状态更新...")
         state.queue_training_state(True)
         time.sleep(0.2)
         
@@ -106,17 +105,16 @@ def test_training_state():
         try:
             is_training = loop.run_until_complete(state.is_training())
             print(f"  训练状态：{is_training}")
-            assert is_training == True, "状态更新失�?
+            assert is_training == True, "状态更新失败"
         finally:
             loop.close()
         
         state.queue_training_state(False)
-        print("  [OK] 状态更新正�?)
+        print("  [OK] 状态更新正常")
         
-        # 停止工作线程
         state.stop_worker()
     
-    print("\n[PASS] 训练状态测试完�?)
+    print("\n[PASS] 训练状态测试完成")
 
 
 def test_training_queue():
@@ -137,7 +135,6 @@ def test_training_queue():
         
         print("\n1. 测试任务提交...")
         
-        # 模拟任务回调
         executed_tasks = []
         
         def task_callback(task_name):
@@ -146,7 +143,6 @@ def test_training_queue():
                 executed_tasks.append(task_name)
             return callback
         
-        # 提交不同优先级的任务
         tasks = [
             ("task_1", TaskPriority.LOW),
             ("task_2", TaskPriority.HIGH),
@@ -166,14 +162,13 @@ def test_training_queue():
         print("\n2. 等待任务执行...")
         time.sleep(2)
         
-        print("\n3. 获取队列状�?..")
+        print("\n3. 获取队列状态...")
         status = queue.get_queue_status()
         print(f"  队列大小：{status['queue_size']}")
         print(f"  运行中：{status['running_count']}")
         print(f"  历史：{status['history_count']}")
         print(f"  执行的任务：{executed_tasks}")
         
-        # 停止队列
         queue.stop()
     
     print("\n[PASS] 训练队列测试完成")
@@ -186,19 +181,19 @@ def test_gpu_cleanup():
     print("=" * 50)
     
     vram_before = get_vram_usage()
-    print(f"\n清理�?VRAM: {vram_before:.2f} GB")
+    print(f"\n清理前 VRAM: {vram_before:.2f} GB")
     
     success = cleanup_gpu_memory()
     
     vram_after = get_vram_usage()
-    print(f"清理�?VRAM: {vram_after:.2f} GB")
+    print(f"清理后 VRAM: {vram_after:.2f} GB")
     print(f"清理结果：{'成功' if success else '失败'}")
     
     print("\n[PASS] GPU 清理测试完成")
 
 
 def main():
-    """运行所有测�?""
+    """运行所有测试"""
     print("\n" + "=" * 60)
     print("微调流程优化方案 - 测试套件")
     print("=" * 60)
@@ -210,7 +205,7 @@ def main():
         test_gpu_cleanup()
         
         print("\n" + "=" * 60)
-        print("[PASS] 所有测试完�?")
+        print("[PASS] 所有测试完成")
         print("=" * 60)
         
     except Exception as e:

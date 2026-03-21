@@ -1,5 +1,6 @@
 """
 注册表模块
+包含操作注册表和模块注册表
 """
 from .action_registry import (
     ActionRegistry,
@@ -11,6 +12,12 @@ from .action_registry import (
     get_action_registry,
     register_action,
 )
+from .module_registry import (
+    ModuleRegistry,
+    ModuleType,
+    ModuleState,
+    registry,
+)
 
 __all__ = [
     "ActionRegistry",
@@ -21,4 +28,8 @@ __all__ = [
     "action_handler",
     "get_action_registry",
     "register_action",
+    "ModuleRegistry",
+    "ModuleType",
+    "ModuleState",
+    "registry",
 ]

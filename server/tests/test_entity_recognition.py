@@ -10,7 +10,7 @@ class TestEntityRecognizer:
         self.recognizer = EntityRecognizer()
 
     def test_recognize_person(self):
-        text = "张三和李四一起去了北�?
+        text = "张三和李四一起去了北京"
         entities = self.recognizer.recognize(text)
         
         person_entities = [e for e in entities if e.label == "PERSON"]
@@ -31,21 +31,21 @@ class TestEntityRecognizer:
         assert len(location_entities) >= 1
 
     def test_recognize_date(self):
-        text = "2024�?�?5日，他去了北�?
+        text = "2024年1月5日，他去了北京"
         entities = self.recognizer.recognize(text)
         
         date_entities = [e for e in entities if e.label == "DATE"]
         assert len(date_entities) >= 1
 
     def test_recognize_money(self):
-        text = "这个项目花费�?00万元人民�?
+        text = "这个项目花费了500万元人民币"
         entities = self.recognizer.recognize(text)
         
         money_entities = [e for e in entities if e.label == "MONEY"]
         assert len(money_entities) >= 0
 
     def test_recognize_phone(self):
-        text = "请拨�?3812345678联系�?
+        text = "请拨打13812345678联系我"
         entities = self.recognizer.recognize(text)
         
         phone_entities = [e for e in entities if e.label == "PHONE"]
@@ -59,20 +59,20 @@ class TestEntityRecognizer:
         assert len(email_entities) >= 1
 
     def test_recognize_url(self):
-        text = "请访�?https://example.com 查看详情"
+        text = "请访问 https://example.com 查看详情"
         entities = self.recognizer.recognize(text)
         
         url_entities = [e for e in entities if e.label == "URL"]
         assert len(url_entities) >= 1
 
     def test_recognize_multiple_entities(self):
-        text = "2024�?�?5日，张三从北京腾讯公司发送邮件到test@example.com"
+        text = "2024年1月5日，张三从北京腾讯公司发送邮件到test@example.com"
         entities = self.recognizer.recognize(text)
         
         assert len(entities) >= 3
 
     def test_entity_positions(self):
-        text = "张三在北�?
+        text = "张三在北京"
         entities = self.recognizer.recognize(text)
         
         for entity in entities:
@@ -81,7 +81,7 @@ class TestEntityRecognizer:
             assert text[entity.start:entity.end] == entity.text
 
     def test_highlight_text(self):
-        text = "张三在北京工�?
+        text = "张三在北京工作"
         entities = self.recognizer.recognize(text)
         highlighted = self.recognizer.highlight_text(text, entities)
         
@@ -89,7 +89,7 @@ class TestEntityRecognizer:
         assert "张三" in highlighted or "北京" in highlighted
 
     def test_entity_stats(self):
-        text = "张三和李四在北京、上海工�?
+        text = "张三和李四在北京、上海工作"
         entities = self.recognizer.recognize(text)
         stats = self.recognizer.get_entity_stats(entities)
         
@@ -103,7 +103,7 @@ class TestEntityHighlighter:
         self.highlighter = EntityHighlighter(self.recognizer)
 
     def test_process_message(self):
-        text = "张三在腾讯公司工�?
+        text = "张三在腾讯公司工作"
         result = self.highlighter.process_message(text)
         
         assert "original_text" in result
@@ -113,7 +113,7 @@ class TestEntityHighlighter:
         assert "entity_stats" in result
 
     def test_process_message_with_memory(self):
-        text = "张三在腾讯公司工�?
+        text = "张三在腾讯公司工作"
         memory_entities = {
             "张三": {"role": "用户", "id": "user_001"}
         }
@@ -126,7 +126,7 @@ class TestEntityHighlighter:
         assert result["entity_count"] >= 1
 
     def test_process_message_no_highlight(self):
-        text = "张三在腾讯公司工�?
+        text = "张三在腾讯公司工作"
         result = self.highlighter.process_message(text, highlight=False)
         
         assert result["highlighted_text"] == text

@@ -1,5 +1,7 @@
+# -*- coding: utf-8 -*-
 """
-前端设计 UI/UX 技�?提供高质量、独特的前端界面设计建议和代码生�?"""
+前端设计 UI/UX 技能 - 提供高质量、独特的前端界面设计建议和代码生成
+"""
 import json
 import re
 from typing import Any, Dict, List, Optional
@@ -15,11 +17,11 @@ from skills.models import (
 
 
 class FrontendDesignSkill(SkillBase):
-    """前端设计 UI/UX 技�?""
+    """前端设计 UI/UX 技能"""
     
     COLOR_SCHEMES = {
         "retro_digital": {
-            "name": "复古数字�?,
+            "name": "复古数字风",
             "primary": "#1a1a2e",
             "secondary": "#16213e",
             "accent": "#e94560",
@@ -88,7 +90,7 @@ class FrontendDesignSkill(SkillBase):
         return SkillMetadata(
             name="frontend_design",
             display_name="前端设计 UI/UX",
-            description="提供高质量、独特的前端界面设计建议和代码生�?,
+            description="提供高质量、独特的前端界面设计建议和代码生成",
             version="1.0.0",
             category=SkillCategory.DESIGN,
             tags=["frontend", "ui", "ux", "design", "css", "tailwind"],
@@ -129,7 +131,7 @@ class FrontendDesignSkill(SkillBase):
         if not component_type:
             return SkillResult(
                 success=False,
-                error="请提供组件类�?,
+                error="请提供组件类型",
                 error_code="MISSING_COMPONENT_TYPE",
             )
         
@@ -165,11 +167,11 @@ class FrontendDesignSkill(SkillBase):
             "dashboard": self._tailwind_dashboard(colors),
             "form": self._tailwind_form(colors),
         }
-        return components.get(component_type, f"// {component_type} 组件代码待生�?)
+        return components.get(component_type, f"// {component_type} 组件代码待生成")
     
     def _tailwind_button(self, colors: Dict) -> str:
         primary = colors.get("primary", "#2d2d2d")
-        return f'''// 主按�?- 实心填充
+        return f'''// 主按钮 - 实心填充
 <button className="
   px-6 py-3 
   bg-[{primary}] 
@@ -184,7 +186,7 @@ class FrontendDesignSkill(SkillBase):
   确认操作
 </button>
 
-// 次按�?- 描边风格
+// 次按钮 - 描边风格
 <button className="
   px-6 py-3
   bg-transparent
@@ -216,11 +218,13 @@ class FrontendDesignSkill(SkillBase):
     <span className="text-xs text-[#6b7280] uppercase tracking-wider">标签</span>
   </div>
   <p className="text-[#6b7280] leading-relaxed">
-    卡片内容描述，使用舒适的行高和灰度层次�?  </p>
+    卡片内容描述，使用舒适的行高和灰度层次。
+  </p>
 </div>'''
     
     def _tailwind_input(self, colors: Dict) -> str:
-        return '''// 精致输入�?<div className="space-y-2">
+        return '''// 精致输入框
+<div className="space-y-2">
   <label className="text-sm font-medium text-[#2d2d2d]">
     邮箱地址
   </label>
@@ -263,7 +267,8 @@ class FrontendDesignSkill(SkillBase):
       ))}
     </div>
     <button className="px-4 py-2 bg-[#2d2d2d] text-white text-sm font-medium rounded-md transition-all hover:bg-[#1a1a1a]">
-      开始使�?    </button>
+      开始使用
+    </button>
   </div>
 </nav>'''
     
@@ -273,9 +278,9 @@ class FrontendDesignSkill(SkillBase):
   {/* Stats Grid */}
   <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
     {[
-      { label: '总项�?, value: '24', change: '+12%' },
-      { label: '进行�?, value: '8', change: '+3' },
-      { label: '已完�?, value: '16', change: '98%' }
+      { label: '总项目', value: '24', change: '+12%' },
+      { label: '进行中', value: '8', change: '+3' },
+      { label: '已完成', value: '16', change: '98%' }
     ].map((stat) => (
       <div key={stat.label} className="bg-white border border-[#e5e5e5] rounded-lg p-6 transition-all hover:border-[#d4d4d4] hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
         <p className="text-sm text-[#6b7280] mb-1">{stat.label}</p>
@@ -292,12 +297,12 @@ class FrontendDesignSkill(SkillBase):
         return '''// 表单组件
 <form className="space-y-6 bg-white border border-[#e5e5e5] rounded-lg p-6">
   <div className="space-y-2">
-    <label className="text-sm font-medium text-[#2d2d2d]">用户�?/label>
+    <label className="text-sm font-medium text-[#2d2d2d]">用户名</label>
     <input type="text" className="w-full px-4 py-3 bg-white border border-[#e5e5e5] rounded-md text-[#2d2d2d] transition-all focus:outline-none focus:border-[#2d2d2d]" placeholder="请输入用户名" />
   </div>
   <div className="space-y-2">
     <label className="text-sm font-medium text-[#2d2d2d]">密码</label>
-    <input type="password" className="w-full px-4 py-3 bg-white border border-[#e5e5e5] rounded-md text-[#2d2d2d] transition-all focus:outline-none focus:border-[#2d2d2d]" placeholder="请输入密�? />
+    <input type="password" className="w-full px-4 py-3 bg-white border border-[#e5e5e5] rounded-md text-[#2d2d2d] transition-all focus:outline-none focus:border-[#2d2d2d]" placeholder="请输入密码" />
   </div>
   <button type="submit" className="w-full px-6 py-3 bg-[#2d2d2d] text-white text-sm font-medium rounded-md transition-all hover:bg-[#1a1a1a]">
     登录
@@ -305,7 +310,7 @@ class FrontendDesignSkill(SkillBase):
 </form>'''
     
     def _generate_css_component(self, component_type: str, colors: Dict) -> str:
-        return f"/* CSS 组件代码 - {component_type} */\n/* 待实�?*/"
+        return f"/* CSS 组件代码 - {component_type} */\n/* 待实现 */"
     
     def _get_design_tokens(self, colors: Dict) -> Dict:
         return {

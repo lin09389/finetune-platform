@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 设备认证管理模块
 """
@@ -393,3 +394,6 @@ def get_auth_manager() -> DeviceAuthManager:
     if _auth_manager is None:
         _auth_manager = DeviceAuthManager()
     return _auth_manager
+
+
+get_device_auth_manager = get_auth_manager

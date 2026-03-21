@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 CUA OCR 识别模块
 """
@@ -37,12 +38,12 @@ except ImportError:
 
 
 SUPPORTED_LANGUAGES = {
-    "chi_sim": "中文简�?,
+    "chi_sim": "中文简体",
     "chi_tra": "中文繁体",
     "eng": "English",
-    "jpn": "日本�?,
-    "kor": "한국�?,
-    "chi_sim+eng": "中文简�?English",
+    "jpn": "日本語",
+    "kor": "한국어",
+    "chi_sim+eng": "中文简体+English",
     "chi_tra+eng": "中文繁体+English",
 }
 
@@ -68,7 +69,7 @@ class OCRRecognizer:
             pytesseract.get_tesseract_version()
         except Exception as e:
             raise TesseractNotInstalledError(
-                details=f"Tesseract 可执行文件未找到或无法运�? {e}"
+                details=f"Tesseract 可执行文件未找到或无法运行: {e}"
             )
 
     def _get_image_hash(self, image: Image.Image) -> str:
@@ -266,7 +267,7 @@ class OCRRecognizer:
             
         except Exception as e:
             raise OCRProcessingError(
-                f"获取文本框失�? {str(e)}",
+                f"获取文本框失败: {str(e)}",
                 original_error=e
             )
 

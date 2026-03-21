@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 CUA (Computer Use Agent) API 路由
 """
@@ -63,7 +64,7 @@ def get_action_recorder() -> ActionRecorder:
 
 
 class ScreenshotRequest(BaseModel):
-    monitor: int = Field(default=0, ge=0, description="显示器索�?)
+    monitor: int = Field(default=0, ge=0, description="显示器索引")
     region: Optional[Dict[str, int]] = Field(default=None, description="截图区域 {x, y, width, height}")
     format: str = Field(default="png", description="图像格式")
     quality: int = Field(default=85, ge=1, le=100, description="JPEG 质量")
@@ -79,7 +80,7 @@ class MouseClickRequest(BaseModel):
 class MouseMoveRequest(BaseModel):
     x: int = Field(..., description="X 坐标")
     y: int = Field(..., description="Y 坐标")
-    duration: float = Field(default=0.0, ge=0, description="移动持续时间(�?")
+    duration: float = Field(default=0.0, ge=0, description="移动持续时间（秒）")
 
 
 class MouseDragRequest(BaseModel):
@@ -87,7 +88,7 @@ class MouseDragRequest(BaseModel):
     start_y: int = Field(..., description="起始 Y 坐标")
     end_x: int = Field(..., description="结束 X 坐标")
     end_y: int = Field(..., description="结束 Y 坐标")
-    duration: float = Field(default=1.0, ge=0, description="拖拽持续时间(�?")
+    duration: float = Field(default=1.0, ge=0, description="拖拽持续时间（秒）")
     button: str = Field(default="left", description="鼠标按钮: left, right, middle")
 
 
@@ -99,7 +100,7 @@ class MouseScrollRequest(BaseModel):
 
 class KeyboardTypeRequest(BaseModel):
     text: str = Field(..., description="输入文本")
-    interval: float = Field(default=0.05, ge=0, description="按键间隔(�?")
+    interval: float = Field(default=0.05, ge=0, description="按键间隔（秒）")
 
 
 class KeyboardPressRequest(BaseModel):
@@ -107,27 +108,27 @@ class KeyboardPressRequest(BaseModel):
 
 
 class KeyboardHotkeyRequest(BaseModel):
-    keys: List[str] = Field(..., description="组合键列�?)
+    keys: List[str] = Field(..., description="组合键列表")
 
 
 class WindowActionRequest(BaseModel):
-    window_id: str = Field(..., description="窗口 ID 或标�?)
+    window_id: str = Field(..., description="窗口 ID 或标题")
 
 
 class WindowMoveRequest(BaseModel):
-    window_id: str = Field(..., description="窗口 ID 或标�?)
+    window_id: str = Field(..., description="窗口 ID 或标题")
     x: int = Field(..., description="X 坐标")
     y: int = Field(..., description="Y 坐标")
 
 
 class WindowResizeRequest(BaseModel):
-    window_id: str = Field(..., description="窗口 ID 或标�?)
+    window_id: str = Field(..., description="窗口 ID 或标题")
     width: int = Field(..., ge=1, description="窗口宽度")
     height: int = Field(..., ge=1, description="窗口高度")
 
 
 class OCRRequest(BaseModel):
-    image_base64: Optional[str] = Field(default=None, description="Base64 编码的图�?)
+    image_base64: Optional[str] = Field(default=None, description="Base64 编码的图像")
     region: Optional[Dict[str, int]] = Field(default=None, description="识别区域")
     lang: str = Field(default="chi_sim+eng", description="OCR 语言")
 
@@ -155,10 +156,10 @@ class PermissionRequest(BaseModel):
 @router.post("/screenshot")
 async def take_screenshot(request: ScreenshotRequest):
     global _screenshot_result, _last_screenshot_base64
-    
+
     try:
         screen_capture = get_screen_capture()
-        
+
         if request.region:
             region = Region(
                 x=request.region["x"],
@@ -169,10 +170,10 @@ async def take_screenshot(request: ScreenshotRequest):
             result = await screen_capture.capture_region_async(region)
         else:
             result = await screen_capture.capture_screen_async(request.monitor)
-        
+
         _screenshot_result = result
         _last_screenshot_base64 = result.base64
-        
+
         return {
             "success": True,
             "width": result.width,
@@ -193,7 +194,7 @@ async def get_screen_info():
     try:
         screen_capture = get_screen_capture()
         monitor_count = screen_capture.get_monitor_count()
-        
+
         monitors = []
         for i in range(monitor_count):
             size = screen_capture.get_screen_size(i)
@@ -202,7 +203,7 @@ async def get_screen_info():
                 "width": size.x,
                 "height": size.y,
             })
-        
+
         return {
             "monitor_count": monitor_count,
             "monitors": monitors,
@@ -216,16 +217,16 @@ async def get_screen_info():
 async def mouse_click(request: MouseClickRequest):
     try:
         mouse = get_mouse_controller()
-        
+
         button_map = {
             "left": MouseButton.LEFT,
             "right": MouseButton.RIGHT,
             "middle": MouseButton.MIDDLE,
         }
         button = button_map.get(request.button.lower(), MouseButton.LEFT)
-        
+
         result = await mouse.click_async(request.x, request.y, button, request.clicks)
-        
+
         return {
             "success": result.success,
             "message": result.message,
@@ -243,7 +244,7 @@ async def mouse_move(request: MouseMoveRequest):
     try:
         mouse = get_mouse_controller()
         result = await mouse.move_to_async(request.x, request.y, request.duration)
-        
+
         return {
             "success": result.success,
             "message": result.message,
@@ -260,20 +261,20 @@ async def mouse_move(request: MouseMoveRequest):
 async def mouse_drag(request: MouseDragRequest):
     try:
         mouse = get_mouse_controller()
-        
+
         button_map = {
             "left": MouseButton.LEFT,
             "right": MouseButton.RIGHT,
             "middle": MouseButton.MIDDLE,
         }
         button = button_map.get(request.button.lower(), MouseButton.LEFT)
-        
+
         result = await mouse.drag_async(
             request.start_x, request.start_y,
             request.end_x, request.end_y,
             request.duration, button
         )
-        
+
         return {
             "success": result.success,
             "message": result.message,
@@ -292,7 +293,7 @@ async def mouse_scroll(request: MouseScrollRequest):
     try:
         mouse = get_mouse_controller()
         result = await mouse.scroll_async(request.clicks, request.x, request.y)
-        
+
         return {
             "success": result.success,
             "message": result.message,
@@ -310,7 +311,7 @@ async def get_mouse_position():
     try:
         mouse = get_mouse_controller()
         position = mouse.get_position()
-        
+
         return {
             "x": position.x,
             "y": position.y,
@@ -325,7 +326,7 @@ async def keyboard_type(request: KeyboardTypeRequest):
     try:
         keyboard = get_keyboard_controller()
         result = await keyboard.type_text_async(request.text, request.interval)
-        
+
         return {
             "success": result.success,
             "message": result.message,
@@ -343,7 +344,7 @@ async def keyboard_press(request: KeyboardPressRequest):
     try:
         keyboard = get_keyboard_controller()
         result = await keyboard.press_async(request.key)
-        
+
         return {
             "success": result.success,
             "message": result.message,
@@ -361,7 +362,7 @@ async def keyboard_hotkey(request: KeyboardHotkeyRequest):
     try:
         keyboard = get_keyboard_controller()
         result = await keyboard.hotkey_async(*request.keys)
-        
+
         return {
             "success": result.success,
             "message": result.message,
@@ -370,7 +371,7 @@ async def keyboard_hotkey(request: KeyboardHotkeyRequest):
     except CUAError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"组合键失�? {e}", exc_info=True)
+        logger.error(f"组合键失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -379,7 +380,7 @@ async def list_windows():
     try:
         window_manager = get_window_manager()
         windows = await window_manager.list_windows_async()
-        
+
         return {
             "count": len(windows),
             "windows": [
@@ -406,7 +407,7 @@ async def get_active_window():
     try:
         window_manager = get_window_manager()
         window = await window_manager.get_active_window_async()
-        
+
         return {
             "title": window.title,
             "handle": window.handle,
@@ -429,7 +430,7 @@ async def activate_window(request: WindowActionRequest):
     try:
         window_manager = get_window_manager()
         result = await window_manager.activate_window_async(request.window_id)
-        
+
         return {
             "success": result.success,
             "message": result.message,
@@ -439,7 +440,7 @@ async def activate_window(request: WindowActionRequest):
     except CUAError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"激活窗口失�? {e}", exc_info=True)
+        logger.error(f"激活窗口失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -448,7 +449,7 @@ async def minimize_window(request: WindowActionRequest):
     try:
         window_manager = get_window_manager()
         result = await window_manager.minimize_window_async(request.window_id)
-        
+
         return {
             "success": result.success,
             "message": result.message,
@@ -467,7 +468,7 @@ async def maximize_window(request: WindowActionRequest):
     try:
         window_manager = get_window_manager()
         result = await window_manager.maximize_window_async(request.window_id)
-        
+
         return {
             "success": result.success,
             "message": result.message,
@@ -486,10 +487,10 @@ async def close_window(request: WindowActionRequest):
     try:
         safety = get_safety_controller()
         window_manager = get_window_manager()
-        
+
         await safety.validate_operation(OperationType.WINDOW_CLOSE, {"window_id": request.window_id})
         result = await window_manager.close_window_async(request.window_id)
-        
+
         return {
             "success": result.success,
             "message": result.message,
@@ -510,7 +511,7 @@ async def move_window(request: WindowMoveRequest):
     try:
         window_manager = get_window_manager()
         result = await window_manager.move_window_async(request.window_id, request.x, request.y)
-        
+
         return {
             "success": result.success,
             "message": result.message,
@@ -530,7 +531,7 @@ async def resize_window(request: WindowResizeRequest):
     try:
         window_manager = get_window_manager()
         result = await window_manager.resize_window_async(request.window_id, request.width, request.height)
-        
+
         return {
             "success": result.success,
             "message": result.message,
@@ -549,7 +550,7 @@ async def resize_window(request: WindowResizeRequest):
 async def ocr_recognize(request: OCRRequest):
     try:
         ocr = get_ocr_recognizer()
-        
+
         if request.image_base64:
             image_data = base64.b64decode(request.image_base64)
             image = Image.open(io.BytesIO(image_data))
@@ -557,8 +558,8 @@ async def ocr_recognize(request: OCRRequest):
             image_data = base64.b64decode(_last_screenshot_base64)
             image = Image.open(io.BytesIO(image_data))
         else:
-            raise HTTPException(status_code=400, detail="未提供图像且无最近截�?)
-        
+            raise HTTPException(status_code=400, detail="未提供图像且无最近截图")
+
         if request.region:
             region = Region(
                 x=request.region["x"],
@@ -569,7 +570,7 @@ async def ocr_recognize(request: OCRRequest):
             text = await ocr.recognize_region_async(image, region, request.lang)
         else:
             text = await ocr.recognize_async(image, request.lang)
-        
+
         return {
             "success": True,
             "text": text,
@@ -588,15 +589,15 @@ async def ocr_recognize(request: OCRRequest):
 async def find_text(request: FindTextRequest):
     try:
         ocr = get_ocr_recognizer()
-        
+
         if not _last_screenshot_base64:
             raise HTTPException(status_code=400, detail="无最近截图，请先截图")
-        
+
         image_data = base64.b64decode(_last_screenshot_base64)
         image = Image.open(io.BytesIO(image_data))
-        
+
         matches = ocr.find_all_text(image, request.text, request.lang, request.fuzzy)
-        
+
         return {
             "success": True,
             "text": request.text,
@@ -629,10 +630,10 @@ async def find_text(request: FindTextRequest):
 async def record_action(request: RecordActionRequest):
     try:
         recorder = get_action_recorder()
-        
+
         if request.action == "start":
             recorder.start_recording()
-            return {"success": True, "message": "开始录�?, "is_recording": True}
+            return {"success": True, "message": "开始录制", "is_recording": True}
         elif request.action == "stop":
             actions = recorder.stop_recording()
             return {
@@ -666,7 +667,7 @@ async def get_recorded_actions():
         recorder = get_action_recorder()
         actions = recorder.get_actions()
         stats = recorder.get_statistics()
-        
+
         return {
             "is_recording": recorder.is_recording(),
             "is_paused": recorder.is_paused(),
@@ -683,10 +684,10 @@ async def get_record_files():
     """获取已保存的录制文件列表"""
     try:
         from pathlib import Path
-        
+
         records_dir = Path("data/records")
         records_dir.mkdir(parents=True, exist_ok=True)
-        
+
         files = []
         for f in records_dir.glob("*.json"):
             stat = f.stat()
@@ -695,7 +696,7 @@ async def get_record_files():
                 "size": stat.st_size,
                 "modified": stat.st_mtime,
             })
-        
+
         return {"files": files}
     except Exception as e:
         logger.error(f"获取录制文件列表失败: {e}", exc_info=True)
@@ -706,12 +707,12 @@ async def get_record_files():
 async def playback_actions(request: PlaybackRequest):
     try:
         player = get_action_player()
-        
+
         if player.is_playing():
-            raise HTTPException(status_code=400, detail="回放正在进行�?)
-        
+            raise HTTPException(status_code=400, detail="回放正在进行中")
+
         player.set_speed(request.speed)
-        
+
         if request.filepath:
             result = await player.play_from_file_async(request.filepath)
         elif request.actions:
@@ -726,7 +727,7 @@ async def playback_actions(request: PlaybackRequest):
             result = await player.play_async(actions)
         else:
             raise HTTPException(status_code=400, detail="未提供操作列表或文件路径")
-        
+
         return {
             "success": result.success,
             "message": result.message,
@@ -743,14 +744,14 @@ async def playback_actions(request: PlaybackRequest):
 async def get_safety_status():
     try:
         safety = get_safety_controller()
-        
+
         return {
             "permission_level": safety.get_permission_level().value,
             "failsafe_enabled": safety.is_failsafe_enabled(),
             "emergency_stop_triggered": safety.is_emergency_stop_triggered(),
         }
     except Exception as e:
-        logger.error(f"获取安全状态失�? {e}", exc_info=True)
+        logger.error(f"获取安全状态失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -758,21 +759,21 @@ async def get_safety_status():
 async def set_permission_level(request: PermissionRequest):
     try:
         safety = get_safety_controller()
-        
+
         level_map = {
             "read_only": PermissionLevel.READ_ONLY,
             "interactive": PermissionLevel.INTERACTIVE,
             "full_control": PermissionLevel.FULL_CONTROL,
         }
-        
+
         if request.level not in level_map:
             raise HTTPException(
                 status_code=400,
-                detail=f"无效的权限级�? {request.level}，可选�? {list(level_map.keys())}"
+                detail=f"无效的权限级别: {request.level}，可选值: {list(level_map.keys())}"
             )
-        
+
         safety.set_permission_level(level_map[request.level])
-        
+
         return {
             "success": True,
             "message": f"权限级别已设置为: {request.level}",
@@ -788,7 +789,7 @@ async def get_audit_logs(limit: int = Query(100, ge=1, le=1000, description="返
     try:
         safety = get_safety_controller()
         logs = await safety.get_audit_logs(limit)
-        
+
         return {
             "count": len(logs),
             "logs": [

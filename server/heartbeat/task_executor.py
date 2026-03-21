@@ -1,6 +1,9 @@
+# -*- coding: utf-8 -*-
 """
-主动任务执行�?
-实现 Heartbeat 主动任务执行�?- 检查任务执�?- 汇报任务执行
+主动任务执行器
+实现 Heartbeat 主动任务执行:
+- 检查任务执行
+- 汇报任务执行
 - 提醒任务执行
 - 任务结果处理
 """
@@ -25,7 +28,7 @@ class TaskType(str, Enum):
 
 
 class TaskStatus(str, Enum):
-    """任务状�?""
+    """任务状态"""
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -64,8 +67,11 @@ class ProactiveTask:
 
 class TaskExecutor:
     """
-    任务执行�?    
-    功能�?    - 执行检查任�?    - 执行汇报任务
+    任务执行器
+    
+    功能:
+    - 执行检查任务
+    - 执行汇报任务
     - 执行提醒任务
     - 结果处理和通知
     """
@@ -82,17 +88,17 @@ class TaskExecutor:
         self._register_default_handlers()
     
     def _register_default_handlers(self):
-        """注册默认任务处理�?""
+        """注册默认任务处理器"""
         self._handlers[TaskType.CHECK] = self._execute_check_task
         self._handlers[TaskType.REPORT] = self._execute_report_task
         self._handlers[TaskType.REMINDER] = self._execute_reminder_task
     
     def register_handler(self, task_type: TaskType, handler: Callable):
-        """注册任务处理�?""
+        """注册任务处理器"""
         self._handlers[task_type] = handler
     
     def register_notification_handler(self, handler: Callable):
-        """注册通知处理�?""
+        """注册通知处理器"""
         self._notification_handlers.append(handler)
     
     def add_task(self, task: ProactiveTask):
@@ -111,7 +117,7 @@ class TaskExecutor:
         return self._tasks.get(task_id)
     
     def get_all_tasks(self) -> Dict[str, ProactiveTask]:
-        """获取所有任�?""
+        """获取所有任务"""
         return self._tasks.copy()
     
     async def execute_task(self, task_id: str) -> TaskResult:
@@ -211,7 +217,7 @@ class TaskExecutor:
         return results
     
     async def _execute_check_task(self, task: ProactiveTask) -> Dict[str, Any]:
-        """执行检查任�?""
+        """执行检查任务"""
         check_type = task.config.get("check_type", "general")
         target = task.config.get("target")
         
@@ -237,11 +243,11 @@ class TaskExecutor:
         return result
     
     async def _check_project_status(self, task: ProactiveTask) -> Dict[str, Any]:
-        """检查项目状�?""
+        """检查项目状态"""
         return {
             "status": "ok",
             "findings": [
-                {"type": "info", "message": "项目状态检查完�?},
+                {"type": "info", "message": "项目状态检查完成"},
             ],
             "metrics": {
                 "open_tasks": 0,
@@ -251,37 +257,40 @@ class TaskExecutor:
         }
     
     async def _check_resource_usage(self, task: ProactiveTask) -> Dict[str, Any]:
-        """检查资源使�?""
-        import psutil
-        
-        cpu_percent = psutil.cpu_percent(interval=1)
-        memory = psutil.virtual_memory()
-        disk = psutil.disk_usage("/")
-        
-        findings = []
-        status = "ok"
-        
-        if cpu_percent > 80:
-            findings.append({"type": "warning", "message": f"CPU 使用率高: {cpu_percent}%"})
-            status = "warning"
-        
-        if memory.percent > 80:
-            findings.append({"type": "warning", "message": f"内存使用率高: {memory.percent}%"})
-            status = "warning"
-        
-        if disk.percent > 90:
-            findings.append({"type": "warning", "message": f"磁盘使用率高: {disk.percent}%"})
-            status = "warning"
-        
-        return {
-            "status": status,
-            "findings": findings,
-            "metrics": {
-                "cpu_percent": cpu_percent,
-                "memory_percent": memory.percent,
-                "disk_percent": disk.percent,
-            },
-        }
+        """检查资源使用"""
+        try:
+            import psutil
+            
+            cpu_percent = psutil.cpu_percent(interval=1)
+            memory = psutil.virtual_memory()
+            disk = psutil.disk_usage("/")
+            
+            findings = []
+            status = "ok"
+            
+            if cpu_percent > 80:
+                findings.append({"type": "warning", "message": f"CPU 使用率高: {cpu_percent}%"})
+                status = "warning"
+            
+            if memory.percent > 80:
+                findings.append({"type": "warning", "message": f"内存使用率高: {memory.percent}%"})
+                status = "warning"
+            
+            if disk.percent > 90:
+                findings.append({"type": "warning", "message": f"磁盘使用率高: {disk.percent}%"})
+                status = "warning"
+            
+            return {
+                "status": status,
+                "findings": findings,
+                "metrics": {
+                    "cpu_percent": cpu_percent,
+                    "memory_percent": memory.percent,
+                    "disk_percent": disk.percent,
+                },
+            }
+        except ImportError:
+            return {"status": "ok", "findings": [], "metrics": {}}
     
     async def _check_pending_items(self, task: ProactiveTask) -> Dict[str, Any]:
         """检查待处理项目"""
@@ -296,7 +305,7 @@ class TaskExecutor:
         }
     
     async def _check_system_health(self, task: ProactiveTask) -> Dict[str, Any]:
-        """检查系统健康状�?""
+        """检查系统健康状况"""
         findings = []
         status = "ok"
         
@@ -309,7 +318,7 @@ class TaskExecutor:
             if uptime.days > 30:
                 findings.append({
                     "type": "info",
-                    "message": f"系统已运�?{uptime.days} 天，建议重启",
+                    "message": f"系统已运行 {uptime.days} 天，建议重启",
                 })
             
             return {
@@ -360,8 +369,8 @@ class TaskExecutor:
 
 ## 摘要
 - 今日完成任务: 0
-- 进行中任�? 0
-- 待处理事�? 0
+- 进行中任务: 0
+- 待处理事项: 0
 
 ## 备注
 报告生成时间: {now.isoformat()}
@@ -386,7 +395,7 @@ class TaskExecutor:
 ## 本周摘要
 - 完成任务: 0
 - 新增任务: 0
-- 待处�? 0
+- 待处理: 0
 
 ## 备注
 报告生成时间: {now.isoformat()}
@@ -410,11 +419,14 @@ class TaskExecutor:
 项目: {project_name}
 生成时间: {now.isoformat()}
 
-## 项目状�?- 进度: 0%
+## 项目状态
+- 进度: 0%
 - 任务: 0/0
-- 风险: �?
+- 风险: 低
+
 ## 备注
-此为示例报告内容�?"""
+此为示例报告内容。
+"""
         
         return {
             "content": content,
@@ -449,12 +461,12 @@ class TaskExecutor:
         else:
             result["delivered"] = True
         
-        logger.info(f"提醒已发�? {reminder_type} - {message}")
+        logger.info(f"提醒已发送: {reminder_type} - {message}")
         
         return result
     
     async def _send_meeting_reminder(self, task: ProactiveTask) -> Dict[str, Any]:
-        """发送会议提�?""
+        """发送会议提醒"""
         meeting_time = task.config.get("meeting_time")
         meeting_title = task.config.get("meeting_title", "会议")
         
@@ -465,7 +477,7 @@ class TaskExecutor:
         }
     
     async def _send_deadline_reminder(self, task: ProactiveTask) -> Dict[str, Any]:
-        """发送截止日期提�?""
+        """发送截止日期提醒"""
         deadline = task.config.get("deadline")
         item_name = task.config.get("item_name", "任务")
         
@@ -476,7 +488,7 @@ class TaskExecutor:
         }
     
     async def _send_follow_up_reminder(self, task: ProactiveTask) -> Dict[str, Any]:
-        """发送跟进提�?""
+        """发送跟进提醒"""
         item_id = task.config.get("item_id")
         item_type = task.config.get("item_type", "task")
         
@@ -492,18 +504,18 @@ class TaskExecutor:
             try:
                 await handler(result)
             except Exception as e:
-                logger.error(f"通知处理器失�? {e}")
+                logger.error(f"通知处理器失败: {e}")
     
     def get_result(self, task_id: str) -> Optional[TaskResult]:
         """获取任务结果"""
         return self._results.get(task_id)
     
     def get_all_results(self) -> Dict[str, TaskResult]:
-        """获取所有结�?""
+        """获取所有结果"""
         return self._results.copy()
     
     def clear_old_results(self, days: int = 7) -> int:
-        """清理旧结�?""
+        """清理旧结果"""
         cutoff = datetime.now() - timedelta(days=days)
         
         to_remove = [
@@ -515,7 +527,7 @@ class TaskExecutor:
             del self._results[task_id]
         
         if to_remove:
-            logger.info(f"清理�?{len(to_remove)} 个旧任务结果")
+            logger.info(f"清理了 {len(to_remove)} 个旧任务结果")
         
         return len(to_remove)
     
@@ -540,7 +552,7 @@ _task_executor: Optional[TaskExecutor] = None
 
 
 def get_task_executor() -> TaskExecutor:
-    """获取任务执行器单�?""
+    """获取任务执行器单例"""
     global _task_executor
     if _task_executor is None:
         _task_executor = TaskExecutor()

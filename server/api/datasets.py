@@ -1,14 +1,14 @@
+# -*- coding: utf-8 -*-
 """
-数据集管�?API - 增强安全校验和统计功�?"""
+数据集管理 API - 增强安全校验和统计功能
+"""
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Tuple
-from typing import List, Optional, Dict, Any
 import os
 import shutil
 import json
 import hashlib
-import mimetypes
 from pathlib import Path
 from datetime import datetime
 import logging
@@ -27,13 +27,13 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
-# 延迟初始�?_datasets_dir: Optional[Path] = None
+_datasets_dir: Optional[Path] = None
 _max_upload_size: int = 100 * 1024 * 1024  # 100MB
 _allowed_types: List[str] = [".json", ".jsonl"]
 
 
 def get_datasets_dir() -> Path:
-    """获取数据集目�?""
+    """获取数据集目录"""
     global _datasets_dir
     if _datasets_dir is None:
         settings = get_settings()
@@ -49,7 +49,7 @@ def get_settings_config():
 
 
 class DatasetInfo(BaseModel):
-    """数据集信�?""
+    """数据集信息"""
     id: str
     name: str
     path: str
@@ -63,8 +63,18 @@ class DatasetInfo(BaseModel):
     statistics: Optional[Dict[str, Any]] = None
 
 
+class DatasetStatistics(BaseModel):
+    """数据集统计信息"""
+    total_samples: int
+    avg_message_length: float
+    avg_turns: float
+    role_distribution: Dict[str, int]
+    message_length_distribution: Dict[str, str]
+    sample_length_distribution: Dict[str, int]
+
+
 class DatasetUploadResponse(BaseModel):
-    """上传响应"""
+    """数据集上传响应"""
     id: str
     name: str
     path: str
@@ -75,19 +85,9 @@ class DatasetUploadResponse(BaseModel):
     message: str
 
 
-class DatasetStatistics(BaseModel):
-    """数据集统计信�?""
-    total_samples: int
-    avg_message_length: float
-    avg_turns: float
-    role_distribution: Dict[str, int]
-    message_length_distribution: Dict[str, int]
-    sample_length_distribution: Dict[str, int]
-
-
 def validate_path_security(base_dir: Path, target_path: Path) -> bool:
     """
-    路径安全验证 - 防止路径遍历攻击
+    验证路径安全性，防止路径遍历攻击
     
     Args:
         base_dir: 基础目录
@@ -99,8 +99,6 @@ def validate_path_security(base_dir: Path, target_path: Path) -> bool:
     try:
         base_resolved = base_dir.resolve()
         target_resolved = target_path.resolve()
-        
-        # 检查目标路径是否在基础目录的父级或同级
         return base_resolved in target_resolved.parents or base_resolved == target_resolved
     except Exception as e:
         logger.error(f"路径验证失败：{e}")
@@ -110,17 +108,15 @@ def validate_path_security(base_dir: Path, target_path: Path) -> bool:
 def validate_file_content(file_path: Path) -> Tuple[bool, str]:
     """
     验证文件内容
-
+    
     Args:
         file_path: 文件路径
-
+    
     Returns:
-        (是否有效，错误消�?
+        (是否有效，错误消息)
     """
     try:
-        # JSON 文件验证
         if file_path.suffix.lower() in [".json", ".jsonl"]:
-            # 尝试读取内容验证
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     if file_path.suffix.lower() == ".jsonl":
@@ -132,22 +128,22 @@ def validate_file_content(file_path: Path) -> Tuple[bool, str]:
                         json.load(f)
                 return True, ""
             except json.JSONDecodeError as e:
-                    return False, f"Invalid JSON format: {str(e)}"
-        
+                return False, f"Invalid JSON format: {str(e)}"
         return True, ""
     except Exception as e:
         logger.warning(f"文件内容验证失败：{e}")
-        return True, ""  # 保守处理，不阻止上传
+        return True, ""
 
 
 def validate_dataset_format(file_path: Path) -> Tuple[bool, str, int]:
     """
-    验证数据集格�?    
+    验证数据集格式
+    
     Args:
         file_path: 文件路径
     
     Returns:
-        (是否有效，错误消息，样本�?
+        (是否有效，错误消息，样本数)
     """
     try:
         sample_count = 0
@@ -157,7 +153,6 @@ def validate_dataset_format(file_path: Path) -> Tuple[bool, str, int]:
                 for i, line in enumerate(f):
                     try:
                         data = json.loads(line)
-                        # 验证基本格式 - 支持多种格式
                         has_valid_field = (
                             "messages" in data or
                             "text" in data or
@@ -165,12 +160,9 @@ def validate_dataset_format(file_path: Path) -> Tuple[bool, str, int]:
                             "instruction" in data
                         )
                         if not has_valid_field:
-                            return False, f"Line {i+1}: Missing required field (messages/text/content/instruction)", 0
-
-                        # 如果�?messages 字段，验证其格式
+                            return False, f"Line {i+1}: Missing required field", 0
                         if "messages" in data and not isinstance(data["messages"], list):
                             return False, f"Line {i+1}: 'messages' must be a list", 0
-
                         sample_count += 1
                     except json.JSONDecodeError as e:
                         return False, f"Line {i+1}: Invalid JSON - {str(e)}", 0
@@ -178,7 +170,6 @@ def validate_dataset_format(file_path: Path) -> Tuple[bool, str, int]:
                 data = json.load(f)
                 if isinstance(data, list):
                     for i, item in enumerate(data):
-                        # 验证基本格式 - 支持多种格式
                         has_valid_field = (
                             "messages" in item or
                             "text" in item or
@@ -186,12 +177,9 @@ def validate_dataset_format(file_path: Path) -> Tuple[bool, str, int]:
                             "instruction" in item
                         )
                         if not has_valid_field:
-                            return False, f"Item {i}: Missing required field (messages/text/content/instruction)", 0
-
-                        # 如果�?messages 字段，验证其格式
+                            return False, f"Item {i}: Missing required field", 0
                         if "messages" in item and not isinstance(item["messages"], list):
                             return False, f"Item {i}: 'messages' must be a list", 0
-
                     sample_count = len(data)
                 else:
                     return False, "JSON root must be a list of conversations", 0
@@ -206,7 +194,8 @@ def validate_dataset_format(file_path: Path) -> Tuple[bool, str, int]:
 
 def compute_statistics(file_path: Path, sample_limit: int = 1000) -> DatasetStatistics:
     """
-    计算数据集统计信�?    
+    计算数据集统计信息
+    
     Args:
         file_path: 文件路径
         sample_limit: 采样上限
@@ -240,13 +229,11 @@ def compute_statistics(file_path: Path, sample_limit: int = 1000) -> DatasetStat
             sample_length_distribution={}
         )
     
-    # 统计分析
     total_messages = 0
     total_length = 0
     total_turns = 0
     role_counts = {}
     length_buckets = {"0-100": 0, "100-500": 0, "500-1000": 0, "1000-2000": 0, "2000+": 0}
-    sample_lengths = []
     
     for sample in samples:
         messages = sample.get("messages", [])
@@ -257,16 +244,12 @@ def compute_statistics(file_path: Path, sample_limit: int = 1000) -> DatasetStat
             role = msg.get("role", "unknown")
             content = msg.get("content", "")
             
-            # 角色统计
             role_counts[role] = role_counts.get(role, 0) + 1
-            
-            # 长度统计
             msg_length = len(content)
             total_length += msg_length
             sample_length += msg_length
             total_messages += 1
         
-        # 样本长度分桶
         if sample_length < 100:
             length_buckets["0-100"] += 1
         elif sample_length < 500:
@@ -277,13 +260,11 @@ def compute_statistics(file_path: Path, sample_limit: int = 1000) -> DatasetStat
             length_buckets["1000-2000"] += 1
         else:
             length_buckets["2000+"] += 1
-        
-        sample_lengths.append(sample_length)
     
     avg_length = total_length / total_messages if total_messages > 0 else 0
     avg_turns = total_turns / len(samples) if samples else 0
     
-    # 消息长度分布（按角色�?    msg_length_dist = {}
+    msg_length_dist = {}
     for role, count in role_counts.items():
         pct = (count / total_messages * 100) if total_messages > 0 else 0
         msg_length_dist[role] = f"{pct:.1f}%"
@@ -299,7 +280,7 @@ def compute_statistics(file_path: Path, sample_limit: int = 1000) -> DatasetStat
 
 
 def get_datasets_list() -> List[DatasetInfo]:
-    """获取数据集列�?""
+    """获取数据集列表"""
     datasets_dir = get_datasets_dir()
     datasets = []
     
@@ -312,7 +293,7 @@ def get_datasets_list() -> List[DatasetInfo]:
 
         info_file = dataset_path / "info.json"
         if not info_file.exists():
-            # 尝试从数据文件生成信�?            continue
+            continue
 
         try:
             with open(info_file, "r", encoding="utf-8") as f:
@@ -337,7 +318,7 @@ def get_datasets_list() -> List[DatasetInfo]:
             )
             datasets.append(dataset_info)
         except Exception as e:
-            logger.error(f"加载数据集失�?{dataset_path}: {e}")
+            logger.error(f"加载数据集失败 {dataset_path}: {e}")
             continue
 
     return datasets
@@ -351,12 +332,13 @@ async def list_datasets():
 
 @router.post("/upload", response_model=DatasetUploadResponse)
 async def upload_dataset(
-    file: UploadFile = File(..., description="数据集文�?),
-    name: Optional[str] = Form(None, description="数据集名�?),
-    description: Optional[str] = Form(None, description="数据集描�?)
+    file: UploadFile = File(..., description="数据集文件"),
+    name: Optional[str] = Form(None, description="数据集名称"),
+    description: Optional[str] = Form(None, description="数据集描述")
 ):
     """
-    上传数据�?    
+    上传数据集
+    
     安全校验:
     - 文件类型验证
     - 文件大小限制
@@ -366,9 +348,8 @@ async def upload_dataset(
     settings = get_settings_config()
     datasets_dir = get_datasets_dir()
     
-    # 1. 文件名安全处�?    original_filename = safe_filename(file.filename or "dataset")
+    original_filename = safe_filename(file.filename or "dataset")
     
-    # 2. 文件类型验证
     file_ext = Path(original_filename).suffix.lower()
     if file_ext not in _allowed_types:
         raise HTTPException(
@@ -376,7 +357,6 @@ async def upload_dataset(
             detail=f"不允许的文件类型：{file_ext}，允许：{', '.join(_allowed_types)}"
         )
     
-    # 3. 文件大小验证
     try:
         content = await file.read()
         file_size = len(content)
@@ -388,28 +368,24 @@ async def upload_dataset(
             )
         
         if file_size == 0:
-            raise HTTPException(status_code=400, detail="空文�?)
+            raise HTTPException(status_code=400, detail="空文件")
     except Exception as e:
         if isinstance(e, HTTPException):
             raise
         raise HTTPException(status_code=500, detail=f"读取文件失败：{str(e)}")
     
-    # 4. 生成数据�?ID
     dataset_name = name or Path(original_filename).stem
     dataset_id = safe_filename(dataset_name).replace(" ", "_").lower()
     
-    # 5. 检查是否已存在
     dataset_path = datasets_dir / dataset_id
     if dataset_path.exists():
         raise HTTPException(
             status_code=409,
-            detail=f"数据�?'{dataset_name}' 已存在，请使用其他名�?
+            detail=f"数据集 '{dataset_name}' 已存在，请使用其他名称"
         )
     
-    # 6. 创建目录
     dataset_path.mkdir(parents=True, exist_ok=True)
     
-    # 7. 保存文件
     dest_file = dataset_path / original_filename
     try:
         with open(dest_file, "wb") as f:
@@ -418,29 +394,22 @@ async def upload_dataset(
         shutil.rmtree(dataset_path)
         raise HTTPException(status_code=500, detail=f"保存文件失败：{str(e)}")
     
-    # 8. 内容验证
     is_valid, error_msg = validate_file_content(dest_file)
     if not is_valid:
         shutil.rmtree(dataset_path)
         raise HTTPException(status_code=400, detail=f"文件内容无效：{error_msg}")
     
-    # 9. 格式验证和样本计�?    is_valid, error_msg, sample_count = validate_dataset_format(dest_file)
+    is_valid, error_msg, sample_count = validate_dataset_format(dest_file)
     if not is_valid:
         shutil.rmtree(dataset_path)
         raise HTTPException(status_code=400, detail=f"数据集格式错误：{error_msg}")
     
-    # 10. 计算文件哈希
     file_hash = calculate_file_hash(dest_file)
     
-    # 11. 计算统计信息
-    try:
-        statistics = compute_statistics(dest_file)
-        stats_dict = statistics.model_dump()
-    except Exception as e:
-        logger.warning(f"计算统计失败：{e}")
-        stats_dict = None
+    statistics = compute_statistics(dest_file)
+    stats_dict = statistics.model_dump()
     
-    # 12. 保存元信�?    created_at = datetime.now().isoformat()
+    created_at = datetime.now().isoformat()
     info = {
         "id": dataset_id,
         "name": dataset_name,
@@ -453,7 +422,8 @@ async def upload_dataset(
         "statistics": stats_dict,
     }
     
-    with open(dataset_path / "info.json", "w", encoding="utf-8") as f:
+    info_file = dataset_path / "info.json"
+    with open(info_file, "w", encoding="utf-8") as f:
         json.dump(info, f, ensure_ascii=False, indent=2)
     
     logger.info(f"数据集上传成功：{dataset_id}, 样本数：{sample_count}")
@@ -466,13 +436,13 @@ async def upload_dataset(
         format=file_ext[1:],
         samples=sample_count,
         created_at=created_at,
-        message="数据集上传成�?
+        message="数据集上传成功"
     )
 
 
 @router.delete("/{dataset_id}")
 async def delete_dataset(dataset_id: str):
-    """删除数据�?""
+    """删除数据集"""
     datasets_dir = get_datasets_dir()
     dataset_path = datasets_dir / dataset_id
 
@@ -485,119 +455,88 @@ async def delete_dataset(dataset_id: str):
     try:
         shutil.rmtree(dataset_path)
         logger.info(f"数据集已删除：{dataset_id}")
-        return {"message": "数据集删除成�?}
+        return {"message": "数据集删除成功"}
     except Exception as e:
         logger.error(f"删除数据集失败：{e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{dataset_id}")
+@router.get("/{dataset_id}", response_model=DatasetInfo)
 async def get_dataset(dataset_id: str):
-    """获取数据集详�?""
+    """获取数据集详情"""
     datasets = get_datasets_list()
     dataset = next((d for d in datasets if d.id == dataset_id), None)
-
+    
     if not dataset:
         raise HTTPException(status_code=404, detail="数据集不存在")
-
+    
     return dataset
 
 
 @router.get("/{dataset_id}/preview")
-async def preview_dataset(
-    dataset_id: str,
-    limit: int = Query(default=10, ge=1, le=100, description="预览条数")
-):
-    """预览数据�?""
+async def preview_dataset(dataset_id: str, limit: int = Query(default=10, ge=1, le=100)):
+    """预览数据集"""
     datasets_dir = get_datasets_dir()
     dataset_path = datasets_dir / dataset_id
 
     if not dataset_path.exists():
         raise HTTPException(status_code=404, detail="数据集不存在")
 
-    # 查找数据文件
     data_files = []
     for ext in [".json", ".jsonl"]:
         data_files.extend(list(dataset_path.glob(f"*{ext}")))
-        data_files.extend(list(dataset_path.glob(f"data{ext}")))
 
     if not data_files:
-        raise HTTPException(status_code=404, detail="数据文件不存�?)
+        raise HTTPException(status_code=404, detail="数据文件不存在")
 
     data_file = data_files[0]
-    samples = []
+    
+    max_preview_size = 10 * 1024 * 1024  # 10MB
+    file_size = data_file.stat().st_size
+    
+    if file_size > max_preview_size:
+        raise HTTPException(
+            status_code=400,
+            detail=f"文件过大 ({file_size / (1024*1024):.1f}MB)，无法预览。请使用 JSONL 格式或减小文件大小"
+        )
 
     try:
-        if data_file.suffix.lower() == ".jsonl":
-            # JSONL 文件使用流式读取
-            with open(data_file, "r", encoding="utf-8") as f:
+        with open(data_file, "r", encoding="utf-8") as f:
+            if data_file.suffix.lower() == ".jsonl":
+                samples = []
                 for i, line in enumerate(f):
                     if i >= limit:
                         break
                     samples.append(json.loads(line))
-        else:
-            # JSON 文件检查大�?            file_size = data_file.stat().st_size
-            max_preview_size = 100 * 1024 * 1024  # 100MB
-
-            if file_size > max_preview_size:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"文件过大 ({file_size / (1024*1024):.1f}MB)，无法预览。请使用 JSONL 格式或减小文件大小�?
-                )
-
-            with open(data_file, "r", encoding="utf-8") as f:
+            else:
                 data = json.load(f)
                 if isinstance(data, list):
                     samples = data[:limit]
                 else:
                     samples = [data]
-    except HTTPException:
-        raise
+        
+        return {"samples": samples, "total_shown": len(samples)}
     except Exception as e:
-        logger.error(f"读取数据集失败：{e}")
         raise HTTPException(status_code=500, detail=f"读取失败：{str(e)}")
 
-    # 获取总样本数
-    total_samples = 0
-    try:
-        info_file = dataset_path / "info.json"
-        if info_file.exists():
-            with open(info_file, "r", encoding="utf-8") as f:
-                info = json.load(f)
-                total_samples = info.get("samples", len(samples))
-        else:
-            total_samples = len(samples)
-    except Exception as e:
-        logger.debug(f"读取数据集信息失�? {e}")
-        total_samples = len(samples)
 
-    return {
-        "total_samples": total_samples,
-        "preview": samples,
-        "limit": limit
-    }
-
-
-@router.get("/{dataset_id}/statistics")
+@router.get("/{dataset_id}/statistics", response_model=DatasetStatistics)
 async def get_dataset_statistics(dataset_id: str):
-    """获取数据集统计信�?""
+    """获取数据集统计信息"""
     datasets_dir = get_datasets_dir()
     dataset_path = datasets_dir / dataset_id
 
     if not dataset_path.exists():
         raise HTTPException(status_code=404, detail="数据集不存在")
 
-    # 查找数据文件
     data_files = []
     for ext in [".json", ".jsonl"]:
         data_files.extend(list(dataset_path.glob(f"*{ext}")))
 
     if not data_files:
-        raise HTTPException(status_code=404, detail="数据文件不存�?)
+        raise HTTPException(status_code=404, detail="数据文件不存在")
 
     data_file = data_files[0]
-    
-    # 计算统计
     statistics = compute_statistics(data_file)
     
     return statistics.model_dump()
@@ -605,27 +544,23 @@ async def get_dataset_statistics(dataset_id: str):
 
 @router.post("/{dataset_id}/refresh-stats")
 async def refresh_dataset_statistics(dataset_id: str):
-    """刷新数据集统计信�?""
+    """刷新数据集统计信息"""
     datasets_dir = get_datasets_dir()
     dataset_path = datasets_dir / dataset_id
 
     if not dataset_path.exists():
         raise HTTPException(status_code=404, detail="数据集不存在")
 
-    # 查找数据文件
     data_files = []
     for ext in [".json", ".jsonl"]:
         data_files.extend(list(dataset_path.glob(f"*{ext}")))
 
     if not data_files:
-        raise HTTPException(status_code=404, detail="数据文件不存�?)
+        raise HTTPException(status_code=404, detail="数据文件不存在")
 
     data_file = data_files[0]
-    
-    # 重新计算统计
     statistics = compute_statistics(data_file)
     
-    # 更新 info.json
     info_file = dataset_path / "info.json"
     info = {}
     if info_file.exists():
@@ -639,6 +574,6 @@ async def refresh_dataset_statistics(dataset_id: str):
         json.dump(info, f, ensure_ascii=False, indent=2)
     
     return {
-        "message": "统计信息已更�?,
+        "message": "统计信息已更新",
         "statistics": statistics.model_dump()
     }

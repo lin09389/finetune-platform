@@ -48,7 +48,7 @@ export default function ModelHub() {
   const [localModels, setLocalModels] = useState<LocalModel[]>([])
   const [downloadTasks, setDownloadTasks] = useState<Record<string, DownloadTask>>({})
   const [modelSource, setModelSource] = useState<string>('modelscope')
-  const [defaultSource, setDefaultSource] = useState<string>('modelscope')
+  const [, setDefaultSource] = useState<string>('modelscope')
 
   useEffect(() => {
     loadSuggestions()

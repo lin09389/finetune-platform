@@ -16,14 +16,14 @@ from skills import (
 
 
 def test_scanner():
-    print("\n=== 测试扫描�?===")
+    print("\n=== 测试扫描器 ===")
     
     skills_dir = Path(__file__).parent / "implemented"
     scanner = create_scanner(skills_dir=skills_dir)
     
     report = scanner.scan_directory()
     
-    print(f"扫描结果: 总计 {report.total_scanned} 个文�?)
+    print(f"扫描结果: 总计 {report.total_scanned} 个文件")
     print(f"  - 成功: {report.successful}")
     print(f"  - 失败: {report.failed}")
     print(f"  - 跳过: {report.skipped}")
@@ -31,13 +31,13 @@ def test_scanner():
     
     for result in report.results:
         if result.metadata:
-            print(f"  发现技�? {result.skill_name} ({result.metadata.category})")
+            print(f"  发现技能: {result.skill_name} ({result.metadata.category})")
     
     return scanner, report
 
 
 def test_registry():
-    print("\n=== 测试注册�?===")
+    print("\n=== 测试注册器 ===")
     
     registry = get_enhanced_registry()
     
@@ -46,18 +46,18 @@ def test_registry():
     registry.register(TextTransformSkill)
     registry.register(WordCountSkill)
     
-    print(f"已注册技�? {registry.list_skills()}")
+    print(f"已注册技能: {registry.list_skills()}")
     print(f"统计信息: {registry.get_stats()}")
     
     text_meta = registry.get_metadata("text_transform")
     if text_meta:
-        print(f"text_transform 元数�? {text_meta.display_name}")
+        print(f"text_transform 元数据: {text_meta.display_name}")
     
     return registry
 
 
 async def test_execution():
-    print("\n=== 测试技能执�?===")
+    print("\n=== 测试技能执行 ===")
     
     registry = get_enhanced_registry()
     
@@ -66,7 +66,7 @@ async def test_execution():
         parameters={"text": "Hello World", "operation": "uppercase"},
     )
     
-    print(f"执行状�? {execution.status}")
+    print(f"执行状态: {execution.status}")
     if execution.result:
         print(f"执行结果: {execution.result.data}")
         print(f"执行时间: {execution.result.execution_time:.3f}s")
@@ -102,7 +102,7 @@ def test_lifecycle():
     print(f"加载结果: {len([r for r in results.values() if r.success])} 成功")
     
     stats = lifecycle.get_status_report()
-    print(f"状态报�? {stats['load_states']}")
+    print(f"状态报告: {stats['load_states']}")
     
     return lifecycle
 
@@ -116,25 +116,25 @@ def test_dependencies():
     print(f"text_transform 依赖: {deps}")
     
     dependents = registry.get_dependents("text_transform")
-    print(f"依赖 text_transform 的技�? {dependents}")
+    print(f"依赖 text_transform 的技能: {dependents}")
     
     load_order = registry.get_load_order()
     print(f"加载顺序: {load_order}")
 
 
 def test_search():
-    print("\n=== 测试技能搜�?===")
+    print("\n=== 测试技能搜索 ===")
     
     registry = get_enhanced_registry()
     
     by_category = registry.list_skills_by_category("data")
-    print(f"按类别搜�?(data): {by_category}")
+    print(f"按类别搜索(data): {by_category}")
     
     by_tag = registry.list_skills_by_tag("text")
-    print(f"按标签搜�?(text): {by_tag}")
+    print(f"按标签搜索(text): {by_tag}")
     
     search_results = registry.search_skills(query="text")
-    print(f"关键词搜�?(text): {search_results}")
+    print(f"关键词搜索(text): {search_results}")
 
 
 def main():
@@ -151,7 +151,7 @@ def main():
     asyncio.run(test_execution())
     
     print("\n" + "=" * 50)
-    print("所有测试完�?")
+    print("所有测试完成")
     print("=" * 50)
 
 

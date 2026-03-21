@@ -2,6 +2,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, List
 import torch
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -62,7 +65,7 @@ class BaseBackend(ABC):
 
     @abstractmethod
     def is_available(self) -> bool:
-        """检查后端是否可�?""
+        """检查后端是否可用"""
         pass
 
     @abstractmethod
@@ -260,7 +263,7 @@ class MLXBackend(BaseBackend):
 
             mps_available = torch.backends.mps.is_available()
         except Exception as e:
-            logger.debug(f"MPS 检查失�? {e}")
+            logger.debug(f"MPS 检查失败: {e}")
 
         return DeviceInfo(
             platform="mac",
@@ -293,7 +296,7 @@ class MLXBackend(BaseBackend):
 
 
 def get_backend() -> BaseBackend:
-    """获取可用的后�?""
+    """获取可用的后端"""
     cuda_backend = CUDABackend()
     if cuda_backend.is_available():
         return cuda_backend

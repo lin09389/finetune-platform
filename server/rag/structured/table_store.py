@@ -1,6 +1,8 @@
+# -*- coding: utf-8 -*-
 """
-结构化数�?- 表格存储
-支持 CSV、Excel 文件导入和表格数据管�?"""
+结构化数据 - 表格存储
+支持 CSV、Excel 文件导入和表格数据管理
+"""
 from typing import List, Dict, Any, Optional, Union
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -15,26 +17,27 @@ logger = logging.getLogger(__name__)
 
 
 class TableMetadata(BaseModel):
-    """表格元数�?""
+    """表格元数据"""
     table_id: str = Field(..., description="表格唯一标识")
     name: str = Field(..., description="表格名称")
     description: str = Field(default="", description="表格描述")
-    source_file: Optional[str] = Field(default=None, description="源文件路�?)
+    source_file: Optional[str] = Field(default=None, description="源文件路径")
     source_type: str = Field(default="csv", description="源文件类型：csv/excel/manual")
     row_count: int = Field(default=0, description="行数")
     column_count: int = Field(default=0, description="列数")
-    columns: List[Dict[str, Any]] = Field(default_factory=list, description="列信�?)
+    columns: List[Dict[str, Any]] = Field(default_factory=list, description="列信息")
     created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
     updated_at: datetime = Field(default_factory=datetime.now, description="更新时间")
     tags: List[str] = Field(default_factory=list, description="标签")
 
 
 class TableStore:
-    """表格存储管理�?""
+    """表格存储管理器"""
     
     def __init__(self, storage_path: str = "data/tables"):
         """
-        初始化表格存�?        
+        初始化表格存储
+        
         Args:
             storage_path: 存储路径
         """
@@ -51,7 +54,7 @@ class TableStore:
         self._load_metadata()
     
     def _init_database(self):
-        """初始�?SQLite 数据�?""
+        """初始化 SQLite 数据库"""
         conn = sqlite3.connect(str(self.db_path))
         cursor = conn.cursor()
         
@@ -102,10 +105,10 @@ class TableStore:
             )
             self._tables[table_id] = metadata
         
-        logger.info(f"已加�?{len(self._tables)} 个表格元数据")
+        logger.info(f"已加载 {len(self._tables)} 个表格元数据")
     
     def _save_metadata(self, metadata: TableMetadata):
-        """保存表格元数�?""
+        """保存表格元数据"""
         conn = sqlite3.connect(str(self.db_path))
         cursor = conn.cursor()
         
@@ -131,7 +134,7 @@ class TableStore:
         conn.close()
     
     def _get_table_name(self, table_id: str) -> str:
-        """获取数据库表�?""
+        """获取数据库表名"""
         return f"table_{table_id.replace('-', '_')}"
     
     def import_csv(
@@ -148,12 +151,15 @@ class TableStore:
         
         Args:
             file_path: CSV 文件路径
-            name: 表格名称（默认使用文件名�?            description: 表格描述
+            name: 表格名称（默认使用文件名）
+            description: 表格描述
             tags: 标签列表
             encoding: 文件编码
-            delimiter: 分隔�?            
+            delimiter: 分隔符
+            
         Returns:
-            表格元数�?        """
+            表格元数据
+        """
         file_path = Path(file_path)
         if not file_path.exists():
             raise FileNotFoundError(f"文件不存在：{file_path}")
@@ -183,7 +189,7 @@ class TableStore:
         self._save_metadata(metadata)
         self._tables[table_id] = metadata
         
-        logger.info(f"CSV 导入成功：{table_name} ({len(df)} �? {len(df.columns)} �?")
+        logger.info(f"CSV 导入成功：{table_name} ({len(df)} 行, {len(df.columns)} 列)")
         return metadata
     
     def import_excel(
@@ -199,9 +205,10 @@ class TableStore:
         
         Args:
             file_path: Excel 文件路径
-            name: 表格名称（默认使用文件名�?            description: 表格描述
+            name: 表格名称（默认使用文件名）
+            description: 表格描述
             tags: 标签列表
-            sheet_name: 工作表名�?索引/列表，None 表示所有工作表
+            sheet_name: 工作表名称/索引/列表，None 表示所有工作表
             
         Returns:
             单个表格元数据或列表
@@ -223,7 +230,7 @@ class TableStore:
                     metadata = TableMetadata(
                         table_id=table_id,
                         name=table_name,
-                        description=f"{description} (工作�? {sheet_nm})",
+                        description=f"{description} (工作表: {sheet_nm})",
                         source_file=str(file_path),
                         source_type="excel",
                         row_count=len(df),
@@ -263,7 +270,7 @@ class TableStore:
                 self._save_metadata(metadata)
                 self._tables[table_id] = metadata
                 
-                logger.info(f"Excel 导入成功：{table_name} ({len(df)} �? {len(df.columns)} �?")
+                logger.info(f"Excel 导入成功：{table_name} ({len(df)} 行, {len(df.columns)} 列)")
                 return metadata
                 
         except Exception as e:
@@ -278,15 +285,17 @@ class TableStore:
         tags: Optional[List[str]] = None
     ) -> TableMetadata:
         """
-        创建空表�?        
+        创建空表格
+        
         Args:
             name: 表格名称
-            columns: 列定义列表，�?[{"name": "id", "type": "INTEGER"}, ...]
+            columns: 列定义列表，如 [{"name": "id", "type": "INTEGER"}, ...]
             description: 表格描述
             tags: 标签列表
             
         Returns:
-            表格元数�?        """
+            表格元数据
+        """
         table_id = f"tbl_{uuid.uuid4().hex[:12]}"
         db_table_name = self._get_table_name(table_id)
         
@@ -327,12 +336,15 @@ class TableStore:
         rows: List[Dict[str, Any]]
     ) -> int:
         """
-        插入行数�?        
+        插入行数据
+        
         Args:
             table_id: 表格 ID
-            rows: 行数据列�?            
+            rows: 行数据列表
+            
         Returns:
-            插入的行�?        """
+            插入的行数
+        """
         if table_id not in self._tables:
             raise ValueError(f"表格不存在：{table_id}")
         
@@ -364,7 +376,7 @@ class TableStore:
         metadata.updated_at = datetime.now()
         self._save_metadata(metadata)
         
-        logger.info(f"已插�?{len(rows)} 行到表格 {metadata.name}")
+        logger.info(f"已插入 {len(rows)} 行到表格 {metadata.name}")
         return len(rows)
     
     def query(
@@ -381,10 +393,12 @@ class TableStore:
         
         Args:
             table_id: 表格 ID
-            columns: 要查询的列（None 表示所有列�?            where: WHERE 条件
+            columns: 要查询的列（None 表示所有列）
+            where: WHERE 条件
             order_by: 排序字段
             limit: 返回行数限制
-            offset: 偏移�?            
+            offset: 偏移量
+            
         Returns:
             查询结果列表
         """
@@ -431,7 +445,7 @@ class TableStore:
         
         Args:
             table_id: 表格 ID
-            sql: SQL 查询语句（使�?{table} 作为表名占位符）
+            sql: SQL 查询语句（使用 {table} 作为表名占位符）
             
         Returns:
             查询结果
@@ -464,7 +478,7 @@ class TableStore:
             conn.close()
     
     def get_table(self, table_id: str) -> Optional[TableMetadata]:
-        """获取表格元数�?""
+        """获取表格元数据"""
         return self._tables.get(table_id)
     
     def list_tables(
@@ -476,10 +490,12 @@ class TableStore:
         列出表格
         
         Args:
-            tags: 按标签过�?            source_type: 按源类型过滤
+            tags: 按标签过滤
+            source_type: 按源类型过滤
             
         Returns:
-            表格元数据列�?        """
+            表格元数据列表
+        """
         results = list(self._tables.values())
         
         if source_type:
@@ -560,7 +576,7 @@ class TableStore:
         return schema
     
     def _extract_column_info(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
-        """�?DataFrame 提取列信�?""
+        """从 DataFrame 提取列信息"""
         columns = []
         for col_name in df.columns:
             dtype = str(df[col_name].dtype)
@@ -574,7 +590,7 @@ class TableStore:
         return columns
     
     def _infer_column_type(self, dtype: str) -> str:
-        """推断列类�?""
+        """推断列类型"""
         dtype_lower = dtype.lower()
         if "int" in dtype_lower:
             return "INTEGER"
@@ -602,7 +618,7 @@ class TableStore:
             return "TEXT"
     
     def _create_table_from_df(self, table_id: str, df: pd.DataFrame):
-        """�?DataFrame 创建数据库表"""
+        """从 DataFrame 创建数据库表"""
         db_table_name = self._get_table_name(table_id)
         
         conn = sqlite3.connect(str(self.db_path))

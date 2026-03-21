@@ -1,7 +1,8 @@
+# -*- coding: utf-8 -*-
 """
 Gateways API 路由
 
-提供 Gateway 模块�?REST API 端点
+提供 Gateway 模块的 REST API 端点
 """
 import logging
 from typing import Dict, Any, Optional, List
@@ -19,7 +20,7 @@ from gateway import (
     get_gateway_session_manager,
     get_binding_manager,
 )
-from gateway.agent_isolation import AgentIsolationManager, get_agent_isolation_manager
+from gateway.agent_isolation import AgentIsolationManager, get_isolation_manager
 from gateway.device_auth import (
     DeviceAuthManager,
     DeviceType,
@@ -61,7 +62,7 @@ class ChallengeVerifyRequest(BaseModel):
 
 
 class MessageSendRequest(BaseModel):
-    """消息发送请�?""
+    """消息发送请求"""
     target_agent: str
     message_type: str = "request"
     priority: str = "normal"
@@ -84,7 +85,7 @@ class BindingRuleRequest(BaseModel):
 
 
 class SpawnAgentRequest(BaseModel):
-    """生成�?Agent 请求"""
+    """生成子 Agent 请求"""
     parent_agent: str
     task_type: str
     config: Optional[Dict[str, Any]] = None
@@ -92,12 +93,12 @@ class SpawnAgentRequest(BaseModel):
 
 @router.get("/status")
 async def get_gateway_status():
-    """获取 Gateway 状�?""
+    """获取 Gateway 状态"""
     gateway = get_gateway_server()
     router_instance = get_message_router()
     session_manager = get_gateway_session_manager()
     binding_manager = get_binding_manager()
-    isolation_manager = get_agent_isolation_manager()
+    isolation_manager = get_isolation_manager()
     auth_manager = get_device_auth_manager()
     communicator = get_cross_agent_communicator()
     
@@ -116,7 +117,7 @@ async def get_gateway_status():
 
 @router.post("/devices/register")
 async def register_device(request: DeviceRegisterRequest):
-    """注册新设�?""
+    """注册新设备"""
     auth_manager = get_device_auth_manager()
     
     import uuid
@@ -184,7 +185,7 @@ async def list_devices(
     device_type: Optional[str] = None,
     status: Optional[str] = None,
 ):
-    """列出所有设�?""
+    """列出所有设备"""
     auth_manager = get_device_auth_manager()
     
     if device_type:
@@ -244,7 +245,7 @@ async def set_device_permissions(
 
 @router.post("/messages/send")
 async def send_message(request: MessageSendRequest):
-    """发送消�?""
+    """发送消息"""
     communicator = get_cross_agent_communicator()
     
     message = await communicator.send_message(
@@ -350,7 +351,7 @@ async def delete_binding(rule_id: str):
 
 @router.post("/agents/spawn")
 async def spawn_agent(request: SpawnAgentRequest):
-    """生成�?Agent"""
+    """生成子 Agent"""
     communicator = get_cross_agent_communicator()
     
     spawned_id = await communicator.spawn_agent(
@@ -391,7 +392,7 @@ async def list_spawned_agents(parent_agent: Optional[str] = None):
 
 @router.delete("/agents/spawned/{spawned_id}")
 async def terminate_spawned_agent(spawned_id: str):
-    """终止�?Agent"""
+    """终止子 Agent"""
     communicator = get_cross_agent_communicator()
     
     success = await communicator.terminate_agent(spawned_id)
@@ -405,7 +406,7 @@ async def collect_results(
     timeout: int = 60,
     merge_strategy: str = "combine",
 ):
-    """收集多个 Agent 的结�?""
+    """收集多个 Agent 的结果"""
     communicator = get_cross_agent_communicator()
     
     results = await communicator.collect_results(agent_ids, timeout)

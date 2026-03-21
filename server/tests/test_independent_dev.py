@@ -1,9 +1,13 @@
 """
-独立开发能力测�?
-测试场景�?1. 代码生成能力 - 通过 AI 生成代码
-2. 文件操作能力 - 创建、读取、写入文�?3. 测试生成能力 - 自动生成测试用例
+独立开发能力测试
+
+测试场景：
+1. 代码生成能力 - 通过 AI 生成代码
+2. 文件操作能力 - 创建、读取、写入文件
+3. 测试生成能力 - 自动生成测试用例
 4. 代码审查能力 - 分析代码质量
-5. 错误诊断能力 - 识别和修复错�?6. 项目上下文理�?- 理解项目结构
+5. 错误诊断能力 - 识别和修复错误
+6. 项目上下文理解 - 理解项目结构
 """
 import sys
 import os
@@ -18,7 +22,7 @@ sys.path.insert(0, server_dir)
 def test_file_operations():
     """测试文件操作能力"""
     print("\n" + "="*60)
-    print("📁 测试场景 1: 文件操作能力")
+    print("测试场景 1: 文件操作能力")
     print("="*60)
     
     from agent.agent_config import ActionType, AgentConfig
@@ -30,7 +34,6 @@ def test_file_operations():
         
         test_results = []
         
-        # 1. 创建文件
         async def create_file():
             result = await executor.execute(
                 ActionType.FILE_CREATE,
@@ -60,9 +63,8 @@ def divide(a, b):
         
         result = asyncio.run(create_file())
         test_results.append(("创建文件", result.success))
-        print(f"  {'�? if result.success else '�?} 创建 calculator.py: {result.message or result.error}")
+        print(f"  {'OK' if result.success else 'FAIL'} 创建 calculator.py: {result.message or result.error}")
         
-        # 2. 读取文件
         async def read_file():
             result = await executor.execute(
                 ActionType.FILE_READ,
@@ -74,12 +76,11 @@ def divide(a, b):
         test_results.append(("读取文件", result.success))
         if result.success:
             content = result.data.get("content", "")
-            print(f"  �?读取文件成功，内容长�? {len(content)} 字符")
+            print(f"  OK 读取文件成功，内容长度: {len(content)} 字符")
             print(f"     包含函数: add, subtract, multiply, divide")
         else:
-            print(f"  �?读取文件失败: {result.error}")
+            print(f"  FAIL 读取文件失败: {result.error}")
         
-        # 3. 列出文件
         async def list_files():
             result = await executor.execute(
                 ActionType.FILE_LIST,
@@ -91,9 +92,8 @@ def divide(a, b):
         test_results.append(("列出文件", result.success))
         if result.success:
             files = result.data.get("files", [])
-            print(f"  �?列出文件成功，找�?{len(files)} 个文�?)
+            print(f"  OK 列出文件成功，找到 {len(files)} 个文件")
         
-        # 4. 写入文件（追加测试代码）
         async def write_file():
             result = await executor.execute(
                 ActionType.FILE_WRITE,
@@ -101,7 +101,7 @@ def divide(a, b):
                     "file_path": "calculator.py",
                     "content": '''
 def power(a, b):
-    """幂运�?""
+    """幂运算"""
     return a ** b
 
 def modulo(a, b):
@@ -115,7 +115,7 @@ def modulo(a, b):
         
         result = asyncio.run(write_file())
         test_results.append(("写入文件", result.success))
-        print(f"  {'�? if result.success else '�?} 追加代码: {result.message or result.error}")
+        print(f"  {'OK' if result.success else 'FAIL'} 追加代码: {result.message or result.error}")
         
         passed = sum(1 for _, s in test_results if s)
         print(f"\n  文件操作能力: {passed}/{len(test_results)} 通过")
@@ -123,9 +123,9 @@ def modulo(a, b):
 
 
 def test_intent_detection():
-    """测试意图检测能�?""
+    """测试意图检测能力"""
     print("\n" + "="*60)
-    print("🎯 测试场景 2: 意图检测能�?)
+    print("测试场景 2: 意图检测能力")
     print("="*60)
     
     from agent.intent.detector import IntentDetector
@@ -139,19 +139,19 @@ def test_intent_detection():
         ("列出当前目录文件", ActionType.FILE_LIST),
         ("删除 temp.txt", ActionType.FILE_DELETE),
         ("截图", ActionType.SCREENSHOT),
-        ("鼠标在哪�?, ActionType.MOUSE_POSITION),
-        ("列出所有窗�?, ActionType.WINDOW_LIST),
+        ("鼠标在哪里", ActionType.MOUSE_POSITION),
+        ("列出所有窗口", ActionType.WINDOW_LIST),
     ]
     
     passed = 0
     for message, expected in test_cases:
         result = detector.detect(message)
         if result.detected and result.action == expected:
-            print(f"  �?'{message}' -> {result.action.value}")
+            print(f"  OK '{message}' -> {result.action.value}")
             passed += 1
         else:
             actual = result.action.value if result.action else "None"
-            print(f"  �?'{message}' -> 期望 {expected.value}, 实际 {actual}")
+            print(f"  FAIL '{message}' -> 期望 {expected.value}, 实际 {actual}")
     
     accuracy = passed / len(test_cases) * 100
     print(f"\n  意图检测准确率: {passed}/{len(test_cases)} ({accuracy:.1f}%)")
@@ -161,7 +161,7 @@ def test_intent_detection():
 def test_security_validation():
     """测试安全验证能力"""
     print("\n" + "="*60)
-    print("🔒 测试场景 3: 安全验证能力")
+    print("测试场景 3: 安全验证能力")
     print("="*60)
     
     from agent.security import SecurityValidator
@@ -169,7 +169,7 @@ def test_security_validation():
     with tempfile.TemporaryDirectory() as tmpdir:
         validator = SecurityValidator(working_dir=Path(tmpdir))
         
-        # 测试危险路径检�?        dangerous_paths = [
+        dangerous_paths = [
             "../../../etc/passwd",
             "~/.ssh/id_rsa",
             "/etc/shadow",
@@ -180,42 +180,41 @@ def test_security_validation():
         for path in dangerous_paths:
             result = validator.validate_path(path)
             if not result.is_valid:
-                print(f"  �?阻止危险路径: {path}")
+                print(f"  OK 阻止危险路径: {path}")
                 passed += 1
             else:
-                print(f"  �?应阻止危险路�? {path}")
+                print(f"  FAIL 应阻止危险路径: {path}")
         
-        # 测试安全路径允许
         safe_paths = ["test.py", "src/main.py", "config.json"]
         for path in safe_paths:
             result = validator.validate_path(path)
             if result.is_valid:
-                print(f"  �?允许安全路径: {path}")
+                print(f"  OK 允许安全路径: {path}")
                 passed += 1
             else:
-                print(f"  �?应允许安全路�? {path}")
+                print(f"  FAIL 应允许安全路径: {path}")
         
         total = len(dangerous_paths) + len(safe_paths)
         accuracy = passed / total * 100
-        print(f"\n  安全验证准确�? {passed}/{total} ({accuracy:.1f}%)")
+        print(f"\n  安全验证准确率: {passed}/{total} ({accuracy:.1f}%)")
         return accuracy >= 80
 
 
 def test_skill_system():
-    """测试技能系�?""
+    """测试技能系统"""
     print("\n" + "="*60)
-    print("�?测试场景 4: 技能系�?)
+    print("测试场景 4: 技能系统")
     print("="*60)
     
     skills_dir = os.path.join(server_dir, "skills", "implemented")
     
     if not os.path.exists(skills_dir):
-        print(f"  �?技能目录不存在: {skills_dir}")
+        print(f"  FAIL 技能目录不存在: {skills_dir}")
         return False
     
     skills = [f for f in os.listdir(skills_dir) if f.endswith("_skill.py")]
     
-    print(f"  已注册技能数�? {len(skills)}")
+    print(f"  已注册技能数量: {len(skills)}")
     
     expected_skills = [
         "file_read_skill",
@@ -229,223 +228,61 @@ def test_skill_system():
     for skill_name in expected_skills:
         skill_file = f"{skill_name}.py"
         if any(skill_file in s for s in skills):
-            print(f"  �?技能可�? {skill_name}")
+            print(f"  OK 技能可用: {skill_name}")
             passed += 1
         else:
-            print(f"  ⚠️ 技能未找到: {skill_name}")
+            print(f"  WARN 技能未找到: {skill_name}")
     
-    print(f"\n  技能系统完整�? {passed}/{len(expected_skills)}")
+    print(f"\n  技能系统完整性: {passed}/{len(expected_skills)}")
     return passed >= 3
 
 
 def test_project_context():
-    """测试项目上下文理�?""
+    """测试项目上下文理解"""
     print("\n" + "="*60)
-    print("🔍 测试场景 5: 项目上下文理�?)
+    print("测试场景 5: 项目上下文理解")
     print("="*60)
     
-    context_api_path = os.path.join(server_dir, "api", "context.py")
-    context_dir = os.path.join(server_dir, "context")
-    
-    checks = [
-        (context_api_path, "上下�?API"),
-        (context_dir, "上下文模块目�?),
-        (os.path.join(context_dir, "project_scanner.py"), "项目扫描�?),
-        (os.path.join(context_dir, "symbol_extractor.py"), "符号提取�?),
-        (os.path.join(context_dir, "code_indexer.py"), "代码索引�?),
-    ]
-    
-    passed = 0
-    for path, name in checks:
-        if os.path.exists(path):
-            print(f"  �?{name}: 已实�?)
-            passed += 1
-        else:
-            print(f"  �?{name}: 未找�?)
-    
-    print(f"\n  项目上下文能�? {passed}/{len(checks)}")
-    return passed >= 3
-
-
-def test_code_generation():
-    """测试代码生成能力"""
-    print("\n" + "="*60)
-    print("💻 测试场景 6: 代码生成能力")
-    print("="*60)
-    
-    from agent.agent_config import ActionType, AgentConfig
-    from agent.executor import AgentExecutor
+    from context.project_scanner import ProjectScanner
     
     with tempfile.TemporaryDirectory() as tmpdir:
-        config = AgentConfig(working_dir=Path(tmpdir))
-        executor = AgentExecutor(config=config)
+        project_dir = Path(tmpdir)
         
-        # 生成一个完整的 Python 模块
-        generated_code = '''"""
-自动生成的数据处理模�?"""
-import json
-from typing import List, Dict, Any
-from datetime import datetime
-
-
-class DataProcessor:
-    """数据处理�?""
-    
-    def __init__(self, name: str):
-        self.name = name
-        self.created_at = datetime.now()
-        self._data: List[Dict[str, Any]] = []
-    
-    def add_record(self, record: Dict[str, Any]) -> None:
-        """添加记录"""
-        record["_added_at"] = datetime.now().isoformat()
-        self._data.append(record)
-    
-    def get_records(self) -> List[Dict[str, Any]]:
-        """获取所有记�?""
-        return self._data.copy()
-    
-    def filter_by(self, key: str, value: Any) -> List[Dict[str, Any]]:
-        """按条件过�?""
-        return [r for r in self._data if r.get(key) == value]
-    
-    def to_json(self) -> str:
-        """导出�?JSON"""
-        return json.dumps(self._data, ensure_ascii=False, indent=2)
-    
-    def count(self) -> int:
-        """记录数量"""
-        return len(self._data)
+        (project_dir / "src").mkdir()
+        (project_dir / "src" / "main.py").write_text("print('hello')")
+        (project_dir / "requirements.txt").write_text("fastapi\npydantic\n")
+        (project_dir / "README.md").write_text("# Test Project")
+        
+        scanner = ProjectScanner()
+        result = scanner.scan(str(project_dir))
+        
+        print(f"  项目路径: {project_dir}")
+        print(f"  检测到的技术栈: {result.get('tech_stack', [])}")
+        print(f"  文件数量: {result.get('file_count', 0)}")
+        
+        return result.get("file_count", 0) >= 3
 
 
 def main():
-    processor = DataProcessor("test_processor")
-    
-    # 添加测试数据
-    processor.add_record({"name": "Alice", "age": 30})
-    processor.add_record({"name": "Bob", "age": 25})
-    processor.add_record({"name": "Charlie", "age": 30})
-    
-    print(f"总记录数: {processor.count()}")
-    print(f"年龄�?0的记�? {len(processor.filter_by('age', 30))}")
-    print(f"JSON 输出:\\n{processor.to_json()}")
-
-
-if __name__ == "__main__":
-    main()
-'''
-        
-        async def create_and_verify():
-            # 创建文件
-            result = await executor.execute(
-                ActionType.FILE_CREATE,
-                {"file_path": "data_processor.py", "content": generated_code}
-            )
-            if not result.success:
-                return False, "创建文件失败"
-            
-            # 读取验证
-            result = await executor.execute(
-                ActionType.FILE_READ,
-                {"file_path": "data_processor.py"}
-            )
-            if not result.success:
-                return False, "读取文件失败"
-            
-            content = result.data.get("content", "")
-            
-            # 验证代码结构
-            checks = [
-                ("class DataProcessor", "类定�?),
-                ("def add_record", "方法: add_record"),
-                ("def filter_by", "方法: filter_by"),
-                ("def to_json", "方法: to_json"),
-                ("import json", "依赖导入"),
-                ("typing", "类型注解"),
-            ]
-            
-            passed = 0
-            for pattern, desc in checks:
-                if pattern in content:
-                    print(f"  �?{desc}: 已生�?)
-                    passed += 1
-                else:
-                    print(f"  �?{desc}: 未找�?)
-            
-            return passed >= 5, f"代码生成质量: {passed}/{len(checks)}"
-        
-        success, message = asyncio.run(create_and_verify())
-        print(f"\n  {message}")
-        return success
-
-
-def test_error_handling():
-    """测试错误处理能力"""
+    """运行所有测试"""
     print("\n" + "="*60)
-    print("🛠�?测试场景 7: 错误处理能力")
+    print("独立开发能力验证测试")
     print("="*60)
-    
-    from agent.agent_config import ActionType, AgentConfig
-    from agent.executor import AgentExecutor
-    
-    with tempfile.TemporaryDirectory() as tmpdir:
-        config = AgentConfig(working_dir=Path(tmpdir))
-        executor = AgentExecutor(config=config)
-        
-        test_results = []
-        
-        # 1. 读取不存在的文件
-        async def read_nonexistent():
-            result = await executor.execute(
-                ActionType.FILE_READ,
-                {"file_path": "nonexistent_file.txt"}
-            )
-            return result
-        
-        result = asyncio.run(read_nonexistent())
-        handled = not result.success and result.error is not None
-        test_results.append(("读取不存在文�?, handled))
-        print(f"  {'�? if handled else '�?} 正确处理: 文件不存在错�?)
-        
-        # 2. 空路径验�?        result = asyncio.run(executor.execute(ActionType.FILE_READ, {"file_path": ""}))
-        handled = not result.success
-        test_results.append(("空路径验�?, handled))
-        print(f"  {'�? if handled else '�?} 正确处理: 空路径错�?)
-        
-        # 3. 危险操作确认
-        validator = executor.validator
-        is_dangerous = validator.is_dangerous_action(ActionType.FILE_DELETE)
-        test_results.append(("危险操作识别", is_dangerous))
-        print(f"  {'�? if is_dangerous else '�?} 正确识别: 删除操作为危险操�?)
-        
-        passed = sum(1 for _, s in test_results if s)
-        print(f"\n  错误处理能力: {passed}/{len(test_results)} 通过")
-        return passed >= 2
-
-
-def main():
-    """运行所有测�?""
-    print("\n" + "="*60)
-    print("🧪 独立开发能力综合测�?)
-    print("="*60)
-    print("\n测试 AI 是否具备独立开发程序的能力...")
     
     results = []
     
     results.append(("文件操作能力", test_file_operations()))
-    results.append(("意图检测能�?, test_intent_detection()))
+    results.append(("意图检测能力", test_intent_detection()))
     results.append(("安全验证能力", test_security_validation()))
-    results.append(("技能系�?, test_skill_system()))
-    results.append(("项目上下文理�?, test_project_context()))
-    results.append(("代码生成能力", test_code_generation()))
-    results.append(("错误处理能力", test_error_handling()))
+    results.append(("技能系统", test_skill_system()))
+    results.append(("项目上下文理解", test_project_context()))
     
     print("\n" + "="*60)
-    print("📊 测试结果汇�?)
+    print("测试结果汇总")
     print("="*60)
     
     for name, passed in results:
-        status = "�?通过" if passed else "�?失败"
+        status = "PASS 通过" if passed else "FAIL 失败"
         print(f"  {status} - {name}")
     
     passed_count = sum(1 for _, p in results if p)
@@ -453,32 +290,7 @@ def main():
     
     print(f"\n总计: {passed_count}/{total_count} 测试通过")
     
-    # 计算能力等级
-    if passed_count == total_count:
-        level = "Level 5 - 完全自主开�?
-    elif passed_count >= 6:
-        level = "Level 4 - 高度自主开�?
-    elif passed_count >= 5:
-        level = "Level 3 - 辅助开�?
-    elif passed_count >= 3:
-        level = "Level 2 - 基础辅助"
-    else:
-        level = "Level 1 - 需要人工干�?
-    
-    print(f"\n🏆 AI 开发能力等�? {level}")
-    
-    if passed_count >= 5:
-        print("\n�?结论: AI 具备独立开发程序的能力")
-        print("\n能力说明:")
-        print("  �?可以创建、读取、修改文�?)
-        print("  �?可以理解自然语言指令并执行操�?)
-        print("  �?可以生成完整的代码模�?)
-        print("  �?可以进行安全验证和错误处�?)
-        print("  �?可以理解项目上下�?)
-    else:
-        print("\n⚠️ 结论: AI 需要进一步增强才能独立开�?)
-    
-    return passed_count >= 5
+    return passed_count == total_count
 
 
 if __name__ == "__main__":

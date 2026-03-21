@@ -1,6 +1,7 @@
 """
-知识�?API - 统一接口
-提供完整的知识库管理、检索、统计、监控、导入导出功�?"""
+知识库 API - 统一接口
+提供完整的知识库管理、检索、统计、监控、导入导出功能
+"""
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Query, BackgroundTasks
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -27,26 +28,26 @@ router = APIRouter()
 
 
 class UnifiedSearchRequest(BaseModel):
-    """统一检索请�?""
+    """统一检索请求"""
     query: str = Field(..., description="查询文本")
     top_k: int = Field(default=10, ge=1, le=50, description="返回结果数量")
     method: Literal["vector", "keyword", "hybrid"] = Field(
         default="hybrid",
-        description="检索方法：vector(向量)、keyword(关键�?、hybrid(混合)"
+        description="检索方法：vector(向量)、keyword(关键词)、hybrid(混合)"
     )
-    vector_weight: Optional[float] = Field(default=0.5, ge=0, le=1, description="向量检索权�?仅混合模�?")
-    keyword_weight: Optional[float] = Field(default=0.5, ge=0, le=1, description="关键词检索权�?仅混合模�?")
+    vector_weight: Optional[float] = Field(default=0.5, ge=0, le=1, description="向量检索权重（仅混合模式）")
+    keyword_weight: Optional[float] = Field(default=0.5, ge=0, le=1, description="关键词检索权重（仅混合模式）")
     fusion_method: Optional[Literal["rrf", "weighted"]] = Field(
         default="rrf",
-        description="融合方法(仅混合模�?: rrf(倒数排名融合)、weighted(加权融合)"
+        description="融合方法(仅混合模式): rrf(倒数排名融合)、weighted(加权融合)"
     )
-    use_rerank: bool = Field(default=False, description="是否使用重排�?)
+    use_rerank: bool = Field(default=False, description="是否使用重排序")
     rerank_top_k: Optional[int] = Field(default=None, description="重排序后返回数量")
-    filter_metadata: Optional[Dict[str, Any]] = Field(default=None, description="元数据过滤条�?)
+    filter_metadata: Optional[Dict[str, Any]] = Field(default=None, description="元数据过滤条件")
 
 
 class UnifiedSearchResponse(BaseModel):
-    """统一检索响�?""
+    """统一检索响应"""
     query: str
     method: str
     results: List[Dict[str, Any]]
@@ -57,7 +58,7 @@ class UnifiedSearchResponse(BaseModel):
 
 
 class KnowledgeBaseStats(BaseModel):
-    """知识库统计信�?""
+    """知识库统计信息"""
     collection_id: str
     document_count: int
     vector_count: int
@@ -69,7 +70,7 @@ class KnowledgeBaseStats(BaseModel):
 
 
 class KnowledgeBaseMonitor(BaseModel):
-    """知识库监控信�?""
+    """知识库监控信息"""
     collection_id: str
     avg_retrieval_latency_ms: float
     total_queries: int
@@ -84,11 +85,11 @@ class ExportRequest(BaseModel):
     collection_id: str
     format: Literal["json", "csv"] = Field(default="json", description="导出格式")
     include_embeddings: bool = Field(default=False, description="是否包含向量")
-    include_metadata: bool = Field(default=True, description="是否包含元数�?)
+    include_metadata: bool = Field(default=True, description="是否包含元数据")
 
 
 class ImportRequest(BaseModel):
-    """导入请求元数�?""
+    """导入请求元数据"""
     collection_id: str
     format: Literal["json", "csv"] = Field(default="json", description="导入格式")
     skip_duplicates: bool = Field(default=True, description="是否跳过重复文档")
@@ -108,7 +109,7 @@ class CollectionCreateRequest(BaseModel):
     """创建集合请求"""
     collection_id: str = Field(..., description="集合 ID")
     description: Optional[str] = Field(default=None, description="集合描述")
-    metadata: Optional[Dict[str, Any]] = Field(default=None, description="集合元数�?)
+    metadata: Optional[Dict[str, Any]] = Field(default=None, description="集合元数据")
 
 
 class CollectionInfo(BaseModel):
@@ -255,10 +256,12 @@ async def unified_search(
     request: UnifiedSearchRequest
 ):
     """
-    统一检索接�?    
+    统一检索接口
+    
     支持三种检索方法：
     - vector: 纯向量检索（语义相似度）
-    - keyword: 纯关键词检索（BM25�?    - hybrid: 混合检索（向量 + 关键词融合）
+    - keyword: 纯关键词检索（BM25）
+    - hybrid: 混合检索（向量 + 关键词融合）
     
     可选重排序功能提升结果质量
     """
@@ -376,12 +379,15 @@ async def unified_search(
 @router.get("/stats/{collection_id}", response_model=KnowledgeBaseStats)
 async def get_knowledge_base_stats(collection_id: str):
     """
-    获取知识库统计信�?    
-    返回�?    - 文档数量
+    获取知识库统计信息
+    
+    返回：
+    - 文档数量
     - 向量数量
     - 分块数量
     - 存储大小
-    - BM25 索引状�?    """
+    - BM25 索引状态
+    """
     try:
         kb_manager = get_kb_manager()
         stats = kb_manager.get_collection_stats(collection_id)
@@ -395,9 +401,15 @@ async def get_knowledge_base_stats(collection_id: str):
 @router.get("/monitor/{collection_id}", response_model=KnowledgeBaseMonitor)
 async def get_knowledge_base_monitor(collection_id: str):
     """
-    获取知识库监控信�?    
-    返回�?    - 平均检索延�?    - 总查询次�?    - 平均命中�?    - 热门查询
-    - 最近错�?    - 运行时间
+    获取知识库监控信息
+    
+    返回：
+    - 平均检索延迟
+    - 总查询次数
+    - 平均命中率
+    - 热门查询
+    - 最近错误
+    - 运行时间
     """
     try:
         kb_manager = get_kb_manager()
@@ -411,7 +423,7 @@ async def get_knowledge_base_monitor(collection_id: str):
 
 @router.get("/stats/all")
 async def get_all_knowledge_bases_stats():
-    """获取所有知识库的统计信息概�?""
+    """获取所有知识库的统计信息概览"""
     try:
         vector_store = get_vector_store()
         collections = vector_store.list_collections()
@@ -445,11 +457,14 @@ async def get_all_knowledge_bases_stats():
 @router.post("/export")
 async def export_knowledge_base(request: ExportRequest):
     """
-    导出知识�?    
-    支持格式�?    - JSON: 完整的结构化数据
+    导出知识库
+    
+    支持格式：
+    - JSON: 完整的结构化数据
     - CSV: 表格格式（不含向量）
     
-    可选包含向量和元数�?    """
+    可选包含向量和元数据
+    """
     try:
         vector_store = get_vector_store()
         collection = vector_store.get_or_create_collection(request.collection_id)
@@ -461,7 +476,7 @@ async def export_knowledge_base(request: ExportRequest):
         all_data = collection.get(include=include)
         
         if not all_data['documents']:
-            raise HTTPException(status_code=404, detail="知识库为�?)
+            raise HTTPException(status_code=404, detail="知识库为空")
         
         export_data = []
         for i, doc in enumerate(all_data['documents']):
@@ -538,10 +553,14 @@ async def import_knowledge_base(
     batch_size: int = Form(default=100, description="批次大小")
 ):
     """
-    导入知识�?    
-    支持格式�?    - JSON: 包含 id, content, metadata(可�?, embedding(可�?
-    - CSV: 第一行为表头，必须包�?id �?content �?    
-    支持批量导入和去�?    """
+    导入知识库
+    
+    支持格式：
+    - JSON: 包含 id, content, metadata(可选), embedding(可选)
+    - CSV: 第一行为表头，必须包含 id 和 content 列
+    
+    支持批量导入和去重
+    """
     try:
         content = await file.read()
         
@@ -594,7 +613,7 @@ async def import_knowledge_base(
                 
                 if not content_text:
                     error_count += 1
-                    errors.append(f"�?{i+1} 条记录缺少内�?)
+                    errors.append(f"第 {i+1} 条记录缺少内容")
                     continue
                 
                 if skip_duplicates and doc_id in existing_ids:
@@ -620,7 +639,7 @@ async def import_knowledge_base(
             
             except Exception as e:
                 error_count += 1
-                errors.append(f"�?{i+1} 条记录处理失败：{str(e)}")
+                errors.append(f"第 {i+1} 条记录处理失败：{str(e)}")
         
         if batch_documents:
             _save_batch(
@@ -679,7 +698,7 @@ def _save_batch(
 
 @router.post("/collections", response_model=CollectionInfo)
 async def create_collection(request: CollectionCreateRequest):
-    """创建新的知识库集�?""
+    """创建新的知识库集合"""
     try:
         vector_store = get_vector_store()
         collection = vector_store.get_or_create_collection(request.collection_id)
@@ -733,7 +752,7 @@ async def list_collections():
 
 @router.delete("/collections/{collection_id}")
 async def delete_collection(collection_id: str):
-    """删除知识库集�?""
+    """删除知识库集合"""
     try:
         vector_store = get_vector_store()
         vector_store.delete_collection(collection_id)
@@ -742,7 +761,7 @@ async def delete_collection(collection_id: str):
         if bm25_index_path.exists():
             bm25_index_path.unlink()
         
-        return {"message": "集合已删�?, "collection_id": collection_id}
+        return {"message": "集合已删除", "collection_id": collection_id}
     
     except Exception as e:
         logger.error(f"删除集合失败：{e}", exc_info=True)
@@ -752,8 +771,10 @@ async def delete_collection(collection_id: str):
 @router.post("/collections/{collection_id}/build-index")
 async def build_search_index(collection_id: str):
     """
-    构建检索索�?    
-    - 构建 BM25 关键词索�?    - 优化向量索引
+    构建检索索引
+    
+    - 构建 BM25 关键词索引
+    - 优化向量索引
     """
     try:
         rag_service = get_rag_service()
@@ -826,12 +847,12 @@ async def delete_document(collection_id: str, doc_id: str):
         )
         
         if not all_data['ids']:
-            raise HTTPException(status_code=404, detail="文档不存�?)
+            raise HTTPException(status_code=404, detail="文档不存在")
         
         collection.delete(ids=all_data['ids'])
         
         return {
-            "message": "文档已删�?,
+            "message": "文档已删除",
             "doc_id": doc_id,
             "deleted_chunks": len(all_data['ids'])
         }
@@ -847,7 +868,7 @@ async def delete_document(collection_id: str, doc_id: str):
 async def add_document(
     collection_id: str,
     content: str = Form(..., description="文档内容"),
-    metadata: Optional[str] = Form(default=None, description="元数�?JSON)")
+    metadata: Optional[str] = Form(default=None, description="元数据（JSON）")
 ):
     """添加单个文档"""
     try:
@@ -891,7 +912,7 @@ async def add_document(
         )
         
         return {
-            "message": "文档已添�?,
+            "message": "文档已添加",
             "doc_id": doc_id,
             "chunk_count": len(chunks),
             "vector_count": len(ids)
@@ -906,7 +927,7 @@ async def add_document(
 
 @router.get("/health")
 async def knowledge_base_health():
-    """知识库健康检�?""
+    """知识库健康检查"""
     try:
         vector_store = get_vector_store()
         collections = vector_store.list_collections()

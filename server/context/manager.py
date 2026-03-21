@@ -1,9 +1,12 @@
 """
 对话上下文管理器
 
-功能�?- 上下文窗口动态调�?- 基于重要性的消息保留
+功能：
+- 上下文窗口动态调整
+- 基于重要性的消息保留
 - 对话历史管理
-- Token 计数与限�?"""
+- Token 计数与限制
+"""
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from dataclasses import dataclass, field
@@ -23,8 +26,11 @@ class MessageRole(str, Enum):
 
 
 class MessagePriority(str, Enum):
-    """消息优先�?""
-    CRITICAL = "critical"      # 系统消息，永不删�?    HIGH = "high"              # 重要消息，尽量保�?    NORMAL = "normal"          # 普通消�?    LOW = "low"                # 低优先级，可优先删除
+    """消息优先级"""
+    CRITICAL = "critical"      # 系统消息，永不删除
+    HIGH = "high"              # 重要消息，尽量保留
+    NORMAL = "normal"          # 普通消息
+    LOW = "low"                # 低优先级，可优先删除
 
 
 @dataclass
@@ -67,7 +73,7 @@ class ChatMessage:
 
 @dataclass
 class ContextWindow:
-    """上下文窗口配�?""
+    """上下文窗口配置"""
     max_tokens: int = 4096
     reserved_tokens: int = 512
     system_message_tokens: int = 0
@@ -195,7 +201,7 @@ class ContextManager:
         importance = importance * 0.7 + role_weight * 0.3
         
         question_patterns = [
-            r'\?', r'为什�?, r'如何', r'怎么', r'什�?, r'怎样',
+            r'\?', r'为什么', r'如何', r'怎么', r'什么', r'怎样',
             r'help', r'问题', r'错误', r'error', r'bug'
         ]
         for pattern in question_patterns:
@@ -260,7 +266,7 @@ class ContextManager:
         
         self.window.current_tokens -= removed_tokens
         
-        logger.info(f"自动压缩完成: 移除 {removed_count} 条消�? 释放 {removed_tokens} tokens")
+        logger.info(f"自动压缩完成: 移除 {removed_count} 条消息，释放 {removed_tokens} tokens")
         
         return removed_count, removed_tokens
     
@@ -432,7 +438,7 @@ class ContextManager:
         self.window.max_tokens = max_tokens
         
         if self.window.utilization >= self.compression_threshold:
-            logger.info(f"调整 max_tokens 后触发压�? {old_max} -> {max_tokens}")
+            logger.info(f"调整 max_tokens 后触发压缩: {old_max} -> {max_tokens}")
             self._auto_compress()
         
         logger.info(f"上下文窗口大小已调整: {old_max} -> {max_tokens}")

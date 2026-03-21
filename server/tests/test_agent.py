@@ -5,7 +5,8 @@ import pytest
 from pathlib import Path
 import sys
 
-# 添加服务器路�?sys.path.insert(0, str(Path(__file__).parent.parent))
+# 添加服务器路径
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from agent.agent_config import ActionType, ALLOWED_APPS, FORBIDDEN_PATTERNS
 from agent.security import SecurityValidator
@@ -14,14 +15,14 @@ from agent.executor import AgentExecutor, ExecutionResult
 
 
 class TestSecurityValidator:
-    """安全验证器测�?""
+    """安全验证器测试"""
     
     @pytest.fixture
     def validator(self, tmp_path):
         return SecurityValidator(tmp_path)
     
     def test_validate_path_empty(self, validator):
-        """测试空路�?""
+        """测试空路径"""
         result = validator.validate_path("")
         assert not result.is_valid
         assert "不能为空" in result.error
@@ -39,7 +40,7 @@ class TestSecurityValidator:
         assert result.sanitized_value is not None
     
     def test_validate_app_allowed(self, validator):
-        """测试允许的应�?""
+        """测试允许的应用"""
         result = validator.validate_app("vscode")
         assert result.is_valid
         assert result.sanitized_value == "code"
@@ -48,7 +49,7 @@ class TestSecurityValidator:
         """测试不允许的应用"""
         result = validator.validate_app("malware")
         assert not result.is_valid
-        assert "不允�? in result.error
+        assert "不允许" in result.error
     
     def test_validate_url_valid(self, validator):
         """测试有效 URL"""
@@ -94,10 +95,11 @@ class TestIntentDetector:
         result = detector.detect("删除 temp.txt")
         assert result.detected
         assert result.action == ActionType.FILE_DELETE
-        assert result.need_confirm  # 删除需要确�?    
+        assert result.need_confirm  # 删除需要确认
+    
     def test_detect_file_list(self, detector):
         """测试列出文件意图"""
-        result = detector.detect("列出当前目录的文�?)
+        result = detector.detect("列出当前目录的文件")
         assert result.detected
         assert result.action == ActionType.FILE_LIST
     
@@ -116,13 +118,13 @@ class TestIntentDetector:
         assert result.params["url"] == "https://github.com"
     
     def test_detect_no_intent(self, detector):
-        """测试无意图消�?""
+        """测试无意图消息"""
         result = detector.detect("今天天气怎么样？")
         assert not result.detected
 
 
 class TestAgentExecutor:
-    """执行器测�?""
+    """执行器测试"""
     
     @pytest.fixture
     def executor(self, tmp_path):
@@ -144,7 +146,8 @@ class TestAgentExecutor:
     @pytest.mark.asyncio
     async def test_file_read(self, executor, tmp_path):
         """测试读取文件"""
-        # 先创建文�?        (tmp_path / "read_test.txt").write_text("Test Content")
+        # 先创建文件
+        (tmp_path / "read_test.txt").write_text("Test Content")
         
         result = await executor.execute(
             ActionType.FILE_READ,
@@ -161,12 +164,13 @@ class TestAgentExecutor:
             {"file_path": "not_exists.txt"}
         )
         assert not result.success
-        assert "不存�? in result.error
+        assert "不存在" in result.error
     
     @pytest.mark.asyncio
     async def test_file_list(self, executor, tmp_path):
         """测试列出文件"""
-        # 创建一些文�?        (tmp_path / "file1.txt").write_text("1")
+        # 创建一些文件
+        (tmp_path / "file1.txt").write_text("1")
         (tmp_path / "file2.txt").write_text("2")
         
         result = await executor.execute(
@@ -178,7 +182,7 @@ class TestAgentExecutor:
     
     @pytest.mark.asyncio
     async def test_file_delete_needs_confirm(self, executor, tmp_path):
-        """测试删除需要确�?""
+        """测试删除需要确认"""
         (tmp_path / "delete_test.txt").write_text("test")
         
         result = await executor.execute(
@@ -208,7 +212,7 @@ class TestAgentExecutor:
             {"app_name": "malware"}
         )
         assert not result.success
-        assert "不允�? in result.error
+        assert "不允许" in result.error
 
 
 class TestActionType:

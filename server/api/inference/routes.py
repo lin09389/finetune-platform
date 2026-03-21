@@ -1,5 +1,6 @@
+# -*- coding: utf-8 -*-
 """
-推理模块路由 - 参�?Ollama server/routes.go 设计模式
+推理模块路由 - 参考 Ollama server/routes.go 设计模式
 """
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -19,6 +20,7 @@ from api.errors import (
     OllamaNotRunningError, ModelNotFoundError
 )
 from api.inference.scheduler import get_scheduler, BackendType
+from api.inference.circuit_breaker import get_circuit_breaker, CircuitBreakerOpenError
 from core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -26,6 +28,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 settings = get_settings()
+circuit_breaker = get_circuit_breaker()
 
 PROMPT_INJECTION_PATTERNS = [
     r"ignore\s+(all\s+)?previous\s+instructions?",
@@ -52,7 +55,7 @@ def detect_prompt_injection(text: str) -> bool:
     text_lower = text.lower()
     for pattern in PROMPT_INJECTION_PATTERNS:
         if re.search(pattern, text_lower, re.IGNORECASE):
-            logger.warning(f"检测到潜在�?Prompt 注入: {pattern}")
+            logger.warning(f"检测到潜在的 Prompt 注入: {pattern}")
             return True
     return False
 
@@ -69,24 +72,47 @@ def sanitize_input(text: str) -> str:
 
 @router.post("/generate", response_model=GenerateResponse)
 async def generate(request: GenerateRequest):
-    """生成文本 - 参�?Ollama /api/generate"""
+    """生成文本 - 参考 Ollama /api/generate"""
     start_time = time.time()
-    
+
     if not request.prompt or not request.prompt.strip():
         raise InvalidInputError("prompt", "提示内容不能为空")
-    
+
     if detect_prompt_injection(request.prompt):
         raise MaliciousInputError()
-    
+
     request.prompt = sanitize_input(request.prompt)
     
-    try:
+    backend_name = request.options.backend or "default"
+
+    async def _do_generate():
         scheduler = get_scheduler()
         backend = await scheduler.get_backend(request.options.backend)
-        
-        response = await backend.generate(request)
-        return response
-        
+        return await backend.generate(request)
+    
+    async def _fallback_generate():
+        if request.options.backend != "cloud":
+            logger.info("本地后端不可用，尝试云端AI降级")
+            cloud_request = GenerateRequest(
+                prompt=request.prompt,
+                model=request.model,
+                options=request.options
+            )
+            cloud_request.options.backend = "cloud"
+            scheduler = get_scheduler()
+            backend = await scheduler.get_backend("cloud")
+            return await backend.generate(cloud_request)
+        raise HTTPException(503, "所有后端不可用")
+
+    try:
+        return await circuit_breaker.execute_with_protection(
+            backend_name,
+            _do_generate,
+            _fallback_generate
+        )
+
+    except CircuitBreakerOpenError:
+        raise HTTPException(503, "服务暂时不可用，请稍后重试")
     except APIError:
         raise
     except Exception as e:
@@ -96,19 +122,19 @@ async def generate(request: GenerateRequest):
 
 @router.post("/generate/stream")
 async def generate_stream(request: GenerateRequest):
-    """流式生成 - 参�?Ollama 流式生成"""
+    """流式生成 - 参考 Ollama 流式生成"""
     if not request.prompt or not request.prompt.strip():
         raise InvalidInputError("prompt", "提示内容不能为空")
-    
+
     if detect_prompt_injection(request.prompt):
         raise MaliciousInputError()
-    
+
     request.prompt = sanitize_input(request.prompt)
-    
+
     try:
         scheduler = get_scheduler()
         backend = await scheduler.get_backend(request.options.backend)
-        
+
         return StreamingResponse(
             backend.generate_stream(request),
             media_type="text/event-stream",
@@ -118,7 +144,7 @@ async def generate_stream(request: GenerateRequest):
                 "X-Accel-Buffering": "no"
             }
         )
-        
+
     except APIError:
         raise
     except Exception as e:
@@ -128,110 +154,100 @@ async def generate_stream(request: GenerateRequest):
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    """聊天对话 - 参�?Ollama /api/chat"""
+    """聊天对话 - 参考 Ollama /api/chat，集成统一上下文管理"""
     start_time = time.time()
-    
+
     if not request.messages or len(request.messages) == 0:
         raise InvalidInputError("messages", "消息列表不能为空")
-    
+
     if len(request.messages) > MAX_MESSAGES_COUNT:
-        raise InvalidInputError("messages", f"消息数量超过限制（最�?{MAX_MESSAGES_COUNT} 条）")
-    
+        raise InvalidInputError("messages", f"消息数量超过限制（最多 {MAX_MESSAGES_COUNT} 条）")
+
     for msg in request.messages:
         if not msg.content or not msg.content.strip():
             raise InvalidInputError("messages", "消息内容不能为空")
-        
+
         if detect_prompt_injection(msg.content):
             raise MaliciousInputError()
-        
+
         msg.content = sanitize_input(msg.content)
-    
+
     system_prompt = ""
     knowledge_sources_response = None
     retrieval_info = None
-    
+    memory_context_info = None
+    unified_context_info = None
+
     last_user_message = request.get_last_user_message()
-    
-    if request.knowledge.use_knowledge and request.knowledge.collection_id and last_user_message:
-        try:
-            from context.knowledge_integration import get_knowledge_integrator
-            
-            integrator = get_knowledge_integrator()
-            
-            should_retrieve, reason = integrator.should_retrieve_knowledge(
-                query=last_user_message,
-                collection_id=request.knowledge.collection_id,
-                force_retrieve=not request.knowledge.auto_retrieve
+
+    from context.unified_manager import get_unified_context_manager, ContextOptions
+
+    context_manager = get_unified_context_manager()
+
+    context_options = ContextOptions(
+        use_memory=request.memory.enabled and request.memory.auto_retrieve,
+        use_knowledge=request.knowledge.use_knowledge,
+        use_project_context=request.context.use_context,
+        memory_top_k=request.memory.top_k,
+        memory_include_types=request.memory.include_types,
+        knowledge_collection_id=request.knowledge.collection_id,
+        knowledge_top_k=request.knowledge.top_k,
+        knowledge_auto_retrieve=request.knowledge.auto_retrieve,
+        project_path=request.context.project_path,
+        project_max_length=request.context.max_context_length
+    )
+
+    unified_context = await context_manager.build_context(
+        query=last_user_message or "",
+        user_id=request.session.user_id,
+        session_id=request.session.session_id,
+        options=context_options
+    )
+
+    if unified_context.total_sources > 0:
+        system_prompt = unified_context.build_system_prompt(
+            base_prompt="你是一个有帮助的 AI 助手。"
+        )
+
+        if unified_context.knowledge_sources:
+            knowledge_sources_response = [
+                KnowledgeSource(
+                    id=k.id,
+                    source=k.source,
+                    score=k.score,
+                    content_preview=k.content[:100] + "..." if len(k.content) > 100 else k.content
+                )
+                for k in unified_context.knowledge_sources
+            ]
+
+            retrieval_info = {
+                "query": last_user_message,
+                "method": "unified",
+                "total_results": unified_context.knowledge_count,
+                "retrieval_time": unified_context.knowledge_retrieval_time
+            }
+
+        if unified_context.memory_count > 0:
+            from api.types import MemoryContextInfo
+            memory_context_info = MemoryContextInfo(
+                retrieved=True,
+                sources_count=unified_context.memory_count,
+                context_preview=unified_context.context_text[:200] if unified_context.context_text else ""
             )
-            
-            if should_retrieve:
-                retrieval_result = integrator.retrieve_knowledge(
-                    query=last_user_message,
-                    collection_id=request.knowledge.collection_id,
-                    top_k=request.knowledge.top_k
-                )
-                
-                if retrieval_result.sources:
-                    knowledge_context = retrieval_result.context
-                    system_prompt = f"""你是一个有帮助�?AI 助手。请基于以下参考资料回答用户的问题�?
-参考资�?
-{knowledge_context}
 
-请注�?
-1. 优先使用参考资料中的信息回�?2. 如果参考资料中没有相关信息，请明确说明
-3. 引用具体内容时，请标注来源编号（�?[参考资�?1]�?4. 保持回答简洁、准确、有帮助"""
-                    
-                    knowledge_sources_response = [
-                        KnowledgeSource(
-                            id=s.id,
-                            source=s.source,
-                            score=s.score,
-                            content_preview=s.content[:100] + "..." if len(s.content) > 100 else s.content
-                        )
-                        for s in retrieval_result.sources
-                    ]
-                    
-                    retrieval_info = {
-                        "query": retrieval_result.query,
-                        "method": retrieval_result.retrieval_method,
-                        "total_results": retrieval_result.total_results,
-                        "retrieval_time": retrieval_result.retrieval_time
-                    }
-                    
-        except Exception as e:
-            logger.warning(f"知识库检索失�? {e}")
-    
-    if not system_prompt and request.context.use_context and request.context.project_path:
-        try:
-            from context.service import get_context_service
-            from rag.embedder import get_embedder
-            from rag.vector_store import get_vector_store
-            
-            if last_user_message:
-                embedder = get_embedder()
-                vector_store = get_vector_store()
-                context_service = get_context_service(embedder=embedder, vector_store=vector_store)
-                
-                context = context_service.get_context_for_chat(
-                    query=last_user_message,
-                    project_path=request.context.project_path,
-                    max_length=request.context.max_context_length
-                )
-                
-                if context:
-                    system_prompt = f"""你是一个有帮助�?AI 助手，正在协助用户开发项目�?
-项目上下文：
-{context}
+        from api.types import UnifiedContextInfo
+        unified_context_info = UnifiedContextInfo(
+            total_sources=unified_context.total_sources,
+            memory_count=unified_context.memory_count,
+            knowledge_count=unified_context.knowledge_count,
+            project_count=unified_context.project_count,
+            retrieval_time=unified_context.retrieval_time
+        )
 
-请根据以上项目信息，给用户一个有帮助的回答�?如果问题与项目相关，请考虑项目的技术栈、架构和代码风格�?"""
-                    
-        except Exception as e:
-            logger.warning(f"获取项目上下文失�? {e}")
-    
     try:
         scheduler = get_scheduler()
         backend = await scheduler.get_backend(request.options.backend)
-        
+
         if system_prompt:
             from api.inference.backends.base import InferenceContext
             context = InferenceContext(
@@ -248,7 +264,7 @@ async def chat(request: ChatRequest):
             response = await backend.chat(request, context)
         else:
             response = await backend.chat(request)
-        
+
         if knowledge_sources_response and request.knowledge.include_sources:
             from context.knowledge_integration import get_knowledge_integrator
             integrator = get_knowledge_integrator()
@@ -267,12 +283,25 @@ async def chat(request: ChatRequest):
                 sources=sources,
                 include_citation=True
             )
-        
+
         response.knowledge_sources = knowledge_sources_response
         response.retrieval_info = retrieval_info
-        
+        response.memory_context = memory_context_info
+        response.unified_context = unified_context_info
+
+        if request.memory.enabled and request.memory.auto_extract and last_user_message:
+            try:
+                await context_manager.extract_and_store_memory(
+                    message=last_user_message,
+                    role="user",
+                    user_id=request.session.user_id,
+                    session_id=request.session.session_id
+                )
+            except Exception as e:
+                logger.warning(f"记忆提取失败: {e}")
+
         return response
-        
+
     except APIError:
         raise
     except Exception as e:
@@ -285,16 +314,16 @@ async def chat_stream(request: ChatRequest):
     """流式聊天"""
     if not request.messages or len(request.messages) == 0:
         raise InvalidInputError("messages", "消息列表不能为空")
-    
+
     for msg in request.messages:
         if detect_prompt_injection(msg.content):
             raise MaliciousInputError()
         msg.content = sanitize_input(msg.content)
-    
+
     try:
         scheduler = get_scheduler()
         backend = await scheduler.get_backend(request.options.backend)
-        
+
         if hasattr(backend, 'chat_stream'):
             return StreamingResponse(
                 backend.chat_stream(request),
@@ -319,7 +348,7 @@ async def chat_stream(request: ChatRequest):
                     "X-Accel-Buffering": "no"
                 }
             )
-        
+
     except APIError:
         raise
     except Exception as e:
@@ -329,7 +358,7 @@ async def chat_stream(request: ChatRequest):
 
 @router.get("/models")
 async def list_models(backend: Optional[str] = Query(None, description="后端类型")):
-    """列出可用模型 - 参�?Ollama /api/tags"""
+    """列出可用模型 - 参考 Ollama /api/tags"""
     try:
         scheduler = get_scheduler()
         models = await scheduler.list_models(backend)
@@ -343,13 +372,13 @@ async def list_models(backend: Optional[str] = Query(None, description="后端�
 async def list_backends():
     """列出可用后端"""
     scheduler = get_scheduler()
-    
+
     backends = [
         BackendInfo(
             id=BackendType.HUGGINGFACE.value,
             name="HuggingFace (本地模型)",
             available=await scheduler.is_backend_available(BackendType.HUGGINGFACE.value),
-            description="使用下载�?HuggingFace 模型"
+            description="使用下载的 HuggingFace 模型"
         ),
         BackendInfo(
             id=BackendType.OLLAMA.value,
@@ -358,7 +387,7 @@ async def list_backends():
             description="Ollama 本地部署"
         ),
     ]
-    
+
     return BackendListResponse(
         current=scheduler._default_backend,
         backends=backends
@@ -378,7 +407,7 @@ async def switch_backend(request: BackendSwitchRequest):
 
 @router.get("/cache/status")
 async def get_cache_status():
-    """获取缓存状�?""
+    """获取缓存状态"""
     scheduler = get_scheduler()
     return await scheduler.get_stats()
 
@@ -388,15 +417,15 @@ async def clear_cache():
     """清除模型缓存"""
     scheduler = get_scheduler()
     await scheduler.unload_all()
-    return {"message": "模型缓存已清�?}
+    return {"message": "模型缓存已清除"}
 
 
 @router.get("/ollama/status")
 async def get_ollama_status():
-    """获取 Ollama 状�?""
+    """获取 Ollama 状态"""
     scheduler = get_scheduler()
     available = await scheduler.is_backend_available(BackendType.OLLAMA.value)
-    
+
     models = []
     if available:
         try:
@@ -404,7 +433,7 @@ async def get_ollama_status():
             models = [{"name": m.get("name", ""), "size": m.get("size", 0)} for m in ollama_models]
         except Exception:
             pass
-    
+
     return {
         "running": available,
         "base_url": settings.ollama_base_url,
@@ -416,11 +445,11 @@ async def get_ollama_status():
 async def get_performance_stats(model_id: Optional[str] = Query(None)):
     """获取性能统计"""
     from core.performance import get_performance_monitor
-    
+
     monitor = get_performance_monitor()
     stats = monitor.get_stats(model_id)
     streaming_stats = monitor.get_streaming_stats()
-    
+
     return {
         "inference": stats,
         "streaming": streaming_stats,
@@ -432,13 +461,13 @@ async def get_performance_recommendations():
     """获取性能优化建议"""
     from core.performance import get_performance_monitor
     from core.utils import get_device_info
-    
+
     monitor = get_performance_monitor()
     device_info = get_device_info()
     vram_total = device_info.get("memory_total", 0)
-    
+
     recommendations = monitor.get_recommendations(vram_total)
-    
+
     return {
         "recommendations": recommendations,
         "device_info": device_info,

@@ -71,7 +71,7 @@ class TestBindingManager:
         assert sample_binding.id in binding_manager._bindings
     
     def test_add_binding_nonexistent_agent(self, binding_manager, sample_binding):
-        """测试添加绑定规则到不存在�?Agent"""
+        """测试添加绑定规则到不存在的 Agent"""
         result = binding_manager.add_binding(sample_binding)
         
         assert result is False
@@ -98,7 +98,7 @@ class TestBindingManager:
         assert found_agent == sample_agent.id
     
     def test_find_agent_no_match(self, binding_manager, sample_agent, sample_binding):
-        """测试无匹�?Agent"""
+        """测试无匹配 Agent"""
         binding_manager.register_agent(sample_agent)
         binding_manager.add_binding(sample_binding)
         
@@ -159,7 +159,7 @@ class TestBindingManager:
 
 
 class TestAgentIsolationManager:
-    """Agent 隔离管理器测�?""
+    """Agent 隔离管理器测试"""
     
     @pytest.fixture
     def isolation_manager(self, tmp_path):
@@ -225,7 +225,7 @@ class TestAgentIsolationManager:
         assert value == "value1"
     
     def test_check_capability(self, isolation_manager):
-        """测试能力检�?""
+        """测试能力检测"""
         isolation_manager.create_agent(
             agent_id="agent_1",
             name="Test Agent",
@@ -249,7 +249,7 @@ class TestAgentIsolationManager:
 
 
 class TestDeviceAuthManager:
-    """设备认证管理器测�?""
+    """设备认证管理器测试"""
     
     @pytest.fixture
     def auth_manager(self):
@@ -324,7 +324,7 @@ class TestDeviceAuthManager:
         assert "challenge_data" in result
     
     def test_check_permission(self, auth_manager):
-        """测试权限检�?""
+        """测试权限检查"""
         from gateway.device_auth import DevicePermissions
         
         permissions = DevicePermissions(
@@ -346,7 +346,7 @@ class TestDeviceAuthManager:
 
 
 class TestCrossAgentCommunicator:
-    """�?Agent 通信管理器测�?""
+    """跨 Agent 通信管理器测试"""
     
     @pytest.fixture
     def communicator(self):
@@ -367,7 +367,7 @@ class TestCrossAgentCommunicator:
     
     @pytest.mark.asyncio
     async def test_send_message(self, communicator):
-        """测试发送消�?""
+        """测试发送消息"""
         communicator.register_agent("agent_1")
         communicator.register_agent("agent_2")
         
@@ -455,3 +455,7 @@ class TestCrossAgentCommunicator:
         
         assert "total_channels" in stats
         assert "total_messages" in stats
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

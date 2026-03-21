@@ -1,5 +1,7 @@
+# -*- coding: utf-8 -*-
 """
-RAG 知识库模�?"""
+RAG 知识库模块
+"""
 from rag.document_parser import get_parser, DocumentParser
 from rag.text_chunker import get_chunker, TextChunker
 from rag.embedder import get_embedder, Embedder

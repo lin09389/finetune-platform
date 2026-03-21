@@ -1,5 +1,6 @@
+# -*- coding: utf-8 -*-
 """
-技能管�?API
+技能管理 API
 """
 import asyncio
 from typing import Any, Dict, List, Optional
@@ -76,7 +77,7 @@ async def list_skills(
     tag: Optional[str] = Query(None, description="Filter by tag"),
 ):
     registry = get_registry()
-    
+
     if category:
         try:
             cat_enum = SkillCategory(category.lower())
@@ -87,7 +88,7 @@ async def list_skills(
         names = registry.list_skills_by_tag(tag)
     else:
         names = registry.list_skills()
-    
+
     skills = []
     for name in names:
         metadata = registry.get_metadata(name)
@@ -101,7 +102,7 @@ async def list_skills(
                     "required": p.required,
                     "default": p.default,
                 })
-            
+
             skills.append(SkillResponse(
                 name=metadata.name,
                 display_name=metadata.display_name,
@@ -112,7 +113,7 @@ async def list_skills(
                 parameters=params,
                 enabled=metadata.enabled,
             ).model_dump())
-    
+
     return {"skills": skills}
 
 
@@ -120,7 +121,7 @@ async def list_skills(
 async def get_stats():
     registry = get_registry()
     stats = registry.get_stats()
-    
+
     return StatsResponse(
         total_skills=stats.get("total_skills", 0),
         total_executions=stats.get("total_executions", 0),
@@ -138,10 +139,10 @@ async def list_categories():
 async def get_skill(skill_name: str):
     registry = get_registry()
     metadata = registry.get_metadata(skill_name)
-    
+
     if not metadata:
         raise HTTPException(status_code=404, detail=f"技能不存在: {skill_name}")
-    
+
     params = []
     for p in metadata.parameters:
         params.append({
@@ -151,7 +152,7 @@ async def get_skill(skill_name: str):
             "required": p.required,
             "default": p.default,
         })
-    
+
     return SkillResponse(
         name=metadata.name,
         display_name=metadata.display_name,
@@ -167,10 +168,10 @@ async def get_skill(skill_name: str):
 @router.post("/execute", response_model=ExecutionResponse)
 async def execute_skill(request: SkillExecuteRequest):
     registry = get_registry()
-    
+
     if not registry.has_skill(request.skill_name):
         raise HTTPException(status_code=404, detail=f"技能不存在: {request.skill_name}")
-    
+
     try:
         execution = await registry.execute(
             name=request.skill_name,
@@ -179,16 +180,16 @@ async def execute_skill(request: SkillExecuteRequest):
             user_id=request.user_id,
             session_id=request.session_id,
         )
-        
+
         result_data = None
         error_msg = None
-        
+
         if execution.result:
             if execution.result.success:
                 result_data = execution.result.data
             else:
                 error_msg = execution.result.error
-        
+
         return ExecutionResponse(
             execution_id=execution.execution_id,
             skill_name=execution.skill_name,
@@ -199,7 +200,7 @@ async def execute_skill(request: SkillExecuteRequest):
             completed_at=execution.completed_at.isoformat() if execution.completed_at else None,
             duration_ms=execution.duration_ms,
         )
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"执行失败: {str(e)}")
 
@@ -208,19 +209,19 @@ async def execute_skill(request: SkillExecuteRequest):
 async def get_execution(execution_id: str):
     registry = get_registry()
     execution = registry.get_execution(execution_id)
-    
+
     if not execution:
-        raise HTTPException(status_code=404, detail=f"执行记录不存�? {execution_id}")
-    
+        raise HTTPException(status_code=404, detail=f"执行记录不存在: {execution_id}")
+
     result_data = None
     error_msg = None
-    
+
     if execution.result:
         if execution.result.success:
             result_data = execution.result.data
         else:
             error_msg = execution.result.error
-    
+
     return ExecutionResponse(
         execution_id=execution.execution_id,
         skill_name=execution.skill_name,
@@ -236,31 +237,29 @@ async def get_execution(execution_id: str):
 @router.post("/scan")
 async def scan_skills():
     registry = get_registry()
-    
+
     try:
         from skills.scanner import SkillScanner
         scanner = SkillScanner()
         discovered = scanner.scan()
-        
+
         registered = []
         for skill_class in discovered:
             if registry.register(skill_class):
                 registered.append(skill_class.get_metadata().name)
-        
+
         return {
             "success": True,
             "discovered": len(discovered),
             "registered": registered,
         }
-    
+
     except Exception as e:
         return {
             "success": False,
             "error": str(e),
         }
 
-
-# ========== 技能记�?API ==========
 
 _memory_configs: Dict[str, Dict[str, Any]] = {}
 _user_preferences: Dict[str, Dict[str, Any]] = {}
@@ -269,7 +268,7 @@ _operation_history: List[Dict[str, Any]] = []
 
 @router.get("/memory/configs")
 async def get_memory_configs():
-    """获取技能记忆配�?""
+    """获取技能记忆配置"""
     configs = []
     for skill_name in ["ScreenshotSkill", "CodeAnalysisSkill", "FileOperationSkill"]:
         config = _memory_configs.get(skill_name, {
@@ -287,7 +286,7 @@ async def get_memory_configs():
 
 @router.post("/memory/configs")
 async def update_memory_config(request: Dict[str, Any]):
-    """更新技能记忆配�?""
+    """更新技能记忆配置"""
     skill_name = request.get("skill_name")
     if not skill_name:
         raise HTTPException(status_code=400, detail="skill_name is required")
@@ -296,7 +295,7 @@ async def update_memory_config(request: Dict[str, Any]):
 
 
 @router.get("/memory/preferences")
-async def get_memory_preferences():
+async def get_memory_preference():
     """获取用户偏好"""
     return {"preferences": list(_user_preferences.values()) if _user_preferences else [
         {"key": "preferred_language", "value": "python", "confidence": 0.9, "source": "learned"},

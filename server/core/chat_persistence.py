@@ -1,5 +1,6 @@
 """
-数据持久化服�?提供对话、分支、分享等数据的数据库存储
+数据持久化服务
+提供对话、分支、分享等数据的数据库存储
 """
 import logging
 from datetime import datetime
@@ -13,20 +14,20 @@ logger = logging.getLogger(__name__)
 
 
 class ChatPersistenceService:
-    """对话数据持久化服�?""
+    """对话数据持久化服务"""
     
     def __init__(self, db_path: str = "data/chat.db"):
         self.db_path = db_path
         self._init_tables()
     
     def _init_tables(self):
-        """初始化数据库�?""
+        """初始化数据库表"""
         pool = get_db_pool(self.db_path)
         
         with pool.get_connection() as conn:
             cursor = conn.cursor()
             
-            # 对话会话�?            cursor.execute("""
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS chat_sessions (
                     id TEXT PRIMARY KEY,
                     title TEXT,
@@ -38,7 +39,7 @@ class ChatPersistenceService:
                 )
             """)
             
-            # 对话消息�?            cursor.execute("""
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS chat_messages (
                     id TEXT PRIMARY KEY,
                     session_id TEXT NOT NULL,
@@ -52,7 +53,7 @@ class ChatPersistenceService:
                 )
             """)
             
-            # 对话分支�?            cursor.execute("""
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS chat_branches (
                     id TEXT PRIMARY KEY,
                     session_id TEXT NOT NULL,
@@ -65,7 +66,7 @@ class ChatPersistenceService:
                 )
             """)
             
-            # 对话分享�?            cursor.execute("""
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS chat_shares (
                     share_id TEXT PRIMARY KEY,
                     session_id TEXT NOT NULL,
@@ -79,7 +80,6 @@ class ChatPersistenceService:
                 )
             """)
             
-            # 创建索引
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_messages_session 
                 ON chat_messages(session_id)
@@ -97,9 +97,7 @@ class ChatPersistenceService:
                 ON chat_shares(session_id)
             """)
             
-            logger.info("对话数据库表初始化完�?)
-    
-    # ========== 会话管理 ==========
+            logger.info("对话数据库表初始化完成")
     
     def create_session(self, session_id: str, title: str = "", 
                        model_id: str = None, backend: str = "ollama",
@@ -182,8 +180,6 @@ class ChatPersistenceService:
             cursor.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
             return cursor.rowcount > 0
     
-    # ========== 消息管理 ==========
-    
     def add_message(self, message_id: str, session_id: str, role: str,
                     content: str, parent_id: str = None, 
                     branch_id: str = None, metadata: Dict = None) -> Dict:
@@ -199,7 +195,6 @@ class ChatPersistenceService:
             """, (message_id, session_id, role, content, parent_id, branch_id,
                   json.dumps(metadata) if metadata else None))
             
-            # 更新会话时间
             cursor.execute("""
                 UPDATE chat_sessions SET updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
@@ -261,8 +256,6 @@ class ChatPersistenceService:
             cursor.execute("DELETE FROM chat_messages WHERE id = ?", (message_id,))
             return cursor.rowcount > 0
     
-    # ========== 分支管理 ==========
-    
     def create_branch(self, branch_id: str, session_id: str, name: str,
                       root_message_id: str = None, metadata: Dict = None) -> Dict:
         """创建分支"""
@@ -318,12 +311,9 @@ class ChatPersistenceService:
         
         with pool.get_connection() as conn:
             cursor = conn.cursor()
-            # 同时删除分支下的消息
             cursor.execute("DELETE FROM chat_messages WHERE branch_id = ?", (branch_id,))
             cursor.execute("DELETE FROM chat_branches WHERE id = ?", (branch_id,))
             return cursor.rowcount > 0
-    
-    # ========== 分享管理 ==========
     
     def create_share(self, share_id: str, session_id: str, title: str,
                      messages: List[Dict], expires_at: str = None,
@@ -409,16 +399,15 @@ class ChatPersistenceService:
             """)
             deleted_count = cursor.rowcount
             if deleted_count > 0:
-                logger.info(f"已清�?{deleted_count} 个过期分�?)
+                logger.info(f"已清理 {deleted_count} 个过期分享")
             return deleted_count
 
 
-# 全局服务实例
 _chat_persistence: Optional[ChatPersistenceService] = None
 
 
 def get_chat_persistence(db_path: str = "data/chat.db") -> ChatPersistenceService:
-    """获取对话持久化服务实�?""
+    """获取对话持久化服务实例"""
     global _chat_persistence
     if _chat_persistence is None:
         _chat_persistence = ChatPersistenceService(db_path)

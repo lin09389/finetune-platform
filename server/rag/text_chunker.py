@@ -1,5 +1,8 @@
+# -*- coding: utf-8 -*-
 """
-RAG 知识�?- 文本分块�?智能文本分块，支持多种分块策�?"""
+RAG 知识库 - 文本分块器
+智能文本分块，支持多种分块策略
+"""
 from typing import List, Optional
 from dataclasses import dataclass
 import logging
@@ -10,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TextChunk:
-    """文本�?""
+    """文本块"""
     content: str
     start_index: int
     end_index: int
@@ -18,7 +21,7 @@ class TextChunk:
 
 
 class TextChunker:
-    """文本分块�?""
+    """文本分块器"""
     
     def __init__(
         self,
@@ -31,7 +34,8 @@ class TextChunker:
         
         Args:
             chunk_size: 每块最大字符数
-            chunk_overlap: 块间重叠字符�?            min_chunk_size: 最小块大小（小于该值的块会被合并）
+            chunk_overlap: 块间重叠字符数
+            min_chunk_size: 最小块大小（小于该值的块会被合并）
         """
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
@@ -39,22 +43,24 @@ class TextChunker:
     
     def chunk(self, text: str, metadata: Optional[dict] = None) -> List[TextChunk]:
         """
-        智能分块（优先在句子/段落边界切分�?        
+        智能分块（优先在句子/段落边界切分）
+        
         Args:
             text: 待分块的文本
-            metadata: 元数�?            
+            metadata: 元数据
+            
         Returns:
-            文本块列�?        """
+            文本块列表
+        """
         if not text or not text.strip():
             return []
         
-        # 1. 尝试按段落分�?        paragraphs = self._split_by_paragraph(text)
+        paragraphs = self._split_by_paragraph(text)
         
-        # 2. 如果段落太大，进一步按句子分块
         chunks = []
         for para in paragraphs:
             if len(para) > self.chunk_size:
-                # 按句子分�?                sentences = self._split_by_sentence(para)
+                sentences = self._split_by_sentence(para)
                 chunks.extend(self._merge_sentences(sentences, metadata))
             else:
                 chunks.append(TextChunk(
@@ -64,14 +70,11 @@ class TextChunker:
                     metadata=metadata or {}
                 ))
         
-        # 3. 合并过小的块
         chunks = self._merge_small_chunks(chunks)
         
-        # 4. 确保每块不超�?chunk_size
         final_chunks = []
         for chunk in chunks:
             if len(chunk.content) > self.chunk_size:
-                # 强制按字符数分块
                 sub_chunks = self._split_by_chars(chunk.content)
                 for i, sub in enumerate(sub_chunks):
                     final_chunks.append(TextChunk(
@@ -83,17 +86,17 @@ class TextChunker:
             else:
                 final_chunks.append(chunk)
         
-        logger.info(f"文本分块完成：{len(text)} 字符 -> {len(final_chunks)} �?)
+        logger.info(f"文本分块完成：{len(text)} 字符 -> {len(final_chunks)} 块")
         return final_chunks
     
     def _split_by_paragraph(self, text: str) -> List[str]:
-        """按段落分�?""
-        # 匹配多个换行�?        paragraphs = re.split(r'\n\s*\n', text)
+        """按段落分割"""
+        paragraphs = re.split(r'\n\s*\n', text)
         return [p.strip() for p in paragraphs if p.strip()]
     
     def _split_by_sentence(self, text: str) -> List[str]:
-        """按句子分�?""
-        # 中文句子分割（。！�?!?�?        sentences = re.split(r'([。！�?!?！])', text)
+        """按句子分割"""
+        sentences = re.split(r'([。！？!?！])', text)
         
         result = []
         current = ""
@@ -101,7 +104,7 @@ class TextChunker:
             if not s:
                 continue
             current += s
-            if s in '。！�?!?�?:
+            if s in '。！？!?！':
                 if current.strip():
                     result.append(current.strip())
                 current = ""
@@ -116,7 +119,7 @@ class TextChunker:
         sentences: List[str],
         metadata: Optional[dict] = None
     ) -> List[TextChunk]:
-        """合并句子为块（确保不超过 chunk_size�?""
+        """合并句子为块（确保不超过 chunk_size）"""
         chunks = []
         current_sentences = []
         current_length = 0
@@ -126,7 +129,6 @@ class TextChunker:
             sentence_len = len(sentence)
             
             if current_length + sentence_len > self.chunk_size:
-                # 当前块已满，创建新块
                 if current_sentences:
                     content = ' '.join(current_sentences)
                     chunks.append(TextChunk(
@@ -136,7 +138,7 @@ class TextChunker:
                         metadata=metadata or {}
                     ))
                 
-                # 如果单个句子就超�?chunk_size，强制分�?                if sentence_len > self.chunk_size:
+                if sentence_len > self.chunk_size:
                     sub_chunks = self._split_by_chars(sentence)
                     for sub in sub_chunks:
                         chunks.append(TextChunk(
@@ -149,15 +151,13 @@ class TextChunker:
                     current_sentences = []
                     current_length = 0
                 else:
-                    # 开始新�?                    current_sentences = [sentence]
+                    current_sentences = [sentence]
                     current_length = sentence_len
                     start_index = sum(len(s) for s in sentences[:i])
             else:
-                # 添加到当前块
                 current_sentences.append(sentence)
                 current_length += sentence_len
         
-        # 处理剩余的块
         if current_sentences:
             content = ' '.join(current_sentences)
             chunks.append(TextChunk(
@@ -178,10 +178,9 @@ class TextChunker:
             end = start + self.chunk_size
             chunk = text[start:end]
             
-            # 尝试在句子边界处切分
             if end < len(text):
                 last_period = chunk.rfind('.')
-                last_cn_period = chunk.rfind('�?)
+                last_cn_period = chunk.rfind('。')
                 last_newline = chunk.rfind('\n')
                 
                 split_point = max(last_period, last_cn_period, last_newline)
@@ -208,7 +207,6 @@ class TextChunker:
         
         for chunk in chunks[1:]:
             if len(current.content) + len(chunk.content) < self.chunk_size:
-                # 合并
                 current = TextChunk(
                     content=current.content + '\n' + chunk.content,
                     start_index=current.start_index,
@@ -223,7 +221,6 @@ class TextChunker:
         return merged
 
 
-# 单例实例
 _chunker_instance: Optional[TextChunker] = None
 
 
@@ -231,7 +228,7 @@ def get_chunker(
     chunk_size: int = 500,
     chunk_overlap: int = 50
 ) -> TextChunker:
-    """获取分块器实�?""
+    """获取分块器实例"""
     global _chunker_instance
     if _chunker_instance is None:
         _chunker_instance = TextChunker(chunk_size, chunk_overlap)

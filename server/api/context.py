@@ -1,7 +1,8 @@
+# -*- coding: utf-8 -*-
 """
-项目上下�?API
+项目上下文 API
 
-提供项目扫描、索引、检索等功能�?HTTP 接口
+提供项目扫描、索引、检索等功能的 HTTP 接口
 以及上下文理解增强功能（代词消解、省略补全、对话摘要、窗口管理）
 """
 from fastapi import APIRouter, HTTPException, Depends
@@ -9,6 +10,7 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 import logging
+import urllib.parse
 
 from context.service import get_context_service, ContextService
 from context.models import ProjectInfo, ContextResult
@@ -21,14 +23,12 @@ from core.context_understanding import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["项目上下�?])  # 移除 prefix，由 main.py 统一添加
+router = APIRouter(tags=["项目上下文"])
 
-
-# ============ 请求/响应模型 ============
 
 class ScanRequest(BaseModel):
     """扫描项目请求"""
-    project_path: str = Field(..., description="项目根路�?)
+    project_path: str = Field(..., description="项目根路径")
 
 
 class ScanResponse(BaseModel):
@@ -40,7 +40,7 @@ class ScanResponse(BaseModel):
 
 class IndexRequest(BaseModel):
     """索引项目请求"""
-    project_path: str = Field(..., description="项目根路�?)
+    project_path: str = Field(..., description="项目根路径")
     force_reindex: bool = Field(default=False, description="是否强制重新索引")
 
 
@@ -67,218 +67,22 @@ class RetrieveResponse(BaseModel):
 
 class RemoveRequest(BaseModel):
     """移除项目请求"""
-    project_path: str = Field(..., description="项目根路�?)
+    project_path: str = Field(..., description="项目根路径")
 
-
-# ============ API 端点 ============
-
-@router.post("/scan", response_model=ScanResponse)
-async def scan_project(
-    request: ScanRequest,
-    service: ContextService = Depends(get_context_service)
-):
-    """
-    扫描项目
-
-    - 检测技术栈
-    - 分析项目结构
-    - 解析依赖
-    - 识别关键文件
-    """
-    try:
-        project_info = service.scan_project(request.project_path)
-
-        return ScanResponse(
-            success=True,
-            project=project_info.model_dump(),
-            message=f"扫描完成：{project_info.name}"
-        )
-    except FileNotFoundError as e:
-        return ScanResponse(
-            success=False,
-            message=str(e)
-        )
-    except Exception as e:
-        logger.error(f"扫描项目失败：{e}", exc_info=True)
-        return ScanResponse(
-            success=False,
-            message=f"扫描失败：{str(e)}"
-        )
-
-
-@router.post("/index", response_model=IndexResponse)
-async def index_project(
-    request: IndexRequest,
-    service: ContextService = Depends(get_context_service)
-):
-    """
-    索引项目
-
-    - 提取代码符号
-    - 向量化存�?    - 构建 searchable 索引
-    """
-    try:
-        summary = service.index_project(
-            project_path=request.project_path,
-            force_reindex=request.force_reindex
-        )
-
-        return IndexResponse(
-            success=True,
-            summary=summary,
-            message=f"索引完成：{summary.get('files_indexed', 0)} 个文�?
-        )
-    except Exception as e:
-        logger.error(f"索引项目失败：{e}", exc_info=True)
-        return IndexResponse(
-            success=False,
-            message=f"索引失败：{str(e)}"
-        )
-
-
-@router.post("/retrieve", response_model=RetrieveResponse)
-async def retrieve_context(
-    request: RetrieveRequest,
-    service: ContextService = Depends(get_context_service)
-):
-    """
-    检索项目上下文
-
-    根据查询文本检索最相关的代码文件和项目信息
-    """
-    try:
-        results = service.retrieve(
-            query=request.query,
-            project_path=request.project_path,
-            top_k=request.top_k
-        )
-
-        # 获取项目信息
-        project_info = None
-        if request.project_path and request.project_path in service.projects:
-            project_info = service.projects[request.project_path].model_dump()
-
-        return RetrieveResponse(
-            success=True,
-            context=[r.model_dump() for r in results],
-            project_info=project_info
-        )
-    except Exception as e:
-        logger.error(f"检索上下文失败：{e}", exc_info=True)
-        return RetrieveResponse(
-            success=False,
-            context=[],
-            message=f"检索失败：{str(e)}"
-        )
-
-
-@router.get("/projects")
-async def list_projects(
-    service: ContextService = Depends(get_context_service)
-):
-    """列出已索引的项目"""
-    try:
-        projects = service.list_projects()
-        return {
-            "success": True,
-            "projects": projects
-        }
-    except Exception as e:
-        logger.error(f"列出项目失败：{e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"获取失败：{str(e)}")
-
-
-@router.post("/remove")
-async def remove_project(
-    request: RemoveRequest,
-    service: ContextService = Depends(get_context_service)
-):
-    """移除项目索引"""
-    try:
-        success = service.remove_project(request.project_path)
-        return {
-            "success": success,
-            "message": "已移�? if success else "移除失败"
-        }
-    except Exception as e:
-        logger.error(f"移除项目失败：{e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"移除失败：{str(e)}")
-
-
-@router.get("/project/{project_path:path}/stats")
-async def get_project_stats(
-    project_path: str,
-    service: ContextService = Depends(get_context_service)
-):
-    """获取项目统计信息"""
-    try:
-        # URL 编码的路径需要解�?        import urllib.parse
-        decoded_path = urllib.parse.unquote(project_path)
-
-        stats = service.get_project_stats(decoded_path)
-
-        if stats:
-            return {
-                "success": True,
-                "stats": stats
-            }
-        else:
-            return {
-                "success": False,
-                "message": "项目未找�?
-            }
-    except Exception as e:
-        logger.error(f"获取统计失败：{e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"获取失败：{str(e)}")
-
-
-# ============ 聊天集成辅助端点 ============
 
 class ChatContextRequest(BaseModel):
-    """聊天上下文请�?""
+    """聊天上下文请求"""
     query: str = Field(..., description="用户问题")
     project_path: Optional[str] = Field(None, description="项目路径")
     max_length: int = Field(default=2000, description="最大上下文长度")
 
 
 class ChatContextResponse(BaseModel):
-    """聊天上下文响�?""
+    """聊天上下文响应"""
     success: bool
-    context: str = Field(..., description="格式化的上下�?)
+    context: str = Field(..., description="格式化的上下文")
     has_context: bool = Field(..., description="是否有相关上下文")
 
-
-@router.post("/chat-context", response_model=ChatContextResponse)
-async def get_chat_context(
-    request: ChatContextRequest,
-    service: ContextService = Depends(get_context_service)
-):
-    """
-    获取聊天用的上下�?
-    用于集成到聊天接口中，自动注入项目上下文
-    """
-    try:
-        context = service.get_context_for_chat(
-            query=request.query,
-            project_path=request.project_path,
-            max_length=request.max_length
-        )
-
-        return ChatContextResponse(
-            success=True,
-            context=context,
-            has_context=bool(context)
-        )
-    except Exception as e:
-        logger.error(f"获取聊天上下文失败：{e}", exc_info=True)
-        return ChatContextResponse(
-            success=False,
-            context="",
-            has_context=False
-        )
-
-
-# ============ 上下文理解增强端�?============
 
 class ProcessMessageRequest(BaseModel):
     """处理消息请求"""
@@ -298,14 +102,14 @@ class ProcessMessageResponse(BaseModel):
 
 
 class EnhanceContextRequest(BaseModel):
-    """增强上下文请�?""
+    """增强上下文请求"""
     query: str = Field(..., description="用户查询")
     messages: List[Dict[str, Any]] = Field(default_factory=list, description="对话历史")
-    max_context_tokens: int = Field(default=4096, description="最大上下文Token�?)
+    max_context_tokens: int = Field(default=4096, description="最大上下文Token数")
 
 
 class EnhanceContextResponse(BaseModel):
-    """增强上下文响�?""
+    """增强上下文响应"""
     success: bool
     enhanced_query: str
     context_messages: List[Dict[str, Any]] = Field(default_factory=list)
@@ -318,7 +122,7 @@ class EnhanceContextResponse(BaseModel):
 class SummarizeRequest(BaseModel):
     """摘要请求"""
     messages: List[Dict[str, Any]] = Field(..., description="对话消息列表")
-    max_length: int = Field(default=500, description="最大摘要长�?)
+    max_length: int = Field(default=500, description="最大摘要长度")
     use_llm: bool = Field(default=False, description="是否使用LLM生成摘要")
 
 
@@ -336,7 +140,7 @@ class SummarizeResponse(BaseModel):
 class ManageWindowRequest(BaseModel):
     """窗口管理请求"""
     messages: List[Dict[str, Any]] = Field(..., description="消息列表")
-    max_tokens: int = Field(default=4096, description="最大Token�?)
+    max_tokens: int = Field(default=4096, description="最大Token数")
     keep_recent: int = Field(default=3, description="保留最近消息数")
 
 
@@ -399,8 +203,176 @@ def _convert_to_messages(message_dicts: List[Dict[str, Any]]) -> List[Message]:
 
 
 def get_engine() -> ContextUnderstandingEngine:
-    """获取上下文理解引�?""
+    """获取上下文理解引擎"""
     return get_context_engine()
+
+
+@router.post("/scan", response_model=ScanResponse)
+async def scan_project(
+    request: ScanRequest,
+    service: ContextService = Depends(get_context_service)
+):
+    """扫描项目"""
+    try:
+        project_info = service.scan_project(request.project_path)
+
+        return ScanResponse(
+            success=True,
+            project=project_info.model_dump(),
+            message=f"扫描完成：{project_info.name}"
+        )
+    except FileNotFoundError as e:
+        return ScanResponse(
+            success=False,
+            message=str(e)
+        )
+    except Exception as e:
+        logger.error(f"扫描项目失败：{e}", exc_info=True)
+        return ScanResponse(
+            success=False,
+            message=f"扫描失败：{str(e)}"
+        )
+
+
+@router.post("/index", response_model=IndexResponse)
+async def index_project(
+    request: IndexRequest,
+    service: ContextService = Depends(get_context_service)
+):
+    """索引项目"""
+    try:
+        summary = service.index_project(
+            project_path=request.project_path,
+            force_reindex=request.force_reindex
+        )
+
+        return IndexResponse(
+            success=True,
+            summary=summary,
+            message=f"索引完成：{summary.get('files_indexed', 0)} 个文件"
+        )
+    except Exception as e:
+        logger.error(f"索引项目失败：{e}", exc_info=True)
+        return IndexResponse(
+            success=False,
+            message=f"索引失败：{str(e)}"
+        )
+
+
+@router.post("/retrieve", response_model=RetrieveResponse)
+async def retrieve_context(
+    request: RetrieveRequest,
+    service: ContextService = Depends(get_context_service)
+):
+    """检索项目上下文"""
+    try:
+        results = service.retrieve(
+            query=request.query,
+            project_path=request.project_path,
+            top_k=request.top_k
+        )
+
+        project_info = None
+        if request.project_path and request.project_path in service.projects:
+            project_info = service.projects[request.project_path].model_dump()
+
+        return RetrieveResponse(
+            success=True,
+            context=[r.model_dump() for r in results],
+            project_info=project_info
+        )
+    except Exception as e:
+        logger.error(f"检索上下文失败：{e}", exc_info=True)
+        return RetrieveResponse(
+            success=False,
+            context=[]
+        )
+
+
+@router.get("/projects")
+async def list_projects(
+    service: ContextService = Depends(get_context_service)
+):
+    """列出已索引的项目"""
+    try:
+        projects = service.list_projects()
+        return {
+            "success": True,
+            "projects": projects
+        }
+    except Exception as e:
+        logger.error(f"列出项目失败：{e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"获取失败：{str(e)}")
+
+
+@router.post("/remove")
+async def remove_project(
+    request: RemoveRequest,
+    service: ContextService = Depends(get_context_service)
+):
+    """移除项目索引"""
+    try:
+        success = service.remove_project(request.project_path)
+        return {
+            "success": success,
+            "message": "已移除" if success else "移除失败"
+        }
+    except Exception as e:
+        logger.error(f"移除项目失败：{e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"移除失败：{str(e)}")
+
+
+@router.get("/project/{project_path:path}/stats")
+async def get_project_stats(
+    project_path: str,
+    service: ContextService = Depends(get_context_service)
+):
+    """获取项目统计信息"""
+    try:
+        decoded_path = urllib.parse.unquote(project_path)
+
+        stats = service.get_project_stats(decoded_path)
+
+        if stats:
+            return {
+                "success": True,
+                "stats": stats
+            }
+        else:
+            return {
+                "success": False,
+                "message": "项目未找到"
+            }
+    except Exception as e:
+        logger.error(f"获取统计失败：{e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"获取失败：{str(e)}")
+
+
+@router.post("/chat-context", response_model=ChatContextResponse)
+async def get_chat_context(
+    request: ChatContextRequest,
+    service: ContextService = Depends(get_context_service)
+):
+    """获取聊天用的上下文"""
+    try:
+        context = service.get_context_for_chat(
+            query=request.query,
+            project_path=request.project_path,
+            max_length=request.max_length
+        )
+
+        return ChatContextResponse(
+            success=True,
+            context=context,
+            has_context=bool(context)
+        )
+    except Exception as e:
+        logger.error(f"获取聊天上下文失败：{e}", exc_info=True)
+        return ChatContextResponse(
+            success=False,
+            context="",
+            has_context=False
+        )
 
 
 @router.post("/understanding/process", response_model=ProcessMessageResponse)
@@ -408,13 +380,7 @@ async def process_message(
     request: ProcessMessageRequest,
     engine: ContextUnderstandingEngine = Depends(get_engine)
 ):
-    """
-    处理单条消息
-
-    执行�?    - 代词消解
-    - 省略补全
-    - 实体提取
-    """
+    """处理单条消息"""
     try:
         current_message = Message(
             id="current",
@@ -452,13 +418,7 @@ async def enhance_context(
     request: EnhanceContextRequest,
     engine: ContextUnderstandingEngine = Depends(get_engine)
 ):
-    """
-    增强上下�?
-    综合处理�?    - 窗口管理
-    - 代词消解
-    - 省略补全
-    - 摘要生成
-    """
+    """增强上下文"""
     try:
         messages = _convert_to_messages(request.messages)
 
@@ -491,11 +451,7 @@ async def summarize_conversation(
     request: SummarizeRequest,
     engine: ContextUnderstandingEngine = Depends(get_engine)
 ):
-    """
-    生成对话摘要
-
-    支持�?    - 基于规则的摘�?    - LLM 摘要（可选）
-    """
+    """生成对话摘要"""
     try:
         messages = _convert_to_messages(request.messages)
 
@@ -531,12 +487,7 @@ async def manage_context_window(
     request: ManageWindowRequest,
     engine: ContextUnderstandingEngine = Depends(get_engine)
 ):
-    """
-    管理上下文窗�?
-    功能�?    - Token 预算管理
-    - 滑动窗口策略
-    - 溢出消息摘要
-    """
+    """管理上下文窗口"""
     try:
         messages = _convert_to_messages(request.messages)
 
@@ -581,11 +532,7 @@ async def resolve_pronouns(
     request: ResolvePronounsRequest,
     engine: ContextUnderstandingEngine = Depends(get_engine)
 ):
-    """
-    代词消解
-
-    识别并解析文本中的代词：
-    - 人称代词（他、她、它�?    - 指示代词（这、那�?    """
+    """代词消解"""
     try:
         history = _convert_to_messages(request.history)
 
@@ -623,11 +570,7 @@ async def complete_omission(
     request: CompleteOmissionRequest,
     engine: ContextUnderstandingEngine = Depends(get_engine)
 ):
-    """
-    省略补全
-
-    检测并补全省略句：
-    - 单字回答（是、对、好�?    - 简短确�?    """
+    """省略补全"""
     try:
         history = _convert_to_messages(request.history)
 
@@ -659,7 +602,7 @@ async def complete_omission(
 async def get_understanding_status(
     engine: ContextUnderstandingEngine = Depends(get_engine)
 ):
-    """获取上下文理解引擎状�?""
+    """获取上下文理解引擎状态"""
     return {
         "success": True,
         "status": {

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 CUA 数据模型定义模块
 """
@@ -44,8 +45,8 @@ class ScreenshotResult(BaseModel):
     region: Optional[Region] = Field(default=None, description="截图区域")
     timestamp: datetime = Field(default_factory=datetime.now, description="截图时间")
     format: str = Field(default="png", description="图像格式")
-    base64: Optional[str] = Field(default=None, description="Base64 编码的图像数�?)
-    monitor_index: int = Field(default=0, ge=0, description="显示器索�?)
+    base64: Optional[str] = Field(default=None, description="Base64 编码的图像数据")
+    monitor_index: int = Field(default=0, ge=0, description="显示器索引")
     
     class Config:
         arbitrary_types_allowed = True
@@ -59,7 +60,7 @@ class MousePosition(BaseModel):
     screen_height: Optional[int] = Field(default=None, ge=1, description="屏幕高度")
     
     def to_coordinate(self) -> Coordinate:
-        """转换为坐标类�?""
+        """转换为坐标类型"""
         return Coordinate(x=self.x, y=self.y)
 
 
@@ -67,11 +68,11 @@ class KeyboardInput(BaseModel):
     """键盘输入模型"""
     text: Optional[str] = Field(default=None, description="输入文本")
     keys: Optional[List[str]] = Field(default=None, description="按键列表")
-    hotkey: Optional[List[str]] = Field(default=None, description="快捷键组�?)
-    interval: float = Field(default=0.05, ge=0, description="按键间隔 (�?")
+    hotkey: Optional[List[str]] = Field(default=None, description="快捷键组合")
+    interval: float = Field(default=0.05, ge=0, description="按键间隔 (秒)")
     
     def is_text_input(self) -> bool:
-        """是否为文本输�?""
+        """是否为文本输入"""
         return self.text is not None
     
     def is_hotkey(self) -> bool:
@@ -93,7 +94,7 @@ class WindowInfo(BaseModel):
     process_id: Optional[int] = Field(default=None, description="进程 ID")
     
     def to_region(self) -> Region:
-        """转换为区域类�?""
+        """转换为区域类型"""
         return Region(x=self.x, y=self.y, width=self.width, height=self.height)
 
 
@@ -148,7 +149,7 @@ class OperationRequest(BaseModel):
         description="所需权限级别"
     )
     parameters: Dict[str, Any] = Field(default_factory=dict, description="操作参数")
-    timeout: Optional[float] = Field(default=30.0, ge=1, le=300, description="超时时间 (�?")
+    timeout: Optional[float] = Field(default=30.0, ge=1, le=300, description="超时时间 (秒)")
     retry_count: int = Field(default=0, ge=0, le=3, description="重试次数")
 
 
@@ -178,11 +179,11 @@ class ActionType(str, Enum):
 
 
 class RecordedAction(BaseModel):
-    """录制的操作动作模�?""
+    """录制的操作动作模型"""
     action_type: ActionType = Field(..., description="操作类型")
     timestamp: float = Field(..., description="操作时间戳（秒）")
     data: Dict[str, Any] = Field(default_factory=dict, description="操作数据")
-    duration: float = Field(default=0.0, description="操作持续时间（秒�?)
+    duration: float = Field(default=0.0, description="操作持续时间（秒）")
 
     class Config:
         arbitrary_types_allowed = True

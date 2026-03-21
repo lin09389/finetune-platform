@@ -1,7 +1,8 @@
+# -*- coding: utf-8 -*-
 """
 Heartbeat API 路由
 
-提供 Heartbeat 模块�?REST API 皯点
+提供 Heartbeat 模块的 REST API 端点
 """
 import logging
 from typing import Dict, Any, Optional, List
@@ -54,7 +55,7 @@ class TaskResponse(BaseModel):
 
 @router.get("/status")
 async def get_heartbeat_status():
-    """获取 Heartbeat 状�?""
+    """获取 Heartbeat 状态"""
     scheduler = get_heartbeat_scheduler()
     executor = get_task_executor()
     
@@ -66,7 +67,7 @@ async def get_heartbeat_status():
 
 @router.get("/tasks")
 async def list_tasks():
-    """列出所有任�?""
+    """列出所有任务"""
     scheduler = get_heartbeat_scheduler()
     
     tasks = []
@@ -84,7 +85,7 @@ async def list_tasks():
 
 @router.post("/tasks")
 async def create_task(request: TaskCreateRequest):
-    """创建新任�?""
+    """创建新任务"""
     scheduler = get_heartbeat_scheduler()
     
     task = HeartbeatTask(
@@ -168,7 +169,7 @@ async def list_results(
 
 @router.post("/start")
 async def start_heartbeat():
-    """启动 Heartbeat 调度�?""
+    """启动 Heartbeat 调度器"""
     scheduler = get_heartbeat_scheduler()
     
     if scheduler._running:
@@ -181,7 +182,7 @@ async def start_heartbeat():
 
 @router.post("/stop")
 async def stop_heartbeat():
-    """停止 Heartbeat 调度�?""
+    """停止 Heartbeat 调度器"""
     scheduler = get_heartbeat_scheduler()
     
     if not scheduler._running:

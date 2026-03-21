@@ -35,6 +35,26 @@ class ParamTag(str, Enum):
     I_TEXT = "I-TEXT"
     B_NUMBER = "B-NUMBER"
     I_NUMBER = "I-NUMBER"
+    B_QUERY = "B-QUERY"
+    I_QUERY = "I-QUERY"
+    B_KEY = "B-KEY"
+    I_KEY = "I-KEY"
+    B_PROCESS_NAME = "B-PROCESS_NAME"
+    I_PROCESS_NAME = "I-PROCESS_NAME"
+    B_DESTINATION = "B-DESTINATION"
+    I_DESTINATION = "I-DESTINATION"
+    B_NEW_NAME = "B-NEW_NAME"
+    I_NEW_NAME = "I-NEW_NAME"
+    B_POSITION = "B-POSITION"
+    I_POSITION = "I-POSITION"
+    B_BUTTON = "B-BUTTON"
+    I_BUTTON = "I-BUTTON"
+    B_DIRECTION = "B-DIRECTION"
+    I_DIRECTION = "I-DIRECTION"
+    B_AREA = "B-AREA"
+    I_AREA = "I-AREA"
+    B_TYPE = "B-TYPE"
+    I_TYPE = "I-TYPE"
 
 
 PARAM_TAG_MAP = {
@@ -45,6 +65,16 @@ PARAM_TAG_MAP = {
     "DIRECTORY": "directory",
     "TEXT": "text",
     "NUMBER": "number",
+    "QUERY": "query",
+    "KEY": "key",
+    "PROCESS_NAME": "process_name",
+    "DESTINATION": "destination",
+    "NEW_NAME": "new_name",
+    "POSITION": "position",
+    "BUTTON": "button",
+    "DIRECTION": "direction",
+    "AREA": "area",
+    "TYPE": "type",
 }
 
 
@@ -125,11 +155,19 @@ class BERTIntentClassifier:
             param_tag_map_path = os.path.join(model_dir, 'param_tag_map.json')
             if os.path.exists(param_tag_map_path):
                 with open(param_tag_map_path, 'r', encoding='utf-8') as f:
-                    self.param_tag_map = json.load(f)
-                self.id_to_param_tag = {int(k): v for k, v in self.param_tag_map.items()}
+                    loaded_map = json.load(f)
+                
+                first_key = next(iter(loaded_map.keys()))
+                if first_key.isdigit() or (isinstance(first_key, int)):
+                    self.param_tag_map = {int(k): v for k, v in loaded_map.items()}
+                    self.id_to_param_tag = self.param_tag_map
+                else:
+                    self.param_tag_map = loaded_map
+                    self.id_to_param_tag = {v: k for k, v in loaded_map.items()}
+                
                 logger.info(f"加载参数标签映射: {len(self.param_tag_map)} 个标签")
             else:
-                self.param_tag_map = {tag.value: i for i, tag in enumerate(ParamTag)}
+                self.param_tag_map = {i: tag.value for i, tag in enumerate(ParamTag)}
                 self.id_to_param_tag = {i: tag.value for i, tag in enumerate(ParamTag)}
                 logger.info("使用默认参数标签映射")
             

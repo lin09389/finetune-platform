@@ -1,6 +1,7 @@
 """
 增强版意图检测器
-支持多意图并行检测、置信度评分、意图澄清对话、参数提�?"""
+支持多意图并行检测、置信度评分、意图澄清对话、参数提取
+"""
 import re
 import logging
 from typing import Optional, Dict, Any, List, Tuple
@@ -38,7 +39,7 @@ class ParamType(str, Enum):
 
 @dataclass
 class ExtractedParam:
-    """提取的参�?""
+    """提取的参数"""
     name: str
     value: Any
     param_type: ParamType
@@ -57,7 +58,7 @@ class ExtractedParam:
 
 @dataclass
 class DetectedIntent:
-    """检测到的意�?""
+    """检测到的意图"""
     intent_type: IntentType
     action: str
     params: List[ExtractedParam]
@@ -82,7 +83,7 @@ class DetectedIntent:
 
 @dataclass
 class MultiIntentResult:
-    """多意图检测结�?""
+    """多意图检测结果"""
     detected: bool
     intents: List[DetectedIntent]
     has_ambiguity: bool = False
@@ -117,7 +118,7 @@ class ClarificationDialog:
 
 
 class ParameterExtractor:
-    """参数提取�?""
+    """参数提取器"""
     
     PATTERNS = {
         ParamType.PATH: [
@@ -131,7 +132,7 @@ class ParameterExtractor:
         ],
         ParamType.NUMBER: [
             r'\b(\d+(?:\.\d+)?)\b',
-            r'(\d+)\s*(?:个|次|条|�?',
+            r'(\d+)\s*(?:个|次|条|份)',
         ],
         ParamType.DATE: [
             r'(\d{4}[-/年]\d{1,2}[-/月]\d{1,2}[日]?)',
@@ -142,7 +143,7 @@ class ParameterExtractor:
         ParamType.COMMAND: [
             r'`([^`]+)`',
             r'"([^"]+)"',
-            r'�?[^」]+)�?,
+            r'「([^」]+)」',
         ],
     }
     
@@ -212,7 +213,7 @@ class ParameterExtractor:
                     value = (datetime.now() + delta).strftime("%Y-%m-%d")
                 else:
                     date_text = re.sub(r'[年月]', '-', date_text)
-                    date_text = re.sub(r'�?, '', date_text)
+                    date_text = re.sub(r'日', '', date_text)
                     date_text = date_text.replace('/', '-')
                     value = date_text
                 
@@ -240,7 +241,7 @@ class ParameterExtractor:
         return None
     
     def extract_all(self, text: str) -> List[ExtractedParam]:
-        """提取所有参�?""
+        """提取所有参数"""
         params = []
         
         url = self.extract_url(text)
@@ -268,27 +269,27 @@ class ParameterExtractor:
 
 
 class IntentClarifier:
-    """意图澄清�?""
+    """意图澄清器"""
     
     CLARIFICATION_TEMPLATES = {
         "ambiguous_intent": [
-            "我不太确定您的意图，您是想要�?,
+            "我不太确定您的意图，您是想要：",
             "请确认您想要执行的操作：",
-            "检测到多个可能的意图，请选择�?
+            "检测到多个可能的意图，请选择："
         ],
         "missing_param": [
             "请提供{param_name}参数",
             "缺少必要的信息：{param_name}",
-            "请告诉我{param_name}是什�?
+            "请告诉我{param_name}是什么？"
         ],
         "low_confidence": [
             "我不太确定您的意思，能否详细描述一下？",
-            "请提供更多细节以便我更好地理解您的需�?,
+            "请提供更多细节以便我更好地理解您的需求",
             "能否换一种方式描述您的请求？"
         ],
         "multiple_intents": [
             "检测到您可能有多个请求，请选择优先执行的操作：",
-            "您的消息包含多个意图，请确认执行顺序�?
+            "您的消息包含多个意图，请确认执行顺序："
         ]
     }
     
@@ -356,7 +357,7 @@ class IntentClarifier:
         self,
         intents: List[DetectedIntent]
     ) -> ClarificationDialog:
-        """创建多意图澄清对�?""
+        """创建多意图澄清对话"""
         import uuid
         dialog_id = str(uuid.uuid4())[:8]
         
@@ -387,7 +388,7 @@ class IntentClarifier:
         return dialog
     
     def _identify_missing_param(self, intent: DetectedIntent) -> Optional[str]:
-        """识别缺失的参�?""
+        """识别缺失的参数"""
         required_params = self._get_required_params(intent.action)
         existing_params = {p.name for p in intent.params}
         
@@ -397,7 +398,7 @@ class IntentClarifier:
         return None
     
     def _get_required_params(self, action: str) -> List[str]:
-        """获取操作所需的参�?""
+        """获取操作所需的参数"""
         required = {
             "file_create": ["file_path"],
             "file_read": ["file_path"],
@@ -430,7 +431,7 @@ class IntentClarifier:
         return False, {"error": "Invalid response"}
     
     def get_dialog(self, dialog_id: str) -> Optional[ClarificationDialog]:
-        """获取活跃的澄清对�?""
+        """获取活跃的澄清对话"""
         return self.active_dialogs.get(dialog_id)
 
 
@@ -495,8 +496,8 @@ class EnhancedIntentDetector:
         },
         {
             "patterns": [
-                r"列出\s*([\w\-./]*)\s*(?:�??(?:文件|目录)?",
-                r"显示\s*([\w\-./]*)\s*(?:�??(?:文件|目录)?",
+                r"列出\s*([\w\-./]*)\s*(?:下)?(?:文件|目录)?",
+                r"显示\s*([\w\-./]*)\s*(?:下)?(?:文件|目录)?",
                 r"ls\s*([\w\-./]*)",
                 r"查看\s*([\w\-./]*)\s*目录",
             ],
@@ -511,7 +512,7 @@ class EnhancedIntentDetector:
                 r"打开\s*(VS\s*Code|Visual\s*Studio\s*Code)",
                 r"启动\s*(VS\s*Code|Visual\s*Studio\s*Code)",
                 r"打开\s*(记事本|Notepad)",
-                r"打开\s*(Chrome|谷歌浏览�?",
+                r"打开\s*(Chrome|谷歌浏览器)",
                 r"打开\s*(Edge|edge)",
                 r"打开\s*(计算器|Calculator)",
                 r"启动\s*(计算器|Calculator)",
@@ -573,10 +574,10 @@ class EnhancedIntentDetector:
     ]
     
     MULTI_INTENT_SEPARATORS = [
-        r"[�?�?]\s*(?:然后|接着|�??",
-        r"(?:然后|接着|�?\s*",
+        r"[，,]\s*(?:然后|接着|再)?",
+        r"(?:然后|接着|再)\s*",
         r"[。]\s*",
-        r"\\s+同时\\s+",
+        r"\s+同时\s+",
     ]
     
     def __init__(self):
@@ -585,7 +586,7 @@ class EnhancedIntentDetector:
         self._compile_patterns()
     
     def _compile_patterns(self):
-        """编译正则表达�?""
+        """编译正则表达式"""
         for intent_def in self.INTENT_PATTERNS:
             intent_def["compiled_patterns"] = [
                 re.compile(p, re.IGNORECASE) for p in intent_def["patterns"]
@@ -605,9 +606,10 @@ class EnhancedIntentDetector:
         
         Args:
             message: 用户消息
-            context: 上下文信�?            
+            context: 上下文信息
         Returns:
-            MultiIntentResult: 多意图检测结�?        """
+            MultiIntentResult: 多意图检测结果
+        """
         if not message or not message.strip():
             return MultiIntentResult(detected=False, intents=[])
         
@@ -645,7 +647,7 @@ class EnhancedIntentDetector:
         )
     
     def _split_multi_intent(self, message: str) -> List[str]:
-        """分割多意图消�?""
+        """分割多意图消息"""
         parts = [message]
         
         for separator in self.compiled_separators:
@@ -704,7 +706,7 @@ class EnhancedIntentDetector:
         match: re.Match,
         intent_def: Dict[str, Any]
     ) -> float:
-        """计算置信�?""
+        """计算置信度"""
         score = 0.5
         
         match_coverage = len(match.group(0)) / len(message)
@@ -792,7 +794,7 @@ class EnhancedIntentDetector:
             param_names = ", ".join(missing)
             return f"请提供更多信息：缺少 {param_names}"
         
-        return f"请确认您想要执行：{intent_def['description']}�?
+        return f"请确认您想要执行：{intent_def['description']}？"
     
     def get_clarification_dialog(
         self,

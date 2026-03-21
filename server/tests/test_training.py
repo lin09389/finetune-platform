@@ -33,14 +33,14 @@ class TestTrainingAPI:
         assert isinstance(data, list)
 
     def test_get_status(self):
-        """测试获取训练状�?""
+        """测试获取训练状态"""
         response = client.get("/training/status")
         assert response.status_code == 200
         data = response.json()
         assert "is_training" in data
 
     def test_start_training_validation(self):
-        """测试开始训练参数验�?""
+        """测试开始训练参数验证"""
         # 测试缺失参数
         response = client.post("/training/start", json={})
         assert response.status_code == 422
@@ -56,4 +56,5 @@ class TestTrainingAPI:
     def test_stop_training_when_idle(self):
         """测试停止训练（空闲状态）"""
         response = client.post("/training/stop")
-        # 空闲时应该返回错�?        assert response.status_code == 400
+        # 空闲时应该返回错误
+        assert response.status_code == 400

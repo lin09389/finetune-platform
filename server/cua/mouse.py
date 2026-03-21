@@ -1,6 +1,8 @@
+# -*- coding: utf-8 -*-
 """
-鼠标控制器模�?
-提供鼠标操作能力，包括移动、点击、拖拽、滚动等�?"""
+鼠标控制器模块
+提供鼠标操作能力，包括移动、点击、拖拽、滚动等
+"""
 import asyncio
 import time
 from typing import Optional
@@ -18,7 +20,7 @@ from .config import get_cua_config, CUAConfig
 
 
 class MouseController:
-    """鼠标控制�?""
+    """鼠标控制器"""
 
     def __init__(self, config: Optional[CUAConfig] = None):
         self._config = config or get_cua_config()
@@ -56,9 +58,10 @@ class MouseController:
         try:
             self._validate_coordinates(x, y)
             pyautogui.moveTo(x, y, duration=duration)
-            return OperationResult.ok(
+            return OperationResult.success_result(
+                operation_type="mouse_move",
                 message=f"鼠标已移动到坐标 ({x}, {y})",
-                data=Coordinate(x, y),
+                data={"x": x, "y": y}
             )
         except pyautogui.FailSafeException as e:
             raise FailSafeTriggeredError(pyautogui.position())
@@ -90,9 +93,10 @@ class MouseController:
             self._validate_coordinates(new_x, new_y)
             pyautogui.moveRel(dx, dy, duration=duration)
 
-            return OperationResult.ok(
-                message=f"鼠标已相对移�?({dx}, {dy})",
-                data=Coordinate(new_x, new_y),
+            return OperationResult.success_result(
+                operation_type="mouse_move",
+                message=f"鼠标已相对移动 ({dx}, {dy})",
+                data={"x": new_x, "y": new_y}
             )
         except pyautogui.FailSafeException as e:
             raise FailSafeTriggeredError(pyautogui.position())
@@ -121,15 +125,16 @@ class MouseController:
             if x is not None and y is not None:
                 self._validate_coordinates(x, y)
                 pyautogui.click(x, y, clicks=clicks, button=button.value)
-                position = Coordinate(x, y)
+                position = {"x": x, "y": y}
             else:
                 pyautogui.click(clicks=clicks, button=button.value)
                 current = pyautogui.position()
-                position = Coordinate(current.x, current.y)
+                position = {"x": current.x, "y": current.y}
 
-            return OperationResult.ok(
-                message=f"已执�?{clicks} �?{button.value} 点击",
-                data=position,
+            return OperationResult.success_result(
+                operation_type="mouse_click",
+                message=f"已执行 {clicks} 次 {button.value} 点击",
+                data=position
             )
         except pyautogui.FailSafeException as e:
             raise FailSafeTriggeredError(pyautogui.position())
@@ -181,7 +186,7 @@ class MouseController:
         button: MouseButton = MouseButton.LEFT,
     ) -> OperationResult:
         if duration is None:
-            duration = self._config.drag_duration
+            duration = getattr(self._config, 'drag_duration', 0.5)
 
         try:
             self._validate_coordinates(start_x, start_y)
@@ -195,12 +200,13 @@ class MouseController:
                 button=button.value,
             )
 
-            return OperationResult.ok(
-                message=f"已执行拖拽操�? ({start_x}, {start_y}) -> ({end_x}, {end_y})",
+            return OperationResult.success_result(
+                operation_type="mouse_drag",
+                message=f"已执行拖拽操作 ({start_x}, {start_y}) -> ({end_x}, {end_y})",
                 data={
-                    "start": Coordinate(start_x, start_y),
-                    "end": Coordinate(end_x, end_y),
-                },
+                    "start": {"x": start_x, "y": start_y},
+                    "end": {"x": end_x, "y": end_y},
+                }
             )
         except pyautogui.FailSafeException as e:
             raise FailSafeTriggeredError(pyautogui.position())
@@ -233,16 +239,17 @@ class MouseController:
             if x is not None and y is not None:
                 self._validate_coordinates(x, y)
                 pyautogui.scroll(clicks, x, y)
-                position = Coordinate(x, y)
+                position = {"x": x, "y": y}
             else:
                 pyautogui.scroll(clicks)
                 current = pyautogui.position()
-                position = Coordinate(current.x, current.y)
+                position = {"x": current.x, "y": current.y}
 
             direction = "向上" if clicks > 0 else "向下"
-            return OperationResult.ok(
-                message=f"已执行滚�?{direction} 滚动 {abs(clicks)} �?,
-                data=position,
+            return OperationResult.success_result(
+                operation_type="mouse_scroll",
+                message=f"已执行滚轮{direction}滚动 {abs(clicks)} 次",
+                data=position
             )
         except pyautogui.FailSafeException as e:
             raise FailSafeTriggeredError(pyautogui.position())
@@ -274,7 +281,7 @@ class MouseController:
     def is_failsafe_triggered(self) -> bool:
         return self._check_failsafe()
 
-    def get_screen_size(self) -> tuple[int, int]:
+    def get_screen_size(self) -> tuple:
         return self._config.screen_size
 
     def reset_position(self) -> OperationResult:

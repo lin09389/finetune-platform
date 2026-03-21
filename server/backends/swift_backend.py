@@ -1,6 +1,7 @@
 """
-阿里 SWIFT 框架训练后端 - CLI 调用模式（重构版�?
-修复�?- P1-4: SWIFT 进程管理增强，防止僵尸进�?
+阿里 SWIFT 框架训练后端 - CLI 调用模式（重构版）
+修复：
+- P1-4: SWIFT 进程管理增强，防止僵尸进程
 参考：https://github.com/modelscope/swift
 """
 import subprocess
@@ -23,7 +24,7 @@ logger = get_logger(__name__)
 
 @dataclass
 class SwiftTrainConfig:
-    """SWIFT 训练配置 - 支持高精度微�?""
+    """SWIFT 训练配置 - 支持高精度微调"""
     model_id: str
     dataset_id: str
     method: str = "lora"
@@ -62,9 +63,12 @@ class SwiftTrainConfig:
 
 class SwiftBackend:
     """
-    SWIFT 框架后端 - CLI 调用模式（重构版�?    
-    修复�?    - P1-4: 进程组管理，防止僵尸进程
-    - 添加进程监控和自动清�?    """
+    SWIFT 框架后端 - CLI 调用模式（重构版）
+    
+    修复：
+    - P1-4: 进程组管理，防止僵尸进程
+    - 添加进程监控和自动清理
+    """
     
     GRACEFUL_TIMEOUT = 10
     FORCE_KILL_TIMEOUT = 5
@@ -84,7 +88,7 @@ class SwiftBackend:
         atexit.register(self._cleanup_on_exit)
     
     def _cleanup_on_exit(self):
-        """程序退出时清理所有进�?""
+        """程序退出时清理所有进程"""
         self._monitor_running = False
         
         with self._process_lock:
@@ -95,7 +99,7 @@ class SwiftBackend:
                     pass
     
     def _terminate_process_tree(self, pid: int):
-        """终止进程树（包括所有子进程�?""
+        """终止进程树（包括所有子进程）"""
         try:
             import psutil
             parent = psutil.Process(pid)
@@ -138,12 +142,12 @@ class SwiftBackend:
         self._monitor_thread.start()
     
     def _monitor_loop(self):
-        """监控进程状�?""
+        """监控进程状态"""
         while self._monitor_running:
             try:
                 with self._process_lock:
                     if self.process and self.process.poll() is not None:
-                        logger.info(f"SWIFT 进程已结束，PID: {self.process.pid}, 返回�? {self.process.returncode}")
+                        logger.info(f"SWIFT 进程已结束，PID: {self.process.pid}, 返回码: {self.process.returncode}")
                         self._handle_process_exit()
                 
                 time.sleep(self.PROCESS_CHECK_INTERVAL)
@@ -152,12 +156,12 @@ class SwiftBackend:
                 logger.error(f"进程监控错误：{e}")
     
     def _handle_process_exit(self):
-        """处理进程退�?""
+        """处理进程退出"""
         if self._current_task_id:
-            logger.info(f"任务 {self._current_task_id} 已结�?)
+            logger.info(f"任务 {self._current_task_id} 已结束")
     
     def is_available(self) -> bool:
-        """检�?SWIFT 是否可用"""
+        """检查 SWIFT 是否可用"""
         try:
             import importlib.util
             spec = importlib.util.find_spec("swift")
@@ -281,7 +285,7 @@ class SwiftBackend:
         """
         with self._process_lock:
             if self.process and self.process.poll() is None:
-                logger.error("已有训练任务在运�?)
+                logger.error("已有训练任务在运行")
                 return False
             
             cmd = self.build_command(config)
@@ -322,7 +326,7 @@ class SwiftBackend:
                 return False
     
     def stop_training(self) -> bool:
-        """停止训练 - P1-4: 增强版进程终�?""
+        """停止训练 - P1-4: 增强版进程终止"""
         with self._process_lock:
             if not self.process:
                 return False
@@ -338,18 +342,18 @@ class SwiftBackend:
                     except subprocess.TimeoutExpired:
                         pass
                     
-                    logger.info("SWIFT 训练已停�?)
+                    logger.info("SWIFT 训练已停止")
                     return True
                     
                 except Exception as e:
                     logger.error(f"停止训练失败：{e}")
                     return False
             else:
-                logger.info("训练进程已结�?)
+                logger.info("训练进程已结束")
                 return True
     
     def get_training_status(self) -> Dict[str, Any]:
-        """获取训练状�?""
+        """获取训练状态"""
         with self._process_lock:
             if not self.process:
                 return {"status": "idle", "task_id": None}
@@ -376,7 +380,7 @@ class SwiftBackend:
                 }
     
     def parse_training_progress(self) -> Dict[str, Any]:
-        """解析训练进度（从日志文件�?""
+        """解析训练进度（从日志文件）"""
         if not self.log_file or not self.log_file.exists():
             return {
                 "epoch": 0,
@@ -450,7 +454,7 @@ class SwiftBackend:
         return progress
     
     def get_log_tail(self, lines: int = 50) -> List[str]:
-        """获取日志末尾 N �?""
+        """获取日志末尾 N 行"""
         if not self.log_file or not self.log_file.exists():
             return []
         
@@ -476,7 +480,7 @@ class SwiftBackend:
             self._current_task_id = None
             self._stop_event.clear()
         
-        logger.debug("SWIFT Backend 已清�?)
+        logger.debug("SWIFT Backend 已清理")
 
 
 _swift_backend: Optional[SwiftBackend] = None

@@ -26,7 +26,7 @@ class TestDeviceAPI:
         assert "memory" in data
 
     def test_health_check(self):
-        """测试健康检�?""
+        """测试健康检查"""
         response = client.get("/health")
         assert response.status_code == 200
         data = response.json()
@@ -35,7 +35,7 @@ class TestDeviceAPI:
         assert "cuda_available" in data
 
     def test_root_endpoint(self):
-        """测试根端�?""
+        """测试根端点"""
         response = client.get("/")
         assert response.status_code == 200
         data = response.json()

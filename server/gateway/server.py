@@ -1,8 +1,12 @@
+# -*- coding: utf-8 -*-
 """
-Gateway 服务�?- WebSocket 控制平面
+Gateway 服务器 - WebSocket 控制平面
 
-借鉴 OpenClaw 架构�?- WebSocket 服务器作为统一入口
-- 消息路由和分�?- 设备配对与认�?- 事件广播机制
+借鉴 OpenClaw 架构设计
+- WebSocket 服务器作为统一入口
+- 消息路由和分发
+- 设备配对与认证
+- 事件广播机制
 """
 import asyncio
 import json
@@ -35,11 +39,15 @@ logger = logging.getLogger(__name__)
 
 class GatewayServer:
     """
-    Gateway 服务�?    
-    功能�?    - WebSocket 连接管理
-    - 设备配对与认�?    - 消息路由
+    Gateway 服务器
+    
+    功能:
+    - WebSocket 连接管理
+    - 设备配对与认证
+    - 消息路由
     - 事件广播
-    - 心跳检�?    """
+    - 心跳检测
+    """
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         self.config = config or {}
@@ -65,7 +73,7 @@ class GatewayServer:
         self._register_default_handlers()
     
     def _register_default_handlers(self):
-        """注册默认处理�?""
+        """注册默认处理器"""
         self._message_handlers["ping"] = self._handle_ping
         self._message_handlers["pair"] = self._handle_pair
         self._message_handlers["auth"] = self._handle_auth
@@ -73,9 +81,9 @@ class GatewayServer:
         self._message_handlers["unsubscribe"] = self._handle_unsubscribe
     
     async def start(self):
-        """启动 Gateway 服务�?""
+        """启动 Gateway 服务器"""
         if self._is_running:
-            logger.warning("Gateway 服务器已在运�?)
+            logger.warning("Gateway 服务器已在运行")
             return
         
         self._is_running = True
@@ -91,7 +99,7 @@ class GatewayServer:
         logger.info(f"Gateway 服务器已启动: ws://{self.host}:{self.port}")
     
     async def stop(self):
-        """停止 Gateway 服务�?""
+        """停止 Gateway 服务器"""
         self._is_running = False
         
         for task in self._background_tasks:
@@ -226,7 +234,7 @@ class GatewayServer:
         return {"unsubscribed": events}
     
     async def _send_pairing_request(self, websocket: WebSocket, device_id: str):
-        """发送配对请�?""
+        """发送配对请求"""
         event = GatewayEvent(
             id=str(uuid.uuid4()),
             event_type="pairing_request",
@@ -239,7 +247,7 @@ class GatewayServer:
         await websocket.send_text(event.model_dump_json())
     
     async def _send_response(self, device_id: str, msg: GatewayMessage, data: Dict[str, Any]):
-        """发送响�?""
+        """发送响应"""
         if device_id not in self._connections:
             return
         
@@ -254,10 +262,10 @@ class GatewayServer:
         try:
             await self._connections[device_id].send_text(response.model_dump_json())
         except Exception as e:
-            logger.error(f"发送响应失�? {e}")
+            logger.error(f"发送响应失败: {e}")
     
     async def _send_error(self, websocket: WebSocket, error: str):
-        """发送错误消�?""
+        """发送错误消息"""
         response = GatewayResponse(
             id=str(uuid.uuid4()),
             correlation_id="",
@@ -293,7 +301,7 @@ class GatewayServer:
             return False
     
     async def _cleanup_device(self, device_id: str):
-        """清理断开连接的设�?""
+        """清理断开连接的设备"""
         if device_id in self._connections:
             del self._connections[device_id]
         
@@ -302,10 +310,10 @@ class GatewayServer:
         
         self._session_manager.cleanup_device(device_id)
         
-        logger.info(f"设备已清�? {device_id}")
+        logger.info(f"设备已清理: {device_id}")
     
     async def _heartbeat_loop(self):
-        """心跳检测循�?""
+        """心跳检测循环"""
         while self._is_running:
             try:
                 await asyncio.sleep(self._heartbeat_interval)
@@ -325,7 +333,7 @@ class GatewayServer:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"心跳检测错�? {e}")
+                logger.error(f"心跳检测错误: {e}")
     
     async def _cleanup_loop(self):
         """定期清理循环"""
@@ -352,11 +360,11 @@ class GatewayServer:
         return token is not None and len(token) == 64
     
     def register_message_handler(self, action: str, handler: Callable):
-        """注册消息处理�?""
+        """注册消息处理器"""
         self._message_handlers[action] = handler
     
     def register_event_handler(self, event_type: str, handler: Callable):
-        """注册事件处理�?""
+        """注册事件处理器"""
         self._event_handlers[event_type] = handler
     
     def get_device_info(self, device_id: str) -> Optional[DeviceInfo]:
@@ -364,7 +372,7 @@ class GatewayServer:
         return self._devices.get(device_id)
     
     def get_all_devices(self) -> Dict[str, DeviceInfo]:
-        """获取所有设�?""
+        """获取所有设备"""
         return self._devices.copy()
     
     def get_stats(self) -> Dict[str, Any]:
@@ -382,7 +390,7 @@ _gateway_server: Optional[GatewayServer] = None
 
 
 def get_gateway_server() -> GatewayServer:
-    """获取 Gateway 服务器单�?""
+    """获取 Gateway 服务器单例"""
     global _gateway_server
     if _gateway_server is None:
         _gateway_server = GatewayServer()

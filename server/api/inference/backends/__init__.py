@@ -1,13 +1,17 @@
+# -*- coding: utf-8 -*-
 """
 推理后端模块
 """
-from api.inference.backends.base import BaseBackend
-from api.inference.backends.huggingface import HuggingFaceBackend
-from api.inference.backends.ollama import OllamaBackend
-from api.inference.backends.cloud import CloudBackend
+from .base import InferenceBackend, BackendType, GenerationConfig, GenerationResult
+from .huggingface import HuggingFaceBackend
+from .ollama import OllamaBackend
+from .cloud import CloudBackend
 
 __all__ = [
-    "BaseBackend",
+    "InferenceBackend",
+    "BackendType",
+    "GenerationConfig",
+    "GenerationResult",
     "HuggingFaceBackend",
     "OllamaBackend",
     "CloudBackend",

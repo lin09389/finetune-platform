@@ -1,5 +1,7 @@
+# -*- coding: utf-8 -*-
 """
-智能记忆提取�?结合规则提取和LLM辅助提取
+智能记忆提取器
+结合规则提取和LLM辅助提取
 """
 from typing import List, Dict, Tuple, Optional, Any
 import re
@@ -72,44 +74,44 @@ class RuleBasedExtractor:
             (r'我是(\S+?)(?:，|。|！|,|\s|$)', 'identity'),
             (r'我的名字[是为](\S+)', 'name'),
             (r'我在?\s*(.+?)工作', 'workplace'),
-            (r'我住[在是](\S+?)(?:，|。|�?', 'location'),
-            (r'我的(\S+?)�?\S+)', 'attribute'),
-            (r'�?\d+)�?, 'age'),
+            (r'我住[在是](\S+?)(?:，|。|！)', 'location'),
+            (r'我的(\S+?)是(\S+)', 'attribute'),
+            (r'我(\d+)岁', 'age'),
             (r'我是(\S+?)学生', 'student'),
             (r'我学(\S+)', 'major'),
         ],
         'project': [
-            (r'我在�?\S+?)项目', 'name'),
+            (r'我在做(\S+?)项目', 'name'),
             (r'我的项目[叫是为](\S+)', 'name'),
-            (r'我在开�?\S+)', 'name'),
+            (r'我在开发(\S+)', 'name'),
             (r'我在研究(\S+)', 'name'),
-            (r'我在�?\S+?)代码', 'name'),
+            (r'我在写(\S+?)代码', 'name'),
             (r'项目(\S+)', 'attribute'),
         ],
         'skill': [
             (r'我会(\S+)', 'name'),
-            (r'我精�?\S+)', 'name'),
-            (r'我熟�?\S+)', 'name'),
-            (r'我掌�?\S+)', 'name'),
+            (r'我精通(\S+)', 'name'),
+            (r'我熟悉(\S+)', 'name'),
+            (r'我掌握(\S+)', 'name'),
             (r'我正在学(\S+)', 'name'),
-            (r'我学�?\S+)', 'name'),
+            (r'我学会了(\S+)', 'name'),
         ],
         'tool': [
             (r'我用(\S+)', 'name'),
-            (r'我使�?\S+)', 'name'),
+            (r'我使用(\S+)', 'name'),
             (r'我的(\S+?)工具', 'name'),
         ],
         'preference': [
-            (r'我喜�?\S+)', 'value'),
-            (r'我讨�?\S+)', 'value'),
-            (r'我偏�?\S+)', 'value'),
+            (r'我喜欢(\S+)', 'value'),
+            (r'我讨厌(\S+)', 'value'),
+            (r'我偏好(\S+)', 'value'),
             (r'我更(?:喜欢|倾向)(\S+)', 'value'),
-            (r'我常�?\S+)', 'value'),
-            (r'我不�?\S+)', 'value'),
+            (r'我常用(\S+)', 'value'),
+            (r'我不用(\S+)', 'value'),
         ],
         'habit': [
-            (r'我习�?\S+)', 'description'),
-            (r'我一�?\S+)', 'description'),
+            (r'我习惯(\S+)', 'description'),
+            (r'我一般(\S+)', 'description'),
             (r'我通常(\S+)', 'description'),
             (r'我总是(\S+)', 'description'),
         ],
@@ -118,13 +120,13 @@ class RuleBasedExtractor:
     RELATION_PATTERNS = {
         'works_on': [
             (r'(\S+)在做(\S+)项目', ('subject', 'object')),
-            (r'(\S+)开�?\S+)', ('subject', 'object')),
+            (r'(\S+)开发(\S+)', ('subject', 'object')),
             (r'(\S+)研究(\S+)', ('subject', 'object')),
         ],
         'knows': [
             (r'(\S+)熟悉(\S+)', ('subject', 'object')),
-            (r'(\S+)�?\S+)', ('subject', 'object')),
-            (r'(\S+)精�?\S+)', ('subject', 'object')),
+            (r'(\S+)会(\S+)', ('subject', 'object')),
+            (r'(\S+)精通(\S+)', ('subject', 'object')),
         ],
         'prefers': [
             (r'(\S+)喜欢(\S+)', ('subject', 'object')),
@@ -132,37 +134,37 @@ class RuleBasedExtractor:
             (r'(\S+)更倾向(\S+)', ('subject', 'object')),
         ],
         'uses': [
-            (r'(\S+)�?\S+)', ('subject', 'object')),
+            (r'(\S+)用(\S+)', ('subject', 'object')),
             (r'(\S+)使用(\S+)', ('subject', 'object')),
         ],
         'has_skill': [
-            (r'(\S+)�?\S+)', ('subject', 'object')),
+            (r'(\S+)会(\S+)', ('subject', 'object')),
             (r'(\S+)掌握(\S+)', ('subject', 'object')),
         ],
     }
     
     FACT_PATTERNS = {
         'preference': [
-            r'我喜�?\S+)',
-            r'我讨�?\S+)',
-            r'我偏�?\S+)',
+            r'我喜欢(\S+)',
+            r'我讨厌(\S+)',
+            r'我偏好(\S+)',
         ],
         'habit': [
-            r'我习�?\S+)',
+            r'我习惯(\S+)',
             r'我通常(\S+)',
             r'我总是(\S+)',
         ],
         'knowledge': [
             r'记住(.+)',
-            r'别忘�?.+)',
+            r'别忘了(.+)',
             r'记得(.+)',
         ],
     }
     
     IMPORTANT_KEYWORDS = [
-        '记住', '别忘�?, '记得', 'important',
-        '我的', '我家', '我公�?, '我学�?, '我团�?,
-        '注意', '提醒�?, '关键', '必须'
+        '记住', '别忘了', '记得', 'important',
+        '我的', '我家', '我公司', '我学校', '我团队',
+        '注意', '提醒我', '关键', '必须'
     ]
     
     def __init__(self):
@@ -326,7 +328,7 @@ class RuleBasedExtractor:
                     logger.warning(f"事实提取失败: {pattern.pattern}, {e}")
         
         if any(kw in message for kw in self.IMPORTANT_KEYWORDS):
-            sentences = re.split(r'[。！�?!?]', message)
+            sentences = re.split(r'[。！？!?]', message)
             for sentence in sentences:
                 sentence = sentence.strip()
                 if not sentence or len(sentence) < 10 or len(sentence) > 100:
@@ -346,15 +348,15 @@ class RuleBasedExtractor:
 
 
 class LLMExtractor:
-    """LLM辅助提取�?""
+    """LLM辅助提取器"""
     
-    EXTRACTION_PROMPT = """分析以下文本，提取实体、关系和事实�?
+    EXTRACTION_PROMPT = """分析以下文本，提取实体、关系和事实。
 文本: {message}
 
-请以严格的JSON格式返回，不要包含任何其他内�?
+请以严格的JSON格式返回，不要包含任何其他内容：
 {{
   "entities": [
-    {{"name": "实体�?, "type": "person/project/skill/tool/concept/preference/habit", "attributes": {{"key": "value"}}, "confidence": 0.9}}
+    {{"name": "实体名", "type": "person/project/skill/tool/concept/preference/habit", "attributes": {{"key": "value"}}, "confidence": 0.9}}
   ],
   "relations": [
     {{"source": "实体A", "target": "实体B", "relation": "knows/works_on/uses/prefers/has_skill", "evidence": "原文依据", "confidence": 0.8}}
@@ -364,7 +366,9 @@ class LLMExtractor:
   ]
 }}
 
-注意�?1. 只提取明确提到的信息，不要推�?2. 实体类型必须是预定义类型之一
+注意：
+1. 只提取明确提到的信息，不要推测
+2. 实体类型必须是预定义类型之一
 3. 关系类型必须是预定义类型之一
 4. confidence 范围 0-1"""
 
@@ -443,9 +447,9 @@ class LLMExtractor:
 
 
 class IntelligentMemoryExtractor:
-    """智能记忆提取器（规则+LLM混合�?""
+    """智能记忆提取器（规则+LLM混合）"""
     
-    COMPLEX_PATTERNS = ['因为', '所�?, '虽然', '但是', '如果', '那么', '不仅', '而且', '首先', '其次']
+    COMPLEX_PATTERNS = ['因为', '所以', '虽然', '但是', '如果', '那么', '不仅', '而且', '首先', '其次']
     
     def __init__(self, llm_client=None, use_llm: bool = True):
         self.rule_extractor = RuleBasedExtractor()
@@ -464,7 +468,8 @@ class IntelligentMemoryExtractor:
         Args:
             message: 消息内容
             role: 角色
-            context: 上下文信�?            
+            context: 上下文信息
+            
         Returns:
             提取结果
         """
@@ -521,7 +526,7 @@ _memory_extractor: Optional[IntelligentMemoryExtractor] = None
 
 
 def get_memory_extractor(llm_client=None) -> IntelligentMemoryExtractor:
-    """获取记忆提取器实�?""
+    """获取记忆提取器实例"""
     global _memory_extractor
     if _memory_extractor is None:
         _memory_extractor = IntelligentMemoryExtractor(llm_client)
@@ -533,6 +538,6 @@ def extract_memories(
     role: str = 'user',
     llm_client=None
 ) -> ExtractionResult:
-    """便捷函数：提取记�?""
+    """便捷函数：提取记忆"""
     extractor = get_memory_extractor(llm_client)
     return extractor.extract(message, role)

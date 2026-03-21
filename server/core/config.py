@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 核心配置管理模块
 """
@@ -28,6 +29,24 @@ class Settings(BaseSettings):
 
     host: str = Field(default="127.0.0.1", description="服务主机")
     port: int = Field(default=8000, ge=1, le=65535, description="服务端口")
+
+    environment: Literal["development", "staging", "production"] = Field(
+        default="development",
+        description="运行环境：development/staging/production"
+    )
+
+    enable_auth: bool = Field(
+        default=True,
+        description="是否启用JWT认证（生产环境强制启用）"
+    )
+
+    jwt_secret_key: Optional[str] = Field(
+        default=None,
+        description="JWT 密钥（生产环境必须设置）"
+    )
+    jwt_algorithm: str = Field(default="HS256", description="JWT 算法")
+    jwt_access_token_expire_minutes: int = Field(default=30, description="Access Token 过期时间（分钟）")
+    jwt_refresh_token_expire_days: int = Field(default=7, description="Refresh Token 过期时间（天）")
 
     allowed_origins: List[str] = Field(
         default=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000", "http://127.0.0.1:3000"],
@@ -110,6 +129,18 @@ class Settings(BaseSettings):
         default=[".json", ".jsonl"],
         description="允许的文件类型"
     )
+
+    @field_validator('environment', mode='after')
+    @classmethod
+    def validate_environment_security(cls, v, info):
+        if v == 'production':
+            enable_auth = info.data.get('enable_auth', True)
+            if not enable_auth:
+                raise ValueError("生产环境必须启用认证 (ENABLE_AUTH=true)")
+            jwt_secret = info.data.get('jwt_secret_key')
+            if not jwt_secret:
+                raise ValueError("生产环境必须设置 JWT_SECRET_KEY")
+        return v
 
     @field_validator('allowed_origins', mode='before')
     @classmethod

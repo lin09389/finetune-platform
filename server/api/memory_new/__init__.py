@@ -1,8 +1,15 @@
+# -*- coding: utf-8 -*-
 """
-记忆模块 - 统一记忆管理
-整合�?memory.py, enhanced_memory.py 功能
+记忆模块 - 整合智能记忆系统
 """
-from api.memory_new.routes import router
-from api.memory_new.service import get_memory_service
+from .routes import router
+from .service import MemoryAPIService, get_memory_api_service
+from .models import MemoryItem, MemoryCreateRequest
 
-__all__ = ["router", "get_memory_service"]
+__all__ = [
+    "router",
+    "MemoryAPIService",
+    "get_memory_api_service",
+    "MemoryItem",
+    "MemoryCreateRequest",
+]

@@ -1,9 +1,12 @@
 """
 训练上下文管理模块（重构版）
 
-修复�?- P0-4: 统一全局状态管理，使用依赖注入
+修复：
+- P0-4: 统一全局状态管理，使用依赖注入
 
-提供�?- 统一的状态管理入�?- 生命周期管理
+提供：
+- 统一的状态管理入口
+- 生命周期管理
 - 资源清理
 """
 import threading
@@ -26,8 +29,11 @@ logger = get_logger(__name__)
 
 class TrainingContext:
     """
-    训练上下文管理器 - 统一管理所有训练相关状�?    
-    修复�?    - P0-4: 统一全局状态管�?    - 使用依赖注入模式
+    训练上下文管理器 - 统一管理所有训练相关状态
+    
+    修复：
+    - P0-4: 统一全局状态管理
+    - 使用依赖注入模式
     - 生命周期管理
     """
     
@@ -61,7 +67,7 @@ class TrainingContext:
         
         atexit.register(self.cleanup)
         
-        logger.info("TrainingContext 初始化完�?)
+        logger.info("TrainingContext 初始化完成")
     
     @classmethod
     def get_instance(cls) -> 'TrainingContext':
@@ -102,7 +108,7 @@ class TrainingContext:
         return self._training_queue
     
     def is_training(self) -> bool:
-        """检查是否正在训�?""
+        """检查是否正在训练"""
         return self.state.is_training()
     
     def get_progress(self) -> TrainingProgress:
@@ -118,7 +124,7 @@ class TrainingContext:
         return self.state.get_history()
     
     def get_status(self) -> Dict[str, Any]:
-        """获取完整状�?""
+        """获取完整状态"""
         return {
             "training": self.state.get_status(),
             "queue": self.queue.get_queue_status(),
@@ -130,12 +136,12 @@ class TrainingContext:
         }
     
     def cleanup(self):
-        """清理所有资�?""
+        """清理所有资源"""
         if self._shutdown:
             return
             
         self._shutdown = True
-        logger.info("开始清�?TrainingContext 资源...")
+        logger.info("开始清理 TrainingContext 资源...")
         
         try:
             if self._training_state:
@@ -162,7 +168,7 @@ _context_lock = threading.Lock()
 
 
 def get_training_context() -> TrainingContext:
-    """获取训练上下文实�?""
+    """获取训练上下文实例"""
     global _context
     
     with _context_lock:
@@ -172,7 +178,7 @@ def get_training_context() -> TrainingContext:
 
 
 def reset_training_context():
-    """重置训练上下文（用于测试�?""
+    """重置训练上下文（用于测试）"""
     global _context
     
     with _context_lock:
@@ -203,7 +209,7 @@ def init_training_context(
 
 
 def shutdown_training_context():
-    """关闭训练上下�?""
+    """关闭训练上下文"""
     global _context
     
     with _context_lock:

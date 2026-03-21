@@ -1,6 +1,7 @@
+# -*- coding: utf-8 -*-
 """
-统一类型定义 - 参�?Ollama api/types.go
-所�?API 请求/响应类型集中定义
+统一类型定义 - 参考 Ollama api/types.go
+所有 API 请求/响应类型集中定义
 """
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any, Literal, Union
@@ -31,35 +32,56 @@ class InferenceOptions(BaseModel):
     temperature: float = Field(default=0.7, ge=0, le=2, description="温度参数")
     top_p: float = Field(default=0.9, ge=0, le=1, description="Top-p 采样")
     top_k: int = Field(default=50, ge=1, description="Top-k 采样")
-    max_tokens: int = Field(default=1024, ge=1, le=8192, description="最大生�?token �?)
+    max_tokens: int = Field(default=1024, ge=1, le=8192, description="最大生成 token 数")
     repetition_penalty: float = Field(default=1.1, ge=0.1, le=2, description="重复惩罚")
-    stop: Optional[List[str]] = Field(default=None, description="停止�?)
+    stop: Optional[List[str]] = Field(default=None, description="停止词")
     seed: Optional[int] = Field(default=None, description="随机种子")
-    num_ctx: int = Field(default=4096, description="上下文窗口大�?)
-    num_batch: int = Field(default=512, description="批处理大�?)
-    num_keep: int = Field(default=0, description="保留 token �?)
+    num_ctx: int = Field(default=4096, description="上下文窗口大小")
+    num_batch: int = Field(default=512, description="批处理大小")
+    num_keep: int = Field(default=0, description="保留 token 数")
     backend: Optional[str] = Field(default=None, description="推理后端类型")
 
 
 class KnowledgeRetrievalOptions(BaseModel):
-    use_knowledge: bool = Field(default=False, description="是否使用知识库检�?)
-    collection_id: Optional[str] = Field(default=None, description="知识库集�?ID")
-    top_k: int = Field(default=5, ge=1, le=20, description="检索返回数�?)
+    use_knowledge: bool = Field(default=False, description="是否使用知识库检索")
+    collection_id: Optional[str] = Field(default=None, description="知识库集合 ID")
+    top_k: int = Field(default=5, ge=1, le=20, description="检索返回数量")
     min_score: float = Field(default=0.3, ge=0, le=1, description="最小相似度分数")
-    auto_retrieve: bool = Field(default=True, description="是否自动触发检�?)
+    auto_retrieve: bool = Field(default=True, description="是否自动触发检索")
     include_sources: bool = Field(default=True, description="是否包含知识来源")
 
 
 class ProjectContextOptions(BaseModel):
-    use_context: bool = Field(default=False, description="是否使用项目上下�?)
+    use_context: bool = Field(default=False, description="是否使用项目上下文")
     project_path: Optional[str] = Field(default=None, description="项目路径")
     max_context_length: int = Field(default=1500, description="最大上下文长度")
 
 
+class MemoryOptions(BaseModel):
+    enabled: bool = Field(default=True, description="是否启用记忆系统")
+    auto_extract: bool = Field(default=True, description="是否自动提取记忆")
+    auto_retrieve: bool = Field(default=True, description="是否自动检索记忆")
+    top_k: int = Field(default=3, ge=1, le=10, description="检索返回数量")
+    include_types: Optional[List[str]] = Field(default=None, description="包含的记忆类型")
+
+
 class SessionOptions(BaseModel):
     session_id: Optional[str] = Field(default=None, description="会话 ID")
-    use_memory: bool = Field(default=True, description="是否使用记忆系统")
-    memory_types: Optional[List[str]] = Field(default=None, description="记忆类型过滤")
+    user_id: str = Field(default="default", description="用户 ID")
+
+
+class UnifiedContextInfo(BaseModel):
+    total_sources: int = Field(default=0, description="总来源数")
+    memory_count: int = Field(default=0, description="记忆数量")
+    knowledge_count: int = Field(default=0, description="知识库数量")
+    project_count: int = Field(default=0, description="项目上下文数量")
+    retrieval_time: float = Field(default=0, description="检索耗时(秒)")
+
+
+class MemoryContextInfo(BaseModel):
+    retrieved: bool = Field(default=False, description="是否检索了记忆")
+    sources_count: int = Field(default=0, description="来源数量")
+    context_preview: str = Field(default="", description="上下文预览")
 
 
 class ChatRequest(BaseModel):
@@ -70,6 +92,7 @@ class ChatRequest(BaseModel):
     format: Optional[str] = Field(default=None, description="输出格式: json/text")
     keep_alive: Optional[str] = Field(default=None, description="模型保活时间")
     
+    memory: MemoryOptions = Field(default_factory=MemoryOptions, description="记忆系统选项")
     knowledge: KnowledgeRetrievalOptions = Field(default_factory=KnowledgeRetrievalOptions, description="知识检索选项")
     context: ProjectContextOptions = Field(default_factory=ProjectContextOptions, description="项目上下文选项")
     session: SessionOptions = Field(default_factory=SessionOptions, description="会话选项")
@@ -86,15 +109,15 @@ class ChatRequest(BaseModel):
 class KnowledgeSource(BaseModel):
     id: str = Field(..., description="来源 ID")
     source: str = Field(..., description="来源名称")
-    score: float = Field(..., description="相似度分�?)
+    score: float = Field(..., description="相似度分数")
     content_preview: str = Field(default="", description="内容预览")
-    metadata: Optional[Dict[str, Any]] = Field(default=None, description="元数�?)
+    metadata: Optional[Dict[str, Any]] = Field(default=None, description="元数据")
 
 
 class TokenUsage(BaseModel):
-    prompt_tokens: int = Field(default=0, description="提示 token �?)
-    completion_tokens: int = Field(default=0, description="完成 token �?)
-    total_tokens: int = Field(default=0, description="�?token �?)
+    prompt_tokens: int = Field(default=0, description="提示 token 数")
+    completion_tokens: int = Field(default=0, description="完成 token 数")
+    total_tokens: int = Field(default=0, description="总 token 数")
 
 
 class ChatResponse(BaseModel):
@@ -106,9 +129,12 @@ class ChatResponse(BaseModel):
     
     usage: TokenUsage = Field(default_factory=TokenUsage, description="Token 使用统计")
     knowledge_sources: Optional[List[KnowledgeSource]] = Field(default=None, description="知识来源")
-    retrieval_info: Optional[Dict[str, Any]] = Field(default=None, description="检索信�?)
+    retrieval_info: Optional[Dict[str, Any]] = Field(default=None, description="检索信息")
     
-    total_duration: Optional[float] = Field(default=None, description="总耗时(�?")
+    memory_context: Optional[MemoryContextInfo] = Field(default=None, description="记忆上下文信息")
+    unified_context: Optional[UnifiedContextInfo] = Field(default=None, description="统一上下文信息")
+    
+    total_duration: Optional[float] = Field(default=None, description="总耗时(秒)")
     load_duration: Optional[float] = Field(default=None, description="模型加载耗时")
     eval_duration: Optional[float] = Field(default=None, description="推理耗时")
 
@@ -118,14 +144,14 @@ class GenerateRequest(BaseModel):
     prompt: str = Field(..., description="提示文本")
     system: Optional[str] = Field(default=None, description="系统提示")
     template: Optional[str] = Field(default=None, description="模板")
-    context: Optional[List[int]] = Field(default=None, description="上下�?token")
+    context: Optional[List[int]] = Field(default=None, description="上下文 token")
     options: InferenceOptions = Field(default_factory=InferenceOptions, description="推理选项")
     stream: bool = Field(default=False, description="是否流式输出")
     format: Optional[str] = Field(default=None, description="输出格式")
     keep_alive: Optional[str] = Field(default=None, description="模型保活时间")
     raw: bool = Field(default=False, description="是否原始模式")
     
-    lora_adapter: Optional[str] = Field(default=None, description="LoRA 适配器路�?)
+    lora_adapter: Optional[str] = Field(default=None, description="LoRA 适配器路径")
 
 
 class GenerateResponse(BaseModel):
@@ -134,10 +160,10 @@ class GenerateResponse(BaseModel):
     response: str = Field(..., description="响应文本")
     done: bool = Field(default=True, description="是否完成")
     
-    context: Optional[List[int]] = Field(default=None, description="上下�?token")
+    context: Optional[List[int]] = Field(default=None, description="上下文 token")
     usage: TokenUsage = Field(default_factory=TokenUsage, description="Token 使用统计")
     
-    total_duration: Optional[float] = Field(default=None, description="总耗时(�?")
+    total_duration: Optional[float] = Field(default=None, description="总耗时(秒)")
     load_duration: Optional[float] = Field(default=None, description="模型加载耗时")
     prompt_eval_duration: Optional[float] = Field(default=None, description="提示评估耗时")
     eval_duration: Optional[float] = Field(default=None, description="推理耗时")
@@ -161,7 +187,7 @@ class SessionInfo(BaseModel):
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")
     message_count: int = Field(default=0, description="消息数量")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数�?)
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据")
     tags: List[str] = Field(default_factory=list, description="标签")
     starred: bool = Field(default=False, description="是否星标")
     pinned: bool = Field(default=False, description="是否置顶")
@@ -173,17 +199,17 @@ class SessionMessage(BaseModel):
     role: MessageRole = Field(..., description="角色")
     content: str = Field(..., description="内容")
     created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数�?)
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据")
 
 
 class CreateSessionRequest(BaseModel):
     title: Optional[str] = Field(default=None, description="会话标题")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数�?)
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据")
 
 
 class UpdateSessionRequest(BaseModel):
     title: Optional[str] = Field(default=None, description="会话标题")
-    metadata: Optional[Dict[str, Any]] = Field(default=None, description="元数�?)
+    metadata: Optional[Dict[str, Any]] = Field(default=None, description="元数据")
     tags: Optional[List[str]] = Field(default=None, description="标签")
     starred: Optional[bool] = Field(default=None, description="是否星标")
     pinned: Optional[bool] = Field(default=None, description="是否置顶")
@@ -203,13 +229,13 @@ class ModelInfo(BaseModel):
 
 class ModelPullRequest(BaseModel):
     name: str = Field(..., description="模型名称")
-    insecure: bool = Field(default=False, description="是否允许不安全连�?)
+    insecure: bool = Field(default=False, description="是否允许不安全连接")
     stream: bool = Field(default=True, description="是否流式输出")
 
 
 class ModelPushRequest(BaseModel):
     name: str = Field(..., description="模型名称")
-    insecure: bool = Field(default=False, description="是否允许不安全连�?)
+    insecure: bool = Field(default=False, description="是否允许不安全连接")
     stream: bool = Field(default=True, description="是否流式输出")
 
 
@@ -234,8 +260,8 @@ class MemoryInfo(BaseModel):
     type: str = Field(..., description="记忆类型")
     content: str = Field(..., description="记忆内容")
     created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
-    confidence: float = Field(default=1.0, description="置信�?)
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数�?)
+    confidence: float = Field(default=1.0, description="置信度")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据")
 
 
 class MemoryRecallRequest(BaseModel):
@@ -249,18 +275,18 @@ class MemoryStoreRequest(BaseModel):
     content: str = Field(..., description="记忆内容")
     memory_type: str = Field(default="fact", description="记忆类型")
     user_id: str = Field(default="default", description="用户 ID")
-    confidence: float = Field(default=1.0, description="置信�?)
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数�?)
+    confidence: float = Field(default=1.0, description="置信度")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据")
 
 
 class KnowledgeDocument(BaseModel):
     id: str = Field(..., description="文档 ID")
-    filename: str = Field(..., description="文件�?)
+    filename: str = Field(..., description="文件名")
     content: Optional[str] = Field(default=None, description="内容")
     collection_id: str = Field(..., description="集合 ID")
     created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
     chunk_count: int = Field(default=0, description="分块数量")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数�?)
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据")
 
 
 class KnowledgeCollection(BaseModel):
@@ -269,7 +295,7 @@ class KnowledgeCollection(BaseModel):
     description: Optional[str] = Field(default=None, description="描述")
     document_count: int = Field(default=0, description="文档数量")
     created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数�?)
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据")
 
 
 class KnowledgeSearchRequest(BaseModel):
@@ -277,23 +303,23 @@ class KnowledgeSearchRequest(BaseModel):
     collection_id: str = Field(..., description="集合 ID")
     top_k: int = Field(default=5, ge=1, le=20, description="返回数量")
     min_score: float = Field(default=0.3, ge=0, le=1, description="最小相似度")
-    method: str = Field(default="hybrid", description="检索方�? vector/keyword/hybrid")
+    method: str = Field(default="hybrid", description="检索方法: vector/keyword/hybrid")
 
 
 class KnowledgeSearchResult(BaseModel):
     id: str = Field(..., description="结果 ID")
     content: str = Field(..., description="内容")
     source: str = Field(..., description="来源")
-    score: float = Field(..., description="相似度分�?)
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数�?)
+    score: float = Field(..., description="相似度分数")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据")
 
 
 class KnowledgeSearchResponse(BaseModel):
     query: str = Field(..., description="查询文本")
     results: List[KnowledgeSearchResult] = Field(default_factory=list, description="搜索结果")
-    total_count: int = Field(default=0, description="总数�?)
-    retrieval_time: float = Field(default=0, description="检索耗时(�?")
-    method: str = Field(default="hybrid", description="检索方�?)
+    total_count: int = Field(default=0, description="总数量")
+    retrieval_time: float = Field(default=0, description="检索耗时(秒)")
+    method: str = Field(default="hybrid", description="检索方法")
 
 
 class APIErrorDetail(BaseModel):
@@ -307,24 +333,24 @@ class APIErrorResponse(BaseModel):
 
 
 class HealthCheckResponse(BaseModel):
-    status: str = Field(default="ok", description="状�?)
+    status: str = Field(default="ok", description="状态")
     version: str = Field(default="1.0.0", description="版本")
-    uptime: float = Field(default=0, description="运行时间(�?")
-    backends: Dict[str, bool] = Field(default_factory=dict, description="后端状�?)
+    uptime: float = Field(default=0, description="运行时间(秒)")
+    backends: Dict[str, bool] = Field(default_factory=dict, description="后端状态")
 
 
 class VersionInfo(BaseModel):
-    version: str = Field(default="1.0.0", description="版本�?)
-    build: Optional[str] = Field(default=None, description="构建�?)
+    version: str = Field(default="1.0.0", description="版本号")
+    build: Optional[str] = Field(default=None, description="构建号")
     commit: Optional[str] = Field(default=None, description="提交哈希")
     date: Optional[datetime] = Field(default=None, description="构建日期")
 
 
 class ProgressEvent(BaseModel):
-    status: str = Field(..., description="状�?)
-    completed: int = Field(default=0, description="已完�?)
+    status: str = Field(..., description="状态")
+    completed: int = Field(default=0, description="已完成")
     total: int = Field(default=0, description="总数")
-    percent: float = Field(default=0, description="百分�?)
+    percent: float = Field(default=0, description="百分比")
     message: Optional[str] = Field(default=None, description="消息")
 
 
@@ -352,12 +378,12 @@ class ToolResult(BaseModel):
 class AgentAction(BaseModel):
     action_type: str = Field(..., description="动作类型")
     parameters: Dict[str, Any] = Field(default_factory=dict, description="参数")
-    confidence: float = Field(default=1.0, description="置信�?)
-    requires_confirmation: bool = Field(default=False, description="是否需要确�?)
+    confidence: float = Field(default=1.0, description="置信度")
+    requires_confirmation: bool = Field(default=False, description="是否需要确认")
 
 
 class AgentIntent(BaseModel):
     intent: str = Field(..., description="意图类型")
     entities: Dict[str, Any] = Field(default_factory=dict, description="实体")
-    confidence: float = Field(default=1.0, description="置信�?)
+    confidence: float = Field(default=1.0, description="置信度")
     action: Optional[AgentAction] = Field(default=None, description="动作")

@@ -1,7 +1,10 @@
 """
-对话上下文管�?API
+对话上下文管理 API
 
-提供对话上下文管理的 HTTP 接口�?- 上下文窗口配�?- 消息添加与管�?- 对话压缩
+提供对话上下文管理的 HTTP 接口：
+- 上下文窗口配置
+- 消息添加与管理
+- 对话压缩
 - 统计信息
 """
 from fastapi import APIRouter, HTTPException
@@ -22,7 +25,7 @@ from context.compressor import get_dialog_compressor, CompressionResult
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["对话上下文管�?])
+router = APIRouter(tags=["对话上下文管理"])
 
 
 class AddMessageRequest(BaseModel):
@@ -30,9 +33,9 @@ class AddMessageRequest(BaseModel):
     session_id: str = Field(default="default", description="会话 ID")
     role: str = Field(..., description="消息角色: user/assistant/system")
     content: str = Field(..., description="消息内容")
-    priority: str = Field(default="normal", description="优先�? critical/high/normal/low")
-    importance: Optional[float] = Field(None, ge=0, le=1, description="重要性分�?)
-    metadata: Optional[Dict[str, Any]] = Field(None, description="元数�?)
+    priority: str = Field(default="normal", description="优先级: critical/high/normal/low")
+    importance: Optional[float] = Field(None, ge=0, le=1, description="重要性分数")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="元数据")
 
 
 class MessageResponse(BaseModel):
@@ -54,9 +57,9 @@ class SetSystemMessageRequest(BaseModel):
 
 
 class SetMaxTokensRequest(BaseModel):
-    """设置最�?Token 数请�?""
+    """设置最大 Token 数请求"""
     session_id: str = Field(default="default", description="会话 ID")
-    max_tokens: int = Field(..., ge=256, le=128000, description="最�?Token �?)
+    max_tokens: int = Field(..., ge=256, le=128000, description="最大 Token 数")
 
 
 class CompressRequest(BaseModel):
@@ -74,7 +77,7 @@ class CompressResponse(BaseModel):
 
 
 class GetContextRequest(BaseModel):
-    """获取上下文请�?""
+    """获取上下文请求"""
     session_id: str = Field(default="default", description="会话 ID")
     include_system: bool = Field(default=True, description="是否包含系统消息")
     max_messages: Optional[int] = Field(None, ge=1, description="最大消息数")
@@ -88,7 +91,7 @@ class GetContextStringRequest(BaseModel):
 
 
 class ClearContextRequest(BaseModel):
-    """清空上下文请�?""
+    """清空上下文请求"""
     session_id: str = Field(default="default", description="会话 ID")
     keep_system: bool = Field(default=True, description="是否保留系统消息")
 
@@ -96,10 +99,10 @@ class ClearContextRequest(BaseModel):
 class CreateSessionRequest(BaseModel):
     """创建会话请求"""
     session_id: str = Field(..., description="会话 ID")
-    max_tokens: int = Field(default=4096, description="最�?Token �?)
-    reserved_tokens: int = Field(default=512, description="保留 Token �?)
-    compression_threshold: float = Field(default=0.8, ge=0.5, le=1.0, description="压缩阈�?)
-    target_utilization: float = Field(default=0.6, ge=0.3, le=0.9, description="目标利用�?)
+    max_tokens: int = Field(default=4096, description="最大 Token 数")
+    reserved_tokens: int = Field(default=512, description="保留 Token 数")
+    compression_threshold: float = Field(default=0.8, ge=0.5, le=1.0, description="压缩阈值")
+    target_utilization: float = Field(default=0.6, ge=0.3, le=0.9, description="目标利用率")
 
 
 @router.post("/message", response_model=MessageResponse)
@@ -107,7 +110,10 @@ async def add_message(request: AddMessageRequest):
     """
     添加消息到上下文
     
-    - 自动计算 Token �?    - 自动评估重要�?    - 超过阈值自动触发压�?    """
+    - 自动计算 Token 数
+    - 自动评估重要性
+    - 超过阈值自动触发压缩
+    """
     try:
         manager = get_context_manager(request.session_id)
         
@@ -152,7 +158,8 @@ async def set_system_message(request: SetSystemMessageRequest):
     设置系统消息
     
     - 系统消息具有最高优先级
-    - 不会被压缩删�?    """
+    - 不会被压缩删除
+    """
     try:
         manager = get_context_manager(request.session_id)
         
@@ -163,7 +170,7 @@ async def set_system_message(request: SetSystemMessageRequest):
         
         return {
             "success": True,
-            "message": "系统消息已设�?,
+            "message": "系统消息已设置",
             "token_count": message.token_count
         }
     except Exception as e:
@@ -174,9 +181,14 @@ async def set_system_message(request: SetSystemMessageRequest):
 @router.post("/compress", response_model=CompressResponse)
 async def compress_context(request: CompressRequest):
     """
-    手动压缩上下�?    
-    支持多种压缩策略�?    - summary: 生成摘要替换旧消�?    - sliding_window: 滑动窗口保留首尾
-    - semantic: 语义重要性压�?    - importance: 基于重要性分数压�?    """
+    手动压缩上下文
+    
+    支持多种压缩策略：
+    - summary: 生成摘要替换旧消息
+    - sliding_window: 滑动窗口保留首尾
+    - semantic: 语义重要性压缩
+    - importance: 基于重要性分数压缩
+    """
     try:
         manager = get_context_manager(request.session_id)
         compressor = get_dialog_compressor()
@@ -193,7 +205,7 @@ async def compress_context(request: CompressRequest):
         return CompressResponse(
             success=True,
             result=result.to_dict(),
-            message=f"压缩完成: {result.original_count} -> {result.compressed_count} 条消�?
+            message=f"压缩完成: {result.original_count} -> {result.compressed_count} 条消息"
         )
     except Exception as e:
         logger.error(f"压缩失败: {e}", exc_info=True)
@@ -206,7 +218,8 @@ async def compress_context(request: CompressRequest):
 @router.post("/context")
 async def get_context(request: GetContextRequest):
     """
-    获取上下文消息列�?    
+    获取上下文消息列表
+    
     返回格式化的消息列表，可用于构建 LLM 输入
     """
     try:
@@ -224,7 +237,7 @@ async def get_context(request: GetContextRequest):
             "stats": manager.get_stats()
         }
     except Exception as e:
-        logger.error(f"获取上下文失�? {e}", exc_info=True)
+        logger.error(f"获取上下文失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"获取失败: {str(e)}")
 
 
@@ -233,7 +246,8 @@ async def get_context_string(request: GetContextStringRequest):
     """
     获取上下文字符串
     
-    支持多种格式�?    - default: [Role]: content 格式
+    支持多种格式：
+    - default: [Role]: content 格式
     - markdown: ## Role 格式
     - openai: OpenAI 消息格式
     """
@@ -259,7 +273,8 @@ async def get_context_string(request: GetContextStringRequest):
 @router.post("/clear")
 async def clear_context(request: ClearContextRequest):
     """
-    清空上下�?    
+    清空上下文
+    
     可选择是否保留系统消息
     """
     try:
@@ -279,10 +294,14 @@ async def clear_context(request: ClearContextRequest):
 @router.get("/stats/{session_id}")
 async def get_stats(session_id: str = "default"):
     """
-    获取上下文统计信�?    
-    包括�?    - 消息数量
+    获取上下文统计信息
+    
+    包括：
+    - 消息数量
     - Token 使用情况
-    - 利用�?    - 各角色消息分�?    """
+    - 利用率
+    - 各角色消息分布
+    """
     try:
         manager = get_context_manager(session_id)
         stats = manager.get_stats()
@@ -310,7 +329,7 @@ async def set_max_tokens(request: SetMaxTokensRequest):
         
         return {
             "success": True,
-            "message": f"上下文窗口已调整�?{request.max_tokens} tokens",
+            "message": f"上下文窗口已调整为 {request.max_tokens} tokens",
             "stats": manager.get_stats()
         }
     except Exception as e:
@@ -321,7 +340,8 @@ async def set_max_tokens(request: SetMaxTokensRequest):
 @router.post("/session")
 async def create_session(request: CreateSessionRequest):
     """
-    创建新的上下文会�?    
+    创建新的上下文会话
+    
     可自定义各项参数
     """
     try:
@@ -336,7 +356,7 @@ async def create_session(request: CreateSessionRequest):
         return {
             "success": True,
             "session_id": request.session_id,
-            "message": "会话已创�?,
+            "message": "会话已创建",
             "config": {
                 "max_tokens": request.max_tokens,
                 "reserved_tokens": request.reserved_tokens,
@@ -352,7 +372,8 @@ async def create_session(request: CreateSessionRequest):
 @router.delete("/session/{session_id}")
 async def delete_session(session_id: str):
     """
-    删除上下文会�?    
+    删除上下文会话
+    
     释放相关资源
     """
     try:
@@ -361,12 +382,12 @@ async def delete_session(session_id: str):
         if success:
             return {
                 "success": True,
-                "message": f"会话 {session_id} 已删�?
+                "message": f"会话 {session_id} 已删除"
             }
         else:
             return {
                 "success": False,
-                "message": f"会话 {session_id} 不存�?
+                "message": f"会话 {session_id} 不存在"
             }
     except Exception as e:
         logger.error(f"删除会话失败: {e}", exc_info=True)

@@ -1,4 +1,4 @@
-"""测试增强版记忆系�?""
+"""测试增强版记忆系统"""
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -34,25 +34,25 @@ def test_short_term_memory():
     print("=== 测试短期记忆 ===")
     stm = ShortTermMemory(max_turns=10)
     
-    stm.add_message('user', '我叫张三，今�?5�?)
+    stm.add_message('user', '我叫张三，今年25岁')
     stm.add_message('assistant', '你好张三，很高兴认识你！')
     stm.add_message('user', '我喜欢用Python编程')
     
     context = stm.get_context(max_tokens=500)
-    print(f"上下文长�? {len(context)} 字符")
+    print(f"上下文长度: {len(context)} 字符")
     
     active_entities = stm.get_active_entities()
     print(f"活跃实体: {active_entities}")
     
     summary = stm.summarize()
-    print(f"摘要: {summary['message_count']} 条消�?)
+    print(f"摘要: {summary['message_count']} 条消息")
     print("短期记忆测试通过!\n")
 
 
 def test_intelligent_extractor():
-    print("=== 测试智能提取�?===")
+    print("=== 测试智能提取器 ===")
     
-    result = extract_memories('我叫张三，我在做一个AI项目，我会Python和机器学�?)
+    result = extract_memories('我叫张三，我在做一个AI项目，我会Python和机器学习')
     
     print(f"提取实体: {len(result.entities)}")
     for e in result.entities:
@@ -67,7 +67,7 @@ def test_intelligent_extractor():
 
 
 def test_memory_merger():
-    print("=== 测试记忆合并�?===")
+    print("=== 测试记忆合并器 ===")
     merger = MemoryMerger()
     
     existing = {
@@ -88,17 +88,17 @@ def test_memory_merger():
     
     merged, conflict = merger.merge_memories(existing, new)
     print(f"合并结果: {merged['name']}")
-    print(f"合并属�? {merged['attributes']}")
+    print(f"合并属性: {merged['attributes']}")
     print(f"冲突: {conflict}")
     print("记忆合并器测试通过!\n")
 
 
 def test_enhanced_memory_service():
-    print("=== 测试增强版记忆服�?===")
+    print("=== 测试增强版记忆服务 ===")
     service = get_enhanced_memory_service()
     
     result = service.process_message(
-        message='我叫李四，我在做一个AI项目，我会Python和机器学�?,
+        message='我叫李四，我在做一个AI项目，我会Python和机器学习',
         role='user',
         user_id='test_user'
     )
@@ -114,7 +114,7 @@ def test_enhanced_memory_service():
 
 
 def test_mcp_server():
-    print("=== 测试 MCP 服务�?===")
+    print("=== 测试 MCP 服务器 ===")
     from memory.mcp_server import MCPServer, MCPResourceType
     
     server = MCPServer()

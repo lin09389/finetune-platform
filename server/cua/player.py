@@ -1,5 +1,7 @@
+# -*- coding: utf-8 -*-
 """
-CUA 操作回放器模�?"""
+CUA 操作回放器模块
+"""
 import asyncio
 import time
 import json
@@ -28,7 +30,7 @@ class ErrorHandlingMode(str, Enum):
 
 
 class ActionPlayer:
-    """操作回放�?""
+    """操作回放器"""
 
     def __init__(
         self,
@@ -58,8 +60,8 @@ class ActionPlayer:
         if self._is_playing:
             return OperationResult.failure_result(
                 operation_type=OperationType.SCREENSHOT,
-                error="回放正在进行�?,
-                message="无法开始新的回�?,
+                error="回放正在进行中",
+                message="无法开始新的回放",
             )
 
         self._is_playing = True
@@ -111,7 +113,7 @@ class ActionPlayer:
 
             return OperationResult.success_result(
                 operation_type=OperationType.SCREENSHOT,
-                message=f"回放完成: 执行 {executed_count} 个操�? 失败 {failed_count} �?,
+                message=f"回放完成: 执行 {executed_count} 个操作, 失败 {failed_count} 个",
                 duration_ms=duration_ms,
                 data={
                     "executed": executed_count,
@@ -124,7 +126,7 @@ class ActionPlayer:
             return OperationResult.failure_result(
                 operation_type=OperationType.SCREENSHOT,
                 error=str(e),
-                message="回放过程中发生错�?,
+                message="回放过程中发生错误",
             )
         finally:
             self._is_playing = False
@@ -166,7 +168,7 @@ class ActionPlayer:
         elif mode == "fast":
             self._mode = PlaybackMode.FAST
         else:
-            raise ValueError(f"未知的回放模�? {mode}")
+            raise ValueError(f"未知的回放模式: {mode}")
 
     def get_mode(self) -> str:
         return self._mode.value
@@ -186,7 +188,7 @@ class ActionPlayer:
             self._error_handling = ErrorHandlingMode.RETRY
             self._retry_count = retry_count
         else:
-            raise ValueError(f"未知的错误处理模�? {mode}")
+            raise ValueError(f"未知的错误处理模式: {mode}")
 
     def get_error_handling(self) -> str:
         return self._error_handling.value
@@ -196,13 +198,14 @@ class ActionPlayer:
 
     async def play_from_file_async(self, filepath: str) -> OperationResult:
         try:
-            actions = ActionRecorder.load_from_file(filepath)
+            recorder = ActionRecorder()
+            actions = recorder.load_from_file(filepath)
             return await self.play_async(actions)
         except FileNotFoundError as e:
             return OperationResult.failure_result(
                 operation_type=OperationType.SCREENSHOT,
                 error=str(e),
-                message="录制文件不存�?,
+                message="录制文件不存在",
             )
         except json.JSONDecodeError as e:
             return OperationResult.failure_result(
@@ -257,7 +260,7 @@ class ActionPlayer:
         ):
             await self._execute_keyboard_action(action)
         else:
-            raise ValueError(f"未知的操作类�? {action_type}")
+            raise ValueError(f"未知的操作类型: {action_type}")
 
     async def _execute_mouse_action(self, action: RecordedAction) -> None:
         action_type = action.action_type
@@ -320,7 +323,7 @@ class ActionPlayer:
             if keys:
                 await self._keyboard.hotkey_async(*keys)
 
-    def get_current_progress(self) -> tuple[int, int]:
+    def get_current_progress(self) -> tuple:
         return self._current_index, self._total_actions
 
 

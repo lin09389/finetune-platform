@@ -1,6 +1,8 @@
+# -*- coding: utf-8 -*-
 """
-统一状态管理器 - 参�?Ollama sched.go 设计模式
-管理所有运行时状态：模型缓存、会话状态、记忆状�?"""
+统一状态管理器 - 参考 Ollama sched.go 设计模式
+管理所有运行时状态：模型缓存、会话状态、记忆状态
+"""
 import asyncio
 import threading
 import time
@@ -16,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ModelState:
-    """模型状�?""
+    """模型状态"""
     model_id: str
     model: Any
     tokenizer: Any
@@ -28,14 +30,14 @@ class ModelState:
     device: str = "cuda"
     
     def touch(self):
-        """更新最后使用时�?""
+        """更新最后使用时间"""
         self.last_used = datetime.now()
         self.use_count += 1
 
 
 @dataclass
 class SessionState:
-    """会话状�?""
+    """会话状态"""
     session_id: str
     messages: List[Dict[str, Any]] = field(default_factory=list)
     context: Dict[str, Any] = field(default_factory=dict)
@@ -56,7 +58,7 @@ class SessionState:
         return message
     
     def get_context_window(self, max_tokens: int = 4000) -> List[Dict[str, Any]]:
-        """获取上下文窗�?""
+        """获取上下文窗口"""
         return self.messages[-max_tokens:]
     
     def clear(self):
@@ -68,7 +70,7 @@ class SessionState:
 
 @dataclass
 class MemoryState:
-    """记忆状�?""
+    """记忆状态"""
     user_id: str
     short_term: List[Dict[str, Any]] = field(default_factory=list)
     entities: Dict[str, Any] = field(default_factory=dict)
@@ -79,7 +81,8 @@ class ModelCache:
     """
     模型缓存 - LRU 策略
     
-    参�?Ollama sched.go 的模型管理设�?    """
+    参考 Ollama sched.go 的模型管理设计
+    """
     
     def __init__(self, max_size: int = 3, ttl_seconds: int = 3600):
         self.max_size = max_size
@@ -88,7 +91,7 @@ class ModelCache:
         self._lock = threading.RLock()
     
     def get(self, model_id: str) -> Optional[ModelState]:
-        """获取模型（更�?LRU 顺序�?""
+        """获取模型（更新LRU顺序）"""
         with self._lock:
             if model_id in self._cache:
                 state = self._cache[model_id]
@@ -125,14 +128,14 @@ class ModelCache:
         return False
     
     def _evict_lru(self):
-        """淘汰最久未使用的模�?""
+        """淘汰最久未使用的模型"""
         if self._cache:
             model_id, state = self._cache.popitem(last=False)
             logger.info(f"LRU 淘汰模型: {model_id}")
             self._cleanup_model(state)
     
     def _is_expired(self, state: ModelState) -> bool:
-        """检查是否过�?""
+        """检查是否过期"""
         if self.ttl_seconds <= 0:
             return False
         elapsed = (datetime.now() - state.last_used).total_seconds()
@@ -165,7 +168,7 @@ class ModelCache:
         return len(self._cache)
     
     def list_cached(self) -> List[str]:
-        """列出缓存的模�?""
+        """列出缓存的模型"""
         return list(self._cache.keys())
     
     def get_stats(self) -> Dict[str, Any]:
@@ -190,8 +193,10 @@ class ModelCache:
 
 class SessionManager:
     """
-    会话管理�?    
-    统一管理所有会话状�?    """
+    会话管理器
+    
+    统一管理所有会话状态
+    """
     
     def __init__(self, max_sessions: int = 100):
         self.max_sessions = max_sessions
@@ -217,7 +222,7 @@ class SessionManager:
             return session
     
     def get_or_create(self, session_id: str) -> SessionState:
-        """获取或创建会�?""
+        """获取或创建会话"""
         session = self.get(session_id)
         if session is None:
             session = self.create(session_id)
@@ -239,14 +244,14 @@ class SessionManager:
                 key=lambda x: self._sessions[x].updated_at
             )
             del self._sessions[oldest_id]
-            logger.info(f"淘汰旧会�? {oldest_id}")
+            logger.info(f"淘汰旧会话: {oldest_id}")
     
     def list_sessions(self) -> List[str]:
-        """列出所有会�?""
+        """列出所有会话"""
         return list(self._sessions.keys())
     
     def clear(self):
-        """清空所有会�?""
+        """清空所有会话"""
         with self._lock:
             self._sessions.clear()
     
@@ -274,7 +279,9 @@ class StateManager:
     
     管理所有运行时状态：
     - 模型缓存
-    - 会话状�?    - 记忆状�?    """
+    - 会话状态
+    - 记忆状态
+    """
     
     _instance = None
     _lock = threading.Lock()
@@ -293,14 +300,14 @@ class StateManager:
             self._memory_states: Dict[str, MemoryState] = {}
             self._memory_lock = threading.RLock()
             self._initialized = True
-            logger.info("StateManager 初始化完�?)
+            logger.info("StateManager 初始化完成")
     
     def get_model(self, model_id: str) -> Optional[ModelState]:
-        """获取模型状�?""
+        """获取模型状态"""
         return self.model_cache.get(model_id)
     
     def set_model(self, model_id: str, state: ModelState) -> None:
-        """设置模型状�?""
+        """设置模型状态"""
         self.model_cache.set(model_id, state)
     
     def remove_model(self, model_id: str) -> bool:
@@ -308,7 +315,7 @@ class StateManager:
         return self.model_cache.remove(model_id)
     
     def list_models(self) -> List[str]:
-        """列出缓存的模�?""
+        """列出缓存的模型"""
         return self.model_cache.list_cached()
     
     def get_model_stats(self) -> Dict[str, Any]:
@@ -324,7 +331,7 @@ class StateManager:
         return self.session_manager.create(session_id)
     
     def get_or_create_session(self, session_id: str) -> SessionState:
-        """获取或创建会�?""
+        """获取或创建会话"""
         return self.session_manager.get_or_create(session_id)
     
     def delete_session(self, session_id: str) -> bool:
@@ -332,7 +339,7 @@ class StateManager:
         return self.session_manager.delete(session_id)
     
     def list_sessions(self) -> List[str]:
-        """列出所有会�?""
+        """列出所有会话"""
         return self.session_manager.list_sessions()
     
     def get_session_stats(self) -> Dict[str, Any]:
@@ -340,14 +347,14 @@ class StateManager:
         return self.session_manager.get_stats()
     
     def get_memory_state(self, user_id: str) -> MemoryState:
-        """获取记忆状�?""
+        """获取记忆状态"""
         with self._memory_lock:
             if user_id not in self._memory_states:
                 self._memory_states[user_id] = MemoryState(user_id=user_id)
             return self._memory_states[user_id]
     
     def update_memory_state(self, user_id: str, **kwargs) -> None:
-        """更新记忆状�?""
+        """更新记忆状态"""
         with self._memory_lock:
             state = self.get_memory_state(user_id)
             for key, value in kwargs.items():
@@ -356,7 +363,7 @@ class StateManager:
             state.last_updated = datetime.now()
     
     def clear_memory_state(self, user_id: str) -> bool:
-        """清空记忆状�?""
+        """清空记忆状态"""
         with self._memory_lock:
             if user_id in self._memory_states:
                 del self._memory_states[user_id]
@@ -364,7 +371,7 @@ class StateManager:
             return False
     
     def clear_all(self):
-        """清空所有状�?""
+        """清空所有状态"""
         self.model_cache.clear()
         self.session_manager.clear()
         with self._memory_lock:
@@ -397,5 +404,5 @@ def get_model_cache() -> ModelCache:
 
 
 def get_session_manager() -> SessionManager:
-    """获取会话管理�?""
+    """获取会话管理器"""
     return get_state_manager().session_manager

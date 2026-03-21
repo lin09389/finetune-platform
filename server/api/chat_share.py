@@ -1,6 +1,6 @@
 """
 对话分享 API
-支持生成分享链接、导�?Markdown/PDF
+支持生成分享链接、导出 Markdown/PDF
 """
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, PlainTextResponse
@@ -84,7 +84,7 @@ async def create_share(request: CreateShareRequest):
     ).hexdigest()[:12]
     
     messages = session.get("messages", [])
-    title = request.title or session.get("title", "分享的对�?)
+    title = request.title or session.get("title", "分享的对话")
     
     expires_at = None
     if request.expires_in_hours:
@@ -224,7 +224,8 @@ async def get_share_html(share_id: str):
         <div class="header">
             <div class="title">{share.title}</div>
             <div class="meta">
-                分享�?{share.created_at} | 浏览 {share.view_count} �?            </div>
+                分享于: {share.created_at} | 浏览 {share.view_count} 次
+            </div>
         </div>
         <div class="messages">
             {messages_html}
@@ -243,11 +244,11 @@ async def export_markdown(share_id: str):
         raise HTTPException(status_code=404, detail="Share not found")
     
     md = f"# {share.title}\n\n"
-    md += f"> 分享�?{share.created_at}\n\n"
+    md += f"> 分享于: {share.created_at}\n\n"
     md += "---\n\n"
     
     for msg in share.messages:
-        role = "👤 用户" if msg.get("role") == "user" else "🤖 助手"
+        role = "用户" if msg.get("role") == "user" else "助手"
         content = msg.get("content", "")
         timestamp = msg.get("timestamp", "")
         
@@ -265,4 +266,4 @@ async def delete_share(share_id: str):
         raise HTTPException(status_code=404, detail="Share not found")
     
     file.unlink()
-    return {"success": True, "message": "分享已删�?}
+    return {"success": True, "message": "分享已删除"}

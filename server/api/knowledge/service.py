@@ -1,227 +1,243 @@
+# -*- coding: utf-8 -*-
 """
-知识模块服务�?- 整合 RAG 功能
+知识库服务
 """
-from typing import Dict, List, Optional, Any
-import logging
-import os
+from typing import List, Dict, Optional, Any
 from pathlib import Path
+import uuid
+import logging
+from datetime import datetime
+
+from .models import KnowledgeBase, Document, Chunk, DocumentStatus, SearchResult
 
 logger = logging.getLogger(__name__)
 
 
 class KnowledgeService:
-    """知识服务 - 封装 RAG 功能"""
+    """知识库服务"""
     
-    def __init__(self):
-        self._rag_service = None
-        self._hybrid_retriever = None
-        self._reranker = None
-    
-    def _get_rag_service(self):
-        """延迟加载 RAG 服务"""
-        if self._rag_service is None:
-            from rag.service import get_rag_service
-            self._rag_service = get_rag_service()
-        return self._rag_service
-    
-    def _get_hybrid_retriever(self):
-        """延迟加载混合检索器"""
-        if self._hybrid_retriever is None:
-            from rag.hybrid_retriever import get_hybrid_retriever
-            self._hybrid_retriever = get_hybrid_retriever()
-        return self._hybrid_retriever
-    
-    def _get_reranker(self):
-        """延迟加载重排序器"""
-        if self._reranker is None:
-            try:
-                from rag.reranker import get_reranker
-                self._reranker = get_reranker()
-            except Exception as e:
-                logger.warning(f"重排序器加载失败: {e}")
-        return self._reranker
-    
-    def upload_document(
-        self,
-        file_path: str,
-        collection_id: str,
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """上传文档"""
-        rag = self._get_rag_service()
+    def __init__(self, storage_path: str = "data/knowledge"):
+        self.storage_path = Path(storage_path)
+        self.storage_path.mkdir(parents=True, exist_ok=True)
         
-        result = rag.upload_document(
-            file_path=file_path,
-            collection_name=collection_id,
-            metadata=metadata or {}
+        self._knowledge_bases: Dict[str, KnowledgeBase] = {}
+        self._documents: Dict[str, Document] = {}
+        self._chunks: Dict[str, Chunk] = {}
+        
+        self._vector_store = None
+        self._embedder = None
+    
+    def create_knowledge_base(
+        self,
+        name: str,
+        description: str = None
+    ) -> KnowledgeBase:
+        """创建知识库"""
+        kb_id = f"kb_{uuid.uuid4().hex[:8]}"
+        
+        kb = KnowledgeBase(
+            id=kb_id,
+            name=name,
+            description=description
         )
         
-        return {
-            "doc_id": result.get("doc_id", ""),
-            "file_name": result.get("file_name", os.path.basename(file_path)),
-            "chunk_count": result.get("chunk_count", 0),
-            "vector_count": result.get("vector_count", 0),
-            "content_length": result.get("content_length", 0)
-        }
+        self._knowledge_bases[kb_id] = kb
+        
+        kb_path = self.storage_path / kb_id
+        kb_path.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"创建知识库: {kb_id} - {name}")
+        return kb
+    
+    def get_knowledge_base(self, kb_id: str) -> Optional[KnowledgeBase]:
+        """获取知识库"""
+        return self._knowledge_bases.get(kb_id)
+    
+    def list_knowledge_bases(self) -> List[KnowledgeBase]:
+        """列出所有知识库"""
+        return list(self._knowledge_bases.values())
+    
+    def delete_knowledge_base(self, kb_id: str) -> bool:
+        """删除知识库"""
+        if kb_id not in self._knowledge_bases:
+            return False
+        
+        del self._knowledge_bases[kb_id]
+        
+        docs_to_delete = [
+            doc_id for doc_id, doc in self._documents.items()
+            if doc.knowledge_base_id == kb_id
+        ]
+        for doc_id in docs_to_delete:
+            del self._documents[doc_id]
+        
+        chunks_to_delete = [
+            chunk_id for chunk_id, chunk in self._chunks.items()
+            if chunk.knowledge_base_id == kb_id
+        ]
+        for chunk_id in chunks_to_delete:
+            del self._chunks[chunk_id]
+        
+        logger.info(f"删除知识库: {kb_id}")
+        return True
+    
+    def add_document(
+        self,
+        kb_id: str,
+        filename: str,
+        file_path: str,
+        file_size: int = 0,
+        file_type: str = ""
+    ) -> Document:
+        """添加文档"""
+        doc_id = f"doc_{uuid.uuid4().hex[:8]}"
+        
+        doc = Document(
+            id=doc_id,
+            knowledge_base_id=kb_id,
+            filename=filename,
+            file_path=file_path,
+            file_size=file_size,
+            file_type=file_type
+        )
+        
+        self._documents[doc_id] = doc
+        
+        kb = self._knowledge_bases.get(kb_id)
+        if kb:
+            kb.document_count += 1
+            kb.updated_at = datetime.now()
+        
+        logger.info(f"添加文档: {doc_id} - {filename}")
+        return doc
+    
+    def get_document(self, doc_id: str) -> Optional[Document]:
+        """获取文档"""
+        return self._documents.get(doc_id)
+    
+    def list_documents(self, kb_id: str) -> List[Document]:
+        """列出知识库的文档"""
+        return [
+            doc for doc in self._documents.values()
+            if doc.knowledge_base_id == kb_id
+        ]
+    
+    def delete_document(self, doc_id: str) -> bool:
+        """删除文档"""
+        if doc_id not in self._documents:
+            return False
+        
+        doc = self._documents[doc_id]
+        kb_id = doc.knowledge_base_id
+        
+        del self._documents[doc_id]
+        
+        chunks_to_delete = [
+            chunk_id for chunk_id, chunk in self._chunks.items()
+            if chunk.document_id == doc_id
+        ]
+        for chunk_id in chunks_to_delete:
+            del self._chunks[chunk_id]
+        
+        kb = self._knowledge_bases.get(kb_id)
+        if kb:
+            kb.document_count -= 1
+            kb.updated_at = datetime.now()
+        
+        logger.info(f"删除文档: {doc_id}")
+        return True
+    
+    def add_chunk(
+        self,
+        doc_id: str,
+        kb_id: str,
+        content: str,
+        chunk_index: int = 0,
+        start_char: int = 0,
+        end_char: int = 0,
+        embedding: List[float] = None
+    ) -> Chunk:
+        """添加分块"""
+        chunk_id = f"chunk_{uuid.uuid4().hex[:8]}"
+        
+        chunk = Chunk(
+            id=chunk_id,
+            document_id=doc_id,
+            knowledge_base_id=kb_id,
+            content=content,
+            chunk_index=chunk_index,
+            start_char=start_char,
+            end_char=end_char,
+            embedding=embedding
+        )
+        
+        self._chunks[chunk_id] = chunk
+        
+        doc = self._documents.get(doc_id)
+        if doc:
+            doc.chunk_count += 1
+            doc.updated_at = datetime.now()
+        
+        kb = self._knowledge_bases.get(kb_id)
+        if kb:
+            kb.chunk_count += 1
+            kb.updated_at = datetime.now()
+        
+        return chunk
     
     def search(
         self,
-        collection_id: str,
-        query: str,
-        top_k: int = 5,
-        min_score: float = 0.0,
-        method: str = "hybrid"
-    ) -> List[Dict[str, Any]]:
-        """搜索文档"""
-        rag = self._get_rag_service()
-        
-        if method == "hybrid":
-            retriever = self._get_hybrid_retriever()
-            results = retriever.search(
-                collection_name=collection_id,
-                query=query,
-                top_k=top_k
-            )
-        else:
-            results = rag.search(
-                collection_name=collection_id,
-                query=query,
-                top_k=top_k
-            )
-        
-        if min_score > 0:
-            results = [r for r in results if r.get("score", 0) >= min_score]
-        
-        return results
-    
-    def search_with_context(
-        self,
-        collection_id: str,
+        kb_id: str,
         query: str,
         top_k: int = 5
-    ) -> str:
-        """搜索并返回上下文"""
-        rag = self._get_rag_service()
-        return rag.search_with_context(
-            collection_name=collection_id,
-            query=query,
-            top_k=top_k
-        )
-    
-    def list_collections(self) -> List[Dict[str, Any]]:
-        """列出所有集�?""
-        rag = self._get_rag_service()
-        return rag.list_collections()
-    
-    def create_collection(
-        self,
-        name: str,
-        description: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """创建集合"""
-        rag = self._get_rag_service()
-        return rag.create_collection(
-            name=name,
-            metadata={
-                "description": description or "",
-                **(metadata or {})
-            }
-        )
-    
-    def get_collection(self, collection_id: str) -> Optional[Dict[str, Any]]:
-        """获取集合详情"""
-        rag = self._get_rag_service()
-        collections = rag.list_collections()
+    ) -> List[SearchResult]:
+        """搜索"""
+        results = []
         
-        for c in collections:
-            if c.get("id") == collection_id or c.get("name") == collection_id:
-                return c
+        for chunk in self._chunks.values():
+            if chunk.knowledge_base_id != kb_id:
+                continue
+            
+            if query.lower() in chunk.content.lower():
+                doc = self._documents.get(chunk.document_id)
+                
+                results.append(SearchResult(
+                    chunk_id=chunk.id,
+                    document_id=chunk.document_id,
+                    knowledge_base_id=kb_id,
+                    content=chunk.content,
+                    score=0.8,
+                    filename=doc.filename if doc else None
+                ))
         
-        return None
+        return results[:top_k]
     
-    def delete_collection(self, collection_id: str) -> bool:
-        """删除集合"""
-        rag = self._get_rag_service()
-        return rag.delete_collection(collection_id)
-    
-    def list_documents(
-        self,
-        collection_id: str,
-        limit: int = 50,
-        offset: int = 0
-    ) -> List[Dict[str, Any]]:
-        """列出文档"""
-        rag = self._get_rag_service()
-        return rag.list_documents(
-            collection_name=collection_id,
-            limit=limit,
-            offset=offset
-        )
-    
-    def delete_document(self, collection_id: str, document_id: str) -> bool:
-        """删除文档"""
-        rag = self._get_rag_service()
-        return rag.delete_document(collection_id, document_id)
-    
-    def evaluate_retrieval(
-        self,
-        query: str,
-        collection_id: str,
-        top_k: int = 5
-    ) -> tuple:
-        """评估检索质�?""
-        results = self.search(collection_id, query, top_k)
-        
-        metrics = {
-            "total_results": len(results),
-            "avg_score": sum(r.get("score", 0) for r in results) / len(results) if results else 0,
-            "max_score": max((r.get("score", 0) for r in results), default=0),
-            "min_score": min((r.get("score", 0) for r in results), default=0),
-        }
-        
-        return results, metrics
-    
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self, kb_id: str = None) -> Dict[str, Any]:
         """获取统计信息"""
-        try:
-            collections = self.list_collections()
-            
-            total_documents = 0
-            total_chunks = 0
-            
-            for c in collections:
-                total_documents += c.get("document_count", 0)
-                total_chunks += c.get("chunk_count", 0)
+        if kb_id:
+            kb = self._knowledge_bases.get(kb_id)
+            if not kb:
+                return {}
             
             return {
-                "total_collections": len(collections),
-                "total_documents": total_documents,
-                "total_chunks": total_chunks,
-                "collections": [
-                    {
-                        "id": c.get("id", c.get("name", "")),
-                        "name": c.get("name", ""),
-                        "document_count": c.get("document_count", 0)
-                    }
-                    for c in collections
-                ]
+                "knowledge_base_id": kb_id,
+                "name": kb.name,
+                "document_count": kb.document_count,
+                "chunk_count": kb.chunk_count
             }
-        except Exception as e:
-            logger.error(f"获取统计信息失败: {e}")
-            return {
-                "total_collections": 0,
-                "total_documents": 0,
-                "total_chunks": 0,
-                "collections": []
-            }
+        
+        return {
+            "total_knowledge_bases": len(self._knowledge_bases),
+            "total_documents": len(self._documents),
+            "total_chunks": len(self._chunks)
+        }
 
 
 _knowledge_service: Optional[KnowledgeService] = None
 
 
 def get_knowledge_service() -> KnowledgeService:
-    """获取知识服务单例"""
+    """获取知识库服务实例"""
     global _knowledge_service
     if _knowledge_service is None:
         _knowledge_service = KnowledgeService()

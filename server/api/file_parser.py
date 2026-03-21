@@ -1,6 +1,7 @@
 """
 文件解析 API 端点
-支持文件上传、解析、向量化、检�?"""
+支持文件上传、解析、向量化、检索
+"""
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -27,7 +28,7 @@ class FileUploadResponse(BaseModel):
     total_chars: int
     total_chunks: int
     created_at: str
-    message: str = "文件上传并解析成�?
+    message: str = "文件上传并解析成功"
 
 
 class FileInfoResponse(BaseModel):
@@ -53,7 +54,7 @@ class FileContentResponse(BaseModel):
 class SearchRequest(BaseModel):
     """搜索请求"""
     query: str = Field(..., description="搜索查询文本")
-    file_ids: Optional[List[str]] = Field(None, description="指定文件ID列表，为空则搜索所有文�?)
+    file_ids: Optional[List[str]] = Field(None, description="指定文件ID列表，为空则搜索所有文件")
     top_k: int = Field(5, ge=1, le=20, description="返回结果数量")
 
 
@@ -75,7 +76,7 @@ class SearchResponse(BaseModel):
 
 
 class MultiFileUploadResponse(BaseModel):
-    """多文件上传响�?""
+    """多文件上传响应"""
     files: List[FileUploadResponse]
     total_files: int
     success_count: int
@@ -86,10 +87,11 @@ class MultiFileUploadResponse(BaseModel):
 @router.post("/upload", response_model=FileUploadResponse)
 async def upload_file(
     file: UploadFile = File(...),
-    enable_vectorization: bool = Form(True, description="是否启用向量�?)
+    enable_vectorization: bool = Form(True, description="是否启用向量化")
 ):
     """
-    上传并解析文�?    
+    上传并解析文件
+    
     支持的文件类型：
     - PDF (.pdf)
     - Word (.docx, .doc)
@@ -126,7 +128,7 @@ async def upload_file(
                 parsed_file.vector_collection = collection_name
                 logger.info(f"文件已向量化: {parsed_file.file_id}, 集合: {collection_name}")
             except Exception as e:
-                logger.warning(f"文件向量化失�? {e}")
+                logger.warning(f"文件向量化失败: {e}")
         
         return FileUploadResponse(
             file_id=parsed_file.file_id,
@@ -145,15 +147,17 @@ async def upload_file(
 @router.post("/upload/multiple", response_model=MultiFileUploadResponse)
 async def upload_multiple_files(
     files: List[UploadFile] = File(...),
-    enable_vectorization: bool = Form(True, description="是否启用向量�?)
+    enable_vectorization: bool = Form(True, description="是否启用向量化")
 ):
     """
-    批量上传并解析多个文�?    
-    最多同时上�?10 个文�?    """
+    批量上传并解析多个文件
+    
+    最多同时上传10个文件
+    """
     if len(files) > 10:
         raise HTTPException(
             status_code=400,
-            detail="最多同时上�?10 个文�?
+            detail="最多同时上传10个文件"
         )
     
     from core.file_parser import get_file_parser, get_file_vector_service
@@ -187,7 +191,7 @@ async def upload_multiple_files(
                     collection_name, doc_ids = await vector_service.index_file(parsed_file)
                     parsed_file.vector_collection = collection_name
                 except Exception as e:
-                    logger.warning(f"文件向量化失�?({file.filename}): {e}")
+                    logger.warning(f"文件向量化失败 ({file.filename}): {e}")
             
             results.append(FileUploadResponse(
                 file_id=parsed_file.file_id,
@@ -212,14 +216,15 @@ async def upload_multiple_files(
         total_files=len(files),
         success_count=success_count,
         failed_count=failed_count,
-        message=f"成功上传 {success_count} 个文件，失败 {failed_count} �?
+        message=f"成功上传 {success_count} 个文件，失败 {failed_count} 个"
     )
 
 
 @router.get("", response_model=List[FileInfoResponse])
 async def list_files():
     """
-    列出所有已上传的文�?    """
+    列出所有已上传的文件
+    """
     from core.file_parser import get_file_parser
     
     parser = get_file_parser()
@@ -251,7 +256,7 @@ async def get_file_info(file_id: str):
     metadata = parser.get_file_metadata(file_id)
     
     if not metadata:
-        raise HTTPException(status_code=404, detail=f"文件不存�? {file_id}")
+        raise HTTPException(status_code=404, detail=f"文件不存在: {file_id}")
     
     return FileInfoResponse(
         file_id=metadata["file_id"],
@@ -283,12 +288,12 @@ async def get_file_content(
     metadata = parser.get_file_metadata(file_id)
     
     if not metadata:
-        raise HTTPException(status_code=404, detail=f"文件不存�? {file_id}")
+        raise HTTPException(status_code=404, detail=f"文件不存在: {file_id}")
     
     content = parser.get_file_content(file_id)
     
     if content is None:
-        raise HTTPException(status_code=404, detail=f"文件内容不存�? {file_id}")
+        raise HTTPException(status_code=404, detail=f"文件内容不存在: {file_id}")
     
     chunks = []
     if include_chunks:
@@ -317,7 +322,7 @@ async def get_file_chunks(file_id: str):
     metadata = parser.get_file_metadata(file_id)
     
     if not metadata:
-        raise HTTPException(status_code=404, detail=f"文件不存�? {file_id}")
+        raise HTTPException(status_code=404, detail=f"文件不存在: {file_id}")
     
     chunks_file = parser.storage_dir / f"{file_id}_chunks.json"
     if chunks_file.exists():
@@ -334,14 +339,15 @@ async def delete_file(file_id: str):
     """
     删除文件
     
-    同时删除文件内容、元数据和向量索�?    """
+    同时删除文件内容、元数据和向量索引
+    """
     from core.file_parser import get_file_parser, get_file_vector_service
     
     parser = get_file_parser()
     metadata = parser.get_file_metadata(file_id)
     
     if not metadata:
-        raise HTTPException(status_code=404, detail=f"文件不存�? {file_id}")
+        raise HTTPException(status_code=404, detail=f"文件不存在: {file_id}")
     
     try:
         vector_service = get_file_vector_service()
@@ -359,7 +365,7 @@ async def delete_file(file_id: str):
     
     parser.delete_file(file_id)
     
-    return {"message": f"文件已删�? {file_id}", "file_id": file_id}
+    return {"message": f"文件已删除: {file_id}", "file_id": file_id}
 
 
 @router.post("/search", response_model=SearchResponse)
@@ -429,7 +435,7 @@ async def search_in_file(
     metadata = parser.get_file_metadata(file_id)
     
     if not metadata:
-        raise HTTPException(status_code=404, detail=f"文件不存�? {file_id}")
+        raise HTTPException(status_code=404, detail=f"文件不存在: {file_id}")
     
     vector_service = get_file_vector_service()
     
@@ -468,18 +474,19 @@ async def reindex_file(file_id: str):
     """
     重新索引文件
     
-    重新向量化文件内�?    """
+    重新向量化文件内容
+    """
     from core.file_parser import get_file_parser, get_file_vector_service
     
     parser = get_file_parser()
     metadata = parser.get_file_metadata(file_id)
     
     if not metadata:
-        raise HTTPException(status_code=404, detail=f"文件不存�? {file_id}")
+        raise HTTPException(status_code=404, detail=f"文件不存在: {file_id}")
     
     content = parser.get_file_content(file_id)
     if not content:
-        raise HTTPException(status_code=404, detail=f"文件内容不存�? {file_id}")
+        raise HTTPException(status_code=404, detail=f"文件内容不存在: {file_id}")
     
     from core.file_parser import ParsedFile, FileType
     
@@ -524,7 +531,8 @@ async def reindex_file(file_id: str):
 @router.get("/supported-types")
 async def get_supported_types():
     """
-    获取支持的文件类型列�?    """
+    获取支持的文件类型列表
+    """
     from core.file_parser import FileParser
     
     parser = FileParser()
@@ -535,10 +543,10 @@ async def get_supported_types():
             for ext, ft in parser.SUPPORTED_EXTENSIONS.items()
         ],
         "description": {
-            "pdf": "PDF 文档，使�?pdfplumber �?PyPDF2 解析",
-            "word": "Word 文档 (.docx, .doc)，使�?python-docx 解析",
-            "excel": "Excel 表格 (.xlsx, .xls)，使�?openpyxl 解析",
-            "txt": "纯文本文�?,
+            "pdf": "PDF 文档，使用 pdfplumber 或 PyPDF2 解析",
+            "word": "Word 文档 (.docx, .doc)，使用 python-docx 解析",
+            "excel": "Excel 表格 (.xlsx, .xls)，使用 openpyxl 解析",
+            "txt": "纯文本文件",
             "markdown": "Markdown 文档",
             "csv": "CSV 数据文件",
             "json": "JSON 数据文件"

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 记忆数据模型
 """
@@ -9,24 +10,31 @@ from enum import Enum
 
 class MemoryType(str, Enum):
     """记忆类型"""
-    PERSONAL = "personal"       # 个人信息（名字、职业、住址�?    PREFERENCE = "preference"   # 用户偏好（喜�?讨厌�?    PROJECT = "project"         # 项目信息（在做什么）
-    SKILL = "skill"             # 技能知识（会什么）
-    HABIT = "habit"             # 工作习惯（编码风格）
-    HISTORY = "history"         # 历史事件（过去发生的事）
-    KNOWLEDGE = "knowledge"     # 知识积累（学到的知识�?
+    PERSONAL = "personal"
+    PREFERENCE = "preference"
+    PROJECT = "project"
+    SKILL = "skill"
+    HABIT = "habit"
+    HISTORY = "history"
+    KNOWLEDGE = "knowledge"
 
-# 记忆类型重要性映�?MEMORY_IMPORTANCE = {
-    MemoryType.PERSONAL: 0.9,       # 个人信息最重要
-    MemoryType.PREFERENCE: 0.8,     # 偏好很重�?    MemoryType.PROJECT: 0.7,        # 项目信息重要
-    MemoryType.SKILL: 0.6,          # 技能中�?    MemoryType.HABIT: 0.5,          # 习惯一�?    MemoryType.HISTORY: 0.4,        # 历史较不重要
-    MemoryType.KNOWLEDGE: 0.3,      # 知识最不重�?}
 
-# 类型中文标签
+MEMORY_IMPORTANCE = {
+    MemoryType.PERSONAL: 0.9,
+    MemoryType.PREFERENCE: 0.8,
+    MemoryType.PROJECT: 0.7,
+    MemoryType.SKILL: 0.6,
+    MemoryType.HABIT: 0.5,
+    MemoryType.HISTORY: 0.4,
+    MemoryType.KNOWLEDGE: 0.3,
+}
+
+
 MEMORY_TYPE_LABELS = {
     MemoryType.PERSONAL: "个人信息",
     MemoryType.PREFERENCE: "偏好",
     MemoryType.PROJECT: "项目",
-    MemoryType.SKILL: "技�?,
+    MemoryType.SKILL: "技能",
     MemoryType.HABIT: "习惯",
     MemoryType.HISTORY: "历史",
     MemoryType.KNOWLEDGE: "知识",
@@ -37,15 +45,17 @@ MEMORY_TYPE_LABELS = {
 class Memory:
     """记忆数据结构"""
     id: str
-    content: str                                    # 记忆内容
-    memory_type: MemoryType                         # 记忆类型
-    importance: float                               # 重要程度 (0-1)
-    source: str                                     # 来源（rule/llm/manual�?    created_at: datetime                            # 创建时间
-    last_accessed: datetime                         # 最后访问时�?    access_count: int = 0                           # 访问次数
-    embedding: Optional[List[float]] = None         # 向量嵌入
+    content: str
+    memory_type: MemoryType
+    importance: float
+    source: str
+    created_at: datetime
+    last_accessed: datetime
+    access_count: int = 0
+    embedding: Optional[List[float]] = None
 
     def to_dict(self) -> dict:
-        """转换为字�?""
+        """转换为字典"""
         return {
             'id': self.id,
             'content': self.content,
@@ -59,7 +69,7 @@ class Memory:
 
     @classmethod
     def from_dict(cls, data: dict) -> 'Memory':
-        """从字典创�?""
+        """从字典创建"""
         return cls(
             id=data['id'],
             content=data['content'],

@@ -1,3 +1,7 @@
+# -*- coding: utf-8 -*-
+"""
+MCP (Model Context Protocol) API 路由
+"""
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
@@ -18,8 +22,8 @@ def get_manager() -> MCPServerManager:
 
 
 class AddServerRequest(BaseModel):
-    name: str = Field(..., description="服务器名�?)
-    transport: str = Field(..., description="传输类型：stdio �?sse")
+    name: str = Field(..., description="服务器名称")
+    transport: str = Field(..., description="传输类型：stdio 或 sse")
     command: Optional[str] = Field(default=None, description="stdio 模式下的命令")
     args: Optional[List[str]] = Field(default=None, description="命令参数")
     url: Optional[str] = Field(default=None, description="sse 模式下的 URL")

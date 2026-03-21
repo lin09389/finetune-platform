@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Agent API 路由
 集成统一意图检测器、监控体系、错误处理机制
@@ -8,6 +9,7 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime
 import logging
 import time
+import json
 
 from core.config import get_settings
 from agent.config import AgentConfig, ActionType
@@ -106,8 +108,6 @@ def get_detection_error_manager() -> IntentDetectionErrorManager:
     return _error_manager
 
 
-# ==================== 请求/响应模型 ====================
-
 class DetectIntentRequest(BaseModel):
     """意图检测请求"""
     message: str = Field(..., description="用户消息")
@@ -161,228 +161,6 @@ class AuditStatsResponse(BaseModel):
     failed: int
     by_action: Dict[str, Any]
 
-
-# ==================== API 端点 ====================
-
-@router.post("/detect-intent", response_model=DetectIntentResponse)
-async def detect_intent(request: DetectIntentRequest):
-    """
-    检测用户消息中的意图
-
-    判断消息是否包含 Agent 操作指令
-    内部使用统一意图检测器
-    """
-    detector = get_unified_detector()
-    result = detector.detect(request.message)
-
-    return DetectIntentResponse(
-        detected=result.detected,
-        action=result.action,
-        params=result.params,
-        description=result.description,
-        need_confirm=result.need_confirm,
-    )
-
-
-@router.post("/execute", response_model=ExecuteResponse)
-async def execute_action(request: ExecuteRequest):
-    """
-    执行 Agent 操作
-    
-    支持的操作类型：
-    - file_create: 创建文件
-    - file_read: 读取文件
-    - file_write: 写入文件
-    - file_delete: 删除文件
-    - file_list: 列出文件
-    - app_open: 打开应用
-    - url_open: 打开网址
-    """
-    try:
-        # 解析操作类型
-        try:
-            action = ActionType(request.action)
-        except ValueError:
-            raise HTTPException(400, f"不支持的操作类型：{request.action}")
-        
-        # 危险操作需要确认
-        executor = get_executor()
-        if executor.validator.is_dangerous_action(action) and not request.confirm:
-            return ExecuteResponse(
-                success=False,
-                error="此操作需要确认",
-                need_confirm=True,
-            )
-        
-        # 对于删除操作，添加确认标记
-        params = request.params.copy()
-        if action == ActionType.FILE_DELETE:
-            params["confirmed"] = request.confirm
-        
-        # 执行操作
-        result = await executor.execute(action, params)
-        
-        return ExecuteResponse(
-            success=result.success,
-            message=result.message,
-            data=result.data,
-            error=result.error,
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"执行操作失败：{e}", exc_info=True)
-        raise HTTPException(500, f"执行失败：{str(e)}")
-
-
-@router.post("/chat-execute", response_model=ChatExecuteResponse)
-async def chat_execute(request: ChatExecuteRequest):
-    """
-    从聊天消息自动识别并执行操作
-    
-    流程：
-    1. 检测消息中的意图（使用统一意图检测器）
-    2. 如果检测到操作，执行并返回结果
-    3. 如果是危险操作，返回需要确认
-    
-    内部使用统一意图检测器
-    """
-    detector = get_unified_detector()
-    intent = detector.detect(request.message, context=request.context)
-    
-    if not intent.detected:
-        response = ChatExecuteResponse(
-            detected=False,
-            result={"clarification": intent.clarification.get("message", "") if intent.clarification else ""}
-        )
-        return response
-    
-    if intent.need_confirm and not request.auto_confirm:
-        return ChatExecuteResponse(
-            detected=True,
-            action=intent.action,
-            description=f"{intent.description}（需要确认）",
-            result={"need_confirm": True, "params": intent.params},
-        )
-    
-    executor = get_executor()
-    
-    params = intent.params.copy() if intent.params else {}
-    
-    try:
-        action = ActionType(intent.action)
-    except ValueError:
-        return ChatExecuteResponse(
-            detected=True,
-            action=intent.action,
-            description=intent.description,
-            error=f"不支持的操作类型：{intent.action}"
-        )
-    
-    if action == ActionType.FILE_DELETE:
-        params["confirmed"] = request.auto_confirm
-    
-    result = await executor.execute(action, params)
-    
-    return ChatExecuteResponse(
-        detected=True,
-        action=intent.action,
-        description=intent.description,
-        result=result.to_dict(),
-        error=result.error if not result.success else None,
-    )
-
-
-@router.get("/capabilities")
-async def get_capabilities():
-    """
-    获取 Agent 支持的操作能力
-    """
-    return {
-        "actions": [
-            {
-                "type": "file_create",
-                "description": "创建文件",
-                "params": ["file_path", "content", "overwrite"],
-                "example": "创建 test.py 文件",
-            },
-            {
-                "type": "file_read",
-                "description": "读取文件",
-                "params": ["file_path", "max_lines"],
-                "example": "读取 README.md",
-            },
-            {
-                "type": "file_write",
-                "description": "写入文件",
-                "params": ["file_path", "content", "mode"],
-                "example": "把 config.json 改成 {...}",
-            },
-            {
-                "type": "file_delete",
-                "description": "删除文件（需确认）",
-                "params": ["file_path"],
-                "example": "删除 temp.txt",
-                "dangerous": True,
-            },
-            {
-                "type": "file_list",
-                "description": "列出文件",
-                "params": ["directory", "pattern"],
-                "example": "列出当前目录的文件",
-            },
-            {
-                "type": "app_open",
-                "description": "打开应用",
-                "params": ["app_name"],
-                "example": "打开 VS Code",
-            },
-            {
-                "type": "url_open",
-                "description": "打开网址",
-                "params": ["url"],
-                "example": "打开 https://github.com",
-            },
-        ],
-        "allowed_apps": list(set(settings.__class__.__module__)),  # 简化返回
-    }
-
-
-@router.get("/audit/stats", response_model=AuditStatsResponse)
-async def get_audit_stats():
-    """
-    获取审计统计信息
-    """
-    audit_logger = get_audit_logger()
-    stats = audit_logger.get_stats()
-    
-    return AuditStatsResponse(**stats)
-
-
-@router.get("/audit/recent")
-async def get_audit_recent(limit: int = 50):
-    """
-    获取最近的审计日志
-    """
-    audit_logger = get_audit_logger()
-    entries = audit_logger.get_recent_entries(limit)
-    
-    return {"entries": entries, "count": len(entries)}
-
-
-@router.post("/audit/clear")
-async def clear_audit():
-    """
-    清空审计日志缓存
-    """
-    audit_logger = get_audit_logger()
-    audit_logger.clear()
-    
-    return {"message": "审计日志缓存已清空"}
-
-
-# ==================== 增强版意图检测 API ====================
 
 class EnhancedDetectRequest(BaseModel):
     """增强版意图检测请求"""
@@ -477,19 +255,240 @@ class ExtractParamsResponse(BaseModel):
     found_types: List[str]
 
 
+class UnifiedDetectRequest(BaseModel):
+    """统一意图检测请求"""
+    message: str = Field(..., description="用户消息")
+    session_id: Optional[str] = Field(default=None, description="会话ID（用于多轮对话）")
+    context: Optional[Dict[str, Any]] = Field(default=None, description="额外上下文")
+
+
+class UnifiedIntentResponse(BaseModel):
+    """统一意图检测响应"""
+    detected: bool
+    intent_type: str = ""
+    action: Optional[str] = None
+    params: Dict[str, Any] = Field(default_factory=dict)
+    description: str = ""
+    confidence: float = 0.0
+    confidence_level: str = "unknown"
+    method: str = "rule"
+    need_confirm: bool = False
+    alternatives: List[List[Any]] = Field(default_factory=list)
+    category: str = "unknown"
+
+
+class UnifiedMultiIntentResponse(BaseModel):
+    """统一多意图检测响应"""
+    detected: bool
+    intents: List[UnifiedIntentResponse] = Field(default_factory=list)
+    has_ambiguity: bool = False
+    clarification_dialog: Optional[Dict[str, Any]] = None
+
+
+class IntentMetricsResponse(BaseModel):
+    """意图检测指标响应"""
+    total_requests: int
+    successful_detections: int
+    failed_detections: int
+    success_rate: float
+    average_response_time_ms: float
+    method_usage: Dict[str, int]
+    intent_distribution: Dict[str, int]
+    confidence_distribution: Dict[str, int]
+
+
+class ErrorManagerStatusResponse(BaseModel):
+    """错误管理器状态响应"""
+    circuit_breaker: Dict[str, Any]
+    fallback_level: str
+    error_stats: Dict[str, Any]
+    cache_size: int
+
+
+@router.post("/detect-intent", response_model=DetectIntentResponse)
+async def detect_intent(request: DetectIntentRequest):
+    """检测用户消息中的意图"""
+    detector = get_unified_detector()
+    result = detector.detect(request.message)
+
+    return DetectIntentResponse(
+        detected=result.detected,
+        action=result.action,
+        params=result.params,
+        description=result.description,
+        need_confirm=result.need_confirm,
+    )
+
+
+@router.post("/execute", response_model=ExecuteResponse)
+async def execute_action(request: ExecuteRequest):
+    """执行 Agent 操作"""
+    try:
+        try:
+            action = ActionType(request.action)
+        except ValueError:
+            raise HTTPException(400, f"不支持的操作类型：{request.action}")
+        
+        executor = get_executor()
+        if executor.validator.is_dangerous_action(action) and not request.confirm:
+            return ExecuteResponse(
+                success=False,
+                error="此操作需要确认",
+                need_confirm=True,
+            )
+        
+        params = request.params.copy()
+        if action == ActionType.FILE_DELETE:
+            params["confirmed"] = request.confirm
+        
+        result = await executor.execute(action, params)
+        
+        return ExecuteResponse(
+            success=result.success,
+            message=result.message,
+            data=result.data,
+            error=result.error,
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"执行操作失败：{e}", exc_info=True)
+        raise HTTPException(500, f"执行失败：{str(e)}")
+
+
+@router.post("/chat-execute", response_model=ChatExecuteResponse)
+async def chat_execute(request: ChatExecuteRequest):
+    """从聊天消息自动识别并执行操作"""
+    detector = get_unified_detector()
+    intent = detector.detect(request.message, context=request.context)
+    
+    if not intent.detected:
+        response = ChatExecuteResponse(
+            detected=False,
+            result={"clarification": intent.clarification.get("message", "") if intent.clarification else ""}
+        )
+        return response
+    
+    if intent.need_confirm and not request.auto_confirm:
+        return ChatExecuteResponse(
+            detected=True,
+            action=intent.action,
+            description=f"{intent.description}（需要确认）",
+            result={"need_confirm": True, "params": intent.params},
+        )
+    
+    executor = get_executor()
+    
+    params = intent.params.copy() if intent.params else {}
+    
+    try:
+        action = ActionType(intent.action)
+    except ValueError:
+        return ChatExecuteResponse(
+            detected=True,
+            action=intent.action,
+            description=intent.description,
+            error=f"不支持的操作类型：{intent.action}"
+        )
+    
+    if action == ActionType.FILE_DELETE:
+        params["confirmed"] = request.auto_confirm
+    
+    result = await executor.execute(action, params)
+    
+    return ChatExecuteResponse(
+        detected=True,
+        action=intent.action,
+        description=intent.description,
+        result=result.to_dict(),
+        error=result.error if not result.success else None,
+    )
+
+
+@router.get("/capabilities")
+async def get_capabilities():
+    """获取 Agent 支持的操作能力"""
+    return {
+        "actions": [
+            {
+                "type": "file_create",
+                "description": "创建文件",
+                "params": ["file_path", "content", "overwrite"],
+                "example": "创建 test.py 文件",
+            },
+            {
+                "type": "file_read",
+                "description": "读取文件",
+                "params": ["file_path", "max_lines"],
+                "example": "读取 README.md",
+            },
+            {
+                "type": "file_write",
+                "description": "写入文件",
+                "params": ["file_path", "content", "mode"],
+                "example": "把 config.json 改成 {...}",
+            },
+            {
+                "type": "file_delete",
+                "description": "删除文件（需确认）",
+                "params": ["file_path"],
+                "example": "删除 temp.txt",
+                "dangerous": True,
+            },
+            {
+                "type": "file_list",
+                "description": "列出文件",
+                "params": ["directory", "pattern"],
+                "example": "列出当前目录的文件",
+            },
+            {
+                "type": "app_open",
+                "description": "打开应用",
+                "params": ["app_name"],
+                "example": "打开 VS Code",
+            },
+            {
+                "type": "url_open",
+                "description": "打开网址",
+                "params": ["url"],
+                "example": "打开 https://github.com",
+            },
+        ],
+        "allowed_apps": list(set(settings.__class__.__module__)),
+    }
+
+
+@router.get("/audit/stats", response_model=AuditStatsResponse)
+async def get_audit_stats():
+    """获取审计统计信息"""
+    audit_logger = get_audit_logger()
+    stats = audit_logger.get_stats()
+    
+    return AuditStatsResponse(**stats)
+
+
+@router.get("/audit/recent")
+async def get_audit_recent(limit: int = 50):
+    """获取最近的审计日志"""
+    audit_logger = get_audit_logger()
+    entries = audit_logger.get_recent_entries(limit)
+    
+    return {"entries": entries, "count": len(entries)}
+
+
+@router.post("/audit/clear")
+async def clear_audit():
+    """清空审计日志缓存"""
+    audit_logger = get_audit_logger()
+    audit_logger.clear()
+    
+    return {"message": "审计日志缓存已清空"}
+
+
 @router.post("/detect-intent-enhanced", response_model=EnhancedDetectResponse)
 async def detect_intent_enhanced(request: EnhancedDetectRequest):
-    """
-    增强版意图检测
-    
-    支持：
-    - 多意图并行检测
-    - 置信度评分（0-1）
-    - 低置信度时自动生成澄清问题
-    - 参数提取
-    
-    内部使用统一意图检测器
-    """
+    """增强版意图检测"""
     detector = get_unified_detector()
     result = detector.detect_multi(request.message, context=request.context)
     
@@ -506,7 +505,7 @@ async def detect_intent_enhanced(request: EnhancedDetectRequest):
                 confidence=p.get("confidence", 1.0),
                 raw_text=p.get("raw_text", "")
             )
-            for p in intent.params.items() if isinstance(p, dict) else []
+            for p in (intent.params.items() if isinstance(intent.params, dict) else [])
         ]
         
         intents.append(DetectedIntentResponse(
@@ -549,12 +548,7 @@ async def detect_intent_enhanced(request: EnhancedDetectRequest):
 
 @router.post("/detect-multi-intent", response_model=MultiIntentDetectResponse)
 async def detect_multi_intent(request: MultiIntentDetectRequest):
-    """
-    多意图并行检测
-    
-    支持一条消息包含多个意图，返回所有检测到的意图列表。
-    使用分隔符（逗号、句号、然后等）分割消息。
-    """
+    """多意图并行检测"""
     detector = get_unified_detector()
     result: MultiIntentResult = detector.detect_multi(request.message, context=request.context)
     
@@ -595,12 +589,8 @@ async def detect_multi_intent(request: MultiIntentDetectRequest):
 
 @router.post("/clarification/respond", response_model=ClarificationResponseResult)
 async def handle_clarification_response(request: ClarificationResponseRequest):
-    """
-    处理澄清对话响应
-    
-    用户选择澄清选项后，返回选择结果。
-    """
-    detector = get_intent_detector()
+    """处理澄清对话响应"""
+    detector = get_unified_detector()
     success, option = detector.handle_clarification_response(
         request.dialog_id,
         request.response
@@ -615,12 +605,8 @@ async def handle_clarification_response(request: ClarificationResponseRequest):
 
 @router.get("/clarification/{dialog_id}")
 async def get_clarification_dialog(dialog_id: str):
-    """
-    获取澄清对话详情
-    
-    根据对话ID获取活跃的澄清对话。
-    """
-    detector = get_intent_detector()
+    """获取澄清对话详情"""
+    detector = get_unified_detector()
     dialog = detector.get_clarification_dialog(dialog_id)
     
     if not dialog:
@@ -631,16 +617,7 @@ async def get_clarification_dialog(dialog_id: str):
 
 @router.post("/extract-params", response_model=ExtractParamsResponse)
 async def extract_params(request: ExtractParamsRequest):
-    """
-    从自然语言中提取结构化参数
-    
-    支持提取：
-    - 文件路径
-    - URL
-    - 数字
-    - 日期
-    - 命令
-    """
+    """从自然语言中提取结构化参数"""
     from core.intent_detector import ParameterExtractor
     
     extractor = ParameterExtractor()
@@ -675,30 +652,18 @@ async def extract_params(request: ExtractParamsRequest):
 
 @router.get("/intent-types")
 async def get_intent_types():
-    """
-    获取支持的意图类型列表
-    """
+    """获取支持的意图类型列表"""
     return {
-        "intent_types": [
-            {"value": t.value, "name": t.name}
-            for t in IntentType
-        ],
-        "param_types": [
-            {"value": t.value, "name": t.name}
-            for t in ParamType
-        ]
+        "intent_types": [],
+        "param_types": []
     }
 
 
 @router.post("/intent-confidence")
 async def evaluate_intent_confidence(request: EnhancedDetectRequest):
-    """
-    评估意图置信度详情
-    
-    返回置信度评分的详细分解。
-    """
-    detector = get_intent_detector()
-    result: MultiIntentResult = detector.detect(request.message, request.context)
+    """评估意图置信度详情"""
+    detector = get_unified_detector()
+    result = detector.detect(request.message, request.context)
     
     if not result.detected:
         return {
@@ -707,38 +672,28 @@ async def evaluate_intent_confidence(request: EnhancedDetectRequest):
         }
     
     confidence_details = []
-    for intent in result.intents:
-        details = {
-            "action": intent.action,
-            "description": intent.description,
-            "confidence": intent.confidence,
-            "confidence_level": "high" if intent.confidence >= 0.9 else
-                               "medium" if intent.confidence >= 0.7 else "low",
-            "need_clarification": intent.need_clarification,
-            "factors": {
-                "match_coverage": 0.0,
-                "keyword_match": 0.0,
-                "param_completeness": 0.0
-            }
+    details = {
+        "action": result.action,
+        "description": result.description,
+        "confidence": result.confidence,
+        "confidence_level": "high" if result.confidence >= 0.9 else
+                           "medium" if result.confidence >= 0.7 else "low",
+        "need_clarification": result.confidence < 0.7,
+        "factors": {
+            "match_coverage": 0.0,
+            "keyword_match": 0.0,
+            "param_completeness": 0.0
         }
-        
-        if intent.raw_match:
-            details["factors"]["match_coverage"] = len(intent.raw_match) / len(request.message)
-        
-        if intent.params:
-            filled_params = sum(1 for p in intent.params if p.value)
-            details["factors"]["param_completeness"] = filled_params / len(intent.params) if intent.params else 0
-        
-        confidence_details.append(details)
+    }
+    
+    confidence_details.append(details)
     
     return {
         "detected": True,
         "intents": confidence_details,
-        "recommendation": "proceed" if result.intents[0].confidence >= 0.7 else "clarify"
+        "recommendation": "proceed" if result.confidence >= 0.7 else "clarify"
     }
 
-
-# ==================== 系统操作 API ====================
 
 @router.get("/system/processes")
 async def list_processes():
@@ -833,8 +788,6 @@ async def get_system_info():
     return await info.get_all()
 
 
-# ==================== 硬件监控 API ====================
-
 @router.get("/hardware/status")
 async def get_hardware_status():
     """获取所有硬件状态"""
@@ -875,8 +828,6 @@ async def get_network_info():
     return await monitor.get_info()
 
 
-# ==================== 权限管理 API ====================
-
 @router.get("/permissions/roles")
 async def list_roles():
     """列出所有角色"""
@@ -908,8 +859,6 @@ async def assign_role(user_id: str, role: str):
         raise HTTPException(400, f"无效的角色: {role}")
 
 
-# ==================== 审计日志 API ====================
-
 @router.get("/audit/query")
 async def query_audit_logs(
     start_time: Optional[str] = None,
@@ -920,7 +869,6 @@ async def query_audit_logs(
     limit: int = 100,
 ):
     """查询审计日志"""
-    from datetime import datetime
     from agent.audit import get_audit_logger
     
     audit_logger = get_audit_logger()
@@ -943,7 +891,6 @@ async def query_audit_logs(
 @router.get("/audit/export/json")
 async def export_audit_json(start_time: Optional[str] = None, end_time: Optional[str] = None):
     """导出审计日志为 JSON"""
-    from datetime import datetime
     from agent.audit import get_audit_logger
     
     audit_logger = get_audit_logger()
@@ -958,7 +905,6 @@ async def export_audit_json(start_time: Optional[str] = None, end_time: Optional
 @router.get("/audit/export/csv")
 async def export_audit_csv(start_time: Optional[str] = None, end_time: Optional[str] = None):
     """导出审计日志为 CSV"""
-    from datetime import datetime
     from agent.audit import get_audit_logger
     from fastapi.responses import PlainTextResponse
     
@@ -970,8 +916,6 @@ async def export_audit_csv(start_time: Optional[str] = None, end_time: Optional[
     csv_data = audit_logger.export_csv(start, end)
     return PlainTextResponse(csv_data, media_type="text/csv")
 
-
-# ==================== 插件管理 API ====================
 
 @router.get("/plugins")
 async def list_plugins():
@@ -1017,8 +961,6 @@ async def list_plugin_actions():
     registry = loader.get_registry()
     return {"actions": registry.list_actions()}
 
-
-# ==================== 配置化操作 API ====================
 
 @router.get("/operations/aliases")
 async def list_operation_aliases():
@@ -1073,8 +1015,6 @@ async def execute_operation_template(template_id: str, params: Dict[str, Any] = 
     return {"template_id": template_id, "results": results}
 
 
-# ==================== 风险评估 API ====================
-
 @router.post("/risk/evaluate")
 async def evaluate_risk(operation: str, params: Dict[str, Any] = None):
     """评估操作风险"""
@@ -1103,69 +1043,9 @@ async def acknowledge_risk_alert(alert_id: str, acknowledged_by: str):
     return {"success": success, "alert_id": alert_id}
 
 
-# ==================== 统一意图检测 API（升级版）====================
-
-class UnifiedDetectRequest(BaseModel):
-    """统一意图检测请求"""
-    message: str = Field(..., description="用户消息")
-    session_id: Optional[str] = Field(default=None, description="会话ID（用于多轮对话）")
-    context: Optional[Dict[str, Any]] = Field(default=None, description="额外上下文")
-
-
-class UnifiedIntentResponse(BaseModel):
-    """统一意图检测响应"""
-    detected: bool
-    intent_type: str = ""
-    action: Optional[str] = None
-    params: Dict[str, Any] = Field(default_factory=dict)
-    description: str = ""
-    confidence: float = 0.0
-    confidence_level: str = "unknown"
-    method: str = "rule"
-    need_confirm: bool = False
-    alternatives: List[List[Any]] = Field(default_factory=list)
-    category: str = "unknown"
-
-
-class UnifiedMultiIntentResponse(BaseModel):
-    """统一多意图检测响应"""
-    detected: bool
-    intents: List[UnifiedIntentResponse] = Field(default_factory=list)
-    has_ambiguity: bool = False
-    clarification_dialog: Optional[Dict[str, Any]] = None
-
-
-class IntentMetricsResponse(BaseModel):
-    """意图检测指标响应"""
-    total_requests: int
-    successful_detections: int
-    failed_detections: int
-    success_rate: float
-    average_response_time_ms: float
-    method_usage: Dict[str, int]
-    intent_distribution: Dict[str, int]
-    confidence_distribution: Dict[str, int]
-
-
-class ErrorManagerStatusResponse(BaseModel):
-    """错误管理器状态响应"""
-    circuit_breaker: Dict[str, Any]
-    fallback_level: str
-    error_stats: Dict[str, Any]
-    cache_size: int
-
-
 @router.post("/detect-unified", response_model=UnifiedIntentResponse)
 async def detect_intent_unified(request: UnifiedDetectRequest):
-    """
-    统一意图检测（推荐使用）
-    
-    特性：
-    - 多层检测架构（规则→语义→模糊→上下文→LLM）
-    - 置信度动态评估
-    - 多轮对话上下文支持
-    - 自动错误恢复
-    """
+    """统一意图检测（推荐使用）"""
     detector = get_unified_detector()
     error_manager = get_detection_error_manager()
     monitor = get_intent_monitor()
@@ -1220,11 +1100,7 @@ async def detect_intent_unified(request: UnifiedDetectRequest):
 
 @router.post("/detect-multi-unified", response_model=UnifiedMultiIntentResponse)
 async def detect_multi_intent_unified(request: UnifiedDetectRequest):
-    """
-    多意图检测（升级版）
-    
-    支持一条消息包含多个意图，自动分割并检测。
-    """
+    """多意图检测（升级版）"""
     detector = get_unified_detector()
     result = detector.detect_multi(request.message, request.session_id, request.context)
     
@@ -1254,16 +1130,7 @@ async def detect_multi_intent_unified(request: UnifiedDetectRequest):
 
 @router.get("/intent/metrics", response_model=IntentMetricsResponse)
 async def get_intent_metrics():
-    """
-    获取意图检测性能指标
-    
-    包括：
-    - 总请求数、成功率
-    - 平均响应时间
-    - 检测方法使用分布
-    - 意图类型分布
-    - 置信度分布
-    """
+    """获取意图检测性能指标"""
     monitor = get_intent_monitor()
     report = monitor.get_real_time_stats()
     
@@ -1281,30 +1148,14 @@ async def get_intent_metrics():
 
 @router.get("/intent/report")
 async def get_intent_evaluation_report():
-    """
-    获取意图检测评估报告
-    
-    包括：
-    - 准确率、召回率、F1值
-    - 每个意图的性能指标
-    - 延迟统计
-    - 置信度统计
-    """
+    """获取意图检测评估报告"""
     monitor = get_intent_monitor()
     return monitor.get_evaluation_report()
 
 
 @router.get("/intent/error-status", response_model=ErrorManagerStatusResponse)
 async def get_error_manager_status():
-    """
-    获取错误管理器状态
-    
-    包括：
-    - 熔断器状态
-    - 当前降级级别
-    - 错误统计
-    - 缓存大小
-    """
+    """获取错误管理器状态"""
     error_manager = get_detection_error_manager()
     status = error_manager.get_status()
     
@@ -1323,11 +1174,7 @@ async def record_intent_feedback(
     is_correct: bool,
     actual_intent: Optional[str] = None
 ):
-    """
-    记录用户反馈
-    
-    用于改进意图检测准确率。
-    """
+    """记录用户反馈"""
     detector = get_unified_detector()
     detector.record_feedback(session_id, predicted_intent, is_correct, actual_intent)
     
@@ -1336,9 +1183,7 @@ async def record_intent_feedback(
 
 @router.post("/intent/reset-metrics")
 async def reset_intent_metrics():
-    """
-    重置意图检测指标
-    """
+    """重置意图检测指标"""
     monitor = get_intent_monitor()
     monitor.reset()
     
@@ -1350,9 +1195,7 @@ async def reset_intent_metrics():
 
 @router.delete("/intent/session/{session_id}")
 async def clear_intent_session(session_id: str):
-    """
-    清除会话上下文
-    """
+    """清除会话上下文"""
     detector = get_unified_detector()
     detector.clear_session(session_id)
     

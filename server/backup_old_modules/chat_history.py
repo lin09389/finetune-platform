@@ -1,6 +1,7 @@
 """
 对话历史管理 API
-管理聊天会话和消息记�?"""
+管理聊天会话和消息记录
+"""
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
@@ -17,20 +18,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# 数据库路�?DB_DIR = Path(__file__).parent.parent / "data"
+DB_DIR = Path(__file__).parent.parent / "data"
 DB_DIR.mkdir(exist_ok=True)
 DB_PATH = DB_DIR / "chat_history.db"
 
 
 def init_db():
     """初始化数据库"""
-    # 初始化连接池
     pool = init_db_pool(str(DB_PATH))
     
     with pool.get_connection() as conn:
         cursor = conn.cursor()
 
-        # 创建会话�?        cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS chat_sessions (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
@@ -40,7 +40,7 @@ def init_db():
             )
         """)
 
-        # 创建消息�?        cursor.execute("""
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS chat_messages (
                 id TEXT PRIMARY KEY,
                 session_id TEXT NOT NULL,
@@ -51,7 +51,6 @@ def init_db():
             )
         """)
 
-        # 创建索引
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_messages_session
             ON chat_messages(session_id)
@@ -100,7 +99,7 @@ def init_chat_db():
 
 @router.get("/history", response_model=List[ChatSession])
 async def get_history():
-    """获取所有会话列�?""
+    """获取所有会话列表"""
     pool = get_db_pool()
     with pool.get_connection() as conn:
         cursor = conn.cursor()
@@ -138,16 +137,14 @@ async def get_session(session_id: str):
     with pool.get_connection() as conn:
         cursor = conn.cursor()
 
-        # 获取会话信息
         cursor.execute("""
             SELECT * FROM chat_sessions WHERE id = ?
         """, (session_id,))
 
         row = cursor.fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail="会话不存�?)
+            raise HTTPException(status_code=404, detail="会话不存在")
 
-        # 获取消息
         cursor.execute("""
             SELECT * FROM chat_messages
             WHERE session_id = ?
@@ -175,7 +172,7 @@ async def get_session(session_id: str):
 
 @router.post("/session", response_model=ChatSession)
 async def create_session(data: ChatSessionCreate):
-    """创建新会�?""
+    """创建新会话"""
     session_id = f"session_{datetime.now().strftime('%Y%m%d%H%M%S')}_{os.urandom(4).hex()}"
 
     pool = get_db_pool()
@@ -211,9 +208,9 @@ async def update_session(session_id: str, data: ChatSessionCreate):
         """, (data.title, session_id))
 
         if cursor.rowcount == 0:
-            raise HTTPException(status_code=404, detail="会话不存�?)
+            raise HTTPException(status_code=404, detail="会话不存在")
 
-    return {"message": "会话已更�?}
+    return {"message": "会话已更新"}
 
 
 @router.delete("/session/{session_id}")
@@ -223,35 +220,34 @@ async def delete_session(session_id: str):
     with pool.get_connection() as conn:
         cursor = conn.cursor()
 
-        # 先删除消�?        cursor.execute("""
+        cursor.execute("""
             DELETE FROM chat_messages WHERE session_id = ?
         """, (session_id,))
 
-        # 再删除会�?        cursor.execute("""
+        cursor.execute("""
             DELETE FROM chat_sessions WHERE id = ?
         """, (session_id,))
 
         if cursor.rowcount == 0:
-            raise HTTPException(status_code=404, detail="会话不存�?)
+            raise HTTPException(status_code=404, detail="会话不存在")
 
-    return {"message": "会话已删�?}
+    return {"message": "会话已删除"}
 
 
 @router.post("/session/{session_id}/message")
 async def add_messages(session_id: str, data: MessageBatch):
-    """添加消息到会�?""
+    """添加消息到会话"""
     pool = get_db_pool()
     with pool.get_connection() as conn:
         cursor = conn.cursor()
 
-        # 检查会话是否存�?        cursor.execute("""
+        cursor.execute("""
             SELECT id FROM chat_sessions WHERE id = ?
         """, (session_id,))
 
         if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="会话不存�?)
+            raise HTTPException(status_code=404, detail="会话不存在")
 
-        # 添加消息
         for msg in data.messages:
             msg_id = msg.get("id", f"msg_{datetime.now().strftime('%Y%m%d%H%M%S')}_{os.urandom(4).hex()}")
             cursor.execute("""
@@ -265,14 +261,13 @@ async def add_messages(session_id: str, data: MessageBatch):
                 msg.get("timestamp", datetime.now().isoformat())
             ))
 
-        # 更新会话时间
         cursor.execute("""
             UPDATE chat_sessions
             SET updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
         """, (session_id,))
 
-    return {"message": "消息已添�?, "count": len(data.messages)}
+    return {"message": "消息已添加", "count": len(data.messages)}
 
 
 @router.delete("/session/{session_id}/message/{message_id}")
@@ -288,16 +283,15 @@ async def delete_message(session_id: str, message_id: str):
         """, (session_id, message_id))
 
         if cursor.rowcount == 0:
-            raise HTTPException(status_code=404, detail="消息不存�?)
+            raise HTTPException(status_code=404, detail="消息不存在")
 
-        # 更新会话时间
         cursor.execute("""
             UPDATE chat_sessions
             SET updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
         """, (session_id,))
 
-    return {"message": "消息已删�?}
+    return {"message": "消息已删除"}
 
 
 @router.get("/stats")
@@ -307,15 +301,13 @@ async def get_stats():
     with pool.get_connection() as conn:
         cursor = conn.cursor()
 
-        # 总会话数
         cursor.execute("SELECT COUNT(*) FROM chat_sessions")
         total_sessions = cursor.fetchone()[0]
 
-        # 总消息数
         cursor.execute("SELECT COUNT(*) FROM chat_messages")
         total_messages = cursor.fetchone()[0]
 
-        # 最�?7 天活跃会�?        cursor.execute("""
+        cursor.execute("""
             SELECT COUNT(DISTINCT session_id)
             FROM chat_messages
             WHERE timestamp >= datetime('now', '-7 days')

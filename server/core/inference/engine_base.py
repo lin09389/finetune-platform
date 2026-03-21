@@ -100,7 +100,8 @@ class InferenceEngine(ABC):
     @abstractmethod
     async def unload(self) -> None:
         """
-        卸载模型并释放资�?        """
+        卸载模型并释放资源
+        """
         pass
     
     @abstractmethod
@@ -139,21 +140,25 @@ class InferenceEngine(ABC):
             **kwargs: 额外参数
             
         Yields:
-            str: 生成的文本片�?        """
+            str: 生成的文本片段
+        """
         pass
     
     @abstractmethod
     async def apply_lora(self, lora_path: str) -> None:
         """
-        应用 LoRA 适配�?        
+        应用 LoRA 适配器
+        
         Args:
-            lora_path: LoRA 适配器路�?        """
+            lora_path: LoRA 适配器路径
+        """
         pass
     
     @abstractmethod
     async def remove_lora(self) -> None:
         """
-        移除 LoRA 适配�?        """
+        移除 LoRA 适配器
+        """
         pass
     
     @property
@@ -180,7 +185,8 @@ class InferenceEngine(ABC):
             messages: 消息历史（可选）
             
         Returns:
-            str: 格式化后的提�?        """
+            str: 格式化后的提示
+        """
         model_lower = self.config.model_id.lower()
         
         if "qwen3.5" in model_lower or "qwen3_5" in model_lower:

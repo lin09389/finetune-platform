@@ -166,7 +166,7 @@ async def delete_branch(session_id: str, branch_id: str):
     del branches[branch_id]
     save_branches(session_id, branches)
     
-    return {"success": True, "message": "分支已删�?}
+    return {"success": True, "message": "分支已删除"}
 
 
 @router.post("/{session_id}/merge-branch/{branch_id}")
@@ -181,4 +181,4 @@ async def merge_branch(session_id: str, branch_id: str):
     if not current_branch_id:
         raise HTTPException(status_code=400, detail="No current branch to merge into")
     
-    return {"success": True, "message": "分支已合�?}
+    return {"success": True, "message": "分支已合并"}

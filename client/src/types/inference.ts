@@ -27,6 +27,27 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface MemoryOptions {
+  enabled: boolean;
+  auto_extract?: boolean;
+  auto_retrieve?: boolean;
+  top_k?: number;
+  include_types?: string[];
+}
+
+export interface KnowledgeOptions {
+  use_knowledge: boolean;
+  collection_id?: string;
+  auto_retrieve?: boolean;
+  top_k?: number;
+  include_sources?: boolean;
+}
+
+export interface SessionOptions {
+  session_id?: string;
+  user_id?: string;
+}
+
 export interface ChatRequest {
   model_id: string;
   messages: ChatMessage[];
@@ -34,6 +55,23 @@ export interface ChatRequest {
   temperature?: number;
   top_p?: number;
   backend?: 'huggingface' | 'ollama';
+  memory?: MemoryOptions;
+  knowledge?: KnowledgeOptions;
+  session?: SessionOptions;
+}
+
+export interface MemoryContextInfo {
+  retrieved: boolean;
+  sources_count: number;
+  context_preview: string;
+}
+
+export interface UnifiedContextInfo {
+  total_sources: number;
+  memory_count: number;
+  knowledge_count: number;
+  project_count: number;
+  retrieval_time: number;
 }
 
 export interface BackendInfo {

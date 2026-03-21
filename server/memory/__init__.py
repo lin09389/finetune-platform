@@ -1,6 +1,9 @@
+# -*- coding: utf-8 -*-
 """
 智能记忆系统
-三级记忆架构：工作记忆、短期记忆、长期记�?支持知识图谱、MCP协议、智能提�?"""
+三级记忆架构：工作记忆、短期记忆、长期记忆
+支持知识图谱、MCP协议、智能提示
+"""
 
 from .memory_service import get_memory_service, MemoryService
 from .memory_extractor import MemoryExtractor

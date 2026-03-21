@@ -1,13 +1,16 @@
+# -*- coding: utf-8 -*-
 """
 操作记忆管理模块
 
-功能�?- 扩展操作记忆类型定义
-- 操作历史持久�?- 操作模式识别
+功能：
+- 扩展操作记忆类型定义
+- 操作历史持久化
+- 操作模式识别
 - 操作回滚支持
 """
 import json
 import logging
-from typing import Dict, Any, Optional, List, Callable
+from typing import Dict, Any, Optional, List, Callable, Awaitable
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
 from enum import Enum
@@ -36,7 +39,7 @@ class OperationType(str, Enum):
 
 
 class OperationStatus(str, Enum):
-    """操作状�?""
+    """操作状态"""
     PENDING = "pending"
     RUNNING = "running"
     SUCCESS = "success"
@@ -115,8 +118,11 @@ class OperationPattern:
 
 class OperationMemoryManager:
     """
-    操作记忆管理�?    
-    功能�?    - 操作历史持久�?    - 操作模式识别
+    操作记忆管理器
+    
+    功能：
+    - 操作历史持久化
+    - 操作模式识别
     - 操作回滚支持
     """
     
@@ -136,9 +142,9 @@ class OperationMemoryManager:
         operation_type: OperationType, 
         handler: Callable[[OperationRecord], Awaitable[bool]]
     ):
-        """注册回滚处理�?""
+        """注册回滚处理器"""
         self._rollback_handlers[operation_type] = handler
-        logger.info(f"注册回滚处理�? {operation_type.value}")
+        logger.info(f"注册回滚处理器: {operation_type.value}")
     
     async def record_operation(
         self,
@@ -169,7 +175,7 @@ class OperationMemoryManager:
         return record
     
     async def start_operation(self, operation_id: str) -> bool:
-        """开始操�?""
+        """开始操作"""
         record = self._operations.get(operation_id)
         if not record:
             return False
@@ -220,7 +226,7 @@ class OperationMemoryManager:
         """回滚操作"""
         record = self._operations.get(operation_id)
         if not record:
-            logger.warning(f"操作不存�? {operation_id}")
+            logger.warning(f"操作不存在: {operation_id}")
             return False
         
         if record.status != OperationStatus.SUCCESS:
@@ -233,7 +239,7 @@ class OperationMemoryManager:
         
         handler = self._rollback_handlers.get(record.operation_type)
         if not handler:
-            logger.warning(f"没有注册回滚处理�? {record.operation_type}")
+            logger.warning(f"没有注册回滚处理器: {record.operation_type}")
             return False
         
         try:
@@ -243,7 +249,7 @@ class OperationMemoryManager:
                 record.status = OperationStatus.ROLLED_BACK
                 record.completed_at = datetime.now()
                 self._persist_operation(record)
-                logger.info(f"操作已回�? {operation_id}")
+                logger.info(f"操作已回滚: {operation_id}")
                 return True
             else:
                 logger.error(f"回滚失败: {operation_id}")
@@ -289,7 +295,7 @@ class OperationMemoryManager:
         sequence: List[OperationType], 
         pattern: List[OperationType]
     ) -> bool:
-        """检查序列是否匹配模�?""
+        """检查序列是否匹配模式"""
         if len(sequence) < len(pattern):
             return False
         
@@ -331,13 +337,13 @@ class OperationMemoryManager:
         ]
     
     def _persist_operation(self, record: OperationRecord):
-        """持久化操作记�?""
+        """持久化操作记录"""
         file_path = self.storage_path / f"{record.id}.json"
         try:
             with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(record.to_dict(), f, ensure_ascii=False, indent=2)
         except Exception as e:
-            logger.error(f"持久化操作失�? {e}")
+            logger.error(f"持久化操作失败: {e}")
     
     def load_operation(self, operation_id: str) -> Optional[OperationRecord]:
         """加载操作记录"""
@@ -379,7 +385,7 @@ _operation_manager: Optional[OperationMemoryManager] = None
 
 
 def get_operation_manager() -> OperationMemoryManager:
-    """获取操作记忆管理器单�?""
+    """获取操作记忆管理器单例"""
     global _operation_manager
     if _operation_manager is None:
         _operation_manager = OperationMemoryManager()

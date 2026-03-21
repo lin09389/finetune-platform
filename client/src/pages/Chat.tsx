@@ -91,6 +91,9 @@ export default function Chat() {
   const [selectedCollection, setSelectedCollection] = useState<string>()
   const [collections, setCollections] = useState<{ id: string; name: string; count: number }[]>([])
   const [autoRetrieve, setAutoRetrieve] = useState(true)
+  
+  // 记忆系统相关状态
+  const [useMemory, setUseMemory] = useState(true)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const sessionIdCounter = useRef(0)
@@ -693,9 +696,6 @@ export default function Chat() {
     setInputValue('')
     setLoading(true)
 
-    extractMemory(userMessage.content)
-
-    // 获取最后一条 AI 消息作为上下文
     const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant')
     const agentContext = lastAssistantMessage ? {
       content: lastAssistantMessage.content,
@@ -735,119 +735,93 @@ export default function Chat() {
       let fullResponse = ''
       let knowledgeSources: KnowledgeSource[] | undefined
       let retrievalInfo: RetrievalInfo | undefined
+      let memoryContext: { retrieved: boolean; sources_count: number; context_preview: string } | undefined
+      let unifiedContext: { total_sources: number; memory_count: number; knowledge_count: number; retrieval_time: number } | undefined
 
       abortControllerRef.current = new AbortController()
 
-      if (useKnowledge && selectedCollection) {
-        try {
-          const chatMessages = messages.map(m => ({
-            role: m.role,
-            content: m.content
-          }))
-          chatMessages.push({ role: 'user', content: userMessage.content })
+      const chatMessages = messages.map(m => ({
+        role: m.role,
+        content: m.content
+      }))
+      chatMessages.push({ role: 'user', content: userMessage.content })
 
-          const response = await fetch(`${API_BASE_URL}/inference/chat`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model: selectedModel,
-              messages: chatMessages,
-              options: {
-                max_tokens: 1024,
-                temperature: 0.7,
-                backend: currentBackend,
-              },
-              knowledge: {
-                use_knowledge: true,
-                collection_id: selectedCollection,
-                auto_retrieve: autoRetrieve,
-                top_k: 5,
-                include_sources: true
-              }
-            }),
-            signal: abortControllerRef.current.signal
-          })
-
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`)
-          }
-
-          const data = await response.json()
-          fullResponse = data.message?.content || data.text || ''
-          knowledgeSources = data.knowledge_sources
-          retrievalInfo = data.retrieval_info
-
-          updateChatMessage(assistantMessageId, {
-            content: fullResponse,
-            isLoading: false,
-            knowledge_sources: knowledgeSources,
-            retrieval_info: retrievalInfo
-          })
-        } catch (error) {
-          if (error instanceof Error && error.name === 'AbortError') {
-            updateChatMessage(assistantMessageId, {
-              content: '（已停止生成）',
-              isLoading: false
-            })
-            return
-          }
-          throw error
-        }
-      } else {
-        const STREAM_TIMEOUT = 120000
-        let timeoutId: ReturnType<typeof setTimeout> | null = null
-        
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          timeoutId = setTimeout(() => {
-            reject(new Error('请求超时'))
-          }, STREAM_TIMEOUT)
+      try {
+        const response = await fetch(`${API_BASE_URL}/inference/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: selectedModel,
+            messages: chatMessages,
+            options: {
+              max_tokens: 1024,
+              temperature: 0.7,
+              backend: currentBackend,
+            },
+            memory: {
+              enabled: useMemory,
+              auto_extract: true,
+              auto_retrieve: true,
+              top_k: 3
+            },
+            knowledge: {
+              use_knowledge: useKnowledge && !!selectedCollection,
+              collection_id: selectedCollection,
+              auto_retrieve: autoRetrieve,
+              top_k: 5,
+              include_sources: true
+            },
+            session: {
+              session_id: currentSessionId,
+              user_id: 'default'
+            }
+          }),
+          signal: abortControllerRef.current.signal
         })
 
-        let contextPrompt = ''
-        try {
-          const memoryResponse = await fetch(`${API_BASE_URL}/memory/recall`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: userMessage.content, top_k: 3 })
-          })
-          if (memoryResponse.ok) {
-            const memoryData = await memoryResponse.json()
-            if (memoryData.context) {
-              contextPrompt = `\n[用户记忆]\n${memoryData.context}\n\n`
-            }
-          }
-        } catch (e) {
-          console.warn('获取记忆上下文失败:', e)
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`)
         }
 
-        try {
-          await Promise.race([
-            streamInference(
-              {
-                modelId: selectedModel,
-                prompt: contextPrompt + buildPrompt(messages, userMessage.content),
-                maxTokens: 1024,
-                temperature: 0.7,
-                backend: currentBackend,
-              },
-              (text: string) => {
-                fullResponse += text
-                updateChatMessage(assistantMessageId, {
-                  content: fullResponse,
-                  isLoading: false
-                })
-              },
-              undefined,
-              abortControllerRef.current.signal
-            ),
-            timeoutPromise
-          ])
-          
-          if (timeoutId) clearTimeout(timeoutId)
-        } catch (raceError: unknown) {
-          if (timeoutId) clearTimeout(timeoutId)
-          throw raceError
+        const data = await response.json()
+        fullResponse = data.message?.content || data.text || ''
+        knowledgeSources = data.knowledge_sources
+        retrievalInfo = data.retrieval_info
+        memoryContext = data.memory_context
+        unifiedContext = data.unified_context
+
+        if (unifiedContext) {
+          console.log('统一上下文检索完成:', {
+            总来源数: unifiedContext.total_sources,
+            记忆数: unifiedContext.memory_count,
+            知识数: unifiedContext.knowledge_count,
+            检索耗时: `${unifiedContext.retrieval_time.toFixed(3)}s`
+          })
         }
+        
+        if (memoryContext) {
+          console.log('记忆上下文:', {
+            已检索: memoryContext.retrieved,
+            来源数: memoryContext.sources_count,
+            预览: memoryContext.context_preview.substring(0, 100) + '...'
+          })
+        }
+
+        updateChatMessage(assistantMessageId, {
+          content: fullResponse,
+          isLoading: false,
+          knowledge_sources: knowledgeSources,
+          retrieval_info: retrievalInfo
+        })
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          updateChatMessage(assistantMessageId, {
+            content: '（已停止生成）',
+            isLoading: false
+          })
+          return
+        }
+        throw error
       }
       
       if (currentSessionId) {
@@ -1443,6 +1417,21 @@ export default function Chat() {
                 disabled={collections.length === 0}
               >
                 知识库
+              </Button>
+            </motion.div>
+          </Tooltip>
+          <Tooltip title={useMemory ? '禁用记忆系统' : '启用记忆系统（记住用户偏好和历史交互）'}>
+            <motion.div
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <Button
+                icon={<BulbOutlined />}
+                onClick={() => setUseMemory(!useMemory)}
+                type={useMemory ? 'primary' : 'default'}
+                style={{ borderRadius: '8px', height: 36 }}
+              >
+                记忆
               </Button>
             </motion.div>
           </Tooltip>

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 CUA 模块异常定义
 """
@@ -33,7 +34,7 @@ class MouseOperationError(CUAError):
 class FailSafeTriggeredError(MouseOperationError):
     def __init__(self, position: tuple[int, int]):
         super().__init__(
-            message="FailSafe 已触发，操作被中�?,
+            message="FailSafe 已触发，操作被中止",
             operation="failsafe",
             details=f"鼠标位置: {position}"
         )
@@ -125,7 +126,7 @@ class PermissionDeniedError(CUAError):
         if self.operation:
             parts.insert(0, f"[{self.operation}]")
         if self.required_level:
-            parts.append(f"(需要权�? {self.required_level})")
+            parts.append(f"(需要权限: {self.required_level})")
         return " ".join(parts)
 
 
@@ -133,20 +134,20 @@ class RateLimitExceededError(CUAError):
     def __init__(self, message: str, operation: Optional[str] = None, retry_after: Optional[int] = None):
         self.operation = operation
         self.retry_after = retry_after
-        super().__init__(message, details=f"重试等待: {retry_after}�? if retry_after else None)
+        super().__init__(message, details=f"重试等待: {retry_after}秒" if retry_after else None)
 
     def __str__(self) -> str:
         parts = [self.message]
         if self.operation:
             parts.insert(0, f"[{self.operation}]")
         if self.retry_after:
-            parts.append(f"(�?{self.retry_after} 秒后重试)")
+            parts.append(f"(在 {self.retry_after} 秒后重试)")
         return " ".join(parts)
 
 
 class EmergencyStopError(CUAError):
     def __init__(self, message: str = "紧急停止已触发"):
-        super().__init__(message, details="所有操作已被中�?)
+        super().__init__(message, details="所有操作已被中止")
 
 
 class OCRError(CUAError):
@@ -166,9 +167,9 @@ class OCRError(CUAError):
 class TesseractNotInstalledError(OCRError):
     def __init__(self, details: Optional[str] = None):
         super().__init__(
-            message="Tesseract OCR 未安装或未配�?,
+            message="Tesseract OCR 未安装或未配置",
             operation="tesseract_check",
-            details=details or "请安�?Tesseract 并确保其已添加到系统 PATH"
+            details=details or "请安装 Tesseract 并确保其已添加到系统 PATH"
         )
 
 
@@ -181,7 +182,7 @@ class OCRProcessingError(OCRError):
 class TextNotFoundError(OCRError):
     def __init__(self, text: str, details: Optional[str] = None):
         super().__init__(
-            message=f"未找到文�? {text}",
+            message=f"未找到文本: {text}",
             operation="text_search",
             details=details
         )

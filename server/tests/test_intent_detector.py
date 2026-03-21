@@ -1,5 +1,6 @@
 """
-意图检测服务测�?"""
+意图检测服务测试
+"""
 import pytest
 from core.intent_detector import EnhancedIntentDetector, IntentType, ParamType
 
@@ -26,7 +27,7 @@ class TestEnhancedIntentDetector:
             assert True
 
     def test_detect_info_query_intent(self):
-        text = "查询系统状�?
+        text = "查询系统状态"
         result = self.detector.detect(text)
         
         if result.detected:
@@ -50,7 +51,7 @@ class TestEnhancedIntentDetector:
                 assert 0 <= intent.confidence <= 1
 
     def test_parameter_extraction(self):
-        text = "创建一个名为main.py的文�?
+        text = "创建一个名为main.py的文件"
         result = self.detector.detect(text)
         
         if result.detected and result.intents:
@@ -65,7 +66,7 @@ class TestEnhancedIntentDetector:
             assert result.clarification_dialog is not None
 
     def test_context_influence(self):
-        text = "创建�?
+        text = "创建它"
         context = {"last_mentioned_file": "test.py"}
         result = self.detector.detect(text, context=context)
         

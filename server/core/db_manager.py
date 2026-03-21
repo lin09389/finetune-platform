@@ -1,5 +1,6 @@
 """
-数据库连接管理模�?提供连接池和上下文管理器支持
+数据库连接管理模块
+提供连接池和上下文管理器支持
 """
 import sqlite3
 import threading
@@ -16,7 +17,8 @@ class DatabaseConnectionPool:
     SQLite 数据库连接池
     
     由于 SQLite 是文件数据库，使用线程局部存储来管理连接
-    每个线程维护自己的连接，避免多线程问�?    """
+    每个线程维护自己的连接，避免多线程问题
+    """
     
     _instance: Optional['DatabaseConnectionPool'] = None
     _lock = threading.Lock()
@@ -39,16 +41,14 @@ class DatabaseConnectionPool:
         logger.info(f"数据库连接池已初始化：{self._db_path}")
     
     def _get_thread_connection(self) -> sqlite3.Connection:
-        """获取当前线程的连�?""
+        """获取当前线程的连接"""
         if not hasattr(self._thread_local, 'connection'):
             conn = sqlite3.connect(self._db_path)
             conn.row_factory = sqlite3.Row
-            # 启用外键约束
             conn.execute("PRAGMA foreign_keys = ON")
-            # 设置 WAL 模式提高并发性能
             conn.execute("PRAGMA journal_mode = WAL")
             self._thread_local.connection = conn
-            logger.debug(f"创建新数据库连接：线�?{threading.current_thread().name}")
+            logger.debug(f"创建新数据库连接：线程 {threading.current_thread().name}")
         return self._thread_local.connection
     
     @contextmanager
@@ -56,7 +56,8 @@ class DatabaseConnectionPool:
         """
         获取数据库连接的上下文管理器
         
-        用法�?            with db_pool.get_connection() as conn:
+        用法：
+            with db_pool.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT * FROM table")
         """
@@ -71,7 +72,7 @@ class DatabaseConnectionPool:
             conn.commit()
     
     def close_all(self):
-        """关闭所有连�?""
+        """关闭所有连接"""
         if hasattr(self._thread_local, 'connection'):
             try:
                 self._thread_local.connection.close()
@@ -81,14 +82,14 @@ class DatabaseConnectionPool:
                 logger.warning(f"关闭数据库连接失败：{e}")
     
     def execute_query(self, query: str, params: tuple = ()):
-        """执行查询并返回所有结�?""
+        """执行查询并返回所有结果"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, params)
             return cursor.fetchall()
     
     def execute_one(self, query: str, params: tuple = ()):
-        """执行查询并返回单个结�?""
+        """执行查询并返回单个结果"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, params)
@@ -109,12 +110,12 @@ class DatabaseConnectionPool:
             return cursor.rowcount
 
 
-# 全局连接池字�?- 按路径管理多个数据库连接�?_db_pools: Dict[str, DatabaseConnectionPool] = {}
+_db_pools: Dict[str, DatabaseConnectionPool] = {}
 _pool_lock = threading.Lock()
 
 
 def get_db_pool(db_path: str = None) -> DatabaseConnectionPool:
-    """获取数据库连接池实例（按路径缓存�?""
+    """获取数据库连接池实例（按路径缓存）"""
     global _db_pools
     if db_path is None:
         db_path = "data/app.db"
@@ -126,7 +127,7 @@ def get_db_pool(db_path: str = None) -> DatabaseConnectionPool:
 
 
 def init_db_pool(db_path: str) -> DatabaseConnectionPool:
-    """初始化数据库连接�?""
+    """初始化数据库连接池"""
     global _db_pools
     with _pool_lock:
         _db_pools[db_path] = DatabaseConnectionPool(db_path)
@@ -134,7 +135,7 @@ def init_db_pool(db_path: str) -> DatabaseConnectionPool:
 
 
 def close_all_pools():
-    """关闭所有数据库连接�?""
+    """关闭所有数据库连接池"""
     global _db_pools
     for db_path, pool in _db_pools.items():
         pool.close_all()
@@ -147,7 +148,8 @@ def get_db_connection(db_path: str = None):
     """
     获取数据库连接的便捷函数
     
-    用法�?        with get_db_connection() as conn:
+    用法：
+        with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM table")
     """

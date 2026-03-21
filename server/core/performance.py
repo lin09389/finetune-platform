@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class PerformanceMetrics:
-    """性能指标数据�?""
+    """性能指标数据类"""
     tokens_per_second: float
     latency_ms: float
     first_token_latency_ms: float
@@ -37,8 +37,10 @@ class StreamingMetrics:
 
 class PerformanceMonitor:
     """
-    性能监控�?    
-    功能�?    - 收集推理性能指标
+    性能监控器
+    
+    功能：
+    - 收集推理性能指标
     - 计算统计数据
     - 提供优化建议
     """
@@ -149,7 +151,7 @@ class PerformanceMonitor:
             history = self._history.copy()
         
         if not history:
-            return [{"type": "info", "message": "暂无性能数据，请先进行推�?}]
+            return [{"type": "info", "message": "暂无性能数据，请先进行推理"}]
         
         avg_tps = statistics.mean([m.tokens_per_second for m in history])
         avg_latency = statistics.mean([m.first_token_latency_ms for m in history])
@@ -158,8 +160,8 @@ class PerformanceMonitor:
         if avg_tps < 20:
             recommendations.append({
                 "type": "warning",
-                "message": "推理速度较低，建议启�?vLLM 引擎�?Flash Attention 2",
-                "action": "设置 INFERENCE_ENGINE=vllm �?ENABLE_FLASH_ATTENTION=true"
+                "message": "推理速度较低，建议启用 vLLM 引擎或 Flash Attention 2",
+                "action": "设置 INFERENCE_ENGINE=vllm 或 ENABLE_FLASH_ATTENTION=true"
             })
         
         if avg_latency > 500:
@@ -173,7 +175,7 @@ class PerformanceMonitor:
             recommendations.append({
                 "type": "error",
                 "message": "显存使用率过高，可能导致 OOM",
-                "action": "启用量化或减�?batch_size"
+                "action": "启用量化或减少 batch_size"
             })
         
         if avg_tps > 50:
@@ -206,7 +208,7 @@ _monitor_lock = threading.Lock()
 
 
 def get_performance_monitor() -> PerformanceMonitor:
-    """获取性能监控器实�?""
+    """获取性能监控器实例"""
     global _performance_monitor
     with _monitor_lock:
         if _performance_monitor is None:

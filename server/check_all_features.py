@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-项目功能全面检测脚�?"""
+项目功能全面检测脚本
+"""
 import sys
 import os
 from pathlib import Path
@@ -8,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 print("=" * 60)
-print("Finetune Platform 功能全面检�?)
+print("Finetune Platform 功能全面检测")
 print("=" * 60)
 
 results = {"passed": [], "warnings": [], "errors": []}
@@ -33,7 +34,7 @@ def check_file(path, name):
         results["passed"].append(f"[FILE] {name}")
         return True
     else:
-        results["errors"].append(f"[ERROR] {name} 不存�?)
+        results["errors"].append(f"[ERROR] {name} 不存在")
         return False
 
 def check_dir(path, name):
@@ -41,10 +42,11 @@ def check_dir(path, name):
         results["passed"].append(f"[DIR] {name}")
         return True
     else:
-        results["errors"].append(f"[ERROR] {name} 不存�?)
+        results["errors"].append(f"[ERROR] {name} 不存在")
         return False
 
-# 1. PyTorch 检�?print("\n[1] PyTorch 环境检�?)
+# 1. PyTorch 检测
+print("\n[1] PyTorch 环境检测")
 print("-" * 40)
 try:
     import torch
@@ -55,14 +57,16 @@ try:
 except Exception as e:
     print(f"Error: {e}")
 
-# 2. 核心依赖检�?print("\n[2] 核心依赖检�?)
+# 2. 核心依赖检测
+print("\n[2] 核心依赖检测")
 print("-" * 40)
 for name, module in [("FastAPI", "fastapi"), ("Uvicorn", "uvicorn"), ("Pydantic", "pydantic"), 
                      ("Transformers", "transformers"), ("Accelerate", "accelerate"), 
                      ("PEFT", "peft"), ("Datasets", "datasets")]:
     check_module(name, module)
 
-# 3. API 模块检�?print("\n[3] API 模块检�?)
+# 3. API 模块检测
+print("\n[3] API 模块检测")
 print("-" * 40)
 api_modules = ["api.device", "api.models", "api.datasets", "api.training", 
                "api.inference", "api.chat_history", "api.rag", "api.workspace", 
@@ -70,7 +74,8 @@ api_modules = ["api.device", "api.models", "api.datasets", "api.training",
 for module in api_modules:
     check_module(module)
 
-# 4. Context 模块检�?print("\n[4] 项目上下文模块检�?)
+# 4. Context 模块检测
+print("\n[4] 项目上下文模块检测")
 print("-" * 40)
 context_modules = ["context", "context.models", "context.project_scanner", 
                    "context.symbol_extractor", "context.code_indexer", 
@@ -78,34 +83,39 @@ context_modules = ["context", "context.models", "context.project_scanner",
 for module in context_modules:
     check_module(module)
 
-# 5. RAG 模块检�?print("\n[5] RAG 模块检�?)
+# 5. RAG 模块检测
+print("\n[5] RAG 模块检测")
 print("-" * 40)
 rag_modules = ["rag", "rag.embedder", "rag.vector_store", "rag.service", 
                "rag.document_parser", "rag.text_chunker"]
 for module in rag_modules:
     check_module(module)
 
-# 6. Agent 模块检�?print("\n[6] Agent 模块检�?)
+# 6. Agent 模块检测
+print("\n[6] Agent 模块检测")
 print("-" * 40)
 agent_modules = ["agent", "agent.config", "agent.security", "agent.executor", 
                  "agent.intent", "agent.audit"]
 for module in agent_modules:
     check_module(module)
 
-# 7. Core 模块检�?print("\n[7] Core 模块检�?)
+# 7. Core 模块检测
+print("\n[7] Core 模块检测")
 print("-" * 40)
 core_modules = ["core.config", "core.logging", "core.utils", "core.model_cache", 
                 "core.training_queue", "core.training_state", "core.db_manager"]
 for module in core_modules:
     check_module(module)
 
-# 8. 目录检�?print("\n[8] 目录结构检�?)
+# 8. 目录检测
+print("\n[8] 目录结构检测")
 print("-" * 40)
 server_path = Path(__file__).parent
 for d in ["models", "datasets", "outputs", "data", "logs"]:
     check_dir(server_path / d, d)
 
-# 9. 前端检�?print("\n[9] 前端检�?)
+# 9. 前端检测
+print("\n[9] 前端检测")
 print("-" * 40)
 client_path = server_path.parent / "client"
 for f in ["package.json", "vite.config.ts", "tsconfig.json"]:
@@ -115,8 +125,9 @@ for comp in ["App.tsx", "main.tsx", "pages/Chat.tsx", "pages/Training.tsx",
              "pages/ProjectContext.tsx", "components/CodePreview.tsx"]:
     check_file(client_path / "src" / comp, comp)
 
-# 打印汇�?print("\n" + "=" * 60)
-print("检测结果汇�?)
+# 打印汇总
+print("\n" + "=" * 60)
+print("检测结果汇总")
 print("=" * 60)
 print(f"[OK] 通过：{len(results['passed'])}")
 print(f"[WARN] 警告：{len(results['warnings'])}")
@@ -171,5 +182,5 @@ except Exception as e:
     print(f"[ERROR] 服务器测试失败：{e}")
 
 print("\n" + "=" * 60)
-print("检测完�?")
+print("检测完成")
 print("=" * 60)

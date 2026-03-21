@@ -1,4 +1,8 @@
-# API Router exports
+# -*- coding: utf-8 -*-
+"""
+API 模块初始化文件
+导出所有 API 路由
+"""
 from api.device import router as device
 from api.models import router as models
 from api.datasets import router as datasets
@@ -13,7 +17,6 @@ from api.cua import router as cua
 from api.mcp import router as mcp
 from api.gateway_api.routes import router as gateway
 
-# 新版模块（目录模块）
 from api.inference import router as inference
 from api.chat import router as chat
 from api.knowledge import router as knowledge

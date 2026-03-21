@@ -1,44 +1,46 @@
+# -*- coding: utf-8 -*-
 """
-MCP (Model Context Protocol) 服务�?支持跨工具记忆共�?参�?supermemory �?MCP 实现
+MCP (Model Context Protocol) 服务器
+提供记忆服务的 MCP 协议接口
 """
-from typing import List, Dict, Optional, Any, Callable
-from dataclasses import dataclass, field
+from typing import Dict, Any, List, Optional, Callable
 from datetime import datetime
 import json
 import logging
 import asyncio
 from enum import Enum
+from dataclasses import dataclass, field
 
-from fastapi import APIRouter, HTTPException, Query, Body
-from pydantic import BaseModel, Field
+from .enhanced_memory_service import get_enhanced_memory_service
 
 logger = logging.getLogger(__name__)
 
 
 class MCPResourceType(str, Enum):
     """MCP 资源类型"""
-    ENTITY = "entity"
     MEMORY = "memory"
+    ENTITY = "entity"
+    RELATION = "relation"
     CONTEXT = "context"
-    GRAPH = "graph"
+    CONVERSATION = "conversation"
 
 
 @dataclass
 class MCPResource:
-    """MCP 资源定义"""
+    """MCP 资源"""
     uri: str
     name: str
     description: str
-    mime_type: str = "application/json"
-    resource_type: MCPResourceType = MCPResourceType.MEMORY
+    resource_type: MCPResourceType
+    metadata: Dict[str, Any] = field(default_factory=dict)
     
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> Dict[str, Any]:
         return {
             'uri': self.uri,
             'name': self.name,
             'description': self.description,
-            'mimeType': self.mime_type,
-            'type': self.resource_type.value
+            'type': self.resource_type.value,
+            'metadata': self.metadata
         }
 
 
@@ -50,7 +52,7 @@ class MCPResourceContent:
     text: str
     metadata: Dict[str, Any] = field(default_factory=dict)
     
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> Dict[str, Any]:
         return {
             'uri': self.uri,
             'mimeType': self.mime_type,
@@ -66,527 +68,491 @@ class MCPSearchResult:
     name: str
     description: str
     score: float
-    content_preview: str
+    resource_type: MCPResourceType
     
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> Dict[str, Any]:
         return {
             'uri': self.uri,
             'name': self.name,
             'description': self.description,
             'score': self.score,
-            'contentPreview': self.content_preview
+            'type': self.resource_type.value
         }
 
 
 class MCPServer:
-    """MCP 协议服务�?""
+    """
+    MCP 服务器
     
-    def __init__(self, memory_service=None, knowledge_graph=None):
-        self.memory_service = memory_service
-        self.knowledge_graph = knowledge_graph
-        self.resources: Dict[str, MCPResource] = {}
-        self.handlers: Dict[str, Callable] = {}
+    实现 Model Context Protocol，提供：
+    - 资源列表
+    - 资源读取
+    - 资源搜索
+    - 工具调用
+    """
+    
+    def __init__(self, server_name: str = "memory-server"):
+        self.server_name = server_name
+        self.memory_service = get_enhanced_memory_service()
         
-        self._register_default_handlers()
-        logger.info("MCP 服务器初始化完成")
+        self._tools: Dict[str, Callable] = {}
+        self._resource_handlers: Dict[str, Callable] = {}
+        
+        self._register_default_tools()
+        self._register_resource_handlers()
+        
+        logger.info(f"MCP 服务器初始化: {server_name}")
     
-    def _register_default_handlers(self):
-        """注册默认处理�?""
-        self.handlers['list_resources'] = self._handle_list_resources
-        self.handlers['read_resource'] = self._handle_read_resource
-        self.handlers['search'] = self._handle_search
-        self.handlers['query_graph'] = self._handle_query_graph
+    def _register_default_tools(self):
+        """注册默认工具"""
+        self._tools = {
+            'remember': self._tool_remember,
+            'recall': self._tool_recall,
+            'forget': self._tool_forget,
+            'get_context': self._tool_get_context,
+            'add_entity': self._tool_add_entity,
+            'add_relation': self._tool_add_relation,
+            'search_entities': self._tool_search_entities,
+            'get_stats': self._tool_get_stats,
+        }
     
-    async def list_resources(
-        self,
-        resource_type: MCPResourceType = None,
-        limit: int = 50
-    ) -> List[MCPResource]:
-        """列出所有可用资�?""
+    def _register_resource_handlers(self):
+        """注册资源处理器"""
+        self._resource_handlers = {
+            'memory': self._handle_memory_resource,
+            'entity': self._handle_entity_resource,
+            'relation': self._handle_relation_resource,
+            'context': self._handle_context_resource,
+            'conversation': self._handle_conversation_resource,
+        }
+    
+    async def list_resources(self) -> List[MCPResource]:
+        """列出所有可用资源"""
         resources = []
         
-        if self.knowledge_graph:
-            for entity in self.knowledge_graph.get_all_entities()[:limit]:
-                if resource_type and resource_type != MCPResourceType.ENTITY:
-                    continue
-                
-                resources.append(MCPResource(
-                    uri=f"memory://entities/{entity.id}",
-                    name=entity.name,
-                    description=f"实体: {entity.entity_type}",
-                    mime_type="application/json",
-                    resource_type=MCPResourceType.ENTITY
-                ))
+        resources.append(MCPResource(
+            uri="memory://all",
+            name="所有记忆",
+            description="获取所有存储的记忆",
+            resource_type=MCPResourceType.MEMORY
+        ))
         
-        if self.memory_service and (not resource_type or resource_type == MCPResourceType.MEMORY):
-            memories = self.memory_service.list_memories(limit=limit)
-            for mem in memories:
-                resources.append(MCPResource(
-                    uri=f"memory://memories/{mem.get('id', '')}",
-                    name=mem.get('content', '')[:50],
-                    description=f"记忆: {mem.get('type', 'unknown')}",
-                    mime_type="application/json",
-                    resource_type=MCPResourceType.MEMORY
-                ))
+        resources.append(MCPResource(
+            uri="memory://recent",
+            name="最近记忆",
+            description="获取最近的记忆",
+            resource_type=MCPResourceType.MEMORY
+        ))
+        
+        resources.append(MCPResource(
+            uri="entity://all",
+            name="所有实体",
+            description="获取知识图谱中的所有实体",
+            resource_type=MCPResourceType.ENTITY
+        ))
+        
+        resources.append(MCPResource(
+            uri="relation://all",
+            name="所有关系",
+            description="获取知识图谱中的所有关系",
+            resource_type=MCPResourceType.RELATION
+        ))
+        
+        resources.append(MCPResource(
+            uri="context://current",
+            name="当前上下文",
+            description="获取当前会话上下文",
+            resource_type=MCPResourceType.CONTEXT
+        ))
+        
+        resources.append(MCPResource(
+            uri="conversation://history",
+            name="对话历史",
+            description="获取当前会话的对话历史",
+            resource_type=MCPResourceType.CONVERSATION
+        ))
         
         return resources
     
     async def read_resource(self, uri: str) -> MCPResourceContent:
-        """读取资源内容"""
-        if uri.startswith("memory://entities/"):
-            return await self._read_entity_resource(uri)
-        elif uri.startswith("memory://memories/"):
-            return await self._read_memory_resource(uri)
-        elif uri.startswith("memory://context/"):
-            return await self._read_context_resource(uri)
-        elif uri.startswith("memory://graph/"):
-            return await self._read_graph_resource(uri)
-        else:
-            raise HTTPException(404, f"Resource not found: {uri}")
+        """读取资源"""
+        parts = uri.split("://")
+        if len(parts) != 2:
+            raise ValueError(f"无效的资源 URI: {uri}")
+        
+        resource_type = parts[0]
+        resource_id = parts[1]
+        
+        handler = self._resource_handlers.get(resource_type)
+        if not handler:
+            raise ValueError(f"未知的资源类型: {resource_type}")
+        
+        return await handler(resource_id)
     
-    async def search(
+    async def search_resources(
         self,
         query: str,
-        resource_types: List[MCPResourceType] = None,
-        limit: int = 10
+        resource_types: List[str] = None
     ) -> List[MCPSearchResult]:
         """搜索资源"""
         results = []
         
-        if self.knowledge_graph and (not resource_types or MCPResourceType.ENTITY in resource_types):
-            for entity in self.knowledge_graph.get_all_entities():
-                if query.lower() in entity.name.lower():
+        memories = await self.memory_service.recall(query, top_k=5)
+        for mem in memories:
+            results.append(MCPSearchResult(
+                uri=f"memory://{mem.get('id', '')}",
+                name=mem.get('content', '')[:50],
+                description=mem.get('content', ''),
+                score=mem.get('relevance', 0.5),
+                resource_type=MCPResourceType.MEMORY
+            ))
+        
+        if self.memory_service.knowledge_graph:
+            entities = self.memory_service.knowledge_graph.get_all_entities()
+            query_lower = query.lower()
+            
+            for entity in entities[:10]:
+                if query_lower in entity.name.lower():
                     results.append(MCPSearchResult(
-                        uri=f"memory://entities/{entity.id}",
+                        uri=f"entity://{entity.id}",
                         name=entity.name,
-                        description=f"实体: {entity.entity_type}",
-                        score=0.9,
-                        content_preview=entity.name
+                        description=f"{entity.entity_type}: {entity.name}",
+                        score=0.8,
+                        resource_type=MCPResourceType.ENTITY
                     ))
         
-        if self.memory_service and (not resource_types or MCPResourceType.MEMORY in resource_types):
-            memories = self.memory_service.recall(query, top_k=limit)
-            for mem in memories:
-                results.append(MCPSearchResult(
-                    uri=f"memory://memories/{mem.get('id', '')}",
-                    name=mem.get('content', '')[:50],
-                    description=f"记忆: {mem.get('type', 'unknown')}",
-                    score=mem.get('relevance', 0.5),
-                    content_preview=mem.get('content', '')[:100]
-                ))
-        
-        results.sort(key=lambda x: x.score, reverse=True)
-        return results[:limit]
+        return results
     
-    async def query_graph(
+    async def call_tool(
         self,
-        entity_id: str,
-        depth: int = 2,
-        relation_types: List[str] = None
+        tool_name: str,
+        arguments: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """查询知识图谱"""
-        if not self.knowledge_graph:
-            return {'error': 'Knowledge graph not available'}
+        """调用工具"""
+        tool = self._tools.get(tool_name)
+        if not tool:
+            return {
+                'success': False,
+                'error': f"未知的工具: {tool_name}"
+            }
         
-        context = self.knowledge_graph.get_entity_context(entity_id, depth)
-        
-        if relation_types:
-            context['relations'] = [
-                r for r in context.get('relations', [])
-                if r.get('relation_type') in relation_types
-            ]
-        
-        return context
+        try:
+            result = await tool(**arguments)
+            return {
+                'success': True,
+                'result': result
+            }
+        except Exception as e:
+            logger.error(f"工具调用失败: {tool_name}, {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
     
-    async def add_memory(
+    async def list_tools(self) -> List[Dict[str, Any]]:
+        """列出所有可用工具"""
+        return [
+            {
+                'name': 'remember',
+                'description': '记住一条信息',
+                'parameters': {
+                    'content': {'type': 'string', 'description': '要记住的内容'},
+                    'memory_type': {'type': 'string', 'default': 'knowledge'},
+                    'importance': {'type': 'number', 'default': 0.5}
+                }
+            },
+            {
+                'name': 'recall',
+                'description': '检索相关记忆',
+                'parameters': {
+                    'query': {'type': 'string', 'description': '查询文本'},
+                    'top_k': {'type': 'integer', 'default': 5}
+                }
+            },
+            {
+                'name': 'forget',
+                'description': '遗忘一条记忆',
+                'parameters': {
+                    'memory_id': {'type': 'string', 'description': '记忆ID'}
+                }
+            },
+            {
+                'name': 'get_context',
+                'description': '获取当前上下文',
+                'parameters': {
+                    'query': {'type': 'string', 'description': '查询文本'},
+                    'max_memories': {'type': 'integer', 'default': 5}
+                }
+            },
+            {
+                'name': 'add_entity',
+                'description': '添加实体到知识图谱',
+                'parameters': {
+                    'name': {'type': 'string', 'description': '实体名称'},
+                    'entity_type': {'type': 'string', 'description': '实体类型'},
+                    'attributes': {'type': 'object', 'default': {}}
+                }
+            },
+            {
+                'name': 'add_relation',
+                'description': '添加关系到知识图谱',
+                'parameters': {
+                    'source': {'type': 'string', 'description': '源实体名称'},
+                    'target': {'type': 'string', 'description': '目标实体名称'},
+                    'relation_type': {'type': 'string', 'description': '关系类型'}
+                }
+            },
+            {
+                'name': 'search_entities',
+                'description': '搜索知识图谱中的实体',
+                'parameters': {
+                    'query': {'type': 'string', 'description': '查询文本'},
+                    'entity_type': {'type': 'string', 'default': None}
+                }
+            },
+            {
+                'name': 'get_stats',
+                'description': '获取记忆系统统计信息',
+                'parameters': {}
+            }
+        ]
+    
+    async def _handle_memory_resource(self, resource_id: str) -> MCPResourceContent:
+        """处理记忆资源"""
+        if resource_id == "all":
+            memories = self.memory_service.memory_service.list_memories(
+                self.memory_service._user_id,
+                limit=100
+            )
+            content = json.dumps(memories, ensure_ascii=False, indent=2)
+        elif resource_id == "recent":
+            memories = self.memory_service.memory_service.list_memories(
+                self.memory_service._user_id,
+                limit=10
+            )
+            content = json.dumps(memories, ensure_ascii=False, indent=2)
+        else:
+            memory = self.memory_service.memory_service.get_memory(
+                self.memory_service._user_id,
+                resource_id
+            )
+            if memory:
+                content = json.dumps(memory, ensure_ascii=False, indent=2)
+            else:
+                content = json.dumps({'error': 'Memory not found'})
+        
+        return MCPResourceContent(
+            uri=f"memory://{resource_id}",
+            mime_type="application/json",
+            text=content
+        )
+    
+    async def _handle_entity_resource(self, resource_id: str) -> MCPResourceContent:
+        """处理实体资源"""
+        if not self.memory_service.knowledge_graph:
+            return MCPResourceContent(
+                uri=f"entity://{resource_id}",
+                mime_type="application/json",
+                text=json.dumps({'error': 'Knowledge graph not enabled'})
+            )
+        
+        if resource_id == "all":
+            entities = self.memory_service.knowledge_graph.get_all_entities()
+            content = json.dumps(
+                [e.to_dict() for e in entities],
+                ensure_ascii=False,
+                indent=2
+            )
+        else:
+            entity = self.memory_service.knowledge_graph.get_entity(resource_id)
+            if entity:
+                content = json.dumps(entity.to_dict(), ensure_ascii=False, indent=2)
+            else:
+                content = json.dumps({'error': 'Entity not found'})
+        
+        return MCPResourceContent(
+            uri=f"entity://{resource_id}",
+            mime_type="application/json",
+            text=content
+        )
+    
+    async def _handle_relation_resource(self, resource_id: str) -> MCPResourceContent:
+        """处理关系资源"""
+        if not self.memory_service.knowledge_graph:
+            return MCPResourceContent(
+                uri=f"relation://{resource_id}",
+                mime_type="application/json",
+                text=json.dumps({'error': 'Knowledge graph not enabled'})
+            )
+        
+        if resource_id == "all":
+            relations = self.memory_service.knowledge_graph.get_all_relations()
+            content = json.dumps(
+                [r.to_dict() for r in relations],
+                ensure_ascii=False,
+                indent=2
+            )
+        else:
+            content = json.dumps({'error': 'Single relation not supported'})
+        
+        return MCPResourceContent(
+            uri=f"relation://{resource_id}",
+            mime_type="application/json",
+            text=content
+        )
+    
+    async def _handle_context_resource(self, resource_id: str) -> MCPResourceContent:
+        """处理上下文资源"""
+        if resource_id == "current":
+            context = await self.memory_service.get_context("")
+            content = json.dumps(context, ensure_ascii=False, indent=2)
+        else:
+            content = json.dumps({'error': 'Unknown context resource'})
+        
+        return MCPResourceContent(
+            uri=f"context://{resource_id}",
+            mime_type="application/json",
+            text=content
+        )
+    
+    async def _handle_conversation_resource(self, resource_id: str) -> MCPResourceContent:
+        """处理对话资源"""
+        if resource_id == "history":
+            if self.memory_service.short_term_memory:
+                messages = self.memory_service.short_term_memory.get_recent_messages(20)
+                content = json.dumps(
+                    [m.to_dict() for m in messages],
+                    ensure_ascii=False,
+                    indent=2
+                )
+            else:
+                content = json.dumps([])
+        else:
+            content = json.dumps({'error': 'Unknown conversation resource'})
+        
+        return MCPResourceContent(
+            uri=f"conversation://{resource_id}",
+            mime_type="application/json",
+            text=content
+        )
+    
+    async def _tool_remember(
         self,
         content: str,
         memory_type: str = "knowledge",
-        entities: List[str] = None,
-        user_id: str = "default"
+        importance: float = 0.5
     ) -> Dict[str, Any]:
-        """添加记忆"""
-        if not self.memory_service:
-            return {'error': 'Memory service not available'}
+        """记住工具"""
+        return await self.memory_service.remember(
+            content=content,
+            memory_type=memory_type,
+            importance=importance
+        )
+    
+    async def _tool_recall(
+        self,
+        query: str,
+        top_k: int = 5
+    ) -> List[Dict[str, Any]]:
+        """检索工具"""
+        return await self.memory_service.recall(query, top_k=top_k)
+    
+    async def _tool_forget(self, memory_id: str) -> Dict[str, Any]:
+        """遗忘工具"""
+        success = await self.memory_service.forget(memory_id)
+        return {
+            'success': success,
+            'memory_id': memory_id
+        }
+    
+    async def _tool_get_context(
+        self,
+        query: str,
+        max_memories: int = 5
+    ) -> Dict[str, Any]:
+        """获取上下文工具"""
+        return await self.memory_service.get_context(
+            query,
+            max_memories=max_memories
+        )
+    
+    async def _tool_add_entity(
+        self,
+        name: str,
+        entity_type: str,
+        attributes: Dict[str, Any] = None
+    ) -> Dict[str, Any]:
+        """添加实体工具"""
+        if not self.memory_service.knowledge_graph:
+            return {'success': False, 'error': 'Knowledge graph not enabled'}
         
-        result = self.memory_service.process_message(
-            message=content,
-            role='user',
-            user_id=user_id,
-            extract_memories=True
+        entity_id, is_new = self.memory_service.knowledge_graph.add_entity(
+            name=name,
+            entity_type=entity_type,
+            attributes=attributes or {}
         )
         
         return {
             'success': True,
-            'memory_id': result.get('facts_extracted', [{}])[0].get('id') if result.get('facts_extracted') else None,
-            'entities_created': len(result.get('entities_extracted', [])),
-            'relations_created': len(result.get('relations_extracted', []))
+            'entity_id': entity_id,
+            'is_new': is_new
         }
     
-    async def _read_entity_resource(self, uri: str) -> MCPResourceContent:
-        """读取实体资源"""
-        entity_id = uri.split("/")[-1]
+    async def _tool_add_relation(
+        self,
+        source: str,
+        target: str,
+        relation_type: str
+    ) -> Dict[str, Any]:
+        """添加关系工具"""
+        if not self.memory_service.knowledge_graph:
+            return {'success': False, 'error': 'Knowledge graph not enabled'}
         
-        if not self.knowledge_graph:
-            raise HTTPException(503, "Knowledge graph not available")
-        
-        entity = self.knowledge_graph.get_entity(entity_id)
-        if not entity:
-            raise HTTPException(404, f"Entity not found: {entity_id}")
-        
-        context = self.knowledge_graph.get_entity_context(entity_id)
-        
-        return MCPResourceContent(
-            uri=uri,
-            mime_type="application/json",
-            text=json.dumps({
-                'entity': entity.to_dict(),
-                'context': context
-            }, ensure_ascii=False, indent=2),
-            metadata={
-                'entity_type': entity.entity_type,
-                'confidence': entity.confidence
-            }
+        relation_id = self.memory_service.knowledge_graph.add_relation(
+            source_name=source,
+            target_name=target,
+            relation_type=relation_type
         )
+        
+        return {
+            'success': relation_id is not None,
+            'relation_id': relation_id
+        }
     
-    async def _read_memory_resource(self, uri: str) -> MCPResourceContent:
-        """读取记忆资源"""
-        memory_id = uri.split("/")[-1]
+    async def _tool_search_entities(
+        self,
+        query: str,
+        entity_type: str = None
+    ) -> List[Dict[str, Any]]:
+        """搜索实体工具"""
+        if not self.memory_service.knowledge_graph:
+            return []
         
-        if not self.memory_service:
-            raise HTTPException(503, "Memory service not available")
+        if entity_type:
+            entities = self.memory_service.knowledge_graph.get_entities_by_type(entity_type)
+        else:
+            entities = self.memory_service.knowledge_graph.get_all_entities()
         
-        memories = self.memory_service.list_memories()
-        memory = next((m for m in memories if m.get('id') == memory_id), None)
+        query_lower = query.lower()
+        results = [
+            e.to_dict()
+            for e in entities
+            if query_lower in e.name.lower()
+        ]
         
-        if not memory:
-            raise HTTPException(404, f"Memory not found: {memory_id}")
-        
-        return MCPResourceContent(
-            uri=uri,
-            mime_type="application/json",
-            text=json.dumps(memory, ensure_ascii=False, indent=2),
-            metadata={
-                'type': memory.get('type'),
-                'importance': memory.get('importance')
-            }
-        )
+        return results[:10]
     
-    async def _read_context_resource(self, uri: str) -> MCPResourceContent:
-        """读取上下文资�?""
-        query = uri.split("/")[-1]
-        
-        if not self.memory_service:
-            raise HTTPException(503, "Memory service not available")
-        
-        context = self.memory_service.get_context_with_memory(query)
-        
-        return MCPResourceContent(
-            uri=uri,
-            mime_type="text/plain",
-            text=context,
-            metadata={
-                'query': query
-            }
-        )
-    
-    async def _read_graph_resource(self, uri: str) -> MCPResourceContent:
-        """读取图谱资源"""
-        if not self.knowledge_graph:
-            raise HTTPException(503, "Knowledge graph not available")
-        
-        stats = self.knowledge_graph.get_stats()
-        
-        return MCPResourceContent(
-            uri=uri,
-            mime_type="application/json",
-            text=json.dumps(stats, ensure_ascii=False, indent=2),
-            metadata={
-                'total_entities': stats.get('total_entities', 0),
-                'total_relations': stats.get('total_relations', 0)
-            }
-        )
-    
-    async def _handle_list_resources(self, params: Dict) -> List[Dict]:
-        """处理列出资源请求"""
-        resource_type = params.get('type')
-        if resource_type:
-            resource_type = MCPResourceType(resource_type)
-        
-        resources = await self.list_resources(resource_type)
-        return [r.to_dict() for r in resources]
-    
-    async def _handle_read_resource(self, params: Dict) -> Dict:
-        """处理读取资源请求"""
-        uri = params.get('uri')
-        if not uri:
-            raise ValueError("URI is required")
-        
-        content = await self.read_resource(uri)
-        return content.to_dict()
-    
-    async def _handle_search(self, params: Dict) -> List[Dict]:
-        """处理搜索请求"""
-        query = params.get('query')
-        if not query:
-            raise ValueError("Query is required")
-        
-        resource_types = params.get('types')
-        if resource_types:
-            resource_types = [MCPResourceType(t) for t in resource_types]
-        
-        results = await self.search(query, resource_types)
-        return [r.to_dict() for r in results]
-    
-    async def _handle_query_graph(self, params: Dict) -> Dict:
-        """处理图谱查询请求"""
-        entity_id = params.get('entity_id')
-        if not entity_id:
-            raise ValueError("Entity ID is required")
-        
-        return await self.query_graph(
-            entity_id,
-            depth=params.get('depth', 2),
-            relation_types=params.get('relation_types')
-        )
+    async def _tool_get_stats(self) -> Dict[str, Any]:
+        """获取统计工具"""
+        return self.memory_service.get_stats()
 
-
-router = APIRouter(prefix="/mcp", tags=["MCP"])
 
 _mcp_server: Optional[MCPServer] = None
 
 
 def get_mcp_server() -> MCPServer:
-    """获取 MCP 服务器实�?""
+    """获取 MCP 服务器实例"""
     global _mcp_server
     if _mcp_server is None:
-        try:
-            from .enhanced_memory_service import get_enhanced_memory_service
-            from .knowledge_graph import get_knowledge_graph
-            
-            memory_service = get_enhanced_memory_service()
-            kg = get_knowledge_graph()
-            _mcp_server = MCPServer(memory_service, kg)
-        except Exception as e:
-            logger.warning(f"初始�?MCP 服务器失�? {e}")
-            _mcp_server = MCPServer()
-    
+        _mcp_server = MCPServer()
     return _mcp_server
-
-
-class ListResourcesRequest(BaseModel):
-    """列出资源请求"""
-    type: Optional[str] = Field(None, description="资源类型过滤")
-    limit: int = Field(default=50, description="返回数量限制")
-
-
-class ReadResourceRequest(BaseModel):
-    """读取资源请求"""
-    uri: str = Field(..., description="资源 URI")
-
-
-class SearchRequest(BaseModel):
-    """搜索请求"""
-    query: str = Field(..., description="搜索查询")
-    types: Optional[List[str]] = Field(None, description="资源类型过滤")
-    limit: int = Field(default=10, description="返回数量限制")
-
-
-class QueryGraphRequest(BaseModel):
-    """图谱查询请求"""
-    entity_id: str = Field(..., description="实体 ID")
-    depth: int = Field(default=2, description="查询深度")
-    relation_types: Optional[List[str]] = Field(None, description="关系类型过滤")
-
-
-class AddMemoryRequest(BaseModel):
-    """添加记忆请求"""
-    content: str = Field(..., description="记忆内容")
-    memory_type: str = Field(default="knowledge", description="记忆类型")
-    entities: Optional[List[str]] = Field(None, description="关联实体")
-    user_id: str = Field(default="default", description="用户 ID")
-
-
-@router.get("/resources")
-async def mcp_list_resources(
-    type: Optional[str] = Query(None, description="资源类型"),
-    limit: int = Query(default=50, description="返回数量")
-):
-    """
-    MCP: 列出所有可用资�?    
-    支持的资源类�?
-    - entity: 知识图谱实体
-    - memory: 记忆条目
-    - context: 上下�?    - graph: 图谱统计
-    """
-    server = get_mcp_server()
-    resource_type = MCPResourceType(type) if type else None
-    resources = await server.list_resources(resource_type, limit)
-    return {
-        "success": True,
-        "resources": [r.to_dict() for r in resources],
-        "count": len(resources)
-    }
-
-
-@router.get("/resources/{uri:path}")
-async def mcp_read_resource(uri: str):
-    """
-    MCP: 读取资源内容
-    
-    URI 格式:
-    - memory://entities/{entity_id} - 读取实体
-    - memory://memories/{memory_id} - 读取记忆
-    - memory://context/{query} - 获取上下�?    - memory://graph/stats - 图谱统计
-    """
-    server = get_mcp_server()
-    full_uri = f"memory://{uri}"
-    
-    try:
-        content = await server.read_resource(full_uri)
-        return {
-            "success": True,
-            "content": content.to_dict()
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"读取资源失败: {e}")
-        raise HTTPException(500, f"读取失败: {str(e)}")
-
-
-@router.post("/search")
-async def mcp_search(request: SearchRequest):
-    """
-    MCP: 搜索资源
-    
-    在记忆和知识图谱中搜索相关内�?    """
-    server = get_mcp_server()
-    
-    try:
-        resource_types = None
-        if request.types:
-            resource_types = [MCPResourceType(t) for t in request.types]
-        
-        results = await server.search(
-            request.query,
-            resource_types,
-            request.limit
-        )
-        
-        return {
-            "success": True,
-            "results": [r.to_dict() for r in results],
-            "count": len(results)
-        }
-    except Exception as e:
-        logger.error(f"搜索失败: {e}")
-        raise HTTPException(500, f"搜索失败: {str(e)}")
-
-
-@router.post("/graph/query")
-async def mcp_query_graph(request: QueryGraphRequest):
-    """
-    MCP: 查询知识图谱
-    
-    获取实体及其关联关系的上下文
-    """
-    server = get_mcp_server()
-    
-    try:
-        result = await server.query_graph(
-            request.entity_id,
-            request.depth,
-            request.relation_types
-        )
-        
-        return {
-            "success": True,
-            "result": result
-        }
-    except Exception as e:
-        logger.error(f"图谱查询失败: {e}")
-        raise HTTPException(500, f"查询失败: {str(e)}")
-
-
-@router.post("/memories")
-async def mcp_add_memory(request: AddMemoryRequest):
-    """
-    MCP: 添加记忆
-    
-    通过 MCP 协议添加新记�?    """
-    server = get_mcp_server()
-    
-    try:
-        result = await server.add_memory(
-            request.content,
-            request.memory_type,
-            request.entities,
-            request.user_id
-        )
-        
-        return {
-            "success": True,
-            "result": result
-        }
-    except Exception as e:
-        logger.error(f"添加记忆失败: {e}")
-        raise HTTPException(500, f"添加失败: {str(e)}")
-
-
-@router.get("/stats")
-async def mcp_get_stats():
-    """
-    MCP: 获取统计信息
-    
-    返回记忆系统的整体统�?    """
-    server = get_mcp_server()
-    
-    try:
-        stats = {
-            "resources_available": len(await server.list_resources()),
-            "handlers_registered": len(server.handlers)
-        }
-        
-        if server.knowledge_graph:
-            stats["knowledge_graph"] = server.knowledge_graph.get_stats()
-        
-        if server.memory_service:
-            stats["memory_service"] = server.memory_service.get_stats()
-        
-        return {
-            "success": True,
-            "stats": stats
-        }
-    except Exception as e:
-        logger.error(f"获取统计失败: {e}")
-        raise HTTPException(500, f"获取失败: {str(e)}")
-
-
-@router.post("/rpc")
-async def mcp_rpc_call(
-    method: str = Body(..., description="方法�?),
-    params: Dict = Body(default={}, description="方法参数")
-):
-    """
-    MCP: RPC 调用
-    
-    通用 RPC 接口，支持所�?MCP 方法
-    """
-    server = get_mcp_server()
-    
-    handler = server.handlers.get(method)
-    if not handler:
-        raise HTTPException(404, f"Method not found: {method}")
-    
-    try:
-        result = await handler(params)
-        return {
-            "success": True,
-            "result": result
-        }
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    except Exception as e:
-        logger.error(f"RPC 调用失败: {method}, {e}")
-        raise HTTPException(500, f"调用失败: {str(e)}")

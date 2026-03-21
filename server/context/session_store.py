@@ -1,9 +1,12 @@
 """
-会话持久化存储模�?
-功能�?- 会话 CRUD 操作
+会话持久化存储模块
+功能：
+- 会话 CRUD 操作
 - 会话元数据管理（标题、标签、时间）
-- 按时间、标签搜索会�?- 会话恢复（重新加载历史消息）
-- 消息重要性评�?"""
+- 按时间、标签搜索会话
+- 会话恢复（重新加载历史消息）
+- 消息重要性评分
+"""
 import sqlite3
 import json
 import logging
@@ -19,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 class SessionStatus(str, Enum):
-    """会话状�?""
+    """会话状态"""
     ACTIVE = "active"
     ARCHIVED = "archived"
     DELETED = "deleted"
@@ -35,7 +38,7 @@ class MessageRole(str, Enum):
 
 @dataclass
 class SessionMetadata:
-    """会话元数�?""
+    """会话元数据"""
     title: str = ""
     description: str = ""
     model_id: str = ""
@@ -114,7 +117,7 @@ class ChatSession:
 
 
 class SessionStore:
-    """会话存储管理�?""
+    """会话存储管理器"""
 
     _instance: Optional['SessionStore'] = None
     _lock = threading.Lock()
@@ -148,7 +151,7 @@ class SessionStore:
         return self._thread_local.connection
 
     def _init_database(self):
-        """初始化数据库表结�?""
+        """初始化数据库表结构"""
         conn = self._get_connection()
         cursor = conn.cursor()
 
@@ -220,7 +223,7 @@ class SessionStore:
         """)
 
         conn.commit()
-        logger.debug("数据库表结构初始化完�?)
+        logger.debug("数据库表结构初始化完成")
 
     def generate_id(self, prefix: str = "session") -> str:
         """生成唯一 ID"""
@@ -236,12 +239,12 @@ class SessionStore:
         tags: List[str] = None,
         custom_data: Dict[str, Any] = None
     ) -> ChatSession:
-        """创建新会�?""
+        """创建新会话"""
         session_id = self.generate_id("session")
         now = datetime.now().isoformat()
 
         if not title:
-            title = f"新对�?{datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            title = f"新对话 {datetime.now().strftime('%Y-%m-%d %H:%M')}"
 
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -355,7 +358,7 @@ class SessionStore:
         pinned: bool = None,
         custom_data: Dict[str, Any] = None
     ) -> bool:
-        """更新会话元数�?""
+        """更新会话元数据"""
         conn = self._get_connection()
         cursor = conn.cursor()
 
@@ -435,7 +438,7 @@ class SessionStore:
         conn.commit()
 
         if success:
-            logger.info(f"{'�? if soft_delete else '�?}删除会话: {session_id}")
+            logger.info(f"{'软' if soft_delete else '硬'}删除会话: {session_id}")
         return success
 
     def add_message(
@@ -447,7 +450,7 @@ class SessionStore:
         importance: float = 0.5,
         metadata: Dict[str, Any] = None
     ) -> Optional[SessionMessage]:
-        """添加消息到会�?""
+        """添加消息到会话"""
         conn = self._get_connection()
         cursor = conn.cursor()
 
@@ -493,7 +496,7 @@ class SessionStore:
             metadata=metadata or {}
         )
 
-        logger.debug(f"添加消息到会�?{session_id}: {message_id}")
+        logger.debug(f"添加消息到会话 {session_id}: {message_id}")
         return message
 
     def add_messages_batch(
@@ -741,7 +744,7 @@ class SessionStore:
         return sessions, total
 
     def get_all_tags(self) -> List[Dict[str, Any]]:
-        """获取所有标签及其使用次�?""
+        """获取所有标签及其使用次数"""
         conn = self._get_connection()
         cursor = conn.cursor()
 
@@ -853,7 +856,7 @@ class SessionStore:
                 f"- 创建时间: {session.created_at}",
                 f"- 模型: {session.metadata.model_id}",
                 f"- 标签: {', '.join(session.metadata.tags)}",
-                f"- 消息�? {session.message_count}",
+                f"- 消息数: {session.message_count}",
                 f"",
                 "---",
                 f""
@@ -880,14 +883,14 @@ class SessionStore:
         return None
 
     def close(self):
-        """关闭数据库连�?""
+        """关闭数据库连接"""
         if hasattr(self._thread_local, 'connection'):
             try:
                 self._thread_local.connection.close()
                 del self._thread_local.connection
                 logger.debug("会话存储数据库连接已关闭")
             except Exception as e:
-                logger.warning(f"关闭数据库连接失�? {e}")
+                logger.warning(f"关闭数据库连接失败: {e}")
 
 
 _session_store: Optional[SessionStore] = None
@@ -904,7 +907,7 @@ def get_session_store(db_path: str = None) -> SessionStore:
 
 
 def init_session_store(db_path: str) -> SessionStore:
-    """初始化会话存�?""
+    """初始化会话存储"""
     global _session_store
     with _store_lock:
         _session_store = SessionStore(db_path)

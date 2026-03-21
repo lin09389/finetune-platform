@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 模型下载管理 API
 从魔搭社区（ModelScope）下载和管理模型
@@ -76,7 +77,7 @@ def cleanup_expired_tasks():
 
 
 class ModelSearchRequest(BaseModel):
-    query: str = Field(default="", description="搜索关键�?)
+    query: str = Field(default="", description="搜索关键词")
     limit: int = Field(default=20, ge=1, le=100, description="返回数量")
     source: str = Field(default="modelscope", description="搜索源：modelscope/huggingface")
 
@@ -118,7 +119,7 @@ class ModelLocal(BaseModel):
 
 
 def download_model_from_modelscope(task_id: str, repo_id: str, revision: str):
-    """�?ModelScope 下载模型"""
+    """从 ModelScope 下载模型"""
     try:
         from modelscope import snapshot_download
 
@@ -174,7 +175,7 @@ def download_model_from_modelscope(task_id: str, repo_id: str, revision: str):
 
 
 def download_model_from_huggingface(task_id: str, repo_id: str, revision: str):
-    """�?HuggingFace 下载模型（备用）"""
+    """从 HuggingFace 下载模型（备用）"""
     try:
         import subprocess
         import sys
@@ -262,7 +263,7 @@ print('DOWNLOAD_SUCCESS')
         with download_tasks_lock:
             if task_id in download_tasks:
                 download_tasks[task_id]["status"] = "failed"
-                download_tasks[task_id]["error"] = "下载超时（超�?小时�?
+                download_tasks[task_id]["error"] = "下载超时（超过1小时）"
     except Exception as e:
         logger.error(f"下载失败：{e}", exc_info=True)
         with download_tasks_lock:
@@ -273,7 +274,7 @@ print('DOWNLOAD_SUCCESS')
 
 @router.post("/search", response_model=List[ModelInfo])
 async def search_models(request: ModelSearchRequest):
-    """搜索模型（默认使�?ModelScope�?""
+    """搜索模型（默认使用 ModelScope）"""
     if request.source == "modelscope":
         return await search_modelscope_models(request)
     else:
@@ -397,7 +398,7 @@ async def search_huggingface_models(request: ModelSearchRequest) -> List[ModelIn
 
 @router.post("/download", response_model=Dict[str, str])
 async def download_model(request: DownloadRequest):
-    """下载模型（默认使�?ModelScope�?""
+    """下载模型（默认使用 ModelScope）"""
     cleanup_expired_tasks()
 
     task_id = f"download_{int(time.time())}"
@@ -432,9 +433,9 @@ async def download_model(request: DownloadRequest):
     )
     thread.start()
 
-    logger.info(f"开始下载模型：{request.repo_id}, 任务 ID: {task_id}, �? {request.source}")
+    logger.info(f"开始下载模型：{request.repo_id}, 任务 ID: {task_id}, 源: {request.source}")
 
-    return {"task_id": task_id, "message": "下载已开�?, "source": request.source}
+    return {"task_id": task_id, "message": "下载已开始", "source": request.source}
 
 
 @router.get("/download/{task_id}", response_model=DownloadProgress)
@@ -442,7 +443,7 @@ async def get_download_progress(task_id: str):
     """获取下载进度"""
     with download_tasks_lock:
         if task_id not in download_tasks:
-            raise HTTPException(status_code=404, detail="任务不存�?)
+            raise HTTPException(status_code=404, detail="任务不存在")
 
         task = download_tasks[task_id].copy()
 
@@ -462,7 +463,7 @@ async def cancel_download(task_id: str):
     """取消下载任务"""
     with download_tasks_lock:
         if task_id not in download_tasks:
-            raise HTTPException(status_code=404, detail="任务不存�?)
+            raise HTTPException(status_code=404, detail="任务不存在")
         
         task = download_tasks[task_id]
         if task["status"] == "downloading":
@@ -472,9 +473,9 @@ async def cancel_download(task_id: str):
             task["status"] = "cancelled"
             task["error"] = "用户取消"
         else:
-            raise HTTPException(status_code=400, detail=f"无法取消状态为 {task['status']} 的任�?)
+            raise HTTPException(status_code=400, detail=f"无法取消状态为 {task['status']} 的任务")
 
-    return {"message": "任务已取�?, "task_id": task_id}
+    return {"message": "任务已取消", "task_id": task_id}
 
 
 @router.get("/local", response_model=List[ModelLocal])
@@ -525,7 +526,7 @@ async def delete_local_model(model_id: str):
     model_path = MODELS_DIR / model_id
 
     if not model_path.exists():
-        raise HTTPException(status_code=404, detail="模型不存�?)
+        raise HTTPException(status_code=404, detail="模型不存在")
 
     try:
         shutil.rmtree(model_path)
@@ -538,7 +539,7 @@ async def delete_local_model(model_id: str):
 
 @router.get("/suggestions")
 async def get_model_suggestions():
-    """获取推荐模型列表（ModelScope 格式�?""
+    """获取推荐模型列表（ModelScope 格式）"""
     suggestions = [
         {
             "repo_id": "Qwen/Qwen2.5-0.5B-Instruct",
@@ -551,7 +552,7 @@ async def get_model_suggestions():
         {
             "repo_id": "Qwen/Qwen2.5-1.5B-Instruct",
             "name": "Qwen2.5 1.5B Instruct",
-            "description": "通义千问 1.5B 版本，平衡性能与资�?,
+            "description": "通义千问 1.5B 版本，平衡性能与资源",
             "size": "~3GB",
             "category": "chat",
             "source": "modelscope"
@@ -559,7 +560,7 @@ async def get_model_suggestions():
         {
             "repo_id": "Qwen/Qwen2.5-7B-Instruct",
             "name": "Qwen2.5 7B Instruct",
-            "description": "通义千问 7B 版本，强大性能，推�?16GB 显存",
+            "description": "通义千问 7B 版本，强大性能，推荐 16GB 显存",
             "size": "~15GB",
             "category": "chat",
             "source": "modelscope"
@@ -575,7 +576,7 @@ async def get_model_suggestions():
         {
             "repo_id": "01ai/Yi-1.5-6B-Chat",
             "name": "Yi-1.5 6B Chat",
-            "description": "零一万物对话模型，支持长上下�?,
+            "description": "零一万物对话模型，支持长上下文",
             "size": "~12GB",
             "category": "chat",
             "source": "modelscope"
@@ -591,7 +592,7 @@ async def get_model_suggestions():
         {
             "repo_id": "iic/nlp_gte_sentence-embedding_chinese-base",
             "name": "GTE 中文嵌入模型",
-            "description": "通义实验�?GTE 中文嵌入模型",
+            "description": "通义实验室 GTE 中文嵌入模型",
             "size": "~400MB",
             "category": "embedding",
             "source": "modelscope"
@@ -611,14 +612,14 @@ async def get_model_suggestions():
 
 class ImportModelRequest(BaseModel):
     model_name: str = Field(..., description="模型名称")
-    source_path: str = Field(..., description="源路径（本地目录�?)
+    source_path: str = Field(..., description="源路径（本地目录）")
 
 
 class ImportModelScopeRequest(BaseModel):
     model_name: str = Field(default="Qwen2.5-0.5B-Instruct", description="模型名称")
     modelscope_path: Optional[str] = Field(
         default=None,
-        description="ModelScope 缓存路径，如不填则使用默认路�?
+        description="ModelScope 缓存路径，如不填则使用默认路径"
     )
 
 
@@ -643,7 +644,7 @@ async def import_local_model(request: ImportModelRequest):
     if not model_files and not config_file.exists():
         raise HTTPException(
             status_code=400,
-            detail="目录中未找到模型文件（需�?.safetensors/.bin/.gguf �?config.json�?
+            detail="目录中未找到模型文件（需要 .safetensors/.bin/.gguf 或 config.json）"
         )
 
     target_path = MODELS_DIR / request.model_name
@@ -706,7 +707,7 @@ async def import_modelscope_model(request: ImportModelScopeRequest):
             raise HTTPException(
                 status_code=404,
                 detail=f"ModelScope 模型路径不存在：{source_path}\n"
-                       f"请确认模型已从魔搭社区下载完成�?
+                       f"请确认模型已从魔搭社区下载完成"
             )
 
     if not source_path.is_dir():
@@ -721,7 +722,7 @@ async def import_modelscope_model(request: ImportModelScopeRequest):
     if not model_files and not config_file.exists():
         raise HTTPException(
             status_code=400,
-            detail="目录中未找到模型文件（需�?.safetensors/.bin/.gguf �?config.json�?
+            detail="目录中未找到模型文件（需要 .safetensors/.bin/.gguf 或 config.json）"
         )
 
     target_path = MODELS_DIR / request.model_name
@@ -729,7 +730,7 @@ async def import_modelscope_model(request: ImportModelScopeRequest):
         raise HTTPException(status_code=409, detail=f"模型名称已存在：{request.model_name}")
 
     try:
-        logger.info(f"正在�?ModelScope 导入模型：{source_path} -> {target_path}")
+        logger.info(f"正在从 ModelScope 导入模型：{source_path} -> {target_path}")
 
         shutil.copytree(source_path, target_path, dirs_exist_ok=True)
 
@@ -764,7 +765,7 @@ async def import_modelscope_model(request: ImportModelScopeRequest):
 
 @router.get("/network/status")
 async def get_network_status():
-    """检查网络连接状�?""
+    """检查网络连接状态"""
     import requests
     import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -791,8 +792,8 @@ async def get_network_status():
             }
     
     proxy_status = {
-        "http_proxy": settings.http_proxy or "未设�?,
-        "https_proxy": settings.https_proxy or "未设�?,
+        "http_proxy": settings.http_proxy or "未设置",
+        "https_proxy": settings.https_proxy or "未设置",
     }
     
     return {
@@ -805,7 +806,7 @@ async def get_network_status():
 
 @router.get("/source")
 async def get_model_source():
-    """获取当前模型下载源配�?""
+    """获取当前模型下载源配置"""
     return {
         "current_source": settings.model_source,
         "modelscope_cache": str(settings.modelscope_cache_dir_resolved),
@@ -816,9 +817,9 @@ async def get_model_source():
 
 @router.post("/source")
 async def set_model_source(source: str):
-    """切换模型下载�?""
+    """切换模型下载源"""
     if source not in ["modelscope", "huggingface"]:
-        raise HTTPException(status_code=400, detail="无效的下载源，请选择 modelscope �?huggingface")
+        raise HTTPException(status_code=400, detail="无效的下载源，请选择 modelscope 或 huggingface")
     
     settings.model_source = source
     logger.info(f"模型下载源已切换为：{source}")

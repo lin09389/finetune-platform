@@ -58,23 +58,24 @@ def test_inference(result: TestResult):
         if resp.status_code == 200:
             data = resp.json()
             model_count = len(data) if isinstance(data, list) else 0
-            result.add("推理", f"获取可用模型 ({model_count}�?", True, str(data)[:100])
+            result.add("推理", f"获取可用模型 ({model_count}个)", True, str(data)[:100])
         else:
             result.add("推理", "获取可用模型", False, f"状态码: {resp.status_code}")
     except Exception as e:
         result.add("推理", "获取可用模型", False, str(e))
     
-    # 测试Ollama状�?    try:
+    # 测试Ollama状态
+    try:
         resp = requests.get(f"{BASE_URL}/inference/ollama/status", timeout=10)
         if resp.status_code == 200:
             data = resp.json()
             running = data.get("running", False)
             model_count = len(data.get("models", []))
-            result.add("推理", f"Ollama状�?(running={running}, {model_count}个模�?", True)
+            result.add("推理", f"Ollama状态(running={running}, {model_count}个模型)", True)
         else:
-            result.add("推理", "Ollama状�?, False, f"状态码: {resp.status_code}")
+            result.add("推理", "Ollama状态", False, f"状态码: {resp.status_code}")
     except Exception as e:
-        result.add("推理", "Ollama状�?, False, str(e))
+        result.add("推理", "Ollama状态", False, str(e))
     
     # 测试推理生成 (如果Ollama可用)
     try:
@@ -84,7 +85,8 @@ def test_inference(result: TestResult):
             if data.get("running") and data.get("models"):
                 model_name = data["models"][0].get("name", "")
                 if model_name:
-                    # 测试简单推�?                    gen_resp = requests.post(
+                    # 测试简单推理
+                    gen_resp = requests.post(
                         f"{BASE_URL}/inference/generate",
                         json={
                             "model_id": model_name,
@@ -101,49 +103,53 @@ def test_inference(result: TestResult):
                     else:
                         result.add("推理", "推理生成测试", False, f"状态码: {gen_resp.status_code}")
                 else:
-                    result.add("推理", "推理生成测试", False, "无可用模�?)
+                    result.add("推理", "推理生成测试", False, "无可用模型")
             else:
-                result.add("推理", "推理生成测试", False, "Ollama未运行或无模�?)
+                result.add("推理", "推理生成测试", False, "Ollama未运行或无模型")
     except Exception as e:
         result.add("推理", "推理生成测试", False, str(e))
 
 
 def test_skills(result: TestResult):
-    """测试技能调用功�?""
-    print("\n[2] 测试技能调用功�?..")
+    """测试技能调用功能"""
+    print("\n[2] 测试技能调用功能...")
     
-    # 测试获取技能列�?    try:
+    # 测试获取技能列表
+    try:
         resp = requests.get(f"{BASE_URL}/skills", timeout=10)
         if resp.status_code == 200:
             data = resp.json()
             skills = data.get("skills", [])
-            result.add("技�?, f"获取技能列�?({len(skills)}�?", True)
+            result.add("技能", f"获取技能列表 ({len(skills)}个)", True)
         else:
-            result.add("技�?, "获取技能列�?, False, f"状态码: {resp.status_code}")
+            result.add("技能", "获取技能列表", False, f"状态码: {resp.status_code}")
     except Exception as e:
-        result.add("技�?, "获取技能列�?, False, str(e))
+        result.add("技能", "获取技能列表", False, str(e))
     
-    # 测试技能统�?    try:
+    # 测试技能统计
+    try:
         resp = requests.get(f"{BASE_URL}/skills/stats", timeout=10)
         if resp.status_code == 200:
             data = resp.json()
-            result.add("技�?, "获取技能统�?, True, str(data))
+            result.add("技能", "获取技能统计", True, str(data))
         else:
-            result.add("技�?, "获取技能统�?, False, f"状态码: {resp.status_code}")
+            result.add("技能", "获取技能统计", False, f"状态码: {resp.status_code}")
     except Exception as e:
-        result.add("技�?, "获取技能统�?, False, str(e))
+        result.add("技能", "获取技能统计", False, str(e))
     
-    # 测试技能分�?    try:
+    # 测试技能分类
+    try:
         resp = requests.get(f"{BASE_URL}/skills/categories", timeout=10)
         if resp.status_code == 200:
             data = resp.json()
-            result.add("技�?, f"获取技能分�?({len(data)}�?", True)
+            result.add("技能", f"获取技能分类 ({len(data)}个)", True)
         else:
-            result.add("技�?, "获取技能分�?, False, f"状态码: {resp.status_code}")
+            result.add("技能", "获取技能分类", False, f"状态码: {resp.status_code}")
     except Exception as e:
-        result.add("技�?, "获取技能分�?, False, str(e))
+        result.add("技能", "获取技能分类", False, str(e))
     
-    # 测试技能执�?- 计算�?    try:
+    # 测试技能执行 - 计算器
+    try:
         resp = requests.post(
             f"{BASE_URL}/skills/execute",
             json={
@@ -154,13 +160,13 @@ def test_skills(result: TestResult):
         )
         if resp.status_code == 200:
             data = resp.json()
-            result.add("技�?, "计算器技能执�?, data.get("success", False), str(data))
+            result.add("技能", "计算器技能执行", data.get("success", False), str(data))
         else:
-            result.add("技�?, "计算器技能执�?, False, f"状态码: {resp.status_code}")
+            result.add("技能", "计算器技能执行", False, f"状态码: {resp.status_code}")
     except Exception as e:
-        result.add("技�?, "计算器技能执�?, False, str(e))
+        result.add("技能", "计算器技能执行", False, str(e))
     
-    # 测试技能执�?- 系统信息
+    # 测试技能执行 - 系统信息
     try:
         resp = requests.post(
             f"{BASE_URL}/skills/execute",
@@ -172,11 +178,11 @@ def test_skills(result: TestResult):
         )
         if resp.status_code == 200:
             data = resp.json()
-            result.add("技�?, "系统信息技能执�?, data.get("success", False), str(data)[:100])
+            result.add("技能", "系统信息技能执行", data.get("success", False), str(data)[:100])
         else:
-            result.add("技�?, "系统信息技能执�?, False, f"状态码: {resp.status_code}")
+            result.add("技能", "系统信息技能执行", False, f"状态码: {resp.status_code}")
     except Exception as e:
-        result.add("技�?, "系统信息技能执�?, False, str(e))
+        result.add("技能", "系统信息技能执行", False, str(e))
 
 
 def test_memory(result: TestResult):
@@ -189,7 +195,7 @@ def test_memory(result: TestResult):
         if resp.status_code == 200:
             data = resp.json()
             count = data.get("count", 0)
-            result.add("记忆", f"获取记忆列表 ({count}�?", True)
+            result.add("记忆", f"获取记忆列表 ({count}条)", True)
         else:
             result.add("记忆", "获取记忆列表", False, f"状态码: {resp.status_code}")
     except Exception as e:
@@ -219,18 +225,18 @@ def test_memory(result: TestResult):
         if resp.status_code == 200:
             data = resp.json()
             extracted = data.get("extracted", 0)
-            result.add("记忆", f"记忆提取 ({extracted}�?", True, str(data))
+            result.add("记忆", f"记忆提取 ({extracted}条)", True, str(data))
         else:
             result.add("记忆", "记忆提取", False, f"状态码: {resp.status_code}")
     except Exception as e:
         result.add("记忆", "记忆提取", False, str(e))
     
-    # 测试记忆检�?(增加超时时间)
+    # 测试记忆检索(增加超时时间)
     try:
         resp = requests.post(
             f"{BASE_URL}/memory/recall",
             json={
-                "query": "用户叫什么名�?,
+                "query": "用户叫什么名字",
                 "top_k": 3
             },
             timeout=120  # 增加超时时间
@@ -238,13 +244,13 @@ def test_memory(result: TestResult):
         if resp.status_code == 200:
             data = resp.json()
             count = data.get("count", 0)
-            result.add("记忆", f"记忆检�?({count}条匹�?", True)
+            result.add("记忆", f"记忆检索 ({count}条匹配)", True)
         else:
-            result.add("记忆", "记忆检�?, False, f"状态码: {resp.status_code}")
+            result.add("记忆", "记忆检索", False, f"状态码: {resp.status_code}")
     except Exception as e:
-        result.add("记忆", "记忆检�?, False, str(e))
+        result.add("记忆", "记忆检索", False, str(e))
     
-    # 测试记忆上下�?(增加超时时间)
+    # 测试记忆上下文(增加超时时间)
     try:
         resp = requests.get(
             f"{BASE_URL}/memory/context",
@@ -254,11 +260,11 @@ def test_memory(result: TestResult):
         if resp.status_code == 200:
             data = resp.json()
             context = data.get("context", "")
-            result.add("记忆", "记忆上下文获�?, True, context[:50] if context else "无上下文")
+            result.add("记忆", "记忆上下文获取", True, context[:50] if context else "无上下文")
         else:
-            result.add("记忆", "记忆上下文获�?, False, f"状态码: {resp.status_code}")
+            result.add("记忆", "记忆上下文获取", False, f"状态码: {resp.status_code}")
     except Exception as e:
-        result.add("记忆", "记忆上下文获�?, False, str(e))
+        result.add("记忆", "记忆上下文获取", False, str(e))
 
 
 def test_agent(result: TestResult):
@@ -271,7 +277,7 @@ def test_agent(result: TestResult):
         if resp.status_code == 200:
             data = resp.json()
             actions = data.get("actions", [])
-            result.add("Agent", f"获取Agent能力 ({len(actions)}种操�?", True)
+            result.add("Agent", f"获取Agent能力 ({len(actions)}种操作)", True)
         else:
             result.add("Agent", "获取Agent能力", False, f"状态码: {resp.status_code}")
     except Exception as e:
@@ -288,20 +294,21 @@ def test_agent(result: TestResult):
     except Exception as e:
         result.add("Agent", "获取审计统计", False, str(e))
     
-    # 测试意图检�?    try:
+    # 测试意图检测
+    try:
         resp = requests.post(
             f"{BASE_URL}/agent/detect-intent",
-            json={"message": "帮我列出当前目录的文�?},
+            json={"message": "帮我列出当前目录的文件"},
             timeout=30
         )
         if resp.status_code == 200:
             data = resp.json()
             detected = data.get("detected", False)
-            result.add("Agent", f"意图检�?(detected={detected})", True, str(data))
+            result.add("Agent", f"意图检测(detected={detected})", True, str(data))
         else:
-            result.add("Agent", "意图检�?, False, f"状态码: {resp.status_code}")
+            result.add("Agent", "意图检测", False, f"状态码: {resp.status_code}")
     except Exception as e:
-        result.add("Agent", "意图检�?, False, str(e))
+        result.add("Agent", "意图检测", False, str(e))
     
     # 测试Agent执行 - 列出目录
     try:
@@ -353,7 +360,7 @@ def test_chat_integration(result: TestResult):
         resp = requests.get(f"{BASE_URL}/chat/history", timeout=10)
         if resp.status_code == 200:
             data = resp.json()
-            result.add("聊天", f"获取聊天历史 ({len(data)}个会�?", True)
+            result.add("聊天", f"获取聊天历史 ({len(data)}个会话)", True)
         else:
             result.add("聊天", "获取聊天历史", False, f"状态码: {resp.status_code}")
     except Exception as e:
@@ -400,14 +407,15 @@ def main():
     
     result = TestResult()
     
-    # 检查服务是否运�?    try:
+    # 检查服务是否运行
+    try:
         resp = requests.get(f"{BASE_URL}/health", timeout=5)
         if resp.status_code != 200:
-            print(f"错误: 服务未正常运�?(状态码: {resp.status_code})")
+            print(f"错误: 服务未正常运行(状态码: {resp.status_code})")
             return 1
-        print(f"服务状�? 正常")
+        print(f"服务状态: 正常")
     except Exception as e:
-        print(f"错误: 无法连接到服�?- {e}")
+        print(f"错误: 无法连接到服务 - {e}")
         return 1
     
     test_inference(result)
@@ -433,7 +441,7 @@ def main():
     with open("功能验证测试报告.json", "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
     
-    print(f"\n报告已保�? 功能验证测试报告.json")
+    print(f"\n报告已保存: 功能验证测试报告.json")
     
     return 0 if success else 1
 

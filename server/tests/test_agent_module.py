@@ -50,7 +50,7 @@ class TestAgentConfig:
             assert config.enable_audit is True
     
     def test_custom_config(self):
-        """测试自定义配�?""
+        """测试自定义配置"""
         with tempfile.TemporaryDirectory() as tmpdir:
             config = AgentConfig(
                 working_dir=Path(tmpdir),
@@ -68,11 +68,11 @@ class TestAgentConfig:
 
 
 class TestSecurityValidator:
-    """测试安全验证�?""
+    """测试安全验证器"""
     
     @pytest.fixture
     def validator(self):
-        """创建验证器实�?""
+        """创建验证器实例"""
         with tempfile.TemporaryDirectory() as tmpdir:
             yield SecurityValidator(working_dir=Path(tmpdir))
     
@@ -82,7 +82,7 @@ class TestSecurityValidator:
         assert result.is_valid is True
     
     def test_path_validation_empty(self, validator):
-        """测试空路径验�?""
+        """测试空路径验证"""
         result = validator.validate_path("")
         assert result.is_valid is False
     
@@ -99,7 +99,7 @@ class TestSecurityValidator:
             assert result.is_valid is False, f"Path should be blocked: {path}"
     
     def test_extension_validation_create(self, validator):
-        """测试创建文件扩展名验�?""
+        """测试创建文件扩展名验证"""
         result = validator.validate_path("test.py", ActionType.FILE_CREATE)
         assert result.is_valid is True
         
@@ -110,7 +110,7 @@ class TestSecurityValidator:
         assert result.is_valid is True
     
     def test_extension_validation_read(self, validator):
-        """测试读取文件扩展名验�?""
+        """测试读取文件扩展名验证"""
         result = validator.validate_path("test.log", ActionType.FILE_READ)
         assert result.is_valid is True
         
@@ -118,7 +118,7 @@ class TestSecurityValidator:
         assert result.is_valid is True
     
     def test_app_validation_allowed(self, validator):
-        """测试允许的应用验�?""
+        """测试允许的应用验证"""
         result = validator.validate_app("vscode")
         assert result.is_valid is True
         
@@ -129,7 +129,7 @@ class TestSecurityValidator:
         assert result.is_valid is True
     
     def test_app_validation_blocked(self, validator):
-        """测试禁止的应用验�?""
+        """测试禁止的应用验证"""
         result = validator.validate_app("unknown_app")
         assert result.is_valid is False
     
@@ -142,7 +142,7 @@ class TestSecurityValidator:
         assert result.is_valid is True
     
     def test_url_validation_blocked(self, validator):
-        """测试禁止�?URL 验证"""
+        """测试禁止的 URL 验证"""
         result = validator.validate_url("ftp://example.com")
         assert result.is_valid is False
         
@@ -160,7 +160,7 @@ class TestSecurityValidator:
         assert result.is_valid is False
     
     def test_is_dangerous_action(self, validator):
-        """测试危险操作检�?""
+        """测试危险操作检测"""
         assert validator.is_dangerous_action(ActionType.FILE_DELETE) is True
         assert validator.is_dangerous_action(ActionType.FILE_READ) is False
 
@@ -194,7 +194,7 @@ class TestAuditLogger:
             assert stats["failed"] == 0
     
     def test_get_recent_entries(self):
-        """测试获取最近条�?""
+        """测试获取最近条目"""
         with tempfile.TemporaryDirectory() as tmpdir:
             logger = AuditLogger(log_dir=Path(tmpdir))
             entries = logger.get_recent_entries()
@@ -202,11 +202,11 @@ class TestAuditLogger:
 
 
 class TestAgentExecutor:
-    """测试 Agent 执行�?""
+    """测试 Agent 执行器"""
     
     @pytest.fixture
     def executor(self):
-        """创建执行器实�?""
+        """创建执行器实例"""
         with tempfile.TemporaryDirectory() as tmpdir:
             config = AgentConfig(working_dir=Path(tmpdir))
             yield AgentExecutor(config=config)
@@ -234,7 +234,7 @@ class TestAgentExecutor:
         assert result.success is False
     
     def test_file_create_and_read(self, executor):
-        """测试创建和读取文�?""
+        """测试创建和读取文件"""
         result = asyncio.run(executor.execute(
             ActionType.FILE_CREATE,
             {"file_path": "test.py", "content": "print('hello')"}
@@ -268,14 +268,14 @@ class TestAgentExecutor:
 
 
 class TestIntentDetection:
-    """测试意图检�?""
+    """测试意图检测"""
     
     def test_screenshot_intent(self):
         """测试截图意图"""
         from agent.intent.detector import IntentDetector
         detector = IntentDetector()
         
-        result = detector.detect("帮我截个�?)
+        result = detector.detect("帮我截个图")
         assert result.detected is True
         assert result.action == ActionType.SCREENSHOT
     
@@ -284,7 +284,7 @@ class TestIntentDetection:
         from agent.intent.detector import IntentDetector
         detector = IntentDetector()
         
-        result = detector.detect("鼠标在哪�?)
+        result = detector.detect("鼠标在哪里")
         assert result.detected is True
         assert result.action == ActionType.MOUSE_POSITION
     
@@ -293,7 +293,7 @@ class TestIntentDetection:
         from agent.intent.detector import IntentDetector
         detector = IntentDetector()
         
-        result = detector.detect("列出所有窗�?)
+        result = detector.detect("列出所有窗口")
         assert result.detected is True
         assert result.action == ActionType.WINDOW_LIST
     
@@ -307,11 +307,11 @@ class TestIntentDetection:
         assert result.action == ActionType.FILE_CREATE
     
     def test_no_intent(self):
-        """测试无意�?""
+        """测试无意图"""
         from agent.intent.detector import IntentDetector
         detector = IntentDetector()
         
-        result = detector.detect("今天天气怎么�?)
+        result = detector.detect("今天天气怎么样")
         assert result.detected is False
 
 
@@ -333,7 +333,7 @@ class TestExecutionResult:
         assert result.error == "操作失败"
     
     def test_to_dict(self):
-        """测试转换为字�?""
+        """测试转换为字典"""
         result = ExecutionResult(True, message="测试", data={"a": 1})
         d = result.to_dict()
         assert d["success"] is True

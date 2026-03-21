@@ -1,5 +1,5 @@
 """
-对话管理�?- 支持对话分支、分享、导出和统计
+对话管理器 - 支持对话分支、分享、导出和统计
 """
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
@@ -221,7 +221,7 @@ class ConversationGroup:
 
 
 class ConversationManager:
-    """对话管理�?- 支持分支、分享、导出和统计"""
+    """对话管理器 - 支持分支、分享、导出和统计"""
     
     def __init__(self, storage_path: Optional[str] = None):
         self.storage_path = Path(storage_path) if storage_path else Path(__file__).parent.parent / "data" / "conversations"
@@ -238,7 +238,7 @@ class ConversationManager:
         self._load_data()
     
     def _load_data(self):
-        """加载所有数�?""
+        """加载所有数据"""
         self._load_messages()
         self._load_branches()
         self._load_shares()
@@ -253,7 +253,7 @@ class ConversationManager:
                     data = json.load(f)
                     for msg_id, msg_data in data.items():
                         self._messages[msg_id] = MessageNode.from_dict(msg_data)
-                logger.info(f"加载 {len(self._messages)} 条消�?)
+                logger.info(f"加载 {len(self._messages)} 条消息")
             except Exception as e:
                 logger.error(f"加载消息数据失败: {e}")
     
@@ -282,7 +282,7 @@ class ConversationManager:
                         if session_id not in self._session_branches:
                             self._session_branches[session_id] = []
                         self._session_branches[session_id].append(branch_id)
-                logger.info(f"加载 {len(self._branches)} 个分�?)
+                logger.info(f"加载 {len(self._branches)} 个分支")
             except Exception as e:
                 logger.error(f"加载分支数据失败: {e}")
     
@@ -305,7 +305,7 @@ class ConversationManager:
                     data = json.load(f)
                     for share_id, share_data in data.items():
                         self._shares[share_id] = ShareLink.from_dict(share_data)
-                logger.info(f"加载 {len(self._shares)} 个分享链�?)
+                logger.info(f"加载 {len(self._shares)} 个分享链接")
             except Exception as e:
                 logger.error(f"加载分享链接数据失败: {e}")
     
@@ -328,7 +328,7 @@ class ConversationManager:
                     data = json.load(f)
                     for group_id, group_data in data.items():
                         self._groups[group_id] = ConversationGroup.from_dict(group_data)
-                logger.info(f"加载 {len(self._groups)} 个分�?)
+                logger.info(f"加载 {len(self._groups)} 个分组")
             except Exception as e:
                 logger.error(f"加载分组数据失败: {e}")
     
@@ -358,12 +358,13 @@ class ConversationManager:
         name: Optional[str] = None,
         parent_branch_id: Optional[str] = None
     ) -> ConversationBranch:
-        """创建新分�?        
+        """创建新分支
+        
         Args:
             session_id: 会话 ID
-            from_message_id: 从哪条消息开始分支（如果�?None，则从头开始）
+            from_message_id: 从哪条消息开始分支（如果为 None，则从头开始）
             name: 分支名称
-            parent_branch_id: 父分�?ID
+            parent_branch_id: 父分支 ID
         
         Returns:
             新创建的分支
@@ -394,7 +395,7 @@ class ConversationManager:
         return self._branches.get(branch_id)
     
     def get_session_branches(self, session_id: str) -> List[ConversationBranch]:
-        """获取会话的所有分�?""
+        """获取会话的所有分支"""
         branch_ids = self._session_branches.get(session_id, [])
         return [self._branches[bid] for bid in branch_ids if bid in self._branches]
     
@@ -407,10 +408,10 @@ class ConversationManager:
         token_count: int = 0,
         metadata: Optional[Dict[str, Any]] = None
     ) -> MessageNode:
-        """向分支添加消�?""
+        """向分支添加消息"""
         branch = self._branches.get(branch_id)
         if not branch:
-            raise ValueError(f"分支不存�? {branch_id}")
+            raise ValueError(f"分支不存在: {branch_id}")
         
         message_id = self._generate_id("msg")
         
@@ -453,12 +454,15 @@ class ConversationManager:
         branch_id: str,
         include_context: bool = True
     ) -> List[MessageNode]:
-        """获取分支的消息列�?        
+        """获取分支的消息列表
+        
         Args:
             branch_id: 分支 ID
-            include_context: 是否包含父分支的上下文消�?        
+            include_context: 是否包含父分支的上下文消息
+        
         Returns:
-            消息列表（按时间顺序�?        """
+            消息列表（按时间顺序）
+        """
         branch = self._branches.get(branch_id)
         if not branch:
             return []
@@ -500,7 +504,8 @@ class ConversationManager:
             to_branch_id: 目标分支 ID
         
         Returns:
-            目标分支的消息列�?        """
+            目标分支的消息列表
+        """
         to_branch = self._branches.get(to_branch_id)
         if not to_branch or to_branch.session_id != session_id:
             raise ValueError(f"目标分支不存在或不属于该会话: {to_branch_id}")
@@ -515,7 +520,7 @@ class ConversationManager:
         """合并分支
         
         Args:
-            source_branch_id: 源分�?ID
+            source_branch_id: 源分支 ID
             target_branch_id: 目标分支 ID
         
         Returns:
@@ -570,8 +575,10 @@ class ConversationManager:
         
         Args:
             session_id: 会话 ID
-            branch_id: 分支 ID（可选，不指定则分享整个会话�?            expires_in_hours: 过期时间（小时）�? 表示永不过期
-            max_views: 最大查看次数，0 表示无限�?            password: 访问密码（可选）
+            branch_id: 分支 ID（可选，不指定则分享整个会话）
+            expires_in_hours: 过期时间（小时），0 表示永不过期
+            max_views: 最大查看次数，0 表示无限
+            password: 访问密码（可选）
             allow_export: 是否允许导出
         
         Returns:
@@ -624,7 +631,7 @@ class ConversationManager:
         """
         share = self.get_share_by_code(short_code)
         if not share:
-            return {"error": "分享链接不存在或已过�?}
+            return {"error": "分享链接不存在或已过期"}
         
         if share.password and share.password != password:
             return {"error": "密码错误"}
@@ -661,7 +668,7 @@ class ConversationManager:
         branch_id: Optional[str] = None,
         title: Optional[str] = None
     ) -> str:
-        """导出�?Markdown 格式"""
+        """导出为 Markdown 格式"""
         if branch_id:
             messages = self.get_branch_messages(branch_id)
         else:
@@ -695,7 +702,7 @@ class ConversationManager:
         branch_id: Optional[str] = None,
         title: Optional[str] = None
     ) -> Dict[str, Any]:
-        """导出�?PDF 数据（供前端生成 PDF�?""
+        """导出为 PDF 数据（供前端生成 PDF）"""
         if branch_id:
             messages = self.get_branch_messages(branch_id)
         else:
@@ -724,15 +731,18 @@ class ConversationManager:
         """搜索消息
         
         Args:
-            query: 搜索关键�?            session_ids: 会话 ID 列表（可选）
+            query: 搜索关键词
+            session_ids: 会话 ID 列表（可选）
             branch_ids: 分支 ID 列表（可选）
             roles: 角色过滤（可选）
             start_date: 开始日期（可选）
             end_date: 结束日期（可选）
             limit: 返回数量限制
-            offset: 偏移�?        
+            offset: 偏移量
+        
         Returns:
-            匹配的消息列�?        """
+            匹配的消息列表
+        """
         results = []
         query_lower = query.lower()
         
@@ -769,7 +779,7 @@ class ConversationManager:
         return results[offset:offset + limit]
     
     def _highlight_text(self, text: str, query: str, max_length: int = 200) -> str:
-        """高亮搜索关键�?""
+        """高亮搜索关键词"""
         if len(text) <= max_length:
             return text.replace(query, f"**{query}**")
         
@@ -819,7 +829,7 @@ class ConversationManager:
         return self._groups.get(group_id)
     
     def get_all_groups(self) -> List[ConversationGroup]:
-        """获取所有分�?""
+        """获取所有分组"""
         return list(self._groups.values())
     
     def update_group(
@@ -859,7 +869,7 @@ class ConversationManager:
         return True
     
     def add_session_to_group(self, group_id: str, session_id: str) -> bool:
-        """添加会话到分�?""
+        """添加会话到分组"""
         group = self._groups.get(group_id)
         if not group:
             return False
@@ -872,7 +882,7 @@ class ConversationManager:
         return True
     
     def remove_session_from_group(self, group_id: str, session_id: str) -> bool:
-        """从分组移除会�?""
+        """从分组移除会话"""
         group = self._groups.get(group_id)
         if not group:
             return False
@@ -971,7 +981,8 @@ class ConversationManager:
         """获取统计信息
         
         Args:
-            session_ids: 会话 ID 列表（可选，不指定则统计全部�?            start_date: 开始日期（可选）
+            session_ids: 会话 ID 列表（可选，不指定则统计全部）
+            start_date: 开始日期（可选）
             end_date: 结束日期（可选）
         
         Returns:
@@ -1036,12 +1047,15 @@ class ConversationManager:
         session_id: str,
         max_depth: int = 10
     ) -> Dict[str, Any]:
-        """获取对话树结�?        
+        """获取对话树结构
+        
         Args:
             session_id: 会话 ID
-            max_depth: 最大深�?        
+            max_depth: 最大深度
+        
         Returns:
-            对话树结�?        """
+            对话树结构
+        """
         branch_ids = self._session_branches.get(session_id, [])
         branches = [self._branches[bid] for bid in branch_ids if bid in self._branches]
         
@@ -1083,7 +1097,7 @@ _conversation_manager: Optional[ConversationManager] = None
 
 
 def get_conversation_manager() -> ConversationManager:
-    """获取对话管理器单�?""
+    """获取对话管理器单例"""
     global _conversation_manager
     if _conversation_manager is None:
         _conversation_manager = ConversationManager()

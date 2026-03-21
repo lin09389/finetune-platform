@@ -1,5 +1,6 @@
 """
-文件管理�?提供文件的上传、下载、删除和管理功能
+文件管理器
+提供文件的上传、下载、删除和管理功能
 """
 import hashlib
 import json
@@ -27,8 +28,13 @@ logger = logging.getLogger(__name__)
 
 class FileManager:
     """
-    文件管理�?    
-    功能�?    - 文件上传、下载、删�?    - 文件元数据管�?    - 文件类型检�?    - 内容哈希计算
+    文件管理器
+    
+    功能：
+    - 文件上传、下载、删除
+    - 文件元数据管理
+    - 文件类型检测
+    - 内容哈希计算
     - 线程安全访问
     """
     
@@ -56,10 +62,10 @@ class FileManager:
         self._init_database()
         self._load_files()
         
-        logger.info(f"文件管理器已初始�?)
+        logger.info("文件管理器已初始化")
     
     def _init_database(self):
-        """初始化数据库�?""
+        """初始化数据库表"""
         db_pool = get_db_pool(str(self._db_path))
         
         with db_pool.get_connection() as conn:
@@ -120,7 +126,7 @@ class FileManager:
                 )
                 self._files[file_info.id] = file_info
         
-        logger.info(f"已加�?{len(self._files)} 个文�?)
+        logger.info(f"已加载 {len(self._files)} 个文件")
     
     def _save_file(self, file_info: FileInfo):
         """保存文件到数据库"""
@@ -148,7 +154,7 @@ class FileManager:
         ))
     
     def _detect_file_type(self, filename: str) -> FileType:
-        """检测文件类�?""
+        """检测文件类型"""
         ext = Path(filename).suffix.lower()
         
         for file_type, extensions in FILE_TYPE_EXTENSIONS.items():
@@ -181,7 +187,7 @@ class FileManager:
             file_path: 文件相对路径
             content: 文件内容
             message: 版本说明
-            author: 作�?        
+            author: 作者
         Returns:
             上传结果
         """
@@ -209,7 +215,7 @@ class FileManager:
                         size=existing_file.size,
                         version=existing_file.current_version,
                         is_new=False,
-                        message="文件内容未变�?,
+                        message="文件内容未变化",
                     )
                 
                 existing_file.current_version += 1
@@ -242,7 +248,7 @@ class FileManager:
                     size=len(content),
                     version=existing_file.current_version,
                     is_new=False,
-                    message="文件已更�?,
+                    message="文件已更新",
                 )
             
             file_info = FileInfo(
@@ -293,7 +299,7 @@ class FileManager:
             version: 版本号（None 表示最新版本）
         
         Returns:
-            (内容, 文件信息) �?None
+            (内容, 文件信息) 或 None
         """
         with self._files_lock:
             file_info = self._files.get(file_id)
@@ -370,7 +376,9 @@ class FileManager:
         
         Args:
             project_id: 项目ID
-            file_type: 文件类型筛�?            path_prefix: 路径前缀筛�?        """
+            file_type: 文件类型筛选
+            path_prefix: 路径前缀筛选
+        """
         with self._files_lock:
             files = [f for f in self._files.values() if f.project_id == project_id]
         
@@ -418,7 +426,7 @@ class FileManager:
             project_id=original.project_id,
             file_path=new_path,
             content=content,
-            message=f"复制�?{original.path}",
+            message=f"复制自 {original.path}",
         )
         
         return self.get_file(upload_result.file_id)
@@ -449,7 +457,8 @@ class FileManager:
         获取存储统计信息
         
         Args:
-            project_id: 项目ID（可选，不提供则返回所有项目的统计�?        
+            project_id: 项目ID（可选，不提供则返回所有项目的统计）
+        
         Returns:
             存储统计信息
         """
@@ -482,7 +491,7 @@ class FileManager:
             content_hash: 内容哈希
         
         Returns:
-            文件信息�?None
+            文件信息或None
         """
         with self._files_lock:
             for f in self._files.values():
@@ -492,12 +501,14 @@ class FileManager:
     
     def check_disk_space(self, required_size: int) -> bool:
         """
-        检查磁盘空间是否足�?        
+        检查磁盘空间是否足够
+        
         Args:
             required_size: 需要的空间大小（字节）
         
         Returns:
-            是否有足够空�?        """
+            是否有足够空间
+        """
         try:
             import shutil
             total, used, free = shutil.disk_usage(self._storage_dir)
@@ -511,9 +522,11 @@ class FileManager:
         清理临时文件
         
         Args:
-            max_age_hours: 最大保留时间（小时�?        
+            max_age_hours: 最大保留时间（小时）
+        
         Returns:
-            清理的文件数�?        """
+            清理的文件数量
+        """
         import time
         
         temp_dir = self._storage_dir / "temp"
@@ -532,17 +545,19 @@ class FileManager:
                 except Exception as e:
                     logger.warning(f"清理临时文件失败：{file_path}, 错误：{e}")
         
-        logger.info(f"已清�?{cleaned} 个临时文�?)
+        logger.info(f"已清理 {cleaned} 个临时文件")
         return cleaned
     
     def get_file_tree(self, project_id: str) -> Dict[str, Any]:
         """
-        获取文件树结�?        
+        获取文件树结构
+        
         Args:
             project_id: 项目ID
         
         Returns:
-            文件树结�?        """
+            文件树结构
+        """
         files = self.list_files(project_id)
         
         tree = {
@@ -594,7 +609,7 @@ class FileManager:
                 if self.delete_file(file_id):
                     success_count += 1
                 else:
-                    failed.append({"file_id": file_id, "reason": "文件不存�?})
+                    failed.append({"file_id": file_id, "reason": "文件不存在"})
             except Exception as e:
                 failed.append({"file_id": file_id, "reason": str(e)})
         
@@ -625,7 +640,7 @@ _manager_lock = threading.Lock()
 
 
 def get_file_manager() -> FileManager:
-    """获取文件管理器实�?""
+    """获取文件管理器实例"""
     global _file_manager
     with _manager_lock:
         if _file_manager is None:

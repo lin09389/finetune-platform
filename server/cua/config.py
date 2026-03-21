@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 CUA 配置管理模块
 """
@@ -9,7 +10,7 @@ from .models import PermissionLevel
 
 
 class CUAConfig(BaseSettings):
-    """CUA 配置�?""
+    """CUA 配置类"""
     
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -40,17 +41,17 @@ class CUAConfig(BaseSettings):
         default=0.05,
         ge=0.0,
         le=1.0,
-        description="键盘按键延迟 (�?"
+        description="键盘按键延迟 (秒)"
     )
     operation_timeout: int = Field(
         default=30,
         ge=1,
         le=300,
-        description="操作超时时间 (�?"
+        description="操作超时时间 (秒)"
     )
     failsafe_enabled: bool = Field(
         default=True,
-        description="是否启用故障安全 (移动鼠标到角落终�?"
+        description="是否启用故障安全 (移动鼠标到角落终止)"
     )
     audit_enabled: bool = Field(
         default=True,
@@ -64,13 +65,13 @@ class CUAConfig(BaseSettings):
         default=1920,
         ge=640,
         le=4096,
-        description="最大截图宽�?
+        description="最大截图宽度"
     )
     max_screenshot_height: int = Field(
         default=1080,
         ge=480,
         le=2160,
-        description="最大截图高�?
+        description="最大截图高度"
     )
     allowed_operations: List[str] = Field(
         default_factory=lambda: [
@@ -82,15 +83,15 @@ class CUAConfig(BaseSettings):
             "keyboard_hotkey",
             "window_focus"
         ],
-        description="允许的操作类型列�?
+        description="允许的操作类型列表"
     )
     blocked_applications: List[str] = Field(
         default_factory=lambda: [],
-        description="禁止操作的应用程序列�?
+        description="禁止操作的应用程序列表"
     )
     safe_mode: bool = Field(
         default=False,
-        description="安全模式 (仅允许只读操�?"
+        description="安全模式 (仅允许只读操作)"
     )
     failsafe: bool = Field(
         default=True,

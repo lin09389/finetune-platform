@@ -1,5 +1,6 @@
 """
-知识库集成模�?实现对话中自动知识检索、检索结果注入上下文、知识来源引用格式化
+知识库集成模块
+实现对话中自动知识检索、检索结果注入上下文、知识来源引用格式化
 """
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
@@ -37,7 +38,7 @@ class KnowledgeSource:
 
 @dataclass
 class KnowledgeRetrievalResult:
-    """知识检索结�?""
+    """知识检索结果"""
     query: str
     sources: List[KnowledgeSource]
     context: str
@@ -60,16 +61,16 @@ class KnowledgeIntegrator:
     """知识库集成器"""
     
     KNOWLEDGE_KEYWORDS = [
-        "知识�?, "文档", "资料", "文件", "内容",
-        "查找", "搜索", "检�?, "查询", "寻找",
-        "什么是", "怎么", "如何", "为什�?, "哪个",
+        "知识库", "文档", "资料", "文件", "内容",
+        "查找", "搜索", "检索", "查询", "寻找",
+        "什么是", "怎么", "如何", "为什么", "哪个",
         "解释", "说明", "介绍", "描述", "定义",
-        "帮我", "请帮�?, "能否", "可以",
-        "根据", "基于", "参�?, "按照"
+        "帮我", "请帮我", "能否", "可以",
+        "根据", "基于", "参考", "按照"
     ]
     
     EXCLUSION_KEYWORDS = [
-        "写代�?, "编程", "实现", "创建文件", "删除文件",
+        "写代码", "编程", "实现", "创建文件", "删除文件",
         "运行", "执行", "终端", "命令"
     ]
     
@@ -83,19 +84,19 @@ class KnowledgeIntegrator:
                 "律师", "法院", "检察院", "公安", "司法",
                 "民事", "刑事", "行政", "宪法", "民法", "刑法",
                 "婚姻", "继承", "劳动", "公司", "知识产权",
-                "商标", "专利", "著作�?, "版权",
+                "商标", "专利", "著作权", "版权",
                 "罚款", "拘留", "逮捕", "起诉", "上诉",
-                "民法�?, "刑法�?, "宪法", "劳动�?, "公司�?
+                "民法典", "刑法典", "宪法", "劳动法", "公司法"
             ],
             "description": "法律领域"
         },
         "medical": {
             "keywords": [
                 "医疗", "医学", "健康", "疾病", "症状", "治疗",
-                "药物", "药品", "医院", "医生", "诊断", "检�?,
+                "药物", "药品", "医院", "医生", "诊断", "检查",
                 "手术", "康复", "预防", "保健", "养生",
                 "发烧", "感冒", "咳嗽", "头痛", "腹痛",
-                "高血�?, "糖尿�?, "心脏�?, "癌症"
+                "高血压", "糖尿病", "心脏病", "癌症"
             ],
             "description": "医疗健康领域"
         },
@@ -104,7 +105,7 @@ class KnowledgeIntegrator:
                 "金融", "投资", "理财", "股票", "基金", "债券",
                 "银行", "贷款", "利率", "汇率", "期货", "期权",
                 "财务", "会计", "审计", "税务", "税收",
-                "资产", "负�?, "利润", "收入", "支出",
+                "资产", "负债", "利润", "收入", "支出",
                 "保险", "证券", "基金"
             ],
             "description": "金融财经领域"
@@ -113,19 +114,19 @@ class KnowledgeIntegrator:
             "keywords": [
                 "教育", "教学", "学校", "课程", "考试", "学习",
                 "培训", "辅导", "教材", "教案", "作业",
-                "高�?, "考研", "公务�?, "资格�?,
-                "大学", "中学", "小学", "幼儿�?
+                "高考", "考研", "公务员", "资格证",
+                "大学", "中学", "小学", "幼儿园"
             ],
             "description": "教育领域"
         },
         "tech": {
             "keywords": [
-                "技�?, "编程", "开�?, "软件", "硬件", "系统",
+                "技术", "编程", "开发", "软件", "硬件", "系统",
                 "算法", "数据", "网络", "安全", "架构",
-                "人工智能", "机器学习", "深度学习", "大数�?,
-                "云计�?, "区块�?, "物联�?
+                "人工智能", "机器学习", "深度学习", "大数据",
+                "云计算", "区块链", "物联网"
             ],
-            "description": "技术领�?
+            "description": "技术领域"
         }
     }
     
@@ -141,10 +142,17 @@ class KnowledgeIntegrator:
         max_context_length: int = 2000
     ):
         """
-        初始化知识库集成�?        
+        初始化知识库集成器
+        
         Args:
             default_top_k: 默认返回结果数量
-            retrieval_top_k: 初始检索数�?            use_hybrid: 是否使用混合检�?            use_rerank: 是否使用重排�?            vector_weight: 向量检索权�?            keyword_weight: 关键词检索权�?            min_score_threshold: 最小分数阈�?            max_context_length: 最大上下文长度
+            retrieval_top_k: 初始检索数量
+            use_hybrid: 是否使用混合检索
+            use_rerank: 是否使用重排序
+            vector_weight: 向量检索权重
+            keyword_weight: 关键词检索权重
+            min_score_threshold: 最小分数阈值
+            max_context_length: 最大上下文长度
         """
         self.default_top_k = default_top_k
         self.retrieval_top_k = retrieval_top_k
@@ -192,13 +200,14 @@ class KnowledgeIntegrator:
         
         Args:
             query: 用户查询
-            collection_id: 知识库集�?ID
-            force_retrieve: 强制检�?            
+            collection_id: 知识库集合 ID
+            force_retrieve: 强制检索
+            
         Returns:
-            (是否需要检�? 原因)
+            (是否需要检索, 原因)
         """
         if force_retrieve:
-            return True, "强制检�?
+            return True, "强制检索"
         
         if not collection_id:
             return False, "未指定知识库"
@@ -207,33 +216,33 @@ class KnowledgeIntegrator:
         
         for keyword in self.EXCLUSION_KEYWORDS:
             if keyword in query_lower:
-                return False, f"排除关键�? {keyword}"
+                return False, f"排除关键词: {keyword}"
         
-        # 先检测领域关键词
         domain_detected = self.detect_domain(query)
         if domain_detected:
             return True, f"检测到{domain_detected['description']}"
         
         for keyword in self.KNOWLEDGE_KEYWORDS:
             if keyword in query_lower:
-                return True, f"匹配关键�? {keyword}"
+                return True, f"匹配关键词: {keyword}"
         
         if len(query) > 15 and '?' in query:
-            return True, "问题式查�?
+            return True, "问题式查询"
         
         if len(query) > 20:
-            return True, "长查�?
+            return True, "长查询"
         
-        return False, "未匹配检索条�?
+        return False, "未匹配检索条件"
     
     def detect_domain(self, query: str) -> Optional[Dict[str, Any]]:
         """
-        检测查询所属领�?        
+        检测查询所属领域
+        
         Args:
             query: 用户查询
             
         Returns:
-            检测到的领域信息，未检测到则返�?None
+            检测到的领域信息，未检测到则返回 None
         """
         query_lower = query.lower()
         best_domain = None
@@ -267,7 +276,8 @@ class KnowledgeIntegrator:
             domain_id: 领域 ID
             
         Returns:
-            知识库集合名�?        """
+            知识库集合名称
+        """
         domain_mapping = {
             "law": "law",
             "medical": "medical", 
@@ -292,9 +302,12 @@ class KnowledgeIntegrator:
             query: 查询文本
             collection_id: 集合 ID
             top_k: 返回结果数量
-            use_hybrid: 是否使用混合检�?            use_rerank: 是否使用重排�?            
+            use_hybrid: 是否使用混合检索
+            use_rerank: 是否使用重排序
+            
         Returns:
-            检索结�?        """
+            检索结果
+        """
         import time
         start_time = time.time()
         
@@ -378,7 +391,7 @@ class KnowledgeIntegrator:
             
             retrieval_time = time.time() - start_time
             
-            logger.info(f"知识检索完�? query='{query[:50]}...', "
+            logger.info(f"知识检索完成: query='{query[:50]}...', "
                        f"method={retrieval_method}, "
                        f"results={len(sources)}, "
                        f"time={retrieval_time:.3f}s")
@@ -393,7 +406,7 @@ class KnowledgeIntegrator:
             )
             
         except Exception as e:
-            logger.error(f"知识检索失�? {e}", exc_info=True)
+            logger.error(f"知识检索失败: {e}", exc_info=True)
             return KnowledgeRetrievalResult(
                 query=query,
                 sources=[],
@@ -405,12 +418,14 @@ class KnowledgeIntegrator:
     
     def _build_context(self, sources: List[KnowledgeSource]) -> str:
         """
-        构建上下文文�?        
+        构建上下文文本
+        
         Args:
             sources: 知识来源列表
             
         Returns:
-            上下文文�?        """
+            上下文文本
+        """
         if not sources:
             return ""
         
@@ -418,7 +433,7 @@ class KnowledgeIntegrator:
         current_length = 0
         
         for i, source in enumerate(sources):
-            part = f"[参考资�?{i+1}]\n来源: {source.source}\n内容: {source.content}\n"
+            part = f"[参考资料 {i+1}]\n来源: {source.source}\n内容: {source.content}\n"
             
             if current_length + len(part) > self.max_context_length:
                 break
@@ -435,10 +450,13 @@ class KnowledgeIntegrator:
         system_prompt_template: Optional[str] = None
     ) -> List[Dict[str, str]]:
         """
-        将检索到的知识注入到对话消息�?        
+        将检索到的知识注入到对话消息中
+        
         Args:
             messages: 原始消息列表
-            retrieval_result: 检索结�?            system_prompt_template: 系统提示词模�?            
+            retrieval_result: 检索结果
+            system_prompt_template: 系统提示词模板
+            
         Returns:
             注入知识后的消息列表
         """
@@ -446,13 +464,16 @@ class KnowledgeIntegrator:
             return messages
         
         if system_prompt_template is None:
-            system_prompt_template = """你是一个有帮助�?AI 助手。请基于以下参考资料回答用户的问题�?
-参考资�?
+            system_prompt_template = """你是一个有帮助的 AI 助手。请基于以下参考资料回答用户的问题。
+
+参考资料：
 {context}
 
-请注�?
-1. 优先使用参考资料中的信息回�?2. 如果参考资料中没有相关信息，请明确说明
-3. 引用具体内容时，请标注来源编号（�?[参考资�?1]�?4. 保持回答简洁、准确、有帮助"""
+请注意：
+1. 优先使用参考资料中的信息回答
+2. 如果参考资料中没有相关信息，请明确说明
+3. 引用具体内容时，请标注来源编号（如 [参考资料 1]）
+4. 保持回答简洁、准确、有帮助"""
 
         system_content = system_prompt_template.format(
             context=retrieval_result.context
@@ -491,13 +512,15 @@ class KnowledgeIntegrator:
         style: str = "markdown"
     ) -> str:
         """
-        格式化知识来源引�?        
+        格式化知识来源引用
+        
         Args:
             sources: 知识来源列表
             style: 格式风格 (markdown/json/text)
             
         Returns:
-            格式化后的引用文�?        """
+            格式化后的引用文本
+        """
         if not sources:
             return ""
         
@@ -508,7 +531,7 @@ class KnowledgeIntegrator:
             lines = ["\n---\n**📚 知识来源引用:**\n"]
             for i, source in enumerate(sources):
                 lines.append(f"\n[{i+1}] **{source.source}**")
-                lines.append(f"    相关�? {source.score:.2%}")
+                lines.append(f"    相关度: {source.score:.2%}")
                 if source.metadata.get("doc_id"):
                     lines.append(f"    文档ID: {source.metadata['doc_id']}")
             return "\n".join(lines)
@@ -516,7 +539,7 @@ class KnowledgeIntegrator:
         else:
             lines = ["\n知识来源:"]
             for i, source in enumerate(sources):
-                lines.append(f"  [{i+1}] {source.source} (相关�? {source.score:.2%})")
+                lines.append(f"  [{i+1}] {source.source} (相关度: {source.score:.2%})")
             return "\n".join(lines)
     
     def enhance_response_with_sources(
@@ -552,7 +575,8 @@ class KnowledgeAwareChatManager:
         初始化对话管理器
         
         Args:
-            integrator: 知识集成器实�?        """
+            integrator: 知识集成器实例
+        """
         self.integrator = integrator or KnowledgeIntegrator()
         self._session_knowledge: Dict[str, List[KnowledgeRetrievalResult]] = {}
     
@@ -565,14 +589,17 @@ class KnowledgeAwareChatManager:
         force_retrieve: bool = False
     ) -> Tuple[Optional[KnowledgeRetrievalResult], Dict[str, Any]]:
         """
-        处理用户消息，自动检索知�?        
+        处理用户消息，自动检索知识
+        
         Args:
             session_id: 会话 ID
             user_message: 用户消息
-            collection_id: 知识库集�?ID
-            auto_retrieve: 是否自动检�?            force_retrieve: 强制检�?            
+            collection_id: 知识库集合 ID
+            auto_retrieve: 是否自动检索
+            force_retrieve: 强制检索
+            
         Returns:
-            (检索结�? 处理信息)
+            (检索结果, 处理信息)
         """
         process_info = {
             "session_id": session_id,
@@ -616,18 +643,22 @@ class KnowledgeAwareChatManager:
         limit: int = 5
     ) -> List[KnowledgeRetrievalResult]:
         """
-        获取会话的知识检索历�?        
+        获取会话的知识检索历史
+        
         Args:
             session_id: 会话 ID
-            limit: 最大返回数�?            
+            limit: 最大返回数量
+            
         Returns:
-            检索结果列�?        """
+            检索结果列表
+        """
         results = self._session_knowledge.get(session_id, [])
         return results[-limit:] if results else []
     
     def clear_session_knowledge(self, session_id: str):
         """
-        清除会话的知识检索历�?        
+        清除会话的知识检索历史
+        
         Args:
             session_id: 会话 ID
         """
@@ -645,14 +676,16 @@ class KnowledgeAwareChatManager:
         
         Args:
             user_message: 用户消息
-            retrieval_result: 检索结�?            conversation_history: 对话历史
+            retrieval_result: 检索结果
+            conversation_history: 对话历史
             
         Returns:
-            增强后的提示�?        """
+            增强后的提示词
+        """
         prompt_parts = []
         
         if retrieval_result and retrieval_result.context:
-            prompt_parts.append(f"参考资�?\n{retrieval_result.context}\n")
+            prompt_parts.append(f"参考资料:\n{retrieval_result.context}\n")
         
         if conversation_history:
             history_text = []
@@ -663,7 +696,7 @@ class KnowledgeAwareChatManager:
                 prompt_parts.append("对话历史:\n" + "\n".join(history_text) + "\n")
         
         prompt_parts.append(f"用户问题: {user_message}")
-        prompt_parts.append("\n请基于参考资料回答用户问题，并在回答中标注引用来源�?)
+        prompt_parts.append("\n请基于参考资料回答用户问题，并在回答中标注引用来源。")
         
         return "\n".join(prompt_parts)
 
@@ -673,7 +706,7 @@ _manager_instance: Optional[KnowledgeAwareChatManager] = None
 
 
 def get_knowledge_integrator() -> KnowledgeIntegrator:
-    """获取知识集成器实�?""
+    """获取知识集成器实例"""
     global _integrator_instance
     if _integrator_instance is None:
         _integrator_instance = KnowledgeIntegrator()
@@ -681,7 +714,7 @@ def get_knowledge_integrator() -> KnowledgeIntegrator:
 
 
 def get_knowledge_chat_manager() -> KnowledgeAwareChatManager:
-    """获取知识感知对话管理器实�?""
+    """获取知识感知对话管理器实例"""
     global _manager_instance
     if _manager_instance is None:
         _manager_instance = KnowledgeAwareChatManager()

@@ -1,348 +1,333 @@
+# -*- coding: utf-8 -*-
 """
 Ollama 推理后端实现
 """
+from typing import Dict, List, Optional, Any, AsyncIterator
 import asyncio
+import aiohttp
 import logging
 import time
-import json
-from typing import Dict, Any, Optional, List, AsyncGenerator
 
-from api.inference.backends.base import BaseBackend, InferenceContext
-from api.types import (
-    ChatRequest, ChatResponse, GenerateRequest, GenerateResponse,
-    Message, MessageRole, TokenUsage
+from .base import (
+    InferenceBackend,
+    BackendType,
+    GenerationConfig,
+    GenerationResult
 )
-from api.errors import OllamaNotRunningError, OllamaUnavailableError, InferenceFailedError
-from core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 
-class OllamaBackend(BaseBackend):
+class OllamaBackend(InferenceBackend):
     """Ollama 推理后端"""
     
-    def __init__(self):
-        self.settings = get_settings()
-        self._base_url = self.settings.ollama_base_url
-        self._timeout = 300
+    backend_type = BackendType.OLLAMA
     
-    @property
-    def name(self) -> str:
-        return "ollama"
+    def __init__(self, config: Dict[str, Any] = None):
+        super().__init__(config)
+        
+        self.base_url = config.get("base_url", "http://localhost:11434")
+        self.timeout = config.get("timeout", 300)
+        self.model_name = config.get("model_name", "llama2")
     
-    async def is_available(self) -> bool:
-        """检�?Ollama 是否可用"""
+    async def load_model(self, model_name: str, **kwargs) -> bool:
+        """加载模型"""
+        self.model_name = model_name or self.model_name
+        
         try:
-            import httpx
-            async with httpx.AsyncClient(timeout=5) as client:
-                response = await client.get(f"{self._base_url}/api/tags")
-                return response.status_code == 200
-        except Exception:
-            return False
-    
-    async def list_models(self) -> List[Dict[str, Any]]:
-        """列出可用模型"""
-        try:
-            import httpx
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(f"{self._base_url}/api/tags")
-                if response.status_code == 200:
-                    data = response.json()
-                    return [
-                        {
-                            "id": m.get("name", ""),
-                            "name": m.get("name", ""),
-                            "size": m.get("size", 0),
-                            "modified_at": m.get("modified_at", ""),
-                            "backend": "ollama"
-                        }
-                        for m in data.get("models", [])
-                    ]
-            return []
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.base_url}/api/pull",
+                    json={"name": self.model_name},
+                    timeout=aiohttp.ClientTimeout(total=self.timeout)
+                ) as response:
+                    if response.status == 200:
+                        self._is_loaded = True
+                        logger.info(f"Ollama model loaded: {self.model_name}")
+                        return True
+                    else:
+                        logger.error(f"Failed to pull Ollama model: {response.status}")
+                        return False
+                        
         except Exception as e:
-            logger.error(f"获取 Ollama 模型列表失败: {e}")
-            return []
+            logger.warning(f"Ollama model pull failed, assuming model exists: {e}")
+            self._is_loaded = True
+            return True
     
-    async def is_model_loaded(self, model_id: str) -> bool:
-        """Ollama 自动管理模型加载"""
-        return True
-    
-    async def load_model(self, model_id: str) -> Dict[str, Any]:
-        """Ollama 自动加载模型"""
-        return {"model_id": model_id, "backend": "ollama"}
-    
-    async def unload_model(self, model_id: str) -> bool:
-        """Ollama 自动管理模型卸载"""
+    async def unload_model(self) -> bool:
+        """卸载模型"""
+        self._is_loaded = False
         return True
     
     async def generate(
         self,
-        request: GenerateRequest,
-        context: Optional[InferenceContext] = None
-    ) -> GenerateResponse:
+        prompt: str,
+        config: GenerationConfig = None
+    ) -> GenerationResult:
         """生成文本"""
+        if not self._is_loaded:
+            return GenerationResult(
+                text="",
+                tokens_generated=0,
+                finish_reason="error",
+                model=self.model_name,
+                metadata={"error": "Model not loaded"}
+            )
+        
+        config = config or GenerationConfig()
         start_time = time.time()
         
-        if not await self.is_available():
-            raise OllamaNotRunningError()
-        
         try:
-            import httpx
-            
-            payload = {
-                "model": request.model,
-                "prompt": request.prompt,
-                "stream": False,
-                "options": {
-                    "num_predict": request.options.max_tokens,
-                    "temperature": request.options.temperature,
-                    "top_p": request.options.top_p,
-                    "top_k": request.options.top_k,
-                    "repeat_penalty": request.options.repetition_penalty,
+            async with aiohttp.ClientSession() as session:
+                payload = {
+                    "model": self.model_name,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "num_predict": config.max_tokens,
+                        "temperature": config.temperature,
+                        "top_p": config.top_p,
+                        "top_k": config.top_k,
+                        "repeat_penalty": config.repetition_penalty,
+                        "stop": config.stop_sequences
+                    }
                 }
-            }
-            
-            if request.system:
-                payload["system"] = request.system
-            
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.post(
-                    f"{self._base_url}/api/generate",
-                    json=payload
-                )
                 
-                if response.status_code != 200:
-                    raise OllamaUnavailableError(response.text)
-                
-                result = response.json()
-                response_text = result.get("response", "")
-                response_text = self.clean_response(response_text)
-                
-                elapsed_time = time.time() - start_time
-                
-                return GenerateResponse(
-                    model=request.model,
-                    response=response_text,
-                    usage=TokenUsage(
+                async with session.post(
+                    f"{self.base_url}/api/generate",
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=self.timeout)
+                ) as response:
+                    if response.status != 200:
+                        raise Exception(f"Ollama API error: {response.status}")
+                    
+                    result = await response.json()
+                    
+                    latency_ms = (time.time() - start_time) * 1000
+                    
+                    return GenerationResult(
+                        text=result.get("response", ""),
+                        tokens_generated=result.get("eval_count", 0),
+                        finish_reason="stop",
+                        model=self.model_name,
                         prompt_tokens=result.get("prompt_eval_count", 0),
-                        completion_tokens=result.get("eval_count", 0),
-                        total_tokens=result.get("prompt_eval_count", 0) + result.get("eval_count", 0)
-                    ),
-                    total_duration=elapsed_time,
-                    eval_duration=result.get("eval_duration", 0) / 1e9
-                )
-                
-        except OllamaNotRunningError:
-            raise
-        except OllamaUnavailableError:
-            raise
+                        total_tokens=result.get("prompt_eval_count", 0) + result.get("eval_count", 0),
+                        latency_ms=latency_ms
+                    )
+                    
         except Exception as e:
-            logger.error(f"Ollama 生成失败: {e}", exc_info=True)
-            raise InferenceFailedError(request.model, str(e))
-    
-    async def chat(
-        self,
-        request: ChatRequest,
-        context: Optional[InferenceContext] = None
-    ) -> ChatResponse:
-        """聊天对话"""
-        start_time = time.time()
-        
-        if not await self.is_available():
-            raise OllamaNotRunningError()
-        
-        try:
-            import httpx
-            
-            messages = []
-            for msg in request.messages:
-                role = msg.role if isinstance(msg.role, str) else msg.role.value
-                messages.append({"role": role, "content": msg.content})
-            
-            payload = {
-                "model": request.model,
-                "messages": messages,
-                "stream": False,
-                "options": {
-                    "num_predict": request.options.max_tokens,
-                    "temperature": request.options.temperature,
-                    "top_p": request.options.top_p,
-                }
-            }
-            
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.post(
-                    f"{self._base_url}/api/chat",
-                    json=payload
-                )
-                
-                if response.status_code != 200:
-                    raise OllamaUnavailableError(response.text)
-                
-                result = response.json()
-                message = result.get("message", {})
-                response_text = message.get("content", "")
-                
-                if not response_text and message.get("thinking"):
-                    response_text = message.get("thinking", "")
-                    logger.info("使用 thinking 字段作为响应")
-                
-                response_text = self.clean_response(response_text)
-                
-                elapsed_time = time.time() - start_time
-                
-                return ChatResponse(
-                    message=Message(
-                        role=MessageRole.ASSISTANT,
-                        content=response_text
-                    ),
-                    model=request.model,
-                    backend="ollama",
-                    usage=TokenUsage(
-                        prompt_tokens=result.get("prompt_eval_count", 0),
-                        completion_tokens=result.get("eval_count", 0),
-                        total_tokens=result.get("prompt_eval_count", 0) + result.get("eval_count", 0)
-                    ),
-                    total_duration=elapsed_time,
-                    eval_duration=result.get("eval_duration", 0) / 1e9
-                )
-                
-        except OllamaNotRunningError:
-            raise
-        except OllamaUnavailableError:
-            raise
-        except Exception as e:
-            logger.error(f"Ollama 聊天失败: {e}", exc_info=True)
-            raise InferenceFailedError(request.model, str(e))
+            logger.error(f"Ollama generation failed: {e}")
+            return GenerationResult(
+                text="",
+                tokens_generated=0,
+                finish_reason="error",
+                model=self.model_name,
+                metadata={"error": str(e)}
+            )
     
     async def generate_stream(
         self,
-        request: GenerateRequest,
-        context: Optional[InferenceContext] = None
-    ) -> AsyncGenerator[str, None]:
-        """流式生成"""
-        if not await self.is_available():
-            yield f'data: {{"error": "Ollama 未运�?, "done": true}}\n\n'
+        prompt: str,
+        config: GenerationConfig = None
+    ) -> AsyncIterator[str]:
+        """流式生成文本"""
+        if not self._is_loaded:
+            yield "[Error: Model not loaded]"
             return
         
+        config = config or GenerationConfig()
+        
         try:
-            import httpx
-            
-            payload = {
-                "model": request.model,
-                "prompt": request.prompt,
-                "stream": True,
-                "options": {
-                    "num_predict": request.options.max_tokens,
-                    "temperature": request.options.temperature,
-                    "top_p": request.options.top_p,
+            async with aiohttp.ClientSession() as session:
+                payload = {
+                    "model": self.model_name,
+                    "prompt": prompt,
+                    "stream": True,
+                    "options": {
+                        "num_predict": config.max_tokens,
+                        "temperature": config.temperature,
+                        "top_p": config.top_p,
+                        "top_k": config.top_k,
+                        "repeat_penalty": config.repetition_penalty,
+                        "stop": config.stop_sequences
+                    }
                 }
-            }
-            
-            in_think_block = False
-            
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                async with client.stream(
-                    "POST",
-                    f"{self._base_url}/api/generate",
-                    json=payload
+                
+                async with session.post(
+                    f"{self.base_url}/api/generate",
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=self.timeout)
                 ) as response:
-                    if response.status_code != 200:
-                        yield f'data: {{"error": "请求失败", "done": true}}\n\n'
+                    if response.status != 200:
+                        yield f"[Error: Ollama API returned {response.status}]"
                         return
                     
-                    async for line in response.aiter_lines():
-                        if not line:
-                            continue
-                        
-                        try:
-                            data = json.loads(line)
-                            chunk = data.get("response", "")
-                            
-                            if chunk:
-                                if " Olym" in chunk or "<|im_start|>" in chunk:
-                                    in_think_block = True
+                    async for line in response.content:
+                        if line:
+                            try:
+                                import json
+                                data = json.loads(line)
+                                if "response" in data:
+                                    yield data["response"]
+                            except json.JSONDecodeError:
+                                continue
                                 
-                                if in_think_block:
-                                    if "</Olympus>" in chunk or "<|im_end|>" in chunk:
-                                        in_think_block = False
-                                    continue
-                                
-                                chunk = self.clean_response(chunk)
-                                if chunk:
-                                    yield f'data: {json.dumps({"content": chunk, "done": False})}\n\n'
-                            
-                            if data.get("done", False):
-                                yield f'data: {json.dumps({"done": True})}\n\n'
-                                break
-                                
-                        except json.JSONDecodeError:
-                            continue
-                            
         except Exception as e:
-            logger.error(f"Ollama 流式生成失败: {e}", exc_info=True)
-            yield f'data: {json.dumps({"error": str(e), "done": true})}\n\n'
+            logger.error(f"Ollama stream failed: {e}")
+            yield f"[Error: {e}]"
+    
+    async def chat(
+        self,
+        messages: List[Dict[str, str]],
+        config: GenerationConfig = None
+    ) -> GenerationResult:
+        """对话生成"""
+        if not self._is_loaded:
+            return GenerationResult(
+                text="",
+                tokens_generated=0,
+                finish_reason="error",
+                model=self.model_name,
+                metadata={"error": "Model not loaded"}
+            )
+        
+        config = config or GenerationConfig()
+        start_time = time.time()
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                payload = {
+                    "model": self.model_name,
+                    "messages": messages,
+                    "stream": False,
+                    "options": {
+                        "num_predict": config.max_tokens,
+                        "temperature": config.temperature,
+                        "top_p": config.top_p,
+                        "top_k": config.top_k,
+                        "repeat_penalty": config.repetition_penalty,
+                        "stop": config.stop_sequences
+                    }
+                }
+                
+                async with session.post(
+                    f"{self.base_url}/api/chat",
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=self.timeout)
+                ) as response:
+                    if response.status != 200:
+                        raise Exception(f"Ollama API error: {response.status}")
+                    
+                    result = await response.json()
+                    
+                    latency_ms = (time.time() - start_time) * 1000
+                    
+                    message = result.get("message", {})
+                    
+                    return GenerationResult(
+                        text=message.get("content", ""),
+                        tokens_generated=result.get("eval_count", 0),
+                        finish_reason="stop",
+                        model=self.model_name,
+                        prompt_tokens=result.get("prompt_eval_count", 0),
+                        total_tokens=result.get("prompt_eval_count", 0) + result.get("eval_count", 0),
+                        latency_ms=latency_ms
+                    )
+                    
+        except Exception as e:
+            logger.error(f"Ollama chat failed: {e}")
+            return GenerationResult(
+                text="",
+                tokens_generated=0,
+                finish_reason="error",
+                model=self.model_name,
+                metadata={"error": str(e)}
+            )
     
     async def chat_stream(
         self,
-        request: ChatRequest,
-        context: Optional[InferenceContext] = None
-    ) -> AsyncGenerator[str, None]:
-        """流式聊天"""
-        if not await self.is_available():
-            yield f'data: {{"error": "Ollama 未运�?, "done": true}}\n\n'
+        messages: List[Dict[str, str]],
+        config: GenerationConfig = None
+    ) -> AsyncIterator[str]:
+        """流式对话生成"""
+        if not self._is_loaded:
+            yield "[Error: Model not loaded]"
             return
         
+        config = config or GenerationConfig()
+        
         try:
-            import httpx
-            
-            messages = []
-            for msg in request.messages:
-                role = msg.role if isinstance(msg.role, str) else msg.role.value
-                messages.append({"role": role, "content": msg.content})
-            
-            payload = {
-                "model": request.model,
-                "messages": messages,
-                "stream": True,
-                "options": {
-                    "num_predict": request.options.max_tokens,
-                    "temperature": request.options.temperature,
-                    "top_p": request.options.top_p,
+            async with aiohttp.ClientSession() as session:
+                payload = {
+                    "model": self.model_name,
+                    "messages": messages,
+                    "stream": True,
+                    "options": {
+                        "num_predict": config.max_tokens,
+                        "temperature": config.temperature,
+                        "top_p": config.top_p,
+                        "top_k": config.top_k,
+                        "repeat_penalty": config.repetition_penalty,
+                        "stop": config.stop_sequences
+                    }
                 }
-            }
-            
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                async with client.stream(
-                    "POST",
-                    f"{self._base_url}/api/chat",
-                    json=payload
+                
+                async with session.post(
+                    f"{self.base_url}/api/chat",
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=self.timeout)
                 ) as response:
-                    if response.status_code != 200:
-                        yield f'data: {{"error": "请求失败", "done": true}}\n\n'
+                    if response.status != 200:
+                        yield f"[Error: Ollama API returned {response.status}]"
                         return
                     
-                    async for line in response.aiter_lines():
-                        if not line:
-                            continue
-                        
-                        try:
-                            data = json.loads(line)
-                            message = data.get("message", {})
-                            chunk = message.get("content", "")
-                            
-                            if chunk:
-                                chunk = self.clean_response(chunk)
-                                if chunk:
-                                    yield f'data: {json.dumps({"content": chunk, "done": False})}\n\n'
-                            
-                            if data.get("done", False):
-                                yield f'data: {json.dumps({"done": True})}\n\n'
-                                break
+                    async for line in response.content:
+                        if line:
+                            try:
+                                import json
+                                data = json.loads(line)
+                                message = data.get("message", {})
+                                if "content" in message:
+                                    yield message["content"]
+                            except json.JSONDecodeError:
+                                continue
                                 
-                        except json.JSONDecodeError:
-                            continue
-                            
         except Exception as e:
-            logger.error(f"Ollama 流式聊天失败: {e}", exc_info=True)
-            yield f'data: {json.dumps({"error": str(e), "done": true})}\n\n'
+            logger.error(f"Ollama chat stream failed: {e}")
+            yield f"[Error: {e}]"
+    
+    def get_model_info(self) -> Dict[str, Any]:
+        """获取模型信息"""
+        return {
+            "backend_type": self.backend_type.value,
+            "is_loaded": self._is_loaded,
+            "model_name": self.model_name,
+            "base_url": self.base_url
+        }
+    
+    async def count_tokens(self, text: str) -> int:
+        """计算 token 数量"""
+        return len(text) // 4
+    
+    async def health_check(self) -> Dict[str, Any]:
+        """健康检查"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{self.base_url}/api/tags",
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as response:
+                    if response.status == 200:
+                        return {
+                            "backend_type": self.backend_type.value,
+                            "is_loaded": self._is_loaded,
+                            "status": "healthy"
+                        }
+        except Exception:
+            pass
+        
+        return {
+            "backend_type": self.backend_type.value,
+            "is_loaded": False,
+            "status": "unhealthy"
+        }

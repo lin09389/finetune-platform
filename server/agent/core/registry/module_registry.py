@@ -1,9 +1,9 @@
 from enum import Enum
 from typing import Any, Callable, TypeVar
 
-from .container import DependencyContainer, ServiceLifetime
-from .interfaces import BaseExecutor, BaseFeedback, BaseParser, BasePermissionController
-from .types import ModuleInfo
+from ..container import DependencyContainer, ServiceLifetime
+from ..interfaces import BaseExecutor, BaseFeedback, BaseParser, BasePermissionController
+from ..types import ModuleInfo
 
 T = TypeVar("T")
 

@@ -1,8 +1,12 @@
+# -*- coding: utf-8 -*-
 """
 Heartbeat 模块 - 主动唤醒机制
 
-借鉴 OpenClaw 架构�?- 定期唤醒 Agent
-- 检查任务清单（HEARTBEAT.md�?- 主动汇报和提�?- 避免无效轮询
+借鉴 OpenClaw 架构设计:
+- 定期唤醒 Agent
+- 检查任务清单（HEARTBEAT.md）
+- 主动汇报和提醒
+- 避免无效轮询
 """
 import asyncio
 import logging
@@ -44,10 +48,13 @@ class HeartbeatConfig:
 
 class HeartbeatScheduler:
     """
-    Heartbeat 调度�?    
-    功能�?    - 定时唤醒 Agent
+    Heartbeat 调度器
+    
+    功能:
+    - 定时唤醒 Agent
     - 解析 HEARTBEAT.md 任务清单
-    - 执行检查任�?    - 生成汇报
+    - 执行检查任务
+    - 生成汇报
     """
     
     def __init__(self, config: Optional[HeartbeatConfig] = None):
@@ -67,7 +74,7 @@ class HeartbeatScheduler:
         self._register_default_handlers()
     
     def _register_default_handlers(self):
-        """注册默认处理�?""
+        """注册默认处理器"""
         self._handlers["check_email"] = self._handle_check_email
         self._handlers["check_calendar"] = self._handle_check_calendar
         self._handlers["check_project"] = self._handle_check_project
@@ -83,11 +90,11 @@ class HeartbeatScheduler:
         self._on_heartbeat = callback
     
     def set_task_executor(self, executor: TaskExecutor):
-        """设置任务执行�?""
+        """设置任务执行器"""
         self._task_executor = executor
     
     def register_handler(self, task_type: str, handler: Callable):
-        """注册任务处理�?""
+        """注册任务处理器"""
         self._handlers[task_type] = handler
     
     def add_task(self, task: HeartbeatTask):
@@ -129,7 +136,7 @@ class HeartbeatScheduler:
             task.next_run = datetime.now() + timedelta(seconds=self.config.interval_seconds)
     
     def _parse_cron(self, cron_expr: str) -> datetime:
-        """解析 cron 表达式（简化版�?""
+        """解析 cron 表达式（简化版）"""
         now = datetime.now()
         
         parts = cron_expr.split()
@@ -151,18 +158,18 @@ class HeartbeatScheduler:
         return next_run
     
     async def start(self):
-        """启动调度�?""
+        """启动调度器"""
         if self._is_running:
-            logger.warning("Heartbeat 调度器已在运�?)
+            logger.warning("Heartbeat 调度器已在运行")
             return
         
         self._is_running = True
         self._scheduler_task = asyncio.create_task(self._run_scheduler())
         
-        logger.info(f"Heartbeat 调度器已启动，间�? {self.config.interval_seconds}�?)
+        logger.info(f"Heartbeat 调度器已启动，间隔: {self.config.interval_seconds}秒")
     
     async def stop(self):
-        """停止调度�?""
+        """停止调度器"""
         self._is_running = False
         
         if self._scheduler_task:
@@ -192,7 +199,7 @@ class HeartbeatScheduler:
     
     async def _execute_heartbeat(self):
         """执行 Heartbeat"""
-        logger.info("执行 Heartbeat 检�?..")
+        logger.info("执行 Heartbeat 检查...")
         
         tasks_to_run = self._get_due_tasks()
         
@@ -260,24 +267,24 @@ class HeartbeatScheduler:
         return result
     
     async def _handle_check_email(self, task: HeartbeatTask) -> Dict[str, Any]:
-        """检查邮�?""
-        return {"checked": True, "unread": 0, "message": "邮件检查完�?}
+        """检查邮件"""
+        return {"checked": True, "unread": 0, "message": "邮件检查完成"}
     
     async def _handle_check_calendar(self, task: HeartbeatTask) -> Dict[str, Any]:
-        """检查日�?""
-        return {"checked": True, "events": 0, "message": "日历检查完�?}
+        """检查日历"""
+        return {"checked": True, "events": 0, "message": "日历检查完成"}
     
     async def _handle_check_project(self, task: HeartbeatTask) -> Dict[str, Any]:
-        """检查项目进�?""
-        return {"checked": True, "message": "项目检查完�?}
+        """检查项目进度"""
+        return {"checked": True, "message": "项目检查完成"}
     
     async def _handle_generate_report(self, task: HeartbeatTask) -> Dict[str, Any]:
         """生成报告"""
-        return {"generated": True, "message": "报告已生�?}
+        return {"generated": True, "message": "报告已生成"}
     
     async def _handle_send_reminder(self, task: HeartbeatTask) -> Dict[str, Any]:
-        """发送提�?""
-        return {"sent": True, "message": "提醒已发�?}
+        """发送提醒"""
+        return {"sent": True, "message": "提醒已发送"}
     
     def parse_heartbeat_file(self, content: str) -> List[HeartbeatTask]:
         """解析 HEARTBEAT.md 文件"""
@@ -306,14 +313,14 @@ class HeartbeatScheduler:
         return tasks
     
     async def load_tasks_from_file(self) -> int:
-        """�?HEARTBEAT.md 加载任务"""
+        """从 HEARTBEAT.md 加载任务"""
         if not self._workspace_path:
-            logger.warning("工作空间路径未设�?)
+            logger.warning("工作空间路径未设置")
             return 0
         
         heartbeat_file = self._workspace_path / self.config.task_file
         if not heartbeat_file.exists():
-            logger.debug(f"任务文件不存�? {heartbeat_file}")
+            logger.debug(f"任务文件不存在: {heartbeat_file}")
             return 0
         
         try:
@@ -323,7 +330,7 @@ class HeartbeatScheduler:
             for task in tasks:
                 self.add_task(task)
             
-            logger.info(f"�?{self.config.task_file} 加载�?{len(tasks)} 个任�?)
+            logger.info(f"从 {self.config.task_file} 加载了 {len(tasks)} 个任务")
             return len(tasks)
         
         except Exception as e:
@@ -335,7 +342,7 @@ class HeartbeatScheduler:
         return self._tasks.get(task_id)
     
     def get_all_tasks(self) -> Dict[str, HeartbeatTask]:
-        """获取所有任�?""
+        """获取所有任务"""
         return self._tasks.copy()
     
     def get_stats(self) -> Dict[str, Any]:
@@ -356,7 +363,7 @@ _scheduler: Optional[HeartbeatScheduler] = None
 
 
 def get_heartbeat_scheduler() -> HeartbeatScheduler:
-    """获取 Heartbeat 调度器单�?""
+    """获取 Heartbeat 调度器单例"""
     global _scheduler
     if _scheduler is None:
         _scheduler = HeartbeatScheduler()

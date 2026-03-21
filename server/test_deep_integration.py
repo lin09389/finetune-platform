@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 深度集成测试脚本
-覆盖：E2E 场景、并发压力、边界条件、异常处理、安全�?"""
+覆盖：E2E 场景、并发压力、边界条件、异常处理、安全测试
+"""
 import sys
 import os
 import time
@@ -86,7 +87,8 @@ class DeepTestSuite:
         print(f"基础 URL: {self.base_url}")
         print("-" * 70)
         
-        # 创建 HTTP 客户�?        if DEPENDENCIES_OK:
+        # 创建 HTTP 客户端
+        if DEPENDENCIES_OK:
             try:
                 self.client = TestClient(app)
             except Exception as e:
@@ -104,7 +106,8 @@ class DeepTestSuite:
         print(f"总耗时：{duration:.2f}s")
         print("-" * 70)
         
-        # 汇总结�?        total_passed = sum(r.passed for r in self.results.values())
+        # 汇总结果
+        total_passed = sum(r.passed for r in self.results.values())
         total_failed = sum(r.failed for r in self.results.values())
         total = total_passed + total_failed
         rate = total_passed / total * 100 if total > 0 else 0
@@ -115,7 +118,8 @@ class DeepTestSuite:
         for name, result in self.results.items():
             if result.failed > 0:
                 print(f"\n{name} 失败详情:")
-                for error in result.errors[:5]:  # 只显示前 5 �?                    print(f"  {error}")
+                for error in result.errors[:5]:  # 只显示前 5 个
+                    print(f"  {error}")
                     
     def run_test(self, category: str, test_func):
         """运行测试"""
@@ -149,7 +153,8 @@ class DeepTestSuite:
         except Exception as e:
             result.add_fail(f"空字符串处理失败：{e}")
             
-        # 测试 2: 超长字符�?        print("[边界测试] 超长字符�?(100K 字符)")
+        # 测试 2: 超长字符串
+        print("[边界测试] 超长字符串(100K 字符)")
         try:
             long_text = "A" * 100000
             if self.client:
@@ -157,7 +162,8 @@ class DeepTestSuite:
                     "messages": [{"role": "user", "content": long_text}],
                     "model": "test"
                 })
-                # 应该合理处理（拒绝或截断�?                result.add_pass("超长字符串处理正�?)
+                # 应该合理处理（拒绝或截断）
+                result.add_pass("超长字符串处理正常")
         except Exception as e:
             result.add_fail(f"超长字符串处理失败：{e}")
             
@@ -186,7 +192,7 @@ class DeepTestSuite:
             result.add_fail(f"超大 JSON 处理失败：{e}")
             
         # 测试 5: 嵌套过深
-        print("[边界测试] 嵌套过深 (100 �?")
+        print("[边界测试] 嵌套过深 (100 层)")
         try:
             deep_data = {}
             current = deep_data
@@ -203,11 +209,12 @@ class DeepTestSuite:
         self.results["边界条件"] = result
         
     # ========================================================================
-    # 2. 安全性测�?    # ========================================================================
+    # 2. 安全性测试
+    # ========================================================================
     
     def test_security(self):
-        """安全性测�?""
-        result = self.results.get("安全�?, TestResult("安全�?))
+        """安全性测试"""
+        result = self.results.get("安全性", TestResult("安全性"))
         
         # 测试 1: SQL 注入尝试
         print("\n[安全测试] SQL 注入尝试")
@@ -218,7 +225,8 @@ class DeepTestSuite:
                     "messages": [{"role": "user", "content": sql_injection}],
                     "model": "test"
                 })
-                # 不应该崩�?                result.add_pass("SQL 注入防护正常")
+                # 不应该崩溃
+                result.add_pass("SQL 注入防护正常")
         except Exception as e:
             result.add_fail(f"SQL 注入防护失败：{e}")
             
@@ -256,7 +264,8 @@ class DeepTestSuite:
             # 加密存储
             secure_storage.store_api_key(key_id, "test", test_key)
             
-            # 验证文件不直接包含明�?            vault_file = Path(__file__).parent / "data" / ".vault"
+            # 验证文件不直接包含明文
+            vault_file = Path(__file__).parent / "data" / ".vault"
             if vault_file.exists():
                 with open(vault_file, 'r', encoding='utf-8') as f:
                     content = f.read()
@@ -278,7 +287,7 @@ class DeepTestSuite:
         except Exception as e:
             result.add_fail(f"审计日志记录失败：{e}")
             
-        self.results["安全�?] = result
+        self.results["安全性"] = result
         
     # ========================================================================
     # 3. 并发压力测试
@@ -288,7 +297,8 @@ class DeepTestSuite:
         """并发压力测试"""
         result = self.results.get("并发压力", TestResult("并发压力"))
         
-        # 测试 1: 并发健康检�?        print("\n[并发测试] 并发健康检�?(50 请求)")
+        # 测试 1: 并发健康检查
+        print("\n[并发测试] 并发健康检查(50 请求)")
         try:
             success_count = 0
             error_count = 0
@@ -311,9 +321,10 @@ class DeepTestSuite:
                     else:
                         error_count += 1
                         
-            if success_count >= 45:  # 90% 成功�?                result.add_pass(f"并发健康检查通过 ({success_count}/50)")
+            if success_count >= 45:  # 90% 成功率
+                result.add_pass(f"并发健康检查通过 ({success_count}/50)")
             else:
-                result.add_fail(f"并发健康检查失�?({success_count}/50)")
+                result.add_fail(f"并发健康检查失败 ({success_count}/50)")
         except Exception as e:
             result.add_error(f"并发测试错误：{e}")
             
@@ -332,7 +343,8 @@ class DeepTestSuite:
                     key = secure_storage.get_api_key(key_id)
                     return key == test_key
                 except Exception:
-                    return False  # 忽略异常，测试并发读�?                    
+                    return False  # 忽略异常，测试并发读取
+                    
             with ThreadPoolExecutor(max_workers=5) as executor:
                 futures = [executor.submit(get_key) for _ in range(20)]
                 for future in as_completed(futures):
@@ -363,14 +375,16 @@ class DeepTestSuite:
         try:
             if self.client:
                 response = self.client.post(
-                    "/health",  # 使用存在的端�?                    content="not valid json{{{",
+                    "/health",  # 使用存在的端点
+                    content="not valid json{{{",
                     headers={"Content-Type": "application/json"}
                 )
                 # 应该返回 400 错误，不崩溃
                 if response.status_code in [400, 422, 500]:
                     result.add_pass("无效 JSON 处理正常")
                 else:
-                    # 404 也说明端点不存在，不算崩�?                    result.add_pass("无效 JSON 未崩�?)
+                    # 404 也说明端点不存在，不算崩溃
+                    result.add_pass("无效 JSON 未崩溃")
         except Exception as e:
             result.add_error(f"无效 JSON 测试错误：{e}")
             
@@ -381,20 +395,21 @@ class DeepTestSuite:
                 # 使用 cloud_chat 端点测试
                 response = self.client.post("/cloud/chat", json={
                     "provider": "minimax"
-                    # 缺少 api_key �?messages
+                    # 缺少 api_key 和 messages
                 })
                 if response.status_code in [400, 422]:
                     result.add_pass("缺失字段处理正常")
                 else:
-                    result.add_pass("缺失字段未崩�?)
+                    result.add_pass("缺失字段未崩溃")
         except Exception as e:
             result.add_error(f"缺失字段测试错误：{e}")
             
-        # 测试 3: 错误的方�?        print("[恢复测试] 错误�?HTTP 方法")
+        # 测试 3: 错误的方法
+        print("[恢复测试] 错误的 HTTP 方法")
         try:
             if self.client:
                 response = self.client.delete("/health")
-                # 应该返回 405 �?404
+                # 应该返回 405 或 404
                 if response.status_code in [404, 405]:
                     result.add_pass("错误方法处理正常")
                 else:
@@ -405,18 +420,20 @@ class DeepTestSuite:
         self.results["异常恢复"] = result
         
     # ========================================================================
-    # 5. 数据一致性测�?    # ========================================================================
+    # 5. 数据一致性测试
+    # ========================================================================
     
     def test_data_consistency(self):
-        """数据一致性测�?""
-        result = self.results.get("数据一致�?, TestResult("数据一致�?))
+        """数据一致性测试"""
+        result = self.results.get("数据一致性", TestResult("数据一致性"))
         
-        # 测试 1: 加密解密一致�?        print("\n[一致性测试] 加密解密一致�?)
+        # 测试 1: 加密解密一致性
+        print("\n[一致性测试] 加密解密一致性")
         try:
             test_data = [
                 "simple_key",
                 "group_id:api_key_12345",
-                "特殊字符！@#�?…�?*",
+                "特殊字符！@#￥%……&*",
                 "a" * 1000,  # 长字符串
             ]
             
@@ -426,7 +443,7 @@ class DeepTestSuite:
                 decrypted = secure_storage.get_api_key(key_id)
                 
                 if decrypted == data:
-                    result.add_pass(f"加密解密一�?({i+1}/{len(test_data)})")
+                    result.add_pass(f"加密解密一致 ({i+1}/{len(test_data)})")
                 else:
                     result.add_fail(f"加密解密不一致：{data[:10]}...")
                     
@@ -434,7 +451,8 @@ class DeepTestSuite:
         except Exception as e:
             result.add_error(f"加密解密测试错误：{e}")
             
-        # 测试 2: 审计日志完整�?        print("[一致性测试] 审计日志完整�?)
+        # 测试 2: 审计日志完整性
+        print("[一致性测试] 审计日志完整性")
         try:
             test_action = f"test_action_{datetime.now().strftime('%Y%m%d%H%M%S')}"
             audit_logger.log_action(test_action, details={'test': 'data'})
@@ -459,25 +477,25 @@ class DeepTestSuite:
                     else:
                         result.add_fail("审计日志丢失")
                 else:
-                    result.add_fail("审计日志文件不存�?)
+                    result.add_fail("审计日志文件不存在")
         except Exception as e:
             result.add_error(f"审计日志测试错误：{e}")
             
-        self.results["数据一致�?] = result
+        self.results["数据一致性"] = result
         
     # ========================================================================
     # 6. E2E 场景测试
     # ========================================================================
     
     def test_e2e_scenarios(self):
-        """端到端场景测�?""
+        """端到端场景测试"""
         result = self.results.get("E2E 场景", TestResult("E2E 场景"))
         
         # 场景 1: 完整 API Key 管理流程
         print("\n[E2E 测试] API Key 管理流程")
         try:
             if not self.client:
-                result.add_error("TestClient 不可�?)
+                result.add_error("TestClient 不可用")
                 return
                 
             # 1. 创建 API Key
@@ -512,16 +530,17 @@ class DeepTestSuite:
         except Exception as e:
             result.add_error(f"API Key 流程测试错误：{e}")
             
-        # 场景 2: 云端服务商查�?        print("[E2E 测试] 云端服务商查�?)
+        # 场景 2: 云端服务商查询
+        print("[E2E 测试] 云端服务商查询")
         try:
             if self.client:
                 response = self.client.get("/cloud/providers")
                 if response.status_code == 200:
                     providers = response.json().get('providers', [])
                     if len(providers) > 0:
-                        result.add_pass(f"服务商查询成�?({len(providers)}�?")
+                        result.add_pass(f"服务商查询成功 ({len(providers)}个)")
                     else:
-                        result.add_fail("服务商列表为�?)
+                        result.add_fail("服务商列表为空")
                 else:
                     result.add_fail(f"服务商查询失败：{response.status_code}")
         except Exception as e:
@@ -541,7 +560,7 @@ class DeepTestSuite:
         print("\n[性能测试] API 响应时间")
         try:
             if not self.client:
-                result.add_error("TestClient 不可�?)
+                result.add_error("TestClient 不可用")
                 return
                 
             response_times = []
@@ -560,7 +579,7 @@ class DeepTestSuite:
             elif avg_time < 500:
                 result.add_pass(f"平均响应时间良好 ({avg_time:.1f}ms)")
             elif avg_time < 1000:
-                result.add_pass(f"平均响应时间可接�?({avg_time:.1f}ms)")
+                result.add_pass(f"平均响应时间可接受 ({avg_time:.1f}ms)")
             else:
                 result.add_fail(f"平均响应时间过长 ({avg_time:.1f}ms)")
                 
@@ -591,32 +610,33 @@ class DeepTestSuite:
             if store_time < 10:
                 result.add_pass(f"加密存储性能优秀 ({store_time:.2f}ms)")
             else:
-                result.add_pass(f"加密存储性能可接�?({store_time:.2f}ms)")
+                result.add_pass(f"加密存储性能可接受 ({store_time:.2f}ms)")
                 
             if get_time < 10:
                 result.add_pass(f"解密读取性能优秀 ({get_time:.2f}ms)")
             else:
-                result.add_pass(f"解密读取性能可接�?({get_time:.2f}ms)")
+                result.add_pass(f"解密读取性能可接受 ({get_time:.2f}ms)")
         except Exception as e:
             result.add_error(f"加密性能测试错误：{e}")
             
         self.results["性能基准"] = result
         
     # ========================================================================
-    # 运行所有测�?    # ========================================================================
+    # 运行所有测试
+    # ========================================================================
     
     def run_all(self):
-        """运行所有测�?""
+        """运行所有测试"""
         self.setup()
         
-        print("\n开始执行测试套�?..\n")
+        print("\n开始执行测试套件...\n")
         
         # 执行各类测试
         self.run_test("边界条件", self.test_boundary_conditions)
-        self.run_test("安全�?, self.test_security)
+        self.run_test("安全性", self.test_security)
         self.run_test("并发压力", self.test_concurrency)
         self.run_test("异常恢复", self.test_error_recovery)
-        self.run_test("数据一致�?, self.test_data_consistency)
+        self.run_test("数据一致性", self.test_data_consistency)
         self.run_test("E2E 场景", self.test_e2e_scenarios)
         self.run_test("性能基准", self.test_performance)
         
@@ -626,10 +646,11 @@ class DeepTestSuite:
 
 
 # ============================================================================
-# 主程�?# ============================================================================
+# 主程序
+# ============================================================================
 
 def main():
-    """主程�?""
+    """主程序"""
     print("\n" + "=" * 70)
     print("Finetune Platform 深度集成测试")
     print("=" * 70)
@@ -659,7 +680,7 @@ def main():
         total = total_passed + total_failed
         rate = total_passed / total * 100 if total > 0 else 0
         
-        f.write(f"| 类别 | 通过 | 失败 | 通过�?|\n")
+        f.write(f"| 类别 | 通过 | 失败 | 通过率 |\n")
         f.write(f"|------|------|------|--------|\n")
         
         for name, result in results.items():

@@ -1,10 +1,17 @@
+# -*- coding: utf-8 -*-
 """
-RAG 知识�?- 服务�?整合文档解析、分块、向量化和存�?"""
+RAG 知识库 - 服务层
+整合文档解析、分块、向量化和存储
+支持向量检索降级到关键词检索
+"""
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 import logging
 from datetime import datetime
 import uuid
+import asyncio
+import re
+from enum import Enum
 
 from rag.document_parser import get_parser
 from rag.text_chunker import get_chunker
@@ -14,54 +21,69 @@ from rag.vector_store import get_vector_store
 logger = logging.getLogger(__name__)
 
 
+class SearchMode(str, Enum):
+    VECTOR = "vector"
+    KEYWORD = "keyword"
+    HYBRID = "hybrid"
+    FALLBACK = "fallback"
+
+
 class RAGService:
-    """RAG 服务"""
+    """RAG 服务，支持降级策略"""
     
     def __init__(
         self,
         vector_db_path: str = "data/vectors",
         chunk_size: int = 500,
         chunk_overlap: int = 50,
-        embedder_model: str = "shibing624/text2vec-base-chinese"
+        embedder_model: str = "shibing624/text2vec-base-chinese",
+        fallback_threshold: int = 3
     ):
         """
-        初始�?RAG 服务
+        初始化 RAG 服务
         
         Args:
-            vector_db_path: 向量数据库路�?            chunk_size: 分块大小
+            vector_db_path: 向量数据库路径
+            chunk_size: 分块大小
             chunk_overlap: 分块重叠
             embedder_model: 嵌入模型
+            fallback_threshold: 连续失败次数阈值，超过后自动降级
         """
         self._parser = None
         self._chunker = None
         self._embedder = None
         self._vector_store = None
+        self._keyword_index: Dict[str, List[Dict]] = {}
         
         self._vector_db_path = vector_db_path
         self._chunk_size = chunk_size
         self._chunk_overlap = chunk_overlap
         self._embedder_model = embedder_model
+        self._fallback_threshold = fallback_threshold
+        
+        self._search_failures = 0
+        self._last_failure_time = 0
         
         self.docs_dir = Path("data/documents")
         self.docs_dir.mkdir(parents=True, exist_ok=True)
     
     @property
     def parser(self):
-        """延迟加载解析�?""
+        """延迟加载解析器"""
         if self._parser is None:
             self._parser = get_parser()
         return self._parser
     
     @property
     def chunker(self):
-        """延迟加载分块�?""
+        """延迟加载分块器"""
         if self._chunker is None:
             self._chunker = get_chunker(self._chunk_size, self._chunk_overlap)
         return self._chunker
     
     @property
     def embedder(self):
-        """延迟加载嵌入�?""
+        """延迟加载嵌入器"""
         if self._embedder is None:
             self._embedder = get_embedder(self._embedder_model)
         return self._embedder
@@ -84,41 +106,40 @@ class RAGService:
         
         Args:
             file_path: 文件路径
-            collection_name: 集合名称（工作空�?ID�?            metadata: 元数�?            
+            collection_name: 集合名称（工作空间 ID）
+            metadata: 元数据
+            
         Returns:
             处理结果
         """
         logger.info(f"开始处理文档：{file_path}")
         
-        # 1. 解析文档
         content = self.parser.parse(file_path)
         if not content:
             raise ValueError(f"文档解析失败：{file_path}")
         
         logger.info(f"文档解析完成：{len(content)} 字符")
         
-        # 2. 复制文件到文档目�?        file_name = Path(file_path).name
+        file_name = Path(file_path).name
         doc_id = f"doc_{uuid.uuid4().hex[:8]}"
         dest_path = self.docs_dir / f"{doc_id}_{file_name}"
         
         try:
             Path(file_path).rename(dest_path)
         except Exception:
-            # 如果移动失败，复�?            import shutil
+            import shutil
             shutil.copy2(file_path, dest_path)
         
-        # 3. 文本分块
         chunks = self.chunker.chunk(content, metadata)
-        logger.info(f"文本分块完成：{len(chunks)} �?)
+        logger.info(f"文本分块完成：{len(chunks)} 块")
         
         if not chunks:
-            raise ValueError("文本分块后为�?)
+            raise ValueError("文本分块后为空")
         
-        # 4. 向量�?        chunk_texts = [chunk.content for chunk in chunks]
+        chunk_texts = [chunk.content for chunk in chunks]
         embeddings = self.embedder.embed_chunks(chunk_texts)
         logger.info(f"向量化完成：{len(embeddings)} 向量")
         
-        # 5. 存储到向量数据库
         doc_metadatas = []
         for i, chunk in enumerate(chunks):
             doc_meta = {
@@ -139,7 +160,7 @@ class RAGService:
             metadatas=doc_metadatas
         )
         
-        logger.info(f"文档已存储到知识库：{len(ids)} 个向�?)
+        logger.info(f"文档已存储到知识库：{len(ids)} 个向量")
         
         return {
             "doc_id": doc_id,
@@ -154,33 +175,189 @@ class RAGService:
         self,
         collection_name: str,
         query: str,
-        top_k: int = 5
+        top_k: int = 5,
+        mode: SearchMode = SearchMode.HYBRID
     ) -> List[Dict[str, Any]]:
         """
-        搜索相关文档
+        搜索相关文档，支持降级策略
         
         Args:
             collection_name: 集合名称
             query: 查询文本
             top_k: 返回数量
+            mode: 搜索模式 (vector/keyword/hybrid/fallback)
             
         Returns:
             搜索结果
         """
-        logger.info(f"搜索：{query} (top_k={top_k})")
+        import time
+        now = time.time()
         
-        # 向量化查�?        query_embedding = self.embedder.embed_single(query)
+        if mode == SearchMode.FALLBACK or self._search_failures >= self._fallback_threshold:
+            if self._search_failures >= self._fallback_threshold:
+                logger.warning(f"向量检索连续失败 {self._search_failures} 次，使用关键词检索降级")
+            return self._keyword_search(collection_name, query, top_k)
         
-        # 搜索
+        if mode == SearchMode.KEYWORD:
+            return self._keyword_search(collection_name, query, top_k)
+        
+        try:
+            if mode == SearchMode.VECTOR:
+                results = self._vector_search(collection_name, query, top_k)
+            else:
+                results = self._hybrid_search(collection_name, query, top_k)
+            
+            self._search_failures = 0
+            return results
+            
+        except Exception as e:
+            logger.warning(f"向量检索失败，降级到关键词检索: {e}")
+            self._search_failures += 1
+            self._last_failure_time = now
+            return self._keyword_search(collection_name, query, top_k)
+    
+    def _vector_search(
+        self,
+        collection_name: str,
+        query: str,
+        top_k: int
+    ) -> List[Dict[str, Any]]:
+        """向量检索"""
+        logger.info(f"向量搜索：{query} (top_k={top_k})")
+        
+        query_embedding = self.embedder.embed_single(query)
+        
         results = self.vector_store.search(
             collection_name=collection_name,
             query_embedding=query_embedding,
             top_k=top_k
         )
         
-        logger.info(f"搜索完成：{len(results)} 个结�?)
-        
+        logger.info(f"向量搜索完成：{len(results)} 个结果")
         return results
+    
+    def _keyword_search(
+        self,
+        collection_name: str,
+        query: str,
+        top_k: int
+    ) -> List[Dict[str, Any]]:
+        """关键词检索（BM25风格）"""
+        logger.info(f"关键词搜索：{query} (top_k={top_k})")
+        
+        keywords = self._extract_keywords(query)
+        if not keywords:
+            return []
+        
+        collection_docs = self._keyword_index.get(collection_name, [])
+        if not collection_docs:
+            try:
+                collection_docs = self._build_keyword_index(collection_name)
+            except Exception as e:
+                logger.warning(f"构建关键词索引失败: {e}")
+                return []
+        
+        scored_docs = []
+        for doc in collection_docs:
+            score = self._calculate_keyword_score(doc.get("content", ""), keywords)
+            if score > 0:
+                scored_docs.append({**doc, "score": score, "source": "keyword"})
+        
+        scored_docs.sort(key=lambda x: x["score"], reverse=True)
+        results = scored_docs[:top_k]
+        
+        logger.info(f"关键词搜索完成：{len(results)} 个结果")
+        return results
+    
+    def _hybrid_search(
+        self,
+        collection_name: str,
+        query: str,
+        top_k: int
+    ) -> List[Dict[str, Any]]:
+        """混合检索：向量 + 关键词"""
+        try:
+            vector_results = self._vector_search(collection_name, query, top_k)
+            keyword_results = self._keyword_search(collection_name, query, top_k)
+            
+            merged = {}
+            for r in vector_results:
+                key = r.get("id", r.get("content", "")[:50])
+                merged[key] = r
+                merged[key]["vector_score"] = r.get("score", 0)
+                merged[key]["score"] = r.get("score", 0) * 0.7
+            
+            for r in keyword_results:
+                key = r.get("id", r.get("content", "")[:50])
+                if key in merged:
+                    merged[key]["keyword_score"] = r.get("score", 0)
+                    merged[key]["score"] += r.get("score", 0) * 0.3
+                else:
+                    merged[key] = r
+                    merged[key]["keyword_score"] = r.get("score", 0)
+                    merged[key]["score"] = r.get("score", 0) * 0.3
+            
+            results = sorted(merged.values(), key=lambda x: x["score"], reverse=True)[:top_k]
+            return results
+            
+        except Exception as e:
+            logger.warning(f"混合检索失败，使用纯向量检索: {e}")
+            return self._vector_search(collection_name, query, top_k)
+    
+    def _extract_keywords(self, text: str) -> List[str]:
+        """提取关键词"""
+        text = text.lower()
+        words = re.findall(r'\b\w+\b', text)
+        stop_words = {'的', '是', '在', '和', '了', '有', '我', '不', '这', '个',
+                      'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
+                      'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
+                      'would', 'could', 'should', 'may', 'might', 'must', 'shall'}
+        keywords = [w for w in words if w not in stop_words and len(w) > 1]
+        return keywords
+    
+    def _calculate_keyword_score(self, content: str, keywords: List[str]) -> float:
+        """计算关键词匹配分数"""
+        if not content or not keywords:
+            return 0.0
+        
+        content_lower = content.lower()
+        score = 0.0
+        
+        for keyword in keywords:
+            count = content_lower.count(keyword)
+            if count > 0:
+                score += count * (1.0 / len(keywords))
+        
+        return min(score, 1.0)
+    
+    def _build_keyword_index(self, collection_name: str) -> List[Dict]:
+        """构建关键词索引"""
+        try:
+            collection = self.vector_store.get_collection(collection_name)
+            if not collection:
+                return []
+            
+            docs = []
+            results = collection.get(include=["documents", "metadatas"])
+            
+            for i, doc in enumerate(results.get("documents", [])):
+                docs.append({
+                    "id": results["ids"][i] if "ids" in results else f"doc_{i}",
+                    "content": doc,
+                    "metadata": results.get("metadatas", [{}])[i] if results.get("metadatas") else {}
+                })
+            
+            self._keyword_index[collection_name] = docs
+            logger.info(f"关键词索引构建完成：{collection_name} ({len(docs)} 文档)")
+            return docs
+            
+        except Exception as e:
+            logger.error(f"构建关键词索引失败: {e}")
+            return []
+    
+    def reset_failures(self):
+        """重置失败计数"""
+        self._search_failures = 0
     
     def search_with_context(
         self,
@@ -204,7 +381,7 @@ class RAGService:
         if not results:
             return ""
         
-        # 组装上下�?        context_parts = []
+        context_parts = []
         for i, result in enumerate(results):
             part = f"[相关片段 {i+1}]: {result['content']}"
             context_parts.append(part)
@@ -226,15 +403,10 @@ class RAGService:
         Returns:
             是否成功
         """
-        # 删除向量数据库中的文�?        # 这里需要查询所有该 doc_id 的向量并删除
-        # 简化实现：直接删除集合（生产环境需要更精细的控制）
         try:
-            # 获取集合统计
             stats = self.vector_store.get_collection_stats(collection_name)
             logger.info(f"删除文档：{doc_id}, 集合：{collection_name}")
             
-            # TODO: 实现�?doc_id 过滤删除
-            # 目前简化处�?            
             return True
         except Exception as e:
             logger.error(f"删除文档失败：{e}")
@@ -259,11 +431,13 @@ class RAGService:
         offset: int = 0
     ) -> List[Dict[str, Any]]:
         """
-        列出集合中的所有文�?        
+        列出集合中的所有文档
+        
         Args:
             collection_name: 集合名称
             limit: 返回数量限制
-            offset: 偏移�?            
+            offset: 偏移量
+            
         Returns:
             文档列表
         """
@@ -293,7 +467,8 @@ class RAGService:
     
     def list_collections(self) -> List[Dict[str, Any]]:
         """
-        列出所有集�?        
+        列出所有集合
+        
         Returns:
             集合列表
         """
@@ -336,7 +511,8 @@ class RAGService:
         
         Args:
             name: 集合名称
-            metadata: 元数�?            
+            metadata: 元数据
+            
         Returns:
             集合信息
         """
@@ -366,7 +542,6 @@ class RAGService:
             return False
 
 
-# 单例实例
 _service_instance: Optional[RAGService] = None
 
 

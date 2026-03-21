@@ -1,6 +1,11 @@
+# -*- coding: utf-8 -*-
 """
-项目扫描�?- 分析项目结构和特�?
-功能�?- 技术栈检测（Python/JS 框架识别�?- 项目结构分析（目录树�?- 依赖解析（requirements.txt / package.json�?- 关键文件识别
+项目扫描器 - 分析项目结构和特征
+功能：
+- 技术栈检测（Python/JS 框架识别）
+- 项目结构分析（目录树）
+- 依赖解析（requirements.txt / package.json）
+- 关键文件识别
 - 代码风格分析
 - Git 信息获取
 """
@@ -24,9 +29,8 @@ logger = logging.getLogger(__name__)
 
 
 class ProjectScanner:
-    """项目扫描�?""
+    """项目扫描器"""
 
-    # 语言配置文件定义
     LANGUAGE_CONFIGS = {
         "python": {
             "files": ["requirements.txt", "setup.py", "pyproject.toml", "Pipfile"],
@@ -77,7 +81,6 @@ class ProjectScanner:
         }
     }
 
-    # 关键文件模式
     KEY_FILE_PATTERNS = {
         "main": ["main.py", "main.js", "main.ts", "index.js", "index.ts", "app.py", "app.js"],
         "config": ["config.py", "config.ts", "settings.py", ".env", "config.json", "config.yaml"],
@@ -88,7 +91,7 @@ class ProjectScanner:
         "test": ["test_*.py", "*_test.py", "*.test.ts", "*.test.js", "tests/*.py"],
     }
 
-    # 领域关键�?    DOMAIN_KEYWORDS = {
+    DOMAIN_KEYWORDS = {
         "电商": ["shop", "cart", "product", "order", "payment", "store", "mall"],
         "社交": ["user", "friend", "message", "post", "comment", "like", "share"],
         "金融": ["payment", "transaction", "account", "bank", "trade", "stock"],
@@ -98,23 +101,31 @@ class ProjectScanner:
         "通用": []
     }
 
-    def __init__(self, project_path: str):
+    def __init__(self, project_path: str = ""):
         """
         初始化项目扫描器
 
         Args:
-            project_path: 项目根路�?        """
-        self.project_path = Path(project_path).resolve()
-        if not self.project_path.exists():
-            raise FileNotFoundError(f"项目路径不存在：{project_path}")
+            project_path: 项目根路径
+        """
+        self.project_path = Path(project_path).resolve() if project_path else Path.cwd()
 
-    def scan(self) -> ProjectInfo:
+    def scan(self, project_path: str = None) -> ProjectInfo:
         """
         扫描整个项目
+
+        Args:
+            project_path: 项目路径（可选，覆盖初始化时的路径）
 
         Returns:
             项目完整信息
         """
+        if project_path:
+            self.project_path = Path(project_path).resolve()
+        
+        if not self.project_path.exists():
+            raise FileNotFoundError(f"项目路径不存在：{self.project_path}")
+
         logger.info(f"开始扫描项目：{self.project_path}")
 
         project_info = ProjectInfo(
@@ -123,28 +134,13 @@ class ProjectScanner:
             scanned_at=datetime.now().isoformat(),
         )
 
-        # 1. 检测技术栈
         project_info.tech_stack = self._detect_tech_stack()
-
-        # 2. 构建项目结构
         project_info.structure = self._build_structure()
-
-        # 3. 解析依赖
         project_info.dependencies = self._parse_dependencies()
-
-        # 4. 分析代码风格
         project_info.code_style = self._analyze_code_style()
-
-        # 5. 查找关键文件
         project_info.key_files = self._find_key_files()
-
-        # 6. 获取 Git 信息
         project_info.git_info = self._get_git_info()
-
-        # 7. 推断架构模式
         project_info.architecture = self._detect_architecture()
-
-        # 8. 推断项目领域
         project_info.domain = self._detect_domain()
 
         logger.info(f"项目扫描完成：{project_info.name}")
@@ -156,15 +152,13 @@ class ProjectScanner:
     def _detect_tech_stack(self) -> TechStack:
         """检测技术栈"""
         tech_stack = TechStack(language="unknown", frameworks=[], libraries=[], ui_frameworks=[], databases=[])
-
         detected_languages = []
 
         for lang, config in self.LANGUAGE_CONFIGS.items():
-            # 检查特征文�?            for file in config["files"]:
+            for file in config["files"]:
                 if (self.project_path / file).exists():
                     detected_languages.append(lang)
-
-                    # 检测具体框架和�?                    if lang == "javascript":
+                    if lang == "javascript":
                         self._detect_js_frameworks(tech_stack)
                     elif lang == "python":
                         self._detect_python_frameworks(tech_stack)
@@ -172,9 +166,7 @@ class ProjectScanner:
                         self._detect_java_frameworks(tech_stack)
                     break
 
-        # 确定主要语言
         if detected_languages:
-            # 优先选择更具体的语言
             if "javascript" in detected_languages:
                 tech_stack.language = "javascript"
             elif "python" in detected_languages:
@@ -184,7 +176,6 @@ class ProjectScanner:
             else:
                 tech_stack.language = detected_languages[0]
 
-        # 去重
         tech_stack.frameworks = list(set(tech_stack.frameworks))
         tech_stack.libraries = list(set(tech_stack.libraries))
         tech_stack.ui_frameworks = list(set(tech_stack.ui_frameworks))
@@ -192,7 +183,7 @@ class ProjectScanner:
         return tech_stack
 
     def _detect_js_frameworks(self, tech_stack: TechStack):
-        """检�?JavaScript 框架"""
+        """检测 JavaScript 框架"""
         pkg_file = self.project_path / "package.json"
         if not pkg_file.exists():
             return
@@ -218,8 +209,7 @@ class ProjectScanner:
             logger.warning(f"解析 package.json 失败：{e}")
 
     def _detect_python_frameworks(self, tech_stack: TechStack):
-        """检�?Python 框架"""
-        # 检�?requirements.txt
+        """检测 Python 框架"""
         req_file = self.project_path / "requirements.txt"
         if req_file.exists():
             try:
@@ -237,13 +227,12 @@ class ProjectScanner:
             except Exception as e:
                 logger.warning(f"解析 requirements.txt 失败：{e}")
 
-        # 检�?pyproject.toml
         pyproject_file = self.project_path / "pyproject.toml"
         if pyproject_file.exists():
             try:
                 with open(pyproject_file, "r", encoding="utf-8") as f:
                     content = f.read().lower()
-                    # 简单检�?                    if "fastapi" in content:
+                    if "fastapi" in content:
                         tech_stack.frameworks.append("FastAPI")
                     if "flask" in content:
                         tech_stack.frameworks.append("Flask")
@@ -251,7 +240,7 @@ class ProjectScanner:
                 logger.warning(f"解析 pyproject.toml 失败：{e}")
 
     def _detect_java_frameworks(self, tech_stack: TechStack):
-        """检�?Java 框架"""
+        """检测 Java 框架"""
         pom_file = self.project_path / "pom.xml"
         if pom_file.exists():
             try:
@@ -266,7 +255,7 @@ class ProjectScanner:
                 logger.warning(f"解析 pom.xml 失败：{e}")
 
     def _build_structure(self, depth: int = 3) -> Optional[ProjectStructure]:
-        """构建项目结构�?""
+        """构建项目结构树"""
 
         def scan_dir(path: Path, current_depth: int) -> ProjectStructure:
             if current_depth > depth:
@@ -285,7 +274,7 @@ class ProjectScanner:
 
             try:
                 for item in sorted(path.iterdir()):
-                    # 跳过忽略的模�?                    if self._should_ignore(item):
+                    if self._should_ignore(item):
                         continue
 
                     if item.is_file():
@@ -301,7 +290,8 @@ class ProjectScanner:
                             continue
                     else:
                         child = scan_dir(item, current_depth + 1)
-                        if child.children:  # 只添加有内容的目�?                            structure.children.append(child)
+                        if child.children:
+                            structure.children.append(child)
             except PermissionError:
                 pass
 
@@ -314,7 +304,7 @@ class ProjectScanner:
         path_str = str(path)
         name = path.name
 
-        # 检查所有语言的忽略模�?        for config in self.LANGUAGE_CONFIGS.values():
+        for config in self.LANGUAGE_CONFIGS.values():
             for pattern in config["ignore_patterns"]:
                 if pattern.startswith("*"):
                     if name.endswith(pattern[1:]):
@@ -328,7 +318,6 @@ class ProjectScanner:
         """解析项目依赖"""
         deps = {}
 
-        # Python 依赖
         req_file = self.project_path / "requirements.txt"
         if req_file.exists():
             try:
@@ -337,14 +326,12 @@ class ProjectScanner:
                     for line in f:
                         line = line.strip()
                         if line and not line.startswith("#"):
-                            # 提取包名（去掉版本信息）
                             pkg_name = line.split("==")[0].split(">=")[0].split("<=")[0].strip()
                             python_deps.append(pkg_name)
                     deps["python"] = python_deps
             except Exception as e:
                 logger.warning(f"解析 requirements.txt 失败：{e}")
 
-        # JavaScript 依赖
         pkg_file = self.project_path / "package.json"
         if pkg_file.exists():
             try:
@@ -362,13 +349,12 @@ class ProjectScanner:
     def _analyze_code_style(self) -> Dict[str, Any]:
         """分析代码风格"""
         style = {
-            "indentation": "space",  # space �?tab
-            "quote": "single",  # single �?double
+            "indentation": "space",
+            "quote": "single",
             "line_length": 88,
-            "naming_convention": "snake_case"  # snake_case, camelCase, PascalCase
+            "naming_convention": "snake_case"
         }
 
-        # 分析 Python 文件
         py_files = list(self.project_path.glob("**/*.py"))[:10]
         if py_files:
             indent_counts = {"space": 0, "tab": 0}
@@ -377,34 +363,15 @@ class ProjectScanner:
             for py_file in py_files:
                 try:
                     with open(py_file, "r", encoding="utf-8", errors="ignore") as f:
-                        content = f.read(2000)  # 只读取前 2000 字符
+                        content = f.read(2000)
 
-                        # 检测缩�?                        lines = content.split("\n")[:50]
+                        lines = content.split("\n")[:50]
                         for line in lines:
                             if line.startswith("    "):
                                 indent_counts["space"] += 1
                             elif line.startswith("\t"):
                                 indent_counts["tab"] += 1
 
-                        # 检测引�?                        if content.count("'") > content.count('"'):
-                            quote_counts["single"] += 1
-                        else:
-                            quote_counts["double"] += 1
-                except (PermissionError, OSError):
-                    continue
-
-            style["indentation"] = max(indent_counts, key=indent_counts.get)
-            style["quote"] = max(quote_counts, key=quote_counts.get)
-
-        # 分析 JS/TS 文件
-        js_files = list(self.project_path.glob("**/*.{js,ts,tsx}"))[:10]
-        if js_files:
-            quote_counts = {"single": 0, "double": 0}
-
-            for js_file in js_files:
-                try:
-                    with open(js_file, "r", encoding="utf-8", errors="ignore") as f:
-                        content = f.read(2000)
                         if content.count("'") > content.count('"'):
                             quote_counts["single"] += 1
                         else:
@@ -412,6 +379,7 @@ class ProjectScanner:
                 except (PermissionError, OSError):
                     continue
 
+            style["indentation"] = max(indent_counts, key=indent_counts.get)
             style["quote"] = max(quote_counts, key=quote_counts.get)
 
         return style
@@ -423,12 +391,13 @@ class ProjectScanner:
         for category, patterns in self.KEY_FILE_PATTERNS.items():
             for pattern in patterns:
                 try:
-                    # 处理通配符模�?                    if "*" in pattern:
+                    if "*" in pattern:
                         matches = list(self.project_path.glob(f"**/{pattern}"))
                     else:
                         matches = list(self.project_path.glob(f"**/{pattern}"))
 
-                    for match in matches[:3]:  # 每个模式最�?3 个文�?                        try:
+                    for match in matches[:3]:
+                        try:
                             rel_path = str(match.relative_to(self.project_path))
                             file_info = FileInfo(
                                 path=rel_path,
@@ -505,29 +474,27 @@ class ProjectScanner:
         return git_info
 
     def _detect_architecture(self) -> str:
-        """检测架构模�?""
+        """检测架构模式"""
         structure = self._build_structure(depth=2)
         if not structure:
             return "Unknown"
 
         dir_names = [child.name for child in structure.children if child.type == "folder"]
 
-        # MVC 模式
         if any(name in dir_names for name in ["controllers", "views", "models"]):
             return "MVC"
 
-        # 分层架构
         if any(name in dir_names for name in ["services", "controllers", "repositories"]):
             return "Layered"
 
-        # 微服务（多个独立服务目录�?        service_like_dirs = [
+        service_like_dirs = [
             name for name in dir_names
             if any(kw in name.lower() for kw in ["service", "api", "app", "micro"])
         ]
         if len(service_like_dirs) > 3:
             return "Microservices"
 
-        # 前后端分�?        has_frontend = any(name in dir_names for name in ["client", "frontend", "web", "src"])
+        has_frontend = any(name in dir_names for name in ["client", "frontend", "web", "src"])
         has_backend = any(name in dir_names for name in ["server", "backend", "api"])
         if has_frontend and has_backend:
             return "Frontend/Backend Separated"
@@ -535,14 +502,13 @@ class ProjectScanner:
         return "Monolithic"
 
     def _detect_domain(self) -> str:
-        """检测项目领�?""
-        # 收集所有文本用于关键词匹配
+        """检测项目领域"""
         all_text = []
 
-        # 关键文件�?        for key_file in self._find_key_files():
+        for key_file in self._find_key_files():
             all_text.append(key_file.name.lower())
 
-        # 依赖�?        deps = self._parse_dependencies()
+        deps = self._parse_dependencies()
         for lang, lang_deps in deps.items():
             if isinstance(lang_deps, list):
                 all_text.extend([d.lower() for d in lang_deps])
@@ -553,8 +519,14 @@ class ProjectScanner:
 
         all_text_str = " ".join(all_text)
 
-        # 匹配领域关键�?        for domain, keywords in self.DOMAIN_KEYWORDS.items():
+        for domain, keywords in self.DOMAIN_KEYWORDS.items():
             if keywords and any(kw in all_text_str for kw in keywords):
                 return domain
 
         return "通用"
+
+
+def scan_project(project_path: str) -> ProjectInfo:
+    """扫描项目的便捷函数"""
+    scanner = ProjectScanner(project_path)
+    return scanner.scan()

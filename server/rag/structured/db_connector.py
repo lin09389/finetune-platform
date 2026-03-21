@@ -1,5 +1,6 @@
+# -*- coding: utf-8 -*-
 """
-结构化数�?- 数据库连接器
+结构化数据 - 数据库连接器
 支持 SQLite、PostgreSQL 等数据库连接
 """
 from typing import List, Dict, Any, Optional, Union, AsyncIterator
@@ -16,20 +17,20 @@ logger = logging.getLogger(__name__)
 
 
 class ConnectionConfig(BaseModel):
-    """数据库连接配�?""
+    """数据库连接配置"""
     db_type: str = Field(..., description="数据库类型：sqlite/postgresql/mysql")
     host: str = Field(default="localhost", description="主机地址")
     port: int = Field(default=5432, description="端口")
-    database: str = Field(..., description="数据库名�?路径")
-    username: Optional[str] = Field(default=None, description="用户�?)
+    database: str = Field(..., description="数据库名或路径")
+    username: Optional[str] = Field(default=None, description="用户名")
     password: Optional[str] = Field(default=None, description="密码")
     schema_name: str = Field(default="public", description="Schema 名称")
-    pool_size: int = Field(default=5, description="连接池大�?)
-    connect_timeout: int = Field(default=30, description="连接超时（秒�?)
+    pool_size: int = Field(default=5, description="连接池大小")
+    connect_timeout: int = Field(default=30, description="连接超时（秒）")
 
 
 class TableSchema(BaseModel):
-    """表结构信�?""
+    """表结构信息"""
     table_name: str
     columns: List[Dict[str, Any]]
     primary_keys: List[str] = Field(default_factory=list)
@@ -69,7 +70,7 @@ class DatabaseConnector(ABC):
     
     @abstractmethod
     def is_connected(self) -> bool:
-        """检查连接状�?""
+        """检查连接状态"""
         pass
     
     @abstractmethod
@@ -93,17 +94,17 @@ class DatabaseConnector(ABC):
     
     @abstractmethod
     def get_tables(self) -> List[str]:
-        """获取所有表�?""
+        """获取所有表名"""
         pass
     
     @abstractmethod
     def get_table_schema(self, table_name: str) -> Optional[TableSchema]:
-        """获取表结�?""
+        """获取表结构"""
         pass
     
     @abstractmethod
     def get_table_sample(self, table_name: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """获取表数据样�?""
+        """获取表数据样本"""
         pass
     
     @contextmanager
@@ -127,7 +128,7 @@ class DatabaseConnector(ABC):
             if self.connect():
                 tables = self.get_tables()
                 result["success"] = True
-                result["message"] = f"连接成功，发�?{len(tables)} 个表"
+                result["message"] = f"连接成功，发现 {len(tables)} 个表"
                 result["table_count"] = len(tables)
             else:
                 result["message"] = "连接失败"
@@ -137,7 +138,7 @@ class DatabaseConnector(ABC):
         return result
     
     def get_database_info(self) -> Dict[str, Any]:
-        """获取数据库信�?""
+        """获取数据库信息"""
         tables = self.get_tables()
         
         info = {
@@ -186,11 +187,11 @@ class SQLiteConnector(DatabaseConnector):
         if self._connection:
             self._connection.close()
             self._connection = None
-            logger.info("SQLite 连接已关�?)
+            logger.info("SQLite 连接已关闭")
         return True
     
     def is_connected(self) -> bool:
-        """检查连接状�?""
+        """检查连接状态"""
         return self._connection is not None
     
     def execute(
@@ -271,14 +272,14 @@ class SQLiteConnector(DatabaseConnector):
         return result
     
     def get_tables(self) -> List[str]:
-        """获取所有表�?""
+        """获取所有表名"""
         result = self.query(
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         )
         return [row["name"] for row in result.rows]
     
     def get_table_schema(self, table_name: str) -> Optional[TableSchema]:
-        """获取表结�?""
+        """获取表结构"""
         try:
             cursor = self._connection.cursor()
             cursor.execute(f"PRAGMA table_info({table_name})")
@@ -336,7 +337,7 @@ class SQLiteConnector(DatabaseConnector):
             return None
     
     def get_table_sample(self, table_name: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """获取表数据样�?""
+        """获取表数据样本"""
         result = self.query(f"SELECT * FROM {table_name} LIMIT {limit}")
         return result.rows
 
@@ -384,7 +385,7 @@ class PostgreSQLConnector(DatabaseConnector):
         return True
     
     def is_connected(self) -> bool:
-        """检查连接状�?""
+        """检查连接状态"""
         return self._pool is not None
     
     @contextmanager
@@ -479,7 +480,7 @@ class PostgreSQLConnector(DatabaseConnector):
         return result
     
     def get_tables(self) -> List[str]:
-        """获取所有表�?""
+        """获取所有表名"""
         result = self.query(
             f"""
             SELECT table_name 
@@ -492,7 +493,7 @@ class PostgreSQLConnector(DatabaseConnector):
         return [row["table_name"] for row in result.rows]
     
     def get_table_schema(self, table_name: str) -> Optional[TableSchema]:
-        """获取表结�?""
+        """获取表结构"""
         try:
             columns_result = self.query(
                 """
@@ -542,7 +543,7 @@ class PostgreSQLConnector(DatabaseConnector):
             return None
     
     def get_table_sample(self, table_name: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """获取表数据样�?""
+        """获取表数据样本"""
         result = self.query(f'SELECT * FROM "{table_name}" LIMIT {limit}')
         return result.rows
 
@@ -590,7 +591,7 @@ class MySQLConnector(DatabaseConnector):
         return True
     
     def is_connected(self) -> bool:
-        """检查连接状�?""
+        """检查连接状态"""
         return self._pool is not None
     
     @contextmanager
@@ -681,7 +682,7 @@ class MySQLConnector(DatabaseConnector):
         return result
     
     def get_tables(self) -> List[str]:
-        """获取所有表�?""
+        """获取所有表名"""
         result = self.query(
             "SELECT table_name FROM information_schema.tables WHERE table_schema = %s",
             params=(self.config.database,)
@@ -689,7 +690,7 @@ class MySQLConnector(DatabaseConnector):
         return [row["table_name"] for row in result.rows]
     
     def get_table_schema(self, table_name: str) -> Optional[TableSchema]:
-        """获取表结�?""
+        """获取表结构"""
         try:
             columns_result = self.query(
                 """
@@ -738,7 +739,7 @@ class MySQLConnector(DatabaseConnector):
             return None
     
     def get_table_sample(self, table_name: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """获取表数据样�?""
+        """获取表数据样本"""
         result = self.query(f"SELECT * FROM `{table_name}` LIMIT {limit}")
         return result.rows
 
@@ -759,10 +760,12 @@ def get_db_connector(
     获取数据库连接器
     
     Args:
-        db_type: 数据库类型（sqlite/postgresql/mysql�?        database: 数据库名�?路径
+        db_type: 数据库类型（sqlite/postgresql/mysql）
+        database: 数据库名或路径
         host: 主机地址
         port: 端口
-        username: 用户�?        password: 密码
+        username: 用户名
+        password: 密码
         
     Returns:
         数据库连接器实例
@@ -799,7 +802,7 @@ def get_db_connector(
 
 
 def create_sqlite_connector(db_path: str) -> SQLiteConnector:
-    """快速创�?SQLite 连接�?""
+    """快速创建 SQLite 连接器"""
     config = ConnectionConfig(
         db_type="sqlite",
         database=db_path
@@ -815,7 +818,7 @@ def create_postgresql_connector(
     port: int = 5432,
     schema_name: str = "public"
 ) -> PostgreSQLConnector:
-    """快速创�?PostgreSQL 连接�?""
+    """快速创建 PostgreSQL 连接器"""
     config = ConnectionConfig(
         db_type="postgresql",
         host=host,

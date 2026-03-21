@@ -1,5 +1,5 @@
 """
-MD Skill 加载�?�?Markdown 格式�?skill 文件转换为可执行�?Python skill
+MD Skill 加载器：将 Markdown 格式的 skill 文件转换为可执行的 Python skill
 """
 import os
 import re
@@ -17,14 +17,14 @@ from skills.models import (
 
 
 class MDSkillLoader:
-    """加载 MD 格式�?skill 文件"""
+    """加载 MD 格式的 skill 文件"""
     
     def __init__(self, skills_dir: Optional[Path] = None):
         # 默认从项目的 skills/md_skills 目录加载
         self.skills_dir = skills_dir or Path(__file__).parent / "md_skills"
     
     def load_all(self) -> List[type]:
-        """加载所�?MD skill 文件"""
+        """加载所有 MD skill 文件"""
         skills = []
         
         if not self.skills_dir.exists():
@@ -77,7 +77,7 @@ class MDSkillLoader:
         return frontmatter, body
     
     def _create_skill_class(self, name: str, description: str, body: str) -> type:
-        """动态创�?skill �?""
+        """动态创建 skill 类"""
         
         class MDSkill(SkillBase):
             _md_name = name
@@ -114,7 +114,7 @@ class MDSkillLoader:
                         "description": self._md_description,
                         "instructions": self._md_content,
                         "query": query,
-                        "message": f"已加�?skill: {self._md_name}，请根据以下指令处理用户请求",
+                        "message": f"已加载 skill: {self._md_name}，请根据以下指令处理用户请求",
                     },
                 )
         
@@ -123,7 +123,7 @@ class MDSkillLoader:
 
 
 def load_md_skills(registry):
-    """加载所�?MD skills 到注册表"""
+    """加载所有 MD skills 到注册表"""
     loader = MDSkillLoader()
     for skill_class in loader.load_all():
         registry.register(skill_class)

@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 项目功能全面测试脚本
-测试所有模块、API 端点、安全功�?"""
+测试所有模块、API 端点、安全功能
+"""
 import sys
 import os
 from pathlib import Path
@@ -45,7 +46,8 @@ def test_function(desc, func):
         print(f"  [ERROR] {desc}: {str(e)}")
         return False
 
-# 1. PyTorch 环境检�?print("\n[1] PyTorch 环境检�?)
+# 1. PyTorch 环境检查
+print("\n[1] PyTorch 环境检查")
 print("-" * 50)
 try:
     import torch
@@ -105,7 +107,7 @@ test_module("security.file_sandbox")
 test_module("security.audit_log")
 
 # 5. Context 模块测试
-print("\n[5] 项目上下文模块测�?)
+print("\n[5] 项目上下文模块测试")
 print("-" * 50)
 context_modules = [
     "context",
@@ -215,16 +217,16 @@ def test_audit_logger():
 test_function("审计日志测试", test_audit_logger)
 
 def test_providers():
-    """测试服务商列�?""
+    """测试服务商列表"""
     from ai.gateway import list_providers
     providers = list_providers()
     assert len(providers) > 0
     assert any(p['id'] == 'minimax' for p in providers)
 
-test_function("服务商列表测�?, test_providers)
+test_function("服务商列表测试", test_providers)
 
 def test_context_scanner():
-    """测试项目扫描�?""
+    """测试项目扫描器"""
     from context.project_scanner import ProjectScanner
     
     # 测试扫描当前项目
@@ -233,7 +235,7 @@ def test_context_scanner():
     assert info.name
     assert info.tech_stack
 
-test_function("项目扫描器测�?, test_context_scanner)
+test_function("项目扫描器测试", test_context_scanner)
 
 # 11. API 端点测试
 print("\n[11] API 端点测试")
@@ -246,12 +248,12 @@ try:
     client = TestClient(app)
     
     endpoints = [
-        ("/health", 200, "健康检�?),
-        ("/", 200, "根路�?),
+        ("/health", 200, "健康检查"),
+        ("/", 200, "根路径"),
         ("/api/info", 200, "API 信息"),
         ("/device/info", 200, "设备信息"),
         ("/context/projects", 200, "项目列表"),
-        ("/cloud/providers", 200, "云端服务�?),
+        ("/cloud/providers", 200, "云端服务商"),
         ("/cloud/api-keys", 200, "API Keys 列表"),
     ]
     
@@ -274,7 +276,8 @@ except Exception as e:
     print(f"  [ERROR] API 测试失败：{e}")
     results["errors"].append(f"[ERROR] API 测试：{str(e)}")
 
-# 12. 目录结构检�?print("\n[12] 目录结构检�?)
+# 12. 目录结构检查
+print("\n[12] 目录结构检查")
 print("-" * 50)
 
 server_path = Path(__file__).parent
@@ -285,10 +288,11 @@ for d in required_dirs:
         print(f"  [OK] {d}/")
         results["passed"].append(f"[OK] 目录：{d}")
     else:
-        print(f"  [ERROR] {d}/ (不存�?")
+        print(f"  [ERROR] {d}/ (不存在)")
         results["errors"].append(f"[ERROR] 目录不存在：{d}")
 
-# 13. 关键文件检�?print("\n[13] 关键文件检�?)
+# 13. 关键文件检查
+print("\n[13] 关键文件检查")
 print("-" * 50)
 
 required_files = [
@@ -302,7 +306,7 @@ for f in required_files:
         print(f"  [OK] {f}")
         results["passed"].append(f"[OK] 文件：{f}")
     else:
-        print(f"  [ERROR] {f} (不存�?")
+        print(f"  [ERROR] {f} (不存在)")
         results["errors"].append(f"[ERROR] 文件不存在：{f}")
 
 # 安全模块文件
@@ -317,11 +321,12 @@ for f in security_files:
         print(f"  [OK] {f}")
         results["passed"].append(f"[OK] 安全文件：{f}")
     else:
-        print(f"  [ERROR] {f} (不存�?")
+        print(f"  [ERROR] {f} (不存在)")
         results["errors"].append(f"[ERROR] 安全文件不存在：{f}")
 
-# 打印汇�?print("\n" + "=" * 70)
-print("测试结果汇�?)
+# 打印汇总
+print("\n" + "=" * 70)
+print("测试结果汇总")
 print("=" * 70)
 
 print(f"\n通过：{len(results['passed'])}")
@@ -352,9 +357,9 @@ print(f"通过率：{pass_rate:.1f}%")
 if len(results['errors']) == 0:
     print("\n[OK] 所有测试通过！项目功能正常！")
 elif len(results['errors']) <= 3:
-    print("\n[WARN] 大部分功能正常，有少量错误需要修�?)
+    print("\n[WARN] 大部分功能正常，有少量错误需要修复")
 else:
-    print("\n[ERROR] 存在多个错误，需要检查修�?)
+    print("\n[ERROR] 存在多个错误，需要检查修复")
 
 print("\n" + "=" * 70)
 print("测试完成!")

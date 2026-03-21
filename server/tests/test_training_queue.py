@@ -22,7 +22,7 @@ class TestTaskStatus:
     """TaskStatus 测试"""
 
     def test_status_values(self):
-        """测试状态�?""
+        """测试状态值"""
         assert TaskStatus.PENDING.value == "pending"
         assert TaskStatus.QUEUED.value == "queued"
         assert TaskStatus.RUNNING.value == "running"
@@ -36,7 +36,7 @@ class TestTaskPriority:
     """TaskPriority 测试"""
 
     def test_priority_order(self):
-        """测试优先级顺�?""
+        """测试优先级顺序"""
         assert TaskPriority.URGENT.value < TaskPriority.HIGH.value
         assert TaskPriority.HIGH.value < TaskPriority.NORMAL.value
         assert TaskPriority.NORMAL.value < TaskPriority.LOW.value
@@ -58,7 +58,7 @@ class TestTrainingTask:
         assert task.error is None
 
     def test_task_to_dict(self):
-        """测试任务转字�?""
+        """测试任务转字典"""
         task = TrainingTask(
             priority=TaskPriority.HIGH.value,
             created_at=1704067200.0,
@@ -72,7 +72,7 @@ class TestTrainingTask:
         assert data["status"] == "running"
 
     def test_task_comparison(self):
-        """测试任务比较（优先级队列�?""
+        """测试任务比较（优先级队列）"""
         task1 = TrainingTask(
             priority=TaskPriority.HIGH.value,
             created_at=100.0,
@@ -111,7 +111,7 @@ class TestTrainingQueue:
         q.stop()
 
     def test_init(self, queue):
-        """测试初始�?""
+        """测试初始化"""
         status = queue.get_queue_status()
         assert status["queue_size"] == 0
         assert status["running_count"] == 0
@@ -137,7 +137,7 @@ class TestTrainingQueue:
         assert executed.is_set()
 
     def test_submit_to_full_queue(self, queue):
-        """测试提交到已满队�?""
+        """测试提交到已满队列"""
         blocked = threading.Event()
 
         def blocking_callback():
@@ -175,7 +175,7 @@ class TestTrainingQueue:
         assert status["status"] == "cancelled"
 
     def test_cancel_queued_task(self, queue):
-        """P0-2: 测试取消队列中的任务"""
+        """测试取消队列中的任务"""
         blocked = threading.Event()
         task_started = threading.Event()
 
@@ -200,7 +200,7 @@ class TestTrainingQueue:
         blocked.set()
 
     def test_get_queue_status(self, queue):
-        """测试获取队列状�?""
+        """测试获取队列状态"""
         status = queue.get_queue_status()
         assert "queue_size" in status
         assert "running_count" in status
@@ -209,7 +209,7 @@ class TestTrainingQueue:
         assert "max_queue_size" in status
 
     def test_get_task_status(self, queue):
-        """测试获取任务状�?""
+        """测试获取任务状态"""
         executed = threading.Event()
 
         def callback():
@@ -224,7 +224,7 @@ class TestTrainingQueue:
         assert status["status"] == "completed"
 
     def test_get_pending_tasks(self, queue):
-        """测试获取待执行任�?""
+        """测试获取待执行任务"""
         blocked = threading.Event()
         task_started = threading.Event()
 
@@ -247,7 +247,7 @@ class TestTrainingQueue:
 
 
 class TestTrainingQueuePersistence:
-    """TrainingQueue 持久化测�?""
+    """TrainingQueue 持久化测试"""
 
     @pytest.fixture
     def temp_dir(self):
@@ -289,7 +289,7 @@ class TestTrainingQueuePersistence:
         queue2.stop()
 
     def test_atomic_write(self, temp_dir):
-        """P1-3: 测试原子写入"""
+        """测试原子写入"""
         state_file = temp_dir / "queue_state.json"
 
         queue = TrainingQueue(
@@ -321,7 +321,7 @@ class TestTrainingQueuePersistence:
 
 
 class TestTrainingQueuePriority:
-    """TrainingQueue 优先级测�?""
+    """TrainingQueue 优先级测试"""
 
     @pytest.fixture
     def temp_dir(self):
@@ -330,7 +330,7 @@ class TestTrainingQueuePriority:
             yield Path(d)
 
     def test_priority_order(self, temp_dir):
-        """测试优先级执行顺�?""
+        """测试优先级执行顺序"""
         state_file = temp_dir / "queue_state.json"
         queue = TrainingQueue(
             max_concurrent=1,

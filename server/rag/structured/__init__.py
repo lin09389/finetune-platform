@@ -1,5 +1,7 @@
+# -*- coding: utf-8 -*-
 """
-结构化数据支持模�?支持表格数据存储、数据库连接�?SQL 查询
+结构化数据支持模块
+支持表格数据存储、数据库连接和 SQL 查询
 """
 from rag.structured.table_store import (
     TableStore,

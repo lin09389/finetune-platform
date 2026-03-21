@@ -1,5 +1,6 @@
+# -*- coding: utf-8 -*-
 """
-RAG 知识�?- 重排序器
+RAG 知识库 - 重排序器
 使用 Cross-Encoder 对检索结果进行重排序
 """
 from typing import List, Dict, Any, Optional, Tuple
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 def _setup_hf_mirror():
-    """配置 HuggingFace 镜像源（解决国内访问问题�?""
+    """配置 HuggingFace 镜像源（解决国内访问问题）"""
     from core.config import get_settings
     
     settings = get_settings()
@@ -28,12 +29,12 @@ def _setup_hf_mirror():
     if hf_mirror in mirrors:
         endpoint = mirrors[hf_mirror]
         os.environ["HF_ENDPOINT"] = endpoint
-        logger.info(f"已配�?HuggingFace 镜像�? {endpoint}")
+        logger.info(f"已配置 HuggingFace 镜像：{endpoint}")
 
 
 @dataclass
 class RerankResult:
-    """重排序结�?""
+    """重排序结果"""
     id: str
     content: str
     score: float
@@ -53,13 +54,13 @@ class CrossEncoderReranker:
         batch_size: int = 32
     ):
         """
-        初始化重排序�?        
+        初始化重排序器
+        
         Args:
             model_name: Cross-Encoder 模型名称
-                - 中文：cross-encoder/ms-marco-MiniLM-L-6-v2
-                - 中文推荐：BAAI/bge-reranker-base
-                - 英文：cross-encoder/ms-marco-MiniLM-L-6-v2
-            device: 设备（cuda/cpu�?            max_length: 最大序列长�?            batch_size: 批次大小
+            device: 设备（cuda/cpu）
+            max_length: 最大序列长度
+            batch_size: 批次大小
         """
         self.model_name = model_name
         self.device = device
@@ -71,7 +72,7 @@ class CrossEncoderReranker:
         self._executor = ThreadPoolExecutor(max_workers=1)
     
     def _load_model(self):
-        """懒加载模�?""
+        """懒加载模型"""
         if self.model is None:
             _setup_hf_mirror()
             logger.info(f"加载 Cross-Encoder 模型：{self.model_name}")
@@ -88,7 +89,7 @@ class CrossEncoderReranker:
                 
                 logger.info("Cross-Encoder 模型加载完成")
             except ImportError:
-                logger.warning("sentence-transformers 未安装，使用备用重排序方�?)
+                logger.warning("sentence-transformers 未安装，使用备用重排序方法")
                 self.model = None
             except Exception as e:
                 logger.error(f"加载 Cross-Encoder 模型失败：{e}")
@@ -99,376 +100,219 @@ class CrossEncoderReranker:
         query: str,
         documents: List[str]
     ) -> List[float]:
-        """
-        备用相似度计算（当模型不可用时）
+        """备用相似度计算（无模型时使用）"""
+        from rag.embedder import get_embedder
         
-        Args:
-            query: 查询文本
-            documents: 文档列表
-            
-        Returns:
-            相似度分数列�?        """
-        try:
-            from rag.embedder import get_embedder
-            embedder = get_embedder()
-            
-            query_embedding = embedder.embed_single(query)
-            doc_embeddings = embedder.embed(documents)
-            
-            import numpy as np
-            query_vec = np.array(query_embedding)
-            doc_vecs = np.array(doc_embeddings)
-            
-            similarities = np.dot(doc_vecs, query_vec) / (
-                np.linalg.norm(doc_vecs, axis=1) * np.linalg.norm(query_vec) + 1e-8
-            )
-            
-            return similarities.tolist()
-        except Exception as e:
-            logger.warning(f"备用相似度计算失败：{e}")
-            return [0.5] * len(documents)
+        embedder = get_embedder()
+        query_embedding = embedder.embed_single(query)
+        doc_embeddings = embedder.embed(documents)
+        
+        scores = []
+        for doc_emb in doc_embeddings:
+            score = sum(a * b for a, b in zip(query_embedding, doc_emb))
+            scores.append(score)
+        
+        return scores
     
     def rerank(
         self,
         query: str,
-        results: List[Dict[str, Any]],
-        top_k: Optional[int] = None
+        documents: List[str],
+        ids: Optional[List[str]] = None,
+        metadatas: Optional[List[Dict[str, Any]]] = None,
+        top_k: int = 10
     ) -> List[RerankResult]:
         """
-        对检索结果进行重排序
+        重排序
         
         Args:
             query: 查询文本
-            results: 检索结果列�?            top_k: 返回数量（None 表示返回全部�?            
+            documents: 文档列表
+            ids: 文档 ID 列表
+            metadatas: 元数据列表
+            top_k: 返回结果数量
+            
         Returns:
-            重排序后的结�?        """
-        if not results:
+            重排序结果列表
+        """
+        if not documents:
             return []
+        
+        if ids is None:
+            ids = [f"doc_{i}" for i in range(len(documents))]
+        
+        if metadatas is None:
+            metadatas = [{}] * len(documents)
         
         self._load_model()
         
-        documents = [r.get("content", "") for r in results]
-        
         if self.model is not None:
             try:
-                pairs = [(query, doc) for doc in documents]
-                scores = self.model.predict(pairs, batch_size=self.batch_size)
-                
-                if hasattr(scores, 'tolist'):
-                    scores = scores.tolist()
+                pairs = [[query, doc] for doc in documents]
+                scores = self.model.predict(pairs)
             except Exception as e:
-                logger.warning(f"Cross-Encoder 预测失败：{e}，使用备用方�?)
+                logger.warning(f"Cross-Encoder 推理失败：{e}，使用备用方法")
                 scores = self._compute_similarity_fallback(query, documents)
         else:
             scores = self._compute_similarity_fallback(query, documents)
         
-        indexed_results = list(enumerate(results))
-        indexed_results.sort(key=lambda x: scores[x[0]], reverse=True)
+        ranked = sorted(
+            zip(ids, documents, scores, metadatas),
+            key=lambda x: x[2],
+            reverse=True
+        )
         
-        reranked_results = []
-        for new_rank, (original_rank, result) in enumerate(indexed_results):
-            reranked_results.append(RerankResult(
-                id=result.get("id", result.get("content", "")[:50]),
-                content=result.get("content", ""),
-                score=float(scores[original_rank]),
-                original_score=result.get("score", 0),
-                original_rank=original_rank,
-                metadata=result.get("metadata", {})
+        results = []
+        for rank, (doc_id, content, score, metadata) in enumerate(ranked[:top_k]):
+            results.append(RerankResult(
+                id=doc_id,
+                content=content,
+                score=float(score),
+                original_score=float(score),
+                original_rank=rank,
+                metadata=metadata
             ))
         
-        if top_k is not None:
-            reranked_results = reranked_results[:top_k]
-        
-        logger.info(f"重排序完成：{len(reranked_results)} 个结�?)
-        
-        return reranked_results
+        return results
     
-    async def rerank_async(
+    async def arerank(
         self,
         query: str,
-        results: List[Dict[str, Any]],
-        top_k: Optional[int] = None
+        documents: List[str],
+        ids: Optional[List[str]] = None,
+        metadatas: Optional[List[Dict[str, Any]]] = None,
+        top_k: int = 10
     ) -> List[RerankResult]:
-        """
-        异步重排�?        
-        Args:
-            query: 查询文本
-            results: 检索结果列�?            top_k: 返回数量
-            
-        Returns:
-            重排序后的结�?        """
+        """异步重排序"""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             self._executor,
-            lambda: self.rerank(query, results, top_k)
+            lambda: self.rerank(query, documents, ids, metadatas, top_k)
         )
-    
-    def rerank_with_threshold(
-        self,
-        query: str,
-        results: List[Dict[str, Any]],
-        threshold: float = 0.5,
-        min_results: int = 3
-    ) -> List[RerankResult]:
-        """
-        带阈值的重排�?        
-        Args:
-            query: 查询文本
-            results: 检索结果列�?            threshold: 分数阈�?            min_results: 最小返回数�?            
-        Returns:
-            重排序后的结�?        """
-        reranked = self.rerank(query, results)
-        
-        filtered = [r for r in reranked if r.score >= threshold]
-        
-        if len(filtered) < min_results:
-            filtered = reranked[:min_results]
-        
-        return filtered
 
 
 class LLMReranker:
-    """基于 LLM 的重排序�?""
+    """LLM 重排序器"""
     
-    def __init__(
-        self,
-        llm_client: Any = None,
-        model: str = "gpt-3.5-turbo",
-        max_tokens: int = 1000
-    ):
+    def __init__(self, llm_client=None):
         """
-        初始�?LLM 重排序器
+        初始化 LLM 重排序器
         
         Args:
-            llm_client: LLM 客户�?            model: 模型名称
-            max_tokens: 最�?token �?        """
+            llm_client: LLM 客户端
+        """
         self.llm_client = llm_client
-        self.model = model
-        self.max_tokens = max_tokens
-    
-    def _build_prompt(
-        self,
-        query: str,
-        documents: List[str]
-    ) -> str:
-        """
-        构建重排序提示词
-        
-        Args:
-            query: 查询文本
-            documents: 文档列表
-            
-        Returns:
-            提示�?        """
-        doc_text = "\n\n".join([
-            f"[文档 {i+1}]\n{doc[:500]}..."
-            for i, doc in enumerate(documents)
-        ])
-        
-        prompt = f"""请根据查询的相关性对以下文档进行排序�?
-查询：{query}
-
-{doc_text}
-
-请返回一�?JSON 格式的排序结果，包含文档编号和相关性分数（0-1）：
-```json
-[
-  {{"rank": 1, "doc_id": 1, "score": 0.95, "reason": "简短说�?}},
-  {{"rank": 2, "doc_id": 2, "score": 0.80, "reason": "简短说�?}},
-  ...
-]
-```
-
-只返�?JSON，不要其他内容�?""
-        
-        return prompt
     
     def rerank(
         self,
         query: str,
-        results: List[Dict[str, Any]],
-        top_k: Optional[int] = None
+        documents: List[str],
+        ids: Optional[List[str]] = None,
+        top_k: int = 10
     ) -> List[RerankResult]:
-        """
-        使用 LLM 进行重排�?        
-        Args:
-            query: 查询文本
-            results: 检索结果列�?            top_k: 返回数量
-            
-        Returns:
-            重排序后的结�?        """
-        if not results:
+        """使用 LLM 进行重排序"""
+        if not documents or not self.llm_client:
             return []
         
-        if self.llm_client is None:
-            logger.warning("LLM 客户端未设置，返回原始结�?)
-            return [
-                RerankResult(
-                    id=r.get("id", r.get("content", "")[:50]),
-                    content=r.get("content", ""),
-                    score=r.get("score", 0),
-                    original_score=r.get("score", 0),
-                    original_rank=i,
-                    metadata=r.get("metadata", {})
-                )
-                for i, r in enumerate(results)
-            ]
+        if ids is None:
+            ids = [f"doc_{i}" for i in range(len(documents))]
         
-        documents = [r.get("content", "") for r in results]
-        prompt = self._build_prompt(query, documents)
+        prompt = f"""请对以下文档与查询的相关性进行评分（0-10分）：
+
+查询：{query}
+
+文档列表：
+{chr(10).join(f"{i+1}. {doc[:200]}..." for i, doc in enumerate(documents))}
+
+请返回一个 JSON 列表，格式为 [{{"index": 0, "score": 8}}, ...]
+"""
         
         try:
-            response = self.llm_client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=self.max_tokens,
-                temperature=0
-            )
-            
+            response = self.llm_client.generate(prompt)
             import json
-            import re
+            scores = json.loads(response)
             
-            content = response.choices[0].message.content
-            
-            json_match = re.search(r'```json\s*([\s\S]*?)\s*```', content)
-            if json_match:
-                json_str = json_match.group(1)
-            else:
-                json_str = content
-            
-            rankings = json.loads(json_str)
-            
-            reranked_results = []
-            for item in rankings:
-                doc_id = item.get("doc_id", 1) - 1
-                if 0 <= doc_id < len(results):
-                    result = results[doc_id]
-                    reranked_results.append(RerankResult(
-                        id=result.get("id", result.get("content", "")[:50]),
-                        content=result.get("content", ""),
-                        score=item.get("score", 0.5),
-                        original_score=result.get("score", 0),
-                        original_rank=doc_id,
-                        metadata=result.get("metadata", {})
+            results = []
+            for item in scores:
+                idx = item.get("index", 0)
+                if 0 <= idx < len(documents):
+                    results.append(RerankResult(
+                        id=ids[idx],
+                        content=documents[idx],
+                        score=item.get("score", 0) / 10.0,
+                        original_score=0.0,
+                        original_rank=idx,
+                        metadata={}
                     ))
             
-            if top_k is not None:
-                reranked_results = reranked_results[:top_k]
-            
-            return reranked_results
-            
+            return sorted(results, key=lambda x: x.score, reverse=True)[:top_k]
         except Exception as e:
             logger.error(f"LLM 重排序失败：{e}")
-            return [
-                RerankResult(
-                    id=r.get("id", r.get("content", "")[:50]),
-                    content=r.get("content", ""),
-                    score=r.get("score", 0),
-                    original_score=r.get("score", 0),
-                    original_rank=i,
-                    metadata=r.get("metadata", {})
-                )
-                for i, r in enumerate(results)
-            ]
+            return []
 
 
 class MultiStageReranker:
-    """多阶段重排序�?""
+    """多阶段重排序器"""
     
     def __init__(
         self,
-        cross_encoder_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
-        llm_client: Any = None,
-        llm_model: str = "gpt-3.5-turbo",
-        use_llm: bool = False,
-        cross_encoder_top_k: int = 20,
-        final_top_k: int = 10
+        first_stage_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        second_stage_model: Optional[str] = None
     ):
         """
         初始化多阶段重排序器
         
         Args:
-            cross_encoder_model: Cross-Encoder 模型名称
-            llm_client: LLM 客户�?            llm_model: LLM 模型名称
-            use_llm: 是否使用 LLM 重排�?            cross_encoder_top_k: Cross-Encoder 阶段保留数量
-            final_top_k: 最终返回数�?        """
-        self.cross_encoder = CrossEncoderReranker(model_name=cross_encoder_model)
-        self.llm_reranker = LLMReranker(llm_client=llm_client, model=llm_model) if use_llm else None
-        self.use_llm = use_llm
-        self.cross_encoder_top_k = cross_encoder_top_k
-        self.final_top_k = final_top_k
+            first_stage_model: 第一阶段模型
+            second_stage_model: 第二阶段模型（可选）
+        """
+        self.first_stage = CrossEncoderReranker(model_name=first_stage_model)
+        self.second_stage = CrossEncoderReranker(model_name=second_stage_model) if second_stage_model else None
     
     def rerank(
         self,
         query: str,
-        results: List[Dict[str, Any]],
-        top_k: Optional[int] = None
+        documents: List[str],
+        ids: Optional[List[str]] = None,
+        metadatas: Optional[List[Dict[str, Any]]] = None,
+        top_k: int = 10,
+        first_stage_k: int = 50
     ) -> List[RerankResult]:
-        """
-        多阶段重排序
-        
-        Args:
-            query: 查询文本
-            results: 检索结果列�?            top_k: 返回数量
-            
-        Returns:
-            重排序后的结�?        """
-        if not results:
+        """多阶段重排序"""
+        if not documents:
             return []
         
-        top_k = top_k or self.final_top_k
-        
-        cross_encoder_results = self.cross_encoder.rerank(
-            query=query,
-            results=results,
-            top_k=min(self.cross_encoder_top_k, len(results))
+        first_results = self.first_stage.rerank(
+            query, documents, ids, metadatas, min(first_stage_k, len(documents))
         )
         
-        if not self.use_llm or self.llm_reranker is None:
-            return cross_encoder_results[:top_k]
+        if self.second_stage and len(first_results) > top_k:
+            second_docs = [r.content for r in first_results]
+            second_ids = [r.id for r in first_results]
+            second_metas = [r.metadata for r in first_results]
+            
+            return self.second_stage.rerank(
+                query, second_docs, second_ids, second_metas, top_k
+            )
         
-        llm_results = self.llm_reranker.rerank(
-            query=query,
-            results=[{
-                "id": r.id,
-                "content": r.content,
-                "score": r.score,
-                "metadata": r.metadata
-            } for r in cross_encoder_results],
-            top_k=top_k
-        )
-        
-        return llm_results
+        return first_results[:top_k]
 
 
-_reranker_instance: Optional[CrossEncoderReranker] = None
+_reranker: Optional[CrossEncoderReranker] = None
 
 
 def get_reranker(
-    model_name: Optional[str] = None,
-    **kwargs
+    model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    device: Optional[str] = None
 ) -> CrossEncoderReranker:
-    """
-    获取重排序器实例
-    
-    Args:
-        model_name: 模型名称
-        **kwargs: 其他参数
-        
-    Returns:
-        重排序器实例
-    """
-    global _reranker_instance
-    
-    if _reranker_instance is None:
-        model = model_name or "cross-encoder/ms-marco-MiniLM-L-6-v2"
-        _reranker_instance = CrossEncoderReranker(model_name=model, **kwargs)
-    
-    return _reranker_instance
+    """获取重排序器实例"""
+    global _reranker
+    if _reranker is None:
+        _reranker = CrossEncoderReranker(model_name=model_name, device=device)
+    return _reranker
 
 
-def reset_reranker(model_name: str, **kwargs) -> CrossEncoderReranker:
+def reset_reranker():
     """重置重排序器"""
-    global _reranker_instance
-    _reranker_instance = CrossEncoderReranker(model_name=model_name, **kwargs)
-    return _reranker_instance
+    global _reranker
+    _reranker = None

@@ -1,8 +1,11 @@
 """
 AI 对话系统集成测试
 
-测试覆盖�?- API 端点集成
-- 数据流完整�?- 前后端交�?"""
+测试覆盖：
+- API 端点集成
+- 数据流完整性
+- 前后端交互
+"""
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import Mock, patch, MagicMock
@@ -25,7 +28,7 @@ class TestDialogueAPIIntegration:
         return TestClient(app)
 
     def test_health_check(self, client):
-        """测试健康检查端�?""
+        """测试健康检查端点"""
         response = client.get("/health")
         assert response.status_code == 200
 
@@ -103,7 +106,7 @@ class TestDialogueAPIIntegration:
         assert isinstance(data, list) or "models" in data
 
     def test_datasets_list(self, client):
-        """测试数据集列表端�?""
+        """测试数据集列表端点"""
         response = client.get("/datasets")
         assert response.status_code == 200
         data = response.json()
@@ -111,24 +114,24 @@ class TestDialogueAPIIntegration:
 
 
 class TestContextAPIIntegration:
-    """上下�?API 集成测试"""
+    """上下文 API 集成测试"""
 
     @pytest.fixture
     def client(self):
         return TestClient(app)
 
     def test_context_scan(self, client):
-        """测试项目上下文扫�?""
+        """测试项目上下文扫描"""
         response = client.post("/context/scan", json={"path": "."})
         assert response.status_code in [200, 400, 404]
 
     def test_context_index(self, client):
-        """测试上下文索�?""
+        """测试上下文索引"""
         response = client.post("/context/index", json={"path": "."})
         assert response.status_code in [200, 400, 404]
 
     def test_context_retrieve(self, client):
-        """测试上下文检�?""
+        """测试上下文检索"""
         response = client.post(
             "/context/retrieve",
             json={"query": "test query", "top_k": 5}
@@ -137,21 +140,21 @@ class TestContextAPIIntegration:
 
 
 class TestKnowledgeAPIIntegration:
-    """知识�?API 集成测试"""
+    """知识库 API 集成测试"""
 
     @pytest.fixture
     def client(self):
         return TestClient(app)
 
     def test_knowledge_collections_list(self, client):
-        """测试知识库集合列�?""
+        """测试知识库集合列表"""
         response = client.get("/knowledge/collections")
         assert response.status_code == 200
         data = response.json()
         assert "collections" in data or isinstance(data, list)
 
     def test_knowledge_query(self, client):
-        """测试知识库查�?""
+        """测试知识库查询"""
         response = client.post(
             "/knowledge/query",
             json={"query": "test query", "collection": "default", "top_k": 5}
@@ -160,21 +163,21 @@ class TestKnowledgeAPIIntegration:
 
 
 class TestSkillsAPIIntegration:
-    """技�?API 集成测试"""
+    """技能 API 集成测试"""
 
     @pytest.fixture
     def client(self):
         return TestClient(app)
 
     def test_skills_list(self, client):
-        """测试技能列�?""
+        """测试技能列表"""
         response = client.get("/skills")
         assert response.status_code == 200
         data = response.json()
         assert "skills" in data or isinstance(data, list)
 
     def test_skill_memory_configs(self, client):
-        """测试技能记忆配�?""
+        """测试技能记忆配置"""
         response = client.get("/skills/memory/configs")
         assert response.status_code == 200
 
@@ -204,7 +207,7 @@ class TestAgentAPIIntegration:
         assert "capabilities" in data or isinstance(data, list)
 
     def test_agent_detect_intent(self, client):
-        """测试意图检�?""
+        """测试意图检测"""
         response = client.post(
             "/agent/detect-intent",
             json={"message": "帮我截图"}
@@ -217,7 +220,7 @@ class TestAgentAPIIntegration:
         assert response.status_code == 200
 
     def test_agent_audit_recent(self, client):
-        """测试最近审计日�?""
+        """测试最近审计日志"""
         response = client.get("/agent/audit/recent")
         assert response.status_code == 200
 
@@ -235,7 +238,7 @@ class TestCUAAPIIntegration:
         assert response.status_code in [200, 404, 501]
 
     def test_cua_safety_status(self, client):
-        """测试安全状�?""
+        """测试安全状态"""
         response = client.get("/cua/safety/status")
         assert response.status_code in [200, 404, 501]
 
@@ -263,12 +266,12 @@ class TestMCPAPIIntegration:
         assert response.status_code == 200
 
     def test_mcp_servers_list(self, client):
-        """测试 MCP 服务器列�?""
+        """测试 MCP 服务器列表"""
         response = client.get("/mcp/servers")
         assert response.status_code == 200
 
     def test_mcp_status(self, client):
-        """测试 MCP 状�?""
+        """测试 MCP 状态"""
         response = client.get("/mcp/status")
         assert response.status_code == 200
 
@@ -328,7 +331,7 @@ class TestInferencePerformanceIntegration:
 
 
 class TestEndToEndFlow:
-    """端到端流程测�?""
+    """端到端流程测试"""
 
     @pytest.fixture
     def client(self):
@@ -363,7 +366,7 @@ class TestEndToEndFlow:
         assert isinstance(models, list)
 
     def test_dataset_management_flow(self, client):
-        """测试数据集管理流�?""
+        """测试数据集管理流程"""
         list_response = client.get("/datasets")
         assert list_response.status_code == 200
         

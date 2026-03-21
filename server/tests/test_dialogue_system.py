@@ -1,8 +1,12 @@
 """
 AI 对话系统后端单元测试
 
-测试覆盖�?- 对话上下文管�?- 会话存储
-- 技能系�?- 知识库集�?"""
+测试覆盖：
+- 对话上下文管理
+- 会话存储
+- 技能系统
+- 知识库集成
+"""
 import pytest
 from datetime import datetime
 from unittest.mock import Mock, patch, MagicMock
@@ -13,17 +17,17 @@ import json
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from api.chat.context import (
+from context.manager import (
     ContextManager,
     MessageRole,
     MessagePriority,
-    ContextMessage,
+    ChatMessage,
     ContextWindow,
     get_context_manager,
     remove_context_manager,
     list_context_managers,
 )
-from api.chat.session import (
+from context.session_store import (
     SessionStore,
     SessionStatus,
     ChatSession,
@@ -47,7 +51,7 @@ class TestContextManager:
             session_id="custom_session",
             max_tokens=8192,
             reserved_tokens=1024,
-            compression_threshold=0.9,
+            compression_threshold=0.0,
             target_utilization=0.5
         )
         assert manager.window.max_tokens == 8192
@@ -89,7 +93,7 @@ class TestContextManager:
 
     def test_estimate_tokens_chinese(self):
         manager = ContextManager(session_id="test")
-        tokens = manager._estimate_tokens("你好世界这是一个测�?)
+        tokens = manager._estimate_tokens("你好世界这是一个测试")
         assert tokens > 0
         assert tokens >= 8
 
@@ -100,7 +104,7 @@ class TestContextManager:
 
     def test_calculate_importance_user_with_keywords(self):
         manager = ContextManager(session_id="test")
-        importance = manager._calculate_importance("这是重要的信息，请记�?, MessageRole.USER)
+        importance = manager._calculate_importance("这是重要的信息，请记住", MessageRole.USER)
         assert importance >= 0.7
 
     def test_get_context(self):
@@ -188,7 +192,7 @@ class TestContextManager:
 
 
 class TestContextWindow:
-    """上下文窗口测�?""
+    """上下文窗口测试"""
 
     def test_available_tokens(self):
         window = ContextWindow(max_tokens=4096, reserved_tokens=512, current_tokens=1000)
@@ -200,11 +204,11 @@ class TestContextWindow:
         assert abs(window.utilization - expected_util) < 0.01
 
 
-class TestContextMessage:
-    """上下文消息测�?""
+class TestChatMessage:
+    """上下文消息测试"""
 
     def test_message_creation(self):
-        msg = ContextMessage(
+        msg = ChatMessage(
             id="msg_001",
             role=MessageRole.USER,
             content="Test message",
@@ -217,7 +221,7 @@ class TestContextMessage:
         assert msg.importance == 0.8
 
     def test_message_to_dict(self):
-        msg = ContextMessage(
+        msg = ChatMessage(
             id="msg_001",
             role=MessageRole.USER,
             content="Test message",
@@ -440,7 +444,7 @@ class TestSessionStore:
 
 
 class TestSessionMetadata:
-    """会话元数据测�?""
+    """会话元数据测试"""
 
     def test_metadata_creation(self):
         metadata = SessionMetadata(
@@ -493,3 +497,7 @@ class TestSessionMessage:
         data = msg.to_dict()
         assert data["id"] == "msg_001"
         assert data["role"] == "user"
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

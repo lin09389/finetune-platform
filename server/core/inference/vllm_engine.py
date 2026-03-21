@@ -1,7 +1,7 @@
 """
 vLLM 推理引擎实现
 
-基于 vLLM 库的高性能推理引擎，支�?PagedAttention
+基于 vLLM 库的高性能推理引擎，支持 PagedAttention
 """
 import asyncio
 import time
@@ -25,7 +25,8 @@ class VLLMEngine(InferenceEngine):
     
     特性：
     - PagedAttention 内存优化
-    - 高吞吐量批处�?    - 异步流式生成
+    - 高吞吐量批处理
+    - 异步流式生成
     - KV Cache 优化
     """
     
@@ -81,7 +82,7 @@ class VLLMEngine(InferenceEngine):
         """
         构建 vLLM 配置
         
-        �?Settings 转换�?vLLM LLM 参数
+        将 Settings 转换为 vLLM LLM 参数
         """
         config = {
             "gpu_memory_utilization": settings.vllm_gpu_memory_utilization,
@@ -126,7 +127,7 @@ class VLLMEngine(InferenceEngine):
         )
     
     async def unload(self) -> None:
-        """卸载模型并释放资�?""
+        """卸载模型并释放资源"""
         if not self._is_loaded:
             return
         
@@ -263,8 +264,9 @@ class VLLMEngine(InferenceEngine):
     
     async def apply_lora(self, lora_path: str) -> None:
         """
-        应用 LoRA 适配�?        
-        注意：vLLM �?LoRA 支持需要在初始化时配置
+        应用 LoRA 适配器
+        
+        注意：vLLM 的 LoRA 支持需要在初始化时配置
         """
         if not self._is_loaded:
             await self.load()
@@ -284,7 +286,7 @@ class VLLMEngine(InferenceEngine):
                 self._lora_path = str(full_lora_path)
                 logger.info(f"vLLM LoRA 适配器已应用：{lora_path}")
             else:
-                logger.warning("vLLM 当前版本不支持动�?LoRA 加载，请在初始化时配�?)
+                logger.warning("vLLM 当前版本不支持动态 LoRA 加载，请在初始化时配置")
                 self._lora_path = str(full_lora_path)
                 
         except Exception as e:
@@ -292,7 +294,7 @@ class VLLMEngine(InferenceEngine):
             raise RuntimeError(f"应用 vLLM LoRA 适配器失败：{e}")
     
     async def remove_lora(self) -> None:
-        """移除 LoRA 适配�?""
+        """移除 LoRA 适配器"""
         if self._lora_path is None:
             return
         

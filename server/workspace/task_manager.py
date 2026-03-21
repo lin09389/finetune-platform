@@ -1,5 +1,7 @@
 """
-任务管理�?提供任务�?CRUD 操作、状态管理、分配通知和进度追�?"""
+任务管理器
+提供任务的 CRUD 操作、状态管理、分配通知和进度追踪
+"""
 import json
 import logging
 import threading
@@ -29,9 +31,13 @@ logger = logging.getLogger(__name__)
 
 class NotificationManager:
     """
-    通知管理�?    
-    功能�?    - 管理任务相关通知
-    - 支持通知订阅/推�?    - 通知持久化存�?    """
+    通知管理器
+    
+    功能：
+    - 管理任务相关通知
+    - 支持通知订阅/推送
+    - 通知持久化存储
+    """
     
     def __init__(self, db_path: Path):
         self._notifications: Dict[str, List[TaskNotification]] = defaultdict(list)
@@ -151,7 +157,7 @@ class NotificationManager:
         return notifications[:limit]
     
     def mark_as_read(self, notification_id: str) -> bool:
-        """标记通知为已�?""
+        """标记通知为已读"""
         with self._lock:
             for recipient, notifications in self._notifications.items():
                 for notification in notifications:
@@ -162,7 +168,7 @@ class NotificationManager:
         return False
     
     def mark_all_as_read(self, recipient: Optional[str] = None) -> int:
-        """标记所有通知为已�?""
+        """标记所有通知为已读"""
         count = 0
         with self._lock:
             notifications = self._notifications.get(recipient or 'all', [])
@@ -186,7 +192,7 @@ class NotificationManager:
                 self._subscribers[recipient].remove(callback)
     
     def _notify_subscribers(self, notification: TaskNotification):
-        """通知订阅�?""
+        """通知订阅者"""
         recipients = [notification.recipient] if notification.recipient else ['all']
         
         for recipient in recipients:
@@ -203,9 +209,12 @@ class NotificationManager:
 
 class TaskManager:
     """
-    任务管理�?    
-    功能�?    - 任务 CRUD 操作
-    - 任务状态管�?    - 任务分配和通知
+    任务管理器
+    
+    功能：
+    - 任务 CRUD 操作
+    - 任务状态管理
+    - 任务分配和通知
     - 任务进度追踪
     - 任务统计
     """
@@ -243,7 +252,7 @@ class TaskManager:
         self._storage_dir.mkdir(parents=True, exist_ok=True)
     
     def _init_database(self):
-        """初始化数据库�?""
+        """初始化数据库表"""
         db_pool = get_db_pool(str(self._db_path))
         
         with db_pool.get_connection() as conn:
@@ -318,7 +327,7 @@ class TaskManager:
                 )
                 self._tasks[task.id] = task
         
-        logger.info(f"已加�?{len(self._tasks)} 个任�?)
+        logger.info(f"已加载 {len(self._tasks)} 个任务")
     
     def _save_task(self, task: Task):
         """保存任务到数据库"""
@@ -402,7 +411,13 @@ class TaskManager:
         列出任务
         
         Args:
-            project_id: 按项目筛�?            status: 按状态筛�?            priority: 按优先级筛�?            assignee: 按负责人筛�?            tags: 按标签筛�?            search: 搜索标题或描�?            overdue: 筛选逾期任务
+            project_id: 按项目筛选
+            status: 按状态筛选
+            priority: 按优先级筛选
+            assignee: 按负责人筛选
+            tags: 按标签筛选
+            search: 搜索标题或描述
+            overdue: 筛选逾期任务
         """
         with self._tasks_lock:
             tasks = list(self._tasks.values())
@@ -485,7 +500,7 @@ class TaskManager:
         return task
     
     def _handle_status_change(self, task: Task, old_status: str, new_status: str):
-        """处理任务状态变�?""
+        """处理任务状态变更"""
         now = datetime.now().isoformat()
         
         if new_status == TaskStatus.IN_PROGRESS.value:
@@ -526,7 +541,8 @@ class TaskManager:
         
         Args:
             task_id: 任务ID
-            hard: 是否硬删除（物理删除�?        """
+            hard: 是否硬删除（物理删除）
+        """
         with self._tasks_lock:
             task = self._tasks.get(task_id)
             if not task:
@@ -581,7 +597,7 @@ class TaskManager:
         return task_progress
     
     def update_subtask(self, task_id: str, subtask_id: str, completed: bool) -> Optional[Task]:
-        """更新子任务状�?""
+        """更新子任务状态"""
         with self._tasks_lock:
             task = self._tasks.get(task_id)
             if not task:
@@ -649,11 +665,11 @@ class TaskManager:
         return self._notification_manager.get_notifications(recipient, unread_only, limit)
     
     def mark_notification_read(self, notification_id: str) -> bool:
-        """标记通知为已�?""
+        """标记通知为已读"""
         return self._notification_manager.mark_as_read(notification_id)
     
     def mark_all_notifications_read(self, recipient: Optional[str] = None) -> int:
-        """标记所有通知为已�?""
+        """标记所有通知为已读"""
         return self._notification_manager.mark_all_as_read(recipient)
     
     def subscribe_notifications(self, recipient: str, callback: Callable):
@@ -670,7 +686,7 @@ _manager_lock = threading.Lock()
 
 
 def get_task_manager() -> TaskManager:
-    """获取任务管理器实�?""
+    """获取任务管理器实例"""
     global _task_manager
     with _manager_lock:
         if _task_manager is None:

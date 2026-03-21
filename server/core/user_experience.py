@@ -1,9 +1,12 @@
 """
 用户体验优化模块
 
-功能�?- 配置向导组件
-- 环境自动检�?- 配置建议生成
-- 一键配置功�?"""
+功能：
+- 配置向导组件
+- 环境自动检测
+- 配置建议生成
+- 一键配置功能
+"""
 import os
 import platform
 import subprocess
@@ -102,7 +105,7 @@ class ConfigWizard:
     config: Dict[str, Any] = field(default_factory=dict)
     
     def next_step(self) -> str:
-        """进入下一�?""
+        """进入下一步"""
         if self.step < self.total_steps - 1:
             self.step += 1
             self.current_step_name = self.steps[self.step]
@@ -111,7 +114,7 @@ class ConfigWizard:
         return self.current_step_name
     
     def previous_step(self) -> str:
-        """返回上一�?""
+        """返回上一步"""
         if self.step > 0:
             self.step -= 1
             self.current_step_name = self.steps[self.step]
@@ -145,7 +148,7 @@ class EnvironmentDetector:
     
     @staticmethod
     def detect_system() -> SystemInfo:
-        """检测系统信�?""
+        """检测系统信息"""
         info = SystemInfo()
         
         info.os = platform.system()
@@ -190,7 +193,7 @@ class EnvironmentDetector:
     
     @staticmethod
     def check_cuda_version() -> Optional[str]:
-        """检�?CUDA 版本"""
+        """检查 CUDA 版本"""
         try:
             result = subprocess.run(
                 ["nvcc", "--version"],
@@ -214,7 +217,7 @@ class EnvironmentDetector:
     
     @staticmethod
     def get_installed_libraries() -> Dict[str, bool]:
-        """获取已安装的�?""
+        """获取已安装的库"""
         libraries = [
             "torch", "transformers", "peft", "accelerate",
             "bitsandbytes", "vllm", "auto_gptq", "autoawq",
@@ -249,7 +252,7 @@ class ConfigAdvisor:
         return suggestions
     
     def _check_gpu_config(self, config: Dict[str, Any]) -> List[ConfigSuggestion]:
-        """检�?GPU 配置"""
+        """检查 GPU 配置"""
         suggestions = []
         
         if self.system_info.gpu_available:
@@ -257,10 +260,10 @@ class ConfigAdvisor:
                 suggestions.append(ConfigSuggestion(
                     category="device",
                     name="使用 GPU",
-                    description="检测到可用 GPU，建议使�?GPU 加�?,
+                    description="检测到可用 GPU，建议使用 GPU 加速",
                     current_value="cpu",
                     suggested_value="cuda",
-                    reason=f"检测到 {self.system_info.gpu_count} �?GPU: {', '.join(self.system_info.gpu_names)}",
+                    reason=f"检测到 {self.system_info.gpu_count} 个 GPU: {', '.join(self.system_info.gpu_names)}",
                     impact="high",
                 ))
             
@@ -272,15 +275,15 @@ class ConfigAdvisor:
                     description="GPU 显存较小，建议启用量化以减少显存占用",
                     current_value=config.get("quantization", "none"),
                     suggested_value="int4",
-                    reason=f"总显�?{total_gpu_memory:.1f}GB < 8GB",
+                    reason=f"总显存 {total_gpu_memory:.1f}GB < 8GB",
                     impact="high",
                 ))
         else:
             if config.get("device") == "cuda":
                 suggestions.append(ConfigSuggestion(
                     category="device",
-                    name="切换�?CPU",
-                    description="未检测到可用 GPU，建议使�?CPU 模式",
+                    name="切换为 CPU",
+                    description="未检测到可用 GPU，建议使用 CPU 模式",
                     current_value="cuda",
                     suggested_value="cpu",
                     reason="未检测到 CUDA 设备",
@@ -290,7 +293,7 @@ class ConfigAdvisor:
         return suggestions
     
     def _check_memory_config(self, config: Dict[str, Any]) -> List[ConfigSuggestion]:
-        """检查内存配�?""
+        """检查内存配置"""
         suggestions = []
         
         available_gb = self.system_info.available_memory_gb
@@ -298,7 +301,7 @@ class ConfigAdvisor:
         if available_gb < 4:
             suggestions.append(ConfigSuggestion(
                 category="memory",
-                name="减少批处理大�?,
+                name="减少批处理大小",
                 description="可用内存较少，建议减少批处理大小",
                 current_value=config.get("batch_size", 8),
                 suggested_value=1,
@@ -309,7 +312,7 @@ class ConfigAdvisor:
         if available_gb > 16 and config.get("batch_size", 1) < 8:
             suggestions.append(ConfigSuggestion(
                 category="memory",
-                name="增加批处理大�?,
+                name="增加批处理大小",
                 description="内存充足，可以增加批处理大小提升性能",
                 current_value=config.get("batch_size", 1),
                 suggested_value=8,
@@ -320,18 +323,18 @@ class ConfigAdvisor:
         return suggestions
     
     def _check_model_config(self, config: Dict[str, Any]) -> List[ConfigSuggestion]:
-        """检查模型配�?""
+        """检查模型配置"""
         suggestions = []
         
         max_tokens = config.get("max_tokens", 2048)
         if max_tokens > 4096 and not self.system_info.gpu_available:
             suggestions.append(ConfigSuggestion(
                 category="model",
-                name="减少最�?token �?,
-                description="CPU 模式下，建议减少最�?token �?,
+                name="减少最大 token 数",
+                description="CPU 模式下，建议减少最大 token 数",
                 current_value=max_tokens,
                 suggested_value=2048,
-                reason="CPU 模式处理长序列效率较�?,
+                reason="CPU 模式处理长序列效率较低",
                 impact="low",
             ))
         
@@ -348,9 +351,9 @@ class ConfigAdvisor:
                 category="library",
                 name="安装 vLLM",
                 description="vLLM 可显著提升推理性能",
-                current_value="未安�?,
+                current_value="未安装",
                 suggested_value="pip install vllm",
-                reason="GPU 可用，vLLM 可提�?2-3x 性能",
+                reason="GPU 可用，vLLM 可提升 2-3x 性能",
                 impact="high",
                 auto_applicable=False,
             ))
@@ -360,7 +363,7 @@ class ConfigAdvisor:
                 category="library",
                 name="安装 Accelerate",
                 description="Accelerate 可优化大模型加载",
-                current_value="未安�?,
+                current_value="未安装",
                 suggested_value="pip install accelerate",
                 reason="可优化内存使用和加载速度",
                 impact="medium",
@@ -372,8 +375,10 @@ class ConfigAdvisor:
 
 class QuickSetup:
     """
-    快速设�?    
-    一键配置功�?    """
+    快速设置
+    
+    一键配置功能
+    """
     
     def __init__(self):
         self.system_info = EnvironmentDetector.detect_system()
@@ -432,7 +437,7 @@ _quick_setup: Optional[QuickSetup] = None
 
 
 def get_quick_setup() -> QuickSetup:
-    """获取快速设置单�?""
+    """获取快速设置单例"""
     global _quick_setup
     if _quick_setup is None:
         _quick_setup = QuickSetup()

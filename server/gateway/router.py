@@ -1,11 +1,16 @@
+# -*- coding: utf-8 -*-
 """
-消息路由�?- 借鉴 OpenClaw Binding Router 设计
+消息路由器 - 借鉴 OpenClaw Binding Router 设计
 
-实现最具体匹配优先算法�?1. peer 精确匹配（特�?DM/群组 ID�?2. parentPeer 继承（线程）
-3. guildId + roles（Discord 角色�?4. guildId（Discord 服务器）
-5. teamId（Slack�?6. accountId 匹配
+实现最具体匹配优先算法:
+1. peer 精确匹配（特定 DM/群组 ID）
+2. parentPeer 继承（线程）
+3. guildId + roles（Discord 角色）
+4. guildId（Discord 服务器）
+5. teamId（Slack）
+6. accountId 匹配
 7. channel 级别匹配
-8. fallback 到默�?agent
+8. fallback 到默认 agent
 """
 import logging
 from typing import Dict, Any, Optional, List, Callable, Awaitable
@@ -20,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class RoutingContext:
-    """路由上下�?""
+    """路由上下文"""
     message: GatewayMessage
     source_device_id: str
     source_info: Dict[str, Any] = field(default_factory=dict)
@@ -36,10 +41,13 @@ class RoutingContext:
 
 class MessageRouter:
     """
-    消息路由�?    
-    功能�?    - 基于绑定规则的消息路�?    - 最具体匹配优先算法
+    消息路由器
+    
+    功能:
+    - 基于绑定规则的消息路由
+    - 最具体匹配优先算法
     - Agent 隔离管理
-    - �?Agent 通信
+    - 跨 Agent 通信
     """
     
     def __init__(self):
@@ -71,7 +79,7 @@ class MessageRouter:
     def add_binding(self, rule: BindingRule):
         """添加绑定规则"""
         self._bindings[rule.id] = rule
-        logger.info(f"添加绑定规则: {rule.id} -> Agent {rule.agent_id} (优先�? {rule.priority})")
+        logger.info(f"添加绑定规则: {rule.id} -> Agent {rule.agent_id} (优先级: {rule.priority})")
     
     def remove_binding(self, rule_id: str):
         """移除绑定规则"""
@@ -85,19 +93,19 @@ class MessageRouter:
             self._default_agent_id = agent_id
             logger.info(f"设置默认 Agent: {agent_id}")
         else:
-            logger.warning(f"Agent 不存�? {agent_id}")
+            logger.warning(f"Agent 不存在: {agent_id}")
     
     def register_agent_handler(self, agent_id: str, handler: Callable):
-        """注册 Agent 消息处理�?""
+        """注册 Agent 消息处理器"""
         self._agent_handlers[agent_id] = handler
     
     def set_fallback_handler(self, handler: Callable):
-        """设置回退处理�?""
+        """设置回退处理器"""
         self._fallback_handler = handler
     
     async def route(self, message: GatewayMessage, context: Optional[RoutingContext] = None) -> Dict[str, Any]:
         """
-        路由消息到目�?Agent
+        路由消息到目标 Agent
         
         使用最具体匹配优先算法
         """
@@ -215,11 +223,11 @@ class MessageRouter:
         return self._agents.get(agent_id)
     
     def get_all_agents(self) -> Dict[str, AgentInfo]:
-        """获取所�?Agent"""
+        """获取所有 Agent"""
         return self._agents.copy()
     
     def get_agent_bindings(self, agent_id: str) -> List[BindingRule]:
-        """获取 Agent 的所有绑定规�?""
+        """获取 Agent 的所有绑定规则"""
         return [rule for rule in self._bindings.values() if rule.agent_id == agent_id]
     
     def get_routing_stats(self) -> Dict[str, Any]:
@@ -236,7 +244,7 @@ _router: Optional[MessageRouter] = None
 
 
 def get_message_router() -> MessageRouter:
-    """获取消息路由器单�?""
+    """获取消息路由器单例"""
     global _router
     if _router is None:
         _router = MessageRouter()

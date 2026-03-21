@@ -1,7 +1,8 @@
 """
 推理引擎工厂
 
-根据配置创建正确的引擎实�?"""
+根据配置创建正确的引擎实例
+"""
 import logging
 from typing import Dict, Any, Optional, Type, Literal
 from pathlib import Path
@@ -18,8 +19,11 @@ class EngineFactory:
     """
     推理引擎工厂
     
-    支持�?    - 根据类型创建引擎实例
-    - 引擎可用性检�?    - 自动降级到可用引�?    """
+    支持：
+    - 根据类型创建引擎实例
+    - 引擎可用性检查
+    - 自动降级到可用引擎
+    """
     
     _registry: Dict[str, Type[InferenceEngine]] = {}
     _availability_cache: Dict[str, bool] = {}
@@ -31,7 +35,8 @@ class EngineFactory:
         
         Args:
             engine_type: 引擎类型标识
-            engine_class: 引擎�?        """
+            engine_class: 引擎类
+        """
         cls._registry[engine_type] = engine_class
         logger.info(f"注册推理引擎：{engine_type}")
     
@@ -55,7 +60,8 @@ class EngineFactory:
             
         Raises:
             ValueError: 不支持的引擎类型
-            RuntimeError: 引擎不可�?        """
+            RuntimeError: 引擎不可用
+        """
         if engine_type not in cls._registry:
             available = list(cls._registry.keys())
             raise ValueError(f"不支持的引擎类型：{engine_type}，可用引擎：{available}")
@@ -82,7 +88,8 @@ class EngineFactory:
         创建引擎实例（支持降级）
         
         Args:
-            preferred_type: 首选引擎类�?            config: 引擎配置
+            preferred_type: 首选引擎类型
+            config: 引擎配置
             fallback_types: 降级引擎列表
             **kwargs: 额外参数
             
@@ -107,7 +114,8 @@ class EngineFactory:
     @classmethod
     def is_available(cls, engine_type: str) -> bool:
         """
-        检查引擎是否可�?        
+        检查引擎是否可用
+        
         Args:
             engine_type: 引擎类型
             
@@ -123,7 +131,7 @@ class EngineFactory:
     
     @classmethod
     def _check_availability(cls, engine_type: str) -> bool:
-        """检查引擎依赖是否可�?""
+        """检查引擎依赖是否可用"""
         if engine_type not in cls._registry:
             return False
         
@@ -162,7 +170,8 @@ class EngineFactory:
     @classmethod
     def get_available_engines(cls) -> Dict[str, Dict[str, Any]]:
         """
-        获取所有可用引�?        
+        获取所有可用引擎
+        
         Returns:
             Dict: 引擎信息字典
         """
@@ -177,7 +186,7 @@ class EngineFactory:
     
     @classmethod
     def clear_cache(cls) -> None:
-        """清除可用性缓�?""
+        """清除可用性缓存"""
         cls._availability_cache.clear()
 
 
@@ -187,10 +196,12 @@ def create_engine(
     **config_kwargs
 ) -> InferenceEngine:
     """
-    便捷函数：创建推理引�?    
+    便捷函数：创建推理引擎
+    
     Args:
         model_id: 模型 ID
-        engine_type: 引擎类型（默认从配置读取�?        **config_kwargs: 引擎配置参数
+        engine_type: 引擎类型（默认从配置读取）
+        **config_kwargs: 引擎配置参数
         
     Returns:
         InferenceEngine: 引擎实例
@@ -212,10 +223,12 @@ def create_engine_with_fallback(
     **config_kwargs
 ) -> InferenceEngine:
     """
-    便捷函数：创建推理引擎（支持降级�?    
+    便捷函数：创建推理引擎（支持降级）
+    
     Args:
         model_id: 模型 ID
-        preferred_type: 首选引擎类�?        **config_kwargs: 引擎配置参数
+        preferred_type: 首选引擎类型
+        **config_kwargs: 引擎配置参数
         
     Returns:
         InferenceEngine: 引擎实例

@@ -1,13 +1,20 @@
+# -*- coding: utf-8 -*-
 """
-技能系统模�?
-提供可扩展的技能框架，支持�?- 标准化技能接口定�?- 技能注册与发现
-- 参数验证与执行管�?- 执行历史追踪
-- 技能目录扫�?- 生命周期管理
+技能系统模块
+提供可扩展的技能框架，支持：
+- 标准化技能接口定义
+- 技能注册与发现
+- 参数验证与执行管理
+- 执行历史追踪
+- 技能目录扫描
+- 生命周期管理
 - 执行环境隔离（沙箱）
 - 执行结果缓存
 - 技能执行器
-- 技能调用决策系�?- 参数自动提取
-- 结果解析与整�?"""
+- 技能调用决策系统
+- 参数自动提取
+- 结果解析与整合
+"""
 
 from .base import SkillBase, SkillContext
 from .models import (
@@ -112,7 +119,7 @@ from .result_processor import (
     get_result_processor,
 )
 
-# 导入内置技�?from .implemented import ALL_SKILLS, register_all_skills
+from .implemented import ALL_SKILLS, register_all_skills
 
 __all__ = [
     "SkillBase",
@@ -206,26 +213,26 @@ __all__ = [
 
 
 def init_skills():
-    """初始化并注册所有内置技�?""
+    """初始化并注册所有内置技能"""
     registry = get_registry()
     register_all_skills(registry)
-    
-    # 加载 MD 格式�?skills
+
     try:
         from skills.md_skill_loader import load_md_skills
         md_skills = load_md_skills(registry)
         if md_skills:
-            print(f"已加�?{len(md_skills)} �?MD skills")
+            print(f"已加载 {len(md_skills)} 个 MD skills")
     except Exception as e:
         print(f"加载 MD skills 失败: {e}")
-    
+
     return registry
 
 
-# 自动初始�?_initialized = False
+_initialized = False
+
 
 def ensure_skills_initialized():
-    """确保技能已初始�?""
+    """确保技能已初始化"""
     global _initialized
     if not _initialized:
         init_skills()

@@ -1,5 +1,8 @@
+# -*- coding: utf-8 -*-
 """
-短期记忆管理�?管理当前会话的对话上下文和活跃实�?"""
+短期记忆管理器
+管理当前会话的对话上下文和活跃实体
+"""
 from typing import List, Dict, Optional, Any, Set
 from datetime import datetime, timedelta
 from collections import deque
@@ -44,16 +47,16 @@ class ConversationMessage:
 
 
 class ShortTermMemory:
-    """短期记忆管理�?""
+    """短期记忆管理器"""
     
     IMPORTANCE_KEYWORDS = {
-        'high': ['重要', '记住', '别忘�?, '关键', '必须', 'important', 'remember', 'critical', 'must'],
+        'high': ['重要', '记住', '别忘了', '关键', '必须', 'important', 'remember', 'critical', 'must'],
         'medium': ['注意', '提醒', '记得', 'note', 'notice', 'remind'],
         'low': ['顺便', '对了', 'by the way']
     }
     
     TOPIC_KEYWORDS = {
-        '技�?: ['代码', '开�?, '编程', '项目', '功能', 'bug', 'API', '框架'],
+        '技术': ['代码', '开发', '编程', '项目', '功能', 'bug', 'API', '框架'],
         '工作': ['任务', '会议', '报告', '计划', '进度', '团队'],
         '学习': ['学习', '教程', '文档', '理解', '知识', '概念'],
         '生活': ['生活', '家庭', '朋友', '爱好', '习惯']
@@ -80,7 +83,7 @@ class ShortTermMemory:
         self._message_count = 0
         self._total_importance = 0.0
         
-        logger.info(f"短期记忆初始�? max_turns={max_turns}, decay_rate={decay_rate}")
+        logger.info(f"短期记忆初始化: max_turns={max_turns}, decay_rate={decay_rate}")
     
     def add_message(
         self,
@@ -90,14 +93,17 @@ class ShortTermMemory:
         force_importance: float = None
     ) -> ConversationMessage:
         """
-        添加消息到短期记�?        
+        添加消息到短期记忆
+        
         Args:
             role: 角色 (user/assistant)
             content: 消息内容
             entities: 相关实体ID列表
-            force_importance: 强制重要性分�?            
+            force_importance: 强制重要性分数
+            
         Returns:
-            添加的消息对�?        """
+            添加的消息对象
+        """
         importance = force_importance if force_importance is not None else self._calculate_importance(content)
         
         message = ConversationMessage(
@@ -136,7 +142,10 @@ class ShortTermMemory:
         获取上下文（带衰减和重要性加权）
         
         Args:
-            max_tokens: 最大token�?            include_importance: 是否包含重要性标�?            include_timestamp: 是否包含时间�?            
+            max_tokens: 最大token数
+            include_importance: 是否包含重要性标记
+            include_timestamp: 是否包含时间戳
+            
         Returns:
             格式化的上下文字符串
         """
@@ -184,7 +193,7 @@ class ShortTermMemory:
         return "\n".join(part[1] for part in context_parts)
     
     def get_recent_messages(self, n: int = 5) -> List[ConversationMessage]:
-        """获取最近N条消�?""
+        """获取最近N条消息"""
         return list(self.conversation_buffer)[-n:]
     
     def get_active_entities(self, threshold: float = 0.3) -> List[str]:
@@ -216,7 +225,7 @@ class ShortTermMemory:
         return self.key_facts[-limit:]
     
     def summarize(self) -> Dict[str, Any]:
-        """总结短期记忆状�?""
+        """总结短期记忆状态"""
         return {
             'session_duration': (datetime.now() - self.session_start).total_seconds(),
             'message_count': len(self.conversation_buffer),
@@ -239,10 +248,10 @@ class ShortTermMemory:
         entities = self.get_active_entities()
         
         summary_parts = [
-            f"对话轮数: {len(user_messages)} �?,
-            f"活跃话题: {', '.join(topics) if topics else '�?}",
-            f"关键实体: {len(entities)} �?,
-            f"重要事实: {len(self.key_facts)} �?
+            f"对话轮数: {len(user_messages)} 轮",
+            f"活跃话题: {', '.join(topics) if topics else '无'}",
+            f"关键实体: {len(entities)} 个",
+            f"重要事实: {len(self.key_facts)} 条"
         ]
         
         return "\n".join(summary_parts)
@@ -284,10 +293,10 @@ class ShortTermMemory:
         self.key_facts.clear()
         self._message_count = 0
         self._total_importance = 0.0
-        logger.info("短期记忆已清�?)
+        logger.info("短期记忆已清空")
     
     def export_state(self) -> Dict[str, Any]:
-        """导出状�?""
+        """导出状态"""
         return {
             'messages': [m.to_dict() for m in self.conversation_buffer],
             'active_entities': self.active_entities,
@@ -301,7 +310,7 @@ class ShortTermMemory:
         }
     
     def import_state(self, state: Dict[str, Any]):
-        """导入状�?""
+        """导入状态"""
         self.clear()
         
         for msg_data in state.get('messages', []):
@@ -319,10 +328,10 @@ class ShortTermMemory:
         self._message_count = stats.get('message_count', len(self.conversation_buffer))
         self._total_importance = stats.get('total_importance', 0.0)
         
-        logger.info(f"导入短期记忆状�? {len(self.conversation_buffer)} 条消�?)
+        logger.info(f"导入短期记忆状态: {len(self.conversation_buffer)} 条消息")
     
     def _calculate_importance(self, content: str) -> float:
-        """计算消息重要�?""
+        """计算消息重要性"""
         content_lower = content.lower()
         
         for keyword in self.IMPORTANCE_KEYWORDS['high']:
@@ -339,12 +348,12 @@ class ShortTermMemory:
         
         length_factor = min(0.2, len(content) / 500)
         
-        question_factor = 0.1 if '?' in content or '�? in content else 0
+        question_factor = 0.1 if '?' in content or '？' in content else 0
         
         return 0.5 + length_factor + question_factor
     
     def _update_entity_attention(self, entity_id: str):
-        """更新实体注意力权�?""
+        """更新实体注意力权重"""
         current = self.active_entities.get(entity_id, 0)
         self.active_entities[entity_id] = min(1.0, current + 0.3)
     
@@ -358,7 +367,7 @@ class ShortTermMemory:
                     break
     
     def _apply_decay(self):
-        """应用注意力衰�?""
+        """应用注意力衰减"""
         for entity_id in self.active_entities:
             self.active_entities[entity_id] *= self.decay_rate
         
@@ -397,7 +406,7 @@ class ShortTermMemory:
         include_timestamp: bool,
         decay: float = 1.0
     ) -> str:
-        """格式化消�?""
+        """格式化消息"""
         parts = []
         
         if include_timestamp:
@@ -418,11 +427,11 @@ class ShortTermMemory:
         return " ".join(parts)
     
     def _summarize_content(self, content: str, decay: float) -> str:
-        """根据衰减程度简化内�?""
+        """根据衰减程度简化内容"""
         if decay > 0.7:
             return content
         
-        sentences = re.split(r'[。！�?!?]', content)
+        sentences = re.split(r'[。！？!?]', content)
         if len(sentences) <= 1:
             return content
         
@@ -445,7 +454,7 @@ class ShortTermMemoryManager:
         self._default_session_id = "default"
     
     def get_session(self, session_id: str = None) -> ShortTermMemory:
-        """获取或创建会�?""
+        """获取或创建会话"""
         session_id = session_id or self._default_session_id
         
         if session_id not in self.sessions:
@@ -453,7 +462,7 @@ class ShortTermMemoryManager:
                 self._evict_oldest_session()
             
             self.sessions[session_id] = ShortTermMemory()
-            logger.info(f"创建新会�? {session_id}")
+            logger.info(f"创建新会话: {session_id}")
         
         return self.sessions[session_id]
     
@@ -464,12 +473,12 @@ class ShortTermMemoryManager:
         session_id: str = None,
         entities: List[str] = None
     ) -> ConversationMessage:
-        """添加消息到指定会�?""
+        """添加消息到指定会话"""
         session = self.get_session(session_id)
         return session.add_message(role, content, entities)
     
     def get_context(self, session_id: str = None, max_tokens: int = None) -> str:
-        """获取会话上下�?""
+        """获取会话上下文"""
         session = self.get_session(session_id)
         return session.get_context(max_tokens)
     
@@ -500,7 +509,7 @@ class ShortTermMemoryManager:
         )
         
         self.remove_session(oldest_id)
-        logger.info(f"淘汰最旧会�? {oldest_id}")
+        logger.info(f"淘汰最旧会话: {oldest_id}")
 
 
 _stm_manager: Optional[ShortTermMemoryManager] = None
@@ -515,7 +524,7 @@ def get_short_term_memory(session_id: str = None) -> ShortTermMemory:
 
 
 def get_stm_manager() -> ShortTermMemoryManager:
-    """获取短期记忆管理�?""
+    """获取短期记忆管理器"""
     global _stm_manager
     if _stm_manager is None:
         _stm_manager = ShortTermMemoryManager()

@@ -1,5 +1,6 @@
+# -*- coding: utf-8 -*-
 """
-统一错误处理 - 参�?Ollama 错误处理模式
+统一错误处理 - 参考 Ollama 错误处理模式
 提供一致的错误响应格式
 """
 from fastapi import HTTPException, Request
@@ -16,60 +17,60 @@ class ErrorCode(str, Enum):
     DOCUMENT_NOT_FOUND = "document_not_found"
     MEMORY_NOT_FOUND = "memory_not_found"
     ENTITY_NOT_FOUND = "entity_not_found"
-    
+
     OLLAMA_NOT_RUNNING = "ollama_not_running"
     OLLAMA_UNAVAILABLE = "ollama_unavailable"
-    
+
     CONTEXT_TOO_LONG = "context_too_long"
     MALICIOUS_INPUT = "malicious_input"
     INVALID_INPUT = "invalid_input"
     RATE_LIMITED = "rate_limited"
-    
+
     INFERENCE_FAILED = "inference_failed"
     EMBEDDING_FAILED = "embedding_failed"
     UPLOAD_FAILED = "upload_failed"
     PROCESSING_FAILED = "processing_failed"
-    
+
     UNAUTHORIZED = "unauthorized"
     FORBIDDEN = "forbidden"
-    
+
     INTERNAL_ERROR = "internal_error"
     SERVICE_UNAVAILABLE = "service_unavailable"
 
 
 ERROR_MESSAGES: Dict[str, str] = {
-    ErrorCode.MODEL_NOT_FOUND: "模型不存在，请检查模型名称或先下载模�?,
-    ErrorCode.MODEL_LOAD_FAILED: "模型加载失败，请检查模型文件是否完�?,
-    ErrorCode.SESSION_NOT_FOUND: "会话不存�?,
+    ErrorCode.MODEL_NOT_FOUND: "模型不存在，请检查模型名称或先下载模型",
+    ErrorCode.MODEL_LOAD_FAILED: "模型加载失败，请检查模型文件是否完整",
+    ErrorCode.SESSION_NOT_FOUND: "会话不存在",
     ErrorCode.COLLECTION_NOT_FOUND: "知识库集合不存在",
-    ErrorCode.DOCUMENT_NOT_FOUND: "文档不存�?,
-    ErrorCode.MEMORY_NOT_FOUND: "记忆不存�?,
-    ErrorCode.ENTITY_NOT_FOUND: "实体不存�?,
-    
+    ErrorCode.DOCUMENT_NOT_FOUND: "文档不存在",
+    ErrorCode.MEMORY_NOT_FOUND: "记忆不存在",
+    ErrorCode.ENTITY_NOT_FOUND: "实体不存在",
+
     ErrorCode.OLLAMA_NOT_RUNNING: "Ollama 服务未运行，请先启动 Ollama",
-    ErrorCode.OLLAMA_UNAVAILABLE: "Ollama 服务暂时不可用，请稍后重�?,
-    
-    ErrorCode.CONTEXT_TOO_LONG: "上下文长度超出限制，请减少对话历�?,
+    ErrorCode.OLLAMA_UNAVAILABLE: "Ollama 服务暂时不可用，请稍后重试",
+
+    ErrorCode.CONTEXT_TOO_LONG: "上下文长度超出限制，请减少对话历史",
     ErrorCode.MALICIOUS_INPUT: "检测到潜在的恶意输入，请修改内容后重试",
     ErrorCode.INVALID_INPUT: "输入内容无效，请检查后重试",
     ErrorCode.RATE_LIMITED: "请求过于频繁，请稍后重试",
-    
+
     ErrorCode.INFERENCE_FAILED: "推理生成失败，请稍后重试",
     ErrorCode.EMBEDDING_FAILED: "文本嵌入失败",
     ErrorCode.UPLOAD_FAILED: "文件上传失败",
     ErrorCode.PROCESSING_FAILED: "处理失败",
-    
-    ErrorCode.UNAUTHORIZED: "未授权访�?,
+
+    ErrorCode.UNAUTHORIZED: "未授权访问",
     ErrorCode.FORBIDDEN: "禁止访问",
-    
-    ErrorCode.INTERNAL_ERROR: "服务器内部错�?,
-    ErrorCode.SERVICE_UNAVAILABLE: "服务暂时不可�?,
+
+    ErrorCode.INTERNAL_ERROR: "服务器内部错误",
+    ErrorCode.SERVICE_UNAVAILABLE: "服务暂时不可用",
 }
 
 
 class APIError(Exception):
     """API 错误基类"""
-    
+
     def __init__(
         self,
         code: str,
@@ -82,7 +83,7 @@ class APIError(Exception):
         self.status_code = status_code
         self.details = details or {}
         super().__init__(self.message)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "error": {
@@ -91,7 +92,7 @@ class APIError(Exception):
                 "details": self.details
             }
         }
-    
+
     def to_http_exception(self) -> HTTPException:
         return HTTPException(
             status_code=self.status_code,
@@ -184,7 +185,7 @@ class ContextTooLongError(APIError):
     def __init__(self, current: int, max_length: int):
         super().__init__(
             code=ErrorCode.CONTEXT_TOO_LONG,
-            message=f"上下文长度超出限制（当前: {current}, 最�? {max_length}�?,
+            message=f"上下文长度超出限制（当前: {current}, 最大: {max_length}）",
             status_code=400,
             details={"current": current, "max_length": max_length}
         )
@@ -258,7 +259,7 @@ class UnauthorizedError(APIError):
     def __init__(self, message: Optional[str] = None):
         super().__init__(
             code=ErrorCode.UNAUTHORIZED,
-            message=message or "未授权访�?,
+            message=message or "未授权访问",
             status_code=401
         )
 
@@ -291,7 +292,7 @@ class ServiceUnavailableError(APIError):
 
 
 async def api_error_handler(request: Request, exc: APIError) -> JSONResponse:
-    """API 错误处理�?""
+    """API 错误处理器"""
     return JSONResponse(
         status_code=exc.status_code,
         content=exc.to_dict()
@@ -299,13 +300,13 @@ async def api_error_handler(request: Request, exc: APIError) -> JSONResponse:
 
 
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
-    """HTTP 异常处理�?- 统一格式"""
+    """HTTP 异常处理器 - 统一格式"""
     if isinstance(exc.detail, dict) and "error" in exc.detail:
         return JSONResponse(
             status_code=exc.status_code,
             content=exc.detail
         )
-    
+
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -319,16 +320,16 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 
 
 async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
-    """通用异常处理�?""
+    """通用异常处理器"""
     import logging
     logging.getLogger(__name__).error(f"未处理的异常: {exc}", exc_info=True)
-    
+
     return JSONResponse(
         status_code=500,
         content={
             "error": {
                 "code": ErrorCode.INTERNAL_ERROR,
-                "message": "服务器内部错�?,
+                "message": "服务器内部错误",
                 "details": {"type": type(exc).__name__}
             }
         }
@@ -338,7 +339,7 @@ async def generic_exception_handler(request: Request, exc: Exception) -> JSONRes
 def parse_ollama_error(error_text: str) -> APIError:
     """解析 Ollama 错误信息并返回对应的 APIError"""
     error_lower = error_text.lower()
-    
+
     if "model" in error_lower and ("not found" in error_lower or "does not exist" in error_lower):
         return ModelNotFoundError(model_id="unknown")
     if "connection" in error_lower or "refused" in error_lower:
@@ -347,14 +348,14 @@ def parse_ollama_error(error_text: str) -> APIError:
         return OllamaUnavailableError(reason="timeout")
     if "context" in error_lower and ("length" in error_lower or "too long" in error_lower):
         return ContextTooLongError(current=0, max_length=0)
-    
+
     return OllamaUnavailableError(reason=error_text)
 
 
 def get_friendly_error(code: str, original_error: str = "") -> str:
-    """获取友好的错误信�?""
+    """获取友好的错误信息"""
     friendly_msg = ERROR_MESSAGES.get(code, f"操作失败: {code}")
     import logging
     if original_error and logging.getLogger(__name__).isEnabledFor(10):
-        return f"{friendly_msg}（详情：{original_error}�?
+        return f"{friendly_msg}（详情：{original_error}）"
     return friendly_msg

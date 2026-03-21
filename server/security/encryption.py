@@ -1,11 +1,15 @@
+# -*- coding: utf-8 -*-
 """
 安全加密模块 - 加密存储敏感数据
 
 使用 Fernet 对称加密算法
 - API Key 加密存储
-- 密钥文件权限 600（仅所有者可读写�?- 保险库存储所有加密数�?- 内存中密钥保护（使用后立即清除）
+- 密钥文件权限 600（仅所有者可读写）
+- 保险库存储所有加密数据
+- 内存中密钥保护（使用后立即清除）
 
-安全增强�?- 密钥轮换支持
+安全增强：
+- 密钥轮换支持
 - 访问计数审计
 - 内存数据保护
 """
@@ -17,6 +21,7 @@ import json
 import logging
 import secrets
 import hashlib
+from typing import Dict, Any, Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -25,29 +30,29 @@ class SecureStorage:
     """安全存储 - 加密敏感数据"""
 
     def __init__(self):
-        """初始化安全存�?""
+        """初始化安全存储"""
         self.data_dir = Path(__file__).parent.parent / "data"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         
         self.key_file = self.data_dir / ".encryption_key"
         self.vault_file = self.data_dir / ".vault"
         
-        # 获取或创建密�?        self.key = self._get_or_create_key()
+        self.key = self._get_or_create_key()
         self.cipher = Fernet(self.key)
         
         logger.info("安全存储已初始化")
 
     def _get_or_create_key(self) -> bytes:
-        """获取或创建加密密�?""
+        """获取或创建加密密钥"""
         if self.key_file.exists():
             try:
                 with open(self.key_file, 'rb') as f:
                     key = f.read()
-                logger.info("已加载现有加密密�?)
+                logger.info("已加载现有加密密钥")
                 return key
             except Exception as e:
                 logger.error(f"加载密钥失败：{e}")
-                # 密钥损坏，生成新�?                return self._create_new_key()
+                return self._create_new_key()
         else:
             logger.info("生成新的加密密钥")
             return self._create_new_key()
@@ -60,21 +65,24 @@ class SecureStorage:
             with open(self.key_file, 'wb') as f:
                 f.write(key)
             
-            # 设置安全权限（仅所有者可读写�?            os.chmod(self.key_file, 0o600)
-            logger.info("新密钥已创建并保�?)
+            os.chmod(self.key_file, 0o600)
+            logger.info("新密钥已创建并保存")
             
             return key
         except Exception as e:
             logger.error(f"保存密钥失败：{e}")
-            # 内存中保存，不写入文�?            return key
+            return key
 
     def encrypt(self, plaintext: str) -> str:
         """
-        加密字符�?
+        加密字符串
+        
         Args:
-            plaintext: 明文字符�?
+            plaintext: 明文字符串
+            
         Returns:
-            密文字符串（Base64 编码�?        """
+            密文字符串（Base64 编码）
+        """
         try:
             encrypted = self.cipher.encrypt(plaintext.encode('utf-8'))
             return base64.urlsafe_b64encode(encrypted).decode('utf-8')
@@ -84,11 +92,14 @@ class SecureStorage:
 
     def decrypt(self, ciphertext: str) -> str:
         """
-        解密字符�?
+        解密字符串
+        
         Args:
-            ciphertext: 密文字符串（Base64 编码�?
+            ciphertext: 密文字符串（Base64 编码）
+            
         Returns:
-            明文字符�?        """
+            明文字符串
+        """
         try:
             encrypted = base64.urlsafe_b64decode(ciphertext.encode('utf-8'))
             decrypted = self.cipher.decrypt(encrypted)
@@ -97,30 +108,97 @@ class SecureStorage:
             logger.error(f"解密失败：{e}")
             raise
 
+    def store(self, key: str, value: Any) -> None:
+        """
+        存储数据
+        
+        Args:
+            key: 存储键
+            value: 要存储的值（将被加密）
+        """
+        vault = self._load_vault()
+        
+        if isinstance(value, dict):
+            encrypted_value = self.encrypt(json.dumps(value, ensure_ascii=False))
+        else:
+            encrypted_value = self.encrypt(str(value))
+        
+        vault[key] = encrypted_value
+        self._save_vault(vault)
+        logger.debug(f"数据已存储：{key}")
+
+    def get(self, key: str) -> Optional[Any]:
+        """
+        获取数据
+        
+        Args:
+            key: 存储键
+            
+        Returns:
+            解密后的值，如果不存在返回 None
+        """
+        vault = self._load_vault()
+        
+        encrypted_value = vault.get(key)
+        if encrypted_value is None:
+            return None
+        
+        try:
+            decrypted = self.decrypt(encrypted_value)
+            
+            try:
+                return json.loads(decrypted)
+            except json.JSONDecodeError:
+                return decrypted
+        except Exception as e:
+            logger.error(f"解密数据失败：{key}, {e}")
+            return None
+
+    def delete(self, key: str) -> bool:
+        """
+        删除数据
+        
+        Args:
+            key: 存储键
+            
+        Returns:
+            是否删除成功
+        """
+        vault = self._load_vault()
+        
+        if key in vault:
+            del vault[key]
+            self._save_vault(vault)
+            logger.debug(f"数据已删除：{key}")
+            return True
+        
+        return False
+
     def store_api_key(self, key_id: str, provider: str, api_key: str, group_id: str = "", base_url: str = ""):
         """
         存储 API Key
 
         Args:
             key_id: Key ID
-            provider: 服务商名�?            api_key: API Key 明文
-            group_id: Group ID（可选，用于 Minimax�?            base_url: 自定�?Base URL（可选）
+            provider: 服务商名称
+            api_key: API Key 明文
+            group_id: Group ID（可选，用于 Minimax）
+            base_url: 自定义 Base URL（可选）
         """
         vault = self._load_vault()
 
-        # 加密敏感数据
         encrypted_api_key = self.encrypt(api_key)
         encrypted_group_id = self.encrypt(group_id) if group_id else ""
 
-        # 存储加密�?API Key 和提供商信息
         vault[f"api_key:{key_id}"] = {
             'encrypted': encrypted_api_key,
             'provider': provider,
             'group_id': encrypted_group_id,
-            'base_url': base_url,  # Base URL 通常不敏感，可不加密
+            'base_url': base_url,
             'created_at': self._get_timestamp(),
-            'access_count': 0,  # 访问计数
-            'last_accessed': None  # 最后访问时�?        }
+            'access_count': 0,
+            'last_accessed': None
+        }
 
         self._save_vault(vault)
         logger.info(f"API Key 已加密存储：{key_id}")
@@ -136,7 +214,8 @@ class SecureStorage:
             API Key 明文
 
         Raises:
-            KeyError: Key 不存�?        """
+            KeyError: Key 不存在
+        """
         vault = self._load_vault()
 
         key_data = vault.get(f"api_key:{key_id}")
@@ -144,10 +223,8 @@ class SecureStorage:
             raise KeyError(f"API Key 不存在：{key_id}")
 
         try:
-            # 解密 API Key
             api_key = self.decrypt(key_data['encrypted'])
             
-            # 更新访问记录
             key_data['access_count'] = key_data.get('access_count', 0) + 1
             key_data['last_accessed'] = self._get_timestamp()
             self._save_vault(vault)
@@ -167,27 +244,29 @@ class SecureStorage:
 
     def get_key_data(self, key_id: str) -> dict:
         """
-        获取完整�?Key 数据（包�?group_id �?base_url�?
+        获取完整的 Key 数据（包含 group_id 和 base_url）
+        
         Args:
             key_id: Key ID
 
         Returns:
-            包含 provider、group_id、base_url 的字�?
+            包含 provider、group_id、base_url 的字典
+            
         Raises:
-            KeyError: Key 不存�?        """
+            KeyError: Key 不存在
+        """
         vault = self._load_vault()
         key_data = vault.get(f"api_key:{key_id}")
         if not key_data:
             raise KeyError(f"API Key 不存在：{key_id}")
         
-        # 解密 group_id（如果有�?        group_id = ""
+        group_id = ""
         if key_data.get('group_id'):
             try:
                 group_id = self.decrypt(key_data['group_id'])
             except Exception:
                 group_id = ""
         
-        # 更新访问记录
         key_data['access_count'] = key_data.get('access_count', 0) + 1
         key_data['last_accessed'] = self._get_timestamp()
         self._save_vault(vault)
@@ -210,8 +289,8 @@ class SecureStorage:
         self._save_vault(vault)
         logger.info(f"API Key 已删除：{key_id}")
 
-    def list_api_keys(self) -> list:
-        """列出所�?API Key ID"""
+    def list_api_keys(self) -> List[Dict[str, str]]:
+        """列出所有 API Key ID"""
         vault = self._load_vault()
         keys = []
         for key_name, data in vault.items():
@@ -223,8 +302,8 @@ class SecureStorage:
                 })
         return keys
 
-    def _load_vault(self) -> dict:
-        """加载保险�?""
+    def _load_vault(self) -> Dict[str, Any]:
+        """加载保险库"""
         if self.vault_file.exists():
             try:
                 with open(self.vault_file, 'r', encoding='utf-8') as f:
@@ -234,23 +313,21 @@ class SecureStorage:
                 return {}
         return {}
 
-    def _save_vault(self, vault: dict):
-        """保存保险�?""
+    def _save_vault(self, vault: Dict[str, Any]):
+        """保存保险库"""
         try:
             with open(self.vault_file, 'w', encoding='utf-8') as f:
                 json.dump(vault, f, indent=2, ensure_ascii=False)
             
-            # 设置安全权限
             os.chmod(self.vault_file, 0o600)
         except Exception as e:
             logger.error(f"保存保险库失败：{e}")
             raise
 
     def _get_timestamp(self) -> str:
-        """获取时间�?""
+        """获取时间戳"""
         from datetime import datetime
         return datetime.now().isoformat()
 
 
-# 全局单例
 secure_storage = SecureStorage()

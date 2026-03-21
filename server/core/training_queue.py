@@ -1,10 +1,15 @@
+# -*- coding: utf-8 -*-
 """
-训练任务队列管理模块（重构版�?
-修复内容�?- P0-2: 完善任务取消功能，支持取消队列中的任�?- P1-3: 状态文件原子写入，防止损坏
+训练任务队列管理模块（重构版）
+修复内容：
+- P0-2: 完善任务取消功能，支持取消队列中的任务
+- P1-3: 状态文件原子写入，防止损坏
 
-支持�?- 任务排队
+支持：
+- 任务排队
 - 并发控制
-- 优先级调�?- 任务取消
+- 优先级调度
+- 任务取消
 """
 import threading
 from queue import PriorityQueue, Empty
@@ -25,7 +30,7 @@ logger = get_logger(__name__)
 
 
 class TaskStatus(Enum):
-    """任务状�?""
+    """任务状态"""
     PENDING = "pending"
     QUEUED = "queued"
     RUNNING = "running"
@@ -36,7 +41,7 @@ class TaskStatus(Enum):
 
 
 class TaskPriority(Enum):
-    """任务优先�?""
+    """任务优先级"""
     LOW = 3
     NORMAL = 2
     HIGH = 1
@@ -57,7 +62,7 @@ class TrainingTask:
     completed_at: Optional[datetime] = field(compare=False, default=None)
 
     def to_dict(self) -> Dict:
-        """转换为字�?""
+        """转换为字典"""
         return {
             "task_id": self.task_id,
             "priority": self.priority,
@@ -73,10 +78,12 @@ class TrainingQueue:
     """
     训练任务队列管理器（重构版）
 
-    修复�?    - P0-2: 完善任务取消功能
-    - P1-3: 状态文件原子写�?
+    修复：
+    - P0-2: 完善任务取消功能
+    - P1-3: 状态文件原子写入
     特性：
-    - 优先级队�?    - 并发控制
+    - 优先级队列
+    - 并发控制
     - 自动重试
     - 任务取消
     """
@@ -126,17 +133,17 @@ class TrainingQueue:
         self._worker_running = True
         self._worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
         self._worker_thread.start()
-        logger.info("队列工作线程已启�?)
+        logger.info("队列工作线程已启动")
 
     def stop(self):
         """停止队列工作线程"""
         self._worker_running = False
         if self._worker_thread:
             self._worker_thread.join(timeout=5.0)
-        logger.info("队列工作线程已停�?)
+        logger.info("队列工作线程已停止")
 
     def _worker_loop(self):
-        """工作线程主循�?""
+        """工作线程主循环"""
         while self._worker_running:
             try:
                 task: TrainingTask = self._queue.get(timeout=1.0)
@@ -196,7 +203,7 @@ class TrainingQueue:
             self._semaphore.release()
 
     def _add_to_history(self, task: TrainingTask):
-        """添加到历�?""
+        """添加到历史"""
         with self._history_lock:
             self._history[task.task_id] = task
 
@@ -250,13 +257,13 @@ class TrainingQueue:
             logger.error(f"保存队列状态失败：{e}")
 
     def _load_state(self):
-        """从文件加载状�?""
+        """从文件加载状态"""
         if not self.state_file.exists():
             backup_path = self.state_file.with_suffix('.json.bak')
             if backup_path.exists():
                 try:
                     os.replace(str(backup_path), str(self.state_file))
-                    logger.info("从备份文件恢复队列状�?)
+                    logger.info("从备份文件恢复队列状态")
                 except Exception:
                     return
             else:
@@ -282,7 +289,7 @@ class TrainingQueue:
                     task.error = data["error"]
                 self._history[task_id] = task
 
-            logger.info(f"从文件加载了 {len(self._history)} 个历史任�?)
+            logger.info(f"从文件加载了 {len(self._history)} 个历史任务")
 
         except Exception as e:
             logger.error(f"加载队列状态失败：{e}")
@@ -295,18 +302,18 @@ class TrainingQueue:
         priority: TaskPriority = TaskPriority.NORMAL
     ) -> bool:
         """
-        提交任务到队�?
+        提交任务到队列
         Args:
             task_id: 任务 ID
             config: 任务配置
             callback: 任务回调函数
-            priority: 优先�?
+            priority: 优先级
         Returns:
             是否提交成功
         """
         with self._lock:
             if self._queue.qsize() >= self.max_queue_size:
-                logger.warning(f"队列已满，无法提交任�?{task_id}")
+                logger.warning(f"队列已满，无法提交任务 {task_id}")
                 return False
 
             task = TrainingTask(
@@ -357,7 +364,7 @@ class TrainingQueue:
             return False
 
     def get_queue_status(self) -> Dict[str, Any]:
-        """获取队列状�?""
+        """获取队列状态"""
         with self._lock:
             return {
                 "queue_size": self._queue.qsize(),
@@ -372,7 +379,7 @@ class TrainingQueue:
             }
 
     def get_task_status(self, task_id: str) -> Optional[Dict]:
-        """获取任务状�?""
+        """获取任务状态"""
         with self._lock:
             if task_id in self._running_tasks:
                 return self._running_tasks[task_id].to_dict()

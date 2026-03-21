@@ -1,390 +1,270 @@
+# -*- coding: utf-8 -*-
 """
 HuggingFace 推理后端实现
 """
+from typing import Dict, List, Optional, Any, AsyncIterator
 import asyncio
 import logging
 import time
-from typing import Dict, Any, Optional, List, AsyncGenerator
-from pathlib import Path
 
-from api.inference.backends.base import BaseBackend, InferenceContext
-from api.types import (
-    ChatRequest, ChatResponse, GenerateRequest, GenerateResponse,
-    Message, MessageRole, TokenUsage, KnowledgeSource
+from .base import (
+    InferenceBackend,
+    BackendType,
+    GenerationConfig,
+    GenerationResult
 )
-from api.errors import ModelNotFoundError, ModelLoadFailedError, InferenceFailedError
-from core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 
-class HuggingFaceBackend(BaseBackend):
+class HuggingFaceBackend(InferenceBackend):
     """HuggingFace 推理后端"""
     
-    def __init__(self):
-        self.settings = get_settings()
-        self._model_cache: Dict[str, Dict[str, Any]] = {}
-        self._lora_cache: Dict[str, Any] = {}
+    backend_type = BackendType.HUGGINGFACE
     
-    @property
-    def name(self) -> str:
-        return "huggingface"
-    
-    async def is_available(self) -> bool:
-        try:
-            import torch
-            return True
-        except ImportError:
-            return False
-    
-    async def list_models(self) -> List[Dict[str, Any]]:
-        """列出可用模型"""
-        models = []
-        models_dir = self.settings.models_dir_resolved
+    def __init__(self, config: Dict[str, Any] = None):
+        super().__init__(config)
         
-        if models_dir.exists():
-            for model_path in models_dir.iterdir():
-                if model_path.is_dir():
-                    config_file = model_path / "config.json"
-                    if config_file.exists():
-                        try:
-                            import json
-                            with open(config_file, "r", encoding="utf-8") as f:
-                                config = json.load(f)
-                            models.append({
-                                "id": model_path.name,
-                                "name": config.get("model_name", model_path.name),
-                                "type": config.get("type", "base"),
-                                "quantized": config.get("quantized"),
-                                "backend": "huggingface"
-                            })
-                        except Exception as e:
-                            logger.warning(f"读取模型配置失败: {model_path.name}: {e}")
+        self.device = config.get("device", "auto")
+        self.torch_dtype = config.get("torch_dtype", "auto")
+        self.load_in_8bit = config.get("load_in_8bit", False)
+        self.load_in_4bit = config.get("load_in_4bit", False)
+        self.trust_remote_code = config.get("trust_remote_code", False)
         
-        return models
+        self._pipeline = None
     
-    async def is_model_loaded(self, model_id: str) -> bool:
-        return model_id in self._model_cache
-    
-    async def load_model(self, model_id: str) -> Dict[str, Any]:
+    async def load_model(self, model_name: str, **kwargs) -> bool:
         """加载模型"""
-        if model_id in self._model_cache:
-            logger.info(f"模型已缓�? {model_id}")
-            return self._model_cache[model_id]
-        
-        model_path = self.settings.models_dir_resolved / model_id
-        if not model_path.exists():
-            raise ModelNotFoundError(model_id)
-        
         try:
             import torch
-            from transformers import AutoTokenizer, AutoModelForCausalLM
+            from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
             
-            logger.info(f"加载 HuggingFace 模型: {model_path}")
+            logger.info(f"Loading HuggingFace model: {model_name}")
             
-            tokenizer = AutoTokenizer.from_pretrained(
-                str(model_path),
-                trust_remote_code=True
+            torch_dtype = self.torch_dtype
+            if torch_dtype == "auto":
+                torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+            elif isinstance(torch_dtype, str):
+                torch_dtype = getattr(torch, torch_dtype, torch.float32)
+            
+            self._tokenizer = AutoTokenizer.from_pretrained(
+                model_name,
+                trust_remote_code=self.trust_remote_code
             )
             
-            if tokenizer.pad_token is None:
-                tokenizer.pad_token = tokenizer.eos_token
-            
-            model = AutoModelForCausalLM.from_pretrained(
-                str(model_path),
-                device_map="auto",
-                torch_dtype=torch.float16,
-                trust_remote_code=True,
-                low_cpu_mem_usage=True,
-            )
-            
-            model.eval()
-            
-            model_data = {
-                "model": model,
-                "tokenizer": tokenizer,
-                "loaded_at": time.time(),
-                "device": str(model.device) if hasattr(model, 'device') else "unknown"
+            model_kwargs = {
+                "pretrained_model_name_or_path": model_name,
+                "torch_dtype": torch_dtype,
+                "device_map": self.device,
+                "trust_remote_code": self.trust_remote_code,
             }
             
-            self._model_cache[model_id] = model_data
-            logger.info(f"模型加载完成: {model_id}")
+            if self.load_in_8bit:
+                model_kwargs["load_in_8bit"] = True
+            elif self.load_in_4bit:
+                model_kwargs["load_in_4bit"] = True
             
-            return model_data
+            self._model = AutoModelForCausalLM.from_pretrained(**model_kwargs)
             
-        except Exception as e:
-            logger.error(f"模型加载失败: {model_id}: {e}")
-            raise ModelLoadFailedError(model_id, str(e))
-    
-    async def unload_model(self, model_id: str) -> bool:
-        """卸载模型"""
-        if model_id not in self._model_cache:
-            return False
-        
-        try:
-            import torch
-            import gc
+            self._pipeline = pipeline(
+                "text-generation",
+                model=self._model,
+                tokenizer=self._tokenizer,
+                device_map=self.device
+            )
             
-            model_data = self._model_cache.pop(model_id)
+            self._is_loaded = True
+            logger.info(f"HuggingFace model loaded: {model_name}")
             
-            del model_data["model"]
-            del model_data["tokenizer"]
-            
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()
-            
-            logger.info(f"模型已卸�? {model_id}")
             return True
             
         except Exception as e:
-            logger.error(f"卸载模型失败: {model_id}: {e}")
+            logger.error(f"Failed to load HuggingFace model: {e}")
+            self._is_loaded = False
+            return False
+    
+    async def unload_model(self) -> bool:
+        """卸载模型"""
+        try:
+            import gc
+            import torch
+            
+            del self._model
+            del self._tokenizer
+            del self._pipeline
+            
+            self._model = None
+            self._tokenizer = None
+            self._pipeline = None
+            
+            gc.collect()
+            
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
+            self._is_loaded = False
+            logger.info("HuggingFace model unloaded")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to unload model: {e}")
             return False
     
     async def generate(
         self,
-        request: GenerateRequest,
-        context: Optional[InferenceContext] = None
-    ) -> GenerateResponse:
+        prompt: str,
+        config: GenerationConfig = None
+    ) -> GenerationResult:
         """生成文本"""
+        if not self._is_loaded:
+            return GenerationResult(
+                text="",
+                tokens_generated=0,
+                finish_reason="error",
+                model="",
+                metadata={"error": "Model not loaded"}
+            )
+        
+        config = config or GenerationConfig()
         start_time = time.time()
         
         try:
-            model_data = await self.load_model(request.model)
-            model = model_data["model"]
-            tokenizer = model_data["tokenizer"]
+            input_ids = self._tokenizer.encode(prompt, return_tensors="pt")
+            prompt_tokens = len(input_ids[0])
             
-            import torch
+            outputs = await asyncio.to_thread(
+                self._pipeline,
+                prompt,
+                max_new_tokens=config.max_tokens,
+                temperature=config.temperature,
+                top_p=config.top_p,
+                top_k=config.top_k,
+                repetition_penalty=config.repetition_penalty,
+                do_sample=config.temperature > 0,
+                num_return_sequences=1,
+                pad_token_id=self._tokenizer.eos_token_id
+            )
             
-            lora_adapter = getattr(request, 'lora_adapter', None)
-            if lora_adapter:
-                model = await self._load_lora(model, lora_adapter)
+            generated_text = outputs[0]["generated_text"]
+            new_text = generated_text[len(prompt):]
             
-            prompt = request.prompt
-            if request.system:
-                prompt = f"{request.system}\n\n{prompt}"
+            output_ids = self._tokenizer.encode(new_text, return_tensors="pt")
+            tokens_generated = len(output_ids[0])
             
-            inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-            input_length = inputs.input_ids.shape[1]
+            latency_ms = (time.time() - start_time) * 1000
             
-            with torch.no_grad():
-                outputs = model.generate(
-                    **inputs,
-                    max_new_tokens=request.options.max_tokens,
-                    temperature=request.options.temperature,
-                    top_p=request.options.top_p,
-                    top_k=request.options.top_k,
-                    do_sample=request.options.temperature > 0,
-                    repetition_penalty=request.options.repetition_penalty,
-                    pad_token_id=tokenizer.pad_token_id,
-                    eos_token_id=tokenizer.eos_token,
-                )
-            
-            generated_ids = outputs[0][input_length:]
-            response_text = tokenizer.decode(generated_ids, skip_special_tokens=True)
-            response_text = self.clean_response(response_text)
-            
-            elapsed_time = time.time() - start_time
-            
-            return GenerateResponse(
-                model=request.model,
-                response=response_text,
-                usage=TokenUsage(
-                    prompt_tokens=input_length,
-                    completion_tokens=len(generated_ids),
-                    total_tokens=input_length + len(generated_ids)
-                ),
-                total_duration=elapsed_time,
-                eval_duration=elapsed_time
+            return GenerationResult(
+                text=new_text,
+                tokens_generated=tokens_generated,
+                finish_reason="stop",
+                model="huggingface",
+                prompt_tokens=prompt_tokens,
+                total_tokens=prompt_tokens + tokens_generated,
+                latency_ms=latency_ms
             )
             
         except Exception as e:
-            logger.error(f"生成失败: {e}", exc_info=True)
-            raise InferenceFailedError(request.model, str(e))
-    
-    async def chat(
-        self,
-        request: ChatRequest,
-        context: Optional[InferenceContext] = None
-    ) -> ChatResponse:
-        """聊天对话"""
-        start_time = time.time()
-        
-        try:
-            model_data = await self.load_model(request.model)
-            model = model_data["model"]
-            tokenizer = model_data["tokenizer"]
-            
-            import torch
-            
-            messages_for_template = []
-            for msg in request.messages:
-                role = msg.role if isinstance(msg.role, str) else msg.role.value
-                messages_for_template.append({"role": role, "content": msg.content})
-            
-            if hasattr(tokenizer, 'apply_chat_template'):
-                try:
-                    prompt = tokenizer.apply_chat_template(
-                        messages_for_template,
-                        tokenize=False,
-                        add_generation_prompt=True
-                    )
-                except Exception as e:
-                    logger.warning(f"apply_chat_template 失败: {e}")
-                    prompt = self._apply_default_template(request.messages)
-            else:
-                prompt = self._apply_default_template(request.messages)
-            
-            inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-            input_length = inputs.input_ids.shape[1]
-            
-            with torch.no_grad():
-                outputs = model.generate(
-                    **inputs,
-                    max_new_tokens=request.options.max_tokens,
-                    temperature=request.options.temperature,
-                    top_p=request.options.top_p,
-                    do_sample=request.options.temperature > 0,
-                    pad_token_id=tokenizer.pad_token_id,
-                    eos_token_id=tokenizer.eos_token,
-                )
-            
-            generated_ids = outputs[0][input_length:]
-            response_text = tokenizer.decode(generated_ids, skip_special_tokens=True)
-            response_text = self.clean_response(response_text)
-            
-            elapsed_time = time.time() - start_time
-            
-            return ChatResponse(
-                message=Message(
-                    role=MessageRole.ASSISTANT,
-                    content=response_text
-                ),
-                model=request.model,
-                backend="huggingface",
-                usage=TokenUsage(
-                    prompt_tokens=input_length,
-                    completion_tokens=len(generated_ids),
-                    total_tokens=input_length + len(generated_ids)
-                ),
-                total_duration=elapsed_time,
-                eval_duration=elapsed_time
+            logger.error(f"HuggingFace generation failed: {e}")
+            return GenerationResult(
+                text="",
+                tokens_generated=0,
+                finish_reason="error",
+                model="huggingface",
+                metadata={"error": str(e)}
             )
-            
-        except Exception as e:
-            logger.error(f"聊天失败: {e}", exc_info=True)
-            raise InferenceFailedError(request.model, str(e))
     
     async def generate_stream(
         self,
-        request: GenerateRequest,
-        context: Optional[InferenceContext] = None
-    ) -> AsyncGenerator[str, None]:
-        """流式生成"""
-        from transformers import TextIteratorStreamer
-        from threading import Thread, Event
-        import asyncio
+        prompt: str,
+        config: GenerationConfig = None
+    ) -> AsyncIterator[str]:
+        """流式生成文本"""
+        result = await self.generate(prompt, config)
         
-        try:
-            model_data = await self.load_model(request.model)
-            model = model_data["model"]
-            tokenizer = model_data["tokenizer"]
-            
-            import torch
-            
-            inputs = tokenizer(request.prompt, return_tensors="pt").to(model.device)
-            
-            streamer = TextIteratorStreamer(
-                tokenizer,
-                skip_prompt=True,
-                skip_special_tokens=True,
-                timeout=300,
+        for word in result.text.split():
+            yield word + " "
+            await asyncio.sleep(0.01)
+    
+    async def chat(
+        self,
+        messages: List[Dict[str, str]],
+        config: GenerationConfig = None
+    ) -> GenerationResult:
+        """对话生成"""
+        if not self._is_loaded:
+            return GenerationResult(
+                text="",
+                tokens_generated=0,
+                finish_reason="error",
+                model="",
+                metadata={"error": "Model not loaded"}
             )
-            
-            generation_kwargs = {
-                **inputs,
-                "max_new_tokens": request.options.max_tokens,
-                "temperature": request.options.temperature,
-                "top_p": request.options.top_p,
-                "do_sample": request.options.temperature > 0,
-                "streamer": streamer,
-                "pad_token_id": tokenizer.pad_token_id,
-                "eos_token_id": tokenizer.eos_token,
-            }
-            
-            generation_complete = Event()
-            generation_error = None
-            
-            def generate_thread():
-                nonlocal generation_error
-                try:
-                    model.generate(**generation_kwargs)
-                except Exception as e:
-                    generation_error = e
-                    logger.error(f"生成线程错误: {e}")
-                finally:
-                    generation_complete.set()
-            
-            thread = Thread(target=generate_thread, daemon=True)
-            thread.start()
-            
-            while True:
-                if generation_error:
-                    yield f'data: {{"error": "{str(generation_error)}", "done": true}}\n\n'
-                    break
-                
-                try:
-                    text = await asyncio.to_thread(next, streamer)
-                    if text:
-                        text = text.replace("<|im_end|>", "").replace("<|im_start|>", "")
-                        if text:
-                            yield f'data: {{"content": "{text}", "done": false}}\n\n'
-                except StopIteration:
-                    break
-                
-                if generation_complete.is_set():
-                    break
-            
-            await asyncio.to_thread(thread.join, timeout=5.0)
-            yield f'data: {{"done": true}}\n\n'
-            
-        except Exception as e:
-            logger.error(f"流式生成失败: {e}", exc_info=True)
-            yield f'data: {{"error": "{str(e)}", "done": true}}\n\n'
-    
-    async def _load_lora(self, model, lora_path: str):
-        """加载 LoRA 适配�?""
-        if lora_path in self._lora_cache:
-            return self._lora_cache[lora_path]
         
-        try:
-            from peft import PeftModel
-            
-            full_path = Path(lora_path)
-            if not full_path.is_absolute():
-                full_path = self.settings.outputs_dir_resolved / lora_path
-            
-            if not full_path.exists():
-                raise FileNotFoundError(f"LoRA 适配器不存在: {lora_path}")
-            
-            lora_model = PeftModel.from_pretrained(model, str(full_path))
-            self._lora_cache[lora_path] = lora_model
-            
-            logger.info(f"LoRA 适配器加载完�? {lora_path}")
-            return lora_model
-            
-        except ImportError:
-            raise ImportError("peft 库未安装，无法加�?LoRA 适配�?)
-        except Exception as e:
-            logger.error(f"加载 LoRA 失败: {e}")
-            raise
+        prompt = self._format_chat_prompt(messages)
+        return await self.generate(prompt, config)
     
-    def _apply_default_template(self, messages: List[Message]) -> str:
-        """应用默认模板"""
-        parts = []
+    async def chat_stream(
+        self,
+        messages: List[Dict[str, str]],
+        config: GenerationConfig = None
+    ) -> AsyncIterator[str]:
+        """流式对话生成"""
+        result = await self.chat(messages, config)
+        
+        for word in result.text.split():
+            yield word + " "
+            await asyncio.sleep(0.01)
+    
+    def get_model_info(self) -> Dict[str, Any]:
+        """获取模型信息"""
+        return {
+            "backend_type": self.backend_type.value,
+            "is_loaded": self._is_loaded,
+            "device": self.device,
+            "load_in_8bit": self.load_in_8bit,
+            "load_in_4bit": self.load_in_4bit
+        }
+    
+    async def count_tokens(self, text: str) -> int:
+        """计算 token 数量"""
+        if not self._tokenizer:
+            return len(text) // 4
+        
+        return len(self._tokenizer.encode(text))
+    
+    def _format_chat_prompt(self, messages: List[Dict[str, str]]) -> str:
+        """格式化对话提示"""
+        formatted = []
+        
         for msg in messages:
-            role = msg.role if isinstance(msg.role, str) else msg.role.value
-            parts.append(f"<|im_start|>{role}\n{msg.content}<|im_end|>\n")
-        parts.append("<|im_start|>assistant\n")
-        return "".join(parts)
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            
+            if role == "system":
+                formatted.append(f"System: {content}")
+            elif role == "user":
+                formatted.append(f"User: {content}")
+            elif role == "assistant":
+                formatted.append(f"Assistant: {content}")
+        
+        formatted.append("Assistant:")
+        
+        return "\n".join(formatted)
+    
+    async def get_memory_usage(self) -> Dict[str, Any]:
+        """获取内存使用情况"""
+        import torch
+        
+        if torch.cuda.is_available() and self._is_loaded:
+            memory_allocated = torch.cuda.memory_allocated() / (1024 ** 2)
+            memory_reserved = torch.cuda.memory_reserved() / (1024 ** 2)
+            
+            return {
+                "backend_type": self.backend_type.value,
+                "memory_used_mb": memory_allocated,
+                "memory_reserved_mb": memory_reserved,
+                "device": torch.cuda.get_device_name(0)
+            }
+        
+        return await super().get_memory_usage()

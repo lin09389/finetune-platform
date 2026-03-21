@@ -1,5 +1,5 @@
 """
-系统信息技�?获取系统信息
+系统信息技能 - 获取系统信息
 """
 import platform
 from typing import Dict, Any
@@ -15,7 +15,7 @@ except ImportError:
 
 
 class SystemInfoSkill(SkillBase):
-    """系统信息技�?""
+    """系统信息技能"""
     
     metadata = SkillMetadata(
         name="system_info",

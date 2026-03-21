@@ -17,7 +17,7 @@ from heartbeat.task_executor import (
 
 
 class TestHeartbeatScheduler:
-    """Heartbeat 调度器测�?""
+    """Heartbeat 调度器测试"""
     
     @pytest.fixture
     def scheduler(self):
@@ -129,7 +129,7 @@ class TestHeartbeatScheduler:
     
     @pytest.mark.asyncio
     async def test_start_stop(self, scheduler):
-        """测试启动和停�?""
+        """测试启动和停止"""
         await scheduler.start()
         
         assert scheduler._is_running is True
@@ -140,7 +140,7 @@ class TestHeartbeatScheduler:
 
 
 class TestTaskExecutor:
-    """任务执行器测�?""
+    """任务执行器测试"""
     
     @pytest.fixture
     def executor(self):
@@ -172,7 +172,7 @@ class TestTaskExecutor:
     
     @pytest.mark.asyncio
     async def test_execute_check_task(self, executor, sample_task):
-        """测试执行检查任�?""
+        """测试执行检查任务"""
         executor.add_task(sample_task)
         
         result = await executor.execute_task("task_1")
@@ -237,7 +237,7 @@ class TestTaskExecutor:
         assert result.result["delivered"] is True
     
     def test_register_handler(self, executor):
-        """测试注册处理�?""
+        """测试注册处理器"""
         async def custom_handler(task):
             return {"custom": True}
         
@@ -269,7 +269,7 @@ class TestTaskExecutor:
         assert stats["enabled_tasks"] == 1
     
     def test_clear_old_results(self, executor):
-        """测试清理旧结�?""
+        """测试清理旧结果"""
         old_result = TaskResult(
             task_id="old_task",
             task_type=TaskType.CHECK,
@@ -300,7 +300,7 @@ class TestTaskTypes:
     
     @pytest.mark.asyncio
     async def test_check_project_status(self):
-        """测试项目状态检�?""
+        """测试项目状态检查"""
         executor = TaskExecutor()
         task = ProactiveTask(
             id="check_project",
@@ -317,7 +317,7 @@ class TestTaskTypes:
     
     @pytest.mark.asyncio
     async def test_check_resource_usage(self):
-        """测试资源使用检�?""
+        """测试资源使用检查"""
         executor = TaskExecutor()
         task = ProactiveTask(
             id="check_resources",
@@ -351,7 +351,7 @@ class TestTaskTypes:
     
     @pytest.mark.asyncio
     async def test_send_meeting_reminder(self):
-        """测试发送会议提�?""
+        """测试发送会议提醒"""
         executor = TaskExecutor()
         task = ProactiveTask(
             id="meeting_reminder",
@@ -369,3 +369,7 @@ class TestTaskTypes:
         
         assert result.status == TaskStatus.COMPLETED
         assert result.result["delivered"] is True
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

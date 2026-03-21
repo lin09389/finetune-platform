@@ -1,8 +1,11 @@
 """
 动态批处理模块
 
-实现请求队列和批处理�?- 请求队列管理
-- 批处理超时机�?- 批处理结果分�?"""
+实现请求队列和批处理：
+- 请求队列管理
+- 批处理超时机制
+- 批处理结果分发
+"""
 import asyncio
 import logging
 import time
@@ -17,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class BatchRequestStatus(str, Enum):
-    """请求状�?""
+    """请求状态"""
     PENDING = "pending"
     PROCESSING = "processing"
     COMPLETED = "completed"
@@ -27,7 +30,7 @@ class BatchRequestStatus(str, Enum):
 
 @dataclass
 class BatchRequest:
-    """批处理请�?""
+    """批处理请求"""
     id: str
     prompt: str
     params: Dict[str, Any]
@@ -54,7 +57,7 @@ class BatchRequest:
 
 @dataclass
 class BatchResult:
-    """批处理结�?""
+    """批处理结果"""
     batch_id: str
     requests: List[BatchRequest]
     total_time: float
@@ -73,9 +76,12 @@ class BatchResult:
 
 class DynamicBatcher:
     """
-    动态批处理�?    
-    功能�?    - 请求队列管理
-    - 自动批处�?    - 超时处理
+    动态批处理器
+    
+    功能：
+    - 请求队列管理
+    - 自动批处理
+    - 超时处理
     - 结果分发
     """
     
@@ -107,7 +113,7 @@ class DynamicBatcher:
         }
     
     def set_processor(self, processor: Callable[[List[BatchRequest]], Awaitable[List[Dict[str, Any]]]]):
-        """设置批处理函�?""
+        """设置批处理函数"""
         self._processor = processor
     
     async def start(self):
@@ -152,7 +158,7 @@ class DynamicBatcher:
         返回处理结果
         """
         if self._queue.full():
-            raise RuntimeError("批处理队列已�?)
+            raise RuntimeError("批处理队列已满")
         
         request_id = str(uuid.uuid4())
         request = BatchRequest(
@@ -190,11 +196,11 @@ class DynamicBatcher:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"批处理工作循环错�? {e}", exc_info=True)
+                logger.error(f"批处理工作循环错误: {e}", exc_info=True)
                 await asyncio.sleep(0.1)
     
     async def _collect_batch(self) -> List[BatchRequest]:
-        """收集一批请�?""
+        """收集一批请求"""
         batch = []
         deadline = time.time() + self.max_wait_time
         
@@ -217,7 +223,7 @@ class DynamicBatcher:
         return batch
     
     async def _process_batch(self, batch: List[BatchRequest]):
-        """处理一批请�?""
+        """处理一批请求"""
         if not batch:
             return
         
@@ -244,7 +250,7 @@ class DynamicBatcher:
                     future.set_result(result)
         
         except Exception as e:
-            logger.error(f"批处理失�? {e}", exc_info=True)
+            logger.error(f"批处理失败: {e}", exc_info=True)
             
             for request in batch:
                 request.status = BatchRequestStatus.FAILED
@@ -272,10 +278,10 @@ class DynamicBatcher:
         )
         self._results[batch_id] = batch_result
         
-        logger.debug(f"批处理完�? {len(batch)} 个请�? 耗时 {total_time:.3f}s")
+        logger.debug(f"批处理完成: {len(batch)} 个请求, 耗时 {total_time:.3f}s")
     
     async def _default_processor(self, batch: List[BatchRequest]) -> List[Dict[str, Any]]:
-        """默认处理�?""
+        """默认处理器"""
         results = []
         for request in batch:
             results.append({
@@ -322,7 +328,7 @@ class BatchScheduler:
     ) -> DynamicBatcher:
         """创建批处理器"""
         if name in self._batchers:
-            raise ValueError(f"批处理器已存�? {name}")
+            raise ValueError(f"批处理器已存在: {name}")
         
         batcher = DynamicBatcher(
             max_batch_size=max_batch_size,
@@ -337,17 +343,17 @@ class BatchScheduler:
         return self._batchers.get(name)
     
     async def start_all(self):
-        """启动所有批处理�?""
+        """启动所有批处理器"""
         for batcher in self._batchers.values():
             await batcher.start()
     
     async def stop_all(self):
-        """停止所有批处理�?""
+        """停止所有批处理器"""
         for batcher in self._batchers.values():
             await batcher.stop()
     
     def get_all_stats(self) -> Dict[str, Dict[str, Any]]:
-        """获取所有批处理器统�?""
+        """获取所有批处理器统计"""
         return {name: batcher.get_stats() for name, batcher in self._batchers.items()}
 
 

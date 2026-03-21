@@ -1,6 +1,11 @@
+# -*- coding: utf-8 -*-
 """
-Gateway 模块 - 统一入口和消息路�?
-借鉴 OpenClaw 架构设计�?- WebSocket 服务器作为控制平�?- 消息路由和分�?- 设备配对与认�?- 事件广播机制
+Gateway 模块 - 统一入口和消息路由
+借鉴 OpenClaw 架构设计
+- WebSocket 服务器作为控制平面
+- 消息路由和分发
+- 设备配对与认证
+- 事件广播机制
 - Binding Router 最具体匹配优先
 - Agent 隔离管理
 """

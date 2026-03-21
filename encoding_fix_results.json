@@ -1,0 +1,86 @@
+[
+  {
+    "file": "server\\check_all_features.py",
+    "success": true,
+    "original_encoding": "cp1006",
+    "fixed": false,
+    "error": null
+  },
+  {
+    "file": "server\\test_all_features.py",
+    "success": true,
+    "original_encoding": "cp1006",
+    "fixed": false,
+    "error": null
+  },
+  {
+    "file": "server\\test_cloud_ai.py",
+    "success": true,
+    "original_encoding": "cp1006",
+    "fixed": false,
+    "error": null
+  },
+  {
+    "file": "server\\test_hf_mirror.py",
+    "success": true,
+    "original_encoding": "hp-roman8",
+    "fixed": false,
+    "error": null
+  },
+  {
+    "file": "server\\backup_old_modules\\session.py",
+    "success": true,
+    "original_encoding": "cp1006",
+    "fixed": false,
+    "error": null
+  },
+  {
+    "file": "server\\memory\\test_memory_system.py",
+    "success": true,
+    "original_encoding": "cp1006",
+    "fixed": false,
+    "error": null
+  },
+  {
+    "file": "server\\skills\\test_skills_system.py",
+    "success": true,
+    "original_encoding": "cp1006",
+    "fixed": false,
+    "error": null
+  },
+  {
+    "file": "server\\tests\\test_device.py",
+    "success": true,
+    "original_encoding": "cp1006",
+    "fixed": false,
+    "error": null
+  },
+  {
+    "file": "server\\tests\\test_inference.py",
+    "success": true,
+    "original_encoding": "cp1006",
+    "fixed": false,
+    "error": null
+  },
+  {
+    "file": "server\\tests\\test_models.py",
+    "success": true,
+    "original_encoding": "cp1006",
+    "fixed": false,
+    "error": null
+  },
+  {
+    "file": "server\\tests\\test_training.py",
+    "success": true,
+    "original_encoding": "cp1006",
+    "fixed": false,
+    "error": null
+  },
+  {
+    "file": "server\\workspace\\task_api.py",
+    "success": true,
+    "original_encoding": "cp1006",
+    "fixed": false,
+    "error": null
+  }
+]

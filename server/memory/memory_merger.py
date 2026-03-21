@@ -1,558 +1,502 @@
+# -*- coding: utf-8 -*-
 """
-记忆合并与更新器
-处理记忆冲突、合并和更新
+记忆合并与更新模块
+处理记忆去重、合并、更新策略
 """
-from typing import List, Dict, Optional, Any, Tuple
+from typing import List, Dict, Optional, Tuple, Any, Set
 from datetime import datetime
-import difflib
 import logging
-from dataclasses import dataclass
+import difflib
+from dataclasses import dataclass, field
 from enum import Enum
 
 logger = logging.getLogger(__name__)
 
 
-class ConflictResolution(Enum):
+class MergeStrategy(str, Enum):
+    """合并策略"""
+    KEEP_FIRST = "keep_first"
+    KEEP_LAST = "keep_last"
+    KEEP_HIGHEST_CONFIDENCE = "keep_highest_confidence"
+    MERGE_ATTRIBUTES = "merge_attributes"
+    CREATE_NEW = "create_new"
+
+
+class ConflictResolution(str, Enum):
     """冲突解决策略"""
-    KEEP_RECENT = "keep_recent"
-    KEEP_CONFIDENT = "keep_confident"
-    KEEP_BOTH = "keep_both"
-    ASK_USER = "ask_user"
-    MERGE = "merge"
+    SOURCE_PRIORITY = "source_priority"
+    RECENCY_PRIORITY = "recency_priority"
+    CONFIDENCE_PRIORITY = "confidence_priority"
+    MANUAL = "manual"
 
 
 @dataclass
-class ConflictInfo:
-    """冲突信息"""
-    conflict_type: str
+class MemoryConflict:
+    """记忆冲突"""
+    memory_id_1: str
+    memory_id_2: str
     field: str
-    existing_value: Any
-    new_value: Any
-    resolution: ConflictResolution
+    value_1: Any
+    value_2: Any
+    confidence_1: float
+    confidence_2: float
+    resolution: Optional[str] = None
+    resolved_value: Optional[Any] = None
+
+
+@dataclass
+class MergeResult:
+    """合并结果"""
+    success: bool
+    merged_count: int = 0
+    skipped_count: int = 0
+    conflicts: List[MemoryConflict] = field(default_factory=list)
+    merged_memories: List[Dict[str, Any]] = field(default_factory=list)
     message: str = ""
 
 
-class MemoryMerger:
-    """记忆合并�?""
+class MemoryDeduplicator:
+    """记忆去重器"""
     
     def __init__(
         self,
         similarity_threshold: float = 0.85,
-        auto_resolve: bool = True
+        content_weight: float = 0.6,
+        metadata_weight: float = 0.4
     ):
         self.similarity_threshold = similarity_threshold
-        self.auto_resolve = auto_resolve
-        self.pending_conflicts: List[Dict] = []
-    
-    def merge_memories(
-        self,
-        existing: Dict[str, Any],
-        new: Dict[str, Any]
-    ) -> Tuple[Dict[str, Any], Optional[ConflictInfo]]:
-        """
-        合并两条记忆
-        
-        Args:
-            existing: 现有记忆
-            new: 新记�?            
-        Returns:
-            (合并后的记忆, 冲突信息)
-        """
-        conflict = self.detect_contradiction(existing, new)
-        
-        if conflict:
-            if self.auto_resolve:
-                resolved = self._resolve_conflict(existing, new, conflict)
-                return resolved, conflict
-            else:
-                self.pending_conflicts.append({
-                    'existing': existing,
-                    'new': new,
-                    'conflict': conflict,
-                    'timestamp': datetime.now().isoformat()
-                })
-                return existing, conflict
-        
-        if not self._should_merge(existing, new):
-            return new, None
-        
-        merged = existing.copy()
-        
-        if 'attributes' in new:
-            if 'attributes' not in merged:
-                merged['attributes'] = {}
-            merged['attributes'].update(new['attributes'])
-        
-        merged['updated_at'] = datetime.now().isoformat()
-        
-        if 'confidence' in existing and 'confidence' in new:
-            merged['confidence'] = min(1.0, (existing['confidence'] + new['confidence']) / 2 + 0.05)
-        elif 'confidence' in new:
-            merged['confidence'] = new['confidence']
-        
-        if 'evidence' in new:
-            if 'evidence' not in merged:
-                merged['evidence'] = []
-            if isinstance(merged['evidence'], str):
-                merged['evidence'] = [merged['evidence']]
-            if isinstance(new['evidence'], str):
-                if new['evidence'] not in merged['evidence']:
-                    merged['evidence'].append(new['evidence'])
-            elif isinstance(new['evidence'], list):
-                for e in new['evidence']:
-                    if e not in merged['evidence']:
-                        merged['evidence'].append(e)
-        
-        if 'source' in new:
-            if 'source' not in merged:
-                merged['source'] = new['source']
-            elif merged['source'] != new['source']:
-                if isinstance(merged['source'], list):
-                    if new['source'] not in merged['source']:
-                        merged['source'].append(new['source'])
-                else:
-                    merged['source'] = [merged['source'], new['source']]
-        
-        merged['access_count'] = existing.get('access_count', 0) + 1
-        
-        return merged, None
-    
-    def detect_contradiction(
-        self,
-        existing: Dict[str, Any],
-        new: Dict[str, Any]
-    ) -> Optional[ConflictInfo]:
-        """检测矛�?""
-        if existing.get('type') != new.get('type'):
-            return ConflictInfo(
-                conflict_type='type_conflict',
-                field='type',
-                existing_value=existing.get('type'),
-                new_value=new.get('type'),
-                resolution=ConflictResolution.ASK_USER,
-                message=f"类型冲突: {existing.get('type')} vs {new.get('type')}"
-            )
-        
-        for key in ['name', 'value', 'content']:
-            if key in existing and key in new:
-                if existing[key] != new[key]:
-                    if self._is_similar(existing[key], new[key]):
-                        continue
-                    
-                    return ConflictInfo(
-                        conflict_type='value_conflict',
-                        field=key,
-                        existing_value=existing[key],
-                        new_value=new[key],
-                        resolution=ConflictResolution.KEEP_RECENT,
-                        message=f"值冲�?({key}): {existing[key]} vs {new[key]}"
-                    )
-        
-        if 'attributes' in existing and 'attributes' in new:
-            for key in existing['attributes']:
-                if key in new['attributes']:
-                    if existing['attributes'][key] != new['attributes'][key]:
-                        if not self._is_similar(existing['attributes'][key], new['attributes'][key]):
-                            return ConflictInfo(
-                                conflict_type='attribute_conflict',
-                                field=f'attributes.{key}',
-                                existing_value=existing['attributes'][key],
-                                new_value=new['attributes'][key],
-                                resolution=ConflictResolution.MERGE,
-                                message=f"属性冲�?({key}): {existing['attributes'][key]} vs {new['attributes'][key]}"
-                            )
-        
-        return None
-    
-    def batch_merge(
-        self,
-        memories: List[Dict[str, Any]]
-    ) -> Tuple[List[Dict[str, Any]], List[ConflictInfo]]:
-        """
-        批量合并记忆
-        
-        Args:
-            memories: 记忆列表
-            
-        Returns:
-            (合并后的记忆列表, 冲突列表)
-        """
-        if not memories:
-            return [], []
-        
-        merged = [memories[0]]
-        conflicts = []
-        
-        for new_mem in memories[1:]:
-            merged_with_existing = False
-            
-            for i, existing in enumerate(merged):
-                if self._should_merge(existing, new_mem):
-                    result, conflict = self.merge_memories(existing, new_mem)
-                    merged[i] = result
-                    if conflict:
-                        conflicts.append(conflict)
-                    merged_with_existing = True
-                    break
-            
-            if not merged_with_existing:
-                merged.append(new_mem)
-        
-        return merged, conflicts
-    
-    def get_pending_conflicts(self) -> List[Dict]:
-        """获取待解决的冲突"""
-        return self.pending_conflicts.copy()
-    
-    def resolve_pending_conflict(
-        self,
-        conflict_id: int,
-        resolution: ConflictResolution
-    ) -> Optional[Dict]:
-        """解决待处理的冲突"""
-        if conflict_id >= len(self.pending_conflicts):
-            return None
-        
-        conflict_data = self.pending_conflicts.pop(conflict_id)
-        existing = conflict_data['existing']
-        new = conflict_data['new']
-        conflict = conflict_data['conflict']
-        
-        conflict.resolution = resolution
-        resolved = self._resolve_conflict(existing, new, conflict)
-        
-        return resolved
-    
-    def clear_pending_conflicts(self):
-        """清空待处理的冲突"""
-        self.pending_conflicts.clear()
-    
-    def _should_merge(self, existing: Dict, new: Dict) -> bool:
-        """判断是否应该合并"""
-        if existing.get('id') == new.get('id'):
-            return True
-        
-        if 'name' in existing and 'name' in new:
-            if existing['name'] == new['name']:
-                return True
-            
-            similarity = difflib.SequenceMatcher(
-                None,
-                str(existing['name']).lower(),
-                str(new['name']).lower()
-            ).ratio()
-            
-            if similarity > self.similarity_threshold:
-                return True
-        
-        if 'content' in existing and 'content' in new:
-            similarity = difflib.SequenceMatcher(
-                None,
-                str(existing['content']).lower(),
-                str(new['content']).lower()
-            ).ratio()
-            
-            if similarity > 0.95:
-                return True
-        
-        return False
-    
-    def _is_similar(self, value1: Any, value2: Any) -> bool:
-        """判断两个值是否相�?""
-        if value1 == value2:
-            return True
-        
-        str1 = str(value1).lower()
-        str2 = str(value2).lower()
-        
-        if str1 == str2:
-            return True
-        
-        similarity = difflib.SequenceMatcher(None, str1, str2).ratio()
-        return similarity > 0.9
-    
-    def _resolve_conflict(
-        self,
-        existing: Dict,
-        new: Dict,
-        conflict: ConflictInfo
-    ) -> Dict:
-        """解决冲突"""
-        resolution = conflict.resolution
-        
-        if resolution == ConflictResolution.KEEP_RECENT:
-            existing_time = existing.get('updated_at') or existing.get('created_at')
-            new_time = new.get('updated_at') or new.get('created_at')
-            
-            if new_time and existing_time:
-                if new_time > existing_time:
-                    return new
-                return existing
-            return new
-        
-        elif resolution == ConflictResolution.KEEP_CONFIDENT:
-            if new.get('confidence', 0) > existing.get('confidence', 0):
-                return new
-            return existing
-        
-        elif resolution == ConflictResolution.KEEP_BOTH:
-            merged = existing.copy()
-            if 'alternatives' not in merged:
-                merged['alternatives'] = []
-            merged['alternatives'].append({
-                'value': new.get(conflict.field),
-                'source': new.get('source'),
-                'confidence': new.get('confidence')
-            })
-            return merged
-        
-        elif resolution == ConflictResolution.MERGE:
-            merged = existing.copy()
-            if conflict.field.startswith('attributes.'):
-                attr_key = conflict.field.split('.')[1]
-                if 'attributes' not in merged:
-                    merged['attributes'] = {}
-                merged['attributes'][attr_key] = [
-                    existing.get('attributes', {}).get(attr_key),
-                    new.get('attributes', {}).get(attr_key)
-                ]
-            else:
-                merged[conflict.field] = [existing.get(conflict.field), new.get(conflict.field)]
-            return merged
-        
-        return existing
-
-
-class MemoryUpdater:
-    """记忆更新�?""
-    
-    def __init__(self, knowledge_graph=None, merger: MemoryMerger = None):
-        self.kg = knowledge_graph
-        self.merger = merger or MemoryMerger()
-        self.update_history: List[Dict] = []
-    
-    def update_entity(
-        self,
-        entity_id: str,
-        updates: Dict[str, Any]
-    ) -> Tuple[Optional[Dict], Optional[ConflictInfo]]:
-        """
-        更新实体
-        
-        Args:
-            entity_id: 实体ID
-            updates: 更新内容
-            
-        Returns:
-            (更新后的实体, 冲突信息)
-        """
-        if not self.kg:
-            logger.warning("知识图谱未初始化")
-            return None, None
-        
-        existing = self.kg.get_entity(entity_id)
-        if not existing:
-            logger.warning(f"实体不存�? {entity_id}")
-            return None, None
-        
-        existing_dict = existing.to_dict() if hasattr(existing, 'to_dict') else existing
-        
-        merged, conflict = self.merger.merge_memories(existing_dict, updates)
-        
-        if conflict and conflict.resolution == ConflictResolution.ASK_USER:
-            return existing_dict, conflict
-        
-        self.kg.update_entity(entity_id, merged)
-        
-        self._record_update('entity', entity_id, existing_dict, merged)
-        
-        return merged, conflict
-    
-    def update_relation(
-        self,
-        relation_id: str,
-        updates: Dict[str, Any]
-    ) -> Tuple[Optional[Dict], Optional[ConflictInfo]]:
-        """更新关系"""
-        if not self.kg:
-            return None, None
-        
-        existing = self.kg.relations.get(relation_id)
-        if not existing:
-            return None, None
-        
-        existing_dict = existing.to_dict() if hasattr(existing, 'to_dict') else existing
-        
-        merged, conflict = self.merger.merge_memories(existing_dict, updates)
-        
-        if 'weight' in updates:
-            merged['weight'] = min(1.0, max(0.0, updates['weight']))
-        
-        self._record_update('relation', relation_id, existing_dict, merged)
-        
-        return merged, conflict
-    
-    def increment_access_count(self, entity_id: str) -> int:
-        """增加访问计数"""
-        if not self.kg:
-            return 0
-        
-        entity = self.kg.get_entity(entity_id)
-        if entity:
-            entity.access_count += 1
-            entity.updated_at = datetime.now()
-            return entity.access_count
-        
-        return 0
-    
-    def decay_importance(
-        self,
-        entity_id: str,
-        decay_factor: float = 0.95
-    ) -> float:
-        """衰减重要�?""
-        if not self.kg:
-            return 0
-        
-        entity = self.kg.get_entity(entity_id)
-        if entity:
-            entity.confidence *= decay_factor
-            entity.updated_at = datetime.now()
-            return entity.confidence
-        
-        return 0
-    
-    def get_update_history(
-        self,
-        entity_id: str = None,
-        limit: int = 50
-    ) -> List[Dict]:
-        """获取更新历史"""
-        if entity_id:
-            return [
-                h for h in self.update_history
-                if h.get('entity_id') == entity_id
-            ][-limit:]
-        
-        return self.update_history[-limit:]
-    
-    def _record_update(
-        self,
-        update_type: str,
-        entity_id: str,
-        before: Dict,
-        after: Dict
-    ):
-        """记录更新"""
-        self.update_history.append({
-            'type': update_type,
-            'entity_id': entity_id,
-            'before': before,
-            'after': after,
-            'timestamp': datetime.now().isoformat()
-        })
-        
-        if len(self.update_history) > 1000:
-            self.update_history = self.update_history[-500:]
-
-
-class MemoryDeduplicator:
-    """记忆去重�?""
-    
-    def __init__(self, similarity_threshold: float = 0.9):
-        self.similarity_threshold = similarity_threshold
-    
-    def deduplicate(
-        self,
-        memories: List[Dict[str, Any]]
-    ) -> List[Dict[str, Any]]:
-        """
-        去重记忆列表
-        
-        Args:
-            memories: 记忆列表
-            
-        Returns:
-            去重后的记忆列表
-        """
-        if not memories:
-            return []
-        
-        unique = []
-        seen_hashes = set()
-        
-        for mem in memories:
-            mem_hash = self._compute_hash(mem)
-            
-            if mem_hash in seen_hashes:
-                continue
-            
-            is_duplicate = False
-            for existing in unique:
-                if self._is_duplicate(mem, existing):
-                    is_duplicate = True
-                    break
-            
-            if not is_duplicate:
-                unique.append(mem)
-                seen_hashes.add(mem_hash)
-        
-        return unique
+        self.content_weight = content_weight
+        self.metadata_weight = metadata_weight
     
     def find_duplicates(
         self,
         memories: List[Dict[str, Any]]
-    ) -> List[List[Dict[str, Any]]]:
-        """查找重复的记忆组"""
-        groups = []
-        processed = set()
+    ) -> List[Tuple[int, int, float]]:
+        """
+        查找重复记忆
         
-        for i, mem1 in enumerate(memories):
-            if i in processed:
+        Args:
+            memories: 记忆列表
+            
+        Returns:
+            重复对列表 [(index1, index2, similarity), ...]
+        """
+        duplicates = []
+        n = len(memories)
+        
+        for i in range(n):
+            for j in range(i + 1, n):
+                similarity = self._calculate_similarity(memories[i], memories[j])
+                if similarity >= self.similarity_threshold:
+                    duplicates.append((i, j, similarity))
+        
+        return duplicates
+    
+    def deduplicate(
+        self,
+        memories: List[Dict[str, Any]],
+        strategy: MergeStrategy = MergeStrategy.KEEP_HIGHEST_CONFIDENCE
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        去重
+        
+        Args:
+            memories: 记忆列表
+            strategy: 合并策略
+            
+        Returns:
+            (去重后的列表, 移除的数量)
+        """
+        if not memories:
+            return [], 0
+        
+        duplicates = self.find_duplicates(memories)
+        
+        to_remove: Set[int] = set()
+        
+        for i, j, similarity in duplicates:
+            if i in to_remove or j in to_remove:
                 continue
             
-            duplicates = [mem1]
+            merged = self._select_memory(memories[i], memories[j], strategy)
             
-            for j, mem2 in enumerate(memories[i+1:], i+1):
-                if j in processed:
-                    continue
+            if merged == memories[i]:
+                to_remove.add(j)
+            else:
+                to_remove.add(i)
+        
+        result = [m for idx, m in enumerate(memories) if idx not in to_remove]
+        
+        return result, len(to_remove)
+    
+    def _calculate_similarity(
+        self,
+        memory1: Dict[str, Any],
+        memory2: Dict[str, Any]
+    ) -> float:
+        """计算两个记忆的相似度"""
+        content1 = memory1.get('content', '')
+        content2 = memory2.get('content', '')
+        
+        content_similarity = difflib.SequenceMatcher(
+            None,
+            content1.lower(),
+            content2.lower()
+        ).ratio()
+        
+        type1 = memory1.get('type', '')
+        type2 = memory2.get('type', '')
+        type_similarity = 1.0 if type1 == type2 else 0.0
+        
+        source1 = memory1.get('source', '')
+        source2 = memory2.get('source', '')
+        source_similarity = 1.0 if source1 == source2 else 0.0
+        
+        metadata_similarity = (type_similarity + source_similarity) / 2
+        
+        total_similarity = (
+            self.content_weight * content_similarity +
+            self.metadata_weight * metadata_similarity
+        )
+        
+        return total_similarity
+    
+    def _select_memory(
+        self,
+        memory1: Dict[str, Any],
+        memory2: Dict[str, Any],
+        strategy: MergeStrategy
+    ) -> Dict[str, Any]:
+        """根据策略选择记忆"""
+        if strategy == MergeStrategy.KEEP_FIRST:
+            return memory1
+        elif strategy == MergeStrategy.KEEP_LAST:
+            return memory2
+        elif strategy == MergeStrategy.KEEP_HIGHEST_CONFIDENCE:
+            conf1 = memory1.get('confidence', 0.5)
+            conf2 = memory2.get('confidence', 0.5)
+            return memory1 if conf1 >= conf2 else memory2
+        elif strategy == MergeStrategy.MERGE_ATTRIBUTES:
+            return self._merge_attributes(memory1, memory2)
+        else:
+            return memory1
+    
+    def _merge_attributes(
+        self,
+        memory1: Dict[str, Any],
+        memory2: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """合并两个记忆的属性"""
+        merged = memory1.copy()
+        
+        for key, value in memory2.items():
+            if key not in merged:
+                merged[key] = value
+            elif isinstance(merged[key], dict) and isinstance(value, dict):
+                merged[key].update(value)
+            elif isinstance(merged[key], list) and isinstance(value, list):
+                merged[key] = list(set(merged[key] + value))
+            elif merged[key] != value:
+                conf1 = memory1.get('confidence', 0.5)
+                conf2 = memory2.get('confidence', 0.5)
+                if conf2 > conf1:
+                    merged[key] = value
+        
+        merged['confidence'] = max(
+            memory1.get('confidence', 0.5),
+            memory2.get('confidence', 0.5)
+        )
+        
+        return merged
+
+
+class MemoryUpdater:
+    """记忆更新器"""
+    
+    SOURCE_PRIORITY = {
+        'llm': 3,
+        'rule': 2,
+        'keyword': 1,
+        'unknown': 0
+    }
+    
+    def __init__(
+        self,
+        resolution_strategy: ConflictResolution = ConflictResolution.CONFIDENCE_PRIORITY
+    ):
+        self.resolution_strategy = resolution_strategy
+    
+    def update(
+        self,
+        existing: Dict[str, Any],
+        new_data: Dict[str, Any]
+    ) -> Tuple[Dict[str, Any], List[MemoryConflict]]:
+        """
+        更新记忆
+        
+        Args:
+            existing: 现有记忆
+            new_data: 新数据
+            
+        Returns:
+            (更新后的记忆, 冲突列表)
+        """
+        conflicts = []
+        updated = existing.copy()
+        
+        for key, new_value in new_data.items():
+            if key not in existing:
+                updated[key] = new_value
+                continue
+            
+            old_value = existing[key]
+            
+            if old_value == new_value:
+                continue
+            
+            conflict = MemoryConflict(
+                memory_id_1=existing.get('id', ''),
+                memory_id_2=new_data.get('id', ''),
+                field=key,
+                value_1=old_value,
+                value_2=new_value,
+                confidence_1=existing.get('confidence', 0.5),
+                confidence_2=new_data.get('confidence', 0.5)
+            )
+            
+            resolved_value = self._resolve_conflict(
+                key,
+                old_value,
+                new_value,
+                existing,
+                new_data
+            )
+            
+            conflict.resolution = self.resolution_strategy.value
+            conflict.resolved_value = resolved_value
+            conflicts.append(conflict)
+            
+            updated[key] = resolved_value
+        
+        if conflicts:
+            updated['updated_at'] = datetime.now().isoformat()
+            updated['update_count'] = existing.get('update_count', 0) + 1
+        
+        return updated, conflicts
+    
+    def batch_update(
+        self,
+        existing_memories: List[Dict[str, Any]],
+        new_memories: List[Dict[str, Any]],
+        match_field: str = 'content'
+    ) -> MergeResult:
+        """
+        批量更新
+        
+        Args:
+            existing_memories: 现有记忆列表
+            new_memories: 新记忆列表
+            match_field: 匹配字段
+            
+        Returns:
+            合并结果
+        """
+        result = MergeResult(success=True)
+        
+        existing_index = {
+            m.get(match_field, ''): m
+            for m in existing_memories
+            if match_field in m
+        }
+        
+        updated_memories = list(existing_memories)
+        
+        for new_mem in new_memories:
+            match_key = new_mem.get(match_field, '')
+            
+            if not match_key:
+                updated_memories.append(new_mem)
+                result.merged_count += 1
+                continue
+            
+            if match_key in existing_index:
+                existing = existing_index[match_key]
+                updated, conflicts = self.update(existing, new_mem)
                 
-                if self._is_duplicate(mem1, mem2):
-                    duplicates.append(mem2)
-                    processed.add(j)
-            
-            if len(duplicates) > 1:
-                groups.append(duplicates)
-                processed.add(i)
+                for i, m in enumerate(updated_memories):
+                    if m.get(match_field, '') == match_key:
+                        updated_memories[i] = updated
+                        break
+                
+                result.conflicts.extend(conflicts)
+                result.merged_count += 1
+            else:
+                updated_memories.append(new_mem)
+                result.merged_count += 1
         
-        return groups
+        result.merged_memories = updated_memories
+        result.message = f"合并完成: {result.merged_count} 条记忆, {len(result.conflicts)} 个冲突"
+        
+        return result
     
-    def _compute_hash(self, memory: Dict) -> str:
-        """计算记忆哈希"""
-        key_fields = ['name', 'content', 'type']
-        values = [str(memory.get(f, '')) for f in key_fields]
-        return '|'.join(values)
-    
-    def _is_duplicate(self, mem1: Dict, mem2: Dict) -> bool:
-        """判断两条记忆是否重复"""
-        if mem1.get('id') and mem2.get('id') and mem1['id'] == mem2['id']:
-            return True
+    def _resolve_conflict(
+        self,
+        field: str,
+        old_value: Any,
+        new_value: Any,
+        old_memory: Dict[str, Any],
+        new_memory: Dict[str, Any]
+    ) -> Any:
+        """解决冲突"""
+        if self.resolution_strategy == ConflictResolution.CONFIDENCE_PRIORITY:
+            old_conf = old_memory.get('confidence', 0.5)
+            new_conf = new_memory.get('confidence', 0.5)
+            return new_value if new_conf > old_conf else old_value
         
-        if mem1.get('name') and mem2.get('name'):
-            if mem1['name'] == mem2['name'] and mem1.get('type') == mem2.get('type'):
-                return True
+        elif self.resolution_strategy == ConflictResolution.SOURCE_PRIORITY:
+            old_source = old_memory.get('source', 'unknown')
+            new_source = new_memory.get('source', 'unknown')
+            old_priority = self.SOURCE_PRIORITY.get(old_source, 0)
+            new_priority = self.SOURCE_PRIORITY.get(new_source, 0)
+            return new_value if new_priority > old_priority else old_value
         
-        if mem1.get('content') and mem2.get('content'):
-            similarity = difflib.SequenceMatcher(
-                None,
-                str(mem1['content']).lower(),
-                str(mem2['content']).lower()
-            ).ratio()
+        elif self.resolution_strategy == ConflictResolution.RECENCY_PRIORITY:
+            old_time = old_memory.get('updated_at') or old_memory.get('created_at')
+            new_time = new_memory.get('updated_at') or new_memory.get('created_at')
             
-            if similarity > self.similarity_threshold:
-                return True
+            if not old_time:
+                return new_value
+            if not new_time:
+                return old_value
+            
+            try:
+                old_dt = datetime.fromisoformat(old_time) if isinstance(old_time, str) else old_time
+                new_dt = datetime.fromisoformat(new_time) if isinstance(new_time, str) else new_time
+                return new_value if new_dt > old_dt else old_value
+            except (ValueError, TypeError):
+                return new_value
         
-        return False
+        else:
+            return old_value
+
+
+class MemoryMerger:
+    """记忆合并器"""
+    
+    def __init__(
+        self,
+        similarity_threshold: float = 0.85,
+        merge_strategy: MergeStrategy = MergeStrategy.KEEP_HIGHEST_CONFIDENCE,
+        conflict_resolution: ConflictResolution = ConflictResolution.CONFIDENCE_PRIORITY
+    ):
+        self.deduplicator = MemoryDeduplicator(similarity_threshold)
+        self.updater = MemoryUpdater(conflict_resolution)
+        self.merge_strategy = merge_strategy
+    
+    def merge(
+        self,
+        existing_memories: List[Dict[str, Any]],
+        new_memories: List[Dict[str, Any]]
+    ) -> MergeResult:
+        """
+        合并记忆
+        
+        Args:
+            existing_memories: 现有记忆
+            new_memories: 新记忆
+            
+        Returns:
+            合并结果
+        """
+        if not existing_memories:
+            return MergeResult(
+                success=True,
+                merged_count=len(new_memories),
+                merged_memories=new_memories,
+                message="无现有记忆，直接添加新记忆"
+            )
+        
+        if not new_memories:
+            return MergeResult(
+                success=True,
+                merged_count=0,
+                merged_memories=existing_memories,
+                message="无新记忆需要合并"
+            )
+        
+        update_result = self.updater.batch_update(
+            existing_memories,
+            new_memories,
+            match_field='content'
+        )
+        
+        deduplicated, removed = self.deduplicator.deduplicate(
+            update_result.merged_memories,
+            self.merge_strategy
+        )
+        
+        result = MergeResult(
+            success=True,
+            merged_count=update_result.merged_count,
+            skipped_count=removed,
+            conflicts=update_result.conflicts,
+            merged_memories=deduplicated,
+            message=f"合并完成: {update_result.merged_count} 条, 去重 {removed} 条, 冲突 {len(update_result.conflicts)} 个"
+        )
+        
+        logger.info(result.message)
+        
+        return result
+    
+    def merge_by_type(
+        self,
+        existing_memories: List[Dict[str, Any]],
+        new_memories: List[Dict[str, Any]]
+    ) -> Dict[str, MergeResult]:
+        """按类型合并记忆"""
+        existing_by_type: Dict[str, List[Dict]] = {}
+        for m in existing_memories:
+            mem_type = m.get('type', 'unknown')
+            if mem_type not in existing_by_type:
+                existing_by_type[mem_type] = []
+            existing_by_type[mem_type].append(m)
+        
+        new_by_type: Dict[str, List[Dict]] = {}
+        for m in new_memories:
+            mem_type = m.get('type', 'unknown')
+            if mem_type not in new_by_type:
+                new_by_type[mem_type] = []
+            new_by_type[mem_type].append(m)
+        
+        results = {}
+        all_types = set(existing_by_type.keys()) | set(new_by_type.keys())
+        
+        for mem_type in all_types:
+            existing = existing_by_type.get(mem_type, [])
+            new = new_by_type.get(mem_type, [])
+            results[mem_type] = self.merge(existing, new)
+        
+        return results
+    
+    def smart_merge(
+        self,
+        existing_memories: List[Dict[str, Any]],
+        new_memories: List[Dict[str, Any]],
+        context: Dict[str, Any] = None
+    ) -> MergeResult:
+        """
+        智能合并
+        
+        根据上下文自动选择最佳合并策略
+        """
+        if context and context.get('high_confidence_mode'):
+            self.merge_strategy = MergeStrategy.KEEP_HIGHEST_CONFIDENCE
+        elif context and context.get('merge_all'):
+            self.merge_strategy = MergeStrategy.MERGE_ATTRIBUTES
+        else:
+            self.merge_strategy = MergeStrategy.KEEP_HIGHEST_CONFIDENCE
+        
+        return self.merge(existing_memories, new_memories)
 
 
 _memory_merger: Optional[MemoryMerger] = None
@@ -560,16 +504,16 @@ _memory_updater: Optional[MemoryUpdater] = None
 
 
 def get_memory_merger() -> MemoryMerger:
-    """获取记忆合并器实�?""
+    """获取记忆合并器实例"""
     global _memory_merger
     if _memory_merger is None:
         _memory_merger = MemoryMerger()
     return _memory_merger
 
 
-def get_memory_updater(knowledge_graph=None) -> MemoryUpdater:
-    """获取记忆更新器实�?""
+def get_memory_updater() -> MemoryUpdater:
+    """获取记忆更新器实例"""
     global _memory_updater
     if _memory_updater is None:
-        _memory_updater = MemoryUpdater(knowledge_graph)
+        _memory_updater = MemoryUpdater()
     return _memory_updater

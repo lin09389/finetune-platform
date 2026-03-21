@@ -1,6 +1,8 @@
+# -*- coding: utf-8 -*-
 """
 知识图谱记忆系统
-基于实体-关系网络的记忆管�?"""
+基于实体-关系网络的记忆管理
+"""
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Set, Any, Tuple
 from datetime import datetime
@@ -56,7 +58,7 @@ class Entity:
 
 @dataclass
 class Relation:
-    """关系�?""
+    """关系边"""
     id: str
     source_id: str
     target_id: str
@@ -93,12 +95,12 @@ class Relation:
 
 
 class KnowledgeGraph:
-    """知识图谱管理�?""
+    """知识图谱管理器"""
     
     ENTITY_TYPES = {
         'person': '人物',
         'project': '项目',
-        'skill': '技�?,
+        'skill': '技能',
         'concept': '概念',
         'tool': '工具',
         'organization': '组织',
@@ -113,11 +115,11 @@ class KnowledgeGraph:
         'works_on': '从事',
         'uses': '使用',
         'prefers': '偏好',
-        'has_skill': '拥有技�?,
+        'has_skill': '拥有技能',
         'related_to': '相关',
         'part_of': '属于',
         'located_at': '位于',
-        'happened_at': '发生�?,
+        'happened_at': '发生于',
         'causes': '导致'
     }
     
@@ -147,10 +149,13 @@ class KnowledgeGraph:
         Args:
             name: 实体名称
             entity_type: 实体类型
-            attributes: 属性字�?            confidence: 置信�?            source: 来源
+            attributes: 属性字典
+            confidence: 置信度
+            source: 来源
             
         Returns:
-            (entity_id, is_new) - 实体ID和是否新�?        """
+            (entity_id, is_new) - 实体ID和是否新建
+        """
         similar_entity = self.find_similar_entity(name, entity_type)
         
         if similar_entity and similar_entity.confidence >= 0.8:
@@ -189,11 +194,13 @@ class KnowledgeGraph:
         添加关系
         
         Args:
-            source_name: 源实体名�?            target_name: 目标实体名称
+            source_name: 源实体名称
+            target_name: 目标实体名称
             relation_type: 关系类型
             evidence: 证据文本
             weight: 关系权重
-            confidence: 置信�?            
+            confidence: 置信度
+            
         Returns:
             关系ID，如果失败返回None
         """
@@ -201,7 +208,7 @@ class KnowledgeGraph:
         target_entity = self.find_entity_by_name(target_name)
         
         if not source_entity or not target_entity:
-            logger.warning(f"无法添加关系: 实体不存�?({source_name} -> {target_name})")
+            logger.warning(f"无法添加关系: 实体不存在 ({source_name} -> {target_name})")
             return None
         
         existing = self._find_relation(
@@ -245,7 +252,8 @@ class KnowledgeGraph:
     
     def get_entity_context(self, entity_id: str, depth: int = 2) -> Dict[str, Any]:
         """
-        获取实体上下文（多跳关系遍历�?        
+        获取实体上下文（多跳关系遍历）
+        
         Args:
             entity_id: 实体ID
             depth: 遍历深度
@@ -321,13 +329,16 @@ class KnowledgeGraph:
         max_depth: int = 4
     ) -> List[List[Dict]]:
         """
-        查找两个实体之间的所有路�?        
+        查找两个实体之间的所有路径
+        
         Args:
             source_id: 源实体ID
             target_id: 目标实体ID
-            max_depth: 最大搜索深�?            
+            max_depth: 最大搜索深度
+            
         Returns:
-            路径列表，每条路径是关系字典的列�?        """
+            路径列表，每条路径是关系字典的列表
+        """
         if source_id not in self.entities or target_id not in self.entities:
             return []
         
@@ -371,7 +382,7 @@ class KnowledgeGraph:
         return paths[:10]
     
     def find_entity_by_name(self, name: str, entity_type: str = None) -> Optional[Entity]:
-        """按名称查找实�?""
+        """按名称查找实体"""
         entity_ids = self.entity_name_index.get(name.lower())
         if not entity_ids:
             return None
@@ -420,21 +431,21 @@ class KnowledgeGraph:
         return best_match
     
     def get_entities_by_type(self, entity_type: str) -> List[Entity]:
-        """按类型获取实�?""
+        """按类型获取实体"""
         entity_ids = self.entity_type_index.get(entity_type, set())
         return [self.entities[eid] for eid in entity_ids if eid in self.entities]
     
     def get_relations_by_type(self, relation_type: str) -> List[Relation]:
-        """按类型获取关�?""
+        """按类型获取关系"""
         relation_ids = self.relation_type_index.get(relation_type, set())
         return [self.relations[rid] for rid in relation_ids if rid in self.relations]
     
     def get_all_entities(self) -> List[Entity]:
-        """获取所有实�?""
+        """获取所有实体"""
         return list(self.entities.values())
     
     def get_all_relations(self) -> List[Relation]:
-        """获取所有关�?""
+        """获取所有关系"""
         return list(self.relations.values())
     
     def update_entity(self, entity_id: str, updates: Dict[str, Any]) -> bool:
@@ -488,7 +499,7 @@ class KnowledgeGraph:
         self.relation_source_index.clear()
         self.relation_target_index.clear()
         self.relation_type_index.clear()
-        logger.info("知识图谱已清�?)
+        logger.info("知识图谱已清空")
     
     def get_stats(self) -> Dict[str, Any]:
         """获取统计信息"""
@@ -508,14 +519,14 @@ class KnowledgeGraph:
         }
     
     def to_dict(self) -> Dict[str, Any]:
-        """导出为字�?""
+        """导出为字典"""
         return {
             'entities': [e.to_dict() for e in self.entities.values()],
             'relations': [r.to_dict() for r in self.relations.values()]
         }
     
     def from_dict(self, data: Dict[str, Any]):
-        """从字典导�?""
+        """从字典导入"""
         self.clear()
         
         for entity_data in data.get('entities', []):
@@ -566,7 +577,7 @@ class KnowledgeGraph:
         del self.relations[relation_id]
     
     def _merge_entity_attributes(self, entity: Entity, new_attrs: Dict[str, Any]):
-        """合并实体属�?""
+        """合并实体属性"""
         for key, value in new_attrs.items():
             if key not in entity.attributes:
                 entity.attributes[key] = value

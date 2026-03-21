@@ -1,5 +1,6 @@
 """
-文件读取技�?读取文件内容并返�?"""
+文件读取技能 - 读取文件内容并返回
+"""
 from typing import Dict, Any, Optional
 from pathlib import Path
 
@@ -8,12 +9,12 @@ from skills.models import SkillMetadata, SkillParameter, SkillResult, SkillCateg
 
 
 class FileReadSkill(SkillBase):
-    """文件读取技�?""
+    """文件读取技能"""
     
     metadata = SkillMetadata(
         name="file_read",
         display_name="文件读取",
-        description="读取文件内容并返�?,
+        description="读取文件内容并返回",
         version="1.0.0",
         category=SkillCategory.FILE,
         parameters=[
@@ -51,7 +52,7 @@ class FileReadSkill(SkillBase):
             if not path.exists():
                 return SkillResult(
                     success=False,
-                    error=f"文件不存�? {file_path}",
+                    error=f"文件不存在: {file_path}",
                     error_code="FILE_NOT_FOUND",
                 )
             

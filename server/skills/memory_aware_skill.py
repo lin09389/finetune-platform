@@ -12,8 +12,14 @@ logger = logging.getLogger(__name__)
 
 class MemoryAwareSkill(SkillBase):
     """
-    记忆感知技能基�?    
-    功能�?    - 记忆上下文注入钩�?    - 记忆相关性排�?    - 记忆压缩和摘�?    - 跨会话记忆检�?    - 用户偏好学习
+    记忆感知技能基类
+    
+    功能：
+    - 记忆上下文注入钩子
+    - 记忆相关性排序
+    - 记忆压缩和摘要
+    - 跨会话记忆检索
+    - 用户偏好学习
     """
     
     def __init__(self):
@@ -72,10 +78,14 @@ class MemoryAwareSkill(SkillBase):
         context: Optional[Dict[str, Any]] = None
     ) -> List[Tuple[Dict[str, Any], float]]:
         """
-        按相关性排序记�?        
+        按相关性排序记忆
+        
         使用多维度评分：
-        - 语义相似�?        - 时间衰减
-        - 重要性权�?        - 上下文匹�?        """
+        - 语义相似度
+        - 时间衰减
+        - 重要性权重
+        - 上下文匹配
+        """
         ranked = []
         query_lower = query.lower()
         query_keywords = set(re.findall(r'\w+', query_lower))
@@ -119,7 +129,8 @@ class MemoryAwareSkill(SkillBase):
         max_length: int = 1000
     ) -> str:
         """
-        压缩和摘要记�?        
+        压缩和摘要记忆
+        
         将多条记忆压缩为简洁的摘要
         """
         if not memories:
@@ -141,7 +152,7 @@ class MemoryAwareSkill(SkillBase):
         summaries = []
         for mem_type, contents in type_groups.items():
             if len(contents) > 3:
-                summary = f"[{mem_type}] �?{len(contents)} 条记�?
+                summary = f"[{mem_type}] 共 {len(contents)} 条记忆"
                 unique_items = list(set(contents))[:3]
                 for item in unique_items:
                     summary += f"\n  - {item[:100]}..."
@@ -158,8 +169,10 @@ class MemoryAwareSkill(SkillBase):
         top_k: int = 10
     ) -> List[Dict[str, Any]]:
         """
-        跨会话记忆检�?        
-        检索所有会话中的相关记�?        """
+        跨会话记忆检索
+        
+        检索所有会话中的相关记忆
+        """
         if not self._memory_service:
             return []
         
@@ -248,7 +261,7 @@ class MemoryAwareSkill(SkillBase):
     async def _after_execute(self, execution: SkillExecution) -> None:
         if execution.result and execution.result.success:
             await self.store_memory(
-                content=f"执行技�?{execution.skill_name}: {execution.result.message or '成功'}",
+                content=f"执行技能: {execution.skill_name}: {execution.result.message or '成功'}",
                 memory_type="operation"
             )
 

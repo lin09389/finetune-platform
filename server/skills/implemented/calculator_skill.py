@@ -1,5 +1,5 @@
 """
-计算器技�?执行数学计算
+计算器技能 - 执行数学计算
 """
 import math
 from typing import Dict, Any
@@ -9,11 +9,11 @@ from skills.models import SkillMetadata, SkillParameter, SkillResult, SkillCateg
 
 
 class CalculatorSkill(SkillBase):
-    """计算器技�?""
+    """计算器技能"""
     
     metadata = SkillMetadata(
         name="calculator",
-        display_name="计算�?,
+        display_name="计算器",
         description="执行数学计算",
         version="1.0.0",
         category=SkillCategory.UTILITY,
@@ -21,7 +21,7 @@ class CalculatorSkill(SkillBase):
             SkillParameter(
                 name="expression",
                 type="string",
-                description="数学表达�?,
+                description="数学表达式",
                 required=True,
             ),
         ],

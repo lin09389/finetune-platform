@@ -1,5 +1,6 @@
 """
-对话上下文管理模块单元测�?"""
+对话上下文管理模块单元测试
+"""
 import pytest
 from pathlib import Path
 import sys
@@ -19,7 +20,7 @@ from context.manager import (
 
 
 class TestContextWindow:
-    """上下文窗口测�?""
+    """上下文窗口测试"""
     
     def test_default_window(self):
         """测试默认窗口配置"""
@@ -35,7 +36,7 @@ class TestContextWindow:
         assert window.available_tokens == 400
     
     def test_utilization(self):
-        """测试利用率计�?""
+        """测试利用率计算"""
         window = ContextWindow(max_tokens=1000, reserved_tokens=100)
         window.current_tokens = 450
         assert abs(window.utilization - 0.5) < 0.01
@@ -57,7 +58,7 @@ class TestChatMessage:
         assert msg.priority == MessagePriority.NORMAL
     
     def test_message_to_dict(self):
-        """测试消息序列�?""
+        """测试消息序列化"""
         msg = ChatMessage(
             id="test_2",
             role=MessageRole.ASSISTANT,
@@ -95,7 +96,7 @@ class TestContextManager:
         return ContextManager(max_tokens=1000, reserved_tokens=100)
     
     def test_initialization(self, manager):
-        """测试初始�?""
+        """测试初始化"""
         assert manager.window.max_tokens == 1000
         assert manager.window.reserved_tokens == 100
         assert len(manager.messages) == 0
@@ -136,7 +137,7 @@ class TestContextManager:
         assert manager.window.current_tokens > 0
     
     def test_get_context(self, manager):
-        """测试获取上下�?""
+        """测试获取上下文"""
         manager.add_message(MessageRole.SYSTEM, "System prompt")
         manager.add_message(MessageRole.USER, "Hello")
         manager.add_message(MessageRole.ASSISTANT, "Hi")
@@ -146,7 +147,7 @@ class TestContextManager:
         assert context[0]["role"] == "system"
     
     def test_get_context_without_system(self, manager):
-        """测试获取上下文（不含系统消息�?""
+        """测试获取上下文（不含系统消息）"""
         manager.add_message(MessageRole.SYSTEM, "System prompt")
         manager.add_message(MessageRole.USER, "Hello")
         
@@ -172,7 +173,7 @@ class TestContextManager:
         assert "Hello" in text
     
     def test_clear_context(self, manager):
-        """测试清空上下�?""
+        """测试清空上下文"""
         manager.add_message(MessageRole.USER, "Hello")
         manager.add_message(MessageRole.ASSISTANT, "Hi")
         
@@ -213,7 +214,7 @@ class TestContextManager:
         assert manager.window.utilization < 1.0
     
     def test_get_recent_messages(self, manager):
-        """测试获取最近消�?""
+        """测试获取最近消息"""
         for i in range(10):
             manager.add_message(MessageRole.USER, f"Message {i}")
         
@@ -230,7 +231,7 @@ class TestContextManager:
         assert len(found) == 2
     
     def test_get_messages_by_role(self, manager):
-        """测试按角色获取消�?""
+        """测试按角色获取消息"""
         manager.add_message(MessageRole.USER, "User message")
         manager.add_message(MessageRole.ASSISTANT, "Assistant message")
         manager.add_message(MessageRole.USER, "Another user message")

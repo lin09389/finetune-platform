@@ -1,7 +1,9 @@
+# -*- coding: utf-8 -*-
 """
 Gateway 会话管理
 
-管理设备会话、订阅和状�?"""
+管理设备会话、订阅和状态
+"""
 import asyncio
 import logging
 from typing import Dict, Any, Optional, Set, List
@@ -22,7 +24,7 @@ class DeviceSession:
     metadata: Dict[str, Any] = field(default_factory=dict)
     
     def is_expired(self, timeout_seconds: int = 300) -> bool:
-        """检查会话是否过�?""
+        """检查会话是否过期"""
         elapsed = (datetime.now() - self.last_activity).total_seconds()
         return elapsed > timeout_seconds
     
@@ -33,8 +35,10 @@ class DeviceSession:
 
 class GatewaySessionManager:
     """
-    Gateway 会话管理�?    
-    功能�?    - 设备会话管理
+    Gateway 会话管理器
+    
+    功能:
+    - 设备会话管理
     - 事件订阅管理
     - 会话状态持久化
     - 过期会话清理
@@ -65,7 +69,7 @@ class GatewaySessionManager:
         return session
     
     def update_session(self, device_id: str, metadata: Dict[str, Any]) -> bool:
-        """更新会话元数�?""
+        """更新会话元数据"""
         session = self._sessions.get(device_id)
         if session:
             session.metadata.update(metadata)
@@ -116,11 +120,11 @@ class GatewaySessionManager:
         logger.debug(f"设备 {device_id} 取消订阅事件: {event_types}")
     
     def get_subscribers(self, event_type: str) -> Set[str]:
-        """获取事件订阅�?""
+        """获取事件订阅者"""
         return self._event_subscriptions.get(event_type, set()).copy()
     
     def bind_agent(self, device_id: str, agent_id: str):
-        """绑定设备�?Agent"""
+        """绑定设备到 Agent"""
         if agent_id not in self._agent_sessions:
             self._agent_sessions[agent_id] = set()
         self._agent_sessions[agent_id].add(device_id)
@@ -129,10 +133,10 @@ class GatewaySessionManager:
         if session:
             session.metadata["bound_agent"] = agent_id
         
-        logger.debug(f"设备 {device_id} 绑定�?Agent {agent_id}")
+        logger.debug(f"设备 {device_id} 绑定到 Agent {agent_id}")
     
     def unbind_agent(self, device_id: str, agent_id: str):
-        """解绑设备�?Agent"""
+        """解绑设备与 Agent"""
         if agent_id in self._agent_sessions:
             self._agent_sessions[agent_id].discard(device_id)
         
@@ -141,11 +145,11 @@ class GatewaySessionManager:
             del session.metadata["bound_agent"]
     
     def get_agent_devices(self, agent_id: str) -> Set[str]:
-        """获取 Agent 的所有绑定设�?""
+        """获取 Agent 的所有绑定设备"""
         return self._agent_sessions.get(agent_id, set()).copy()
     
     def cleanup_device(self, device_id: str):
-        """清理设备相关的所有资�?""
+        """清理设备相关的所有资源"""
         self.remove_session(device_id)
         logger.info(f"清理设备资源: {device_id}")
     
@@ -160,12 +164,12 @@ class GatewaySessionManager:
             self.remove_session(device_id)
         
         if expired_devices:
-            logger.info(f"清理过期会话: {len(expired_devices)} �?)
+            logger.info(f"清理过期会话: {len(expired_devices)} 个")
         
         return len(expired_devices)
     
     def get_all_sessions(self) -> Dict[str, DeviceSession]:
-        """获取所有会�?""
+        """获取所有会话"""
         return self._sessions.copy()
     
     def get_active_sessions(self) -> List[DeviceSession]:
@@ -222,7 +226,7 @@ _session_manager: Optional[GatewaySessionManager] = None
 
 
 def get_gateway_session_manager() -> GatewaySessionManager:
-    """获取会话管理器单�?""
+    """获取会话管理器单例"""
     global _session_manager
     if _session_manager is None:
         _session_manager = GatewaySessionManager()

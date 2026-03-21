@@ -1,6 +1,8 @@
+# -*- coding: utf-8 -*-
 """
-RAG 知识�?- 向量存储
-使用 ChromaDB 进行向量存储和检�?"""
+RAG 知识库 - 向量存储
+使用 ChromaDB 进行向量存储和检索
+"""
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 import logging
@@ -15,9 +17,11 @@ class VectorStore:
     
     def __init__(self, db_path: str = "data/vectors"):
         """
-        初始化向量存�?        
+        初始化向量存储
+        
         Args:
-            db_path: 数据库路�?        """
+            db_path: 数据库路径
+        """
         self.db_path = Path(db_path)
         self.db_path.mkdir(parents=True, exist_ok=True)
         
@@ -43,7 +47,8 @@ class VectorStore:
     
     def get_or_create_collection(self, name: str) -> Any:
         """
-        获取或创建集�?        
+        获取或创建集合
+        
         Args:
             name: 集合名称
             
@@ -54,7 +59,8 @@ class VectorStore:
             client = self._get_client()
             self._collections[name] = client.get_or_create_collection(
                 name=name,
-                metadata={"hnsw:space": "cosine"}  # 余弦相似�?            )
+                metadata={"hnsw:space": "cosine"}
+            )
             logger.info(f"集合已加载：{name}")
         
         return self._collections[name]
@@ -68,21 +74,23 @@ class VectorStore:
         ids: Optional[List[str]] = None
     ) -> List[str]:
         """
-        添加文档到集�?        
+        添加文档到集合
+        
         Args:
             collection_name: 集合名称
             documents: 文档内容列表
-            embeddings: 向量列表（可选，不提供则使用集合默认�?            metadatas: 元数据列�?            ids: 文档 ID 列表（可选，自动生成�?            
+            embeddings: 向量列表（可选，不提供则使用集合默认）
+            metadatas: 元数据列表
+            ids: 文档 ID 列表（可选，自动生成）
+            
         Returns:
             文档 ID 列表
         """
         collection = self.get_or_create_collection(collection_name)
         
-        # 自动生成 ID
         if ids is None:
             ids = [f"doc_{uuid.uuid4().hex[:12]}" for _ in range(len(documents))]
         
-        # 准备数据
         add_data = {
             "documents": documents,
             "ids": ids
@@ -94,9 +102,9 @@ class VectorStore:
         if metadatas:
             add_data["metadatas"] = metadatas
         
-        # 添加到集�?        collection.add(**add_data)
+        collection.add(**add_data)
         
-        logger.info(f"已添�?{len(documents)} 个文档到集合 {collection_name}")
+        logger.info(f"已添加 {len(documents)} 个文档到集合 {collection_name}")
         return ids
     
     def search(
@@ -113,7 +121,8 @@ class VectorStore:
             collection_name: 集合名称
             query_embedding: 查询向量
             top_k: 返回结果数量
-            filter_metadata: 元数据过滤条�?            
+            filter_metadata: 元数据过滤条件
+            
         Returns:
             搜索结果列表
         """
@@ -130,7 +139,6 @@ class VectorStore:
         
         results = collection.query(**query_params)
         
-        # 解析结果
         if not results or not results['documents']:
             return []
         
@@ -144,7 +152,8 @@ class VectorStore:
                 "content": doc,
                 "metadata": metadatas[i],
                 "distance": float(distances[i]),
-                "score": 1.0 - float(distances[i])  # 相似度分�?            })
+                "score": 1.0 - float(distances[i])
+            })
         
         return search_results
     
@@ -164,13 +173,13 @@ class VectorStore:
             query_text: 查询文本
             embedder: 向量化器实例
             top_k: 返回结果数量
-            filter_metadata: 元数据过滤条�?            
+            filter_metadata: 元数据过滤条件
+            
         Returns:
             搜索结果列表
         """
-        # 向量化查�?        query_embedding = embedder.embed_single(query_text)
+        query_embedding = embedder.embed_single(query_text)
         
-        # 搜索
         return self.search(collection_name, query_embedding, top_k, filter_metadata)
     
     def delete_collection(self, collection_name: str):
@@ -198,7 +207,7 @@ class VectorStore:
         """
         collection = self.get_or_create_collection(collection_name)
         collection.delete(ids=ids)
-        logger.info(f"已删�?{len(ids)} 个文�?)
+        logger.info(f"已删除 {len(ids)} 个文档")
     
     def get_collection_stats(self, collection_name: str) -> Dict[str, Any]:
         """
@@ -220,7 +229,8 @@ class VectorStore:
     
     def list_collections(self) -> List[str]:
         """
-        列出所有集�?        
+        列出所有集合
+        
         Returns:
             集合名称列表
         """
@@ -259,9 +269,22 @@ class VectorStore:
             })
         
         return docs
+    
+    def list_documents(self, collection_name: str) -> List[str]:
+        """列出集合中的所有文档 ID"""
+        collection = self.get_or_create_collection(collection_name)
+        results = collection.get(include=["metadatas"])
+        
+        doc_ids = set()
+        if results['metadatas']:
+            for meta in results['metadatas']:
+                doc_id = meta.get('doc_id')
+                if doc_id:
+                    doc_ids.add(doc_id)
+        
+        return list(doc_ids)
 
 
-# 单例实例
 _store_instance: Optional[VectorStore] = None
 
 

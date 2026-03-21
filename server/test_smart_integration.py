@@ -19,14 +19,14 @@ def test_smart_integration():
     print("\n[1] 测试Agent智能调用...")
     
     agent_tests = [
-        {"message": "帮我列出当前目录的文�?, "expected_action": "file_list"},
-        {"message": "打开计算器应�?, "expected_action": "app_open"},
+        {"message": "帮我列出当前目录的文件", "expected_action": "file_list"},
+        {"message": "打开计算器应用", "expected_action": "app_open"},
         {"message": "读取README.md文件", "expected_action": "file_read"},
     ]
     
     for test in agent_tests:
         try:
-            # 意图检�?            resp = requests.post(
+            resp = requests.post(
                 f"{BASE_URL}/agent/detect-intent",
                 json={"message": test["message"]},
                 timeout=30
@@ -36,13 +36,13 @@ def test_smart_integration():
                 detected = data.get("detected", False)
                 action = data.get("action", "")
                 print(f"  [PASS] '{test['message'][:20]}...' -> detected={detected}, action={action}")
-                results.append(("Agent检�?, True, test["message"][:20]))
+                results.append(("Agent检测", True, test["message"][:20]))
             else:
                 print(f"  [FAIL] 状态码: {resp.status_code}")
-                results.append(("Agent检�?, False, f"状态码: {resp.status_code}"))
+                results.append(("Agent检测", False, f"状态码: {resp.status_code}"))
         except Exception as e:
             print(f"  [FAIL] 错误: {e}")
-            results.append(("Agent检�?, False, str(e)))
+            results.append(("Agent检测", False, str(e)))
     
     # ========== 2. 测试Skill智能调用 ==========
     print("\n[2] 测试Skill智能调用...")
@@ -76,7 +76,6 @@ def test_smart_integration():
     print("\n[3] 测试记忆智能调取...")
     
     try:
-        # 提取记忆
         resp = requests.post(
             f"{BASE_URL}/memory/extract",
             json={"message": "我叫张三，我是一名软件工程师", "role": "user"},
@@ -85,8 +84,8 @@ def test_smart_integration():
         if resp.status_code == 200:
             data = resp.json()
             extracted = data.get("extracted", 0)
-            print(f"  [PASS] 记忆提取: {extracted}�?)
-            results.append(("记忆提取", True, f"{extracted}�?))
+            print(f"  [PASS] 记忆提取: {extracted}条")
+            results.append(("记忆提取", True, f"{extracted}条"))
         else:
             print(f"  [FAIL] 状态码: {resp.status_code}")
             results.append(("记忆提取", False, f"状态码: {resp.status_code}"))
@@ -95,25 +94,25 @@ def test_smart_integration():
         results.append(("记忆提取", False, str(e)))
     
     try:
-        # 检索记�?        resp = requests.post(
+        resp = requests.post(
             f"{BASE_URL}/memory/recall",
-            json={"query": "用户叫什么名�?, "top_k": 3},
+            json={"query": "用户叫什么名字", "top_k": 3},
             timeout=60
         )
         if resp.status_code == 200:
             data = resp.json()
             count = data.get("count", 0)
-            print(f"  [PASS] 记忆检�? {count}条匹�?)
-            results.append(("记忆检�?, True, f"{count}�?))
+            print(f"  [PASS] 记忆检索: {count}条匹配")
+            results.append(("记忆检索", True, f"{count}条"))
         else:
             print(f"  [FAIL] 状态码: {resp.status_code}")
-            results.append(("记忆检�?, False, f"状态码: {resp.status_code}"))
+            results.append(("记忆检索", False, f"状态码: {resp.status_code}"))
     except Exception as e:
         print(f"  [FAIL] 错误: {e}")
-        results.append(("记忆检�?, False, str(e)))
+        results.append(("记忆检索", False, str(e)))
     
     try:
-        # 获取记忆上下�?        resp = requests.get(
+        resp = requests.get(
             f"{BASE_URL}/memory/context",
             params={"query": "用户信息", "max_memories": 3},
             timeout=60
@@ -121,17 +120,17 @@ def test_smart_integration():
         if resp.status_code == 200:
             data = resp.json()
             context = data.get("context", "")
-            print(f"  [PASS] 记忆上下�? {len(context)}字符")
-            results.append(("记忆上下�?, True, f"{len(context)}字符"))
+            print(f"  [PASS] 记忆上下文: {len(context)}字符")
+            results.append(("记忆上下文", True, f"{len(context)}字符"))
         else:
             print(f"  [FAIL] 状态码: {resp.status_code}")
-            results.append(("记忆上下�?, False, f"状态码: {resp.status_code}"))
+            results.append(("记忆上下文", False, f"状态码: {resp.status_code}"))
     except Exception as e:
         print(f"  [FAIL] 错误: {e}")
-        results.append(("记忆上下�?, False, str(e)))
+        results.append(("记忆上下文", False, str(e)))
     
-    # ========== 4. 测试知识库智能检�?==========
-    print("\n[4] 测试知识库智能检�?..")
+    # ========== 4. 测试知识库智能检索 ==========
+    print("\n[4] 测试知识库智能检索...")
     
     try:
         resp = requests.post(
@@ -141,13 +140,13 @@ def test_smart_integration():
         )
         if resp.status_code in [200, 404]:
             print(f"  [PASS] 知识库查询API正常")
-            results.append(("知识库查�?, True, "API正常"))
+            results.append(("知识库查询", True, "API正常"))
         else:
             print(f"  [FAIL] 状态码: {resp.status_code}")
-            results.append(("知识库查�?, False, f"状态码: {resp.status_code}"))
+            results.append(("知识库查询", False, f"状态码: {resp.status_code}"))
     except Exception as e:
         print(f"  [FAIL] 错误: {e}")
-        results.append(("知识库查�?, False, str(e)))
+        results.append(("知识库查询", False, str(e)))
     
     # ========== 5. 测试领域智能识别 ==========
     print("\n[5] 测试领域智能识别...")
@@ -196,11 +195,10 @@ def test_smart_integration():
         print(f"  [FAIL] 错误: {e}")
         results.append(("Agent执行", False, str(e)))
     
-    # 注意: system_info �?Skill 操作，不�?Agent 操作
-    # Agent 支持的操�? file_create, file_read, file_write, file_delete, file_list, app_open, url_open
-    # Skill 支持的操�? calculator, system_info, json_parse, file_read, file_list �?    print("  [INFO] system_info �?Skill 操作，已�?Skill 测试中验�?)
+    print("  [INFO] system_info 是 Skill 操作，已在 Skill 测试中验证")
     
-    # 汇�?    print("\n" + "="*60)
+    # 汇总
+    print("\n" + "="*60)
     passed = sum(1 for r in results if r[1])
     total = len(results)
     print(f"测试结果: {passed}/{total} 通过")
@@ -208,18 +206,18 @@ def test_smart_integration():
     
     # 功能总结
     print("\n智能集成功能总结:")
-    print("  �?Agent智能调用 - 意图检测、操作执�?)
-    print("  �?Skill智能调用 - 模式匹配、自动执�?)
-    print("  �?记忆智能调取 - 提取、检索、上下文注入")
-    print("  �?知识库智能检�?- 领域识别、自动检�?)
-    print("  �?电脑操作执行 - 文件操作、系统信�?)
+    print("  - Agent智能调用 - 意图检测、操作执行")
+    print("  - Skill智能调用 - 模式匹配、自动执行")
+    print("  - 记忆智能调取 - 提取、检索、上下文注入")
+    print("  - 知识库智能检索 - 领域识别、自动检索")
+    print("  - 电脑操作执行 - 文件操作、系统信息")
     
     print("\n聊天中的智能调用流程:")
-    print("  1. 用户发送消�?)
+    print("  1. 用户发送消息")
     print("  2. 自动提取记忆")
-    print("  3. Agent意图检�?)
+    print("  3. Agent意图检测")
     print("  4. Skill模式匹配")
-    print("  5. 知识库领域识�?)
+    print("  5. 知识库领域识别")
     print("  6. 执行相应操作")
     print("  7. 返回结果")
     

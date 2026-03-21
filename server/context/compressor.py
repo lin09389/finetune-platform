@@ -1,6 +1,7 @@
 """
-对话压缩�?
-功能�?- 对话摘要生成
+对话压缩器
+功能：
+- 对话摘要生成
 - 基于重要性的消息压缩
 - 语义保留的对话精简
 - 多种压缩策略
@@ -49,7 +50,7 @@ class CompressionResult:
 
 
 class DialogCompressor:
-    """对话压缩�?""
+    """对话压缩器"""
     
     def __init__(
         self,
@@ -62,12 +63,12 @@ class DialogCompressor:
         self.summary_max_length = summary_max_length
         
         self._summary_templates = {
-            "conversation": "之前的对话中，用户{user_actions}。助手{assistant_actions}�?,
-            "qa": "用户询问了关于{topics}的问题，助手提供了{answer_types}的回答�?,
-            "coding": "用户请求了{task_types}相关的帮助，助手提供了{solution_types}的解决方案�?
+            "conversation": "之前的对话中，用户{user_actions}。助手{assistant_actions}。",
+            "qa": "用户询问了关于{topics}的问题，助手提供了{answer_types}的回答。",
+            "coding": "用户请求了{task_types}相关的帮助，助手提供了{solution_types}的解决方案。"
         }
         
-        logger.info("对话压缩器已初始�?)
+        logger.info("对话压缩器已初始化")
     
     def compress(
         self,
@@ -138,7 +139,7 @@ class DialogCompressor:
             removed_messages=[m.to_dict() for m in old_messages]
         )
         
-        logger.info(f"摘要压缩完成: {len(messages)} -> {len(compressed)} 条消�?)
+        logger.info(f"摘要压缩完成: {len(messages)} -> {len(compressed)} 条消息")
         
         return compressed, result
     
@@ -274,17 +275,17 @@ class DialogCompressor:
         summary_parts = []
         
         if topics:
-            topics_str = "�?.join(topics[:5])
-            summary_parts.append(f"用户讨论了{topics_str}等话�?)
+            topics_str = "、".join(topics[:5])
+            summary_parts.append(f"用户讨论了{topics_str}等话题")
         
         if actions:
-            actions_str = "�?.join(actions[:5])
+            actions_str = "、".join(actions[:5])
             summary_parts.append(f"助手{actions_str}")
         
         if not summary_parts:
-            summary_parts.append(f"共进行了{len(user_messages)}轮对�?)
+            summary_parts.append(f"共进行了{len(user_messages)}轮对话")
         
-        summary = "�?.join(summary_parts) + "�?
+        summary = "。".join(summary_parts) + "。"
         
         if len(summary) > self.summary_max_length:
             summary = summary[:self.summary_max_length - 3] + "..."
@@ -296,7 +297,7 @@ class DialogCompressor:
         
         keywords_patterns = [
             r'(?:关于|请问|如何|怎么|为什么|怎样)\s*([^\?\。\,\！]+)',
-            r'([^\?\。\,\！]{2,10})(?:的问题|的功能|的实现|的方�?'
+            r'([^\?\。\,\！]{2,10})(?:的问题|的功能|的实现|的方法)'
         ]
         
         for msg in messages:
@@ -315,7 +316,7 @@ class DialogCompressor:
         actions = []
         
         action_patterns = [
-            r'(?:提供了|给出了|解释了|说明了|实现了|创建�?\s*([^\。\,\！]+)',
+            r'(?:提供了|给出了|解释了|说明了|实现了|创建了)\s*([^\。\,\！]+)',
             r'(?:建议|推荐)([^\。\,\！]+)'
         ]
         
@@ -331,11 +332,11 @@ class DialogCompressor:
         
         if not actions:
             if any('代码' in m.content or '```' in m.content for m in messages):
-                actions.append("提供了代码示�?)
+                actions.append("提供了代码示例")
             if any('解释' in m.content for m in messages):
-                actions.append("进行了解�?)
+                actions.append("进行了解释")
             if any('建议' in m.content for m in messages):
-                actions.append("给出了建�?)
+                actions.append("给出了建议")
         
         return actions
     
@@ -369,7 +370,7 @@ class DialogCompressor:
     def _extract_content_features(self, content: str) -> float:
         features = 0.0
         
-        if re.search(r'\?\?|�?, content):
+        if re.search(r'\?\?|？', content):
             features += 0.2
         
         if re.search(r'```|def |class |function', content):

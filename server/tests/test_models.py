@@ -26,7 +26,8 @@ class TestModelAPI:
 
     def test_model_download(self):
         """测试模型下载（模拟）"""
-        # 注意：实际测试需要网络连�?        response = client.post("/models/download", json={
+        # 注意：实际测试需要网络连接
+        response = client.post("/models/download", json={
             "model_name": "test-model",
             "quantization": "int4"
         })

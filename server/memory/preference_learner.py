@@ -1,8 +1,12 @@
+# -*- coding: utf-8 -*-
 """
 用户偏好学习模块
 
-功能�?- 偏好提取算法
-- 偏好存储和更�?- 偏好应用到技能参�?- 偏好冲突解决
+功能：
+- 偏好提取算法
+- 偏好存储和更新
+- 偏好应用到技能参数
+- 偏好冲突解决
 """
 import json
 import logging
@@ -68,19 +72,21 @@ class PreferenceConflict:
 
 class PreferenceExtractor:
     """
-    偏好提取�?    
-    从对话和操作中提取用户偏�?    """
+    偏好提取器
+    
+    从对话和操作中提取用户偏好
+    """
     
     PATTERNS = [
-        (r"我喜�?.+?)(?:，|。|$)", "positive_preference"),
+        (r"我喜欢(.+?)(?:，|。|$)", "positive_preference"),
         (r"我不喜欢(.+?)(?:，|。|$)", "negative_preference"),
-        (r"我偏�?.+?)(?:，|。|$)", "preference"),
-        (r"我习�?.+?)(?:，|。|$)", "habit"),
-        (r"�?不要|�?(.+?)(?:，|。|$)", "negative_preference"),
-        (r"�?.+?)(?:，|。|$)", "positive_preference"),
+        (r"我偏好(.+?)(?:，|。|$)", "preference"),
+        (r"我习惯(.+?)(?:，|。|$)", "habit"),
+        (r"我不要|别(.+?)(?:，|。|$)", "negative_preference"),
+        (r"用(.+?)(?:，|。|$)", "positive_preference"),
         (r"默认使用(.+?)(?:，|。|$)", "default_setting"),
-        (r"设置(.+?)�?.+?)(?:，|。|$)", "setting"),
-        (r"(.+?)�?.+?)(?:，|。|$)", "tool_preference"),
+        (r"设置(.+?)为(.+?)(?:，|。|$)", "setting"),
+        (r"(.+?)用(.+?)(?:，|。|$)", "tool_preference"),
     ]
     
     @classmethod
@@ -139,7 +145,8 @@ class PreferenceExtractor:
 
 class PreferenceConflictResolver:
     """
-    偏好冲突解决�?    """
+    偏好冲突解决器
+    """
     
     STRATEGIES = {
         "confidence": lambda old, new: old if old.confidence >= new.confidence else new,
@@ -181,8 +188,10 @@ class PreferenceConflictResolver:
 
 class UserPreferenceLearner:
     """
-    用户偏好学习�?    
-    功能�?    - 偏好提取
+    用户偏好学习器
+    
+    功能：
+    - 偏好提取
     - 偏好存储
     - 偏好更新
     - 偏好应用
@@ -208,7 +217,7 @@ class UserPreferenceLearner:
         text: str,
         user_id: str = "default"
     ) -> List[UserPreference]:
-        """从文本学习偏�?""
+        """从文本学习偏好"""
         extracted = self._extractor.extract_from_text(text)
         
         learned = []
@@ -225,7 +234,7 @@ class UserPreferenceLearner:
         result: Dict[str, Any],
         user_id: str = "default"
     ) -> List[UserPreference]:
-        """从操作学习偏�?""
+        """从操作学习偏好"""
         extracted = self._extractor.extract_from_operation(
             operation_type, params, result
         )
@@ -279,7 +288,7 @@ class UserPreferenceLearner:
         key: str,
         default: Any = None
     ) -> Any:
-        """获取偏好�?""
+        """获取偏好值"""
         if user_id not in self._preferences:
             return default
         
@@ -292,7 +301,7 @@ class UserPreferenceLearner:
         return default
     
     def get_all_preferences(self, user_id: str) -> Dict[str, Any]:
-        """获取用户所有偏�?""
+        """获取用户所有偏好"""
         if user_id not in self._preferences:
             return {}
         
@@ -302,7 +311,7 @@ class UserPreferenceLearner:
         }
     
     def get_preferences_by_prefix(self, user_id: str, prefix: str) -> Dict[str, Any]:
-        """获取指定前缀的偏�?""
+        """获取指定前缀的偏好"""
         if user_id not in self._preferences:
             return {}
         
@@ -350,7 +359,7 @@ class UserPreferenceLearner:
         return False
     
     def clear_preferences(self, user_id: str):
-        """清除用户所有偏�?""
+        """清除用户所有偏好"""
         if user_id in self._preferences:
             del self._preferences[user_id]
         
@@ -359,7 +368,7 @@ class UserPreferenceLearner:
             user_file.unlink()
     
     def _persist_preference(self, user_id: str, preference: UserPreference):
-        """持久化偏�?""
+        """持久化偏好"""
         user_file = self.storage_path / f"{user_id}.json"
         
         try:
@@ -374,7 +383,7 @@ class UserPreferenceLearner:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         
         except Exception as e:
-            logger.error(f"持久化偏好失�? {e}")
+            logger.error(f"持久化偏好失败: {e}")
     
     def _delete_persisted_preference(self, user_id: str, key: str):
         """删除持久化的偏好"""
@@ -392,7 +401,7 @@ class UserPreferenceLearner:
                         json.dump(data, f, ensure_ascii=False, indent=2)
         
         except Exception as e:
-            logger.error(f"删除持久化偏好失�? {e}")
+            logger.error(f"删除持久化偏好失败: {e}")
     
     def load_preferences(self, user_id: str) -> int:
         """加载用户偏好"""
@@ -432,7 +441,7 @@ class UserPreferenceLearner:
         preferences: Dict[str, UserPreference],
         attr: str
     ) -> Dict[str, int]:
-        """按属性统�?""
+        """按属性统计"""
         counts = {}
         for pref in preferences.values():
             value = getattr(pref, attr, "unknown")
@@ -444,7 +453,7 @@ _preference_learner: Optional[UserPreferenceLearner] = None
 
 
 def get_preference_learner() -> UserPreferenceLearner:
-    """获取偏好学习器单�?""
+    """获取偏好学习器单例"""
     global _preference_learner
     if _preference_learner is None:
         _preference_learner = UserPreferenceLearner()

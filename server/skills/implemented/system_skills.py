@@ -1,5 +1,7 @@
+# -*- coding: utf-8 -*-
 """
-系统工具技�?"""
+系统工具技能
+"""
 import asyncio
 import platform
 import subprocess
@@ -19,7 +21,7 @@ from skills.models import (
 
 class SystemInfoSkill(SkillBase):
     """获取系统信息"""
-    
+
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
         return SkillMetadata(
@@ -32,7 +34,7 @@ class SystemInfoSkill(SkillBase):
             parameters=[],
             examples=[{}],
         )
-    
+
     async def execute(self, **kwargs) -> SkillResult:
         try:
             info = {
@@ -45,12 +47,12 @@ class SystemInfoSkill(SkillBase):
                 "hostname": platform.node(),
                 "timestamp": datetime.now().isoformat(),
             }
-            
+
             return SkillResult(
                 success=True,
                 data=info,
             )
-        
+
         except Exception as e:
             return SkillResult(
                 success=False,
@@ -61,13 +63,13 @@ class SystemInfoSkill(SkillBase):
 
 class CommandExecuteSkill(SkillBase):
     """执行系统命令"""
-    
+
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
         return SkillMetadata(
             name="command_execute",
             display_name="执行命令",
-            description="执行系统命令并返回结�?,
+            description="执行系统命令并返回结果",
             version="1.0.0",
             category=SkillCategory.SYSTEM,
             tags=["system", "command", "shell"],
@@ -81,7 +83,7 @@ class CommandExecuteSkill(SkillBase):
                 SkillParameter(
                     name="timeout",
                     type=SkillParameterType.INTEGER,
-                    description="超时时间（秒�?,
+                    description="超时时间（秒）",
                     required=False,
                     default=30,
                 ),
@@ -99,22 +101,22 @@ class CommandExecuteSkill(SkillBase):
             ],
             requires_confirmation=True,
         )
-    
+
     async def execute(self, **kwargs) -> SkillResult:
         command = kwargs.get("command")
         timeout = kwargs.get("timeout", 30)
         shell = kwargs.get("shell", True)
-        
+
         try:
             start_time = time.time()
-            
+
             process = await asyncio.create_subprocess_shell(
                 command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 shell=shell,
             )
-            
+
             try:
                 stdout, stderr = await asyncio.wait_for(
                     process.communicate(),
@@ -127,9 +129,9 @@ class CommandExecuteSkill(SkillBase):
                     error=f"命令执行超时（{timeout}秒）",
                     error_code="TIMEOUT",
                 )
-            
+
             duration = time.time() - start_time
-            
+
             return SkillResult(
                 success=process.returncode == 0,
                 data={
@@ -139,7 +141,7 @@ class CommandExecuteSkill(SkillBase):
                     "duration": round(duration, 3),
                 },
             )
-        
+
         except Exception as e:
             return SkillResult(
                 success=False,
@@ -148,80 +150,15 @@ class CommandExecuteSkill(SkillBase):
             )
 
 
-class TimeNowSkill(SkillBase):
-    """获取当前时间"""
-    
-    @classmethod
-    def get_metadata(cls) -> SkillMetadata:
-        return SkillMetadata(
-            name="time_now",
-            display_name="当前时间",
-            description="获取当前日期和时�?,
-            version="1.0.0",
-            category=SkillCategory.UTILITY,
-            tags=["time", "date", "utility"],
-            parameters=[
-                SkillParameter(
-                    name="format",
-                    type=SkillParameterType.STRING,
-                    description="时间格式（如 %Y-%m-%d %H:%M:%S�?,
-                    required=False,
-                    default="",
-                ),
-                SkillParameter(
-                    name="timezone",
-                    type=SkillParameterType.STRING,
-                    description="时区（如 Asia/Shanghai�?,
-                    required=False,
-                    default="local",
-                ),
-            ],
-            examples=[
-                {},
-                {"format": "%Y-%m-%d"},
-                {"format": "%H:%M:%S"},
-            ],
-        )
-    
-    async def execute(self, **kwargs) -> SkillResult:
-        fmt = kwargs.get("format", "")
-        
-        try:
-            now = datetime.now()
-            
-            if fmt:
-                formatted = now.strftime(fmt)
-            else:
-                formatted = now.isoformat()
-            
-            return SkillResult(
-                success=True,
-                data={
-                    "datetime": formatted,
-                    "timestamp": now.timestamp(),
-                    "date": now.strftime("%Y-%m-%d"),
-                    "time": now.strftime("%H:%M:%S"),
-                    "weekday": now.strftime("%A"),
-                },
-            )
-        
-        except Exception as e:
-            return SkillResult(
-                success=False,
-                error=f"获取时间失败: {str(e)}",
-                error_code="TIME_ERROR",
-            )
-
-
 class DelaySkill(SkillBase):
     """延迟执行"""
-    
+
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
         return SkillMetadata(
             name="delay",
             display_name="延迟",
-            description="延迟指定时间后继续执�?,
+            description="延迟指定时间后继续执行",
             version="1.0.0",
             category=SkillCategory.UTILITY,
             tags=["delay", "sleep", "utility"],
@@ -240,15 +177,15 @@ class DelaySkill(SkillBase):
                 {"seconds": 2.5},
             ],
         )
-    
+
     async def execute(self, **kwargs) -> SkillResult:
         seconds = kwargs.get("seconds", 1)
-        
+
         try:
             start_time = time.time()
             await asyncio.sleep(seconds)
             actual_duration = time.time() - start_time
-            
+
             return SkillResult(
                 success=True,
                 data={
@@ -256,7 +193,7 @@ class DelaySkill(SkillBase):
                     "actual_seconds": round(actual_duration, 3),
                 },
             )
-        
+
         except Exception as e:
             return SkillResult(
                 success=False,
@@ -267,13 +204,13 @@ class DelaySkill(SkillBase):
 
 class CalculatorSkill(SkillBase):
     """数学计算"""
-    
+
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
         return SkillMetadata(
             name="calculator",
-            display_name="计算�?,
-            description="执行数学表达式计�?,
+            display_name="计算器",
+            description="执行数学表达式计算",
             version="1.0.0",
             category=SkillCategory.UTILITY,
             tags=["math", "calculate", "utility"],
@@ -281,7 +218,7 @@ class CalculatorSkill(SkillBase):
                 SkillParameter(
                     name="expression",
                     type=SkillParameterType.STRING,
-                    description="数学表达�?,
+                    description="数学表达式",
                     required=True,
                 ),
             ],
@@ -291,10 +228,10 @@ class CalculatorSkill(SkillBase):
                 {"expression": "sin(pi/2)"},
             ],
         )
-    
+
     async def execute(self, **kwargs) -> SkillResult:
         expression = kwargs.get("expression")
-        
+
         allowed_names = {
             "abs": abs,
             "round": round,
@@ -304,15 +241,15 @@ class CalculatorSkill(SkillBase):
             "pow": pow,
             "len": len,
         }
-        
+
         try:
             import math
             for name in dir(math):
                 if not name.startswith("_"):
                     allowed_names[name] = getattr(math, name)
-            
+
             result = eval(expression, {"__builtins__": {}}, allowed_names)
-            
+
             return SkillResult(
                 success=True,
                 data={
@@ -321,7 +258,7 @@ class CalculatorSkill(SkillBase):
                     "type": type(result).__name__,
                 },
             )
-        
+
         except Exception as e:
             return SkillResult(
                 success=False,

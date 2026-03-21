@@ -1,6 +1,11 @@
+# -*- coding: utf-8 -*-
 """
-上下文检索器 - 智能检索相关代�?
-功能�?- 语义搜索（向量相似度�?- 相关文件检�?- 代码补全上下�?- 项目级上下文注入
+上下文检索器 - 智能检索相关代码
+功能：
+- 语义搜索（向量相似度）
+- 相关文件检索
+- 代码补全上下文
+- 项目级上下文注入
 """
 from typing import List, Dict, Any, Optional
 import logging
@@ -14,7 +19,7 @@ logger = logging.getLogger(__name__)
 class ContextRetriever:
     """上下文检索器"""
 
-    def __init__(self, embedder, vector_store, project_info: Optional[Dict] = None):
+    def __init__(self, embedder=None, vector_store=None, project_info: Optional[Dict] = None):
         """
         初始化上下文检索器
 
@@ -41,21 +46,25 @@ class ContextRetriever:
             query: 查询文本
             top_k: 返回结果数量
             collection_name: 集合名称（可选）
-            filter_metadata: 元数据过滤条�?
+            filter_metadata: 元数据过滤条件
+
         Returns:
-            上下文结果列�?        """
+            上下文结果列表
+        """
+        if not self.embedder or not self.vector_store:
+            logger.warning("向量存储或嵌入器未初始化")
+            return []
+
         if not collection_name:
-            # 使用默认集合
             collections = self.vector_store.list_collections()
             if not collections:
-                logger.warning("没有可用的向量集�?)
+                logger.warning("没有可用的向量集合")
                 return []
             collection_name = collections[0]
 
         try:
-            # 向量化查�?            query_embedding = self.embedder.embed_single(query)
+            query_embedding = self.embedder.embed_single(query)
 
-            # 搜索相似文档
             results = self.vector_store.search(
                 collection_name=collection_name,
                 query_embedding=query_embedding,
@@ -63,33 +72,30 @@ class ContextRetriever:
                 filter_metadata=filter_metadata
             )
 
-            # 解析结果
             context_results = []
             for result in results:
                 metadata = result.get("metadata", {})
+                path = metadata.get("path", "")
 
-                # 分组相同文件的結�?                path = metadata.get("path", "")
-
-                # 检查是否已有该文件的结�?                existing = next(
+                existing = next(
                     (r for r in context_results if r.path == path),
                     None
                 )
 
                 if existing:
-                    # 追加内容
                     if result.get("content"):
                         existing.content = f"{existing.content}\n...\n{result['content']}"
                 else:
-                    # 创建新结�?                    context_results.append(ContextResult(
+                    context_results.append(ContextResult(
                         type="file",
                         path=path,
                         relevance=result.get("score", 0.0),
-                        summary=result.get("content", "")[:500],  # 摘要限制长度
+                        summary=result.get("content", "")[:500],
                         content=result.get("content"),
                         symbols=self._extract_symbols_from_metadata(metadata)
                     ))
 
-            # 添加项目级信�?            if self.project_info:
+            if self.project_info:
                 context_results.append(ContextResult(
                     type="project",
                     tech_stack=self.project_info.get("tech_stack", {}).get("frameworks", []),
@@ -97,10 +103,9 @@ class ContextRetriever:
                     domain=self.project_info.get("domain")
                 ))
 
-            # 按相关度排序
             context_results.sort(key=lambda x: x.relevance, reverse=True)
 
-            return context_results[:top_k + 1]  # +1 为项目级结果
+            return context_results[:top_k + 1]
 
         except Exception as e:
             logger.error(f"检索上下文失败：{e}")
@@ -123,20 +128,18 @@ class ContextRetriever:
             collection_name: 集合名称
 
         Returns:
-            代码补全上下�?        """
-        # 获取当前文件所在行的上下文
+            代码补全上下文
+        """
         before_cursor = content[:cursor_position]
         current_line = before_cursor.split("\n")[-1]
 
-        # 提取当前正在输入的标识符
         match = re.search(r'(\w+)$', current_line)
         current_symbol = match.group(1) if match else None
 
         related_symbols = []
         imports = self._parse_imports(content)
 
-        # 如果有当前符号，搜索相关符号
-        if current_symbol and collection_name:
+        if current_symbol and collection_name and self.embedder and self.vector_store:
             try:
                 query_embedding = self.embedder.embed_single(current_symbol)
                 results = self.vector_store.search(
@@ -159,7 +162,7 @@ class ContextRetriever:
             except Exception as e:
                 logger.warning(f"搜索相关符号失败：{e}")
 
-        # 构建项目上下�?        project_context = {}
+        project_context = {}
         if self.project_info:
             project_context = {
                 "tech_stack": self.project_info.get("tech_stack", {}),
@@ -180,13 +183,18 @@ class ContextRetriever:
         collection_name: Optional[str] = None
     ) -> Optional[ContextResult]:
         """
-        根据路径检索文�?
+        根据路径检索文件
+
         Args:
             path: 文件路径
             collection_name: 集合名称
 
         Returns:
-            上下文结�?        """
+            上下文结果
+        """
+        if not self.vector_store:
+            return None
+
         if not collection_name:
             collections = self.vector_store.list_collections()
             if not collections:
@@ -194,9 +202,10 @@ class ContextRetriever:
             collection_name = collections[0]
 
         try:
-            # 使用元数据过滤搜�?            results = self.vector_store.search(
+            results = self.vector_store.search(
                 collection_name=collection_name,
-                query_embedding=[0.0] * 768,  # 零向量，仅用于获取结�?                top_k=1,
+                query_embedding=[0.0] * 768,
+                top_k=1,
                 filter_metadata={"path": path}
             )
 
@@ -213,7 +222,7 @@ class ContextRetriever:
                     symbols=self._extract_symbols_from_metadata(metadata)
                 )
         except Exception as e:
-            logger.warning(f"检索文件失�?{path}: {e}")
+            logger.warning(f"检索文件失败 {path}: {e}")
 
         return None
 
@@ -224,14 +233,19 @@ class ContextRetriever:
         collection_name: Optional[str] = None
     ) -> List[ContextResult]:
         """
-        根据符号名检�?
+        根据符号名检索
+
         Args:
             symbol_name: 符号名称
             symbol_type: 符号类型（可选）
             collection_name: 集合名称
 
         Returns:
-            上下文结果列�?        """
+            上下文结果列表
+        """
+        if not self.embedder or not self.vector_store:
+            return []
+
         if not collection_name:
             collections = self.vector_store.list_collections()
             if not collections:
@@ -239,24 +253,21 @@ class ContextRetriever:
             collection_name = collections[0]
 
         try:
-            # 向量化符号名
             query_embedding = self.embedder.embed_single(symbol_name)
 
-            # 搜索
             results = self.vector_store.search(
                 collection_name=collection_name,
                 query_embedding=query_embedding,
                 top_k=10
             )
 
-            # 过滤匹配的符�?            context_results = []
+            context_results = []
             for result in results:
                 metadata = result.get("metadata", {})
 
-                # 检查符号名是否匹配
                 meta_symbol_name = metadata.get("symbol_name", "")
                 if meta_symbol_name.lower() == symbol_name.lower():
-                    # 检查类型是否匹�?                    if symbol_type and metadata.get("symbol_type") != symbol_type:
+                    if symbol_type and metadata.get("symbol_type") != symbol_type:
                         continue
 
                     context_results.append(ContextResult(
@@ -288,7 +299,9 @@ class ContextRetriever:
         格式化上下文用于 prompt
 
         Args:
-            results: 检索结�?            max_length: 最大长�?
+            results: 检索结果
+            max_length: 最大长度
+
         Returns:
             格式化的上下文字符串
         """
@@ -296,7 +309,7 @@ class ContextRetriever:
 
         for result in results:
             if result.type == "project":
-                # 项目级信�?                project_parts = []
+                project_parts = []
                 if result.tech_stack:
                     project_parts.append(f"技术栈：{', '.join(result.tech_stack)}")
                 if result.architecture:
@@ -308,21 +321,20 @@ class ContextRetriever:
                     parts.append("项目信息:\n" + "\n".join(project_parts))
 
             elif result.type == "file":
-                # 文件级信�?                file_info = f"文件：{result.path}"
+                file_info = f"文件：{result.path}"
                 if result.summary:
                     file_info += f"\n摘要：{result.summary[:200]}"
 
                 parts.append(file_info)
 
             elif result.type == "symbol":
-                # 符号级信�?                for symbol in result.symbols:
-                    parts.append(f"{symbol.type} {symbol.name} (第{symbol.line}�?")
+                for symbol in result.symbols:
+                    parts.append(f"{symbol.type} {symbol.name} (第{symbol.line}行)")
 
         context = "\n\n".join(parts)
 
-        # 限制长度
         if len(context) > max_length:
-            context = context[:max_length] + "\n...(已截�?"
+            context = context[:max_length] + "\n...(已截断)"
 
         return context
 
@@ -349,26 +361,23 @@ class ContextRetriever:
         """解析导入语句"""
         imports = []
 
-        # Python imports
         for match in re.finditer(r'^import\s+([\w.]+)', content, re.MULTILINE):
             imports.append(match.group(1))
         for match in re.finditer(r'^from\s+([\w.]+)\s+import', content, re.MULTILINE):
             imports.append(match.group(1))
 
-        # JavaScript/TypeScript imports
         for match in re.finditer(r'import\s+.*?\s+from\s+[\'"]([^\'"]+)[\'"]', content):
             imports.append(match.group(1))
 
         return list(set(imports))
 
 
-# 全局检索器缓存
 _retrievers: Dict[str, ContextRetriever] = {}
 
 
 def get_context_retriever(
-    embedder,
-    vector_store,
+    embedder=None,
+    vector_store=None,
     project_info: Optional[Dict] = None,
     name: str = "default"
 ) -> ContextRetriever:

@@ -40,8 +40,8 @@ class ExecuteRequest(BaseModel):
     """代码执行请求"""
     code: str = Field(..., description="要执行的代码")
     language: Language = Field(default=Language.PYTHON, description="编程语言")
-    timeout: int = Field(default=30, ge=1, le=300, description="执行超时时间（秒�?)
-    memory_limit_mb: int = Field(default=256, ge=64, le=2048, description="内存限制（MB�?)
+    timeout: int = Field(default=30, ge=1, le=300, description="执行超时时间（秒）")
+    memory_limit_mb: int = Field(default=256, ge=64, le=2048, description="内存限制（MB）")
     permission_level: str = Field(default="limited", description="权限级别")
     stdin: Optional[str] = Field(default=None, description="标准输入")
 
@@ -52,8 +52,8 @@ class ExecuteResponse(BaseModel):
     stdout: str = Field(default="", description="标准输出")
     stderr: str = Field(default="", description="标准错误")
     exit_code: int = Field(default=0, description="退出码")
-    execution_time: float = Field(default=0.0, description="执行时间（秒�?)
-    memory_used_mb: float = Field(default=0.0, description="内存使用（MB�?)
+    execution_time: float = Field(default=0.0, description="执行时间（秒）")
+    memory_used_mb: float = Field(default=0.0, description="内存使用（MB）")
     error: Optional[str] = Field(default=None, description="错误信息")
     language: str = Field(..., description="执行的语言")
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
@@ -160,7 +160,7 @@ async def check_language_available(language: Language) -> tuple[bool, str]:
             version = stdout.decode().strip() or "Python 3.x"
             return True, version
         except Exception as e:
-            return False, f"Python 不可�? {e}"
+            return False, f"Python 不可用: {e}"
     
     elif language == Language.JAVASCRIPT:
         try:
@@ -173,7 +173,7 @@ async def check_language_available(language: Language) -> tuple[bool, str]:
             version = f"Node.js {stdout.decode().strip()}"
             return True, version
         except Exception as e:
-            return False, f"Node.js 不可�? {e}"
+            return False, f"Node.js 不可用: {e}"
     
     elif language == Language.TYPESCRIPT:
         try:
@@ -186,7 +186,7 @@ async def check_language_available(language: Language) -> tuple[bool, str]:
             version = stdout.decode().strip()
             return True, version
         except Exception as e:
-            return False, f"TypeScript 不可�? {e}"
+            return False, f"TypeScript 不可用: {e}"
     
     return False, "不支持的语言"
 
@@ -439,7 +439,7 @@ async def execute_typescript_code(
             if 'tsc' in str(e):
                 return ExecuteResponse(
                     success=False,
-                    error="TypeScript 编译器未安装，无法执�?TypeScript 代码",
+                    error="TypeScript 编译器未安装，无法执行 TypeScript 代码",
                     exit_code=-1,
                     language="typescript"
                 )
@@ -473,7 +473,7 @@ async def execute_code(request: ExecuteRequest):
     """
     执行代码
     
-    在沙箱环境中安全执行代码，支�?Python、JavaScript、TypeScript
+    在沙箱环境中安全执行代码，支持 Python、JavaScript、TypeScript
     """
     logger.info(f"执行代码请求: language={request.language}, timeout={request.timeout}s")
     
@@ -546,7 +546,7 @@ async def list_supported_languages():
 
 @router.get("/languages/{language}/status")
 async def get_language_status(language: Language):
-    """获取特定语言的可用状�?""
+    """获取特定语言的可用状态"""
     available, version = await check_language_available(language)
     
     return {
@@ -593,26 +593,26 @@ async def get_sandbox_info(sandbox_id: str):
     info = manager.get_sandbox_info(sandbox_id)
     
     if not info:
-        raise HTTPException(status_code=404, detail="沙箱不存�?)
+        raise HTTPException(status_code=404, detail="沙箱不存在")
     
     return info
 
 
 @router.delete("/sandbox/{sandbox_id}")
 async def destroy_sandbox(sandbox_id: str):
-    """销毁沙�?""
+    """销毁沙箱"""
     manager = get_sandbox_manager()
     success = manager.destroy_sandbox(sandbox_id)
     
     if not success:
-        raise HTTPException(status_code=404, detail="沙箱不存�?)
+        raise HTTPException(status_code=404, detail="沙箱不存在")
     
-    return {"message": "沙箱已销�?, "sandbox_id": sandbox_id}
+    return {"message": "沙箱已销毁", "sandbox_id": sandbox_id}
 
 
 @router.get("/sandboxes")
 async def list_sandboxes():
-    """列出所有沙�?""
+    """列出所有沙箱"""
     manager = get_sandbox_manager()
     return {"sandboxes": manager.list_sandboxes()}
 
@@ -620,8 +620,9 @@ async def list_sandboxes():
 @router.post("/validate")
 async def validate_code(request: ExecuteRequest):
     """
-    验证代码（不执行�?    
-    检查代码语法是否正�?    """
+    验证代码（不执行）
+    检查代码语法是否正确
+    """
     errors = []
     warnings = []
     

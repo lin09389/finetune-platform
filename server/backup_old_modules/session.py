@@ -1,7 +1,8 @@
 """
 会话管理 API
 
-功能�?- 会话 CRUD 操作
+功能：
+- 会话 CRUD 操作
 - 会话元数据管理（标题、标签、时间）
 - 会话搜索（按时间、标签）
 - 会话恢复
@@ -33,7 +34,7 @@ class SessionCreate(BaseModel):
     model_id: str = Field(default="", description="模型 ID")
     description: str = Field(default="", description="会话描述")
     tags: List[str] = Field(default_factory=list, description="标签列表")
-    custom_data: Dict[str, Any] = Field(default_factory=dict, description="自定义数�?)
+    custom_data: Dict[str, Any] = Field(default_factory=dict, description="自定义数据")
 
 
 class SessionUpdate(BaseModel):
@@ -42,10 +43,10 @@ class SessionUpdate(BaseModel):
     model_id: Optional[str] = Field(None, description="模型 ID")
     description: Optional[str] = Field(None, description="会话描述")
     tags: Optional[List[str]] = Field(None, description="标签列表")
-    status: Optional[str] = Field(None, description="会话状�? active/archived")
+    status: Optional[str] = Field(None, description="会话状态: active/archived")
     starred: Optional[bool] = Field(None, description="是否星标")
     pinned: Optional[bool] = Field(None, description="是否置顶")
-    custom_data: Optional[Dict[str, Any]] = Field(None, description="自定义数�?)
+    custom_data: Optional[Dict[str, Any]] = Field(None, description="自定义数据")
 
 
 class MessageCreate(BaseModel):
@@ -53,8 +54,8 @@ class MessageCreate(BaseModel):
     role: str = Field(..., description="消息角色: user/assistant/system/function")
     content: str = Field(..., description="消息内容")
     token_count: int = Field(default=0, description="Token 数量")
-    importance: float = Field(default=0.5, ge=0.0, le=1.0, description="重要性评�?)
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数�?)
+    importance: float = Field(default=0.5, ge=0.0, le=1.0, description="重要性评分")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据")
 
 
 class MessageBatchCreate(BaseModel):
@@ -64,16 +65,16 @@ class MessageBatchCreate(BaseModel):
 
 class SessionSearch(BaseModel):
     """会话搜索请求"""
-    query: Optional[str] = Field(None, description="搜索关键�?)
+    query: Optional[str] = Field(None, description="搜索关键词")
     tags: Optional[List[str]] = Field(None, description="标签过滤")
-    status: Optional[str] = Field(None, description="状态过�?)
+    status: Optional[str] = Field(None, description="状态过滤")
     starred: Optional[bool] = Field(None, description="星标过滤")
     pinned: Optional[bool] = Field(None, description="置顶过滤")
     model_id: Optional[str] = Field(None, description="模型 ID 过滤")
-    start_date: Optional[str] = Field(None, description="开始日�?)
+    start_date: Optional[str] = Field(None, description="开始日期")
     end_date: Optional[str] = Field(None, description="结束日期")
     limit: int = Field(default=50, ge=1, le=200, description="返回数量限制")
-    offset: int = Field(default=0, ge=0, description="偏移�?)
+    offset: int = Field(default=0, ge=0, description="偏移量")
     order_by: str = Field(default="updated_at", description="排序字段")
     order_desc: bool = Field(default=True, description="是否降序")
 
@@ -192,7 +193,7 @@ def _session_to_detail_response(session: ChatSession) -> SessionDetailResponse:
 
 @router.post("", response_model=SessionResponse)
 async def create_session(data: SessionCreate):
-    """创建新会�?""
+    """创建新会话"""
     store = get_session_store()
     session = store.create_session(
         title=data.title,
@@ -207,16 +208,16 @@ async def create_session(data: SessionCreate):
 
 @router.get("", response_model=SessionListResponse)
 async def list_sessions(
-    query: Optional[str] = Query(None, description="搜索关键�?),
-    tags: Optional[str] = Query(None, description="标签过滤（逗号分隔�?),
-    status: Optional[str] = Query(None, description="状态过�?),
+    query: Optional[str] = Query(None, description="搜索关键词"),
+    tags: Optional[str] = Query(None, description="标签过滤（逗号分隔）"),
+    status: Optional[str] = Query(None, description="状态过滤"),
     starred: Optional[bool] = Query(None, description="星标过滤"),
     pinned: Optional[bool] = Query(None, description="置顶过滤"),
     model_id: Optional[str] = Query(None, description="模型 ID"),
-    start_date: Optional[str] = Query(None, description="开始日�?),
+    start_date: Optional[str] = Query(None, description="开始日期"),
     end_date: Optional[str] = Query(None, description="结束日期"),
     limit: int = Query(50, ge=1, le=200, description="返回数量限制"),
-    offset: int = Query(0, ge=0, description="偏移�?),
+    offset: int = Query(0, ge=0, description="偏移量"),
     order_by: str = Query("updated_at", description="排序字段"),
     order_desc: bool = Query(True, description="是否降序")
 ):
@@ -251,7 +252,7 @@ async def list_sessions(
 
 @router.post("/search", response_model=SessionListResponse)
 async def search_sessions(data: SessionSearch):
-    """搜索会话（POST 方式�?""
+    """搜索会话（POST 方式）"""
     store = get_session_store()
 
     status_enum = SessionStatus(data.status) if data.status else None
@@ -286,14 +287,14 @@ async def get_session(session_id: str):
     session = store.get_session(session_id, include_messages=True)
 
     if not session:
-        raise HTTPException(status_code=404, detail="会话不存�?)
+        raise HTTPException(status_code=404, detail="会话不存在")
 
     return _session_to_detail_response(session)
 
 
 @router.put("/{session_id}", response_model=SessionResponse)
 async def update_session(session_id: str, data: SessionUpdate):
-    """更新会话元数�?""
+    """更新会话元数据"""
     store = get_session_store()
 
     status_enum = SessionStatus(data.status) if data.status else None
@@ -311,7 +312,7 @@ async def update_session(session_id: str, data: SessionUpdate):
     )
 
     if not success:
-        raise HTTPException(status_code=404, detail="会话不存�?)
+        raise HTTPException(status_code=404, detail="会话不存在")
 
     session = store.get_session(session_id, include_messages=False)
     logger.info(f"更新会话: {session_id}")
@@ -328,10 +329,10 @@ async def delete_session(
     success = store.delete_session(session_id, soft_delete=not permanent)
 
     if not success:
-        raise HTTPException(status_code=404, detail="会话不存�?)
+        raise HTTPException(status_code=404, detail="会话不存在")
 
-    logger.info(f"{'永久' if permanent else '�?}删除会话: {session_id}")
-    return {"message": "会话已删�?, "permanent": permanent}
+    logger.info(f"{'永久' if permanent else '软'}删除会话: {session_id}")
+    return {"message": "会话已删除", "permanent": permanent}
 
 
 @router.post("/{session_id}/restore", response_model=SessionResponse)
@@ -354,7 +355,7 @@ async def archive_session(session_id: str):
     success = store.archive_session(session_id)
 
     if not success:
-        raise HTTPException(status_code=404, detail="会话不存�?)
+        raise HTTPException(status_code=404, detail="会话不存在")
 
     session = store.get_session(session_id, include_messages=False)
     logger.info(f"归档会话: {session_id}")
@@ -368,7 +369,7 @@ async def toggle_star(session_id: str, starred: bool = Query(..., description="�
     success = store.update_session(session_id, starred=starred)
 
     if not success:
-        raise HTTPException(status_code=404, detail="会话不存�?)
+        raise HTTPException(status_code=404, detail="会话不存在")
 
     session = store.get_session(session_id, include_messages=False)
     return _session_to_response(session)
@@ -381,7 +382,7 @@ async def toggle_pin(session_id: str, pinned: bool = Query(..., description="是
     success = store.update_session(session_id, pinned=pinned)
 
     if not success:
-        raise HTTPException(status_code=404, detail="会话不存�?)
+        raise HTTPException(status_code=404, detail="会话不存在")
 
     session = store.get_session(session_id, include_messages=False)
     return _session_to_response(session)
@@ -389,13 +390,13 @@ async def toggle_pin(session_id: str, pinned: bool = Query(..., description="是
 
 @router.post("/{session_id}/messages", response_model=MessageResponse)
 async def add_message(session_id: str, data: MessageCreate):
-    """添加消息到会�?""
+    """添加消息到会话"""
     store = get_session_store()
 
     try:
         role = MessageRole(data.role)
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"无效的消息角�? {data.role}")
+        raise HTTPException(status_code=400, detail=f"无效的消息角色: {data.role}")
 
     message = store.add_message(
         session_id=session_id,
@@ -407,31 +408,31 @@ async def add_message(session_id: str, data: MessageCreate):
     )
 
     if not message:
-        raise HTTPException(status_code=404, detail="会话不存�?)
+        raise HTTPException(status_code=404, detail="会话不存在")
 
-    logger.debug(f"添加消息到会�?{session_id}: {message.id}")
+    logger.debug(f"添加消息到会话 {session_id}: {message.id}")
     return MessageResponse(**message.to_dict())
 
 
 @router.post("/{session_id}/messages/batch")
 async def add_messages_batch(session_id: str, data: MessageBatchCreate):
-    """批量添加消息到会�?""
+    """批量添加消息到会话"""
     store = get_session_store()
     count = store.add_messages_batch(session_id, data.messages)
 
     if count == 0:
-        raise HTTPException(status_code=404, detail="会话不存�?)
+        raise HTTPException(status_code=404, detail="会话不存在")
 
     logger.debug(f"批量添加 {count} 条消息到会话 {session_id}")
-    return {"message": "消息已添�?, "count": count}
+    return {"message": "消息已添加", "count": count}
 
 
 @router.get("/{session_id}/messages", response_model=List[MessageResponse])
 async def get_messages(
     session_id: str,
     limit: Optional[int] = Query(None, ge=1, description="返回数量限制"),
-    offset: int = Query(0, ge=0, description="偏移�?),
-    roles: Optional[str] = Query(None, description="角色过滤（逗号分隔�?)
+    offset: int = Query(0, ge=0, description="偏移量"),
+    roles: Optional[str] = Query(None, description="角色过滤（逗号分隔）")
 ):
     """获取会话消息列表"""
     store = get_session_store()
@@ -441,7 +442,7 @@ async def get_messages(
         try:
             role_list = [MessageRole(r.strip()) for r in roles.split(",")]
         except ValueError as e:
-            raise HTTPException(status_code=400, detail=f"无效的消息角�? {e}")
+            raise HTTPException(status_code=400, detail=f"无效的消息角色: {e}")
 
     messages = store.get_messages(
         session_id=session_id,
@@ -460,10 +461,10 @@ async def delete_message(session_id: str, message_id: str):
     success = store.delete_message(session_id, message_id)
 
     if not success:
-        raise HTTPException(status_code=404, detail="消息不存�?)
+        raise HTTPException(status_code=404, detail="消息不存在")
 
     logger.debug(f"删除消息: {message_id}")
-    return {"message": "消息已删�?}
+    return {"message": "消息已删除"}
 
 
 @router.get("/{session_id}/export")
@@ -476,7 +477,7 @@ async def export_session(
     exported = store.export_session(session_id, format=format)
 
     if not exported:
-        raise HTTPException(status_code=404, detail="会话不存�?)
+        raise HTTPException(status_code=404, detail="会话不存在")
 
     return {
         "session_id": session_id,
@@ -488,7 +489,7 @@ async def export_session(
 
 @router.get("/tags/all", response_model=List[TagResponse])
 async def get_all_tags():
-    """获取所有标�?""
+    """获取所有标签"""
     store = get_session_store()
     tags = store.get_all_tags()
     return [TagResponse(**tag) for tag in tags]

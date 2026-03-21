@@ -1,5 +1,6 @@
 """
-测试生成技�?自动从代码生成测试用�?"""
+测试生成技能 - 自动从代码生成测试用例
+"""
 import ast
 import inspect
 from typing import Dict, Any, List, Optional
@@ -10,7 +11,7 @@ from skills.models import SkillMetadata, SkillParameter, SkillResult, SkillCateg
 
 
 class TestGeneratorSkill(SkillBase):
-    """测试生成技�?""
+    """测试生成技能"""
     
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
@@ -24,7 +25,7 @@ class TestGeneratorSkill(SkillBase):
                 SkillParameter(
                     name="source_file",
                     type="string",
-                    description="源代码文件路�?,
+                    description="源代码文件路径",
                     required=True,
                 ),
                 SkillParameter(
@@ -62,14 +63,13 @@ class TestGeneratorSkill(SkillBase):
             if not source_path.exists():
                 return SkillResult(
                     success=False,
-                    error=f"文件不存�? {source_file}",
+                    error=f"文件不存在: {source_file}",
                     error_code="FILE_NOT_FOUND",
                 )
             
-            # 解析源代�?            source_code = source_path.read_text(encoding="utf-8")
+            source_code = source_path.read_text(encoding="utf-8")
             tree = ast.parse(source_code)
             
-            # 提取函数和类
             functions = []
             classes = []
             
@@ -98,7 +98,6 @@ class TestGeneratorSkill(SkillBase):
                         "docstring": ast.get_docstring(node) or "",
                     })
             
-            # 生成测试代码
             test_code = self._generate_test_code(
                 source_path.stem,
                 functions,
@@ -106,7 +105,6 @@ class TestGeneratorSkill(SkillBase):
                 test_style,
             )
             
-            # 确定输出路径
             output_path = Path(output_dir) / f"test_{source_path.stem}.py"
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(test_code, encoding="utf-8")
@@ -147,7 +145,7 @@ class TestGeneratorSkill(SkillBase):
         """生成测试代码"""
         lines = [
             '"""',
-            f'自动生成的测试文�?- {module_name}',
+            f'自动生成的测试文件 - {module_name}',
             '"""',
             "import pytest",
             f"from {module_name} import *",
@@ -155,7 +153,7 @@ class TestGeneratorSkill(SkillBase):
             "",
         ]
         
-        # 为每个函数生成测�?        for func in functions:
+        for func in functions:
             if func["name"].startswith("__"):
                 continue
             
@@ -181,11 +179,10 @@ class TestGeneratorSkill(SkillBase):
                 "",
             ])
         
-        # 为每个类生成测试
         for cls in classes:
             lines.extend([
                 f'class Test{cls["name"]}:',
-                f'    """测试 {cls["name"]} �?""',
+                f'    """测试 {cls["name"]} 类"""',
                 "",
                 "    @pytest.fixture",
                 f"    def instance(self):",

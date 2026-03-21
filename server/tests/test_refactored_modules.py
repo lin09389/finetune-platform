@@ -1,5 +1,6 @@
 """
-测试统一类型定义和错误处理模�?"""
+测试统一类型定义和错误处理模块
+"""
 import pytest
 from datetime import datetime
 
@@ -25,7 +26,7 @@ class TestTypes:
         assert msg.content == "你好"
     
     def test_message_with_metadata(self):
-        """测试带元数据的消�?""
+        """测试带元数据的消息"""
         msg = Message(
             role=MessageRole.ASSISTANT,
             content="你好，有什么可以帮助你的？",
@@ -35,7 +36,7 @@ class TestTypes:
         assert msg.metadata["model"] == "qwen-7b"
     
     def test_inference_options_defaults(self):
-        """测试推理选项默认�?""
+        """测试推理选项默认值"""
         options = InferenceOptions()
         assert options.temperature == 0.7
         assert options.top_p == 0.9
@@ -54,17 +55,17 @@ class TestTypes:
         assert request.options.temperature == 0.7
     
     def test_chat_request_get_last_user_message(self):
-        """测试获取最后用户消�?""
+        """测试获取最后用户消息"""
         request = ChatRequest(
             model="qwen-7b",
             messages=[
-                Message(role=MessageRole.USER, content="第一条消�?),
+                Message(role=MessageRole.USER, content="第一条消息"),
                 Message(role=MessageRole.ASSISTANT, content="回复"),
-                Message(role=MessageRole.USER, content="第二条消�?)
+                Message(role=MessageRole.USER, content="第二条消息")
             ]
         )
         last_msg = request.get_last_user_message()
-        assert last_msg == "第二条消�?
+        assert last_msg == "第二条消息"
     
     def test_token_usage(self):
         """测试 Token 使用统计"""
@@ -104,7 +105,7 @@ class TestErrors:
         assert error.status_code == 400
     
     def test_api_error_to_dict(self):
-        """测试错误转换为字�?""
+        """测试错误转换为字典"""
         error = APIError(
             code="test_error",
             message="测试错误",
@@ -117,26 +118,26 @@ class TestErrors:
         assert error_dict["error"]["message"] == "测试错误"
     
     def test_model_not_found_error(self):
-        """测试模型未找到错�?""
+        """测试模型未找到错误"""
         error = ModelNotFoundError("qwen-7b")
         assert error.code == ErrorCode.MODEL_NOT_FOUND.value
         assert error.status_code == 404
         assert "qwen-7b" in error.details["model_id"]
     
     def test_session_not_found_error(self):
-        """测试会话未找到错�?""
+        """测试会话未找到错误"""
         error = SessionNotFoundError("session-123")
         assert error.code == ErrorCode.SESSION_NOT_FOUND.value
         assert error.status_code == 404
     
     def test_ollama_not_running_error(self):
-        """测试 Ollama 未运行错�?""
+        """测试 Ollama 未运行错误"""
         error = OllamaNotRunningError()
         assert error.code == ErrorCode.OLLAMA_NOT_RUNNING.value
         assert error.status_code == 503
     
     def test_context_too_long_error(self):
-        """测试上下文过长错�?""
+        """测试上下文过长错误"""
         error = ContextTooLongError(current=5000, max_length=4000)
         assert error.code == ErrorCode.CONTEXT_TOO_LONG.value
         assert error.status_code == 400
@@ -152,17 +153,17 @@ class TestErrors:
     def test_get_friendly_error(self):
         """测试获取友好错误信息"""
         msg = get_friendly_error(ErrorCode.MODEL_NOT_FOUND.value)
-        assert "模型不存�? in msg
+        assert "模型不存在" in msg
         
         msg = get_friendly_error(ErrorCode.OLLAMA_NOT_RUNNING.value)
         assert "Ollama" in msg
 
 
 class TestState:
-    """测试状态管�?""
+    """测试状态管理"""
     
     def test_model_state_creation(self):
-        """测试模型状态创�?""
+        """测试模型状态创建"""
         from core.state import ModelState
         from datetime import datetime
         
@@ -177,7 +178,7 @@ class TestState:
         assert state.use_count == 0
     
     def test_session_state_creation(self):
-        """测试会话状态创�?""
+        """测试会话状态创建"""
         from core.state import SessionState
         
         session = SessionState(session_id="session-123")

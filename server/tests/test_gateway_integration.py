@@ -1,7 +1,8 @@
 """
 Gateway 集成测试
 
-测试 Gateway API 端到端功�?"""
+测试 Gateway API 端到端功能
+"""
 import pytest
 import asyncio
 from httpx import AsyncClient
@@ -15,7 +16,7 @@ from server.gateway.cross_agent import get_cross_agent_communicator
 
 @pytest.fixture
 async def client():
-    """创建测试客户�?""
+    """创建测试客户端"""
     async with AsyncClient(app=app, base_url="http://test") as ac:
         yield ac
 
@@ -25,7 +26,7 @@ class TestGatewayAPI:
     
     @pytest.mark.asyncio
     async def test_get_gateway_status(self, client):
-        """测试获取 Gateway 状�?""
+        """测试获取 Gateway 状态"""
         response = await client.get("/gateway/status")
         
         assert response.status_code == 200
@@ -40,7 +41,7 @@ class TestGatewayAPI:
     
     @pytest.mark.asyncio
     async def test_device_register_and_authenticate(self, client):
-        """测试设备注册和认证流�?""
+        """测试设备注册和认证流程"""
         register_response = await client.post(
             "/gateway/devices/register",
             json={
@@ -87,7 +88,7 @@ class TestGatewayAPI:
     
     @pytest.mark.asyncio
     async def test_create_and_delete_binding(self, client):
-        """测试创建和删除绑定规�?""
+        """测试创建和删除绑定规则"""
         auth_manager = get_device_auth_manager()
         await auth_manager.register_device(
             device_id="test_agent_device",
@@ -128,7 +129,7 @@ class TestGatewayAPI:
     
     @pytest.mark.asyncio
     async def test_send_message(self, client):
-        """测试发送消�?""
+        """测试发送消息"""
         communicator = get_cross_agent_communicator()
         communicator.register_agent("test_source")
         communicator.register_agent("test_target")
@@ -171,7 +172,7 @@ class TestGatewayAPI:
     
     @pytest.mark.asyncio
     async def test_spawn_agent(self, client):
-        """测试生成�?Agent"""
+        """测试生成子 Agent"""
         communicator = get_cross_agent_communicator()
         communicator.register_agent("parent_agent")
         
@@ -226,7 +227,7 @@ class TestSetupAPI:
     
     @pytest.mark.asyncio
     async def test_get_installed_libraries(self, client):
-        """测试获取已安装的�?""
+        """测试获取已安装的库"""
         response = await client.get("/setup/libraries")
         
         assert response.status_code == 200
@@ -261,7 +262,7 @@ class TestSetupAPI:
     
     @pytest.mark.asyncio
     async def test_quick_start(self, client):
-        """测试快速开�?""
+        """测试快速开始"""
         response = await client.get("/setup/quick-start")
         
         assert response.status_code == 200
@@ -308,21 +309,25 @@ class TestErrorHandling:
     
     @pytest.mark.asyncio
     async def test_wizard_not_found(self, client):
-        """测试向导不存在错�?""
+        """测试向导不存在错误"""
         response = await client.get("/setup/wizard/nonexistent_id")
         
         assert response.status_code == 404
     
     @pytest.mark.asyncio
     async def test_device_not_found(self, client):
-        """测试设备不存在错�?""
+        """测试设备不存在错误"""
         response = await client.get("/gateway/devices/nonexistent_device")
         
         assert response.status_code == 404
     
     @pytest.mark.asyncio
     async def test_binding_not_found(self, client):
-        """测试绑定规则不存在错�?""
+        """测试绑定规则不存在错误"""
         response = await client.delete("/gateway/bindings/nonexistent_binding")
         
         assert response.status_code == 404
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

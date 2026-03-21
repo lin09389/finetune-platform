@@ -1,5 +1,7 @@
+# -*- coding: utf-8 -*-
 """
-CUA (Computer Use Agent) 基础技�?"""
+CUA (Computer Use Agent) 基础技能
+"""
 from typing import Any, Dict, List, Optional
 
 from skills.base import SkillBase
@@ -28,7 +30,7 @@ from cua.ocr import OCRRecognizer
 
 
 class ScreenshotSkill(SkillBase):
-    """屏幕截图技�?""
+    """屏幕截图技能"""
 
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
@@ -51,7 +53,7 @@ class ScreenshotSkill(SkillBase):
                 SkillParameter(
                     name="region",
                     type=SkillParameterType.OBJECT,
-                    description="截图区域 {x, y, width, height}，不指定则截取整个屏�?,
+                    description="截图区域 {x, y, width, height}，不指定则截取整个屏幕",
                     required=False,
                     default=None,
                 ),
@@ -108,20 +110,20 @@ class ScreenshotSkill(SkillBase):
         except Exception as e:
             return SkillResult(
                 success=False,
-                error=f"截图时发生错�? {str(e)}",
+                error=f"截图时发生错误: {str(e)}",
                 error_code="SCREENSHOT_UNKNOWN_ERROR",
             )
 
 
 class MouseClickSkill(SkillBase):
-    """鼠标点击技�?""
+    """鼠标点击技能"""
 
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
         return SkillMetadata(
             name="mouse_click",
             display_name="鼠标点击",
-            description="在指定位置执行鼠标点击操�?,
+            description="在指定位置执行鼠标点击操作",
             version="1.0.0",
             category=SkillCategory.SYSTEM,
             tags=["mouse", "click", "cua"],
@@ -129,21 +131,21 @@ class MouseClickSkill(SkillBase):
                 SkillParameter(
                     name="x",
                     type=SkillParameterType.INTEGER,
-                    description="点击位置�?X 坐标",
+                    description="点击位置的 X 坐标",
                     required=True,
                     min_value=0,
                 ),
                 SkillParameter(
                     name="y",
                     type=SkillParameterType.INTEGER,
-                    description="点击位置�?Y 坐标",
+                    description="点击位置的 Y 坐标",
                     required=True,
                     min_value=0,
                 ),
                 SkillParameter(
                     name="button",
                     type=SkillParameterType.STRING,
-                    description="鼠标按钮（left/right/middle�?,
+                    description="鼠标按钮（left/right/middle）",
                     required=False,
                     default="left",
                     enum=["left", "right", "middle"],
@@ -203,13 +205,13 @@ class MouseClickSkill(SkillBase):
         except Exception as e:
             return SkillResult(
                 success=False,
-                error=f"鼠标点击时发生错�? {str(e)}",
+                error=f"鼠标点击时发生错误: {str(e)}",
                 error_code="MOUSE_CLICK_UNKNOWN_ERROR",
             )
 
 
 class MouseMoveSkill(SkillBase):
-    """鼠标移动技�?""
+    """鼠标移动技能"""
 
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
@@ -224,14 +226,14 @@ class MouseMoveSkill(SkillBase):
                 SkillParameter(
                     name="x",
                     type=SkillParameterType.INTEGER,
-                    description="目标位置�?X 坐标",
+                    description="目标位置的 X 坐标",
                     required=True,
                     min_value=0,
                 ),
                 SkillParameter(
                     name="y",
                     type=SkillParameterType.INTEGER,
-                    description="目标位置�?Y 坐标",
+                    description="目标位置的 Y 坐标",
                     required=True,
                     min_value=0,
                 ),
@@ -285,13 +287,13 @@ class MouseMoveSkill(SkillBase):
         except Exception as e:
             return SkillResult(
                 success=False,
-                error=f"鼠标移动时发生错�? {str(e)}",
+                error=f"鼠标移动时发生错误: {str(e)}",
                 error_code="MOUSE_MOVE_UNKNOWN_ERROR",
             )
 
 
 class KeyboardTypeSkill(SkillBase):
-    """键盘输入技�?""
+    """键盘输入技能"""
 
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
@@ -312,7 +314,7 @@ class KeyboardTypeSkill(SkillBase):
                 SkillParameter(
                     name="interval",
                     type=SkillParameterType.FLOAT,
-                    description="按键间隔时间（秒�?,
+                    description="按键间隔时间（秒）",
                     required=False,
                     default=0.05,
                     min_value=0.0,
@@ -359,20 +361,20 @@ class KeyboardTypeSkill(SkillBase):
         except Exception as e:
             return SkillResult(
                 success=False,
-                error=f"键盘输入时发生错�? {str(e)}",
+                error=f"键盘输入时发生错误: {str(e)}",
                 error_code="KEYBOARD_TYPE_UNKNOWN_ERROR",
             )
 
 
 class WindowListSkill(SkillBase):
-    """窗口列表技�?""
+    """窗口列表技能"""
 
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
         return SkillMetadata(
             name="window_list",
             display_name="窗口列表",
-            description="获取当前所有窗口列�?,
+            description="获取当前所有窗口列表",
             version="1.0.0",
             category=SkillCategory.SYSTEM,
             tags=["window", "list", "cua"],
@@ -405,7 +407,7 @@ class WindowListSkill(SkillBase):
                     "windows": window_list,
                     "count": len(window_list),
                 },
-                message=f"找到 {len(window_list)} 个窗�?,
+                message=f"找到 {len(window_list)} 个窗口",
             )
 
         except WindowOperationError as e:
@@ -417,20 +419,20 @@ class WindowListSkill(SkillBase):
         except Exception as e:
             return SkillResult(
                 success=False,
-                error=f"获取窗口列表时发生错�? {str(e)}",
+                error=f"获取窗口列表时发生错误: {str(e)}",
                 error_code="WINDOW_LIST_UNKNOWN_ERROR",
             )
 
 
 class AppLaunchSkill(SkillBase):
-    """应用启动技�?""
+    """应用启动技能"""
 
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
         return SkillMetadata(
             name="app_launch",
             display_name="启动应用",
-            description="启动指定的应用程�?,
+            description="启动指定的应用程序",
             version="1.0.0",
             category=SkillCategory.SYSTEM,
             tags=["app", "launch", "application", "cua"],
@@ -438,7 +440,7 @@ class AppLaunchSkill(SkillBase):
                 SkillParameter(
                     name="app_name",
                     type=SkillParameterType.STRING,
-                    description="应用程序名称或路�?,
+                    description="应用程序名称或路径",
                     required=True,
                 ),
             ],
@@ -495,13 +497,13 @@ class AppLaunchSkill(SkillBase):
                     "app_name": app_name,
                     "platform": system,
                 },
-                message=f"已启动应�? {app_name}",
+                message=f"已启动应用: {app_name}",
             )
 
         except FileNotFoundError:
             return SkillResult(
                 success=False,
-                error=f"应用程序未找�? {app_name}",
+                error=f"应用程序未找到: {app_name}",
                 error_code="APP_NOT_FOUND",
             )
         except Exception as e:
@@ -513,14 +515,14 @@ class AppLaunchSkill(SkillBase):
 
 
 class FindTextSkill(SkillBase):
-    """文本查找技�?""
+    """文本查找技能"""
 
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
         return SkillMetadata(
             name="find_text",
             display_name="查找文本",
-            description="在屏幕截图中查找指定文本的位�?,
+            description="在屏幕截图中查找指定文本的位置",
             version="1.0.0",
             category=SkillCategory.SYSTEM,
             tags=["ocr", "text", "find", "cua"],
@@ -534,7 +536,7 @@ class FindTextSkill(SkillBase):
                 SkillParameter(
                     name="lang",
                     type=SkillParameterType.STRING,
-                    description="OCR 语言（如 chi_sim+eng�?,
+                    description="OCR 语言（如 chi_sim+eng）",
                     required=False,
                     default="chi_sim+eng",
                 ),
@@ -578,7 +580,7 @@ class FindTextSkill(SkillBase):
                         "found": False,
                         "positions": [],
                     },
-                    message=f"未找到文�? {text}",
+                    message=f"未找到文本: {text}",
                 )
 
             positions = [
@@ -605,7 +607,7 @@ class FindTextSkill(SkillBase):
                     "positions": positions,
                     "count": len(positions),
                 },
-                message=f"找到 {len(positions)} 处文�? {text}",
+                message=f"找到 {len(positions)} 处文本: {text}",
             )
 
         except OCRError as e:
@@ -623,7 +625,7 @@ class FindTextSkill(SkillBase):
         except Exception as e:
             return SkillResult(
                 success=False,
-                error=f"查找文本时发生错�? {str(e)}",
+                error=f"查找文本时发生错误: {str(e)}",
                 error_code="FIND_TEXT_UNKNOWN_ERROR",
             )
 

@@ -1,5 +1,5 @@
 """
-推理服务 API - 支持 HuggingFace �?Ollama 后端
+推理服务 API - 支持 HuggingFace 和 Ollama 后端
 """
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -57,12 +57,12 @@ MAX_MESSAGE_LENGTH = 10000
 MAX_MESSAGES_COUNT = 100
 
 ERROR_MESSAGES = {
-    "model_not_found": "模型不存在，请检查模型名称或先下载模�?,
+    "model_not_found": "模型不存在，请检查模型名称或先下载模型",
     "ollama_not_running": "Ollama 服务未运行，请先启动 Ollama",
-    "ollama_unavailable": "Ollama 服务暂时不可用，请稍后重�?,
+    "ollama_unavailable": "Ollama 服务暂时不可用，请稍后重试",
     "inference_failed": "推理生成失败，请稍后重试",
-    "model_load_failed": "模型加载失败，请检查模型文件是否完�?,
-    "context_too_long": "上下文长度超出限制，请减少对话历�?,
+    "model_load_failed": "模型加载失败，请检查模型文件是否完整",
+    "context_too_long": "上下文长度超出限制，请减少对话历史",
     "rate_limited": "请求过于频繁，请稍后重试",
     "invalid_input": "输入内容无效，请检查后重试",
     "malicious_input": "检测到潜在的恶意输入，请修改内容后重试",
@@ -70,10 +70,10 @@ ERROR_MESSAGES = {
 
 
 def get_friendly_error(error_key: str, original_error: str = "") -> str:
-    """获取友好的错误信�?""
+    """获取友好的错误信息"""
     friendly_msg = ERROR_MESSAGES.get(error_key, f"操作失败：{error_key}")
     if original_error and logger.isEnabledFor(logging.DEBUG):
-        return f"{friendly_msg}（详情：{original_error}�?
+        return f"{friendly_msg}（详情：{original_error}）"
     return friendly_msg
 
 
@@ -94,7 +94,7 @@ def parse_ollama_error(error_text: str) -> str:
 
 
 def sanitize_input(text: str) -> str:
-    """清理和验证输入文�?""
+    """清理和验证输入文本"""
     if not text:
         return text
     
@@ -112,7 +112,7 @@ def detect_prompt_injection(text: str) -> bool:
     
     for pattern in PROMPT_INJECTION_PATTERNS:
         if re.search(pattern, text_lower, re.IGNORECASE):
-            logger.warning(f"检测到潜在�?Prompt 注入: {pattern}")
+            logger.warning(f"检测到潜在的 Prompt 注入: {pattern}")
             return True
     
     return False
@@ -120,23 +120,22 @@ def detect_prompt_injection(text: str) -> bool:
 
 class InferenceRequest(BaseModel):
     """推理请求 - 支持驼峰和下划线两种命名"""
-    # 驼峰命名（前端发送）
     modelId: Optional[str] = Field(None, description="模型 ID")
-    maxTokens: Optional[int] = Field(None, description="最大生�?token �?)
+    maxTokens: Optional[int] = Field(None, description="最大生成 token 数")
     topP: Optional[float] = Field(None, description="Top-p 采样")
     topK: Optional[int] = Field(None, description="Top-k 采样")
     repetitionPenalty: Optional[float] = Field(None, description="重复惩罚")
-    loraAdapter: Optional[str] = Field(None, description="LoRA 适配器路�?)
+    loraAdapter: Optional[str] = Field(None, description="LoRA 适配器路径")
 
-    # 下划线命名（后端标准�?    model_id: Optional[str] = Field(None, description="模型 ID")
+    model_id: Optional[str] = Field(None, description="模型 ID")
     prompt: str = Field(...)
-    max_tokens: int = Field(1024, ge=1, le=8192, description="最大生�?token �?)
+    max_tokens: int = Field(1024, ge=1, le=8192, description="最大生成 token 数")
     temperature: float = Field(0.7, ge=0, le=2, description="温度")
     top_p: float = Field(0.9, ge=0, le=1, description="Top-p 采样")
     top_k: int = Field(50, ge=1, description="Top-k 采样")
     repetition_penalty: float = Field(1.1, ge=0.1, le=2, description="重复惩罚")
     backend: Optional[str] = Field(None, description="推理后端：huggingface/ollama")
-    lora_adapter: Optional[str] = Field(None, description="LoRA 适配器路�?)
+    lora_adapter: Optional[str] = Field(None, description="LoRA 适配器路径")
 
     def get_model_id(self) -> str:
         return self.modelId or self.model_id or ""
@@ -173,7 +172,7 @@ class InferenceResponse(BaseModel):
     model_id: str
     backend: str
     knowledge_sources: Optional[List[KnowledgeSourceResponse]] = Field(default=None, description="知识来源")
-    retrieval_info: Optional[Dict[str, Any]] = Field(default=None, description="检索信�?)
+    retrieval_info: Optional[Dict[str, Any]] = Field(default=None, description="检索信息")
 
 
 class ChatMessage(BaseModel):
@@ -186,16 +185,16 @@ class ChatRequest(BaseModel):
     """聊天请求"""
     model_id: str = Field(..., description="模型 ID")
     messages: List[ChatMessage] = Field(..., description="消息历史")
-    max_tokens: int = Field(default=1024, ge=1, description="最大生�?token �?)
+    max_tokens: int = Field(default=1024, ge=1, description="最大生成 token 数")
     temperature: float = Field(default=0.7, ge=0, le=2, description="温度")
     top_p: float = Field(default=0.9, ge=0, le=1, description="Top-p")
     backend: Optional[str] = Field(default=None, description="推理后端")
-    use_context: bool = Field(default=False, description="是否使用项目上下�?)
+    use_context: bool = Field(default=False, description="是否使用项目上下文")
     project_path: Optional[str] = Field(default=None, description="项目路径")
-    collection_id: Optional[str] = Field(default=None, description="知识库集�?ID")
-    use_knowledge: bool = Field(default=False, description="是否使用知识库检�?)
-    auto_retrieve: bool = Field(default=True, description="是否自动触发知识检�?)
-    top_k: int = Field(default=5, ge=1, le=20, description="知识检索返回数�?)
+    collection_id: Optional[str] = Field(default=None, description="知识库集合 ID")
+    use_knowledge: bool = Field(default=False, description="是否使用知识库检索")
+    auto_retrieve: bool = Field(default=True, description="是否自动触发知识检索")
+    top_k: int = Field(default=5, ge=1, le=20, description="知识检索返回数量")
     include_sources: bool = Field(default=True, description="是否在回复中包含知识来源")
 
     def get_model_id(self) -> str:
@@ -211,12 +210,12 @@ class ChatRequest(BaseModel):
 class MergeRequest(BaseModel):
     """合并请求"""
     base_model_id: str = Field(..., description="基础模型 ID")
-    lora_path: str = Field(..., description="LoRA 适配器路�?)
+    lora_path: str = Field(..., description="LoRA 适配器路径")
     output_name: str = Field(..., description="输出模型名称")
 
 
 class MergeStatus(BaseModel):
-    """合并状�?""
+    """合并状态"""
     status: str
     message: str
     progress: int
@@ -229,7 +228,7 @@ class BackendSwitchRequest(BaseModel):
 
 
 def check_ollama_running() -> bool:
-    """检�?Ollama 是否运行"""
+    """检查 Ollama 是否运行"""
     try:
         response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=3)
         return response.status_code == 200
@@ -259,27 +258,22 @@ def get_ollama_models() -> List[Dict[str, Any]]:
 
 def apply_chat_template(prompt: str, model_id: str, tokenizer) -> str:
     """
-    根据模型类型应用正确�?chat template
+    根据模型类型应用正确的 chat template
 
-    Qwen3.5 系列需要使�?<|im_start|>user\n...<|im_end|>\n<|im_start|>assistant\n 格式
+    Qwen3.5 系列需要使用 <|im_start|>user\n...<|im_end|>\n<|im_start|>assistant\n 格式
     """
     model_lower = model_id.lower()
 
-    # 检查是否是 Qwen3.5 系列模型
     if "qwen3.5" in model_lower or "qwen3_5" in model_lower:
-        # 检查提示是否已经包�?chat template
         if "<|im_start|>" in prompt:
             return prompt
-        # 应用 Qwen3.5 chat template
         return f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
 
-    # 检查是否是 Qwen2.5 系列模型
     if "qwen2.5" in model_lower or "qwen2_5" in model_lower:
         if "<|im_start|>" in prompt:
             return prompt
         return f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
 
-    # 其他模型，尝试使�?tokenizer �?chat template
     if hasattr(tokenizer, 'apply_chat_template'):
         try:
             messages = [{"role": "user", "content": prompt}]
@@ -289,13 +283,12 @@ def apply_chat_template(prompt: str, model_id: str, tokenizer) -> str:
         except Exception as e:
             logger.warning(f"应用 chat template 失败: {e}")
 
-    # 默认返回原始提示
     return prompt
 
 
 def load_model_for_inference(model_id: str) -> Dict[str, Any]:
-    """加载模型用于推理（使�?LRU 缓存�?""
-    # 先检查缓�?    cached = _model_cache.get(model_id)
+    """加载模型用于推理（使用 LRU 缓存）"""
+    cached = _model_cache.get(model_id)
     if cached is not None:
         logger.info(f"从缓存加载模型：{model_id}")
         return cached
@@ -333,7 +326,6 @@ def load_model_for_inference(model_id: str) -> Dict[str, Any]:
             "loaded_at": time.time(),
         }
 
-        # 存入 LRU 缓存
         _model_cache.set(model_id, model_data)
 
         logger.info(f"模型加载完成：{model_id}，当前缓存大小：{_model_cache.size()}")
@@ -346,7 +338,7 @@ def load_model_for_inference(model_id: str) -> Dict[str, Any]:
 
 
 def unload_model(model_id: str):
-    """卸载模型（使�?LRU 缓存�?""
+    """卸载模型（使用 LRU 缓存）"""
     if _model_cache.remove(model_id):
         logger.info(f"模型已卸载：{model_id}")
     else:
@@ -354,7 +346,7 @@ def unload_model(model_id: str):
 
 
 def load_lora_adapter(model, lora_path: str):
-    """加载 LoRA 适配�?""
+    """加载 LoRA 适配器"""
     from pathlib import Path
     
     full_lora_path = Path(lora_path)
@@ -367,7 +359,7 @@ def load_lora_adapter(model, lora_path: str):
     cache_key = str(full_lora_path)
     
     if cache_key in lora_adapter_cache:
-        logger.info(f"从缓存加�?LoRA 适配器：{lora_path}")
+        logger.info(f"从缓存加载 LoRA 适配器：{lora_path}")
         return lora_adapter_cache[cache_key]
     
     try:
@@ -380,7 +372,7 @@ def load_lora_adapter(model, lora_path: str):
         logger.info(f"LoRA 适配器加载完成：{lora_path}")
         return lora_model
     except ImportError:
-        raise HTTPException(status_code=500, detail="peft 库未安装，无法加�?LoRA 适配�?)
+        raise HTTPException(status_code=500, detail="peft 库未安装，无法加载 LoRA 适配器")
     except Exception as e:
         logger.error(f"加载 LoRA 适配器失败：{e}")
         raise HTTPException(status_code=500, detail=f"加载 LoRA 适配器失败：{str(e)}")
@@ -405,22 +397,22 @@ def clean_think_tags(text: str) -> str:
     text = text.replace('<|im_start|>', '').replace('<|im_end|>', '')
     
     thinking_starters = [
-        '嗯，', '�?', 
-        '用户发来', '用户�?, '用户可能', '用户�?, '用户没有', '用户�?,
-        '我需�?, '我应�?, '我要', '我可�?, '我得',
-        '首先�?, '首先,', 
-        '接下�?, '然后', '最�?,
+        '嗯，', '嗯，', 
+        '用户发来', '用户想', '用户可能', '用户问', '用户没有', '用户说',
+        '我需要', '我应该', '我要', '我可以', '我得',
+        '首先，', '首先,', 
+        '接下来', '然后', '最后',
         '可能用户', '可能他们',
-        '要避�?, '需要避�?,
-        '比如�?, '比如,', 
-        '不过�?, '不过,', 
-        '另外�?, '另外,', 
-        '对了�?, '对了,', 
-        '检查一�?, '检查有',
+        '要避免', '需要避免',
+        '比如，', '比如,', 
+        '不过，', '不过,', 
+        '另外，', '另外,', 
+        '对了，', '对了,', 
+        '检查一下', '检查有',
         '作为AI', '作为助手',
-        '中文�?, '中文环境',
-        '接下来，', '接下�?',
-        '可能的回�?, '回复结构',
+        '中文里', '中文环境',
+        '接下来，', '接下来',
+        '可能的回答', '回复结构',
         '还要注意',
     ]
     
@@ -554,11 +546,11 @@ def ollama_chat(
         
         if not response_text and message.get("thinking"):
             response_text = message.get("thinking", "")
-            logger.info("使用 thinking 字段作为响应（content 为空�?)
+            logger.info("使用 thinking 字段作为响应（content 为空）")
         
         logger.info(f"Ollama chat 原始响应: {response_text[:100] if response_text else 'EMPTY'}...")
         response_text = clean_think_tags(response_text)
-        logger.info(f"清理后响�? {response_text[:100] if response_text else 'EMPTY'}...")
+        logger.info(f"清理后响应: {response_text[:100] if response_text else 'EMPTY'}...")
         
         return {
             "text": response_text,
@@ -581,7 +573,7 @@ async def generate(request: InferenceRequest):
     if detect_prompt_injection(request.prompt):
         raise HTTPException(
             status_code=400,
-            detail="检测到潜在的恶意输入，请修改您的提示内�?
+            detail="检测到潜在的恶意输入，请修改您的提示内容"
         )
 
     request.prompt = sanitize_input(request.prompt)
@@ -611,7 +603,6 @@ async def generate(request: InferenceRequest):
             backend="ollama",
         )
 
-    # HuggingFace 后端
     try:
         model_data = load_model_for_inference(request.get_model_id())
         model = model_data["model"]
@@ -645,7 +636,6 @@ async def generate(request: InferenceRequest):
         generated_ids = outputs[0][input_length:]
         response_text = tokenizer.decode(generated_ids, skip_special_tokens=True)
 
-        # 清理响应中的特殊标记
         response_text = response_text.replace("<|im_end|>", "").replace("<|im_start|>", "").strip()
 
         elapsed_time = time.time() - start_time
@@ -676,7 +666,7 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=400, detail="消息列表不能为空")
 
     if len(request.messages) > MAX_MESSAGES_COUNT:
-        raise HTTPException(status_code=400, detail=f"消息数量超过限制（最�?{MAX_MESSAGES_COUNT} 条）")
+        raise HTTPException(status_code=400, detail=f"消息数量超过限制（最多 {MAX_MESSAGES_COUNT} 条）")
 
     for msg in request.messages:
         if not msg.content or not msg.content.strip():
@@ -685,7 +675,7 @@ async def chat(request: ChatRequest):
         if detect_prompt_injection(msg.content):
             raise HTTPException(
                 status_code=400, 
-                detail="检测到潜在的恶意输入，请修改您的消息内�?
+                detail="检测到潜在的恶意输入，请修改您的消息内容"
             )
         
         msg.content = sanitize_input(msg.content)
@@ -721,13 +711,16 @@ async def chat(request: ChatRequest):
                 
                 if retrieval_result.sources:
                     knowledge_context = retrieval_result.context
-                    system_prompt = f"""你是一个有帮助�?AI 助手。请基于以下参考资料回答用户的问题�?
-参考资�?
+                    system_prompt = f"""你是一个有帮助的 AI 助手。请基于以下参考资料回答用户的问题。
+
+参考资料：
 {knowledge_context}
 
-请注�?
-1. 优先使用参考资料中的信息回�?2. 如果参考资料中没有相关信息，请明确说明
-3. 引用具体内容时，请标注来源编号（�?[参考资�?1]�?4. 保持回答简洁、准确、有帮助"""
+请注意：
+1. 优先使用参考资料中的信息回答
+2. 如果参考资料中没有相关信息，请明确说明
+3. 引用具体内容时，请标注来源编号（如 [参考资料 1]）
+4. 保持回答简洁、准确、有帮助"""
                     
                     knowledge_sources_response = [
                         KnowledgeSourceResponse(
@@ -746,11 +739,11 @@ async def chat(request: ChatRequest):
                         "retrieval_time": retrieval_result.retrieval_time
                     }
                     
-                    logger.info(f"知识库检索完�? {len(retrieval_result.sources)} 个结�? "
+                    logger.info(f"知识库检索完成: {len(retrieval_result.sources)} 个结果, "
                                f"method={retrieval_result.retrieval_method}, "
                                f"time={retrieval_result.retrieval_time:.3f}s")
         except Exception as e:
-            logger.warning(f"知识库检索失�? {e}")
+            logger.warning(f"知识库检索失败: {e}")
 
     if not system_prompt and request.use_context and request.project_path:
         try:
@@ -770,11 +763,12 @@ async def chat(request: ChatRequest):
                 )
 
                 if context:
-                    system_prompt = f"""你是一个有帮助�?AI 助手，正在协助用户开发项目�?
+                    system_prompt = f"""你是一个有帮助的 AI 助手，正在协助用户开发项目。
+
 项目上下文：
 {context}
 
-请根据以上项目信息，给用户一个有帮助的回答�?如果问题与项目相关，请考虑项目的技术栈、架构和代码风格�?"""
+请根据以上项目信息，给用户一个有帮助的回答。如果问题与项目相关，请考虑项目的技术栈、架构和代码风格。"""
                     logger.info(f"已注入项目上下文：{request.project_path}")
         except Exception as e:
             logger.warning(f"获取项目上下文失败：{e}")
@@ -783,7 +777,7 @@ async def chat(request: ChatRequest):
         if not check_ollama_running():
             raise HTTPException(
                 status_code=503,
-                detail="Ollama 未运�?
+                detail="Ollama 未运行"
             )
 
         messages = []
@@ -851,7 +845,7 @@ async def chat(request: ChatRequest):
                     add_generation_prompt=True
                 )
             except Exception as e:
-                logger.warning(f"apply_chat_template 失败，使�?fallback: {e}")
+                logger.warning(f"apply_chat_template 失败，使用 fallback: {e}")
                 prompt = ""
                 if system_prompt:
                     prompt += f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
@@ -931,7 +925,7 @@ async def stream_inference(request: InferenceRequest):
 
     if backend == "ollama":
         if not check_ollama_running():
-            raise HTTPException(status_code=503, detail="Ollama 未运�?)
+            raise HTTPException(status_code=503, detail="Ollama 未运行")
 
         async def ollama_stream() -> AsyncGenerator[str, None]:
             stats.start()
@@ -959,20 +953,17 @@ async def stream_inference(request: InferenceRequest):
                     if line:
                         try:
                             data = json.loads(line)
-                            # 处理 response 字段（正常响应）
                             chunk = data.get("response", "")
                             if chunk:
-                                # 过滤 <think>...</think> 标签内容
-                                # 检测是否进入思考块
-                                if "<think>" in chunk:
+                                if " Halb" in chunk:
                                     in_think_block = True
-                                    chunk = chunk.split("<think>")[-1] if "<think>" in chunk else chunk
+                                    chunk = chunk.split(" Halb")[-1] if " Halb" in chunk else chunk
                                 
-                                if "</think>" in chunk:
+                                if "Full" in chunk:
                                     in_think_block = False
-                                    chunk = chunk.split("</think>")[-1] if "</think>" in chunk else chunk
+                                    chunk = chunk.split("Full")[-1] if "Full" in chunk else chunk
                                 elif in_think_block:
-                                    chunk = ""  # 在思考块内，跳过
+                                    chunk = ""
                                 
                                 if chunk:
                                     stats.add_chunk(chunk)
@@ -980,7 +971,7 @@ async def stream_inference(request: InferenceRequest):
                                         "content": chunk,
                                         "done": data.get("done", False)
                                     })
-                            # 处理完成状�?                            if data.get("done", False):
+                            if data.get("done", False):
                                 stats.finish()
                                 yield await create_sse_event({
                                     "done": True,
@@ -1003,7 +994,6 @@ async def stream_inference(request: InferenceRequest):
             },
         )
 
-    # HuggingFace 后端
     try:
         import torch
         from transformers import TextIteratorStreamer
@@ -1100,7 +1090,7 @@ async def stream_inference(request: InferenceRequest):
                     }, "error")
                 else:
                     stats.finish()
-                    logger.info(f"流式推理完成 - 模型: {request.get_model_id()}, �?{chunk_count} �?chunks")
+                    logger.info(f"流式推理完成 - 模型: {request.get_model_id()}, 共 {chunk_count} 个 chunks")
                     yield await create_sse_event({
                         "done": True,
                         "stats": stats.to_dict()
@@ -1137,13 +1127,13 @@ async def get_backends():
             "id": "huggingface",
             "name": "HuggingFace (本地模型)",
             "available": True,
-            "description": "使用下载�?HuggingFace 模型",
+            "description": "使用下载的 HuggingFace 模型",
         },
         {
             "id": "ollama",
             "name": "Ollama",
             "available": ollama_running,
-            "description": "Ollama 本地部署" if ollama_running else "Ollama 未运�?,
+            "description": "Ollama 本地部署" if ollama_running else "Ollama 未运行",
         },
     ]
 
@@ -1157,7 +1147,7 @@ async def get_backends():
 async def switch_backend(request: BackendSwitchRequest):
     """切换推理后端"""
     if request.backend not in ["huggingface", "ollama"]:
-        raise HTTPException(status_code=400, detail="无效的后�?)
+        raise HTTPException(status_code=400, detail="无效的后端")
 
     settings.inference_backend = request.backend
     logger.info(f"推理后端已切换到：{request.backend}")
@@ -1185,7 +1175,6 @@ async def get_inference_models():
             for m in models
         ]
 
-    # HuggingFace 模型
     models = []
     if MODELS_DIR.exists():
         for model_path in MODELS_DIR.iterdir():
@@ -1205,7 +1194,7 @@ async def get_inference_models():
 
 @router.get("/ollama/status")
 async def get_ollama_status():
-    """获取 Ollama 状�?""
+    """获取 Ollama 状态"""
     running = check_ollama_running()
     models = get_ollama_models() if running else []
 
@@ -1220,12 +1209,12 @@ async def get_ollama_status():
 async def clear_model_cache_endpoint():
     """清除模型缓存"""
     clear_cache()
-    return {"message": "模型缓存已清�?}
+    return {"message": "模型缓存已清除"}
 
 
 @router.get("/cache/status")
 async def get_cache_status():
-    """获取缓存状�?""
+    """获取缓存状态"""
     return {
         "cached_models": _model_cache.list_cached(),
         "cache_size": _model_cache.size(),
@@ -1237,14 +1226,14 @@ async def get_cache_status():
 async def merge_lora(request: MergeRequest):
     """合并 LoRA 适配器到基础模型"""
     if merge_state["is_merging"]:
-        raise HTTPException(status_code=400, detail="合并正在进行�?)
+        raise HTTPException(status_code=400, detail="合并正在进行中")
 
     models_dir = get_settings().models_dir_resolved
     outputs_dir = get_settings().outputs_dir_resolved
 
     base_model_path = models_dir / request.base_model_id
     if not base_model_path.exists():
-        raise HTTPException(status_code=404, detail="基础模型不存�?)
+        raise HTTPException(status_code=404, detail="基础模型不存在")
 
     lora_path = outputs_dir / request.lora_path
     if not lora_path.exists():
@@ -1252,7 +1241,7 @@ async def merge_lora(request: MergeRequest):
 
     output_path = models_dir / request.output_name
     if output_path.exists():
-        raise HTTPException(status_code=409, detail="输出名称已存�?)
+        raise HTTPException(status_code=409, detail="输出名称已存在")
 
     def merge_thread():
         try:
@@ -1317,14 +1306,14 @@ async def merge_lora(request: MergeRequest):
 
     return MergeStatus(
         status="started",
-        message="合并已开�?,
+        message="合并已开始",
         progress=0,
     )
 
 
 @router.get("/merge/status")
 async def get_merge_status():
-    """获取合并状�?""
+    """获取合并状态"""
     return merge_state
 
 
@@ -1369,4 +1358,4 @@ async def clear_performance_history():
     monitor = get_performance_monitor()
     monitor.clear_history()
     
-    return {"message": "性能历史已清�?}
+    return {"message": "性能历史已清空"}

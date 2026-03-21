@@ -1,5 +1,7 @@
 """
-项目管理�?提供项目�?CRUD 操作和存储管�?"""
+项目管理器
+提供项目的 CRUD 操作和存储管理
+"""
 import json
 import logging
 import threading
@@ -22,9 +24,12 @@ logger = logging.getLogger(__name__)
 
 class ProjectManager:
     """
-    项目管理�?    
-    功能�?    - 项目 CRUD 操作
-    - 项目持久化存储（SQLite + JSON 备份�?    - 项目统计信息
+    项目管理器
+    
+    功能：
+    - 项目 CRUD 操作
+    - 项目持久化存储（SQLite + JSON 备份）
+    - 项目统计信息
     - 线程安全访问
     """
     
@@ -60,7 +65,7 @@ class ProjectManager:
         self._storage_dir.mkdir(parents=True, exist_ok=True)
     
     def _init_database(self):
-        """初始化数据库�?""
+        """初始化数据库表"""
         db_pool = get_db_pool(str(self._db_path))
         
         with db_pool.get_connection() as conn:
@@ -109,7 +114,7 @@ class ProjectManager:
                 )
                 self._projects[project.id] = project
         
-        logger.info(f"已加�?{len(self._projects)} 个项�?)
+        logger.info(f"已加载 {len(self._projects)} 个项目")
     
     def _save_project(self, project: Project):
         """保存项目到数据库"""
@@ -167,7 +172,10 @@ class ProjectManager:
         列出项目
         
         Args:
-            status: 按状态筛�?            tags: 按标签筛�?            search: 搜索名称或描�?        """
+            status: 按状态筛选
+            tags: 按标签筛选
+            search: 搜索名称或描述
+        """
         with self._projects_lock:
             projects = list(self._projects.values())
         
@@ -213,7 +221,8 @@ class ProjectManager:
         
         Args:
             project_id: 项目ID
-            hard: 是否硬删除（物理删除�?        """
+            hard: 是否硬删除（物理删除）
+        """
         with self._projects_lock:
             project = self._projects.get(project_id)
             if not project:
@@ -307,7 +316,7 @@ _manager_lock = threading.Lock()
 
 
 def get_project_manager() -> ProjectManager:
-    """获取项目管理器实�?""
+    """获取项目管理器实例"""
     global _project_manager
     with _manager_lock:
         if _project_manager is None:

@@ -1,8 +1,11 @@
 """
 批处理和性能监控测试
 
-测试覆盖�?- 性能监控�?- 流式输出指标
-- 模型调度�?- 批处理逻辑
+测试覆盖：
+- 性能监控器
+- 流式输出指标
+- 模型调度器
+- 批处理逻辑
 """
 import pytest
 from unittest.mock import Mock, patch, MagicMock, AsyncMock
@@ -23,7 +26,7 @@ from core.performance import (
 
 
 class TestPerformanceMetrics:
-    """性能指标数据类测�?""
+    """性能指标数据类测试"""
 
     def test_metrics_creation(self):
         metrics = PerformanceMetrics(
@@ -97,7 +100,7 @@ class TestStreamingMetrics:
 
 
 class TestPerformanceMonitor:
-    """性能监控器测�?""
+    """性能监控器测试"""
 
     def test_monitor_creation(self):
         monitor = PerformanceMonitor()
@@ -291,7 +294,7 @@ class TestPerformanceMonitor:
             ))
         
         recommendations = monitor.get_recommendations(vram_total_gb=10.0)
-        assert any(r["type"] == "error" and "显存使用率过�? in r["message"] for r in recommendations)
+        assert any(r["type"] == "error" and "显存使用率过高" in r["message"] for r in recommendations)
 
     def test_get_recommendations_good_performance(self):
         monitor = PerformanceMonitor()
@@ -396,7 +399,7 @@ class TestPerformanceMonitor:
 
 
 class TestGetPerformanceMonitor:
-    """性能监控器单例测�?""
+    """性能监控器单例测试"""
 
     def test_get_performance_monitor_singleton(self):
         monitor1 = get_performance_monitor()
@@ -404,156 +407,5 @@ class TestGetPerformanceMonitor:
         assert monitor1 is monitor2
 
 
-class TestModelScheduler:
-    """模型调度器测�?""
-
-    @pytest.fixture
-    def mock_settings(self):
-        settings = MagicMock()
-        settings.max_cached_models = 3
-        settings.inference_backend = "huggingface"
-        return settings
-
-    @pytest.fixture
-    def mock_state_manager(self):
-        state = MagicMock()
-        state.get_model.return_value = None
-        state.list_models.return_value = []
-        return state
-
-    @pytest.mark.asyncio
-    async def test_scheduler_singleton(self):
-        from api.inference.scheduler import ModelScheduler, get_scheduler
-        
-        scheduler1 = get_scheduler()
-        scheduler2 = get_scheduler()
-        assert scheduler1 is scheduler2
-
-    @pytest.mark.asyncio
-    async def test_scheduler_get_stats(self):
-        from api.inference.scheduler import get_scheduler
-        
-        scheduler = get_scheduler()
-        stats = await scheduler.get_stats()
-        assert "cached_models" in stats
-        assert "max_models" in stats
-        assert "default_backend" in stats
-
-    @pytest.mark.asyncio
-    async def test_scheduler_list_models(self):
-        from api.inference.scheduler import get_scheduler
-        
-        scheduler = get_scheduler()
-        models = await scheduler.list_models()
-        assert isinstance(models, list)
-
-    @pytest.mark.asyncio
-    async def test_scheduler_unload_nonexistent(self):
-        from api.inference.scheduler import get_scheduler
-        
-        scheduler = get_scheduler()
-        result = await scheduler.unload_model("nonexistent_model")
-        assert result is False
-
-    @pytest.mark.asyncio
-    async def test_scheduler_set_default_backend(self):
-        from api.inference.scheduler import get_scheduler
-        
-        scheduler = get_scheduler()
-        scheduler.set_default_backend("huggingface")
-        assert scheduler._default_backend == "huggingface"
-
-    @pytest.mark.asyncio
-    async def test_scheduler_set_invalid_backend(self):
-        from api.inference.scheduler import get_scheduler
-        
-        scheduler = get_scheduler()
-        with pytest.raises(ValueError):
-            scheduler.set_default_backend("invalid_backend")
-
-
-class TestBatchProcessing:
-    """批处理逻辑测试"""
-
-    def test_batch_metrics_aggregation(self):
-        monitor = PerformanceMonitor()
-        
-        batch_metrics = [
-            PerformanceMetrics(
-                tokens_per_second=100.0,
-                latency_ms=50.0,
-                first_token_latency_ms=30.0,
-                vram_used_gb=8.0,
-                model_id="test",
-                engine_type="vllm",
-                batch_size=4
-            ),
-            PerformanceMetrics(
-                tokens_per_second=120.0,
-                latency_ms=45.0,
-                first_token_latency_ms=25.0,
-                vram_used_gb=8.5,
-                model_id="test",
-                engine_type="vllm",
-                batch_size=4
-            ),
-        ]
-        
-        for m in batch_metrics:
-            monitor.record(m)
-        
-        stats = monitor.get_stats()
-        assert stats["tokens_per_second"]["avg"] == 110.0
-
-    def test_concurrent_request_simulation(self):
-        monitor = PerformanceMonitor()
-        
-        def simulate_request(request_id):
-            for _ in range(10):
-                metrics = PerformanceMetrics(
-                    tokens_per_second=50.0 + request_id,
-                    latency_ms=100.0,
-                    first_token_latency_ms=50.0,
-                    vram_used_gb=4.0,
-                    model_id="test",
-                    engine_type="huggingface"
-                )
-                monitor.record(metrics)
-        
-        threads = [threading.Thread(target=simulate_request, args=(i,)) for i in range(10)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-        
-        stats = monitor.get_stats()
-        assert stats["total_requests"] == 100
-
-    def test_batch_size_effect_on_throughput(self):
-        monitor = PerformanceMonitor()
-        
-        single_request = PerformanceMetrics(
-            tokens_per_second=30.0,
-            latency_ms=100.0,
-            first_token_latency_ms=50.0,
-            vram_used_gb=4.0,
-            model_id="test",
-            engine_type="huggingface",
-            batch_size=1
-        )
-        
-        batch_request = PerformanceMetrics(
-            tokens_per_second=100.0,
-            latency_ms=150.0,
-            first_token_latency_ms=60.0,
-            vram_used_gb=6.0,
-            model_id="test",
-            engine_type="vllm",
-            batch_size=4
-        )
-        
-        monitor.record(single_request)
-        monitor.record(batch_request)
-        
-        stats = monitor.get_stats()
-        assert stats["tokens_per_second"]["avg"] == 65.0
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

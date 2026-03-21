@@ -18,16 +18,16 @@ def color(text, color_name):
     return f"{COLORS.get(color_name, '')}{text}{COLORS['END']}"
 
 def check_python_version():
-    """检�?Python 版本"""
+    """检查 Python 版本"""
     print("\n" + "=" * 50)
-    print(color("检�?Python 版本...", "BLUE"))
+    print(color("检查 Python 版本...", "BLUE"))
     
     if sys.version_info < (3, 10):
-        print(color("�?Python 3.10+  required", "RED"))
+        print(color("X Python 3.10+ required", "RED"))
         print(f"当前版本：{sys.version}")
         return False
     
-    print(color(f"�?Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}", "GREEN"))
+    print(color(f"[OK] Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}", "GREEN"))
     return True
 
 def check_dependencies():
@@ -52,9 +52,9 @@ def check_dependencies():
     for pkg in required_packages:
         try:
             __import__(pkg.replace('_', '-'))
-            print(color(f"  �?{pkg}", "GREEN"))
+            print(color(f"  [OK] {pkg}", "GREEN"))
         except ImportError:
-            print(color(f"  �?{pkg}", "RED"))
+            print(color(f"  [X] {pkg}", "RED"))
             missing.append(pkg)
     
     if missing:
@@ -65,9 +65,9 @@ def check_dependencies():
     return True
 
 def check_directories():
-    """检查目录结�?""
+    """检查目录结构"""
     print("\n" + "=" * 50)
-    print(color("检查目录结�?..", "BLUE"))
+    print(color("检查目录结构...", "BLUE"))
     
     required_dirs = [
         'server/core',
@@ -84,75 +84,75 @@ def check_directories():
     for dir_path in required_dirs:
         full_path = base / dir_path
         if not full_path.exists():
-            print(color(f"  �?{dir_path}", "RED"))
+            print(color(f"  [X] {dir_path}", "RED"))
             missing.append(dir_path)
         else:
-            print(color(f"  �?{dir_path}", "GREEN"))
+            print(color(f"  [OK] {dir_path}", "GREEN"))
     
     # 创建缺失目录
     for dir_path in missing:
         full_path = base / dir_path
         full_path.mkdir(parents=True, exist_ok=True)
-        print(color(f"  �?创建 {dir_path}", "YELLOW"))
+        print(color(f"  [!] 创建 {dir_path}", "YELLOW"))
     
     return True
 
 def check_config():
-    """检查配置文�?""
+    """检查配置文件"""
     print("\n" + "=" * 50)
-    print(color("检查配置文�?..", "BLUE"))
+    print(color("检查配置文件...", "BLUE"))
     
     base = Path(__file__).parent
     env_file = base / 'server' / '.env'
     env_example = base / 'server' / '.env.example'
     
     if env_file.exists():
-        print(color("  �?.env 文件存在", "GREEN"))
+        print(color("  [OK] .env 文件存在", "GREEN"))
     else:
-        print(color("  �?.env 文件不存�?, "YELLOW"))
+        print(color("  [!] .env 文件不存在", "YELLOW"))
         if env_example.exists():
-            print("  提示：复�?.env.example �?.env")
+            print("  提示：复制 .env.example 为 .env")
     
     # 验证配置导入
     try:
         sys.path.insert(0, str(base / 'server'))
         from core.config import settings
-        print(color("  �?配置加载成功", "GREEN"))
+        print(color("  [OK] 配置加载成功", "GREEN"))
         print(f"    - Host: {settings.host}")
         print(f"    - Port: {settings.port}")
         print(f"    - Models: {settings.models_dir_resolved}")
     except Exception as e:
-        print(color(f"  �?配置加载失败：{e}", "RED"))
+        print(color(f"  [X] 配置加载失败：{e}", "RED"))
         return False
     
     return True
 
 def check_cuda():
-    """检�?CUDA"""
+    """检查 CUDA"""
     print("\n" + "=" * 50)
-    print(color("检�?CUDA...", "BLUE"))
+    print(color("检查 CUDA...", "BLUE"))
     
     try:
         import torch
         
         if torch.cuda.is_available():
-            print(color("  �?CUDA 可用", "GREEN"))
+            print(color("  [OK] CUDA 可用", "GREEN"))
             print(f"    - 设备：{torch.cuda.get_device_name(0)}")
             print(f"    - 显存：{torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
         else:
-            print(color("  �?CUDA 不可�?, "YELLOW"))
-            print("    将使�?CPU 模式（训练会很慢�?)
+            print(color("  [!] CUDA 不可用", "YELLOW"))
+            print("    将使用 CPU 模式（训练会很慢）")
     except ImportError:
-        print(color("  �?PyTorch 未安�?, "RED"))
+        print(color("  [X] PyTorch 未安装", "RED"))
     except Exception as e:
-        print(color(f"  �?CUDA 检查失败：{e}", "YELLOW"))
+        print(color(f"  [!] CUDA 检查失败：{e}", "YELLOW"))
     
     return True
 
 def run_tests():
     """运行测试"""
     print("\n" + "=" * 50)
-    print(color("运行快速测�?..", "BLUE"))
+    print(color("运行快速测试...", "BLUE"))
     
     base = Path(__file__).parent
     server_path = base / 'server'
@@ -167,32 +167,32 @@ def run_tests():
         )
         
         if result.returncode == 0:
-            print(color("  �?测试通过", "GREEN"))
+            print(color("  [OK] 测试通过", "GREEN"))
         else:
-            print(color("  �?部分测试失败", "YELLOW"))
-            print(result.stdout[-500:])  # 显示最�?500 字符
+            print(color("  [!] 部分测试失败", "YELLOW"))
+            print(result.stdout[-500:])  # 显示最后 500 字符
     except subprocess.TimeoutExpired:
-        print(color("  �?测试超时", "YELLOW"))
+        print(color("  [!] 测试超时", "YELLOW"))
     except FileNotFoundError:
-        print(color("  �?pytest 未安�?, "YELLOW"))
+        print(color("  [!] pytest 未安装", "YELLOW"))
     except Exception as e:
-        print(color(f"  �?测试失败：{e}", "YELLOW"))
+        print(color(f"  [!] 测试失败：{e}", "YELLOW"))
     
     return True
 
 def main():
-    """主函�?""
+    """主函数"""
     print(color("\n" + "=" * 50, "BLUE"))
     print(color("  Finetune Platform 安装验证", "BLUE"))
     print(color("=" * 50, "BLUE"))
     
     checks = [
         ("Python 版本", check_python_version),
-        ("依赖�?, check_dependencies),
+        ("依赖包", check_dependencies),
         ("目录结构", check_directories),
         ("配置文件", check_config),
         ("CUDA", check_cuda),
-        ("快速测�?, run_tests),
+        ("快速测试", run_tests),
     ]
     
     results = []
@@ -201,30 +201,31 @@ def main():
             result = check_func()
             results.append((name, result))
         except Exception as e:
-            print(color(f"\n�?{name} 检查异常：{e}", "RED"))
+            print(color(f"\n[X] {name} 检查异常：{e}", "RED"))
             results.append((name, False))
     
-    # 汇�?    print("\n" + "=" * 50)
-    print(color("验证汇�?, "BLUE"))
+    # 汇总
+    print("\n" + "=" * 50)
+    print(color("验证汇总", "BLUE"))
     print("=" * 50)
     
     passed = sum(1 for _, r in results if r)
     total = len(results)
     
     for name, result in results:
-        status = color("�?, "GREEN") if result else color("�?, "RED")
+        status = color("[OK]", "GREEN") if result else color("[X]", "RED")
         print(f"  {status} {name}")
     
     print(f"\n总计：{passed}/{total} 通过")
     
     if passed == total:
-        print(color("\n🎉 所有检查通过！系统已就绪�?, "GREEN"))
+        print(color("\n[OK] 所有检查通过！系统已就绪。", "GREEN"))
         print("\n启动命令:")
         print("  cd server && python -m uvicorn main:app --reload")
         print("  cd client && npm run dev")
         return 0
     else:
-        print(color("\n�?部分检查未通过，请查看上方详情�?, "YELLOW"))
+        print(color("\n[!] 部分检查未通过，请查看上方详情。", "YELLOW"))
         return 1
 
 if __name__ == '__main__':

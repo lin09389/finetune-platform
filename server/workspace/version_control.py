@@ -1,6 +1,7 @@
 """
 版本控制模块
-提供文件版本历史记录和管理功�?"""
+提供文件版本历史记录和管理功能
+"""
 import json
 import logging
 import threading
@@ -26,8 +27,10 @@ class VersionDiff:
 
 class VersionControl:
     """
-    版本控制�?    
-    功能�?    - 创建文件版本
+    版本控制器
+    
+    功能：
+    - 创建文件版本
     - 获取版本历史
     - 版本对比
     - 版本回滚
@@ -61,10 +64,10 @@ class VersionControl:
         self._init_storage()
         self._load_versions()
         
-        logger.info(f"版本控制器已初始�?)
+        logger.info("版本控制器已初始化")
     
     def _init_database(self):
-        """初始化数据库�?""
+        """初始化数据库表"""
         db_pool = get_db_pool(str(self._db_path))
         
         with db_pool.get_connection() as conn:
@@ -93,7 +96,7 @@ class VersionControl:
             logger.debug("版本数据库表已初始化")
     
     def _init_storage(self):
-        """初始化版本存储目�?""
+        """初始化版本存储目录"""
         self._versions_dir.mkdir(parents=True, exist_ok=True)
     
     def _load_versions(self):
@@ -121,7 +124,7 @@ class VersionControl:
                     self._file_versions[version.file_id] = []
                 self._file_versions[version.file_id].append(version.version_id)
         
-        logger.info(f"已加�?{len(self._versions)} 个版�?)
+        logger.info(f"已加载 {len(self._versions)} 个版本")
     
     def _save_version(self, version: FileVersion):
         """保存版本到数据库"""
@@ -153,13 +156,16 @@ class VersionControl:
         metadata: Optional[Dict] = None,
     ) -> FileVersion:
         """
-        创建新版�?        
+        创建新版本
+        
         Args:
             file_id: 文件ID
             content: 文件内容
             content_hash: 内容哈希
             message: 版本说明
-            author: 作�?            metadata: 元数�?        
+            author: 作者
+            metadata: 元数据
+        
         Returns:
             版本信息
         """
@@ -203,7 +209,7 @@ class VersionControl:
         return None
     
     def get_latest_version(self, file_id: str) -> Optional[FileVersion]:
-        """获取最新版�?""
+        """获取最新版本"""
         with self._versions_lock:
             version_ids = self._file_versions.get(file_id, [])
             
@@ -224,9 +230,11 @@ class VersionControl:
         Args:
             file_id: 文件ID
             limit: 返回数量限制
-            offset: 偏移�?        
+            offset: 偏移量
+        
         Returns:
-            版本列表（按版本号倒序�?        """
+            版本列表（按版本号倒序）
+        """
         with self._versions_lock:
             version_ids = self._file_versions.get(file_id, [])
             
@@ -285,7 +293,7 @@ class VersionControl:
                 version_to=version_to,
                 additions=0,
                 deletions=0,
-                changes=[{"type": "binary", "message": "二进制文件无法对�?}],
+                changes=[{"type": "binary", "message": "二进制文件无法对比"}],
             )
         
         diff = self._compute_diff(lines1, lines2)
@@ -299,7 +307,7 @@ class VersionControl:
         )
     
     def _compute_diff(self, lines1: List[str], lines2: List[str]) -> VersionDiff:
-        """计算行差�?""
+        """计算行差异"""
         additions = 0
         deletions = 0
         changes = []
@@ -341,10 +349,12 @@ class VersionControl:
     
     def rollback_to_version(self, file_id: str, version_number: int) -> Optional[bytes]:
         """
-        回滚到指定版�?        
+        回滚到指定版本
+        
         Args:
             file_id: 文件ID
-            version_number: 目标版本�?        
+            version_number: 目标版本号
+        
         Returns:
             版本内容
         """
@@ -391,13 +401,15 @@ class VersionControl:
     
     def cleanup_old_versions(self, file_id: str, keep_count: int = 10) -> int:
         """
-        清理旧版本，保留最近的 N 个版�?        
+        清理旧版本，保留最近的 N 个版本
+        
         Args:
             file_id: 文件ID
             keep_count: 保留数量
         
         Returns:
-            删除的版本数�?        """
+            删除的版本数量
+        """
         with self._versions_lock:
             version_ids = self._file_versions.get(file_id, [])
             
@@ -423,7 +435,7 @@ class VersionControl:
             
             self._file_versions[file_id] = version_ids[-keep_count:]
         
-        logger.info(f"已清�?{deleted} 个旧版本，文件：{file_id}")
+        logger.info(f"已清理 {deleted} 个旧版本，文件：{file_id}")
         return deleted
 
 
@@ -432,7 +444,7 @@ _manager_lock = threading.Lock()
 
 
 def get_version_control() -> VersionControl:
-    """获取版本控制器实�?""
+    """获取版本控制器实例"""
     global _version_control
     with _manager_lock:
         if _version_control is None:

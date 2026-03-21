@@ -1,5 +1,7 @@
+# -*- coding: utf-8 -*-
 """
-文本处理技�?"""
+文本处理技能
+"""
 import re
 import json
 from typing import Any, Dict, List
@@ -15,8 +17,8 @@ from skills.models import (
 
 
 class TextRegexSkill(SkillBase):
-    """正则表达式匹�?""
-    
+    """正则表达式匹配"""
+
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
         return SkillMetadata(
@@ -36,13 +38,13 @@ class TextRegexSkill(SkillBase):
                 SkillParameter(
                     name="pattern",
                     type=SkillParameterType.STRING,
-                    description="正则表达式模�?,
+                    description="正则表达式模式",
                     required=True,
                 ),
                 SkillParameter(
                     name="flags",
                     type=SkillParameterType.STRING,
-                    description="正则标志（如 IGNORECASE, MULTILINE�?,
+                    description="正则标志（如 IGNORECASE, MULTILINE）",
                     required=False,
                     default="",
                 ),
@@ -52,12 +54,12 @@ class TextRegexSkill(SkillBase):
                 {"text": "hello world", "pattern": "HELLO", "flags": "IGNORECASE"},
             ],
         )
-    
+
     async def execute(self, **kwargs) -> SkillResult:
         text = kwargs.get("text", "")
         pattern = kwargs.get("pattern")
         flags_str = kwargs.get("flags", "")
-        
+
         try:
             flags = 0
             if "IGNORECASE" in flags_str:
@@ -66,10 +68,10 @@ class TextRegexSkill(SkillBase):
                 flags |= re.MULTILINE
             if "DOTALL" in flags_str:
                 flags |= re.DOTALL
-            
+
             regex = re.compile(pattern, flags)
             matches = regex.findall(text)
-            
+
             return SkillResult(
                 success=True,
                 data={
@@ -78,11 +80,11 @@ class TextRegexSkill(SkillBase):
                     "pattern": pattern,
                 },
             )
-        
+
         except re.error as e:
             return SkillResult(
                 success=False,
-                error=f"正则表达式错�? {str(e)}",
+                error=f"正则表达式错误: {str(e)}",
                 error_code="REGEX_ERROR",
             )
         except Exception as e:
@@ -95,13 +97,13 @@ class TextRegexSkill(SkillBase):
 
 class TextReplaceSkill(SkillBase):
     """文本替换"""
-    
+
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
         return SkillMetadata(
             name="text_replace",
             display_name="文本替换",
-            description="在文本中替换匹配的内�?,
+            description="在文本中替换匹配的内容",
             version="1.0.0",
             category=SkillCategory.TEXT,
             tags=["text", "replace", "string"],
@@ -127,14 +129,14 @@ class TextReplaceSkill(SkillBase):
                 SkillParameter(
                     name="use_regex",
                     type=SkillParameterType.BOOLEAN,
-                    description="是否使用正则表达�?,
+                    description="是否使用正则表达式",
                     required=False,
                     default=False,
                 ),
                 SkillParameter(
                     name="count",
                     type=SkillParameterType.INTEGER,
-                    description="替换次数�?1 表示全部�?,
+                    description="替换次数（-1 表示全部）",
                     required=False,
                     default=-1,
                 ),
@@ -144,14 +146,14 @@ class TextReplaceSkill(SkillBase):
                 {"text": "123-456-789", "old": "-", "new": "", "count": 1},
             ],
         )
-    
+
     async def execute(self, **kwargs) -> SkillResult:
         text = kwargs.get("text", "")
         old = kwargs.get("old")
         new = kwargs.get("new", "")
         use_regex = kwargs.get("use_regex", False)
         count = kwargs.get("count", -1)
-        
+
         try:
             if use_regex:
                 if count == -1:
@@ -163,7 +165,7 @@ class TextReplaceSkill(SkillBase):
                     result = text.replace(old, new)
                 else:
                     result = text.replace(old, new, count)
-            
+
             return SkillResult(
                 success=True,
                 data={
@@ -172,7 +174,7 @@ class TextReplaceSkill(SkillBase):
                     "result_length": len(result),
                 },
             )
-        
+
         except Exception as e:
             return SkillResult(
                 success=False,
@@ -183,7 +185,7 @@ class TextReplaceSkill(SkillBase):
 
 class TextSplitSkill(SkillBase):
     """文本分割"""
-    
+
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
         return SkillMetadata(
@@ -203,14 +205,14 @@ class TextSplitSkill(SkillBase):
                 SkillParameter(
                     name="separator",
                     type=SkillParameterType.STRING,
-                    description="分隔�?,
+                    description="分隔符",
                     required=False,
                     default="\n",
                 ),
                 SkillParameter(
                     name="max_split",
                     type=SkillParameterType.INTEGER,
-                    description="最大分割次数（-1 表示不限�?,
+                    description="最大分割次数（-1 表示不限制）",
                     required=False,
                     default=-1,
                 ),
@@ -227,22 +229,22 @@ class TextSplitSkill(SkillBase):
                 {"text": "line1\nline2\nline3", "separator": "\n"},
             ],
         )
-    
+
     async def execute(self, **kwargs) -> SkillResult:
         text = kwargs.get("text", "")
         separator = kwargs.get("separator", "\n")
         max_split = kwargs.get("max_split", -1)
         strip = kwargs.get("strip", True)
-        
+
         try:
             if max_split == -1:
                 parts = text.split(separator)
             else:
                 parts = text.split(separator, max_split)
-            
+
             if strip:
                 parts = [p.strip() for p in parts]
-            
+
             return SkillResult(
                 success=True,
                 data={
@@ -250,7 +252,7 @@ class TextSplitSkill(SkillBase):
                     "count": len(parts),
                 },
             )
-        
+
         except Exception as e:
             return SkillResult(
                 success=False,
@@ -261,13 +263,13 @@ class TextSplitSkill(SkillBase):
 
 class JsonParseSkill(SkillBase):
     """JSON 解析"""
-    
+
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
         return SkillMetadata(
             name="json_parse",
             display_name="JSON解析",
-            description="解析 JSON 字符�?,
+            description="解析 JSON 字符串",
             version="1.0.0",
             category=SkillCategory.DATA,
             tags=["json", "parse", "data"],
@@ -275,13 +277,13 @@ class JsonParseSkill(SkillBase):
                 SkillParameter(
                     name="text",
                     type=SkillParameterType.STRING,
-                    description="JSON 字符�?,
+                    description="JSON 字符串",
                     required=True,
                 ),
                 SkillParameter(
                     name="path",
                     type=SkillParameterType.STRING,
-                    description="提取路径（如 data.items.0.name�?,
+                    description="提取路径（如 data.items.0.name）",
                     required=False,
                     default="",
                 ),
@@ -291,14 +293,14 @@ class JsonParseSkill(SkillBase):
                 {"text": '{"data": {"items": [1, 2, 3]}}', "path": "data.items"},
             ],
         )
-    
+
     async def execute(self, **kwargs) -> SkillResult:
         text = kwargs.get("text")
         path = kwargs.get("path", "")
-        
+
         try:
             data = json.loads(text)
-            
+
             if path:
                 keys = path.split(".")
                 result = data
@@ -309,7 +311,7 @@ class JsonParseSkill(SkillBase):
                         result = result[key]
             else:
                 result = data
-            
+
             return SkillResult(
                 success=True,
                 data={
@@ -317,7 +319,7 @@ class JsonParseSkill(SkillBase):
                     "type": type(result).__name__,
                 },
             )
-        
+
         except json.JSONDecodeError as e:
             return SkillResult(
                 success=False,
@@ -339,14 +341,14 @@ class JsonParseSkill(SkillBase):
 
 
 class JsonStringifySkill(SkillBase):
-    """JSON 序列�?""
-    
+    """JSON 序列化"""
+
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
         return SkillMetadata(
             name="json_stringify",
-            display_name="JSON序列�?,
-            description="将对象序列化�?JSON 字符�?,
+            display_name="JSON序列化",
+            description="将对象序列化为 JSON 字符串",
             version="1.0.0",
             category=SkillCategory.DATA,
             tags=["json", "stringify", "data"],
@@ -354,20 +356,20 @@ class JsonStringifySkill(SkillBase):
                 SkillParameter(
                     name="data",
                     type=SkillParameterType.OBJECT,
-                    description="要序列化的数�?,
+                    description="要序列化的数据",
                     required=True,
                 ),
                 SkillParameter(
                     name="indent",
                     type=SkillParameterType.INTEGER,
-                    description="缩进空格数（0 表示压缩�?,
+                    description="缩进空格数（0 表示压缩）",
                     required=False,
                     default=2,
                 ),
                 SkillParameter(
                     name="ensure_ascii",
                     type=SkillParameterType.BOOLEAN,
-                    description="是否转义�?ASCII 字符",
+                    description="是否转义非 ASCII 字符",
                     required=False,
                     default=False,
                 ),
@@ -377,19 +379,19 @@ class JsonStringifySkill(SkillBase):
                 {"data": [1, 2, 3], "indent": 0},
             ],
         )
-    
+
     async def execute(self, **kwargs) -> SkillResult:
         data = kwargs.get("data")
         indent = kwargs.get("indent", 2)
         ensure_ascii = kwargs.get("ensure_ascii", False)
-        
+
         try:
             result = json.dumps(
                 data,
                 indent=indent if indent > 0 else None,
                 ensure_ascii=ensure_ascii,
             )
-            
+
             return SkillResult(
                 success=True,
                 data={
@@ -397,10 +399,10 @@ class JsonStringifySkill(SkillBase):
                     "length": len(result),
                 },
             )
-        
+
         except Exception as e:
             return SkillResult(
                 success=False,
-                error=f"序列化失�? {str(e)}",
+                error=f"序列化失败: {str(e)}",
                 error_code="STRINGIFY_ERROR",
             )

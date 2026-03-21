@@ -1,204 +1,234 @@
+# -*- coding: utf-8 -*-
 """
-推理后端抽象基类 - 参�?Ollama 设计模式
+推理后端抽象基类 - 参考 Ollama 设计
 """
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, List, AsyncGenerator
+from typing import Dict, List, Optional, Any, AsyncIterator
 from dataclasses import dataclass
-from datetime import datetime
-import logging
+from enum import Enum
+import asyncio
 
-from api.types import (
-    ChatRequest, ChatResponse, GenerateRequest, GenerateResponse,
-    Message, MessageRole, TokenUsage, KnowledgeSource
-)
 
-logger = logging.getLogger(__name__)
+class BackendType(str, Enum):
+    """后端类型"""
+    HUGGINGFACE = "huggingface"
+    OLLAMA = "ollama"
+    VLLM = "vllm"
+    CLOUD = "cloud"
 
 
 @dataclass
-class InferenceContext:
-    """推理上下�?""
-    model_id: str
-    prompt: str
-    system_prompt: Optional[str] = None
-    messages: List[Message] = None
+class GenerationConfig:
+    """生成配置"""
+    max_tokens: int = 512
     temperature: float = 0.7
     top_p: float = 0.9
     top_k: int = 50
-    max_tokens: int = 1024
-    repetition_penalty: float = 1.1
-    stop: Optional[List[str]] = None
-    seed: Optional[int] = None
+    repetition_penalty: float = 1.0
+    stop_sequences: List[str] = None
+    stream: bool = False
     
-    knowledge_sources: Optional[List[KnowledgeSource]] = None
-    
-    @classmethod
-    def from_chat_request(cls, request: ChatRequest) -> "InferenceContext":
-        return cls(
-            model_id=request.model,
-            prompt="",
-            messages=request.messages,
-            temperature=request.options.temperature,
-            top_p=request.options.top_p,
-            top_k=request.options.top_k,
-            max_tokens=request.options.max_tokens,
-            repetition_penalty=request.options.repetition_penalty,
-            stop=request.options.stop,
-            seed=request.options.seed,
-        )
-    
-    @classmethod
-    def from_generate_request(cls, request: GenerateRequest) -> "InferenceContext":
-        return cls(
-            model_id=request.model,
-            prompt=request.prompt,
-            system_prompt=request.system,
-            temperature=request.options.temperature,
-            top_p=request.options.top_p,
-            top_k=request.options.top_k,
-            max_tokens=request.options.max_tokens,
-            repetition_penalty=request.options.repetition_penalty,
-            stop=request.options.stop,
-            seed=request.options.seed,
-        )
+    def __post_init__(self):
+        if self.stop_sequences is None:
+            self.stop_sequences = []
 
 
-class BaseBackend(ABC):
+@dataclass
+class GenerationResult:
+    """生成结果"""
+    text: str
+    tokens_generated: int
+    finish_reason: str
+    model: str
+    prompt_tokens: int = 0
+    total_tokens: int = 0
+    latency_ms: float = 0.0
+    metadata: Dict[str, Any] = None
+    
+    def __post_init__(self):
+        if self.metadata is None:
+            self.metadata = {}
+
+
+class InferenceBackend(ABC):
     """
     推理后端抽象基类
     
-    所有推理后端必须实现此接口
+    所有推理后端都需要实现此接口
     """
     
-    name: str = "base"
+    backend_type: BackendType = None
     
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: Dict[str, Any] = None):
         self.config = config or {}
-        self._initialized = False
+        self._model = None
+        self._tokenizer = None
+        self._is_loaded = False
     
     @abstractmethod
-    async def is_available(self) -> bool:
-        """检查后端是否可�?""
+    async def load_model(self, model_name: str, **kwargs) -> bool:
+        """
+        加载模型
+        
+        Args:
+            model_name: 模型名称或路径
+            **kwargs: 额外参数
+            
+        Returns:
+            是否成功
+        """
         pass
     
     @abstractmethod
-    async def chat(self, request: ChatRequest) -> ChatResponse:
-        """聊天推理"""
+    async def unload_model(self) -> bool:
+        """
+        卸载模型
+        
+        Returns:
+            是否成功
+        """
         pass
     
     @abstractmethod
-    async def generate(self, request: GenerateRequest) -> GenerateResponse:
-        """文本生成"""
-        pass
-    
-    @abstractmethod
-    async def chat_stream(
-        self, request: ChatRequest
-    ) -> AsyncGenerator[Dict[str, Any], None]:
-        """流式聊天"""
+    async def generate(
+        self,
+        prompt: str,
+        config: GenerationConfig = None
+    ) -> GenerationResult:
+        """
+        生成文本
+        
+        Args:
+            prompt: 输入提示
+            config: 生成配置
+            
+        Returns:
+            生成结果
+        """
         pass
     
     @abstractmethod
     async def generate_stream(
-        self, request: GenerateRequest
-    ) -> AsyncGenerator[Dict[str, Any], None]:
-        """流式生成"""
+        self,
+        prompt: str,
+        config: GenerationConfig = None
+    ) -> AsyncIterator[str]:
+        """
+        流式生成文本
+        
+        Args:
+            prompt: 输入提示
+            config: 生成配置
+            
+        Yields:
+            生成的文本片段
+        """
         pass
     
     @abstractmethod
-    async def list_models(self) -> List[Dict[str, Any]]:
-        """列出可用模型"""
+    async def chat(
+        self,
+        messages: List[Dict[str, str]],
+        config: GenerationConfig = None
+    ) -> GenerationResult:
+        """
+        对话生成
+        
+        Args:
+            messages: 消息列表
+            config: 生成配置
+            
+        Returns:
+            生成结果
+        """
         pass
     
     @abstractmethod
-    async def load_model(self, model_id: str) -> bool:
-        """加载模型"""
+    async def chat_stream(
+        self,
+        messages: List[Dict[str, str]],
+        config: GenerationConfig = None
+    ) -> AsyncIterator[str]:
+        """
+        流式对话生成
+        
+        Args:
+            messages: 消息列表
+            config: 生成配置
+            
+        Yields:
+            生成的文本片段
+        """
         pass
     
     @abstractmethod
-    async def unload_model(self, model_id: str) -> bool:
-        """卸载模型"""
+    def get_model_info(self) -> Dict[str, Any]:
+        """
+        获取模型信息
+        
+        Returns:
+            模型信息字典
+        """
         pass
     
-    def build_system_prompt(
-        self,
-        base_prompt: Optional[str],
-        knowledge_context: Optional[str] = None,
-        project_context: Optional[str] = None
-    ) -> str:
-        """构建系统提示"""
-        parts = []
+    @abstractmethod
+    async def count_tokens(self, text: str) -> int:
+        """
+        计算 token 数量
         
-        if base_prompt:
-            parts.append(base_prompt)
-        
-        if knowledge_context:
-            parts.append(f"\n参考资�?\n{knowledge_context}")
-        
-        if project_context:
-            parts.append(f"\n项目上下�?\n{project_context}")
-        
-        return "\n".join(parts) if parts else ""
+        Args:
+            text: 输入文本
+            
+        Returns:
+            token 数量
+        """
+        pass
     
-    def apply_chat_template(
-        self,
-        messages: List[Message],
-        system_prompt: Optional[str] = None,
-        model_id: str = ""
-    ) -> str:
-        """应用聊天模板"""
-        model_lower = model_id.lower()
-        
-        if "qwen" in model_lower:
-            return self._apply_qwen_template(messages, system_prompt)
-        
-        return self._apply_default_template(messages, system_prompt)
+    def is_loaded(self) -> bool:
+        """检查模型是否已加载"""
+        return self._is_loaded
     
-    def _apply_qwen_template(
-        self,
-        messages: List[Message],
-        system_prompt: Optional[str] = None
-    ) -> str:
-        """应用 Qwen 模板"""
-        parts = []
+    async def health_check(self) -> Dict[str, Any]:
+        """
+        健康检查
         
-        if system_prompt:
-            parts.append(f"<|im_start|>system\n{system_prompt}<|im_end|>\n")
-        
-        for msg in messages:
-            role = msg.role if isinstance(msg.role, str) else msg.role.value
-            parts.append(f"<|im_start|>{role}\n{msg.content}<|im_end|>\n")
-        
-        parts.append("<|im_start|>assistant\n")
-        return "".join(parts)
+        Returns:
+            健康状态
+        """
+        return {
+            "backend_type": self.backend_type.value if self.backend_type else "unknown",
+            "is_loaded": self._is_loaded,
+            "status": "healthy" if self._is_loaded else "not_loaded"
+        }
     
-    def _apply_default_template(
-        self,
-        messages: List[Message],
-        system_prompt: Optional[str] = None
-    ) -> str:
-        """应用默认模板"""
-        parts = []
+    async def get_memory_usage(self) -> Dict[str, Any]:
+        """
+        获取内存使用情况
         
-        if system_prompt:
-            parts.append(f"System: {system_prompt}\n\n")
-        
-        for msg in messages:
-            role = msg.role if isinstance(msg.role, str) else msg.role.value
-            parts.append(f"{role.capitalize()}: {msg.content}\n")
-        
-        parts.append("Assistant: ")
-        return "".join(parts)
+        Returns:
+            内存使用信息
+        """
+        return {
+            "backend_type": self.backend_type.value if self.backend_type else "unknown",
+            "memory_used_mb": 0,
+            "memory_available_mb": 0
+        }
     
-    def clean_response(self, text: str) -> str:
-        """清理响应文本"""
-        import re
+    async def warmup(self, prompt: str = "Hello") -> bool:
+        """
+        预热模型
         
-        if not text:
-            return ""
+        Args:
+            prompt: 预热提示
+            
+        Returns:
+            是否成功
+        """
+        if not self._is_loaded:
+            return False
         
-        text = re.sub(r'<think[^>]*>.*?</think\s*>', '', text, flags=re.DOTALL | re.IGNORECASE)
-        text = re.sub(r'<\|im_start\|>.*?<\|im_end\|>', '', text, flags=re.DOTALL)
-        text = text.replace('<|im_start|>', '').replace('<|im_end|>', '')
-        
-        return text.strip()
+        try:
+            await self.generate(prompt, GenerationConfig(max_tokens=10))
+            return True
+        except Exception:
+            return False

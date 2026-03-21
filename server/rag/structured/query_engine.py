@@ -1,6 +1,7 @@
+# -*- coding: utf-8 -*-
 """
-结构化数�?- 查询引擎
-支持 SQL 查询和自然语言�?SQL
+结构化数据 - 查询引擎
+支持 SQL 查询和自然语言转 SQL
 """
 from typing import List, Dict, Any, Optional, Union
 from pydantic import BaseModel, Field
@@ -21,10 +22,10 @@ logger = logging.getLogger(__name__)
 
 
 class NLQueryContext(BaseModel):
-    """自然语言查询上下�?""
+    """自然语言查询上下文"""
     question: str = Field(..., description="用户问题")
     tables: List[str] = Field(default_factory=list, description="相关表名")
-    columns: Dict[str, List[str]] = Field(default_factory=dict, description="相关�?)
+    columns: Dict[str, List[str]] = Field(default_factory=dict, description="相关列")
     filters: Dict[str, Any] = Field(default_factory=dict, description="过滤条件")
     aggregations: List[str] = Field(default_factory=list, description="聚合函数")
     order_by: Optional[str] = Field(default=None, description="排序字段")
@@ -33,9 +34,9 @@ class NLQueryContext(BaseModel):
 
 class SQLGenerationResult(BaseModel):
     """SQL 生成结果"""
-    sql: str = Field(..., description="生成�?SQL")
+    sql: str = Field(..., description="生成的 SQL")
     explanation: str = Field(default="", description="SQL 解释")
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0, description="置信�?)
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0, description="置信度")
     tables_used: List[str] = Field(default_factory=list, description="使用的表")
     warnings: List[str] = Field(default_factory=list, description="警告信息")
 
@@ -45,8 +46,8 @@ class QueryHistory(BaseModel):
     query_id: str = Field(..., description="查询 ID")
     query_type: str = Field(..., description="查询类型：sql/nl")
     query_text: str = Field(..., description="查询文本")
-    generated_sql: Optional[str] = Field(default=None, description="生成�?SQL")
-    executed_sql: Optional[str] = Field(default=None, description="执行�?SQL")
+    generated_sql: Optional[str] = Field(default=None, description="生成的 SQL")
+    executed_sql: Optional[str] = Field(default=None, description="执行的 SQL")
     success: bool = Field(default=False, description="是否成功")
     row_count: int = Field(default=0, description="返回行数")
     execution_time_ms: float = Field(default=0.0, description="执行时间")
@@ -64,11 +65,13 @@ class QueryEngine:
         llm_client: Optional[Any] = None
     ):
         """
-        初始化查询引�?        
+        初始化查询引擎
+        
         Args:
             table_store: 表格存储实例
             db_connector: 数据库连接器实例
-            llm_client: LLM 客户端（用于自然语言�?SQL�?        """
+            llm_client: LLM 客户端（用于自然语言转 SQL）
+        """
         self.table_store = table_store or get_table_store()
         self.db_connector = db_connector
         self.llm_client = llm_client
@@ -97,7 +100,7 @@ class QueryEngine:
         else:
             result = QueryResult()
             result.success = False
-            result.error = "未配置数据库连接�?
+            result.error = "未配置数据库连接器"
             return result
     
     def execute_table_query(
@@ -110,7 +113,7 @@ class QueryEngine:
         
         Args:
             table_id: 表格 ID
-            sql: SQL 语句（使�?{table} 作为表名占位符）
+            sql: SQL 语句（使用 {table} 作为表名占位符）
             
         Returns:
             查询结果
@@ -124,11 +127,13 @@ class QueryEngine:
         context: Optional[Dict[str, Any]] = None
     ) -> SQLGenerationResult:
         """
-        自然语言�?SQL
+        自然语言转 SQL
         
         Args:
             question: 自然语言问题
-            tables: 相关表名（可选，自动推断�?            context: 额外上下�?            
+            tables: 相关表名（可选，自动推断）
+            context: 额外上下文
+            
         Returns:
             SQL 生成结果
         """
@@ -143,26 +148,29 @@ class QueryEngine:
         tables: Optional[List[str]] = None,
         context: Optional[Dict[str, Any]] = None
     ) -> SQLGenerationResult:
-        """使用 LLM 进行自然语言�?SQL"""
+        """使用 LLM 进行自然语言转 SQL"""
         schema_info = self._get_schema_info(tables)
         
-        prompt = f"""你是一�?SQL 专家。根据用户问题和数据库结构，生成合适的 SQL 查询�?
+        prompt = f"""你是一个 SQL 专家。根据用户问题和数据库结构，生成合适的 SQL 查询。
+
 数据库结构：
 {json.dumps(schema_info, ensure_ascii=False, indent=2)}
 
 用户问题：{question}
 
-请生�?SQL 查询语句，并�?JSON 格式返回�?{{
+请生成 SQL 查询语句，并以 JSON 格式返回：
+{{
     "sql": "SELECT ...",
     "explanation": "查询说明",
     "tables_used": ["表名"],
     "confidence": 0.9
 }}
 
-注意�?1. 只返�?JSON，不要有其他内容
+注意：
+1. 只返回 JSON，不要有其他内容
 2. 使用标准 SQL 语法
 3. 表名和列名使用双引号
-4. 只查询必要的数据，避�?SELECT *
+4. 只查询必要的数据，避免 SELECT *
 """
         
         try:
@@ -189,7 +197,7 @@ class QueryEngine:
         tables: Optional[List[str]] = None,
         context: Optional[Dict[str, Any]] = None
     ) -> SQLGenerationResult:
-        """基于规则的自然语言�?SQL"""
+        """基于规则的自然语言转 SQL"""
         question_lower = question.lower()
         
         if not tables:
@@ -217,15 +225,15 @@ class QueryEngine:
         
         if any(word in question_lower for word in ["多少", "数量", "总数", "count"]):
             select_columns = "COUNT(*) as count"
-        elif any(word in question_lower for word in ["平均", "avg", "均�?]):
+        elif any(word in question_lower for word in ["平均", "avg", "均值"]):
             numeric_cols = self._get_numeric_columns(table_name)
             if numeric_cols:
                 select_columns = f"AVG({numeric_cols[0]}) as avg"
-        elif any(word in question_lower for word in ["最�?, "最�?, "max"]):
+        elif any(word in question_lower for word in ["最大", "最高", "max"]):
             numeric_cols = self._get_numeric_columns(table_name)
             if numeric_cols:
                 select_columns = f"MAX({numeric_cols[0]}) as max_value"
-        elif any(word in question_lower for word in ["最�?, "最�?, "min"]):
+        elif any(word in question_lower for word in ["最小", "最低", "min"]):
             numeric_cols = self._get_numeric_columns(table_name)
             if numeric_cols:
                 select_columns = f"MIN({numeric_cols[0]}) as min_value"
@@ -258,20 +266,20 @@ class QueryEngine:
                 sort_dir = "DESC" if sort_match.group(2) in ["降序", "desc"] else "ASC"
                 order_clause = f" ORDER BY {sort_col} {sort_dir}"
         
-        limit_match = re.search(r"前\s*(\d+)\s*(条|个|�?", question_lower)
+        limit_match = re.search(r"前\s*(\d+)\s*(条|个)?", question_lower)
         if limit_match:
             limit_clause = f" LIMIT {limit_match.group(1)}"
-        elif "�? in question_lower or "top" in question_lower:
+        elif "前" in question_lower or "top" in question_lower:
             limit_clause = " LIMIT 10"
         
         sql = f"SELECT {select_columns} FROM {table_name}{where_clause}{order_clause}{limit_clause}"
         
         return SQLGenerationResult(
             sql=sql,
-            explanation=f"基于规则生成的查询，查询�?{table_name}",
+            explanation=f"基于规则生成的查询，查询表 {table_name}",
             confidence=0.6,
             tables_used=[table_name],
-            warnings=["使用规则引擎生成，建议验�?SQL 正确�?]
+            warnings=["使用规则引擎生成，建议验证 SQL 正确性"]
         )
     
     def _infer_tables(self, question: str) -> List[str]:
@@ -302,7 +310,7 @@ class QueryEngine:
         return []
     
     def _get_text_columns(self, table_name: str) -> List[str]:
-        """获取表的文本�?""
+        """获取表的文本列"""
         tables = self.table_store.list_tables()
         for table in tables:
             if table.name == table_name:
@@ -313,7 +321,7 @@ class QueryEngine:
         return []
     
     def _get_schema_info(self, tables: Optional[List[str]] = None) -> Dict[str, Any]:
-        """获取数据库结构信�?""
+        """获取数据库结构信息"""
         if tables:
             table_list = [t for t in self.table_store.list_tables() if t.name in tables]
         else:
@@ -341,10 +349,14 @@ class QueryEngine:
         execute: bool = True
     ) -> Dict[str, Any]:
         """
-        执行查询（支�?SQL 和自然语言�?        
+        执行查询（支持 SQL 和自然语言）
+        
         Args:
-            query_text: 查询文本（SQL 或自然语言�?            query_type: 查询类型（sql/nl/auto�?            tables: 相关表名
-            context: 额外上下�?            execute: 是否执行查询
+            query_text: 查询文本（SQL 或自然语言）
+            query_type: 查询类型（sql/nl/auto）
+            tables: 相关表名
+            context: 额外上下文
+            execute: 是否执行查询
             
         Returns:
             查询结果
@@ -387,7 +399,7 @@ class QueryEngine:
                 result["warnings"] = nl_result.warnings
                 
                 if not sql:
-                    result["error"] = "无法生成有效�?SQL 查询"
+                    result["error"] = "无法生成有效的 SQL 查询"
                     return result
             
             if execute and sql:
@@ -425,7 +437,7 @@ class QueryEngine:
         return result
     
     def _is_sql(self, text: str) -> bool:
-        """判断是否�?SQL 语句"""
+        """判断是否是 SQL 语句"""
         sql_keywords = ["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER", "WITH"]
         text_upper = text.strip().upper()
         return any(text_upper.startswith(kw) for kw in sql_keywords)
@@ -441,7 +453,8 @@ class QueryEngine:
         
         Args:
             limit: 返回数量限制
-            query_type: 按类型过�?            success_only: 只返回成功的查询
+            query_type: 按类型过滤
+            success_only: 只返回成功的查询
             
         Returns:
             查询历史列表
@@ -475,7 +488,7 @@ class QueryEngine:
         
         tables = self.table_store.list_tables()
         if not tables:
-            return ["请先导入数据�?]
+            return ["请先导入数据"]
         
         target_table = None
         if table_name:
@@ -484,17 +497,17 @@ class QueryEngine:
         if not target_table:
             target_table = tables[0]
         
-        suggestions.append(f"查询 {target_table.name} 的所有数�?)
+        suggestions.append(f"查询 {target_table.name} 的所有数据")
         suggestions.append(f"统计 {target_table.name} 的记录数")
         
         numeric_cols = self._get_numeric_columns(target_table.name)
         if numeric_cols:
-            suggestions.append(f"计算 {target_table.name} �?{numeric_cols[0]} 平均�?)
-            suggestions.append(f"查找 {target_table.name} �?{numeric_cols[0]} 最大的记录")
+            suggestions.append(f"计算 {target_table.name} 中 {numeric_cols[0]} 平均值")
+            suggestions.append(f"查找 {target_table.name} 中 {numeric_cols[0]} 最大的记录")
         
         text_cols = self._get_text_columns(target_table.name)
         if text_cols:
-            suggestions.append(f"�?{target_table.name} 中搜索包含特定关键词的记�?)
+            suggestions.append(f"在 {target_table.name} 中搜索包含特定关键词的记录")
         
         return suggestions[:limit]
     
@@ -572,10 +585,10 @@ class QueryEngine:
         
         if sql_upper.startswith("SELECT"):
             explanation["type"] = "SELECT"
-            explanation["description"] = "这是一个查询语句，用于检索数�?
+            explanation["description"] = "这是一个查询语句，用于检索数据"
         elif sql_upper.startswith("INSERT"):
             explanation["type"] = "INSERT"
-            explanation["description"] = "这是一个插入语句，用于添加新数�?
+            explanation["description"] = "这是一个插入语句，用于添加新数据"
         elif sql_upper.startswith("UPDATE"):
             explanation["type"] = "UPDATE"
             explanation["description"] = "这是一个更新语句，用于修改数据"
@@ -584,7 +597,7 @@ class QueryEngine:
             explanation["description"] = "这是一个删除语句，用于移除数据"
         else:
             explanation["type"] = "OTHER"
-            explanation["description"] = "其他类型�?SQL 语句"
+            explanation["description"] = "其他类型的 SQL 语句"
         
         table_pattern = r"(?:FROM|JOIN|INTO|UPDATE)\s+(\w+)"
         explanation["tables"] = re.findall(table_pattern, sql, re.IGNORECASE)

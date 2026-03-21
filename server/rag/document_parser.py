@@ -1,5 +1,8 @@
+# -*- coding: utf-8 -*-
 """
-RAG 知识�?- 文档解析�?支持 PDF、DOCX、TXT、MD 等格�?"""
+RAG 知识库 - 文档解析器
+支持 PDF、DOCX、TXT、MD 等格式
+"""
 from pathlib import Path
 from typing import Optional
 import logging
@@ -8,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class DocumentParser:
-    """文档解析�?""
+    """文档解析器"""
     
     def __init__(self):
         pass
@@ -55,7 +58,7 @@ class DocumentParser:
                 for i, page in enumerate(reader.pages):
                     text = page.extract_text()
                     if text:
-                        text_parts.append(f"--- �?{i+1} �?---\n{text}")
+                        text_parts.append(f"--- 第 {i+1} 页 ---\n{text}")
             
             return '\n\n'.join(text_parts)
         except Exception as e:
@@ -86,16 +89,15 @@ class DocumentParser:
         raise Exception(f"无法解析文件编码，尝试的编码：{encodings}")
     
     def get_supported_formats(self) -> list[str]:
-        """获取支持的文件格�?""
+        """获取支持的文件格式"""
         return ['.pdf', '.docx', '.doc', '.txt', '.md', '.markdown']
 
 
-# 单例实例
 _parser_instance: Optional[DocumentParser] = None
 
 
 def get_parser() -> DocumentParser:
-    """获取解析器实�?""
+    """获取解析器实例"""
     global _parser_instance
     if _parser_instance is None:
         _parser_instance = DocumentParser()

@@ -1,8 +1,10 @@
 """
 技能学习与优化模块
 
-功能�?- 技能学习器
-- 成功率统�?- 参数自动调优
+功能：
+- 技能学习器
+- 成功率统计
+- 参数自动调优
 - 操作建议生成
 """
 import json
@@ -19,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class SkillStatus(str, Enum):
-    """技能状�?""
+    """技能状态"""
     ENABLED = "enabled"
     DISABLED = "disabled"
     LEARNING = "learning"
@@ -29,7 +31,7 @@ class SkillStatus(str, Enum):
 
 @dataclass
 class SkillExecutionRecord:
-    """技能执行记�?""
+    """技能执行记录"""
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     skill_name: str = ""
     parameters: Dict[str, Any] = field(default_factory=dict)
@@ -60,7 +62,7 @@ class SkillExecutionRecord:
 
 @dataclass
 class SkillStatistics:
-    """技能统�?""
+    """技能统计"""
     skill_name: str
     total_executions: int = 0
     successful_executions: int = 0
@@ -161,8 +163,10 @@ class SkillLearner:
     """
     技能学习器
     
-    功能�?    - 执行记录收集
-    - 成功率统�?    - 参数优化
+    功能：
+    - 执行记录收集
+    - 成功率统计
+    - 参数优化
     - 建议生成
     """
     
@@ -190,7 +194,7 @@ class SkillLearner:
         user_id: str = "default",
         session_id: Optional[str] = None,
     ) -> SkillExecutionRecord:
-        """记录技能执�?""
+        """记录技能执行"""
         record = SkillExecutionRecord(
             skill_name=skill_name,
             parameters=parameters,
@@ -214,7 +218,7 @@ class SkillLearner:
         
         self._persist_record(record)
         
-        logger.debug(f"记录技能执�? {skill_name}, 成功: {success}")
+        logger.debug(f"记录技能执行: {skill_name}, 成功: {success}")
         
         return record
     
@@ -227,11 +231,11 @@ class SkillLearner:
                 break
     
     def get_statistics(self, skill_name: str) -> Optional[SkillStatistics]:
-        """获取技能统�?""
+        """获取技能统计"""
         return self._statistics.get(skill_name)
     
     def get_all_statistics(self) -> Dict[str, SkillStatistics]:
-        """获取所有技能统�?""
+        """获取所有技能统计"""
         return self._statistics.copy()
     
     def analyze_parameter_patterns(
@@ -355,9 +359,9 @@ class SkillLearner:
                 skill_name=skill_name,
                 suggestion_type="warning",
                 title="技能成功率较低",
-                description=f"该技能的成功率为 {stats.success_rate:.1%}，建议检查参数配�?,
+                description=f"该技能的成功率为 {stats.success_rate:.1%}，建议检查参数配置",
                 confidence=0.8,
-                reason=f"基于 {stats.total_executions} 次执行统�?,
+                reason=f"基于 {stats.total_executions} 次执行统计",
             )
             suggestions.append(suggestion)
         
@@ -369,10 +373,10 @@ class SkillLearner:
                         skill_name=skill_name,
                         suggestion_type="parameter",
                         title=f"建议添加参数 {opt.parameter_name}",
-                        description=f"添加参数 {opt.parameter_name}={opt.optimized_value} 可能提升成功�?,
+                        description=f"添加参数 {opt.parameter_name}={opt.optimized_value} 可能提升成功率",
                         suggested_params={opt.parameter_name: opt.optimized_value},
                         confidence=opt.confidence,
-                        reason=f"基于 {opt.samples} 次成功执行分�?,
+                        reason=f"基于 {opt.samples} 次成功执行分析",
                     )
                     suggestions.append(suggestion)
         
@@ -401,7 +405,7 @@ class SkillLearner:
                             description=f"大多数成功执行使用了 {key}={most_common[0]}",
                             suggested_params={key: most_common[0]},
                             confidence=most_common[1] / len(recent_records),
-                            reason=f"在最�?{len(recent_records)} 次成功执行中，{most_common[1]} 次使用了此参数�?,
+                            reason=f"在最近 {len(recent_records)} 次成功执行中，{most_common[1]} 次使用了此参数",
                         )
                         suggestions.append(suggestion)
         
@@ -460,7 +464,7 @@ class SkillLearner:
         return records[:limit]
     
     def _persist_record(self, record: SkillExecutionRecord):
-        """持久化执行记�?""
+        """持久化执行记录"""
         date_str = record.timestamp.strftime("%Y-%m-%d")
         file_path = self.storage_path / f"executions_{date_str}.jsonl"
         
@@ -468,7 +472,7 @@ class SkillLearner:
             with open(file_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record.to_dict(), ensure_ascii=False) + "\n")
         except Exception as e:
-            logger.error(f"持久化执行记录失�? {e}")
+            logger.error(f"持久化执行记录失败: {e}")
     
     def get_learning_stats(self) -> Dict[str, Any]:
         """获取学习统计"""

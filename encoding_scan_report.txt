@@ -1,0 +1,142 @@
+============================================================
+编码问题扫描报告
+============================================================
+扫描目录: c:\Users\JHJ\Desktop\finetune-platform
+扫描文件数: 800
+问题文件数: 12
+
+------------------------------------------------------------
+问题文件列表:
+------------------------------------------------------------
+
+1. server\check_all_features.py
+   问题类型: 编码检测置信度低
+   检测编码: cp1006
+   置信度: 69.20%
+   实际编码: latin1
+   包含BOM: 否
+   可修复: 是
+
+2. server\test_all_features.py
+   问题类型: 编码检测置信度低
+   检测编码: cp1006
+   置信度: 55.74%
+   实际编码: latin1
+   包含BOM: 否
+   可修复: 是
+
+3. server\test_cloud_ai.py
+   问题类型: 编码检测置信度低
+   检测编码: cp1006
+   置信度: 68.91%
+   实际编码: latin1
+   包含BOM: 否
+   可修复: 是
+
+4. server\test_hf_mirror.py
+   问题类型: 编码检测置信度低
+   检测编码: hp-roman8
+   置信度: 9.18%
+   实际编码: latin1
+   包含BOM: 否
+   可修复: 是
+
+5. server\backup_old_modules\session.py
+   问题类型: 编码检测置信度低
+   检测编码: cp1006
+   置信度: 60.63%
+   实际编码: latin1
+   包含BOM: 否
+   可修复: 是
+
+6. server\memory\test_memory_system.py
+   问题类型: 编码检测置信度低
+   检测编码: cp1006
+   置信度: 51.98%
+   实际编码: latin1
+   包含BOM: 否
+   可修复: 是
+
+7. server\models\modelscope_cache\tiansz\bert-base-chinese\.mdl
+   问题类型: 无法检测编码
+   检测编码: None
+   置信度: 0.00%
+   可修复: 否
+
+8. server\models\modelscope_cache\tiansz\bert-base-chinese\.msc
+   问题类型: 无法检测编码
+   检测编码: None
+   置信度: 0.00%
+   可修复: 否
+
+9. server\models\Qwen2.5-0.5B-Instruct\.mdl
+   问题类型: 无法检测编码
+   检测编码: None
+   置信度: 0.00%
+   可修复: 否
+
+10. server\models\Qwen2.5-0.5B-Instruct\.msc
+   问题类型: 无法检测编码
+   检测编码: None
+   置信度: 0.00%
+   可修复: 否
+
+11. server\models\Qwen3.5-2B\.mdl
+   问题类型: 无法检测编码
+   检测编码: None
+   置信度: 0.00%
+   可修复: 否
+
+12. server\models\Qwen3.5-2B\.msc
+   问题类型: 无法检测编码
+   检测编码: None
+   置信度: 0.00%
+   可修复: 否
+
+13. server\skills\test_skills_system.py
+   问题类型: 编码检测置信度低
+   检测编码: cp1006
+   置信度: 68.44%
+   实际编码: latin1
+   包含BOM: 否
+   可修复: 是
+
+14. server\tests\test_device.py
+   问题类型: 编码检测置信度低
+   检测编码: cp1006
+   置信度: 68.78%
+   实际编码: latin1
+   包含BOM: 否
+   可修复: 是
+
+15. server\tests\test_inference.py
+   问题类型: 编码检测置信度低
+   检测编码: cp1006
+   置信度: 61.15%
+   实际编码: gb18030
+   包含BOM: 否
+   可修复: 是
+
+16. server\tests\test_models.py
+   问题类型: 编码检测置信度低
+   检测编码: cp1006
+   置信度: 52.61%
+   实际编码: gb18030
+   包含BOM: 否
+   可修复: 是
+
+17. server\tests\test_training.py
+   问题类型: 编码检测置信度低
+   检测编码: cp1006
+   置信度: 63.61%
+   实际编码: latin1
+   包含BOM: 否
+   可修复: 是
+
+18. server\workspace\task_api.py
+   问题类型: 编码检测置信度低
+   检测编码: cp1006
+   置信度: 61.16%
+   实际编码: latin1
+   包含BOM: 否
+   可修复: 是

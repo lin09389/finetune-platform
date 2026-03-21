@@ -1,5 +1,5 @@
 """
-文件列表技�?列出目录中的文件和子目录
+文件列表技能 - 列出目录中的文件和子目录
 """
 from typing import Dict, Any, Optional, List
 from pathlib import Path
@@ -9,7 +9,7 @@ from skills.models import SkillMetadata, SkillParameter, SkillResult, SkillCateg
 
 
 class FileListSkill(SkillBase):
-    """列出目录文件技�?""
+    """列出目录文件技能"""
     
     metadata = SkillMetadata(
         name="file_list",
@@ -54,7 +54,7 @@ class FileListSkill(SkillBase):
             if not path.exists():
                 return SkillResult(
                     success=False,
-                    error=f"目录不存�? {directory}",
+                    error=f"目录不存在: {directory}",
                     error_code="DIR_NOT_FOUND",
                 )
             
@@ -91,7 +91,7 @@ class FileListSkill(SkillBase):
                     "count": len(files),
                     "directory": str(path.absolute()),
                 },
-                message=f"找到 {len(files)} 个项�?,
+                message=f"找到 {len(files)} 个项目",
             )
             
         except Exception as e:

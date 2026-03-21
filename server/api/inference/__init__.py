@@ -1,5 +1,6 @@
+# -*- coding: utf-8 -*-
 """
-推理模块 - 参�?Ollama server 设计模式
+推理模块 - 参考 Ollama server 设计模式
 """
 from api.inference.routes import router
 from api.inference.scheduler import get_scheduler

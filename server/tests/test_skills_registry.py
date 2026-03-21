@@ -1,5 +1,6 @@
 """
-技能模块单元测�?"""
+技能模块单元测试
+"""
 import pytest
 import asyncio
 from pathlib import Path
@@ -21,7 +22,7 @@ from skills.registry import SkillRegistry, register_skill, get_registry
 
 
 class MockSkill(SkillBase):
-    """测试用模拟技�?""
+    """测试用模拟技能"""
     
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
@@ -51,7 +52,7 @@ class MockSkill(SkillBase):
 
 
 class FailingSkill(SkillBase):
-    """测试用失败技�?""
+    """测试用失败技能"""
     
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
@@ -72,7 +73,7 @@ class FailingSkill(SkillBase):
 
 
 class TestSkillModels:
-    """技能模型测�?""
+    """技能模型测试"""
     
     def test_skill_metadata(self):
         """测试技能元数据"""
@@ -87,7 +88,7 @@ class TestSkillModels:
         assert metadata.category == SkillCategory.UTILITY
     
     def test_skill_parameter(self):
-        """测试技能参�?""
+        """测试技能参数"""
         param = SkillParameter(
             name="test_param",
             type="string",
@@ -120,10 +121,10 @@ class TestSkillModels:
 
 
 class TestSkillBase:
-    """技能基类测�?""
+    """技能基类测试"""
     
     def test_get_metadata(self):
-        """测试获取元数�?""
+        """测试获取元数据"""
         metadata = MockSkill.get_metadata()
         assert metadata.name == "mock_skill"
         assert metadata.category == SkillCategory.UTILITY
@@ -147,7 +148,7 @@ class TestSkillRegistry:
         assert registry1 is registry2
     
     def test_register_skill(self, registry):
-        """测试注册技�?""
+        """测试注册技能"""
         result = registry.register(MockSkill)
         assert result is True
         assert registry.has_skill("mock_skill")
@@ -159,38 +160,38 @@ class TestSkillRegistry:
         assert result is False
     
     def test_unregister_skill(self, registry):
-        """测试注销技�?""
+        """测试注销技能"""
         registry.register(MockSkill)
         result = registry.unregister("mock_skill")
         assert result is True
         assert not registry.has_skill("mock_skill")
     
     def test_unregister_nonexistent(self, registry):
-        """测试注销不存在的技�?""
+        """测试注销不存在的技能"""
         result = registry.unregister("nonexistent")
         assert result is False
     
     def test_get_skill(self, registry):
-        """测试获取技�?""
+        """测试获取技能"""
         registry.register(MockSkill)
         skill = registry.get_skill("mock_skill")
         assert skill is not None
         assert isinstance(skill, MockSkill)
     
     def test_get_skill_nonexistent(self, registry):
-        """测试获取不存在的技�?""
+        """测试获取不存在的技能"""
         skill = registry.get_skill("nonexistent")
         assert skill is None
     
     def test_get_metadata(self, registry):
-        """测试获取元数�?""
+        """测试获取元数据"""
         registry.register(MockSkill)
         metadata = registry.get_metadata("mock_skill")
         assert metadata is not None
         assert metadata.name == "mock_skill"
     
     def test_list_skills(self, registry):
-        """测试列出技�?""
+        """测试列出技能"""
         registry.register(MockSkill)
         registry.register(FailingSkill)
         
@@ -199,14 +200,14 @@ class TestSkillRegistry:
         assert "failing_skill" in skills
     
     def test_list_skills_by_category(self, registry):
-        """测试按类别列出技�?""
+        """测试按类别列出技能"""
         registry.register(MockSkill)
         
         skills = registry.list_skills_by_category(SkillCategory.UTILITY)
         assert "mock_skill" in skills
     
     def test_list_skills_by_tag(self, registry):
-        """测试按标签列出技�?""
+        """测试按标签列出技能"""
         registry.register(MockSkill)
         
         skills = registry.list_skills_by_tag("test")
@@ -229,10 +230,10 @@ class TestSkillRegistry:
 
 
 class TestRegisterDecorator:
-    """注册装饰器测�?""
+    """注册装饰器测试"""
     
     def test_register_decorator(self):
-        """测试装饰器注�?""
+        """测试装饰器注册"""
         @register_skill
         class DecoratedSkill(SkillBase):
             @classmethod

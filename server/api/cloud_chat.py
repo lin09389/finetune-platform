@@ -1,14 +1,16 @@
+# -*- coding: utf-8 -*-
 """
 云端 AI 聊天 API
 
 支持 Minimax、GLM 等云端服务商
-安全增强�?- API Key 加密存储
+安全增强：
+- API Key 加密存储
 - 审计日志记录
 """
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import json
 import logging
 import uuid
@@ -18,56 +20,19 @@ from security.encryption import secure_storage
 from security.audit_log import audit_logger
 
 logger = logging.getLogger(__name__)
-router = APIRouter(tags=["云端 AI"])  # 移除 prefix，由 main.py 统一添加
+
+router = APIRouter(tags=["云端 AI"])
 
 
 class CloudChatRequest(BaseModel):
     """云端聊天请求"""
-    provider: str = Field(..., description="服务商：minimax/minimax-coding/glm")
-    api_key: Optional[str] = Field(None, description="API Key 明文（临时使用）")
-    key_id: Optional[str] = Field(None, description="存储�?Key ID（使用加密存储）")
-    group_id: Optional[str] = Field(None, description="Group ID（可选，用于 Minimax�?)
-    base_url: Optional[str] = Field(None, description="自定�?Base URL（可选）")
-    model: str = Field(default="MiniMax-M2.5", description="模型名称")
-    messages: List[Dict[str, str]] = Field(..., description="消息历史")
-    temperature: float = Field(default=0.7, ge=0, le=2, description="温度")
-    max_tokens: Optional[int] = Field(default=None, ge=1, description="最�?tokens")
-    stream: bool = Field(default=True, description="是否流式输出")
-
-    def get_api_key(self) -> str:
-        """获取 API Key（明文或从加密存储获取）"""
-        if self.api_key:
-            return self.api_key
-        if self.key_id:
-            try:
-                return secure_storage.get_api_key(self.key_id)
-            except KeyError:
-                raise ValueError(f"Key ID 不存在：{self.key_id}")
-        raise ValueError("必须提供 api_key �?key_id")
-
-    def get_group_id(self) -> str:
-        """获取 Group ID（从请求或加密存储获取）"""
-        if self.group_id:
-            return self.group_id
-        if self.key_id:
-            try:
-                key_data = secure_storage.get_key_data(self.key_id)
-                return key_data.get("group_id", "")
-            except KeyError:
-                pass
-        return ""
-
-    def get_base_url(self) -> str:
-        """获取 Base URL（从请求或加密存储获取）"""
-        if self.base_url:
-            return self.base_url
-        if self.key_id:
-            try:
-                key_data = secure_storage.get_key_data(self.key_id)
-                return key_data.get("base_url", "")
-            except KeyError:
-                pass
-        return ""
+    provider: str = Field(..., description="服务商：minimax/glm")
+    model: Optional[str] = Field(None, description="模型名称")
+    messages: List[Dict[str, str]] = Field(..., description="消息列表")
+    temperature: float = Field(default=0.7, ge=0, le=2, description="温度参数")
+    max_tokens: int = Field(default=2000, ge=1, le=32000, description="最大生成 token 数")
+    stream: bool = Field(default=False, description="是否流式输出")
+    extra_params: Optional[Dict[str, Any]] = Field(default=None, description="额外参数")
 
 
 class CloudChatResponse(BaseModel):
@@ -79,7 +44,7 @@ class CloudChatResponse(BaseModel):
 
 
 class ProviderInfo(BaseModel):
-    """服务商信�?""
+    """服务商信息"""
     id: str
     name: str
     description: str
@@ -87,475 +52,264 @@ class ProviderInfo(BaseModel):
 
 
 class ProviderListResponse(BaseModel):
-    """服务商列表响�?""
+    """服务商列表响应"""
     providers: List[ProviderInfo]
 
 
 class APIKeyRequest(BaseModel):
     """API Key 请求"""
-    provider: str = Field(..., description="服务商：minimax/minimax-coding/glm")
+    provider: str = Field(..., description="服务商：minimax/glm")
     api_key: str = Field(..., description="API Key 明文")
-    group_id: Optional[str] = Field(None, description="Group ID（可选，用于 Minimax�?)
-    base_url: Optional[str] = Field(None, description="自定�?Base URL（可选）")
+    group_id: Optional[str] = Field(None, description="Group ID（可选，用于 Minimax）")
+    base_url: Optional[str] = Field(None, description="自定义 Base URL（可选）")
     name: Optional[str] = Field(None, description="可选的名称")
 
 
 class APIKeyResponse(BaseModel):
     """API Key 响应"""
-    key_id: str
+    success: bool
+    message: str
     provider: str
-    name: Optional[str]
-    created_at: str
 
 
-class APIKeyTestRequest(BaseModel):
-    """API Key 测试请求"""
-    provider: str = Field(..., description="服务商：minimax/minimax-coding/glm")
-    api_key: str = Field(..., description="API Key 明文")
-    group_id: Optional[str] = Field(None, description="Group ID（可选，用于 Minimax�?)
-    base_url: Optional[str] = Field(None, description="自定�?Base URL（可选）")
-
-
-class APIKeyListResponse(BaseModel):
-    """API Key 列表响应"""
-    keys: List[Dict[str, str]]
-
-
-@router.post("/test")
-async def test_api_key_direct(request: APIKeyTestRequest):
-    """
-    直接测试 API Key（无需存储�?    
-    用于验证 API Key 是否有效，返回可用模型列�?    """
-    try:
-        provider_instance = await get_provider(
-            request.provider,
-            group_id=request.group_id or "",
-            base_url=request.base_url or ""
-        )
-        
-        await provider_instance.test_connection(
-            api_key=request.api_key,
-            group_id=request.group_id or "",
-            base_url=request.base_url or ""
-        )
-        
-        models = await provider_instance.models(request.api_key)
-        
-        return {
-            "success": True,
-            "provider": request.provider,
-            "models": models,
-            "message": "API Key 验证成功"
-        }
-        
-    except ValueError as e:
-        error_msg = str(e)
-        logger.error(f"API Key 测试失败：{error_msg}")
-        raise HTTPException(401, detail={
-            "error": "authentication_failed",
-            "message": error_msg,
-            "provider": request.provider,
-            "troubleshooting": _get_troubleshooting_tips(request.provider)
-        })
-    except Exception as e:
-        logger.error(f"API Key 测试失败：{e}")
-        raise HTTPException(500, detail={
-            "error": "test_failed",
-            "message": f"测试失败：{str(e)}",
-            "suggestion": "请检查网络连接和代理设置"
-        })
-
-
-def _get_troubleshooting_tips(provider: str) -> Dict[str, List[str]]:
-    """获取故障排除提示"""
-    tips = {
-        "minimax": [
-            "检�?API Key 格式是否正确（通常�?32 位字符串�?,
-            "确认 Group ID 是否匹配（如果使�?Coding Plan�?,
-            "验证 API Key 是否已过期或被禁�?,
-            "检查账户余额是否充�?,
-            "确认 Base URL 是否正确（默认：https://api.minimax.chat/v1�?
-        ],
-        "minimax-coding": [
-            "检�?API Key 格式是否正确",
-            "确认 Group ID 是否匹配（Coding Plan 必须提供 Group ID�?,
-            "验证 Coding Plan 套餐是否有效",
-            "检查账户余额是否充�?
-        ],
-        "glm": [
-            "检�?API Key 格式是否正确",
-            "验证 API Key 是否已过�?,
-            "检查账户余额是否充�?,
-            "确认 Base URL 是否正确（默认：https://open.bigmodel.cn/api/paas/v4�?
-        ]
-    }
-    return tips.get(provider, tips["minimax"])
-
-
-@router.post("/api-keys", response_model=APIKeyResponse)
-async def create_api_key(request: APIKeyRequest):
-    """
-    创建 API Key（加密存储）
-
-    API Key 会被加密存储�?.vault 文件�?    """
-    try:
-        # 生成 Key ID
-        key_id = f"key_{uuid.uuid4().hex[:12]}"
-
-        # 加密存储（包�?group_id �?base_url�?        secure_storage.store_api_key(
-            key_id,
-            request.provider,
-            request.api_key,
-            group_id=request.group_id,
-            base_url=request.base_url
-        )
-
-        # 记录审计日志
-        audit_logger.log_api_key_created(key_id, request.provider)
-
-        return APIKeyResponse(
-            key_id=key_id,
-            provider=request.provider,
-            name=request.name or request.provider,
-            created_at=secure_storage._get_timestamp()
-        )
-
-    except Exception as e:
-        logger.error(f"创建 API Key 失败：{e}")
-        raise HTTPException(500, detail=f"创建失败：{str(e)}")
-
-
-@router.get("/api-keys", response_model=APIKeyListResponse)
-async def list_api_keys():
-    """列出所�?API Key（不返回明文�?""
-    try:
-        keys = secure_storage.list_api_keys()
-        return APIKeyListResponse(keys=keys)
-    except Exception as e:
-        logger.error(f"列出 API Key 失败：{e}")
-        raise HTTPException(500, detail=f"获取失败：{str(e)}")
-
-
-@router.get("/api-keys/{key_id}/data")
-async def get_api_key_data(key_id: str):
-    """获取 API Key 的配置数据（不含明文 key�?""
-    try:
-        key_data = secure_storage.get_key_data(key_id)
-        return {
-            "key_id": key_id,
-            "provider": key_data.get("provider", ""),
-            "group_id": key_data.get("group_id", ""),
-            "base_url": key_data.get("base_url", "")
-        }
-    except KeyError:
-        raise HTTPException(404, detail="Key 不存�?)
-    except Exception as e:
-        logger.error(f"获取 API Key 数据失败：{e}")
-        raise HTTPException(500, detail=f"获取失败：{str(e)}")
-
-
-@router.delete("/api-keys/{key_id}")
-async def delete_api_key(key_id: str):
-    """删除 API Key"""
-    try:
-        secure_storage.delete_api_key(key_id)
-        audit_logger.log_api_key_deleted(key_id)
-        return {"success": True, "message": "已删�?}
-    except KeyError:
-        raise HTTPException(404, detail="Key 不存�?)
-    except Exception as e:
-        logger.error(f"删除 API Key 失败：{e}")
-        raise HTTPException(500, detail=f"删除失败：{str(e)}")
-
-
-@router.get("/api-keys/{key_id}/test")
-async def test_api_key(key_id: str):
-    """测试 API Key 是否有效"""
-    try:
-        api_key = secure_storage.get_api_key(key_id)
-        provider = secure_storage.get_provider(key_id)
-        
-        key_data = secure_storage.get_key_data(key_id)
-        group_id = key_data.get("group_id", "")
-        base_url = key_data.get("base_url", "")
-
-        provider_instance = await get_provider(provider, group_id=group_id, base_url=base_url)
-        
-        await provider_instance.test_connection(
-            api_key=api_key,
-            group_id=group_id,
-            base_url=base_url
-        )
-
-        models = await provider_instance.models(api_key)
-
-        audit_logger.log_api_key_access(key_id, provider, success=True)
-
-        return {
-            "success": True,
-            "provider": provider,
-            "models": models,
-            "message": "API Key 验证成功"
-        }
-
-    except KeyError:
-        raise HTTPException(404, detail="Key 不存�?)
-    except ValueError as e:
-        audit_logger.log_api_key_access(key_id, "unknown", success=False)
-        error_msg = str(e)
-        logger.error(f"测试 API Key 失败：{error_msg}")
-        raise HTTPException(401, detail={
-            "error": "authentication_failed",
-            "message": error_msg,
-            "troubleshooting": {
-                "minimax": [
-                    "检�?API Key 格式是否正确",
-                    "确认 Group ID 是否匹配（如果使用）",
-                    "验证 API Key 是否已过期或被禁�?,
-                    "检查账户余额是否充�?
-                ],
-                "glm": [
-                    "检�?API Key 格式是否正确",
-                    "验证 API Key 是否已过�?,
-                    "检查账户余额是否充�?
-                ]
-            }
-        })
-    except Exception as e:
-        audit_logger.log_api_key_access(key_id, "unknown", success=False)
-        logger.error(f"测试 API Key 失败：{e}")
-        raise HTTPException(500, detail={
-            "error": "test_failed",
-            "message": f"测试失败：{str(e)}",
-            "suggestion": "请检查网络连接和代理设置"
-        })
+class APIKeyStatus(BaseModel):
+    """API Key 状态"""
+    provider: str
+    has_key: bool
+    masked_key: Optional[str] = None
+    has_group_id: bool = False
 
 
 @router.get("/providers", response_model=ProviderListResponse)
-async def list_cloud_providers():
-    """列出所有可用的云端 AI 服务�?""
+async def get_providers():
+    """获取支持的云端 AI 服务商列表"""
     providers = list_providers()
-    return ProviderListResponse(providers=providers)
+    
+    provider_list = [
+        ProviderInfo(
+            id=p.get("id", "unknown"),
+            name=p.get("name", "Unknown"),
+            description=p.get("description", ""),
+            models=p.get("models", [])
+        )
+        for p in providers
+    ]
+    
+    return ProviderListResponse(providers=provider_list)
 
 
 @router.post("/chat", response_model=CloudChatResponse)
 async def cloud_chat(request: CloudChatRequest):
-    """
-    云端聊天（非流式�?
-    支持两种 API Key 方式�?    1. api_key: 直接传递明�?Key（临时使用）
-    2. key_id: 使用加密存储�?Key ID
-    """
+    """云端 AI 聊天"""
     try:
-        # 获取 API Key
-        api_key = request.get_api_key()
-        provider = request.provider
-
-        # �?key_id 获取存储�?group_id �?base_url（如果有�?        group_id = request.group_id
-        base_url = request.base_url
-        if request.key_id:
-            try:
-                stored_data = secure_storage.get_key_data(request.key_id)
-                group_id = group_id or stored_data.get("group_id")
-                base_url = base_url or stored_data.get("base_url")
-            except (KeyError, AttributeError):
-                pass
-
-        provider_instance = await get_provider(provider, group_id=group_id or "", base_url=base_url or "")
-
-        content = await provider_instance.chat(
+        provider = get_provider(request.provider)
+        
+        if provider is None:
+            raise HTTPException(status_code=400, detail=f"不支持的服务商：{request.provider}")
+        
+        model = request.model or provider.get_default_model()
+        
+        response = await provider.chat(
             messages=request.messages,
-            model=request.model,
-            api_key=api_key,
-            group_id=group_id or "",
-            base_url=base_url or "",
+            model=model,
             temperature=request.temperature,
-            max_tokens=request.max_tokens
+            max_tokens=request.max_tokens,
+            extra_params=request.extra_params
         )
-
-        # 记录审计日志
-        if request.key_id:
-            audit_logger.log_cloud_chat_access(provider, request.model, user_id=request.key_id)
-
+        
+        audit_logger.log(
+            action="cloud_chat",
+            params={
+                "provider": request.provider,
+                "model": model,
+                "message_count": len(request.messages)
+            },
+            result={"success": True}
+        )
+        
         return CloudChatResponse(
             success=True,
-            content=content,
-            provider=provider,
-            model=request.model
+            content=response.get("content", ""),
+            provider=request.provider,
+            model=model
         )
-
-
-    except ValueError as e:
-        error_msg = str(e)
-        logger.warning(f"参数错误：{error_msg}")
-        raise HTTPException(400, detail={
-            "error": "invalid_parameter",
-            "message": error_msg,
-            "troubleshooting": _get_troubleshooting_tips(request.provider)
-        })
+        
     except Exception as e:
-        logger.error(f"云端聊天失败：{e}", exc_info=True)
-        error_msg = str(e)
-        if "认证失败" in error_msg or "401" in error_msg:
-            raise HTTPException(401, detail={
-                "error": "authentication_failed",
-                "message": error_msg,
-                "troubleshooting": _get_troubleshooting_tips(request.provider)
-            })
-        elif "权限不足" in error_msg or "403" in error_msg:
-            raise HTTPException(403, detail={
-                "error": "permission_denied",
-                "message": error_msg,
-                "suggestion": "请检�?API Key 权限或套餐是否有�?
-            })
-        elif "请求过于频繁" in error_msg or "429" in error_msg:
-            raise HTTPException(429, detail={
-                "error": "rate_limit_exceeded",
-                "message": error_msg,
-                "suggestion": "请稍后重�?
-            })
-        else:
-            raise HTTPException(500, detail={
-                "error": "chat_failed",
-                "message": f"聊天失败：{error_msg}",
-                "suggestion": "请检查网络连接或查看服务器日�?
-            })
+        logger.error(f"云端聊天失败：{e}")
+        
+        audit_logger.log(
+            action="cloud_chat",
+            params={"provider": request.provider},
+            result={"success": False, "error": str(e)}
+        )
+        
+        raise HTTPException(status_code=500, detail=f"聊天失败：{str(e)}")
 
 
 @router.post("/chat/stream")
 async def cloud_chat_stream(request: CloudChatRequest):
-    """
-    云端聊天（流式）
+    """云端 AI 流式聊天"""
+    async def generate():
+        try:
+            provider = get_provider(request.provider)
+            
+            if provider is None:
+                yield f"data: {json.dumps({'error': f'不支持的服务商：{request.provider}'})}\n\n"
+                return
+            
+            model = request.model or provider.get_default_model()
+            
+            async for chunk in provider.chat_stream(
+                messages=request.messages,
+                model=model,
+                temperature=request.temperature,
+                max_tokens=request.max_tokens,
+                extra_params=request.extra_params
+            ):
+                yield f"data: {json.dumps(chunk)}\n\n"
+            
+            yield "data: [DONE]\n\n"
+            
+        except Exception as e:
+            logger.error(f"流式聊天失败：{e}")
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
 
-    支持两种 API Key 方式�?    1. api_key: 直接传递明�?Key（临时使用）
-    2. key_id: 使用加密存储�?Key ID
 
-    性能优化�?    - 压缩响应
-    - 批量发�?chunks
-    """
+@router.post("/api-keys", response_model=APIKeyResponse)
+async def set_api_key(request: APIKeyRequest):
+    """设置服务商 API Key（加密存储）"""
     try:
-        # 获取 API Key
-        api_key = request.get_api_key()
-        provider = request.provider
-
-        # �?key_id 获取存储�?group_id �?base_url（如果有�?        group_id = request.group_id
-        base_url = request.base_url
-        if request.key_id:
-            try:
-                stored_data = secure_storage.get_key_data(request.key_id)
-                group_id = group_id or stored_data.get("group_id")
-                base_url = base_url or stored_data.get("base_url")
-            except (KeyError, AttributeError):
-                pass
-
-        provider_instance = await get_provider(provider, group_id=group_id or "", base_url=base_url or "")
-
-        async def generate():
-            """生成流式响应"""
-            buffer = []
-            buffer_size = 3  # �?3 �?chunk 发送一次，减少网络往�?
-            try:
-                async for chunk in provider_instance.stream(
-                    messages=request.messages,
-                    model=request.model,
-                    api_key=api_key,
-                    group_id=group_id or "",
-                    base_url=base_url or "",
-                    temperature=request.temperature,
-                    max_tokens=request.max_tokens
-                ):
-                    buffer.append(chunk)
-
-                    # 达到缓冲大小或遇到标点符号时发�?                    if len(buffer) >= buffer_size or chunk in ['�?, '�?, '�?, '.', '!', '?', '\n']:
-                        combined = ''.join(buffer)
-                        yield f"data: {json.dumps({'content': combined}, ensure_ascii=False)}\n\n"
-                        buffer = []
-
-                # 发送剩余内�?                if buffer:
-                    combined = ''.join(buffer)
-                    yield f"data: {json.dumps({'content': combined}, ensure_ascii=False)}\n\n"
-
-                # 记录审计日志
-                if request.key_id:
-                    audit_logger.log_cloud_chat_access(
-                        provider, request.model,
-                        user_id=request.key_id,
-                        success=True
-                    )
-
-            except Exception as e:
-                logger.error(f"流式生成错误：{e}")
-                if request.key_id:
-                    audit_logger.log_cloud_chat_access(
-                        provider, request.model,
-                        user_id=request.key_id,
-                        success=False
-                    )
-                yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
-            finally:
-                yield "data: [DONE]\n\n"
-
-        return StreamingResponse(
-            generate(),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",  # 禁用 Nginx 缓冲
-            }
+        key_data = {
+            "api_key": request.api_key,
+        }
+        
+        if request.group_id:
+            key_data["group_id"] = request.group_id
+        
+        if request.base_url:
+            key_data["base_url"] = request.base_url
+        
+        secure_storage.store(f"cloud_{request.provider}_key", key_data)
+        
+        audit_logger.log(
+            action="set_api_key",
+            params={"provider": request.provider},
+            result={"success": True}
         )
-
-    except ValueError as e:
-        error_msg = str(e)
-        logger.warning(f"参数错误：{error_msg}")
-        raise HTTPException(400, detail={
-            "error": "invalid_parameter",
-            "message": error_msg,
-            "troubleshooting": _get_troubleshooting_tips(request.provider)
-        })
+        
+        return APIKeyResponse(
+            success=True,
+            message="API Key 已安全存储",
+            provider=request.provider
+        )
+        
     except Exception as e:
-        logger.error(f"流式聊天失败：{e}", exc_info=True)
-        error_msg = str(e)
-        if "认证失败" in error_msg or "401" in error_msg:
-            raise HTTPException(401, detail={
-                "error": "authentication_failed",
-                "message": error_msg,
-                "troubleshooting": _get_troubleshooting_tips(request.provider)
-            })
-        elif "权限不足" in error_msg or "403" in error_msg:
-            raise HTTPException(403, detail={
-                "error": "permission_denied",
-                "message": error_msg,
-                "suggestion": "请检�?API Key 权限或套餐是否有�?
-            })
-        elif "请求过于频繁" in error_msg or "429" in error_msg:
-            raise HTTPException(429, detail={
-                "error": "rate_limit_exceeded",
-                "message": error_msg,
-                "suggestion": "请稍后重�?
-            })
-        else:
-            raise HTTPException(500, detail={
-                "error": "stream_failed",
-                "message": f"流式聊天失败：{error_msg}",
-                "suggestion": "请检查网络连接或查看服务器日�?
-            })
+        logger.error(f"存储 API Key 失败：{e}")
+        raise HTTPException(status_code=500, detail=f"存储失败：{str(e)}")
+
+
+@router.get("/api-keys/{provider}", response_model=APIKeyStatus)
+async def get_api_key_status(provider: str):
+    """获取 API Key 状态"""
+    try:
+        key_data = secure_storage.get(f"cloud_{provider}_key")
+        
+        if key_data is None:
+            return APIKeyStatus(
+                provider=provider,
+                has_key=False
+            )
+        
+        api_key = key_data.get("api_key", "")
+        masked_key = None
+        if api_key:
+            masked_key = f"{api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "****"
+        
+        return APIKeyStatus(
+            provider=provider,
+            has_key=True,
+            masked_key=masked_key,
+            has_group_id=bool(key_data.get("group_id"))
+        )
+        
+    except Exception as e:
+        logger.error(f"获取 API Key 状态失败：{e}")
+        return APIKeyStatus(provider=provider, has_key=False)
+
+
+@router.delete("/api-keys/{provider}")
+async def delete_api_key(provider: str):
+    """删除 API Key"""
+    try:
+        secure_storage.delete(f"cloud_{provider}_key")
+        
+        audit_logger.log(
+            action="delete_api_key",
+            params={"provider": provider},
+            result={"success": True}
+        )
+        
+        return {"success": True, "message": "API Key 已删除"}
+        
+    except Exception as e:
+        logger.error(f"删除 API Key 失败：{e}")
+        raise HTTPException(status_code=500, detail=f"删除失败：{str(e)}")
+
+
+@router.post("/test/{provider}")
+async def test_provider(provider: str):
+    """测试服务商连接"""
+    try:
+        provider_instance = get_provider(provider)
+        
+        if provider_instance is None:
+            raise HTTPException(status_code=400, detail=f"不支持的服务商：{provider}")
+        
+        result = await provider_instance.test_connection()
+        
+        return {
+            "success": result.get("success", False),
+            "provider": provider,
+            "message": result.get("message", ""),
+            "latency_ms": result.get("latency_ms", 0)
+        }
+        
+    except Exception as e:
+        logger.error(f"测试服务商连接失败：{e}")
+        raise HTTPException(status_code=500, detail=f"测试失败：{str(e)}")
 
 
 @router.get("/models/{provider}")
-async def get_provider_models(provider: str):
-    """
-    获取指定服务商的可用模型列表
-
-    Args:
-        provider: 服务�?ID (minimax/minimax-coding/glm)
-    """
+async def list_models(provider: str):
+    """获取服务商支持的模型列表"""
     try:
-        provider_instance = await get_provider(provider)
-        # 注意：这里需要实际的 API Key 才能获取模型列表
-        # 暂时返回静态列�?        models = provider_instance.models("")
-        return {"provider": provider, "models": models}
-    except ValueError as e:
-        raise HTTPException(400, detail=str(e))
+        provider_instance = get_provider(provider)
+        
+        if provider_instance is None:
+            raise HTTPException(status_code=400, detail=f"不支持的服务商：{provider}")
+        
+        models = provider_instance.list_models()
+        
+        return {
+            "provider": provider,
+            "models": models
+        }
+        
     except Exception as e:
         logger.error(f"获取模型列表失败：{e}")
-        raise HTTPException(500, detail=f"获取失败：{str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取失败：{str(e)}")
+
+
+@router.post("/completions")
+async def cloud_completions(request: CloudChatRequest):
+    """兼容 OpenAI 格式的补全接口"""
+    return await cloud_chat(request)

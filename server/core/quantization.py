@@ -1,7 +1,8 @@
 """
 量化模型支持模块
 
-支持多种量化格式�?- GPTQ
+支持多种量化格式：
+- GPTQ
 - AWQ
 - GGUF (llama-cpp-python)
 """
@@ -112,7 +113,7 @@ class QuantizationDetector:
     
     @classmethod
     def detect_quant_type(cls, model_path: str) -> QuantizationType:
-        """检测模型量化类�?""
+        """检测模型量化类型"""
         model_lower = model_path.lower()
         
         for quant_type, patterns in cls.QUANT_PATTERNS.items():
@@ -121,7 +122,7 @@ class QuantizationDetector:
                     logger.info(f"检测到量化类型: {quant_type.value} (匹配: {pattern})")
                     return quant_type
         
-        logger.info("未检测到量化类型，使�?FP16")
+        logger.info("未检测到量化类型，使用 FP16")
         return QuantizationType.NONE
     
     @classmethod
@@ -130,7 +131,7 @@ class QuantizationDetector:
         path = Path(model_path)
         
         if not path.exists():
-            raise FileNotFoundError(f"模型文件不存�? {model_path}")
+            raise FileNotFoundError(f"模型文件不存在: {model_path}")
         
         if path.is_file():
             size = path.stat().st_size
@@ -164,7 +165,7 @@ class QuantizationDetector:
     
     @classmethod
     def _detect_bits(cls, model_path: str) -> int:
-        """检测量化位�?""
+        """检测量化位数"""
         model_lower = model_path.lower()
         
         if "q4" in model_lower or "_4" in model_lower:
@@ -182,7 +183,7 @@ class QuantizationDetector:
     
     @classmethod
     def _detect_model_type(cls, model_dir: Path) -> str:
-        """检测模型类�?""
+        """检测模型类型"""
         config_files = ["config.json", "config.yaml", "model_config.json"]
         
         for config_file in config_files:
@@ -214,7 +215,7 @@ class QuantizationDetector:
 
 
 class QuantizationLoader:
-    """量化模型加载�?""
+    """量化模型加载器"""
     
     @staticmethod
     def get_loader_args(
@@ -264,7 +265,7 @@ class QuantizationLoader:
         model_path: str,
         quant_config: QuantizationConfig,
     ) -> int:
-        """估算显存使用量（字节�?""
+        """估算显存使用量（字节）"""
         import math
         
         model_info = QuantizationDetector.get_model_info(model_path)

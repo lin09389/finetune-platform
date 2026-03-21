@@ -28,8 +28,11 @@ class HuggingFaceEngine(InferenceEngine):
     """
     HuggingFace 推理引擎
     
-    支持�?    - 模型加载与卸�?    - 同步/流式生成
-    - LoRA 适配�?    - Chat Template
+    支持：
+    - 模型加载与卸载
+    - 同步/流式生成
+    - LoRA 适配器
+    - Chat Template
     """
     
     engine_type: str = "huggingface"
@@ -88,7 +91,7 @@ class HuggingFaceEngine(InferenceEngine):
                     logger.info("Flash Attention 2 加载成功")
             except Exception as e:
                 if attn_implementation == "flash_attention_2":
-                    logger.warning(f"Flash Attention 2 初始化失败，降级�?eager：{e}")
+                    logger.warning(f"Flash Attention 2 初始化失败，降级为 eager：{e}")
                     load_kwargs["attn_implementation"] = "eager"
                     self._model = AutoModelForCausalLM.from_pretrained(**load_kwargs)
                     self._attention_backend = "eager"
@@ -114,13 +117,13 @@ class HuggingFaceEngine(InferenceEngine):
         获取 attention 实现方式
         
         Returns:
-            Optional[str]: "flash_attention_2"�?eager" �?None（使用默认）
+            Optional[str]: "flash_attention_2"、"eager" 或 None（使用默认）
         """
         from core.config import get_settings
         settings = get_settings()
         
         if not settings.enable_flash_attention:
-            logger.debug("Flash Attention 已在配置中禁�?)
+            logger.debug("Flash Attention 已在配置中禁用")
             return "eager"
         
         if is_flash_attn_2_available():
@@ -142,7 +145,7 @@ class HuggingFaceEngine(InferenceEngine):
         return dtype_map.get(self.config.torch_dtype, torch.float16)
     
     async def unload(self) -> None:
-        """卸载模型并释放资�?""
+        """卸载模型并释放资源"""
         if not self._is_loaded:
             return
         
@@ -322,7 +325,7 @@ class HuggingFaceEngine(InferenceEngine):
             raise RuntimeError(f"流式生成失败：{e}")
     
     async def apply_lora(self, lora_path: str) -> None:
-        """应用 LoRA 适配�?""
+        """应用 LoRA 适配器"""
         if not self._is_loaded:
             await self.load()
         
@@ -346,13 +349,13 @@ class HuggingFaceEngine(InferenceEngine):
             logger.info(f"LoRA 适配器加载完成：{lora_path}")
             
         except ImportError:
-            raise RuntimeError("peft 库未安装，无法加�?LoRA 适配�?)
+            raise RuntimeError("peft 库未安装，无法加载 LoRA 适配器")
         except Exception as e:
             logger.error(f"加载 LoRA 适配器失败：{e}", exc_info=True)
             raise RuntimeError(f"加载 LoRA 适配器失败：{e}")
     
     async def remove_lora(self) -> None:
-        """移除 LoRA 适配�?""
+        """移除 LoRA 适配器"""
         if self._lora_model is not None:
             del self._lora_model
             self._lora_model = None

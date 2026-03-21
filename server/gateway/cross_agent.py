@@ -1,7 +1,11 @@
+# -*- coding: utf-8 -*-
 """
-�?Agent 通信管理�?
-实现�?Agent 环境下的通信机制�?- 消息传�?- �?Agent spawn
-- 结果收集和合�?- 通信权限控制
+跨 Agent 通信管理器
+实现多 Agent 环境下的通信机制：
+- 消息传递
+- 子 Agent spawn
+- 结果收集和合并
+- 通信权限控制
 """
 import asyncio
 import logging
@@ -25,7 +29,7 @@ class MessageType(str, Enum):
 
 
 class MessagePriority(str, Enum):
-    """消息优先�?""
+    """消息优先级"""
     HIGH = "high"
     NORMAL = "normal"
     LOW = "low"
@@ -78,9 +82,13 @@ class CommunicationChannel:
 
 class CrossAgentCommunicator:
     """
-    �?Agent 通信管理�?    
-    功能�?    - 消息传�?    - �?Agent spawn
-    - 结果收集和合�?    - 通信权限控制
+    跨 Agent 通信管理器
+    
+    功能:
+    - 消息传递
+    - 子 Agent spawn
+    - 结果收集和合并
+    - 通信权限控制
     """
     
     def __init__(self):
@@ -98,15 +106,15 @@ class CrossAgentCommunicator:
         self._background_tasks: List[asyncio.Task] = []
     
     async def start(self):
-        """启动通信管理�?""
+        """启动通信管理器"""
         if self._is_running:
             return
         
         self._is_running = True
-        logger.info("�?Agent 通信管理器已启动")
+        logger.info("跨 Agent 通信管理器已启动")
     
     async def stop(self):
-        """停止通信管理�?""
+        """停止通信管理器"""
         self._is_running = False
         
         for task in self._background_tasks:
@@ -121,7 +129,7 @@ class CrossAgentCommunicator:
                 future.cancel()
         
         self._pending_responses.clear()
-        logger.info("�?Agent 通信管理器已停止")
+        logger.info("跨 Agent 通信管理器已停止")
     
     def register_agent(self, agent_id: str, handler: Optional[Callable] = None):
         """注册 Agent"""
@@ -160,13 +168,13 @@ class CrossAgentCommunicator:
         correlation_id: Optional[str] = None,
         timeout: Optional[int] = None,
     ) -> Optional[AgentMessage]:
-        """发送消�?""
+        """发送消息"""
         if target_agent not in self._message_queues:
-            logger.warning(f"目标 Agent 不存�? {target_agent}")
+            logger.warning(f"目标 Agent 不存在: {target_agent}")
             return None
         
         if not self._check_permission(source_agent, target_agent, "send"):
-            logger.warning(f"Agent {source_agent} 无权�?{target_agent} 发送消�?)
+            logger.warning(f"Agent {source_agent} 无权向 {target_agent} 发送消息")
             return None
         
         message = AgentMessage(
@@ -189,7 +197,7 @@ class CrossAgentCommunicator:
             self._channels[channel_id].message_count += 1
             self._channels[channel_id].last_activity = datetime.now()
             
-            logger.debug(f"消息已发�? {source_agent} -> {target_agent}")
+            logger.debug(f"消息已发送: {source_agent} -> {target_agent}")
             return message
         
         except asyncio.TimeoutError:
@@ -238,7 +246,7 @@ class CrossAgentCommunicator:
         payload: Dict[str, Any],
         exclude: Optional[List[str]] = None,
     ) -> List[str]:
-        """广播消息到所�?Agent"""
+        """广播消息到所有 Agent"""
         exclude = exclude or []
         if source_agent not in exclude:
             exclude.append(source_agent)
@@ -258,7 +266,7 @@ class CrossAgentCommunicator:
             if message:
                 sent_to.append(agent_id)
         
-        logger.info(f"广播消息: {source_agent} -> {len(sent_to)} �?Agent")
+        logger.info(f"广播消息: {source_agent} -> {len(sent_to)} 个 Agent")
         return sent_to
     
     async def receive_message(self, agent_id: str, timeout: float = 1.0) -> Optional[AgentMessage]:
@@ -281,7 +289,7 @@ class CrossAgentCommunicator:
         task_type: str,
         config: Optional[Dict[str, Any]] = None,
     ) -> Optional[str]:
-        """生成�?Agent"""
+        """生成子 Agent"""
         if len(self._spawned_agents) >= self._max_spawned_agents:
             logger.warning("已达到最大子 Agent 数量")
             return None
@@ -299,11 +307,11 @@ class CrossAgentCommunicator:
         
         asyncio.create_task(self._run_spawned_agent(spawned_id, config))
         
-        logger.info(f"生成�?Agent: {spawned_id} (�? {parent_agent})")
+        logger.info(f"生成子 Agent: {spawned_id} (父: {parent_agent})")
         return spawned_id
     
     async def _run_spawned_agent(self, spawned_id: str, config: Optional[Dict[str, Any]]):
-        """运行�?Agent"""
+        """运行子 Agent"""
         spawned = self._spawned_agents.get(spawned_id)
         if not spawned:
             return
@@ -342,12 +350,12 @@ class CrossAgentCommunicator:
         spawned: SpawnedAgent,
         config: Optional[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """执行�?Agent 任务"""
+        """执行子 Agent 任务"""
         await asyncio.sleep(0.1)
         return {"status": "completed", "task_type": spawned.task_type}
     
     async def terminate_agent(self, agent_id: str) -> bool:
-        """终止�?Agent"""
+        """终止子 Agent"""
         spawned = self._spawned_agents.get(agent_id)
         if not spawned:
             return False
@@ -357,7 +365,7 @@ class CrossAgentCommunicator:
         
         self.unregister_agent(agent_id)
         
-        logger.info(f"终止�?Agent: {agent_id}")
+        logger.info(f"终止子 Agent: {agent_id}")
         return True
     
     async def collect_results(
@@ -365,7 +373,7 @@ class CrossAgentCommunicator:
         agent_ids: List[str],
         timeout: int = 60,
     ) -> Dict[str, Any]:
-        """收集多个 Agent 的结�?""
+        """收集多个 Agent 的结果"""
         results = {}
         tasks = []
         
@@ -399,7 +407,7 @@ class CrossAgentCommunicator:
         results: Dict[str, Any],
         strategy: str = "combine",
     ) -> Dict[str, Any]:
-        """合并多个 Agent 的结�?""
+        """合并多个 Agent 的结果"""
         if not results:
             return {}
         
@@ -473,7 +481,7 @@ class CrossAgentCommunicator:
         logger.info(f"设置通道权限: {channel_id}")
     
     def get_spawned_agents(self, parent_agent: Optional[str] = None) -> List[SpawnedAgent]:
-        """获取�?Agent 列表"""
+        """获取子 Agent 列表"""
         if parent_agent:
             return [
                 a for a in self._spawned_agents.values()
@@ -498,7 +506,7 @@ _communicator: Optional[CrossAgentCommunicator] = None
 
 
 def get_cross_agent_communicator() -> CrossAgentCommunicator:
-    """获取�?Agent 通信管理器单�?""
+    """获取跨 Agent 通信管理器单例"""
     global _communicator
     if _communicator is None:
         _communicator = CrossAgentCommunicator()

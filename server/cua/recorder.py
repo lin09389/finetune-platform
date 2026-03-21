@@ -1,5 +1,7 @@
+# -*- coding: utf-8 -*-
 """
-CUA 操作录制器模�?"""
+CUA 操作录制器模块
+"""
 import json
 import threading
 import time
@@ -238,7 +240,7 @@ class ActionRecorder:
         path = Path(filepath)
 
         if not path.exists():
-            raise RecorderError(f"文件不存�? {filepath}")
+            raise RecorderError(f"文件不存在: {filepath}")
 
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)

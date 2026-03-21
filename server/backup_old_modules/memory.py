@@ -1,6 +1,7 @@
 """
 记忆管理 API
-提供记忆的提取、检索、管理接�?"""
+提供记忆的提取、检索、管理接口
+"""
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
@@ -12,8 +13,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-
-# ============ 请求/响应模型 ============
 
 class ExtractRequest(BaseModel):
     """提取请求"""
@@ -41,14 +40,13 @@ class MemoryResponse(BaseModel):
     relevance: Optional[float] = None
 
 
-# ============ API 端点 ============
-
 @router.post("/extract")
 async def extract_memory(request: ExtractRequest):
     """
     从消息中提取记忆
 
-    自动识别用户消息中的重要信息并存�?    """
+    自动识别用户消息中的重要信息并存储
+    """
     try:
         service = get_memory_service()
         memories = service.extract_and_store(
@@ -57,7 +55,7 @@ async def extract_memory(request: ExtractRequest):
             user_id=request.user_id
         )
 
-        logger.info(f"提取记忆: {len(memories)} �?)
+        logger.info(f"提取记忆: {len(memories)} 条")
 
         return {
             "success": True,
@@ -72,8 +70,9 @@ async def extract_memory(request: ExtractRequest):
 @router.post("/recall")
 async def recall_memory(request: RecallRequest):
     """
-    检索相关记�?
-    根据查询文本返回相关的记�?    """
+    检索相关记忆
+    根据查询文本返回相关的记忆
+    """
     try:
         service = get_memory_service()
         memories = service.recall(
@@ -89,8 +88,8 @@ async def recall_memory(request: RecallRequest):
             "count": len(memories)
         }
     except Exception as e:
-        logger.error(f"检索记忆失�? {e}")
-        raise HTTPException(500, f"检索失�? {str(e)}")
+        logger.error(f"检索记忆失败: {e}")
+        raise HTTPException(500, f"检索失败: {str(e)}")
 
 
 @router.get("/list")
@@ -100,8 +99,9 @@ async def list_memories(
     limit: int = Query(default=50)
 ):
     """
-    列出所有记�?
-    支持按类型过�?    """
+    列出所有记忆
+    支持按类型过滤
+    """
     try:
         service = get_memory_service()
         memories = service.list_memories(
@@ -135,9 +135,9 @@ async def forget_memory(
         success = service.forget(user_id, memory_id)
 
         if success:
-            return {"success": True, "message": "记忆已删�?}
+            return {"success": True, "message": "记忆已删除"}
         else:
-            raise HTTPException(404, "记忆不存�?)
+            raise HTTPException(404, "记忆不存在")
     except HTTPException:
         raise
     except Exception as e:
@@ -150,8 +150,9 @@ async def clear_all_memories(
     user_id: str = Query(default="default")
 ):
     """
-    清除所有记�?
-    谨慎使用�?    """
+    清除所有记忆
+    谨慎使用！
+    """
     try:
         service = get_memory_service()
         success = service.clear_all(user_id)
@@ -172,7 +173,8 @@ async def get_summary(user_id: str = Query(default="default")):
     """
     获取用户记忆摘要
 
-    返回记忆统计和分类信�?    """
+    返回记忆统计和分类信息
+    """
     try:
         service = get_memory_service()
         summary = service.get_user_summary(user_id)
@@ -193,7 +195,7 @@ async def get_context(
     max_memories: int = Query(default=5)
 ):
     """
-    获取带记忆的上下�?
+    获取带记忆的上下文
     用于注入到聊天提示中
     """
     try:
@@ -209,8 +211,8 @@ async def get_context(
             "context": context
         }
     except Exception as e:
-        logger.error(f"获取上下文失�? {e}")
-        raise HTTPException(500, f"获取上下文失�? {str(e)}")
+        logger.error(f"获取上下文失败: {e}")
+        raise HTTPException(500, f"获取上下文失败: {str(e)}")
 
 
 @router.get("/stats")

@@ -1,5 +1,6 @@
 """
-åºç¨ç½ååç®¡çæ¨¡å?"""
+应用白名单管理模块
+"""
 import json
 import platform
 from pathlib import Path
@@ -42,70 +43,70 @@ DEFAULT_WINDOWS_APPS: Dict[str, WhitelistEntry] = {
         name="Visual Studio Code",
         executable="code",
         aliases=["vscode", "visual studio code", "code editor"],
-        description="ä»£ç ç¼è¾å?,
+        description="代码编辑器",
         category="development"
     ),
     "notepad": WhitelistEntry(
         name="Notepad",
         executable="notepad",
-        aliases=["è®°äºæ?],
-        description="ç³»ç»è®°äºæ?,
+        aliases=["记事本"],
+        description="系统记事本",
         category="system"
     ),
     "notepad++": WhitelistEntry(
         name="Notepad++",
         executable="notepad++",
         aliases=["npp"],
-        description="é«çº§ææ¬ç¼è¾å?,
+        description="高级文本编辑器",
         category="development"
     ),
     "chrome": WhitelistEntry(
         name="Google Chrome",
         executable="chrome",
-        aliases=["google chrome", "è°·æ­æµè§å?],
-        description="Google æµè§å?,
+        aliases=["google chrome", "谷歌浏览器"],
+        description="Google 浏览器",
         category="browser"
     ),
     "edge": WhitelistEntry(
         name="Microsoft Edge",
         executable="msedge",
-        aliases=["å¾®è½¯æµè§å?],
-        description="Microsoft æµè§å?,
+        aliases=["微软浏览器"],
+        description="Microsoft 浏览器",
         category="browser"
     ),
     "firefox": WhitelistEntry(
         name="Firefox",
         executable="firefox",
-        aliases=["ç«çæµè§å?, "mozilla firefox"],
-        description="Firefox æµè§å?,
+        aliases=["火狐浏览器", "mozilla firefox"],
+        description="Firefox 浏览器",
         category="browser"
     ),
     "word": WhitelistEntry(
         name="Microsoft Word",
         executable="winword",
-        aliases=["word", "å¾®è½¯ææ¡£"],
-        description="Microsoft Word ææ¡£ç¼è¾å?,
+        aliases=["word", "微软文档"],
+        description="Microsoft Word 文档编辑器",
         category="office"
     ),
     "excel": WhitelistEntry(
         name="Microsoft Excel",
         executable="excel",
-        aliases=["excel", "å¾®è½¯è¡¨æ ¼"],
-        description="Microsoft Excel è¡¨æ ¼ç¼è¾å?,
+        aliases=["excel", "微软表格"],
+        description="Microsoft Excel 表格编辑器",
         category="office"
     ),
     "powerpoint": WhitelistEntry(
         name="Microsoft PowerPoint",
         executable="powerpnt",
-        aliases=["ppt", "powerpoint", "å¾®è½¯æ¼ç¤º"],
-        description="Microsoft PowerPoint æ¼ç¤ºæç¨¿",
+        aliases=["ppt", "powerpoint", "微软演示"],
+        description="Microsoft PowerPoint 演示文稿",
         category="office"
     ),
     "cmd": WhitelistEntry(
         name="Command Prompt",
         executable="cmd",
-        aliases=["å½ä»¤æç¤ºç¬?, "command prompt"],
-        description="Windows å½ä»¤æç¤ºç¬?,
+        aliases=["命令提示符", "command prompt"],
+        description="Windows 命令提示符",
         category="system"
     ),
     "powershell": WhitelistEntry(
@@ -118,22 +119,22 @@ DEFAULT_WINDOWS_APPS: Dict[str, WhitelistEntry] = {
     "explorer": WhitelistEntry(
         name="File Explorer",
         executable="explorer",
-        aliases=["æä»¶èµæºç®¡çå?, "file explorer"],
-        description="Windows æä»¶èµæºç®¡çå?,
+        aliases=["文件资源管理器", "file explorer"],
+        description="Windows 文件资源管理器",
         category="system"
     ),
     "calculator": WhitelistEntry(
         name="Calculator",
         executable="calc",
-        aliases=["è®¡ç®å?, "calculator"],
-        description="Windows è®¡ç®å?,
+        aliases=["计算器", "calculator"],
+        description="Windows 计算器",
         category="system"
     ),
     "paint": WhitelistEntry(
         name="Paint",
         executable="mspaint",
-        aliases=["ç»å¾", "paint"],
-        description="Windows ç»å¾",
+        aliases=["画图", "paint"],
+        description="Windows 画图",
         category="media"
     ),
 }
@@ -143,42 +144,42 @@ DEFAULT_MACOS_APPS: Dict[str, WhitelistEntry] = {
         name="Visual Studio Code",
         executable="Visual Studio Code",
         aliases=["vscode", "visual studio code", "code editor"],
-        description="ä»£ç ç¼è¾å?,
+        description="代码编辑器",
         category="development"
     ),
     "safari": WhitelistEntry(
         name="Safari",
         executable="Safari",
-        aliases=["safari", "è¹ææµè§å?],
-        description="Apple Safari æµè§å?,
+        aliases=["safari", "苹果浏览器"],
+        description="Apple Safari 浏览器",
         category="browser"
     ),
     "chrome": WhitelistEntry(
         name="Google Chrome",
         executable="Google Chrome",
-        aliases=["google chrome", "è°·æ­æµè§å?],
-        description="Google æµè§å?,
+        aliases=["google chrome", "谷歌浏览器"],
+        description="Google 浏览器",
         category="browser"
     ),
     "finder": WhitelistEntry(
         name="Finder",
         executable="Finder",
-        aliases=["è®¿è¾¾", "finder"],
-        description="macOS æä»¶ç®¡çå?,
+        aliases=["访达", "finder"],
+        description="macOS 文件管理器",
         category="system"
     ),
     "terminal": WhitelistEntry(
         name="Terminal",
         executable="Terminal",
-        aliases=["ç»ç«¯", "terminal"],
-        description="macOS ç»ç«¯",
+        aliases=["终端", "terminal"],
+        description="macOS 终端",
         category="system"
     ),
     "calculator": WhitelistEntry(
         name="Calculator",
         executable="Calculator",
-        aliases=["è®¡ç®å?, "calculator"],
-        description="macOS è®¡ç®å?,
+        aliases=["计算器", "calculator"],
+        description="macOS 计算器",
         category="system"
     ),
 }
@@ -480,14 +481,14 @@ class AppWhitelist:
             entry: Optional[WhitelistEntry] = None
         
         if not app_name:
-            return ValidationResult(False, "åºç¨åç§°ä¸è½ä¸ºç©º")
+            return ValidationResult(False, "应用名称不能为空")
         
         entry = self._find_entry(app_name)
         if not entry:
             allowed_list = ", ".join(sorted(set(e.name for e in self._config.entries.values())))
             return ValidationResult(
                 False,
-                f"ä¸åè®¸æå¼æ­¤åºç¨ãåè®¸çåºç¨ï¼{allowed_list}"
+                f"不允许打开此应用。允许的应用：{allowed_list}"
             )
         
         return ValidationResult(True, sanitized_value=entry.executable, entry=entry)

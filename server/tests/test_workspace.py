@@ -33,7 +33,7 @@ class TestModels:
         assert project.status == ProjectStatus.ACTIVE
     
     def test_project_model_dump(self):
-        """测试项目序列�?""
+        """测试项目序列化"""
         project = Project(
             id="proj_2",
             name="Test",
@@ -56,7 +56,7 @@ class TestModels:
         assert task.priority == TaskPriority.NORMAL
     
     def test_task_model_dump(self):
-        """测试任务序列�?""
+        """测试任务序列化"""
         task = Task(
             id="task_2",
             project_id="proj_1",
@@ -78,19 +78,19 @@ class TestModels:
         assert version.content_hash == "abc123"
     
     def test_project_status_values(self):
-        """测试项目状态枚举�?""
+        """测试项目状态枚举值"""
         assert ProjectStatus.ACTIVE.value == "active"
         assert ProjectStatus.ARCHIVED.value == "archived"
         assert ProjectStatus.DELETED.value == "deleted"
     
     def test_task_status_values(self):
-        """测试任务状态枚举�?""
+        """测试任务状态枚举值"""
         assert TaskStatus.PENDING.value == "pending"
         assert TaskStatus.IN_PROGRESS.value == "in_progress"
         assert TaskStatus.COMPLETED.value == "completed"
     
     def test_task_priority_values(self):
-        """测试任务优先级枚举�?""
+        """测试任务优先级枚举值"""
         assert TaskPriority.LOW.value == "low"
         assert TaskPriority.NORMAL.value == "normal"
         assert TaskPriority.HIGH.value == "high"

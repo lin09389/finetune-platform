@@ -43,17 +43,17 @@ MAX_CHUNK_SIZE = 10 * 1024 * 1024  # 10MB
 
 
 class ChunkUploadInit(BaseModel):
-    """分块上传初始化请�?""
+    """分块上传初始化请求"""
     project_id: str = Field(..., description="项目ID")
     file_path: str = Field(..., description="文件路径")
-    file_size: int = Field(..., description="文件总大�?)
+    file_size: int = Field(..., description="文件总大小")
     file_hash: Optional[str] = Field(default=None, description="文件哈希（用于秒传）")
     chunk_count: int = Field(..., description="分块数量")
     chunk_size: int = Field(default=CHUNK_SIZE, description="分块大小")
 
 
 class ChunkUploadInitResponse(BaseModel):
-    """分块上传初始化响�?""
+    """分块上传初始化响应"""
     upload_id: str = Field(..., description="上传ID")
     chunk_size: int = Field(..., description="分块大小")
     uploaded_chunks: List[int] = Field(default_factory=list, description="已上传的分块索引")
@@ -69,22 +69,22 @@ class FileEditRequest(BaseModel):
     """文件编辑请求"""
     content: str = Field(..., description="文件内容")
     message: Optional[str] = Field(default=None, description="版本说明")
-    author: Optional[str] = Field(default=None, description="作�?)
+    author: Optional[str] = Field(default=None, description="作者")
 
 
 class FilePreviewRequest(BaseModel):
     """文件预览请求"""
     file_id: str = Field(..., description="文件ID")
-    version: Optional[int] = Field(default=None, description="版本�?)
-    start_line: Optional[int] = Field(default=None, description="起始�?)
-    end_line: Optional[int] = Field(default=None, description="结束�?)
+    version: Optional[int] = Field(default=None, description="版本号")
+    start_line: Optional[int] = Field(default=None, description="起始行")
+    end_line: Optional[int] = Field(default=None, description="结束行")
 
 
 class FileSearchRequest(BaseModel):
     """文件搜索请求"""
     project_id: str = Field(..., description="项目ID")
-    query: str = Field(..., description="搜索关键�?)
-    file_types: Optional[List[str]] = Field(default=None, description="文件类型筛�?)
+    query: str = Field(..., description="搜索关键词")
+    file_types: Optional[List[str]] = Field(default=None, description="文件类型筛选")
     path_prefix: Optional[str] = Field(default=None, description="路径前缀")
 
 
@@ -99,7 +99,7 @@ class AutoSaveResponse(BaseModel):
     """自动保存响应"""
     success: bool = Field(..., description="是否成功")
     saved_at: str = Field(..., description="保存时间")
-    version: int = Field(..., description="版本�?)
+    version: int = Field(..., description="版本号")
     message: str = Field(default="自动保存成功", description="消息")
 
 
@@ -116,14 +116,16 @@ async def upload_file(
     author: Optional[str] = Form(default=None),
 ):
     """
-    上传文件（小文件�? 10MB�?    
-    适用于小文件的快速上�?    """
+    上传文件（小文件 < 10MB）
+    
+    适用于小文件的快速上传
+    """
     content = await file.read()
     
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=413,
-            detail=f"文件过大，最大支�?{MAX_FILE_SIZE // (1024*1024)}MB"
+            detail=f"文件过大，最大支持 {MAX_FILE_SIZE // (1024*1024)}MB"
         )
     
     file_manager = get_file_manager()
@@ -154,24 +156,26 @@ async def upload_file(
 @router.post("/upload/chunk/init", response_model=ChunkUploadInitResponse)
 async def init_chunk_upload(data: ChunkUploadInit):
     """
-    初始化分块上�?    
-    用于大文件的分块上传，支持断点续�?    """
+    初始化分块上传
+    
+    用于大文件的分块上传，支持断点续传
+    """
     if data.file_size > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=413,
-            detail=f"文件过大，最大支�?{MAX_FILE_SIZE // (1024*1024)}MB"
+            detail=f"文件过大，最大支持 {MAX_FILE_SIZE // (1024*1024)}MB"
         )
     
     if data.chunk_size > MAX_CHUNK_SIZE:
         raise HTTPException(
             status_code=400,
-            detail=f"分块过大，最大支�?{MAX_CHUNK_SIZE // (1024*1024)}MB"
+            detail=f"分块过大，最大支持 {MAX_CHUNK_SIZE // (1024*1024)}MB"
         )
     
     project_manager = get_project_manager()
     project = project_manager.get_project(data.project_id)
     if not project:
-        raise HTTPException(status_code=404, detail="项目不存�?)
+        raise HTTPException(status_code=404, detail="项目不存在")
     
     upload_id = f"upload_{uuid.uuid4().hex[:12]}"
     
@@ -215,9 +219,10 @@ async def upload_chunk(
     """
     上传分块
     
-    上传文件的指定分�?    """
+    上传文件的指定分块
+    """
     if upload_id not in upload_sessions:
-        raise HTTPException(status_code=404, detail="上传会话不存�?)
+        raise HTTPException(status_code=404, detail="上传会话不存在")
     
     session = upload_sessions[upload_id]
     
@@ -225,7 +230,7 @@ async def upload_chunk(
         raise HTTPException(status_code=400, detail="分块索引无效")
     
     if chunk_index in session["uploaded_chunks"]:
-        return {"success": True, "message": "分块已存�?, "chunk_index": chunk_index}
+        return {"success": True, "message": "分块已存在", "chunk_index": chunk_index}
     
     chunk_data = await chunk.read()
     
@@ -253,14 +258,14 @@ async def complete_chunk_upload(data: ChunkUploadComplete):
     合并所有分块并创建文件
     """
     if data.upload_id not in upload_sessions:
-        raise HTTPException(status_code=404, detail="上传会话不存�?)
+        raise HTTPException(status_code=404, detail="上传会话不存在")
     
     session = upload_sessions[data.upload_id]
     
     if len(session["uploaded_chunks"]) != session["chunk_count"]:
         raise HTTPException(
             status_code=400,
-            detail=f"分块不完整，已上�?{len(session['uploaded_chunks'])}/{session['chunk_count']}"
+            detail=f"分块不完整，已上传 {len(session['uploaded_chunks'])}/{session['chunk_count']}"
         )
     
     content = b""
@@ -270,7 +275,7 @@ async def complete_chunk_upload(data: ChunkUploadComplete):
     actual_hash = hashlib.sha256(content).hexdigest()
     if data.file_hash and actual_hash != data.file_hash:
         del upload_sessions[data.upload_id]
-        raise HTTPException(status_code=400, detail="文件哈希不匹�?)
+        raise HTTPException(status_code=400, detail="文件哈希不匹配")
     
     file_manager = get_file_manager()
     
@@ -303,17 +308,18 @@ async def complete_chunk_upload(data: ChunkUploadComplete):
 @router.get("/download/{file_id}")
 async def download_file(
     file_id: str,
-    version: Optional[int] = Query(default=None, description="版本�?),
+    version: Optional[int] = Query(default=None, description="版本号"),
 ):
     """
     下载文件
     
-    支持下载指定版本或最新版�?    """
+    支持下载指定版本或最新版本
+    """
     file_manager = get_file_manager()
     result = file_manager.download_file(file_id, version)
     
     if not result:
-        raise HTTPException(status_code=404, detail="文件不存�?)
+        raise HTTPException(status_code=404, detail="文件不存在")
     
     content, file_info = result
     
@@ -334,20 +340,21 @@ async def download_file(
 @router.get("/preview/{file_id}")
 async def preview_file(
     file_id: str,
-    version: Optional[int] = Query(default=None, description="版本�?),
-    start_line: Optional[int] = Query(default=None, description="起始�?),
-    end_line: Optional[int] = Query(default=None, description="结束�?),
+    version: Optional[int] = Query(default=None, description="版本号"),
+    start_line: Optional[int] = Query(default=None, description="起始行"),
+    end_line: Optional[int] = Query(default=None, description="结束行"),
     highlight: bool = Query(default=True, description="是否启用代码高亮"),
 ):
     """
     预览文件
     
-    支持文本预览、代码高亮、图片预�?    """
+    支持文本预览、代码高亮、图片预览
+    """
     file_manager = get_file_manager()
     result = file_manager.download_file(file_id, version)
     
     if not result:
-        raise HTTPException(status_code=404, detail="文件不存�?)
+        raise HTTPException(status_code=404, detail="文件不存在")
     
     content, file_info = result
     
@@ -457,7 +464,7 @@ async def edit_file(
     file_info = file_manager.get_file(file_id)
     
     if not file_info:
-        raise HTTPException(status_code=404, detail="文件不存�?)
+        raise HTTPException(status_code=404, detail="文件不存在")
     
     content = data.content.encode('utf-8')
     
@@ -477,7 +484,7 @@ async def edit_file(
             "file_id": file_id,
             "version": result.version,
             "size": result.size,
-            "message": "文件已保�?,
+            "message": "文件已保存",
         }
     except Exception as e:
         logger.error(f"编辑文件失败：{e}")
@@ -489,12 +496,13 @@ async def auto_save_file(data: AutoSaveRequest):
     """
     自动保存文件
     
-    定期自动保存，避免数据丢�?    """
+    定期自动保存，避免数据丢失
+    """
     file_manager = get_file_manager()
     file_info = file_manager.get_file(data.file_id)
     
     if not file_info:
-        raise HTTPException(status_code=404, detail="文件不存�?)
+        raise HTTPException(status_code=404, detail="文件不存在")
     
     cache_key = f"autosave_{data.file_id}"
     
@@ -516,7 +524,7 @@ async def auto_save_file(data: AutoSaveRequest):
             success=True,
             saved_at=datetime.now().isoformat(),
             version=file_info.current_version,
-            message="内容与当前版本相�?,
+            message="内容与当前版本相同",
         )
     
     try:
@@ -556,12 +564,13 @@ async def auto_save_file(data: AutoSaveRequest):
 async def get_file_history(
     file_id: str,
     limit: int = Query(default=50, ge=1, le=200, description="返回数量"),
-    offset: int = Query(default=0, ge=0, description="偏移�?),
+    offset: int = Query(default=0, ge=0, description="偏移量"),
 ):
     """
     获取文件版本历史
     
-    返回文件的所有版本记�?    """
+    返回文件的所有版本记录
+    """
     version_control = get_version_control()
     versions = version_control.get_version_history(file_id, limit, offset)
     
@@ -576,17 +585,18 @@ async def get_file_version(
     """
     获取文件指定版本
     
-    返回指定版本的文件内�?    """
+    返回指定版本的文件内容
+    """
     version_control = get_version_control()
     version = version_control.get_version(file_id, version_number)
     
     if not version:
-        raise HTTPException(status_code=404, detail="版本不存�?)
+        raise HTTPException(status_code=404, detail="版本不存在")
     
     content = version_control.get_version_content(version.version_id)
     
     if content is None:
-        raise HTTPException(status_code=404, detail="版本内容不存�?)
+        raise HTTPException(status_code=404, detail="版本内容不存在")
     
     file_manager = get_file_manager()
     file_info = file_manager.get_file(file_id)
@@ -608,7 +618,8 @@ async def compare_versions(
     """
     对比文件版本
     
-    返回两个版本之间的差�?    """
+    返回两个版本之间的差异
+    """
     version_control = get_version_control()
     diff = version_control.compare_versions(file_id, version_from, version_to)
     
@@ -625,27 +636,28 @@ async def rollback_file(
     message: Optional[str] = Query(default=None, description="回滚说明"),
 ):
     """
-    回滚文件到指定版�?    
+    回滚文件到指定版本
+    
     将文件恢复到历史版本
     """
     version_control = get_version_control()
     content = version_control.rollback_to_version(file_id, version_number)
     
     if content is None:
-        raise HTTPException(status_code=404, detail="版本不存�?)
+        raise HTTPException(status_code=404, detail="版本不存在")
     
     file_manager = get_file_manager()
     file_info = file_manager.get_file(file_id)
     
     if not file_info:
-        raise HTTPException(status_code=404, detail="文件不存�?)
+        raise HTTPException(status_code=404, detail="文件不存在")
     
     try:
         result = file_manager.upload_file(
             project_id=file_info.project_id,
             file_path=file_info.path,
             content=content,
-            message=message or f"回滚到版�?{version_number}",
+            message=message or f"回滚到版本 {version_number}",
         )
         
         logger.info(f"文件已回滚：{file_id}, 到版本：{version_number}")
@@ -670,15 +682,16 @@ async def delete_file_version(
     """
     删除文件版本
     
-    删除指定的历史版�?    """
+    删除指定的历史版本
+    """
     version_control = get_version_control()
     version = version_control.get_version(file_id, version_number)
     
     if not version:
-        raise HTTPException(status_code=404, detail="版本不存�?)
+        raise HTTPException(status_code=404, detail="版本不存在")
     
     if version_control.get_version_count(file_id) <= 1:
-        raise HTTPException(status_code=400, detail="不能删除最后一个版�?)
+        raise HTTPException(status_code=400, detail="不能删除最后一个版本")
     
     success = version_control.delete_version(version.version_id)
     
@@ -691,7 +704,7 @@ async def delete_file_version(
         "success": True,
         "file_id": file_id,
         "deleted_version": version_number,
-        "message": "版本已删�?,
+        "message": "版本已删除",
     }
 
 
@@ -700,7 +713,8 @@ async def search_files(data: FileSearchRequest):
     """
     搜索文件
     
-    按关键词、类型、路径搜索文�?    """
+    按关键词、类型、路径搜索文件
+    """
     file_manager = get_file_manager()
     
     all_files = file_manager.list_files(data.project_id)
@@ -742,7 +756,7 @@ async def get_file_info(file_id: str):
     file_info = file_manager.get_file(file_id)
     
     if not file_info:
-        raise HTTPException(status_code=404, detail="文件不存�?)
+        raise HTTPException(status_code=404, detail="文件不存在")
     
     return file_info
 
@@ -752,26 +766,27 @@ async def delete_file(file_id: str):
     """
     删除文件
     
-    删除文件及其所有版�?    """
+    删除文件及其所有版本
+    """
     file_manager = get_file_manager()
     success = file_manager.delete_file(file_id)
     
     if not success:
-        raise HTTPException(status_code=404, detail="文件不存�?)
+        raise HTTPException(status_code=404, detail="文件不存在")
     
     logger.info(f"文件已删除：{file_id}")
     
     return {
         "success": True,
         "file_id": file_id,
-        "message": "文件已删�?,
+        "message": "文件已删除",
     }
 
 
 @router.post("/move/{file_id}")
 async def move_file(
     file_id: str,
-    new_path: str = Query(..., description="新路�?),
+    new_path: str = Query(..., description="新路径"),
 ):
     """
     移动文件
@@ -782,7 +797,7 @@ async def move_file(
     file_info = file_manager.move_file(file_id, new_path)
     
     if not file_info:
-        raise HTTPException(status_code=404, detail="文件不存�?)
+        raise HTTPException(status_code=404, detail="文件不存在")
     
     logger.info(f"文件已移动：{file_id} -> {new_path}")
     
@@ -797,7 +812,7 @@ async def move_file(
 @router.post("/copy/{file_id}")
 async def copy_file(
     file_id: str,
-    new_path: str = Query(..., description="新路�?),
+    new_path: str = Query(..., description="新路径"),
 ):
     """
     复制文件
@@ -808,7 +823,7 @@ async def copy_file(
     file_info = file_manager.copy_file(file_id, new_path)
     
     if not file_info:
-        raise HTTPException(status_code=404, detail="文件不存�?)
+        raise HTTPException(status_code=404, detail="文件不存在")
     
     logger.info(f"文件已复制：{file_id} -> {new_path}")
     
@@ -902,7 +917,7 @@ def tokenize_code(line: str, language: str) -> List[Dict[str, Any]]:
 
 
 def is_text_file(file_path: str) -> bool:
-    """判断是否为文本文�?""
+    """判断是否为文本文件"""
     text_extensions = {
         '.txt', '.md', '.json', '.jsonl', '.xml', '.yaml', '.yml',
         '.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.cpp', '.c',

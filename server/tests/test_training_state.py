@@ -1,5 +1,6 @@
 """
-训练状态管理模块测�?"""
+训练状态管理模块测试
+"""
 import pytest
 import tempfile
 import json
@@ -22,7 +23,7 @@ class TestTrainingProgress:
     """TrainingProgress 测试"""
 
     def test_default_values(self):
-        """测试默认�?""
+        """测试默认值"""
         progress = TrainingProgress()
         assert progress.epoch == 0
         assert progress.step == 0
@@ -36,7 +37,7 @@ class TestTrainingProgress:
         assert progress.message == ""
 
     def test_custom_values(self):
-        """测试自定义�?""
+        """测试自定义值"""
         progress = TrainingProgress(
             epoch=1,
             step=100,
@@ -121,7 +122,7 @@ class TestStateUpdate:
         assert update.data['loss'] == 0.5
 
     def test_training_update(self):
-        """测试训练状态更�?""
+        """测试训练状态更新"""
         update = StateUpdate('training', value=True)
         assert update.update_type == 'training'
         assert update.data['value'] is True
@@ -138,20 +139,20 @@ class TestTrainingState:
 
     @pytest.fixture
     def training_state(self, temp_dir):
-        """创建训练状态实�?""
+        """创建训练状态实例"""
         history_file = temp_dir / "training_history.json"
         state = TrainingState(history_file)
         yield state
         state.cleanup()
 
     def test_init(self, training_state):
-        """测试初始�?""
+        """测试初始化"""
         assert training_state.is_training() is False
         progress = training_state.get_progress()
         assert progress.status == "idle"
 
     def test_set_training(self, training_state):
-        """测试设置训练状�?""
+        """测试设置训练状态"""
         training_state.set_training(True)
         time.sleep(0.1)
         assert training_state.is_training() is True
@@ -161,7 +162,7 @@ class TestTrainingState:
         assert training_state.is_training() is False
 
     def test_queue_progress_update(self, training_state):
-        """测试队列式进度更�?""
+        """测试队列式进度更新"""
         training_state.queue_progress_update(
             epoch=1,
             step=100,
@@ -179,7 +180,7 @@ class TestTrainingState:
         assert progress.status == "training"
 
     def test_get_status(self, training_state):
-        """测试获取状�?""
+        """测试获取状态"""
         status = training_state.get_status()
         assert "is_training" in status
         assert "progress" in status
@@ -422,7 +423,7 @@ class TestGlobalFunctions:
     """全局函数测试"""
 
     def test_get_training_state(self):
-        """测试获取全局状态实�?""
+        """测试获取全局状态实例"""
         reset_training_state()
         state = get_training_state()
         assert state is not None
@@ -436,7 +437,7 @@ class TestGlobalFunctions:
         assert state1 is state2
 
     def test_reset_training_state(self):
-        """测试重置状�?""
+        """测试重置状态"""
         state1 = get_training_state()
         reset_training_state()
         state2 = get_training_state()

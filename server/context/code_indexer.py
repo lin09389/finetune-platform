@@ -1,8 +1,11 @@
 """
-代码索引�?- 构建代码知识�?
-功能�?- 索引代码文件
+代码索引器
+- 构建代码知识库
+功能：
+- 索引代码文件
 - 提取符号（类、函数、组件）
-- 向量化存�?- 增量更新
+- 向量化存储
+- 增量更新
 """
 from pathlib import Path
 from typing import Dict, List, Any, Optional
@@ -17,11 +20,11 @@ logger = logging.getLogger(__name__)
 
 
 class CodeIndexer:
-    """代码索引�?""
+    """代码索引器"""
 
-    # 默认配置
     DEFAULT_CONFIG = {
-        "max_file_size": 1024 * 1024,  # 1MB 最大文件大�?        "max_content_length": 10000,  # 向量化时最大字符数
+        "max_file_size": 1024 * 1024,
+        "max_content_length": 10000,
         "supported_extensions": [
             ".py", ".js", ".ts", ".jsx", ".tsx",
             ".java", ".go", ".rs", ".rb", ".php",
@@ -43,14 +46,14 @@ class CodeIndexer:
         初始化代码索引器
 
         Args:
-            embedder: 向量化器实例（复�?RAG 模块�?            vector_store: 向量存储实例（复�?RAG 模块�?            config: 配置字典
+            embedder: 向量化器实例（复用 RAG 模块）
+            vector_store: 向量存储实例（复用 RAG 模块）
+            config: 配置字典
         """
         self.config = {**self.DEFAULT_CONFIG, **(config or {})}
         self.embedder = embedder
         self.vector_store = vector_store
         self.symbol_extractor = get_symbol_extractor()
-
-        # 索引缓存
         self.index_cache: Dict[str, Dict] = {}
 
     def build_index(
@@ -63,16 +66,14 @@ class CodeIndexer:
 
         Args:
             project_info: 项目信息
-            collection_name: 集合名称（默认：project_{project_name}�?
+            collection_name: 集合名称（默认：project_{project_name}）
         Returns:
             索引摘要信息
         """
         if not self.embedder or not self.vector_store:
-            raise ValueError("需�?embedder �?vector_store 实例")
+            raise ValueError("需要 embedder 和 vector_store 实例")
 
-        # 确定集合名称
         if collection_name is None:
-            # 使用项目路径的哈希作为集合名
             path_hash = hashlib.md5(project_info.path.encode()).hexdigest()[:12]
             collection_name = f"project_{path_hash}"
 
@@ -91,7 +92,6 @@ class CodeIndexer:
         all_symbols: List[SymbolInfo] = []
         files_data: Dict[str, Any] = {}
 
-        # 索引关键文件
         for file_info in project_info.key_files:
             try:
                 file_path = Path(project_info.path) / file_info.path
@@ -111,13 +111,12 @@ class CodeIndexer:
             except Exception as e:
                 logger.warning(f"索引文件失败 {file_info.path}: {e}")
 
-        # 扫描并索引项目中的所有代码文�?        project_path = Path(project_info.path)
+        project_path = Path(project_info.path)
         for ext in self.config["supported_extensions"]:
             for file_path in project_path.glob(f"**/*{ext}"):
-                # 检查是否应该忽�?                if self._should_ignore(file_path):
+                if self._should_ignore(file_path):
                     continue
 
-                # 检查是否已索引
                 rel_path = str(file_path.relative_to(project_path))
                 if rel_path in files_data:
                     continue
@@ -138,7 +137,6 @@ class CodeIndexer:
                 except Exception as e:
                     logger.warning(f"索引文件失败 {rel_path}: {e}")
 
-        # 缓存索引信息
         self.index_cache[collection_name] = {
             "project_info": project_info.model_dump(),
             "files": files_data,
@@ -173,7 +171,7 @@ class CodeIndexer:
         """
         path = Path(file_path)
 
-        # 检查文件大�?        try:
+        try:
             file_size = path.stat().st_size
             if file_size > self.config["max_file_size"]:
                 logger.debug(f"文件过大，跳过：{rel_path}")
@@ -181,7 +179,6 @@ class CodeIndexer:
         except OSError:
             return None
 
-        # 读取文件内容
         try:
             with open(path, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
@@ -192,21 +189,16 @@ class CodeIndexer:
         if not content.strip():
             return None
 
-        # 提取符号
         symbols = self.symbol_extractor.extract(file_path, content)
-
-        # 生成文件摘要
         summary = self._generate_summary(content, symbols)
+        chunks = self._chunk_content(content, symbols)
 
-        # 分块（大文件�?        chunks = self._chunk_content(content, symbols)
-
-        # 向量化并存储
         chunk_count = 0
         for chunk in chunks:
             try:
-                # 向量�?                embedding = self.embedder.embed_single(chunk["content"])
+                embedding = self.embedder.embed_single(chunk["content"])
 
-                # 准备元数�?                metadata = {
+                metadata = {
                     "type": "code",
                     "path": rel_path,
                     "file_path": file_path,
@@ -218,7 +210,6 @@ class CodeIndexer:
                     "updated_at": datetime.now().isoformat()
                 }
 
-                # 存储到向量库
                 self.vector_store.add_documents(
                     collection_name=collection_name,
                     documents=[chunk["content"]],
@@ -229,7 +220,7 @@ class CodeIndexer:
 
                 chunk_count += 1
             except Exception as e:
-                logger.warning(f"向量化失�?{rel_path}: {e}")
+                logger.warning(f"向量化失败 {rel_path}: {e}")
 
         return {
             "path": rel_path,
@@ -253,12 +244,11 @@ class CodeIndexer:
 
         summary_parts = []
 
-        # 提取文件头注�?        for i, line in enumerate(lines[:20]):
+        for i, line in enumerate(lines[:20]):
             stripped = line.strip()
             if stripped.startswith("#") or stripped.startswith("//"):
                 summary_parts.append(stripped)
 
-        # 提取关键定义
         for symbol in symbols[:10]:
             if symbol.type in ["class", "function", "component"]:
                 params = ""
@@ -276,13 +266,15 @@ class CodeIndexer:
         symbols: List[SymbolInfo]
     ) -> List[Dict[str, Any]]:
         """
-        将内容分�?
-        策略�?        - 小文件（< 2000 字符）：整个文件作为一个块
-        - 大文件：按符号分块（每个�?函数一个块�?        """
+        将内容分块
+        策略：
+        - 小文件（< 2000 字符）：整个文件作为一个块
+        - 大文件：按符号分块（每个类/函数一个块）
+        """
         chunks = []
         lines = content.split("\n")
 
-        # 小文件直接返�?        if len(content) < 2000:
+        if len(content) < 2000:
             chunks.append({
                 "content": content,
                 "symbol_type": "file",
@@ -292,20 +284,20 @@ class CodeIndexer:
             })
             return chunks
 
-        # 按符号分�?        sorted_symbols = sorted(symbols, key=lambda s: s.line)
+        sorted_symbols = sorted(symbols, key=lambda s: s.line)
 
         for i, symbol in enumerate(sorted_symbols):
-            # 确定块的起止�?            start_line = symbol.line - 1
+            start_line = symbol.line - 1
             end_line = len(lines)
 
-            # 下一个符号的开始作为当前块的结�?            if i + 1 < len(sorted_symbols):
+            if i + 1 < len(sorted_symbols):
                 next_symbol = sorted_symbols[i + 1]
                 end_line = next_symbol.line - 1
 
-            # 提取块内�?            chunk_lines = lines[start_line:end_line]
+            chunk_lines = lines[start_line:end_line]
             chunk_content = "\n".join(chunk_lines)
 
-            # 限制块大�?            if len(chunk_content) > self.config["max_content_length"]:
+            if len(chunk_content) > self.config["max_content_length"]:
                 chunk_content = chunk_content[:self.config["max_content_length"]]
 
             if chunk_content.strip():
@@ -317,7 +309,6 @@ class CodeIndexer:
                     "end_line": start_line + len(chunk_lines)
                 })
 
-        # 如果没有符号，按固定大小分块
         if not chunks:
             chunk_size = 1000
             for i in range(0, len(content), chunk_size):
@@ -334,7 +325,7 @@ class CodeIndexer:
         return chunks
 
     def _generate_chunk_id(self, rel_path: str, chunk: Dict) -> str:
-        """生成�?ID"""
+        """生成唯一 ID"""
         content = f"{rel_path}:{chunk.get('symbol_name', '')}:{chunk.get('start_line', 0)}"
         return f"chunk_{hashlib.md5(content.encode()).hexdigest()[:16]}"
 
@@ -372,7 +363,6 @@ class CodeIndexer:
         self.index_cache.clear()
 
 
-# 全局索引缓存
 _global_indices: Dict[str, CodeIndexer] = {}
 
 
@@ -381,8 +371,7 @@ def get_code_indexer(
     vector_store=None,
     config: Optional[Dict] = None
 ) -> CodeIndexer:
-    """获取代码索引器实�?""
-    # 使用默认配置创建实例
+    """获取代码索引器实例"""
     key = "default"
     if key not in _global_indices:
         _global_indices[key] = CodeIndexer(

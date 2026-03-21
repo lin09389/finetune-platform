@@ -1,5 +1,5 @@
 """
-增强版记忆管�?API
+增强版记忆管理 API
 支持三级记忆架构、知识图谱、MCP协议
 """
 from fastapi import APIRouter, HTTPException, Query, Body
@@ -41,20 +41,20 @@ class AddEntityRequest(BaseModel):
     """添加实体请求"""
     name: str = Field(..., description="实体名称")
     entity_type: str = Field(..., description="实体类型")
-    attributes: Dict[str, Any] = Field(default={}, description="属�?)
-    confidence: float = Field(default=0.5, description="置信�?)
+    attributes: Dict[str, Any] = Field(default={}, description="属性")
+    confidence: float = Field(default=0.5, description="置信度")
 
 
 class AddRelationRequest(BaseModel):
     """添加关系请求"""
-    source_name: str = Field(..., description="源实体名�?)
+    source_name: str = Field(..., description="源实体名称")
     target_name: str = Field(..., description="目标实体名称")
     relation_type: str = Field(..., description="关系类型")
     evidence: str = Field(default="", description="证据")
 
 
 class GetEntityContextRequest(BaseModel):
-    """获取实体上下文请�?""
+    """获取实体上下文请求"""
     entity_id: str = Field(..., description="实体ID")
     depth: int = Field(default=2, description="遍历深度")
 
@@ -63,7 +63,7 @@ class FindPathRequest(BaseModel):
     """查找路径请求"""
     source_id: str = Field(..., description="源实体ID")
     target_id: str = Field(..., description="目标实体ID")
-    max_depth: int = Field(default=4, description="最大深�?)
+    max_depth: int = Field(default=4, description="最大深度")
 
 
 class SearchKnowledgeGraphRequest(BaseModel):
@@ -90,8 +90,10 @@ class ExtractRequest(BaseModel):
 @router.post("/process")
 async def process_message(request: ProcessMessageRequest):
     """
-    处理消息 - 完整的记忆处理流�?    
-    包括�?    - 短期记忆存储
+    处理消息 - 完整的记忆处理流程
+    
+    包括：
+    - 短期记忆存储
     - 智能记忆提取
     - 知识图谱更新
     """
@@ -138,7 +140,7 @@ async def extract_memory(request: ExtractRequest):
 
 @router.post("/recall")
 async def recall_memory(request: RecallRequest):
-    """检索相关记�?""
+    """检索相关记忆"""
     try:
         service = get_memory_service()
         memories = service.recall(
@@ -154,8 +156,8 @@ async def recall_memory(request: RecallRequest):
             "count": len(memories)
         }
     except Exception as e:
-        logger.error(f"检索记忆失�? {e}")
-        raise HTTPException(500, f"检索失�? {str(e)}")
+        logger.error(f"检索记忆失败: {e}")
+        raise HTTPException(500, f"检索失败: {str(e)}")
 
 
 @router.get("/list")
@@ -164,7 +166,7 @@ async def list_memories(
     memory_type: Optional[str] = Query(default=None),
     limit: int = Query(default=50)
 ):
-    """列出所有记�?""
+    """列出所有记忆"""
     try:
         service = get_memory_service()
         memories = service.list_memories(
@@ -194,9 +196,9 @@ async def forget_memory(
         success = service.forget(user_id, memory_id)
         
         if success:
-            return {"success": True, "message": "记忆已删�?}
+            return {"success": True, "message": "记忆已删除"}
         else:
-            raise HTTPException(404, "记忆不存�?)
+            raise HTTPException(404, "记忆不存在")
     except HTTPException:
         raise
     except Exception as e:
@@ -206,7 +208,7 @@ async def forget_memory(
 
 @router.delete("/clear/all")
 async def clear_all_memories(user_id: str = Query(default="default")):
-    """清除所有记�?""
+    """清除所有记忆"""
     try:
         service = get_memory_service()
         success = service.clear_all(user_id)
@@ -245,7 +247,7 @@ async def get_context(
     session_id: Optional[str] = Query(None, description="会话ID"),
     max_memories: int = Query(default=5)
 ):
-    """获取带记忆的上下�?""
+    """获取带记忆的上下文"""
     try:
         service = get_enhanced_memory_service()
         context = service._build_enhanced_context(query, user_id, session_id)
@@ -255,8 +257,8 @@ async def get_context(
             "context": context
         }
     except Exception as e:
-        logger.error(f"获取上下文失�? {e}")
-        raise HTTPException(500, f"获取上下文失�? {str(e)}")
+        logger.error(f"获取上下文失败: {e}")
+        raise HTTPException(500, f"获取上下文失败: {str(e)}")
 
 
 @router.get("/stats")
@@ -277,7 +279,7 @@ async def get_stats(user_id: str = Query(default="default")):
 
 @router.post("/export")
 async def export_state(user_id: str = Query(default="default")):
-    """导出记忆状�?""
+    """导出记忆状态"""
     try:
         service = get_enhanced_memory_service()
         state = service.export_state(user_id)
@@ -287,32 +289,32 @@ async def export_state(user_id: str = Query(default="default")):
             "state": state
         }
     except Exception as e:
-        logger.error(f"导出状态失�? {e}")
+        logger.error(f"导出状态失败: {e}")
         raise HTTPException(500, f"导出失败: {str(e)}")
 
 
 @router.post("/import")
 async def import_state(
-    state: Dict[str, Any] = Body(..., description="状态数�?),
+    state: Dict[str, Any] = Body(..., description="状态数据"),
     user_id: str = Query(default="default")
 ):
-    """导入记忆状�?""
+    """导入记忆状态"""
     try:
         service = get_enhanced_memory_service()
         service.import_state(state, user_id)
         
         return {
             "success": True,
-            "message": "状态导入成�?
+            "message": "状态导入成功"
         }
     except Exception as e:
-        logger.error(f"导入状态失�? {e}")
+        logger.error(f"导入状态失败: {e}")
         raise HTTPException(500, f"导入失败: {str(e)}")
 
 
 @router.post("/graph/entities")
 async def add_entity(request: AddEntityRequest):
-    """添加实体到知识图�?""
+    """添加实体到知识图谱"""
     try:
         kg = get_knowledge_graph()
         entity_id, is_new = kg.add_entity(
@@ -326,7 +328,7 @@ async def add_entity(request: AddEntityRequest):
             "success": True,
             "entity_id": entity_id,
             "is_new": is_new,
-            "message": "实体已创�? if is_new else "实体已合�?
+            "message": "实体已创建" if is_new else "实体已合并"
         }
     except Exception as e:
         logger.error(f"添加实体失败: {e}")
@@ -335,7 +337,7 @@ async def add_entity(request: AddEntityRequest):
 
 @router.post("/graph/relations")
 async def add_relation(request: AddRelationRequest):
-    """添加关系到知识图�?""
+    """添加关系到知识图谱"""
     try:
         kg = get_knowledge_graph()
         relation_id = kg.add_relation(
@@ -372,7 +374,7 @@ async def get_entity(entity_id: str):
                 "entity": entity.to_dict()
             }
         else:
-            raise HTTPException(404, "实体不存�?)
+            raise HTTPException(404, "实体不存在")
     except HTTPException:
         raise
     except Exception as e:
@@ -382,7 +384,7 @@ async def get_entity(entity_id: str):
 
 @router.post("/graph/context")
 async def get_entity_context(request: GetEntityContextRequest):
-    """获取实体上下文（多跳关系�?""
+    """获取实体上下文（多跳关系）"""
     try:
         kg = get_knowledge_graph()
         context = kg.get_entity_context(request.entity_id, request.depth)
@@ -392,13 +394,13 @@ async def get_entity_context(request: GetEntityContextRequest):
             "context": context
         }
     except Exception as e:
-        logger.error(f"获取上下文失�? {e}")
+        logger.error(f"获取上下文失败: {e}")
         raise HTTPException(500, f"获取失败: {str(e)}")
 
 
 @router.post("/graph/path")
 async def find_path(request: FindPathRequest):
-    """查找两个实体之间的路�?""
+    """查找两个实体之间的路径"""
     try:
         kg = get_knowledge_graph()
         paths = kg.find_path(
@@ -467,9 +469,9 @@ async def delete_entity(entity_id: str):
         success = kg.delete_entity(entity_id)
         
         if success:
-            return {"success": True, "message": "实体已删�?}
+            return {"success": True, "message": "实体已删除"}
         else:
-            raise HTTPException(404, "实体不存�?)
+            raise HTTPException(404, "实体不存在")
     except HTTPException:
         raise
     except Exception as e:
@@ -479,7 +481,7 @@ async def delete_entity(entity_id: str):
 
 @router.get("/graph/relations")
 async def list_relations():
-    """列出所有关�?""
+    """列出所有关系"""
     try:
         kg = get_knowledge_graph()
         relations = kg.get_all_relations()
@@ -496,7 +498,7 @@ async def list_relations():
 
 @router.get("/sessions")
 async def list_sessions():
-    """列出所有会�?""
+    """列出所有会话"""
     try:
         manager = get_stm_manager()
         sessions = manager.get_all_sessions()
@@ -516,7 +518,7 @@ async def get_session_context(
     session_id: str,
     max_tokens: int = Query(default=4000)
 ):
-    """获取会话上下�?""
+    """获取会话上下文"""
     try:
         stm = get_short_term_memory(session_id)
         context = stm.get_context(max_tokens)
@@ -528,7 +530,7 @@ async def get_session_context(
             "summary": summary
         }
     except Exception as e:
-        logger.error(f"获取会话上下文失�? {e}")
+        logger.error(f"获取会话上下文失败: {e}")
         raise HTTPException(500, f"获取失败: {str(e)}")
 
 
@@ -562,7 +564,7 @@ async def clear_session(session_id: str):
         manager = get_stm_manager()
         manager.clear_session(session_id)
         
-        return {"success": True, "message": "会话已清�?}
+        return {"success": True, "message": "会话已清空"}
     except Exception as e:
         logger.error(f"清空会话失败: {e}")
         raise HTTPException(500, f"清空失败: {str(e)}")

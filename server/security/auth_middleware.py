@@ -1,7 +1,12 @@
+# -*- coding: utf-8 -*-
 """
-FastAPI 安全中间�?- 速率限制�?JWT 认证
+FastAPI 安全中间件 - 速率限制和 JWT 认证
 
-功能�?- 速率限制中间�?- JWT 认证中间�?- 组合安全中间�?"""
+功能：
+- 速率限制中间件
+- JWT 认证中间件
+- 组合安全中间件
+"""
 from fastapi import Request, Response, HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -15,17 +20,11 @@ from .jwt_auth import get_jwt_auth, JWTAuth, TokenPayload, Role
 
 logger = logging.getLogger(__name__)
 
-
-# HTTP Bearer 认证方案
 security = HTTPBearer(auto_error=False)
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """
-    速率限制中间�?    
-    用法:
-        app.add_middleware(RateLimitMiddleware)
-    """
+    """速率限制中间件"""
 
     def __init__(
         self,
@@ -34,36 +33,28 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         enabled: bool = True,
         whitelist_ips: Optional[Set[str]] = None
     ):
-        """
-        初始化速率限制中间�?
-        Args:
-            app: FastAPI 应用
-            limiter: 速率限制器（默认使用全局单例�?            enabled: 是否启用
-            whitelist_ips: IP 白名单（不受限制�?        """
         super().__init__(app)
         self.limiter = limiter or get_rate_limiter()
         self.enabled = enabled
         self.whitelist_ips = whitelist_ips or set()
-        
+
         logger.info(f"速率限制中间件已{'启用' if enabled else '禁用'}")
 
     async def dispatch(self, request: Request, call_next):
-        # 如果禁用，直接跳�?        if not self.enabled:
+        if not self.enabled:
             return await call_next(request)
 
-        # 获取客户端标识（IP �?API Key�?        client_id = self._get_client_identifier(request)
-        
-        # 检�?IP 白名�?        if client_id in self.whitelist_ips:
+        client_id = self._get_client_identifier(request)
+
+        if client_id in self.whitelist_ips:
             return await call_next(request)
 
-        # 获取端点路径
         endpoint = request.url.path
 
-        # 检查速率限制
         allowed, info = self.limiter.is_allowed(client_id, endpoint)
 
         if not allowed:
-            # 构建响应�?            headers = {
+            headers = {
                 'X-RateLimit-Limit': str(info.get('limit', 0)),
                 'X-RateLimit-Remaining': '0',
                 'X-RateLimit-Reset': str(info.get('reset', 0)),
@@ -91,40 +82,30 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     headers=headers
                 )
 
-        # 执行请求
         response = await call_next(request)
 
-        # 添加速率限制�?        response.headers['X-RateLimit-Limit'] = str(info.get('limit', 0))
+        response.headers['X-RateLimit-Limit'] = str(info.get('limit', 0))
         response.headers['X-RateLimit-Remaining'] = str(info.get('remaining', 0))
         response.headers['X-RateLimit-Reset'] = str(info.get('reset', 0))
 
         return response
 
     def _get_client_identifier(self, request: Request) -> str:
-        """获取客户端标识符"""
-        # 优先使用 API Key
         api_key = request.headers.get('x-api-key')
         if api_key:
             return f"api_key:{api_key}"
 
-        # 使用 IP 地址
-        # 检�?X-Forwarded-For（代理场景）
         forwarded_for = request.headers.get('x-forwarded-for')
         if forwarded_for:
-            # 取第一�?IP（真实客户端 IP�?            ip = forwarded_for.split(',')[0].strip()
+            ip = forwarded_for.split(',')[0].strip()
             return f"ip:{ip}"
 
-        # 直接连接 IP
         client_host = request.client.host if request.client else 'unknown'
         return f"ip:{client_host}"
 
 
 class JWTAuthMiddleware(BaseHTTPMiddleware):
-    """
-    JWT 认证中间�?    
-    用法:
-        app.add_middleware(JWTAuthMiddleware, exclude_paths=['/api/login', '/api/register'])
-    """
+    """JWT 认证中间件"""
 
     def __init__(
         self,
@@ -135,28 +116,20 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         exclude_prefixes: Optional[Set[str]] = None,
         required_role: Optional[Role] = None
     ):
-        """
-        初始�?JWT 认证中间�?
-        Args:
-            app: FastAPI 应用
-            auth: JWT 认证器（默认使用全局单例�?            enabled: 是否启用
-            exclude_paths: 排除的路径（不需要认证）
-            exclude_prefixes: 排除的路径前缀
-            required_role: 要求的最低角�?        """
         super().__init__(app)
         self.auth = auth or get_jwt_auth()
         self.enabled = enabled
         self.exclude_paths = exclude_paths or set()
         self.exclude_prefixes = exclude_prefixes or {'/docs', '/redoc', '/openapi.json', '/static'}
         self.required_role = required_role
-        
+
         logger.info(f"JWT 认证中间件已{'启用' if enabled else '禁用'}")
 
     async def dispatch(self, request: Request, call_next):
-        # 如果禁用，直接跳�?        if not self.enabled:
+        if not self.enabled:
             return await call_next(request)
 
-        # 检查是否在排除列表�?        path = request.url.path
+        path = request.url.path
         if path in self.exclude_paths:
             return await call_next(request)
 
@@ -164,39 +137,36 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
             if path.startswith(prefix):
                 return await call_next(request)
 
-        # 获取 Authorization Header
         auth_header = request.headers.get('authorization')
-        
+
         if not auth_header:
             raise HTTPException(
                 status_code=401,
-                detail={'error': 'missing_authorization', 'message': '缺少 Authorization �?},
+                detail={'error': 'missing_authorization', 'message': '缺少 Authorization 头'},
                 headers={'WWW-Authenticate': 'Bearer'}
             )
 
-        # 解析 Token
         parts = auth_header.split()
         if len(parts) != 2 or parts[0].lower() != 'bearer':
             raise HTTPException(
                 status_code=401,
-                detail={'error': 'invalid_authorization', 'message': '无效�?Authorization 格式'},
+                detail={'error': 'invalid_authorization', 'message': '无效的 Authorization 格式'},
                 headers={'WWW-Authenticate': 'Bearer'}
             )
 
         token = parts[1]
 
         try:
-            # 验证 Token
             payload = self.auth.verify_token(token)
-            
-            # 检查角色要�?            if self.required_role:
+
+            if self.required_role:
                 if not self.auth.has_role(payload, self.required_role):
                     raise HTTPException(
                         status_code=403,
                         detail={'error': 'insufficient_role', 'message': '权限不足'}
                     )
 
-            # 将用户信息存入请求状�?            request.state.current_user = payload
+            request.state.current_user = payload
             request.state.user_id = payload.user_id
             request.state.username = payload.username
 
@@ -212,11 +182,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
 
 
 class SecurityMiddleware(BaseHTTPMiddleware):
-    """
-    组合安全中间件（速率限制 + JWT 认证�?    
-    用法:
-        app.add_middleware(SecurityMiddleware)
-    """
+    """组合安全中间件"""
 
     def __init__(
         self,
@@ -229,23 +195,12 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         rate_limit_whitelist_ips: Optional[Set[str]] = None,
         required_role: Optional[Role] = None
     ):
-        """
-        初始化组合安全中间件
-
-        Args:
-            app: FastAPI 应用
-            enabled: 是否启用
-            rate_limit_enabled: 是否启用速率限制
-            jwt_enabled: 是否启用 JWT 认证
-            jwt_exclude_paths: JWT 排除路径
-            jwt_exclude_prefixes: JWT 排除路径前缀
-            rate_limit_whitelist_ips: 速率限制 IP 白名�?            required_role: 要求的最低角�?        """
         super().__init__(app)
         self.enabled = enabled
         self.rate_limit_enabled = rate_limit_enabled
         self.jwt_enabled = jwt_enabled
-        
-        # 初始化子中间�?        if rate_limit_enabled:
+
+        if rate_limit_enabled:
             self.rate_limiter_middleware = RateLimitMiddleware(
                 app,
                 enabled=True,
@@ -271,19 +226,13 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         if not self.enabled:
             return await call_next(request)
 
-        # 先执行速率限制
         if self.rate_limiter_middleware:
-            # 临时覆盖 call_next 以捕获速率限制异常
-            async def next_handler(req):
-                return await call_next()
-            
             try:
-                # 手动调用速率限制逻辑
                 client_id = self.rate_limiter_middleware._get_client_identifier(request)
                 if client_id not in (self.rate_limiter_middleware.whitelist_ips or set()):
                     endpoint = request.url.path
                     allowed, info = self.rate_limiter_middleware.limiter.is_allowed(client_id, endpoint)
-                    
+
                     if not allowed:
                         headers = {
                             'X-RateLimit-Limit': str(info.get('limit', 0)),
@@ -291,7 +240,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                             'X-RateLimit-Reset': str(info.get('reset', 0)),
                             'Retry-After': str(info.get('retry_after', 60))
                         }
-                        
+
                         if info.get('error') == 'rate_limit_banned':
                             raise HTTPException(429, detail=info, headers=headers)
                         else:
@@ -299,24 +248,15 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             except HTTPException:
                 raise
 
-        # 再执�?JWT 认证
         if self.jwt_middleware:
             return await self.jwt_middleware.dispatch(request, call_next)
 
         return await call_next(request)
 
 
-# 依赖注入函数
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ) -> TokenPayload:
-    """
-    获取当前用户（用�?FastAPI 路由依赖注入�?    
-    用法:
-        @app.get("/protected")
-        async def protected_route(current_user: TokenPayload = Depends(get_current_user)):
-            return {"user": current_user.username}
-    """
     auth = get_jwt_auth()
     return auth.verify_token(credentials.credentials)
 
@@ -324,18 +264,9 @@ async def get_current_user(
 async def get_current_user_optional(
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ) -> Optional[TokenPayload]:
-    """
-    获取当前用户（可选，�?Token 返回 None�?    
-    用法:
-        @app.get("/optional-auth")
-        async def optional_auth_route(current_user: Optional[TokenPayload] = Depends(get_current_user_optional)):
-            if current_user:
-                return {"user": current_user.username}
-            return {"user": "anonymous"}
-    """
     if not credentials:
         return None
-    
+
     auth = get_jwt_auth()
     try:
         return auth.verify_token(credentials.credentials)
@@ -345,14 +276,6 @@ async def get_current_user_optional(
 
 
 def require_roles(*roles: Role):
-    """
-    角色要求装饰�?    
-    用法:
-        @app.get("/admin")
-        @require_roles(Role.ADMIN, Role.SUPER_ADMIN)
-        async def admin_route(current_user: TokenPayload = Depends(get_current_user)):
-            ...
-    """
     async def role_checker(current_user: TokenPayload = Depends(get_current_user)):
         auth = get_jwt_auth()
         for role in roles:
