@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 训练任务队列管理模块（重构版）
 修复内容：
@@ -11,20 +10,20 @@
 - 优先级调度
 - 任务取消
 """
+import json
+import os
+import tempfile
 import threading
-from queue import PriorityQueue, Empty
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Optional, Dict, List, Any, Callable, Set
 from datetime import datetime
 from enum import Enum
-import logging
 from pathlib import Path
-import json
-import tempfile
-import os
+from queue import Empty, PriorityQueue
+from typing import Any
 
 from core.logging import get_logger
-from core.training_state import TrainingRecord
 
 logger = get_logger(__name__)
 
@@ -55,13 +54,13 @@ class TrainingTask:
     created_at: float = field(compare=False)
     task_id: str = field(compare=False)
     config: Any = field(compare=False)
-    callback: Optional[Callable] = field(compare=False, default=None)
+    callback: Callable | None = field(compare=False, default=None)
     status: TaskStatus = field(compare=False, default=TaskStatus.PENDING)
-    error: Optional[str] = field(compare=False, default=None)
-    started_at: Optional[datetime] = field(compare=False, default=None)
-    completed_at: Optional[datetime] = field(compare=False, default=None)
+    error: str | None = field(compare=False, default=None)
+    started_at: datetime | None = field(compare=False, default=None)
+    completed_at: datetime | None = field(compare=False, default=None)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """转换为字典"""
         return {
             "task_id": self.task_id,
@@ -77,13 +76,14 @@ class TrainingTask:
 class TrainingQueue:
     """
     训练任务队列管理器（重构版）
-
+    
     修复：
     - P0-2: 完善任务取消功能
     - P1-3: 状态文件原子写入
+    - FIX-1: 使用线程池实现真正的并发控制，修复任务丢失问题
     特性：
     - 优先级队列
-    - 并发控制
+    - 并发控制（线程池模式）
     - 自动重试
     - 任务取消
     """
@@ -94,7 +94,7 @@ class TrainingQueue:
         self,
         max_concurrent: int = 1,
         max_queue_size: int = 10,
-        state_file: Optional[Path] = None
+        state_file: Path | None = None
     ):
         self.max_concurrent = max_concurrent
         self.max_queue_size = max_queue_size
@@ -102,21 +102,22 @@ class TrainingQueue:
 
         self._queue: PriorityQueue = PriorityQueue(maxsize=max_queue_size)
 
-        self._running_tasks: Dict[str, TrainingTask] = {}
-        self._running_threads: Dict[str, threading.Thread] = {}
+        self._running_tasks: dict[str, TrainingTask] = {}
+        self._running_threads: dict[str, threading.Thread] = {}
 
-        self._history: Dict[str, TrainingTask] = {}
+        self._history: dict[str, TrainingTask] = {}
 
         self._lock = threading.Lock()
         self._history_lock = threading.Lock()
 
         self._worker_running = False
-        self._worker_thread: Optional[threading.Thread] = None
+        self._worker_thread: threading.Thread | None = None
 
-        self._semaphore = threading.Semaphore(max_concurrent)
-
-        self._all_tasks: Dict[str, TrainingTask] = {}
-        self._cancelled_tasks: Set[str] = set()
+        self._all_tasks: dict[str, TrainingTask] = {}
+        self._cancelled_tasks: set[str] = set()
+        
+        self._active_count = 0
+        self._active_count_lock = threading.Lock()
 
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -143,7 +144,7 @@ class TrainingQueue:
         logger.info("队列工作线程已停止")
 
     def _worker_loop(self):
-        """工作线程主循环"""
+        """工作线程主循环 - FIX-1: 修复任务丢失问题，使用正确的并发控制"""
         while self._worker_running:
             try:
                 task: TrainingTask = self._queue.get(timeout=1.0)
@@ -157,13 +158,63 @@ class TrainingQueue:
                     self._add_to_history(task)
                     continue
 
-                if self._semaphore.acquire(timeout=0.5):
-                    self._execute_task(task)
+                while self._worker_running:
+                    with self._active_count_lock:
+                        if self._active_count < self.max_concurrent:
+                            self._active_count += 1
+                            break
+                    
+                    time.sleep(0.1)
+                    
+                    if task.task_id in self._cancelled_tasks:
+                        logger.debug(f"等待中的任务 {task.task_id} 已取消")
+                        with self._lock:
+                            self._cancelled_tasks.discard(task.task_id)
+                            self._all_tasks.pop(task.task_id, None)
+                        task.status = TaskStatus.CANCELLED
+                        self._add_to_history(task)
+                        break
+                else:
+                    if not self._worker_running:
+                        self._requeue_task(task)
+                    continue
+                
+                if task.status == TaskStatus.CANCELLED:
+                    with self._active_count_lock:
+                        self._active_count -= 1
+                    continue
+
+                execution_thread = threading.Thread(
+                    target=self._execute_task_in_thread,
+                    args=(task,),
+                    daemon=True
+                )
+                with self._lock:
+                    self._running_threads[task.task_id] = execution_thread
+                execution_thread.start()
 
             except Empty:
                 continue
             except Exception as e:
                 logger.error(f"队列工作线程错误：{e}")
+
+    def _requeue_task(self, task: TrainingTask):
+        """将任务重新放回队列"""
+        try:
+            self._queue.put(task, block=False)
+            logger.debug(f"任务 {task.task_id} 已重新放回队列")
+        except Exception as e:
+            logger.error(f"重新入队失败：{e}")
+            with self._lock:
+                self._all_tasks.pop(task.task_id, None)
+
+    def _execute_task_in_thread(self, task: TrainingTask):
+        """在独立线程中执行任务 - FIX-1: 真正的并发执行"""
+        try:
+            self._execute_task(task)
+        finally:
+            with self._active_count_lock:
+                self._active_count -= 1
 
     def _execute_task(self, task: TrainingTask):
         """执行任务"""
@@ -198,9 +249,6 @@ class TrainingQueue:
                 self._running_threads.pop(task.task_id, None)
                 self._all_tasks.pop(task.task_id, None)
                 self._add_to_history(task)
-
-        finally:
-            self._semaphore.release()
 
     def _add_to_history(self, task: TrainingTask):
         """添加到历史"""
@@ -270,7 +318,7 @@ class TrainingQueue:
                 return
 
         try:
-            with open(self.state_file, "r", encoding="utf-8") as f:
+            with open(self.state_file, encoding="utf-8") as f:
                 state = json.load(f)
 
             for task_id, data in state.get("history", {}).items():
@@ -363,7 +411,7 @@ class TrainingQueue:
             logger.warning(f"无法取消任务 {task_id}：任务不存在")
             return False
 
-    def get_queue_status(self) -> Dict[str, Any]:
+    def get_queue_status(self) -> dict[str, Any]:
         """获取队列状态"""
         with self._lock:
             return {
@@ -378,7 +426,7 @@ class TrainingQueue:
                 "cancelled_count": len(self._cancelled_tasks),
             }
 
-    def get_task_status(self, task_id: str) -> Optional[Dict]:
+    def get_task_status(self, task_id: str) -> dict | None:
         """获取任务状态"""
         with self._lock:
             if task_id in self._running_tasks:
@@ -393,7 +441,7 @@ class TrainingQueue:
 
         return None
 
-    def get_pending_tasks(self) -> List[Dict]:
+    def get_pending_tasks(self) -> list[dict]:
         """获取所有待执行任务"""
         with self._lock:
             return [
@@ -411,14 +459,14 @@ class TrainingQueue:
             return count
 
 
-_training_queue: Optional[TrainingQueue] = None
+_training_queue: TrainingQueue | None = None
 _queue_lock = threading.Lock()
 
 
 def get_training_queue(
     max_concurrent: int = 1,
     max_queue_size: int = 10,
-    state_file: Optional[Path] = None
+    state_file: Path | None = None
 ) -> TrainingQueue:
     """获取训练队列实例"""
     global _training_queue

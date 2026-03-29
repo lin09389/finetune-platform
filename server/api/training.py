@@ -1,34 +1,33 @@
-# -*- coding: utf-8 -*-
 """
 训练管理 API - 线程安全版本 + 断点续训支持
 """
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Query, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
-import os
-import uuid
-import json
 import asyncio
+import gc
+import json
+import logging
+import os
 import threading
 import traceback as tb
-from pathlib import Path
-from datetime import datetime
-from fastapi.responses import StreamingResponse
+import uuid
 from concurrent.futures import ThreadPoolExecutor
-from fastapi.websockets import WebSocketState
-import logging
+from datetime import datetime
+from pathlib import Path
+from typing import Any
 
-from core.config import get_settings, Settings
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+
+from core.config import Settings, get_settings
 from core.logging import get_logger
-from core.training_state import TrainingState, TrainingProgress, TrainingRecord, get_training_state
+from core.training_queue import TaskPriority, get_training_queue
+from core.training_state import TrainingRecord, TrainingState, get_training_state
 from core.utils import (
-    get_vram_usage,
     cleanup_gpu_memory,
-    format_time,
+    get_vram_usage,
     pre_training_resource_check,
-    safe_cleanup_model
+    safe_cleanup_model,
 )
-from core.training_queue import get_training_queue, TaskPriority, TrainingQueue
 
 logger = get_logger(__name__)
 
@@ -41,17 +40,17 @@ class TrainingWebSocketManager:
     修复:
     - P0-3: WebSocket 连接泄漏，添加超时机制和心跳检测
     """
-    
+
     CONNECTION_TIMEOUT = 300
     HEARTBEAT_INTERVAL = 30
     SEND_TIMEOUT = 10
-    
+
     def __init__(self):
-        self._connections: Dict[str, List[WebSocket]] = {}
-        self._connection_times: Dict[str, Dict[WebSocket, float]] = {}
+        self._connections: dict[str, list[WebSocket]] = {}
+        self._connection_times: dict[str, dict[WebSocket, float]] = {}
         self._lock = threading.Lock()
         self._async_lock = asyncio.Lock()
-    
+
     async def connect(self, task_id: str, websocket: WebSocket):
         """连接到指定任务的 WebSocket"""
         await websocket.accept()
@@ -62,7 +61,7 @@ class TrainingWebSocketManager:
             self._connections[task_id].append(websocket)
             self._connection_times[task_id][websocket] = asyncio.get_event_loop().time()
             logger.info(f"WebSocket 连接：task_id={task_id}, 连接数={len(self._connections[task_id])}")
-    
+
     async def disconnect(self, task_id: str, websocket: WebSocket):
         """断开指定任务的 WebSocket 连接"""
         async with self._async_lock:
@@ -71,26 +70,26 @@ class TrainingWebSocketManager:
                     self._connections[task_id].remove(websocket)
                 except ValueError:
                     pass
-                
+
                 if task_id in self._connection_times and websocket in self._connection_times[task_id]:
                     del self._connection_times[task_id][websocket]
-                
+
                 if not self._connections[task_id]:
                     del self._connections[task_id]
                     if task_id in self._connection_times:
                         del self._connection_times[task_id]
                     logger.info(f"WebSocket 断开：task_id={task_id}")
-    
-    async def broadcast(self, task_id: str, data: Dict[str, Any]):
+
+    async def broadcast(self, task_id: str, data: dict[str, Any]):
         """向指定任务的所有连接广播数据"""
         async with self._async_lock:
             if task_id not in self._connections:
                 return
-            
+
             message = json.dumps(data)
             disconnected = []
             current_time = asyncio.get_event_loop().time()
-            
+
             for websocket in list(self._connections[task_id]):
                 try:
                     if task_id in self._connection_times:
@@ -99,7 +98,7 @@ class TrainingWebSocketManager:
                             logger.warning(f"WebSocket 连接超时：task_id={task_id}")
                             disconnected.append(websocket)
                             continue
-                    
+
                     try:
                         await asyncio.wait_for(
                             websocket.send_text(message),
@@ -108,69 +107,69 @@ class TrainingWebSocketManager:
                     except asyncio.TimeoutError:
                         logger.warning(f"WebSocket 发送超时：task_id={task_id}")
                         disconnected.append(websocket)
-                        
+
                 except Exception as e:
                     logger.warning(f"WebSocket 发送失败：{e}")
                     disconnected.append(websocket)
-            
+
             for ws in disconnected:
                 try:
                     if task_id in self._connections and ws in self._connections[task_id]:
                         self._connections[task_id].remove(ws)
                     if task_id in self._connection_times and ws in self._connection_times[task_id]:
                         del self._connection_times[task_id][ws]
-                except Exception:
-                    pass
-            
+                except Exception as e:
+                    logger.debug(f"清理断开的 WebSocket 连接失败：{e}")
+
             if task_id in self._connections and not self._connections[task_id]:
                 del self._connections[task_id]
                 if task_id in self._connection_times:
                     del self._connection_times[task_id]
-    
-    async def broadcast_progress(self, task_id: str, progress: Dict[str, Any]):
+
+    async def broadcast_progress(self, task_id: str, progress: dict[str, Any]):
         """广播训练进度"""
         await self.broadcast(task_id, {
             "type": "progress",
             "data": progress
         })
-    
-    async def broadcast_event(self, task_id: str, event_type: str, data: Dict[str, Any]):
+
+    async def broadcast_event(self, task_id: str, event_type: str, data: dict[str, Any]):
         """广播训练事件"""
         await self.broadcast(task_id, {
             "type": "event",
             "event": event_type,
             "data": data
         })
-    
+
     async def cleanup_stale_connections(self):
         """清理超时的连接"""
         async with self._async_lock:
             current_time = asyncio.get_event_loop().time()
             tasks_to_cleanup = []
-            
+
             for task_id, conn_times in list(self._connection_times.items()):
                 stale_websockets = [
                     ws for ws, conn_time in conn_times.items()
                     if current_time - conn_time > self.CONNECTION_TIMEOUT
                 ]
-                
+
                 for ws in stale_websockets:
                     try:
                         if task_id in self._connections and ws in self._connections[task_id]:
                             self._connections[task_id].remove(ws)
                         del conn_times[ws]
-                    except Exception:
-                        pass
-                
+                    except Exception as e:
+                        logger.debug(f"清理超时 WebSocket 连接失败：{e}")
+
                 if task_id in self._connections and not self._connections[task_id]:
                     tasks_to_cleanup.append(task_id)
-            
+
             for task_id in tasks_to_cleanup:
                 self._connections.pop(task_id, None)
                 self._connection_times.pop(task_id, None)
 
 
-_ws_manager: Optional[TrainingWebSocketManager] = None
+_ws_manager: TrainingWebSocketManager | None = None
 
 
 def get_ws_manager() -> TrainingWebSocketManager:
@@ -191,8 +190,8 @@ class UnrecoverableError(Exception):
     pass
 
 
-_training_state: Optional[TrainingState] = None
-_settings: Optional[Settings] = None
+_training_state: TrainingState | None = None
+_settings: Settings | None = None
 
 
 def get_state() -> TrainingState:
@@ -227,9 +226,9 @@ class TrainingConfigInput(BaseModel):
     warmup_steps: int = Field(default=100, ge=0, description="预热步数")
     save_steps: int = Field(default=500, ge=100, description="保存间隔")
     logging_steps: int = Field(default=10, ge=1, description="日志间隔")
-    resume_from_checkpoint: Optional[str] = Field(default=None, description="从检查点恢复")
+    resume_from_checkpoint: str | None = Field(default=None, description="从检查点恢复")
     quantization: int = Field(default=4, description="量化位数：4/8/none")
-    
+
     use_dora: bool = Field(default=False, description="是否使用 DoRA 微调")
     lr_scheduler: str = Field(default="cosine", description="学习率调度：cosine/linear/constant")
     warmup_ratio: float = Field(default=0.1, ge=0, le=1, description="预热比例")
@@ -248,7 +247,7 @@ class TrainingConfigInput(BaseModel):
     metric_for_best_model: str = Field(default="eval_loss", description="最佳模型指标")
     greater_is_better: bool = Field(default=False, description="指标是否越大越好")
 
-    additional_datasets: Optional[List[Dict[str, Any]]] = Field(
+    additional_datasets: list[dict[str, Any]] | None = Field(
         default=None,
         description="额外数据集列表，格式：[{'dataset_id': 'xxx', 'weight': 0.3}]"
     )
@@ -274,7 +273,7 @@ class TrainingConfigInput(BaseModel):
     galore_rank: int = Field(default=128, ge=16, le=1024, description="GaLore 投影秩")
     galore_update_proj_gap: int = Field(default=50, ge=10, description="GaLore 投影更新间隔")
 
-    output_path: Optional[str] = Field(default=None, description="输出路径（运行时设置）")
+    output_path: str | None = Field(default=None, description="输出路径（运行时设置）")
 
 
 class TrainingProgressResponse(BaseModel):
@@ -299,10 +298,10 @@ class TrainingRecordResponse(BaseModel):
     method: str
     status: str
     start_time: str
-    end_time: Optional[str]
+    end_time: str | None
     config: dict
     output_path: str
-    checkpoint_path: Optional[str]
+    checkpoint_path: str | None
 
 
 class ResourceCheckResponse(BaseModel):
@@ -310,24 +309,24 @@ class ResourceCheckResponse(BaseModel):
     passed: bool
     available_vram: float
     required_vram: float
-    suggestions: List[str]
-    warnings: List[str]
-    recommended_config: Dict[str, Any]
-    device_name: Optional[str] = None
+    suggestions: list[str]
+    warnings: list[str]
+    recommended_config: dict[str, Any]
+    device_name: str | None = None
 
 
 def load_model_and_tokenizer(
     model_path: str,
     method: str,
     quantize: int = 4,
-    resume_from: Optional[str] = None,
+    resume_from: str | None = None,
     rank: int = 8,
     alpha: int = 16,
     lora_dropout: float = 0.05,
     target_modules: str = "all",
     use_dora: bool = False,
     use_flash_attn: bool = False,
-    deepspeed_config: Optional[Dict[str, Any]] = None,
+    deepspeed_config: dict[str, Any] | None = None,
     use_lora_plus: bool = False,
     lora_plus_lr_ratio: float = 16.0
 ):
@@ -349,8 +348,8 @@ def load_model_and_tokenizer(
         lora_plus_lr_ratio: LoRA+ B/A 学习率比例
     """
     import torch
-    from transformers import AutoTokenizer, AutoModelForCausalLM
-    from peft import LoraConfig, get_peft_model, TaskType, PeftModel, AdaLoraConfig, LoRAConfig as PeftLoRAConfig
+    from peft import LoraConfig, PeftModel, TaskType, get_peft_model
+    from transformers import AutoModelForCausalLM, AutoTokenizer
 
     logger.info(f"加载模型：{model_path}, 方法：{method}, 量化：{quantize}, rank={rank}, alpha={alpha}, flash_attn={use_flash_attn}")
 
@@ -403,8 +402,7 @@ def load_model_and_tokenizer(
             tokenizer.pad_token = tokenizer.eos_token
 
         if target_modules == "all":
-            target_modules_list = ["q_proj", "v_proj", "k_proj", "o_proj",
-                                   "gate_proj", "up_proj", "down_proj"]
+            target_modules_list = "all-linear"
         elif target_modules == "attn":
             target_modules_list = ["q_proj", "v_proj", "k_proj", "o_proj"]
         elif target_modules == "mlp":
@@ -445,9 +443,7 @@ def load_model_and_tokenizer(
         if use_lora_plus and method not in ["full"]:
             logger.info(f"应用 LoRA+ 配置: lr_ratio={lora_plus_lr_ratio}")
             for name, param in model.named_parameters():
-                if "lora_B" in name:
-                    param.requires_grad = True
-                elif "lora_A" in name:
+                if "lora_B" in name or "lora_A" in name:
                     param.requires_grad = True
 
         return model, tokenizer
@@ -464,8 +460,9 @@ def load_model_and_tokenizer(
 
 def load_dataset(dataset_path: str, tokenizer, max_length: int = 512):
     """加载数据集 - 支持多种格式"""
-    from datasets import Dataset
     import json
+
+    from datasets import Dataset
 
     logger.info(f"加载数据集：{dataset_path}")
 
@@ -523,11 +520,11 @@ def load_dataset(dataset_path: str, tokenizer, max_length: int = 512):
 
     if dataset_path.endswith(".jsonl"):
         data = []
-        with open(dataset_path, "r", encoding="utf-8") as f:
+        with open(dataset_path, encoding="utf-8") as f:
             for line in f:
                 data.append(json.loads(line))
     else:
-        with open(dataset_path, "r", encoding="utf-8") as f:
+        with open(dataset_path, encoding="utf-8") as f:
             data = json.load(f)
 
     dataset = Dataset.from_list(data)
@@ -547,7 +544,41 @@ def load_dataset(dataset_path: str, tokenizer, max_length: int = 512):
     dataset = dataset.remove_columns(columns_to_remove)
 
     def set_labels(examples):
-        examples["labels"] = examples["input_ids"].copy()
+        import copy
+        labels = []
+        for input_ids, text in zip(examples["input_ids"], examples["text"]):
+            label = copy.deepcopy(input_ids)
+            
+            # Find User/Instruction prompt end to mask out the prompt
+            # For simplicity, if we find "Assistant:" or "Response:", mask everything before it
+            assistant_token_ids = tokenizer.encode("Assistant:", add_special_tokens=False)
+            response_token_ids = tokenizer.encode("Response:", add_special_tokens=False)
+            
+            mask_idx = -1
+            # Simple matching for assistant/response tokens
+            for i in range(len(label) - max(len(assistant_token_ids), len(response_token_ids))):
+                if label[i:i+len(assistant_token_ids)] == assistant_token_ids:
+                    mask_idx = i + len(assistant_token_ids)
+                    break
+                elif label[i:i+len(response_token_ids)] == response_token_ids:
+                    mask_idx = i + len(response_token_ids)
+                    break
+            
+            if mask_idx != -1:
+                # Mask out user prompt
+                for i in range(mask_idx):
+                    label[i] = -100
+            
+            # Mask out padding tokens
+            pad_token_id = tokenizer.pad_token_id
+            if pad_token_id is not None:
+                for i in range(len(label)):
+                    if label[i] == pad_token_id:
+                        label[i] = -100
+                        
+            labels.append(label)
+            
+        examples["labels"] = labels
         return examples
 
     dataset = dataset.map(set_labels, batched=True)
@@ -559,7 +590,7 @@ def load_dataset(dataset_path: str, tokenizer, max_length: int = 512):
 
 def load_multiple_datasets(
     dataset_path: str,
-    additional_datasets: List[Dict[str, Any]],
+    additional_datasets: list[dict[str, Any]],
     tokenizer,
     max_length: int = 512,
     settings = None
@@ -576,8 +607,8 @@ def load_multiple_datasets(
     Returns:
         混合后的数据集
     """
-    from datasets import Dataset, interleave_datasets
-    import random
+
+    from datasets import interleave_datasets
 
     logger.info(f"加载主数据集：{dataset_path}")
 
@@ -659,6 +690,7 @@ class ProgressCallback:
         self.tokenizer = tokenizer
         self.trainer = trainer
         self.train_logger = train_logger
+        self._event_loop = kwargs.get("event_loop")
 
         self._checkpoint_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="checkpoint_saver")
         self._pending_checkpoint = None
@@ -671,10 +703,11 @@ class ProgressCallback:
         self._last_eta_time = datetime.now()
         self._steps_per_second = 0.0
 
-        try:
-            self._event_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            self._event_loop = None
+        if self._event_loop is None:
+            try:
+                self._event_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                self._event_loop = None
 
     def set_trainer(self, trainer):
         """设置 trainer 引用（用于检查点保存）"""
@@ -742,13 +775,18 @@ class ProgressCallback:
         logger.info("准备推送模型到 Hub")
 
     def on_step_end(self, args, state, control, **kwargs):
-        """每一步结束时的回调 - 优化版：降低更新频率 + 异步检查点"""
+        """每一步结束时的回调 - 优化版：降低更新频率 + 异步检查点 + FIX-2: 停止信号传递"""
+        if not self.state.is_training():
+            logger.info(f"检测到停止信号，在第 {state.global_step} 步中断训练")
+            control.should_training_stop = True
+            return control
+
         self.current_step = state.global_step
         self.current_epoch = state.epoch
 
         loss = kwargs.get("loss", 0.0)
         self.current_loss = float(loss) if loss > 0 else 0.0
-        
+
         if (self.current_step - self.last_update_step) >= self.update_interval:
             self._update_progress(state, args, kwargs)
             self.last_update_step = self.current_step
@@ -758,8 +796,10 @@ class ProgressCallback:
             self.current_step % self.config.save_steps == 0 and
             self.current_step > self.last_checkpoint_step
         ):
-            self._save_checkpoint_async()
+            self._do_save_checkpoint()
             self.last_checkpoint_step = self.current_step
+        
+        return control
 
     def _update_progress(self, state, args, kwargs):
         """实际更新进度的逻辑"""
@@ -804,7 +844,7 @@ class ProgressCallback:
             status="running",
             message=f"Training epoch {int(self.current_epoch) + 1}/{self.config.epochs}",
         )
-        
+
         if self.train_logger:
             self.train_logger.log_metrics(
                 epoch=int(self.current_epoch) + 1,
@@ -817,7 +857,7 @@ class ProgressCallback:
                     "eta": eta
                 }
             )
-        
+
         try:
             ws_manager = get_ws_manager()
             progress_data = {
@@ -840,19 +880,13 @@ class ProgressCallback:
         except Exception as e:
             logger.debug(f"WebSocket 推送进度失败：{e}")
 
-    def _save_checkpoint_async(self):
-        """异步保存检查点 - 后台线程执行，不阻塞训练"""
-        logger.info(f"后台保存检查点：step-{self.current_step}")
-        
-        future = self._checkpoint_executor.submit(self._do_save_checkpoint)
-        self._pending_checkpoint = future
-
     def _do_save_checkpoint(self):
-        """实际执行检查点保存（在后台线程运行）"""
+        """实际执行检查点保存（同步保存以避免数据竞争）"""
         try:
-            import torch
             import random
+
             import numpy as np
+            import torch
 
             checkpoint_dir = Path(self.record.output_path) / "checkpoints" / f"checkpoint-{self.current_step}"
 
@@ -900,7 +934,7 @@ class ProgressCallback:
                     if self.trainer.lr_scheduler is not None:
                         torch.save(self.trainer.lr_scheduler.state_dict(), scheduler_path)
 
-                    logger.debug(f"优化器和 scheduler 状态已保存")
+                    logger.debug("优化器和 scheduler 状态已保存")
                 except Exception as e:
                     logger.warning(f"保存优化器状态失败：{e}")
 
@@ -911,8 +945,8 @@ class ProgressCallback:
             try:
                 if torch.cuda.is_available():
                     rng_state["torch_cuda"] = torch.cuda.get_rng_state().tolist()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"获取 CUDA RNG 状态失败：{e}")
 
             with open(checkpoint_dir / "rng_state.json", "w", encoding="utf-8") as f:
                 json.dump(rng_state, f, indent=2)
@@ -935,7 +969,7 @@ class ProgressCallback:
         except Exception as e:
             logger.error(f"保存检查点失败：{e}")
             logger.error(tb.format_exc())
-            
+
             if self.train_logger:
                 self.train_logger.log_error(e, {"step": self.current_step})
 
@@ -981,7 +1015,7 @@ class ProgressCallback:
                 "elapsed_time": (datetime.now() - self.start_time).total_seconds(),
                 "total_steps": self.total_steps
             })
-        
+
         try:
             ws_manager = get_ws_manager()
             completion_data = {
@@ -1010,6 +1044,10 @@ class ProgressCallback:
             message="Training completed!",
         )
 
+        # Break circular references to avoid memory leaks
+        self.model = None
+        self.trainer = None
+
 
 def training_thread(
     config: TrainingConfigInput,
@@ -1017,16 +1055,19 @@ def training_thread(
     dataset_path: str,
     state: TrainingState,
     record: TrainingRecord,
-    retry_count: int = 0
+    retry_count: int = 0,
+    event_loop = None,
+    task_id: str = None
 ):
     """
     训练线程 - 使用队列式状态更新 + 异常恢复机制
 
     Args:
         retry_count: 当前重试次数
+        task_id: 任务ID（用于线程注销）
     """
     import torch
-    from transformers import TrainingArguments, Trainer
+    from transformers import Trainer, TrainingArguments
 
     settings = get_config()
 
@@ -1035,10 +1076,10 @@ def training_thread(
     trainer = None
 
     start_time = datetime.now()
-    
+
     train_logger = TrainingLogger(record.id, Path(record.output_path))
     train_logger.log_start(config)
-    
+
     logger.info(f"开始训练任务：{record.id} (重试次数：{retry_count})")
 
     try:
@@ -1207,12 +1248,12 @@ def training_thread(
 
             from torch.optim import AdamW
             param_groups = [
-                {"params": lora_a_params, "lr": base_lr * config.lora_plus_lr_ratio},
-                {"params": lora_b_params, "lr": base_lr},
+                {"params": lora_a_params, "lr": base_lr},
+                {"params": lora_b_params, "lr": base_lr * config.lora_plus_lr_ratio},
                 {"params": other_params, "lr": base_lr},
             ]
             trainer.optimizer = AdamW(param_groups, weight_decay=config.weight_decay)
-            logger.info(f"LoRA+ 优化器配置：A参数 lr={base_lr * config.lora_plus_lr_ratio}, B参数 lr={base_lr}")
+            logger.info(f"LoRA+ 优化器配置：A参数 lr={base_lr}, B参数 lr={base_lr * config.lora_plus_lr_ratio}")
 
         if config.use_galore:
             if config.deepspeed_stage > 0:
@@ -1252,7 +1293,7 @@ def training_thread(
                     logger.warning("未找到可使用 GaLore 的参数，跳过")
 
             except ImportError as e:
-                logger.warning(f"GaLore 未安装，请运行: pip install galore-torch")
+                logger.warning("GaLore 未安装，请运行: pip install galore-torch")
                 logger.warning(f"将跳过 GaLore 优化，继续使用标准训练: {e}")
 
         if config.use_torch_compile and hasattr(model, 'forward'):
@@ -1284,7 +1325,7 @@ def training_thread(
         callback = ProgressCallback(
             total_steps, start_time, state, record, config,
             model=model, tokenizer=tokenizer, trainer=trainer,
-            train_logger=train_logger
+            train_logger=train_logger, event_loop=event_loop
         )
         trainer.add_callback(callback)
 
@@ -1295,7 +1336,7 @@ def training_thread(
         )
 
         try:
-            trainer.train()
+            trainer.train(resume_from_checkpoint=config.resume_from_checkpoint if config.resume_from_checkpoint else None)
         except torch.cuda.OutOfMemoryError as e:
             raise RecoverableError(f"训练时 OOM: {e}")
         except KeyboardInterrupt:
@@ -1323,7 +1364,7 @@ def training_thread(
 
     except RecoverableError as e:
         logger.warning(f"可恢复错误：{e}")
-        
+
         max_retries = 2
         if retry_count < max_retries:
             cleanup_gpu_memory(aggressive=True)
@@ -1332,20 +1373,20 @@ def training_thread(
             del model, tokenizer, trainer
             import gc
             gc.collect()
-            
+
             degraded_config = _degrade_training_config(config)
             logger.info(f"应用降级配置：batch_size={degraded_config.batch_size}, "
                        f"gradient_accumulation={degraded_config.gradient_accumulation}")
-            
+
             cooldown = 30 * (retry_count + 1)
             logger.info(f"等待 {cooldown} 秒后重试...")
             import time
             time.sleep(cooldown)
-            
+
             logger.info(f"第 {retry_count + 1} 次重试...")
             return training_thread(
                 degraded_config, model_path, dataset_path, state, record,
-                retry_count + 1
+                retry_count + 1, event_loop=event_loop, task_id=task_id
             )
         else:
             logger.error(f"重试次数耗尽 ({max_retries}次)，训练失败")
@@ -1361,6 +1402,12 @@ def training_thread(
         _handle_training_failure(state, record, e, train_logger)
 
     finally:
+        state.queue_training_state(False)
+        
+        if task_id:
+            state.unregister_training_task(task_id)
+            logger.debug(f"已注销训练任务线程：{task_id}")
+        
         if retry_count == 0:
             _cleanup_training_resources(model, tokenizer, trainer)
 
@@ -1374,7 +1421,7 @@ def _apply_precision_preset(config: TrainingConfigInput) -> TrainingConfigInput:
     - fast: 快速训练（QLoRA）
     """
     cfg = config.model_copy()
-    
+
     if cfg.precision_preset == "max":
         cfg.method = "full" if not cfg.use_dora else "dora"
         cfg.learning_rate = 1e-5
@@ -1389,7 +1436,7 @@ def _apply_precision_preset(config: TrainingConfigInput) -> TrainingConfigInput:
         cfg.lora_dropout = 0.05
         cfg.max_grad_norm = 1.0
         logger.info("应用最高精度配置（max）")
-        
+
     elif cfg.precision_preset == "balanced":
         if cfg.use_dora:
             cfg.rank = 64
@@ -1407,7 +1454,7 @@ def _apply_precision_preset(config: TrainingConfigInput) -> TrainingConfigInput:
         cfg.load_best_model = True
         cfg.lora_dropout = 0.05
         logger.info("应用平衡精度配置 (balanced)")
-        
+
     elif cfg.precision_preset == "fast":
         cfg.method = "qlora"
         cfg.rank = 16
@@ -1447,7 +1494,7 @@ def _apply_memory_preset(config: TrainingConfigInput) -> TrainingConfigInput:
     - 12gb: 12GB 显存优化 (高性能)
     """
     cfg = config.model_copy()
-    
+
     if cfg.memory_preset == "6gb":
         cfg.gradient_checkpointing = True
         cfg.gradient_accumulation = 16
@@ -1456,7 +1503,7 @@ def _apply_memory_preset(config: TrainingConfigInput) -> TrainingConfigInput:
         cfg.bf16 = True
         cfg.use_flash_attn = True
         logger.info("应用 6GB 显存优化配置")
-        
+
     elif cfg.memory_preset == "8gb":
         cfg.gradient_checkpointing = True
         cfg.gradient_accumulation = 8
@@ -1465,7 +1512,7 @@ def _apply_memory_preset(config: TrainingConfigInput) -> TrainingConfigInput:
         cfg.bf16 = True
         cfg.use_flash_attn = True
         logger.info("应用 8GB 显存优化配置")
-        
+
     elif cfg.memory_preset == "12gb":
         cfg.gradient_checkpointing = True
         cfg.gradient_accumulation = 4
@@ -1476,13 +1523,13 @@ def _apply_memory_preset(config: TrainingConfigInput) -> TrainingConfigInput:
         cfg.deepspeed_stage = 2
         cfg.offload_optimizer = True
         logger.info("应用 12GB 显存优化配置 (DeepSpeed ZeRO-2)")
-        
+
     elif cfg.memory_preset == "auto":
         try:
             import torch
             if torch.cuda.is_available():
                 total_vram = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
-                
+
                 if total_vram <= 6:
                     cfg.memory_preset = "6gb"
                     return _apply_memory_preset(cfg)
@@ -1494,7 +1541,7 @@ def _apply_memory_preset(config: TrainingConfigInput) -> TrainingConfigInput:
                     return _apply_memory_preset(cfg)
         except Exception as e:
             logger.debug(f"自动检测显存失败：{e}")
-    
+
     return cfg
 
 
@@ -1504,14 +1551,14 @@ def _degrade_training_config(config: TrainingConfigInput) -> TrainingConfigInput
     根据当前显存情况自动调整参数
     """
     degraded = config.model_copy()
-    
+
     try:
         import torch
         if torch.cuda.is_available():
             available_vram = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
             allocated_vram = torch.cuda.memory_allocated(0) / (1024 ** 3)
             free_vram = available_vram - allocated_vram
-            
+
             if free_vram < 4.0:
                 if degraded.batch_size > 1:
                     degraded.batch_size = 1
@@ -1526,7 +1573,7 @@ def _degrade_training_config(config: TrainingConfigInput) -> TrainingConfigInput
                     degraded.gradient_accumulation = 16
     except Exception as e:
         logger.warning(f"降级配置失败：{e}")
-    
+
     return degraded
 
 
@@ -1552,7 +1599,7 @@ def _cleanup_training_resources(model, tokenizer, trainer):
     """清理训练资源"""
     try:
         from core.utils import cleanup_gpu_memory, safe_cleanup_model
-        
+
         cleanup_gpu_memory(aggressive=True)
 
         if model is not None:
@@ -1567,18 +1614,18 @@ def _cleanup_training_resources(model, tokenizer, trainer):
 
 class TrainingLogger:
     """训练日志记录器"""
-    
+
     def __init__(self, task_id: str, output_dir: Path):
         self.task_id = task_id
         self.log_file = output_dir / "training.log"
         self.metrics_file = output_dir / "metrics.jsonl"
         self.events_file = output_dir / "events.jsonl"
-        
+
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
-        
+
         self.logger = logging.getLogger(f"training.{task_id}")
         self.logger.setLevel(logging.INFO)
-        
+
         if not self.logger.handlers:
             handler = logging.FileHandler(self.log_file, encoding='utf-8')
             formatter = logging.Formatter(
@@ -1587,7 +1634,7 @@ class TrainingLogger:
             )
             handler.setFormatter(formatter)
             self.logger.addHandler(handler)
-    
+
     def log_start(self, config: TrainingConfigInput):
         """记录训练开始"""
         self.logger.info("=" * 60)
@@ -1603,12 +1650,12 @@ class TrainingLogger:
         self.logger.info(f"梯度累积：{config.gradient_accumulation}")
         self.logger.info(f"序列长度：{config.max_seq_length}")
         self.logger.info(f"训练轮数：{config.epochs}")
-        
+
         self._log_event("training_started", {
             "config": config.model_dump()
         })
-    
-    def log_metrics(self, epoch: int, step: int, metrics: Dict[str, Any]):
+
+    def log_metrics(self, epoch: int, step: int, metrics: dict[str, Any]):
         """记录训练指标"""
         metrics_record = {
             "timestamp": datetime.now().isoformat(),
@@ -1616,32 +1663,32 @@ class TrainingLogger:
             "step": step,
             **metrics
         }
-        
+
         try:
             with open(self.metrics_file, 'a', encoding='utf-8') as f:
                 f.write(json.dumps(metrics_record, ensure_ascii=False) + '\n')
         except Exception as e:
             self.logger.warning(f"记录指标失败：{e}")
-    
-    def log_event(self, event_type: str, data: Dict[str, Any]):
+
+    def log_event(self, event_type: str, data: dict[str, Any]):
         """记录训练事件"""
         self._log_event(event_type, data)
-    
-    def _log_event(self, event_type: str, data: Dict[str, Any]):
+
+    def _log_event(self, event_type: str, data: dict[str, Any]):
         """内部事件记录"""
         event = {
             "timestamp": datetime.now().isoformat(),
             "event_type": event_type,
             "data": data
         }
-        
+
         try:
             with open(self.events_file, 'a', encoding='utf-8') as f:
                 f.write(json.dumps(event, ensure_ascii=False) + '\n')
         except Exception as e:
             self.logger.warning(f"记录事件失败：{e}")
-    
-    def log_error(self, error: Exception, context: Dict[str, Any] = None):
+
+    def log_error(self, error: Exception, context: dict[str, Any] = None):
         """记录错误"""
         self.logger.error(f"错误：{error}", exc_info=True)
         self._log_event("error", {
@@ -1649,7 +1696,7 @@ class TrainingLogger:
             "error_message": str(error),
             "context": context or {}
         })
-    
+
     def log_checkpoint_saved(self, step: int, path: str):
         """记录检查点保存"""
         self.logger.info(f"检查点保存：step={step}, path={path}")
@@ -1657,15 +1704,15 @@ class TrainingLogger:
             "step": step,
             "path": path
         })
-    
-    def log_completion(self, final_metrics: Dict[str, Any]):
+
+    def log_completion(self, final_metrics: dict[str, Any]):
         """记录训练完成"""
         self.logger.info("=" * 60)
         self.logger.info("训练完成")
         self.logger.info("=" * 60)
         self.logger.info(f"最终 Loss: {final_metrics.get('loss', 'N/A')}")
         self.logger.info(f"训练时长：{final_metrics.get('elapsed_time', 'N/A')}")
-        
+
         self._log_event("training_completed", {
             "final_metrics": final_metrics
         })
@@ -1676,7 +1723,7 @@ async def stop_training():
     """停止训练"""
     state = get_state()
 
-    if not await state.is_training():
+    if not state.is_training():
         raise HTTPException(status_code=400, detail="No training in progress")
 
     state.queue_training_state(False)
@@ -1685,14 +1732,13 @@ async def stop_training():
         message="Training stopped by user"
     )
 
-    record = await state.get_current_record()
+    record = state.get_current_record()
     if record:
         record.status = "stopped"
         record.end_time = datetime.now().isoformat()
-        await state.add_to_history(record)
+        state.add_to_history(record)
 
-    cleanup_gpu_memory(aggressive=True)
-    import gc
+    await asyncio.to_thread(cleanup_gpu_memory, aggressive=True)
     gc.collect()
 
     logger.info("训练已停止")
@@ -1703,7 +1749,7 @@ async def stop_training():
 async def get_progress():
     """获取训练进度"""
     state = get_state()
-    progress = await state.get_progress()
+    progress = state.get_progress()
     return TrainingProgressResponse(**progress.model_dump())
 
 
@@ -1737,18 +1783,18 @@ async def progress_stream(
         try:
             while True:
                 current_time = time.time()
-                
+
                 if current_time - connection_start > timeout:
                     logger.info(f"SSE 连接超时：已运行 {timeout} 秒")
                     yield f"event: timeout\ndata: {{\"message\": \"Connection timeout after {timeout}s\"}}\n\n"
                     break
-                
+
                 if current_time - last_activity > timeout:
                     logger.warning(f"SSE 连接空闲超时：{current_time - last_activity:.0f} 秒无活动")
-                    yield f"event: timeout\ndata: {{\"message\": \"Idle timeout\"}}\n\n"
+                    yield "event: timeout\ndata: {\"message\": \"Idle timeout\"}\n\n"
                     break
-                
-                progress = await state.get_progress()
+
+                progress = state.get_progress()
 
                 should_send = (
                     progress.step != last_step or
@@ -1778,7 +1824,7 @@ async def progress_stream(
                     break
 
                 await asyncio.sleep(1)
-                
+
         except asyncio.CancelledError:
             logger.info("SSE 连接被客户端取消")
         except Exception as e:
@@ -1800,7 +1846,7 @@ async def progress_stream(
 async def get_history():
     """获取训练历史"""
     state = get_state()
-    records = await state.get_history()
+    records = state.get_history()
     return [TrainingRecordResponse(**r.model_dump()) for r in records]
 
 
@@ -1808,13 +1854,13 @@ async def get_history():
 async def training_websocket(websocket: WebSocket, task_id: str):
     """训练进度 WebSocket 推送"""
     ws_manager = get_ws_manager()
-    
+
     await ws_manager.connect(task_id, websocket)
-    
+
     try:
         while True:
             data = await websocket.receive_text()
-            
+
             try:
                 msg = json.loads(data)
                 if msg.get("type") == "ping":
@@ -1833,10 +1879,10 @@ async def get_training_metrics(task_id: str):
     """获取训练指标数据（用于图表展示）"""
     state = get_state()
     settings = get_config()
-    
+
     output_dir = settings.outputs_dir_resolved / f"train_{task_id[:8]}"
     metrics_file = output_dir / "metrics.jsonl"
-    
+
     if not metrics_file.exists():
         return {
             "task_id": task_id,
@@ -1847,10 +1893,10 @@ async def get_training_metrics(task_id: str):
                 "elapsed_time": 0
             }
         }
-    
+
     metrics = []
     try:
-        with open(metrics_file, 'r', encoding='utf-8') as f:
+        with open(metrics_file, encoding='utf-8') as f:
             for line in f:
                 try:
                     metric = json.loads(line.strip())
@@ -1859,13 +1905,13 @@ async def get_training_metrics(task_id: str):
                     continue
     except Exception as e:
         logger.error(f"读取指标文件失败：{e}")
-    
+
     summary = {
         "total_steps": metrics[-1]["step"] if metrics else 0,
         "final_loss": metrics[-1].get("loss", 0) if metrics else 0,
         "elapsed_time": metrics[-1].get("elapsed_time", 0) if metrics else 0
     }
-    
+
     return {
         "task_id": task_id,
         "metrics": metrics,
@@ -1878,24 +1924,24 @@ async def get_chart_data(task_id: str):
     """获取图表数据（简化版，直接返回绘图数据）"""
     state = get_state()
     settings = get_config()
-    
+
     output_dir = settings.outputs_dir_resolved / f"train_{task_id[:8]}"
     metrics_file = output_dir / "metrics.jsonl"
-    
+
     if not metrics_file.exists():
         return {
             "loss_chart": {"labels": [], "data": []},
             "lr_chart": {"labels": [], "data": []},
             "vram_chart": {"labels": [], "data": []}
         }
-    
+
     labels = []
     loss_data = []
     lr_data = []
     vram_data = []
-    
+
     try:
-        with open(metrics_file, 'r', encoding='utf-8') as f:
+        with open(metrics_file, encoding='utf-8') as f:
             for line in f:
                 try:
                     metric = json.loads(line.strip())
@@ -1907,7 +1953,7 @@ async def get_chart_data(task_id: str):
                     continue
     except Exception as e:
         logger.error(f"读取图表数据失败：{e}")
-    
+
     return {
         "loss_chart": {
             "labels": labels,
@@ -1931,7 +1977,7 @@ async def get_chart_data(task_id: str):
 async def get_status():
     """获取训练状态"""
     state = get_state()
-    return await state.get_status()
+    return state.get_status()
 
 
 class SwiftCheckResponse(BaseModel):
@@ -1945,9 +1991,9 @@ class SwiftCheckResponse(BaseModel):
 async def check_swift():
     """检查 SWIFT 框架是否可用"""
     from backends.swift_backend import get_swift_backend
-    
+
     swift_backend = get_swift_backend()
-    
+
     if swift_backend.is_available():
         return SwiftCheckResponse(
             available=True,
@@ -1966,7 +2012,7 @@ async def start_swift_training(
     config: TrainingConfigInput,
 ):
     """使用 SWIFT 框架启动训练"""
-    from backends.swift_backend import get_swift_backend, SwiftTrainConfig
+    from backends.swift_backend import SwiftTrainConfig, get_swift_backend
 
     state = get_state()
     settings = get_config()
@@ -1978,7 +2024,7 @@ async def start_swift_training(
             detail="SWIFT 框架未安装，请运行：pip install ms-swift -U"
         )
 
-    if await state.is_training():
+    if state.is_training():
         raise HTTPException(status_code=400, detail="Training already in progress")
 
     model_path = settings.models_dir_resolved / config.model_id
@@ -1996,11 +2042,11 @@ async def start_swift_training(
     )
     if not resource_check["passed"]:
         logger.warning(f"资源检查未通过：{resource_check.get('warnings', [])}")
-    
+
     record_id = str(uuid.uuid4())
     output_path = settings.outputs_dir_resolved / f"train_{record_id[:8]}"
     output_path.mkdir(parents=True, exist_ok=True)
-    
+
     record = TrainingRecord(
         id=record_id,
         model_name=config.model_id,
@@ -2012,7 +2058,7 @@ async def start_swift_training(
         output_path=str(output_path),
         checkpoint_path=None,
     )
-    
+
     swift_config = SwiftTrainConfig(
         model_id=str(model_path),
         dataset_id=config.dataset_id,
@@ -2035,17 +2081,17 @@ async def start_swift_training(
         max_grad_norm=1.0,
         val_size=0.0,
     )
-    
+
     log_dir = output_path / "logs"
     success = swift_backend.start_training(swift_config, log_dir, record_id)
-    
+
     if not success:
         raise HTTPException(status_code=500, detail="Failed to start SWIFT training")
-    
-    await state.add_to_history(record)
-    
+
+    state.add_to_history(record)
+
     asyncio.create_task(_monitor_swift_training(record_id, state, record, swift_backend))
-    
+
     return TrainingRecordResponse(**record.model_dump())
 
 
@@ -2056,26 +2102,25 @@ async def _monitor_swift_training(
     swift_backend
 ):
     """后台监控 SWIFT 训练进度"""
-    import time
-    
+
     logger.info(f"开始监控 SWIFT 训练：{task_id}")
 
     state.queue_training_state(True)
     last_status = "running"
-    
+
     while True:
         await asyncio.sleep(3)
-        
+
         status = swift_backend.get_training_status()
         current_status = status.get("status", "unknown")
-        
+
         if current_status == "idle" or current_status == "unknown":
             logger.warning("SWIFT 后端状态异常")
             continue
-        
+
         if current_status == "running":
             progress = swift_backend.parse_training_progress()
-            
+
             if progress.get("step", 0) > 0:
                 state.queue_progress_update(
                     epoch=progress.get("epoch", 0),
@@ -2089,7 +2134,7 @@ async def _monitor_swift_training(
                     status="running",
                     message=progress.get("message", "SWIFT Training...")
                 )
-                
+
                 try:
                     ws_manager = get_ws_manager()
                     asyncio.create_task(ws_manager.broadcast_progress(task_id, {
@@ -2098,7 +2143,7 @@ async def _monitor_swift_training(
                     }))
                 except Exception as e:
                     logger.debug(f"WebSocket 推送失败：{e}")
-        
+
         elif current_status == "completed":
             logger.info(f"SWIFT 训练完成：{task_id}")
 
@@ -2107,11 +2152,11 @@ async def _monitor_swift_training(
                 status="completed",
                 message="SWIFT Training completed"
             )
-            
+
             record.status = "completed"
             record.end_time = datetime.now().isoformat()
             record.checkpoint_path = str(Path(record.output_path) / "adapter_model")
-            
+
             try:
                 ws_manager = get_ws_manager()
                 asyncio.create_task(ws_manager.broadcast_event(task_id, "training_completed", {
@@ -2120,15 +2165,15 @@ async def _monitor_swift_training(
                 }))
             except Exception as e:
                 logger.debug(f"WebSocket 推送失败：{e}")
-            
+
             state.add_to_history_sync(record)
-            
+
             swift_backend.cleanup()
             break
-        
+
         elif current_status == "failed":
             logger.error(f"SWIFT 训练失败：{task_id}, return_code={status.get('return_code')}")
-            
+
             log_tail = swift_backend.get_log_tail(20)
             error_msg = "\n".join(log_tail) if log_tail else "Unknown error"
 
@@ -2137,10 +2182,10 @@ async def _monitor_swift_training(
                 status="failed",
                 message=f"SWIFT Error: {error_msg[:200]}"
             )
-            
+
             record.status = "failed"
             record.end_time = datetime.now().isoformat()
-            
+
             try:
                 ws_manager = get_ws_manager()
                 asyncio.create_task(ws_manager.broadcast_event(task_id, "training_failed", {
@@ -2149,16 +2194,16 @@ async def _monitor_swift_training(
                 }))
             except Exception as e:
                 logger.debug(f"WebSocket 推送失败：{e}")
-            
+
             state.add_to_history_sync(record)
-            
+
             swift_backend.cleanup()
             break
-        
+
         elif current_status == "stopped":
             logger.info(f"SWIFT 训练已停止：{task_id}")
             break
-        
+
         last_status = current_status
 
 
@@ -2166,13 +2211,13 @@ async def _monitor_swift_training(
 async def stop_swift_training():
     """停止 SWIFT 训练"""
     from backends.swift_backend import get_swift_backend
-    
+
     swift_backend = get_swift_backend()
     status = swift_backend.get_training_status()
-    
+
     if status.get("status") != "running":
         raise HTTPException(status_code=400, detail="No SWIFT training in progress")
-    
+
     success = swift_backend.stop_training()
 
     if success:
@@ -2191,11 +2236,11 @@ async def stop_swift_training():
 async def get_swift_progress():
     """获取 SWIFT 训练进度"""
     from backends.swift_backend import get_swift_backend
-    
+
     swift_backend = get_swift_backend()
     status = swift_backend.get_training_status()
     progress = swift_backend.parse_training_progress()
-    
+
     return {
         **status,
         **progress
@@ -2206,10 +2251,10 @@ async def get_swift_progress():
 async def get_swift_logs(task_id: str, lines: int = Query(default=50, ge=1, le=200)):
     """获取 SWIFT 训练日志（末尾 N 行）"""
     from backends.swift_backend import get_swift_backend
-    
+
     swift_backend = get_swift_backend()
     log_lines = swift_backend.get_log_tail(lines)
-    
+
     return {
         "task_id": task_id,
         "lines": log_lines,
@@ -2222,13 +2267,13 @@ async def get_checkpoints(task_id: str):
     """获取任务的检查点列表"""
     state = get_state()
     settings = get_config()
-    
+
     output_dir = settings.outputs_dir_resolved / f"train_{task_id[:8]}"
     checkpoint_dir = output_dir / "checkpoints"
-    
+
     if not checkpoint_dir.exists():
         return []
-    
+
     checkpoints = []
     for cp in checkpoint_dir.iterdir():
         if cp.is_dir() and cp.name.startswith("checkpoint-"):
@@ -2238,7 +2283,7 @@ async def get_checkpoints(task_id: str):
                 "step": int(cp.name.split("-")[1]),
                 "created": datetime.fromtimestamp(cp.stat().st_mtime).isoformat()
             })
-    
+
     return sorted(checkpoints, key=lambda x: x["step"])
 
 
@@ -2247,30 +2292,30 @@ async def resume_training(task_id: str, checkpoint_name: str):
     """从检查点恢复训练"""
     state = get_state()
     settings = get_config()
-    
-    if await state.is_training():
+
+    if state.is_training():
         raise HTTPException(status_code=400, detail="Training already in progress")
-    
+
     output_dir = settings.outputs_dir_resolved / f"train_{task_id[:8]}"
     checkpoint_path = output_dir / "checkpoints" / checkpoint_name
-    
+
     if not checkpoint_path.exists():
         raise HTTPException(status_code=404, detail="Checkpoint not found")
-    
-    history = await state.get_history()
+
+    history = state.get_history()
     original_record = None
     for r in history:
         if r.id == task_id:
             original_record = r
             break
-    
+
     if not original_record:
         raise HTTPException(status_code=404, detail="Training record not found")
-    
+
     config_dict = original_record.config
     config_dict["resume_from_checkpoint"] = str(checkpoint_path)
     config = TrainingConfigInput(**config_dict)
-    
+
     return await start_training(config)
 
 
@@ -2289,7 +2334,7 @@ async def check_resources(
         method=method,
         model_size=model_size
     )
-    
+
     return ResourceCheckResponse(**result)
 
 
@@ -2305,56 +2350,56 @@ class QueueTaskResponse(BaseModel):
 class ValidationResult(BaseModel):
     """训练验证结果"""
     passed: bool = True
-    errors: List[str] = []
-    warnings: List[str] = []
+    errors: list[str] = []
+    warnings: list[str] = []
 
 
 class TrainingValidator:
     """训练验证器"""
-    
+
     @staticmethod
     async def validate_config(config: TrainingConfigInput, settings: Settings) -> ValidationResult:
         """验证训练配置"""
         result = ValidationResult()
-        
+
         TrainingValidator._validate_resources(config, result)
-        
+
         await TrainingValidator._validate_dataset(config, settings, result)
-        
+
         await TrainingValidator._validate_model(config, settings, result)
-        
+
         TrainingValidator._validate_parameters(config, result)
-        
+
         return result
-    
+
     @staticmethod
     def _validate_resources(config: TrainingConfigInput, result: ValidationResult):
         """资源验证"""
         try:
             import torch
-            
+
             if not torch.cuda.is_available():
                 result.errors.append("CUDA 不可用，无法进行 GPU 训练")
                 return
-            
+
             estimated_vram = TrainingValidator._estimate_vram(
                 config.model_id,
                 config.method,
                 config.batch_size,
                 config.max_seq_length
             )
-            
+
             available_vram = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
             allocated_vram = torch.cuda.memory_allocated(0) / (1024 ** 3)
             free_vram = available_vram - allocated_vram
-            
+
             if free_vram < estimated_vram * 0.9:
                 result.warnings.append(
                     f"预计需要 {estimated_vram:.1f}GB VRAM, 可用 {free_vram:.1f}GB"
                 )
         except Exception as e:
             result.warnings.append(f"资源检查失败：{e}")
-    
+
     @staticmethod
     def _estimate_vram(model_id: str, method: str, batch_size: int, max_seq_length: int) -> float:
         """估算 VRAM 需求"""
@@ -2366,28 +2411,28 @@ class TrainingValidator:
             base_vram = 2.0
         else:
             base_vram = 4.0
-        
+
         if method == "qlora" or (hasattr(method, 'lower') and 'qlora' in method.lower()):
             base_vram *= 0.6
-        
+
         if batch_size > 4:
             base_vram *= 1.2
-        
+
         if max_seq_length > 1024:
             base_vram *= 1.3
-        
+
         return base_vram
-    
+
     @staticmethod
     async def _validate_dataset(config: TrainingConfigInput, settings: Settings, result: ValidationResult):
         """数据集验证"""
         try:
             dataset_path = settings.datasets_dir_resolved / config.dataset_id
-            
+
             if not dataset_path.exists():
                 result.errors.append(f"数据集不存在：{config.dataset_id}")
                 return
-            
+
             dataset_file = None
             for ext in [".json", ".jsonl"]:
                 for f in dataset_path.glob(f"*{ext}"):
@@ -2395,13 +2440,13 @@ class TrainingValidator:
                     break
                 if dataset_file:
                     break
-            
+
             if not dataset_file:
-                result.errors.append(f"不支持的数据集格式，需要 .json 或 .jsonl")
+                result.errors.append("不支持的数据集格式，需要 .json 或 .jsonl")
                 return
-            
+
             import json
-            with open(dataset_file, 'r', encoding='utf-8') as f:
+            with open(dataset_file, encoding='utf-8') as f:
                 content = f.read()
                 try:
                     data = json.loads(content)
@@ -2418,23 +2463,23 @@ class TrainingValidator:
                     result.errors.append(f"JSON 格式错误：{e}")
         except Exception as e:
             result.errors.append(f"数据集验证失败：{e}")
-    
+
     @staticmethod
     async def _validate_model(config: TrainingConfigInput, settings: Settings, result: ValidationResult):
         """模型验证"""
         try:
             model_path = settings.models_dir_resolved / config.model_id
-            
+
             if not model_path.exists():
                 result.errors.append(f"模型不存在：{config.model_id}")
                 return
-            
+
             config_file = model_path / "config.json"
             if config_file.exists():
                 import json
                 with open(config_file) as f:
                     model_config = json.load(f)
-                
+
                 model_type = model_config.get("model_type", "")
                 supported_types = ["llama", "mistral", "gemma", "qwen", "chatglm", "baichuan"]
                 if model_type and model_type not in supported_types:
@@ -2443,7 +2488,7 @@ class TrainingValidator:
                     )
         except Exception as e:
             result.warnings.append(f"模型验证失败：{e}")
-    
+
     @staticmethod
     def _validate_parameters(config: TrainingConfigInput, result: ValidationResult):
         """参数合理性验证"""
@@ -2451,7 +2496,7 @@ class TrainingValidator:
             result.warnings.append(
                 f"学习率 {config.learning_rate} 可能不合理，推荐范围 1e-6 ~ 1e-3"
             )
-        
+
         effective_batch = config.batch_size * config.gradient_accumulation
         if effective_batch < 4:
             result.warnings.append(
@@ -2461,12 +2506,12 @@ class TrainingValidator:
             result.warnings.append(
                 f"有效批次大小 {effective_batch} 过大，可能导致 OOM"
             )
-        
+
         if config.rank > 64:
             result.warnings.append(
                 f"LoRA rank={config.rank} 较高，可能导致过拟合"
             )
-        
+
         if config.epochs > 10:
             result.warnings.append(
                 f"训练轮数 {config.epochs} 较多，注意过拟合风险"
@@ -2491,7 +2536,7 @@ async def start_training(
     state = get_state()
     settings = get_config()
 
-    if await state.is_training():
+    if state.is_training():
         raise HTTPException(status_code=400, detail="Training already in progress")
 
     model_path = settings.models_dir_resolved / config.model_id
@@ -2526,18 +2571,18 @@ async def start_training(
 
     if not skip_resource_check:
         validation_result = await TrainingValidator.validate_config(config, settings)
-        
+
         for warning in validation_result.warnings:
             logger.warning(f"验证警告：{warning}")
         for error in validation_result.errors:
             logger.error(f"验证错误：{error}")
-        
+
         if validation_result.errors:
             raise HTTPException(
                 status_code=400,
                 detail=f"配置验证失败：{'; '.join(validation_result.errors)}"
             )
-        
+
         model_size_gb = 4.0
         if "13B" in config.model_id or "14B" in config.model_id:
             model_size_gb = 8.0
@@ -2587,11 +2632,16 @@ async def start_training(
         checkpoint_path=None,
     )
 
-    await state.set_current_record(record)
+    state.set_current_record(record)
     config.output_path = str(output_path)
 
+    try:
+        event_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        event_loop = None
+
     def run_training():
-        training_thread(config, str(model_path), str(dataset_file), state, record)
+        training_thread(config, str(model_path), str(dataset_file), state, record, event_loop=event_loop, task_id=record_id)
 
     if use_queue:
         priority_map = {
@@ -2601,7 +2651,7 @@ async def start_training(
             "low": TaskPriority.LOW,
         }
         task_priority = priority_map.get(priority.lower(), TaskPriority.NORMAL)
-        
+
         queue = get_training_queue()
         success = queue.submit(
             task_id=record_id,
@@ -2609,10 +2659,10 @@ async def start_training(
             callback=run_training,
             priority=task_priority
         )
-        
+
         if not success:
             raise HTTPException(status_code=503, detail="Task queue is full")
-        
+
         logger.info(f"训练任务已加入队列：{record_id}")
         return TrainingRecordResponse(**record.model_dump())
     else:
@@ -2620,9 +2670,9 @@ async def start_training(
             target=run_training,
             daemon=True
         )
-        await state.register_training_task(record_id, thread)
+        state.register_training_task(record_id, thread)
         thread.start()
-        
+
         logger.info(f"训练任务已启动：{record_id}")
         return TrainingRecordResponse(**record.model_dump())
 
@@ -2639,10 +2689,10 @@ async def get_task_status(task_id: str):
     """获取任务状态"""
     queue = get_training_queue()
     status = queue.get_task_status(task_id)
-    
+
     if status is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    
+
     return status
 
 
@@ -2650,8 +2700,8 @@ async def get_task_status(task_id: str):
 async def cancel_task(task_id: str):
     """取消队列中的任务"""
     queue = get_training_queue()
-    
+
     if queue.cancel(task_id):
         return {"message": f"Task {task_id} cancelled"}
-    
+
     raise HTTPException(status_code=400, detail="Task not found or already running")

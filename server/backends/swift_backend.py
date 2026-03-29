@@ -4,18 +4,17 @@
 - P1-4: SWIFT 进程管理增强，防止僵尸进程
 参考：https://github.com/modelscope/swift
 """
-import subprocess
+import atexit
 import json
 import os
 import signal
-import atexit
-from pathlib import Path
-from typing import Optional, Dict, Any, List
-from dataclasses import dataclass
+import subprocess
 import threading
-import logging
 import time
 import weakref
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 from core.logging import get_logger
 
@@ -45,7 +44,7 @@ class SwiftTrainConfig:
     warmup_ratio: float = 0.1
     weight_decay: float = 0.01
     max_grad_norm: float = 1.0
-    
+
     use_dora: bool = False
     lr_scheduler: str = "cosine"
     label_smoothing: float = 0.0
@@ -54,7 +53,7 @@ class SwiftTrainConfig:
     eval_steps: int = 100
     load_best_model: bool = True
     target_modules: str = "all"
-    
+
     use_flash_attn: bool = False
     deepspeed_stage: int = 0
     offload_optimizer: bool = False
@@ -68,60 +67,69 @@ class SwiftBackend:
     修复：
     - P1-4: 进程组管理，防止僵尸进程
     - 添加进程监控和自动清理
+    - FIX-4: 使用 weakref 避免 atexit 强引用导致的内存泄漏
     """
-    
+
     GRACEFUL_TIMEOUT = 10
     FORCE_KILL_TIMEOUT = 5
     PROCESS_CHECK_INTERVAL = 5
-    
+
     def __init__(self):
-        self.process: Optional[subprocess.Popen] = None
-        self.log_file: Optional[Path] = None
+        self.process: subprocess.Popen | None = None
+        self.log_file: Path | None = None
         self._stop_event = threading.Event()
-        self._current_task_id: Optional[str] = None
+        self._current_task_id: str | None = None
         self._process_lock = threading.Lock()
-        self._monitor_thread: Optional[threading.Thread] = None
+        self._monitor_thread: threading.Thread | None = None
         self._monitor_running = False
-        
-        self._instances = weakref.WeakSet()
-        
-        atexit.register(self._cleanup_on_exit)
-    
+
+        self._weak_self = weakref.ref(self)
+        atexit.register(self._cleanup_callback)
+
+    def _cleanup_callback(self):
+        """atexit 回调 - 使用弱引用避免强引用"""
+        self_ref = self._weak_self
+        if self_ref is None:
+            return
+        instance = self_ref()
+        if instance is not None:
+            instance._cleanup_on_exit()
+
     def _cleanup_on_exit(self):
         """程序退出时清理所有进程"""
         self._monitor_running = False
-        
+
         with self._process_lock:
             if self.process and self.process.poll() is None:
                 try:
                     self._terminate_process_tree(self.process.pid)
                 except Exception:
                     pass
-    
+
     def _terminate_process_tree(self, pid: int):
         """终止进程树（包括所有子进程）"""
         try:
             import psutil
             parent = psutil.Process(pid)
             children = parent.children(recursive=True)
-            
+
             for child in children:
                 try:
                     child.terminate()
                 except psutil.NoSuchProcess:
                     pass
-            
+
             gone, alive = psutil.wait_procs(children, timeout=self.GRACEFUL_TIMEOUT)
-            
+
             for p in alive:
                 try:
                     p.kill()
                 except psutil.NoSuchProcess:
                     pass
-            
+
             parent.terminate()
             parent.wait(timeout=self.GRACEFUL_TIMEOUT)
-            
+
         except psutil.NoSuchProcess:
             pass
         except ImportError:
@@ -131,16 +139,16 @@ class SwiftBackend:
                 os.killpg(os.getpgid(pid), signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
                 pass
-    
+
     def _start_monitor(self):
         """启动进程监控线程"""
         if self._monitor_thread and self._monitor_thread.is_alive():
             return
-        
+
         self._monitor_running = True
         self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self._monitor_thread.start()
-    
+
     def _monitor_loop(self):
         """监控进程状态"""
         while self._monitor_running:
@@ -149,17 +157,17 @@ class SwiftBackend:
                     if self.process and self.process.poll() is not None:
                         logger.info(f"SWIFT 进程已结束，PID: {self.process.pid}, 返回码: {self.process.returncode}")
                         self._handle_process_exit()
-                
+
                 time.sleep(self.PROCESS_CHECK_INTERVAL)
-                
+
             except Exception as e:
                 logger.error(f"进程监控错误：{e}")
-    
+
     def _handle_process_exit(self):
         """处理进程退出"""
         if self._current_task_id:
             logger.info(f"任务 {self._current_task_id} 已结束")
-    
+
     def is_available(self) -> bool:
         """检查 SWIFT 是否可用"""
         try:
@@ -167,12 +175,11 @@ class SwiftBackend:
             spec = importlib.util.find_spec("swift")
             if spec is None:
                 return False
-            
-            from swift.cli import main
+
             return True
         except Exception:
             return False
-    
+
     def get_version(self) -> str:
         """获取 SWIFT 版本"""
         try:
@@ -180,8 +187,8 @@ class SwiftBackend:
             return getattr(swift, "__version__", "latest")
         except Exception as e:
             return f"unknown ({e})"
-    
-    def build_command(self, config: SwiftTrainConfig) -> List[str]:
+
+    def build_command(self, config: SwiftTrainConfig) -> list[str]:
         """构建 SWIFT CLI 命令"""
         cmd = [
             "swift", "sft",
@@ -237,7 +244,7 @@ class SwiftBackend:
 
         if config.use_flash_attn:
             cmd.extend(["--use_flash_attn", "true"])
-        
+
         if config.deepspeed_stage > 0:
             cmd.extend([
                 "--deepspeed",
@@ -271,10 +278,10 @@ class SwiftBackend:
         cmd.extend(["--log_level", "info"])
 
         return cmd
-    
+
     def start_training(
-        self, 
-        config: SwiftTrainConfig, 
+        self,
+        config: SwiftTrainConfig,
         log_dir: Path,
         task_id: str
     ) -> bool:
@@ -287,22 +294,22 @@ class SwiftBackend:
             if self.process and self.process.poll() is None:
                 logger.error("已有训练任务在运行")
                 return False
-            
+
             cmd = self.build_command(config)
             logger.info(f"SWIFT 命令：{' '.join(cmd)}")
-            
+
             log_dir.mkdir(parents=True, exist_ok=True)
             self.log_file = log_dir / "swift_training.log"
             self._current_task_id = task_id
             self._stop_event.clear()
-            
+
             try:
                 with open(self.log_file, 'w', encoding='utf-8') as f:
                     f.write(f"# SWIFT Command: {' '.join(cmd)}\n")
                     f.write(f"# Task ID: {task_id}\n")
                     f.write(f"# Start Time: {__import__('datetime').datetime.now().isoformat()}\n\n")
                     f.flush()
-                    
+
                     self.process = subprocess.Popen(
                         cmd,
                         stdout=f,
@@ -312,54 +319,54 @@ class SwiftBackend:
                         encoding='utf-8',
                         start_new_session=True
                     )
-                
+
                 self._start_monitor()
-                
+
                 logger.info(f"SWIFT 训练已启动，PID: {self.process.pid}, Task: {task_id}")
                 return True
-                
+
             except FileNotFoundError as e:
                 logger.error(f"SWIFT 未安装：{e}")
                 return False
             except Exception as e:
                 logger.error(f"启动 SWIFT 训练失败：{e}")
                 return False
-    
+
     def stop_training(self) -> bool:
         """停止训练 - P1-4: 增强版进程终止"""
         with self._process_lock:
             if not self.process:
                 return False
-            
+
             if self.process.poll() is None:
                 try:
                     logger.info(f"正在停止 SWIFT 训练 (PID: {self.process.pid})...")
-                    
+
                     self._terminate_process_tree(self.process.pid)
-                    
+
                     try:
                         self.process.wait(timeout=self.FORCE_KILL_TIMEOUT)
                     except subprocess.TimeoutExpired:
                         pass
-                    
+
                     logger.info("SWIFT 训练已停止")
                     return True
-                    
+
                 except Exception as e:
                     logger.error(f"停止训练失败：{e}")
                     return False
             else:
                 logger.info("训练进程已结束")
                 return True
-    
-    def get_training_status(self) -> Dict[str, Any]:
+
+    def get_training_status(self) -> dict[str, Any]:
         """获取训练状态"""
         with self._process_lock:
             if not self.process:
                 return {"status": "idle", "task_id": None}
-            
+
             return_code = self.process.poll()
-            
+
             if return_code is None:
                 return {
                     "status": "running",
@@ -378,8 +385,8 @@ class SwiftBackend:
                     "task_id": self._current_task_id,
                     "return_code": return_code
                 }
-    
-    def parse_training_progress(self) -> Dict[str, Any]:
+
+    def parse_training_progress(self) -> dict[str, Any]:
         """解析训练进度（从日志文件）"""
         if not self.log_file or not self.log_file.exists():
             return {
@@ -390,7 +397,7 @@ class SwiftBackend:
                 "lr": 0.0,
                 "elapsed_time": 0.0
             }
-        
+
         progress = {
             "epoch": 0,
             "step": 0,
@@ -400,25 +407,25 @@ class SwiftBackend:
             "elapsed_time": 0.0,
             "message": ""
         }
-        
+
         try:
-            with open(self.log_file, 'r', encoding='utf-8') as f:
+            with open(self.log_file, encoding='utf-8') as f:
                 lines = f.readlines()
-            
+
             total_steps_found = False
-            
+
             for line in reversed(lines):
                 line = line.strip()
                 if not line or line.startswith('#'):
                     continue
-                
+
                 try:
                     start = line.find('{')
                     end = line.rfind('}') + 1
-                    
+
                     if start >= 0 and end > start:
                         log_data = json.loads(line[start:end])
-                        
+
                         if "loss" in log_data:
                             progress["loss"] = float(log_data.get("loss", 0.0))
                         if "learning_rate" in log_data:
@@ -430,60 +437,60 @@ class SwiftBackend:
                         if "total_steps" in log_data:
                             progress["total_steps"] = int(log_data.get("total_steps", 0))
                             total_steps_found = True
-                        
+
                         if progress["step"] > 0:
                             progress["message"] = f"Training epoch {progress['epoch']}"
                             break
-                            
+
                 except (json.JSONDecodeError, ValueError, TypeError):
                     continue
-            
+
             if not total_steps_found and progress["step"] > 0:
                 progress["total_steps"] = progress["step"] * 3
-            
+
             try:
                 mtime = self.log_file.stat().st_mtime
                 start_time = self.log_file.stat().st_ctime
                 progress["elapsed_time"] = mtime - start_time
             except Exception:
                 pass
-                
+
         except Exception as e:
             logger.error(f"解析日志失败：{e}")
-        
+
         return progress
-    
-    def get_log_tail(self, lines: int = 50) -> List[str]:
+
+    def get_log_tail(self, lines: int = 50) -> list[str]:
         """获取日志末尾 N 行"""
         if not self.log_file or not self.log_file.exists():
             return []
-        
+
         try:
-            with open(self.log_file, 'r', encoding='utf-8') as f:
+            with open(self.log_file, encoding='utf-8') as f:
                 all_lines = f.readlines()
                 return [line.strip() for line in all_lines[-lines:]]
         except Exception:
             return []
-    
+
     def cleanup(self):
         """清理资源"""
         self._monitor_running = False
-        
+
         with self._process_lock:
             if self.process and self.process.poll() is None:
                 try:
                     self._terminate_process_tree(self.process.pid)
                 except Exception:
                     pass
-            
+
             self.process = None
             self._current_task_id = None
             self._stop_event.clear()
-        
+
         logger.debug("SWIFT Backend 已清理")
 
 
-_swift_backend: Optional[SwiftBackend] = None
+_swift_backend: SwiftBackend | None = None
 _swift_backend_lock = threading.Lock()
 
 
