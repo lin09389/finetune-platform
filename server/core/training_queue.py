@@ -149,39 +149,36 @@ class TrainingQueue:
             try:
                 task: TrainingTask = self._queue.get(timeout=1.0)
 
-                if task.task_id in self._cancelled_tasks:
-                    logger.debug(f"任务 {task.task_id} 已取消，跳过执行")
-                    with self._lock:
-                        self._cancelled_tasks.discard(task.task_id)
-                        self._all_tasks.pop(task.task_id, None)
-                    task.status = TaskStatus.CANCELLED
-                    self._add_to_history(task)
-                    continue
-
+                acquired_slot = False
                 while self._worker_running:
-                    with self._active_count_lock:
-                        if self._active_count < self.max_concurrent:
-                            self._active_count += 1
-                            break
-                    
-                    time.sleep(0.1)
-                    
                     if task.task_id in self._cancelled_tasks:
-                        logger.debug(f"等待中的任务 {task.task_id} 已取消")
+                        logger.debug(f"任务 {task.task_id} 已取消")
                         with self._lock:
                             self._cancelled_tasks.discard(task.task_id)
                             self._all_tasks.pop(task.task_id, None)
                         task.status = TaskStatus.CANCELLED
                         self._add_to_history(task)
+                        if acquired_slot:
+                            with self._active_count_lock:
+                                self._active_count -= 1
                         break
+                    
+                    if not acquired_slot:
+                        with self._active_count_lock:
+                            if self._active_count < self.max_concurrent:
+                                self._active_count += 1
+                                acquired_slot = True
+                    
+                    if acquired_slot:
+                        break
+                    
+                    time.sleep(0.1)
                 else:
                     if not self._worker_running:
                         self._requeue_task(task)
                     continue
-                
+
                 if task.status == TaskStatus.CANCELLED:
-                    with self._active_count_lock:
-                        self._active_count -= 1
                     continue
 
                 execution_thread = threading.Thread(
