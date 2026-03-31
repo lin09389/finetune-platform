@@ -2,10 +2,9 @@
 系统信息技能 - 获取系统信息
 """
 import platform
-from typing import Dict, Any
 
 from skills.base import SkillBase
-from skills.models import SkillMetadata, SkillParameter, SkillResult, SkillCategory
+from skills.models import SkillCategory, SkillMetadata, SkillResult
 
 try:
     import psutil
@@ -16,7 +15,7 @@ except ImportError:
 
 class SystemInfoSkill(SkillBase):
     """系统信息技能"""
-    
+
     metadata = SkillMetadata(
         name="system_info",
         display_name="系统信息",
@@ -26,7 +25,7 @@ class SystemInfoSkill(SkillBase):
         parameters=[],
         tags=["system", "info", "utility"],
     )
-    
+
     async def execute(self, **kwargs) -> SkillResult:
         try:
             info = {
@@ -38,12 +37,12 @@ class SystemInfoSkill(SkillBase):
                     "processor": platform.processor(),
                 },
             }
-            
+
             if HAS_PSUTIL:
                 cpu_percent = psutil.cpu_percent(interval=0.1)
                 memory = psutil.virtual_memory()
                 disk = psutil.disk_usage('/')
-                
+
                 info["cpu"] = {
                     "count": psutil.cpu_count(),
                     "percent": cpu_percent,
@@ -60,13 +59,13 @@ class SystemInfoSkill(SkillBase):
                     "free": disk.free,
                     "percent": disk.percent,
                 }
-            
+
             return SkillResult(
                 success=True,
                 data=info,
                 message="系统信息获取成功",
             )
-            
+
         except Exception as e:
             return SkillResult(
                 success=False,

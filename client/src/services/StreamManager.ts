@@ -194,9 +194,10 @@ export class StreamManager {
     this.updateState({ connectionState: ConnectionState.STREAMING })
 
     try {
+      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await this.reader.read()
-
+        
         if (done) {
           this.handleCompletion()
           break

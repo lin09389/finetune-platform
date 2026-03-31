@@ -11,22 +11,19 @@
 - 网络隔离
 - 危险命令黑名单
 """
-import os
+import asyncio
 import json
 import logging
-import subprocess
-import asyncio
-import signal
+import os
 import re
 import shutil
 import tempfile
-from typing import Dict, Any, Optional, List, Set, Callable
-from datetime import datetime, timedelta
-from dataclasses import dataclass, field
-from pathlib import Path
-from enum import Enum
 import uuid
-import hashlib
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from enum import Enum
+from pathlib import Path
+from typing import Any
 
 try:
     import resource
@@ -38,7 +35,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-DANGEROUS_COMMANDS: Set[str] = {
+DANGEROUS_COMMANDS: set[str] = {
     "rm -rf /",
     "rm -rf /*",
     "mkfs",
@@ -75,7 +72,7 @@ DANGEROUS_COMMANDS: Set[str] = {
     "cmd /c",
 }
 
-DANGEROUS_PATTERNS: List[str] = [
+DANGEROUS_PATTERNS: list[str] = [
     r"rm\s+-rf\s+/",
     r"rm\s+-rf\s+/\*",
     r"mkfs\s+/dev/",
@@ -125,7 +122,7 @@ DANGEROUS_PATTERNS: List[str] = [
     r"fork\(\)",
 ]
 
-DANGEROUS_PATHS: Set[str] = {
+DANGEROUS_PATHS: set[str] = {
     "/etc/passwd",
     "/etc/shadow",
     "/etc/sudoers",
@@ -168,17 +165,17 @@ class PermissionLevel(str, Enum):
 class Capability:
     """能力定义"""
     name: str
-    permissions: Set[Permission]
+    permissions: set[Permission]
     max_file_size: int = 10 * 1024 * 1024
     max_execution_time: int = 60
     max_memory_mb: int = 512
     max_processes: int = 1
-    allowed_paths: List[str] = field(default_factory=list)
-    denied_paths: List[str] = field(default_factory=list)
-    allowed_commands: List[str] = field(default_factory=list)
-    network_whitelist: List[str] = field(default_factory=list)
-    
-    def to_dict(self) -> Dict[str, Any]:
+    allowed_paths: list[str] = field(default_factory=list)
+    denied_paths: list[str] = field(default_factory=list)
+    allowed_commands: list[str] = field(default_factory=list)
+    network_whitelist: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "permissions": [p.value for p in self.permissions],
@@ -193,7 +190,7 @@ class Capability:
         }
 
 
-DEFAULT_CAPABILITIES: Dict[PermissionLevel, Capability] = {
+DEFAULT_CAPABILITIES: dict[PermissionLevel, Capability] = {
     PermissionLevel.NONE: Capability(
         name="none",
         permissions=set(),
@@ -266,8 +263,8 @@ class ResourceLimits:
     max_execution_time: int = 60
     max_file_size: int = 10 * 1024 * 1024
     max_network_connections: int = 10
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "max_cpu_percent": self.max_cpu_percent,
             "max_memory_mb": self.max_memory_mb,
@@ -288,9 +285,9 @@ class ExecutionResult:
     exit_code: int = 0
     execution_time: float = 0.0
     memory_used_mb: float = 0.0
-    error: Optional[str] = None
-    
-    def to_dict(self) -> Dict[str, Any]:
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "success": self.success,
             "stdout": self.stdout,
@@ -304,14 +301,14 @@ class ExecutionResult:
 
 class Credential:
     """凭证"""
-    
+
     def __init__(
         self,
         credential_id: str,
         credential_type: str,
         value: str,
-        expires_at: Optional[datetime] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        expires_at: datetime | None = None,
+        metadata: dict[str, Any] | None = None,
     ):
         self.credential_id = credential_id
         self.credential_type = credential_type
@@ -320,20 +317,20 @@ class Credential:
         self.metadata = metadata or {}
         self.created_at = datetime.now()
         self.access_count = 0
-    
+
     @property
     def value(self) -> str:
         """获取凭证值"""
         self.access_count += 1
         return self._value
-    
+
     def is_expired(self) -> bool:
         """检查是否过期"""
         if self.expires_at is None:
             return False
         return datetime.now() > self.expires_at
-    
-    def to_dict(self, include_value: bool = False) -> Dict[str, Any]:
+
+    def to_dict(self, include_value: bool = False) -> dict[str, Any]:
         data = {
             "credential_id": self.credential_id,
             "credential_type": self.credential_type,
@@ -353,32 +350,32 @@ class CredentialManager:
     
     安全存储和管理敏感凭证
     """
-    
-    def __init__(self, storage_path: Optional[Path] = None):
+
+    def __init__(self, storage_path: Path | None = None):
         self.storage_path = storage_path or Path("data/credentials")
         self.storage_path.mkdir(parents=True, exist_ok=True)
-        
-        self._credentials: Dict[str, Credential] = {}
-        self._encryption_key: Optional[bytes] = None
-    
+
+        self._credentials: dict[str, Credential] = {}
+        self._encryption_key: bytes | None = None
+
     def set_encryption_key(self, key: bytes):
         """设置加密密钥"""
         self._encryption_key = key
-    
+
     def store_credential(
         self,
         credential_type: str,
         value: str,
-        expires_in_hours: Optional[int] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        expires_in_hours: int | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """存储凭证"""
         credential_id = str(uuid.uuid4())
-        
+
         expires_at = None
         if expires_in_hours:
             expires_at = datetime.now() + timedelta(hours=expires_in_hours)
-        
+
         credential = Credential(
             credential_id=credential_id,
             credential_type=credential_type,
@@ -386,29 +383,29 @@ class CredentialManager:
             expires_at=expires_at,
             metadata=metadata,
         )
-        
+
         self._credentials[credential_id] = credential
         self._persist_credential(credential)
-        
+
         logger.info(f"存储凭证: {credential_type} ({credential_id})")
-        
+
         return credential_id
-    
-    def get_credential(self, credential_id: str) -> Optional[Credential]:
+
+    def get_credential(self, credential_id: str) -> Credential | None:
         """获取凭证"""
         credential = self._credentials.get(credential_id)
-        
+
         if credential and credential.is_expired():
             self.delete_credential(credential_id)
             return None
-        
+
         return credential
-    
-    def get_credential_value(self, credential_id: str) -> Optional[str]:
+
+    def get_credential_value(self, credential_id: str) -> str | None:
         """获取凭证值"""
         credential = self.get_credential(credential_id)
         return credential.value if credential else None
-    
+
     def delete_credential(self, credential_id: str) -> bool:
         """删除凭证"""
         if credential_id in self._credentials:
@@ -416,16 +413,16 @@ class CredentialManager:
             self._delete_persisted_credential(credential_id)
             return True
         return False
-    
-    def list_credentials(self, credential_type: Optional[str] = None) -> List[Dict[str, Any]]:
+
+    def list_credentials(self, credential_type: str | None = None) -> list[dict[str, Any]]:
         """列出凭证"""
         credentials = list(self._credentials.values())
-        
+
         if credential_type:
             credentials = [c for c in credentials if c.credential_type == credential_type]
-        
+
         return [c.to_dict() for c in credentials if not c.is_expired()]
-    
+
     def _persist_credential(self, credential: Credential):
         """持久化凭证"""
         file_path = self.storage_path / f"{credential.credential_id}.json"
@@ -435,7 +432,7 @@ class CredentialManager:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"持久化凭证失败: {e}")
-    
+
     def _delete_persisted_credential(self, credential_id: str):
         """删除持久化的凭证"""
         file_path = self.storage_path / f"{credential_id}.json"
@@ -449,55 +446,55 @@ class IsolatedExecutor:
     
     在沙箱环境中安全执行命令
     """
-    
+
     def __init__(
         self,
         capability: Capability,
-        resource_limits: Optional[ResourceLimits] = None,
-        credential_manager: Optional[CredentialManager] = None,
+        resource_limits: ResourceLimits | None = None,
+        credential_manager: CredentialManager | None = None,
     ):
         self.capability = capability
         self.resource_limits = resource_limits or ResourceLimits()
         self.credential_manager = credential_manager
-    
+
     def check_permission(self, permission: Permission) -> bool:
         """检查权限"""
         return permission in self.capability.permissions
-    
+
     def check_path_access(self, path: str, write: bool = False) -> bool:
         """检查路径访问权限"""
         path = os.path.abspath(path)
-        
+
         for denied in self.capability.denied_paths:
             if path.startswith(denied):
                 return False
-        
+
         if not self.capability.allowed_paths:
             return True
-        
+
         for allowed in self.capability.allowed_paths:
             if path.startswith(allowed):
                 return True
-        
+
         return False
-    
+
     def check_command(self, command: str) -> bool:
         """检查命令是否允许"""
         if not self.check_permission(Permission.COMMAND_EXECUTE):
             return False
-        
+
         if not self.capability.allowed_commands:
             return True
-        
+
         cmd_name = command.split()[0] if command else ""
         return cmd_name in self.capability.allowed_commands
-    
+
     async def execute_command(
         self,
         command: str,
-        cwd: Optional[str] = None,
-        env: Optional[Dict[str, str]] = None,
-        timeout: Optional[int] = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        timeout: int | None = None,
     ) -> ExecutionResult:
         """执行命令"""
         if not self.check_command(command):
@@ -506,18 +503,18 @@ class IsolatedExecutor:
                 error="Command not allowed",
                 exit_code=-1,
             )
-        
+
         if cwd and not self.check_path_access(cwd):
             return ExecutionResult(
                 success=False,
                 error="Path access denied",
                 exit_code=-1,
             )
-        
+
         timeout_val = timeout or self.resource_limits.max_execution_time
-        
+
         start_time = datetime.now()
-        
+
         try:
             process = await asyncio.create_subprocess_shell(
                 command,
@@ -526,7 +523,7 @@ class IsolatedExecutor:
                 cwd=cwd,
                 env=env or os.environ.copy(),
             )
-            
+
             try:
                 stdout, stderr = await asyncio.wait_for(
                     process.communicate(),
@@ -540,9 +537,9 @@ class IsolatedExecutor:
                     exit_code=-1,
                     execution_time=timeout_val,
                 )
-            
+
             execution_time = (datetime.now() - start_time).total_seconds()
-            
+
             return ExecutionResult(
                 success=process.returncode == 0,
                 stdout=stdout.decode("utf-8", errors="replace"),
@@ -550,7 +547,7 @@ class IsolatedExecutor:
                 exit_code=process.returncode or 0,
                 execution_time=execution_time,
             )
-        
+
         except Exception as e:
             execution_time = (datetime.now() - start_time).total_seconds()
             return ExecutionResult(
@@ -559,88 +556,88 @@ class IsolatedExecutor:
                 exit_code=-1,
                 execution_time=execution_time,
             )
-    
+
     async def execute_file_operation(
         self,
         operation: str,
         path: str,
-        content: Optional[bytes] = None,
+        content: bytes | None = None,
     ) -> ExecutionResult:
         """执行文件操作"""
         path = os.path.abspath(path)
-        
+
         if operation in ("read", "write", "delete"):
             permission_map = {
                 "read": Permission.FILE_READ,
                 "write": Permission.FILE_WRITE,
                 "delete": Permission.FILE_DELETE,
             }
-            
+
             if not self.check_permission(permission_map[operation]):
                 return ExecutionResult(
                     success=False,
                     error=f"Permission denied: {operation}",
                 )
-        
+
         if not self.check_path_access(path, write=(operation != "read")):
             return ExecutionResult(
                 success=False,
                 error="Path access denied",
             )
-        
+
         start_time = datetime.now()
-        
+
         try:
             if operation == "read":
                 with open(path, "rb") as f:
                     data = f.read()
-                
+
                 if len(data) > self.resource_limits.max_file_size:
                     return ExecutionResult(
                         success=False,
                         error="File too large",
                     )
-                
+
                 return ExecutionResult(
                     success=True,
                     stdout=data.decode("utf-8", errors="replace"),
                     execution_time=(datetime.now() - start_time).total_seconds(),
                 )
-            
+
             elif operation == "write":
                 if content is None:
                     return ExecutionResult(
                         success=False,
                         error="No content provided",
                     )
-                
+
                 if len(content) > self.resource_limits.max_file_size:
                     return ExecutionResult(
                         success=False,
                         error="Content too large",
                     )
-                
+
                 with open(path, "wb") as f:
                     f.write(content)
-                
+
                 return ExecutionResult(
                     success=True,
                     execution_time=(datetime.now() - start_time).total_seconds(),
                 )
-            
+
             elif operation == "delete":
                 os.remove(path)
                 return ExecutionResult(
                     success=True,
                     execution_time=(datetime.now() - start_time).total_seconds(),
                 )
-            
+
             else:
                 return ExecutionResult(
                     success=False,
                     error=f"Unknown operation: {operation}",
                 )
-        
+
         except Exception as e:
             return ExecutionResult(
                 success=False,
@@ -655,38 +652,38 @@ class SandboxManager:
     
     管理多个隔离执行环境
     """
-    
+
     def __init__(self):
-        self._executors: Dict[str, IsolatedExecutor] = {}
+        self._executors: dict[str, IsolatedExecutor] = {}
         self._credential_manager = CredentialManager()
-    
+
     def create_sandbox(
         self,
         permission_level: PermissionLevel = PermissionLevel.STANDARD,
-        custom_capability: Optional[Capability] = None,
-        resource_limits: Optional[ResourceLimits] = None,
+        custom_capability: Capability | None = None,
+        resource_limits: ResourceLimits | None = None,
     ) -> str:
         """创建沙箱"""
         sandbox_id = str(uuid.uuid4())
-        
+
         capability = custom_capability or DEFAULT_CAPABILITIES[permission_level]
-        
+
         executor = IsolatedExecutor(
             capability=capability,
             resource_limits=resource_limits,
             credential_manager=self._credential_manager,
         )
-        
+
         self._executors[sandbox_id] = executor
-        
+
         logger.info(f"创建沙箱: {sandbox_id} (权限级别: {permission_level.value})")
-        
+
         return sandbox_id
-    
-    def get_executor(self, sandbox_id: str) -> Optional[IsolatedExecutor]:
+
+    def get_executor(self, sandbox_id: str) -> IsolatedExecutor | None:
         """获取执行器"""
         return self._executors.get(sandbox_id)
-    
+
     def destroy_sandbox(self, sandbox_id: str) -> bool:
         """销毁沙箱"""
         if sandbox_id in self._executors:
@@ -694,20 +691,20 @@ class SandboxManager:
             logger.info(f"销毁沙箱: {sandbox_id}")
             return True
         return False
-    
-    def get_sandbox_info(self, sandbox_id: str) -> Optional[Dict[str, Any]]:
+
+    def get_sandbox_info(self, sandbox_id: str) -> dict[str, Any] | None:
         """获取沙箱信息"""
         executor = self._executors.get(sandbox_id)
         if not executor:
             return None
-        
+
         return {
             "sandbox_id": sandbox_id,
             "capability": executor.capability.to_dict(),
             "resource_limits": executor.resource_limits.to_dict(),
         }
-    
-    def list_sandboxes(self) -> List[Dict[str, Any]]:
+
+    def list_sandboxes(self) -> list[dict[str, Any]]:
         """列出所有沙箱"""
         return [
             self.get_sandbox_info(sandbox_id)
@@ -715,7 +712,7 @@ class SandboxManager:
         ]
 
 
-_sandbox_manager: Optional[SandboxManager] = None
+_sandbox_manager: SandboxManager | None = None
 
 
 def get_sandbox_manager() -> SandboxManager:
@@ -732,55 +729,55 @@ class CommandValidator:
     
     检测和拦截危险命令
     """
-    
+
     def __init__(self):
         self._dangerous_commands = DANGEROUS_COMMANDS.copy()
         self._dangerous_patterns = [re.compile(p) for p in DANGEROUS_PATTERNS]
-        self._custom_dangerous_commands: Set[str] = set()
-        self._custom_dangerous_patterns: List[re.Pattern] = []
-    
+        self._custom_dangerous_commands: set[str] = set()
+        self._custom_dangerous_patterns: list[re.Pattern] = []
+
     def add_dangerous_command(self, command: str) -> None:
         """添加危险命令"""
         self._custom_dangerous_commands.add(command)
-    
+
     def add_dangerous_pattern(self, pattern: str) -> None:
         """添加危险模式"""
         self._custom_dangerous_patterns.append(re.compile(pattern))
-    
+
     def is_dangerous(self, command: str) -> bool:
         """检查命令是否危险"""
         command_lower = command.lower().strip()
-        
+
         all_dangerous = self._dangerous_commands | self._custom_dangerous_commands
         for dangerous in all_dangerous:
             if dangerous.lower() in command_lower:
                 return True
-        
+
         all_patterns = self._dangerous_patterns + self._custom_dangerous_patterns
         for pattern in all_patterns:
             if pattern.search(command):
                 return True
-        
+
         return False
-    
-    def validate(self, command: str) -> Dict[str, Any]:
+
+    def validate(self, command: str) -> dict[str, Any]:
         """验证命令"""
         is_dangerous = self.is_dangerous(command)
-        
+
         return {
             "command": command,
             "is_dangerous": is_dangerous,
             "allowed": not is_dangerous,
             "reason": "危险命令被拦截" if is_dangerous else None,
         }
-    
+
     def sanitize(self, command: str) -> str:
         """清理命令（移除危险部分）"""
         sanitized = command
-        
+
         for pattern in self._dangerous_patterns:
             sanitized = pattern.sub("[REDACTED]", sanitized)
-        
+
         return sanitized
 
 
@@ -790,61 +787,61 @@ class FilesystemIsolation:
     
     提供虚拟文件系统映射和路径重定向
     """
-    
-    def __init__(self, sandbox_root: Optional[Path] = None):
+
+    def __init__(self, sandbox_root: Path | None = None):
         self.sandbox_root = sandbox_root or Path(tempfile.mkdtemp(prefix="sandbox_"))
         self.sandbox_root.mkdir(parents=True, exist_ok=True)
-        
-        self._path_mappings: Dict[str, str] = {}
-        self._read_only_paths: Set[str] = set()
-        self._virtual_paths: Dict[str, str] = {}
-    
+
+        self._path_mappings: dict[str, str] = {}
+        self._read_only_paths: set[str] = set()
+        self._virtual_paths: dict[str, str] = {}
+
     def add_mapping(self, host_path: str, sandbox_path: str, read_only: bool = False) -> None:
         """添加路径映射"""
         self._path_mappings[host_path] = sandbox_path
         if read_only:
             self._read_only_paths.add(sandbox_path)
-    
+
     def add_virtual_path(self, virtual_path: str, content: str) -> None:
         """添加虚拟路径"""
         self._virtual_paths[virtual_path] = content
-    
+
     def translate_path(self, path: str) -> str:
         """转换路径"""
         path = os.path.abspath(path)
-        
+
         for virtual_path, content in self._virtual_paths.items():
             if path == virtual_path:
                 temp_file = self.sandbox_root / "virtual" / path.lstrip("/")
                 temp_file.parent.mkdir(parents=True, exist_ok=True)
                 temp_file.write_text(content)
                 return str(temp_file)
-        
+
         for host_path, sandbox_path in self._path_mappings.items():
             if path.startswith(host_path):
                 relative = path[len(host_path):]
                 return str(self.sandbox_root / sandbox_path.lstrip("/") / relative.lstrip("/"))
-        
+
         return str(self.sandbox_root / "workspace" / path.lstrip("/"))
-    
+
     def is_read_only(self, path: str) -> bool:
         """检查路径是否只读"""
         for read_only_path in self._read_only_paths:
             if path.startswith(read_only_path):
                 return True
         return False
-    
+
     def is_isolated_path(self, path: str) -> bool:
         """检查路径是否在隔离区内"""
         abs_path = os.path.abspath(path)
         return abs_path.startswith(str(self.sandbox_root))
-    
+
     def create_isolated_directory(self, name: str) -> Path:
         """创建隔离目录"""
         isolated_dir = self.sandbox_root / name
         isolated_dir.mkdir(parents=True, exist_ok=True)
         return isolated_dir
-    
+
     def cleanup(self) -> None:
         """清理隔离环境"""
         if self.sandbox_root.exists():
@@ -857,32 +854,32 @@ class ProcessIsolation:
     
     管理子进程和资源限制
     """
-    
+
     def __init__(self, max_processes: int = 10, max_memory_mb: int = 512):
         self.max_processes = max_processes
         self.max_memory_mb = max_memory_mb
-        self._active_processes: Dict[str, asyncio.subprocess.Process] = {}
-        self._process_stats: Dict[str, Dict[str, Any]] = {}
-    
+        self._active_processes: dict[str, asyncio.subprocess.Process] = {}
+        self._process_stats: dict[str, dict[str, Any]] = {}
+
     async def spawn_process(
         self,
         command: str,
-        cwd: Optional[str] = None,
-        env: Optional[Dict[str, str]] = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
         timeout: int = 60,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """启动进程"""
         if len(self._active_processes) >= self.max_processes:
             return {
                 "success": False,
                 "error": "达到最大进程数限制",
             }
-        
+
         process_id = str(uuid.uuid4())[:8]
-        
+
         try:
             safe_env = self._build_safe_env(env)
-            
+
             process = await asyncio.create_subprocess_shell(
                 command,
                 stdout=asyncio.subprocess.PIPE,
@@ -890,14 +887,14 @@ class ProcessIsolation:
                 cwd=cwd,
                 env=safe_env,
             )
-            
+
             self._active_processes[process_id] = process
             self._process_stats[process_id] = {
                 "command": command,
                 "start_time": datetime.now().isoformat(),
                 "status": "running",
             }
-            
+
             try:
                 stdout, stderr = await asyncio.wait_for(
                     process.communicate(),
@@ -911,10 +908,10 @@ class ProcessIsolation:
                     "error": f"进程超时 ({timeout}s)",
                     "process_id": process_id,
                 }
-            
+
             self._process_stats[process_id]["status"] = "completed"
             self._process_stats[process_id]["end_time"] = datetime.now().isoformat()
-            
+
             return {
                 "success": process.returncode == 0,
                 "stdout": stdout.decode("utf-8", errors="replace"),
@@ -922,7 +919,7 @@ class ProcessIsolation:
                 "exit_code": process.returncode,
                 "process_id": process_id,
             }
-            
+
         except Exception as e:
             return {
                 "success": False,
@@ -931,8 +928,8 @@ class ProcessIsolation:
             }
         finally:
             self._active_processes.pop(process_id, None)
-    
-    def _build_safe_env(self, custom_env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+
+    def _build_safe_env(self, custom_env: dict[str, str] | None = None) -> dict[str, str]:
         """构建安全的环境变量"""
         dangerous_vars = {
             "LD_PRELOAD",
@@ -943,19 +940,19 @@ class ProcessIsolation:
             "PERL5LIB",
             "NODE_PATH",
         }
-        
+
         safe_env = {}
         for key, value in os.environ.items():
             if key not in dangerous_vars:
                 safe_env[key] = value
-        
+
         if custom_env:
             for key, value in custom_env.items():
                 if key not in dangerous_vars:
                     safe_env[key] = value
-        
+
         return safe_env
-    
+
     async def kill_process(self, process_id: str) -> bool:
         """终止进程"""
         process = self._active_processes.get(process_id)
@@ -967,7 +964,7 @@ class ProcessIsolation:
             except Exception:
                 return False
         return False
-    
+
     async def kill_all_processes(self) -> int:
         """终止所有进程"""
         count = 0
@@ -980,8 +977,8 @@ class ProcessIsolation:
                 pass
         self._active_processes.clear()
         return count
-    
-    def get_process_stats(self) -> Dict[str, Any]:
+
+    def get_process_stats(self) -> dict[str, Any]:
         """获取进程统计"""
         return {
             "active_count": len(self._active_processes),
@@ -996,69 +993,69 @@ class NetworkIsolation:
     
     控制网络访问
     """
-    
+
     def __init__(self):
-        self._allowed_hosts: Set[str] = set()
-        self._denied_hosts: Set[str] = set()
-        self._allowed_ports: Set[int] = set()
-        self._denied_ports: Set[int] = {22, 23, 25, 445, 3389}
+        self._allowed_hosts: set[str] = set()
+        self._denied_hosts: set[str] = set()
+        self._allowed_ports: set[int] = set()
+        self._denied_ports: set[int] = {22, 23, 25, 445, 3389}
         self._network_enabled: bool = True
-    
+
     def allow_host(self, host: str) -> None:
         """允许主机"""
         self._allowed_hosts.add(host)
-    
+
     def deny_host(self, host: str) -> None:
         """拒绝主机"""
         self._denied_hosts.add(host)
-    
+
     def allow_port(self, port: int) -> None:
         """允许端口"""
         self._allowed_ports.add(port)
-    
+
     def deny_port(self, port: int) -> None:
         """拒绝端口"""
         self._denied_ports.add(port)
-    
+
     def set_network_enabled(self, enabled: bool) -> None:
         """设置网络是否启用"""
         self._network_enabled = enabled
-    
+
     def is_host_allowed(self, host: str) -> bool:
         """检查主机是否允许"""
         if not self._network_enabled:
             return False
-        
+
         if host in self._denied_hosts:
             return False
-        
+
         if self._allowed_hosts and host not in self._allowed_hosts:
             return False
-        
+
         return True
-    
+
     def is_port_allowed(self, port: int) -> bool:
         """检查端口是否允许"""
         if port in self._denied_ports:
             return False
-        
+
         if self._allowed_ports and port not in self._allowed_ports:
             return False
-        
+
         return True
-    
-    def check_url(self, url: str) -> Dict[str, Any]:
+
+    def check_url(self, url: str) -> dict[str, Any]:
         """检查 URL"""
         from urllib.parse import urlparse
-        
+
         try:
             parsed = urlparse(url)
             host = parsed.hostname or ""
             port = parsed.port or (443 if parsed.scheme == "https" else 80)
-            
+
             host_allowed = self.is_host_allowed(host)
             port_allowed = self.is_port_allowed(port)
-            
+
             return {
                 "url": url,
                 "host": host,
@@ -1073,8 +1070,8 @@ class NetworkIsolation:
                 "allowed": False,
                 "error": str(e),
             }
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典"""
         return {
             "network_enabled": self._network_enabled,
@@ -1091,27 +1088,27 @@ class EnhancedSandbox:
     
     集成所有隔离功能
     """
-    
+
     def __init__(
         self,
-        sandbox_id: Optional[str] = None,
+        sandbox_id: str | None = None,
         permission_level: PermissionLevel = PermissionLevel.STANDARD,
     ):
         self.sandbox_id = sandbox_id or str(uuid.uuid4())
         self.permission_level = permission_level
-        
+
         self.command_validator = CommandValidator()
         self.filesystem = FilesystemIsolation()
         self.process_isolation = ProcessIsolation()
         self.network_isolation = NetworkIsolation()
-        
+
         self._created_at = datetime.now()
-        self._operations_log: List[Dict[str, Any]] = []
-    
-    async def execute_command(self, command: str, **kwargs) -> Dict[str, Any]:
+        self._operations_log: list[dict[str, Any]] = []
+
+    async def execute_command(self, command: str, **kwargs) -> dict[str, Any]:
         """执行命令"""
         validation = self.command_validator.validate(command)
-        
+
         if not validation["allowed"]:
             self._log_operation("command_blocked", command, validation)
             return {
@@ -1119,21 +1116,21 @@ class EnhancedSandbox:
                 "error": validation["reason"],
                 "blocked": True,
             }
-        
+
         result = await self.process_isolation.spawn_process(command, **kwargs)
         self._log_operation("command_executed", command, result)
-        
+
         return result
-    
+
     def translate_path(self, path: str) -> str:
         """转换路径"""
         return self.filesystem.translate_path(path)
-    
-    def check_network_access(self, url: str) -> Dict[str, Any]:
+
+    def check_network_access(self, url: str) -> dict[str, Any]:
         """检查网络访问"""
         return self.network_isolation.check_url(url)
-    
-    def _log_operation(self, operation: str, target: str, result: Dict[str, Any]) -> None:
+
+    def _log_operation(self, operation: str, target: str, result: dict[str, Any]) -> None:
         """记录操作"""
         self._operations_log.append({
             "timestamp": datetime.now().isoformat(),
@@ -1141,8 +1138,8 @@ class EnhancedSandbox:
             "target": target,
             "result": result,
         })
-    
-    def get_info(self) -> Dict[str, Any]:
+
+    def get_info(self) -> dict[str, Any]:
         """获取沙箱信息"""
         return {
             "sandbox_id": self.sandbox_id,
@@ -1155,7 +1152,7 @@ class EnhancedSandbox:
             "network": self.network_isolation.to_dict(),
             "operations_count": len(self._operations_log),
         }
-    
+
     async def cleanup(self) -> None:
         """清理沙箱"""
         await self.process_isolation.kill_all_processes()
@@ -1167,10 +1164,10 @@ class EnhancedSandboxManager:
     """
     增强版沙箱管理器
     """
-    
+
     def __init__(self):
-        self._sandboxes: Dict[str, EnhancedSandbox] = {}
-    
+        self._sandboxes: dict[str, EnhancedSandbox] = {}
+
     def create_sandbox(
         self,
         permission_level: PermissionLevel = PermissionLevel.STANDARD,
@@ -1180,11 +1177,11 @@ class EnhancedSandboxManager:
         self._sandboxes[sandbox.sandbox_id] = sandbox
         logger.info(f"创建增强沙箱: {sandbox.sandbox_id}")
         return sandbox
-    
-    def get_sandbox(self, sandbox_id: str) -> Optional[EnhancedSandbox]:
+
+    def get_sandbox(self, sandbox_id: str) -> EnhancedSandbox | None:
         """获取沙箱"""
         return self._sandboxes.get(sandbox_id)
-    
+
     async def destroy_sandbox(self, sandbox_id: str) -> bool:
         """销毁沙箱"""
         sandbox = self._sandboxes.get(sandbox_id)
@@ -1194,18 +1191,18 @@ class EnhancedSandboxManager:
             logger.info(f"销毁增强沙箱: {sandbox_id}")
             return True
         return False
-    
-    def list_sandboxes(self) -> List[Dict[str, Any]]:
+
+    def list_sandboxes(self) -> list[dict[str, Any]]:
         """列出所有沙箱"""
         return [s.get_info() for s in self._sandboxes.values()]
-    
+
     async def cleanup_all(self) -> None:
         """清理所有沙箱"""
         for sandbox_id in list(self._sandboxes.keys()):
             await self.destroy_sandbox(sandbox_id)
 
 
-_enhanced_sandbox_manager: Optional[EnhancedSandboxManager] = None
+_enhanced_sandbox_manager: EnhancedSandboxManager | None = None
 
 
 def get_enhanced_sandbox_manager() -> EnhancedSandboxManager:

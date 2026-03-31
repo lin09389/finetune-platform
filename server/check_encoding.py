@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import os
 import sys
 
@@ -29,7 +28,7 @@ for f in files_to_check:
     path = os.path.join(server_dir, f)
     if os.path.exists(path):
         try:
-            with open(path, 'r', encoding='utf-8') as file:
+            with open(path, encoding='utf-8') as file:
                 content = file.read()
             print(f"OK: {f}")
         except UnicodeDecodeError as e:

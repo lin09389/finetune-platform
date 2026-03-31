@@ -1,17 +1,17 @@
-# -*- coding: utf-8 -*-
 """
 MCP (Model Context Protocol) API 路由
 """
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Any
 
-from mcp import MCPServerManager, MCPClient
-from mcp.types import MCPServerInfo, MCPTool
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+
+from mcp import MCPServerManager
+from mcp.types import MCPServerInfo
 
 router = APIRouter(prefix="/mcp", tags=["MCP - Model Context Protocol"])
 
-_manager: Optional[MCPServerManager] = None
+_manager: MCPServerManager | None = None
 
 
 def get_manager() -> MCPServerManager:
@@ -24,29 +24,29 @@ def get_manager() -> MCPServerManager:
 class AddServerRequest(BaseModel):
     name: str = Field(..., description="服务器名称")
     transport: str = Field(..., description="传输类型：stdio 或 sse")
-    command: Optional[str] = Field(default=None, description="stdio 模式下的命令")
-    args: Optional[List[str]] = Field(default=None, description="命令参数")
-    url: Optional[str] = Field(default=None, description="sse 模式下的 URL")
+    command: str | None = Field(default=None, description="stdio 模式下的命令")
+    args: list[str] | None = Field(default=None, description="命令参数")
+    url: str | None = Field(default=None, description="sse 模式下的 URL")
 
 
 class CallToolRequest(BaseModel):
     tool_name: str = Field(..., description="工具名称")
-    arguments: Dict[str, Any] = Field(default_factory=dict, description="工具参数")
+    arguments: dict[str, Any] = Field(default_factory=dict, description="工具参数")
 
 
 class ToolResponse(BaseModel):
     name: str
     description: str
-    input_schema: Dict[str, Any]
+    input_schema: dict[str, Any]
 
 
 class ServerResponse(BaseModel):
     name: str
     transport: str
     status: str
-    command: Optional[str] = None
-    args: List[str] = []
-    url: Optional[str] = None
+    command: str | None = None
+    args: list[str] = []
+    url: str | None = None
 
 
 class OverallStatusResponse(BaseModel):

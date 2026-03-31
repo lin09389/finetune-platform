@@ -1,9 +1,10 @@
 import asyncio
 import shutil
-from pathlib import Path
-from typing import Optional, Callable, Awaitable
-from pydantic import BaseModel, Field
+from collections.abc import Awaitable, Callable
 from datetime import datetime
+from pathlib import Path
+
+from pydantic import BaseModel, Field
 
 
 class CopyResult(BaseModel):
@@ -11,14 +12,14 @@ class CopyResult(BaseModel):
     source: str = ""
     destination: str = ""
     bytes_copied: int = 0
-    error: Optional[str] = None
+    error: str | None = None
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
 
 
 class FileCopyExecutor:
     def __init__(
         self,
-        progress_callback: Optional[Callable[[str, float, str], Awaitable[None]]] = None,
+        progress_callback: Callable[[str, float, str], Awaitable[None]] | None = None,
         chunk_size: int = 1024 * 1024,
     ):
         self.progress_callback = progress_callback
@@ -38,7 +39,7 @@ class FileCopyExecutor:
                 success=False,
                 source=source,
                 destination=destination,
-                error=f"æºæä»¶ä¸å­å¨: {source}",
+                error=f"源文件不存在: {source}",
             )
 
         if not source_path.is_file():
@@ -46,7 +47,7 @@ class FileCopyExecutor:
                 success=False,
                 source=source,
                 destination=destination,
-                error=f"æºè·¯å¾ä¸æ¯æä»? {source}",
+                error=f"源路径不是文件: {source}",
             )
 
         if dest_path.exists() and not overwrite:
@@ -54,7 +55,7 @@ class FileCopyExecutor:
                 success=False,
                 source=source,
                 destination=destination,
-                error=f"ç®æ æä»¶å·²å­å? {destination}",
+                error=f"目标文件已存在: {destination}",
             )
 
         dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -67,7 +68,7 @@ class FileCopyExecutor:
                 await self.progress_callback(
                     source,
                     0.0,
-                    f"å¼å§å¤å? {source_path.name}",
+                    f"开始复制: {source_path.name}",
                 )
 
             with open(source_path, "rb") as src_file:
@@ -84,7 +85,7 @@ class FileCopyExecutor:
                             await self.progress_callback(
                                 source,
                                 progress,
-                                f"å¤å¶ä¸? {bytes_copied}/{file_size} å­è",
+                                f"复制中: {bytes_copied}/{file_size} 字节",
                             )
 
             shutil.copystat(source_path, dest_path)
@@ -93,7 +94,7 @@ class FileCopyExecutor:
                 await self.progress_callback(
                     source,
                     1.0,
-                    f"å¤å¶å®æ: {source_path.name}",
+                    f"复制完成: {source_path.name}",
                 )
 
             return CopyResult(
@@ -110,7 +111,7 @@ class FileCopyExecutor:
                 success=False,
                 source=source,
                 destination=destination,
-                error=f"å¤å¶å¤±è´¥: {str(e)}",
+                error=f"复制失败: {str(e)}",
             )
 
     async def copy_directory(
@@ -118,7 +119,7 @@ class FileCopyExecutor:
         source: str,
         destination: str,
         overwrite: bool = False,
-        ignore_patterns: Optional[list[str]] = None,
+        ignore_patterns: list[str] | None = None,
     ) -> CopyResult:
         source_path = Path(source)
         dest_path = Path(destination)
@@ -128,7 +129,7 @@ class FileCopyExecutor:
                 success=False,
                 source=source,
                 destination=destination,
-                error=f"æºç®å½ä¸å­å¨: {source}",
+                error=f"源目录不存在: {source}",
             )
 
         if not source_path.is_dir():
@@ -136,7 +137,7 @@ class FileCopyExecutor:
                 success=False,
                 source=source,
                 destination=destination,
-                error=f"æºè·¯å¾ä¸æ¯ç®å½? {source}",
+                error=f"源路径不是目录: {source}",
             )
 
         if dest_path.exists() and not overwrite:
@@ -144,7 +145,7 @@ class FileCopyExecutor:
                 success=False,
                 source=source,
                 destination=destination,
-                error=f"ç®æ ç®å½å·²å­å? {destination}",
+                error=f"目标目录已存在: {destination}",
             )
 
         try:
@@ -156,7 +157,7 @@ class FileCopyExecutor:
                 await self.progress_callback(
                     source,
                     0.0,
-                    f"å¼å§å¤å¶ç®å½? {source_path.name}",
+                    f"开始复制目录: {source_path.name}",
                 )
 
             def sync_copy():
@@ -174,7 +175,7 @@ class FileCopyExecutor:
                 await self.progress_callback(
                     source,
                     1.0,
-                    f"ç®å½å¤å¶å®æ: {source_path.name}",
+                    f"目录复制完成: {source_path.name}",
                 )
 
             return CopyResult(
@@ -189,7 +190,7 @@ class FileCopyExecutor:
                 success=False,
                 source=source,
                 destination=destination,
-                error=f"ç®å½å¤å¶å¤±è´¥: {str(e)}",
+                error=f"目录复制失败: {str(e)}",
             )
 
     async def copy(
@@ -197,7 +198,7 @@ class FileCopyExecutor:
         source: str,
         destination: str,
         overwrite: bool = False,
-        ignore_patterns: Optional[list[str]] = None,
+        ignore_patterns: list[str] | None = None,
     ) -> CopyResult:
         source_path = Path(source)
 
@@ -212,5 +213,5 @@ class FileCopyExecutor:
                 success=False,
                 source=source,
                 destination=destination,
-                error=f"æºè·¯å¾ä¸å­å¨: {source}",
+                error=f"源路径不存在: {source}",
             )

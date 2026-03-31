@@ -1,21 +1,26 @@
 """
 训练状态管理模块测试
 """
-import pytest
-import tempfile
 import json
+import os
+import sys
+import tempfile
 import threading
 import time
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
-import sys
-import os
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.training_state import (
-    TrainingState, TrainingProgress, TrainingRecord, StateUpdate,
-    get_training_state, reset_training_state
+    StateUpdate,
+    TrainingProgress,
+    TrainingRecord,
+    TrainingState,
+    get_training_state,
+    reset_training_state,
 )
 
 
@@ -287,7 +292,7 @@ class TestTrainingStateFileOperations:
 
         assert history_file.exists()
 
-        with open(history_file, 'r', encoding='utf-8') as f:
+        with open(history_file, encoding='utf-8') as f:
             data = json.load(f)
 
         assert len(data) == 1

@@ -1,17 +1,14 @@
 """
 帮助系统 API 路由
 """
+
 from fastapi import APIRouter, Query
-from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
-from enum import Enum
+from pydantic import BaseModel
 
 from agent.help_system import (
-    HelpSystem,
     HelpCategory,
-    HelpCommand,
-    get_help_system,
     format_help,
+    get_help_system,
     search_help,
 )
 
@@ -22,17 +19,17 @@ class CommandHelpResponse(BaseModel):
     """命令帮助响应"""
     command: str
     description: str
-    examples: List[str]
-    parameters: Dict[str, str]
-    tips: List[str]
-    related_commands: List[str]
+    examples: list[str]
+    parameters: dict[str, str]
+    tips: list[str]
+    related_commands: list[str]
 
 
 class CategoryHelpResponse(BaseModel):
     """类别帮助响应"""
     category: str
     name: str
-    commands: List[str]
+    commands: list[str]
 
 
 class SearchResult(BaseModel):
@@ -43,7 +40,7 @@ class SearchResult(BaseModel):
 
 class HelpOverviewResponse(BaseModel):
     """帮助概览响应"""
-    categories: Dict[str, List[str]]
+    categories: dict[str, list[str]]
     total_commands: int
 
 
@@ -51,7 +48,7 @@ class HelpTopicResponse(BaseModel):
     """帮助主题响应"""
     title: str
     content: str
-    see_also: List[str]
+    see_also: list[str]
 
 
 @router.get("", response_model=HelpOverviewResponse)
@@ -63,7 +60,7 @@ async def get_help_overview():
     """
     system = get_help_system()
     categories = system.get_all_categories()
-    
+
     category_names = {
         "file_operations": "文件操作",
         "screen_operations": "屏幕操作",
@@ -73,19 +70,19 @@ async def get_help_overview():
         "troubleshooting": "故障排除",
         "advanced": "高级功能",
     }
-    
+
     named_categories = {}
     for category, commands in categories.items():
         name = category_names.get(category.value, category.value)
         named_categories[name] = commands
-    
+
     return HelpOverviewResponse(
         categories=named_categories,
         total_commands=len(system.get_all_commands()),
     )
 
 
-@router.get("/search", response_model=List[SearchResult])
+@router.get("/search", response_model=list[SearchResult])
 async def search_help_commands(
     q: str = Query(..., description="搜索关键词"),
     limit: int = Query(10, ge=1, le=50, description="返回结果数量限制"),
@@ -96,7 +93,7 @@ async def search_help_commands(
     根据关键词搜索相关命令
     """
     results = search_help(q)[:limit]
-    
+
     return [
         SearchResult(
             command=cmd.command,
@@ -121,21 +118,21 @@ async def get_category_help(category: str):
         "app": HelpCategory.APP_OPERATIONS,
         "app_operations": HelpCategory.APP_OPERATIONS,
     }
-    
+
     help_category = category_mapping.get(category.lower())
     if not help_category:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"未找到类别: {category}")
-    
+
     system = get_help_system()
     commands = system.get_category_commands(help_category)
-    
+
     category_names = {
         HelpCategory.FILE_OPERATIONS: "文件操作",
         HelpCategory.SCREEN_OPERATIONS: "屏幕操作",
         HelpCategory.APP_OPERATIONS: "应用操作",
     }
-    
+
     return CategoryHelpResponse(
         category=help_category.value,
         name=category_names.get(help_category, help_category.value),
@@ -152,11 +149,11 @@ async def get_command_help(command: str):
     """
     system = get_help_system()
     cmd = system.get_command_help(command)
-    
+
     if not cmd:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"未找到命令: {command}")
-    
+
     return CommandHelpResponse(
         command=cmd.command,
         description=cmd.description,
@@ -176,11 +173,11 @@ async def get_help_topic(topic: str):
     """
     system = get_help_system()
     help_topic = system.get_topic(topic)
-    
+
     if not help_topic:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"未找到主题: {topic}")
-    
+
     return HelpTopicResponse(
         title=help_topic.title,
         content=help_topic.content,

@@ -3,14 +3,14 @@
 收集用户对操作结果的反馈，用于持续改进系统
 """
 import json
+import logging
 import threading
-from typing import Dict, Any, List, Optional
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from collections import defaultdict
-import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -46,17 +46,17 @@ class UserFeedback:
     comment: str = ""
     action: str = ""
     intent_detected: str = ""
-    intent_correct: Optional[bool] = None
-    execution_success: Optional[bool] = None
+    intent_correct: bool | None = None
+    execution_success: bool | None = None
     error_message: str = ""
     suggested_intent: str = ""
     suggested_improvement: str = ""
     timestamp: datetime = field(default_factory=datetime.now)
     session_id: str = ""
     user_id: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
-    def to_dict(self) -> Dict[str, Any]:
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "feedback_id": self.feedback_id,
             "feedback_type": self.feedback_type.value,
@@ -87,10 +87,10 @@ class FeedbackStats:
     avg_rating: float = 0.0
     intent_accuracy: float = 0.0
     execution_success_rate: float = 0.0
-    category_breakdown: Dict[str, int] = field(default_factory=dict)
-    common_issues: List[str] = field(default_factory=list)
-    
-    def to_dict(self) -> Dict[str, Any]:
+    category_breakdown: dict[str, int] = field(default_factory=dict)
+    common_issues: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "total_feedback": self.total_feedback,
             "positive_count": self.positive_count,
@@ -110,26 +110,26 @@ class FeedbackManager:
     
     收集、存储和分析用户反馈
     """
-    
+
     MAX_FEEDBACK = 10000
     FEEDBACK_FILE = "user_feedback.json"
-    
+
     def __init__(self, storage_path: str = None):
         self._lock = threading.RLock()
-        self._feedbacks: List[UserFeedback] = []
-        self._feedback_by_action: Dict[str, List[UserFeedback]] = defaultdict(list)
-        self._feedback_by_session: Dict[str, List[UserFeedback]] = defaultdict(list)
+        self._feedbacks: list[UserFeedback] = []
+        self._feedback_by_action: dict[str, list[UserFeedback]] = defaultdict(list)
+        self._feedback_by_session: dict[str, list[UserFeedback]] = defaultdict(list)
         self._storage_path = Path(storage_path) if storage_path else Path.home() / ".finetune" / "feedback"
-        
+
         self._load_feedbacks()
-    
+
     def _generate_feedback_id(self) -> str:
         """生成反馈ID"""
         import hashlib
         import time
         content = f"{time.time()}{len(self._feedbacks)}"
         return hashlib.md5(content.encode()).hexdigest()[:12]
-    
+
     def submit_feedback(
         self,
         feedback_type: FeedbackType,
@@ -145,7 +145,7 @@ class FeedbackManager:
         suggested_improvement: str = "",
         session_id: str = "",
         user_id: str = "",
-        metadata: Dict[str, Any] = None,
+        metadata: dict[str, Any] = None,
     ) -> UserFeedback:
         """
         提交反馈
@@ -187,46 +187,46 @@ class FeedbackManager:
                 user_id=user_id,
                 metadata=metadata or {},
             )
-            
+
             self._feedbacks.append(feedback)
-            
+
             if action:
                 self._feedback_by_action[action].append(feedback)
             if session_id:
                 self._feedback_by_session[session_id].append(feedback)
-            
+
             if len(self._feedbacks) > self.MAX_FEEDBACK:
                 self._feedbacks = self._feedbacks[-self.MAX_FEEDBACK:]
-            
+
             self._save_feedbacks()
-            
+
             logger.info(f"收到用户反馈: {feedback.feedback_id}, 类型: {feedback_type.value}, 评分: {rating}")
-            
+
             return feedback
-    
-    def get_feedback(self, feedback_id: str) -> Optional[UserFeedback]:
+
+    def get_feedback(self, feedback_id: str) -> UserFeedback | None:
         """获取反馈"""
         with self._lock:
             for feedback in self._feedbacks:
                 if feedback.feedback_id == feedback_id:
                     return feedback
         return None
-    
-    def get_feedbacks_by_action(self, action: str) -> List[UserFeedback]:
+
+    def get_feedbacks_by_action(self, action: str) -> list[UserFeedback]:
         """获取操作相关的反馈"""
         with self._lock:
             return list(self._feedback_by_action.get(action, []))
-    
-    def get_feedbacks_by_session(self, session_id: str) -> List[UserFeedback]:
+
+    def get_feedbacks_by_session(self, session_id: str) -> list[UserFeedback]:
         """获取会话相关的反馈"""
         with self._lock:
             return list(self._feedback_by_session.get(session_id, []))
-    
-    def get_recent_feedbacks(self, limit: int = 100) -> List[UserFeedback]:
+
+    def get_recent_feedbacks(self, limit: int = 100) -> list[UserFeedback]:
         """获取最近的反馈"""
         with self._lock:
             return list(self._feedbacks[-limit:])
-    
+
     def get_stats(self, days: int = 7) -> FeedbackStats:
         """
         获取反馈统计
@@ -242,15 +242,15 @@ class FeedbackManager:
             if days > 0:
                 from datetime import timedelta
                 cutoff = cutoff - timedelta(days=days)
-            
+
             recent = [f for f in self._feedbacks if f.timestamp >= cutoff]
-            
+
             if not recent:
                 return FeedbackStats()
-            
+
             stats = FeedbackStats()
             stats.total_feedback = len(recent)
-            
+
             for feedback in recent:
                 if feedback.feedback_type == FeedbackType.POSITIVE:
                     stats.positive_count += 1
@@ -258,41 +258,41 @@ class FeedbackManager:
                     stats.negative_count += 1
                 else:
                     stats.neutral_count += 1
-                
+
                 stats.avg_rating += feedback.rating
-                
+
                 category = feedback.category.value
                 stats.category_breakdown[category] = stats.category_breakdown.get(category, 0) + 1
-            
+
             stats.avg_rating /= len(recent)
-            
+
             intent_correct_count = sum(1 for f in recent if f.intent_correct is True)
             intent_total = sum(1 for f in recent if f.intent_correct is not None)
             if intent_total > 0:
                 stats.intent_accuracy = intent_correct_count / intent_total * 100
-            
+
             exec_success_count = sum(1 for f in recent if f.execution_success is True)
             exec_total = sum(1 for f in recent if f.execution_success is not None)
             if exec_total > 0:
                 stats.execution_success_rate = exec_success_count / exec_total * 100
-            
-            issue_counts: Dict[str, int] = defaultdict(int)
+
+            issue_counts: dict[str, int] = defaultdict(int)
             for feedback in recent:
                 if feedback.feedback_type == FeedbackType.NEGATIVE:
                     if feedback.comment:
                         issue_counts[feedback.comment[:50]] += 1
                     if feedback.suggested_improvement:
                         issue_counts[feedback.suggested_improvement[:50]] += 1
-            
+
             stats.common_issues = sorted(issue_counts.keys(), key=lambda x: issue_counts[x], reverse=True)[:5]
-            
+
             return stats
-    
-    def get_improvement_suggestions(self) -> List[Dict[str, Any]]:
+
+    def get_improvement_suggestions(self) -> list[dict[str, Any]]:
         """获取改进建议"""
         with self._lock:
             suggestions = []
-            
+
             for feedback in self._feedbacks:
                 if feedback.suggested_improvement:
                     suggestions.append({
@@ -301,14 +301,14 @@ class FeedbackManager:
                         "suggestion": feedback.suggested_improvement,
                         "timestamp": feedback.timestamp.isoformat(),
                     })
-            
+
             return suggestions[-50:]
-    
-    def get_intent_corrections(self) -> List[Dict[str, Any]]:
+
+    def get_intent_corrections(self) -> list[dict[str, Any]]:
         """获取意图纠正数据"""
         with self._lock:
             corrections = []
-            
+
             for feedback in self._feedbacks:
                 if feedback.intent_correct is False and feedback.suggested_intent:
                     corrections.append({
@@ -319,40 +319,40 @@ class FeedbackManager:
                         "comment": feedback.comment,
                         "timestamp": feedback.timestamp.isoformat(),
                     })
-            
+
             return corrections[-50:]
-    
+
     def _save_feedbacks(self):
         """保存反馈"""
         if not self._storage_path:
             return
-        
+
         try:
             self._storage_path.mkdir(parents=True, exist_ok=True)
             data = {
                 "feedbacks": [f.to_dict() for f in self._feedbacks[-1000:]],
                 "last_updated": datetime.now().isoformat(),
             }
-            
+
             file_path = self._storage_path / self.FEEDBACK_FILE
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"保存反馈失败: {e}")
-    
+
     def _load_feedbacks(self):
         """加载反馈"""
         if not self._storage_path:
             return
-        
+
         try:
             file_path = self._storage_path / self.FEEDBACK_FILE
             if not file_path.exists():
                 return
-            
-            with open(file_path, 'r', encoding='utf-8') as f:
+
+            with open(file_path, encoding='utf-8') as f:
                 data = json.load(f)
-            
+
             for item in data.get("feedbacks", []):
                 feedback = UserFeedback(
                     feedback_id=item["feedback_id"],
@@ -373,18 +373,18 @@ class FeedbackManager:
                     metadata=item.get("metadata", {}),
                 )
                 self._feedbacks.append(feedback)
-                
+
                 if feedback.action:
                     self._feedback_by_action[feedback.action].append(feedback)
                 if feedback.session_id:
                     self._feedback_by_session[feedback.session_id].append(feedback)
-            
+
             logger.info(f"加载了 {len(self._feedbacks)} 条用户反馈")
         except Exception as e:
             logger.error(f"加载反馈失败: {e}")
 
 
-_feedback_manager: Optional[FeedbackManager] = None
+_feedback_manager: FeedbackManager | None = None
 
 
 def get_feedback_manager() -> FeedbackManager:

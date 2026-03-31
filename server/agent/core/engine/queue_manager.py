@@ -1,11 +1,13 @@
 import asyncio
+import heapq
 import uuid
-from typing import Dict, Any, Optional, List, Callable, Awaitable
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from dataclasses import dataclass, field
+from typing import Any
+
 from pydantic import BaseModel, Field
-import heapq
 
 
 class TaskPriority(int, Enum):
@@ -33,9 +35,9 @@ class PrioritizedTask:
     sequence: int
     task_id: str = field(compare=False)
     action: str = field(compare=False)
-    params: Dict[str, Any] = field(compare=False)
+    params: dict[str, Any] = field(compare=False)
     created_at: datetime = field(compare=False)
-    metadata: Dict[str, Any] = field(default_factory=dict, compare=False)
+    metadata: dict[str, Any] = field(default_factory=dict, compare=False)
     retry_count: int = field(default=0, compare=False)
     max_retries: int = field(default=3, compare=False)
     timeout_seconds: float = field(default=60.0, compare=False)
@@ -44,19 +46,19 @@ class PrioritizedTask:
 class TaskInfo(BaseModel):
     task_id: str = Field(default="")
     action: str = Field(default="")
-    params: Dict[str, Any] = Field(default_factory=dict)
+    params: dict[str, Any] = Field(default_factory=dict)
     priority: int = Field(default=TaskPriority.NORMAL)
     status: TaskStatus = Field(default=TaskStatus.PENDING)
     created_at: datetime = Field(default_factory=datetime.now)
-    started_at: Optional[datetime] = Field(default=None)
-    completed_at: Optional[datetime] = Field(default=None)
+    started_at: datetime | None = Field(default=None)
+    completed_at: datetime | None = Field(default=None)
     retry_count: int = Field(default=0)
     max_retries: int = Field(default=3)
     error_message: str = Field(default="")
-    result: Optional[Dict[str, Any]] = Field(default=None)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    result: dict[str, Any] | None = Field(default=None)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "task_id": self.task_id,
             "action": self.action,
@@ -95,24 +97,24 @@ class QueueManager:
         self.max_concurrent = max_concurrent
         self.default_timeout = default_timeout
         self.default_max_retries = default_max_retries
-        
-        self._queue: List[PrioritizedTask] = []
+
+        self._queue: list[PrioritizedTask] = []
         self._sequence = 0
-        self._tasks: Dict[str, TaskInfo] = {}
-        self._running_tasks: Dict[str, asyncio.Task] = {}
+        self._tasks: dict[str, TaskInfo] = {}
+        self._running_tasks: dict[str, asyncio.Task] = {}
         self._lock = asyncio.Lock()
-        self._executor: Optional[Callable] = None
+        self._executor: Callable | None = None
         self._running = False
-        self._worker_task: Optional[asyncio.Task] = None
+        self._worker_task: asyncio.Task | None = None
         self._semaphore = asyncio.Semaphore(max_concurrent)
-        
+
         self._completed_count = 0
         self._failed_count = 0
         self._cancelled_count = 0
         self._total_wait_time_ms = 0.0
         self._total_execution_time_ms = 0.0
 
-    def set_executor(self, executor: Callable[[str, Dict[str, Any]], Awaitable[Any]]) -> None:
+    def set_executor(self, executor: Callable[[str, dict[str, Any]], Awaitable[Any]]) -> None:
         self._executor = executor
 
     async def start(self) -> None:
@@ -147,14 +149,14 @@ class QueueManager:
     async def enqueue(
         self,
         action: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         priority: TaskPriority = TaskPriority.NORMAL,
-        metadata: Optional[Dict[str, Any]] = None,
-        max_retries: Optional[int] = None,
-        timeout_seconds: Optional[float] = None,
+        metadata: dict[str, Any] | None = None,
+        max_retries: int | None = None,
+        timeout_seconds: float | None = None,
     ) -> str:
         task_id = str(uuid.uuid4())
-        
+
         prioritized_task = PrioritizedTask(
             priority=priority.value,
             sequence=self._sequence,
@@ -167,9 +169,9 @@ class QueueManager:
             max_retries=max_retries if max_retries is not None else self.default_max_retries,
             timeout_seconds=timeout_seconds if timeout_seconds is not None else self.default_timeout,
         )
-        
+
         self._sequence += 1
-        
+
         task_info = TaskInfo(
             task_id=task_id,
             action=action,
@@ -180,14 +182,14 @@ class QueueManager:
             max_retries=prioritized_task.max_retries,
             metadata=metadata or {},
         )
-        
+
         async with self._lock:
             heapq.heappush(self._queue, prioritized_task)
             self._tasks[task_id] = task_info
-        
+
         return task_id
 
-    async def _dequeue(self) -> Optional[PrioritizedTask]:
+    async def _dequeue(self) -> PrioritizedTask | None:
         async with self._lock:
             if not self._queue:
                 return None
@@ -196,55 +198,55 @@ class QueueManager:
     async def _execute_task(self, task: PrioritizedTask) -> None:
         if not self._executor:
             return
-        
+
         async with self._semaphore:
             task_info = self._tasks.get(task.task_id)
             if not task_info:
                 return
-            
+
             if task_info.status == TaskStatus.CANCELLED:
                 return
-            
+
             task_info.status = TaskStatus.RUNNING
             task_info.started_at = datetime.now()
-            
+
             wait_time = (task_info.started_at - task_info.created_at).total_seconds() * 1000
             self._total_wait_time_ms += wait_time
-            
+
             try:
                 result = await asyncio.wait_for(
                     self._executor(task.action, task.params),
                     timeout=task.timeout_seconds,
                 )
-                
+
                 task_info.status = TaskStatus.COMPLETED
                 task_info.completed_at = datetime.now()
                 task_info.result = result if isinstance(result, dict) else {"value": result}
-                
+
                 execution_time = (task_info.completed_at - task_info.started_at).total_seconds() * 1000
                 self._total_execution_time_ms += execution_time
                 self._completed_count += 1
-                
+
             except asyncio.TimeoutError:
                 task_info.status = TaskStatus.TIMEOUT
                 task_info.error_message = f"Task timed out after {task.timeout_seconds}s"
                 task_info.completed_at = datetime.now()
-                
+
                 if task.retry_count < task.max_retries:
                     await self._retry_task(task)
                 else:
                     self._failed_count += 1
-                    
+
             except asyncio.CancelledError:
                 task_info.status = TaskStatus.CANCELLED
                 task_info.completed_at = datetime.now()
                 self._cancelled_count += 1
-                
+
             except Exception as e:
                 task_info.status = TaskStatus.FAILED
                 task_info.error_message = str(e)
                 task_info.completed_at = datetime.now()
-                
+
                 if task.retry_count < task.max_retries:
                     await self._retry_task(task)
                 else:
@@ -254,10 +256,10 @@ class QueueManager:
         task_info = self._tasks.get(task.task_id)
         if not task_info:
             return
-        
+
         task_info.status = TaskStatus.RETRYING
         task_info.retry_count += 1
-        
+
         retry_task = PrioritizedTask(
             priority=task.priority,
             sequence=self._sequence,
@@ -270,9 +272,9 @@ class QueueManager:
             max_retries=task.max_retries,
             timeout_seconds=task.timeout_seconds,
         )
-        
+
         self._sequence += 1
-        
+
         async with self._lock:
             heapq.heappush(self._queue, retry_task)
 
@@ -281,20 +283,20 @@ class QueueManager:
             task_info = self._tasks.get(task_id)
             if not task_info:
                 return False
-            
+
             if task_info.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED):
                 return False
-            
+
             task_info.status = TaskStatus.CANCELLED
             task_info.completed_at = datetime.now()
             self._cancelled_count += 1
-            
+
             return True
 
-    async def get_task_status(self, task_id: str) -> Optional[TaskInfo]:
+    async def get_task_status(self, task_id: str) -> TaskInfo | None:
         return self._tasks.get(task_id)
 
-    async def get_task_result(self, task_id: str) -> Optional[Dict[str, Any]]:
+    async def get_task_result(self, task_id: str) -> dict[str, Any] | None:
         task_info = self._tasks.get(task_id)
         if task_info and task_info.status == TaskStatus.COMPLETED:
             return task_info.result
@@ -302,21 +304,21 @@ class QueueManager:
 
     async def list_tasks(
         self,
-        status: Optional[TaskStatus] = None,
+        status: TaskStatus | None = None,
         limit: int = 100,
-    ) -> List[TaskInfo]:
+    ) -> list[TaskInfo]:
         tasks = list(self._tasks.values())
-        
+
         if status:
             tasks = [t for t in tasks if t.status == status]
-        
+
         tasks.sort(key=lambda x: x.created_at, reverse=True)
         return tasks[:limit]
 
     async def clear_completed_tasks(self, max_age_hours: int = 24) -> int:
         cutoff = datetime.now()
         count = 0
-        
+
         async with self._lock:
             to_remove = []
             for task_id, task_info in self._tasks.items():
@@ -325,11 +327,11 @@ class QueueManager:
                         age_hours = (cutoff - task_info.completed_at).total_seconds() / 3600
                         if age_hours > max_age_hours:
                             to_remove.append(task_id)
-            
+
             for task_id in to_remove:
                 del self._tasks[task_id]
                 count += 1
-        
+
         return count
 
     def get_queue_length(self) -> int:
@@ -341,16 +343,16 @@ class QueueManager:
     def get_stats(self) -> QueueStats:
         tasks = list(self._tasks.values())
         total = len(tasks)
-        
+
         completed = [t for t in tasks if t.status == TaskStatus.COMPLETED]
         avg_exec = 0.0
         if completed and self._completed_count > 0:
             avg_exec = self._total_execution_time_ms / self._completed_count
-        
+
         avg_wait = 0.0
         if self._completed_count > 0:
             avg_wait = self._total_wait_time_ms / self._completed_count
-        
+
         return QueueStats(
             total_tasks=total,
             pending_tasks=sum(1 for t in tasks if t.status in (TaskStatus.PENDING, TaskStatus.QUEUED)),
@@ -362,22 +364,22 @@ class QueueManager:
             average_execution_time_ms=avg_exec,
         )
 
-    async def wait_for_task(self, task_id: str, timeout: Optional[float] = None) -> Optional[TaskInfo]:
+    async def wait_for_task(self, task_id: str, timeout: float | None = None) -> TaskInfo | None:
         start = datetime.now()
-        
+
         while True:
             task_info = self._tasks.get(task_id)
             if not task_info:
                 return None
-            
+
             if task_info.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED, TaskStatus.TIMEOUT):
                 return task_info
-            
+
             if timeout:
                 elapsed = (datetime.now() - start).total_seconds()
                 if elapsed > timeout:
                     return None
-            
+
             await asyncio.sleep(0.1)
 
     async def prioritize_task(self, task_id: str, new_priority: TaskPriority) -> bool:
@@ -397,10 +399,10 @@ class QueueManager:
                         timeout_seconds=task.timeout_seconds,
                     )
                     heapq.heapify(self._queue)
-                    
+
                     task_info = self._tasks.get(task_id)
                     if task_info:
                         task_info.priority = new_priority.value
-                    
+
                     return True
         return False

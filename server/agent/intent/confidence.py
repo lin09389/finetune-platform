@@ -3,10 +3,10 @@
 评估意图匹配置信度，支持多因素综合评估
 """
 import re
-from typing import Dict, List, Optional, Tuple, Any
+from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
-from collections import defaultdict
+from typing import Any
 
 
 class ConfidenceLevel(Enum):
@@ -20,23 +20,23 @@ class ConfidenceLevel(Enum):
 class ConfidenceResult:
     """置信度评估结果"""
     score: float
-    factors: Dict[str, float] = field(default_factory=dict)
+    factors: dict[str, float] = field(default_factory=dict)
     need_confirm: bool = False
     level: ConfidenceLevel = field(default=None)
-    
+
     def __post_init__(self):
         if self.level is None:
             self.level = self._compute_level()
         self.need_confirm = self.score < 0.7
-    
+
     def _compute_level(self) -> ConfidenceLevel:
         if self.score >= 0.85:
             return ConfidenceLevel.HIGH
         elif self.score >= 0.65:
             return ConfidenceLevel.MEDIUM
         return ConfidenceLevel.LOW
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "score": self.score,
             "factors": self.factors,
@@ -47,7 +47,7 @@ class ConfidenceResult:
 
 class MultiFactorScorer:
     """多因素评分器"""
-    
+
     DEFAULT_WEIGHTS = {
         "match_coverage": 0.25,
         "keyword_weight": 0.25,
@@ -55,16 +55,16 @@ class MultiFactorScorer:
         "param_completeness": 0.15,
         "context_consistency": 0.15
     }
-    
-    def __init__(self, weights: Optional[Dict[str, float]] = None):
+
+    def __init__(self, weights: dict[str, float] | None = None):
         self.weights = weights or self.DEFAULT_WEIGHTS.copy()
         self._normalize_weights()
-    
+
     def _normalize_weights(self):
         total = sum(self.weights.values())
         if total > 0:
             self.weights = {k: v / total for k, v in self.weights.items()}
-    
+
     def compute_score(
         self,
         match_coverage: float = 0.0,
@@ -72,7 +72,7 @@ class MultiFactorScorer:
         pattern_specificity: float = 0.0,
         param_completeness: float = 0.0,
         context_consistency: float = 0.0
-    ) -> Tuple[float, Dict[str, float]]:
+    ) -> tuple[float, dict[str, float]]:
         factors = {
             "match_coverage": match_coverage,
             "keyword_weight": keyword_weight,
@@ -80,37 +80,37 @@ class MultiFactorScorer:
             "param_completeness": param_completeness,
             "context_consistency": context_consistency
         }
-        
+
         score = sum(
             factors.get(k, 0) * v
             for k, v in self.weights.items()
         )
-        
+
         return score, factors
 
 
 class ConfidenceEvaluator:
     """置信度评估器"""
-    
-    def __init__(self, scorer: Optional[MultiFactorScorer] = None):
+
+    def __init__(self, scorer: MultiFactorScorer | None = None):
         self.scorer = scorer or MultiFactorScorer()
-        self._history: List[Dict[str, Any]] = []
-        self._correct_counts: Dict[str, int] = defaultdict(int)
-        self._total_counts: Dict[str, int] = defaultdict(int)
-    
+        self._history: list[dict[str, Any]] = []
+        self._correct_counts: dict[str, int] = defaultdict(int)
+        self._total_counts: dict[str, int] = defaultdict(int)
+
     def evaluate(
         self,
         message: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         intent_name: str,
-        context: Optional[Dict[str, Any]] = None
+        context: dict[str, Any] | None = None
     ) -> ConfidenceResult:
         match_coverage = self._compute_match_coverage(message, params)
         keyword_weight = self._compute_keyword_weight(message, intent_name)
         pattern_specificity = self._compute_pattern_specificity(message)
         param_completeness = self._compute_param_completeness(params, intent_name)
         context_consistency = self._compute_context_consistency(intent_name, context)
-        
+
         score, factors = self.scorer.compute_score(
             match_coverage=match_coverage,
             keyword_weight=keyword_weight,
@@ -118,23 +118,23 @@ class ConfidenceEvaluator:
             param_completeness=param_completeness,
             context_consistency=context_consistency
         )
-        
+
         historical_boost = self._get_historical_boost(intent_name)
         score = min(1.0, score + historical_boost)
-        
+
         return ConfidenceResult(score=score, factors=factors)
-    
-    def _compute_match_coverage(self, message: str, params: Dict[str, Any]) -> float:
+
+    def _compute_match_coverage(self, message: str, params: dict[str, Any]) -> float:
         if not params:
             return 0.0
-        
+
         param_values = [str(v) for v in params.values() if v]
         if not param_values:
             return 0.0
-        
+
         matched_length = sum(len(v) for v in param_values)
         return min(1.0, matched_length / len(message) if message else 0)
-    
+
     def _compute_keyword_weight(self, message: str, intent_name: str) -> float:
         intent_keywords = {
             "file_create": ["创建", "新建", "生成", "建立"],
@@ -148,17 +148,17 @@ class ConfidenceEvaluator:
             "mouse_click": ["点击", "单击", "双击"],
             "keyboard_type": ["输入", "打字"]
         }
-        
+
         keywords = intent_keywords.get(intent_name, [])
         if not keywords:
             return 0.5
-        
+
         matched = sum(1 for kw in keywords if kw in message.lower())
         return matched / len(keywords) if keywords else 0.5
-    
+
     def _compute_pattern_specificity(self, message: str) -> float:
         specificity = 0.0
-        
+
         if re.search(r'\.\w+', message):
             specificity += 0.3
         if re.search(r'https?://', message):
@@ -167,10 +167,10 @@ class ConfidenceEvaluator:
             specificity += 0.3
         if re.search(r'["「『].*[」』"]', message):
             specificity += 0.2
-        
+
         return min(1.0, specificity)
-    
-    def _compute_param_completeness(self, params: Dict[str, Any], intent_name: str) -> float:
+
+    def _compute_param_completeness(self, params: dict[str, Any], intent_name: str) -> float:
         required_params = {
             "file_create": ["file_path"],
             "file_read": ["file_path"],
@@ -183,61 +183,61 @@ class ConfidenceEvaluator:
             "mouse_click": ["x", "y"],
             "keyboard_type": ["text"]
         }
-        
+
         required = required_params.get(intent_name, [])
         if not required:
             return 1.0
-        
+
         filled = sum(1 for p in required if params.get(p))
         return filled / len(required)
-    
-    def _compute_context_consistency(self, intent_name: str, context: Optional[Dict[str, Any]]) -> float:
+
+    def _compute_context_consistency(self, intent_name: str, context: dict[str, Any] | None) -> float:
         if not context:
             return 0.5
-        
+
         recent_intents = context.get("recent_intents", [])
         if not recent_intents:
             return 0.5
-        
+
         intent_chains = {
             "file_create": ["file_write"],
             "file_read": ["file_write", "file_delete"],
             "file_list": ["file_read", "file_create"]
         }
-        
+
         expected_next = intent_chains.get(recent_intents[-1], [])
         if intent_name in expected_next:
             return 0.8
-        
+
         return 0.5
-    
+
     def _get_historical_boost(self, intent_name: str) -> float:
         total = self._total_counts.get(intent_name, 0)
         if total < 5:
             return 0.0
-        
+
         correct = self._correct_counts.get(intent_name, 0)
         accuracy = correct / total
-        
+
         if accuracy >= 0.9:
             return 0.1
         elif accuracy >= 0.8:
             return 0.05
-        
+
         return 0.0
-    
+
     def record_result(self, intent_name: str, is_correct: bool):
         self._total_counts[intent_name] += 1
         if is_correct:
             self._correct_counts[intent_name] += 1
 
 
-def create_confidence_evaluator(weights: Optional[Dict[str, float]] = None) -> ConfidenceEvaluator:
+def create_confidence_evaluator(weights: dict[str, float] | None = None) -> ConfidenceEvaluator:
     """创建置信度评估器"""
     scorer = MultiFactorScorer(weights) if weights else None
     return ConfidenceEvaluator(scorer)
 
 
-def create_multi_factor_scorer(weights: Optional[Dict[str, float]] = None) -> MultiFactorScorer:
+def create_multi_factor_scorer(weights: dict[str, float] | None = None) -> MultiFactorScorer:
     """创建多因素评分器"""
     return MultiFactorScorer(weights)

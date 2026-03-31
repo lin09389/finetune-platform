@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 技能执行器模块
 
@@ -12,30 +11,24 @@
 """
 import asyncio
 import threading
-import time
 import traceback
 import uuid
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set, Type, Union
+from typing import Any
 
 from .base import SkillBase
 from .cache import CachedSkillExecutor, SkillExecutionCache, get_skill_cache
 from .models import (
-    SkillExecution,
-    SkillMetadata,
     SkillPriority,
     SkillResult,
     SkillStatus,
 )
 from .sandbox import (
-    ExecutionSandbox,
-    ResourceLimits,
     SandboxConfig,
-    SandboxPermission,
-    SandboxResult,
     SkillSandbox,
     create_sandbox,
 )
@@ -67,22 +60,22 @@ class ExecutionTask:
     """执行任务"""
     task_id: str
     skill_name: str
-    parameters: Dict[str, Any]
+    parameters: dict[str, Any]
     priority: SkillPriority
     mode: ExecutionMode
-    timeout: Optional[int]
+    timeout: int | None
     use_cache: bool
-    cache_ttl: Optional[int]
+    cache_ttl: int | None
     use_sandbox: bool
-    sandbox_config: Optional[SandboxConfig]
-    user_id: Optional[str]
-    session_id: Optional[str]
+    sandbox_config: SandboxConfig | None
+    user_id: str | None
+    session_id: str | None
     created_at: datetime = field(default_factory=datetime.now)
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     status: SkillStatus = SkillStatus.PENDING
-    result: Optional[SkillResult] = None
-    error: Optional[str] = None
+    result: SkillResult | None = None
+    error: str | None = None
 
 
 @dataclass
@@ -105,30 +98,30 @@ class SkillExecutor:
 
     def __init__(
         self,
-        config: Optional[ExecutorConfig] = None,
-        cache: Optional[SkillExecutionCache] = None,
-        sandbox: Optional[SkillSandbox] = None,
+        config: ExecutorConfig | None = None,
+        cache: SkillExecutionCache | None = None,
+        sandbox: SkillSandbox | None = None,
     ):
         self._config = config or ExecutorConfig()
         self._cache = cache
         self._sandbox = sandbox
-        self._cached_executor: Optional[CachedSkillExecutor] = None
+        self._cached_executor: CachedSkillExecutor | None = None
 
-        self._tasks: Dict[str, ExecutionTask] = {}
-        self._running_tasks: Dict[str, asyncio.Task] = {}
+        self._tasks: dict[str, ExecutionTask] = {}
+        self._running_tasks: dict[str, asyncio.Task] = {}
         self._task_queue: asyncio.PriorityQueue = None
-        self._semaphore: Optional[asyncio.Semaphore] = None
+        self._semaphore: asyncio.Semaphore | None = None
 
         self._stats = ExecutorStats()
         self._lock = threading.Lock()
-        self._async_lock: Optional[asyncio.Lock] = None
+        self._async_lock: asyncio.Lock | None = None
 
         self._skill_registry = None
-        self._thread_pool: Optional[ThreadPoolExecutor] = None
+        self._thread_pool: ThreadPoolExecutor | None = None
 
-        self._on_task_start: Optional[Callable[[ExecutionTask], None]] = None
-        self._on_task_complete: Optional[Callable[[ExecutionTask], None]] = None
-        self._on_task_error: Optional[Callable[[ExecutionTask, Exception], None]] = None
+        self._on_task_start: Callable[[ExecutionTask], None] | None = None
+        self._on_task_complete: Callable[[ExecutionTask], None] | None = None
+        self._on_task_error: Callable[[ExecutionTask, Exception], None] | None = None
 
     def _get_cache(self) -> SkillExecutionCache:
         """获取缓存实例"""
@@ -198,16 +191,16 @@ class SkillExecutor:
     def create_task(
         self,
         skill_name: str,
-        parameters: Dict[str, Any],
+        parameters: dict[str, Any],
         priority: SkillPriority = SkillPriority.NORMAL,
         mode: ExecutionMode = ExecutionMode.ASYNC,
-        timeout: Optional[int] = None,
-        use_cache: Optional[bool] = None,
-        cache_ttl: Optional[int] = None,
-        use_sandbox: Optional[bool] = None,
-        sandbox_config: Optional[SandboxConfig] = None,
-        user_id: Optional[str] = None,
-        session_id: Optional[str] = None,
+        timeout: int | None = None,
+        use_cache: bool | None = None,
+        cache_ttl: int | None = None,
+        use_sandbox: bool | None = None,
+        sandbox_config: SandboxConfig | None = None,
+        user_id: str | None = None,
+        session_id: str | None = None,
     ) -> ExecutionTask:
         """创建执行任务"""
         task = ExecutionTask(
@@ -398,13 +391,13 @@ class SkillExecutor:
     async def execute(
         self,
         skill_name: str,
-        parameters: Dict[str, Any],
+        parameters: dict[str, Any],
         priority: SkillPriority = SkillPriority.NORMAL,
-        timeout: Optional[int] = None,
-        use_cache: Optional[bool] = None,
-        use_sandbox: Optional[bool] = None,
-        user_id: Optional[str] = None,
-        session_id: Optional[str] = None,
+        timeout: int | None = None,
+        use_cache: bool | None = None,
+        use_sandbox: bool | None = None,
+        user_id: str | None = None,
+        session_id: str | None = None,
     ) -> SkillResult:
         """执行技能"""
         task = self.create_task(
@@ -424,14 +417,14 @@ class SkillExecutor:
     async def execute_background(
         self,
         skill_name: str,
-        parameters: Dict[str, Any],
+        parameters: dict[str, Any],
         priority: SkillPriority = SkillPriority.NORMAL,
-        timeout: Optional[int] = None,
-        use_cache: Optional[bool] = None,
-        use_sandbox: Optional[bool] = None,
-        user_id: Optional[str] = None,
-        session_id: Optional[str] = None,
-        on_complete: Optional[Callable[[SkillResult], None]] = None,
+        timeout: int | None = None,
+        use_cache: bool | None = None,
+        use_sandbox: bool | None = None,
+        user_id: str | None = None,
+        session_id: str | None = None,
+        on_complete: Callable[[SkillResult], None] | None = None,
     ) -> str:
         """后台执行技能"""
         await self._initialize_async()
@@ -462,12 +455,12 @@ class SkillExecutor:
     def execute_sync(
         self,
         skill_name: str,
-        parameters: Dict[str, Any],
-        timeout: Optional[int] = None,
-        use_cache: Optional[bool] = None,
-        use_sandbox: Optional[bool] = None,
-        user_id: Optional[str] = None,
-        session_id: Optional[str] = None,
+        parameters: dict[str, Any],
+        timeout: int | None = None,
+        use_cache: bool | None = None,
+        use_sandbox: bool | None = None,
+        user_id: str | None = None,
+        session_id: str | None = None,
     ) -> SkillResult:
         """同步执行技能"""
         task = self.create_task(
@@ -557,11 +550,11 @@ class SkillExecutor:
 
         return result
 
-    def get_task(self, task_id: str) -> Optional[ExecutionTask]:
+    def get_task(self, task_id: str) -> ExecutionTask | None:
         """获取任务"""
         return self._tasks.get(task_id)
 
-    def get_task_status(self, task_id: str) -> Optional[SkillStatus]:
+    def get_task_status(self, task_id: str) -> SkillStatus | None:
         """获取任务状态"""
         task = self._tasks.get(task_id)
         return task.status if task else None
@@ -588,7 +581,7 @@ class SkillExecutor:
 
         return False
 
-    async def wait_for_task(self, task_id: str, timeout: Optional[float] = None) -> Optional[SkillResult]:
+    async def wait_for_task(self, task_id: str, timeout: float | None = None) -> SkillResult | None:
         """等待任务完成"""
         if task_id in self._running_tasks:
             try:
@@ -655,9 +648,9 @@ class SkillExecutor:
 
     def set_callbacks(
         self,
-        on_task_start: Optional[Callable[[ExecutionTask], None]] = None,
-        on_task_complete: Optional[Callable[[ExecutionTask], None]] = None,
-        on_task_error: Optional[Callable[[ExecutionTask, Exception], None]] = None,
+        on_task_start: Callable[[ExecutionTask], None] | None = None,
+        on_task_complete: Callable[[ExecutionTask], None] | None = None,
+        on_task_error: Callable[[ExecutionTask, Exception], None] | None = None,
     ):
         """设置回调函数"""
         self._on_task_start = on_task_start
@@ -679,7 +672,7 @@ class SkillExecutor:
             self._thread_pool = None
 
 
-_executor: Optional[SkillExecutor] = None
+_executor: SkillExecutor | None = None
 
 
 def get_executor() -> SkillExecutor:
@@ -691,9 +684,9 @@ def get_executor() -> SkillExecutor:
 
 
 def create_executor(
-    config: Optional[ExecutorConfig] = None,
-    cache: Optional[SkillExecutionCache] = None,
-    sandbox: Optional[SkillSandbox] = None,
+    config: ExecutorConfig | None = None,
+    cache: SkillExecutionCache | None = None,
+    sandbox: SkillSandbox | None = None,
 ) -> SkillExecutor:
     """创建执行器实例"""
     return SkillExecutor(config=config, cache=cache, sandbox=sandbox)
@@ -701,8 +694,8 @@ def create_executor(
 
 async def execute_skill(
     skill_name: str,
-    parameters: Dict[str, Any],
-    timeout: Optional[int] = None,
+    parameters: dict[str, Any],
+    timeout: int | None = None,
     use_cache: bool = True,
     use_sandbox: bool = True,
 ) -> SkillResult:

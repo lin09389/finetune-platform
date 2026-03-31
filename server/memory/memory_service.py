@@ -1,17 +1,15 @@
-# -*- coding: utf-8 -*-
 """
 智能记忆服务
 核心业务逻辑：提取、存储、检索、管理记忆
 """
-from typing import List, Dict, Any, Optional
-from datetime import datetime
-import uuid
 import logging
-import os
+import uuid
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from .memory_extractor import MemoryExtractor
-from .models import MemoryType, MEMORY_IMPORTANCE, MEMORY_TYPE_LABELS
+from .models import MEMORY_TYPE_LABELS, MemoryType
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +40,7 @@ class MemoryService:
             logger.warning("记忆提取功能可用，但向量检索功能不可用")
 
         self.extractor = MemoryExtractor()
-        self.simple_memories: Dict[str, List[Dict]] = {}
+        self.simple_memories: dict[str, list[dict]] = {}
 
         self.data_dir = Path(vector_db_path).parent
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -54,7 +52,7 @@ class MemoryService:
         message: str,
         role: str,
         user_id: str = "default"
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         提取并存储记忆
         Args:
@@ -88,7 +86,7 @@ class MemoryService:
 
         return stored
 
-    def _store_memory(self, user_id: str, memory: Dict) -> str:
+    def _store_memory(self, user_id: str, memory: dict) -> str:
         """存储单条记忆"""
         memory_id = f"mem_{uuid.uuid4().hex[:8]}"
 
@@ -132,8 +130,8 @@ class MemoryService:
         query: str,
         user_id: str = "default",
         top_k: int = 5,
-        memory_type: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+        memory_type: str | None = None
+    ) -> list[dict[str, Any]]:
         """
         检索相关记忆
         Args:
@@ -210,9 +208,9 @@ class MemoryService:
     def list_memories(
         self,
         user_id: str = "default",
-        memory_type: Optional[str] = None,
+        memory_type: str | None = None,
         limit: int = 50
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         列出所有记忆
         Args:
@@ -340,7 +338,7 @@ class MemoryService:
 
         return "\n".join(context_parts)
 
-    def get_user_summary(self, user_id: str = "default") -> Dict[str, Any]:
+    def get_user_summary(self, user_id: str = "default") -> dict[str, Any]:
         """
         获取用户记忆摘要
 
@@ -352,7 +350,7 @@ class MemoryService:
         """
         memories = self.list_memories(user_id, limit=100)
 
-        by_type: Dict[str, List[str]] = {}
+        by_type: dict[str, list[str]] = {}
         for mem in memories:
             mem_type = mem['type']
             if mem_type not in by_type:
@@ -370,7 +368,7 @@ class MemoryService:
 
         return summary
 
-    def get_stats(self, user_id: str = "default") -> Dict[str, Any]:
+    def get_stats(self, user_id: str = "default") -> dict[str, Any]:
         """
         获取记忆统计
 
@@ -390,7 +388,7 @@ class MemoryService:
             return {'total_memories': 0}
 
 
-_memory_service: Optional[MemoryService] = None
+_memory_service: MemoryService | None = None
 
 
 def get_memory_service() -> MemoryService:

@@ -3,23 +3,22 @@
 每个意图至少 100+ 样本
 使用模板生成、同义词替换、句式变换等方法
 """
-from typing import Dict, List, Any
 from dataclasses import dataclass, field
-import random
+from typing import Any
 
 
 @dataclass
 class IntentSample:
     text: str
-    params_template: Dict[str, Any] = field(default_factory=dict)
+    params_template: dict[str, Any] = field(default_factory=dict)
     confidence_base: float = 0.8
-    keywords: List[str] = field(default_factory=list)
-    context_hints: List[str] = field(default_factory=list)
+    keywords: list[str] = field(default_factory=list)
+    context_hints: list[str] = field(default_factory=list)
     is_colloquial: bool = False
     is_negative: bool = False
 
 
-def generate_samples(templates: List[str], params_list: List[Dict] = None, keywords: List[str] = None) -> List[IntentSample]:
+def generate_samples(templates: list[str], params_list: list[dict] = None, keywords: list[str] = None) -> list[IntentSample]:
     samples = []
     for template in templates:
         if params_list:
@@ -90,24 +89,24 @@ SEARCH_TERMS = [
 ]
 
 
-def create_file_create_samples() -> List[IntentSample]:
+def create_file_create_samples() -> list[IntentSample]:
     samples = []
-    
+
     verbs = ["创建", "新建", "生成", "建立", "创建一个", "新建一个", "生成一个", "建立一个"]
     adjectives = ["新", "空的", "空白", "新的"]
     nouns = ["文件", "文档", "脚本", "代码文件", "文本文件"]
-    
+
     for verb in verbs:
         for adj in adjectives:
             for noun in nouns:
                 samples.append(IntentSample(f"{verb}{adj}{noun}", {}, 0.85, ["创建", "新建"]))
-    
+
     for verb in ["创建", "新建", "生成", "建立"]:
         for fname in FILE_NAMES[:30]:
             samples.append(IntentSample(f"{verb}{fname}文件", {"file_path": fname}, 0.95, [fname]))
             samples.append(IntentSample(f"帮我{verb}一个{fname}", {"file_path": fname}, 0.9, [fname]))
             samples.append(IntentSample(f"请{verb}{fname}", {"file_path": fname}, 0.95, [fname]))
-    
+
     colloquial = [
         "弄个新文件", "搞个文件", "来个新文档", "整一个文件",
         "给我建个文件", "帮我弄个文件", "搞个Python脚本",
@@ -118,29 +117,29 @@ def create_file_create_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_file_read_samples() -> List[IntentSample]:
+def create_file_read_samples() -> list[IntentSample]:
     samples = []
-    
+
     verbs = ["读取", "查看", "打开", "阅读", "显示", "浏览", "查看一下", "读取一下", "打开一下"]
     nouns = ["文件", "文档", "内容", "代码", "源码", "源代码"]
-    
+
     for verb in verbs:
         for noun in nouns:
             samples.append(IntentSample(f"{verb}{noun}", {}, 0.8, ["读取", "查看"]))
             samples.append(IntentSample(f"帮我{verb}{noun}", {}, 0.85, ["读取", "查看"]))
             samples.append(IntentSample(f"请{verb}{noun}", {}, 0.85, ["读取", "查看"]))
-    
+
     for verb in ["读取", "查看", "打开", "阅读", "显示"]:
         for fname in FILE_NAMES[:30]:
             samples.append(IntentSample(f"{verb}{fname}", {"file_path": fname}, 0.95, [fname]))
             samples.append(IntentSample(f"{verb}{fname}文件", {"file_path": fname}, 0.95, [fname]))
             samples.append(IntentSample(f"{verb}{fname}的内容", {"file_path": fname}, 0.95, [fname]))
             samples.append(IntentSample(f"帮我{verb}{fname}", {"file_path": fname}, 0.9, [fname]))
-    
+
     context_refs = [
         "读取刚才那个文件", "查看上一个文件", "打开刚才创建的文件",
         "读取它", "查看它", "打开它", "显示它的内容",
@@ -150,7 +149,7 @@ def create_file_read_samples() -> List[IntentSample]:
     ]
     for text in context_refs:
         samples.append(IntentSample(text, {}, 0.75, ["读取", "查看"]))
-    
+
     colloquial = [
         "看看文件", "瞅瞅代码", "瞧瞧内容", "瞄一眼文件",
         "打开看看", "读一下", "看一眼", "打开瞧瞧",
@@ -160,37 +159,37 @@ def create_file_read_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_file_write_samples() -> List[IntentSample]:
+def create_file_write_samples() -> list[IntentSample]:
     samples = []
-    
+
     verbs = ["写入", "修改", "编辑", "更新", "更改", "改一下", "编辑一下", "修改一下"]
-    
+
     for verb in verbs:
         samples.append(IntentSample(f"{verb}文件", {}, 0.8, ["写入", "修改"]))
         samples.append(IntentSample(f"帮我{verb}文件", {}, 0.85, ["写入", "修改"]))
         samples.append(IntentSample(f"请{verb}文件", {}, 0.85, ["写入", "修改"]))
-    
+
     contents = [
         "Hello World", "你好世界", "测试内容", "示例代码",
         "print('hello')", "console.log('hi')", "def main(): pass",
         "# 这是注释", "// 注释内容", "/* 多行注释 */",
     ]
-    
+
     for verb in ["写入", "添加", "追加", "插入"]:
         for content in contents[:5]:
             samples.append(IntentSample(f"{verb}内容：{content}", {"content": content}, 0.85, ["写入"]))
             samples.append(IntentSample(f"在文件中{verb}{content}", {"content": content}, 0.85, ["写入"]))
-    
+
     for verb in ["修改", "编辑", "更新", "更改"]:
         for fname in FILE_NAMES[:20]:
             samples.append(IntentSample(f"{verb}{fname}", {"file_path": fname}, 0.9, [fname]))
             samples.append(IntentSample(f"{verb}{fname}文件", {"file_path": fname}, 0.9, [fname]))
             samples.append(IntentSample(f"帮我{verb}{fname}", {"file_path": fname}, 0.85, [fname]))
-    
+
     colloquial = [
         "改一下文件", "修一下代码", "编辑一下", "更新一下",
         "帮我改改", "给我改一下", "弄一下文件", "调一下代码",
@@ -199,29 +198,29 @@ def create_file_write_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_file_delete_samples() -> List[IntentSample]:
+def create_file_delete_samples() -> list[IntentSample]:
     samples = []
-    
+
     verbs = ["删除", "移除", "删掉", "去掉", "清除", "删除一个", "移除一个", "删掉一个"]
     nouns = ["文件", "文档", "脚本", "代码文件"]
-    
+
     for verb in verbs:
         for noun in nouns:
             samples.append(IntentSample(f"{verb}{noun}", {}, 0.85, ["删除", "移除"]))
             samples.append(IntentSample(f"帮我{verb}{noun}", {}, 0.9, ["删除", "移除"]))
             samples.append(IntentSample(f"请{verb}{noun}", {}, 0.9, ["删除", "移除"]))
-    
+
     for verb in ["删除", "移除", "删掉", "去掉", "清除"]:
         for fname in FILE_NAMES[:25]:
             samples.append(IntentSample(f"{verb}{fname}", {"file_path": fname}, 0.95, [fname]))
             samples.append(IntentSample(f"{verb}{fname}文件", {"file_path": fname}, 0.95, [fname]))
             samples.append(IntentSample(f"帮我{verb}{fname}", {"file_path": fname}, 0.9, [fname]))
             samples.append(IntentSample(f"把{fname}{verb}了", {"file_path": fname}, 0.9, [fname]))
-    
+
     colloquial = [
         "删了文件", "干掉文件", "弄掉文件", "去掉文件",
         "把文件删了", "把文件干掉", "把文件弄掉",
@@ -231,13 +230,13 @@ def create_file_delete_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_file_list_samples() -> List[IntentSample]:
+def create_file_list_samples() -> list[IntentSample]:
     samples = []
-    
+
     templates = [
         "列出{}文件", "显示{}文件", "查看{}文件", "列举{}文件",
         "列出{}目录", "显示{}目录", "查看{}目录", "列举{}目录",
@@ -245,13 +244,13 @@ def create_file_list_samples() -> List[IntentSample]:
         "帮我列出{}文件", "帮我显示{}文件", "帮我查看{}文件",
         "请列出{}文件", "请显示{}文件", "请查看{}文件",
     ]
-    
+
     modifiers = ["当前", "所有", "全部", "项目中的", "目录下的", "文件夹里的", ""]
-    
+
     for template in templates:
         for modifier in modifiers:
             samples.append(IntentSample(template.format(modifier), {}, 0.85, ["列出", "显示"]))
-    
+
     more_templates = [
         "文件列表", "目录列表", "文件夹列表",
         "有什么文件", "有哪些文件", "文件都有什么",
@@ -263,7 +262,7 @@ def create_file_list_samples() -> List[IntentSample]:
     ]
     for text in more_templates:
         samples.append(IntentSample(text, {}, 0.8, ["列出", "显示"]))
-    
+
     colloquial = [
         "看看有什么文件", "瞅瞅目录", "瞧瞧文件夹",
         "文件都在哪", "目录里有啥", "文件夹里都有啥",
@@ -273,32 +272,32 @@ def create_file_list_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_file_copy_samples() -> List[IntentSample]:
+def create_file_copy_samples() -> list[IntentSample]:
     samples = []
-    
+
     verbs = ["复制", "拷贝", "copy", "复制一下", "拷贝一下"]
     nouns = ["文件", "文档", "脚本", "代码"]
-    
+
     for verb in verbs:
         for noun in nouns:
             samples.append(IntentSample(f"{verb}{noun}", {}, 0.85, ["复制", "拷贝"]))
             samples.append(IntentSample(f"帮我{verb}{noun}", {}, 0.9, ["复制", "拷贝"]))
-    
+
     for verb in ["复制", "拷贝", "copy"]:
         for fname in FILE_NAMES[:20]:
             samples.append(IntentSample(f"{verb}{fname}", {"file_path": fname}, 0.95, [fname]))
             samples.append(IntentSample(f"{verb}{fname}文件", {"file_path": fname}, 0.95, [fname]))
             samples.append(IntentSample(f"把{fname}{verb}一份", {"file_path": fname}, 0.9, [fname]))
-    
+
     destinations = ["桌面", "Documents", "Downloads", "项目目录", "当前目录", "上级目录", "backup文件夹"]
     for verb in ["复制到", "拷贝到", "复制一份到"]:
         for dest in destinations:
             samples.append(IntentSample(f"{verb}{dest}", {"destination": dest}, 0.85, ["复制", "拷贝"]))
-    
+
     colloquial = [
         "复制一下", "拷贝一份", "copy一下", "复制个副本",
         "帮我复制", "给我拷贝", "复制文件呗",
@@ -307,31 +306,31 @@ def create_file_copy_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_file_move_samples() -> List[IntentSample]:
+def create_file_move_samples() -> list[IntentSample]:
     samples = []
-    
+
     verbs = ["移动", "转移", "搬移", "移动一下", "转移一下"]
     nouns = ["文件", "文档", "脚本"]
-    
+
     for verb in verbs:
         for noun in nouns:
             samples.append(IntentSample(f"{verb}{noun}", {}, 0.85, ["移动", "转移"]))
             samples.append(IntentSample(f"帮我{verb}{noun}", {}, 0.9, ["移动", "转移"]))
-    
+
     destinations = ["桌面", "Documents", "Downloads", "项目目录", "当前目录", "上级目录", "backup文件夹", "新文件夹"]
     for verb in ["移动到", "转移到", "搬移到"]:
         for dest in destinations:
             samples.append(IntentSample(f"{verb}{dest}", {"destination": dest}, 0.85, ["移动", "转移"]))
             samples.append(IntentSample(f"把文件{verb}{dest}", {"destination": dest}, 0.85, ["移动", "转移"]))
-    
+
     for fname in FILE_NAMES[:15]:
         for dest in destinations[:5]:
             samples.append(IntentSample(f"把{fname}移动到{dest}", {"file_path": fname, "destination": dest}, 0.9, [fname]))
-    
+
     colloquial = [
         "移动一下", "转移一下", "搬一下文件", "挪一下",
         "帮我移动", "给我转移", "移动文件呗",
@@ -340,30 +339,30 @@ def create_file_move_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_file_rename_samples() -> List[IntentSample]:
+def create_file_rename_samples() -> list[IntentSample]:
     samples = []
-    
+
     verbs = ["重命名", "改名", "改名子", "重命名一下", "改名一下"]
     nouns = ["文件", "文档", "脚本"]
-    
+
     for verb in verbs:
         for noun in nouns:
             samples.append(IntentSample(f"{verb}{noun}", {}, 0.85, ["重命名", "改名"]))
             samples.append(IntentSample(f"帮我{verb}{noun}", {}, 0.9, ["重命名", "改名"]))
-    
+
     new_names = ["new_file.py", "backup.py", "old_version.py", "v2.py", "updated.py"]
     for verb in ["重命名为", "改名为", "改名为"]:
         for new_name in new_names:
             samples.append(IntentSample(f"{verb}{new_name}", {"new_name": new_name}, 0.85, ["重命名"]))
-    
+
     for fname in FILE_NAMES[:15]:
         samples.append(IntentSample(f"把{fname}重命名", {"file_path": fname}, 0.9, [fname]))
         samples.append(IntentSample(f"重命名{fname}", {"file_path": fname}, 0.95, [fname]))
-    
+
     colloquial = [
         "改个名", "换个名字", "名字改一下", "重命名一下",
         "帮我改名", "给我改名", "改名呗",
@@ -372,27 +371,27 @@ def create_file_rename_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_app_open_samples() -> List[IntentSample]:
+def create_app_open_samples() -> list[IntentSample]:
     samples = []
-    
+
     verbs = ["打开", "启动", "运行", "开启", "启动一下", "打开一下", "运行一下"]
-    
+
     for verb in verbs:
         for app in APP_NAMES:
             samples.append(IntentSample(f"{verb}{app}", {"app_name": app}, 0.95, [app]))
             samples.append(IntentSample(f"帮我{verb}{app}", {"app_name": app}, 0.9, [app]))
             samples.append(IntentSample(f"请{verb}{app}", {"app_name": app}, 0.9, [app]))
-    
+
     apps_short = ["VS Code", "Chrome", "Firefox", "微信", "QQ", "Terminal", "PyCharm", "Word", "Excel"]
     for app in apps_short:
         samples.append(IntentSample(f"开{app}", {"app_name": app}, 0.85, [app]))
         samples.append(IntentSample(f"开一下{app}", {"app_name": app}, 0.85, [app]))
         samples.append(IntentSample(f"把{app}打开", {"app_name": app}, 0.9, [app]))
-    
+
     colloquial = [
         "开个浏览器", "打开编辑器", "启动IDE", "运行一下",
         "帮我开个应用", "给我打开软件", "启动程序",
@@ -403,27 +402,27 @@ def create_app_open_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_app_close_samples() -> List[IntentSample]:
+def create_app_close_samples() -> list[IntentSample]:
     samples = []
-    
+
     verbs = ["关闭", "关掉", "退出", "结束", "关闭一下", "关掉一下", "退出一下"]
-    
+
     for verb in verbs:
         for app in APP_NAMES[:20]:
             samples.append(IntentSample(f"{verb}{app}", {"app_name": app}, 0.95, [app]))
             samples.append(IntentSample(f"帮我{verb}{app}", {"app_name": app}, 0.9, [app]))
             samples.append(IntentSample(f"请{verb}{app}", {"app_name": app}, 0.9, [app]))
-    
+
     apps_short = ["VS Code", "Chrome", "Firefox", "微信", "QQ", "Terminal"]
     for app in apps_short:
         samples.append(IntentSample(f"关{app}", {"app_name": app}, 0.85, [app]))
         samples.append(IntentSample(f"关一下{app}", {"app_name": app}, 0.85, [app]))
         samples.append(IntentSample(f"把{app}关了", {"app_name": app}, 0.9, [app]))
-    
+
     samples.extend([
         IntentSample("关闭当前应用", {}, 0.85, ["关闭"]),
         IntentSample("关闭当前程序", {}, 0.85, ["关闭"]),
@@ -432,7 +431,7 @@ def create_app_close_samples() -> List[IntentSample]:
         IntentSample("关闭这个窗口", {}, 0.85, ["关闭"]),
         IntentSample("关闭那个窗口", {}, 0.85, ["关闭"]),
     ])
-    
+
     colloquial = [
         "关了", "退出", "关掉", "结束掉",
         "帮我关了", "给我关掉", "关掉它",
@@ -442,26 +441,26 @@ def create_app_close_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_url_open_samples() -> List[IntentSample]:
+def create_url_open_samples() -> list[IntentSample]:
     samples = []
-    
+
     verbs = ["打开", "访问", "跳转", "打开一下", "访问一下"]
-    
+
     for verb in verbs:
         for url in URLS:
             samples.append(IntentSample(f"{verb}{url}", {"url": url}, 0.95, [url]))
             samples.append(IntentSample(f"帮我{verb}{url}", {"url": url}, 0.9, [url]))
-    
+
     websites = ["百度", "谷歌", "GitHub", "知乎", "B站", "微博", "淘宝", "京东"]
     for site in websites:
         samples.append(IntentSample(f"打开{site}", {"url": site}, 0.85, [site]))
         samples.append(IntentSample(f"访问{site}网站", {"url": site}, 0.85, [site]))
         samples.append(IntentSample(f"去{site}看看", {"url": site}, 0.8, [site]))
-    
+
     samples.extend([
         IntentSample("打开浏览器", {}, 0.8, ["浏览器"]),
         IntentSample("打开网页", {}, 0.8, ["网页"]),
@@ -472,7 +471,7 @@ def create_url_open_samples() -> List[IntentSample]:
         IntentSample("打开这个链接", {}, 0.85, ["链接"]),
         IntentSample("打开那个链接", {}, 0.85, ["链接"]),
     ])
-    
+
     colloquial = [
         "打开网页", "访问网站", "去个网站", "开个链接",
         "帮我打开网页", "给我访问网站", "打开链接呗",
@@ -481,34 +480,34 @@ def create_url_open_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_screenshot_samples() -> List[IntentSample]:
+def create_screenshot_samples() -> list[IntentSample]:
     samples = []
-    
+
     verbs = ["截图", "截屏", "抓图", "截图一下", "截屏一下", "抓图一下", "截取", "截取一下"]
-    
+
     for verb in verbs:
         samples.append(IntentSample(verb, {}, 0.95, ["截图", "截屏"]))
         samples.append(IntentSample(f"帮我{verb}", {}, 0.9, ["截图", "截屏"]))
         samples.append(IntentSample(f"请{verb}", {}, 0.9, ["截图", "截屏"]))
         samples.append(IntentSample(f"{verb}一下", {}, 0.9, ["截图", "截屏"]))
-    
-    areas = ["全屏", "当前窗口", "选定区域", "整个屏幕", "这个窗口", "那个窗口", 
+
+    areas = ["全屏", "当前窗口", "选定区域", "整个屏幕", "这个窗口", "那个窗口",
              "屏幕", "桌面", "活动窗口", "指定区域", "矩形区域", "自定义区域"]
     for verb in ["截图", "截屏", "抓图", "截取"]:
         for area in areas:
             samples.append(IntentSample(f"{verb}{area}", {"area": area}, 0.9, ["截图"]))
             samples.append(IntentSample(f"帮我{verb}{area}", {"area": area}, 0.85, ["截图"]))
             samples.append(IntentSample(f"请{verb}{area}", {"area": area}, 0.85, ["截图"]))
-    
+
     times = ["现在", "立刻", "马上", "快速", "立即"]
     for verb in ["截图", "截屏", "抓图"]:
         for time in times:
             samples.append(IntentSample(f"{time}{verb}", {}, 0.85, ["截图"]))
-    
+
     samples.extend([
         IntentSample("截取全屏", {}, 0.9, ["截取"]),
         IntentSample("截取当前窗口", {}, 0.9, ["截取"]),
@@ -538,7 +537,7 @@ def create_screenshot_samples() -> List[IntentSample]:
         IntentSample("区域截屏", {}, 0.9, ["截屏"]),
         IntentSample("全屏截屏", {}, 0.9, ["截屏"]),
     ])
-    
+
     colloquial = [
         "截个图", "截个屏", "抓个图", "截一下",
         "帮我截个图", "给我截个屏", "截个图呗",
@@ -553,13 +552,13 @@ def create_screenshot_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_mouse_click_samples() -> List[IntentSample]:
+def create_mouse_click_samples() -> list[IntentSample]:
     samples = []
-    
+
     buttons = ["左键", "右键", "中键", "鼠标左键", "鼠标右键", "鼠标中键", "左键按钮", "右键按钮"]
     for button in buttons:
         samples.append(IntentSample(f"{button}点击", {"button": button}, 0.9, ["点击"]))
@@ -568,14 +567,14 @@ def create_mouse_click_samples() -> List[IntentSample]:
         samples.append(IntentSample(f"用{button}点击", {"button": button}, 0.85, ["点击"]))
         samples.append(IntentSample(f"{button}单击", {"button": button}, 0.9, ["单击"]))
         samples.append(IntentSample(f"{button}双击", {"button": button}, 0.9, ["双击"]))
-    
-    positions = ["当前位置", "中心位置", "左上角", "右下角", "屏幕中央", "屏幕左上", "屏幕右下", 
+
+    positions = ["当前位置", "中心位置", "左上角", "右下角", "屏幕中央", "屏幕左上", "屏幕右下",
                  "窗口中心", "指定位置", "目标位置", "这里", "那里", "这个位置", "那个位置"]
     for pos in positions:
         samples.append(IntentSample(f"点击{pos}", {"position": pos}, 0.85, ["点击"]))
         samples.append(IntentSample(f"在{pos}点击", {"position": pos}, 0.85, ["点击"]))
         samples.append(IntentSample(f"鼠标点击{pos}", {"position": pos}, 0.85, ["点击"]))
-    
+
     samples.extend([
         IntentSample("点击", {}, 0.85, ["点击"]),
         IntentSample("单击", {}, 0.85, ["单击"]),
@@ -597,7 +596,7 @@ def create_mouse_click_samples() -> List[IntentSample]:
         IntentSample("连续点击", {}, 0.85, ["点击"]),
         IntentSample("多次点击", {}, 0.85, ["点击"]),
     ])
-    
+
     colloquial = [
         "点一下", "点两下", "点点", "鼠标点一下",
         "左键点一下", "右键点一下", "双击一下",
@@ -609,13 +608,13 @@ def create_mouse_click_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_mouse_move_samples() -> List[IntentSample]:
+def create_mouse_move_samples() -> list[IntentSample]:
     samples = []
-    
+
     directions = ["上", "下", "左", "右", "左上", "右下", "左下", "右上", "上方", "下方", "左侧", "右侧"]
     for direction in directions:
         samples.append(IntentSample(f"鼠标向{direction}移动", {"direction": direction}, 0.85, ["移动"]))
@@ -623,7 +622,7 @@ def create_mouse_move_samples() -> List[IntentSample]:
         samples.append(IntentSample(f"移动到{direction}边", {"direction": direction}, 0.85, ["移动"]))
         samples.append(IntentSample(f"鼠标移向{direction}", {"direction": direction}, 0.85, ["移动"]))
         samples.append(IntentSample(f"把鼠标移到{direction}", {"direction": direction}, 0.85, ["移动"]))
-    
+
     positions = ["屏幕中央", "左上角", "右下角", "中心位置", "顶部", "底部", "屏幕中心",
                  "屏幕左上", "屏幕右下", "窗口中心", "指定位置", "目标位置", "这里", "那里"]
     for pos in positions:
@@ -631,7 +630,7 @@ def create_mouse_move_samples() -> List[IntentSample]:
         samples.append(IntentSample(f"把鼠标移到{pos}", {"position": pos}, 0.85, ["移动"]))
         samples.append(IntentSample(f"鼠标移到{pos}", {"position": pos}, 0.85, ["移动"]))
         samples.append(IntentSample(f"光标移到{pos}", {"position": pos}, 0.85, ["移动"]))
-    
+
     samples.extend([
         IntentSample("移动鼠标", {}, 0.85, ["移动"]),
         IntentSample("鼠标移动", {}, 0.85, ["移动"]),
@@ -646,7 +645,7 @@ def create_mouse_move_samples() -> List[IntentSample]:
         IntentSample("改变鼠标位置", {}, 0.85, ["移动"]),
         IntentSample("设置鼠标位置", {}, 0.85, ["移动"]),
     ])
-    
+
     colloquial = [
         "移一下鼠标", "动一下鼠标", "鼠标移一下",
         "把鼠标移过去", "把光标移过去", "移过去",
@@ -657,13 +656,13 @@ def create_mouse_move_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_mouse_scroll_samples() -> List[IntentSample]:
+def create_mouse_scroll_samples() -> list[IntentSample]:
     samples = []
-    
+
     directions = ["上", "下", "向上", "向下", "往上", "往下", "朝上", "朝下"]
     for direction in directions:
         samples.append(IntentSample(f"向{direction}滚动", {"direction": direction}, 0.85, ["滚动"]))
@@ -672,13 +671,13 @@ def create_mouse_scroll_samples() -> List[IntentSample]:
         samples.append(IntentSample(f"滚轮向{direction}滚动", {"direction": direction}, 0.85, ["滚动"]))
         samples.append(IntentSample(f"页面{direction}滚", {"direction": direction}, 0.85, ["滚动"]))
         samples.append(IntentSample(f"屏幕{direction}滚", {"direction": direction}, 0.85, ["滚动"]))
-    
+
     amounts = ["一点", "一页", "半页", "很多", "到底", "到顶", "少许", "大量", "几行", "几页"]
     for amount in amounts:
         samples.append(IntentSample(f"向上滚动{amount}", {"amount": amount}, 0.85, ["滚动"]))
         samples.append(IntentSample(f"向下滚动{amount}", {"amount": amount}, 0.85, ["滚动"]))
         samples.append(IntentSample(f"滚动{amount}", {"amount": amount}, 0.85, ["滚动"]))
-    
+
     samples.extend([
         IntentSample("滚动", {}, 0.85, ["滚动"]),
         IntentSample("滚轮滚动", {}, 0.85, ["滚动"]),
@@ -697,7 +696,7 @@ def create_mouse_scroll_samples() -> List[IntentSample]:
         IntentSample("滚到最上面", {}, 0.85, ["滚动"]),
         IntentSample("滚到最下面", {}, 0.85, ["滚动"]),
     ])
-    
+
     colloquial = [
         "滚一下", "滚轮滚一下", "滚动一下",
         "往上滚", "往下滚", "滚上去", "滚下去",
@@ -709,13 +708,13 @@ def create_mouse_scroll_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_keyboard_type_samples() -> List[IntentSample]:
+def create_keyboard_type_samples() -> list[IntentSample]:
     samples = []
-    
+
     texts = [
         "Hello World", "你好世界", "测试文本", "示例内容", "这是一段文字",
         "print('hello')", "console.log('hi')", "def main():", "import os",
@@ -725,7 +724,7 @@ def create_keyboard_type_samples() -> List[IntentSample]:
         "用户名", "密码", "邮箱", "手机号", "地址", "姓名",
         "2024年", "2025年", "今天", "明天", "昨天", "现在",
     ]
-    
+
     for text in texts:
         samples.append(IntentSample(f"输入{text}", {"text": text}, 0.9, ["输入"]))
         samples.append(IntentSample(f"打字{text}", {"text": text}, 0.85, ["打字"]))
@@ -733,7 +732,7 @@ def create_keyboard_type_samples() -> List[IntentSample]:
         samples.append(IntentSample(f"帮我输入{text}", {"text": text}, 0.85, ["输入"]))
         samples.append(IntentSample(f"请输入{text}", {"text": text}, 0.85, ["输入"]))
         samples.append(IntentSample(f"打出{text}", {"text": text}, 0.85, ["打出"]))
-    
+
     samples.extend([
         IntentSample("输入文字", {}, 0.85, ["输入"]),
         IntentSample("输入文本", {}, 0.85, ["输入"]),
@@ -753,7 +752,7 @@ def create_keyboard_type_samples() -> List[IntentSample]:
         IntentSample("输入一段话", {}, 0.85, ["输入"]),
         IntentSample("输入一句话", {}, 0.85, ["输入"]),
     ])
-    
+
     colloquial = [
         "打几个字", "输几个字", "敲几个字",
         "帮我打字", "给我输入", "打字呗",
@@ -765,13 +764,13 @@ def create_keyboard_type_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_keyboard_press_samples() -> List[IntentSample]:
+def create_keyboard_press_samples() -> list[IntentSample]:
     samples = []
-    
+
     keys = [
         "Enter", "回车", "空格", "Space", "Tab", "Escape", "Esc",
         "Backspace", "Delete", "Del", "Insert", "Home", "End",
@@ -779,13 +778,13 @@ def create_keyboard_press_samples() -> List[IntentSample]:
         "Ctrl", "Alt", "Shift", "Win", "Command", "Option",
         "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
     ]
-    
+
     for key in keys:
         samples.append(IntentSample(f"按下{key}", {"key": key}, 0.9, [key]))
         samples.append(IntentSample(f"按{key}", {"key": key}, 0.9, [key]))
         samples.append(IntentSample(f"按一下{key}", {"key": key}, 0.9, [key]))
         samples.append(IntentSample(f"帮我按{key}", {"key": key}, 0.85, [key]))
-    
+
     shortcuts = [
         ("Ctrl+C", "复制"), ("Ctrl+V", "粘贴"), ("Ctrl+X", "剪切"),
         ("Ctrl+Z", "撤销"), ("Ctrl+Y", "重做"), ("Ctrl+S", "保存"),
@@ -793,12 +792,12 @@ def create_keyboard_press_samples() -> List[IntentSample]:
         ("Alt+Tab", "切换窗口"), ("Alt+F4", "关闭窗口"),
         ("Win+D", "显示桌面"), ("Win+E", "打开资源管理器"),
     ]
-    
+
     for shortcut, desc in shortcuts:
         samples.append(IntentSample(f"按{shortcut}", {"key": shortcut}, 0.9, [shortcut]))
         samples.append(IntentSample(f"{shortcut}快捷键", {"key": shortcut}, 0.85, [shortcut]))
         samples.append(IntentSample(f"使用{shortcut}", {"key": shortcut}, 0.85, [shortcut]))
-    
+
     colloquial = [
         "按一下键", "敲一下键", "按键",
         "回车一下", "空格一下", "Tab一下",
@@ -807,13 +806,13 @@ def create_keyboard_press_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_window_list_samples() -> List[IntentSample]:
+def create_window_list_samples() -> list[IntentSample]:
     samples = []
-    
+
     templates = [
         "列出所有窗口", "显示所有窗口", "查看所有窗口", "列举所有窗口",
         "列出当前窗口", "显示当前窗口", "查看当前窗口",
@@ -827,10 +826,10 @@ def create_window_list_samples() -> List[IntentSample]:
         "窗口一览", "窗口概览", "窗口总览",
         "获取窗口列表", "获取窗口信息", "获取所有窗口",
     ]
-    
+
     for text in templates:
         samples.append(IntentSample(text, {}, 0.85, ["窗口", "列出"]))
-    
+
     samples.extend([
         IntentSample("窗口管理", {}, 0.8, ["窗口"]),
         IntentSample("查看窗口", {}, 0.85, ["窗口"]),
@@ -847,7 +846,7 @@ def create_window_list_samples() -> List[IntentSample]:
         IntentSample("最小化的窗口", {}, 0.85, ["窗口"]),
         IntentSample("最大化的窗口", {}, 0.85, ["窗口"]),
     ])
-    
+
     colloquial = [
         "看看窗口", "瞅瞅窗口", "瞧瞧窗口",
         "窗口呢", "都有啥窗口", "窗口列表看看",
@@ -858,19 +857,19 @@ def create_window_list_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_window_activate_samples() -> List[IntentSample]:
+def create_window_activate_samples() -> list[IntentSample]:
     samples = []
-    
+
     for app in APP_NAMES[:20]:
         samples.append(IntentSample(f"切换到{app}", {"app_name": app}, 0.9, [app]))
         samples.append(IntentSample(f"激活{app}窗口", {"app_name": app}, 0.9, [app]))
         samples.append(IntentSample(f"转到{app}", {"app_name": app}, 0.85, [app]))
         samples.append(IntentSample(f"把{app}置前", {"app_name": app}, 0.85, [app]))
-    
+
     samples.extend([
         IntentSample("切换窗口", {}, 0.85, ["切换"]),
         IntentSample("激活窗口", {}, 0.85, ["激活"]),
@@ -883,7 +882,7 @@ def create_window_activate_samples() -> List[IntentSample]:
         IntentSample("显示窗口", {}, 0.85, ["显示"]),
         IntentSample("聚焦窗口", {}, 0.85, ["聚焦"]),
     ])
-    
+
     colloquial = [
         "切窗口", "换窗口", "跳窗口",
         "切到VS Code", "换到Chrome", "跳到微信",
@@ -892,20 +891,20 @@ def create_window_activate_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_window_close_samples() -> List[IntentSample]:
+def create_window_close_samples() -> list[IntentSample]:
     samples = []
-    
+
     for app in APP_NAMES[:25]:
         samples.append(IntentSample(f"关闭{app}窗口", {"app_name": app}, 0.9, [app]))
         samples.append(IntentSample(f"关掉{app}窗口", {"app_name": app}, 0.9, [app]))
         samples.append(IntentSample(f"关闭{app}", {"app_name": app}, 0.9, [app]))
         samples.append(IntentSample(f"把{app}窗口关了", {"app_name": app}, 0.85, [app]))
         samples.append(IntentSample(f"结束{app}窗口", {"app_name": app}, 0.85, [app]))
-    
+
     samples.extend([
         IntentSample("关闭窗口", {}, 0.85, ["关闭"]),
         IntentSample("关掉窗口", {}, 0.85, ["关掉"]),
@@ -925,7 +924,7 @@ def create_window_close_samples() -> List[IntentSample]:
         IntentSample("结束窗口", {}, 0.85, ["结束"]),
         IntentSample("销毁窗口", {}, 0.85, ["销毁"]),
     ])
-    
+
     colloquial = [
         "关窗口", "关掉窗口", "窗口关了",
         "把这个窗口关了", "把那个窗口关了", "关了这个窗口",
@@ -937,23 +936,23 @@ def create_window_close_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_ocr_recognize_samples() -> List[IntentSample]:
+def create_ocr_recognize_samples() -> list[IntentSample]:
     samples = []
-    
+
     verbs = ["识别", "识别一下", "OCR识别", "文字识别", "识别文字", "认字", "读字", "提取文字"]
     areas = ["屏幕上的文字", "图片中的文字", "当前屏幕", "选定区域", "截图区域",
              "屏幕文字", "图片文字", "屏幕内容", "图片内容", "区域文字",
              "全屏文字", "窗口文字", "桌面文字", "当前区域文字"]
-    
+
     for verb in verbs:
         for area in areas:
             samples.append(IntentSample(f"{verb}{area}", {"area": area}, 0.85, ["识别"]))
             samples.append(IntentSample(f"帮我{verb}{area}", {"area": area}, 0.8, ["识别"]))
-    
+
     samples.extend([
         IntentSample("OCR识别", {}, 0.9, ["OCR"]),
         IntentSample("文字识别", {}, 0.9, ["文字"]),
@@ -979,7 +978,7 @@ def create_ocr_recognize_samples() -> List[IntentSample]:
         IntentSample("识别选定区域文字", {}, 0.85, ["识别"]),
         IntentSample("识别截图中的文字", {}, 0.85, ["识别"]),
     ])
-    
+
     colloquial = [
         "识别一下", "OCR一下", "文字识别一下",
         "看看是什么字", "读一下文字", "认一下字",
@@ -992,13 +991,13 @@ def create_ocr_recognize_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_record_start_samples() -> List[IntentSample]:
+def create_record_start_samples() -> list[IntentSample]:
     samples = []
-    
+
     types = ["屏幕", "视频", "操作", "桌面", "窗口", "全屏", "区域", "指定区域", "当前窗口", "选定区域"]
     for rtype in types:
         samples.append(IntentSample(f"开始录制{rtype}", {"type": rtype}, 0.9, ["录制"]))
@@ -1006,7 +1005,7 @@ def create_record_start_samples() -> List[IntentSample]:
         samples.append(IntentSample(f"录{rtype}", {"type": rtype}, 0.85, ["录制"]))
         samples.append(IntentSample(f"帮我录制{rtype}", {"type": rtype}, 0.85, ["录制"]))
         samples.append(IntentSample(f"请录制{rtype}", {"type": rtype}, 0.85, ["录制"]))
-    
+
     samples.extend([
         IntentSample("开始录制", {}, 0.9, ["录制"]),
         IntentSample("开始录屏", {}, 0.9, ["录屏"]),
@@ -1033,7 +1032,7 @@ def create_record_start_samples() -> List[IntentSample]:
         IntentSample("开始全屏录制", {}, 0.9, ["录制"]),
         IntentSample("开始区域录制", {}, 0.9, ["录制"]),
     ])
-    
+
     colloquial = [
         "录一下", "录个屏", "录个视频",
         "开始录", "录起来", "开录",
@@ -1045,13 +1044,13 @@ def create_record_start_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_record_stop_samples() -> List[IntentSample]:
+def create_record_stop_samples() -> list[IntentSample]:
     samples = []
-    
+
     samples.extend([
         IntentSample("停止录制", {}, 0.9, ["停止"]),
         IntentSample("停止录屏", {}, 0.9, ["停止"]),
@@ -1106,7 +1105,7 @@ def create_record_stop_samples() -> List[IntentSample]:
         IntentSample("结束桌面录制", {}, 0.9, ["结束"]),
         IntentSample("结束窗口录制", {}, 0.9, ["结束"]),
     ])
-    
+
     colloquial = [
         "停一下", "别录了", "录完了",
         "停止录", "结束录", "暂停录",
@@ -1123,13 +1122,13 @@ def create_record_stop_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_system_info_samples() -> List[IntentSample]:
+def create_system_info_samples() -> list[IntentSample]:
     samples = []
-    
+
     info_types = [
         ("系统信息", "系统"), ("系统状态", "状态"), ("电脑信息", "电脑"),
         ("设备信息", "设备"), ("硬件信息", "硬件"), ("CPU信息", "CPU"),
@@ -1140,14 +1139,14 @@ def create_system_info_samples() -> List[IntentSample]:
         ("系统配置", "配置"), ("电脑配置", "配置"), ("硬件配置", "配置"),
         ("系统版本", "版本"), ("操作系统版本", "版本"), ("系统详情", "详情"),
     ]
-    
+
     for text, keyword in info_types:
         samples.append(IntentSample(f"查看{text}", {}, 0.85, [keyword]))
         samples.append(IntentSample(f"显示{text}", {}, 0.85, [keyword]))
         samples.append(IntentSample(f"获取{text}", {}, 0.85, [keyword]))
         samples.append(IntentSample(f"{text}", {}, 0.8, [keyword]))
         samples.append(IntentSample(f"帮我查看{text}", {}, 0.8, [keyword]))
-    
+
     samples.extend([
         IntentSample("系统信息", {}, 0.85, ["系统"]),
         IntentSample("电脑配置", {}, 0.85, ["配置"]),
@@ -1172,7 +1171,7 @@ def create_system_info_samples() -> List[IntentSample]:
         IntentSample("系统性能", {}, 0.85, ["性能"]),
         IntentSample("电脑性能", {}, 0.85, ["性能"]),
     ])
-    
+
     colloquial = [
         "看看电脑", "瞅瞅系统", "瞧瞧配置",
         "电脑怎么样", "系统怎么样", "配置怎么样",
@@ -1184,13 +1183,13 @@ def create_system_info_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_process_list_samples() -> List[IntentSample]:
+def create_process_list_samples() -> list[IntentSample]:
     samples = []
-    
+
     templates = [
         "列出所有进程", "显示所有进程", "查看所有进程", "列举所有进程",
         "列出运行进程", "显示运行进程", "查看运行进程",
@@ -1210,10 +1209,10 @@ def create_process_list_samples() -> List[IntentSample]:
         "列出应用进程", "显示应用进程", "查看应用进程",
         "进程信息列表", "进程状态列表", "进程详情列表",
     ]
-    
+
     for text in templates:
         samples.append(IntentSample(text, {}, 0.85, ["进程", "列出"]))
-    
+
     samples.extend([
         IntentSample("进程管理", {}, 0.8, ["进程"]),
         IntentSample("查看进程", {}, 0.85, ["进程"]),
@@ -1242,7 +1241,7 @@ def create_process_list_samples() -> List[IntentSample]:
         IntentSample("后台进程列表", {}, 0.85, ["进程"]),
         IntentSample("前台进程列表", {}, 0.85, ["进程"]),
     ])
-    
+
     colloquial = [
         "看看进程", "瞅瞅进程", "瞧瞧进程",
         "进程呢", "都有啥进程", "进程列表看看",
@@ -1257,25 +1256,25 @@ def create_process_list_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_process_kill_samples() -> List[IntentSample]:
+def create_process_kill_samples() -> list[IntentSample]:
     samples = []
-    
+
     verbs = ["结束", "终止", "杀掉", "关闭", "停止", "结束掉", "终止掉"]
-    
+
     for verb in verbs:
         samples.append(IntentSample(f"{verb}进程", {}, 0.85, ["结束", "终止"]))
         samples.append(IntentSample(f"帮我{verb}进程", {}, 0.9, ["结束", "终止"]))
-    
+
     process_names = ["chrome", "python", "node", "java", "vscode", "wechat", "qq"]
     for verb in verbs[:4]:
         for pname in process_names:
             samples.append(IntentSample(f"{verb}{pname}进程", {"process_name": pname}, 0.9, [pname]))
             samples.append(IntentSample(f"把{pname}{verb}", {"process_name": pname}, 0.9, [pname]))
-    
+
     samples.extend([
         IntentSample("强制结束进程", {}, 0.85, ["强制"]),
         IntentSample("强制终止进程", {}, 0.85, ["强制"]),
@@ -1284,7 +1283,7 @@ def create_process_kill_samples() -> List[IntentSample]:
         IntentSample("结束无响应进程", {}, 0.85, ["无响应"]),
         IntentSample("结束卡死的程序", {}, 0.85, ["卡死"]),
     ])
-    
+
     colloquial = [
         "杀进程", "干掉进程", "结束掉", "终止掉",
         "把进程杀了", "把程序关了", "进程结束",
@@ -1294,23 +1293,23 @@ def create_process_kill_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_clipboard_copy_samples() -> List[IntentSample]:
+def create_clipboard_copy_samples() -> list[IntentSample]:
     samples = []
-    
+
     verbs = ["复制", "拷贝", "copy", "复制一下", "拷贝一下", "复制一份", "拷贝一份"]
     nouns = ["内容", "文本", "文字", "代码", "选中的内容", "当前内容", "选中文字",
              "这段文字", "这段代码", "这个内容", "那个内容", "全部内容", "当前文本"]
-    
+
     for verb in verbs:
         for noun in nouns:
             samples.append(IntentSample(f"{verb}{noun}", {}, 0.85, ["复制", "拷贝"]))
             samples.append(IntentSample(f"帮我{verb}{noun}", {}, 0.9, ["复制", "拷贝"]))
             samples.append(IntentSample(f"请{verb}{noun}", {}, 0.9, ["复制", "拷贝"]))
-    
+
     samples.extend([
         IntentSample("复制", {}, 0.9, ["复制"]),
         IntentSample("拷贝", {}, 0.9, ["拷贝"]),
@@ -1333,7 +1332,7 @@ def create_clipboard_copy_samples() -> List[IntentSample]:
         IntentSample("复制代码片段", {}, 0.85, ["代码"]),
         IntentSample("复制文本内容", {}, 0.85, ["文本"]),
     ])
-    
+
     colloquial = [
         "复制一下", "拷贝一下", "copy一下",
         "帮我复制", "给我拷贝", "复制呗",
@@ -1345,23 +1344,23 @@ def create_clipboard_copy_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_clipboard_paste_samples() -> List[IntentSample]:
+def create_clipboard_paste_samples() -> list[IntentSample]:
     samples = []
-    
+
     verbs = ["粘贴", "贴上", "paste", "粘贴一下", "贴上一下", "粘贴一份", "贴上一份"]
     nouns = ["内容", "文本", "文字", "代码", "剪贴板内容", "复制的内容", "剪贴板文字",
              "这段文字", "这段代码", "这个内容", "那个内容", "全部内容", "当前文本"]
-    
+
     for verb in verbs:
         for noun in nouns:
             samples.append(IntentSample(f"{verb}{noun}", {}, 0.85, ["粘贴", "贴上"]))
             samples.append(IntentSample(f"帮我{verb}{noun}", {}, 0.9, ["粘贴", "贴上"]))
             samples.append(IntentSample(f"请{verb}{noun}", {}, 0.9, ["粘贴", "贴上"]))
-    
+
     samples.extend([
         IntentSample("粘贴", {}, 0.9, ["粘贴"]),
         IntentSample("贴上", {}, 0.9, ["贴上"]),
@@ -1385,7 +1384,7 @@ def create_clipboard_paste_samples() -> List[IntentSample]:
         IntentSample("粘贴代码片段", {}, 0.85, ["代码"]),
         IntentSample("粘贴文本内容", {}, 0.85, ["文本"]),
     ])
-    
+
     colloquial = [
         "粘贴一下", "贴一下", "paste一下",
         "帮我粘贴", "给我贴上", "粘贴呗",
@@ -1397,26 +1396,26 @@ def create_clipboard_paste_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-def create_search_web_samples() -> List[IntentSample]:
+def create_search_web_samples() -> list[IntentSample]:
     samples = []
-    
+
     verbs = ["搜索", "查找", "查询", "搜一下", "查一下", "搜索一下"]
-    
+
     for verb in verbs:
         for term in SEARCH_TERMS:
             samples.append(IntentSample(f"{verb}{term}", {"query": term}, 0.9, [term]))
             samples.append(IntentSample(f"帮我{verb}{term}", {"query": term}, 0.85, [term]))
             samples.append(IntentSample(f"请{verb}{term}", {"query": term}, 0.85, [term]))
-    
+
     engines = ["百度", "谷歌", "必应", "Google", "Bing"]
     for engine in engines:
         for term in SEARCH_TERMS[:10]:
             samples.append(IntentSample(f"用{engine}搜索{term}", {"query": term, "engine": engine}, 0.9, [term]))
-    
+
     samples.extend([
         IntentSample("搜索", {}, 0.85, ["搜索"]),
         IntentSample("网上搜索", {}, 0.85, ["搜索"]),
@@ -1428,7 +1427,7 @@ def create_search_web_samples() -> List[IntentSample]:
         IntentSample("查一下", {}, 0.85, ["查"]),
         IntentSample("找一下", {}, 0.85, ["找"]),
     ])
-    
+
     colloquial = [
         "搜一下", "查一下", "找一下",
         "帮我搜", "给我查", "搜搜看",
@@ -1438,11 +1437,11 @@ def create_search_web_samples() -> List[IntentSample]:
     ]
     for text in colloquial:
         samples.append(IntentSample(text, {}, 0.7, [], is_colloquial=True))
-    
+
     return samples
 
 
-INTENT_TRAINING_DATA_EXPANDED: Dict[str, Dict[str, Any]] = {
+INTENT_TRAINING_DATA_EXPANDED: dict[str, dict[str, Any]] = {
     "file_create": {
         "samples": create_file_create_samples(),
         "keywords_weight": {"创建": 0.3, "新建": 0.3, "生成": 0.25, "建立": 0.2},
@@ -1562,7 +1561,7 @@ INTENT_TRAINING_DATA_EXPANDED: Dict[str, Dict[str, Any]] = {
 }
 
 
-def get_all_samples() -> List[tuple]:
+def get_all_samples() -> list[tuple]:
     all_samples = []
     for intent_name, data in INTENT_TRAINING_DATA_EXPANDED.items():
         for sample in data.get("samples", []):
@@ -1570,11 +1569,11 @@ def get_all_samples() -> List[tuple]:
     return all_samples
 
 
-def get_all_intent_names() -> List[str]:
+def get_all_intent_names() -> list[str]:
     return list(INTENT_TRAINING_DATA_EXPANDED.keys())
 
 
-def get_intent_stats() -> Dict[str, Any]:
+def get_intent_stats() -> dict[str, Any]:
     stats = {}
     for intent_name, data in INTENT_TRAINING_DATA_EXPANDED.items():
         samples = data.get("samples", [])
@@ -1590,13 +1589,13 @@ def get_intent_stats() -> Dict[str, Any]:
 if __name__ == "__main__":
     stats = get_intent_stats()
     total = sum(s["total"] for s in stats.values())
-    
+
     print("=" * 60)
     print("  扩充后的训练数据统计")
     print("=" * 60)
     print(f"总样本数: {total}")
     print(f"意图类型数: {len(stats)}")
     print()
-    
+
     for intent, stat in stats.items():
         print(f"  {intent}: {stat['total']} (标准: {stat['standard']}, 口语: {stat['colloquial']})")

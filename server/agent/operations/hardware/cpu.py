@@ -1,7 +1,6 @@
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
 
 import psutil
 
@@ -13,11 +12,11 @@ logger = get_logger(__name__)
 @dataclass
 class CPUInfo:
     percent_total: float = 0.0
-    percent_per_cpu: List[float] = field(default_factory=list)
+    percent_per_cpu: list[float] = field(default_factory=list)
     frequency_current: float = 0.0
     frequency_min: float = 0.0
     frequency_max: float = 0.0
-    temperature: Optional[float] = None
+    temperature: float | None = None
     load_avg_1: float = 0.0
     load_avg_5: float = 0.0
     load_avg_15: float = 0.0
@@ -28,11 +27,11 @@ class CPUInfo:
 
 @dataclass
 class CPUHistory:
-    timestamps: List[str] = field(default_factory=list)
-    percent_total: List[float] = field(default_factory=list)
-    percent_per_cpu: List[List[float]] = field(default_factory=list)
-    temperatures: List[Optional[float]] = field(default_factory=list)
-    frequencies: List[float] = field(default_factory=list)
+    timestamps: list[str] = field(default_factory=list)
+    percent_total: list[float] = field(default_factory=list)
+    percent_per_cpu: list[list[float]] = field(default_factory=list)
+    temperatures: list[float | None] = field(default_factory=list)
+    frequencies: list[float] = field(default_factory=list)
 
 
 class CPUMonitor:
@@ -49,15 +48,15 @@ class CPUMonitor:
         try:
             percent_total = psutil.cpu_percent(interval=0.1)
             percent_per_cpu = psutil.cpu_percent(interval=0.1, percpu=True)
-            
+
             freq = psutil.cpu_freq()
             frequency_current = freq.current if freq else 0.0
             frequency_min = freq.min if freq else 0.0
             frequency_max = freq.max if freq else 0.0
-            
+
             temperature = self._get_cpu_temperature()
             load_avg = self._get_load_average()
-            
+
             return CPUInfo(
                 percent_total=percent_total,
                 percent_per_cpu=list(percent_per_cpu) if percent_per_cpu else [],
@@ -75,19 +74,19 @@ class CPUMonitor:
             logger.error(f"Failed to get CPU info: {e}")
             return CPUInfo()
 
-    def _get_cpu_temperature(self) -> Optional[float]:
+    def _get_cpu_temperature(self) -> float | None:
         try:
             temps = psutil.sensors_temperatures()
             if not temps:
                 return None
-            
+
             for name, entries in temps.items():
                 for entry in entries:
                     if any(keyword in name.lower() for keyword in ["cpu", "core", "package"]):
                         return entry.current
                     if entry.label and any(keyword in entry.label.lower() for keyword in ["cpu", "core", "package"]):
                         return entry.current
-            
+
             for name, entries in temps.items():
                 if entries:
                     return entries[0].current
@@ -95,7 +94,7 @@ class CPUMonitor:
             pass
         return None
 
-    def _get_load_average(self) -> Optional[tuple]:
+    def _get_load_average(self) -> tuple | None:
         try:
             if hasattr(psutil, "getloadavg"):
                 return psutil.getloadavg()
@@ -105,21 +104,21 @@ class CPUMonitor:
 
     async def update_history(self) -> CPUInfo:
         info = await self.get_info()
-        
+
         async with self._lock:
             self._history.timestamps.append(info.timestamp)
             self._history.percent_total.append(info.percent_total)
             self._history.percent_per_cpu.append(info.percent_per_cpu.copy())
             self._history.temperatures.append(info.temperature)
             self._history.frequencies.append(info.frequency_current)
-            
+
             while len(self._history.timestamps) > self._history_size:
                 self._history.timestamps.pop(0)
                 self._history.percent_total.pop(0)
                 self._history.percent_per_cpu.pop(0)
                 self._history.temperatures.pop(0)
                 self._history.frequencies.pop(0)
-        
+
         return info
 
     async def get_history(self) -> CPUHistory:
@@ -132,7 +131,7 @@ class CPUMonitor:
                 frequencies=self._history.frequencies.copy(),
             )
 
-    async def get_stats(self) -> Dict:
+    async def get_stats(self) -> dict:
         info = await self.get_info()
         return {
             "cpu_percent": info.percent_total,

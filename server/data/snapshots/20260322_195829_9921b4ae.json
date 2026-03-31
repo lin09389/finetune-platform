@@ -1,0 +1,30 @@
+{
+  "id": "20260322_195829_9921b4ae",
+  "action": "file_list",
+  "params": {
+    "directory": "C:\\Users\\JHJ\\AppData\\Local\\Temp\\tmpgujnzxsn"
+  },
+  "timestamp": "2026-03-22T19:58:29.060363",
+  "before_state": {},
+  "after_state": {
+    "success": true,
+    "data": {
+      "directory": "C:\\Users\\JHJ\\AppData\\Local\\Temp\\tmpgujnzxsn",
+      "count": 1,
+      "files": [
+        {
+          "name": "test_agent.txt",
+          "path": "C:\\Users\\JHJ\\AppData\\Local\\Temp\\tmpgujnzxsn\\test_agent.txt",
+          "is_dir": false,
+          "size": 22,
+          "modified": "2026-03-22T19:58:29.040877"
+        }
+      ]
+    }
+  },
+  "rollback_operations": [],
+  "rollback_deadline": "2026-03-23T19:58:29.060363",
+  "status": "executed",
+  "is_reversible": true,
+  "error": null
+}

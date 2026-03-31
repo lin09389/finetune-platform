@@ -4,11 +4,11 @@ import secrets
 import uuid
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from pydantic import BaseModel, Field
 
-from .rbac import SensitivityLevel, get_action_sensitivity
+from .rbac import get_action_sensitivity
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class SensitiveOperationCategory(str, Enum):
     PROCESS_CONTROL = "process_control"
 
 
-OPERATION_CATEGORIES: Dict[str, SensitiveOperationCategory] = {
+OPERATION_CATEGORIES: dict[str, SensitiveOperationCategory] = {
     "file_delete": SensitiveOperationCategory.FILE_DESTRUCTION,
     "process_stop": SensitiveOperationCategory.PROCESS_CONTROL,
     "service_stop": SensitiveOperationCategory.SYSTEM_MODIFICATION,
@@ -52,7 +52,7 @@ OPERATION_CATEGORIES: Dict[str, SensitiveOperationCategory] = {
 }
 
 
-CATEGORY_VERIFICATION_REQUIREMENTS: Dict[SensitiveOperationCategory, List[VerificationType]] = {
+CATEGORY_VERIFICATION_REQUIREMENTS: dict[SensitiveOperationCategory, list[VerificationType]] = {
     SensitiveOperationCategory.FILE_DESTRUCTION: [VerificationType.PASSWORD, VerificationType.TWO_FACTOR],
     SensitiveOperationCategory.SYSTEM_MODIFICATION: [VerificationType.TWO_FACTOR, VerificationType.ADMIN_APPROVAL],
     SensitiveOperationCategory.SECURITY_CHANGE: [VerificationType.TWO_FACTOR, VerificationType.ADMIN_APPROVAL],
@@ -67,16 +67,16 @@ class VerificationSession(BaseModel):
     session_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str
     action: str
-    params: Dict[str, Any] = Field(default_factory=dict)
+    params: dict[str, Any] = Field(default_factory=dict)
     verification_type: VerificationType
     status: VerificationStatus = VerificationStatus.PENDING
     created_at: datetime = Field(default_factory=datetime.now)
     expires_at: datetime
-    verified_at: Optional[datetime] = None
+    verified_at: datetime | None = None
     attempts: int = 0
     max_attempts: int = 3
-    verification_code: Optional[str] = None
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    verification_code: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def is_expired(self) -> bool:
         return datetime.now() > self.expires_at
@@ -88,8 +88,8 @@ class VerificationSession(BaseModel):
 class VerificationRequest(BaseModel):
     user_id: str
     action: str
-    params: Dict[str, Any] = Field(default_factory=dict)
-    context: Dict[str, Any] = Field(default_factory=dict)
+    params: dict[str, Any] = Field(default_factory=dict)
+    context: dict[str, Any] = Field(default_factory=dict)
 
 
 class VerificationResponse(BaseModel):
@@ -105,33 +105,33 @@ class VerificationResult(BaseModel):
     session_id: str
     status: VerificationStatus
     message: str
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class VerificationManager:
     DEFAULT_TIMEOUT_MINUTES: int = 5
     CODE_LENGTH: int = 6
 
-    def __init__(self, timeout_minutes: Optional[int] = None):
+    def __init__(self, timeout_minutes: int | None = None):
         self.timeout_minutes = timeout_minutes or self.DEFAULT_TIMEOUT_MINUTES
-        self._sessions: Dict[str, VerificationSession] = {}
-        self._user_sessions: Dict[str, List[str]] = {}
-    
+        self._sessions: dict[str, VerificationSession] = {}
+        self._user_sessions: dict[str, list[str]] = {}
+
     def create_verification_session(
         self,
         user_id: str,
         action: str,
-        params: Dict[str, Any],
-        verification_type: Optional[VerificationType] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any],
+        verification_type: VerificationType | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> VerificationSession:
         category = self._get_operation_category(action)
         required_types = CATEGORY_VERIFICATION_REQUIREMENTS.get(
             category, [VerificationType.PASSWORD]
         )
-        
+
         selected_type = verification_type or required_types[0]
-        
+
         verification_code = None
         if selected_type in (
             VerificationType.EMAIL_CODE,
@@ -139,7 +139,7 @@ class VerificationManager:
             VerificationType.TWO_FACTOR,
         ):
             verification_code = self._generate_code()
-        
+
         session = VerificationSession(
             user_id=user_id,
             action=action,
@@ -149,26 +149,26 @@ class VerificationManager:
             verification_code=verification_code,
             metadata=metadata or {},
         )
-        
+
         self._sessions[session.session_id] = session
-        
+
         if user_id not in self._user_sessions:
             self._user_sessions[user_id] = []
         self._user_sessions[user_id].append(session.session_id)
-        
+
         logger.info(
             f"Created verification session {session.session_id} for user {user_id}, action: {action}"
         )
-        
+
         return session
-    
+
     def verify(
         self,
         session_id: str,
         verification_value: str,
     ) -> VerificationResult:
         session = self._sessions.get(session_id)
-        
+
         if not session:
             return VerificationResult(
                 success=False,
@@ -176,7 +176,7 @@ class VerificationManager:
                 status=VerificationStatus.FAILED,
                 message="Session not found",
             )
-        
+
         if session.is_expired():
             session.status = VerificationStatus.EXPIRED
             return VerificationResult(
@@ -185,7 +185,7 @@ class VerificationManager:
                 status=VerificationStatus.EXPIRED,
                 message="Verification session has expired",
             )
-        
+
         if session.status != VerificationStatus.PENDING:
             return VerificationResult(
                 success=False,
@@ -193,9 +193,9 @@ class VerificationManager:
                 status=session.status,
                 message=f"Session is already {session.status.value}",
             )
-        
+
         session.attempts += 1
-        
+
         if session.attempts > session.max_attempts:
             session.status = VerificationStatus.FAILED
             return VerificationResult(
@@ -204,14 +204,14 @@ class VerificationManager:
                 status=VerificationStatus.FAILED,
                 message="Maximum verification attempts exceeded",
             )
-        
+
         is_valid = self._validate_verification(session, verification_value)
-        
+
         if is_valid:
             session.status = VerificationStatus.VERIFIED
             session.verified_at = datetime.now()
             logger.info(f"Verification successful for session {session_id}")
-            
+
             return VerificationResult(
                 success=True,
                 session_id=session_id,
@@ -227,7 +227,7 @@ class VerificationManager:
                 message=f"Verification failed. {remaining} attempts remaining.",
                 metadata={"attempts_remaining": remaining},
             )
-    
+
     def cancel_verification(self, session_id: str) -> bool:
         session = self._sessions.get(session_id)
         if session and session.status == VerificationStatus.PENDING:
@@ -235,25 +235,25 @@ class VerificationManager:
             logger.info(f"Verification session {session_id} cancelled")
             return True
         return False
-    
-    def get_session(self, session_id: str) -> Optional[VerificationSession]:
+
+    def get_session(self, session_id: str) -> VerificationSession | None:
         return self._sessions.get(session_id)
-    
-    def get_user_pending_sessions(self, user_id: str) -> List[VerificationSession]:
+
+    def get_user_pending_sessions(self, user_id: str) -> list[VerificationSession]:
         session_ids = self._user_sessions.get(user_id, [])
         sessions = []
-        
+
         for session_id in session_ids:
             session = self._sessions.get(session_id)
             if session and session.is_valid():
                 sessions.append(session)
-        
+
         return sessions
-    
+
     def cleanup_expired_sessions(self) -> int:
         expired_count = 0
         expired_session_ids = []
-        
+
         for session_id, session in self._sessions.items():
             if session.is_expired() or session.status in (
                 VerificationStatus.VERIFIED,
@@ -262,33 +262,33 @@ class VerificationManager:
             ):
                 expired_session_ids.append(session_id)
                 expired_count += 1
-        
+
         for session_id in expired_session_ids:
             session = self._sessions.pop(session_id, None)
             if session:
                 user_sessions = self._user_sessions.get(session.user_id, [])
                 if session_id in user_sessions:
                     user_sessions.remove(session_id)
-        
+
         if expired_count > 0:
             logger.info(f"Cleaned up {expired_count} expired verification sessions")
-        
+
         return expired_count
-    
+
     def get_required_verification_type(self, action: str) -> VerificationType:
         category = self._get_operation_category(action)
         required_types = CATEGORY_VERIFICATION_REQUIREMENTS.get(
             category, [VerificationType.PASSWORD]
         )
         return required_types[0]
-    
-    def get_verification_requirements(self, action: str) -> Dict[str, Any]:
+
+    def get_verification_requirements(self, action: str) -> dict[str, Any]:
         category = self._get_operation_category(action)
         sensitivity = get_action_sensitivity(action)
         required_types = CATEGORY_VERIFICATION_REQUIREMENTS.get(
             category, [VerificationType.PASSWORD]
         )
-        
+
         return {
             "action": action,
             "category": category.value if category else None,
@@ -296,13 +296,13 @@ class VerificationManager:
             "required_verification_types": [t.value for t in required_types],
             "timeout_minutes": self.timeout_minutes,
         }
-    
+
     def _get_operation_category(self, action: str) -> SensitiveOperationCategory:
         return OPERATION_CATEGORIES.get(action, SensitiveOperationCategory.SYSTEM_MODIFICATION)
-    
+
     def _generate_code(self) -> str:
         return "".join(secrets.choice("0123456789") for _ in range(self.CODE_LENGTH))
-    
+
     def _validate_verification(
         self, session: VerificationSession, value: str
     ) -> bool:
@@ -312,22 +312,22 @@ class VerificationManager:
             VerificationType.TWO_FACTOR,
         ):
             return session.verification_code == value
-        
+
         if session.verification_type == VerificationType.PASSWORD:
             hashed_value = hashlib.sha256(value.encode()).hexdigest()
             stored_hash = session.metadata.get("password_hash")
             if stored_hash:
                 return hashed_value == stored_hash
             return bool(value)
-        
+
         if session.verification_type == VerificationType.BIOMETRIC:
             return bool(value)
-        
+
         if session.verification_type == VerificationType.ADMIN_APPROVAL:
             return session.metadata.get("admin_approved", False)
-        
+
         return False
-    
+
     def prepare_password_verification(
         self, session_id: str, password_hash: str
     ) -> bool:
@@ -336,7 +336,7 @@ class VerificationManager:
             session.metadata["password_hash"] = password_hash
             return True
         return False
-    
+
     def approve_by_admin(
         self, session_id: str, admin_user_id: str
     ) -> bool:
@@ -349,7 +349,7 @@ class VerificationManager:
         return False
 
 
-_verification_manager: Optional[VerificationManager] = None
+_verification_manager: VerificationManager | None = None
 
 
 def get_verification_manager() -> VerificationManager:

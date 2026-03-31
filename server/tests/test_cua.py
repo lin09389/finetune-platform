@@ -1,24 +1,21 @@
 """
 CUA 模块测试
 """
-import pytest
-from unittest.mock import Mock, patch
-from datetime import datetime
 
 from cua import (
     Coordinate,
-    Region,
     MouseButton,
-    PermissionLevel,
     OperationType,
+    PermissionLevel,
+    Region,
 )
 from cua.models import (
-    ScreenshotResult,
     OperationResult,
+    ScreenshotResult,
     WindowInfo,
 )
+from cua.safety import PermissionManager, SafetyController
 from cua.types import MouseButton
-from cua.safety import SafetyController, PermissionManager
 
 
 class TestCoordinate:
@@ -137,14 +134,14 @@ class TestPermissionManager:
     def test_check_permission_read_only(self):
         manager = PermissionManager()
         manager.set_permission_level(PermissionLevel.READ_ONLY)
-        
+
         assert manager.check_permission(OperationType.SCREENSHOT) is True
         assert manager.check_permission(OperationType.MOUSE_CLICK) is False
 
     def test_check_permission_interactive(self):
         manager = PermissionManager()
         manager.set_permission_level(PermissionLevel.INTERACTIVE)
-        
+
         assert manager.check_permission(OperationType.SCREENSHOT) is True
         assert manager.check_permission(OperationType.MOUSE_CLICK) is True
 
@@ -152,12 +149,12 @@ class TestPermissionManager:
 class TestSafetyController:
     def test_is_sensitive_operation(self):
         controller = SafetyController()
-        
+
         assert controller.is_sensitive_operation(
             OperationType.KEYBOARD_TYPE,
             {"text": "format c:"}
         ) is True
-        
+
         assert controller.is_sensitive_operation(
             OperationType.MOUSE_CLICK,
             {"x": 100, "y": 200}
@@ -167,7 +164,7 @@ class TestSafetyController:
         controller = SafetyController()
         controller.enable_failsafe(True)
         assert controller.is_failsafe_enabled() is True
-        
+
         controller.enable_failsafe(False)
         assert controller.is_failsafe_enabled() is False
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 技能基类定义
 """
@@ -6,8 +5,9 @@ import asyncio
 import time
 import traceback
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Optional
 
 from .models import (
     SkillCategory,
@@ -25,9 +25,9 @@ from .models import (
 class SkillBase(ABC):
     """技能抽象基类"""
 
-    _metadata: Optional[SkillMetadata] = None
-    _on_progress: Optional[Callable[[float, str], None]] = None
-    _on_log: Optional[Callable[[str, str], None]] = None
+    _metadata: SkillMetadata | None = None
+    _on_progress: Callable[[float, str], None] | None = None
+    _on_log: Callable[[str, str], None] | None = None
     _cancelled: bool = False
 
     def __init__(self):
@@ -73,7 +73,7 @@ class SkillBase(ABC):
         """检查是否已取消"""
         return self._cancelled
 
-    def validate_parameters(self, params: Dict[str, Any]) -> SkillValidationResult:
+    def validate_parameters(self, params: dict[str, Any]) -> SkillValidationResult:
         """验证参数"""
         errors = []
         warnings = []
@@ -184,10 +184,10 @@ class SkillBase(ABC):
 
     async def run(
         self,
-        parameters: Dict[str, Any],
-        execution_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-        session_id: Optional[str] = None,
+        parameters: dict[str, Any],
+        execution_id: str | None = None,
+        user_id: str | None = None,
+        session_id: str | None = None,
         priority: SkillPriority = SkillPriority.NORMAL,
     ) -> SkillExecution:
         """运行技能（带完整执行记录）"""
@@ -272,7 +272,7 @@ class SkillBase(ABC):
         return cls.get_metadata().description
 
     @classmethod
-    def get_parameters(cls) -> List[SkillParameter]:
+    def get_parameters(cls) -> list[SkillParameter]:
         """获取参数定义"""
         return cls.get_metadata().parameters
 
@@ -292,15 +292,15 @@ class SkillContext:
     def __init__(
         self,
         execution_id: str,
-        user_id: Optional[str] = None,
-        session_id: Optional[str] = None,
+        user_id: str | None = None,
+        session_id: str | None = None,
         parent_context: Optional["SkillContext"] = None,
     ):
         self.execution_id = execution_id
         self.user_id = user_id
         self.session_id = session_id
         self.parent_context = parent_context
-        self._data: Dict[str, Any] = {}
+        self._data: dict[str, Any] = {}
         self._start_time = time.time()
 
     def set(self, key: str, value: Any):

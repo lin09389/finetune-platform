@@ -2,17 +2,14 @@
 知识库集成模块
 实现对话中自动知识检索、检索结果注入上下文、知识来源引用格式化
 """
-from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass, field
-from pathlib import Path
-import logging
-import re
 import json
-from datetime import datetime
+import logging
+from dataclasses import dataclass, field
+from typing import Any
 
-from rag.service import get_rag_service, RAGService
-from rag.hybrid_retriever import get_hybrid_retriever, HybridRetriever
-from rag.reranker import get_reranker, CrossEncoderReranker
+from rag.hybrid_retriever import HybridRetriever, get_hybrid_retriever
+from rag.reranker import CrossEncoderReranker, get_reranker
+from rag.service import RAGService, get_rag_service
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +21,9 @@ class KnowledgeSource:
     content: str
     source: str
     score: float
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
-    def to_dict(self) -> Dict[str, Any]:
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "content": self.content,
@@ -40,13 +37,13 @@ class KnowledgeSource:
 class KnowledgeRetrievalResult:
     """知识检索结果"""
     query: str
-    sources: List[KnowledgeSource]
+    sources: list[KnowledgeSource]
     context: str
     retrieval_method: str
     total_results: int
     retrieval_time: float
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "query": self.query,
             "sources": [s.to_dict() for s in self.sources],
@@ -59,7 +56,7 @@ class KnowledgeRetrievalResult:
 
 class KnowledgeIntegrator:
     """知识库集成器"""
-    
+
     KNOWLEDGE_KEYWORDS = [
         "知识库", "文档", "资料", "文件", "内容",
         "查找", "搜索", "检索", "查询", "寻找",
@@ -68,12 +65,12 @@ class KnowledgeIntegrator:
         "帮我", "请帮我", "能否", "可以",
         "根据", "基于", "参考", "按照"
     ]
-    
+
     EXCLUSION_KEYWORDS = [
         "写代码", "编程", "实现", "创建文件", "删除文件",
         "运行", "执行", "终端", "命令"
     ]
-    
+
     DOMAIN_KEYWORDS = {
         "law": {
             "keywords": [
@@ -129,7 +126,7 @@ class KnowledgeIntegrator:
             "description": "技术领域"
         }
     }
-    
+
     def __init__(
         self,
         default_top_k: int = 5,
@@ -162,17 +159,17 @@ class KnowledgeIntegrator:
         self.keyword_weight = keyword_weight
         self.min_score_threshold = min_score_threshold
         self.max_context_length = max_context_length
-        
-        self._rag_service: Optional[RAGService] = None
-        self._hybrid_retriever: Optional[HybridRetriever] = None
-        self._reranker: Optional[CrossEncoderReranker] = None
-    
+
+        self._rag_service: RAGService | None = None
+        self._hybrid_retriever: HybridRetriever | None = None
+        self._reranker: CrossEncoderReranker | None = None
+
     def _get_rag_service(self) -> RAGService:
         """获取 RAG 服务"""
         if self._rag_service is None:
             self._rag_service = get_rag_service()
         return self._rag_service
-    
+
     def _get_hybrid_retriever(self) -> HybridRetriever:
         """获取混合检索器"""
         if self._hybrid_retriever is None:
@@ -182,19 +179,19 @@ class KnowledgeIntegrator:
                 embedder=rag_service.embedder
             )
         return self._hybrid_retriever
-    
+
     def _get_reranker(self) -> CrossEncoderReranker:
         """获取重排序器"""
         if self._reranker is None:
             self._reranker = get_reranker()
         return self._reranker
-    
+
     def should_retrieve_knowledge(
         self,
         query: str,
-        collection_id: Optional[str] = None,
+        collection_id: str | None = None,
         force_retrieve: bool = False
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """
         判断是否需要检索知识库
         
@@ -208,33 +205,33 @@ class KnowledgeIntegrator:
         """
         if force_retrieve:
             return True, "强制检索"
-        
+
         if not collection_id:
             return False, "未指定知识库"
-        
+
         query_lower = query.lower()
-        
+
         for keyword in self.EXCLUSION_KEYWORDS:
             if keyword in query_lower:
                 return False, f"排除关键词: {keyword}"
-        
+
         domain_detected = self.detect_domain(query)
         if domain_detected:
             return True, f"检测到{domain_detected['description']}"
-        
+
         for keyword in self.KNOWLEDGE_KEYWORDS:
             if keyword in query_lower:
                 return True, f"匹配关键词: {keyword}"
-        
+
         if len(query) > 15 and '?' in query:
             return True, "问题式查询"
-        
+
         if len(query) > 20:
             return True, "长查询"
-        
+
         return False, "未匹配检索条件"
-    
-    def detect_domain(self, query: str) -> Optional[Dict[str, Any]]:
+
+    def detect_domain(self, query: str) -> dict[str, Any] | None:
         """
         检测查询所属领域
         
@@ -247,16 +244,16 @@ class KnowledgeIntegrator:
         query_lower = query.lower()
         best_domain = None
         best_score = 0
-        
+
         for domain_id, domain_info in self.DOMAIN_KEYWORDS.items():
             score = 0
             matched_keywords = []
-            
+
             for keyword in domain_info["keywords"]:
                 if keyword in query_lower:
                     score += 1
                     matched_keywords.append(keyword)
-            
+
             if score > best_score:
                 best_score = score
                 best_domain = {
@@ -265,10 +262,10 @@ class KnowledgeIntegrator:
                     "matched_keywords": matched_keywords,
                     "score": score
                 }
-        
+
         return best_domain
-    
-    def get_collection_for_domain(self, domain_id: str) -> Optional[str]:
+
+    def get_collection_for_domain(self, domain_id: str) -> str | None:
         """
         根据领域获取对应的知识库集合名称
         
@@ -280,20 +277,20 @@ class KnowledgeIntegrator:
         """
         domain_mapping = {
             "law": "law",
-            "medical": "medical", 
+            "medical": "medical",
             "finance": "finance",
             "education": "education",
             "tech": "tech"
         }
         return domain_mapping.get(domain_id)
-    
+
     def retrieve_knowledge(
         self,
         query: str,
         collection_id: str,
-        top_k: Optional[int] = None,
-        use_hybrid: Optional[bool] = None,
-        use_rerank: Optional[bool] = None
+        top_k: int | None = None,
+        use_hybrid: bool | None = None,
+        use_rerank: bool | None = None
     ) -> KnowledgeRetrievalResult:
         """
         检索知识库
@@ -310,26 +307,26 @@ class KnowledgeIntegrator:
         """
         import time
         start_time = time.time()
-        
+
         top_k = top_k or self.default_top_k
         use_hybrid = use_hybrid if use_hybrid is not None else self.use_hybrid
         use_rerank = use_rerank if use_rerank is not None else self.use_rerank
-        
+
         retrieval_method = "vector"
         results = []
-        
+
         try:
             if use_hybrid:
                 hybrid_retriever = self._get_hybrid_retriever()
                 hybrid_retriever.set_weights(self.vector_weight, self.keyword_weight)
-                
+
                 initial_results = hybrid_retriever.search(
                     collection_name=collection_id,
                     query=query,
                     top_k=self.retrieval_top_k
                 )
                 retrieval_method = "hybrid"
-                
+
                 results = [
                     {
                         "id": r.id,
@@ -347,7 +344,7 @@ class KnowledgeIntegrator:
                     query=query,
                     top_k=self.retrieval_top_k
                 )
-            
+
             if use_rerank and results:
                 reranker = self._get_reranker()
                 reranked_results = reranker.rerank(
@@ -356,7 +353,7 @@ class KnowledgeIntegrator:
                     top_k=top_k
                 )
                 retrieval_method += "_rerank"
-                
+
                 results = [
                     {
                         "id": r.id,
@@ -370,12 +367,12 @@ class KnowledgeIntegrator:
                 ]
             else:
                 results = results[:top_k]
-            
+
             filtered_results = [
                 r for r in results
                 if r.get("score", 0) >= self.min_score_threshold
             ]
-            
+
             sources = [
                 KnowledgeSource(
                     id=r["id"],
@@ -386,16 +383,16 @@ class KnowledgeIntegrator:
                 )
                 for r in filtered_results
             ]
-            
+
             context = self._build_context(sources)
-            
+
             retrieval_time = time.time() - start_time
-            
+
             logger.info(f"知识检索完成: query='{query[:50]}...', "
                        f"method={retrieval_method}, "
                        f"results={len(sources)}, "
                        f"time={retrieval_time:.3f}s")
-            
+
             return KnowledgeRetrievalResult(
                 query=query,
                 sources=sources,
@@ -404,7 +401,7 @@ class KnowledgeIntegrator:
                 total_results=len(sources),
                 retrieval_time=retrieval_time
             )
-            
+
         except Exception as e:
             logger.error(f"知识检索失败: {e}", exc_info=True)
             return KnowledgeRetrievalResult(
@@ -415,8 +412,8 @@ class KnowledgeIntegrator:
                 total_results=0,
                 retrieval_time=time.time() - start_time
             )
-    
-    def _build_context(self, sources: List[KnowledgeSource]) -> str:
+
+    def _build_context(self, sources: list[KnowledgeSource]) -> str:
         """
         构建上下文文本
         
@@ -428,27 +425,27 @@ class KnowledgeIntegrator:
         """
         if not sources:
             return ""
-        
+
         context_parts = []
         current_length = 0
-        
+
         for i, source in enumerate(sources):
             part = f"[参考资料 {i+1}]\n来源: {source.source}\n内容: {source.content}\n"
-            
+
             if current_length + len(part) > self.max_context_length:
                 break
-            
+
             context_parts.append(part)
             current_length += len(part)
-        
+
         return "\n".join(context_parts)
-    
+
     def inject_knowledge_to_messages(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         retrieval_result: KnowledgeRetrievalResult,
-        system_prompt_template: Optional[str] = None
-    ) -> List[Dict[str, str]]:
+        system_prompt_template: str | None = None
+    ) -> list[dict[str, str]]:
         """
         将检索到的知识注入到对话消息中
         
@@ -462,7 +459,7 @@ class KnowledgeIntegrator:
         """
         if not retrieval_result.sources:
             return messages
-        
+
         if system_prompt_template is None:
             system_prompt_template = """你是一个有帮助的 AI 助手。请基于以下参考资料回答用户的问题。
 
@@ -478,10 +475,10 @@ class KnowledgeIntegrator:
         system_content = system_prompt_template.format(
             context=retrieval_result.context
         )
-        
+
         injected_messages = []
         has_system = False
-        
+
         for msg in messages:
             if msg.get("role") == "system":
                 injected_messages.append({
@@ -497,18 +494,18 @@ class KnowledgeIntegrator:
                     })
                     has_system = True
                 injected_messages.append(msg)
-        
+
         if not has_system:
             injected_messages.insert(0, {
                 "role": "system",
                 "content": system_content
             })
-        
+
         return injected_messages
-    
+
     def format_sources_citation(
         self,
-        sources: List[KnowledgeSource],
+        sources: list[KnowledgeSource],
         style: str = "markdown"
     ) -> str:
         """
@@ -523,10 +520,10 @@ class KnowledgeIntegrator:
         """
         if not sources:
             return ""
-        
+
         if style == "json":
             return json.dumps([s.to_dict() for s in sources], ensure_ascii=False, indent=2)
-        
+
         elif style == "markdown":
             lines = ["\n---\n**📚 知识来源引用:**\n"]
             for i, source in enumerate(sources):
@@ -535,17 +532,17 @@ class KnowledgeIntegrator:
                 if source.metadata.get("doc_id"):
                     lines.append(f"    文档ID: {source.metadata['doc_id']}")
             return "\n".join(lines)
-        
+
         else:
             lines = ["\n知识来源:"]
             for i, source in enumerate(sources):
                 lines.append(f"  [{i+1}] {source.source} (相关度: {source.score:.2%})")
             return "\n".join(lines)
-    
+
     def enhance_response_with_sources(
         self,
         response: str,
-        sources: List[KnowledgeSource],
+        sources: list[KnowledgeSource],
         include_citation: bool = True
     ) -> str:
         """
@@ -561,16 +558,16 @@ class KnowledgeIntegrator:
         """
         if not sources or not include_citation:
             return response
-        
+
         citation = self.format_sources_citation(sources, style="markdown")
-        
+
         return f"{response}\n{citation}"
 
 
 class KnowledgeAwareChatManager:
     """知识感知的对话管理器"""
-    
-    def __init__(self, integrator: Optional[KnowledgeIntegrator] = None):
+
+    def __init__(self, integrator: KnowledgeIntegrator | None = None):
         """
         初始化对话管理器
         
@@ -578,16 +575,16 @@ class KnowledgeAwareChatManager:
             integrator: 知识集成器实例
         """
         self.integrator = integrator or KnowledgeIntegrator()
-        self._session_knowledge: Dict[str, List[KnowledgeRetrievalResult]] = {}
-    
+        self._session_knowledge: dict[str, list[KnowledgeRetrievalResult]] = {}
+
     def process_message(
         self,
         session_id: str,
         user_message: str,
-        collection_id: Optional[str] = None,
+        collection_id: str | None = None,
         auto_retrieve: bool = True,
         force_retrieve: bool = False
-    ) -> Tuple[Optional[KnowledgeRetrievalResult], Dict[str, Any]]:
+    ) -> tuple[KnowledgeRetrievalResult | None, dict[str, Any]]:
         """
         处理用户消息，自动检索知识
         
@@ -607,41 +604,41 @@ class KnowledgeAwareChatManager:
             "reason": "",
             "sources_count": 0
         }
-        
+
         if not auto_retrieve or not collection_id:
             process_info["reason"] = "未启用自动检索或未指定知识库"
             return None, process_info
-        
+
         should_retrieve, reason = self.integrator.should_retrieve_knowledge(
             query=user_message,
             collection_id=collection_id,
             force_retrieve=force_retrieve
         )
-        
+
         if not should_retrieve:
             process_info["reason"] = reason
             return None, process_info
-        
+
         retrieval_result = self.integrator.retrieve_knowledge(
             query=user_message,
             collection_id=collection_id
         )
-        
+
         if session_id not in self._session_knowledge:
             self._session_knowledge[session_id] = []
         self._session_knowledge[session_id].append(retrieval_result)
-        
+
         process_info["retrieved"] = True
         process_info["reason"] = reason
         process_info["sources_count"] = len(retrieval_result.sources)
-        
+
         return retrieval_result, process_info
-    
+
     def get_session_knowledge(
         self,
         session_id: str,
         limit: int = 5
-    ) -> List[KnowledgeRetrievalResult]:
+    ) -> list[KnowledgeRetrievalResult]:
         """
         获取会话的知识检索历史
         
@@ -654,7 +651,7 @@ class KnowledgeAwareChatManager:
         """
         results = self._session_knowledge.get(session_id, [])
         return results[-limit:] if results else []
-    
+
     def clear_session_knowledge(self, session_id: str):
         """
         清除会话的知识检索历史
@@ -664,12 +661,12 @@ class KnowledgeAwareChatManager:
         """
         if session_id in self._session_knowledge:
             del self._session_knowledge[session_id]
-    
+
     def build_knowledge_enhanced_prompt(
         self,
         user_message: str,
-        retrieval_result: Optional[KnowledgeRetrievalResult],
-        conversation_history: Optional[List[Dict[str, str]]] = None
+        retrieval_result: KnowledgeRetrievalResult | None,
+        conversation_history: list[dict[str, str]] | None = None
     ) -> str:
         """
         构建知识增强的提示词
@@ -683,10 +680,10 @@ class KnowledgeAwareChatManager:
             增强后的提示词
         """
         prompt_parts = []
-        
+
         if retrieval_result and retrieval_result.context:
             prompt_parts.append(f"参考资料:\n{retrieval_result.context}\n")
-        
+
         if conversation_history:
             history_text = []
             for msg in conversation_history[-5:]:
@@ -694,15 +691,15 @@ class KnowledgeAwareChatManager:
                 history_text.append(f"{role}: {msg.get('content', '')}")
             if history_text:
                 prompt_parts.append("对话历史:\n" + "\n".join(history_text) + "\n")
-        
+
         prompt_parts.append(f"用户问题: {user_message}")
         prompt_parts.append("\n请基于参考资料回答用户问题，并在回答中标注引用来源。")
-        
+
         return "\n".join(prompt_parts)
 
 
-_integrator_instance: Optional[KnowledgeIntegrator] = None
-_manager_instance: Optional[KnowledgeAwareChatManager] = None
+_integrator_instance: KnowledgeIntegrator | None = None
+_manager_instance: KnowledgeAwareChatManager | None = None
 
 
 def get_knowledge_integrator() -> KnowledgeIntegrator:

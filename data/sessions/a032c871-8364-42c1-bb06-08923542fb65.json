@@ -1,0 +1,26 @@
+{
+  "id": "a032c871-8364-42c1-bb06-08923542fb65",
+  "title": "contract test",
+  "messages": [],
+  "message_count": 0,
+  "created_at": "2026-03-31T15:48:46.396442",
+  "updated_at": "2026-03-31T15:48:51.572279",
+  "metadata": {
+    "execution_timeline": [
+      {
+        "timestamp": "2026-03-31T15:48:46.568577",
+        "stage": "detected",
+        "payload": {
+          "message": "create hello.txt with content hi"
+        }
+      },
+      {
+        "timestamp": "2026-03-31T15:48:51.572279",
+        "stage": "planned",
+        "payload": {
+          "status": "no_intent"
+        }
+      }
+    ]
+  }
+}

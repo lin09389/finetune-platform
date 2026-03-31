@@ -7,16 +7,16 @@
 - 会话恢复（重新加载历史消息）
 - 消息重要性评分
 """
-import sqlite3
 import json
 import logging
+import sqlite3
 import threading
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass, field, asdict
 from enum import Enum
+from pathlib import Path
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -42,11 +42,11 @@ class SessionMetadata:
     title: str = ""
     description: str = ""
     model_id: str = ""
-    tags: List[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
     status: SessionStatus = SessionStatus.ACTIVE
     starred: bool = False
     pinned: bool = False
-    custom_data: Dict[str, Any] = field(default_factory=dict)
+    custom_data: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -59,9 +59,9 @@ class SessionMessage:
     timestamp: str = ""
     token_count: int = 0
     importance: float = 0.5
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "session_id": self.session_id,
@@ -74,7 +74,7 @@ class SessionMessage:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SessionMessage":
+    def from_dict(cls, data: dict[str, Any]) -> "SessionMessage":
         return cls(
             id=data.get("id", ""),
             session_id=data.get("session_id", ""),
@@ -92,13 +92,13 @@ class ChatSession:
     """聊天会话"""
     id: str = ""
     metadata: SessionMetadata = field(default_factory=SessionMetadata)
-    messages: List[SessionMessage] = field(default_factory=list)
+    messages: list[SessionMessage] = field(default_factory=list)
     created_at: str = ""
     updated_at: str = ""
     message_count: int = 0
     total_tokens: int = 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "title": self.metadata.title,
@@ -236,8 +236,8 @@ class SessionStore:
         title: str = "",
         model_id: str = "",
         description: str = "",
-        tags: List[str] = None,
-        custom_data: Dict[str, Any] = None
+        tags: list[str] = None,
+        custom_data: dict[str, Any] = None
     ) -> ChatSession:
         """创建新会话"""
         session_id = self.generate_id("session")
@@ -287,7 +287,7 @@ class SessionStore:
         logger.info(f"创建会话: {session_id}")
         return session
 
-    def get_session(self, session_id: str, include_messages: bool = True) -> Optional[ChatSession]:
+    def get_session(self, session_id: str, include_messages: bool = True) -> ChatSession | None:
         """获取会话详情"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -352,11 +352,11 @@ class SessionStore:
         title: str = None,
         description: str = None,
         model_id: str = None,
-        tags: List[str] = None,
+        tags: list[str] = None,
         status: SessionStatus = None,
         starred: bool = None,
         pinned: bool = None,
-        custom_data: Dict[str, Any] = None
+        custom_data: dict[str, Any] = None
     ) -> bool:
         """更新会话元数据"""
         conn = self._get_connection()
@@ -448,8 +448,8 @@ class SessionStore:
         content: str,
         token_count: int = 0,
         importance: float = 0.5,
-        metadata: Dict[str, Any] = None
-    ) -> Optional[SessionMessage]:
+        metadata: dict[str, Any] = None
+    ) -> SessionMessage | None:
         """添加消息到会话"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -502,7 +502,7 @@ class SessionStore:
     def add_messages_batch(
         self,
         session_id: str,
-        messages: List[Dict[str, Any]]
+        messages: list[dict[str, Any]]
     ) -> int:
         """批量添加消息"""
         conn = self._get_connection()
@@ -592,8 +592,8 @@ class SessionStore:
         session_id: str,
         limit: int = None,
         offset: int = 0,
-        roles: List[MessageRole] = None
-    ) -> List[SessionMessage]:
+        roles: list[MessageRole] = None
+    ) -> list[SessionMessage]:
         """获取会话消息"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -631,7 +631,7 @@ class SessionStore:
     def search_sessions(
         self,
         query: str = None,
-        tags: List[str] = None,
+        tags: list[str] = None,
         status: SessionStatus = None,
         starred: bool = None,
         pinned: bool = None,
@@ -642,7 +642,7 @@ class SessionStore:
         offset: int = 0,
         order_by: str = "updated_at",
         order_desc: bool = True
-    ) -> Tuple[List[ChatSession], int]:
+    ) -> tuple[list[ChatSession], int]:
         """搜索会话"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -743,7 +743,7 @@ class SessionStore:
 
         return sessions, total
 
-    def get_all_tags(self) -> List[Dict[str, Any]]:
+    def get_all_tags(self) -> list[dict[str, Any]]:
         """获取所有标签及其使用次数"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -758,7 +758,7 @@ class SessionStore:
 
         return [{"tag": row["tag"], "count": row["count"]} for row in cursor.fetchall()]
 
-    def restore_session(self, session_id: str) -> Optional[ChatSession]:
+    def restore_session(self, session_id: str) -> ChatSession | None:
         """恢复已删除的会话"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -792,7 +792,7 @@ class SessionStore:
             logger.info(f"归档会话: {session_id}")
         return success
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """获取会话统计信息"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -835,7 +835,7 @@ class SessionStore:
             "active_sessions_30d": active_sessions_30d
         }
 
-    def export_session(self, session_id: str, format: str = "json") -> Optional[str]:
+    def export_session(self, session_id: str, format: str = "json") -> str | None:
         """导出会话"""
         session = self.get_session(session_id, include_messages=True)
         if not session:
@@ -852,14 +852,14 @@ class SessionStore:
         elif format == "markdown":
             lines = [
                 f"# {session.metadata.title}",
-                f"",
+                "",
                 f"- 创建时间: {session.created_at}",
                 f"- 模型: {session.metadata.model_id}",
                 f"- 标签: {', '.join(session.metadata.tags)}",
                 f"- 消息数: {session.message_count}",
-                f"",
+                "",
                 "---",
-                f""
+                ""
             ]
 
             for msg in session.messages:
@@ -870,13 +870,13 @@ class SessionStore:
                     MessageRole.FUNCTION: "Function"
                 }.get(msg.role, msg.role.value)
                 lines.append(f"## {role_label}")
-                lines.append(f"")
+                lines.append("")
                 lines.append(msg.content)
-                lines.append(f"")
+                lines.append("")
                 lines.append(f"*{msg.timestamp}*")
-                lines.append(f"")
+                lines.append("")
                 lines.append("---")
-                lines.append(f"")
+                lines.append("")
 
             return "\n".join(lines)
 
@@ -893,7 +893,7 @@ class SessionStore:
                 logger.warning(f"关闭数据库连接失败: {e}")
 
 
-_session_store: Optional[SessionStore] = None
+_session_store: SessionStore | None = None
 _store_lock = threading.Lock()
 
 

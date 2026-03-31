@@ -1,24 +1,23 @@
-# -*- coding: utf-8 -*-
 """
 技能管理 API
 """
-import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from skills.models import SkillCategory
 from skills.registry import SkillRegistry
-from skills.models import SkillCategory, SkillStatus
 
 router = APIRouter(prefix="/skills", tags=["skills"])
 
 
 class SkillExecuteRequest(BaseModel):
     skill_name: str
-    parameters: Dict[str, Any] = {}
-    execution_id: Optional[str] = None
-    user_id: Optional[str] = None
-    session_id: Optional[str] = None
+    parameters: dict[str, Any] = {}
+    execution_id: str | None = None
+    user_id: str | None = None
+    session_id: str | None = None
     priority: str = "normal"
 
 
@@ -28,8 +27,8 @@ class SkillResponse(BaseModel):
     description: str
     category: str
     version: str
-    tags: List[str]
-    parameters: List[Dict[str, Any]]
+    tags: list[str]
+    parameters: list[dict[str, Any]]
     enabled: bool = True
 
 
@@ -37,18 +36,18 @@ class ExecutionResponse(BaseModel):
     execution_id: str
     skill_name: str
     status: str
-    result: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-    started_at: Optional[str] = None
-    completed_at: Optional[str] = None
-    duration_ms: Optional[float] = None
+    result: dict[str, Any] | None = None
+    error: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    duration_ms: float | None = None
 
 
 class StatsResponse(BaseModel):
     total_skills: int
     total_executions: int
-    categories: Dict[str, int]
-    tags: Dict[str, int]
+    categories: dict[str, int]
+    tags: dict[str, int]
 
 
 def get_registry() -> SkillRegistry:
@@ -71,10 +70,10 @@ def param_type_to_str(pt) -> str:
     return str(pt)
 
 
-@router.get("", response_model=Dict[str, Any])
+@router.get("", response_model=dict[str, Any])
 async def list_skills(
-    category: Optional[str] = Query(None, description="Filter by category"),
-    tag: Optional[str] = Query(None, description="Filter by tag"),
+    category: str | None = Query(None, description="Filter by category"),
+    tag: str | None = Query(None, description="Filter by tag"),
 ):
     registry = get_registry()
 
@@ -130,7 +129,7 @@ async def get_stats():
     )
 
 
-@router.get("/categories", response_model=List[str])
+@router.get("/categories", response_model=list[str])
 async def list_categories():
     return [c.value for c in SkillCategory]
 
@@ -261,9 +260,9 @@ async def scan_skills():
         }
 
 
-_memory_configs: Dict[str, Dict[str, Any]] = {}
-_user_preferences: Dict[str, Dict[str, Any]] = {}
-_operation_history: List[Dict[str, Any]] = []
+_memory_configs: dict[str, dict[str, Any]] = {}
+_user_preferences: dict[str, dict[str, Any]] = {}
+_operation_history: list[dict[str, Any]] = []
 
 
 @router.get("/memory/configs")
@@ -285,7 +284,7 @@ async def get_memory_configs():
 
 
 @router.post("/memory/configs")
-async def update_memory_config(request: Dict[str, Any]):
+async def update_memory_config(request: dict[str, Any]):
     """更新技能记忆配置"""
     skill_name = request.get("skill_name")
     if not skill_name:

@@ -5,7 +5,6 @@ import asyncio
 import platform
 import subprocess
 import time
-from typing import List, Optional
 
 import pygetwindow as gw
 
@@ -64,10 +63,10 @@ class WindowManager:
                 details=str(e),
             )
 
-    def list_windows(self) -> List[WindowInfo]:
+    def list_windows(self) -> list[WindowInfo]:
         try:
             windows = gw.getAllWindows()
-            result: List[WindowInfo] = []
+            result: list[WindowInfo] = []
             for win in windows:
                 if win.title:
                     try:
@@ -83,7 +82,7 @@ class WindowManager:
                 details=str(e),
             )
 
-    async def list_windows_async(self) -> List[WindowInfo]:
+    async def list_windows_async(self) -> list[WindowInfo]:
         return await asyncio.to_thread(self.list_windows)
 
     def get_active_window(self) -> WindowInfo:
@@ -330,7 +329,7 @@ class WindowManager:
                 details=e.stderr,
             )
 
-    def _run_wmctrl(self, args: List[str]) -> str:
+    def _run_wmctrl(self, args: list[str]) -> str:
         if self._platform != "linux":
             raise WindowOperationError(
                 message="wmctrl only available on Linux",
@@ -357,7 +356,7 @@ class WindowManager:
             )
 
 
-_window_manager: Optional[WindowManager] = None
+_window_manager: WindowManager | None = None
 
 
 def get_window_manager() -> WindowManager:

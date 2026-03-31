@@ -2,13 +2,13 @@
 Agent 意图检测器
 从用户消息中识别操作意图
 """
-import re
 import logging
 import platform
-from typing import Optional, Dict, Any, List
+import re
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -16,9 +16,7 @@ logger = logging.getLogger(__name__)
 def get_desktop_path() -> str:
     """获取桌面路径"""
     system = platform.system()
-    if system == "Windows":
-        return str(Path.home() / "Desktop")
-    elif system == "Darwin":
+    if system == "Windows" or system == "Darwin":
         return str(Path.home() / "Desktop")
     else:
         return str(Path.home() / "Desktop")
@@ -44,12 +42,12 @@ class ActionType(str, Enum):
 class IntentResult:
     """意图检测结果"""
     detected: bool
-    action: Optional[ActionType] = None
-    params: Optional[Dict[str, Any]] = None
+    action: ActionType | None = None
+    params: dict[str, Any] | None = None
     description: str = ""
     need_confirm: bool = False
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "detected": self.detected,
             "action": self.action.value if self.action else None,
@@ -61,7 +59,7 @@ class IntentResult:
 
 class IntentDetector:
     """意图检测器"""
-    
+
     PATTERNS = [
         {
             "patterns": [
@@ -172,7 +170,7 @@ class IntentDetector:
             "need_confirm": False,
         },
     ]
-    
+
     def __init__(self):
         self._compiled_patterns = []
         for pattern_config in self.PATTERNS:
@@ -184,8 +182,8 @@ class IntentDetector:
                     })
                 except re.error as e:
                     logger.warning(f"Invalid pattern {pattern}: {e}")
-    
-    def detect(self, message: str, context: Optional[Dict[str, Any]] = None) -> IntentResult:
+
+    def detect(self, message: str, context: dict[str, Any] | None = None) -> IntentResult:
         """
         检测消息中的意图
         
@@ -197,10 +195,10 @@ class IntentDetector:
             IntentResult: 检测结果
         """
         message = message.strip()
-        
+
         if not message:
             return IntentResult(detected=False)
-        
+
         save_to_desktop_patterns = [
             r"保存\s*到\s*桌面",
             r"存\s*到\s*桌面",
@@ -208,15 +206,15 @@ class IntentDetector:
             r"请保存\s*到\s*桌面",
             r"保存.*到\s*桌面",
         ]
-        
+
         for pattern in save_to_desktop_patterns:
             if re.search(pattern, message, re.IGNORECASE):
                 filename_match = re.search(r'保存\s*(\S+)\s*到\s*桌面', message)
                 if not filename_match:
                     filename_match = re.search(r'把\s*(\S+)\s*保存\s*到\s*桌面', message)
-                
+
                 filename = filename_match.group(1) if filename_match else None
-                
+
                 if not filename:
                     if context and context.get("generated_filename"):
                         filename = context["generated_filename"]
@@ -230,10 +228,10 @@ class IntentDetector:
                             filename = "content.txt"
                     else:
                         filename = "content.txt"
-                
+
                 desktop_path = get_desktop_path()
                 full_path = str(Path(desktop_path) / filename)
-                
+
                 content = ""
                 if context and context.get("content"):
                     content = context["content"]
@@ -241,7 +239,7 @@ class IntentDetector:
                     content_match = re.search(r'[:：]\s*(.+)$', message, re.DOTALL)
                     if content_match:
                         content = content_match.group(1).strip()
-                
+
                 return IntentResult(
                     detected=True,
                     action=ActionType.FILE_WRITE,
@@ -253,35 +251,35 @@ class IntentDetector:
                     description=f"保存文件到桌面: {filename}",
                     need_confirm=False,
                 )
-        
+
         for item in self._compiled_patterns:
             match = item["regex"].search(message)
             if match:
                 config = item["config"]
-                
+
                 params = {}
                 if config.get("param_key") and match.groups():
                     file_path = match.group(1).strip('"\'')
-                    
+
                     if "桌面" in file_path:
                         desktop_path = get_desktop_path()
                         file_path = file_path.replace("桌面", desktop_path)
                         params["is_desktop"] = True
-                    
+
                     params[config["param_key"]] = file_path
-                
+
                 if config["action"] == ActionType.FILE_WRITE:
                     content_match = re.search(r'[:：]\s*(.+)$', message, re.DOTALL)
                     if content_match:
                         params["content"] = content_match.group(1).strip()
                     elif context and context.get("content"):
                         params["content"] = context["content"]
-                
+
                 if config["action"] == ActionType.FILE_CREATE:
                     content_match = re.search(r'[:：]\s*(.+)$', message, re.DOTALL)
                     if content_match:
                         params["content"] = content_match.group(1).strip()
-                
+
                 return IntentResult(
                     detected=True,
                     action=config["action"],
@@ -289,11 +287,11 @@ class IntentDetector:
                     description=config["description"],
                     need_confirm=config.get("need_confirm", False),
                 )
-        
+
         return IntentResult(detected=False)
 
 
-_intent_detector: Optional[IntentDetector] = None
+_intent_detector: IntentDetector | None = None
 
 
 def get_intent_detector() -> IntentDetector:

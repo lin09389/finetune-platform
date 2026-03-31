@@ -7,13 +7,13 @@
 - 向量化存储
 - 增量更新
 """
-from pathlib import Path
-from typing import Dict, List, Any, Optional
 import hashlib
 import logging
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 
-from .models import ProjectInfo, FileInfo, SymbolInfo
+from .models import ProjectInfo, SymbolInfo
 from .symbol_extractor import get_symbol_extractor
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ class CodeIndexer:
         self,
         embedder=None,
         vector_store=None,
-        config: Optional[Dict] = None
+        config: dict | None = None
     ):
         """
         初始化代码索引器
@@ -54,13 +54,13 @@ class CodeIndexer:
         self.embedder = embedder
         self.vector_store = vector_store
         self.symbol_extractor = get_symbol_extractor()
-        self.index_cache: Dict[str, Dict] = {}
+        self.index_cache: dict[str, dict] = {}
 
     def build_index(
         self,
         project_info: ProjectInfo,
-        collection_name: Optional[str] = None
-    ) -> Dict[str, Any]:
+        collection_name: str | None = None
+    ) -> dict[str, Any]:
         """
         构建项目索引
 
@@ -89,8 +89,8 @@ class CodeIndexer:
             "updated_at": datetime.now().isoformat()
         }
 
-        all_symbols: List[SymbolInfo] = []
-        files_data: Dict[str, Any] = {}
+        all_symbols: list[SymbolInfo] = []
+        files_data: dict[str, Any] = {}
 
         for file_info in project_info.key_files:
             try:
@@ -157,7 +157,7 @@ class CodeIndexer:
         file_path: str,
         rel_path: str,
         collection_name: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         索引单个文件
 
@@ -180,7 +180,7 @@ class CodeIndexer:
             return None
 
         try:
-            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(path, encoding="utf-8", errors="ignore") as f:
                 content = f.read()
         except Exception as e:
             logger.warning(f"读取文件失败 {file_path}: {e}")
@@ -237,7 +237,7 @@ class CodeIndexer:
     def _generate_summary(
         self,
         content: str,
-        symbols: List[SymbolInfo]
+        symbols: list[SymbolInfo]
     ) -> str:
         """生成文件摘要"""
         lines = content.split("\n")
@@ -263,8 +263,8 @@ class CodeIndexer:
     def _chunk_content(
         self,
         content: str,
-        symbols: List[SymbolInfo]
-    ) -> List[Dict[str, Any]]:
+        symbols: list[SymbolInfo]
+    ) -> list[dict[str, Any]]:
         """
         将内容分块
         策略：
@@ -324,7 +324,7 @@ class CodeIndexer:
 
         return chunks
 
-    def _generate_chunk_id(self, rel_path: str, chunk: Dict) -> str:
+    def _generate_chunk_id(self, rel_path: str, chunk: dict) -> str:
         """生成唯一 ID"""
         content = f"{rel_path}:{chunk.get('symbol_name', '')}:{chunk.get('start_line', 0)}"
         return f"chunk_{hashlib.md5(content.encode()).hexdigest()[:16]}"
@@ -354,7 +354,7 @@ class CodeIndexer:
         path_str = str(path)
         return any(pattern in path_str for pattern in self.config["ignore_patterns"])
 
-    def get_index_info(self, collection_name: str) -> Optional[Dict]:
+    def get_index_info(self, collection_name: str) -> dict | None:
         """获取索引信息"""
         return self.index_cache.get(collection_name)
 
@@ -363,13 +363,13 @@ class CodeIndexer:
         self.index_cache.clear()
 
 
-_global_indices: Dict[str, CodeIndexer] = {}
+_global_indices: dict[str, CodeIndexer] = {}
 
 
 def get_code_indexer(
     embedder=None,
     vector_store=None,
-    config: Optional[Dict] = None
+    config: dict | None = None
 ) -> CodeIndexer:
     """获取代码索引器实例"""
     key = "default"

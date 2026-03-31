@@ -1,23 +1,24 @@
 import asyncio
 import shutil
-from pathlib import Path
-from typing import Optional, Callable, Awaitable
-from pydantic import BaseModel, Field
+from collections.abc import Awaitable, Callable
 from datetime import datetime
+from pathlib import Path
+
+from pydantic import BaseModel, Field
 
 
 class MoveResult(BaseModel):
     success: bool = Field(default=True)
     source: str = ""
     destination: str = ""
-    error: Optional[str] = None
+    error: str | None = None
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
 
 
 class FileMoveExecutor:
     def __init__(
         self,
-        progress_callback: Optional[Callable[[str, float, str], Awaitable[None]]] = None,
+        progress_callback: Callable[[str, float, str], Awaitable[None]] | None = None,
     ):
         self.progress_callback = progress_callback
 
@@ -35,7 +36,7 @@ class FileMoveExecutor:
                 success=False,
                 source=source,
                 destination=destination,
-                error=f"æºæä»¶ä¸å­å¨: {source}",
+                error=f"源文件不存在: {source}",
             )
 
         if not source_path.is_file():
@@ -43,7 +44,7 @@ class FileMoveExecutor:
                 success=False,
                 source=source,
                 destination=destination,
-                error=f"æºè·¯å¾ä¸æ¯æä»? {source}",
+                error=f"源路径不是文件: {source}",
             )
 
         if dest_path.exists() and not overwrite:
@@ -51,7 +52,7 @@ class FileMoveExecutor:
                 success=False,
                 source=source,
                 destination=destination,
-                error=f"ç®æ æä»¶å·²å­å? {destination}",
+                error=f"目标文件已存在: {destination}",
             )
 
         try:
@@ -61,7 +62,7 @@ class FileMoveExecutor:
                 await self.progress_callback(
                     source,
                     0.0,
-                    f"å¼å§ç§»å? {source_path.name}",
+                    f"开始移动: {source_path.name}",
                 )
 
             if dest_path.exists():
@@ -73,7 +74,7 @@ class FileMoveExecutor:
                 await self.progress_callback(
                     source,
                     1.0,
-                    f"ç§»å¨å®æ: {source_path.name}",
+                    f"移动完成: {source_path.name}",
                 )
 
             return MoveResult(
@@ -87,7 +88,7 @@ class FileMoveExecutor:
                 success=False,
                 source=source,
                 destination=destination,
-                error=f"ç§»å¨å¤±è´¥: {str(e)}",
+                error=f"移动失败: {str(e)}",
             )
 
     async def move_directory(
@@ -104,7 +105,7 @@ class FileMoveExecutor:
                 success=False,
                 source=source,
                 destination=destination,
-                error=f"æºç®å½ä¸å­å¨: {source}",
+                error=f"源目录不存在: {source}",
             )
 
         if not source_path.is_dir():
@@ -112,7 +113,7 @@ class FileMoveExecutor:
                 success=False,
                 source=source,
                 destination=destination,
-                error=f"æºè·¯å¾ä¸æ¯ç®å½? {source}",
+                error=f"源路径不是目录: {source}",
             )
 
         if dest_path.exists() and not overwrite:
@@ -120,7 +121,7 @@ class FileMoveExecutor:
                 success=False,
                 source=source,
                 destination=destination,
-                error=f"ç®æ ç®å½å·²å­å? {destination}",
+                error=f"目标目录已存在: {destination}",
             )
 
         try:
@@ -128,7 +129,7 @@ class FileMoveExecutor:
                 await self.progress_callback(
                     source,
                     0.0,
-                    f"å¼å§ç§»å¨ç®å½? {source_path.name}",
+                    f"开始移动目录: {source_path.name}",
                 )
 
             if dest_path.exists():
@@ -140,7 +141,7 @@ class FileMoveExecutor:
                 await self.progress_callback(
                     source,
                     1.0,
-                    f"ç®å½ç§»å¨å®æ: {source_path.name}",
+                    f"目录移动完成: {source_path.name}",
                 )
 
             return MoveResult(
@@ -154,7 +155,7 @@ class FileMoveExecutor:
                 success=False,
                 source=source,
                 destination=destination,
-                error=f"ç®å½ç§»å¨å¤±è´¥: {str(e)}",
+                error=f"目录移动失败: {str(e)}",
             )
 
     async def move(
@@ -174,5 +175,5 @@ class FileMoveExecutor:
                 success=False,
                 source=source,
                 destination=destination,
-                error=f"æºè·¯å¾ä¸å­å¨: {source}",
+                error=f"源路径不存在: {source}",
             )

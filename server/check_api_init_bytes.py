@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-import os
 
 filepath = r'c:\Users\JHJ\Desktop\finetune-platform\server\api\__init__.py'
 

@@ -1,13 +1,10 @@
-# -*- coding: utf-8 -*-
 """
 GitHub 项目分析技能
 分析 GitHub 仓库，学习代码模式，提供改进建议
 """
-import asyncio
 import json
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional
 
 from skills.base import SkillBase
 from skills.models import (
@@ -118,7 +115,7 @@ class GitHubAnalyzerSkill(SkillBase):
                 return match.group(1), match.group(2)
         return None, None
 
-    async def _fetch_repo_info(self, owner: str, repo: str) -> Dict:
+    async def _fetch_repo_info(self, owner: str, repo: str) -> dict:
         import urllib.request
 
         url = f"https://api.github.com/repos/{owner}/{repo}"
@@ -144,7 +141,7 @@ class GitHubAnalyzerSkill(SkillBase):
         except Exception:
             return ""
 
-    async def _fetch_structure(self, owner: str, repo: str) -> List[Dict]:
+    async def _fetch_structure(self, owner: str, repo: str) -> list[dict]:
         import urllib.request
 
         url = f"https://api.github.com/repos/{owner}/{repo}/contents/"
@@ -166,7 +163,7 @@ class GitHubAnalyzerSkill(SkillBase):
         summary = "\n".join(line for line in lines if line.strip())
         return summary[:500] + "..." if len(summary) > 500 else summary
 
-    def _generate_recommendations(self, repo_info: Dict, structure: List[Dict], focus_area: str) -> List[Dict]:
+    def _generate_recommendations(self, repo_info: dict, structure: list[dict], focus_area: str) -> list[dict]:
         recommendations = []
 
         language = repo_info.get("language", "")
@@ -271,7 +268,7 @@ class CodePatternSkill(SkillBase):
             },
         )
 
-    def _detect_patterns(self, code: str, language: str) -> List[Dict]:
+    def _detect_patterns(self, code: str, language: str) -> list[dict]:
         patterns = []
 
         if "TODO" in code or "FIXME" in code:
@@ -288,7 +285,7 @@ class CodePatternSkill(SkillBase):
 
         return patterns
 
-    def _generate_suggestions(self, patterns: List[Dict], language: str) -> List[str]:
+    def _generate_suggestions(self, patterns: list[dict], language: str) -> list[str]:
         suggestions = []
 
         for pattern in patterns:

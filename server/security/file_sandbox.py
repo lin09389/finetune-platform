@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 文件操作沙箱 - 限制文件访问范围
 
@@ -8,11 +7,10 @@
 - 危险文件类型拦截
 - 文件大小限制
 """
-from pathlib import Path
+import logging
 import os
 import re
-from typing import Set, List, Optional
-import logging
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +51,7 @@ class FileSandbox:
 
     MAX_FILE_SIZE = 10 * 1024 * 1024
 
-    def __init__(self, working_dir: Optional[str] = None):
+    def __init__(self, working_dir: str | None = None):
         if working_dir:
             self.working_dir = Path(working_dir).resolve()
         else:
@@ -110,7 +108,7 @@ class FileSandbox:
             )
 
         try:
-            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(path, encoding='utf-8', errors='ignore') as f:
                 content = f.read()
             logger.info(f"读取文件：{file_path} ({file_size} bytes)")
             return content
@@ -192,7 +190,7 @@ class FileSandbox:
             logger.debug(f"检查文件存在失败：{e}")
             return False
 
-    def get_allowed_extensions(self) -> Set[str]:
+    def get_allowed_extensions(self) -> set[str]:
         return self.ALLOWED_EXTENSIONS.copy()
 
     def get_working_dir(self) -> str:

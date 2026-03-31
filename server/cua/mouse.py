@@ -1,28 +1,25 @@
-# -*- coding: utf-8 -*-
 """
 鼠标控制器模块
 提供鼠标操作能力，包括移动、点击、拖拽、滚动等
 """
 import asyncio
-import time
-from typing import Optional
 
 import pyautogui
 
+from .config import CUAConfig, get_cua_config
+from .exceptions import (
+    CoordinateOutOfRangeError,
+    FailSafeTriggeredError,
+    MouseOperationError,
+)
 from .models import OperationResult
 from .types import Coordinate, MouseButton
-from .exceptions import (
-    MouseOperationError,
-    FailSafeTriggeredError,
-    CoordinateOutOfRangeError,
-)
-from .config import get_cua_config, CUAConfig
 
 
 class MouseController:
     """鼠标控制器"""
 
-    def __init__(self, config: Optional[CUAConfig] = None):
+    def __init__(self, config: CUAConfig | None = None):
         self._config = config or get_cua_config()
         self._setup_pyautogui()
 
@@ -50,7 +47,7 @@ class MouseController:
             return False
 
     def move_to(
-        self, x: int, y: int, duration: Optional[float] = None
+        self, x: int, y: int, duration: float | None = None
     ) -> OperationResult:
         if duration is None:
             duration = self._config.move_duration
@@ -63,7 +60,7 @@ class MouseController:
                 message=f"鼠标已移动到坐标 ({x}, {y})",
                 data={"x": x, "y": y}
             )
-        except pyautogui.FailSafeException as e:
+        except pyautogui.FailSafeException:
             raise FailSafeTriggeredError(pyautogui.position())
         except CoordinateOutOfRangeError:
             raise
@@ -75,12 +72,12 @@ class MouseController:
             )
 
     async def move_to_async(
-        self, x: int, y: int, duration: Optional[float] = None
+        self, x: int, y: int, duration: float | None = None
     ) -> OperationResult:
         return await asyncio.to_thread(self.move_to, x, y, duration)
 
     def move_relative(
-        self, dx: int, dy: int, duration: Optional[float] = None
+        self, dx: int, dy: int, duration: float | None = None
     ) -> OperationResult:
         if duration is None:
             duration = self._config.move_duration
@@ -98,7 +95,7 @@ class MouseController:
                 message=f"鼠标已相对移动 ({dx}, {dy})",
                 data={"x": new_x, "y": new_y}
             )
-        except pyautogui.FailSafeException as e:
+        except pyautogui.FailSafeException:
             raise FailSafeTriggeredError(pyautogui.position())
         except CoordinateOutOfRangeError:
             raise
@@ -110,14 +107,14 @@ class MouseController:
             )
 
     async def move_relative_async(
-        self, dx: int, dy: int, duration: Optional[float] = None
+        self, dx: int, dy: int, duration: float | None = None
     ) -> OperationResult:
         return await asyncio.to_thread(self.move_relative, dx, dy, duration)
 
     def click(
         self,
-        x: Optional[int] = None,
-        y: Optional[int] = None,
+        x: int | None = None,
+        y: int | None = None,
         button: MouseButton = MouseButton.LEFT,
         clicks: int = 1,
     ) -> OperationResult:
@@ -136,7 +133,7 @@ class MouseController:
                 message=f"已执行 {clicks} 次 {button.value} 点击",
                 data=position
             )
-        except pyautogui.FailSafeException as e:
+        except pyautogui.FailSafeException:
             raise FailSafeTriggeredError(pyautogui.position())
         except CoordinateOutOfRangeError:
             raise
@@ -149,30 +146,30 @@ class MouseController:
 
     async def click_async(
         self,
-        x: Optional[int] = None,
-        y: Optional[int] = None,
+        x: int | None = None,
+        y: int | None = None,
         button: MouseButton = MouseButton.LEFT,
         clicks: int = 1,
     ) -> OperationResult:
         return await asyncio.to_thread(self.click, x, y, button, clicks)
 
     def double_click(
-        self, x: Optional[int] = None, y: Optional[int] = None
+        self, x: int | None = None, y: int | None = None
     ) -> OperationResult:
         return self.click(x, y, button=MouseButton.LEFT, clicks=2)
 
     async def double_click_async(
-        self, x: Optional[int] = None, y: Optional[int] = None
+        self, x: int | None = None, y: int | None = None
     ) -> OperationResult:
         return await asyncio.to_thread(self.double_click, x, y)
 
     def right_click(
-        self, x: Optional[int] = None, y: Optional[int] = None
+        self, x: int | None = None, y: int | None = None
     ) -> OperationResult:
         return self.click(x, y, button=MouseButton.RIGHT, clicks=1)
 
     async def right_click_async(
-        self, x: Optional[int] = None, y: Optional[int] = None
+        self, x: int | None = None, y: int | None = None
     ) -> OperationResult:
         return await asyncio.to_thread(self.right_click, x, y)
 
@@ -182,7 +179,7 @@ class MouseController:
         start_y: int,
         end_x: int,
         end_y: int,
-        duration: Optional[float] = None,
+        duration: float | None = None,
         button: MouseButton = MouseButton.LEFT,
     ) -> OperationResult:
         if duration is None:
@@ -208,7 +205,7 @@ class MouseController:
                     "end": {"x": end_x, "y": end_y},
                 }
             )
-        except pyautogui.FailSafeException as e:
+        except pyautogui.FailSafeException:
             raise FailSafeTriggeredError(pyautogui.position())
         except CoordinateOutOfRangeError:
             raise
@@ -225,7 +222,7 @@ class MouseController:
         start_y: int,
         end_x: int,
         end_y: int,
-        duration: Optional[float] = None,
+        duration: float | None = None,
         button: MouseButton = MouseButton.LEFT,
     ) -> OperationResult:
         return await asyncio.to_thread(
@@ -233,7 +230,7 @@ class MouseController:
         )
 
     def scroll(
-        self, clicks: int, x: Optional[int] = None, y: Optional[int] = None
+        self, clicks: int, x: int | None = None, y: int | None = None
     ) -> OperationResult:
         try:
             if x is not None and y is not None:
@@ -251,7 +248,7 @@ class MouseController:
                 message=f"已执行滚轮{direction}滚动 {abs(clicks)} 次",
                 data=position
             )
-        except pyautogui.FailSafeException as e:
+        except pyautogui.FailSafeException:
             raise FailSafeTriggeredError(pyautogui.position())
         except CoordinateOutOfRangeError:
             raise
@@ -263,7 +260,7 @@ class MouseController:
             )
 
     async def scroll_async(
-        self, clicks: int, x: Optional[int] = None, y: Optional[int] = None
+        self, clicks: int, x: int | None = None, y: int | None = None
     ) -> OperationResult:
         return await asyncio.to_thread(self.scroll, clicks, x, y)
 
@@ -298,7 +295,7 @@ class MouseController:
             )
 
 
-_mouse_controller: Optional[MouseController] = None
+_mouse_controller: MouseController | None = None
 
 
 def get_mouse_controller() -> MouseController:

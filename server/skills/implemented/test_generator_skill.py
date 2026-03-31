@@ -2,17 +2,16 @@
 测试生成技能 - 自动从代码生成测试用例
 """
 import ast
-import inspect
-from typing import Dict, Any, List, Optional
 from pathlib import Path
+from typing import Any
 
 from skills.base import SkillBase
-from skills.models import SkillMetadata, SkillParameter, SkillResult, SkillCategory
+from skills.models import SkillCategory, SkillMetadata, SkillParameter, SkillResult
 
 
 class TestGeneratorSkill(SkillBase):
     """测试生成技能"""
-    
+
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
         return SkillMetadata(
@@ -45,19 +44,19 @@ class TestGeneratorSkill(SkillBase):
             ],
             tags=["testing", "generation", "automation"],
         )
-    
-    async def execute(self, parameters: Dict[str, Any]) -> SkillResult:
+
+    async def execute(self, parameters: dict[str, Any]) -> SkillResult:
         source_file = parameters.get("source_file")
         output_dir = parameters.get("output_dir", "tests")
         test_style = parameters.get("test_style", "pytest")
-        
+
         if not source_file:
             return SkillResult(
                 success=False,
                 error="缺少 source_file 参数",
                 error_code="MISSING_PARAMETER",
             )
-        
+
         try:
             source_path = Path(source_file)
             if not source_path.exists():
@@ -66,13 +65,13 @@ class TestGeneratorSkill(SkillBase):
                     error=f"文件不存在: {source_file}",
                     error_code="FILE_NOT_FOUND",
                 )
-            
+
             source_code = source_path.read_text(encoding="utf-8")
             tree = ast.parse(source_code)
-            
+
             functions = []
             classes = []
-            
+
             for node in ast.walk(tree):
                 if isinstance(node, ast.FunctionDef):
                     if not node.name.startswith("_") or node.name.startswith("__"):
@@ -97,18 +96,18 @@ class TestGeneratorSkill(SkillBase):
                         "methods": methods,
                         "docstring": ast.get_docstring(node) or "",
                     })
-            
+
             test_code = self._generate_test_code(
                 source_path.stem,
                 functions,
                 classes,
                 test_style,
             )
-            
+
             output_path = Path(output_dir) / f"test_{source_path.stem}.py"
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_text(test_code, encoding="utf-8")
-            
+
             return SkillResult(
                 success=True,
                 data={
@@ -118,14 +117,14 @@ class TestGeneratorSkill(SkillBase):
                     "test_style": test_style,
                 },
             )
-            
+
         except Exception as e:
             return SkillResult(
                 success=False,
                 error=str(e),
                 error_code="GENERATION_ERROR",
             )
-    
+
     def _get_return_annotation(self, node: ast.FunctionDef) -> str:
         """获取返回类型注解"""
         if node.returns:
@@ -134,12 +133,12 @@ class TestGeneratorSkill(SkillBase):
             elif isinstance(node.returns, ast.Constant):
                 return str(node.returns.value)
         return "Any"
-    
+
     def _generate_test_code(
         self,
         module_name: str,
-        functions: List[Dict],
-        classes: List[Dict],
+        functions: list[dict],
+        classes: list[dict],
         test_style: str,
     ) -> str:
         """生成测试代码"""
@@ -152,58 +151,58 @@ class TestGeneratorSkill(SkillBase):
             "",
             "",
         ]
-        
+
         for func in functions:
             if func["name"].startswith("__"):
                 continue
-            
+
             lines.extend([
                 f'class Test{func["name"].capitalize()}:',
                 f'    """测试 {func["name"]} 函数"""',
                 "",
                 f'    def test_{func["name"]}_basic(self):',
-                f'        """测试基本功能"""',
-                f'        # TODO: 实现测试逻辑',
-                f'        pass',
+                '        """测试基本功能"""',
+                '        # TODO: 实现测试逻辑',
+                '        pass',
                 "",
                 f'    def test_{func["name"]}_edge_cases(self):',
-                f'        """测试边界情况"""',
-                f'        # TODO: 实现边界测试',
-                f'        pass',
+                '        """测试边界情况"""',
+                '        # TODO: 实现边界测试',
+                '        pass',
                 "",
                 f'    def test_{func["name"]}_error_handling(self):',
-                f'        """测试错误处理"""',
-                f'        # TODO: 实现错误处理测试',
-                f'        pass',
+                '        """测试错误处理"""',
+                '        # TODO: 实现错误处理测试',
+                '        pass',
                 "",
                 "",
             ])
-        
+
         for cls in classes:
             lines.extend([
                 f'class Test{cls["name"]}:',
                 f'    """测试 {cls["name"]} 类"""',
                 "",
                 "    @pytest.fixture",
-                f"    def instance(self):",
-                f'        """创建测试实例"""',
-                f'        # TODO: 创建实例',
-                f'        pass',
+                "    def instance(self):",
+                '        """创建测试实例"""',
+                '        # TODO: 创建实例',
+                '        pass',
                 "",
             ])
-            
+
             for method in cls["methods"]:
                 if method["name"].startswith("_") and not method["name"].startswith("__"):
                     continue
-                
+
                 lines.extend([
                     f'    def test_{method["name"]}(self, instance):',
                     f'        """测试 {method["name"]} 方法"""',
-                    f'        # TODO: 实现测试逻辑',
-                    f'        pass',
+                    '        # TODO: 实现测试逻辑',
+                    '        pass',
                     "",
                 ])
-            
+
             lines.append("")
-        
+
         return "\n".join(lines)

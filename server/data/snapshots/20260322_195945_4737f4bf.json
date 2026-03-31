@@ -1,0 +1,22 @@
+{
+  "id": "20260322_195945_4737f4bf",
+  "action": "screenshot",
+  "params": {},
+  "timestamp": "2026-03-22T19:59:45.025828",
+  "before_state": {},
+  "after_state": {
+    "success": true,
+    "data": {
+      "width": 2560,
+      "height": 1600,
+      "format": "PNG",
+      "base64": "iVBORw0KGgoAAAANSUhEUgAACgAAAAZACAIAAAA6zoyXAAEAAElEQVR4nOzdB1wUd9oH8NleYQuw7NIWlia9LIjYsSGixhZNYkwx...",
+      "has_image": true
+    }
+  },
+  "rollback_operations": [],
+  "rollback_deadline": "2026-03-23T19:59:45.025828",
+  "status": "executed",
+  "is_reversible": true,
+  "error": null
+}

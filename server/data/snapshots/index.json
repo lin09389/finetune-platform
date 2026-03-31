@@ -1,0 +1,602 @@
+{
+  "20260322_195517_f3c53687": {
+    "action": "record_stop",
+    "timestamp": "2026-03-22T19:55:17.511387",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195517_1844ab1a": {
+    "action": "url_open",
+    "timestamp": "2026-03-22T19:55:17.574328",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195555_f5095193": {
+    "action": "file_create",
+    "timestamp": "2026-03-22T19:55:55.538033",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195555_754cf0b5": {
+    "action": "file_read",
+    "timestamp": "2026-03-22T19:55:55.559972",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195555_c968ec46": {
+    "action": "file_write",
+    "timestamp": "2026-03-22T19:55:55.589865",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195555_df3459b7": {
+    "action": "file_list",
+    "timestamp": "2026-03-22T19:55:55.607556",
+    "status": "failed",
+    "is_reversible": true
+  },
+  "20260322_195555_0a5109de": {
+    "action": "file_delete",
+    "timestamp": "2026-03-22T19:55:55.628929",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195555_8be86211": {
+    "action": "process_list",
+    "timestamp": "2026-03-22T19:55:55.649798",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195601_875b279d": {
+    "action": "hardware_monitor",
+    "timestamp": "2026-03-22T19:56:01.128681",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195601_9ef94d68": {
+    "action": "screen_info",
+    "timestamp": "2026-03-22T19:56:01.263419",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195601_4a305183": {
+    "action": "screenshot",
+    "timestamp": "2026-03-22T19:56:01.747361",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195602_a55e9945": {
+    "action": "clipboard_write",
+    "timestamp": "2026-03-22T19:56:02.297780",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195602_bc2b2bf3": {
+    "action": "clipboard_read",
+    "timestamp": "2026-03-22T19:56:02.334248",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195602_47df5bb5": {
+    "action": "record_start",
+    "timestamp": "2026-03-22T19:56:02.358195",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195602_2339a12e": {
+    "action": "record_stop",
+    "timestamp": "2026-03-22T19:56:02.881164",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195602_15ef5123": {
+    "action": "url_open",
+    "timestamp": "2026-03-22T19:56:02.902277",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195807_43680693": {
+    "action": "file_create",
+    "timestamp": "2026-03-22T19:58:07.337356",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195807_9d1a8977": {
+    "action": "file_read",
+    "timestamp": "2026-03-22T19:58:07.379114",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195807_a32195d9": {
+    "action": "file_write",
+    "timestamp": "2026-03-22T19:58:07.439926",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195807_608ad7ac": {
+    "action": "file_list",
+    "timestamp": "2026-03-22T19:58:07.493153",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195807_d5be846f": {
+    "action": "file_delete",
+    "timestamp": "2026-03-22T19:58:07.547064",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195808_469093c2": {
+    "action": "process_list",
+    "timestamp": "2026-03-22T19:58:08.341974",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195814_69c3656e": {
+    "action": "hardware_monitor",
+    "timestamp": "2026-03-22T19:58:14.046661",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195814_eea32f0d": {
+    "action": "screen_info",
+    "timestamp": "2026-03-22T19:58:14.371133",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195815_a1ea4923": {
+    "action": "screenshot",
+    "timestamp": "2026-03-22T19:58:15.568366",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195816_9cf7014a": {
+    "action": "clipboard_write",
+    "timestamp": "2026-03-22T19:58:16.226595",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195816_fbe248ab": {
+    "action": "clipboard_read",
+    "timestamp": "2026-03-22T19:58:16.327601",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195816_866d1929": {
+    "action": "record_start",
+    "timestamp": "2026-03-22T19:58:16.396525",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195816_f48d9de5": {
+    "action": "record_stop",
+    "timestamp": "2026-03-22T19:58:16.962034",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195817_cd202203": {
+    "action": "url_open",
+    "timestamp": "2026-03-22T19:58:17.014579",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195828_c1b519a2": {
+    "action": "file_create",
+    "timestamp": "2026-03-22T19:58:28.719394",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195829_97b930a5": {
+    "action": "file_read",
+    "timestamp": "2026-03-22T19:58:29.008527",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195829_349f2bf4": {
+    "action": "file_write",
+    "timestamp": "2026-03-22T19:58:29.037796",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195829_9921b4ae": {
+    "action": "file_list",
+    "timestamp": "2026-03-22T19:58:29.060363",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195829_c8e0a3a6": {
+    "action": "file_delete",
+    "timestamp": "2026-03-22T19:58:29.080390",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195829_b63b2a45": {
+    "action": "process_list",
+    "timestamp": "2026-03-22T19:58:29.136524",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195837_13c999fd": {
+    "action": "hardware_monitor",
+    "timestamp": "2026-03-22T19:58:37.782530",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195837_7f210b23": {
+    "action": "screen_info",
+    "timestamp": "2026-03-22T19:58:37.918418",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195838_e7997d9e": {
+    "action": "screenshot",
+    "timestamp": "2026-03-22T19:58:38.394182",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195839_63494d59": {
+    "action": "clipboard_write",
+    "timestamp": "2026-03-22T19:58:39.194371",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195839_086702cf": {
+    "action": "clipboard_read",
+    "timestamp": "2026-03-22T19:58:39.223363",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195839_787985b3": {
+    "action": "record_start",
+    "timestamp": "2026-03-22T19:58:39.240957",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195839_efd93b35": {
+    "action": "record_stop",
+    "timestamp": "2026-03-22T19:58:39.769995",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195839_8e0ff799": {
+    "action": "url_open",
+    "timestamp": "2026-03-22T19:58:39.787522",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195937_bece268f": {
+    "action": "file_create",
+    "timestamp": "2026-03-22T19:59:37.772776",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195937_55e57216": {
+    "action": "file_read",
+    "timestamp": "2026-03-22T19:59:37.811436",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195937_bc2c2de8": {
+    "action": "file_write",
+    "timestamp": "2026-03-22T19:59:37.886459",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195937_479b914d": {
+    "action": "file_list",
+    "timestamp": "2026-03-22T19:59:37.946149",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195937_85d94d68": {
+    "action": "file_delete",
+    "timestamp": "2026-03-22T19:59:37.998916",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195938_53c07b73": {
+    "action": "process_list",
+    "timestamp": "2026-03-22T19:59:38.367387",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195943_f1be7c4c": {
+    "action": "hardware_monitor",
+    "timestamp": "2026-03-22T19:59:43.633250",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195943_ad5928a9": {
+    "action": "screen_info",
+    "timestamp": "2026-03-22T19:59:43.826399",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195945_4737f4bf": {
+    "action": "screenshot",
+    "timestamp": "2026-03-22T19:59:45.025828",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195945_d12c071a": {
+    "action": "clipboard_write",
+    "timestamp": "2026-03-22T19:59:45.982723",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195946_ee860caf": {
+    "action": "clipboard_read",
+    "timestamp": "2026-03-22T19:59:46.039022",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195946_cb211b48": {
+    "action": "record_start",
+    "timestamp": "2026-03-22T19:59:46.088294",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195946_5a921674": {
+    "action": "record_stop",
+    "timestamp": "2026-03-22T19:59:46.782564",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_195946_eb1258db": {
+    "action": "url_open",
+    "timestamp": "2026-03-22T19:59:46.836146",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200003_b56a31d2": {
+    "action": "file_create",
+    "timestamp": "2026-03-22T20:00:03.577595",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200003_5ea53deb": {
+    "action": "file_read",
+    "timestamp": "2026-03-22T20:00:03.605994",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200003_47f6fce0": {
+    "action": "file_write",
+    "timestamp": "2026-03-22T20:00:03.628296",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200003_c1f18ad2": {
+    "action": "file_list",
+    "timestamp": "2026-03-22T20:00:03.653787",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200003_84dc9b3f": {
+    "action": "file_delete",
+    "timestamp": "2026-03-22T20:00:03.681256",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200003_7f91075a": {
+    "action": "process_list",
+    "timestamp": "2026-03-22T20:00:03.707132",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200010_6132f752": {
+    "action": "hardware_monitor",
+    "timestamp": "2026-03-22T20:00:10.773135",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200010_a66299a8": {
+    "action": "screen_info",
+    "timestamp": "2026-03-22T20:00:10.969348",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200011_aac23fe8": {
+    "action": "screenshot",
+    "timestamp": "2026-03-22T20:00:11.506296",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200012_c20cc622": {
+    "action": "clipboard_write",
+    "timestamp": "2026-03-22T20:00:12.162949",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200012_3afff379": {
+    "action": "clipboard_read",
+    "timestamp": "2026-03-22T20:00:12.199822",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200012_57db08d8": {
+    "action": "record_start",
+    "timestamp": "2026-03-22T20:00:12.217836",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200012_06c8d414": {
+    "action": "record_stop",
+    "timestamp": "2026-03-22T20:00:12.793459",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200012_728749ce": {
+    "action": "url_open",
+    "timestamp": "2026-03-22T20:00:12.814355",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200126_444f4646": {
+    "action": "file_create",
+    "timestamp": "2026-03-22T20:01:26.786780",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200126_3b8e8cb6": {
+    "action": "file_read",
+    "timestamp": "2026-03-22T20:01:26.835538",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200126_51fe677e": {
+    "action": "file_write",
+    "timestamp": "2026-03-22T20:01:26.899596",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200126_637b7071": {
+    "action": "file_list",
+    "timestamp": "2026-03-22T20:01:26.968903",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200127_7c85bf1d": {
+    "action": "file_delete",
+    "timestamp": "2026-03-22T20:01:27.030898",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200127_c7da182b": {
+    "action": "process_list",
+    "timestamp": "2026-03-22T20:01:27.550417",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200133_82c7f848": {
+    "action": "hardware_monitor",
+    "timestamp": "2026-03-22T20:01:33.106135",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200133_5687b145": {
+    "action": "screen_info",
+    "timestamp": "2026-03-22T20:01:33.332164",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200134_67718072": {
+    "action": "screenshot",
+    "timestamp": "2026-03-22T20:01:34.585624",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200135_f1f6a049": {
+    "action": "clipboard_write",
+    "timestamp": "2026-03-22T20:01:35.164161",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200135_013ab31e": {
+    "action": "clipboard_read",
+    "timestamp": "2026-03-22T20:01:35.266151",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200135_7ba8a3f6": {
+    "action": "record_start",
+    "timestamp": "2026-03-22T20:01:35.392015",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200136_5f3e8b51": {
+    "action": "record_stop",
+    "timestamp": "2026-03-22T20:01:36.092127",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200136_875f3fb1": {
+    "action": "url_open",
+    "timestamp": "2026-03-22T20:01:36.207296",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200152_f33ad8ae": {
+    "action": "file_create",
+    "timestamp": "2026-03-22T20:01:52.655522",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200152_3848ea57": {
+    "action": "file_read",
+    "timestamp": "2026-03-22T20:01:52.681701",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200152_4387bdef": {
+    "action": "file_write",
+    "timestamp": "2026-03-22T20:01:52.712297",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200152_e3d3b808": {
+    "action": "file_list",
+    "timestamp": "2026-03-22T20:01:52.739057",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200152_727e5d8a": {
+    "action": "file_delete",
+    "timestamp": "2026-03-22T20:01:52.765720",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200152_4258e45c": {
+    "action": "process_list",
+    "timestamp": "2026-03-22T20:01:52.866455",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200204_1de00736": {
+    "action": "hardware_monitor",
+    "timestamp": "2026-03-22T20:02:04.837019",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200204_01e9c39d": {
+    "action": "screen_info",
+    "timestamp": "2026-03-22T20:02:04.991550",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200205_cbb2b1c0": {
+    "action": "screenshot",
+    "timestamp": "2026-03-22T20:02:05.509686",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200205_24834177": {
+    "action": "clipboard_write",
+    "timestamp": "2026-03-22T20:02:05.962948",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200205_1e89c72a": {
+    "action": "clipboard_read",
+    "timestamp": "2026-03-22T20:02:05.996631",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200206_8337b503": {
+    "action": "record_start",
+    "timestamp": "2026-03-22T20:02:06.020576",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200206_6c00fb82": {
+    "action": "record_stop",
+    "timestamp": "2026-03-22T20:02:06.604061",
+    "status": "executed",
+    "is_reversible": true
+  },
+  "20260322_200206_eff49fb9": {
+    "action": "url_open",
+    "timestamp": "2026-03-22T20:02:06.625152",
+    "status": "executed",
+    "is_reversible": true
+  }
+}

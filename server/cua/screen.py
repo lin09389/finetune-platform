@@ -1,6 +1,5 @@
 import base64
 import io
-from typing import List
 
 import mss
 from PIL import Image
@@ -64,7 +63,7 @@ class ScreenCapture:
         except MonitorNotFoundError:
             raise
         except Exception as e:
-            raise ScreenshotError(f"Unexpected error during screen capture", e)
+            raise ScreenshotError("Unexpected error during screen capture", e)
 
     def capture_region(self, region: Region) -> ScreenshotResult:
         try:
@@ -94,11 +93,11 @@ class ScreenCapture:
             )
         except Exception as e:
             raise ScreenshotError(
-                f"Unexpected error during region capture", e
+                "Unexpected error during region capture", e
             )
 
-    def capture_all_monitors(self) -> List[ScreenshotResult]:
-        results: List[ScreenshotResult] = []
+    def capture_all_monitors(self) -> list[ScreenshotResult]:
+        results: list[ScreenshotResult] = []
         monitor_count = self.get_monitor_count()
 
         for i in range(monitor_count):
@@ -140,7 +139,7 @@ class ScreenCapture:
     async def capture_region_async(self, region: Region) -> ScreenshotResult:
         return self.capture_region(region)
 
-    async def capture_all_monitors_async(self) -> List[ScreenshotResult]:
+    async def capture_all_monitors_async(self) -> list[ScreenshotResult]:
         return self.capture_all_monitors()
 
     def __enter__(self):

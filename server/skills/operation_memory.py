@@ -1,9 +1,9 @@
-from typing import Dict, Any, List, Optional
-from datetime import datetime
-from dataclasses import dataclass, field
 import json
 import uuid
 from collections import defaultdict
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any
 
 
 @dataclass
@@ -11,16 +11,16 @@ class OperationRecord:
     operation_id: str
     operation_type: str
     skill_name: str
-    parameters: Dict[str, Any]
-    result: Dict[str, Any]
+    parameters: dict[str, Any]
+    result: dict[str, Any]
     success: bool
     timestamp: datetime
     duration_ms: float
     user_id: str = "default"
-    session_id: Optional[str] = None
-    context: Dict[str, Any] = field(default_factory=dict)
+    session_id: str | None = None
+    context: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "operation_id": self.operation_id,
             "operation_type": self.operation_type,
@@ -36,7 +36,7 @@ class OperationRecord:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "OperationRecord":
+    def from_dict(cls, data: dict[str, Any]) -> "OperationRecord":
         return cls(
             operation_id=data["operation_id"],
             operation_type=data["operation_type"],
@@ -61,7 +61,7 @@ class UserPreference:
     source: str
     usage_count: int = 1
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "key": self.key,
             "value": self.value,
@@ -72,7 +72,7 @@ class UserPreference:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "UserPreference":
+    def from_dict(cls, data: dict[str, Any]) -> "UserPreference":
         return cls(
             key=data["key"],
             value=data["value"],
@@ -86,24 +86,24 @@ class UserPreference:
 class OperationMemoryManager:
     def __init__(self, memory_service=None):
         self._memory_service = memory_service
-        self._operation_history: Dict[str, List[OperationRecord]] = defaultdict(list)
-        self._user_preferences: Dict[str, Dict[str, UserPreference]] = defaultdict(dict)
-        self._operation_patterns: Dict[str, Dict[str, Any]] = defaultdict(dict)
+        self._operation_history: dict[str, list[OperationRecord]] = defaultdict(list)
+        self._user_preferences: dict[str, dict[str, UserPreference]] = defaultdict(dict)
+        self._operation_patterns: dict[str, dict[str, Any]] = defaultdict(dict)
         self._max_history_per_user = 1000
 
     async def record_operation(self, record: OperationRecord) -> str:
         if not record.operation_id:
             record.operation_id = str(uuid.uuid4())
-        
+
         user_history = self._operation_history[record.user_id]
         user_history.append(record)
-        
+
         if len(user_history) > self._max_history_per_user:
             user_history.pop(0)
-        
+
         await self._store_to_memory(record)
         await self.learn_from_operation(record)
-        
+
         return record.operation_id
 
     async def _store_to_memory(self, record: OperationRecord) -> None:
@@ -126,25 +126,25 @@ class OperationMemoryManager:
     async def get_operation_history(
         self,
         user_id: str = "default",
-        skill_name: Optional[str] = None,
-        operation_type: Optional[str] = None,
+        skill_name: str | None = None,
+        operation_type: str | None = None,
         limit: int = 100
-    ) -> List[OperationRecord]:
+    ) -> list[OperationRecord]:
         history = self._operation_history.get(user_id, [])
-        
+
         filtered = history
         if skill_name:
             filtered = [r for r in filtered if r.skill_name == skill_name]
         if operation_type:
             filtered = [r for r in filtered if r.operation_type == operation_type]
-        
+
         return filtered[-limit:]
 
     async def get_recent_operations(
         self,
         user_id: str = "default",
         count: int = 10
-    ) -> List[OperationRecord]:
+    ) -> list[OperationRecord]:
         history = self._operation_history.get(user_id, [])
         return history[-count:]
 
@@ -156,7 +156,7 @@ class OperationMemoryManager:
         source: str = "explicit"
     ) -> None:
         existing = self._user_preferences[user_id].get(key)
-        
+
         if existing:
             existing.value = value
             existing.usage_count += 1
@@ -179,21 +179,21 @@ class OperationMemoryManager:
         self,
         user_id: str,
         key: str
-    ) -> Optional[Any]:
+    ) -> Any | None:
         pref = self._user_preferences.get(user_id, {}).get(key)
         return pref.value if pref else None
 
     async def get_all_preferences(
         self,
         user_id: str = "default"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         prefs = self._user_preferences.get(user_id, {})
         return {k: v.value for k, v in prefs.items()}
 
     async def learn_from_operation(self, record: OperationRecord) -> None:
         if not record.success:
             return
-        
+
         for param_name, param_value in record.parameters.items():
             if isinstance(param_value, (str, int, float, bool)):
                 pref_key = f"{record.skill_name}.{param_name}"
@@ -203,7 +203,7 @@ class OperationMemoryManager:
                     value=param_value,
                     source="learned"
                 )
-        
+
         pattern_key = self._generate_pattern_key(record)
         pattern_data = self._operation_patterns[record.user_id].get(pattern_key, {
             "count": 0,
@@ -224,54 +224,54 @@ class OperationMemoryManager:
     async def detect_pattern(
         self,
         user_id: str = "default",
-        skill_name: Optional[str] = None
-    ) -> Dict[str, Any]:
+        skill_name: str | None = None
+    ) -> dict[str, Any]:
         patterns = self._operation_patterns.get(user_id, {})
-        
+
         result = {}
         for key, data in patterns.items():
             if skill_name and not key.startswith(skill_name):
                 continue
-            
+
             if data["count"] >= 2:
                 success_rate = data["success_count"] / data["count"]
                 result[key] = {
                     **data,
                     "success_rate": success_rate,
                 }
-        
+
         return result
 
     async def suggest_parameters(
         self,
         user_id: str,
         skill_name: str,
-        current_params: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        current_params: dict[str, Any]
+    ) -> dict[str, Any]:
         suggested = current_params.copy()
-        
+
         prefs = self._user_preferences.get(user_id, {})
         for key, pref in prefs.items():
             if key.startswith(f"{skill_name}."):
                 param_name = key.split(".", 1)[1]
                 if param_name not in suggested or pref.confidence > 0.7:
                     suggested[param_name] = pref.value
-        
+
         return suggested
 
     async def get_success_rate(
         self,
         user_id: str,
-        skill_name: Optional[str] = None
+        skill_name: str | None = None
     ) -> float:
         history = self._operation_history.get(user_id, [])
-        
+
         if skill_name:
             history = [r for r in history if r.skill_name == skill_name]
-        
+
         if not history:
             return 0.0
-        
+
         success_count = sum(1 for r in history if r.success)
         return success_count / len(history)
 
@@ -280,17 +280,17 @@ class OperationMemoryManager:
         self._user_preferences[user_id] = {}
         self._operation_patterns[user_id] = {}
 
-    async def get_statistics(self, user_id: str = "default") -> Dict[str, Any]:
+    async def get_statistics(self, user_id: str = "default") -> dict[str, Any]:
         history = self._operation_history.get(user_id, [])
         prefs = self._user_preferences.get(user_id, {})
         patterns = self._operation_patterns.get(user_id, {})
-        
+
         skill_stats = defaultdict(lambda: {"count": 0, "success": 0})
         for record in history:
             skill_stats[record.skill_name]["count"] += 1
             if record.success:
                 skill_stats[record.skill_name]["success"] += 1
-        
+
         return {
             "total_operations": len(history),
             "total_preferences": len(prefs),
@@ -300,7 +300,7 @@ class OperationMemoryManager:
         }
 
 
-_operation_memory_manager: Optional[OperationMemoryManager] = None
+_operation_memory_manager: OperationMemoryManager | None = None
 
 
 def get_operation_memory_manager() -> OperationMemoryManager:

@@ -1,12 +1,12 @@
-# -*- coding: utf-8 -*-
 """
 Agent 配置模块 - 安全白名单和黑名单
 """
-from typing import Dict, List, Set
-from pathlib import Path
-from pydantic import BaseModel
-from enum import Enum
 import platform
+from enum import Enum
+from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel
 
 
 class ActionType(str, Enum):
@@ -20,14 +20,21 @@ class ActionType(str, Enum):
     FILE_MOVE = "file_move"
     FILE_RENAME = "file_rename"
     FILE_SEARCH = "file_search"
-    
+    FILE_EXISTS = "file_exists"
+    FILE_INFO = "file_info"
+
+    DIR_CREATE = "dir_create"
+    DIR_DELETE = "dir_delete"
+
     APP_OPEN = "app_open"
     APP_CLOSE = "app_close"
     URL_OPEN = "url_open"
-    
+
     SCREENSHOT = "screenshot"
     SCREEN_INFO = "screen_info"
     MOUSE_CLICK = "mouse_click"
+    MOUSE_DOUBLE_CLICK = "mouse_double_click"
+    MOUSE_RIGHT_CLICK = "mouse_right_click"
     MOUSE_MOVE = "mouse_move"
     MOUSE_DRAG = "mouse_drag"
     MOUSE_SCROLL = "mouse_scroll"
@@ -46,7 +53,7 @@ class ActionType(str, Enum):
     RECORD_START = "record_start"
     RECORD_STOP = "record_stop"
     RECORD_PLAY = "record_play"
-    
+
     PROCESS_LIST = "process_list"
     PROCESS_KILL = "process_kill"
     SERVICE_LIST = "service_list"
@@ -54,8 +61,13 @@ class ActionType(str, Enum):
     SERVICE_STOP = "service_stop"
     HARDWARE_MONITOR = "hardware_monitor"
 
+    CLIPBOARD_READ = "clipboard_read"
+    CLIPBOARD_WRITE = "clipboard_write"
 
-ALLOWED_APPS_WINDOWS: Dict[str, str] = {
+    CONVERSATION = "conversation"
+
+
+ALLOWED_APPS_WINDOWS: dict[str, str] = {
     "vscode": "code",
     "visual studio code": "code",
     "notepad": "notepad",
@@ -72,9 +84,21 @@ ALLOWED_APPS_WINDOWS: Dict[str, str] = {
     "explorer": "explorer",
     "calculator": "calc",
     "paint": "mspaint",
+    "terminal": "wt",
+    "windows terminal": "wt",
+    "wechat": "WeChat",
+    "微信": "WeChat",
+    "qq": "QQ",
+    "tim": "TIM",
+    "dingtalk": "DingTalk",
+    "钉钉": "DingTalk",
+    "feishu": "Feishu",
+    "飞书": "Feishu",
+    "wechat work": "WXWork",
+    "企业微信": "WXWork",
 }
 
-ALLOWED_APPS_MACOS: Dict[str, str] = {
+ALLOWED_APPS_MACOS: dict[str, str] = {
     "vscode": "Visual Studio Code",
     "visual studio code": "Visual Studio Code",
     "safari": "Safari",
@@ -82,12 +106,18 @@ ALLOWED_APPS_MACOS: Dict[str, str] = {
     "finder": "Finder",
     "terminal": "Terminal",
     "calculator": "Calculator",
+    "wechat": "WeChat",
+    "微信": "WeChat",
 }
 
 SYSTEM = platform.system()
 ALLOWED_APPS = ALLOWED_APPS_WINDOWS if SYSTEM == "Windows" else ALLOWED_APPS_MACOS
 
-FORBIDDEN_PATTERNS: List[str] = [
+USER_ALLOWED_APPS: dict[str, str] = {}
+
+PENDING_APP_CONFIRMATIONS: dict[str, dict[str, Any]] = {}
+
+FORBIDDEN_PATTERNS: list[str] = [
     r"\.\./",
     r"\.\.\\",
     r"/etc/",
@@ -103,7 +133,7 @@ FORBIDDEN_PATTERNS: List[str] = [
     r"__pycache__/",
 ]
 
-ALLOWED_FILE_EXTENSIONS: Set[str] = {
+ALLOWED_FILE_EXTENSIONS: set[str] = {
     ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rs", ".c", ".cpp", ".h",
     ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
     ".md", ".txt", ".rst", ".doc", ".docx",
@@ -112,15 +142,30 @@ ALLOWED_FILE_EXTENSIONS: Set[str] = {
     ".sh", ".bat", ".ps1",
 }
 
-READABLE_FILE_EXTENSIONS: Set[str] = ALLOWED_FILE_EXTENSIONS | {
+READABLE_FILE_EXTENSIONS: set[str] = ALLOWED_FILE_EXTENSIONS | {
     ".log", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".svg",
 }
 
-DANGEROUS_ACTIONS: Set[ActionType] = {
+DANGEROUS_ACTIONS: set[ActionType] = {
     ActionType.FILE_DELETE,
     ActionType.PROCESS_KILL,
     ActionType.SERVICE_STOP,
 }
+
+
+class SecurityConfig(BaseModel):
+    """安全配置"""
+    allow_localhost: bool = True
+    allow_intranet: bool = False
+    strict_path_check: bool = False
+    allowed_directories: list[str] = []
+    forbidden_directories: list[str] = []
+
+    class Config:
+        extra = "allow"
+
+
+SECURITY_CONFIG = SecurityConfig()
 
 
 class AgentConfig(BaseModel):
@@ -130,6 +175,7 @@ class AgentConfig(BaseModel):
     enable_audit: bool = True
     max_file_size: int = 10 * 1024 * 1024
     operation_timeout: int = 30
-    
+    security: SecurityConfig = SecurityConfig()
+
     class Config:
         arbitrary_types_allowed = True

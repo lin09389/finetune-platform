@@ -1,10 +1,6 @@
-# -*- coding: utf-8 -*-
 """
 前端设计 UI/UX 技能 - 提供高质量、独特的前端界面设计建议和代码生成
 """
-import json
-import re
-from typing import Any, Dict, List, Optional
 
 from skills.base import SkillBase
 from skills.models import (
@@ -18,7 +14,7 @@ from skills.models import (
 
 class FrontendDesignSkill(SkillBase):
     """前端设计 UI/UX 技能"""
-    
+
     COLOR_SCHEMES = {
         "retro_digital": {
             "name": "复古数字风",
@@ -53,7 +49,7 @@ class FrontendDesignSkill(SkillBase):
             "gold": "#c9b037",
         },
     }
-    
+
     TYPOGRAPHY = {
         "headings": {
             "en": ["Playfair Display", "Space Grotesk", "Clash Display"],
@@ -73,7 +69,7 @@ class FrontendDesignSkill(SkillBase):
             "caption": "12px",
         },
     }
-    
+
     SPACING = {
         "1": "4px",
         "2": "8px",
@@ -84,7 +80,7 @@ class FrontendDesignSkill(SkillBase):
         "7": "48px",
         "8": "64px",
     }
-    
+
     @classmethod
     def get_metadata(cls) -> SkillMetadata:
         return SkillMetadata(
@@ -122,24 +118,24 @@ class FrontendDesignSkill(SkillBase):
                 {"component_type": "card", "style": "oriental_elegant"},
             ],
         )
-    
+
     async def execute(self, **kwargs) -> SkillResult:
         component_type = kwargs.get("component_type", "")
         style = kwargs.get("style", "editorial")
         framework = kwargs.get("framework", "tailwind")
-        
+
         if not component_type:
             return SkillResult(
                 success=False,
                 error="请提供组件类型",
                 error_code="MISSING_COMPONENT_TYPE",
             )
-        
+
         color_scheme = self.COLOR_SCHEMES.get(style, self.COLOR_SCHEMES["editorial"])
-        
+
         component_code = self._generate_component(component_type, color_scheme, framework)
         design_tokens = self._get_design_tokens(color_scheme)
-        
+
         return SkillResult(
             success=True,
             data={
@@ -151,14 +147,14 @@ class FrontendDesignSkill(SkillBase):
                 "color_scheme": color_scheme,
             },
         )
-    
-    def _generate_component(self, component_type: str, colors: Dict, framework: str) -> str:
+
+    def _generate_component(self, component_type: str, colors: dict, framework: str) -> str:
         if framework == "tailwind":
             return self._generate_tailwind_component(component_type, colors)
         else:
             return self._generate_css_component(component_type, colors)
-    
-    def _generate_tailwind_component(self, component_type: str, colors: Dict) -> str:
+
+    def _generate_tailwind_component(self, component_type: str, colors: dict) -> str:
         components = {
             "button": self._tailwind_button(colors),
             "card": self._tailwind_card(colors),
@@ -168,8 +164,8 @@ class FrontendDesignSkill(SkillBase):
             "form": self._tailwind_form(colors),
         }
         return components.get(component_type, f"// {component_type} 组件代码待生成")
-    
-    def _tailwind_button(self, colors: Dict) -> str:
+
+    def _tailwind_button(self, colors: dict) -> str:
         primary = colors.get("primary", "#2d2d2d")
         return f'''// 主按钮 - 实心填充
 <button className="
@@ -200,8 +196,8 @@ class FrontendDesignSkill(SkillBase):
 ">
   取消
 </button>'''
-    
-    def _tailwind_card(self, colors: Dict) -> str:
+
+    def _tailwind_card(self, colors: dict) -> str:
         primary = colors.get("primary", "#2d2d2d")
         return f'''// 编辑主义风格卡片
 <div className="
@@ -221,8 +217,8 @@ class FrontendDesignSkill(SkillBase):
     卡片内容描述，使用舒适的行高和灰度层次。
   </p>
 </div>'''
-    
-    def _tailwind_input(self, colors: Dict) -> str:
+
+    def _tailwind_input(self, colors: dict) -> str:
         return '''// 精致输入框
 <div className="space-y-2">
   <label className="text-sm font-medium text-[#2d2d2d]">
@@ -244,8 +240,8 @@ class FrontendDesignSkill(SkillBase):
   />
   <p className="text-xs text-[#6b7280]">我们将发送验证邮件到此地址</p>
 </div>'''
-    
-    def _tailwind_navigation(self, colors: Dict) -> str:
+
+    def _tailwind_navigation(self, colors: dict) -> str:
         return '''// 顶部导航 - 编辑风格
 <nav className="
   sticky top-0 z-50
@@ -271,8 +267,8 @@ class FrontendDesignSkill(SkillBase):
     </button>
   </div>
 </nav>'''
-    
-    def _tailwind_dashboard(self, colors: Dict) -> str:
+
+    def _tailwind_dashboard(self, colors: dict) -> str:
         return '''// Dashboard 页面 - 编辑主义风格
 <div className="min-h-screen bg-[#faf9f7]">
   {/* Stats Grid */}
@@ -292,8 +288,8 @@ class FrontendDesignSkill(SkillBase):
     ))}
   </div>
 </div>'''
-    
-    def _tailwind_form(self, colors: Dict) -> str:
+
+    def _tailwind_form(self, colors: dict) -> str:
         return '''// 表单组件
 <form className="space-y-6 bg-white border border-[#e5e5e5] rounded-lg p-6">
   <div className="space-y-2">
@@ -308,11 +304,11 @@ class FrontendDesignSkill(SkillBase):
     登录
   </button>
 </form>'''
-    
-    def _generate_css_component(self, component_type: str, colors: Dict) -> str:
+
+    def _generate_css_component(self, component_type: str, colors: dict) -> str:
         return f"/* CSS 组件代码 - {component_type} */\n/* 待实现 */"
-    
-    def _get_design_tokens(self, colors: Dict) -> Dict:
+
+    def _get_design_tokens(self, colors: dict) -> dict:
         return {
             "colors": colors,
             "typography": self.TYPOGRAPHY,

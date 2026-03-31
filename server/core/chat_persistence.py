@@ -2,11 +2,9 @@
 数据持久化服务
 提供对话、分支、分享等数据的数据库存储
 """
+import json
 import logging
 from datetime import datetime
-from typing import List, Dict, Any, Optional
-from dataclasses import dataclass, asdict
-import json
 
 from core.db_manager import get_db_pool
 
@@ -15,18 +13,18 @@ logger = logging.getLogger(__name__)
 
 class ChatPersistenceService:
     """对话数据持久化服务"""
-    
+
     def __init__(self, db_path: str = "data/chat.db"):
         self.db_path = db_path
         self._init_tables()
-    
+
     def _init_tables(self):
         """初始化数据库表"""
         pool = get_db_pool(self.db_path)
-        
+
         with pool.get_connection() as conn:
             cursor = conn.cursor()
-            
+
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS chat_sessions (
                     id TEXT PRIMARY KEY,
@@ -38,7 +36,7 @@ class ChatPersistenceService:
                     metadata TEXT
                 )
             """)
-            
+
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS chat_messages (
                     id TEXT PRIMARY KEY,
@@ -52,7 +50,7 @@ class ChatPersistenceService:
                     FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
                 )
             """)
-            
+
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS chat_branches (
                     id TEXT PRIMARY KEY,
@@ -65,7 +63,7 @@ class ChatPersistenceService:
                     FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
                 )
             """)
-            
+
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS chat_shares (
                     share_id TEXT PRIMARY KEY,
@@ -79,7 +77,7 @@ class ChatPersistenceService:
                     FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
                 )
             """)
-            
+
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_messages_session 
                 ON chat_messages(session_id)
@@ -96,23 +94,23 @@ class ChatPersistenceService:
                 CREATE INDEX IF NOT EXISTS idx_shares_session 
                 ON chat_shares(session_id)
             """)
-            
+
             logger.info("对话数据库表初始化完成")
-    
-    def create_session(self, session_id: str, title: str = "", 
+
+    def create_session(self, session_id: str, title: str = "",
                        model_id: str = None, backend: str = "ollama",
-                       metadata: Dict = None) -> Dict:
+                       metadata: dict = None) -> dict:
         """创建对话会话"""
         pool = get_db_pool(self.db_path)
-        
+
         with pool.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO chat_sessions (id, title, model_id, backend, metadata)
                 VALUES (?, ?, ?, ?, ?)
-            """, (session_id, title, model_id, backend, 
+            """, (session_id, title, model_id, backend,
                   json.dumps(metadata) if metadata else None))
-            
+
             return {
                 "id": session_id,
                 "title": title,
@@ -121,18 +119,18 @@ class ChatPersistenceService:
                 "created_at": datetime.now().isoformat(),
                 "metadata": metadata
             }
-    
-    def get_session(self, session_id: str) -> Optional[Dict]:
+
+    def get_session(self, session_id: str) -> dict | None:
         """获取对话会话"""
         pool = get_db_pool(self.db_path)
-        
+
         with pool.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT id, title, model_id, backend, created_at, updated_at, metadata
                 FROM chat_sessions WHERE id = ?
             """, (session_id,))
-            
+
             row = cursor.fetchone()
             if row:
                 return {
@@ -145,11 +143,11 @@ class ChatPersistenceService:
                     "metadata": json.loads(row[6]) if row[6] else None
                 }
             return None
-    
-    def list_sessions(self, limit: int = 50, offset: int = 0) -> List[Dict]:
+
+    def list_sessions(self, limit: int = 50, offset: int = 0) -> list[dict]:
         """列出对话会话"""
         pool = get_db_pool(self.db_path)
-        
+
         with pool.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -158,7 +156,7 @@ class ChatPersistenceService:
                 ORDER BY updated_at DESC
                 LIMIT ? OFFSET ?
             """, (limit, offset))
-            
+
             sessions = []
             for row in cursor.fetchall():
                 sessions.append({
@@ -170,22 +168,22 @@ class ChatPersistenceService:
                     "updated_at": row[5]
                 })
             return sessions
-    
+
     def delete_session(self, session_id: str) -> bool:
         """删除对话会话（级联删除消息、分支、分享）"""
         pool = get_db_pool(self.db_path)
-        
+
         with pool.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
             return cursor.rowcount > 0
-    
+
     def add_message(self, message_id: str, session_id: str, role: str,
-                    content: str, parent_id: str = None, 
-                    branch_id: str = None, metadata: Dict = None) -> Dict:
+                    content: str, parent_id: str = None,
+                    branch_id: str = None, metadata: dict = None) -> dict:
         """添加消息"""
         pool = get_db_pool(self.db_path)
-        
+
         with pool.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -194,12 +192,12 @@ class ChatPersistenceService:
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (message_id, session_id, role, content, parent_id, branch_id,
                   json.dumps(metadata) if metadata else None))
-            
+
             cursor.execute("""
                 UPDATE chat_sessions SET updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             """, (session_id,))
-            
+
             return {
                 "id": message_id,
                 "session_id": session_id,
@@ -210,14 +208,14 @@ class ChatPersistenceService:
                 "timestamp": datetime.now().isoformat(),
                 "metadata": metadata
             }
-    
-    def get_messages(self, session_id: str, branch_id: str = None) -> List[Dict]:
+
+    def get_messages(self, session_id: str, branch_id: str = None) -> list[dict]:
         """获取会话消息"""
         pool = get_db_pool(self.db_path)
-        
+
         with pool.get_connection() as conn:
             cursor = conn.cursor()
-            
+
             if branch_id:
                 cursor.execute("""
                     SELECT id, session_id, role, content, timestamp, parent_id, branch_id, metadata
@@ -232,7 +230,7 @@ class ChatPersistenceService:
                     WHERE session_id = ?
                     ORDER BY timestamp ASC
                 """, (session_id,))
-            
+
             messages = []
             for row in cursor.fetchall():
                 messages.append({
@@ -246,21 +244,21 @@ class ChatPersistenceService:
                     "metadata": json.loads(row[7]) if row[7] else None
                 })
             return messages
-    
+
     def delete_message(self, message_id: str) -> bool:
         """删除消息"""
         pool = get_db_pool(self.db_path)
-        
+
         with pool.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM chat_messages WHERE id = ?", (message_id,))
             return cursor.rowcount > 0
-    
+
     def create_branch(self, branch_id: str, session_id: str, name: str,
-                      root_message_id: str = None, metadata: Dict = None) -> Dict:
+                      root_message_id: str = None, metadata: dict = None) -> dict:
         """创建分支"""
         pool = get_db_pool(self.db_path)
-        
+
         with pool.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -268,7 +266,7 @@ class ChatPersistenceService:
                 VALUES (?, ?, ?, ?, ?)
             """, (branch_id, session_id, name, root_message_id,
                   json.dumps(metadata) if metadata else None))
-            
+
             return {
                 "id": branch_id,
                 "session_id": session_id,
@@ -278,11 +276,11 @@ class ChatPersistenceService:
                 "message_count": 0,
                 "metadata": metadata
             }
-    
-    def get_branches(self, session_id: str) -> List[Dict]:
+
+    def get_branches(self, session_id: str) -> list[dict]:
         """获取会话分支列表"""
         pool = get_db_pool(self.db_path)
-        
+
         with pool.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -291,7 +289,7 @@ class ChatPersistenceService:
                 WHERE session_id = ?
                 ORDER BY created_at ASC
             """, (session_id,))
-            
+
             branches = []
             for row in cursor.fetchall():
                 branches.append({
@@ -304,23 +302,23 @@ class ChatPersistenceService:
                     "metadata": json.loads(row[6]) if row[6] else None
                 })
             return branches
-    
+
     def delete_branch(self, branch_id: str) -> bool:
         """删除分支"""
         pool = get_db_pool(self.db_path)
-        
+
         with pool.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM chat_messages WHERE branch_id = ?", (branch_id,))
             cursor.execute("DELETE FROM chat_branches WHERE id = ?", (branch_id,))
             return cursor.rowcount > 0
-    
+
     def create_share(self, share_id: str, session_id: str, title: str,
-                     messages: List[Dict], expires_at: str = None,
-                     is_public: bool = True) -> Dict:
+                     messages: list[dict], expires_at: str = None,
+                     is_public: bool = True) -> dict:
         """创建分享"""
         pool = get_db_pool(self.db_path)
-        
+
         with pool.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -329,7 +327,7 @@ class ChatPersistenceService:
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (share_id, session_id, title, json.dumps(messages),
                   expires_at, 1 if is_public else 0))
-            
+
             return {
                 "share_id": share_id,
                 "session_id": session_id,
@@ -340,11 +338,11 @@ class ChatPersistenceService:
                 "is_public": is_public,
                 "view_count": 0
             }
-    
-    def get_share(self, share_id: str) -> Optional[Dict]:
+
+    def get_share(self, share_id: str) -> dict | None:
         """获取分享"""
         pool = get_db_pool(self.db_path)
-        
+
         with pool.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -352,7 +350,7 @@ class ChatPersistenceService:
                        view_count, is_public, messages
                 FROM chat_shares WHERE share_id = ?
             """, (share_id,))
-            
+
             row = cursor.fetchone()
             if row:
                 return {
@@ -366,31 +364,31 @@ class ChatPersistenceService:
                     "messages": json.loads(row[7]) if row[7] else []
                 }
             return None
-    
+
     def increment_view_count(self, share_id: str):
         """增加分享浏览次数"""
         pool = get_db_pool(self.db_path)
-        
+
         with pool.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 UPDATE chat_shares SET view_count = view_count + 1
                 WHERE share_id = ?
             """, (share_id,))
-    
+
     def delete_share(self, share_id: str) -> bool:
         """删除分享"""
         pool = get_db_pool(self.db_path)
-        
+
         with pool.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM chat_shares WHERE share_id = ?", (share_id,))
             return cursor.rowcount > 0
-    
+
     def cleanup_expired_shares(self) -> int:
         """清理过期分享"""
         pool = get_db_pool(self.db_path)
-        
+
         with pool.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -403,7 +401,7 @@ class ChatPersistenceService:
             return deleted_count
 
 
-_chat_persistence: Optional[ChatPersistenceService] = None
+_chat_persistence: ChatPersistenceService | None = None
 
 
 def get_chat_persistence(db_path: str = "data/chat.db") -> ChatPersistenceService:

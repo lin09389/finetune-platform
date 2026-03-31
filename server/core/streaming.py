@@ -2,15 +2,15 @@
 流式输出工具模块
 优化的 SSE 流式响应实现，支持批量推送、背压控制和延迟监控
 """
-from typing import AsyncGenerator, Callable, Any, Dict, Optional, List
-from dataclasses import dataclass, field
-from datetime import datetime
 import asyncio
 import json
 import logging
 import time
 from collections import deque
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from typing import Any
 
 from core.config import get_settings
 
@@ -29,7 +29,7 @@ class TokenLatencyRecord:
 @dataclass
 class StreamingLatencyStats:
     """流式延迟统计"""
-    records: List[TokenLatencyRecord] = field(default_factory=list)
+    records: list[TokenLatencyRecord] = field(default_factory=list)
     total_tokens: int = 0
     start_time: float = 0.0
     end_time: float = 0.0
@@ -99,7 +99,7 @@ class StreamingLatencyStats:
             return 0.0
         return self.total_tokens / elapsed
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典"""
         return {
             "total_tokens": self.total_tokens,
@@ -169,7 +169,7 @@ class BackpressureController:
         """缓冲区使用率"""
         return self._buffer_size / self.max_buffer_size
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """获取状态"""
         return {
             "is_paused": self._is_paused,
@@ -188,11 +188,11 @@ class OptimizedStreamingResponse:
     def __init__(
         self,
         generator: AsyncGenerator[str, None],
-        buffer_size: Optional[int] = None,
-        flush_interval_ms: Optional[int] = None,
-        enable_backpressure: Optional[bool] = None,
-        on_complete: Optional[Callable[[], Any]] = None,
-        on_error: Optional[Callable[[Exception], Any]] = None,
+        buffer_size: int | None = None,
+        flush_interval_ms: int | None = None,
+        enable_backpressure: bool | None = None,
+        on_complete: Callable[[], Any] | None = None,
+        on_error: Callable[[Exception], Any] | None = None,
     ):
         settings = get_settings()
         self.buffer_size = buffer_size or settings.stream_buffer_size
@@ -216,7 +216,7 @@ class OptimizedStreamingResponse:
         return self._latency_stats
 
     @property
-    def backpressure_status(self) -> Optional[Dict[str, Any]]:
+    def backpressure_status(self) -> dict[str, Any] | None:
         """获取背压状态"""
         if self._backpressure:
             return self._backpressure.get_status()
@@ -331,7 +331,7 @@ class StreamingResponse:
             yield chunk
 
 
-async def create_sse_event(data: Dict[str, Any], event_type: str = "message") -> str:
+async def create_sse_event(data: dict[str, Any], event_type: str = "message") -> str:
     """
     创建 SSE 事件
 
@@ -392,9 +392,9 @@ async def stream_generator(
 
 async def optimized_stream_generator(
     llm_generator: AsyncGenerator[str, None],
-    buffer_size: Optional[int] = None,
-    flush_interval_ms: Optional[int] = None,
-    enable_backpressure: Optional[bool] = None,
+    buffer_size: int | None = None,
+    flush_interval_ms: int | None = None,
+    enable_backpressure: bool | None = None,
     on_chunk: Callable[[str], Any] = None,
     on_complete: Callable[[], Any] = None,
     on_error: Callable[[Exception], Any] = None
@@ -482,7 +482,7 @@ class StreamStats:
             return 0
         return self.total_tokens / self.elapsed
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典"""
         return {
             "total_tokens": self.total_tokens,
@@ -494,9 +494,9 @@ class StreamStats:
 
 @asynccontextmanager
 async def streaming_context(
-    buffer_size: Optional[int] = None,
-    flush_interval_ms: Optional[int] = None,
-    enable_backpressure: Optional[bool] = None
+    buffer_size: int | None = None,
+    flush_interval_ms: int | None = None,
+    enable_backpressure: bool | None = None
 ):
     """
     流式上下文管理器
@@ -530,13 +530,13 @@ class StreamingContext:
         self.buffer_size = buffer_size
         self.flush_interval_ms = flush_interval_ms
         self.enable_backpressure = enable_backpressure
-        self._active_streams: List[OptimizedStreamingResponse] = []
+        self._active_streams: list[OptimizedStreamingResponse] = []
 
     async def wrap(
         self,
         generator: AsyncGenerator[str, None],
-        on_complete: Optional[Callable[[], Any]] = None,
-        on_error: Optional[Callable[[Exception], Any]] = None
+        on_complete: Callable[[], Any] | None = None,
+        on_error: Callable[[Exception], Any] | None = None
     ) -> OptimizedStreamingResponse:
         """包装生成器为优化的流式响应"""
         streaming = OptimizedStreamingResponse(
@@ -554,7 +554,7 @@ class StreamingContext:
         """清理资源"""
         self._active_streams.clear()
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """获取所有活跃流的统计信息"""
         return {
             "active_streams": len(self._active_streams),
@@ -568,7 +568,7 @@ class StreamingContext:
         }
 
 
-def get_streaming_stats(streaming: OptimizedStreamingResponse) -> Dict[str, Any]:
+def get_streaming_stats(streaming: OptimizedStreamingResponse) -> dict[str, Any]:
     """
     获取流式传输统计信息
 

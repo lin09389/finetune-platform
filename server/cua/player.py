@@ -1,19 +1,17 @@
-# -*- coding: utf-8 -*-
 """
 CUA 操作回放器模块
 """
 import asyncio
-import time
 import json
-from typing import List, Optional, Callable
-from pathlib import Path
+import time
+from collections.abc import Callable
 from enum import Enum
 
-from .models import RecordedAction, ActionType, OperationResult, OperationType
-from .mouse import MouseController, get_mouse_controller
 from .keyboard import KeyboardController
-from .types import MouseButton
+from .models import ActionType, OperationResult, OperationType, RecordedAction
+from .mouse import MouseController, get_mouse_controller
 from .recorder import ActionRecorder
+from .types import MouseButton
 
 
 class PlaybackMode(str, Enum):
@@ -34,8 +32,8 @@ class ActionPlayer:
 
     def __init__(
         self,
-        mouse_controller: Optional[MouseController] = None,
-        keyboard_controller: Optional[KeyboardController] = None,
+        mouse_controller: MouseController | None = None,
+        keyboard_controller: KeyboardController | None = None,
     ):
         self._mouse = mouse_controller or get_mouse_controller()
         self._keyboard = keyboard_controller or KeyboardController()
@@ -46,17 +44,17 @@ class ActionPlayer:
         self._mode = PlaybackMode.REALTIME
         self._error_handling = ErrorHandlingMode.STOP
         self._retry_count = 3
-        self._progress_callback: Optional[Callable[[int, int], None]] = None
-        self._action_callback: Optional[Callable[[RecordedAction], None]] = None
+        self._progress_callback: Callable[[int, int], None] | None = None
+        self._action_callback: Callable[[RecordedAction], None] | None = None
         self._current_index = 0
         self._total_actions = 0
         self._pause_event = asyncio.Event()
         self._pause_event.set()
 
-    def play(self, actions: List[RecordedAction]) -> OperationResult:
+    def play(self, actions: list[RecordedAction]) -> OperationResult:
         return asyncio.run(self.play_async(actions))
 
-    async def play_async(self, actions: List[RecordedAction]) -> OperationResult:
+    async def play_async(self, actions: list[RecordedAction]) -> OperationResult:
         if self._is_playing:
             return OperationResult.failure_result(
                 operation_type=OperationType.SCREENSHOT,
@@ -229,7 +227,7 @@ class ActionPlayer:
             try:
                 await self._execute_action(action)
                 return True
-            except Exception as e:
+            except Exception:
                 if attempt < max_attempts - 1:
                     await asyncio.sleep(0.1 * (attempt + 1))
                 else:
@@ -327,7 +325,7 @@ class ActionPlayer:
         return self._current_index, self._total_actions
 
 
-_action_player: Optional[ActionPlayer] = None
+_action_player: ActionPlayer | None = None
 
 
 def get_action_player() -> ActionPlayer:

@@ -1,7 +1,6 @@
 import asyncio
 import time
 from pathlib import Path
-from typing import List, Optional
 
 import cv2
 import numpy as np
@@ -9,15 +8,13 @@ from PIL import Image
 
 from .exceptions import (
     VisionError,
-    TemplateNotFoundError,
-    ColorNotFoundError,
 )
-from .models import Region, Coordinate
+from .models import Coordinate, Region
 from .screen import ScreenCapture
 
 
 class VisionRecognizer:
-    def __init__(self, debug_dir: Optional[str] = None):
+    def __init__(self, debug_dir: str | None = None):
         self._screen_capture = ScreenCapture()
         self._debug_dir = Path(debug_dir) if debug_dir else None
         if self._debug_dir:
@@ -41,7 +38,7 @@ class VisionRecognizer:
 
     def find_template(
         self, image: Image.Image, template: Image.Image, threshold: float = 0.8
-    ) -> List[Coordinate]:
+    ) -> list[Coordinate]:
         try:
             img_cv = self.pil_to_cv2(image)
             template_cv = self.pil_to_cv2(template)
@@ -55,7 +52,7 @@ class VisionRecognizer:
             result = cv2.matchTemplate(img_cv, template_cv, cv2.TM_CCOEFF_NORMED)
             locations = np.where(result >= threshold)
 
-            coordinates: List[Coordinate] = []
+            coordinates: list[Coordinate] = []
             template_h, template_w = template_cv.shape[:2]
 
             for pt in zip(*locations[::-1]):
@@ -75,7 +72,7 @@ class VisionRecognizer:
 
     def find_template_file(
         self, image: Image.Image, template_path: str, threshold: float = 0.8
-    ) -> List[Coordinate]:
+    ) -> list[Coordinate]:
         try:
             template = Image.open(template_path)
             return self.find_template(image, template, threshold)
@@ -112,10 +109,10 @@ class VisionRecognizer:
 
     def find_icon(
         self, image: Image.Image, icon: Image.Image, threshold: float = 0.8
-    ) -> List[Coordinate]:
+    ) -> list[Coordinate]:
         return self.find_template(image, icon, threshold)
 
-    def find_button(self, image: Image.Image, button_text: str) -> List[Region]:
+    def find_button(self, image: Image.Image, button_text: str) -> list[Region]:
         try:
             import pytesseract
 
@@ -123,7 +120,7 @@ class VisionRecognizer:
             gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
             data = pytesseract.image_to_data(gray, output_type=pytesseract.Output.DICT)
 
-            regions: List[Region] = []
+            regions: list[Region] = []
             n_boxes = len(data["text"])
 
             for i in range(n_boxes):
@@ -154,7 +151,7 @@ class VisionRecognizer:
 
     def find_color(
         self, image: Image.Image, color: tuple, tolerance: int = 10
-    ) -> List[Coordinate]:
+    ) -> list[Coordinate]:
         try:
             img_cv = self.pil_to_cv2(image)
             hsv = cv2.cvtColor(img_cv, cv2.COLOR_BGR2HSV)
@@ -168,7 +165,7 @@ class VisionRecognizer:
             mask = cv2.inRange(hsv, lower, upper)
             locations = np.where(mask > 0)
 
-            coordinates: List[Coordinate] = []
+            coordinates: list[Coordinate] = []
             for x, y in zip(*locations[::-1]):
                 coordinates.append(Coordinate(x=int(x), y=int(y)))
 
@@ -226,7 +223,7 @@ class VisionRecognizer:
 
     def find_difference(
         self, image1: Image.Image, image2: Image.Image, threshold: float = 0.1
-    ) -> List[Region]:
+    ) -> list[Region]:
         try:
             img1_cv = self.pil_to_cv2(image1)
             img2_cv = self.pil_to_cv2(image2)
@@ -242,7 +239,7 @@ class VisionRecognizer:
 
             contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-            regions: List[Region] = []
+            regions: list[Region] = []
             for contour in contours:
                 x, y, w, h = cv2.boundingRect(contour)
                 if w > 5 and h > 5:
@@ -269,7 +266,7 @@ class VisionRecognizer:
                 details=str(e)
             )
 
-    def find_contours(self, image: Image.Image) -> List[Region]:
+    def find_contours(self, image: Image.Image) -> list[Region]:
         try:
             img_cv = self.pil_to_cv2(image)
             gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
@@ -277,7 +274,7 @@ class VisionRecognizer:
 
             contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-            regions: List[Region] = []
+            regions: list[Region] = []
             for contour in contours:
                 x, y, w, h = cv2.boundingRect(contour)
                 if w > 5 and h > 5:
@@ -345,14 +342,14 @@ class VisionRecognizer:
         template: Image.Image,
         threshold: float = 0.8,
         min_distance: int = 10
-    ) -> List[Coordinate]:
+    ) -> list[Coordinate]:
         try:
             all_coords = self.find_template(image, template, threshold)
 
             if not all_coords:
                 return []
 
-            filtered: List[Coordinate] = []
+            filtered: list[Coordinate] = []
             for coord in all_coords:
                 is_duplicate = False
                 for existing in filtered:

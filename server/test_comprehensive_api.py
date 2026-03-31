@@ -1,11 +1,11 @@
 """
 Finetune Platform - Comprehensive API Test Script
 """
-import requests
 import json
-import time
 import sys
 from datetime import datetime
+
+import requests
 
 BASE_URL = "http://127.0.0.1:8000"
 
@@ -15,7 +15,7 @@ class TestResult:
         self.failed = 0
         self.errors = []
         self.results = []
-    
+
     def add_pass(self, test_name, response=None):
         self.passed += 1
         self.results.append({
@@ -24,7 +24,7 @@ class TestResult:
             "response": response
         })
         print(f"  [PASS] {test_name}")
-    
+
     def add_fail(self, test_name, error, expected=None):
         self.failed += 1
         self.results.append({
@@ -35,7 +35,7 @@ class TestResult:
         })
         self.errors.append(f"{test_name}: {error}")
         print(f"  [FAIL] {test_name}: {error}")
-    
+
     def summary(self):
         total = self.passed + self.failed
         print(f"\n{'='*60}")
@@ -62,7 +62,7 @@ def test_api(method, endpoint, data=None, expected_status=200, timeout=30):
             resp = requests.put(url, json=data, timeout=timeout)
         else:
             return None, f"Unsupported method: {method}"
-        
+
         return resp, None
     except requests.exceptions.Timeout:
         return None, "Request timeout"
@@ -75,7 +75,7 @@ def test_api(method, endpoint, data=None, expected_status=200, timeout=30):
 def test_root_and_health(result: TestResult):
     """Test root and health endpoints"""
     print("\n[1] Testing Root & Health Endpoints...")
-    
+
     # Test root
     resp, err = test_api("GET", "/")
     if err:
@@ -88,7 +88,7 @@ def test_root_and_health(result: TestResult):
             result.add_fail("GET /", "Missing version field")
     else:
         result.add_fail("GET /", f"Status {resp.status_code}")
-    
+
     # Test health
     resp, err = test_api("GET", "/health")
     if err:
@@ -106,7 +106,7 @@ def test_root_and_health(result: TestResult):
 def test_device_api(result: TestResult):
     """Test device info endpoints"""
     print("\n[2] Testing Device API...")
-    
+
     # Test device info
     resp, err = test_api("GET", "/device/info")
     if err:
@@ -121,7 +121,7 @@ def test_device_api(result: TestResult):
             result.add_fail("GET /device/info", f"Missing fields: {missing}")
     else:
         result.add_fail("GET /device/info", f"Status {resp.status_code}")
-    
+
     # Test VRAM info
     resp, err = test_api("GET", "/device/vram")
     if err:
@@ -131,7 +131,7 @@ def test_device_api(result: TestResult):
         result.add_pass("GET /device/vram", data)
     else:
         result.add_fail("GET /device/vram", f"Status {resp.status_code}")
-    
+
     # Test memory info
     resp, err = test_api("GET", "/device/memory")
     if err:
@@ -144,7 +144,7 @@ def test_device_api(result: TestResult):
             result.add_fail("GET /device/memory", "Missing virtual field")
     else:
         result.add_fail("GET /device/memory", f"Status {resp.status_code}")
-    
+
     # Test disk info
     resp, err = test_api("GET", "/device/disk")
     if err:
@@ -162,7 +162,7 @@ def test_device_api(result: TestResult):
 def test_models_api(result: TestResult):
     """Test models management endpoints"""
     print("\n[3] Testing Models API...")
-    
+
     # Test list models
     resp, err = test_api("GET", "/models")
     if err:
@@ -172,7 +172,7 @@ def test_models_api(result: TestResult):
         result.add_pass("GET /models", f"{len(data) if isinstance(data, list) else 0} models")
     else:
         result.add_fail("GET /models", f"Status {resp.status_code}")
-    
+
     # Test download status
     resp, err = test_api("GET", "/models/download/status")
     if err:
@@ -182,7 +182,7 @@ def test_models_api(result: TestResult):
         result.add_pass("GET /models/download/status", data)
     else:
         result.add_fail("GET /models/download/status", f"Status {resp.status_code}")
-    
+
     # Test model stats (correct path)
     resp, err = test_api("GET", "/models/stats")
     if err:
@@ -192,7 +192,7 @@ def test_models_api(result: TestResult):
         result.add_pass("GET /models/stats", data)
     else:
         result.add_fail("GET /models/stats", f"Status {resp.status_code}")
-    
+
     # Test invalid model ID
     resp, err = test_api("GET", "/models/nonexistent_model_12345")
     if err:
@@ -206,7 +206,7 @@ def test_models_api(result: TestResult):
 def test_datasets_api(result: TestResult):
     """Test datasets management endpoints"""
     print("\n[4] Testing Datasets API...")
-    
+
     # Test list datasets
     resp, err = test_api("GET", "/datasets")
     if err:
@@ -216,7 +216,7 @@ def test_datasets_api(result: TestResult):
         result.add_pass("GET /datasets", f"{len(data) if isinstance(data, list) else 0} datasets")
     else:
         result.add_fail("GET /datasets", f"Status {resp.status_code}")
-    
+
     # Test invalid dataset ID
     resp, err = test_api("GET", "/datasets/nonexistent_dataset_12345")
     if err:
@@ -230,7 +230,7 @@ def test_datasets_api(result: TestResult):
 def test_training_api(result: TestResult):
     """Test training endpoints"""
     print("\n[5] Testing Training API...")
-    
+
     # Test get progress
     resp, err = test_api("GET", "/training/progress")
     if err:
@@ -243,7 +243,7 @@ def test_training_api(result: TestResult):
             result.add_fail("GET /training/progress", "Missing status field")
     else:
         result.add_fail("GET /training/progress", f"Status {resp.status_code}")
-    
+
     # Test get history
     resp, err = test_api("GET", "/training/history")
     if err:
@@ -253,7 +253,7 @@ def test_training_api(result: TestResult):
         result.add_pass("GET /training/history", f"{len(data) if isinstance(data, list) else 0} records")
     else:
         result.add_fail("GET /training/history", f"Status {resp.status_code}")
-    
+
     # Test get status
     resp, err = test_api("GET", "/training/status")
     if err:
@@ -263,7 +263,7 @@ def test_training_api(result: TestResult):
         result.add_pass("GET /training/status", data)
     else:
         result.add_fail("GET /training/status", f"Status {resp.status_code}")
-    
+
     # Test queue status
     resp, err = test_api("GET", "/training/queue/status")
     if err:
@@ -273,7 +273,7 @@ def test_training_api(result: TestResult):
         result.add_pass("GET /training/queue/status", data)
     else:
         result.add_fail("GET /training/queue/status", f"Status {resp.status_code}")
-    
+
     # Test check resources (POST method)
     resp, err = test_api("POST", "/training/check-resources", data={"model_id": "test", "dataset_id": "test"})
     if err:
@@ -282,7 +282,7 @@ def test_training_api(result: TestResult):
         result.add_pass("POST /training/check-resources", f"Status {resp.status_code}")
     else:
         result.add_fail("POST /training/check-resources", f"Status {resp.status_code}")
-    
+
     # Test start training validation (should fail with missing params)
     resp, err = test_api("POST", "/training/start", data={})
     if err:
@@ -291,7 +291,7 @@ def test_training_api(result: TestResult):
         result.add_pass("POST /training/start (empty)", "Correctly validates params")
     else:
         result.add_fail("POST /training/start (empty)", f"Expected 422, got {resp.status_code}")
-    
+
     # Test stop training when idle
     resp, err = test_api("POST", "/training/stop")
     if err:
@@ -305,7 +305,7 @@ def test_training_api(result: TestResult):
 def test_inference_api(result: TestResult):
     """Test inference endpoints"""
     print("\n[6] Testing Inference API...")
-    
+
     # Test get backends
     resp, err = test_api("GET", "/inference/backends")
     if err:
@@ -315,7 +315,7 @@ def test_inference_api(result: TestResult):
         result.add_pass("GET /inference/backends", data)
     else:
         result.add_fail("GET /inference/backends", f"Status {resp.status_code}")
-    
+
     # Test get inference models
     resp, err = test_api("GET", "/inference/models")
     if err:
@@ -325,7 +325,7 @@ def test_inference_api(result: TestResult):
         result.add_pass("GET /inference/models", f"{len(data) if isinstance(data, list) else 0} models")
     else:
         result.add_fail("GET /inference/models", f"Status {resp.status_code}")
-    
+
     # Test ollama status
     resp, err = test_api("GET", "/inference/ollama/status")
     if err:
@@ -335,7 +335,7 @@ def test_inference_api(result: TestResult):
         result.add_pass("GET /inference/ollama/status", f"running={data.get('running', False)}")
     else:
         result.add_fail("GET /inference/ollama/status", f"Status {resp.status_code}")
-    
+
     # Test cache status
     resp, err = test_api("GET", "/inference/cache/status")
     if err:
@@ -345,7 +345,7 @@ def test_inference_api(result: TestResult):
         result.add_pass("GET /inference/cache/status", data)
     else:
         result.add_fail("GET /inference/cache/status", f"Status {resp.status_code}")
-    
+
     # Test merge status
     resp, err = test_api("GET", "/inference/merge/status")
     if err:
@@ -355,7 +355,7 @@ def test_inference_api(result: TestResult):
         result.add_pass("GET /inference/merge/status", data)
     else:
         result.add_fail("GET /inference/merge/status", f"Status {resp.status_code}")
-    
+
     # Test generate validation (empty prompt should fail)
     resp, err = test_api("POST", "/inference/generate", data={"model_id": "test", "prompt": ""})
     if err:
@@ -369,7 +369,7 @@ def test_inference_api(result: TestResult):
 def test_chat_history_api(result: TestResult):
     """Test chat history endpoints"""
     print("\n[7] Testing Chat History API...")
-    
+
     # Test get history
     resp, err = test_api("GET", "/chat/history")
     if err:
@@ -379,7 +379,7 @@ def test_chat_history_api(result: TestResult):
         result.add_pass("GET /chat/history", f"{len(data) if isinstance(data, list) else 0} sessions")
     else:
         result.add_fail("GET /chat/history", f"Status {resp.status_code}")
-    
+
     # Test get stats
     resp, err = test_api("GET", "/chat/stats")
     if err:
@@ -389,7 +389,7 @@ def test_chat_history_api(result: TestResult):
         result.add_pass("GET /chat/stats", data)
     else:
         result.add_fail("GET /chat/stats", f"Status {resp.status_code}")
-    
+
     # Test create session
     resp, err = test_api("POST", "/chat/session", data={"title": "Test Session", "model_id": "test"})
     if err:
@@ -398,7 +398,7 @@ def test_chat_history_api(result: TestResult):
         data = resp.json()
         session_id = data.get("id")
         result.add_pass("POST /chat/session", f"Created session: {session_id}")
-        
+
         # Test get session
         if session_id:
             resp2, err2 = test_api("GET", f"/chat/session/{session_id}")
@@ -408,7 +408,7 @@ def test_chat_history_api(result: TestResult):
                 result.add_pass("GET /chat/session/{id}", "Session retrieved")
             else:
                 result.add_fail("GET /chat/session/{id}", f"Status {resp2.status_code}")
-            
+
             # Test delete session
             resp3, err3 = test_api("DELETE", f"/chat/session/{session_id}")
             if err3:
@@ -424,7 +424,7 @@ def test_chat_history_api(result: TestResult):
 def test_rag_api(result: TestResult):
     """Test RAG knowledge base endpoints"""
     print("\n[8] Testing RAG API...")
-    
+
     # Test list collections
     resp, err = test_api("GET", "/rag/collections")
     if err:
@@ -439,7 +439,7 @@ def test_rag_api(result: TestResult):
 def test_context_api(result: TestResult):
     """Test project context endpoints"""
     print("\n[9] Testing Context API...")
-    
+
     # Test list projects
     resp, err = test_api("GET", "/context/projects")
     if err:
@@ -454,7 +454,7 @@ def test_context_api(result: TestResult):
 def test_agent_api(result: TestResult):
     """Test agent endpoints"""
     print("\n[10] Testing Agent API...")
-    
+
     # Test get capabilities
     resp, err = test_api("GET", "/agent/capabilities")
     if err:
@@ -464,7 +464,7 @@ def test_agent_api(result: TestResult):
         result.add_pass("GET /agent/capabilities", f"{len(data.get('actions', []))} actions")
     else:
         result.add_fail("GET /agent/capabilities", f"Status {resp.status_code}")
-    
+
     # Test audit stats
     resp, err = test_api("GET", "/agent/audit/stats")
     if err:
@@ -474,7 +474,7 @@ def test_agent_api(result: TestResult):
         result.add_pass("GET /agent/audit/stats", data)
     else:
         result.add_fail("GET /agent/audit/stats", f"Status {resp.status_code}")
-    
+
     # Test detect intent
     resp, err = test_api("POST", "/agent/detect-intent", data={"message": "Hello, how are you?"})
     if err:
@@ -489,7 +489,7 @@ def test_agent_api(result: TestResult):
 def test_skills_api(result: TestResult):
     """Test skills endpoints"""
     print("\n[11] Testing Skills API...")
-    
+
     # Test list skills
     resp, err = test_api("GET", "/skills")
     if err:
@@ -500,7 +500,7 @@ def test_skills_api(result: TestResult):
         result.add_pass("GET /skills", f"{len(skills)} skills")
     else:
         result.add_fail("GET /skills", f"Status {resp.status_code}")
-    
+
     # Test skills stats
     resp, err = test_api("GET", "/skills/stats")
     if err:
@@ -510,7 +510,7 @@ def test_skills_api(result: TestResult):
         result.add_pass("GET /skills/stats", data)
     else:
         result.add_fail("GET /skills/stats", f"Status {resp.status_code}")
-    
+
     # Test list categories
     resp, err = test_api("GET", "/skills/categories")
     if err:
@@ -525,7 +525,7 @@ def test_skills_api(result: TestResult):
 def test_workspace_api(result: TestResult):
     """Test workspace endpoints"""
     print("\n[12] Testing Workspace API...")
-    
+
     # Test list workspaces (correct path)
     resp, err = test_api("GET", "/workspace/workspaces")
     if err:
@@ -540,7 +540,7 @@ def test_workspace_api(result: TestResult):
 def test_memory_api(result: TestResult):
     """Test memory endpoints"""
     print("\n[13] Testing Memory API...")
-    
+
     # Test list memories (correct path)
     resp, err = test_api("GET", "/memory/list")
     if err:
@@ -550,7 +550,7 @@ def test_memory_api(result: TestResult):
         result.add_pass("GET /memory/list", data)
     else:
         result.add_fail("GET /memory/list", f"Status {resp.status_code}")
-    
+
     # Test memory stats
     resp, err = test_api("GET", "/memory/stats")
     if err:
@@ -565,7 +565,7 @@ def test_memory_api(result: TestResult):
 def test_sessions_api(result: TestResult):
     """Test sessions endpoints"""
     print("\n[14] Testing Sessions API...")
-    
+
     # Test list sessions
     resp, err = test_api("GET", "/sessions")
     if err:
@@ -580,7 +580,7 @@ def test_sessions_api(result: TestResult):
 def test_cloud_chat_api(result: TestResult):
     """Test cloud chat endpoints"""
     print("\n[15] Testing Cloud Chat API...")
-    
+
     # Test list providers
     resp, err = test_api("GET", "/cloud/providers")
     if err:
@@ -595,7 +595,7 @@ def test_cloud_chat_api(result: TestResult):
 def test_error_handling(result: TestResult):
     """Test error handling"""
     print("\n[16] Testing Error Handling...")
-    
+
     # Test 404 for non-existent endpoint
     resp, err = test_api("GET", "/nonexistent_endpoint_12345")
     if err:
@@ -604,7 +604,7 @@ def test_error_handling(result: TestResult):
         result.add_pass("GET /nonexistent (404 test)", "Correctly returns 404")
     else:
         result.add_fail("GET /nonexistent (404 test)", f"Expected 404, got {resp.status_code}")
-    
+
     # Test invalid JSON
     try:
         resp = requests.post(f"{BASE_URL}/training/start", data="invalid json", timeout=10)
@@ -622,9 +622,9 @@ def main():
     print(f"Started: {datetime.now().isoformat()}")
     print(f"Base URL: {BASE_URL}")
     print("="*60)
-    
+
     result = TestResult()
-    
+
     try:
         test_root_and_health(result)
         test_device_api(result)
@@ -646,9 +646,9 @@ def main():
         print("\n\nTest interrupted by user")
     except Exception as e:
         print(f"\n\nTest suite error: {e}")
-    
+
     success = result.summary()
-    
+
     # Save report
     report = {
         "timestamp": datetime.now().isoformat(),
@@ -661,12 +661,12 @@ def main():
         },
         "results": result.results
     }
-    
+
     report_path = "test_report.json"
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
     print(f"\nReport saved to: {report_path}")
-    
+
     return 0 if success else 1
 
 

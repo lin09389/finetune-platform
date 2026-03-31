@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import os
 
 files_to_check = [
@@ -11,7 +10,7 @@ files_to_check = [
 for filepath in files_to_check:
     print(f"\n=== Checking {os.path.basename(filepath)} ===")
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, encoding='utf-8') as f:
             content = f.read()
         print(f"OK: File size {len(content)} chars")
     except UnicodeDecodeError as e:

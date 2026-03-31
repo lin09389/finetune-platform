@@ -1,48 +1,44 @@
 """
 Agent Module - Computer Operation Capabilities
 """
-from .config import AgentConfig, ALLOWED_APPS, FORBIDDEN_PATTERNS, ActionType
-
+from .config import ALLOWED_APPS, FORBIDDEN_PATTERNS, ActionType, AgentConfig
+from .core.container import DIContainer
+from .core.engine import QueueManager, UnifiedExecutor
+from .core.feedback import ProgressTracker, ResultFormatter
+from .core.parser import NLPParser, ParamExtractor
+from .core.registry import ModuleRegistry
+from .core.types import (
+    ErrorCode,
+    ErrorResult,
+    ExecutionResult,
+    ExecutionStatus,
+    FormattedResult,
+    IntentType,
+    ModuleInfo,
+    ParseResult,
+    PermissionLevel,
+    PermissionResult,
+    ProgressInfo,
+    ValidationResult,
+)
 from .security import (
     Permission,
-    Role,
     RBACManager,
-    get_rbac_manager,
-    require_permission,
-    require_role,
-    require_admin,
-    check_permission,
+    RiskAlertManager,
+    RiskScorer,
+    Role,
     SensitiveOperationClassifier,
+    VerificationAPI,
     VerificationSession,
     VerificationSessionManager,
-    VerificationAPI,
-    get_verification_api,
-    RiskScorer,
-    RiskAlertManager,
+    check_permission,
     get_alert_manager,
+    get_rbac_manager,
+    get_verification_api,
+    require_admin,
+    require_permission,
+    require_role,
 )
-
-from .core.types import (
-    IntentType,
-    PermissionLevel,
-    ExecutionStatus,
-    ErrorCode,
-    ParseResult,
-    PermissionResult,
-    ValidationResult,
-    ExecutionResult,
-    FormattedResult,
-    ErrorResult,
-    ProgressInfo,
-    ModuleInfo,
-)
-
-from .core.container import DIContainer
-from .core.registry import ModuleRegistry
-
-from .core.parser import NLPParser, ParamExtractor
-from .core.engine import UnifiedExecutor, QueueManager
-from .core.feedback import ResultFormatter, ProgressTracker
 
 __all__ = [
     "AgentConfig",

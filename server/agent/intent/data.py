@@ -3,24 +3,23 @@
 包含完整的意图样本、参数模板和权重配置
 支持多意图、口语化表达、模糊表达
 """
-from typing import Dict, List, Any
 from dataclasses import dataclass, field
-import json
+from typing import Any
 
 
 @dataclass
 class IntentSample:
     """意图样本"""
     text: str
-    params_template: Dict[str, Any] = field(default_factory=dict)
+    params_template: dict[str, Any] = field(default_factory=dict)
     confidence_base: float = 0.8
-    keywords: List[str] = field(default_factory=list)
-    context_hints: List[str] = field(default_factory=list)
+    keywords: list[str] = field(default_factory=list)
+    context_hints: list[str] = field(default_factory=list)
     is_colloquial: bool = False
     is_negative: bool = False
 
 
-INTENT_TRAINING_DATA: Dict[str, Dict[str, Any]] = {
+INTENT_TRAINING_DATA: dict[str, dict[str, Any]] = {
     "file_create": {
         "samples": [
             IntentSample("创建一个新文件", {"file_path": ""}, 0.85, ["创建", "新文件"]),
@@ -208,7 +207,7 @@ INTENT_TRAINING_DATA: Dict[str, Dict[str, Any]] = {
 }
 
 
-def get_intent_samples(intent_name: str) -> List[IntentSample]:
+def get_intent_samples(intent_name: str) -> list[IntentSample]:
     """获取指定意图的样本列表"""
     intent_data = INTENT_TRAINING_DATA.get(intent_name, {})
     samples = intent_data.get("samples", [])
@@ -216,7 +215,7 @@ def get_intent_samples(intent_name: str) -> List[IntentSample]:
     return samples
 
 
-def get_all_samples() -> List[tuple]:
+def get_all_samples() -> list[tuple]:
     """获取所有意图样本"""
     all_samples = []
     for intent_name, data in INTENT_TRAINING_DATA.items():
@@ -227,18 +226,18 @@ def get_all_samples() -> List[tuple]:
     return all_samples
 
 
-def get_keywords_weight(intent_name: str) -> Dict[str, float]:
+def get_keywords_weight(intent_name: str) -> dict[str, float]:
     """获取意图的关键词权重"""
     intent_data = INTENT_TRAINING_DATA.get(intent_name, {})
     return intent_data.get("keywords_weight", {})
 
 
-def get_params_extractors(intent_name: str) -> Dict[str, str]:
+def get_params_extractors(intent_name: str) -> dict[str, str]:
     """获取意图的参数提取器"""
     intent_data = INTENT_TRAINING_DATA.get(intent_name, {})
     return intent_data.get("params_extractors", {})
 
 
-def get_all_intent_names() -> List[str]:
+def get_all_intent_names() -> list[str]:
     """获取所有意图名称"""
     return list(INTENT_TRAINING_DATA.keys())

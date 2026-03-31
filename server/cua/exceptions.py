@@ -1,12 +1,10 @@
-# -*- coding: utf-8 -*-
 """
 CUA 模块异常定义
 """
-from typing import Optional
 
 
 class CUAError(Exception):
-    def __init__(self, message: str, details: Optional[str] = None):
+    def __init__(self, message: str, details: str | None = None):
         self.message = message
         self.details = details
         super().__init__(self.message)
@@ -18,7 +16,7 @@ class CUAError(Exception):
 
 
 class MouseOperationError(CUAError):
-    def __init__(self, message: str, operation: Optional[str] = None, details: Optional[str] = None):
+    def __init__(self, message: str, operation: str | None = None, details: str | None = None):
         self.operation = operation
         super().__init__(message, details)
 
@@ -50,7 +48,7 @@ class CoordinateOutOfRangeError(MouseOperationError):
 
 
 class KeyboardOperationError(CUAError):
-    def __init__(self, message: str, operation: Optional[str] = None, details: Optional[str] = None):
+    def __init__(self, message: str, operation: str | None = None, details: str | None = None):
         self.operation = operation
         super().__init__(message, details)
 
@@ -64,7 +62,7 @@ class KeyboardOperationError(CUAError):
 
 
 class ScreenOperationError(CUAError):
-    def __init__(self, message: str, operation: Optional[str] = None, details: Optional[str] = None):
+    def __init__(self, message: str, operation: str | None = None, details: str | None = None):
         self.operation = operation
         super().__init__(message, details)
 
@@ -78,7 +76,7 @@ class ScreenOperationError(CUAError):
 
 
 class ScreenshotError(ScreenOperationError):
-    def __init__(self, message: str, original_error: Optional[Exception] = None):
+    def __init__(self, message: str, original_error: Exception | None = None):
         details = str(original_error) if original_error else None
         super().__init__(message, operation="screenshot", details=details)
 
@@ -93,7 +91,7 @@ class MonitorNotFoundError(ScreenOperationError):
 
 
 class WindowOperationError(CUAError):
-    def __init__(self, message: str, operation: Optional[str] = None, details: Optional[str] = None):
+    def __init__(self, message: str, operation: str | None = None, details: str | None = None):
         self.operation = operation
         super().__init__(message, details)
 
@@ -107,7 +105,7 @@ class WindowOperationError(CUAError):
 
 
 class WindowNotFoundError(WindowOperationError):
-    def __init__(self, window_id: str, details: Optional[str] = None):
+    def __init__(self, window_id: str, details: str | None = None):
         super().__init__(
             message=f"Window not found: {window_id}",
             operation="window_lookup",
@@ -116,7 +114,7 @@ class WindowNotFoundError(WindowOperationError):
 
 
 class PermissionDeniedError(CUAError):
-    def __init__(self, message: str, operation: Optional[str] = None, required_level: Optional[str] = None):
+    def __init__(self, message: str, operation: str | None = None, required_level: str | None = None):
         self.operation = operation
         self.required_level = required_level
         super().__init__(message, details=required_level)
@@ -131,7 +129,7 @@ class PermissionDeniedError(CUAError):
 
 
 class RateLimitExceededError(CUAError):
-    def __init__(self, message: str, operation: Optional[str] = None, retry_after: Optional[int] = None):
+    def __init__(self, message: str, operation: str | None = None, retry_after: int | None = None):
         self.operation = operation
         self.retry_after = retry_after
         super().__init__(message, details=f"重试等待: {retry_after}秒" if retry_after else None)
@@ -151,7 +149,7 @@ class EmergencyStopError(CUAError):
 
 
 class OCRError(CUAError):
-    def __init__(self, message: str, operation: Optional[str] = None, details: Optional[str] = None):
+    def __init__(self, message: str, operation: str | None = None, details: str | None = None):
         self.operation = operation
         super().__init__(message, details)
 
@@ -165,7 +163,7 @@ class OCRError(CUAError):
 
 
 class TesseractNotInstalledError(OCRError):
-    def __init__(self, details: Optional[str] = None):
+    def __init__(self, details: str | None = None):
         super().__init__(
             message="Tesseract OCR 未安装或未配置",
             operation="tesseract_check",
@@ -174,13 +172,13 @@ class TesseractNotInstalledError(OCRError):
 
 
 class OCRProcessingError(OCRError):
-    def __init__(self, message: str, original_error: Optional[Exception] = None):
+    def __init__(self, message: str, original_error: Exception | None = None):
         details = str(original_error) if original_error else None
         super().__init__(message, operation="ocr_processing", details=details)
 
 
 class TextNotFoundError(OCRError):
-    def __init__(self, text: str, details: Optional[str] = None):
+    def __init__(self, text: str, details: str | None = None):
         super().__init__(
             message=f"未找到文本: {text}",
             operation="text_search",
@@ -189,7 +187,7 @@ class TextNotFoundError(OCRError):
 
 
 class VisionError(CUAError):
-    def __init__(self, message: str, operation: Optional[str] = None, details: Optional[str] = None):
+    def __init__(self, message: str, operation: str | None = None, details: str | None = None):
         self.operation = operation
         super().__init__(message, details)
 

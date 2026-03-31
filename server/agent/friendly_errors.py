@@ -2,9 +2,9 @@
 友好错误信息模块
 提供用户友好的错误消息和解决建议
 """
-from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 
 class ErrorCategory(str, Enum):
@@ -33,15 +33,15 @@ class FriendlyError:
     category: ErrorCategory
     title: str
     message: str
-    solutions: List[str]
-    related_commands: List[str] = None
-    
+    solutions: list[str]
+    related_commands: list[str] = None
+
     def __post_init__(self):
         if self.related_commands is None:
             self.related_commands = []
 
 
-ERROR_SOLUTIONS: Dict[str, FriendlyError] = {
+ERROR_SOLUTIONS: dict[str, FriendlyError] = {
     "file_not_found": FriendlyError(
         code="FILE_001",
         category=ErrorCategory.FILE_NOT_FOUND,
@@ -55,7 +55,7 @@ ERROR_SOLUTIONS: Dict[str, FriendlyError] = {
         ],
         related_commands=["列出当前目录", "创建文件"]
     ),
-    
+
     "file_access_denied": FriendlyError(
         code="FILE_002",
         category=ErrorCategory.FILE_ACCESS_DENIED,
@@ -67,7 +67,7 @@ ERROR_SOLUTIONS: Dict[str, FriendlyError] = {
             "尝试关闭可能占用该文件的应用程序"
         ]
     ),
-    
+
     "file_too_large": FriendlyError(
         code="FILE_003",
         category=ErrorCategory.FILE_TOO_LARGE,
@@ -79,7 +79,7 @@ ERROR_SOLUTIONS: Dict[str, FriendlyError] = {
             "如果是文本文件，可以分段读取"
         ]
     ),
-    
+
     "file_already_exists": FriendlyError(
         code="FILE_004",
         category=ErrorCategory.FILE_ALREADY_EXISTS,
@@ -92,7 +92,7 @@ ERROR_SOLUTIONS: Dict[str, FriendlyError] = {
         ],
         related_commands=["删除文件", "读取文件"]
     ),
-    
+
     "invalid_path": FriendlyError(
         code="PATH_001",
         category=ErrorCategory.INVALID_PATH,
@@ -104,7 +104,7 @@ ERROR_SOLUTIONS: Dict[str, FriendlyError] = {
             "相对路径示例: ./folder/file.txt 或 folder/file.txt"
         ]
     ),
-    
+
     "unsafe_path": FriendlyError(
         code="SAFE_001",
         category=ErrorCategory.UNSAFE_PATH,
@@ -119,7 +119,7 @@ ERROR_SOLUTIONS: Dict[str, FriendlyError] = {
             "请将文件移动到以上位置后再操作"
         ]
     ),
-    
+
     "unsafe_operation": FriendlyError(
         code="SAFE_002",
         category=ErrorCategory.UNSAFE_OPERATION,
@@ -131,7 +131,7 @@ ERROR_SOLUTIONS: Dict[str, FriendlyError] = {
             "如不需要，可以取消操作"
         ]
     ),
-    
+
     "operation_denied": FriendlyError(
         code="SAFE_003",
         category=ErrorCategory.OPERATION_DENIED,
@@ -143,7 +143,7 @@ ERROR_SOLUTIONS: Dict[str, FriendlyError] = {
             "您可以使用其他替代操作"
         ]
     ),
-    
+
     "operation_failed": FriendlyError(
         code="OP_001",
         category=ErrorCategory.OPERATION_FAILED,
@@ -155,7 +155,7 @@ ERROR_SOLUTIONS: Dict[str, FriendlyError] = {
             "如果问题持续，请联系技术支持"
         ]
     ),
-    
+
     "invalid_input": FriendlyError(
         code="INPUT_001",
         category=ErrorCategory.INVALID_INPUT,
@@ -167,7 +167,7 @@ ERROR_SOLUTIONS: Dict[str, FriendlyError] = {
             "使用'帮助'命令查看正确用法"
         ]
     ),
-    
+
     "missing_parameter": FriendlyError(
         code="INPUT_002",
         category=ErrorCategory.MISSING_PARAMETER,
@@ -179,7 +179,7 @@ ERROR_SOLUTIONS: Dict[str, FriendlyError] = {
             "例如: '读取 test.txt' 而不是 '读取'"
         ]
     ),
-    
+
     "timeout": FriendlyError(
         code="TIME_001",
         category=ErrorCategory.TIMEOUT,
@@ -191,7 +191,7 @@ ERROR_SOLUTIONS: Dict[str, FriendlyError] = {
             "如果是大文件操作，请耐心等待"
         ]
     ),
-    
+
     "resource_busy": FriendlyError(
         code="RES_001",
         category=ErrorCategory.RESOURCE_BUSY,
@@ -203,7 +203,7 @@ ERROR_SOLUTIONS: Dict[str, FriendlyError] = {
             "检查是否有重复的操作请求"
         ]
     ),
-    
+
     "permission_denied": FriendlyError(
         code="PERM_001",
         category=ErrorCategory.PERMISSION_DENIED,
@@ -215,7 +215,7 @@ ERROR_SOLUTIONS: Dict[str, FriendlyError] = {
             "尝试使用其他操作方式"
         ]
     ),
-    
+
     "unknown_error": FriendlyError(
         code="UNK_001",
         category=ErrorCategory.UNKNOWN_ERROR,
@@ -230,7 +230,7 @@ ERROR_SOLUTIONS: Dict[str, FriendlyError] = {
 }
 
 
-def get_friendly_error(error_key: str, context: Dict[str, Any] = None) -> FriendlyError:
+def get_friendly_error(error_key: str, context: dict[str, Any] = None) -> FriendlyError:
     """
     获取友好错误信息
     
@@ -242,13 +242,13 @@ def get_friendly_error(error_key: str, context: Dict[str, Any] = None) -> Friend
         FriendlyError: 友好错误信息
     """
     context = context or {}
-    
+
     error = ERROR_SOLUTIONS.get(error_key, ERROR_SOLUTIONS["unknown_error"])
-    
+
     return error
 
 
-def format_error_message(error_key: str, details: str = None, context: Dict[str, Any] = None) -> str:
+def format_error_message(error_key: str, details: str = None, context: dict[str, Any] = None) -> str:
     """
     格式化错误消息
     
@@ -261,23 +261,23 @@ def format_error_message(error_key: str, details: str = None, context: Dict[str,
         str: 格式化后的错误消息
     """
     error = get_friendly_error(error_key, context)
-    
+
     lines = [f"❌ {error.title}", "", error.message]
-    
+
     if details:
-        lines.append(f"")
+        lines.append("")
         lines.append(f"详情: {details}")
-    
+
     if error.solutions:
         lines.append("")
         lines.append("💡 建议:")
         for i, solution in enumerate(error.solutions, 1):
             lines.append(f"  {i}. {solution}")
-    
+
     if error.related_commands:
         lines.append("")
         lines.append("📌 相关命令: " + " | ".join(error.related_commands))
-    
+
     return "\n".join(lines)
 
 
@@ -292,7 +292,7 @@ def categorize_error(error_message: str) -> str:
         str: 错误键
     """
     error_lower = error_message.lower()
-    
+
     if "not found" in error_lower or "不存在" in error_lower or "no such file" in error_lower:
         return "file_not_found"
     if "permission" in error_lower or "权限" in error_lower or "access denied" in error_lower:
@@ -311,16 +311,16 @@ def categorize_error(error_message: str) -> str:
         return "resource_busy"
     if "denied" in error_lower or "禁止" in error_lower:
         return "operation_denied"
-    
+
     return "unknown_error"
 
 
 def create_error_response(
     error_key: str,
     details: str = None,
-    context: Dict[str, Any] = None,
+    context: dict[str, Any] = None,
     include_suggestions: bool = True
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     创建错误响应
     
@@ -334,7 +334,7 @@ def create_error_response(
         Dict: 错误响应
     """
     error = get_friendly_error(error_key, context)
-    
+
     response = {
         "success": False,
         "error": {
@@ -344,14 +344,14 @@ def create_error_response(
             "message": error.message,
         }
     }
-    
+
     if details:
         response["error"]["details"] = details
-    
+
     if include_suggestions and error.solutions:
         response["suggestions"] = error.solutions
-    
+
     if error.related_commands:
         response["related_commands"] = error.related_commands
-    
+
     return response

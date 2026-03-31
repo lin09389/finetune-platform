@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 FastAPI 安全中间件 - 速率限制和 JWT 认证
 
@@ -7,16 +6,15 @@ FastAPI 安全中间件 - 速率限制和 JWT 认证
 - JWT 认证中间件
 - 组合安全中间件
 """
-from fastapi import Request, Response, HTTPException, Depends, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import logging
+
+from fastapi import Depends, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
-from typing import Optional, Dict, List, Set
-import logging
-import time
 
-from .rate_limiter import get_rate_limiter, RateLimiter
-from .jwt_auth import get_jwt_auth, JWTAuth, TokenPayload, Role
+from .jwt_auth import JWTAuth, Role, TokenPayload, get_jwt_auth
+from .rate_limiter import RateLimiter, get_rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +27,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(
         self,
         app: ASGIApp,
-        limiter: Optional[RateLimiter] = None,
+        limiter: RateLimiter | None = None,
         enabled: bool = True,
-        whitelist_ips: Optional[Set[str]] = None
+        whitelist_ips: set[str] | None = None
     ):
         super().__init__(app)
         self.limiter = limiter or get_rate_limiter()
@@ -110,11 +108,11 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
     def __init__(
         self,
         app: ASGIApp,
-        auth: Optional[JWTAuth] = None,
+        auth: JWTAuth | None = None,
         enabled: bool = True,
-        exclude_paths: Optional[Set[str]] = None,
-        exclude_prefixes: Optional[Set[str]] = None,
-        required_role: Optional[Role] = None
+        exclude_paths: set[str] | None = None,
+        exclude_prefixes: set[str] | None = None,
+        required_role: Role | None = None
     ):
         super().__init__(app)
         self.auth = auth or get_jwt_auth()
@@ -190,10 +188,10 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         enabled: bool = True,
         rate_limit_enabled: bool = True,
         jwt_enabled: bool = True,
-        jwt_exclude_paths: Optional[Set[str]] = None,
-        jwt_exclude_prefixes: Optional[Set[str]] = None,
-        rate_limit_whitelist_ips: Optional[Set[str]] = None,
-        required_role: Optional[Role] = None
+        jwt_exclude_paths: set[str] | None = None,
+        jwt_exclude_prefixes: set[str] | None = None,
+        rate_limit_whitelist_ips: set[str] | None = None,
+        required_role: Role | None = None
     ):
         super().__init__(app)
         self.enabled = enabled
@@ -263,7 +261,7 @@ async def get_current_user(
 
 async def get_current_user_optional(
     credentials: HTTPAuthorizationCredentials = Depends(security)
-) -> Optional[TokenPayload]:
+) -> TokenPayload | None:
     if not credentials:
         return None
 

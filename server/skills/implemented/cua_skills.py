@@ -1,9 +1,22 @@
-# -*- coding: utf-8 -*-
 """
 CUA (Computer Use Agent) 基础技能
 """
-from typing import Any, Dict, List, Optional
 
+from cua import (
+    CUAError,
+    KeyboardOperationError,
+    MouseButton,
+    MouseOperationError,
+    OCRError,
+    Region,
+    ScreenshotError,
+    WindowOperationError,
+)
+from cua.keyboard import KeyboardController
+from cua.mouse import MouseController
+from cua.ocr import OCRRecognizer
+from cua.screen import ScreenCapture
+from cua.window import WindowManager
 from skills.base import SkillBase
 from skills.models import (
     SkillCategory,
@@ -12,21 +25,6 @@ from skills.models import (
     SkillParameterType,
     SkillResult,
 )
-from cua import (
-    Region,
-    MouseButton,
-    CUAError,
-    ScreenshotError,
-    MouseOperationError,
-    KeyboardOperationError,
-    WindowOperationError,
-    OCRError,
-)
-from cua.screen import ScreenCapture
-from cua.mouse import MouseController
-from cua.keyboard import KeyboardController
-from cua.window import WindowManager
-from cua.ocr import OCRRecognizer
 
 
 class ScreenshotSkill(SkillBase):
@@ -564,8 +562,9 @@ class FindTextSkill(SkillBase):
             screen_capture = ScreenCapture()
             screenshot_result = await screen_capture.capture_screen_async()
 
-            from PIL import Image
             import io
+
+            from PIL import Image
 
             image = Image.open(io.BytesIO(screenshot_result.image_data))
 
@@ -630,7 +629,7 @@ class FindTextSkill(SkillBase):
             )
 
 
-CUA_SKILLS: List[type] = [
+CUA_SKILLS: list[type] = [
     ScreenshotSkill,
     MouseClickSkill,
     MouseMoveSkill,

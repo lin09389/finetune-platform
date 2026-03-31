@@ -119,8 +119,11 @@ export const memoryApi = {
   }> => {
     const params = new URLSearchParams({ user_id: userId, limit: String(limit) })
     if (memoryType) params.append('memory_type', memoryType)
-    const response = await axios.get(`${API_BASE}/list?${params}`)
-    return response.data
+    const response = await axios.get(`${API_BASE}/?${params}`)
+    return {
+      memories: response.data.memories || [],
+      count: response.data.total || 0
+    }
   },
 
   deleteMemory: async (memoryId: string, userId = 'default'): Promise<boolean> => {
@@ -129,7 +132,7 @@ export const memoryApi = {
   },
 
   clearAll: async (userId = 'default'): Promise<boolean> => {
-    const response = await axios.delete(`${API_BASE}/clear/all?user_id=${userId}`)
+    const response = await axios.delete(`${API_BASE}/clear?user_id=${userId}`)
     return response.data.success
   },
 
@@ -154,8 +157,8 @@ export const memoryApi = {
     knowledge_graph: GraphStats
     short_term_memory: SessionSummary
   }> => {
-    const response = await axios.get(`${API_BASE}/stats?user_id=${userId}`)
-    return response.data.stats
+    const response = await axios.get(`${API_BASE}/stats/summary?user_id=${userId}`)
+    return response.data
   },
 
   exportState: async (userId = 'default'): Promise<Record<string, unknown>> => {

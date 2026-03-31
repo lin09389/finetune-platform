@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 增强版技能注册表
 
@@ -13,10 +12,11 @@
 import asyncio
 import threading
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set, Type, Union
+from typing import Any, Optional
 
 from .base import SkillBase
 from .models import (
@@ -41,18 +41,18 @@ class SkillRegistrationStatus(str, Enum):
 @dataclass
 class SkillRegistration:
     """技能注册信息"""
-    skill_class: Type[SkillBase]
-    instance: Optional[SkillBase] = None
-    metadata: Optional[SkillMetadata] = None
+    skill_class: type[SkillBase]
+    instance: SkillBase | None = None
+    metadata: SkillMetadata | None = None
     status: SkillRegistrationStatus = SkillRegistrationStatus.REGISTERED
     load_status: SkillLoadStatus = SkillLoadStatus.PENDING
     registered_at: datetime = field(default_factory=datetime.now)
-    last_used_at: Optional[datetime] = None
+    last_used_at: datetime | None = None
     use_count: int = 0
     error_count: int = 0
-    last_error: Optional[str] = None
-    file_path: Optional[str] = None
-    file_hash: Optional[str] = None
+    last_error: str | None = None
+    file_path: str | None = None
+    file_hash: str | None = None
     version: str = "1.0.0"
 
 
@@ -60,8 +60,8 @@ class SkillRegistration:
 class DependencyNode:
     """依赖节点"""
     skill_name: str
-    dependencies: Set[str] = field(default_factory=set)
-    dependents: Set[str] = field(default_factory=set)
+    dependencies: set[str] = field(default_factory=set)
+    dependents: set[str] = field(default_factory=set)
 
 
 class EnhancedSkillRegistry:
@@ -74,15 +74,15 @@ class EnhancedSkillRegistry:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._lock = threading.RLock()
-            cls._instance._registrations: Dict[str, SkillRegistration] = {}
-            cls._instance._dependency_graph: Dict[str, DependencyNode] = {}
-            cls._instance._executions: Dict[str, SkillExecution] = {}
-            cls._instance._execution_tasks: Dict[str, asyncio.Task] = {}
-            cls._instance._status_callbacks: List[Callable[[str, SkillRegistrationStatus], None]] = []
-            cls._instance._execution_callbacks: List[Callable[[SkillExecution], None]] = []
-            cls._instance._category_index: Dict[SkillCategory, Set[str]] = defaultdict(set)
-            cls._instance._tag_index: Dict[str, Set[str]] = defaultdict(set)
-            cls._instance._author_index: Dict[str, Set[str]] = defaultdict(set)
+            cls._instance._registrations: dict[str, SkillRegistration] = {}
+            cls._instance._dependency_graph: dict[str, DependencyNode] = {}
+            cls._instance._executions: dict[str, SkillExecution] = {}
+            cls._instance._execution_tasks: dict[str, asyncio.Task] = {}
+            cls._instance._status_callbacks: list[Callable[[str, SkillRegistrationStatus], None]] = []
+            cls._instance._execution_callbacks: list[Callable[[SkillExecution], None]] = []
+            cls._instance._category_index: dict[SkillCategory, set[str]] = defaultdict(set)
+            cls._instance._tag_index: dict[str, set[str]] = defaultdict(set)
+            cls._instance._author_index: dict[str, set[str]] = defaultdict(set)
         return cls._instance
 
     @classmethod
@@ -92,10 +92,10 @@ class EnhancedSkillRegistry:
 
     def register(
         self,
-        skill_class: Type[SkillBase],
-        file_path: Optional[str] = None,
-        file_hash: Optional[str] = None,
-        scan_result: Optional[SkillScanResult] = None,
+        skill_class: type[SkillBase],
+        file_path: str | None = None,
+        file_hash: str | None = None,
+        scan_result: SkillScanResult | None = None,
     ) -> bool:
         """注册技能"""
         with self._lock:
@@ -141,7 +141,7 @@ class EnhancedSkillRegistry:
 
                 return True
 
-            except Exception as e:
+            except Exception:
                 return False
 
     def unregister(self, name: str, force: bool = False) -> bool:
@@ -178,7 +178,7 @@ class EnhancedSkillRegistry:
 
             return True
 
-    def reload(self, name: str, skill_class: Type[SkillBase]) -> bool:
+    def reload(self, name: str, skill_class: type[SkillBase]) -> bool:
         """重载技能"""
         with self._lock:
             if name not in self._registrations:
@@ -213,7 +213,7 @@ class EnhancedSkillRegistry:
                 old_registration.last_error = str(e)
                 return False
 
-    def get_skill(self, name: str) -> Optional[SkillBase]:
+    def get_skill(self, name: str) -> SkillBase | None:
         """获取技能实例"""
         with self._lock:
             registration = self._registrations.get(name)
@@ -223,19 +223,19 @@ class EnhancedSkillRegistry:
                 return registration.instance
             return None
 
-    def get_skill_class(self, name: str) -> Optional[Type[SkillBase]]:
+    def get_skill_class(self, name: str) -> type[SkillBase] | None:
         """获取技能类"""
         with self._lock:
             registration = self._registrations.get(name)
             return registration.skill_class if registration else None
 
-    def get_metadata(self, name: str) -> Optional[SkillMetadata]:
+    def get_metadata(self, name: str) -> SkillMetadata | None:
         """获取技能元数据"""
         with self._lock:
             registration = self._registrations.get(name)
             return registration.metadata if registration else None
 
-    def get_registration(self, name: str) -> Optional[SkillRegistration]:
+    def get_registration(self, name: str) -> SkillRegistration | None:
         """获取注册信息"""
         with self._lock:
             return self._registrations.get(name)
@@ -244,34 +244,34 @@ class EnhancedSkillRegistry:
         """检查技能是否存在"""
         return name in self._registrations
 
-    def list_skills(self) -> List[str]:
+    def list_skills(self) -> list[str]:
         """列出所有技能名称"""
         with self._lock:
             return list(self._registrations.keys())
 
-    def list_skills_by_category(self, category: SkillCategory) -> List[str]:
+    def list_skills_by_category(self, category: SkillCategory) -> list[str]:
         """按类别列出技能"""
         with self._lock:
             return list(self._category_index.get(category, set()))
 
-    def list_skills_by_tag(self, tag: str) -> List[str]:
+    def list_skills_by_tag(self, tag: str) -> list[str]:
         """按标签列出技能"""
         with self._lock:
             return list(self._tag_index.get(tag, set()))
 
-    def list_skills_by_author(self, author: str) -> List[str]:
+    def list_skills_by_author(self, author: str) -> list[str]:
         """按作者列出技能"""
         with self._lock:
             return list(self._author_index.get(author, set()))
 
     def search_skills(
         self,
-        query: Optional[str] = None,
-        category: Optional[SkillCategory] = None,
-        tags: Optional[List[str]] = None,
-        author: Optional[str] = None,
+        query: str | None = None,
+        category: SkillCategory | None = None,
+        tags: list[str] | None = None,
+        author: str | None = None,
         enabled_only: bool = True,
-    ) -> List[str]:
+    ) -> list[str]:
         """搜索技能"""
         with self._lock:
             results = set(self._registrations.keys())
@@ -310,7 +310,7 @@ class EnhancedSkillRegistry:
 
             return list(results)
 
-    def get_all_metadata(self) -> Dict[str, SkillMetadata]:
+    def get_all_metadata(self) -> dict[str, SkillMetadata]:
         """获取所有技能元数据"""
         with self._lock:
             return {
@@ -319,7 +319,7 @@ class EnhancedSkillRegistry:
                 if reg.metadata
             }
 
-    def _update_dependency_graph(self, skill_name: str, dependencies: List[str]):
+    def _update_dependency_graph(self, skill_name: str, dependencies: list[str]):
         """更新依赖图"""
         if skill_name not in self._dependency_graph:
             self._dependency_graph[skill_name] = DependencyNode(skill_name)
@@ -354,17 +354,17 @@ class EnhancedSkillRegistry:
 
         del self._dependency_graph[skill_name]
 
-    def get_dependencies(self, skill_name: str) -> Set[str]:
+    def get_dependencies(self, skill_name: str) -> set[str]:
         """获取技能依赖"""
         node = self._dependency_graph.get(skill_name)
         return node.dependencies.copy() if node else set()
 
-    def get_dependents(self, skill_name: str) -> Set[str]:
+    def get_dependents(self, skill_name: str) -> set[str]:
         """获取依赖此技能的其他技能"""
         node = self._dependency_graph.get(skill_name)
         return node.dependents.copy() if node else set()
 
-    def check_dependencies(self, skill_name: str) -> Dict[str, Any]:
+    def check_dependencies(self, skill_name: str) -> dict[str, Any]:
         """检查依赖状态"""
         dependencies = self.get_dependencies(skill_name)
         missing = []
@@ -384,7 +384,7 @@ class EnhancedSkillRegistry:
             "total": len(dependencies),
         }
 
-    def get_load_order(self, skill_names: Optional[List[str]] = None) -> List[str]:
+    def get_load_order(self, skill_names: list[str] | None = None) -> list[str]:
         """获取加载顺序（拓扑排序）"""
         if skill_names is None:
             skill_names = list(self._registrations.keys())
@@ -417,7 +417,7 @@ class EnhancedSkillRegistry:
 
         return order
 
-    def get_unload_order(self, skill_names: Optional[List[str]] = None) -> List[str]:
+    def get_unload_order(self, skill_names: list[str] | None = None) -> list[str]:
         """获取卸载顺序（反向拓扑排序）"""
         load_order = self.get_load_order(skill_names)
         return list(reversed(load_order))
@@ -425,10 +425,10 @@ class EnhancedSkillRegistry:
     async def execute(
         self,
         name: str,
-        parameters: Dict[str, Any],
-        execution_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-        session_id: Optional[str] = None,
+        parameters: dict[str, Any],
+        execution_id: str | None = None,
+        user_id: str | None = None,
+        session_id: str | None = None,
         priority: SkillPriority = SkillPriority.NORMAL,
     ) -> SkillExecution:
         """执行技能"""
@@ -482,17 +482,17 @@ class EnhancedSkillRegistry:
 
         return execution
 
-    def get_execution(self, execution_id: str) -> Optional[SkillExecution]:
+    def get_execution(self, execution_id: str) -> SkillExecution | None:
         """获取执行记录"""
         return self._executions.get(execution_id)
 
     def list_executions(
         self,
-        skill_name: Optional[str] = None,
-        status: Optional[SkillStatus] = None,
-        user_id: Optional[str] = None,
+        skill_name: str | None = None,
+        status: SkillStatus | None = None,
+        user_id: str | None = None,
         limit: int = 100,
-    ) -> List[SkillExecution]:
+    ) -> list[SkillExecution]:
         """列出执行记录"""
         results = []
         for execution in self._executions.values():
@@ -538,7 +538,7 @@ class EnhancedSkillRegistry:
                 return True
             return False
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """获取统计信息"""
         with self._lock:
             total_skills = len(self._registrations)
@@ -567,7 +567,7 @@ class EnhancedSkillRegistry:
                 "author_count": len(self._author_index),
             }
 
-    def get_skill_stats(self, name: str) -> Optional[Dict[str, Any]]:
+    def get_skill_stats(self, name: str) -> dict[str, Any] | None:
         """获取单个技能统计"""
         with self._lock:
             registration = self._registrations.get(name)
@@ -645,10 +645,10 @@ def get_enhanced_registry() -> EnhancedSkillRegistry:
 
 
 def register_skill_enhanced(
-    skill_class: Type[SkillBase],
-    file_path: Optional[str] = None,
-    file_hash: Optional[str] = None,
-) -> Type[SkillBase]:
+    skill_class: type[SkillBase],
+    file_path: str | None = None,
+    file_hash: str | None = None,
+) -> type[SkillBase]:
     """装饰器：自动注册技能到增强版注册表"""
     registry = get_enhanced_registry()
     registry.register(skill_class, file_path=file_path, file_hash=file_hash)

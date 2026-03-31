@@ -2,15 +2,15 @@
 对话分享 API
 支持生成分享链接、导出 Markdown/PDF
 """
+import hashlib
+import json
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
-from datetime import datetime
-import uuid
-import json
-import hashlib
-from pathlib import Path
 
 router = APIRouter(prefix="/chat/share", tags=["chat-share"])
 
@@ -23,24 +23,24 @@ class SharedChat(BaseModel):
     share_id: str
     session_id: str
     title: str
-    messages: List[Dict[str, Any]]
+    messages: list[dict[str, Any]]
     created_at: str
-    expires_at: Optional[str] = None
+    expires_at: str | None = None
     view_count: int = 0
     is_public: bool = True
 
 
 class CreateShareRequest(BaseModel):
     session_id: str
-    title: Optional[str] = None
-    expires_in_hours: Optional[int] = None
+    title: str | None = None
+    expires_in_hours: int | None = None
     is_public: bool = True
 
 
 class ShareResponse(BaseModel):
     share_id: str
     share_url: str
-    expires_at: Optional[str] = None
+    expires_at: str | None = None
 
 
 def get_share_file(share_id: str) -> Path:
@@ -51,10 +51,10 @@ def get_session_file(session_id: str) -> Path:
     return DATA_DIR / f"session_{session_id}.json"
 
 
-def load_session(session_id: str) -> Optional[Dict[str, Any]]:
+def load_session(session_id: str) -> dict[str, Any] | None:
     file = get_session_file(session_id)
     if file.exists():
-        with open(file, 'r', encoding='utf-8') as f:
+        with open(file, encoding='utf-8') as f:
             return json.load(f)
     return None
 
@@ -65,10 +65,10 @@ def save_share(share: SharedChat):
         json.dump(share.model_dump(), f, ensure_ascii=False, indent=2)
 
 
-def load_share(share_id: str) -> Optional[SharedChat]:
+def load_share(share_id: str) -> SharedChat | None:
     file = get_share_file(share_id)
     if file.exists():
-        with open(file, 'r', encoding='utf-8') as f:
+        with open(file, encoding='utf-8') as f:
             return SharedChat(**json.load(f))
     return None
 
@@ -78,19 +78,19 @@ async def create_share(request: CreateShareRequest):
     session = load_session(request.session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     share_id = hashlib.sha256(
         f"{request.session_id}{datetime.now().isoformat()}".encode()
     ).hexdigest()[:12]
-    
+
     messages = session.get("messages", [])
     title = request.title or session.get("title", "分享的对话")
-    
+
     expires_at = None
     if request.expires_in_hours:
         from datetime import timedelta
         expires_at = (datetime.now() + timedelta(hours=request.expires_in_hours)).isoformat()
-    
+
     share = SharedChat(
         share_id=share_id,
         session_id=request.session_id,
@@ -100,9 +100,9 @@ async def create_share(request: CreateShareRequest):
         expires_at=expires_at,
         is_public=request.is_public
     )
-    
+
     save_share(share)
-    
+
     return ShareResponse(
         share_id=share_id,
         share_url=f"/share/{share_id}",
@@ -115,13 +115,13 @@ async def get_share(share_id: str):
     share = load_share(share_id)
     if not share:
         raise HTTPException(status_code=404, detail="Share not found")
-    
+
     if share.expires_at and datetime.fromisoformat(share.expires_at) < datetime.now():
         raise HTTPException(status_code=410, detail="Share has expired")
-    
+
     share.view_count += 1
     save_share(share)
-    
+
     return share
 
 
@@ -130,10 +130,10 @@ async def get_share_html(share_id: str):
     share = load_share(share_id)
     if not share:
         raise HTTPException(status_code=404, detail="Share not found")
-    
+
     if share.expires_at and datetime.fromisoformat(share.expires_at) < datetime.now():
         raise HTTPException(status_code=410, detail="Share has expired")
-    
+
     messages_html = ""
     for msg in share.messages:
         role = "用户" if msg.get("role") == "user" else "助手"
@@ -145,7 +145,7 @@ async def get_share_html(share_id: str):
             <div class="time">{msg.get("timestamp", "")}</div>
         </div>
         '''
-    
+
     html = f'''
     <!DOCTYPE html>
     <html lang="zh-CN">
@@ -233,7 +233,7 @@ async def get_share_html(share_id: str):
     </body>
     </html>
     '''
-    
+
     return HTMLResponse(content=html)
 
 
@@ -242,20 +242,20 @@ async def export_markdown(share_id: str):
     share = load_share(share_id)
     if not share:
         raise HTTPException(status_code=404, detail="Share not found")
-    
+
     md = f"# {share.title}\n\n"
     md += f"> 分享于: {share.created_at}\n\n"
     md += "---\n\n"
-    
+
     for msg in share.messages:
         role = "用户" if msg.get("role") == "user" else "助手"
         content = msg.get("content", "")
         timestamp = msg.get("timestamp", "")
-        
+
         md += f"## {role}\n\n{content}\n\n"
         if timestamp:
             md += f"> {timestamp}\n\n"
-    
+
     return PlainTextResponse(content=md, media_type="text/markdown")
 
 
@@ -264,6 +264,6 @@ async def delete_share(share_id: str):
     file = get_share_file(share_id)
     if not file.exists():
         raise HTTPException(status_code=404, detail="Share not found")
-    
+
     file.unlink()
     return {"success": True, "message": "分享已删除"}

@@ -1,10 +1,10 @@
-# -*- coding: utf-8 -*-
 """
 系统设置 API 路由
 """
-from fastapi import APIRouter, HTTPException
+from typing import Any
+
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, List
 
 router = APIRouter(prefix="/setup", tags=["Setup"])
 
@@ -49,7 +49,7 @@ async def get_config():
 
 
 @router.put("/config")
-async def update_config(config: Dict[str, Any]):
+async def update_config(config: dict[str, Any]):
     """更新配置"""
     return {"success": True, "message": "配置已更新"}
 
@@ -73,7 +73,7 @@ async def check_dependencies():
         {"name": "PyTorch", "version": "2.0+", "installed": True},
         {"name": "Transformers", "version": "4.30+", "installed": True},
     ]
-    
+
     return {
         "dependencies": dependencies,
         "all_installed": all(d["installed"] for d in dependencies)

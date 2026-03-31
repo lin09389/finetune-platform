@@ -1,17 +1,16 @@
-# -*- coding: utf-8 -*-
 """
 CUA 配置管理模块
 """
+
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import List, Optional
 
 from .models import PermissionLevel
 
 
 class CUAConfig(BaseSettings):
     """CUA 配置类"""
-    
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -19,7 +18,7 @@ class CUAConfig(BaseSettings):
         case_sensitive=False,
         extra="ignore"
     )
-    
+
     enabled: bool = Field(default=True, description="是否启用 CUA 功能")
     permission_level: PermissionLevel = Field(
         default=PermissionLevel.INTERACTIVE,
@@ -57,7 +56,7 @@ class CUAConfig(BaseSettings):
         default=True,
         description="是否启用审计日志"
     )
-    audit_log_path: Optional[str] = Field(
+    audit_log_path: str | None = Field(
         default=None,
         description="审计日志路径"
     )
@@ -73,7 +72,7 @@ class CUAConfig(BaseSettings):
         le=2160,
         description="最大截图高度"
     )
-    allowed_operations: List[str] = Field(
+    allowed_operations: list[str] = Field(
         default_factory=lambda: [
             "screenshot",
             "mouse_click",
@@ -85,7 +84,7 @@ class CUAConfig(BaseSettings):
         ],
         description="允许的操作类型列表"
     )
-    blocked_applications: List[str] = Field(
+    blocked_applications: list[str] = Field(
         default_factory=lambda: [],
         description="禁止操作的应用程序列表"
     )
@@ -119,40 +118,40 @@ class CUAConfig(BaseSettings):
         le=100,
         description="安全边距"
     )
-    
+
     @field_validator('permission_level', mode='before')
     @classmethod
     def parse_permission_level(cls, v):
         if isinstance(v, str):
             return PermissionLevel(v.lower())
         return v
-    
+
     @field_validator('allowed_operations', mode='before')
     @classmethod
     def parse_allowed_operations(cls, v):
         if isinstance(v, str):
             return [x.strip().lower() for x in v.split(',') if x.strip()]
         return v
-    
+
     @field_validator('blocked_applications', mode='before')
     @classmethod
     def parse_blocked_applications(cls, v):
         if isinstance(v, str):
             return [x.strip().lower() for x in v.split(',') if x.strip()]
         return v
-    
+
     def is_operation_allowed(self, operation_type: str) -> bool:
         """检查操作是否被允许"""
         if self.safe_mode:
             return operation_type.lower() == "screenshot"
         return operation_type.lower() in [op.lower() for op in self.allowed_operations]
-    
+
     def is_application_blocked(self, application_name: str) -> bool:
         """检查应用程序是否被阻止"""
         if not application_name:
             return False
         return application_name.lower() in [app.lower() for app in self.blocked_applications]
-    
+
     def get_effective_permission(self) -> PermissionLevel:
         """获取有效权限级别"""
         if self.safe_mode:
@@ -160,7 +159,7 @@ class CUAConfig(BaseSettings):
         return self.permission_level
 
 
-_cua_config: Optional[CUAConfig] = None
+_cua_config: CUAConfig | None = None
 
 
 def get_cua_config() -> CUAConfig:

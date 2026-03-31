@@ -1,7 +1,5 @@
-# -*- coding: utf-8 -*-
 import os
 import shutil
-import sys
 
 server_dir = r'c:\Users\JHJ\Desktop\finetune-platform\server'
 

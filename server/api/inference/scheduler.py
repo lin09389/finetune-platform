@@ -1,15 +1,13 @@
-# -*- coding: utf-8 -*-
 """
 模型调度器 - 参考 Ollama sched.go 设计
 实现模型加载、卸载、并发控制、多后端支持
 """
-from typing import Dict, Optional, List, Any
-from datetime import datetime
-from dataclasses import dataclass, field
-from enum import Enum
 import asyncio
 import logging
-import time
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +42,12 @@ class ModelInfo:
     name: str
     path: str
     size_bytes: int = 0
-    loaded_at: Optional[datetime] = None
-    last_used: Optional[datetime] = None
+    loaded_at: datetime | None = None
+    last_used: datetime | None = None
     status: ModelStatus = ModelStatus.UNLOADED
     ref_count: int = 0
     backend: BackendType = BackendType.HUGGINGFACE
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -72,7 +70,7 @@ class ModelScheduler:
     - LRU 淘汰
     - 多后端支持
     """
-    
+
     def __init__(
         self,
         max_loaded_models: int = 3,
@@ -82,28 +80,28 @@ class ModelScheduler:
         self.max_loaded_models = max_loaded_models
         self.max_memory_gb = max_memory_gb
         self.idle_timeout_seconds = idle_timeout_seconds
-        
-        self._models: Dict[str, ModelInfo] = {}
-        self._loaded_models: Dict[str, Any] = {}
+
+        self._models: dict[str, ModelInfo] = {}
+        self._loaded_models: dict[str, Any] = {}
         self._load_lock = asyncio.Lock()
-        self._request_queue: List[LoadRequest] = []
-        
+        self._request_queue: list[LoadRequest] = []
+
         self._default_backend = BackendType.HUGGINGFACE.value
-        self._backends: Dict[str, Any] = {}
-        
+        self._backends: dict[str, Any] = {}
+
         self._stats = {
             "total_loads": 0,
             "total_unloads": 0,
             "cache_hits": 0,
             "cache_misses": 0
         }
-    
+
     async def load_model(
         self,
         model_name: str,
         model_path: str,
         priority: LoadPriority = LoadPriority.NORMAL,
-        backend: Optional[BackendType] = None
+        backend: BackendType | None = None
     ) -> bool:
         """
         加载模型
@@ -125,14 +123,14 @@ class ModelScheduler:
                 model_info.ref_count += 1
                 logger.info(f"模型已加载，增加引用: {model_name}")
                 return True
-            
+
             self._stats["cache_misses"] += 1
-            
+
             if len(self._loaded_models) >= self.max_loaded_models:
                 await self._evict_lru_model()
-            
+
             model_backend = backend or BackendType(self._default_backend)
-            
+
             model_info = ModelInfo(
                 name=model_name,
                 path=model_path,
@@ -140,33 +138,33 @@ class ModelScheduler:
                 backend=model_backend
             )
             self._models[model_name] = model_info
-            
+
             try:
                 logger.info(f"开始加载模型: {model_name} (后端: {model_backend.value})")
-                
+
                 await asyncio.sleep(0.1)
-                
+
                 self._loaded_models[model_name] = {
                     "path": model_path,
                     "loaded_at": datetime.now(),
                     "backend": model_backend.value
                 }
-                
+
                 model_info.status = ModelStatus.LOADED
                 model_info.loaded_at = datetime.now()
                 model_info.last_used = datetime.now()
                 model_info.ref_count = 1
-                
+
                 self._stats["total_loads"] += 1
                 logger.info(f"模型加载完成: {model_name}")
-                
+
                 return True
-                
+
             except Exception as e:
                 model_info.status = ModelStatus.ERROR
                 logger.error(f"模型加载失败: {model_name}, {e}")
                 return False
-    
+
     async def unload_model(self, model_name: str, force: bool = False) -> bool:
         """
         卸载模型
@@ -181,32 +179,32 @@ class ModelScheduler:
         async with self._load_lock:
             if model_name not in self._loaded_models:
                 return True
-            
+
             model_info = self._models.get(model_name)
             if not model_info:
                 return True
-            
+
             if model_info.ref_count > 0 and not force:
                 logger.warning(f"模型仍有引用，无法卸载: {model_name}")
                 return False
-            
+
             try:
                 model_info.status = ModelStatus.UNLOADING
-                
+
                 del self._loaded_models[model_name]
-                
+
                 model_info.status = ModelStatus.UNLOADED
                 model_info.ref_count = 0
-                
+
                 self._stats["total_unloads"] += 1
                 logger.info(f"模型已卸载: {model_name}")
-                
+
                 return True
-                
+
             except Exception as e:
                 logger.error(f"模型卸载失败: {model_name}, {e}")
                 return False
-    
+
     async def release_model(self, model_name: str) -> bool:
         """
         释放模型引用
@@ -219,67 +217,67 @@ class ModelScheduler:
         """
         if model_name not in self._models:
             return False
-        
+
         model_info = self._models[model_name]
         if model_info.ref_count > 0:
             model_info.ref_count -= 1
-        
+
         model_info.last_used = datetime.now()
-        
+
         return True
-    
-    def get_model_status(self, model_name: str) -> Optional[ModelStatus]:
+
+    def get_model_status(self, model_name: str) -> ModelStatus | None:
         """获取模型状态"""
         model_info = self._models.get(model_name)
         return model_info.status if model_info else None
-    
-    def get_loaded_models(self) -> List[str]:
+
+    def get_loaded_models(self) -> list[str]:
         """获取已加载的模型列表"""
         return list(self._loaded_models.keys())
-    
-    def get_model_info(self, model_name: str) -> Optional[ModelInfo]:
+
+    def get_model_info(self, model_name: str) -> ModelInfo | None:
         """获取模型信息"""
         return self._models.get(model_name)
-    
+
     async def _evict_lru_model(self):
         """淘汰最近最少使用的模型"""
         if not self._loaded_models:
             return
-        
+
         lru_model = None
         lru_time = datetime.now()
-        
+
         for name, info in self._models.items():
             if name in self._loaded_models and info.last_used:
                 if info.last_used < lru_time and info.ref_count == 0:
                     lru_time = info.last_used
                     lru_model = name
-        
+
         if lru_model:
             await self.unload_model(lru_model, force=True)
             logger.info(f"LRU 淘汰模型: {lru_model}")
-    
+
     async def cleanup_idle_models(self):
         """清理空闲模型"""
         now = datetime.now()
-        
+
         for model_name, info in list(self._models.items()):
             if model_name not in self._loaded_models:
                 continue
-            
+
             if info.ref_count > 0:
                 continue
-            
+
             if info.last_used:
                 idle_time = (now - info.last_used).total_seconds()
                 if idle_time > self.idle_timeout_seconds:
                     await self.unload_model(model_name)
-    
+
     async def unload_all(self):
         """卸载所有模型"""
         for model_name in list(self._loaded_models.keys()):
             await self.unload_model(model_name, force=True)
-    
+
     def set_default_backend(self, backend: str):
         """设置默认后端"""
         try:
@@ -288,8 +286,8 @@ class ModelScheduler:
             logger.info(f"设置默认后端: {backend}")
         except ValueError:
             raise ValueError(f"无效的后端类型: {backend}")
-    
-    async def get_backend(self, backend_type: Optional[str] = None):
+
+    async def get_backend(self, backend_type: str | None = None):
         """
         获取后端实例
         
@@ -300,28 +298,28 @@ class ModelScheduler:
             后端实例
         """
         backend = backend_type or self._default_backend
-        
+
         if backend == BackendType.HUGGINGFACE.value:
             from api.inference.backends.huggingface import HuggingFaceBackend
             if backend not in self._backends:
                 self._backends[backend] = HuggingFaceBackend()
             return self._backends[backend]
-        
+
         elif backend == BackendType.OLLAMA.value:
             from api.inference.backends.ollama import OllamaBackend
             if backend not in self._backends:
                 self._backends[backend] = OllamaBackend()
             return self._backends[backend]
-        
+
         elif backend == BackendType.CLOUD.value:
             from api.inference.backends.cloud import CloudBackend
             if backend not in self._backends:
                 self._backends[backend] = CloudBackend()
             return self._backends[backend]
-        
+
         else:
             raise ValueError(f"不支持的后端类型: {backend}")
-    
+
     async def is_backend_available(self, backend_type: str) -> bool:
         """
         检查后端是否可用
@@ -335,10 +333,11 @@ class ModelScheduler:
         try:
             if backend_type == BackendType.HUGGINGFACE.value:
                 return True
-            
+
             elif backend_type == BackendType.OLLAMA.value:
-                from core.config import get_settings
                 import httpx
+
+                from core.config import get_settings
                 settings = get_settings()
                 try:
                     async with httpx.AsyncClient() as client:
@@ -349,19 +348,18 @@ class ModelScheduler:
                         return resp.status_code == 200
                 except Exception:
                     return False
-            
+
             elif backend_type == BackendType.CLOUD.value:
-                from core.config import get_settings
-                settings = get_settings()
-                return bool(settings.openai_api_key or settings.anthropic_api_key)
-            
+                # 云端后端总是可用的，因为 API Key 可以在运行时设置
+                return True
+
             return False
-        
+
         except Exception as e:
             logger.error(f"检查后端可用性失败: {e}")
             return False
-    
-    async def list_models(self, backend_type: Optional[str] = None) -> List[Dict[str, Any]]:
+
+    async def list_models(self, backend_type: str | None = None) -> list[dict[str, Any]]:
         """
         列出可用模型
         
@@ -372,11 +370,12 @@ class ModelScheduler:
             模型列表
         """
         models = []
-        
+
         if backend_type == BackendType.OLLAMA.value or backend_type is None:
             try:
-                from core.config import get_settings
                 import httpx
+
+                from core.config import get_settings
                 settings = get_settings()
                 async with httpx.AsyncClient() as client:
                     resp = await client.get(
@@ -394,12 +393,11 @@ class ModelScheduler:
                             })
             except Exception as e:
                 logger.warning(f"获取 Ollama 模型列表失败: {e}")
-        
+
         if backend_type == BackendType.HUGGINGFACE.value or backend_type is None:
-            from pathlib import Path
             from core.config import get_settings
             settings = get_settings()
-            models_dir = Path(settings.models_dir)
+            models_dir = settings.models_dir_resolved
             if models_dir.exists():
                 for model_path in models_dir.iterdir():
                     if model_path.is_dir():
@@ -408,10 +406,10 @@ class ModelScheduler:
                             "backend": BackendType.HUGGINGFACE.value,
                             "path": str(model_path),
                         })
-        
+
         return models
-    
-    def get_stats(self) -> Dict[str, Any]:
+
+    def get_stats(self) -> dict[str, Any]:
         """获取统计信息"""
         return {
             **self._stats,
@@ -430,7 +428,7 @@ class ModelScheduler:
         }
 
 
-_scheduler: Optional[ModelScheduler] = None
+_scheduler: ModelScheduler | None = None
 
 
 def get_scheduler() -> ModelScheduler:

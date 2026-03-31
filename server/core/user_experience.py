@@ -7,16 +7,13 @@
 - 配置建议生成
 - 一键配置功能
 """
+import logging
 import os
 import platform
 import subprocess
-import logging
-from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
-import json
-import shutil
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -41,12 +38,12 @@ class SystemInfo:
     available_memory_gb: float = 0.0
     gpu_available: bool = False
     gpu_count: int = 0
-    gpu_names: List[str] = field(default_factory=list)
-    gpu_memory_gb: List[float] = field(default_factory=list)
-    cuda_version: Optional[str] = None
-    capabilities: List[SystemCapability] = field(default_factory=list)
-    
-    def to_dict(self) -> Dict[str, Any]:
+    gpu_names: list[str] = field(default_factory=list)
+    gpu_memory_gb: list[float] = field(default_factory=list)
+    cuda_version: str | None = None
+    capabilities: list[SystemCapability] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "os": self.os,
             "os_version": self.os_version,
@@ -74,8 +71,8 @@ class ConfigSuggestion:
     reason: str
     impact: str  # high, medium, low
     auto_applicable: bool = True
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "category": self.category,
             "name": self.name,
@@ -95,15 +92,15 @@ class ConfigWizard:
     total_steps: int = 5
     completed: bool = False
     current_step_name: str = ""
-    steps: List[str] = field(default_factory=lambda: [
+    steps: list[str] = field(default_factory=lambda: [
         "welcome",
         "system_check",
         "model_selection",
         "performance_config",
         "final_setup",
     ])
-    config: Dict[str, Any] = field(default_factory=dict)
-    
+    config: dict[str, Any] = field(default_factory=dict)
+
     def next_step(self) -> str:
         """进入下一步"""
         if self.step < self.total_steps - 1:
@@ -112,23 +109,23 @@ class ConfigWizard:
         else:
             self.completed = True
         return self.current_step_name
-    
+
     def previous_step(self) -> str:
         """返回上一步"""
         if self.step > 0:
             self.step -= 1
             self.current_step_name = self.steps[self.step]
         return self.current_step_name
-    
+
     def set_config(self, key: str, value: Any):
         """设置配置"""
         self.config[key] = value
-    
+
     def get_config(self, key: str, default: Any = None) -> Any:
         """获取配置"""
         return self.config.get(key, default)
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "step": self.step,
             "total_steps": self.total_steps,
@@ -145,19 +142,19 @@ class EnvironmentDetector:
     
     自动检测系统环境和硬件配置
     """
-    
+
     @staticmethod
     def detect_system() -> SystemInfo:
         """检测系统信息"""
         info = SystemInfo()
-        
+
         info.os = platform.system()
         info.os_version = platform.version()
-        
+
         import sys
         info.python_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
         info.cpu_count = os.cpu_count()
-        
+
         try:
             import psutil
             mem = psutil.virtual_memory()
@@ -166,7 +163,7 @@ class EnvironmentDetector:
         except ImportError:
             info.total_memory_gb = 8.0
             info.available_memory_gb = 4.0
-        
+
         try:
             import torch
             if torch.cuda.is_available():
@@ -185,14 +182,14 @@ class EnvironmentDetector:
                 info.capabilities.append(SystemCapability.GPU)
         except ImportError:
             pass
-        
+
         if not info.gpu_available:
             info.capabilities.append(SystemCapability.CPU)
-        
+
         return info
-    
+
     @staticmethod
-    def check_cuda_version() -> Optional[str]:
+    def check_cuda_version() -> str | None:
         """检查 CUDA 版本"""
         try:
             result = subprocess.run(
@@ -205,7 +202,7 @@ class EnvironmentDetector:
         except (FileNotFoundError, subprocess.SubprocessError):
             pass
         return None
-    
+
     @staticmethod
     def check_library_installed(library: str) -> bool:
         """检查库是否安装"""
@@ -214,16 +211,16 @@ class EnvironmentDetector:
             return True
         except ImportError:
             return False
-    
+
     @staticmethod
-    def get_installed_libraries() -> Dict[str, bool]:
+    def get_installed_libraries() -> dict[str, bool]:
         """获取已安装的库"""
         libraries = [
             "torch", "transformers", "peft", "accelerate",
             "bitsandbytes", "vllm", "auto_gptq", "autoawq",
             "sentence_transformers", "chromadb", "langchain",
         ]
-        
+
         return {
             lib: EnvironmentDetector.check_library_installed(lib)
             for lib in libraries
@@ -236,25 +233,25 @@ class ConfigAdvisor:
     
     基于系统信息生成配置建议
     """
-    
-    def __init__(self, system_info: Optional[SystemInfo] = None):
+
+    def __init__(self, system_info: SystemInfo | None = None):
         self.system_info = system_info or EnvironmentDetector.detect_system()
-    
-    def generate_suggestions(self, current_config: Dict[str, Any]) -> List[ConfigSuggestion]:
+
+    def generate_suggestions(self, current_config: dict[str, Any]) -> list[ConfigSuggestion]:
         """生成配置建议"""
         suggestions = []
-        
+
         suggestions.extend(self._check_gpu_config(current_config))
         suggestions.extend(self._check_memory_config(current_config))
         suggestions.extend(self._check_model_config(current_config))
         suggestions.extend(self._check_library_config(current_config))
-        
+
         return suggestions
-    
-    def _check_gpu_config(self, config: Dict[str, Any]) -> List[ConfigSuggestion]:
+
+    def _check_gpu_config(self, config: dict[str, Any]) -> list[ConfigSuggestion]:
         """检查 GPU 配置"""
         suggestions = []
-        
+
         if self.system_info.gpu_available:
             if config.get("device") == "cpu":
                 suggestions.append(ConfigSuggestion(
@@ -266,7 +263,7 @@ class ConfigAdvisor:
                     reason=f"检测到 {self.system_info.gpu_count} 个 GPU: {', '.join(self.system_info.gpu_names)}",
                     impact="high",
                 ))
-            
+
             total_gpu_memory = sum(self.system_info.gpu_memory_gb)
             if total_gpu_memory < 8:
                 suggestions.append(ConfigSuggestion(
@@ -289,15 +286,15 @@ class ConfigAdvisor:
                     reason="未检测到 CUDA 设备",
                     impact="high",
                 ))
-        
+
         return suggestions
-    
-    def _check_memory_config(self, config: Dict[str, Any]) -> List[ConfigSuggestion]:
+
+    def _check_memory_config(self, config: dict[str, Any]) -> list[ConfigSuggestion]:
         """检查内存配置"""
         suggestions = []
-        
+
         available_gb = self.system_info.available_memory_gb
-        
+
         if available_gb < 4:
             suggestions.append(ConfigSuggestion(
                 category="memory",
@@ -308,7 +305,7 @@ class ConfigAdvisor:
                 reason=f"可用内存 {available_gb:.1f}GB < 4GB",
                 impact="medium",
             ))
-        
+
         if available_gb > 16 and config.get("batch_size", 1) < 8:
             suggestions.append(ConfigSuggestion(
                 category="memory",
@@ -319,13 +316,13 @@ class ConfigAdvisor:
                 reason=f"可用内存 {available_gb:.1f}GB > 16GB",
                 impact="medium",
             ))
-        
+
         return suggestions
-    
-    def _check_model_config(self, config: Dict[str, Any]) -> List[ConfigSuggestion]:
+
+    def _check_model_config(self, config: dict[str, Any]) -> list[ConfigSuggestion]:
         """检查模型配置"""
         suggestions = []
-        
+
         max_tokens = config.get("max_tokens", 2048)
         if max_tokens > 4096 and not self.system_info.gpu_available:
             suggestions.append(ConfigSuggestion(
@@ -337,15 +334,15 @@ class ConfigAdvisor:
                 reason="CPU 模式处理长序列效率较低",
                 impact="low",
             ))
-        
+
         return suggestions
-    
-    def _check_library_config(self, config: Dict[str, Any]) -> List[ConfigSuggestion]:
+
+    def _check_library_config(self, config: dict[str, Any]) -> list[ConfigSuggestion]:
         """检查库配置"""
         suggestions = []
-        
+
         installed = EnvironmentDetector.get_installed_libraries()
-        
+
         if not installed.get("vllm", False) and self.system_info.gpu_available:
             suggestions.append(ConfigSuggestion(
                 category="library",
@@ -357,7 +354,7 @@ class ConfigAdvisor:
                 impact="high",
                 auto_applicable=False,
             ))
-        
+
         if not installed.get("accelerate", False):
             suggestions.append(ConfigSuggestion(
                 category="library",
@@ -369,7 +366,7 @@ class ConfigAdvisor:
                 impact="medium",
                 auto_applicable=False,
             ))
-        
+
         return suggestions
 
 
@@ -379,19 +376,19 @@ class QuickSetup:
     
     一键配置功能
     """
-    
+
     def __init__(self):
         self.system_info = EnvironmentDetector.detect_system()
         self.advisor = ConfigAdvisor(self.system_info)
-    
-    def auto_configure(self) -> Dict[str, Any]:
+
+    def auto_configure(self) -> dict[str, Any]:
         """自动配置"""
         config = {}
-        
+
         if self.system_info.gpu_available:
             config["device"] = "cuda"
             config["use_gpu"] = True
-            
+
             total_memory = sum(self.system_info.gpu_memory_gb)
             if total_memory >= 24:
                 config["quantization"] = "none"
@@ -410,30 +407,30 @@ class QuickSetup:
             config["use_gpu"] = False
             config["quantization"] = "int8"
             config["batch_size"] = 1
-        
+
         config["max_tokens"] = 2048
         config["flash_attention"] = self.system_info.gpu_available
         config["use_cache"] = True
-        
+
         config["system_info"] = self.system_info.to_dict()
-        
+
         logger.info(f"自动配置完成: {config}")
-        
+
         return config
-    
-    def get_setup_report(self) -> Dict[str, Any]:
+
+    def get_setup_report(self) -> dict[str, Any]:
         """获取设置报告"""
         return {
             "system_info": self.system_info.to_dict(),
             "installed_libraries": EnvironmentDetector.get_installed_libraries(),
             "recommendations": [
-                s.to_dict() 
+                s.to_dict()
                 for s in self.advisor.generate_suggestions({})
             ],
         }
 
 
-_quick_setup: Optional[QuickSetup] = None
+_quick_setup: QuickSetup | None = None
 
 
 def get_quick_setup() -> QuickSetup:

@@ -1,6 +1,5 @@
-# -*- coding: utf-8 -*-
-import sys
 import os
+import sys
 
 server_path = r'c:\Users\JHJ\Desktop\finetune-platform\server'
 sys.path.insert(0, server_path)
@@ -27,6 +26,7 @@ except Exception as e:
 # Try direct import
 print("\n3. Direct import using importlib:")
 import importlib.util
+
 filepath = os.path.join(server_path, 'api', 'errors.py')
 spec = importlib.util.spec_from_file_location("api.errors", filepath)
 module = importlib.util.module_from_spec(spec)

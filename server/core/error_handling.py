@@ -7,9 +7,10 @@
 - 错误恢复建议
 """
 import logging
-from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
+
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
@@ -23,32 +24,32 @@ class ErrorCode(str, Enum):
     RESOURCE_NOT_FOUND = "E0002"
     PERMISSION_DENIED = "E0003"
     RATE_LIMITED = "E0004"
-    
+
     MODEL_NOT_FOUND = "E1001"
     MODEL_LOAD_FAILED = "E1002"
     MODEL_DOWNLOAD_FAILED = "E1003"
     MODEL_ALREADY_EXISTS = "E1004"
     MODEL_FORMAT_UNSUPPORTED = "E1005"
-    
+
     TRAINING_NOT_FOUND = "E2001"
     TRAINING_ALREADY_RUNNING = "E2002"
     TRAINING_FAILED = "E2003"
     TRAINING_QUEUE_FULL = "E2004"
     DATASET_NOT_FOUND = "E2005"
     DATASET_INVALID = "E2006"
-    
+
     INFERENCE_FAILED = "E3001"
     CONTEXT_TOO_LONG = "E3002"
     GENERATION_TIMEOUT = "E3003"
-    
+
     CUDA_NOT_AVAILABLE = "E4001"
     CUDA_OUT_OF_MEMORY = "E4002"
     CUDA_DRIVER_ERROR = "E4003"
-    
+
     CONFIG_INVALID = "E5001"
     CONFIG_MISSING = "E5002"
     ENV_VAR_MISSING = "E5003"
-    
+
     FILE_NOT_FOUND = "E6001"
     FILE_TOO_LARGE = "E6002"
     FILE_TYPE_INVALID = "E6003"
@@ -61,11 +62,11 @@ class ErrorDetail:
     code: ErrorCode
     message: str
     detail: str = ""
-    suggestions: List[str] = field(default_factory=list)
-    documentation_url: Optional[str] = None
+    suggestions: list[str] = field(default_factory=list)
+    documentation_url: str | None = None
     recoverable: bool = True
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "code": self.code.value,
             "message": self.message,
@@ -76,7 +77,7 @@ class ErrorDetail:
         }
 
 
-ERROR_MAPPINGS: Dict[ErrorCode, ErrorDetail] = {
+ERROR_MAPPINGS: dict[ErrorCode, ErrorDetail] = {
     ErrorCode.UNKNOWN_ERROR: ErrorDetail(
         code=ErrorCode.UNKNOWN_ERROR,
         message="发生未知错误",
@@ -291,17 +292,17 @@ ERROR_MAPPINGS: Dict[ErrorCode, ErrorDetail] = {
 
 class AppException(Exception):
     """应用异常"""
-    
+
     def __init__(
         self,
         code: ErrorCode,
         detail: str = "",
-        suggestions: Optional[List[str]] = None,
+        suggestions: list[str] | None = None,
     ):
         self.code = code
         self.detail = detail
         self.suggestions = suggestions or []
-        
+
         error_info = ERROR_MAPPINGS.get(code)
         if error_info:
             self.message = error_info.message
@@ -311,19 +312,19 @@ class AppException(Exception):
                 self.suggestions = error_info.suggestions
         else:
             self.message = "发生错误"
-    
-    def to_response(self) -> Dict[str, Any]:
+
+    def to_response(self) -> dict[str, Any]:
         """转换为响应格式"""
         error_info = ERROR_MAPPINGS.get(self.code, ERROR_MAPPINGS[ErrorCode.UNKNOWN_ERROR])
-        
+
         response = error_info.to_dict()
-        
+
         if self.detail:
             response["detail"] = self.detail
-        
+
         if self.suggestions:
             response["suggestions"] = self.suggestions
-        
+
         return {
             "success": False,
             "error": response,
@@ -333,13 +334,13 @@ class AppException(Exception):
 def create_error_response(
     code: ErrorCode,
     detail: str = "",
-    suggestions: Optional[List[str]] = None,
+    suggestions: list[str] | None = None,
 ) -> JSONResponse:
     """创建错误响应"""
     exc = AppException(code, detail, suggestions)
-    
+
     status_code = 400
-    if code in [ErrorCode.RESOURCE_NOT_FOUND, ErrorCode.MODEL_NOT_FOUND, 
+    if code in [ErrorCode.RESOURCE_NOT_FOUND, ErrorCode.MODEL_NOT_FOUND,
                 ErrorCode.TRAINING_NOT_FOUND, ErrorCode.DATASET_NOT_FOUND,
                 ErrorCode.FILE_NOT_FOUND]:
         status_code = 404
@@ -349,7 +350,7 @@ def create_error_response(
         status_code = 429
     elif code in [ErrorCode.UNKNOWN_ERROR]:
         status_code = 500
-    
+
     return JSONResponse(
         status_code=status_code,
         content=exc.to_response(),
@@ -360,7 +361,7 @@ def handle_exception(e: Exception) -> JSONResponse:
     """处理异常并返回友好错误响应"""
     if isinstance(e, AppException):
         return create_error_response(e.code, e.detail, e.suggestions)
-    
+
     if isinstance(e, HTTPException):
         return JSONResponse(
             status_code=e.status_code,
@@ -373,9 +374,9 @@ def handle_exception(e: Exception) -> JSONResponse:
                 },
             },
         )
-    
+
     logger.exception(f"未处理的异常: {e}")
-    
+
     return create_error_response(
         ErrorCode.UNKNOWN_ERROR,
         detail=str(e),
@@ -386,7 +387,7 @@ def handle_exception(e: Exception) -> JSONResponse:
     )
 
 
-def get_error_suggestion(error_type: str) -> List[str]:
+def get_error_suggestion(error_type: str) -> list[str]:
     """获取错误建议"""
     suggestions_map = {
         "cuda": [
@@ -415,5 +416,5 @@ def get_error_suggestion(error_type: str) -> List[str]:
             "尝试重新加载模型",
         ],
     }
-    
+
     return suggestions_map.get(error_type, ["请参考文档或联系技术支持"])

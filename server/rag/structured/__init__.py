@@ -1,30 +1,25 @@
-# -*- coding: utf-8 -*-
 """
 结构化数据支持模块
 支持表格数据存储、数据库连接和 SQL 查询
 """
-from rag.structured.table_store import (
-    TableStore,
-    TableMetadata,
-    get_table_store
-)
 from rag.structured.db_connector import (
-    DatabaseConnector,
-    SQLiteConnector,
-    PostgreSQLConnector,
-    MySQLConnector,
     ConnectionConfig,
+    DatabaseConnector,
+    MySQLConnector,
+    PostgreSQLConnector,
     QueryResult,
-    get_db_connector,
+    SQLiteConnector,
+    create_postgresql_connector,
     create_sqlite_connector,
-    create_postgresql_connector
+    get_db_connector,
 )
 from rag.structured.query_engine import (
     QueryEngine,
-    SQLGenerationResult,
     QueryHistory,
-    get_query_engine
+    SQLGenerationResult,
+    get_query_engine,
 )
+from rag.structured.table_store import TableMetadata, TableStore, get_table_store
 
 __all__ = [
     'TableStore',

@@ -1,10 +1,8 @@
-# -*- coding: utf-8 -*-
 """
 记忆数据模型
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional
 from enum import Enum
 
 
@@ -52,7 +50,7 @@ class Memory:
     created_at: datetime
     last_accessed: datetime
     access_count: int = 0
-    embedding: Optional[List[float]] = None
+    embedding: list[float] | None = None
 
     def to_dict(self) -> dict:
         """转换为字典"""

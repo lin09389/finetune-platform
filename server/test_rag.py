@@ -1,9 +1,9 @@
 """
 知识库模块测试脚本
 """
-import requests
-import json
 from datetime import datetime
+
+import requests
 
 BASE_URL = "http://127.0.0.1:8000"
 
@@ -12,9 +12,9 @@ def test_rag():
     print("知识库模块测试")
     print(f"测试时间: {datetime.now().isoformat()}")
     print("="*60)
-    
+
     results = []
-    
+
     # 1. 测试获取集合列表
     print("\n[1] 测试获取知识库集合列表...")
     try:
@@ -30,7 +30,7 @@ def test_rag():
     except Exception as e:
         print(f"  [FAIL] 错误: {e}")
         results.append(("获取集合列表", False, str(e)))
-    
+
     # 2. 测试知识库查询
     print("\n[2] 测试知识库查询...")
     try:
@@ -54,7 +54,7 @@ def test_rag():
     except Exception as e:
         print(f"  [FAIL] 错误: {e}")
         results.append(("知识库查询", False, str(e)))
-    
+
     # 3. 测试聊天推理中的知识库集成
     print("\n[3] 测试聊天推理中的知识库集成...")
     try:
@@ -81,7 +81,7 @@ def test_rag():
     except Exception as e:
         print(f"  [FAIL] 错误: {e}")
         results.append(("聊天知识库集成", False, str(e)))
-    
+
     # 4. 测试混合检索
     print("\n[4] 测试混合检索...")
     try:
@@ -104,7 +104,7 @@ def test_rag():
     except Exception as e:
         print(f"  [FAIL] 错误: {e}")
         results.append(("混合检索", False, str(e)))
-    
+
     # 5. 测试BM25索引
     print("\n[5] 测试BM25索引构建...")
     try:
@@ -118,14 +118,14 @@ def test_rag():
     except Exception as e:
         print(f"  [FAIL] 错误: {e}")
         results.append(("BM25索引", False, str(e)))
-    
+
     # 汇总
     print("\n" + "="*60)
     passed = sum(1 for r in results if r[1])
     total = len(results)
     print(f"测试结果: {passed}/{total} 通过")
     print("="*60)
-    
+
     # 功能总结
     print("\n知识库功能支持:")
     print("  - 文档上传 (PDF/DOCX/TXT/MD)")
@@ -135,7 +135,7 @@ def test_rag():
     print("  - 质量评估 (MRR/MAP/NDCG)")
     print("  - 用户反馈收集")
     print("  - 聊天集成 (自动检索)")
-    
+
     return passed == total
 
 if __name__ == "__main__":

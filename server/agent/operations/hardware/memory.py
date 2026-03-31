@@ -1,8 +1,6 @@
 import asyncio
-from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
 
 import psutil
 
@@ -30,11 +28,11 @@ class MemoryInfo:
 
 @dataclass
 class MemoryHistory:
-    timestamps: List[str] = field(default_factory=list)
-    percent: List[float] = field(default_factory=list)
-    used_gb: List[float] = field(default_factory=list)
-    available_gb: List[float] = field(default_factory=list)
-    swap_percent: List[float] = field(default_factory=list)
+    timestamps: list[str] = field(default_factory=list)
+    percent: list[float] = field(default_factory=list)
+    used_gb: list[float] = field(default_factory=list)
+    available_gb: list[float] = field(default_factory=list)
+    swap_percent: list[float] = field(default_factory=list)
 
 
 class MemoryMonitor:
@@ -53,11 +51,11 @@ class MemoryMonitor:
         try:
             mem = psutil.virtual_memory()
             swap = psutil.swap_memory()
-            
+
             cached = getattr(mem, "cached", 0) / (1024 ** 3)
             buffers = getattr(mem, "buffers", 0) / (1024 ** 3)
             shared = getattr(mem, "shared", 0) / (1024 ** 3)
-            
+
             return MemoryInfo(
                 total_gb=mem.total / (1024 ** 3),
                 used_gb=mem.used / (1024 ** 3),
@@ -78,21 +76,21 @@ class MemoryMonitor:
 
     async def update_history(self) -> MemoryInfo:
         info = await self.get_info()
-        
+
         async with self._lock:
             self._history.timestamps.append(info.timestamp)
             self._history.percent.append(info.percent)
             self._history.used_gb.append(info.used_gb)
             self._history.available_gb.append(info.available_gb)
             self._history.swap_percent.append(info.swap_percent)
-            
+
             while len(self._history.timestamps) > self._history_size:
                 self._history.timestamps.pop(0)
                 self._history.percent.pop(0)
                 self._history.used_gb.pop(0)
                 self._history.available_gb.pop(0)
                 self._history.swap_percent.pop(0)
-        
+
         return info
 
     async def get_history(self) -> MemoryHistory:
@@ -105,7 +103,7 @@ class MemoryMonitor:
                 swap_percent=self._history.swap_percent.copy(),
             )
 
-    async def get_stats(self) -> Dict:
+    async def get_stats(self) -> dict:
         info = await self.get_info()
         return {
             "virtual": {
@@ -127,24 +125,24 @@ class MemoryMonitor:
             "timestamp": info.timestamp,
         }
 
-    async def check_memory_pressure(self) -> Dict:
+    async def check_memory_pressure(self) -> dict:
         info = await self.get_info()
-        
+
         status = "normal"
         warnings = []
-        
+
         if info.percent >= self._critical_threshold:
             status = "critical"
             warnings.append(f"内存使用率过高: {info.percent:.1f}%")
         elif info.percent >= self._warning_threshold:
             status = "warning"
             warnings.append(f"内存使用率较高: {info.percent:.1f}%")
-        
+
         if info.swap_percent > 50:
             warnings.append(f"交换空间使用较高: {info.swap_percent:.1f}%")
             if status == "normal":
                 status = "warning"
-        
+
         return {
             "status": status,
             "memory_percent": info.percent,

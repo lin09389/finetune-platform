@@ -1,9 +1,9 @@
 """
 测试智能知识库自动检索功能
 """
-import requests
-import json
 from datetime import datetime
+
+import requests
 
 BASE_URL = "http://127.0.0.1:8000"
 
@@ -12,9 +12,9 @@ def test_smart_retrieval():
     print("智能知识库自动检索测试")
     print(f"测试时间: {datetime.now().isoformat()}")
     print("="*60)
-    
+
     results = []
-    
+
     # 测试用例：不同领域的问题
     test_cases = [
         # 法律领域
@@ -79,12 +79,12 @@ def test_smart_retrieval():
             "expected_retrieve": False  # 被排除关键词
         }
     ]
-    
+
     print("\n[领域检测测试]")
     for i, case in enumerate(test_cases, 1):
         query = case["query"]
         print(f"\n测试 {i}: {query}")
-        
+
         try:
             # 测试意图检测
             resp = requests.post(
@@ -92,15 +92,15 @@ def test_smart_retrieval():
                 json={"message": query},
                 timeout=30
             )
-            
+
             if resp.status_code == 200:
                 data = resp.json()
                 detected = data.get("detected", False)
                 action = data.get("action", "")
-                
+
                 # 检查是否应该检索
                 expected = case["expected_retrieve"]
-                
+
                 if expected:
                     print(f"  [PASS] 应触发知识检索(detected={detected}, action={action})")
                     results.append((f"测试{i}", True, query[:20]))
@@ -110,18 +110,18 @@ def test_smart_retrieval():
             else:
                 print(f"  [FAIL] 状态码: {resp.status_code}")
                 results.append((f"测试{i}", False, f"状态码: {resp.status_code}"))
-                
+
         except Exception as e:
             print(f"  [FAIL] 错误: {e}")
             results.append((f"测试{i}", False, str(e)))
-    
+
     # 汇总
     print("\n" + "="*60)
     passed = sum(1 for r in results if r[1])
     total = len(results)
     print(f"测试结果: {passed}/{total} 通过")
     print("="*60)
-    
+
     # 功能总结
     print("\n智能知识库自动检索功能:")
     print("  - 法律领域自动识别 (民法典、刑法、劳动法等)")
@@ -134,7 +134,7 @@ def test_smart_retrieval():
     print("  2. 设置自动检索: auto_retrieve=true")
     print("  3. 系统会自动识别问题领域并检索相关知识")
     print("  4. 检索结果会注入到提示词中辅助回答")
-    
+
     return passed == total
 
 if __name__ == "__main__":

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 安全模块 - 加密、沙箱、审计日志、数据脱敏、速率限制、JWT 认证
 
@@ -11,21 +10,21 @@
 - JWT 认证（Access/Refresh Token 机制）
 - 角色权限系统
 """
-from .encryption import secure_storage, SecureStorage
-from .file_sandbox import file_sandbox, FileSandbox
-from .audit_log import audit_logger, AuditLogger
-from .data_masking import data_masker, DataMasker, mask, mask_text, mask_api_key, mask_password
-from .middleware import SecurityMiddleware, ResponseMaskingMiddleware
-from .rate_limiter import RateLimiter, get_rate_limiter, init_rate_limiter
-from .jwt_auth import JWTAuth, get_jwt_auth, init_jwt_auth, TokenPayload, Role, TokenPair
+from .audit_log import AuditLogger, audit_logger
 from .auth_middleware import (
-    RateLimitMiddleware,
     JWTAuthMiddleware,
-    SecurityMiddleware as AuthSecurityMiddleware,
+    RateLimitMiddleware,
     get_current_user,
     get_current_user_optional,
-    require_roles
+    require_roles,
 )
+from .auth_middleware import SecurityMiddleware as AuthSecurityMiddleware
+from .data_masking import DataMasker, data_masker, mask, mask_api_key, mask_password, mask_text
+from .encryption import SecureStorage, secure_storage
+from .file_sandbox import FileSandbox, file_sandbox
+from .jwt_auth import JWTAuth, Role, TokenPair, TokenPayload, get_jwt_auth, init_jwt_auth
+from .middleware import ResponseMaskingMiddleware, SecurityMiddleware
+from .rate_limiter import RateLimiter, get_rate_limiter, init_rate_limiter
 
 __all__ = [
     "secure_storage",

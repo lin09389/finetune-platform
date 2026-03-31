@@ -1,8 +1,8 @@
-from .cpu import CPUMonitor, CPUInfo, CPUHistory
-from .memory import MemoryMonitor, MemoryInfo, MemoryHistory
-from .disk import DiskMonitor, DiskInfo, DiskIOStats
-from .network import NetworkMonitor, NetworkInfo, NetworkStats
+from .cpu import CPUHistory, CPUInfo, CPUMonitor
+from .disk import DiskInfo, DiskIOStats, DiskMonitor
+from .memory import MemoryHistory, MemoryInfo, MemoryMonitor
 from .monitor import HardwareMonitor
+from .network import NetworkInfo, NetworkMonitor, NetworkStats
 
 __all__ = [
     "CPUMonitor",

@@ -1,18 +1,15 @@
 """
 MCP 模块测试
 """
-import pytest
-from unittest.mock import Mock, patch
-import json
 
-from mcp.types import MCPTool, MCPToolResult, MCPServerInfo, MCPMessageType
 from mcp.protocol import MCPProtocol
+from mcp.types import MCPMessageType, MCPServerInfo, MCPTool, MCPToolResult
 
 
 class TestMCPProtocol:
     def test_create_initialize_request(self):
         request = MCPProtocol.create_initialize_request()
-        
+
         assert request["jsonrpc"] == "2.0"
         assert request["method"] == "initialize"
         assert "params" in request
@@ -20,7 +17,7 @@ class TestMCPProtocol:
 
     def test_create_list_tools_request(self):
         request = MCPProtocol.create_list_tools_request()
-        
+
         assert request["jsonrpc"] == "2.0"
         assert request["method"] == "tools/list"
 
@@ -30,7 +27,7 @@ class TestMCPProtocol:
             arguments={"arg1": "value1"},
             call_id="123"
         )
-        
+
         assert request["jsonrpc"] == "2.0"
         assert request["method"] == "tools/call"
         assert request["params"]["name"] == "test_tool"
@@ -42,7 +39,7 @@ class TestMCPProtocol:
             "id": 1,
             "result": {"data": "success"}
         }
-        
+
         success, result = MCPProtocol.parse_response(response)
         assert success is True
         assert result == {"data": "success"}
@@ -53,7 +50,7 @@ class TestMCPProtocol:
             "id": 1,
             "error": {"code": -32600, "message": "Invalid Request"}
         }
-        
+
         success, error = MCPProtocol.parse_response(response)
         assert success is False
         assert "code" in error
@@ -72,7 +69,7 @@ class TestMCPTool:
                 "required": ["arg1"]
             }
         )
-        
+
         assert tool.name == "test_tool"
         assert tool.description == "A test tool"
         assert "properties" in tool.input_schema
@@ -85,7 +82,7 @@ class TestMCPToolResult:
             content={"output": "success"},
             is_error=False
         )
-        
+
         assert result.call_id == "123"
         assert result.is_error is False
 
@@ -95,7 +92,7 @@ class TestMCPToolResult:
             content="Error message",
             is_error=True
         )
-        
+
         assert result.is_error is True
 
 
@@ -107,7 +104,7 @@ class TestMCPServerInfo:
             command="python",
             args=["-m", "test_server"]
         )
-        
+
         assert info.name == "test_server"
         assert info.transport == "stdio"
         assert info.command == "python"
@@ -119,7 +116,7 @@ class TestMCPServerInfo:
             transport="sse",
             url="http://localhost:8080/sse"
         )
-        
+
         assert info.name == "test_server"
         assert info.transport == "sse"
         assert info.url == "http://localhost:8080/sse"

@@ -1,10 +1,9 @@
-# -*- coding: utf-8 -*-
 """
 记忆 API 路由
 """
-from fastapi import APIRouter, HTTPException
+
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
 
 router = APIRouter(prefix="/memory", tags=["Memory"])
 
@@ -27,7 +26,7 @@ class MemoryCreateRequest(BaseModel):
 
 @router.get("/")
 async def list_memories(
-    memory_type: Optional[str] = None,
+    memory_type: str | None = None,
     limit: int = 50
 ):
     """列出记忆"""

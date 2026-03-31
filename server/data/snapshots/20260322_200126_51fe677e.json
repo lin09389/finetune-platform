@@ -1,0 +1,37 @@
+{
+  "id": "20260322_200126_51fe677e",
+  "action": "file_write",
+  "params": {
+    "file_path": "C:\\Users\\JHJ\\AppData\\Local\\Temp\\tmpi99831vz\\test_agent.txt",
+    "content": "\nNew line",
+    "mode": "append"
+  },
+  "timestamp": "2026-03-22T20:01:26.899596",
+  "before_state": {
+    "file_exists": true,
+    "file_path": "C:\\Users\\JHJ\\AppData\\Local\\Temp\\tmpi99831vz\\test_agent.txt",
+    "file_size": 12,
+    "file_modified": "2026-03-22T20:01:26.802865",
+    "backup_path": "data\\snapshots\\backup_524456d3_test_agent.txt"
+  },
+  "after_state": {
+    "success": true,
+    "data": {
+      "path": "C:\\Users\\JHJ\\AppData\\Local\\Temp\\tmpi99831vz\\test_agent.txt",
+      "size": 22
+    }
+  },
+  "rollback_operations": [
+    {
+      "type": "file_restore",
+      "params": {
+        "file_path": "C:\\Users\\JHJ\\AppData\\Local\\Temp\\tmpi99831vz\\test_agent.txt"
+      },
+      "description": "恢复文件: C:\\Users\\JHJ\\AppData\\Local\\Temp\\tmpi99831vz\\test_agent.txt"
+    }
+  ],
+  "rollback_deadline": "2026-03-23T20:01:26.890326",
+  "status": "executed",
+  "is_reversible": true,
+  "error": null
+}

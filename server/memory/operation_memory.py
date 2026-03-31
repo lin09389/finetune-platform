@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 操作记忆管理模块
 
@@ -10,12 +9,13 @@
 """
 import json
 import logging
-from typing import Dict, Any, Optional, List, Callable, Awaitable
+import uuid
+from collections.abc import Awaitable, Callable
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from dataclasses import dataclass, field, asdict
 from enum import Enum
 from pathlib import Path
-import uuid
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -55,19 +55,19 @@ class OperationRecord:
     operation_type: OperationType = OperationType.CUSTOM
     status: OperationStatus = OperationStatus.PENDING
     description: str = ""
-    params: Dict[str, Any] = field(default_factory=dict)
-    result: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
+    params: dict[str, Any] = field(default_factory=dict)
+    result: dict[str, Any] | None = None
+    error: str | None = None
     created_at: datetime = field(default_factory=datetime.now)
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    rollback_data: Optional[Dict[str, Any]] = None
-    parent_id: Optional[str] = None
-    session_id: Optional[str] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    rollback_data: dict[str, Any] | None = None
+    parent_id: str | None = None
+    session_id: str | None = None
     user_id: str = "default"
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
-    def to_dict(self) -> Dict[str, Any]:
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["operation_type"] = self.operation_type.value
         data["status"] = self.status.value
@@ -75,9 +75,9 @@ class OperationRecord:
         data["started_at"] = self.started_at.isoformat() if self.started_at else None
         data["completed_at"] = self.completed_at.isoformat() if self.completed_at else None
         return data
-    
+
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "OperationRecord":
+    def from_dict(cls, data: dict[str, Any]) -> "OperationRecord":
         return cls(
             id=data.get("id", str(uuid.uuid4())),
             operation_type=OperationType(data.get("operation_type", "custom")),
@@ -103,13 +103,13 @@ class OperationPattern:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     name: str = ""
     description: str = ""
-    operation_sequence: List[OperationType] = field(default_factory=list)
+    operation_sequence: list[OperationType] = field(default_factory=list)
     frequency: int = 0
-    last_matched: Optional[datetime] = None
+    last_matched: datetime | None = None
     confidence: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
-    def to_dict(self) -> Dict[str, Any]:
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["operation_sequence"] = [op.value for op in self.operation_sequence]
         data["last_matched"] = self.last_matched.isoformat() if self.last_matched else None
@@ -125,36 +125,36 @@ class OperationMemoryManager:
     - 操作模式识别
     - 操作回滚支持
     """
-    
-    def __init__(self, storage_path: Optional[Path] = None):
+
+    def __init__(self, storage_path: Path | None = None):
         self.storage_path = storage_path or Path("data/operation_memory")
         self.storage_path.mkdir(parents=True, exist_ok=True)
-        
-        self._operations: Dict[str, OperationRecord] = {}
-        self._patterns: Dict[str, OperationPattern] = {}
-        self._rollback_handlers: Dict[OperationType, Callable] = {}
-        
+
+        self._operations: dict[str, OperationRecord] = {}
+        self._patterns: dict[str, OperationPattern] = {}
+        self._rollback_handlers: dict[OperationType, Callable] = {}
+
         self._max_history_size = 1000
         self._pattern_window_size = 10
-    
+
     def register_rollback_handler(
-        self, 
-        operation_type: OperationType, 
+        self,
+        operation_type: OperationType,
         handler: Callable[[OperationRecord], Awaitable[bool]]
     ):
         """注册回滚处理器"""
         self._rollback_handlers[operation_type] = handler
         logger.info(f"注册回滚处理器: {operation_type.value}")
-    
+
     async def record_operation(
         self,
         operation_type: OperationType,
         description: str,
-        params: Dict[str, Any],
-        session_id: Optional[str] = None,
+        params: dict[str, Any],
+        session_id: str | None = None,
         user_id: str = "default",
-        parent_id: Optional[str] = None,
-        rollback_data: Optional[Dict[str, Any]] = None,
+        parent_id: str | None = None,
+        rollback_data: dict[str, Any] | None = None,
     ) -> OperationRecord:
         """记录操作"""
         record = OperationRecord(
@@ -166,85 +166,85 @@ class OperationMemoryManager:
             parent_id=parent_id,
             rollback_data=rollback_data,
         )
-        
+
         self._operations[record.id] = record
         self._persist_operation(record)
-        
+
         logger.debug(f"记录操作: {record.id} ({operation_type.value})")
-        
+
         return record
-    
+
     async def start_operation(self, operation_id: str) -> bool:
         """开始操作"""
         record = self._operations.get(operation_id)
         if not record:
             return False
-        
+
         record.status = OperationStatus.RUNNING
         record.started_at = datetime.now()
         self._persist_operation(record)
-        
+
         return True
-    
+
     async def complete_operation(
-        self, 
-        operation_id: str, 
-        result: Dict[str, Any]
+        self,
+        operation_id: str,
+        result: dict[str, Any]
     ) -> bool:
         """完成操作"""
         record = self._operations.get(operation_id)
         if not record:
             return False
-        
+
         record.status = OperationStatus.SUCCESS
         record.result = result
         record.completed_at = datetime.now()
         self._persist_operation(record)
-        
+
         await self._update_patterns(record)
-        
+
         return True
-    
+
     async def fail_operation(
-        self, 
-        operation_id: str, 
+        self,
+        operation_id: str,
         error: str
     ) -> bool:
         """标记操作失败"""
         record = self._operations.get(operation_id)
         if not record:
             return False
-        
+
         record.status = OperationStatus.FAILED
         record.error = error
         record.completed_at = datetime.now()
         self._persist_operation(record)
-        
+
         return True
-    
+
     async def rollback_operation(self, operation_id: str) -> bool:
         """回滚操作"""
         record = self._operations.get(operation_id)
         if not record:
             logger.warning(f"操作不存在: {operation_id}")
             return False
-        
+
         if record.status != OperationStatus.SUCCESS:
             logger.warning(f"操作状态不允许回滚: {record.status}")
             return False
-        
+
         if not record.rollback_data:
             logger.warning(f"操作没有回滚数据: {operation_id}")
             return False
-        
+
         handler = self._rollback_handlers.get(record.operation_type)
         if not handler:
             logger.warning(f"没有注册回滚处理器: {record.operation_type}")
             return False
-        
+
         try:
             success = await handler(record)
-            
+
             if success:
                 record.status = OperationStatus.ROLLED_BACK
                 record.completed_at = datetime.now()
@@ -254,23 +254,23 @@ class OperationMemoryManager:
             else:
                 logger.error(f"回滚失败: {operation_id}")
                 return False
-        
+
         except Exception as e:
             logger.error(f"回滚异常: {e}", exc_info=True)
             return False
-    
+
     async def _update_patterns(self, new_record: OperationRecord):
         """更新操作模式"""
         recent_ops = self.get_recent_operations(
             user_id=new_record.user_id,
             limit=self._pattern_window_size
         )
-        
+
         if len(recent_ops) < 3:
             return
-        
+
         op_sequence = [op.operation_type for op in recent_ops[-5:]]
-        
+
         matched = False
         for pattern in self._patterns.values():
             if self._match_sequence(op_sequence, pattern.operation_sequence):
@@ -279,7 +279,7 @@ class OperationMemoryManager:
                 pattern.confidence = min(1.0, pattern.confidence + 0.1)
                 matched = True
                 break
-        
+
         if not matched and len(op_sequence) >= 3:
             pattern = OperationPattern(
                 name=f"Pattern_{len(self._patterns)}",
@@ -289,53 +289,53 @@ class OperationMemoryManager:
                 confidence=0.3,
             )
             self._patterns[pattern.id] = pattern
-    
+
     def _match_sequence(
-        self, 
-        sequence: List[OperationType], 
-        pattern: List[OperationType]
+        self,
+        sequence: list[OperationType],
+        pattern: list[OperationType]
     ) -> bool:
         """检查序列是否匹配模式"""
         if len(sequence) < len(pattern):
             return False
-        
+
         for i in range(len(sequence) - len(pattern) + 1):
             if sequence[i:i+len(pattern)] == pattern:
                 return True
-        
+
         return False
-    
-    def get_operation(self, operation_id: str) -> Optional[OperationRecord]:
+
+    def get_operation(self, operation_id: str) -> OperationRecord | None:
         """获取操作记录"""
         return self._operations.get(operation_id)
-    
+
     def get_recent_operations(
         self,
-        user_id: Optional[str] = None,
-        operation_type: Optional[OperationType] = None,
-        session_id: Optional[str] = None,
+        user_id: str | None = None,
+        operation_type: OperationType | None = None,
+        session_id: str | None = None,
         limit: int = 20,
-    ) -> List[OperationRecord]:
+    ) -> list[OperationRecord]:
         """获取最近的操作"""
         operations = list(self._operations.values())
-        
+
         if user_id:
             operations = [op for op in operations if op.user_id == user_id]
         if operation_type:
             operations = [op for op in operations if op.operation_type == operation_type]
         if session_id:
             operations = [op for op in operations if op.session_id == session_id]
-        
+
         operations.sort(key=lambda x: x.created_at, reverse=True)
         return operations[:limit]
-    
-    def get_patterns(self, min_frequency: int = 2) -> List[OperationPattern]:
+
+    def get_patterns(self, min_frequency: int = 2) -> list[OperationPattern]:
         """获取操作模式"""
         return [
             pattern for pattern in self._patterns.values()
             if pattern.frequency >= min_frequency
         ]
-    
+
     def _persist_operation(self, record: OperationRecord):
         """持久化操作记录"""
         file_path = self.storage_path / f"{record.id}.json"
@@ -344,35 +344,35 @@ class OperationMemoryManager:
                 json.dump(record.to_dict(), f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"持久化操作失败: {e}")
-    
-    def load_operation(self, operation_id: str) -> Optional[OperationRecord]:
+
+    def load_operation(self, operation_id: str) -> OperationRecord | None:
         """加载操作记录"""
         file_path = self.storage_path / f"{operation_id}.json"
         if not file_path.exists():
             return None
-        
+
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 data = json.load(f)
             return OperationRecord.from_dict(data)
         except Exception as e:
             logger.error(f"加载操作失败: {e}")
             return None
-    
-    def get_stats(self) -> Dict[str, Any]:
+
+    def get_stats(self) -> dict[str, Any]:
         """获取统计信息"""
         status_counts = {}
         for status in OperationStatus:
             status_counts[status.value] = sum(
                 1 for op in self._operations.values() if op.status == status
             )
-        
+
         type_counts = {}
         for op_type in OperationType:
             type_counts[op_type.value] = sum(
                 1 for op in self._operations.values() if op.operation_type == op_type
             )
-        
+
         return {
             "total_operations": len(self._operations),
             "total_patterns": len(self._patterns),
@@ -381,7 +381,7 @@ class OperationMemoryManager:
         }
 
 
-_operation_manager: Optional[OperationMemoryManager] = None
+_operation_manager: OperationMemoryManager | None = None
 
 
 def get_operation_manager() -> OperationMemoryManager:

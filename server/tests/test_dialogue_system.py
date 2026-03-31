@@ -7,33 +7,32 @@ AI 对话系统后端单元测试
 - 技能系统
 - 知识库集成
 """
-import pytest
-from datetime import datetime
-from unittest.mock import Mock, patch, MagicMock
-import tempfile
-import os
 import json
-
+import os
 import sys
+import tempfile
+from datetime import datetime
+
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from context.manager import (
-    ContextManager,
-    MessageRole,
-    MessagePriority,
     ChatMessage,
+    ContextManager,
     ContextWindow,
+    MessagePriority,
+    MessageRole,
     get_context_manager,
-    remove_context_manager,
     list_context_managers,
+    remove_context_manager,
 )
 from context.session_store import (
-    SessionStore,
-    SessionStatus,
     ChatSession,
     SessionMessage,
     SessionMetadata,
-    get_session_store,
+    SessionStatus,
+    SessionStore,
 )
 
 
@@ -111,7 +110,7 @@ class TestContextManager:
         manager = ContextManager(session_id="test")
         manager.add_message(MessageRole.USER, "Hello")
         manager.add_message(MessageRole.ASSISTANT, "Hi there")
-        
+
         context = manager.get_context()
         assert len(context) == 2
         assert context[0]["role"] == "user"
@@ -121,7 +120,7 @@ class TestContextManager:
         manager = ContextManager(session_id="test")
         for i in range(10):
             manager.add_message(MessageRole.USER, f"Message {i}")
-        
+
         context = manager.get_context(max_messages=3)
         assert len(context) == 3
 
@@ -129,7 +128,7 @@ class TestContextManager:
         manager = ContextManager(session_id="test")
         manager.add_message(MessageRole.USER, "Hello")
         manager.add_message(MessageRole.ASSISTANT, "Hi")
-        
+
         context_str = manager.get_context_string()
         assert "[User]:" in context_str
         assert "[Assistant]:" in context_str
@@ -137,7 +136,7 @@ class TestContextManager:
     def test_get_context_string_markdown(self):
         manager = ContextManager(session_id="test")
         manager.add_message(MessageRole.USER, "Hello")
-        
+
         context_str = manager.get_context_string(format_type="markdown")
         assert "## User" in context_str
 
@@ -145,7 +144,7 @@ class TestContextManager:
         manager = ContextManager(session_id="test")
         manager.add_message(MessageRole.USER, "Hello")
         manager.add_message(MessageRole.SYSTEM, "System message")
-        
+
         manager.clear(keep_system=True)
         assert len(manager.messages) == 0
 
@@ -153,7 +152,7 @@ class TestContextManager:
         manager = ContextManager(session_id="test")
         manager.add_message(MessageRole.USER, "Hello")
         manager.add_message(MessageRole.ASSISTANT, "Hi there")
-        
+
         stats = manager.get_stats()
         assert stats["message_count"] == 2
         assert stats["total_tokens"] > 0
@@ -164,7 +163,7 @@ class TestContextManager:
         manager.add_message(MessageRole.USER, "Hello")
         manager.add_message(MessageRole.ASSISTANT, "Hi")
         manager.add_message(MessageRole.USER, "How are you?")
-        
+
         user_messages = manager.get_messages_by_role(MessageRole.USER)
         assert len(user_messages) == 2
 
@@ -172,7 +171,7 @@ class TestContextManager:
         manager = ContextManager(session_id="test")
         for i in range(10):
             manager.add_message(MessageRole.USER, f"Message {i}")
-        
+
         recent = manager.get_recent_messages(3)
         assert len(recent) == 3
 
@@ -181,7 +180,7 @@ class TestContextManager:
         manager.add_message(MessageRole.USER, "Hello world")
         manager.add_message(MessageRole.USER, "Python is great")
         manager.add_message(MessageRole.USER, "Testing Python code")
-        
+
         found = manager.find_messages("Python")
         assert len(found) == 2
 
@@ -365,7 +364,7 @@ class TestSessionStore:
         store.add_message(session.id, "user", "Message 1")
         store.add_message(session.id, "assistant", "Message 2")
         store.add_message(session.id, "user", "Message 3")
-        
+
         messages = store.get_messages(session.id)
         assert len(messages) == 3
 
@@ -374,7 +373,7 @@ class TestSessionStore:
         session = store.create_session(title="Test")
         for i in range(10):
             store.add_message(session.id, "user", f"Message {i}")
-        
+
         messages = store.get_messages(session.id, limit=5)
         assert len(messages) == 5
 
@@ -389,7 +388,7 @@ class TestSessionStore:
         store = SessionStore(storage_path=temp_storage)
         store.create_session(title="Python Tutorial")
         store.create_session(title="JavaScript Guide")
-        
+
         sessions, total = store.search_sessions(query="Python")
         assert total == 1
         assert sessions[0].metadata.title == "Python Tutorial"
@@ -399,7 +398,7 @@ class TestSessionStore:
         store.create_session(title="Active 1")
         session2 = store.create_session(title="To Archive")
         store.archive_session(session2.id)
-        
+
         sessions, total = store.search_sessions(status=SessionStatus.ARCHIVED)
         assert total == 1
 
@@ -407,7 +406,7 @@ class TestSessionStore:
         store = SessionStore(storage_path=temp_storage)
         store.create_session(title="Session 1")
         store.create_session(title="Session 2")
-        
+
         stats = store.get_statistics()
         assert stats["total_sessions"] == 2
         assert stats["active_sessions"] == 2
@@ -416,7 +415,7 @@ class TestSessionStore:
         store = SessionStore(storage_path=temp_storage)
         session = store.create_session(title="Test")
         store.add_message(session.id, "user", "Hello")
-        
+
         exported = store.export_session(session.id, format="json")
         assert exported is not None
         data = json.loads(exported)
@@ -426,7 +425,7 @@ class TestSessionStore:
         store = SessionStore(storage_path=temp_storage)
         session = store.create_session(title="Test")
         store.add_message(session.id, "user", "Hello")
-        
+
         exported = store.export_session(session.id, format="markdown")
         assert exported is not None
         assert "# Test" in exported
@@ -435,7 +434,7 @@ class TestSessionStore:
         store = SessionStore(storage_path=temp_storage)
         store.create_session(title="Test 1", tags=["python", "tutorial"])
         store.create_session(title="Test 2", tags=["python", "advanced"])
-        
+
         tags = store.get_all_tags()
         assert len(tags) >= 2
         python_tag = next((t for t in tags if t["tag"] == "python"), None)

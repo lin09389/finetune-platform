@@ -5,17 +5,17 @@
 - P1-1: 修复历史记录竞态条件，使用原子写入
 - P1-6: 修复内存泄漏，定期清理已完成任务引用
 """
-import threading
-import json
-import tempfile
-import os
-from pathlib import Path
-from datetime import datetime
-from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
-from queue import Queue, Empty
-import logging
 import gc
+import json
+import os
+import tempfile
+import threading
+from datetime import datetime
+from pathlib import Path
+from queue import Empty, Queue
+from typing import Any
+
+from pydantic import BaseModel
 
 from core.logging import get_logger
 
@@ -44,10 +44,10 @@ class TrainingRecord(BaseModel):
     method: str
     status: str
     start_time: str
-    end_time: Optional[str] = None
+    end_time: str | None = None
     config: dict
     output_path: str
-    checkpoint_path: Optional[str] = None
+    checkpoint_path: str | None = None
 
 
 class StateUpdate:
@@ -74,16 +74,16 @@ class TrainingState:
     def __init__(self, history_file: Path):
         self._lock = threading.Lock()
         self._is_training: bool = False
-        self._current_record: Optional[TrainingRecord] = None
+        self._current_record: TrainingRecord | None = None
         self._progress: TrainingProgress = TrainingProgress()
-        self._training_tasks: Dict[str, threading.Thread] = {}
-        self._completed_tasks: Dict[str, float] = {}
+        self._training_tasks: dict[str, threading.Thread] = {}
+        self._completed_tasks: dict[str, float] = {}
         self._history_file = history_file
-        self._history_cache: Optional[List[TrainingRecord]] = None
+        self._history_cache: list[TrainingRecord] | None = None
         self._history_dirty = False
 
         self._update_queue: Queue = Queue()
-        self._worker_thread: Optional[threading.Thread] = None
+        self._worker_thread: threading.Thread | None = None
         self._worker_running = False
 
         self._history_file.parent.mkdir(parents=True, exist_ok=True)
@@ -173,7 +173,7 @@ class TrainingState:
         except Exception as e:
             logger.error(f"队列训练状态更新失败：{e}")
 
-    def queue_record_update(self, record: Optional[TrainingRecord]):
+    def queue_record_update(self, record: TrainingRecord | None):
         """队列式记录更新"""
         try:
             self._update_queue.put(StateUpdate('record', record=record))
@@ -203,12 +203,12 @@ class TrainingState:
         """设置训练状态"""
         self.queue_training_state(value)
 
-    def get_current_record(self) -> Optional[TrainingRecord]:
+    def get_current_record(self) -> TrainingRecord | None:
         """获取当前训练记录"""
         with self._lock:
             return self._current_record.model_copy() if self._current_record else None
 
-    def set_current_record(self, record: Optional[TrainingRecord]):
+    def set_current_record(self, record: TrainingRecord | None):
         """设置当前训练记录"""
         self.queue_record_update(record)
 
@@ -232,12 +232,12 @@ class TrainingState:
             self._training_tasks.pop(task_id, None)
             self._completed_tasks[task_id] = datetime.now().timestamp()
 
-    def get_active_tasks(self) -> Dict[str, threading.Thread]:
+    def get_active_tasks(self) -> dict[str, threading.Thread]:
         """获取所有活跃任务"""
         with self._lock:
             return {k: v for k, v in self._training_tasks.items() if v.is_alive()}
 
-    def _load_history_internal(self) -> List[TrainingRecord]:
+    def _load_history_internal(self) -> list[TrainingRecord]:
         """内部加载历史记录（带缓存）"""
         if self._history_cache is not None and not self._history_dirty:
             return self._history_cache
@@ -247,7 +247,7 @@ class TrainingState:
             return self._history_cache
 
         try:
-            with open(self._history_file, "r", encoding="utf-8") as f:
+            with open(self._history_file, encoding="utf-8") as f:
                 data = json.load(f)
                 self._history_cache = [TrainingRecord(**r) for r in data]
                 self._history_dirty = False
@@ -257,7 +257,7 @@ class TrainingState:
             self._history_cache = []
             return self._history_cache
 
-    def _save_history_internal(self, records: List[TrainingRecord]):
+    def _save_history_internal(self, records: list[TrainingRecord]):
         """P1-1: 原子写入历史记录"""
         try:
             self._history_file.parent.mkdir(parents=True, exist_ok=True)
@@ -322,11 +322,11 @@ class TrainingState:
         """同步添加记录到历史（用于后台线程）"""
         self._add_to_history_internal(record)
 
-    def load_history(self) -> List[TrainingRecord]:
+    def load_history(self) -> list[TrainingRecord]:
         """加载历史记录"""
         return self._load_history_internal()
 
-    def save_history(self, records: List[TrainingRecord]):
+    def save_history(self, records: list[TrainingRecord]):
         """保存历史记录"""
         self._save_history_internal(records)
 
@@ -334,11 +334,11 @@ class TrainingState:
         """添加记录到历史"""
         self.queue_history_add(record)
 
-    def get_history(self) -> List[TrainingRecord]:
+    def get_history(self) -> list[TrainingRecord]:
         """获取历史记录"""
         return self._load_history_internal()
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """获取完整状态"""
         with self._lock:
             active_count = sum(1 for t in self._training_tasks.values() if t.is_alive())
@@ -364,7 +364,7 @@ class TrainingState:
         logger.info("TrainingState 资源已清理")
 
 
-_training_state: Optional[TrainingState] = None
+_training_state: TrainingState | None = None
 _state_lock = threading.Lock()
 
 

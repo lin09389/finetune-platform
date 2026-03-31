@@ -1,19 +1,15 @@
-# -*- coding: utf-8 -*-
 """
 文件解析核心服务
 支持 PDF、Word、Excel、TXT、MD 等多种文件格式的解析
 """
-from typing import List, Dict, Any, Optional, Tuple
-from pathlib import Path
-from dataclasses import dataclass, field
+import json
 import logging
 import uuid
-import json
-import os
-import tempfile
-import shutil
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +34,11 @@ class ParsedFile:
     file_type: FileType
     file_size: int
     content: str
-    chunks: List[Dict[str, Any]] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    chunks: list[dict[str, Any]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    chunk_ids: List[str] = field(default_factory=list)
-    vector_collection: Optional[str] = None
+    chunk_ids: list[str] = field(default_factory=list)
+    vector_collection: str | None = None
 
 
 @dataclass
@@ -54,7 +50,7 @@ class FileChunk:
     chunk_index: int
     start_char: int
     end_char: int
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class FileParser:
@@ -93,13 +89,13 @@ class FileParser:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
         self._metadata_file = self.storage_dir / "files_metadata.json"
-        self._files_metadata: Dict[str, Dict[str, Any]] = self._load_metadata()
+        self._files_metadata: dict[str, dict[str, Any]] = self._load_metadata()
 
-    def _load_metadata(self) -> Dict[str, Dict[str, Any]]:
+    def _load_metadata(self) -> dict[str, dict[str, Any]]:
         """加载文件元数据"""
         if self._metadata_file.exists():
             try:
-                with open(self._metadata_file, 'r', encoding='utf-8') as f:
+                with open(self._metadata_file, encoding='utf-8') as f:
                     return json.load(f)
             except Exception as e:
                 logger.warning(f"加载文件元数据失败: {e}")
@@ -125,8 +121,8 @@ class FileParser:
     async def parse_file(
         self,
         file_path: str,
-        filename: Optional[str] = None,
-        custom_metadata: Optional[Dict[str, Any]] = None
+        filename: str | None = None,
+        custom_metadata: dict[str, Any] | None = None
     ) -> ParsedFile:
         """
         解析文件
@@ -318,7 +314,7 @@ class FileParser:
 
         for encoding in encodings:
             try:
-                with open(file_path, 'r', encoding=encoding) as f:
+                with open(file_path, encoding=encoding) as f:
                     return f.read()
             except UnicodeDecodeError:
                 continue
@@ -336,7 +332,7 @@ class FileParser:
 
         for encoding in encodings:
             try:
-                with open(file_path, 'r', encoding=encoding, newline='') as f:
+                with open(file_path, encoding=encoding, newline='') as f:
                     reader = csv.reader(f)
                     for row in reader:
                         row_text = " | ".join(row)
@@ -350,7 +346,7 @@ class FileParser:
 
     async def _extract_json(self, file_path: str) -> str:
         """提取 JSON 内容"""
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding='utf-8') as f:
             data = json.load(f)
 
         def json_to_text(obj, indent=0):
@@ -379,9 +375,9 @@ class FileParser:
 
         return json_to_text(data)
 
-    def _create_chunks(self, content: str, file_id: str) -> List[FileChunk]:
+    def _create_chunks(self, content: str, file_id: str) -> list[FileChunk]:
         """创建文本分块"""
-        from rag.text_chunker import TextChunker, get_chunker
+        from rag.text_chunker import get_chunker
 
         chunker = get_chunker(self.chunk_size, self.chunk_overlap)
         text_chunks = chunker.chunk(content, metadata={"file_id": file_id})
@@ -405,11 +401,11 @@ class FileParser:
 
         return chunks
 
-    def get_file_metadata(self, file_id: str) -> Optional[Dict[str, Any]]:
+    def get_file_metadata(self, file_id: str) -> dict[str, Any] | None:
         """获取文件元数据"""
         return self._files_metadata.get(file_id)
 
-    def list_files(self) -> List[Dict[str, Any]]:
+    def list_files(self) -> list[dict[str, Any]]:
         """列出所有文件"""
         return list(self._files_metadata.values())
 
@@ -422,7 +418,7 @@ class FileParser:
             return True
         return False
 
-    def get_file_content(self, file_id: str) -> Optional[str]:
+    def get_file_content(self, file_id: str) -> str | None:
         """获取文件内容（从存储中读取）"""
         metadata = self.get_file_metadata(file_id)
         if not metadata:
@@ -430,7 +426,7 @@ class FileParser:
 
         content_file = self.storage_dir / f"{file_id}.txt"
         if content_file.exists():
-            with open(content_file, 'r', encoding='utf-8') as f:
+            with open(content_file, encoding='utf-8') as f:
                 return f.read()
 
         return None
@@ -441,7 +437,7 @@ class FileParser:
         with open(content_file, 'w', encoding='utf-8') as f:
             f.write(content)
 
-    def save_file_chunks(self, file_id: str, chunks: List[Dict[str, Any]]):
+    def save_file_chunks(self, file_id: str, chunks: list[dict[str, Any]]):
         """保存文件分块信息"""
         chunks_file = self.storage_dir / f"{file_id}_chunks.json"
         with open(chunks_file, 'w', encoding='utf-8') as f:
@@ -476,7 +472,7 @@ class FileVectorService:
             self._vector_store = get_vector_store()
         return self._vector_store
 
-    async def index_file(self, parsed_file: ParsedFile) -> Tuple[str, List[str]]:
+    async def index_file(self, parsed_file: ParsedFile) -> tuple[str, list[str]]:
         """
         将文件内容索引到向量数据库
 
@@ -532,7 +528,7 @@ class FileVectorService:
         file_id: str,
         query: str,
         top_k: int = 5
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         在文件中搜索内容
 
@@ -560,7 +556,7 @@ class FileVectorService:
         self,
         query: str,
         top_k: int = 5
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         在所有文件中搜索
 
@@ -617,8 +613,8 @@ class FileVectorService:
             return False
 
 
-_file_parser_instance: Optional[FileParser] = None
-_file_vector_instance: Optional[FileVectorService] = None
+_file_parser_instance: FileParser | None = None
+_file_vector_instance: FileVectorService | None = None
 
 
 def get_file_parser(

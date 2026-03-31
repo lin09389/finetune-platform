@@ -1,12 +1,8 @@
-# -*- coding: utf-8 -*-
 """
 自动修复编码损坏的 Python 文件
 """
-import os
-import re
 import ast
-from pathlib import Path
-from typing import List, Tuple, Optional
+import os
 
 # 常见的编码损坏模式及其修复
 ENCODING_FIXES = {
@@ -51,18 +47,18 @@ ENCODING_FIXES = {
     '描述：?': '描述：',
 }
 
-def try_read_file(filepath: str) -> Tuple[Optional[str], Optional[str]]:
+def try_read_file(filepath: str) -> tuple[str | None, str | None]:
     """尝试用不同编码读取文件"""
     encodings = ['utf-8', 'gbk', 'gb2312', 'gb18030', 'latin-1']
-    
+
     for encoding in encodings:
         try:
-            with open(filepath, 'r', encoding=encoding, errors='replace') as f:
+            with open(filepath, encoding=encoding, errors='replace') as f:
                 content = f.read()
             return content, encoding
         except Exception:
             continue
-    
+
     return None, None
 
 def fix_truncated_chinese(content: str) -> str:
@@ -70,10 +66,10 @@ def fix_truncated_chinese(content: str) -> str:
     # 修复常见的截断模式
     lines = content.split('\n')
     fixed_lines = []
-    
+
     for line in lines:
         fixed_line = line
-        
+
         # 检查是否以 ? 结尾的不完整字符串
         if '"' in fixed_line and fixed_line.rstrip().endswith('?'):
             # 尝试修复
@@ -150,16 +146,16 @@ def fix_truncated_chinese(content: str) -> str:
             else:
                 # 通用修复：将末尾的 ? 替换为合适的字符
                 pass
-        
+
         fixed_lines.append(fixed_line)
-    
+
     return '\n'.join(fixed_lines)
 
 def fix_unterminated_strings(content: str) -> str:
     """修复未终止的字符串"""
     lines = content.split('\n')
     fixed_lines = []
-    
+
     for i, line in enumerate(lines):
         # 检查未终止的字符串
         if line.count('"') % 2 == 1 and not line.strip().endswith('\\'):
@@ -173,7 +169,7 @@ def fix_unterminated_strings(content: str) -> str:
                     line = line[:-2] + '）"'
                 else:
                     line = line + '"'
-        
+
         if line.count("'") % 2 == 1 and not line.strip().endswith('\\'):
             if '?' in line:
                 line = line.rstrip()
@@ -183,9 +179,9 @@ def fix_unterminated_strings(content: str) -> str:
                     line = line[:-2] + "）'"
                 else:
                     line = line + "'"
-        
+
         fixed_lines.append(line)
-    
+
     return '\n'.join(fixed_lines)
 
 def is_valid_python(content: str) -> bool:
@@ -196,21 +192,21 @@ def is_valid_python(content: str) -> bool:
     except:
         return False
 
-def fix_file(filepath: str) -> Tuple[bool, str]:
+def fix_file(filepath: str) -> tuple[bool, str]:
     """修复单个文件"""
     content, encoding = try_read_file(filepath)
-    
+
     if content is None:
         return False, "无法读取文件"
-    
+
     # 如果已经是有效的 Python，跳过
     if is_valid_python(content):
         return True, "文件已经是有效的"
-    
+
     # 尝试修复
     fixed_content = fix_truncated_chinese(content)
     fixed_content = fix_unterminated_strings(fixed_content)
-    
+
     # 检查修复后是否有效
     if is_valid_python(fixed_content):
         # 保存修复后的文件
@@ -220,25 +216,25 @@ def fix_file(filepath: str) -> Tuple[bool, str]:
             return True, "修复成功"
         except Exception as e:
             return False, f"保存失败: {e}"
-    
+
     return False, "无法自动修复"
 
-def scan_and_fix_directory(directory: str) -> List[Tuple[str, bool, str]]:
+def scan_and_fix_directory(directory: str) -> list[tuple[str, bool, str]]:
     """扫描并修复目录中的所有 Python 文件"""
     results = []
-    
+
     for root, dirs, files in os.walk(directory):
         # 跳过虚拟环境
         if 'venv' in root or '.venv' in root or '__pycache__' in root:
             continue
-        
+
         for f in files:
             if f.endswith('.py'):
                 filepath = os.path.join(root, f)
-                
+
                 # 先检查是否有问题
                 try:
-                    with open(filepath, 'r', encoding='utf-8') as fp:
+                    with open(filepath, encoding='utf-8') as fp:
                         content = fp.read()
                     ast.parse(content)
                     # 没有问题，跳过
@@ -249,20 +245,20 @@ def scan_and_fix_directory(directory: str) -> List[Tuple[str, bool, str]]:
                     pass
                 except:
                     continue
-                
+
                 # 有问题，尝试修复
                 success, message = fix_file(filepath)
                 results.append((filepath, success, message))
-    
+
     return results
 
 if __name__ == "__main__":
     server_dir = os.path.dirname(os.path.abspath(__file__))
     print(f"扫描目录: {server_dir}")
     print("=" * 60)
-    
+
     results = scan_and_fix_directory(server_dir)
-    
+
     if results:
         print(f"\n处理了 {len(results)} 个文件:\n")
         for filepath, success, message in results:

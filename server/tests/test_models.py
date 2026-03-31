@@ -1,11 +1,10 @@
 """
 模型 API 测试
 """
-import pytest
-from fastapi.testclient import TestClient
-import sys
 import os
-from pathlib import Path
+import sys
+
+from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

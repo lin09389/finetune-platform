@@ -1,35 +1,30 @@
-# -*- coding: utf-8 -*-
 """
 数据集管理 API - 增强安全校验和统计功能
 """
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any, Tuple
-import os
-import shutil
 import json
-import hashlib
-from pathlib import Path
+import shutil
 from datetime import datetime
-import logging
+from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from pydantic import BaseModel
 
 from core.config import get_settings
 from core.logging import get_logger
 from core.utils import (
-    validate_file_type,
-    check_file_size,
     calculate_file_hash,
-    safe_filename,
     format_bytes,
+    safe_filename,
 )
 
 logger = get_logger(__name__)
 
 router = APIRouter()
 
-_datasets_dir: Optional[Path] = None
+_datasets_dir: Path | None = None
 _max_upload_size: int = 100 * 1024 * 1024  # 100MB
-_allowed_types: List[str] = [".json", ".jsonl"]
+_allowed_types: list[str] = [".json", ".jsonl"]
 
 
 def get_datasets_dir() -> Path:
@@ -58,9 +53,9 @@ class DatasetInfo(BaseModel):
     format: str
     samples: int
     created_at: str
-    updated_at: Optional[str] = None
-    file_hash: Optional[str] = None
-    statistics: Optional[Dict[str, Any]] = None
+    updated_at: str | None = None
+    file_hash: str | None = None
+    statistics: dict[str, Any] | None = None
 
 
 class DatasetStatistics(BaseModel):
@@ -68,9 +63,9 @@ class DatasetStatistics(BaseModel):
     total_samples: int
     avg_message_length: float
     avg_turns: float
-    role_distribution: Dict[str, int]
-    message_length_distribution: Dict[str, str]
-    sample_length_distribution: Dict[str, int]
+    role_distribution: dict[str, int]
+    message_length_distribution: dict[str, str]
+    sample_length_distribution: dict[str, int]
 
 
 class DatasetUploadResponse(BaseModel):
@@ -105,7 +100,7 @@ def validate_path_security(base_dir: Path, target_path: Path) -> bool:
         return False
 
 
-def validate_file_content(file_path: Path) -> Tuple[bool, str]:
+def validate_file_content(file_path: Path) -> tuple[bool, str]:
     """
     验证文件内容
     
@@ -118,7 +113,7 @@ def validate_file_content(file_path: Path) -> Tuple[bool, str]:
     try:
         if file_path.suffix.lower() in [".json", ".jsonl"]:
             try:
-                with open(file_path, "r", encoding="utf-8") as f:
+                with open(file_path, encoding="utf-8") as f:
                     if file_path.suffix.lower() == ".jsonl":
                         for i, line in enumerate(f):
                             if i >= 10:
@@ -135,7 +130,7 @@ def validate_file_content(file_path: Path) -> Tuple[bool, str]:
         return True, ""
 
 
-def validate_dataset_format(file_path: Path) -> Tuple[bool, str, int]:
+def validate_dataset_format(file_path: Path) -> tuple[bool, str, int]:
     """
     验证数据集格式
     
@@ -147,8 +142,8 @@ def validate_dataset_format(file_path: Path) -> Tuple[bool, str, int]:
     """
     try:
         sample_count = 0
-        
-        with open(file_path, "r", encoding="utf-8") as f:
+
+        with open(file_path, encoding="utf-8") as f:
             if file_path.suffix.lower() == ".jsonl":
                 for i, line in enumerate(f):
                     try:
@@ -183,10 +178,10 @@ def validate_dataset_format(file_path: Path) -> Tuple[bool, str, int]:
                     sample_count = len(data)
                 else:
                     return False, "JSON root must be a list of conversations", 0
-        
+
         if sample_count == 0:
             return False, "No valid samples found", 0
-        
+
         return True, "", sample_count
     except Exception as e:
         return False, f"Validation error: {str(e)}", 0
@@ -204,9 +199,9 @@ def compute_statistics(file_path: Path, sample_limit: int = 1000) -> DatasetStat
         统计信息
     """
     samples = []
-    
+
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(file_path, encoding="utf-8") as f:
             if file_path.suffix.lower() == ".jsonl":
                 for i, line in enumerate(f):
                     if i >= sample_limit:
@@ -228,28 +223,28 @@ def compute_statistics(file_path: Path, sample_limit: int = 1000) -> DatasetStat
             message_length_distribution={},
             sample_length_distribution={}
         )
-    
+
     total_messages = 0
     total_length = 0
     total_turns = 0
     role_counts = {}
     length_buckets = {"0-100": 0, "100-500": 0, "500-1000": 0, "1000-2000": 0, "2000+": 0}
-    
+
     for sample in samples:
         messages = sample.get("messages", [])
         total_turns += len(messages)
         sample_length = 0
-        
+
         for msg in messages:
             role = msg.get("role", "unknown")
             content = msg.get("content", "")
-            
+
             role_counts[role] = role_counts.get(role, 0) + 1
             msg_length = len(content)
             total_length += msg_length
             sample_length += msg_length
             total_messages += 1
-        
+
         if sample_length < 100:
             length_buckets["0-100"] += 1
         elif sample_length < 500:
@@ -260,15 +255,15 @@ def compute_statistics(file_path: Path, sample_limit: int = 1000) -> DatasetStat
             length_buckets["1000-2000"] += 1
         else:
             length_buckets["2000+"] += 1
-    
+
     avg_length = total_length / total_messages if total_messages > 0 else 0
     avg_turns = total_turns / len(samples) if samples else 0
-    
+
     msg_length_dist = {}
     for role, count in role_counts.items():
         pct = (count / total_messages * 100) if total_messages > 0 else 0
         msg_length_dist[role] = f"{pct:.1f}%"
-    
+
     return DatasetStatistics(
         total_samples=len(samples),
         avg_message_length=round(avg_length, 2),
@@ -279,11 +274,11 @@ def compute_statistics(file_path: Path, sample_limit: int = 1000) -> DatasetStat
     )
 
 
-def get_datasets_list() -> List[DatasetInfo]:
+def get_datasets_list() -> list[DatasetInfo]:
     """获取数据集列表"""
     datasets_dir = get_datasets_dir()
     datasets = []
-    
+
     if not datasets_dir.exists():
         return datasets
 
@@ -296,7 +291,7 @@ def get_datasets_list() -> List[DatasetInfo]:
             continue
 
         try:
-            with open(info_file, "r", encoding="utf-8") as f:
+            with open(info_file, encoding="utf-8") as f:
                 info = json.load(f)
 
             total_size = sum(
@@ -333,8 +328,8 @@ async def list_datasets():
 @router.post("/upload", response_model=DatasetUploadResponse)
 async def upload_dataset(
     file: UploadFile = File(..., description="数据集文件"),
-    name: Optional[str] = Form(None, description="数据集名称"),
-    description: Optional[str] = Form(None, description="数据集描述")
+    name: str | None = Form(None, description="数据集名称"),
+    description: str | None = Form(None, description="数据集描述")
 ):
     """
     上传数据集
@@ -347,45 +342,45 @@ async def upload_dataset(
     """
     settings = get_settings_config()
     datasets_dir = get_datasets_dir()
-    
+
     original_filename = safe_filename(file.filename or "dataset")
-    
+
     file_ext = Path(original_filename).suffix.lower()
     if file_ext not in _allowed_types:
         raise HTTPException(
             status_code=400,
             detail=f"不允许的文件类型：{file_ext}，允许：{', '.join(_allowed_types)}"
         )
-    
+
     try:
         content = await file.read()
         file_size = len(content)
-        
+
         if file_size > settings.max_upload_size:
             raise HTTPException(
                 status_code=400,
                 detail=f"文件过大：{format_bytes(file_size)}，最大允许：{format_bytes(settings.max_upload_size)}"
             )
-        
+
         if file_size == 0:
             raise HTTPException(status_code=400, detail="空文件")
     except Exception as e:
         if isinstance(e, HTTPException):
             raise
         raise HTTPException(status_code=500, detail=f"读取文件失败：{str(e)}")
-    
+
     dataset_name = name or Path(original_filename).stem
     dataset_id = safe_filename(dataset_name).replace(" ", "_").lower()
-    
+
     dataset_path = datasets_dir / dataset_id
     if dataset_path.exists():
         raise HTTPException(
             status_code=409,
             detail=f"数据集 '{dataset_name}' 已存在，请使用其他名称"
         )
-    
+
     dataset_path.mkdir(parents=True, exist_ok=True)
-    
+
     dest_file = dataset_path / original_filename
     try:
         with open(dest_file, "wb") as f:
@@ -393,22 +388,22 @@ async def upload_dataset(
     except Exception as e:
         shutil.rmtree(dataset_path)
         raise HTTPException(status_code=500, detail=f"保存文件失败：{str(e)}")
-    
+
     is_valid, error_msg = validate_file_content(dest_file)
     if not is_valid:
         shutil.rmtree(dataset_path)
         raise HTTPException(status_code=400, detail=f"文件内容无效：{error_msg}")
-    
+
     is_valid, error_msg, sample_count = validate_dataset_format(dest_file)
     if not is_valid:
         shutil.rmtree(dataset_path)
         raise HTTPException(status_code=400, detail=f"数据集格式错误：{error_msg}")
-    
+
     file_hash = calculate_file_hash(dest_file)
-    
+
     statistics = compute_statistics(dest_file)
     stats_dict = statistics.model_dump()
-    
+
     created_at = datetime.now().isoformat()
     info = {
         "id": dataset_id,
@@ -421,13 +416,13 @@ async def upload_dataset(
         "original_filename": original_filename,
         "statistics": stats_dict,
     }
-    
+
     info_file = dataset_path / "info.json"
     with open(info_file, "w", encoding="utf-8") as f:
         json.dump(info, f, ensure_ascii=False, indent=2)
-    
+
     logger.info(f"数据集上传成功：{dataset_id}, 样本数：{sample_count}")
-    
+
     return DatasetUploadResponse(
         id=dataset_id,
         name=dataset_name,
@@ -466,10 +461,10 @@ async def get_dataset(dataset_id: str):
     """获取数据集详情"""
     datasets = get_datasets_list()
     dataset = next((d for d in datasets if d.id == dataset_id), None)
-    
+
     if not dataset:
         raise HTTPException(status_code=404, detail="数据集不存在")
-    
+
     return dataset
 
 
@@ -490,10 +485,10 @@ async def preview_dataset(dataset_id: str, limit: int = Query(default=10, ge=1, 
         raise HTTPException(status_code=404, detail="数据文件不存在")
 
     data_file = data_files[0]
-    
+
     max_preview_size = 10 * 1024 * 1024  # 10MB
     file_size = data_file.stat().st_size
-    
+
     if file_size > max_preview_size:
         raise HTTPException(
             status_code=400,
@@ -501,7 +496,7 @@ async def preview_dataset(dataset_id: str, limit: int = Query(default=10, ge=1, 
         )
 
     try:
-        with open(data_file, "r", encoding="utf-8") as f:
+        with open(data_file, encoding="utf-8") as f:
             if data_file.suffix.lower() == ".jsonl":
                 samples = []
                 for i, line in enumerate(f):
@@ -514,7 +509,7 @@ async def preview_dataset(dataset_id: str, limit: int = Query(default=10, ge=1, 
                     samples = data[:limit]
                 else:
                     samples = [data]
-        
+
         return {"samples": samples, "total_shown": len(samples)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"读取失败：{str(e)}")
@@ -538,7 +533,7 @@ async def get_dataset_statistics(dataset_id: str):
 
     data_file = data_files[0]
     statistics = compute_statistics(data_file)
-    
+
     return statistics.model_dump()
 
 
@@ -560,19 +555,19 @@ async def refresh_dataset_statistics(dataset_id: str):
 
     data_file = data_files[0]
     statistics = compute_statistics(data_file)
-    
+
     info_file = dataset_path / "info.json"
     info = {}
     if info_file.exists():
-        with open(info_file, "r", encoding="utf-8") as f:
+        with open(info_file, encoding="utf-8") as f:
             info = json.load(f)
-    
+
     info["statistics"] = statistics.model_dump()
     info["updated_at"] = datetime.now().isoformat()
-    
+
     with open(info_file, "w", encoding="utf-8") as f:
         json.dump(info, f, ensure_ascii=False, indent=2)
-    
+
     return {
         "message": "统计信息已更新",
         "statistics": statistics.model_dump()

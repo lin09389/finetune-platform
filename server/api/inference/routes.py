@@ -1,31 +1,37 @@
-# -*- coding: utf-8 -*-
 """
 推理模块路由 - 参考 Ollama server/routes.go 设计模式
 """
-from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import StreamingResponse
-from typing import Optional, List, Dict, Any
 import logging
 import time
-import asyncio
 
-from api.types import (
-    ChatRequest, ChatResponse, GenerateRequest, GenerateResponse,
-    BackendListResponse, BackendInfo, BackendSwitchRequest,
-    ModelInfo, HealthCheckResponse, StreamChunk, TokenUsage,
-    Message, MessageRole, KnowledgeSource
-)
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
+
 from api.errors import (
-    APIError, InvalidInputError, MaliciousInputError,
-    OllamaNotRunningError, ModelNotFoundError
+    APIError,
+    InvalidInputError,
+    MaliciousInputError,
 )
-from api.inference.scheduler import get_scheduler, BackendType
-from api.inference.circuit_breaker import get_circuit_breaker, CircuitBreakerOpenError
+from api.inference.backends.base import GenerationResult
+from api.inference.circuit_breaker import CircuitBreakerOpenError, get_circuit_breaker
+from api.inference.scheduler import BackendType, get_scheduler
+from api.types import (
+    BackendInfo,
+    BackendListResponse,
+    BackendSwitchRequest,
+    ChatRequest,
+    ChatResponse,
+    GenerateRequest,
+    GenerateResponse,
+    KnowledgeSource,
+)
 from core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+logger.info("=== Loading inference routes module ===")
 
 settings = get_settings()
 circuit_breaker = get_circuit_breaker()
@@ -82,14 +88,14 @@ async def generate(request: GenerateRequest):
         raise MaliciousInputError()
 
     request.prompt = sanitize_input(request.prompt)
-    
+
     backend_name = request.options.backend or "default"
 
     async def _do_generate():
         scheduler = get_scheduler()
         backend = await scheduler.get_backend(request.options.backend)
         return await backend.generate(request)
-    
+
     async def _fallback_generate():
         if request.options.backend != "cloud":
             logger.info("本地后端不可用，尝试云端AI降级")
@@ -155,6 +161,11 @@ async def generate_stream(request: GenerateRequest):
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """聊天对话 - 参考 Ollama /api/chat，集成统一上下文管理"""
+    import sys
+    print(f"=== NEW /inference/chat called with model: {request.model}, backend: {request.options.backend if request.options else 'None'} ===", file=sys.stderr, flush=True)
+    print(f"=== request.options: {request.options} ===", file=sys.stderr, flush=True)
+    logger.info(f"=== NEW /inference/chat called with model: {request.model}, backend: {request.options.backend if request.options else 'None'} ===")
+    logger.info(f"=== Request messages: {len(request.messages) if request.messages else 0} ===")
     start_time = time.time()
 
     if not request.messages or len(request.messages) == 0:
@@ -180,7 +191,7 @@ async def chat(request: ChatRequest):
 
     last_user_message = request.get_last_user_message()
 
-    from context.unified_manager import get_unified_context_manager, ContextOptions
+    from context.unified_manager import ContextOptions, get_unified_context_manager
 
     context_manager = get_unified_context_manager()
 
@@ -261,9 +272,35 @@ async def chat(request: ChatRequest):
                 max_tokens=request.options.max_tokens,
                 repetition_penalty=request.options.repetition_penalty,
             )
-            response = await backend.chat(request, context)
+            result = await backend.chat(request, context)
         else:
-            response = await backend.chat(request)
+            result = await backend.chat(request)
+
+        logger.info(f"Chat result type: {type(result)}, isinstance GenerationResult: {isinstance(result, GenerationResult)}")
+        if hasattr(result, 'text'):
+            logger.info(f"Result text: {result.text[:100] if result.text else 'empty'}...")
+        if hasattr(result, 'metadata'):
+            logger.info(f"Result metadata: {result.metadata}")
+
+        if isinstance(result, GenerationResult):
+            from api.types import Message, MessageRole, TokenUsage
+            response = ChatResponse(
+                message=Message(
+                    role=MessageRole.ASSISTANT,
+                    content=result.text
+                ),
+                model=result.model,
+                backend=request.options.backend or "ollama",
+                done=result.finish_reason == "stop",
+                usage=TokenUsage(
+                    prompt_tokens=result.prompt_tokens,
+                    completion_tokens=result.tokens_generated,
+                    total_tokens=result.total_tokens
+                ),
+                total_duration=result.latency_ms / 1000.0 if result.latency_ms else None
+            )
+        else:
+            response = result
 
         if knowledge_sources_response and request.knowledge.include_sources:
             from context.knowledge_integration import get_knowledge_integrator
@@ -357,7 +394,7 @@ async def chat_stream(request: ChatRequest):
 
 
 @router.get("/models")
-async def list_models(backend: Optional[str] = Query(None, description="后端类型")):
+async def list_models(backend: str | None = Query(None, description="后端类型")):
     """列出可用模型 - 参考 Ollama /api/tags"""
     try:
         scheduler = get_scheduler()
@@ -442,7 +479,7 @@ async def get_ollama_status():
 
 
 @router.get("/performance")
-async def get_performance_stats(model_id: Optional[str] = Query(None)):
+async def get_performance_stats(model_id: str | None = Query(None)):
     """获取性能统计"""
     from core.performance import get_performance_monitor
 

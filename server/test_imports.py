@@ -1,7 +1,6 @@
-# -*- coding: utf-8 -*-
 """测试所有修复后的模块导入"""
-import sys
 import os
+import sys
 
 # 设置路径
 server_path = os.path.dirname(os.path.abspath(__file__))
@@ -16,10 +15,10 @@ def test_import(module_path, class_name=None):
         module = __import__(module_path)
         for part in parts[1:]:
             module = getattr(module, part)
-        
+
         if class_name:
             getattr(module, class_name)
-        
+
         results["passed"].append(module_path)
         print(f"  [OK] {module_path}")
         return True

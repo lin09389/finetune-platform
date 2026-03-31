@@ -6,9 +6,9 @@ import platform
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
-from agent.core.types import ExecutionResult, ExecutionStatus, ErrorCode
+from agent.core.types import ErrorCode, ExecutionResult, ExecutionStatus
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ class WindowsClipboardWriter:
     def _ensure_initialized(self) -> bool:
         if self._initialized:
             return True
-        
+
         try:
             import win32clipboard
             import win32con
@@ -74,19 +74,19 @@ class WindowsClipboardWriter:
     def _write_image_win32(self, image_data: bytes) -> bool:
         try:
             from PIL import Image
-            
+
             img = Image.open(io.BytesIO(image_data))
-            
+
             if img.mode != "RGB":
                 img = img.convert("RGB")
-            
+
             output = io.BytesIO()
             img.save(output, format="BMP")
             bmp_data = output.getvalue()
-            
+
             bmp_header_offset = 14
             dib_data = bmp_data[bmp_header_offset:]
-            
+
             self._win32clipboard.OpenClipboard()
             try:
                 self._win32clipboard.EmptyClipboard()
@@ -106,7 +106,7 @@ class WindowsClipboardWriter:
             with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
                 f.write(image_data)
                 temp_path = f.name
-            
+
             try:
                 result = subprocess.run(
                     [
@@ -125,25 +125,25 @@ class WindowsClipboardWriter:
             logger.error(f"Failed to write image to clipboard (powershell): {e}")
             return False
 
-    def write_files(self, file_paths: List[str]) -> bool:
+    def write_files(self, file_paths: list[str]) -> bool:
         if self._ensure_initialized():
             return self._write_files_win32(file_paths)
         return self._write_files_powershell(file_paths)
 
-    def _write_files_win32(self, file_paths: List[str]) -> bool:
+    def _write_files_win32(self, file_paths: list[str]) -> bool:
         try:
             import struct
-            
+
             self._win32clipboard.OpenClipboard()
             try:
                 self._win32clipboard.EmptyClipboard()
-                
+
                 data = struct.pack("I", 0)
                 for path in file_paths:
                     wide_path = path.encode("utf-16-le") + b"\x00\x00"
                     data += struct.pack("I", len(wide_path)) + wide_path
                 data += b"\x00\x00"
-                
+
                 format_id = 49159
                 self._win32clipboard.SetClipboardData(format_id, data)
                 return True
@@ -153,7 +153,7 @@ class WindowsClipboardWriter:
             logger.error(f"Failed to write files to clipboard (win32): {e}")
             return False
 
-    def _write_files_powershell(self, file_paths: List[str]) -> bool:
+    def _write_files_powershell(self, file_paths: list[str]) -> bool:
         try:
             paths_str = ",".join(f"'{p}'" for p in file_paths)
             result = subprocess.run(
@@ -217,7 +217,7 @@ class MacOSClipboardWriter:
             with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
                 f.write(image_data)
                 temp_path = f.name
-            
+
             try:
                 result = subprocess.run(
                     ["osascript", "-e", f'set the clipboard to (read (POSIX file "{temp_path}") as «class PNGf»)'],
@@ -231,7 +231,7 @@ class MacOSClipboardWriter:
             logger.error(f"Failed to write image to clipboard: {e}")
             return False
 
-    def write_files(self, file_paths: List[str]) -> bool:
+    def write_files(self, file_paths: list[str]) -> bool:
         try:
             script = '''
             tell application "Finder"
@@ -366,12 +366,12 @@ class LinuxClipboardWriter:
             logger.error(f"Failed to write image via xclip: {e}")
             return False
 
-    def write_files(self, file_paths: List[str]) -> bool:
+    def write_files(self, file_paths: list[str]) -> bool:
         if self._backend == "wayland":
             return self._write_files_wayland(file_paths)
         return False
 
-    def _write_files_wayland(self, file_paths: List[str]) -> bool:
+    def _write_files_wayland(self, file_paths: list[str]) -> bool:
         try:
             uri_list = "\n".join(f"file://{path}" for path in file_paths)
             process = subprocess.Popen(
@@ -403,7 +403,7 @@ class ClipboardWriter:
     def __init__(self):
         self._backend = self._create_backend()
 
-    def _create_backend(self) -> Union[WindowsClipboardWriter, MacOSClipboardWriter, LinuxClipboardWriter]:
+    def _create_backend(self) -> WindowsClipboardWriter | MacOSClipboardWriter | LinuxClipboardWriter:
         system = platform.system().lower()
         if system == "windows":
             return WindowsClipboardWriter()
@@ -422,11 +422,11 @@ class ClipboardWriter:
                 error_code=ErrorCode.VALIDATION_ERROR,
                 error_message="Text must be a string",
             )
-        
+
         try:
             loop = asyncio.get_event_loop()
             success = await loop.run_in_executor(None, self._backend.write_text, text)
-            
+
             if success:
                 return ExecutionResult(
                     status=ExecutionStatus.SUCCESS,
@@ -452,7 +452,7 @@ class ClipboardWriter:
 
     async def write_image(
         self,
-        image_data: Union[bytes, str],
+        image_data: bytes | str,
         input_format: str = "bytes",
     ) -> ExecutionResult:
         try:
@@ -473,10 +473,10 @@ class ClipboardWriter:
                     error_code=ErrorCode.VALIDATION_ERROR,
                     error_message="Image data must be bytes or base64 string",
                 )
-            
+
             loop = asyncio.get_event_loop()
             success = await loop.run_in_executor(None, self._backend.write_image, image_data)
-            
+
             if success:
                 return ExecutionResult(
                     status=ExecutionStatus.SUCCESS,
@@ -500,7 +500,7 @@ class ClipboardWriter:
                 error_message=str(e),
             )
 
-    async def write_files(self, file_paths: List[str]) -> ExecutionResult:
+    async def write_files(self, file_paths: list[str]) -> ExecutionResult:
         if not isinstance(file_paths, list):
             return ExecutionResult(
                 status=ExecutionStatus.FAILED,
@@ -508,7 +508,7 @@ class ClipboardWriter:
                 error_code=ErrorCode.VALIDATION_ERROR,
                 error_message="File paths must be a list",
             )
-        
+
         if len(file_paths) == 0:
             return ExecutionResult(
                 status=ExecutionStatus.FAILED,
@@ -516,21 +516,21 @@ class ClipboardWriter:
                 error_code=ErrorCode.VALIDATION_ERROR,
                 error_message="File paths list cannot be empty",
             )
-        
+
         valid_paths = []
         invalid_paths = []
-        
+
         for path in file_paths:
             if not isinstance(path, str):
                 invalid_paths.append(str(path))
                 continue
-            
+
             p = Path(path)
             if p.exists():
                 valid_paths.append(str(p.absolute()))
             else:
                 invalid_paths.append(path)
-        
+
         if len(valid_paths) == 0:
             return ExecutionResult(
                 status=ExecutionStatus.FAILED,
@@ -538,11 +538,11 @@ class ClipboardWriter:
                 error_code=ErrorCode.RESOURCE_NOT_FOUND,
                 error_message=f"No valid file paths found. Invalid: {invalid_paths}",
             )
-        
+
         try:
             loop = asyncio.get_event_loop()
             success = await loop.run_in_executor(None, self._backend.write_files, valid_paths)
-            
+
             if success:
                 return ExecutionResult(
                     status=ExecutionStatus.SUCCESS,
@@ -582,7 +582,7 @@ class ClipboardWriter:
                     error_code=ErrorCode.RESOURCE_NOT_FOUND,
                     error_message=f"File not found: {file_path}",
                 )
-            
+
             image_data = path.read_bytes()
             return await self.write_image(image_data, input_format="bytes")
         except Exception as e:
@@ -598,7 +598,7 @@ class ClipboardWriter:
         try:
             loop = asyncio.get_event_loop()
             success = await loop.run_in_executor(None, self._backend.clear)
-            
+
             if success:
                 return ExecutionResult(
                     status=ExecutionStatus.SUCCESS,
@@ -624,21 +624,21 @@ class ClipboardWriter:
     async def write_rich_text(
         self,
         text: str,
-        html: Optional[str] = None,
-        rtf: Optional[str] = None,
+        html: str | None = None,
+        rtf: str | None = None,
     ) -> ExecutionResult:
         try:
             success = await asyncio.get_event_loop().run_in_executor(
                 None, self._backend.write_text, text
             )
-            
+
             if success:
                 metadata = {"content_type": "rich_text"}
                 if html:
                     metadata["has_html"] = True
                 if rtf:
                     metadata["has_rtf"] = True
-                
+
                 return ExecutionResult(
                     status=ExecutionStatus.SUCCESS,
                     action="clipboard_write_rich_text",
@@ -661,7 +661,7 @@ class ClipboardWriter:
                 error_message=str(e),
             )
 
-    def get_platform_info(self) -> Dict[str, Any]:
+    def get_platform_info(self) -> dict[str, Any]:
         return {
             "platform": platform.system().lower(),
             "backend_type": type(self._backend).__name__,

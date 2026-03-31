@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 数据脱敏模块 - 保护敏感信息
 
@@ -15,10 +14,10 @@
 - 生产环境：严格脱敏
 - 开发环境：可选择性脱敏
 """
-import re
 import os
-from typing import Any, Dict, List, Optional, Set, Union
+import re
 from functools import lru_cache
+from typing import Any
 
 
 class DataMasker:
@@ -177,7 +176,7 @@ class DataMasker:
 
         return value
 
-    def mask_dict(self, data: Dict[str, Any], sensitive_keys: Optional[Set[str]] = None) -> Dict[str, Any]:
+    def mask_dict(self, data: dict[str, Any], sensitive_keys: set[str] | None = None) -> dict[str, Any]:
         if not data:
             return data
 
@@ -208,7 +207,7 @@ class DataMasker:
 
         return result
 
-    def mask_list(self, data: List[Any], parent_key: str = "", sensitive_keys: Optional[Set[str]] = None) -> List[Any]:
+    def mask_list(self, data: list[Any], parent_key: str = "", sensitive_keys: set[str] | None = None) -> list[Any]:
         if not data:
             return data
 

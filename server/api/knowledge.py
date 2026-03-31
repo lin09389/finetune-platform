@@ -1,10 +1,9 @@
-# -*- coding: utf-8 -*-
 """
 知识库 API 路由
 """
-from fastapi import APIRouter, HTTPException, UploadFile, File
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+
+from fastapi import APIRouter, File, UploadFile
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/knowledge", tags=["Knowledge"])
 
@@ -13,7 +12,7 @@ class KnowledgeBase(BaseModel):
     """知识库"""
     id: str
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     document_count: int = 0
     created_at: str
 
@@ -34,7 +33,7 @@ async def list_knowledge_bases():
 
 
 @router.post("/bases")
-async def create_knowledge_base(name: str, description: Optional[str] = None):
+async def create_knowledge_base(name: str, description: str | None = None):
     """创建知识库"""
     return {"id": "kb_001", "name": name, "description": description}
 

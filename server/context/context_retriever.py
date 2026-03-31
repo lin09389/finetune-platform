@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 上下文检索器 - 智能检索相关代码
 功能：
@@ -7,11 +6,10 @@
 - 代码补全上下文
 - 项目级上下文注入
 """
-from typing import List, Dict, Any, Optional
 import logging
 import re
 
-from .models import ContextResult, CodeCompletionContext, SymbolInfo
+from .models import CodeCompletionContext, ContextResult, SymbolInfo
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +17,7 @@ logger = logging.getLogger(__name__)
 class ContextRetriever:
     """上下文检索器"""
 
-    def __init__(self, embedder=None, vector_store=None, project_info: Optional[Dict] = None):
+    def __init__(self, embedder=None, vector_store=None, project_info: dict | None = None):
         """
         初始化上下文检索器
 
@@ -36,9 +34,9 @@ class ContextRetriever:
         self,
         query: str,
         top_k: int = 5,
-        collection_name: Optional[str] = None,
-        filter_metadata: Optional[Dict] = None
-    ) -> List[ContextResult]:
+        collection_name: str | None = None,
+        filter_metadata: dict | None = None
+    ) -> list[ContextResult]:
         """
         检索与查询最相关的上下文
 
@@ -116,7 +114,7 @@ class ContextRetriever:
         file_path: str,
         content: str,
         cursor_position: int,
-        collection_name: Optional[str] = None
+        collection_name: str | None = None
     ) -> CodeCompletionContext:
         """
         为代码补全检索上下文
@@ -180,8 +178,8 @@ class ContextRetriever:
     def retrieve_by_path(
         self,
         path: str,
-        collection_name: Optional[str] = None
-    ) -> Optional[ContextResult]:
+        collection_name: str | None = None
+    ) -> ContextResult | None:
         """
         根据路径检索文件
 
@@ -229,9 +227,9 @@ class ContextRetriever:
     def retrieve_by_symbol(
         self,
         symbol_name: str,
-        symbol_type: Optional[str] = None,
-        collection_name: Optional[str] = None
-    ) -> List[ContextResult]:
+        symbol_type: str | None = None,
+        collection_name: str | None = None
+    ) -> list[ContextResult]:
         """
         根据符号名检索
 
@@ -292,7 +290,7 @@ class ContextRetriever:
 
     def format_context_for_prompt(
         self,
-        results: List[ContextResult],
+        results: list[ContextResult],
         max_length: int = 2000
     ) -> str:
         """
@@ -338,7 +336,7 @@ class ContextRetriever:
 
         return context
 
-    def _extract_symbols_from_metadata(self, metadata: Dict) -> List[SymbolInfo]:
+    def _extract_symbols_from_metadata(self, metadata: dict) -> list[SymbolInfo]:
         """从元数据提取符号信息"""
         symbols = []
 
@@ -357,7 +355,7 @@ class ContextRetriever:
 
         return symbols
 
-    def _parse_imports(self, content: str) -> List[str]:
+    def _parse_imports(self, content: str) -> list[str]:
         """解析导入语句"""
         imports = []
 
@@ -372,13 +370,13 @@ class ContextRetriever:
         return list(set(imports))
 
 
-_retrievers: Dict[str, ContextRetriever] = {}
+_retrievers: dict[str, ContextRetriever] = {}
 
 
 def get_context_retriever(
     embedder=None,
     vector_store=None,
-    project_info: Optional[Dict] = None,
+    project_info: dict | None = None,
     name: str = "default"
 ) -> ContextRetriever:
     """获取上下文检索器实例"""

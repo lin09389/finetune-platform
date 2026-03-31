@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 API 速率限制模块 - 防止暴力破解和 DDoS 攻击
 
@@ -10,14 +9,12 @@ API 速率限制模块 - 防止暴力破解和 DDoS 攻击
 - 内存/Redis 存储后端
 - 自动封禁机制
 """
-import time
-import re
-from typing import Dict, Optional, Tuple, List
-from dataclasses import dataclass, field
-from collections import defaultdict
-from datetime import datetime, timedelta
 import logging
 import os
+import re
+import time
+from dataclasses import dataclass, field
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +57,9 @@ class RateLimitConfig:
 @dataclass
 class RateLimitEntry:
     """速率限制条目"""
-    timestamps: List[float] = field(default_factory=list)
+    timestamps: list[float] = field(default_factory=list)
     violations: int = 0
-    banned_until: Optional[float] = None
+    banned_until: float | None = None
 
 
 class RateLimiter:
@@ -71,10 +68,10 @@ class RateLimiter:
     def __init__(
         self,
         default_limit: str = "100/minute",
-        api_limits: Optional[Dict[str, str]] = None,
+        api_limits: dict[str, str] | None = None,
         ban_threshold: int = 10,
         ban_duration: int = 3600,
-        storage: Optional[Dict] = None
+        storage: dict | None = None
     ):
         self.default_limit = RateLimitConfig.parse(default_limit)
         self.api_limits = {}
@@ -86,7 +83,7 @@ class RateLimiter:
         self.ban_threshold = ban_threshold
         self.ban_duration = ban_duration
 
-        self._storage: Dict[str, RateLimitEntry] = storage if storage is not None else {}
+        self._storage: dict[str, RateLimitEntry] = storage if storage is not None else {}
 
         logger.info(f"速率限制器已初始化，默认限制：{default_limit}")
 
@@ -115,7 +112,7 @@ class RateLimiter:
         identifier: str,
         endpoint: str = "",
         cost: int = 1
-    ) -> Tuple[bool, Dict]:
+    ) -> tuple[bool, dict]:
         key = self._get_key(identifier, endpoint)
         limit = self._get_limit(endpoint)
         current_time = time.time()
@@ -183,7 +180,7 @@ class RateLimiter:
             'window': limit.window
         }
 
-    def get_status(self, identifier: str, endpoint: str = "") -> Dict:
+    def get_status(self, identifier: str, endpoint: str = "") -> dict:
         key = self._get_key(identifier, endpoint)
         limit = self._get_limit(endpoint)
         current_time = time.time()
@@ -214,7 +211,7 @@ class RateLimiter:
             del self._storage[key]
             logger.info(f"已重置标识符 {identifier} 的速率限制")
 
-    def ban(self, identifier: str, duration: Optional[int] = None, endpoint: str = ""):
+    def ban(self, identifier: str, duration: int | None = None, endpoint: str = ""):
         key = self._get_key(identifier, endpoint)
         if key not in self._storage:
             self._storage[key] = RateLimitEntry()
@@ -223,7 +220,7 @@ class RateLimiter:
         self._storage[key].banned_until = time.time() + duration
         logger.warning(f"标识符 {identifier} 已被手动封禁，时长：{duration}秒")
 
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict:
         total_keys = len(self._storage)
         banned_keys = sum(
             1 for entry in self._storage.values()
@@ -259,7 +256,7 @@ class RateLimiter:
             logger.info(f"清理了 {len(keys_to_delete)} 个过期速率限制条目")
 
 
-_default_limiter: Optional[RateLimiter] = None
+_default_limiter: RateLimiter | None = None
 
 
 def get_rate_limiter() -> RateLimiter:
@@ -282,7 +279,7 @@ def get_rate_limiter() -> RateLimiter:
 
 def init_rate_limiter(
     default_limit: str = "100/minute",
-    api_limits: Optional[Dict[str, str]] = None,
+    api_limits: dict[str, str] | None = None,
     ban_threshold: int = 10,
     ban_duration: int = 3600
 ):

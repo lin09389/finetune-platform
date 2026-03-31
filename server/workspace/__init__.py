@@ -2,29 +2,29 @@
 工作空间管理模块
 提供项目管理、文件管理、版本控制和任务追踪功能
 """
+from workspace.file_api import router as file_api_router
+from workspace.file_manager import FileManager, get_file_manager
 from workspace.models import (
+    FileInfo,
+    FileMetadata,
+    FileVersion,
     Project,
     ProjectCreate,
     ProjectUpdate,
-    FileVersion,
-    FileInfo,
-    FileMetadata,
+    SubTask,
     Task,
     TaskCreate,
-    TaskUpdate,
-    TaskStatus,
-    TaskPriority,
     TaskNotification,
+    TaskPriority,
     TaskProgress,
     TaskStatistics,
-    SubTask,
+    TaskStatus,
+    TaskUpdate,
 )
 from workspace.project_manager import ProjectManager, get_project_manager
-from workspace.file_manager import FileManager, get_file_manager
-from workspace.version_control import VersionControl, get_version_control
-from workspace.file_api import router as file_api_router
-from workspace.task_manager import TaskManager, get_task_manager
 from workspace.task_api import router as task_api_router
+from workspace.task_manager import TaskManager, get_task_manager
+from workspace.version_control import VersionControl, get_version_control
 
 __all__ = [
     "Project",

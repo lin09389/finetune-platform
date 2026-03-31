@@ -1,0 +1,53 @@
+{
+  "id": "6b87b83b-648e-43a2-ac24-4fa06b5c9645",
+  "title": "contract test",
+  "messages": [],
+  "message_count": 0,
+  "created_at": "2026-03-31T15:04:25.933240",
+  "updated_at": "2026-03-31T15:04:30.668881",
+  "metadata": {
+    "execution_timeline": [
+      {
+        "timestamp": "2026-03-31T15:04:25.986998",
+        "stage": "detected",
+        "payload": {
+          "message": "create hello.txt with content hi"
+        }
+      },
+      {
+        "timestamp": "2026-03-31T15:04:30.563722",
+        "stage": "planned",
+        "payload": {
+          "action": "file_create",
+          "params": {
+            "file_path": "create"
+          }
+        }
+      },
+      {
+        "timestamp": "2026-03-31T15:04:30.668881",
+        "stage": "persisted",
+        "payload": {
+          "action": "file_create",
+          "result": {
+            "success": true,
+            "status": "success",
+            "action": "file_create",
+            "message": "Created create",
+            "data": {
+              "path": "C:\\Users\\JHJ\\Desktop\\finetune-platform\\server\\create"
+            },
+            "error": null,
+            "error_code": null,
+            "output": null,
+            "feedback": "Created create",
+            "operation_id": "549fbf78",
+            "timestamp": "2026-03-31T15:04:30.668881",
+            "duration_ms": 104.13599014282227,
+            "metadata": {}
+          }
+        }
+      }
+    ]
+  }
+}

@@ -1,21 +1,22 @@
 import asyncio
 import json
-from typing import Dict, List, Optional, Any
-from .types import MCPServerInfo, MCPTool, MCPToolResult
+from typing import Any
+
 from .protocol import MCPProtocol
+from .types import MCPServerInfo, MCPTool, MCPToolResult
 
 
 class MCPClient:
     def __init__(self, server_info: MCPServerInfo):
         self.server_info = server_info
-        self._process: Optional[asyncio.subprocess.Process] = None
-        self._tools: List[MCPTool] = []
+        self._process: asyncio.subprocess.Process | None = None
+        self._tools: list[MCPTool] = []
         self._connected = False
         self._request_id = 0
-        self._pending_requests: Dict[int, asyncio.Future] = {}
-        self._reader_task: Optional[asyncio.Task] = None
+        self._pending_requests: dict[int, asyncio.Future] = {}
+        self._reader_task: asyncio.Task | None = None
         self._write_lock = asyncio.Lock()
-        self._server_capabilities: Dict[str, Any] = {}
+        self._server_capabilities: dict[str, Any] = {}
 
     async def connect(self) -> bool:
         if self.server_info.transport == "stdio":
@@ -46,13 +47,13 @@ class MCPClient:
         self._pending_requests.clear()
         self._tools.clear()
 
-    async def list_tools(self) -> List[MCPTool]:
+    async def list_tools(self) -> list[MCPTool]:
         return self._tools.copy()
 
     async def call_tool(
         self,
         tool_name: str,
-        arguments: Dict[str, Any]
+        arguments: dict[str, Any]
     ) -> MCPToolResult:
         if not self._connected:
             return MCPToolResult(
@@ -128,7 +129,7 @@ class MCPClient:
     async def _connect_sse(self) -> bool:
         return False
 
-    async def _send_request(self, request: Dict[str, Any]) -> tuple:
+    async def _send_request(self, request: dict[str, Any]) -> tuple:
         if not self._process or not self._process.stdin:
             return False, "Process not available"
         request_id = request.get("id")
@@ -180,5 +181,5 @@ class MCPClient:
         return self._connected
 
     @property
-    def capabilities(self) -> Dict[str, Any]:
+    def capabilities(self) -> dict[str, Any]:
         return self._server_capabilities.copy()

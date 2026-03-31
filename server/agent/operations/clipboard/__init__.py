@@ -1,4 +1,4 @@
-from .reader import ClipboardReader, ClipboardContentType
+from .reader import ClipboardContentType, ClipboardReader
 from .writer import ClipboardWriter
 
 __all__ = [

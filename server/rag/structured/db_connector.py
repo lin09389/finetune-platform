@@ -1,17 +1,14 @@
-# -*- coding: utf-8 -*-
 """
 结构化数据 - 数据库连接器
 支持 SQLite、PostgreSQL 等数据库连接
 """
-from typing import List, Dict, Any, Optional, Union, AsyncIterator
-from pathlib import Path
-from pydantic import BaseModel, Field
-from abc import ABC, abstractmethod
-from contextlib import contextmanager, asynccontextmanager
-from datetime import datetime
 import logging
-import asyncio
-import json
+from abc import ABC, abstractmethod
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -22,8 +19,8 @@ class ConnectionConfig(BaseModel):
     host: str = Field(default="localhost", description="主机地址")
     port: int = Field(default=5432, description="端口")
     database: str = Field(..., description="数据库名或路径")
-    username: Optional[str] = Field(default=None, description="用户名")
-    password: Optional[str] = Field(default=None, description="密码")
+    username: str | None = Field(default=None, description="用户名")
+    password: str | None = Field(default=None, description="密码")
     schema_name: str = Field(default="public", description="Schema 名称")
     pool_size: int = Field(default=5, description="连接池大小")
     connect_timeout: int = Field(default=30, description="连接超时（秒）")
@@ -32,81 +29,81 @@ class ConnectionConfig(BaseModel):
 class TableSchema(BaseModel):
     """表结构信息"""
     table_name: str
-    columns: List[Dict[str, Any]]
-    primary_keys: List[str] = Field(default_factory=list)
-    foreign_keys: List[Dict[str, str]] = Field(default_factory=list)
-    indexes: List[Dict[str, Any]] = Field(default_factory=list)
-    row_count: Optional[int] = None
+    columns: list[dict[str, Any]]
+    primary_keys: list[str] = Field(default_factory=list)
+    foreign_keys: list[dict[str, str]] = Field(default_factory=list)
+    indexes: list[dict[str, Any]] = Field(default_factory=list)
+    row_count: int | None = None
 
 
 class QueryResult(BaseModel):
     """查询结果"""
     success: bool = True
-    columns: List[str] = Field(default_factory=list)
-    rows: List[Dict[str, Any]] = Field(default_factory=list)
+    columns: list[str] = Field(default_factory=list)
+    rows: list[dict[str, Any]] = Field(default_factory=list)
     row_count: int = 0
     affected_rows: int = 0
     execution_time_ms: float = 0.0
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class DatabaseConnector(ABC):
     """数据库连接器基类"""
-    
+
     def __init__(self, config: ConnectionConfig):
         self.config = config
         self._connection = None
         self._pool = None
-    
+
     @abstractmethod
     def connect(self) -> bool:
         """建立连接"""
         pass
-    
+
     @abstractmethod
     def disconnect(self) -> bool:
         """断开连接"""
         pass
-    
+
     @abstractmethod
     def is_connected(self) -> bool:
         """检查连接状态"""
         pass
-    
+
     @abstractmethod
     def execute(
         self,
         sql: str,
-        params: Optional[Union[Dict[str, Any], tuple]] = None
+        params: dict[str, Any] | tuple | None = None
     ) -> QueryResult:
         """执行 SQL"""
         pass
-    
+
     @abstractmethod
     def query(
         self,
         sql: str,
-        params: Optional[Union[Dict[str, Any], tuple]] = None,
-        limit: Optional[int] = None
+        params: dict[str, Any] | tuple | None = None,
+        limit: int | None = None
     ) -> QueryResult:
         """执行查询"""
         pass
-    
+
     @abstractmethod
-    def get_tables(self) -> List[str]:
+    def get_tables(self) -> list[str]:
         """获取所有表名"""
         pass
-    
+
     @abstractmethod
-    def get_table_schema(self, table_name: str) -> Optional[TableSchema]:
+    def get_table_schema(self, table_name: str) -> TableSchema | None:
         """获取表结构"""
         pass
-    
+
     @abstractmethod
-    def get_table_sample(self, table_name: str, limit: int = 5) -> List[Dict[str, Any]]:
+    def get_table_sample(self, table_name: str, limit: int = 5) -> list[dict[str, Any]]:
         """获取表数据样本"""
         pass
-    
+
     @contextmanager
     def transaction(self):
         """事务上下文管理器"""
@@ -115,15 +112,15 @@ class DatabaseConnector(ABC):
         except Exception as e:
             logger.error(f"事务失败：{e}")
             raise
-    
-    def test_connection(self) -> Dict[str, Any]:
+
+    def test_connection(self) -> dict[str, Any]:
         """测试连接"""
         result = {
             "success": False,
             "db_type": self.config.db_type,
             "message": ""
         }
-        
+
         try:
             if self.connect():
                 tables = self.get_tables()
@@ -134,20 +131,20 @@ class DatabaseConnector(ABC):
                 result["message"] = "连接失败"
         except Exception as e:
             result["message"] = str(e)
-        
+
         return result
-    
-    def get_database_info(self) -> Dict[str, Any]:
+
+    def get_database_info(self) -> dict[str, Any]:
         """获取数据库信息"""
         tables = self.get_tables()
-        
+
         info = {
             "db_type": self.config.db_type,
             "database": self.config.database,
             "table_count": len(tables),
             "tables": []
         }
-        
+
         for table_name in tables:
             schema = self.get_table_schema(table_name)
             if schema:
@@ -156,17 +153,17 @@ class DatabaseConnector(ABC):
                     "columns": len(schema.columns),
                     "row_count": schema.row_count
                 })
-        
+
         return info
 
 
 class SQLiteConnector(DatabaseConnector):
     """SQLite 数据库连接器"""
-    
+
     def __init__(self, config: ConnectionConfig):
         super().__init__(config)
         self._db_path = Path(config.database)
-    
+
     def connect(self) -> bool:
         """建立连接"""
         try:
@@ -181,7 +178,7 @@ class SQLiteConnector(DatabaseConnector):
         except Exception as e:
             logger.error(f"SQLite 连接失败：{e}")
             return False
-    
+
     def disconnect(self) -> bool:
         """断开连接"""
         if self._connection:
@@ -189,105 +186,105 @@ class SQLiteConnector(DatabaseConnector):
             self._connection = None
             logger.info("SQLite 连接已关闭")
         return True
-    
+
     def is_connected(self) -> bool:
         """检查连接状态"""
         return self._connection is not None
-    
+
     def execute(
         self,
         sql: str,
-        params: Optional[Union[Dict[str, Any], tuple]] = None
+        params: dict[str, Any] | tuple | None = None
     ) -> QueryResult:
         """执行 SQL"""
         import time
-        
+
         start_time = time.time()
         result = QueryResult()
-        
+
         try:
             if not self._connection:
                 self.connect()
-            
+
             cursor = self._connection.cursor()
-            
+
             if params:
                 cursor.execute(sql, params)
             else:
                 cursor.execute(sql)
-            
+
             self._connection.commit()
-            
+
             result.success = True
             result.affected_rows = cursor.rowcount
             result.execution_time_ms = (time.time() - start_time) * 1000
-            
+
         except Exception as e:
             result.success = False
             result.error = str(e)
             logger.error(f"SQL 执行失败：{e}")
-        
+
         return result
-    
+
     def query(
         self,
         sql: str,
-        params: Optional[Union[Dict[str, Any], tuple]] = None,
-        limit: Optional[int] = None
+        params: dict[str, Any] | tuple | None = None,
+        limit: int | None = None
     ) -> QueryResult:
         """执行查询"""
         import time
-        
+
         start_time = time.time()
         result = QueryResult()
-        
+
         try:
             if not self._connection:
                 self.connect()
-            
+
             if limit:
                 sql = f"{sql} LIMIT {limit}"
-            
+
             cursor = self._connection.cursor()
-            
+
             if params:
                 cursor.execute(sql, params)
             else:
                 cursor.execute(sql)
-            
+
             columns = [desc[0] for desc in cursor.description] if cursor.description else []
             rows = cursor.fetchall()
-            
+
             result.success = True
             result.columns = columns
             result.rows = [dict(row) for row in rows]
             result.row_count = len(rows)
             result.execution_time_ms = (time.time() - start_time) * 1000
-            
+
         except Exception as e:
             result.success = False
             result.error = str(e)
             logger.error(f"查询失败：{e}")
-        
+
         return result
-    
-    def get_tables(self) -> List[str]:
+
+    def get_tables(self) -> list[str]:
         """获取所有表名"""
         result = self.query(
             "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
         )
         return [row["name"] for row in result.rows]
-    
-    def get_table_schema(self, table_name: str) -> Optional[TableSchema]:
+
+    def get_table_schema(self, table_name: str) -> TableSchema | None:
         """获取表结构"""
         try:
             cursor = self._connection.cursor()
             cursor.execute(f"PRAGMA table_info({table_name})")
             columns_info = cursor.fetchall()
-            
+
             columns = []
             primary_keys = []
-            
+
             for col in columns_info:
                 col_dict = dict(col)
                 columns.append({
@@ -299,7 +296,7 @@ class SQLiteConnector(DatabaseConnector):
                 })
                 if col_dict["pk"]:
                     primary_keys.append(col_dict["name"])
-            
+
             cursor.execute(f"PRAGMA foreign_key_list({table_name})")
             fk_info = cursor.fetchall()
             foreign_keys = []
@@ -310,7 +307,7 @@ class SQLiteConnector(DatabaseConnector):
                     "ref_table": fk_dict["table"],
                     "ref_column": fk_dict["to"]
                 })
-            
+
             cursor.execute(f"PRAGMA index_list({table_name})")
             idx_info = cursor.fetchall()
             indexes = []
@@ -320,10 +317,10 @@ class SQLiteConnector(DatabaseConnector):
                     "name": idx_dict["name"],
                     "unique": bool(idx_dict["unique"])
                 })
-            
+
             cursor.execute(f"SELECT COUNT(*) as count FROM {table_name}")
             row_count = cursor.fetchone()["count"]
-            
+
             return TableSchema(
                 table_name=table_name,
                 columns=columns,
@@ -335,8 +332,8 @@ class SQLiteConnector(DatabaseConnector):
         except Exception as e:
             logger.error(f"获取表结构失败：{e}")
             return None
-    
-    def get_table_sample(self, table_name: str, limit: int = 5) -> List[Dict[str, Any]]:
+
+    def get_table_sample(self, table_name: str, limit: int = 5) -> list[dict[str, Any]]:
         """获取表数据样本"""
         result = self.query(f"SELECT * FROM {table_name} LIMIT {limit}")
         return result.rows
@@ -344,17 +341,17 @@ class SQLiteConnector(DatabaseConnector):
 
 class PostgreSQLConnector(DatabaseConnector):
     """PostgreSQL 数据库连接器"""
-    
+
     def __init__(self, config: ConnectionConfig):
         super().__init__(config)
         self._pool = None
-    
+
     def connect(self) -> bool:
         """建立连接"""
         try:
             import psycopg2
             from psycopg2 import pool
-            
+
             self._pool = pool.ThreadedConnectionPool(
                 minconn=1,
                 maxconn=self.config.pool_size,
@@ -365,17 +362,17 @@ class PostgreSQLConnector(DatabaseConnector):
                 password=self.config.password,
                 connect_timeout=self.config.connect_timeout
             )
-            
+
             logger.info(f"PostgreSQL 连接池已创建：{self.config.host}:{self.config.port}/{self.config.database}")
             return True
-            
+
         except ImportError:
             logger.error("psycopg2 未安装，请运行：pip install psycopg2-binary")
             return False
         except Exception as e:
             logger.error(f"PostgreSQL 连接失败：{e}")
             return False
-    
+
     def disconnect(self) -> bool:
         """断开连接"""
         if self._pool:
@@ -383,17 +380,17 @@ class PostgreSQLConnector(DatabaseConnector):
             self._pool = None
             logger.info("PostgreSQL 连接池已关闭")
         return True
-    
+
     def is_connected(self) -> bool:
         """检查连接状态"""
         return self._pool is not None
-    
+
     @contextmanager
     def _get_connection(self):
         """获取连接"""
         if not self._pool:
             self.connect()
-        
+
         conn = None
         try:
             conn = self._pool.getconn()
@@ -402,87 +399,87 @@ class PostgreSQLConnector(DatabaseConnector):
         finally:
             if conn:
                 self._pool.putconn(conn)
-    
+
     def execute(
         self,
         sql: str,
-        params: Optional[Union[Dict[str, Any], tuple]] = None
+        params: dict[str, Any] | tuple | None = None
     ) -> QueryResult:
         """执行 SQL"""
         import time
-        
+
         start_time = time.time()
         result = QueryResult()
-        
+
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                
+
                 if params:
                     cursor.execute(sql, params)
                 else:
                     cursor.execute(sql)
-                
+
                 conn.commit()
-                
+
                 result.success = True
                 result.affected_rows = cursor.rowcount
                 result.execution_time_ms = (time.time() - start_time) * 1000
-                
+
         except Exception as e:
             result.success = False
             result.error = str(e)
             logger.error(f"SQL 执行失败：{e}")
-        
+
         return result
-    
+
     def query(
         self,
         sql: str,
-        params: Optional[Union[Dict[str, Any], tuple]] = None,
-        limit: Optional[int] = None
+        params: dict[str, Any] | tuple | None = None,
+        limit: int | None = None
     ) -> QueryResult:
         """执行查询"""
         import time
-        
+
         start_time = time.time()
         result = QueryResult()
-        
+
         try:
             if limit:
                 sql = f"{sql} LIMIT {limit}"
-            
+
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                
+
                 from psycopg2.extras import RealDictCursor
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
-                
+
                 if params:
                     cursor.execute(sql, params)
                 else:
                     cursor.execute(sql)
-                
+
                 columns = [desc[0] for desc in cursor.description] if cursor.description else []
                 rows = cursor.fetchall()
-                
+
                 result.success = True
                 result.columns = columns
                 result.rows = [dict(row) for row in rows]
                 result.row_count = len(rows)
                 result.execution_time_ms = (time.time() - start_time) * 1000
-                
+
         except Exception as e:
             result.success = False
             result.error = str(e)
             logger.error(f"查询失败：{e}")
-        
+
         return result
-    
-    def get_tables(self) -> List[str]:
+
+    def get_tables(self) -> list[str]:
         """获取所有表名"""
         result = self.query(
-            f"""
+            """
             SELECT table_name 
             FROM information_schema.tables 
             WHERE table_schema = %s AND table_type = 'BASE TABLE'
@@ -491,8 +488,8 @@ class PostgreSQLConnector(DatabaseConnector):
             params=(self.config.schema_name,)
         )
         return [row["table_name"] for row in result.rows]
-    
-    def get_table_schema(self, table_name: str) -> Optional[TableSchema]:
+
+    def get_table_schema(self, table_name: str) -> TableSchema | None:
         """获取表结构"""
         try:
             columns_result = self.query(
@@ -508,7 +505,7 @@ class PostgreSQLConnector(DatabaseConnector):
                 """,
                 params=(self.config.schema_name, table_name)
             )
-            
+
             columns = []
             for row in columns_result.rows:
                 columns.append({
@@ -517,7 +514,7 @@ class PostgreSQLConnector(DatabaseConnector):
                     "nullable": row["is_nullable"] == "YES",
                     "default": row["default"]
                 })
-            
+
             pk_result = self.query(
                 """
                 SELECT a.attname as column_name
@@ -528,10 +525,10 @@ class PostgreSQLConnector(DatabaseConnector):
                 params=(f"{self.config.schema_name}.{table_name}",)
             )
             primary_keys = [row["column_name"] for row in pk_result.rows]
-            
+
             count_result = self.query(f'SELECT COUNT(*) as count FROM "{table_name}"')
             row_count = count_result.rows[0]["count"] if count_result.rows else 0
-            
+
             return TableSchema(
                 table_name=table_name,
                 columns=columns,
@@ -541,8 +538,8 @@ class PostgreSQLConnector(DatabaseConnector):
         except Exception as e:
             logger.error(f"获取表结构失败：{e}")
             return None
-    
-    def get_table_sample(self, table_name: str, limit: int = 5) -> List[Dict[str, Any]]:
+
+    def get_table_sample(self, table_name: str, limit: int = 5) -> list[dict[str, Any]]:
         """获取表数据样本"""
         result = self.query(f'SELECT * FROM "{table_name}" LIMIT {limit}')
         return result.rows
@@ -550,17 +547,17 @@ class PostgreSQLConnector(DatabaseConnector):
 
 class MySQLConnector(DatabaseConnector):
     """MySQL 数据库连接器"""
-    
+
     def __init__(self, config: ConnectionConfig):
         super().__init__(config)
         self._pool = None
-    
+
     def connect(self) -> bool:
         """建立连接"""
         try:
             import pymysql
             from pymysql import pooling
-            
+
             self._pool = pooling.ConnectionPool(
                 pool_size=self.config.pool_size,
                 host=self.config.host,
@@ -571,17 +568,17 @@ class MySQLConnector(DatabaseConnector):
                 connect_timeout=self.config.connect_timeout,
                 cursorclass=pymysql.cursors.DictCursor
             )
-            
+
             logger.info(f"MySQL 连接池已创建：{self.config.host}:{self.config.port}/{self.config.database}")
             return True
-            
+
         except ImportError:
             logger.error("pymysql 未安装，请运行：pip install pymysql")
             return False
         except Exception as e:
             logger.error(f"MySQL 连接失败：{e}")
             return False
-    
+
     def disconnect(self) -> bool:
         """断开连接"""
         if self._pool:
@@ -589,17 +586,17 @@ class MySQLConnector(DatabaseConnector):
             self._pool = None
             logger.info("MySQL 连接池已关闭")
         return True
-    
+
     def is_connected(self) -> bool:
         """检查连接状态"""
         return self._pool is not None
-    
+
     @contextmanager
     def _get_connection(self):
         """获取连接"""
         if not self._pool:
             self.connect()
-        
+
         conn = None
         try:
             conn = self._pool.get_connection()
@@ -607,89 +604,89 @@ class MySQLConnector(DatabaseConnector):
         finally:
             if conn:
                 conn.close()
-    
+
     def execute(
         self,
         sql: str,
-        params: Optional[Union[Dict[str, Any], tuple]] = None
+        params: dict[str, Any] | tuple | None = None
     ) -> QueryResult:
         """执行 SQL"""
         import time
-        
+
         start_time = time.time()
         result = QueryResult()
-        
+
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                
+
                 if params:
                     cursor.execute(sql, params)
                 else:
                     cursor.execute(sql)
-                
+
                 conn.commit()
-                
+
                 result.success = True
                 result.affected_rows = cursor.rowcount
                 result.execution_time_ms = (time.time() - start_time) * 1000
-                
+
         except Exception as e:
             result.success = False
             result.error = str(e)
             logger.error(f"SQL 执行失败：{e}")
-        
+
         return result
-    
+
     def query(
         self,
         sql: str,
-        params: Optional[Union[Dict[str, Any], tuple]] = None,
-        limit: Optional[int] = None
+        params: dict[str, Any] | tuple | None = None,
+        limit: int | None = None
     ) -> QueryResult:
         """执行查询"""
         import time
-        
+
         start_time = time.time()
         result = QueryResult()
-        
+
         try:
             if limit:
                 sql = f"{sql} LIMIT {limit}"
-            
+
             with self._get_connection() as conn:
                 cursor = conn.cursor()
-                
+
                 if params:
                     cursor.execute(sql, params)
                 else:
                     cursor.execute(sql)
-                
+
                 columns = [desc[0] for desc in cursor.description] if cursor.description else []
                 rows = cursor.fetchall()
-                
+
                 result.success = True
                 result.columns = columns
                 result.rows = rows
                 result.row_count = len(rows)
                 result.execution_time_ms = (time.time() - start_time) * 1000
-                
+
         except Exception as e:
             result.success = False
             result.error = str(e)
             logger.error(f"查询失败：{e}")
-        
+
         return result
-    
-    def get_tables(self) -> List[str]:
+
+    def get_tables(self) -> list[str]:
         """获取所有表名"""
         result = self.query(
             "SELECT table_name FROM information_schema.tables WHERE table_schema = %s",
             params=(self.config.database,)
         )
         return [row["table_name"] for row in result.rows]
-    
-    def get_table_schema(self, table_name: str) -> Optional[TableSchema]:
+
+    def get_table_schema(self, table_name: str) -> TableSchema | None:
         """获取表结构"""
         try:
             columns_result = self.query(
@@ -705,7 +702,7 @@ class MySQLConnector(DatabaseConnector):
                 """,
                 params=(self.config.database, table_name)
             )
-            
+
             columns = []
             for row in columns_result.rows:
                 columns.append({
@@ -714,7 +711,7 @@ class MySQLConnector(DatabaseConnector):
                     "nullable": row["is_nullable"] == "YES",
                     "default": row["default"]
                 })
-            
+
             pk_result = self.query(
                 """
                 SELECT column_name
@@ -724,10 +721,10 @@ class MySQLConnector(DatabaseConnector):
                 params=(self.config.database, table_name)
             )
             primary_keys = [row["column_name"] for row in pk_result.rows]
-            
+
             count_result = self.query(f"SELECT COUNT(*) as count FROM `{table_name}`")
             row_count = count_result.rows[0]["count"] if count_result.rows else 0
-            
+
             return TableSchema(
                 table_name=table_name,
                 columns=columns,
@@ -737,23 +734,23 @@ class MySQLConnector(DatabaseConnector):
         except Exception as e:
             logger.error(f"获取表结构失败：{e}")
             return None
-    
-    def get_table_sample(self, table_name: str, limit: int = 5) -> List[Dict[str, Any]]:
+
+    def get_table_sample(self, table_name: str, limit: int = 5) -> list[dict[str, Any]]:
         """获取表数据样本"""
         result = self.query(f"SELECT * FROM `{table_name}` LIMIT {limit}")
         return result.rows
 
 
-_connectors: Dict[str, DatabaseConnector] = {}
+_connectors: dict[str, DatabaseConnector] = {}
 
 
 def get_db_connector(
     db_type: str,
     database: str,
     host: str = "localhost",
-    port: Optional[int] = None,
-    username: Optional[str] = None,
-    password: Optional[str] = None,
+    port: int | None = None,
+    username: str | None = None,
+    password: str | None = None,
     **kwargs
 ) -> DatabaseConnector:
     """
@@ -775,7 +772,7 @@ def get_db_connector(
         "postgresql": 5432,
         "mysql": 3306
     }
-    
+
     config = ConnectionConfig(
         db_type=db_type,
         host=host,
@@ -785,9 +782,9 @@ def get_db_connector(
         password=password,
         **kwargs
     )
-    
+
     cache_key = f"{db_type}:{host}:{port}:{database}"
-    
+
     if cache_key not in _connectors:
         if db_type == "sqlite":
             _connectors[cache_key] = SQLiteConnector(config)
@@ -797,7 +794,7 @@ def get_db_connector(
             _connectors[cache_key] = MySQLConnector(config)
         else:
             raise ValueError(f"不支持的数据库类型：{db_type}")
-    
+
     return _connectors[cache_key]
 
 

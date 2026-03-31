@@ -1,10 +1,8 @@
-# -*- coding: utf-8 -*-
 """
 文本处理技能
 """
-import re
 import json
-from typing import Any, Dict, List
+import re
 
 from skills.base import SkillBase
 from skills.models import (

@@ -1,273 +1,295 @@
 """
 推理引擎工厂
-
-根据配置创建正确的引擎实例
+实现开闭原则，支持动态注册新引擎
 """
 import logging
-from typing import Dict, Any, Optional, Type, Literal
-from pathlib import Path
+from dataclasses import dataclass
+from typing import Any
 
-from .engine_base import InferenceEngine, EngineConfig
+from .engine_base import (
+    BaseInferenceEngine,
+    ChatRequest,
+    InferenceBackend,
+    InferenceRequest,
+    InferenceResponse,
+)
 
 logger = logging.getLogger(__name__)
 
 
-EngineType = Literal["huggingface", "vllm", "llamacpp", "ollama"]
+@dataclass
+class EngineConfig:
+    """引擎配置"""
+    backend: InferenceBackend
+    model_id: str | None = None
+    base_url: str | None = None
+    device: str = "auto"
+    load_in_8bit: bool = False
+    load_in_4bit: bool = False
+    timeout: int = 300
+    extra: dict[str, Any] = None
+
+    def __post_init__(self):
+        if self.extra is None:
+            self.extra = {}
 
 
-class EngineFactory:
+class InferenceEngineFactory:
     """
     推理引擎工厂
     
-    支持：
-    - 根据类型创建引擎实例
-    - 引擎可用性检查
-    - 自动降级到可用引擎
+    特性:
+    - 支持动态注册新引擎类型
+    - 支持多引擎实例管理
+    - 支持配置驱动的引擎创建
+    - 线程安全
     """
-    
-    _registry: Dict[str, Type[InferenceEngine]] = {}
-    _availability_cache: Dict[str, bool] = {}
-    
+
+    _engines: dict[str, type[BaseInferenceEngine]] = {}
+    _instances: dict[str, BaseInferenceEngine] = {}
+    _default_engine: str | None = None
+
     @classmethod
-    def register(cls, engine_type: str, engine_class: Type[InferenceEngine]) -> None:
+    def register(cls, name: str, engine_class: type[BaseInferenceEngine]) -> None:
         """
         注册引擎类型
         
         Args:
-            engine_type: 引擎类型标识
+            name: 引擎名称
             engine_class: 引擎类
         """
-        cls._registry[engine_type] = engine_class
-        logger.info(f"注册推理引擎：{engine_type}")
-    
+        cls._engines[name] = engine_class
+        logger.info(f"注册推理引擎: {name} -> {engine_class.__name__}")
+
     @classmethod
-    def create(
-        cls,
-        engine_type: EngineType,
-        config: EngineConfig,
-        **kwargs
-    ) -> InferenceEngine:
+    def unregister(cls, name: str) -> bool:
+        """
+        注销引擎类型
+        
+        Args:
+            name: 引擎名称
+            
+        Returns:
+            是否成功
+        """
+        if name in cls._engines:
+            del cls._engines[name]
+            if name in cls._instances:
+                del cls._instances[name]
+            return True
+        return False
+
+    @classmethod
+    def create(cls, name: str, **kwargs) -> BaseInferenceEngine:
         """
         创建引擎实例
         
         Args:
-            engine_type: 引擎类型
-            config: 引擎配置
-            **kwargs: 额外参数
+            name: 引擎名称
+            **kwargs: 引擎参数
             
         Returns:
-            InferenceEngine: 引擎实例
+            引擎实例
             
         Raises:
-            ValueError: 不支持的引擎类型
-            RuntimeError: 引擎不可用
+            ValueError: 引擎未注册
         """
-        if engine_type not in cls._registry:
-            available = list(cls._registry.keys())
-            raise ValueError(f"不支持的引擎类型：{engine_type}，可用引擎：{available}")
-        
-        engine_class = cls._registry[engine_type]
-        
-        try:
-            engine = engine_class(config, **kwargs)
-            logger.info(f"创建引擎实例：{engine_type}，模型：{config.model_id}")
-            return engine
-        except Exception as e:
-            logger.error(f"创建引擎失败：{engine_type}，错误：{e}")
-            raise RuntimeError(f"创建引擎失败：{e}")
-    
+        engine_class = cls._engines.get(name)
+        if not engine_class:
+            raise ValueError(f"未注册的引擎类型: {name}")
+
+        return engine_class(**kwargs)
+
     @classmethod
-    def create_with_fallback(
-        cls,
-        preferred_type: EngineType,
-        config: EngineConfig,
-        fallback_types: Optional[list] = None,
-        **kwargs
-    ) -> InferenceEngine:
+    def get_or_create(cls, name: str, **kwargs) -> BaseInferenceEngine:
         """
-        创建引擎实例（支持降级）
+        获取或创建引擎实例（单例模式）
         
         Args:
-            preferred_type: 首选引擎类型
+            name: 引擎名称
+            **kwargs: 引擎参数
+            
+        Returns:
+            引擎实例
+        """
+        instance_key = f"{name}:{hash(frozenset(kwargs.items()))}"
+
+        if instance_key not in cls._instances:
+            cls._instances[instance_key] = cls.create(name, **kwargs)
+
+        return cls._instances[instance_key]
+
+    @classmethod
+    def create_from_config(cls, config: EngineConfig) -> BaseInferenceEngine:
+        """
+        从配置创建引擎
+        
+        Args:
             config: 引擎配置
-            fallback_types: 降级引擎列表
-            **kwargs: 额外参数
             
         Returns:
-            InferenceEngine: 引擎实例
+            引擎实例
         """
-        fallback_types = fallback_types or ["huggingface"]
-        
-        types_to_try = [preferred_type] + [t for t in fallback_types if t != preferred_type]
-        
-        last_error = None
-        for engine_type in types_to_try:
-            try:
-                if cls.is_available(engine_type):
-                    return cls.create(engine_type, config, **kwargs)
-            except Exception as e:
-                last_error = e
-                logger.warning(f"引擎 {engine_type} 创建失败，尝试下一个：{e}")
-        
-        raise RuntimeError(f"所有引擎都不可用，最后错误：{last_error}")
-    
+        kwargs = {}
+
+        if config.backend == InferenceBackend.HUGGINGFACE:
+            kwargs.update({
+                "device": config.device,
+                "default_model": config.model_id,
+            })
+        elif config.backend == InferenceBackend.OLLAMA:
+            kwargs.update({
+                "base_url": config.base_url or "http://localhost:11434",
+                "timeout": config.timeout,
+                "default_model": config.model_id,
+            })
+
+        kwargs.update(config.extra)
+
+        return cls.create(config.backend.value, **kwargs)
+
     @classmethod
-    def is_available(cls, engine_type: str) -> bool:
-        """
-        检查引擎是否可用
-        
-        Args:
-            engine_type: 引擎类型
-            
-        Returns:
-            bool: 是否可用
-        """
-        if engine_type in cls._availability_cache:
-            return cls._availability_cache[engine_type]
-        
-        available = cls._check_availability(engine_type)
-        cls._availability_cache[engine_type] = available
-        return available
-    
+    def get_registered_engines(cls) -> list[str]:
+        """获取已注册的引擎列表"""
+        return list(cls._engines.keys())
+
     @classmethod
-    def _check_availability(cls, engine_type: str) -> bool:
-        """检查引擎依赖是否可用"""
-        if engine_type not in cls._registry:
-            return False
-        
-        try:
-            if engine_type == "huggingface":
-                import torch
-                import transformers
-                return True
-            
-            elif engine_type == "vllm":
-                import vllm
-                return True
-            
-            elif engine_type == "llamacpp":
-                import llama_cpp
-                return True
-            
-            elif engine_type == "ollama":
-                import requests
-                from core.config import get_settings
-                settings = get_settings()
-                try:
-                    response = requests.get(f"{settings.ollama_base_url}/api/tags", timeout=3)
-                    return response.status_code == 200
-                except Exception:
-                    return False
-            
-            return True
-            
-        except ImportError:
-            return False
-        except Exception as e:
-            logger.warning(f"检查引擎可用性失败：{engine_type}，错误：{e}")
-            return False
-    
+    def set_default(cls, name: str) -> None:
+        """设置默认引擎"""
+        if name not in cls._engines:
+            raise ValueError(f"未注册的引擎类型: {name}")
+        cls._default_engine = name
+
     @classmethod
-    def get_available_engines(cls) -> Dict[str, Dict[str, Any]]:
-        """
-        获取所有可用引擎
-        
-        Returns:
-            Dict: 引擎信息字典
-        """
-        result = {}
-        for engine_type in cls._registry:
-            result[engine_type] = {
-                "type": engine_type,
-                "available": cls.is_available(engine_type),
-                "class": cls._registry[engine_type].__name__,
-            }
-        return result
-    
+    def get_default(cls) -> BaseInferenceEngine | None:
+        """获取默认引擎实例"""
+        if cls._default_engine:
+            return cls.get_or_create(cls._default_engine)
+        return None
+
     @classmethod
-    def clear_cache(cls) -> None:
-        """清除可用性缓存"""
-        cls._availability_cache.clear()
+    def clear_instances(cls) -> None:
+        """清除所有实例"""
+        cls._instances.clear()
+
+    @classmethod
+    def get_stats(cls) -> dict[str, Any]:
+        """获取工厂统计信息"""
+        return {
+            "registered_engines": cls.get_registered_engines(),
+            "instances_count": len(cls._instances),
+            "default_engine": cls._default_engine,
+        }
 
 
-def create_engine(
-    model_id: str,
-    engine_type: Optional[EngineType] = None,
-    **config_kwargs
-) -> InferenceEngine:
+def register_default_engines() -> None:
+    """注册默认引擎"""
+    from .huggingface_engine import HuggingFaceEngine
+    from .ollama_engine import OllamaEngine
+
+    InferenceEngineFactory.register("huggingface", HuggingFaceEngine)
+    InferenceEngineFactory.register("ollama", OllamaEngine)
+
+    InferenceEngineFactory.set_default("huggingface")
+
+    logger.info("默认推理引擎已注册")
+
+
+_factory_initialized = False
+
+
+def get_engine_factory() -> type[InferenceEngineFactory]:
+    """获取引擎工厂（自动初始化）"""
+    global _factory_initialized
+    if not _factory_initialized:
+        register_default_engines()
+        _factory_initialized = True
+    return InferenceEngineFactory
+
+
+def get_engine(backend: str | None = None, **kwargs) -> BaseInferenceEngine:
     """
-    便捷函数：创建推理引擎
+    获取推理引擎实例
     
     Args:
-        model_id: 模型 ID
-        engine_type: 引擎类型（默认从配置读取）
-        **config_kwargs: 引擎配置参数
+        backend: 后端名称，None 使用默认
+        **kwargs: 引擎参数
         
     Returns:
-        InferenceEngine: 引擎实例
+        引擎实例
     """
-    from core.config import get_settings
-    settings = get_settings()
-    
-    if engine_type is None:
-        engine_type = settings.inference_backend
-    
-    config = EngineConfig(model_id=model_id, **config_kwargs)
-    
-    return EngineFactory.create(engine_type, config)
+    factory = get_engine_factory()
+
+    if backend:
+        return factory.get_or_create(backend, **kwargs)
+
+    engine = factory.get_default()
+    if engine:
+        return engine
+
+    return factory.get_or_create("huggingface", **kwargs)
 
 
-def create_engine_with_fallback(
+async def generate(
+    prompt: str,
     model_id: str,
-    preferred_type: Optional[EngineType] = None,
-    **config_kwargs
-) -> InferenceEngine:
+    backend: str | None = None,
+    **kwargs,
+) -> InferenceResponse:
     """
-    便捷函数：创建推理引擎（支持降级）
+    快捷生成函数
     
     Args:
+        prompt: 输入提示
         model_id: 模型 ID
-        preferred_type: 首选引擎类型
-        **config_kwargs: 引擎配置参数
+        backend: 后端名称
+        **kwargs: 其他参数
         
     Returns:
-        InferenceEngine: 引擎实例
+        推理响应
     """
-    from core.config import get_settings
-    settings = get_settings()
-    
-    if preferred_type is None:
-        preferred_type = settings.inference_backend
-    
-    config = EngineConfig(model_id=model_id, **config_kwargs)
-    
-    return EngineFactory.create_with_fallback(
-        preferred_type,
-        config,
-        fallback_types=["huggingface"]
+    engine = get_engine(backend)
+
+    request = InferenceRequest(
+        model_id=model_id,
+        prompt=prompt,
+        **kwargs,
     )
 
+    return await engine.generate(request)
 
-try:
-    from .huggingface_engine import HuggingFaceEngine
-    EngineFactory.register("huggingface", HuggingFaceEngine)
-except ImportError as e:
-    logger.warning(f"HuggingFace 引擎注册失败：{e}")
 
-try:
-    from .vllm_engine import VLLMEngine
-    EngineFactory.register("vllm", VLLMEngine)
-except ImportError:
-    pass
+async def chat(
+    messages: list[dict[str, str]],
+    model_id: str,
+    backend: str | None = None,
+    **kwargs,
+) -> InferenceResponse:
+    """
+    快捷聊天函数
+    
+    Args:
+        messages: 消息列表
+        model_id: 模型 ID
+        backend: 后端名称
+        **kwargs: 其他参数
+        
+    Returns:
+        推理响应
+    """
+    from .engine_base import ChatMessage
 
-try:
-    from .llamacpp_engine import LlamaCppEngine
-    EngineFactory.register("llamacpp", LlamaCppEngine)
-except ImportError:
-    pass
+    engine = get_engine(backend)
 
-try:
-    from .ollama_engine import OllamaEngine
-    EngineFactory.register("ollama", OllamaEngine)
-except ImportError:
-    pass
+    chat_messages = [
+        ChatMessage(role=m["role"], content=m["content"])
+        for m in messages
+    ]
+
+    request = ChatRequest(
+        model_id=model_id,
+        messages=chat_messages,
+        **kwargs,
+    )
+
+    return await engine.chat(request)

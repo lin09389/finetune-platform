@@ -1,6 +1,5 @@
-# -*- coding: utf-8 -*-
-import sys
 import os
+import sys
 
 server_path = r'c:\Users\JHJ\Desktop\finetune-platform\server'
 sys.path.insert(0, server_path)
@@ -12,7 +11,7 @@ for p in sys.path:
     if api_path and os.path.exists(api_path):
         print(f'  Found: {api_path}')
         if os.path.isdir(api_path):
-            print(f'    Is directory')
+            print('    Is directory')
             init_file = os.path.join(api_path, '__init__.py')
             if os.path.exists(init_file):
                 print(f'    Has __init__.py: {os.path.getsize(init_file)} bytes')
@@ -32,7 +31,7 @@ try:
     print(f'  Success! api.__file__ = {api.__file__}')
 except Exception as e:
     print(f'  Failed: {e}')
-    
+
     # Try to get more details
     import traceback
     print("\nFull traceback:")

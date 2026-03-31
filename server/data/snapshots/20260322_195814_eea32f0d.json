@@ -1,0 +1,25 @@
+{
+  "id": "20260322_195814_eea32f0d",
+  "action": "screen_info",
+  "params": {},
+  "timestamp": "2026-03-22T19:58:14.371133",
+  "before_state": {},
+  "after_state": {
+    "success": true,
+    "data": {
+      "monitor_count": 1,
+      "monitors": [
+        {
+          "index": 0,
+          "width": 2560,
+          "height": 1600
+        }
+      ]
+    }
+  },
+  "rollback_operations": [],
+  "rollback_deadline": "2026-03-23T19:58:14.371133",
+  "status": "executed",
+  "is_reversible": true,
+  "error": null
+}

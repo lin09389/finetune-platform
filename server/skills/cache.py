@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 技能执行结果缓存模块
 
@@ -9,17 +8,16 @@
 - 缓存命中率统计
 - 持久化缓存支持
 """
-import asyncio
 import hashlib
 import json
 import pickle
-import time
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Lock
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
 from .models import SkillResult
 
@@ -32,7 +30,7 @@ class CacheEntry:
     parameters_hash: str
     result: SkillResult
     created_at: datetime
-    expires_at: Optional[datetime]
+    expires_at: datetime | None
     hit_count: int = 0
     last_accessed_at: datetime = field(default_factory=datetime.now)
     size_bytes: int = 0
@@ -46,7 +44,7 @@ class CacheStats:
     total_misses: int = 0
     total_evictions: int = 0
     total_size_bytes: int = 0
-    skill_stats: Dict[str, Dict[str, int]] = field(default_factory=dict)
+    skill_stats: dict[str, dict[str, int]] = field(default_factory=dict)
 
     @property
     def hit_rate(self) -> float:
@@ -66,10 +64,10 @@ class SkillExecutionCache:
         max_size: int = DEFAULT_MAX_SIZE,
         default_ttl: int = DEFAULT_TTL_SECONDS,
         max_memory_mb: int = DEFAULT_MAX_MEMORY_MB,
-        persist_dir: Optional[Path] = None,
+        persist_dir: Path | None = None,
     ):
         self._cache: OrderedDict[str, CacheEntry] = OrderedDict()
-        self._skill_index: Dict[str, set] = {}
+        self._skill_index: dict[str, set] = {}
         self._lock = Lock()
         self._stats = CacheStats()
 
@@ -78,12 +76,12 @@ class SkillExecutionCache:
         self._max_memory_bytes = max_memory_mb * 1024 * 1024
         self._persist_dir = persist_dir
 
-        self._on_evict: Optional[Callable[[CacheEntry], None]] = None
+        self._on_evict: Callable[[CacheEntry], None] | None = None
 
         if persist_dir:
             self._load_from_disk()
 
-    def _generate_key(self, skill_name: str, parameters: Dict[str, Any]) -> str:
+    def _generate_key(self, skill_name: str, parameters: dict[str, Any]) -> str:
         """生成缓存键"""
         params_str = json.dumps(parameters, sort_keys=True, default=str)
         params_hash = hashlib.sha256(params_str.encode()).hexdigest()[:16]
@@ -102,7 +100,7 @@ class SkillExecutionCache:
             return False
         return datetime.now() > entry.expires_at
 
-    def _evict_lru(self) -> Optional[CacheEntry]:
+    def _evict_lru(self) -> CacheEntry | None:
         """LRU 淘汰"""
         if not self._cache:
             return None
@@ -134,7 +132,7 @@ class SkillExecutionCache:
 
         return len(expired_keys)
 
-    def _remove_entry(self, key: str) -> Optional[CacheEntry]:
+    def _remove_entry(self, key: str) -> CacheEntry | None:
         """移除缓存条目"""
         if key not in self._cache:
             return None
@@ -167,8 +165,8 @@ class SkillExecutionCache:
     def get(
         self,
         skill_name: str,
-        parameters: Dict[str, Any],
-    ) -> Optional[SkillResult]:
+        parameters: dict[str, Any],
+    ) -> SkillResult | None:
         """获取缓存结果"""
         key = self._generate_key(skill_name, parameters)
 
@@ -198,9 +196,9 @@ class SkillExecutionCache:
     def set(
         self,
         skill_name: str,
-        parameters: Dict[str, Any],
+        parameters: dict[str, Any],
         result: SkillResult,
-        ttl: Optional[int] = None,
+        ttl: int | None = None,
     ) -> str:
         """设置缓存结果"""
         key = self._generate_key(skill_name, parameters)
@@ -256,7 +254,7 @@ class SkillExecutionCache:
     def invalidate(
         self,
         skill_name: str,
-        parameters: Optional[Dict[str, Any]] = None,
+        parameters: dict[str, Any] | None = None,
     ) -> int:
         """使缓存失效"""
         with self._lock:
@@ -300,7 +298,7 @@ class SkillExecutionCache:
                 skill_stats=dict(self._stats.skill_stats),
             )
 
-    def get_entry_info(self, skill_name: str, parameters: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def get_entry_info(self, skill_name: str, parameters: dict[str, Any]) -> dict[str, Any] | None:
         """获取缓存条目信息"""
         key = self._generate_key(skill_name, parameters)
 
@@ -320,7 +318,7 @@ class SkillExecutionCache:
                 "is_expired": self._is_expired(entry),
             }
 
-    def list_entries(self, skill_name: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_entries(self, skill_name: str | None = None) -> list[dict[str, Any]]:
         """列出缓存条目"""
         with self._lock:
             entries = []
@@ -401,9 +399,9 @@ class CachedSkillExecutor:
 
     def __init__(
         self,
-        cache: Optional[SkillExecutionCache] = None,
-        cacheable_skills: Optional[set] = None,
-        non_cacheable_skills: Optional[set] = None,
+        cache: SkillExecutionCache | None = None,
+        cacheable_skills: set | None = None,
+        non_cacheable_skills: set | None = None,
     ):
         self._cache = cache or SkillExecutionCache()
         self._cacheable_skills = cacheable_skills
@@ -425,11 +423,11 @@ class CachedSkillExecutor:
     async def execute_with_cache(
         self,
         skill_name: str,
-        parameters: Dict[str, Any],
-        executor: Callable[[Dict[str, Any]], SkillResult],
-        ttl: Optional[int] = None,
+        parameters: dict[str, Any],
+        executor: Callable[[dict[str, Any]], SkillResult],
+        ttl: int | None = None,
         force_refresh: bool = False,
-    ) -> Tuple[SkillResult, bool]:
+    ) -> tuple[SkillResult, bool]:
         """带缓存的执行"""
         if not force_refresh:
             cached_result = self._cache.get(skill_name, parameters)
@@ -443,7 +441,7 @@ class CachedSkillExecutor:
 
         return result, False
 
-    def invalidate(self, skill_name: str, parameters: Optional[Dict[str, Any]] = None) -> int:
+    def invalidate(self, skill_name: str, parameters: dict[str, Any] | None = None) -> int:
         """使缓存失效"""
         return self._cache.invalidate(skill_name, parameters)
 
@@ -452,7 +450,7 @@ class CachedSkillExecutor:
         return self._cache.get_stats()
 
 
-_skill_cache: Optional[SkillExecutionCache] = None
+_skill_cache: SkillExecutionCache | None = None
 
 
 def get_skill_cache() -> SkillExecutionCache:
@@ -467,7 +465,7 @@ def create_skill_cache(
     max_size: int = SkillExecutionCache.DEFAULT_MAX_SIZE,
     default_ttl: int = SkillExecutionCache.DEFAULT_TTL_SECONDS,
     max_memory_mb: int = SkillExecutionCache.DEFAULT_MAX_MEMORY_MB,
-    persist_dir: Optional[Path] = None,
+    persist_dir: Path | None = None,
 ) -> SkillExecutionCache:
     """创建技能缓存实例"""
     return SkillExecutionCache(

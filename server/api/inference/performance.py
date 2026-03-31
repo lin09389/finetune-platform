@@ -1,13 +1,11 @@
-# -*- coding: utf-8 -*-
 """
 推理性能指标 API
 
 提供性能监控、优化建议等功能
 """
+
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
-from datetime import datetime
 
 router = APIRouter(prefix="/inference/performance", tags=["Inference Performance"])
 
@@ -59,7 +57,7 @@ async def get_performance_stats(
     return PerformanceStats(period=period)
 
 
-@router.get("/suggestions", response_model=List[OptimizationSuggestion])
+@router.get("/suggestions", response_model=list[OptimizationSuggestion])
 async def get_optimization_suggestions():
     """获取优化建议"""
     return [

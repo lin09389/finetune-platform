@@ -1,13 +1,13 @@
-# -*- coding: utf-8 -*-
 """
 统一响应格式模块
 提供标准化的API响应结构
 """
-from typing import Generic, TypeVar, Optional, Any, Dict
-from pydantic import BaseModel, Field
-from datetime import datetime
 import time
 import uuid
+from datetime import datetime
+from typing import Any, Generic, TypeVar
+
+from pydantic import BaseModel, Field
 
 T = TypeVar("T")
 
@@ -15,15 +15,15 @@ T = TypeVar("T")
 class ErrorDetail(BaseModel):
     code: str
     message: str
-    details: Optional[Dict[str, Any]] = None
-    suggestion: Optional[str] = None
+    details: dict[str, Any] | None = None
+    suggestion: str | None = None
 
 
 class ResponseMetadata(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
-    request_id: Optional[str] = None
-    latency_ms: Optional[float] = None
-    
+    request_id: str | None = None
+    latency_ms: float | None = None
+
     class Config:
         json_encoders = {
             datetime: lambda v: v.isoformat()
@@ -32,10 +32,10 @@ class ResponseMetadata(BaseModel):
 
 class StandardResponse(BaseModel, Generic[T]):
     success: bool
-    data: Optional[T] = None
-    error: Optional[ErrorDetail] = None
+    data: T | None = None
+    error: ErrorDetail | None = None
     metadata: ResponseMetadata = Field(default_factory=ResponseMetadata)
-    
+
     class Config:
         json_encoders = {
             datetime: lambda v: v.isoformat()
@@ -48,8 +48,8 @@ def generate_request_id() -> str:
 
 def success_response(
     data: Any,
-    request_id: Optional[str] = None,
-    latency_ms: Optional[float] = None
+    request_id: str | None = None,
+    latency_ms: float | None = None
 ) -> StandardResponse:
     return StandardResponse(
         success=True,
@@ -64,9 +64,9 @@ def success_response(
 def error_response(
     code: str,
     message: str,
-    details: Optional[Dict[str, Any]] = None,
-    suggestion: Optional[str] = None,
-    request_id: Optional[str] = None
+    details: dict[str, Any] | None = None,
+    suggestion: str | None = None,
+    request_id: str | None = None
 ) -> StandardResponse:
     return StandardResponse(
         success=False,
@@ -84,11 +84,11 @@ def error_response(
 
 class ResponseBuilder:
     """响应构建器，用于追踪请求耗时"""
-    
-    def __init__(self, request_id: Optional[str] = None):
+
+    def __init__(self, request_id: str | None = None):
         self.request_id = request_id or generate_request_id()
         self.start_time = time.time()
-    
+
     def success(self, data: Any) -> StandardResponse:
         latency_ms = (time.time() - self.start_time) * 1000
         return success_response(
@@ -96,13 +96,13 @@ class ResponseBuilder:
             request_id=self.request_id,
             latency_ms=round(latency_ms, 2)
         )
-    
+
     def error(
         self,
         code: str,
         message: str,
-        details: Optional[Dict[str, Any]] = None,
-        suggestion: Optional[str] = None
+        details: dict[str, Any] | None = None,
+        suggestion: str | None = None
     ) -> StandardResponse:
         latency_ms = (time.time() - self.start_time) * 1000
         return error_response(
@@ -112,14 +112,14 @@ class ResponseBuilder:
             suggestion=suggestion,
             request_id=self.request_id
         )
-    
+
     def from_exception(
         self,
         exception: Exception,
         code: str = "INTERNAL_ERROR"
     ) -> StandardResponse:
         from api.errors import APIError
-        
+
         if isinstance(exception, APIError):
             return self.error(
                 code=exception.code,
@@ -127,7 +127,7 @@ class ResponseBuilder:
                 details=exception.details,
                 suggestion=getattr(exception, 'suggestion', None)
             )
-        
+
         return self.error(
             code=code,
             message=str(exception),

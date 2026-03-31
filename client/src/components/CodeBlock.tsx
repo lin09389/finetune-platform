@@ -139,7 +139,9 @@ const detectLanguage = (code: string): string => {
     try {
       JSON.parse(trimmed)
       return 'json'
-    } catch {}
+    } catch {
+      // Ignore error
+    }
   }
   
   if (/^(import|export|function|const|let|var|async|class)\s+/.test(trimmed)) {
@@ -149,7 +151,7 @@ const detectLanguage = (code: string): string => {
     return 'javascript'
   }
   
-  if (/^(import|from|def |class |if __name__|print\(|@)/.test(trimmed) || /^\s*(def|class|if|elif|else|for|while|with|try|except|finally)\s*[:\(]/.test(trimmed)) {
+  if (/^(import|from|def |class |if __name__|print\(|@)/.test(trimmed) || /^\s*(def|class|if|elif|else|for|while|with|try|except|finally)\s*[:(]/.test(trimmed)) {
     return 'python'
   }
   

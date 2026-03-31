@@ -3,7 +3,6 @@ import socket
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
 
 import psutil
 
@@ -33,25 +32,25 @@ class NetworkInterface:
     is_up: bool = False
     speed_mbps: int = 0
     mtu: int = 0
-    addresses: List[str] = field(default_factory=list)
+    addresses: list[str] = field(default_factory=list)
     mac_address: str = ""
 
 
 @dataclass
 class NetworkStats:
     info: NetworkInfo = field(default_factory=NetworkInfo)
-    interfaces: List[NetworkInterface] = field(default_factory=list)
+    interfaces: list[NetworkInterface] = field(default_factory=list)
     connections_count: int = 0
-    connections_by_status: Dict[str, int] = field(default_factory=dict)
-    latency_ms: Optional[float] = None
+    connections_by_status: dict[str, int] = field(default_factory=dict)
+    latency_ms: float | None = None
 
 
 class NetworkMonitor:
     def __init__(self, history_size: int = 60):
         self._history_size = history_size
         self._lock = asyncio.Lock()
-        self._last_net_io: Optional[psutil._pswindows.snetio] = None
-        self._last_io_time: Optional[datetime] = None
+        self._last_net_io: psutil._pswindows.snetio | None = None
+        self._last_io_time: datetime | None = None
         self._latency_host = "8.8.8.8"
 
     async def get_info(self) -> NetworkInfo:
@@ -62,22 +61,22 @@ class NetworkMonitor:
         try:
             net_io = psutil.net_io_counters()
             current_time = datetime.now()
-            
+
             upload_speed = 0.0
             download_speed = 0.0
-            
+
             if self._last_net_io and self._last_io_time:
                 time_diff = (current_time - self._last_io_time).total_seconds()
                 if time_diff > 0:
                     bytes_sent_diff = net_io.bytes_sent - self._last_net_io.bytes_sent
                     bytes_recv_diff = net_io.bytes_recv - self._last_net_io.bytes_recv
-                    
+
                     upload_speed = (bytes_sent_diff / time_diff) / (1024 ** 2)
                     download_speed = (bytes_recv_diff / time_diff) / (1024 ** 2)
-            
+
             self._last_net_io = net_io
             self._last_io_time = current_time
-            
+
             return NetworkInfo(
                 bytes_sent=net_io.bytes_sent,
                 bytes_recv=net_io.bytes_recv,
@@ -94,20 +93,20 @@ class NetworkMonitor:
             logger.error(f"获取网络信息失败: {e}")
             return NetworkInfo()
 
-    async def get_interfaces(self) -> List[NetworkInterface]:
+    async def get_interfaces(self) -> list[NetworkInterface]:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_interfaces_sync)
 
-    def _get_interfaces_sync(self) -> List[NetworkInterface]:
+    def _get_interfaces_sync(self) -> list[NetworkInterface]:
         interfaces = []
         try:
             net_if_addrs = psutil.net_if_addrs()
             net_if_stats = psutil.net_if_stats()
-            
+
             for name, addrs in net_if_addrs.items():
                 addresses = []
                 mac_address = ""
-                
+
                 for addr in addrs:
                     if addr.family == socket.AF_INET:
                         addresses.append(addr.address)
@@ -115,12 +114,12 @@ class NetworkMonitor:
                         addresses.append(f"[{addr.address}]")
                     elif hasattr(socket, "AF_LINK") and addr.family == socket.AF_LINK:
                         mac_address = addr.address
-                
+
                 stats = net_if_stats.get(name)
                 is_up = stats.isup if stats else False
                 speed = stats.speed if stats else 0
                 mtu = stats.mtu if stats else 0
-                
+
                 interfaces.append(NetworkInterface(
                     name=name,
                     is_up=is_up,
@@ -133,19 +132,19 @@ class NetworkMonitor:
             logger.error(f"获取网络接口信息失败: {e}")
         return interfaces
 
-    async def get_connections_count(self) -> Dict[str, int]:
+    async def get_connections_count(self) -> dict[str, int]:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_connections_count_sync)
 
-    def _get_connections_count_sync(self) -> Dict[str, int]:
+    def _get_connections_count_sync(self) -> dict[str, int]:
         try:
             connections = psutil.net_connections(kind="inet")
-            
-            status_count: Dict[str, int] = {}
+
+            status_count: dict[str, int] = {}
             for conn in connections:
                 status = conn.status if conn.status else "UNKNOWN"
                 status_count[status] = status_count.get(status, 0) + 1
-            
+
             return {
                 "total": len(connections),
                 "by_status": status_count,
@@ -154,12 +153,12 @@ class NetworkMonitor:
             logger.debug(f"获取网络连接数失败: {e}")
             return {"total": 0, "by_status": {}}
 
-    async def check_latency(self, host: Optional[str] = None) -> Optional[float]:
+    async def check_latency(self, host: str | None = None) -> float | None:
         target_host = host or self._latency_host
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._check_latency_sync, target_host)
 
-    def _check_latency_sync(self, host: str) -> Optional[float]:
+    def _check_latency_sync(self, host: str) -> float | None:
         try:
             if psutil.WINDOWS:
                 result = subprocess.run(
@@ -196,7 +195,7 @@ class NetworkMonitor:
         interfaces = await self.get_interfaces()
         connections = await self.get_connections_count()
         latency = await self.check_latency()
-        
+
         return NetworkStats(
             info=info,
             interfaces=interfaces,
@@ -205,9 +204,9 @@ class NetworkMonitor:
             latency_ms=latency,
         )
 
-    async def get_stats_dict(self) -> Dict:
+    async def get_stats_dict(self) -> dict:
         stats = await self.get_all_stats()
-        
+
         return {
             "traffic": {
                 "bytes_sent": stats.info.bytes_sent,

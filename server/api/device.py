@@ -1,20 +1,20 @@
 """
 设备管理 API
 """
-from fastapi import APIRouter, HTTPException
-from typing import Dict, Any
 import platform
+from typing import Any
+
 import psutil
+from fastapi import APIRouter, HTTPException
 
 from core.logging import get_logger
-from core.utils import get_device_info as get_core_device_info
 
 logger = get_logger(__name__)
 
 router = APIRouter()
 
 
-def get_device_info() -> Dict[str, Any]:
+def get_device_info() -> dict[str, Any]:
     """获取设备详细信息"""
     info = {
         "platform": "unknown",
@@ -45,7 +45,7 @@ def get_device_info() -> Dict[str, Any]:
     elif system in ["Windows", "Linux"]:
         try:
             import torch
-            
+
             if torch.cuda.is_available():
                 info["platform"] = "cuda"
                 info["cuda_available"] = True
@@ -84,7 +84,7 @@ async def get_vram_info():
     """获取 VRAM 信息"""
     try:
         import torch
-        
+
         if not torch.cuda.is_available():
             return {"error": "CUDA not available", "cuda_available": False}
 
@@ -110,7 +110,7 @@ async def get_memory_info():
     try:
         mem = psutil.virtual_memory()
         swap = psutil.swap_memory()
-        
+
         return {
             "virtual": {
                 "total_gb": round(mem.total / (1024 ** 3), 2),
@@ -136,7 +136,7 @@ async def get_disk_info():
     try:
         partitions = psutil.disk_partitions()
         disk_info = []
-        
+
         for partition in partitions:
             try:
                 usage = psutil.disk_usage(partition.mountpoint)
@@ -151,7 +151,7 @@ async def get_disk_info():
                 })
             except PermissionError:
                 continue
-        
+
         return {"partitions": disk_info}
     except Exception as e:
         logger.error(f"获取磁盘信息失败：{e}")

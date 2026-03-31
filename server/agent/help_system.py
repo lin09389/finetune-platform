@@ -2,10 +2,9 @@
 帮助系统模块
 提供操作指南、命令示例和帮助信息
 """
-from typing import Dict, List, Any, Optional
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +25,10 @@ class HelpCommand:
     """帮助命令"""
     command: str
     description: str
-    examples: List[str]
-    parameters: Dict[str, str] = field(default_factory=dict)
-    tips: List[str] = field(default_factory=list)
-    related_commands: List[str] = field(default_factory=list)
+    examples: list[str]
+    parameters: dict[str, str] = field(default_factory=dict)
+    tips: list[str] = field(default_factory=list)
+    related_commands: list[str] = field(default_factory=list)
     category: HelpCategory = HelpCategory.FILE_OPERATIONS
 
 
@@ -38,11 +37,11 @@ class HelpTopic:
     """帮助主题"""
     title: str
     content: str
-    commands: List[HelpCommand] = field(default_factory=list)
-    see_also: List[str] = field(default_factory=list)
+    commands: list[HelpCommand] = field(default_factory=list)
+    see_also: list[str] = field(default_factory=list)
 
 
-FILE_OPERATIONS_HELP: List[HelpCommand] = [
+FILE_OPERATIONS_HELP: list[HelpCommand] = [
     HelpCommand(
         command="读取文件",
         description="读取指定文件的内容",
@@ -157,7 +156,7 @@ FILE_OPERATIONS_HELP: List[HelpCommand] = [
 ]
 
 
-SCREEN_OPERATIONS_HELP: List[HelpCommand] = [
+SCREEN_OPERATIONS_HELP: list[HelpCommand] = [
     HelpCommand(
         command="截图",
         description="截取当前屏幕",
@@ -242,7 +241,7 @@ SCREEN_OPERATIONS_HELP: List[HelpCommand] = [
 ]
 
 
-APP_OPERATIONS_HELP: List[HelpCommand] = [
+APP_OPERATIONS_HELP: list[HelpCommand] = [
     HelpCommand(
         command="打开应用",
         description="打开指定的应用程序",
@@ -281,7 +280,7 @@ APP_OPERATIONS_HELP: List[HelpCommand] = [
 ]
 
 
-GETTING_STARTED_HELP: List[HelpTopic] = [
+GETTING_STARTED_HELP: list[HelpTopic] = [
     HelpTopic(
         title="快速入门",
         content="""
@@ -321,7 +320,7 @@ GETTING_STARTED_HELP: List[HelpTopic] = [
 ]
 
 
-TROUBLESHOOTING_HELP: List[HelpTopic] = [
+TROUBLESHOOTING_HELP: list[HelpTopic] = [
     HelpTopic(
         title="常见问题",
         content="""
@@ -383,15 +382,15 @@ class HelpSystem:
     
     提供操作指南、命令示例和帮助信息
     """
-    
+
     def __init__(self):
-        self._commands: Dict[str, HelpCommand] = {}
-        self._topics: Dict[str, HelpTopic] = {}
-        self._categories: Dict[HelpCategory, List[HelpCommand]] = {}
-        
+        self._commands: dict[str, HelpCommand] = {}
+        self._topics: dict[str, HelpTopic] = {}
+        self._categories: dict[HelpCategory, list[HelpCommand]] = {}
+
         self._init_commands()
         self._init_topics()
-    
+
     def _init_commands(self):
         """初始化命令帮助"""
         all_commands = (
@@ -399,62 +398,62 @@ class HelpSystem:
             SCREEN_OPERATIONS_HELP +
             APP_OPERATIONS_HELP
         )
-        
+
         for cmd in all_commands:
             self._commands[cmd.command] = cmd
-            
+
             if cmd.category not in self._categories:
                 self._categories[cmd.category] = []
             self._categories[cmd.category].append(cmd)
-    
+
     def _init_topics(self):
         """初始化帮助主题"""
         all_topics = GETTING_STARTED_HELP + TROUBLESHOOTING_HELP
-        
+
         for topic in all_topics:
             self._topics[topic.title] = topic
-    
-    def get_command_help(self, command: str) -> Optional[HelpCommand]:
+
+    def get_command_help(self, command: str) -> HelpCommand | None:
         """获取命令帮助"""
         return self._commands.get(command)
-    
-    def get_topic(self, title: str) -> Optional[HelpTopic]:
+
+    def get_topic(self, title: str) -> HelpTopic | None:
         """获取帮助主题"""
         return self._topics.get(title)
-    
-    def get_category_commands(self, category: HelpCategory) -> List[HelpCommand]:
+
+    def get_category_commands(self, category: HelpCategory) -> list[HelpCommand]:
         """获取类别下的所有命令"""
         return self._categories.get(category, [])
-    
-    def search(self, query: str) -> List[HelpCommand]:
+
+    def search(self, query: str) -> list[HelpCommand]:
         """搜索命令"""
         query_lower = query.lower()
         results = []
-        
+
         for cmd in self._commands.values():
             if (query_lower in cmd.command.lower() or
                 query_lower in cmd.description.lower()):
                 results.append(cmd)
-        
+
         return results
-    
-    def get_all_commands(self) -> List[HelpCommand]:
+
+    def get_all_commands(self) -> list[HelpCommand]:
         """获取所有命令"""
         return list(self._commands.values())
-    
-    def get_all_categories(self) -> Dict[HelpCategory, List[str]]:
+
+    def get_all_categories(self) -> dict[HelpCategory, list[str]]:
         """获取所有类别及其命令"""
         return {
             category: [cmd.command for cmd in commands]
             for category, commands in self._categories.items()
         }
-    
+
     def format_command_help(self, command: str) -> str:
         """格式化命令帮助信息"""
         cmd = self.get_command_help(command)
         if not cmd:
             return f"未找到命令: {command}"
-        
+
         lines = [
             f"📌 {cmd.command}",
             "",
@@ -462,34 +461,34 @@ class HelpSystem:
             "",
             "示例:",
         ]
-        
+
         for example in cmd.examples:
             lines.append(f"  • {example}")
-        
+
         if cmd.parameters:
             lines.append("")
             lines.append("参数:")
             for param, desc in cmd.parameters.items():
                 lines.append(f"  • {param}: {desc}")
-        
+
         if cmd.tips:
             lines.append("")
             lines.append("提示:")
             for tip in cmd.tips:
                 lines.append(f"  • {tip}")
-        
+
         if cmd.related_commands:
             lines.append("")
             lines.append("相关命令: " + " | ".join(cmd.related_commands))
-        
+
         return "\n".join(lines)
-    
+
     def format_category_help(self, category: HelpCategory) -> str:
         """格式化类别帮助信息"""
         commands = self.get_category_commands(category)
         if not commands:
             return f"未找到类别: {category.value}"
-        
+
         category_names = {
             HelpCategory.FILE_OPERATIONS: "文件操作",
             HelpCategory.SCREEN_OPERATIONS: "屏幕操作",
@@ -499,18 +498,18 @@ class HelpSystem:
             HelpCategory.TROUBLESHOOTING: "故障排除",
             HelpCategory.ADVANCED: "高级功能",
         }
-        
+
         lines = [
             f"📚 {category_names.get(category, category.value)}",
             "",
             "可用命令:",
         ]
-        
+
         for cmd in commands:
             lines.append(f"  • {cmd.command} - {cmd.description}")
-        
+
         return "\n".join(lines)
-    
+
     def format_overview(self) -> str:
         """格式化概览帮助信息"""
         lines = [
@@ -519,13 +518,13 @@ class HelpSystem:
             "我可以帮您执行以下类型的操作:",
             "",
         ]
-        
+
         category_names = {
             HelpCategory.FILE_OPERATIONS: "文件操作",
             HelpCategory.SCREEN_OPERATIONS: "屏幕操作",
             HelpCategory.APP_OPERATIONS: "应用操作",
         }
-        
+
         for category, name in category_names.items():
             commands = self.get_category_commands(category)
             if commands:
@@ -535,18 +534,18 @@ class HelpSystem:
                 if len(commands) > 3:
                     lines.append(f"   • ... 还有 {len(commands) - 3} 个命令")
                 lines.append("")
-        
+
         lines.extend([
             "💡 提示:",
             "  • 说 '帮助 文件操作' 查看特定类别",
             "  • 说 '如何读取文件' 查看具体命令帮助",
             "  • 直接说出您想做的事情即可",
         ])
-        
+
         return "\n".join(lines)
 
 
-_help_system: Optional[HelpSystem] = None
+_help_system: HelpSystem | None = None
 
 
 def get_help_system() -> HelpSystem:
@@ -557,12 +556,12 @@ def get_help_system() -> HelpSystem:
     return _help_system
 
 
-def get_command_help(command: str) -> Optional[HelpCommand]:
+def get_command_help(command: str) -> HelpCommand | None:
     """便捷函数：获取命令帮助"""
     return get_help_system().get_command_help(command)
 
 
-def search_help(query: str) -> List[HelpCommand]:
+def search_help(query: str) -> list[HelpCommand]:
     """便捷函数：搜索帮助"""
     return get_help_system().search(query)
 
@@ -570,10 +569,10 @@ def search_help(query: str) -> List[HelpCommand]:
 def format_help(query: str = None) -> str:
     """便捷函数：格式化帮助信息"""
     system = get_help_system()
-    
+
     if not query:
         return system.format_overview()
-    
+
     category_mapping = {
         "文件": HelpCategory.FILE_OPERATIONS,
         "文件操作": HelpCategory.FILE_OPERATIONS,
@@ -585,19 +584,19 @@ def format_help(query: str = None) -> str:
         "应用操作": HelpCategory.APP_OPERATIONS,
         "app": HelpCategory.APP_OPERATIONS,
     }
-    
+
     if query in category_mapping:
         return system.format_category_help(category_mapping[query])
-    
+
     cmd = system.get_command_help(query)
     if cmd:
         return system.format_command_help(query)
-    
+
     results = system.search(query)
     if results:
         lines = [f"搜索结果 ({len(results)} 个):", ""]
         for cmd in results[:5]:
             lines.append(f"  • {cmd.command} - {cmd.description}")
         return "\n".join(lines)
-    
+
     return f"未找到相关帮助: {query}"

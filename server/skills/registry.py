@@ -1,14 +1,12 @@
-# -*- coding: utf-8 -*-
 """
 技能注册表
 """
 import asyncio
 import importlib
 import inspect
-import os
-import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, Optional
 
 from .base import SkillBase
 from .models import (
@@ -25,12 +23,12 @@ class SkillRegistry:
     """技能注册表"""
 
     _instance: Optional["SkillRegistry"] = None
-    _skills: Dict[str, Type[SkillBase]]
-    _instances: Dict[str, SkillBase]
-    _executions: Dict[str, SkillExecution]
-    _execution_tasks: Dict[str, asyncio.Task]
-    _on_skill_registered: Optional[Callable[[str], None]]
-    _on_skill_unregistered: Optional[Callable[[str], None]]
+    _skills: dict[str, type[SkillBase]]
+    _instances: dict[str, SkillBase]
+    _executions: dict[str, SkillExecution]
+    _execution_tasks: dict[str, asyncio.Task]
+    _on_skill_registered: Callable[[str], None] | None
+    _on_skill_unregistered: Callable[[str], None] | None
 
     def __new__(cls) -> "SkillRegistry":
         if cls._instance is None:
@@ -47,7 +45,7 @@ class SkillRegistry:
     def get_instance(cls) -> "SkillRegistry":
         return cls()
 
-    def register(self, skill_class: Type[SkillBase]) -> bool:
+    def register(self, skill_class: type[SkillBase]) -> bool:
         try:
             metadata = skill_class.get_metadata()
             name = metadata.name
@@ -83,22 +81,22 @@ class SkillRegistry:
 
         return True
 
-    def get_skill(self, name: str) -> Optional[SkillBase]:
+    def get_skill(self, name: str) -> SkillBase | None:
         return self._instances.get(name)
 
-    def get_skill_class(self, name: str) -> Optional[Type[SkillBase]]:
+    def get_skill_class(self, name: str) -> type[SkillBase] | None:
         return self._skills.get(name)
 
-    def get_metadata(self, name: str) -> Optional[SkillMetadata]:
+    def get_metadata(self, name: str) -> SkillMetadata | None:
         skill = self.get_skill(name)
         if skill:
             return skill.get_metadata()
         return None
 
-    def list_skills(self) -> List[str]:
+    def list_skills(self) -> list[str]:
         return list(self._skills.keys())
 
-    def list_skills_by_category(self, category: SkillCategory) -> List[str]:
+    def list_skills_by_category(self, category: SkillCategory) -> list[str]:
         result = []
         for name, skill_class in self._skills.items():
             metadata = skill_class.get_metadata()
@@ -106,7 +104,7 @@ class SkillRegistry:
                 result.append(name)
         return result
 
-    def list_skills_by_tag(self, tag: str) -> List[str]:
+    def list_skills_by_tag(self, tag: str) -> list[str]:
         result = []
         for name, skill_class in self._skills.items():
             metadata = skill_class.get_metadata()
@@ -114,7 +112,7 @@ class SkillRegistry:
                 result.append(name)
         return result
 
-    def get_all_metadata(self) -> Dict[str, SkillMetadata]:
+    def get_all_metadata(self) -> dict[str, SkillMetadata]:
         return {
             name: skill_class.get_metadata()
             for name, skill_class in self._skills.items()
@@ -126,10 +124,10 @@ class SkillRegistry:
     async def execute(
         self,
         name: str,
-        parameters: Dict[str, Any],
-        execution_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-        session_id: Optional[str] = None,
+        parameters: dict[str, Any],
+        execution_id: str | None = None,
+        user_id: str | None = None,
+        session_id: str | None = None,
         priority: SkillPriority = SkillPriority.NORMAL,
     ) -> SkillExecution:
         skill = self.get_skill(name)
@@ -162,12 +160,12 @@ class SkillRegistry:
     async def execute_async(
         self,
         name: str,
-        parameters: Dict[str, Any],
-        execution_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-        session_id: Optional[str] = None,
+        parameters: dict[str, Any],
+        execution_id: str | None = None,
+        user_id: str | None = None,
+        session_id: str | None = None,
         priority: SkillPriority = SkillPriority.NORMAL,
-        on_complete: Optional[Callable[[SkillExecution], None]] = None,
+        on_complete: Callable[[SkillExecution], None] | None = None,
     ) -> str:
         import uuid
 
@@ -193,7 +191,7 @@ class SkillRegistry:
 
         return exec_id
 
-    def get_execution(self, execution_id: str) -> Optional[SkillExecution]:
+    def get_execution(self, execution_id: str) -> SkillExecution | None:
         return self._executions.get(execution_id)
 
     def cancel_execution(self, execution_id: str) -> bool:
@@ -205,10 +203,10 @@ class SkillRegistry:
 
     def list_executions(
         self,
-        skill_name: Optional[str] = None,
-        status: Optional[SkillStatus] = None,
-        user_id: Optional[str] = None,
-    ) -> List[SkillExecution]:
+        skill_name: str | None = None,
+        status: SkillStatus | None = None,
+        user_id: str | None = None,
+    ) -> list[SkillExecution]:
         result = []
         for execution in self._executions.values():
             if skill_name and execution.skill_name != skill_name:
@@ -268,7 +266,7 @@ class SkillRegistry:
         except Exception as e:
             print(f"自动发现技能失败: {e}")
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         total_executions = len(self._executions)
         status_counts = {}
 
@@ -287,7 +285,7 @@ class SkillRegistry:
         }
 
 
-def register_skill(skill_class: Type[SkillBase]) -> Type[SkillBase]:
+def register_skill(skill_class: type[SkillBase]) -> type[SkillBase]:
     registry = SkillRegistry.get_instance()
     registry.register(skill_class)
     return skill_class

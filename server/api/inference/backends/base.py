@@ -1,12 +1,11 @@
-# -*- coding: utf-8 -*-
 """
 推理后端抽象基类 - 参考 Ollama 设计
 """
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Any, AsyncIterator
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from enum import Enum
-import asyncio
+from typing import Any
 
 
 class BackendType(str, Enum):
@@ -25,9 +24,9 @@ class GenerationConfig:
     top_p: float = 0.9
     top_k: int = 50
     repetition_penalty: float = 1.0
-    stop_sequences: List[str] = None
+    stop_sequences: list[str] = None
     stream: bool = False
-    
+
     def __post_init__(self):
         if self.stop_sequences is None:
             self.stop_sequences = []
@@ -43,8 +42,8 @@ class GenerationResult:
     prompt_tokens: int = 0
     total_tokens: int = 0
     latency_ms: float = 0.0
-    metadata: Dict[str, Any] = None
-    
+    metadata: dict[str, Any] = None
+
     def __post_init__(self):
         if self.metadata is None:
             self.metadata = {}
@@ -56,15 +55,15 @@ class InferenceBackend(ABC):
     
     所有推理后端都需要实现此接口
     """
-    
+
     backend_type: BackendType = None
-    
-    def __init__(self, config: Dict[str, Any] = None):
+
+    def __init__(self, config: dict[str, Any] = None):
         self.config = config or {}
         self._model = None
         self._tokenizer = None
         self._is_loaded = False
-    
+
     @abstractmethod
     async def load_model(self, model_name: str, **kwargs) -> bool:
         """
@@ -78,7 +77,7 @@ class InferenceBackend(ABC):
             是否成功
         """
         pass
-    
+
     @abstractmethod
     async def unload_model(self) -> bool:
         """
@@ -88,7 +87,7 @@ class InferenceBackend(ABC):
             是否成功
         """
         pass
-    
+
     @abstractmethod
     async def generate(
         self,
@@ -106,7 +105,7 @@ class InferenceBackend(ABC):
             生成结果
         """
         pass
-    
+
     @abstractmethod
     async def generate_stream(
         self,
@@ -124,11 +123,11 @@ class InferenceBackend(ABC):
             生成的文本片段
         """
         pass
-    
+
     @abstractmethod
     async def chat(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         config: GenerationConfig = None
     ) -> GenerationResult:
         """
@@ -142,11 +141,11 @@ class InferenceBackend(ABC):
             生成结果
         """
         pass
-    
+
     @abstractmethod
     async def chat_stream(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         config: GenerationConfig = None
     ) -> AsyncIterator[str]:
         """
@@ -160,9 +159,9 @@ class InferenceBackend(ABC):
             生成的文本片段
         """
         pass
-    
+
     @abstractmethod
-    def get_model_info(self) -> Dict[str, Any]:
+    def get_model_info(self) -> dict[str, Any]:
         """
         获取模型信息
         
@@ -170,7 +169,7 @@ class InferenceBackend(ABC):
             模型信息字典
         """
         pass
-    
+
     @abstractmethod
     async def count_tokens(self, text: str) -> int:
         """
@@ -183,12 +182,12 @@ class InferenceBackend(ABC):
             token 数量
         """
         pass
-    
+
     def is_loaded(self) -> bool:
         """检查模型是否已加载"""
         return self._is_loaded
-    
-    async def health_check(self) -> Dict[str, Any]:
+
+    async def health_check(self) -> dict[str, Any]:
         """
         健康检查
         
@@ -200,8 +199,8 @@ class InferenceBackend(ABC):
             "is_loaded": self._is_loaded,
             "status": "healthy" if self._is_loaded else "not_loaded"
         }
-    
-    async def get_memory_usage(self) -> Dict[str, Any]:
+
+    async def get_memory_usage(self) -> dict[str, Any]:
         """
         获取内存使用情况
         
@@ -213,7 +212,7 @@ class InferenceBackend(ABC):
             "memory_used_mb": 0,
             "memory_available_mb": 0
         }
-    
+
     async def warmup(self, prompt: str = "Hello") -> bool:
         """
         预热模型
@@ -226,7 +225,7 @@ class InferenceBackend(ABC):
         """
         if not self._is_loaded:
             return False
-        
+
         try:
             await self.generate(prompt, GenerationConfig(max_tokens=10))
             return True

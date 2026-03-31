@@ -3,17 +3,16 @@ Flash Attention 2 检测模块
 提供 Flash Attention 2 的可用性检测和自动降级功能
 """
 import logging
-from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 # 缓存检测结果，避免重复检测
-_flash_attn_available: Optional[bool] = None
-_flash_attn_version: Optional[str] = None
-_gpu_architecture_supported: Optional[bool] = None
+_flash_attn_available: bool | None = None
+_flash_attn_version: str | None = None
+_gpu_architecture_supported: bool | None = None
 
 
-def get_gpu_compute_capability() -> Optional[Tuple[int, int]]:
+def get_gpu_compute_capability() -> tuple[int, int] | None:
     """
     获取 GPU 计算能力版本
     
@@ -23,14 +22,14 @@ def get_gpu_compute_capability() -> Optional[Tuple[int, int]]:
     """
     try:
         import torch
-        
+
         if not torch.cuda.is_available():
             return None
-        
+
         device = torch.cuda.current_device()
         capability = torch.cuda.get_device_capability(device)
         return capability
-        
+
     except Exception as e:
         logger.debug(f"获取 GPU 计算能力失败：{e}")
         return None
@@ -50,39 +49,39 @@ def is_gpu_architecture_supported() -> bool:
         bool: 是否支持 Flash Attention 2
     """
     global _gpu_architecture_supported
-    
+
     if _gpu_architecture_supported is not None:
         return _gpu_architecture_supported
-    
+
     try:
         capability = get_gpu_compute_capability()
-        
+
         if capability is None:
             logger.debug("CUDA 不可用，GPU 架构不支持 Flash Attention 2")
             _gpu_architecture_supported = False
             return False
-        
+
         major, minor = capability
-        
+
         # Ampere 架构及以上 (SM 8.0+)
         # 包括：RTX 30 系列 (SM 86), RTX 40 系列 (SM 89), A100 (SM 80), H100 (SM 90)
         is_supported = major >= 8
-        
+
         if is_supported:
             logger.info(f"GPU 架构支持 Flash Attention 2：SM {major}.{minor}")
         else:
             logger.info(f"GPU 架构不支持 Flash Attention 2：SM {major}.{minor}（需要 SM 8.0+）")
-        
+
         _gpu_architecture_supported = is_supported
         return is_supported
-        
+
     except Exception as e:
         logger.warning(f"检测 GPU 架构时出错：{e}")
         _gpu_architecture_supported = False
         return False
 
 
-def is_flash_attn_2_installed() -> Tuple[bool, Optional[str]]:
+def is_flash_attn_2_installed() -> tuple[bool, str | None]:
     """
     检测 flash-attn 库是否已安装
     
@@ -90,22 +89,22 @@ def is_flash_attn_2_installed() -> Tuple[bool, Optional[str]]:
         Tuple[bool, Optional[str]]: (是否安装, 版本号)
     """
     global _flash_attn_version
-    
+
     if _flash_attn_version is not None:
         return _flash_attn_version is not None, _flash_attn_version
-    
+
     try:
         import flash_attn
         version = getattr(flash_attn, '__version__', 'unknown')
         _flash_attn_version = version
         logger.info(f"flash-attn 库已安装：版本 {version}")
         return True, version
-        
+
     except ImportError:
         logger.debug("flash-attn 库未安装")
         _flash_attn_version = None
         return False, None
-        
+
     except Exception as e:
         logger.warning(f"检测 flash-attn 库时出错：{e}")
         _flash_attn_version = None
@@ -125,23 +124,23 @@ def is_flash_attn_2_available() -> bool:
         bool: Flash Attention 2 是否可用
     """
     global _flash_attn_available
-    
+
     if _flash_attn_available is not None:
         return _flash_attn_available
-    
+
     # 检测 GPU 架构
     if not is_gpu_architecture_supported():
         logger.info("Flash Attention 2 不可用：GPU 架构不支持")
         _flash_attn_available = False
         return False
-    
+
     # 检测 flash-attn 库
     installed, version = is_flash_attn_2_installed()
     if not installed:
         logger.info("Flash Attention 2 不可用：flash-attn 库未安装")
         _flash_attn_available = False
         return False
-    
+
     # 检测 CUDA 是否可用
     try:
         import torch
@@ -153,7 +152,7 @@ def is_flash_attn_2_available() -> bool:
         logger.info("Flash Attention 2 不可用：PyTorch 未安装")
         _flash_attn_available = False
         return False
-    
+
     logger.info(f"Flash Attention 2 可用：版本 {version}")
     _flash_attn_available = True
     return True
@@ -172,11 +171,11 @@ def get_attention_implementation(force_eager: bool = False) -> str:
     if force_eager:
         logger.info("使用 eager attention（强制）")
         return "eager"
-    
+
     if is_flash_attn_2_available():
         logger.info("使用 Flash Attention 2")
         return "flash_attention_2"
-    
+
     logger.info("使用 eager attention（降级）")
     return "eager"
 
@@ -190,7 +189,7 @@ def get_flash_attention_info() -> dict:
     """
     capability = get_gpu_compute_capability()
     installed, version = is_flash_attn_2_installed()
-    
+
     info = {
         "available": is_flash_attn_2_available(),
         "gpu_architecture_supported": is_gpu_architecture_supported(),
@@ -199,7 +198,7 @@ def get_flash_attention_info() -> dict:
         "gpu_compute_capability": f"SM {capability[0]}.{capability[1]}" if capability else None,
         "recommended_implementation": get_attention_implementation(),
     }
-    
+
     return info
 
 
@@ -210,9 +209,9 @@ def reset_detection_cache():
     用于在 GPU 状态变化后重新检测
     """
     global _flash_attn_available, _flash_attn_version, _gpu_architecture_supported
-    
+
     _flash_attn_available = None
     _flash_attn_version = None
     _gpu_architecture_supported = None
-    
+
     logger.debug("Flash Attention 检测缓存已重置")

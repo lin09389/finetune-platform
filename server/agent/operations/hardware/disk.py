@@ -1,7 +1,6 @@
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
 
 import psutil
 
@@ -39,15 +38,15 @@ class DiskMonitor:
     def __init__(self, history_size: int = 60):
         self._history_size = history_size
         self._lock = asyncio.Lock()
-        self._last_io_stats: Dict[str, DiskIOStats] = {}
+        self._last_io_stats: dict[str, DiskIOStats] = {}
         self._warning_threshold = 80.0
         self._critical_threshold = 95.0
 
-    async def get_partitions(self) -> List[DiskInfo]:
+    async def get_partitions(self) -> list[DiskInfo]:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_partitions_sync)
 
-    def _get_partitions_sync(self) -> List[DiskInfo]:
+    def _get_partitions_sync(self) -> list[DiskInfo]:
         partitions = []
         try:
             for partition in psutil.disk_partitions():
@@ -69,19 +68,19 @@ class DiskMonitor:
             logger.error(f"获取磁盘分区信息失败: {e}")
         return partitions
 
-    async def get_io_stats(self) -> Dict[str, DiskIOStats]:
+    async def get_io_stats(self) -> dict[str, DiskIOStats]:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._get_io_stats_sync)
 
-    def _get_io_stats_sync(self) -> Dict[str, DiskIOStats]:
+    def _get_io_stats_sync(self) -> dict[str, DiskIOStats]:
         stats = {}
         try:
             io_counters = psutil.disk_io_counters(perdisk=True)
             if not io_counters:
                 return stats
-            
+
             current_time = datetime.now()
-            
+
             for disk_name, counter in io_counters.items():
                 current_stats = DiskIOStats(
                     read_bytes=counter.read_bytes,
@@ -91,29 +90,29 @@ class DiskMonitor:
                     read_time_ms=counter.read_time if hasattr(counter, "read_time") else 0,
                     write_time_ms=counter.write_time if hasattr(counter, "write_time") else 0,
                 )
-                
+
                 if disk_name in self._last_io_stats:
                     last_stats = self._last_io_stats[disk_name]
                     time_diff = (current_time - datetime.fromisoformat(last_stats.timestamp)).total_seconds()
-                    
+
                     if time_diff > 0:
                         read_diff = current_stats.read_bytes - last_stats.read_bytes
                         write_diff = current_stats.write_bytes - last_stats.write_bytes
-                        
+
                         current_stats.read_speed_mbps = (read_diff / time_diff) / (1024 ** 2)
                         current_stats.write_speed_mbps = (write_diff / time_diff) / (1024 ** 2)
-                
+
                 stats[disk_name] = current_stats
                 self._last_io_stats[disk_name] = current_stats
-            
+
         except Exception as e:
             logger.error(f"获取磁盘 IO 统计失败: {e}")
         return stats
 
-    async def get_all_stats(self) -> Dict:
+    async def get_all_stats(self) -> dict:
         partitions = await self.get_partitions()
         io_stats = await self.get_io_stats()
-        
+
         return {
             "partitions": [
                 {
@@ -141,12 +140,12 @@ class DiskMonitor:
             "timestamp": datetime.now().isoformat(),
         }
 
-    async def check_disk_space(self) -> Dict:
+    async def check_disk_space(self) -> dict:
         partitions = await self.get_partitions()
-        
+
         warnings = []
         critical = []
-        
+
         for partition in partitions:
             if partition.percent >= self._critical_threshold:
                 critical.append({
@@ -162,13 +161,13 @@ class DiskMonitor:
                     "free_gb": round(partition.free_gb, 2),
                     "message": f"磁盘空间不足: {partition.mountpoint} ({partition.percent:.1f}%)",
                 })
-        
+
         status = "normal"
         if critical:
             status = "critical"
         elif warnings:
             status = "warning"
-        
+
         return {
             "status": status,
             "warnings": warnings,
@@ -176,9 +175,9 @@ class DiskMonitor:
             "partitions_count": len(partitions),
         }
 
-    async def get_partition_by_path(self, path: str) -> Optional[DiskInfo]:
+    async def get_partition_by_path(self, path: str) -> DiskInfo | None:
         partitions = await self.get_partitions()
-        
+
         for partition in partitions:
             if path.startswith(partition.mountpoint):
                 return partition

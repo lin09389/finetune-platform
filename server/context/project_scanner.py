@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 项目扫描器 - 分析项目结构和特征
 功能：
@@ -9,20 +8,18 @@
 - 代码风格分析
 - Git 信息获取
 """
-from pathlib import Path
-from typing import Dict, List, Any, Optional
 import json
-import re
 import logging
 from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 from .models import (
-    ProjectInfo,
-    TechStack,
     FileInfo,
-    ProjectStructure,
     GitInfo,
-    SymbolInfo,
+    ProjectInfo,
+    ProjectStructure,
+    TechStack,
 )
 
 logger = logging.getLogger(__name__)
@@ -122,7 +119,7 @@ class ProjectScanner:
         """
         if project_path:
             self.project_path = Path(project_path).resolve()
-        
+
         if not self.project_path.exists():
             raise FileNotFoundError(f"项目路径不存在：{self.project_path}")
 
@@ -189,11 +186,11 @@ class ProjectScanner:
             return
 
         try:
-            with open(pkg_file, "r", encoding="utf-8") as f:
+            with open(pkg_file, encoding="utf-8") as f:
                 pkg = json.load(f)
                 deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
 
-            for dep_name in deps.keys():
+            for dep_name in deps:
                 for framework, patterns in self.LANGUAGE_CONFIGS["javascript"]["framework_patterns"].items():
                     if any(pattern in dep_name for pattern in patterns):
                         if framework in ["React", "Vue", "Angular", "Next.js", "Nuxt.js", "Svelte"]:
@@ -213,7 +210,7 @@ class ProjectScanner:
         req_file = self.project_path / "requirements.txt"
         if req_file.exists():
             try:
-                with open(req_file, "r", encoding="utf-8") as f:
+                with open(req_file, encoding="utf-8") as f:
                     content = f.read().lower()
 
                 for framework, patterns in self.LANGUAGE_CONFIGS["python"]["framework_patterns"].items():
@@ -230,7 +227,7 @@ class ProjectScanner:
         pyproject_file = self.project_path / "pyproject.toml"
         if pyproject_file.exists():
             try:
-                with open(pyproject_file, "r", encoding="utf-8") as f:
+                with open(pyproject_file, encoding="utf-8") as f:
                     content = f.read().lower()
                     if "fastapi" in content:
                         tech_stack.frameworks.append("FastAPI")
@@ -244,7 +241,7 @@ class ProjectScanner:
         pom_file = self.project_path / "pom.xml"
         if pom_file.exists():
             try:
-                with open(pom_file, "r", encoding="utf-8") as f:
+                with open(pom_file, encoding="utf-8") as f:
                     content = f.read().lower()
 
                 for framework, patterns in self.LANGUAGE_CONFIGS["java"]["framework_patterns"].items():
@@ -254,7 +251,7 @@ class ProjectScanner:
             except Exception as e:
                 logger.warning(f"解析 pom.xml 失败：{e}")
 
-    def _build_structure(self, depth: int = 3) -> Optional[ProjectStructure]:
+    def _build_structure(self, depth: int = 3) -> ProjectStructure | None:
         """构建项目结构树"""
 
         def scan_dir(path: Path, current_depth: int) -> ProjectStructure:
@@ -314,14 +311,14 @@ class ProjectScanner:
 
         return False
 
-    def _parse_dependencies(self) -> Dict[str, Any]:
+    def _parse_dependencies(self) -> dict[str, Any]:
         """解析项目依赖"""
         deps = {}
 
         req_file = self.project_path / "requirements.txt"
         if req_file.exists():
             try:
-                with open(req_file, "r", encoding="utf-8") as f:
+                with open(req_file, encoding="utf-8") as f:
                     python_deps = []
                     for line in f:
                         line = line.strip()
@@ -335,7 +332,7 @@ class ProjectScanner:
         pkg_file = self.project_path / "package.json"
         if pkg_file.exists():
             try:
-                with open(pkg_file, "r", encoding="utf-8") as f:
+                with open(pkg_file, encoding="utf-8") as f:
                     pkg = json.load(f)
                     deps["javascript"] = {
                         "dependencies": pkg.get("dependencies", {}),
@@ -346,7 +343,7 @@ class ProjectScanner:
 
         return deps
 
-    def _analyze_code_style(self) -> Dict[str, Any]:
+    def _analyze_code_style(self) -> dict[str, Any]:
         """分析代码风格"""
         style = {
             "indentation": "space",
@@ -362,7 +359,7 @@ class ProjectScanner:
 
             for py_file in py_files:
                 try:
-                    with open(py_file, "r", encoding="utf-8", errors="ignore") as f:
+                    with open(py_file, encoding="utf-8", errors="ignore") as f:
                         content = f.read(2000)
 
                         lines = content.split("\n")[:50]
@@ -384,7 +381,7 @@ class ProjectScanner:
 
         return style
 
-    def _find_key_files(self) -> List[FileInfo]:
+    def _find_key_files(self) -> list[FileInfo]:
         """查找关键文件"""
         key_files = []
 

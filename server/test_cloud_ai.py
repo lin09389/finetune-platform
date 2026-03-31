@@ -1,9 +1,9 @@
 """
 云端AI功能测试脚本
 """
-import requests
-import json
 from datetime import datetime
+
+import requests
 
 BASE_URL = "http://127.0.0.1:8000"
 
@@ -12,9 +12,9 @@ def test_cloud_ai():
     print("云端AI功能测试")
     print(f"测试时间: {datetime.now().isoformat()}")
     print("="*60)
-    
+
     results = []
-    
+
     # 1. 测试获取服务商列表
     print("\n[1] 测试获取云端AI服务商列表...")
     try:
@@ -32,7 +32,7 @@ def test_cloud_ai():
     except Exception as e:
         print(f"  [FAIL] 错误: {e}")
         results.append(("获取服务商列表", False, str(e)))
-    
+
     # 2. 测试获取API Key列表
     print("\n[2] 测试获取已存储的API Key列表...")
     try:
@@ -48,7 +48,7 @@ def test_cloud_ai():
     except Exception as e:
         print(f"  [FAIL] 错误: {e}")
         results.append(("获取API Key列表", False, str(e)))
-    
+
     # 3. 测试API Key验证（无Key时的错误处理）
     print("\n[3] 测试API Key验证（无Key时的错误处理）...")
     try:
@@ -69,7 +69,7 @@ def test_cloud_ai():
     except Exception as e:
         print(f"  [FAIL] 错误: {e}")
         results.append(("API Key验证错误处理", False, str(e)))
-    
+
     # 4. 测试聊天请求（无Key时的错误处理）
     print("\n[4] 测试云端聊天请求（无Key时的错误处理）...")
     try:
@@ -92,7 +92,7 @@ def test_cloud_ai():
     except Exception as e:
         print(f"  [FAIL] 错误: {e}")
         results.append(("云端聊天错误处理", False, str(e)))
-    
+
     # 5. 测试获取模型列表
     print("\n[5] 测试获取各服务商模型列表...")
     for provider in ["minimax", "glm"]:
@@ -109,14 +109,14 @@ def test_cloud_ai():
         except Exception as e:
             print(f"  [FAIL] {provider}: {e}")
             results.append((f"获取{provider}模型列表", False, str(e)))
-    
+
     # 汇总
     print("\n" + "="*60)
     passed = sum(1 for r in results if r[1])
     total = len(results)
     print(f"测试结果: {passed}/{total} 通过")
     print("="*60)
-    
+
     # 功能总结
     print("\n云端AI功能支持:")
     print("  - Minimax - 国产AI，中文优化好")
@@ -129,7 +129,7 @@ def test_cloud_ai():
     print("  - 连接池复用")
     print("  - 智能超时设置")
     print("  - 错误处理和重试机制")
-    
+
     return passed == total
 
 if __name__ == "__main__":

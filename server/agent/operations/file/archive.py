@@ -1,11 +1,12 @@
 import asyncio
-import zipfile
 import tarfile
-import shutil
-from pathlib import Path
-from typing import Optional, Callable, Awaitable, List, Dict, Any
-from pydantic import BaseModel, Field
+import zipfile
+from collections.abc import Awaitable, Callable
 from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class ArchiveResult(BaseModel):
@@ -14,14 +15,14 @@ class ArchiveResult(BaseModel):
     destination: str = ""
     files_count: int = 0
     bytes_processed: int = 0
-    error: Optional[str] = None
+    error: str | None = None
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
 
 
 class ArchiveExecutor:
     def __init__(
         self,
-        progress_callback: Optional[Callable[[str, float, str], Awaitable[None]]] = None,
+        progress_callback: Callable[[str, float, str], Awaitable[None]] | None = None,
         chunk_size: int = 1024 * 1024,
     ):
         self.progress_callback = progress_callback
@@ -33,7 +34,7 @@ class ArchiveExecutor:
         destination: str,
         compression: int = zipfile.ZIP_DEFLATED,
         include_root: bool = True,
-        ignore_patterns: Optional[List[str]] = None,
+        ignore_patterns: list[str] | None = None,
     ) -> ArchiveResult:
         source_path = Path(source)
         dest_path = Path(destination)
@@ -56,7 +57,7 @@ class ArchiveExecutor:
                     f"开始创建 ZIP: {dest_path.name}",
                 )
 
-            files_to_archive: List[Path] = []
+            files_to_archive: list[Path] = []
 
             if source_path.is_file():
                 files_to_archive = [source_path]
@@ -122,7 +123,7 @@ class ArchiveExecutor:
         source: str,
         destination: str,
         overwrite: bool = False,
-        password: Optional[str] = None,
+        password: str | None = None,
     ) -> ArchiveResult:
         source_path = Path(source)
         dest_path = Path(destination)
@@ -210,7 +211,7 @@ class ArchiveExecutor:
         destination: str,
         mode: str = "gz",
         include_root: bool = True,
-        ignore_patterns: Optional[List[str]] = None,
+        ignore_patterns: list[str] | None = None,
     ) -> ArchiveResult:
         source_path = Path(source)
         dest_path = Path(destination)
@@ -233,7 +234,7 @@ class ArchiveExecutor:
                     f"开始创建 TAR: {dest_path.name}",
                 )
 
-            files_to_archive: List[Path] = []
+            files_to_archive: list[Path] = []
 
             if source_path.is_file():
                 files_to_archive = [source_path]
@@ -422,14 +423,14 @@ class ArchiveExecutor:
     async def list_archive_contents(
         self,
         source: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         source_path = Path(source)
 
         if not source_path.exists():
             return []
 
         try:
-            contents: List[Dict[str, Any]] = []
+            contents: list[dict[str, Any]] = []
             suffix = source_path.suffix.lower()
 
             if suffix == ".zip":
@@ -461,7 +462,7 @@ class ArchiveExecutor:
     async def add_to_archive(
         self,
         archive_path: str,
-        files_to_add: List[str],
+        files_to_add: list[str],
     ) -> ArchiveResult:
         archive = Path(archive_path)
 
@@ -488,7 +489,7 @@ class ArchiveExecutor:
                 await self.progress_callback(
                     archive_path,
                     0.0,
-                    f"开始添加文件到 ZIP",
+                    "开始添加文件到 ZIP",
                 )
 
             def add_to_zip_sync():
@@ -504,7 +505,7 @@ class ArchiveExecutor:
                 await self.progress_callback(
                     archive_path,
                     1.0,
-                    f"文件添加完成",
+                    "文件添加完成",
                 )
 
             return ArchiveResult(

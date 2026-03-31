@@ -1,22 +1,22 @@
 """
 Sensitive Operation Verification Module
 """
-from .classifier import (
-    SensitiveOperationClassifier,
-    SensitivityLevel,
-    SensitiveOperation,
-)
-from .session import (
-    VerificationSession,
-    VerificationSessionManager,
-    VerificationType,
-    VerificationStatus,
-)
 from .api import (
     VerificationAPI,
     VerificationRequest,
     VerificationResponse,
     get_verification_api,
+)
+from .classifier import (
+    SensitiveOperation,
+    SensitiveOperationClassifier,
+    SensitivityLevel,
+)
+from .session import (
+    VerificationSession,
+    VerificationSessionManager,
+    VerificationStatus,
+    VerificationType,
 )
 
 TwoFactorVerifier = VerificationSessionManager

@@ -1,11 +1,12 @@
-from skills.base import SkillBase, SkillContext
-from skills.models import SkillExecution, SkillResult
-from memory.memory_service import MemoryService
-from typing import Dict, Any, List, Optional, Tuple
-from datetime import datetime, timedelta
 import json
-import re
 import logging
+import re
+from datetime import datetime
+from typing import Any
+
+from memory.memory_service import MemoryService
+from skills.base import SkillBase
+from skills.models import SkillExecution, SkillResult
 
 logger = logging.getLogger(__name__)
 
@@ -21,24 +22,24 @@ class MemoryAwareSkill(SkillBase):
     - 跨会话记忆检索
     - 用户偏好学习
     """
-    
+
     def __init__(self):
         super().__init__()
-        self._memory_service: Optional[MemoryService] = None
+        self._memory_service: MemoryService | None = None
         self._user_id: str = "default"
-        self._session_id: Optional[str] = None
-        self._memory_context: Dict[str, Any] = {}
-    
+        self._session_id: str | None = None
+        self._memory_context: dict[str, Any] = {}
+
     def set_memory_service(self, memory_service: MemoryService) -> None:
         self._memory_service = memory_service
-    
+
     def set_user_id(self, user_id: str) -> None:
         self._user_id = user_id
-    
+
     def set_session_id(self, session_id: str) -> None:
         self._session_id = session_id
-    
-    async def recall_memory(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+
+    async def recall_memory(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
         if not self._memory_service:
             return []
         return await self._memory_service.recall(
@@ -46,8 +47,8 @@ class MemoryAwareSkill(SkillBase):
             user_id=self._user_id,
             top_k=top_k
         )
-    
-    async def store_memory(self, content: str, memory_type: str = "operation", importance: float = 0.5) -> List[Dict[str, Any]]:
+
+    async def store_memory(self, content: str, memory_type: str = "operation", importance: float = 0.5) -> list[dict[str, Any]]:
         if not self._memory_service:
             return []
         return await self._memory_service.extract_and_store(
@@ -55,8 +56,8 @@ class MemoryAwareSkill(SkillBase):
             role="assistant",
             user_id=self._user_id
         )
-    
-    async def get_user_preferences(self) -> Dict[str, Any]:
+
+    async def get_user_preferences(self) -> dict[str, Any]:
         memories = await self.recall_memory("用户偏好 设置 偏好", top_k=10)
         preferences = {}
         for mem in memories:
@@ -70,13 +71,13 @@ class MemoryAwareSkill(SkillBase):
                     if key:
                         preferences[key] = value
         return preferences
-    
+
     async def rank_memories_by_relevance(
-        self, 
-        memories: List[Dict[str, Any]], 
+        self,
+        memories: list[dict[str, Any]],
         query: str,
-        context: Optional[Dict[str, Any]] = None
-    ) -> List[Tuple[Dict[str, Any], float]]:
+        context: dict[str, Any] | None = None
+    ) -> list[tuple[dict[str, Any], float]]:
         """
         按相关性排序记忆
         
@@ -89,16 +90,16 @@ class MemoryAwareSkill(SkillBase):
         ranked = []
         query_lower = query.lower()
         query_keywords = set(re.findall(r'\w+', query_lower))
-        
+
         now = datetime.now()
-        
+
         for mem in memories:
             score = 0.0
             content = mem.get("content", "").lower()
-            
+
             keyword_overlap = len(query_keywords & set(re.findall(r'\w+', content)))
             score += keyword_overlap * 0.3
-            
+
             timestamp_str = mem.get("timestamp") or mem.get("created_at")
             if timestamp_str:
                 try:
@@ -108,24 +109,24 @@ class MemoryAwareSkill(SkillBase):
                     score += time_score * 0.3
                 except Exception:
                     pass
-            
+
             importance = mem.get("importance", 0.5)
             score += importance * 0.2
-            
+
             if context:
                 context_keys = set(context.keys())
                 mem_keys = set(mem.get("metadata", {}).keys())
                 context_match = len(context_keys & mem_keys) / max(len(context_keys), 1)
                 score += context_match * 0.2
-            
+
             ranked.append((mem, score))
-        
+
         ranked.sort(key=lambda x: x[1], reverse=True)
         return ranked
-    
+
     async def compress_memories(
-        self, 
-        memories: List[Dict[str, Any]], 
+        self,
+        memories: list[dict[str, Any]],
         max_length: int = 1000
     ) -> str:
         """
@@ -135,20 +136,20 @@ class MemoryAwareSkill(SkillBase):
         """
         if not memories:
             return ""
-        
+
         total_length = sum(len(mem.get("content", "")) for mem in memories)
-        
+
         if total_length <= max_length:
             return "\n".join(mem.get("content", "") for mem in memories)
-        
-        type_groups: Dict[str, List[str]] = {}
+
+        type_groups: dict[str, list[str]] = {}
         for mem in memories:
             mem_type = mem.get("memory_type", "general")
             content = mem.get("content", "")
             if mem_type not in type_groups:
                 type_groups[mem_type] = []
             type_groups[mem_type].append(content)
-        
+
         summaries = []
         for mem_type, contents in type_groups.items():
             if len(contents) > 3:
@@ -159,15 +160,15 @@ class MemoryAwareSkill(SkillBase):
             else:
                 summary = f"[{mem_type}]\n" + "\n".join(f"  - {c[:100]}" for c in contents)
             summaries.append(summary)
-        
+
         return "\n\n".join(summaries)
-    
+
     async def recall_cross_session(
-        self, 
-        query: str, 
+        self,
+        query: str,
         exclude_current: bool = True,
         top_k: int = 10
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         跨会话记忆检索
         
@@ -175,68 +176,68 @@ class MemoryAwareSkill(SkillBase):
         """
         if not self._memory_service:
             return []
-        
+
         memories = await self._memory_service.recall(
             query=query,
             user_id=self._user_id,
             top_k=top_k * 2
         )
-        
+
         if exclude_current and self._session_id:
             memories = [
                 mem for mem in memories
                 if mem.get("session_id") != self._session_id
             ]
-        
+
         return memories[:top_k]
-    
+
     async def inject_memory_context(
-        self, 
-        parameters: Dict[str, Any],
+        self,
+        parameters: dict[str, Any],
         max_memories: int = 5,
         max_context_length: int = 2000
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         注入记忆上下文到参数
         
         在技能执行前自动调用
         """
         query = json.dumps(parameters, ensure_ascii=False)
-        
+
         raw_memories = await self.recall_memory(query, top_k=max_memories * 2)
         ranked_memories = await self.rank_memories_by_relevance(raw_memories, query)
         top_memories = [m for m, s in ranked_memories[:max_memories]]
-        
+
         compressed = await self.compress_memories(top_memories, max_context_length)
-        
+
         preferences = await self.get_user_preferences()
-        
+
         self._memory_context = {
             "relevant_memories": top_memories,
             "compressed_context": compressed,
             "user_preferences": preferences,
             "injected_at": datetime.now().isoformat(),
         }
-        
+
         parameters["_memory_context"] = self._memory_context
-        
+
         return parameters
-    
+
     async def run_with_memory(
         self,
-        parameters: Dict[str, Any],
-        execution_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-        session_id: Optional[str] = None,
+        parameters: dict[str, Any],
+        execution_id: str | None = None,
+        user_id: str | None = None,
+        session_id: str | None = None,
         **kwargs
     ) -> SkillExecution:
         if user_id:
             self._user_id = user_id
         if session_id:
             self._session_id = session_id
-        
+
         parameters = await self.inject_memory_context(parameters)
-        
+
         execution = await self.run(
             parameters=parameters,
             execution_id=execution_id,
@@ -244,20 +245,20 @@ class MemoryAwareSkill(SkillBase):
             session_id=self._session_id,
             **kwargs
         )
-        
+
         await self._after_execute(execution)
-        
+
         return execution
-    
-    async def _before_execute(self, parameters: Dict[str, Any]) -> Dict[str, Any]:
-        context: Dict[str, Any] = {}
+
+    async def _before_execute(self, parameters: dict[str, Any]) -> dict[str, Any]:
+        context: dict[str, Any] = {}
         query = json.dumps(parameters, ensure_ascii=False)
         memories = await self.recall_memory(query)
         context["relevant_memories"] = memories
         preferences = await self.get_user_preferences()
         context["user_preferences"] = preferences
         return context
-    
+
     async def _after_execute(self, execution: SkillExecution) -> None:
         if execution.result and execution.result.success:
             await self.store_memory(
@@ -267,10 +268,10 @@ class MemoryAwareSkill(SkillBase):
 
 
 class OperationMemoryMixin:
-    _memory_service: Optional[MemoryService] = None
+    _memory_service: MemoryService | None = None
     _user_id: str = "default"
-    
-    async def recall_memory(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+
+    async def recall_memory(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
         if not self._memory_service:
             return []
         return await self._memory_service.recall(
@@ -278,8 +279,8 @@ class OperationMemoryMixin:
             user_id=self._user_id,
             top_k=top_k
         )
-    
-    async def store_memory(self, content: str, memory_type: str = "operation", importance: float = 0.5) -> List[Dict[str, Any]]:
+
+    async def store_memory(self, content: str, memory_type: str = "operation", importance: float = 0.5) -> list[dict[str, Any]]:
         if not self._memory_service:
             return []
         return await self._memory_service.extract_and_store(
@@ -287,8 +288,8 @@ class OperationMemoryMixin:
             role="assistant",
             user_id=self._user_id
         )
-    
-    async def record_operation(self, operation_type: str, params: Dict[str, Any], result: Optional[SkillResult]) -> None:
+
+    async def record_operation(self, operation_type: str, params: dict[str, Any], result: SkillResult | None) -> None:
         record = {
             "operation_type": operation_type,
             "params": params,
@@ -299,18 +300,18 @@ class OperationMemoryMixin:
             content=json.dumps(record, ensure_ascii=False),
             memory_type="operation_history"
         )
-    
-    async def get_operation_history(self, operation_type: Optional[str] = None, limit: int = 20) -> List[Dict[str, Any]]:
+
+    async def get_operation_history(self, operation_type: str | None = None, limit: int = 20) -> list[dict[str, Any]]:
         query = f"操作 {operation_type}" if operation_type else "操作历史"
         memories = await self.recall_memory(query, top_k=limit)
         return memories
 
 
 class PreferenceLearningMixin:
-    _memory_service: Optional[MemoryService] = None
+    _memory_service: MemoryService | None = None
     _user_id: str = "default"
-    
-    async def recall_memory(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+
+    async def recall_memory(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
         if not self._memory_service:
             return []
         return await self._memory_service.recall(
@@ -318,8 +319,8 @@ class PreferenceLearningMixin:
             user_id=self._user_id,
             top_k=top_k
         )
-    
-    async def store_memory(self, content: str, memory_type: str = "preference", importance: float = 0.5) -> List[Dict[str, Any]]:
+
+    async def store_memory(self, content: str, memory_type: str = "preference", importance: float = 0.5) -> list[dict[str, Any]]:
         if not self._memory_service:
             return []
         return await self._memory_service.extract_and_store(
@@ -327,8 +328,8 @@ class PreferenceLearningMixin:
             role="assistant",
             user_id=self._user_id
         )
-    
-    async def get_user_preferences(self) -> Dict[str, Any]:
+
+    async def get_user_preferences(self) -> dict[str, Any]:
         memories = await self.recall_memory("用户偏好 设置 偏好", top_k=10)
         preferences = {}
         for mem in memories:
@@ -342,15 +343,15 @@ class PreferenceLearningMixin:
                     if key:
                         preferences[key] = value
         return preferences
-    
+
     async def learn_preference(self, key: str, value: Any) -> None:
         await self.store_memory(
             content=f"用户偏好: {key} = {value}",
             memory_type="preference",
             importance=0.8
         )
-    
-    async def apply_preference(self, params: Dict[str, Any]) -> Dict[str, Any]:
+
+    async def apply_preference(self, params: dict[str, Any]) -> dict[str, Any]:
         preferences = await self.get_user_preferences()
         for key, value in preferences.items():
             if key not in params:

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 技能调用决策引擎
 
@@ -7,21 +6,20 @@
 import asyncio
 import re
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Optional
 
-from .base import SkillBase
+from .enhanced_registry import EnhancedSkillRegistry, get_enhanced_registry
 from .models import (
     SkillCategory,
     SkillExecution,
     SkillMetadata,
     SkillPriority,
-    SkillResult,
     SkillStatus,
 )
-from .enhanced_registry import EnhancedSkillRegistry, get_enhanced_registry
 
 
 class MatchType(str, Enum):
@@ -47,30 +45,30 @@ class SkillMatch:
     skill_name: str
     score: float
     match_type: MatchType
-    matched_keywords: List[str] = field(default_factory=list)
-    matched_patterns: List[str] = field(default_factory=list)
+    matched_keywords: list[str] = field(default_factory=list)
+    matched_patterns: list[str] = field(default_factory=list)
     context_relevance: float = 0.0
     confidence: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class DecisionContext:
     """决策上下文"""
     user_message: str
-    session_id: Optional[str] = None
-    user_id: Optional[str] = None
-    conversation_history: List[Dict[str, str]] = field(default_factory=list)
-    available_context: Dict[str, Any] = field(default_factory=dict)
-    user_preferences: Dict[str, Any] = field(default_factory=dict)
-    previous_skills: List[str] = field(default_factory=list)
+    session_id: str | None = None
+    user_id: str | None = None
+    conversation_history: list[dict[str, str]] = field(default_factory=list)
+    available_context: dict[str, Any] = field(default_factory=dict)
+    user_preferences: dict[str, Any] = field(default_factory=dict)
+    previous_skills: list[str] = field(default_factory=list)
     timestamp: datetime = field(default_factory=datetime.now)
 
 
 @dataclass
 class ExecutionPlan:
     """执行计划"""
-    skills: List[Tuple[str, Dict[str, Any], SkillPriority]]
+    skills: list[tuple[str, dict[str, Any], SkillPriority]]
     mode: ExecutionMode
     stop_on_error: bool = True
     max_parallel: int = 3
@@ -82,21 +80,21 @@ class ExecutionPlan:
 class ExecutionResult:
     """执行结果"""
     success: bool
-    results: List[SkillExecution] = field(default_factory=list)
+    results: list[SkillExecution] = field(default_factory=list)
     final_message: str = ""
-    errors: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
     total_time: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class SkillMatcher:
     """技能匹配引擎"""
 
-    def __init__(self, registry: Optional[EnhancedSkillRegistry] = None):
+    def __init__(self, registry: EnhancedSkillRegistry | None = None):
         self.registry = registry or get_enhanced_registry()
-        self._keyword_index: Dict[str, Set[str]] = {}
-        self._pattern_index: Dict[str, List[str]] = {}
-        self._category_keywords: Dict[SkillCategory, Set[str]] = {}
+        self._keyword_index: dict[str, set[str]] = {}
+        self._pattern_index: dict[str, list[str]] = {}
+        self._category_keywords: dict[SkillCategory, set[str]] = {}
         self._build_indexes()
 
     def _build_indexes(self):
@@ -131,7 +129,7 @@ class SkillMatcher:
         self,
         message: str,
         threshold: float = 0.3,
-    ) -> List[SkillMatch]:
+    ) -> list[SkillMatch]:
         """基于关键词匹配"""
         message_lower = message.lower()
         message_words = set(word for word in message_lower.split() if len(word) > 2)
@@ -157,7 +155,7 @@ class SkillMatcher:
     def match_by_patterns(
         self,
         message: str,
-    ) -> List[SkillMatch]:
+    ) -> list[SkillMatch]:
         """基于正则模式匹配"""
         patterns = {
             "text_transform": [
@@ -214,7 +212,7 @@ class SkillMatcher:
         message: str,
         category: SkillCategory,
         threshold: float = 0.2,
-    ) -> List[SkillMatch]:
+    ) -> list[SkillMatch]:
         """按类别匹配技能"""
         if category not in self._category_keywords:
             return []
@@ -254,9 +252,9 @@ class SkillMatcher:
         context: DecisionContext,
         top_k: int = 5,
         min_score: float = 0.2,
-    ) -> List[SkillMatch]:
+    ) -> list[SkillMatch]:
         """综合匹配"""
-        all_matches: Dict[str, SkillMatch] = {}
+        all_matches: dict[str, SkillMatch] = {}
 
         keyword_matches = self.match_by_keywords(context.user_message, min_score)
         for match in keyword_matches:
@@ -319,8 +317,8 @@ class PriorityScheduler:
     def calculate_priority_score(
         self,
         match: SkillMatch,
-        metadata: Optional[SkillMetadata] = None,
-        context: Optional[DecisionContext] = None,
+        metadata: SkillMetadata | None = None,
+        context: DecisionContext | None = None,
     ) -> float:
         """计算优先级分数"""
         base_score = match.score * 100
@@ -349,10 +347,10 @@ class PriorityScheduler:
 
     def sort_by_priority(
         self,
-        matches: List[SkillMatch],
+        matches: list[SkillMatch],
         registry: EnhancedSkillRegistry,
-        context: Optional[DecisionContext] = None,
-    ) -> List[Tuple[SkillMatch, float, SkillPriority]]:
+        context: DecisionContext | None = None,
+    ) -> list[tuple[SkillMatch, float, SkillPriority]]:
         """按优先级排序"""
         scored_matches = []
 
@@ -375,7 +373,7 @@ class PriorityScheduler:
 
     def determine_execution_mode(
         self,
-        matches: List[Tuple[SkillMatch, float, SkillPriority]],
+        matches: list[tuple[SkillMatch, float, SkillPriority]],
     ) -> ExecutionMode:
         """确定执行模式"""
         if len(matches) == 0:
@@ -417,10 +415,10 @@ class DecisionEngine:
         self.registry = get_enhanced_registry()
         self.matcher = SkillMatcher(self.registry)
         self.scheduler = PriorityScheduler()
-        self._decision_history: List[Tuple[DecisionContext, ExecutionPlan]] = []
+        self._decision_history: list[tuple[DecisionContext, ExecutionPlan]] = []
         self._max_history = 100
-        self._on_decision: Optional[Callable[[DecisionContext, ExecutionPlan], None]] = None
-        self._on_execution: Optional[Callable[[ExecutionResult], None]] = None
+        self._on_decision: Callable[[DecisionContext, ExecutionPlan], None] | None = None
+        self._on_execution: Callable[[ExecutionResult], None] | None = None
 
     @classmethod
     def get_instance(cls) -> "DecisionEngine":
@@ -432,7 +430,7 @@ class DecisionEngine:
         context: DecisionContext,
         top_k: int = 5,
         min_score: float = 0.2,
-    ) -> List[Tuple[SkillMatch, float, SkillPriority]]:
+    ) -> list[tuple[SkillMatch, float, SkillPriority]]:
         """分析并返回匹配的技能"""
         matches = self.matcher.match(context, top_k, min_score)
         return self.scheduler.sort_by_priority(matches, self.registry, context)
@@ -440,8 +438,8 @@ class DecisionEngine:
     def create_execution_plan(
         self,
         context: DecisionContext,
-        matches: Optional[List[Tuple[SkillMatch, float, SkillPriority]]] = None,
-        parameters: Optional[Dict[str, Dict[str, Any]]] = None,
+        matches: list[tuple[SkillMatch, float, SkillPriority]] | None = None,
+        parameters: dict[str, dict[str, Any]] | None = None,
     ) -> ExecutionPlan:
         """创建执行计划"""
         if matches is None:
@@ -550,7 +548,7 @@ class DecisionEngine:
         self,
         plan: ExecutionPlan,
         context: DecisionContext,
-    ) -> List[SkillExecution]:
+    ) -> list[SkillExecution]:
         """顺序执行多个技能"""
         executions = []
 
@@ -573,7 +571,7 @@ class DecisionEngine:
         self,
         plan: ExecutionPlan,
         context: DecisionContext,
-    ) -> List[SkillExecution]:
+    ) -> list[SkillExecution]:
         """并行执行多个技能"""
         tasks = []
 
@@ -589,7 +587,7 @@ class DecisionEngine:
 
         return await asyncio.gather(*tasks)
 
-    def _combine_messages(self, executions: List[SkillExecution]) -> str:
+    def _combine_messages(self, executions: list[SkillExecution]) -> str:
         """合并执行消息"""
         messages = []
         for execution in executions:
@@ -600,7 +598,7 @@ class DecisionEngine:
     async def decide_and_execute(
         self,
         context: DecisionContext,
-        parameters: Optional[Dict[str, Dict[str, Any]]] = None,
+        parameters: dict[str, dict[str, Any]] | None = None,
     ) -> ExecutionResult:
         """决策并执行"""
         matches = self.analyze(context)
@@ -615,7 +613,7 @@ class DecisionEngine:
         """设置执行回调"""
         self._on_execution = callback
 
-    def get_decision_history(self, limit: int = 20) -> List[Tuple[DecisionContext, ExecutionPlan]]:
+    def get_decision_history(self, limit: int = 20) -> list[tuple[DecisionContext, ExecutionPlan]]:
         """获取决策历史"""
         return self._decision_history[-limit:]
 
@@ -627,7 +625,7 @@ class DecisionEngine:
         """重建索引"""
         self.matcher._build_indexes()
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """获取统计信息"""
         return {
             "total_decisions": len(self._decision_history),

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 安全加密模块 - 加密存储敏感数据
 
@@ -13,15 +12,14 @@
 - 访问计数审计
 - 内存数据保护
 """
-from cryptography.fernet import Fernet
-from pathlib import Path
 import base64
-import os
 import json
 import logging
-import secrets
-import hashlib
-from typing import Dict, Any, Optional, List
+import os
+from pathlib import Path
+from typing import Any
+
+from cryptography.fernet import Fernet
 
 logger = logging.getLogger(__name__)
 
@@ -33,13 +31,13 @@ class SecureStorage:
         """初始化安全存储"""
         self.data_dir = Path(__file__).parent.parent / "data"
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        
+
         self.key_file = self.data_dir / ".encryption_key"
         self.vault_file = self.data_dir / ".vault"
-        
+
         self.key = self._get_or_create_key()
         self.cipher = Fernet(self.key)
-        
+
         logger.info("安全存储已初始化")
 
     def _get_or_create_key(self) -> bytes:
@@ -60,14 +58,14 @@ class SecureStorage:
     def _create_new_key(self) -> bytes:
         """创建新的加密密钥"""
         key = Fernet.generate_key()
-        
+
         try:
             with open(self.key_file, 'wb') as f:
                 f.write(key)
-            
+
             os.chmod(self.key_file, 0o600)
             logger.info("新密钥已创建并保存")
-            
+
             return key
         except Exception as e:
             logger.error(f"保存密钥失败：{e}")
@@ -117,17 +115,17 @@ class SecureStorage:
             value: 要存储的值（将被加密）
         """
         vault = self._load_vault()
-        
+
         if isinstance(value, dict):
             encrypted_value = self.encrypt(json.dumps(value, ensure_ascii=False))
         else:
             encrypted_value = self.encrypt(str(value))
-        
+
         vault[key] = encrypted_value
         self._save_vault(vault)
         logger.debug(f"数据已存储：{key}")
 
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         """
         获取数据
         
@@ -138,14 +136,14 @@ class SecureStorage:
             解密后的值，如果不存在返回 None
         """
         vault = self._load_vault()
-        
+
         encrypted_value = vault.get(key)
         if encrypted_value is None:
             return None
-        
+
         try:
             decrypted = self.decrypt(encrypted_value)
-            
+
             try:
                 return json.loads(decrypted)
             except json.JSONDecodeError:
@@ -165,13 +163,13 @@ class SecureStorage:
             是否删除成功
         """
         vault = self._load_vault()
-        
+
         if key in vault:
             del vault[key]
             self._save_vault(vault)
             logger.debug(f"数据已删除：{key}")
             return True
-        
+
         return False
 
     def store_api_key(self, key_id: str, provider: str, api_key: str, group_id: str = "", base_url: str = ""):
@@ -224,11 +222,11 @@ class SecureStorage:
 
         try:
             api_key = self.decrypt(key_data['encrypted'])
-            
+
             key_data['access_count'] = key_data.get('access_count', 0) + 1
             key_data['last_accessed'] = self._get_timestamp()
             self._save_vault(vault)
-            
+
             return api_key
         except Exception as e:
             logger.error(f"解密 API Key 失败：{e}")
@@ -259,18 +257,18 @@ class SecureStorage:
         key_data = vault.get(f"api_key:{key_id}")
         if not key_data:
             raise KeyError(f"API Key 不存在：{key_id}")
-        
+
         group_id = ""
         if key_data.get('group_id'):
             try:
                 group_id = self.decrypt(key_data['group_id'])
             except Exception:
                 group_id = ""
-        
+
         key_data['access_count'] = key_data.get('access_count', 0) + 1
         key_data['last_accessed'] = self._get_timestamp()
         self._save_vault(vault)
-        
+
         return {
             'provider': key_data.get('provider', 'unknown'),
             'group_id': group_id,
@@ -289,7 +287,7 @@ class SecureStorage:
         self._save_vault(vault)
         logger.info(f"API Key 已删除：{key_id}")
 
-    def list_api_keys(self) -> List[Dict[str, str]]:
+    def list_api_keys(self) -> list[dict[str, str]]:
         """列出所有 API Key ID"""
         vault = self._load_vault()
         keys = []
@@ -302,23 +300,23 @@ class SecureStorage:
                 })
         return keys
 
-    def _load_vault(self) -> Dict[str, Any]:
+    def _load_vault(self) -> dict[str, Any]:
         """加载保险库"""
         if self.vault_file.exists():
             try:
-                with open(self.vault_file, 'r', encoding='utf-8') as f:
+                with open(self.vault_file, encoding='utf-8') as f:
                     return json.load(f)
             except Exception as e:
                 logger.error(f"加载保险库失败：{e}")
                 return {}
         return {}
 
-    def _save_vault(self, vault: Dict[str, Any]):
+    def _save_vault(self, vault: dict[str, Any]):
         """保存保险库"""
         try:
             with open(self.vault_file, 'w', encoding='utf-8') as f:
                 json.dump(vault, f, indent=2, ensure_ascii=False)
-            
+
             os.chmod(self.vault_file, 0o600)
         except Exception as e:
             logger.error(f"保存保险库失败：{e}")

@@ -1,36 +1,32 @@
-# -*- coding: utf-8 -*-
 """
 参数自动提取器
 
 使用规则引擎和 LLM 辅助从对话上下文中提取技能参数。
 """
-import asyncio
 import json
 import re
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional
 
-from .base import SkillBase
+from .enhanced_registry import get_enhanced_registry
 from .models import (
     SkillMetadata,
     SkillParameter,
     SkillParameterType,
     SkillValidationResult,
 )
-from .enhanced_registry import EnhancedSkillRegistry, get_enhanced_registry
 
 
 @dataclass
 class ExtractionResult:
     """参数提取结果"""
-    parameters: Dict[str, Any]
+    parameters: dict[str, Any]
     confidence: float
     source: str
-    missing_required: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-    suggestions: Dict[str, str] = field(default_factory=dict)
+    missing_required: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    suggestions: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -39,9 +35,9 @@ class ExtractionContext:
     user_message: str
     skill_name: str
     skill_metadata: SkillMetadata
-    conversation_history: List[Dict[str, str]] = field(default_factory=list)
-    available_context: Dict[str, Any] = field(default_factory=dict)
-    previous_params: Dict[str, Any] = field(default_factory=dict)
+    conversation_history: list[dict[str, str]] = field(default_factory=list)
+    available_context: dict[str, Any] = field(default_factory=dict)
+    previous_params: dict[str, Any] = field(default_factory=dict)
 
 
 class RuleBasedExtractor:
@@ -73,7 +69,7 @@ class RuleBasedExtractor:
             ],
         }
 
-        self._param_hints: Dict[str, Dict[str, List[str]]] = {
+        self._param_hints: dict[str, dict[str, list[str]]] = {
             "text": {
                 "patterns": [r'(?:文本|内容|字符串)[是为]\s*["\']?([^"\']+)["\']?'],
                 "keywords": ["文本", "内容", "字符串"],
@@ -168,7 +164,7 @@ class RuleBasedExtractor:
         self,
         message: str,
         param_def: SkillParameter,
-    ) -> Tuple[Optional[Any], float]:
+    ) -> tuple[Any | None, float]:
         """按类型提取"""
         patterns = self._type_patterns.get(param_def.type, [])
 
@@ -198,7 +194,7 @@ class RuleBasedExtractor:
         self,
         message: str,
         param_def: SkillParameter,
-    ) -> Tuple[Optional[Any], float]:
+    ) -> tuple[Any | None, float]:
         """按提示词提取"""
         hints = self._param_hints.get(param_def.name, {})
         patterns = hints.get("patterns", [])
@@ -224,9 +220,9 @@ class RuleBasedExtractor:
 
     def _extract_from_history(
         self,
-        history: List[Dict[str, str]],
+        history: list[dict[str, str]],
         param_def: SkillParameter,
-    ) -> Tuple[Optional[Any], float]:
+    ) -> tuple[Any | None, float]:
         """从历史对话中提取"""
         for msg in reversed(history[-5:]):
             role = msg.get("role", "")
@@ -262,7 +258,7 @@ class LLMParamExtractor:
 
     def __init__(
         self,
-        llm_client: Optional[Any] = None,
+        llm_client: Any | None = None,
         model: str = "default",
     ):
         self.llm_client = llm_client
@@ -400,7 +396,7 @@ class LLMParamExtractor:
                 suggestions=suggestions,
             )
 
-        except (json.JSONDecodeError, ValueError, KeyError) as e:
+        except (json.JSONDecodeError, ValueError, KeyError):
             return self._fallback_extractor.extract(context)
 
 
@@ -426,7 +422,7 @@ class ParamExtractor:
         self.registry = get_enhanced_registry()
         self.rule_extractor = RuleBasedExtractor()
         self.llm_extractor = LLMParamExtractor()
-        self._extraction_cache: Dict[str, Tuple[ExtractionResult, float]] = {}
+        self._extraction_cache: dict[str, tuple[ExtractionResult, float]] = {}
         self._cache_ttl = 300.0
         self._use_llm = True
 
@@ -448,9 +444,9 @@ class ParamExtractor:
         self,
         user_message: str,
         skill_name: str,
-        conversation_history: Optional[List[Dict[str, str]]] = None,
-        available_context: Optional[Dict[str, Any]] = None,
-        previous_params: Optional[Dict[str, Any]] = None,
+        conversation_history: list[dict[str, str]] | None = None,
+        available_context: dict[str, Any] | None = None,
+        previous_params: dict[str, Any] | None = None,
     ) -> ExtractionResult:
         """同步提取参数"""
         metadata = self.registry.get_metadata(skill_name)
@@ -478,9 +474,9 @@ class ParamExtractor:
         self,
         user_message: str,
         skill_name: str,
-        conversation_history: Optional[List[Dict[str, str]]] = None,
-        available_context: Optional[Dict[str, Any]] = None,
-        previous_params: Optional[Dict[str, Any]] = None,
+        conversation_history: list[dict[str, str]] | None = None,
+        available_context: dict[str, Any] | None = None,
+        previous_params: dict[str, Any] | None = None,
     ) -> ExtractionResult:
         """异步提取参数（支持 LLM）"""
         metadata = self.registry.get_metadata(skill_name)
@@ -510,10 +506,10 @@ class ParamExtractor:
     def extract_for_multiple(
         self,
         user_message: str,
-        skill_names: List[str],
-        conversation_history: Optional[List[Dict[str, str]]] = None,
-        available_context: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, ExtractionResult]:
+        skill_names: list[str],
+        conversation_history: list[dict[str, str]] | None = None,
+        available_context: dict[str, Any] | None = None,
+    ) -> dict[str, ExtractionResult]:
         """为多个技能提取参数"""
         results = {}
 
@@ -530,7 +526,7 @@ class ParamExtractor:
     def validate_and_normalize(
         self,
         skill_name: str,
-        parameters: Dict[str, Any],
+        parameters: dict[str, Any],
     ) -> SkillValidationResult:
         """验证并规范化参数"""
         skill = self.registry.get_skill(skill_name)
@@ -544,10 +540,10 @@ class ParamExtractor:
 
     def merge_params(
         self,
-        base_params: Dict[str, Any],
-        extracted_params: Dict[str, Any],
+        base_params: dict[str, Any],
+        extracted_params: dict[str, Any],
         override: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """合并参数"""
         if override:
             return {**base_params, **extracted_params}
@@ -557,8 +553,8 @@ class ParamExtractor:
     def get_param_suggestions(
         self,
         skill_name: str,
-        missing_params: List[str],
-    ) -> Dict[str, str]:
+        missing_params: list[str],
+    ) -> dict[str, str]:
         """获取参数建议"""
         metadata = self.registry.get_metadata(skill_name)
         if not metadata:

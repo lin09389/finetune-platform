@@ -3,25 +3,23 @@
 
 提供程序启动/关闭、窗口管理和应用白名单管理功能
 """
-from .whitelist import (
-    AppWhitelist,
-    WhitelistEntry,
-    WhitelistConfig,
-    get_whitelist,
-    DEFAULT_WINDOWS_APPS,
-    DEFAULT_MACOS_APPS,
-)
-
 from .launcher import (
     AppLauncher,
-    ProcessInfo,
     LaunchResult,
+    ProcessInfo,
     get_launcher,
 )
-
+from .whitelist import (
+    DEFAULT_MACOS_APPS,
+    DEFAULT_WINDOWS_APPS,
+    AppWhitelist,
+    WhitelistConfig,
+    WhitelistEntry,
+    get_whitelist,
+)
 from .window import (
-    WindowManager,
     WindowInfo,
+    WindowManager,
     WindowOperationResult,
     get_window_manager,
 )

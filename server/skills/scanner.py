@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 技能目录扫描器
 
@@ -14,14 +13,15 @@ import importlib
 import importlib.util
 import inspect
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Type
+from typing import Any
 
 from .base import SkillBase
-from .models import SkillCategory, SkillMetadata
+from .models import SkillMetadata
 
 
 class ScanStatus(str, Enum):
@@ -44,10 +44,10 @@ class SkillLoadStatus(str, Enum):
 class SkillDependency:
     """技能依赖信息"""
     name: str
-    version: Optional[str] = None
+    version: str | None = None
     required: bool = True
     resolved: bool = False
-    resolved_by: Optional[str] = None
+    resolved_by: str | None = None
 
 
 @dataclass
@@ -57,11 +57,11 @@ class SkillScanResult:
     module_path: str
     file_path: Path
     status: ScanStatus
-    skill_class: Optional[Type[SkillBase]] = None
-    metadata: Optional[SkillMetadata] = None
-    error: Optional[str] = None
-    dependencies: List[SkillDependency] = field(default_factory=list)
-    file_hash: Optional[str] = None
+    skill_class: type[SkillBase] | None = None
+    metadata: SkillMetadata | None = None
+    error: str | None = None
+    dependencies: list[SkillDependency] = field(default_factory=list)
+    file_hash: str | None = None
     scanned_at: datetime = field(default_factory=datetime.now)
 
 
@@ -73,9 +73,9 @@ class ScanReport:
     failed: int = 0
     skipped: int = 0
     duplicates: int = 0
-    results: List[SkillScanResult] = field(default_factory=list)
+    results: list[SkillScanResult] = field(default_factory=list)
     started_at: datetime = field(default_factory=datetime.now)
-    completed_at: Optional[datetime] = None
+    completed_at: datetime | None = None
 
     @property
     def duration_ms(self) -> int:
@@ -83,7 +83,7 @@ class ScanReport:
         end = self.completed_at or datetime.now()
         return int((end - self.started_at).total_seconds() * 1000)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典"""
         return {
             "total_scanned": self.total_scanned,
@@ -119,11 +119,11 @@ class SkillScanner:
 
     def __init__(
         self,
-        skills_dir: Optional[Path] = None,
+        skills_dir: Path | None = None,
         watch_enabled: bool = False,
-        on_skill_found: Optional[Callable[[SkillScanResult], None]] = None,
-        on_skill_updated: Optional[Callable[[str, Path], None]] = None,
-        on_skill_removed: Optional[Callable[[str], None]] = None,
+        on_skill_found: Callable[[SkillScanResult], None] | None = None,
+        on_skill_updated: Callable[[str, Path], None] | None = None,
+        on_skill_removed: Callable[[str], None] | None = None,
     ):
         self.skills_dir = skills_dir or Path(__file__).parent / "implemented"
         self.watch_enabled = watch_enabled
@@ -131,10 +131,10 @@ class SkillScanner:
         self.on_skill_updated = on_skill_updated
         self.on_skill_removed = on_skill_removed
 
-        self._file_hashes: Dict[str, str] = {}
-        self._skill_files: Dict[str, Path] = {}
-        self._loaded_modules: Dict[str, str] = {}
-        self._scanned_skills: Dict[str, SkillScanResult] = {}
+        self._file_hashes: dict[str, str] = {}
+        self._skill_files: dict[str, Path] = {}
+        self._loaded_modules: dict[str, str] = {}
+        self._scanned_skills: dict[str, SkillScanResult] = {}
 
     def _calculate_file_hash(self, file_path: Path) -> str:
         """计算文件哈希值"""
@@ -153,7 +153,7 @@ class SkillScanner:
             and hasattr(obj, "get_metadata")
         )
 
-    def _validate_skill_metadata(self, metadata: SkillMetadata) -> List[str]:
+    def _validate_skill_metadata(self, metadata: SkillMetadata) -> list[str]:
         """验证技能元数据"""
         errors = []
 
@@ -182,8 +182,8 @@ class SkillScanner:
     def _check_dependencies(
         self,
         metadata: SkillMetadata,
-        available_skills: Optional[Set[str]] = None
-    ) -> List[SkillDependency]:
+        available_skills: set[str] | None = None
+    ) -> list[SkillDependency]:
         """检查技能依赖"""
         dependencies = []
         available = available_skills or set()
@@ -198,7 +198,7 @@ class SkillScanner:
 
         return dependencies
 
-    def _scan_file(self, file_path: Path) -> List[SkillScanResult]:
+    def _scan_file(self, file_path: Path) -> list[SkillScanResult]:
         """扫描单个文件"""
         results = []
         module_name = f"skills.implemented.{file_path.stem}"
@@ -295,7 +295,7 @@ class SkillScanner:
 
     def scan_directory(
         self,
-        directory: Optional[Path] = None,
+        directory: Path | None = None,
         recursive: bool = True,
         pattern: str = "*.py"
     ) -> ScanReport:
@@ -361,7 +361,7 @@ class SkillScanner:
             report.completed_at = datetime.now()
             return report
 
-    def check_for_updates(self) -> Dict[str, Dict[str, Any]]:
+    def check_for_updates(self) -> dict[str, dict[str, Any]]:
         """检查技能文件更新"""
         updates = {
             "modified": [],
@@ -407,19 +407,19 @@ class SkillScanner:
 
         return updates
 
-    def get_skill_info(self, skill_name: str) -> Optional[SkillScanResult]:
+    def get_skill_info(self, skill_name: str) -> SkillScanResult | None:
         """获取技能扫描信息"""
         return self._scanned_skills.get(skill_name)
 
-    def get_all_skills_info(self) -> Dict[str, SkillScanResult]:
+    def get_all_skills_info(self) -> dict[str, SkillScanResult]:
         """获取所有技能扫描信息"""
         return self._scanned_skills.copy()
 
     def validate_dependencies(
         self,
         skill_name: str,
-        available_skills: Set[str]
-    ) -> Dict[str, Any]:
+        available_skills: set[str]
+    ) -> dict[str, Any]:
         """验证技能依赖"""
         result = self._scanned_skills.get(skill_name)
         if result is None or result.metadata is None:
@@ -440,7 +440,7 @@ class SkillScanner:
             "dependencies": result.metadata.dependencies,
         }
 
-    def get_dependency_order(self, skill_names: List[str]) -> List[str]:
+    def get_dependency_order(self, skill_names: list[str]) -> list[str]:
         """获取依赖排序（拓扑排序）"""
         visited = set()
         order = []
@@ -484,7 +484,7 @@ class SkillScanner:
 
 
 def create_scanner(
-    skills_dir: Optional[Path] = None,
+    skills_dir: Path | None = None,
     **kwargs
 ) -> SkillScanner:
     """创建扫描器实例"""

@@ -1,7 +1,6 @@
 """
 批量修复编码问题的脚本
 """
-import os
 import re
 from pathlib import Path
 
@@ -80,33 +79,33 @@ def fix_file_encoding(file_path: Path) -> bool:
     """尝试修复单个文件的编码问题"""
     try:
         # 尝试用 UTF-8 读取
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding='utf-8') as f:
             content = f.read()
         return True  # 文件正常，无需修复
     except UnicodeDecodeError:
         # 尝试用其他编码读取
         encodings = ['gbk', 'gb2312', 'gb18030', 'latin-1', 'cp1252']
-        
+
         for encoding in encodings:
             try:
-                with open(file_path, 'r', encoding=encoding) as f:
+                with open(file_path, encoding=encoding) as f:
                     content = f.read()
-                
+
                 # 修复常见的编码问题
                 fixed_content = content
                 for pattern, replacement in ENCODING_FIXES.items():
                     fixed_content = re.sub(pattern, replacement, fixed_content)
-                
+
                 # 用 UTF-8 写回
                 with open(file_path, 'w', encoding='utf-8') as f:
                     f.write(fixed_content)
-                
+
                 print(f"已修复: {file_path} (从 {encoding} 转换)")
                 return True
-                
+
             except (UnicodeDecodeError, UnicodeEncodeError):
                 continue
-        
+
         print(f"无法修复: {file_path}")
         return False
 
@@ -114,20 +113,20 @@ def main():
     """主函数"""
     server_dir = Path(__file__).parent
     tests_dir = server_dir / "tests"
-    
+
     if not tests_dir.exists():
         print("tests 目录不存在")
         return
-    
+
     fixed_count = 0
     failed_count = 0
-    
+
     for py_file in tests_dir.glob("*.py"):
         if fix_file_encoding(py_file):
             fixed_count += 1
         else:
             failed_count += 1
-    
+
     print(f"\n修复完成: {fixed_count} 个文件")
     print(f"修复失败: {failed_count} 个文件")
 

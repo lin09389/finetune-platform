@@ -1,0 +1,22 @@
+{
+  "id": "20260322_200012_06c8d414",
+  "action": "record_stop",
+  "params": {
+    "record_id": "test_rec"
+  },
+  "timestamp": "2026-03-22T20:00:12.793459",
+  "before_state": {},
+  "after_state": {
+    "success": true,
+    "data": {
+      "record_id": "test_rec",
+      "event_count": 0,
+      "events": []
+    }
+  },
+  "rollback_operations": [],
+  "rollback_deadline": "2026-03-23T20:00:12.793459",
+  "status": "executed",
+  "is_reversible": true,
+  "error": null
+}

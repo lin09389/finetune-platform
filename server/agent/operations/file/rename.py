@@ -1,16 +1,17 @@
 import asyncio
 import re
-from pathlib import Path
-from typing import Optional, Callable, Awaitable, List
-from pydantic import BaseModel, Field
+from collections.abc import Awaitable, Callable
 from datetime import datetime
+from pathlib import Path
+
+from pydantic import BaseModel, Field
 
 
 class RenameResult(BaseModel):
     success: bool = Field(default=True)
     old_path: str = ""
     new_path: str = ""
-    error: Optional[str] = None
+    error: str | None = None
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
 
 
@@ -19,14 +20,14 @@ class BatchRenameResult(BaseModel):
     total: int = 0
     succeeded: int = 0
     failed: int = 0
-    results: List[RenameResult] = Field(default_factory=list)
-    error: Optional[str] = None
+    results: list[RenameResult] = Field(default_factory=list)
+    error: str | None = None
 
 
 class FileRenameExecutor:
     def __init__(
         self,
-        progress_callback: Optional[Callable[[str, float, str], Awaitable[None]]] = None,
+        progress_callback: Callable[[str, float, str], Awaitable[None]] | None = None,
     ):
         self.progress_callback = progress_callback
 
@@ -43,7 +44,7 @@ class FileRenameExecutor:
                 success=False,
                 old_path=source,
                 new_path="",
-                error=f"æºæä»?ç®å½ä¸å­å? {source}",
+                error=f"源文件/目录不存在: {source}",
             )
 
         new_path = source_path.parent / new_name
@@ -53,7 +54,7 @@ class FileRenameExecutor:
                 success=False,
                 old_path=source,
                 new_path=str(new_path),
-                error=f"ç®æ åç§°å·²å­å? {new_name}",
+                error=f"目标名称已存在: {new_name}",
             )
 
         try:
@@ -61,7 +62,7 @@ class FileRenameExecutor:
                 await self.progress_callback(
                     source,
                     0.0,
-                    f"å¼å§éå½å: {source_path.name} -> {new_name}",
+                    f"开始重命名: {source_path.name} -> {new_name}",
                 )
 
             if new_path.exists():
@@ -78,7 +79,7 @@ class FileRenameExecutor:
                 await self.progress_callback(
                     source,
                     1.0,
-                    f"éå½åå®æ? {new_name}",
+                    f"重命名完成: {new_name}",
                 )
 
             return RenameResult(
@@ -92,7 +93,7 @@ class FileRenameExecutor:
                 success=False,
                 old_path=source,
                 new_path=str(new_path),
-                error=f"éå½åå¤±è´? {str(e)}",
+                error=f"重命名失败: {str(e)}",
             )
 
     async def batch_rename(
@@ -108,13 +109,13 @@ class FileRenameExecutor:
         if not dir_path.exists():
             return BatchRenameResult(
                 success=False,
-                error=f"ç®å½ä¸å­å? {directory}",
+                error=f"目录不存在: {directory}",
             )
 
         if not dir_path.is_dir():
             return BatchRenameResult(
                 success=False,
-                error=f"è·¯å¾ä¸æ¯ç®å½: {directory}",
+                error=f"路径不是目录: {directory}",
             )
 
         try:
@@ -128,7 +129,7 @@ class FileRenameExecutor:
 
             items = sorted(items, key=lambda x: len(str(x)), reverse=True)
 
-            results: List[RenameResult] = []
+            results: list[RenameResult] = []
             succeeded = 0
             failed = 0
 
@@ -155,7 +156,7 @@ class FileRenameExecutor:
                             success=False,
                             old_path=str(item),
                             new_path="",
-                            error=f"æ­£åè¡¨è¾¾å¼éè¯? {str(e)}",
+                            error=f"正则表达式错误: {str(e)}",
                         )
                     )
                     failed += 1
@@ -165,7 +166,7 @@ class FileRenameExecutor:
                     await self.progress_callback(
                         directory,
                         progress,
-                        f"æ¹ééå½åè¿åº? {idx + 1}/{total}",
+                        f"批量重命名进度: {idx + 1}/{total}",
                     )
 
             return BatchRenameResult(
@@ -179,7 +180,7 @@ class FileRenameExecutor:
         except Exception as e:
             return BatchRenameResult(
                 success=False,
-                error=f"æ¹ééå½åå¤±è´? {str(e)}",
+                error=f"批量重命名失败: {str(e)}",
             )
 
     async def add_prefix(
@@ -315,7 +316,7 @@ class FileRenameExecutor:
         if not dir_path.exists() or not dir_path.is_dir():
             return BatchRenameResult(
                 success=False,
-                error=f"ç®å½ä¸å­å? {directory}",
+                error=f"目录不存在: {directory}",
             )
 
         try:
@@ -324,7 +325,7 @@ class FileRenameExecutor:
             else:
                 items = sorted([f for f in dir_path.iterdir() if f.is_file()])
 
-            results: List[RenameResult] = []
+            results: list[RenameResult] = []
             succeeded = 0
             failed = 0
 
@@ -348,7 +349,7 @@ class FileRenameExecutor:
                     await self.progress_callback(
                         directory,
                         progress,
-                        f"åºå·éå½åè¿åº? {idx + 1}/{total}",
+                        f"序号重命名进度: {idx + 1}/{total}",
                     )
 
             return BatchRenameResult(
@@ -362,5 +363,5 @@ class FileRenameExecutor:
         except Exception as e:
             return BatchRenameResult(
                 success=False,
-                error=f"åºå·éå½åå¤±è´? {str(e)}",
+                error=f"序号重命名失败: {str(e)}",
             )

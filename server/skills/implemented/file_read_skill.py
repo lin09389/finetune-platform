@@ -1,16 +1,15 @@
 """
 文件读取技能 - 读取文件内容并返回
 """
-from typing import Dict, Any, Optional
 from pathlib import Path
 
 from skills.base import SkillBase
-from skills.models import SkillMetadata, SkillParameter, SkillResult, SkillCategory
+from skills.models import SkillCategory, SkillMetadata, SkillParameter, SkillResult
 
 
 class FileReadSkill(SkillBase):
     """文件读取技能"""
-    
+
     metadata = SkillMetadata(
         name="file_read",
         display_name="文件读取",
@@ -34,37 +33,37 @@ class FileReadSkill(SkillBase):
         ],
         tags=["file", "read", "io"],
     )
-    
+
     async def execute(self, **kwargs) -> SkillResult:
         file_path = kwargs.get("file_path")
         encoding = kwargs.get("encoding", "utf-8")
-        
+
         if not file_path:
             return SkillResult(
                 success=False,
                 error="缺少 file_path 参数",
                 error_code="MISSING_PARAMETER",
             )
-        
+
         try:
             path = Path(file_path)
-            
+
             if not path.exists():
                 return SkillResult(
                     success=False,
                     error=f"文件不存在: {file_path}",
                     error_code="FILE_NOT_FOUND",
                 )
-            
+
             if not path.is_file():
                 return SkillResult(
                     success=False,
                     error=f"路径不是文件: {file_path}",
                     error_code="NOT_A_FILE",
                 )
-            
+
             content = path.read_text(encoding=encoding)
-            
+
             return SkillResult(
                 success=True,
                 data={
@@ -74,7 +73,7 @@ class FileReadSkill(SkillBase):
                 },
                 message=f"成功读取文件: {file_path}",
             )
-            
+
         except Exception as e:
             return SkillResult(
                 success=False,

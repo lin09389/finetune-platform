@@ -1,20 +1,18 @@
-# -*- coding: utf-8 -*-
 """
 RAG 知识库 - 向量存储
 使用 ChromaDB 进行向量存储和检索
 """
-from typing import List, Dict, Any, Optional
-from pathlib import Path
 import logging
 import uuid
-import json
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 class VectorStore:
     """向量存储"""
-    
+
     def __init__(self, db_path: str = "data/vectors"):
         """
         初始化向量存储
@@ -24,16 +22,16 @@ class VectorStore:
         """
         self.db_path = Path(db_path)
         self.db_path.mkdir(parents=True, exist_ok=True)
-        
+
         self._client = None
-        self._collections: Dict[str, Any] = {}
-    
+        self._collections: dict[str, Any] = {}
+
     def _get_client(self):
         """懒加载客户端"""
         if self._client is None:
             import chromadb
             from chromadb.config import Settings
-            
+
             self._client = chromadb.PersistentClient(
                 path=str(self.db_path),
                 settings=Settings(
@@ -42,9 +40,9 @@ class VectorStore:
                 )
             )
             logger.info(f"ChromaDB 已初始化：{self.db_path}")
-        
+
         return self._client
-    
+
     def get_or_create_collection(self, name: str) -> Any:
         """
         获取或创建集合
@@ -62,17 +60,17 @@ class VectorStore:
                 metadata={"hnsw:space": "cosine"}
             )
             logger.info(f"集合已加载：{name}")
-        
+
         return self._collections[name]
-    
+
     def add_documents(
         self,
         collection_name: str,
-        documents: List[str],
-        embeddings: Optional[List[List[float]]] = None,
-        metadatas: Optional[List[Dict[str, Any]]] = None,
-        ids: Optional[List[str]] = None
-    ) -> List[str]:
+        documents: list[str],
+        embeddings: list[list[float]] | None = None,
+        metadatas: list[dict[str, Any]] | None = None,
+        ids: list[str] | None = None
+    ) -> list[str]:
         """
         添加文档到集合
         
@@ -87,33 +85,33 @@ class VectorStore:
             文档 ID 列表
         """
         collection = self.get_or_create_collection(collection_name)
-        
+
         if ids is None:
             ids = [f"doc_{uuid.uuid4().hex[:12]}" for _ in range(len(documents))]
-        
+
         add_data = {
             "documents": documents,
             "ids": ids
         }
-        
+
         if embeddings:
             add_data["embeddings"] = embeddings
-        
+
         if metadatas:
             add_data["metadatas"] = metadatas
-        
+
         collection.add(**add_data)
-        
+
         logger.info(f"已添加 {len(documents)} 个文档到集合 {collection_name}")
         return ids
-    
+
     def search(
         self,
         collection_name: str,
-        query_embedding: List[float],
+        query_embedding: list[float],
         top_k: int = 5,
-        filter_metadata: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
+        filter_metadata: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """
         搜索相似文档
         
@@ -127,25 +125,25 @@ class VectorStore:
             搜索结果列表
         """
         collection = self.get_or_create_collection(collection_name)
-        
+
         query_params = {
             "query_embeddings": [query_embedding],
             "n_results": top_k,
             "include": ["documents", "metadatas", "distances"]
         }
-        
+
         if filter_metadata:
             query_params["where"] = filter_metadata
-        
+
         results = collection.query(**query_params)
-        
+
         if not results or not results['documents']:
             return []
-        
+
         docs = results['documents'][0]
         metadatas = results['metadatas'][0] if results['metadatas'] else [{}] * len(docs)
         distances = results['distances'][0] if results['distances'] else [0.0] * len(docs)
-        
+
         search_results = []
         for i, doc in enumerate(docs):
             search_results.append({
@@ -154,17 +152,17 @@ class VectorStore:
                 "distance": float(distances[i]),
                 "score": 1.0 - float(distances[i])
             })
-        
+
         return search_results
-    
+
     def search_by_text(
         self,
         collection_name: str,
         query_text: str,
         embedder: Any,
         top_k: int = 5,
-        filter_metadata: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
+        filter_metadata: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """
         通过文本搜索相似文档
         
@@ -179,9 +177,9 @@ class VectorStore:
             搜索结果列表
         """
         query_embedding = embedder.embed_single(query_text)
-        
+
         return self.search(collection_name, query_embedding, top_k, filter_metadata)
-    
+
     def delete_collection(self, collection_name: str):
         """
         删除集合
@@ -191,13 +189,13 @@ class VectorStore:
         """
         client = self._get_client()
         client.delete_collection(name=collection_name)
-        
+
         if collection_name in self._collections:
             del self._collections[collection_name]
-        
+
         logger.info(f"集合已删除：{collection_name}")
-    
-    def delete_documents(self, collection_name: str, ids: List[str]):
+
+    def delete_documents(self, collection_name: str, ids: list[str]):
         """
         删除文档
         
@@ -208,8 +206,8 @@ class VectorStore:
         collection = self.get_or_create_collection(collection_name)
         collection.delete(ids=ids)
         logger.info(f"已删除 {len(ids)} 个文档")
-    
-    def get_collection_stats(self, collection_name: str) -> Dict[str, Any]:
+
+    def get_collection_stats(self, collection_name: str) -> dict[str, Any]:
         """
         获取集合统计信息
         
@@ -220,14 +218,14 @@ class VectorStore:
             统计信息
         """
         collection = self.get_or_create_collection(collection_name)
-        
+
         return {
             "name": collection_name,
             "count": collection.count(),
             "path": str(self.db_path)
         }
-    
-    def list_collections(self) -> List[str]:
+
+    def list_collections(self) -> list[str]:
         """
         列出所有集合
         
@@ -237,12 +235,12 @@ class VectorStore:
         client = self._get_client()
         collections = client.list_collections()
         return [c.name for c in collections]
-    
+
     def get_documents_by_ids(
         self,
         collection_name: str,
-        ids: List[str]
-    ) -> List[Dict[str, Any]]:
+        ids: list[str]
+    ) -> list[dict[str, Any]]:
         """
         根据 ID 获取文档
         
@@ -254,12 +252,12 @@ class VectorStore:
             文档列表
         """
         collection = self.get_or_create_collection(collection_name)
-        
+
         results = collection.get(
             ids=ids,
             include=["documents", "metadatas"]
         )
-        
+
         docs = []
         for i, doc in enumerate(results['documents']):
             docs.append({
@@ -267,28 +265,28 @@ class VectorStore:
                 "content": doc,
                 "metadata": results['metadatas'][i] if results['metadatas'] else {}
             })
-        
+
         return docs
-    
-    def list_documents(self, collection_name: str) -> List[str]:
+
+    def list_documents(self, collection_name: str) -> list[str]:
         """列出集合中的所有文档 ID"""
         collection = self.get_or_create_collection(collection_name)
         results = collection.get(include=["metadatas"])
-        
+
         doc_ids = set()
         if results['metadatas']:
             for meta in results['metadatas']:
                 doc_id = meta.get('doc_id')
                 if doc_id:
                     doc_ids.add(doc_id)
-        
+
         return list(doc_ids)
 
 
-_store_instance: Optional[VectorStore] = None
+_store_instance: VectorStore | None = None
 
 
-def get_vector_store(db_path: Optional[str] = None) -> VectorStore:
+def get_vector_store(db_path: str | None = None) -> VectorStore:
     """获取向量存储实例"""
     global _store_instance
     if _store_instance is None:

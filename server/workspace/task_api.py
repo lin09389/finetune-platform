@@ -2,24 +2,23 @@
 任务追踪 API 端点
 提供任务的 CRUD、分配、通知和进度追踪接口
 """
-from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
-from fastapi.responses import StreamingResponse
-from typing import List, Optional
-import json
 import asyncio
 
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
+
+from core.logging import get_logger
 from workspace.models import (
     Task,
     TaskCreate,
-    TaskUpdate,
-    TaskStatus,
-    TaskPriority,
     TaskNotification,
+    TaskPriority,
     TaskProgress,
     TaskStatistics,
+    TaskStatus,
+    TaskUpdate,
 )
 from workspace.task_manager import get_task_manager
-from core.logging import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -28,7 +27,7 @@ router = APIRouter()
 @router.post("/", response_model=Task, summary="创建任务")
 async def create_task(
     data: TaskCreate,
-    created_by: Optional[str] = Query(None, description="创建者"),
+    created_by: str | None = Query(None, description="创建者"),
 ):
     """
     创建新任务
@@ -52,15 +51,15 @@ async def create_task(
         raise HTTPException(status_code=500, detail=f"创建任务失败：{str(e)}")
 
 
-@router.get("/", response_model=List[Task], summary="获取任务列表")
+@router.get("/", response_model=list[Task], summary="获取任务列表")
 async def list_tasks(
-    project_id: Optional[str] = Query(None, description="项目ID筛选"),
-    status: Optional[TaskStatus] = Query(None, description="状态筛选"),
-    priority: Optional[TaskPriority] = Query(None, description="优先级筛选"),
-    assignee: Optional[str] = Query(None, description="负责人筛选"),
-    tags: Optional[str] = Query(None, description="标签筛选（逗号分隔）"),
-    search: Optional[str] = Query(None, description="搜索关键词"),
-    overdue: Optional[bool] = Query(None, description="是否逾期"),
+    project_id: str | None = Query(None, description="项目ID筛选"),
+    status: TaskStatus | None = Query(None, description="状态筛选"),
+    priority: TaskPriority | None = Query(None, description="优先级筛选"),
+    assignee: str | None = Query(None, description="负责人筛选"),
+    tags: str | None = Query(None, description="标签筛选（逗号分隔）"),
+    search: str | None = Query(None, description="搜索关键词"),
+    overdue: bool | None = Query(None, description="是否逾期"),
 ):
     """
     获取任务列表
@@ -73,9 +72,9 @@ async def list_tasks(
     """
     try:
         manager = get_task_manager()
-        
+
         tag_list = tags.split(",") if tags else None
-        
+
         tasks = manager.list_tasks(
             project_id=project_id,
             status=status,
@@ -85,7 +84,7 @@ async def list_tasks(
             search=search,
             overdue=overdue,
         )
-        
+
         return tasks
     except Exception as e:
         logger.error(f"获取任务列表失败：{e}")
@@ -94,7 +93,7 @@ async def list_tasks(
 
 @router.get("/statistics", response_model=TaskStatistics, summary="获取任务统计")
 async def get_task_statistics(
-    project_id: Optional[str] = Query(None, description="项目ID筛选"),
+    project_id: str | None = Query(None, description="项目ID筛选"),
 ):
     """
     获取任务统计信息
@@ -123,10 +122,10 @@ async def get_task(task_id: str):
     try:
         manager = get_task_manager()
         task = manager.get_task(task_id)
-        
+
         if not task:
             raise HTTPException(status_code=404, detail=f"任务不存在：{task_id}")
-        
+
         return task
     except HTTPException:
         raise
@@ -153,10 +152,10 @@ async def update_task(
     try:
         manager = get_task_manager()
         task = manager.update_task(task_id, data)
-        
+
         if not task:
             raise HTTPException(status_code=404, detail=f"任务不存在：{task_id}")
-        
+
         logger.info(f"任务已更新：{task_id}")
         return task
     except HTTPException:
@@ -180,10 +179,10 @@ async def delete_task(
     try:
         manager = get_task_manager()
         success = manager.delete_task(task_id, hard=hard)
-        
+
         if not success:
             raise HTTPException(status_code=404, detail=f"任务不存在：{task_id}")
-        
+
         logger.info(f"任务已删除：{task_id}, 硬删除：{hard}")
         return {"message": "任务已删除", "task_id": task_id, "hard_delete": hard}
     except HTTPException:
@@ -206,10 +205,10 @@ async def assign_task(
     try:
         manager = get_task_manager()
         task = manager.assign_task(task_id, assignee)
-        
+
         if not task:
             raise HTTPException(status_code=404, detail=f"任务不存在：{task_id}")
-        
+
         logger.info(f"任务已分配：{task_id} -> {assignee}")
         return task
     except HTTPException:
@@ -223,7 +222,7 @@ async def assign_task(
 async def update_task_progress(
     task_id: str,
     progress: int = Query(..., ge=0, le=100, description="进度百分比"),
-    message: Optional[str] = Query(None, description="进度消息"),
+    message: str | None = Query(None, description="进度消息"),
 ):
     """
     更新任务进度
@@ -236,10 +235,10 @@ async def update_task_progress(
     try:
         manager = get_task_manager()
         task_progress = manager.update_progress(task_id, progress, message)
-        
+
         if not task_progress:
             raise HTTPException(status_code=404, detail=f"任务不存在：{task_id}")
-        
+
         logger.info(f"任务进度已更新：{task_id}, 进度：{progress}%")
         return task_progress
     except HTTPException:
@@ -263,10 +262,10 @@ async def update_subtask(
     try:
         manager = get_task_manager()
         task = manager.update_subtask(task_id, subtask_id, completed)
-        
+
         if not task:
             raise HTTPException(status_code=404, detail=f"任务不存在：{task_id}")
-        
+
         logger.info(f"子任务已更新：{subtask_id}, 任务：{task_id}")
         return task
     except HTTPException:
@@ -286,10 +285,10 @@ async def start_task(task_id: str):
     try:
         manager = get_task_manager()
         task = manager.update_task(task_id, TaskUpdate(status=TaskStatus.IN_PROGRESS))
-        
+
         if not task:
             raise HTTPException(status_code=404, detail=f"任务不存在：{task_id}")
-        
+
         logger.info(f"任务已开始：{task_id}")
         return task
     except HTTPException:
@@ -309,10 +308,10 @@ async def complete_task(task_id: str):
     try:
         manager = get_task_manager()
         task = manager.update_task(task_id, TaskUpdate(status=TaskStatus.COMPLETED))
-        
+
         if not task:
             raise HTTPException(status_code=404, detail=f"任务不存在：{task_id}")
-        
+
         logger.info(f"任务已完成：{task_id}")
         return task
     except HTTPException:
@@ -332,10 +331,10 @@ async def cancel_task(task_id: str):
     try:
         manager = get_task_manager()
         task = manager.update_task(task_id, TaskUpdate(status=TaskStatus.CANCELLED))
-        
+
         if not task:
             raise HTTPException(status_code=404, detail=f"任务不存在：{task_id}")
-        
+
         logger.info(f"任务已取消：{task_id}")
         return task
     except HTTPException:
@@ -345,9 +344,9 @@ async def cancel_task(task_id: str):
         raise HTTPException(status_code=500, detail=f"取消任务失败：{str(e)}")
 
 
-@router.get("/notifications/", response_model=List[TaskNotification], summary="获取通知列表")
+@router.get("/notifications/", response_model=list[TaskNotification], summary="获取通知列表")
 async def get_notifications(
-    recipient: Optional[str] = Query(None, description="接收者筛选"),
+    recipient: str | None = Query(None, description="接收者筛选"),
     unread_only: bool = Query(False, description="仅未读通知"),
     limit: int = Query(50, ge=1, le=200, description="返回数量限制"),
 ):
@@ -375,10 +374,10 @@ async def mark_notification_read(notification_id: str):
     try:
         manager = get_task_manager()
         success = manager.mark_notification_read(notification_id)
-        
+
         if not success:
             raise HTTPException(status_code=404, detail=f"通知不存在：{notification_id}")
-        
+
         return {"message": "通知已标记为已读", "notification_id": notification_id}
     except HTTPException:
         raise
@@ -389,7 +388,7 @@ async def mark_notification_read(notification_id: str):
 
 @router.post("/notifications/read-all", summary="标记所有通知为已读")
 async def mark_all_notifications_read(
-    recipient: Optional[str] = Query(None, description="接收者"),
+    recipient: str | None = Query(None, description="接收者"),
 ):
     """
     标记所有通知为已读
@@ -399,7 +398,7 @@ async def mark_all_notifications_read(
     try:
         manager = get_task_manager()
         count = manager.mark_all_notifications_read(recipient)
-        
+
         return {
             "message": f"已标记 {count} 条通知为已读",
             "count": count,
@@ -412,7 +411,7 @@ async def mark_all_notifications_read(
 
 @router.get("/notifications/stream", summary="实时通知流")
 async def notification_stream(
-    recipient: Optional[str] = Query(None, description="接收者"),
+    recipient: str | None = Query(None, description="接收者"),
 ):
     """
     实时通知流（Server-Sent Events）
@@ -422,12 +421,12 @@ async def notification_stream(
     async def event_generator():
         manager = get_task_manager()
         notification_queue = asyncio.Queue()
-        
+
         def on_notification(notification):
             asyncio.create_task(notification_queue.put(notification))
-        
+
         manager.subscribe_notifications(recipient or 'all', on_notification)
-        
+
         try:
             while True:
                 notification = await asyncio.wait_for(
@@ -436,13 +435,13 @@ async def notification_stream(
                 )
                 yield f"data: {notification.model_dump_json()}\n\n"
         except asyncio.TimeoutError:
-            yield f": heartbeat\n\n"
+            yield ": heartbeat\n\n"
         except Exception as e:
             logger.error(f"通知流错误：{e}")
             yield f"data: {{\"error\": \"{str(e)}\"}}\n\n"
         finally:
             manager.unsubscribe_notifications(recipient or 'all', on_notification)
-    
+
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",

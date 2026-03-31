@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 技能生命周期管理
 
@@ -10,22 +9,21 @@
 - 文件变更监控
 - 状态监控与事件通知
 """
-import asyncio
-import importlib
 import sys
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Type
+from typing import Any
 
 from .base import SkillBase
-from .enhanced_registry import EnhancedSkillRegistry, SkillRegistrationStatus
+from .enhanced_registry import EnhancedSkillRegistry
 from .models import SkillMetadata
-from .scanner import SkillLoadStatus, SkillScanner, SkillScanResult, ScanStatus
+from .scanner import ScanStatus, SkillLoadStatus, SkillScanner, SkillScanResult
 
 
 class LifecycleEventType(str, Enum):
@@ -48,8 +46,8 @@ class LifecycleEvent:
     skill_name: str
     timestamp: datetime = field(default_factory=datetime.now)
     success: bool = True
-    error: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -58,8 +56,8 @@ class LoadResult:
     skill_name: str
     success: bool
     status: SkillLoadStatus
-    error: Optional[str] = None
-    metadata: Optional[SkillMetadata] = None
+    error: str | None = None
+    metadata: SkillMetadata | None = None
     load_time_ms: int = 0
 
 
@@ -68,9 +66,9 @@ class UnloadResult:
     """卸载结果"""
     skill_name: str
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
     cleanup_time_ms: int = 0
-    resources_freed: Dict[str, Any] = field(default_factory=dict)
+    resources_freed: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -78,9 +76,9 @@ class ReloadResult:
     """重载结果"""
     skill_name: str
     success: bool
-    old_version: Optional[str] = None
-    new_version: Optional[str] = None
-    error: Optional[str] = None
+    old_version: str | None = None
+    new_version: str | None = None
+    error: str | None = None
     reload_time_ms: int = 0
 
 
@@ -89,9 +87,9 @@ class SkillLifecycleManager:
 
     def __init__(
         self,
-        skills_dir: Optional[Path] = None,
-        registry: Optional[EnhancedSkillRegistry] = None,
-        scanner: Optional[SkillScanner] = None,
+        skills_dir: Path | None = None,
+        registry: EnhancedSkillRegistry | None = None,
+        scanner: SkillScanner | None = None,
         auto_reload: bool = False,
         reload_interval: int = 5,
     ):
@@ -101,15 +99,15 @@ class SkillLifecycleManager:
         self.auto_reload = auto_reload
         self.reload_interval = reload_interval
 
-        self._event_handlers: Dict[LifecycleEventType, List[Callable[[LifecycleEvent], None]]] = {
+        self._event_handlers: dict[LifecycleEventType, list[Callable[[LifecycleEvent], None]]] = {
             event_type: [] for event_type in LifecycleEventType
         }
-        self._load_history: Dict[str, List[LoadResult]] = {}
-        self._watch_thread: Optional[threading.Thread] = None
+        self._load_history: dict[str, list[LoadResult]] = {}
+        self._watch_thread: threading.Thread | None = None
         self._watch_running: bool = False
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="skill-lifecycle")
-        self._loaded_modules: Dict[str, str] = {}
-        self._skill_states: Dict[str, SkillLoadStatus] = {}
+        self._loaded_modules: dict[str, str] = {}
+        self._skill_states: dict[str, SkillLoadStatus] = {}
 
     def on(self, event_type: LifecycleEventType, handler: Callable[[LifecycleEvent], None]):
         """注册事件处理器"""
@@ -126,14 +124,14 @@ class SkillLifecycleManager:
         for handler in handlers:
             try:
                 handler(event)
-            except Exception as e:
+            except Exception:
                 pass
 
     def load_skill(
         self,
-        skill_class: Type[SkillBase],
-        file_path: Optional[Path] = None,
-        file_hash: Optional[str] = None,
+        skill_class: type[SkillBase],
+        file_path: Path | None = None,
+        file_hash: str | None = None,
     ) -> LoadResult:
         """加载单个技能"""
         start_time = time.time()
@@ -233,12 +231,12 @@ class SkillLifecycleManager:
             file_hash=scan_result.file_hash,
         )
 
-    def load_from_file(self, file_path: Path) -> List[LoadResult]:
+    def load_from_file(self, file_path: Path) -> list[LoadResult]:
         """从文件加载技能"""
         results = self.scanner._scan_file(file_path)
         return [self.load_from_scan_result(r) for r in results]
 
-    def load_all(self, directory: Optional[Path] = None) -> Dict[str, LoadResult]:
+    def load_all(self, directory: Path | None = None) -> dict[str, LoadResult]:
         """加载目录下所有技能"""
         target_dir = directory or self.skills_dir
         results = {}
@@ -326,7 +324,7 @@ class SkillLifecycleManager:
                 cleanup_time_ms=int((time.time() - start_time) * 1000),
             )
 
-    def unload_all(self, force: bool = False) -> Dict[str, UnloadResult]:
+    def unload_all(self, force: bool = False) -> dict[str, UnloadResult]:
         """卸载所有技能"""
         results = {}
 
@@ -440,7 +438,7 @@ class SkillLifecycleManager:
                 reload_time_ms=int((time.time() - start_time) * 1000),
             )
 
-    def reload_all(self) -> Dict[str, ReloadResult]:
+    def reload_all(self) -> dict[str, ReloadResult]:
         """重载所有技能"""
         results = {}
 
@@ -479,11 +477,11 @@ class SkillLifecycleManager:
         """获取技能状态"""
         return self._skill_states.get(skill_name, SkillLoadStatus.UNLOADED)
 
-    def get_all_states(self) -> Dict[str, SkillLoadStatus]:
+    def get_all_states(self) -> dict[str, SkillLoadStatus]:
         """获取所有技能状态"""
         return self._skill_states.copy()
 
-    def check_dependencies(self, skill_name: str) -> Dict[str, Any]:
+    def check_dependencies(self, skill_name: str) -> dict[str, Any]:
         """检查技能依赖"""
         return self.registry.check_dependencies(skill_name)
 
@@ -533,11 +531,11 @@ class SkillLifecycleManager:
 
             time.sleep(self.reload_interval)
 
-    def get_load_history(self, skill_name: str) -> List[LoadResult]:
+    def get_load_history(self, skill_name: str) -> list[LoadResult]:
         """获取加载历史"""
         return self._load_history.get(skill_name, [])
 
-    def get_status_report(self) -> Dict[str, Any]:
+    def get_status_report(self) -> dict[str, Any]:
         """获取状态报告"""
         registry_stats = self.registry.get_stats()
 
@@ -562,7 +560,7 @@ class SkillLifecycleManager:
 
 
 def create_lifecycle_manager(
-    skills_dir: Optional[Path] = None,
+    skills_dir: Path | None = None,
     auto_reload: bool = False,
     **kwargs
 ) -> SkillLifecycleManager:
@@ -574,7 +572,7 @@ def create_lifecycle_manager(
     )
 
 
-_lifecycle_manager: Optional[SkillLifecycleManager] = None
+_lifecycle_manager: SkillLifecycleManager | None = None
 
 
 def get_lifecycle_manager() -> SkillLifecycleManager:

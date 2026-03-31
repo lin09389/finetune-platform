@@ -1,20 +1,18 @@
 """
 用户反馈 API 路由
 """
+import logging
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, List
-import logging
 
 from agent.feedback_manager import (
-    FeedbackManager,
-    FeedbackType,
     FeedbackCategory,
-    UserFeedback,
-    FeedbackStats,
+    FeedbackType,
     get_feedback_manager,
-    submit_user_feedback,
     get_feedback_stats,
+    submit_user_feedback,
 )
 
 logger = logging.getLogger(__name__)
@@ -30,14 +28,14 @@ class FeedbackSubmitRequest(BaseModel):
     comment: str = Field("", description="评论内容")
     action: str = Field("", description="相关操作")
     intent_detected: str = Field("", description="检测到的意图")
-    intent_correct: Optional[bool] = Field(None, description="意图是否正确")
-    execution_success: Optional[bool] = Field(None, description="执行是否成功")
+    intent_correct: bool | None = Field(None, description="意图是否正确")
+    execution_success: bool | None = Field(None, description="执行是否成功")
     error_message: str = Field("", description="错误信息")
     suggested_intent: str = Field("", description="建议的正确意图")
     suggested_improvement: str = Field("", description="改进建议")
     session_id: str = Field("", description="会话ID")
     user_id: str = Field("", description="用户ID")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="元数据")
 
 
 class FeedbackResponse(BaseModel):
@@ -56,8 +54,8 @@ class FeedbackStatsResponse(BaseModel):
     avg_rating: float
     intent_accuracy: float
     execution_success_rate: float
-    category_breakdown: Dict[str, int]
-    common_issues: List[str]
+    category_breakdown: dict[str, int]
+    common_issues: list[str]
 
 
 class IntentCorrection(BaseModel):
@@ -92,12 +90,12 @@ async def submit_feedback(request: FeedbackSubmitRequest):
         feedback_type = FeedbackType(request.feedback_type)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"无效的反馈类型: {request.feedback_type}")
-    
+
     try:
         category = FeedbackCategory(request.category)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"无效的反馈类别: {request.category}")
-    
+
     feedback = submit_user_feedback(
         feedback_type=feedback_type,
         category=category,
@@ -114,7 +112,7 @@ async def submit_feedback(request: FeedbackSubmitRequest):
         user_id=request.user_id,
         metadata=request.metadata,
     )
-    
+
     return FeedbackResponse(
         success=True,
         feedback_id=feedback.feedback_id,
@@ -130,7 +128,7 @@ async def get_stats(days: int = 7):
     返回最近几天的反馈统计数据
     """
     stats = get_feedback_stats(days)
-    
+
     return FeedbackStatsResponse(
         total_feedback=stats.total_feedback,
         positive_count=stats.positive_count,
@@ -144,7 +142,7 @@ async def get_stats(days: int = 7):
     )
 
 
-@router.get("/corrections", response_model=List[IntentCorrection])
+@router.get("/corrections", response_model=list[IntentCorrection])
 async def get_intent_corrections():
     """
     获取意图纠正数据
@@ -153,11 +151,11 @@ async def get_intent_corrections():
     """
     manager = get_feedback_manager()
     corrections = manager.get_intent_corrections()
-    
+
     return [IntentCorrection(**c) for c in corrections]
 
 
-@router.get("/suggestions", response_model=List[ImprovementSuggestion])
+@router.get("/suggestions", response_model=list[ImprovementSuggestion])
 async def get_improvement_suggestions():
     """
     获取改进建议
@@ -166,7 +164,7 @@ async def get_improvement_suggestions():
     """
     manager = get_feedback_manager()
     suggestions = manager.get_improvement_suggestions()
-    
+
     return [ImprovementSuggestion(**s) for s in suggestions]
 
 
@@ -179,7 +177,7 @@ async def get_recent_feedbacks(limit: int = 50):
     """
     manager = get_feedback_manager()
     feedbacks = manager.get_recent_feedbacks(limit)
-    
+
     return {
         "count": len(feedbacks),
         "feedbacks": [f.to_dict() for f in feedbacks],
@@ -193,8 +191,8 @@ async def get_feedback(feedback_id: str):
     """
     manager = get_feedback_manager()
     feedback = manager.get_feedback(feedback_id)
-    
+
     if not feedback:
         raise HTTPException(status_code=404, detail="反馈不存在")
-    
+
     return feedback.to_dict()

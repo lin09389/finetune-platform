@@ -1,11 +1,11 @@
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel
 
-from ..types import ParseResult, IntentType
+from ..types import IntentType, ParseResult
 
 
 class SeparatorType(str, Enum):
@@ -21,15 +21,15 @@ class IntentSegment:
     text: str
     start: int
     end: int
-    separator: Optional[SeparatorType] = None
+    separator: SeparatorType | None = None
     confidence: float = 0.0
 
 
 class MultiIntentResult(BaseModel):
     has_multiple: bool = False
-    intents: List[ParseResult] = []
-    segments: List[str] = []
-    separators_used: List[str] = []
+    intents: list[ParseResult] = []
+    segments: list[str] = []
+    separators_used: list[str] = []
     confidence: float = 0.0
 
 
@@ -46,7 +46,7 @@ class MultiIntentParser:
         (r'\s+并且\s+', SeparatorType.CONJUNCTION),
         (r'\n+', SeparatorType.NEWLINE),
     ]
-    
+
     CONTEXT_INDICATORS = [
         r'先\s*',
         r'首先\s*',
@@ -56,7 +56,7 @@ class MultiIntentParser:
         r'再\s*',
         r'之后\s*',
     ]
-    
+
     def __init__(self):
         self._compiled_separators = [
             (re.compile(p, re.IGNORECASE), t) for p, t in self.SEPARATORS
@@ -64,43 +64,43 @@ class MultiIntentParser:
         self._compiled_context = [
             re.compile(p, re.IGNORECASE) for p in self.CONTEXT_INDICATORS
         ]
-    
+
     def detect_multi_intent(self, message: str) -> MultiIntentResult:
         if not message or not message.strip():
             return MultiIntentResult()
-        
+
         segments = self._split_message(message)
-        
+
         if len(segments) <= 1:
             return MultiIntentResult(
                 has_multiple=False,
                 segments=[message.strip()]
             )
-        
+
         cleaned_segments = []
         separators_used = []
-        
+
         for seg in segments:
             cleaned = self._clean_segment(seg)
             if cleaned:
                 cleaned_segments.append(cleaned)
-        
+
         separators = self._extract_separators(message)
-        
+
         return MultiIntentResult(
             has_multiple=len(cleaned_segments) > 1,
             segments=cleaned_segments,
             separators_used=separators,
             confidence=self._calculate_split_confidence(cleaned_segments)
         )
-    
+
     def split_and_parse(
         self,
         message: str,
         parser_func
     ) -> MultiIntentResult:
         split_result = self.detect_multi_intent(message)
-        
+
         if not split_result.has_multiple:
             single_result = parser_func(message)
             return MultiIntentResult(
@@ -108,7 +108,7 @@ class MultiIntentParser:
                 intents=[single_result],
                 segments=[message.strip()]
             )
-        
+
         intents = []
         for segment in split_result.segments:
             try:
@@ -121,7 +121,7 @@ class MultiIntentParser:
                     raw_message=segment,
                     confidence=0.0
                 ))
-        
+
         return MultiIntentResult(
             has_multiple=True,
             intents=intents,
@@ -129,10 +129,10 @@ class MultiIntentParser:
             separators_used=split_result.separators_used,
             confidence=split_result.confidence
         )
-    
+
     def merge_results(
         self,
-        results: List[ParseResult],
+        results: list[ParseResult],
         original_message: str
     ) -> ParseResult:
         if not results:
@@ -141,16 +141,16 @@ class MultiIntentParser:
                 action="",
                 raw_message=original_message
             )
-        
+
         if len(results) == 1:
             return results[0]
-        
+
         best_result = max(results, key=lambda r: r.confidence)
-        
+
         all_params = {}
         for result in results:
             all_params.update(result.params)
-        
+
         return ParseResult(
             intent=best_result.intent,
             action="multi_action",
@@ -160,58 +160,58 @@ class MultiIntentParser:
             alternatives=results,
             metadata={"multi_intent": True, "intent_count": len(results)}
         )
-    
-    def _split_message(self, message: str) -> List[str]:
+
+    def _split_message(self, message: str) -> list[str]:
         segments = [message]
-        
+
         for pattern, _ in self._compiled_separators:
             new_segments = []
             for seg in segments:
                 parts = pattern.split(seg)
                 new_segments.extend([p.strip() for p in parts if p and p.strip()])
             segments = new_segments
-        
+
         return segments
-    
+
     def _clean_segment(self, segment: str) -> str:
         for pattern in self._compiled_context:
             segment = pattern.sub('', segment)
-        
+
         return segment.strip()
-    
-    def _extract_separators(self, message: str) -> List[str]:
+
+    def _extract_separators(self, message: str) -> list[str]:
         separators = []
-        
+
         for pattern, sep_type in self._compiled_separators:
             matches = pattern.findall(message)
             for match in matches:
                 separators.append(sep_type.value)
-        
+
         return separators
-    
-    def _calculate_split_confidence(self, segments: List[str]) -> float:
+
+    def _calculate_split_confidence(self, segments: list[str]) -> float:
         if len(segments) <= 1:
             return 0.0
-        
+
         valid_segments = sum(1 for s in segments if len(s) >= 2)
         ratio = valid_segments / len(segments)
-        
+
         length_variance = sum(len(s) for s in segments) / len(segments)
         balance_score = min(1.0, length_variance / 10)
-        
+
         return min(1.0, ratio * 0.6 + balance_score * 0.4)
-    
-    def detect_sequence(self, message: str) -> List[IntentSegment]:
+
+    def detect_sequence(self, message: str) -> list[IntentSegment]:
         segments = []
         current_pos = 0
-        
+
         split_positions = []
         for pattern, sep_type in self._compiled_separators:
             for match in pattern.finditer(message):
                 split_positions.append((match.start(), match.end(), sep_type))
-        
+
         split_positions.sort(key=lambda x: x[0])
-        
+
         prev_end = 0
         for start, end, sep_type in split_positions:
             if start > prev_end:
@@ -224,7 +224,7 @@ class MultiIntentParser:
                         confidence=0.8
                     ))
             prev_end = end
-        
+
         if prev_end < len(message):
             segment_text = message[prev_end:].strip()
             if segment_text:
@@ -234,9 +234,9 @@ class MultiIntentParser:
                     end=len(message),
                     confidence=0.8
                 ))
-        
+
         return segments
-    
+
     def is_sequential_intent(self, message: str) -> bool:
         sequence_indicators = [
             r'先\s*.+[，,]?\s*然后',
@@ -244,16 +244,16 @@ class MultiIntentParser:
             r'第一步\s*.+[，,]?\s*第二步',
             r'先\s*.+[，,]?\s*再',
         ]
-        
+
         for pattern in sequence_indicators:
             if re.search(pattern, message):
                 return True
-        
+
         return False
-    
-    def extract_order_hints(self, message: str) -> List[Dict[str, Any]]:
+
+    def extract_order_hints(self, message: str) -> list[dict[str, Any]]:
         hints = []
-        
+
         order_patterns = [
             (r'第([一二三四五六七八九十]+)步[:：]?\s*', 'step'),
             (r'([一二三四五六七八九十]+)[、.]\s*', 'numbered'),
@@ -264,7 +264,7 @@ class MultiIntentParser:
             (r'最后\s*', 'last'),
             (r'再\s*', 'then'),
         ]
-        
+
         for pattern, hint_type in order_patterns:
             for match in re.finditer(pattern, message):
                 hints.append({
@@ -273,5 +273,5 @@ class MultiIntentParser:
                     'text': match.group(0),
                     'value': match.group(1) if match.groups() else None
                 })
-        
+
         return sorted(hints, key=lambda x: x['position'])

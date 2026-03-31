@@ -1,18 +1,20 @@
 import asyncio
 import json
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Set
-from pydantic import BaseModel, Field
+from typing import Any
+
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from ..types import ProgressInfo
 
 
 class SSEEvent(BaseModel):
     event: str = "message"
-    data: Dict[str, Any]
-    id: Optional[str] = None
-    retry: Optional[int] = None
+    data: dict[str, Any]
+    id: str | None = None
+    retry: int | None = None
 
 
 class SSEConnection:
@@ -26,7 +28,7 @@ class SSEConnection:
     async def send(self, event: SSEEvent) -> bool:
         if not self.is_active:
             return False
-        
+
         try:
             self.queue.put_nowait(event)
             self.last_activity = datetime.now()
@@ -40,8 +42,8 @@ class SSEConnection:
 
 class SSEPusher:
     def __init__(self, heartbeat_interval: int = 30):
-        self._connections: Dict[str, SSEConnection] = {}
-        self._task_subscribers: Dict[str, Set[str]] = {}
+        self._connections: dict[str, SSEConnection] = {}
+        self._task_subscribers: dict[str, set[str]] = {}
         self._lock = asyncio.Lock()
         self._heartbeat_interval = heartbeat_interval
         self._max_connections = 100
@@ -50,25 +52,25 @@ class SSEPusher:
     async def create_connection(
         self,
         connection_id: str,
-        task_ids: Optional[List[str]] = None
+        task_ids: list[str] | None = None
     ) -> asyncio.Queue:
         async with self._lock:
             if len(self._connections) >= self._max_connections:
                 await self._cleanup_stale_connections()
-                
+
                 if len(self._connections) >= self._max_connections:
                     raise RuntimeError("Maximum connections reached")
-            
+
             queue = asyncio.Queue(maxsize=self._max_queue_size)
             connection = SSEConnection(connection_id, queue)
             self._connections[connection_id] = connection
-            
+
             if task_ids:
                 for task_id in task_ids:
                     if task_id not in self._task_subscribers:
                         self._task_subscribers[task_id] = set()
                     self._task_subscribers[task_id].add(connection_id)
-            
+
             return queue
 
     async def close_connection(self, connection_id: str):
@@ -76,7 +78,7 @@ class SSEPusher:
             if connection_id in self._connections:
                 self._connections[connection_id].close()
                 del self._connections[connection_id]
-            
+
             for task_id in list(self._task_subscribers.keys()):
                 self._task_subscribers[task_id].discard(connection_id)
                 if not self._task_subscribers[task_id]:
@@ -153,7 +155,7 @@ class SSEPusher:
         self,
         task_id: str,
         event_type: str,
-        data: Dict[str, Any]
+        data: dict[str, Any]
     ):
         event = SSEEvent(
             event=event_type,
@@ -178,32 +180,32 @@ class SSEPusher:
     async def _broadcast_to_task(self, task_id: str, event: SSEEvent):
         async with self._lock:
             connection_ids = self._task_subscribers.get(task_id, set()).copy()
-        
+
         disconnected = []
         for conn_id in connection_ids:
             async with self._lock:
                 connection = self._connections.get(conn_id)
-            
+
             if connection and connection.is_active:
                 success = await connection.send(event)
                 if not success:
                     disconnected.append(conn_id)
             else:
                 disconnected.append(conn_id)
-        
+
         for conn_id in disconnected:
             await self.close_connection(conn_id)
 
     async def _cleanup_stale_connections(self):
         now = datetime.now()
         stale_connections = []
-        
+
         async with self._lock:
             for conn_id, connection in self._connections.items():
                 inactive_seconds = (now - connection.last_activity).total_seconds()
                 if inactive_seconds > 300:
                     stale_connections.append(conn_id)
-        
+
         for conn_id in stale_connections:
             await self.close_connection(conn_id)
 
@@ -211,7 +213,7 @@ class SSEPusher:
         self,
         connection_id: str,
         queue: asyncio.Queue,
-        on_disconnect: Optional[Callable] = None
+        on_disconnect: Callable | None = None
     ) -> StreamingResponse:
         async def event_generator():
             try:
@@ -238,7 +240,7 @@ class SSEPusher:
                         on_disconnect()
                 else:
                     await self.close_connection(connection_id)
-        
+
         return StreamingResponse(
             event_generator(),
             media_type="text/event-stream",
@@ -251,22 +253,22 @@ class SSEPusher:
 
     def _format_sse_event(self, event: SSEEvent) -> str:
         lines = []
-        
+
         if event.id:
             lines.append(f"id: {event.id}")
-        
+
         if event.retry:
             lines.append(f"retry: {event.retry}")
-        
+
         lines.append(f"event: {event.event}")
-        
+
         data_str = json.dumps(event.data, ensure_ascii=False)
         for line in data_str.split("\n"):
             lines.append(f"data: {line}")
-        
+
         lines.append("")
         lines.append("")
-        
+
         return "\n".join(lines)
 
     async def get_connection_count(self) -> int:
@@ -280,10 +282,10 @@ class SSEPusher:
     async def broadcast_to_all(self, event: SSEEvent):
         async with self._lock:
             connection_ids = list(self._connections.keys())
-        
+
         for conn_id in connection_ids:
             async with self._lock:
                 connection = self._connections.get(conn_id)
-            
+
             if connection and connection.is_active:
                 await connection.send(event)

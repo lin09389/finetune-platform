@@ -1,0 +1,37 @@
+{
+  "id": "abd975a6-cc18-4dca-9e4d-1dbe411c9629",
+  "title": "contract test",
+  "messages": [],
+  "message_count": 0,
+  "created_at": "2026-03-31T15:25:37.003229",
+  "updated_at": "2026-03-31T15:25:38.880726",
+  "metadata": {
+    "execution_timeline": [
+      {
+        "timestamp": "2026-03-31T15:25:37.059830",
+        "stage": "detected",
+        "payload": {
+          "message": "create hello.txt with content hi"
+        }
+      },
+      {
+        "timestamp": "2026-03-31T15:25:38.879681",
+        "stage": "planned",
+        "payload": {
+          "action": "file_create",
+          "params": {
+            "file_path": "create"
+          }
+        }
+      },
+      {
+        "timestamp": "2026-03-31T15:25:38.880726",
+        "stage": "persisted",
+        "payload": {
+          "action": "file_create",
+          "error": "File exists: C:\\Users\\JHJ\\Desktop\\finetune-platform\\server\\create"
+        }
+      }
+    ]
+  }
+}

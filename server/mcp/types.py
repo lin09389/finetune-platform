@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
 from enum import Enum
+from typing import Any
 
 
 class MCPMessageType(str, Enum):
@@ -13,13 +13,13 @@ class MCPMessageType(str, Enum):
 class MCPTool:
     name: str
     description: str
-    input_schema: Dict[str, Any]
+    input_schema: dict[str, Any]
 
 
 @dataclass
 class MCPToolCall:
     tool_name: str
-    arguments: Dict[str, Any]
+    arguments: dict[str, Any]
     call_id: str = ""
 
 
@@ -34,7 +34,7 @@ class MCPToolResult:
 class MCPServerInfo:
     name: str
     transport: str
-    command: Optional[str] = None
-    args: List[str] = field(default_factory=list)
-    url: Optional[str] = None
+    command: str | None = None
+    args: list[str] = field(default_factory=list)
+    url: str | None = None
     status: str = "disconnected"

@@ -1,0 +1,22 @@
+{
+  "id": "20260322_200134_67718072",
+  "action": "screenshot",
+  "params": {},
+  "timestamp": "2026-03-22T20:01:34.585624",
+  "before_state": {},
+  "after_state": {
+    "success": true,
+    "data": {
+      "width": 2560,
+      "height": 1600,
+      "format": "PNG",
+      "base64": "iVBORw0KGgoAAAANSUhEUgAACgAAAAZACAIAAAA6zoyXAAEAAElEQVR4nOzdB1yTB/oH8Dd5sxPIIiHMQFiyN4gbcaPWatVatXve...",
+      "has_image": true
+    }
+  },
+  "rollback_operations": [],
+  "rollback_deadline": "2026-03-23T20:01:34.585624",
+  "status": "executed",
+  "is_reversible": true,
+  "error": null
+}

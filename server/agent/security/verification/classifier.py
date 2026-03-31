@@ -1,10 +1,8 @@
 """
 敏感操作分类器
 """
-from enum import Enum
-from typing import Dict, List, Optional, Set
 from dataclasses import dataclass, field
-from pydantic import BaseModel
+from enum import Enum
 
 
 class SensitivityLevel(str, Enum):
@@ -23,15 +21,15 @@ class SensitiveOperation:
     sensitivity_level: SensitivityLevel
     description: str
     requires_verification: bool = True
-    verification_types: List[str] = field(default_factory=lambda: ["password"])
+    verification_types: list[str] = field(default_factory=lambda: ["password"])
     cooldown_seconds: int = 300
     max_attempts: int = 3
 
 
 class SensitiveOperationClassifier:
     """敏感操作分类器"""
-    
-    SENSITIVE_OPERATIONS: Dict[str, SensitiveOperation] = {
+
+    SENSITIVE_OPERATIONS: dict[str, SensitiveOperation] = {
         "file_delete": SensitiveOperation(
             operation="file_delete",
             category="file_destruction",
@@ -121,8 +119,8 @@ class SensitiveOperationClassifier:
             cooldown_seconds=300,
         ),
     }
-    
-    SENSITIVE_PATHS: Set[str] = {
+
+    SENSITIVE_PATHS: set[str] = {
         "/etc/",
         "/root/",
         "/sys/",
@@ -132,8 +130,8 @@ class SensitiveOperationClassifier:
         "~/.ssh/",
         "~/.gnupg/",
     }
-    
-    SENSITIVE_EXTENSIONS: Set[str] = {
+
+    SENSITIVE_EXTENSIONS: set[str] = {
         ".env",
         ".pem",
         ".key",
@@ -142,17 +140,17 @@ class SensitiveOperationClassifier:
         "id_rsa",
         ".git/",
     }
-    
+
     def __init__(self):
-        self._custom_operations: Dict[str, SensitiveOperation] = {}
-    
-    def classify(self, operation: str, params: Optional[Dict] = None) -> Optional[SensitiveOperation]:
+        self._custom_operations: dict[str, SensitiveOperation] = {}
+
+    def classify(self, operation: str, params: dict | None = None) -> SensitiveOperation | None:
         """分类操作"""
         all_operations = {**self.SENSITIVE_OPERATIONS, **self._custom_operations}
-        
+
         if operation in all_operations:
             return all_operations[operation]
-        
+
         if params:
             path = params.get("path", "") or params.get("file_path", "")
             if self._is_sensitive_path(path):
@@ -163,66 +161,66 @@ class SensitiveOperationClassifier:
                     description=f"访问敏感路径: {path}",
                     verification_types=["password", "two_factor"],
                 )
-        
+
         return None
-    
-    def is_sensitive(self, operation: str, params: Optional[Dict] = None) -> bool:
+
+    def is_sensitive(self, operation: str, params: dict | None = None) -> bool:
         """判断是否为敏感操作"""
         return self.classify(operation, params) is not None
-    
-    def requires_verification(self, operation: str, params: Optional[Dict] = None) -> bool:
+
+    def requires_verification(self, operation: str, params: dict | None = None) -> bool:
         """判断是否需要验证"""
         sensitive_op = self.classify(operation, params)
         return sensitive_op.requires_verification if sensitive_op else False
-    
-    def get_verification_types(self, operation: str, params: Optional[Dict] = None) -> List[str]:
+
+    def get_verification_types(self, operation: str, params: dict | None = None) -> list[str]:
         """获取所需验证类型"""
         sensitive_op = self.classify(operation, params)
         return sensitive_op.verification_types if sensitive_op else []
-    
-    def get_sensitivity_level(self, operation: str, params: Optional[Dict] = None) -> SensitivityLevel:
+
+    def get_sensitivity_level(self, operation: str, params: dict | None = None) -> SensitivityLevel:
         """获取敏感级别"""
         sensitive_op = self.classify(operation, params)
         return sensitive_op.sensitivity_level if sensitive_op else SensitivityLevel.LOW
-    
+
     def _is_sensitive_path(self, path: str) -> bool:
         """判断是否为敏感路径"""
         if not path:
             return False
-        
+
         path_lower = path.lower()
-        
+
         for sensitive_path in self.SENSITIVE_PATHS:
             if sensitive_path.lower() in path_lower:
                 return True
-        
+
         for ext in self.SENSITIVE_EXTENSIONS:
             if path_lower.endswith(ext.lower()):
                 return True
-        
+
         return False
-    
+
     def register_sensitive_operation(self, operation: SensitiveOperation) -> None:
         """注册自定义敏感操作"""
         self._custom_operations[operation.operation] = operation
-    
+
     def unregister_sensitive_operation(self, operation: str) -> bool:
         """注销敏感操作"""
         if operation in self._custom_operations:
             del self._custom_operations[operation]
             return True
         return False
-    
-    def get_all_sensitive_operations(self) -> Dict[str, SensitiveOperation]:
+
+    def get_all_sensitive_operations(self) -> dict[str, SensitiveOperation]:
         """获取所有敏感操作"""
         return {**self.SENSITIVE_OPERATIONS, **self._custom_operations}
-    
-    def get_operations_by_category(self, category: str) -> List[SensitiveOperation]:
+
+    def get_operations_by_category(self, category: str) -> list[SensitiveOperation]:
         """按类别获取敏感操作"""
         all_ops = self.get_all_sensitive_operations()
         return [op for op in all_ops.values() if op.category == category]
-    
-    def get_operations_by_level(self, level: SensitivityLevel) -> List[SensitiveOperation]:
+
+    def get_operations_by_level(self, level: SensitivityLevel) -> list[SensitiveOperation]:
         """按敏感级别获取操作"""
         all_ops = self.get_all_sensitive_operations()
         return [op for op in all_ops.values() if op.sensitivity_level == level]

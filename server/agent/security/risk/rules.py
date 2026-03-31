@@ -1,10 +1,11 @@
 """
 风险评估规则
 """
-from enum import Enum
-from typing import Dict, List, Optional, Callable, Any
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
+from typing import Any
 
 
 class RiskCategory(str, Enum):
@@ -24,7 +25,7 @@ class RiskFactor:
     category: RiskCategory
     weight: float
     description: str = ""
-    conditions: Dict[str, Any] = field(default_factory=dict)
+    conditions: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -34,7 +35,7 @@ class RiskRule:
     name: str
     description: str
     category: RiskCategory
-    factors: List[RiskFactor]
+    factors: list[RiskFactor]
     base_score: float = 0.0
     max_score: float = 100.0
     enabled: bool = True
@@ -43,17 +44,17 @@ class RiskRule:
 
 class RiskRuleEngine:
     """风险规则引擎"""
-    
-    DEFAULT_RULES: Dict[str, RiskRule] = {}
-    
+
+    DEFAULT_RULES: dict[str, RiskRule] = {}
+
     def __init__(self):
-        self._rules: Dict[str, RiskRule] = dict(self.DEFAULT_RULES)
-        self._custom_rules: Dict[str, RiskRule] = {}
-        self._factor_evaluators: Dict[str, Callable] = {}
-        
+        self._rules: dict[str, RiskRule] = dict(self.DEFAULT_RULES)
+        self._custom_rules: dict[str, RiskRule] = {}
+        self._factor_evaluators: dict[str, Callable] = {}
+
         self._register_default_rules()
         self._register_default_evaluators()
-    
+
     def _register_default_rules(self):
         """注册默认规则"""
         self.DEFAULT_RULES.update({
@@ -128,7 +129,7 @@ class RiskRuleEngine:
             ),
         })
         self._rules = dict(self.DEFAULT_RULES)
-    
+
     def _register_default_evaluators(self):
         """注册默认评估器"""
         destructive_ops = {"file_delete", "directory_delete", "batch_delete"}
@@ -136,7 +137,7 @@ class RiskRuleEngine:
         system_paths = {"/etc", "/root", "/sys", "/proc", "C:\\Windows\\System32"}
         service_ops = {"service_start", "service_stop", "service_restart"}
         config_extensions = {".env", ".conf", ".config", ".yaml", ".yml", ".json"}
-        
+
         self._factor_evaluators = {
             "is_delete": lambda ctx: ctx.get("operation") in destructive_ops,
             "is_batch": lambda ctx: ctx.get("operation") in batch_ops or ctx.get("batch_size", 0) > 1,
@@ -154,67 +155,67 @@ class RiskRuleEngine:
             "high_frequency": lambda ctx: ctx.get("operation_count", 0) > 100,
             "unusual_pattern": lambda ctx: ctx.get("pattern_anomaly", False),
         }
-    
+
     def register_rule(self, rule: RiskRule) -> None:
         """注册规则"""
         self._custom_rules[rule.rule_id] = rule
-    
+
     def unregister_rule(self, rule_id: str) -> bool:
         """注销规则"""
         if rule_id in self._custom_rules:
             del self._custom_rules[rule_id]
             return True
         return False
-    
+
     def register_evaluator(self, factor_name: str, evaluator: Callable) -> None:
         """注册评估器"""
         self._factor_evaluators[factor_name] = evaluator
-    
-    def evaluate_rule(self, rule: RiskRule, context: Dict) -> float:
+
+    def evaluate_rule(self, rule: RiskRule, context: dict) -> float:
         """评估规则"""
         if not rule.enabled:
             return 0.0
-        
+
         score = rule.base_score
-        
+
         for factor in rule.factors:
             evaluator = self._factor_evaluators.get(factor.name)
             if evaluator and evaluator(context):
                 score += factor.weight
-        
+
         return min(score, rule.max_score)
-    
-    def evaluate_all(self, context: Dict) -> Dict[str, float]:
+
+    def evaluate_all(self, context: dict) -> dict[str, float]:
         """评估所有规则"""
         all_rules = {**self._rules, **self._custom_rules}
         return {
             rule_id: self.evaluate_rule(rule, context)
             for rule_id, rule in all_rules.items()
         }
-    
-    def get_applicable_rules(self, context: Dict) -> List[RiskRule]:
+
+    def get_applicable_rules(self, context: dict) -> list[RiskRule]:
         """获取适用的规则"""
         all_rules = {**self._rules, **self._custom_rules}
         operation = context.get("operation", "")
-        
+
         applicable = []
         for rule in all_rules.values():
             if not rule.enabled:
                 continue
-            
+
             for factor in rule.factors:
                 evaluator = self._factor_evaluators.get(factor.name)
                 if evaluator and evaluator(context):
                     applicable.append(rule)
                     break
-        
+
         return applicable
-    
-    def get_rule(self, rule_id: str) -> Optional[RiskRule]:
+
+    def get_rule(self, rule_id: str) -> RiskRule | None:
         """获取规则"""
         all_rules = {**self._rules, **self._custom_rules}
         return all_rules.get(rule_id)
-    
-    def get_all_rules(self) -> Dict[str, RiskRule]:
+
+    def get_all_rules(self) -> dict[str, RiskRule]:
         """获取所有规则"""
         return {**self._rules, **self._custom_rules}

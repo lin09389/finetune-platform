@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 技能执行安全沙箱模块
 
@@ -10,16 +9,15 @@
 - 系统调用过滤
 """
 import asyncio
-import os
 import sys
 import threading
-import traceback
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Union
+from typing import Any
 
 if sys.platform != "win32":
     import resource
@@ -54,7 +52,7 @@ class SandboxViolation:
     """沙箱违规记录"""
     violation_type: SandboxViolationType
     message: str
-    details: Dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=datetime.now)
 
 
@@ -73,13 +71,13 @@ class ResourceLimits:
 class SandboxConfig:
     """沙箱配置"""
     enabled: bool = True
-    permissions: Set[SandboxPermission] = field(default_factory=lambda: {
+    permissions: set[SandboxPermission] = field(default_factory=lambda: {
         SandboxPermission.FILE_READ,
         SandboxPermission.SYSTEM_INFO,
     })
-    allowed_paths: Set[Path] = field(default_factory=set)
-    forbidden_paths: Set[Path] = field(default_factory=set)
-    forbidden_modules: Set[str] = field(default_factory=lambda: {
+    allowed_paths: set[Path] = field(default_factory=set)
+    forbidden_paths: set[Path] = field(default_factory=set)
+    forbidden_modules: set[str] = field(default_factory=lambda: {
         "os.system",
         "subprocess",
         "socket",
@@ -87,8 +85,8 @@ class SandboxConfig:
         "multiprocessing",
     })
     resource_limits: ResourceLimits = field(default_factory=ResourceLimits)
-    working_directory: Optional[Path] = None
-    environment_vars: Dict[str, str] = field(default_factory=dict)
+    working_directory: Path | None = None
+    environment_vars: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -96,10 +94,10 @@ class SandboxResult:
     """沙箱执行结果"""
     success: bool
     result: Any = None
-    error: Optional[str] = None
-    error_type: Optional[str] = None
-    violations: List[SandboxViolation] = field(default_factory=list)
-    resource_usage: Dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+    error_type: str | None = None
+    violations: list[SandboxViolation] = field(default_factory=list)
+    resource_usage: dict[str, Any] = field(default_factory=dict)
     execution_time: float = 0.0
 
 
@@ -122,10 +120,10 @@ class ExecutionSandbox:
         Path("C:/Program Files"),
     }
 
-    def __init__(self, config: Optional[SandboxConfig] = None):
+    def __init__(self, config: SandboxConfig | None = None):
         self._config = config or SandboxConfig()
-        self._violations: List[SandboxViolation] = []
-        self._original_limits: Dict[str, Any] = {}
+        self._violations: list[SandboxViolation] = []
+        self._original_limits: dict[str, Any] = {}
         self._lock = threading.Lock()
 
         self._forbidden_paths = self.DEFAULT_FORBIDDEN_PATHS | self._config.forbidden_paths
@@ -138,7 +136,7 @@ class ExecutionSandbox:
         self,
         violation_type: SandboxViolationType,
         message: str,
-        details: Optional[Dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
     ):
         """记录违规"""
         violation = SandboxViolation(
@@ -152,7 +150,7 @@ class ExecutionSandbox:
 
     def validate_path(
         self,
-        path: Union[str, Path],
+        path: str | Path,
         operation: str = "read",
     ) -> Path:
         """验证路径访问权限"""
@@ -219,21 +217,21 @@ class ExecutionSandbox:
                     {"module": module_name},
                 )
 
-    def validate_network_access(self, host: Optional[str] = None):
+    def validate_network_access(self, host: str | None = None):
         """验证网络访问"""
         if not self._check_permission(SandboxPermission.NETWORK):
             self._record_violation(
                 SandboxViolationType.FORBIDDEN_OPERATION,
-                f"禁止网络访问",
+                "禁止网络访问",
                 {"host": host},
             )
 
-    def validate_subprocess(self, command: Optional[str] = None):
+    def validate_subprocess(self, command: str | None = None):
         """验证子进程创建"""
         if not self._check_permission(SandboxPermission.SUBPROCESS):
             self._record_violation(
                 SandboxViolationType.FORBIDDEN_OPERATION,
-                f"禁止创建子进程",
+                "禁止创建子进程",
                 {"command": command},
             )
 
@@ -280,7 +278,7 @@ class ExecutionSandbox:
                     except (ValueError, OSError, AttributeError):
                         pass
 
-    def get_resource_usage(self) -> Dict[str, Any]:
+    def get_resource_usage(self) -> dict[str, Any]:
         """获取资源使用情况"""
         usage = {}
 
@@ -305,7 +303,7 @@ class ExecutionSandbox:
 
         return usage
 
-    def get_violations(self) -> List[SandboxViolation]:
+    def get_violations(self) -> list[SandboxViolation]:
         """获取违规记录"""
         with self._lock:
             return list(self._violations)
@@ -319,11 +317,11 @@ class ExecutionSandbox:
         """获取沙箱配置"""
         return self._config
 
-    def add_allowed_path(self, path: Union[str, Path]):
+    def add_allowed_path(self, path: str | Path):
         """添加允许路径"""
         self._config.allowed_paths.add(Path(path).resolve())
 
-    def add_forbidden_path(self, path: Union[str, Path]):
+    def add_forbidden_path(self, path: str | Path):
         """添加禁止路径"""
         self._forbidden_paths.add(Path(path).resolve())
 
@@ -341,9 +339,9 @@ class SkillSandbox(ExecutionSandbox):
 
     def __init__(
         self,
-        working_dir: Optional[Union[str, Path]] = None,
-        permissions: Optional[Set[SandboxPermission]] = None,
-        resource_limits: Optional[ResourceLimits] = None,
+        working_dir: str | Path | None = None,
+        permissions: set[SandboxPermission] | None = None,
+        resource_limits: ResourceLimits | None = None,
     ):
         config = SandboxConfig(
             enabled=True,
@@ -361,7 +359,7 @@ class SkillSandbox(ExecutionSandbox):
         self,
         func: Callable,
         *args,
-        timeout: Optional[float] = None,
+        timeout: float | None = None,
         **kwargs,
     ) -> SandboxResult:
         """同步执行函数"""
@@ -415,7 +413,7 @@ class SkillSandbox(ExecutionSandbox):
         self,
         func: Callable,
         *args,
-        timeout: Optional[float] = None,
+        timeout: float | None = None,
         **kwargs,
     ) -> SandboxResult:
         """异步执行函数"""
@@ -475,8 +473,8 @@ class SkillSandbox(ExecutionSandbox):
 
 
 def create_sandbox(
-    working_dir: Optional[Union[str, Path]] = None,
-    permissions: Optional[List[SandboxPermission]] = None,
+    working_dir: str | Path | None = None,
+    permissions: list[SandboxPermission] | None = None,
     max_memory_mb: int = 512,
     max_cpu_seconds: int = 30,
     network_access: bool = False,
@@ -504,7 +502,7 @@ def create_sandbox(
     )
 
 
-_default_sandbox: Optional[SkillSandbox] = None
+_default_sandbox: SkillSandbox | None = None
 
 
 def get_default_sandbox() -> SkillSandbox:

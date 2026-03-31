@@ -1,18 +1,17 @@
-# -*- coding: utf-8 -*-
 """
 CUA 操作录制器模块
 """
 import json
 import threading
 import time
-from dataclasses import dataclass, asdict, field
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Callable
+from typing import Any
 
-from pynput import mouse, keyboard
+from pynput import keyboard, mouse
 
-from .models import OperationResult, OperationType
 from .exceptions import CUAError
 
 
@@ -20,13 +19,13 @@ from .exceptions import CUAError
 class RecordedAction:
     action_type: str
     timestamp: float
-    data: Dict[str, Any]
+    data: dict[str, Any]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "RecordedAction":
+    def from_dict(cls, data: dict[str, Any]) -> "RecordedAction":
         return cls(
             action_type=data["action_type"],
             timestamp=data["timestamp"],
@@ -35,7 +34,7 @@ class RecordedAction:
 
 
 class RecorderError(CUAError):
-    def __init__(self, message: str, details: Optional[str] = None):
+    def __init__(self, message: str, details: str | None = None):
         super().__init__(message, details)
 
 
@@ -51,17 +50,17 @@ class RecorderNotRunningError(RecorderError):
 
 class ActionRecorder:
     def __init__(self):
-        self._actions: List[RecordedAction] = []
+        self._actions: list[RecordedAction] = []
         self._lock = threading.Lock()
         self._is_recording = False
         self._is_paused = False
-        self._start_time: Optional[float] = None
-        self._mouse_listener: Optional[mouse.Listener] = None
-        self._keyboard_listener: Optional[keyboard.Listener] = None
-        self._filter: Optional[List[str]] = None
+        self._start_time: float | None = None
+        self._mouse_listener: mouse.Listener | None = None
+        self._keyboard_listener: keyboard.Listener | None = None
+        self._filter: list[str] | None = None
         self._min_interval: float = 0.0
         self._last_record_time: float = 0.0
-        self._action_callback: Optional[Callable[[RecordedAction], None]] = None
+        self._action_callback: Callable[[RecordedAction], None] | None = None
 
     def start_recording(self) -> None:
         with self._lock:
@@ -87,7 +86,7 @@ class ActionRecorder:
         self._mouse_listener.start()
         self._keyboard_listener.start()
 
-    def stop_recording(self) -> List[RecordedAction]:
+    def stop_recording(self) -> list[RecordedAction]:
         with self._lock:
             if not self._is_recording:
                 raise RecorderNotRunningError()
@@ -139,7 +138,7 @@ class ActionRecorder:
         self._last_record_time = current_time
         return True
 
-    def _record_action(self, action_type: str, data: Dict[str, Any]) -> None:
+    def _record_action(self, action_type: str, data: dict[str, Any]) -> None:
         with self._lock:
             if not self._is_recording or self._is_paused:
                 return
@@ -188,7 +187,7 @@ class ActionRecorder:
         key_data = self._parse_key(key)
         self._record_action("key_release", key_data)
 
-    def _parse_key(self, key) -> Dict[str, Any]:
+    def _parse_key(self, key) -> dict[str, Any]:
         if isinstance(key, keyboard.KeyCode):
             return {
                 "type": "char",
@@ -207,7 +206,7 @@ class ActionRecorder:
                 "value": str(key)
             }
 
-    def get_actions(self) -> List[RecordedAction]:
+    def get_actions(self) -> list[RecordedAction]:
         with self._lock:
             return list(self._actions)
 
@@ -236,13 +235,13 @@ class ActionRecorder:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(save_data, f, ensure_ascii=False, indent=2)
 
-    def load_from_file(self, filepath: str) -> List[RecordedAction]:
+    def load_from_file(self, filepath: str) -> list[RecordedAction]:
         path = Path(filepath)
 
         if not path.exists():
             raise RecorderError(f"文件不存在: {filepath}")
 
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
 
         actions = [RecordedAction.from_dict(action_data) for action_data in data.get("actions", [])]
@@ -252,7 +251,7 @@ class ActionRecorder:
 
         return actions
 
-    def set_filter(self, action_types: Optional[List[str]]) -> None:
+    def set_filter(self, action_types: list[str] | None) -> None:
         with self._lock:
             self._filter = action_types
 
@@ -260,11 +259,11 @@ class ActionRecorder:
         with self._lock:
             self._min_interval = max(0.0, interval)
 
-    def set_action_callback(self, callback: Optional[Callable[[RecordedAction], None]]) -> None:
+    def set_action_callback(self, callback: Callable[[RecordedAction], None] | None) -> None:
         with self._lock:
             self._action_callback = callback
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         with self._lock:
             if not self._actions:
                 return {
@@ -274,7 +273,7 @@ class ActionRecorder:
                     "average_interval": 0.0
                 }
 
-            action_types: Dict[str, int] = {}
+            action_types: dict[str, int] = {}
             for action in self._actions:
                 action_types[action.action_type] = action_types.get(action.action_type, 0) + 1
 
@@ -293,7 +292,7 @@ class ActionRecorder:
                 "average_interval": average_interval
             }
 
-    def export_for_replay(self) -> List[Dict[str, Any]]:
+    def export_for_replay(self) -> list[dict[str, Any]]:
         with self._lock:
             return [
                 {
@@ -304,14 +303,14 @@ class ActionRecorder:
                 for action in self._actions
             ]
 
-    def filter_by_time_range(self, start_time: float, end_time: float) -> List[RecordedAction]:
+    def filter_by_time_range(self, start_time: float, end_time: float) -> list[RecordedAction]:
         with self._lock:
             return [
                 action for action in self._actions
                 if start_time <= action.timestamp <= end_time
             ]
 
-    def filter_by_type(self, action_type: str) -> List[RecordedAction]:
+    def filter_by_type(self, action_type: str) -> list[RecordedAction]:
         with self._lock:
             return [action for action in self._actions if action.action_type == action_type]
 
@@ -320,8 +319,8 @@ class ActionRecorder:
             if len(self._actions) < 2:
                 return
 
-            compressed: List[RecordedAction] = []
-            last_move: Optional[RecordedAction] = None
+            compressed: list[RecordedAction] = []
+            last_move: RecordedAction | None = None
 
             for action in self._actions:
                 if action.action_type == "mouse_move":

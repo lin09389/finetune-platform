@@ -1,10 +1,9 @@
-# -*- coding: utf-8 -*-
 """
 项目功能全面测试脚本
 测试所有模块、API 端点、安全功能
 """
-import sys
 import os
+import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -56,7 +55,7 @@ try:
     if torch.cuda.is_available():
         print(f"  GPU: {torch.cuda.get_device_name(0)}")
     else:
-        print(f"  [WARN] CPU 版本（无 GPU 加速）")
+        print("  [WARN] CPU 版本（无 GPU 加速）")
 except Exception as e:
     print(f"  [ERROR] PyTorch 错误：{e}")
 
@@ -191,12 +190,12 @@ test_function("加密解密测试", test_encryption)
 def test_file_sandbox():
     """测试文件沙箱"""
     from security.file_sandbox import file_sandbox
-    
+
     # 测试获取沙箱信息
     info = file_sandbox.get_sandbox_info()
     assert 'working_dir' in info
     assert 'allowed_operations' in info
-    
+
     # 测试列出文件
     files = file_sandbox.list_files(".", "*.py")
     assert isinstance(files, list)
@@ -206,10 +205,10 @@ test_function("文件沙箱测试", test_file_sandbox)
 def test_audit_logger():
     """测试审计日志"""
     from security.audit_log import audit_logger
-    
+
     # 测试记录日志
     audit_logger.log_action('test_action', details={'test': 'data'})
-    
+
     # 测试获取统计
     stats = audit_logger.get_stats()
     assert 'total_actions' in stats
@@ -228,7 +227,7 @@ test_function("服务商列表测试", test_providers)
 def test_context_scanner():
     """测试项目扫描器"""
     from context.project_scanner import ProjectScanner
-    
+
     # 测试扫描当前项目
     scanner = ProjectScanner(str(Path(__file__).parent))
     info = scanner.scan()
@@ -244,9 +243,9 @@ print("-" * 50)
 try:
     from fastapi.testclient import TestClient
     from main import app
-    
+
     client = TestClient(app)
-    
+
     endpoints = [
         ("/health", 200, "健康检查"),
         ("/", 200, "根路径"),
@@ -256,7 +255,7 @@ try:
         ("/cloud/providers", 200, "云端服务商"),
         ("/cloud/api-keys", 200, "API Keys 列表"),
     ]
-    
+
     for endpoint, expected_status, desc in endpoints:
         try:
             response = client.get(endpoint)
@@ -269,7 +268,7 @@ try:
         except Exception as e:
             print(f"  [ERROR] {desc} ({endpoint}) - {e}")
             results["errors"].append(f"[ERROR] {desc}: {str(e)}")
-            
+
 except ImportError as e:
     print(f"  [WARN] 无法导入测试客户端：{e}")
 except Exception as e:

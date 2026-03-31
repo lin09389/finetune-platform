@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 结果处理器
 
@@ -6,18 +5,16 @@
 """
 import asyncio
 import json
-import re
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Optional
 
 from .models import (
     SkillCategory,
     SkillExecution,
     SkillResult,
-    SkillStatus,
 )
 
 
@@ -46,10 +43,10 @@ class ProcessedResult:
     details: str
     result_type: ResultType
     output_format: OutputFormat
-    data: Optional[Dict[str, Any]] = None
-    suggestions: List[str] = field(default_factory=list)
-    follow_up_actions: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    data: dict[str, Any] | None = None
+    suggestions: list[str] = field(default_factory=list)
+    follow_up_actions: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -60,7 +57,7 @@ class MultiResultSummary:
     failed_count: int
     total_time: float
     summary_text: str
-    results: List[ProcessedResult] = field(default_factory=list)
+    results: list[ProcessedResult] = field(default_factory=list)
 
 
 class ResultParser:
@@ -235,7 +232,7 @@ class ResultParser:
         self,
         execution: SkillExecution,
         result: SkillResult,
-    ) -> List[str]:
+    ) -> list[str]:
         """生成建议"""
         suggestions = []
 
@@ -258,7 +255,7 @@ class ResultParser:
         self,
         execution: SkillExecution,
         result: SkillResult,
-    ) -> List[str]:
+    ) -> list[str]:
         """生成后续操作建议"""
         follow_up = []
 
@@ -295,7 +292,7 @@ class ResultParser:
 class NaturalLanguageGenerator:
     """自然语言生成器"""
 
-    def __init__(self, llm_client: Optional[Any] = None):
+    def __init__(self, llm_client: Any | None = None):
         self.llm_client = llm_client
         self._templates = {
             "single_success": "[OK] {skill_name} 执行成功！{message}",
@@ -349,7 +346,7 @@ class NaturalLanguageGenerator:
         self,
         processed: ProcessedResult,
         user_message: str,
-        context: Optional[Dict[str, Any]] = None,
+        context: dict[str, Any] | None = None,
     ) -> str:
         """使用 LLM 生成响应"""
         if self.llm_client is None:
@@ -376,7 +373,7 @@ class NaturalLanguageGenerator:
         self,
         processed: ProcessedResult,
         user_message: str,
-        context: Optional[Dict[str, Any]] = None,
+        context: dict[str, Any] | None = None,
     ) -> str:
         """构建 LLM 提示词"""
         status = "成功" if processed.success else "失败"
@@ -416,8 +413,8 @@ class ResultProcessor:
         self._initialized = True
         self.parser = ResultParser()
         self.nl_generator = NaturalLanguageGenerator()
-        self._result_cache: Dict[str, ProcessedResult] = {}
-        self._on_result_processed: Optional[Callable[[ProcessedResult], None]] = None
+        self._result_cache: dict[str, ProcessedResult] = {}
+        self._on_result_processed: Callable[[ProcessedResult], None] | None = None
 
     @classmethod
     def get_instance(cls) -> "ResultProcessor":
@@ -441,7 +438,7 @@ class ResultProcessor:
 
     def process_multiple(
         self,
-        executions: List[SkillExecution],
+        executions: list[SkillExecution],
     ) -> MultiResultSummary:
         """处理多个执行结果"""
         processed_results = []
@@ -555,7 +552,7 @@ class ResultProcessor:
 
     def combine_results(
         self,
-        results: List[ProcessedResult],
+        results: list[ProcessedResult],
         strategy: str = "concat",
     ) -> ProcessedResult:
         """合并多个结果"""
@@ -598,7 +595,7 @@ class ResultProcessor:
             },
         )
 
-    def get_cached_result(self, execution_id: str) -> Optional[ProcessedResult]:
+    def get_cached_result(self, execution_id: str) -> ProcessedResult | None:
         """获取缓存的结果"""
         return self._result_cache.get(execution_id)
 

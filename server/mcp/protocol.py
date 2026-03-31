@@ -1,4 +1,4 @@
-from typing import Dict, Any, Tuple
+from typing import Any
 
 
 class MCPProtocol:
@@ -7,7 +7,7 @@ class MCPProtocol:
     CLIENT_VERSION = "1.0.0"
 
     @staticmethod
-    def create_initialize_request() -> Dict[str, Any]:
+    def create_initialize_request() -> dict[str, Any]:
         return {
             "jsonrpc": "2.0",
             "id": 1,
@@ -23,14 +23,14 @@ class MCPProtocol:
         }
 
     @staticmethod
-    def create_initialized_notification() -> Dict[str, Any]:
+    def create_initialized_notification() -> dict[str, Any]:
         return {
             "jsonrpc": "2.0",
             "method": "notifications/initialized"
         }
 
     @staticmethod
-    def create_list_tools_request(request_id: int = 2) -> Dict[str, Any]:
+    def create_list_tools_request(request_id: int = 2) -> dict[str, Any]:
         return {
             "jsonrpc": "2.0",
             "id": request_id,
@@ -40,9 +40,9 @@ class MCPProtocol:
     @staticmethod
     def create_call_tool_request(
         tool_name: str,
-        arguments: Dict[str, Any],
+        arguments: dict[str, Any],
         call_id: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         request_id = int(call_id) if call_id.isdigit() else hash(call_id) % 10000
         return {
             "jsonrpc": "2.0",
@@ -55,7 +55,7 @@ class MCPProtocol:
         }
 
     @staticmethod
-    def create_list_resources_request(request_id: int = 3) -> Dict[str, Any]:
+    def create_list_resources_request(request_id: int = 3) -> dict[str, Any]:
         return {
             "jsonrpc": "2.0",
             "id": request_id,
@@ -66,7 +66,7 @@ class MCPProtocol:
     def create_read_resource_request(
         uri: str,
         request_id: int = 4
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         return {
             "jsonrpc": "2.0",
             "id": request_id,
@@ -77,7 +77,7 @@ class MCPProtocol:
         }
 
     @staticmethod
-    def create_list_prompts_request(request_id: int = 5) -> Dict[str, Any]:
+    def create_list_prompts_request(request_id: int = 5) -> dict[str, Any]:
         return {
             "jsonrpc": "2.0",
             "id": request_id,
@@ -87,9 +87,9 @@ class MCPProtocol:
     @staticmethod
     def create_get_prompt_request(
         name: str,
-        arguments: Dict[str, Any],
+        arguments: dict[str, Any],
         request_id: int = 6
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         return {
             "jsonrpc": "2.0",
             "id": request_id,
@@ -101,17 +101,17 @@ class MCPProtocol:
         }
 
     @staticmethod
-    def parse_response(response: Dict[str, Any]) -> Tuple[bool, Any]:
+    def parse_response(response: dict[str, Any]) -> tuple[bool, Any]:
         if "error" in response:
             return False, response["error"]
         return True, response.get("result")
 
     @staticmethod
-    def is_response_valid(response: Dict[str, Any]) -> bool:
+    def is_response_valid(response: dict[str, Any]) -> bool:
         return "jsonrpc" in response and "jsonrpc" == "2.0"
 
     @staticmethod
-    def get_request_id(response: Dict[str, Any]) -> Any:
+    def get_request_id(response: dict[str, Any]) -> Any:
         return response.get("id")
 
     @staticmethod
@@ -120,7 +120,7 @@ class MCPProtocol:
         code: int,
         message: str,
         data: Any = None
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         error_obj = {"code": code, "message": message}
         if data is not None:
             error_obj["data"] = data

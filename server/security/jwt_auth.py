@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 JWT 认证模块 - 用户身份验证和授权
 
@@ -9,17 +8,18 @@ JWT 认证模块 - 用户身份验证和授权
 - 权限角色系统
 - 自动续期
 """
-import jwt
-import uuid
 import hashlib
+import logging
 import os
 import time
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List, Set
+import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from enum import Enum
-import logging
 from functools import wraps
+from typing import Any
+
+import jwt
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class Role(str, Enum):
     SUPER_ADMIN = "super_admin"
 
 
-ROLE_HIERARCHY: Dict[Role, int] = {
+ROLE_HIERARCHY: dict[Role, int] = {
     Role.USER: 1,
     Role.ADMIN: 10,
     Role.SUPER_ADMIN: 100,
@@ -46,7 +46,7 @@ class TokenPair:
     token_type: str = "Bearer"
     expires_in: int = 1800
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             'access_token': self.access_token,
             'refresh_token': self.refresh_token,
@@ -61,12 +61,12 @@ class TokenPayload:
     user_id: str
     username: str
     role: Role = Role.USER
-    permissions: List[str] = field(default_factory=list)
-    exp: Optional[datetime] = None
-    iat: Optional[datetime] = None
-    jti: Optional[str] = None
+    permissions: list[str] = field(default_factory=list)
+    exp: datetime | None = None
+    iat: datetime | None = None
+    jti: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         data = {
             'user_id': self.user_id,
             'username': self.username,
@@ -82,7 +82,7 @@ class TokenPayload:
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict) -> 'TokenPayload':
+    def from_dict(cls, data: dict) -> 'TokenPayload':
         return cls(
             user_id=data.get('user_id', ''),
             username=data.get('username', ''),
@@ -98,7 +98,7 @@ class TokenBlacklist:
     """Token 黑名单"""
 
     def __init__(self):
-        self._blacklist: Dict[str, float] = {}
+        self._blacklist: dict[str, float] = {}
 
     def add(self, jti: str, expire_time: datetime):
         self._blacklist[jti] = expire_time.timestamp()
@@ -123,7 +123,7 @@ class TokenBlacklist:
         for jti in expired:
             del self._blacklist[jti]
 
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict:
         return {
             'total_blacklisted': len(self._blacklist),
             'active_blacklist': sum(
@@ -138,7 +138,7 @@ class JWTAuth:
 
     def __init__(
         self,
-        secret_key: Optional[str] = None,
+        secret_key: str | None = None,
         algorithm: str = "HS256",
         access_token_expire_minutes: int = 30,
         refresh_token_expire_days: int = 7,
@@ -156,7 +156,7 @@ class JWTAuth:
         self.issuer = issuer
 
         self.blacklist = TokenBlacklist()
-        self._users: Dict[str, Dict] = {}
+        self._users: dict[str, dict] = {}
 
         logger.info(f"JWT 认证已初始化，算法：{algorithm}")
 
@@ -171,8 +171,8 @@ class JWTAuth:
         username: str,
         password: str,
         role: Role = Role.USER,
-        permissions: Optional[List[str]] = None
-    ) -> Optional[str]:
+        permissions: list[str] | None = None
+    ) -> str | None:
         for user in self._users.values():
             if user['username'] == username:
                 return None
@@ -189,7 +189,7 @@ class JWTAuth:
         logger.info(f"用户 {username} 已注册，ID: {user_id}")
         return user_id
 
-    def authenticate(self, username: str, password: str) -> Optional[str]:
+    def authenticate(self, username: str, password: str) -> str | None:
         password_hash = self._hash_password(password)
 
         for user_id, user in self._users.items():
@@ -202,8 +202,8 @@ class JWTAuth:
     def create_token_pair(
         self,
         user_id: str,
-        role: Optional[Role] = None,
-        permissions: Optional[List[str]] = None
+        role: Role | None = None,
+        permissions: list[str] | None = None
     ) -> TokenPair:
         user = self._users.get(user_id)
         if not user:
@@ -286,7 +286,7 @@ class JWTAuth:
             role=payload.role
         )
 
-    def logout(self, access_token: str, refresh_token: Optional[str] = None):
+    def logout(self, access_token: str, refresh_token: str | None = None):
         try:
             payload = self.verify_token(access_token, check_blacklist=False)
             if payload.jti:
@@ -313,7 +313,7 @@ class JWTAuth:
     def has_role(self, token_payload: TokenPayload, min_role: Role) -> bool:
         return ROLE_HIERARCHY.get(token_payload.role, 0) >= ROLE_HIERARCHY.get(min_role, 0)
 
-    def get_user_info(self, user_id: str) -> Optional[Dict]:
+    def get_user_info(self, user_id: str) -> dict | None:
         user = self._users.get(user_id)
         if not user:
             return None
@@ -326,7 +326,7 @@ class JWTAuth:
             'created_at': user['created_at']
         }
 
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict:
         return {
             'total_users': len(self._users),
             'blacklist_stats': self.blacklist.get_stats(),
@@ -358,7 +358,7 @@ def require_role(min_role: Role):
     return decorator
 
 
-_jwt_auth: Optional[JWTAuth] = None
+_jwt_auth: JWTAuth | None = None
 
 
 def get_jwt_auth() -> JWTAuth:

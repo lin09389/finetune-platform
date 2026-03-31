@@ -1,13 +1,9 @@
-# -*- coding: utf-8 -*-
 """
 批量修复编码损坏的 Python 文件
 """
+import ast
 import os
 import re
-import ast
-from pathlib import Path
-from typing import List, Tuple, Optional
-import shutil
 
 # 常见的截断模式及其修复
 FIX_PATTERNS = [
@@ -303,13 +299,13 @@ FIX_PATTERNS = [
     (r'总分片\?"', '总分片"'),
 ]
 
-def fix_file(filepath: str) -> Tuple[bool, str]:
+def fix_file(filepath: str) -> tuple[bool, str]:
     """修复单个文件"""
     try:
         # 尝试读取文件
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, encoding='utf-8') as f:
             content = f.read()
-        
+
         # 检查是否已经是有效的 Python
         try:
             ast.parse(content)
@@ -318,12 +314,12 @@ def fix_file(filepath: str) -> Tuple[bool, str]:
             pass
         except UnicodeDecodeError:
             pass
-        
+
         # 应用修复模式
         fixed_content = content
         for pattern, replacement in FIX_PATTERNS:
             fixed_content = re.sub(pattern, replacement, fixed_content)
-        
+
         # 检查修复后是否有效
         try:
             ast.parse(fixed_content)
@@ -333,18 +329,18 @@ def fix_file(filepath: str) -> Tuple[bool, str]:
             return True, "修复成功"
         except SyntaxError as e:
             return False, f"无法自动修复: {e}"
-    
-    except UnicodeDecodeError as e:
+
+    except UnicodeDecodeError:
         # 尝试用其他编码读取
         try:
-            with open(filepath, 'r', encoding='gbk') as f:
+            with open(filepath, encoding='gbk') as f:
                 content = f.read()
-            
+
             # 应用修复模式
             fixed_content = content
             for pattern, replacement in FIX_PATTERNS:
                 fixed_content = re.sub(pattern, replacement, fixed_content)
-            
+
             # 检查修复后是否有效
             try:
                 ast.parse(fixed_content)
@@ -356,27 +352,27 @@ def fix_file(filepath: str) -> Tuple[bool, str]:
                 return False, f"无法自动修复: {e}"
         except Exception as e:
             return False, f"读取失败: {e}"
-    
+
     except Exception as e:
         return False, f"处理失败: {e}"
 
 
-def scan_and_fix_directory(directory: str) -> List[Tuple[str, bool, str]]:
+def scan_and_fix_directory(directory: str) -> list[tuple[str, bool, str]]:
     """扫描并修复目录中的所有 Python 文件"""
     results = []
-    
+
     for root, dirs, files in os.walk(directory):
         # 跳过虚拟环境
         if 'venv' in root or '.venv' in root or '__pycache__' in root:
             continue
-        
+
         for f in files:
             if f.endswith('.py'):
                 filepath = os.path.join(root, f)
-                
+
                 # 先检查是否有问题
                 try:
-                    with open(filepath, 'r', encoding='utf-8') as fp:
+                    with open(filepath, encoding='utf-8') as fp:
                         content = fp.read()
                     ast.parse(content)
                     # 没有问题，跳过
@@ -387,11 +383,11 @@ def scan_and_fix_directory(directory: str) -> List[Tuple[str, bool, str]]:
                     pass
                 except:
                     continue
-                
+
                 # 有问题，尝试修复
                 success, message = fix_file(filepath)
                 results.append((filepath, success, message))
-    
+
     return results
 
 
@@ -399,9 +395,9 @@ if __name__ == "__main__":
     server_dir = os.path.dirname(os.path.abspath(__file__))
     print(f"扫描目录: {server_dir}")
     print("=" * 60)
-    
+
     results = scan_and_fix_directory(server_dir)
-    
+
     if results:
         print(f"\n处理了 {len(results)} 个文件:\n")
         success_count = 0
@@ -414,7 +410,7 @@ if __name__ == "__main__":
                 success_count += 1
             else:
                 failed_count += 1
-        
+
         print(f"\n成功: {success_count}, 失败: {failed_count}")
     else:
         print("\n没有需要修复的文件")

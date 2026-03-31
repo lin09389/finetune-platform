@@ -1,24 +1,22 @@
-# -*- coding: utf-8 -*-
 """
 项目上下文 API
 
 提供项目扫描、索引、检索等功能的 HTTP 接口
 以及上下文理解增强功能（代词消解、省略补全、对话摘要、窗口管理）
 """
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
-from datetime import datetime
 import logging
 import urllib.parse
+from datetime import datetime
+from typing import Any
 
-from context.service import get_context_service, ContextService
-from context.models import ProjectInfo, ContextResult
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
+from context.service import ContextService, get_context_service
 from core.context_understanding import (
-    get_context_engine,
     ContextUnderstandingEngine,
     Message,
-    ConversationSummary
+    get_context_engine,
 )
 
 logger = logging.getLogger(__name__)
@@ -34,7 +32,7 @@ class ScanRequest(BaseModel):
 class ScanResponse(BaseModel):
     """扫描项目响应"""
     success: bool
-    project: Optional[Dict[str, Any]] = None
+    project: dict[str, Any] | None = None
     message: str = ""
 
 
@@ -47,22 +45,22 @@ class IndexRequest(BaseModel):
 class IndexResponse(BaseModel):
     """索引项目响应"""
     success: bool
-    summary: Optional[Dict[str, Any]] = None
+    summary: dict[str, Any] | None = None
     message: str = ""
 
 
 class RetrieveRequest(BaseModel):
     """检索上下文请求"""
     query: str = Field(..., description="查询文本")
-    project_path: Optional[str] = Field(None, description="项目路径")
+    project_path: str | None = Field(None, description="项目路径")
     top_k: int = Field(default=5, ge=1, le=20, description="返回结果数量")
 
 
 class RetrieveResponse(BaseModel):
     """检索上下文响应"""
     success: bool
-    context: List[Dict[str, Any]]
-    project_info: Optional[Dict[str, Any]] = None
+    context: list[dict[str, Any]]
+    project_info: dict[str, Any] | None = None
 
 
 class RemoveRequest(BaseModel):
@@ -73,7 +71,7 @@ class RemoveRequest(BaseModel):
 class ChatContextRequest(BaseModel):
     """聊天上下文请求"""
     query: str = Field(..., description="用户问题")
-    project_path: Optional[str] = Field(None, description="项目路径")
+    project_path: str | None = Field(None, description="项目路径")
     max_length: int = Field(default=2000, description="最大上下文长度")
 
 
@@ -88,7 +86,7 @@ class ProcessMessageRequest(BaseModel):
     """处理消息请求"""
     message: str = Field(..., description="当前消息内容")
     role: str = Field(default="user", description="消息角色")
-    history: List[Dict[str, Any]] = Field(default_factory=list, description="历史消息列表")
+    history: list[dict[str, Any]] = Field(default_factory=list, description="历史消息列表")
 
 
 class ProcessMessageResponse(BaseModel):
@@ -96,15 +94,15 @@ class ProcessMessageResponse(BaseModel):
     success: bool
     original_text: str
     resolved_text: str
-    pronoun_resolutions: List[Dict[str, Any]] = Field(default_factory=list)
-    omission_completion: Dict[str, Any] = Field(default_factory=dict)
-    entities: List[Dict[str, Any]] = Field(default_factory=list)
+    pronoun_resolutions: list[dict[str, Any]] = Field(default_factory=list)
+    omission_completion: dict[str, Any] = Field(default_factory=dict)
+    entities: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class EnhanceContextRequest(BaseModel):
     """增强上下文请求"""
     query: str = Field(..., description="用户查询")
-    messages: List[Dict[str, Any]] = Field(default_factory=list, description="对话历史")
+    messages: list[dict[str, Any]] = Field(default_factory=list, description="对话历史")
     max_context_tokens: int = Field(default=4096, description="最大上下文Token数")
 
 
@@ -112,16 +110,16 @@ class EnhanceContextResponse(BaseModel):
     """增强上下文响应"""
     success: bool
     enhanced_query: str
-    context_messages: List[Dict[str, Any]] = Field(default_factory=list)
-    summary: Optional[str] = None
-    entities: List[Dict[str, Any]] = Field(default_factory=list)
-    pronoun_resolutions: List[Dict[str, Any]] = Field(default_factory=list)
-    window_stats: Dict[str, Any] = Field(default_factory=dict)
+    context_messages: list[dict[str, Any]] = Field(default_factory=list)
+    summary: str | None = None
+    entities: list[dict[str, Any]] = Field(default_factory=list)
+    pronoun_resolutions: list[dict[str, Any]] = Field(default_factory=list)
+    window_stats: dict[str, Any] = Field(default_factory=dict)
 
 
 class SummarizeRequest(BaseModel):
     """摘要请求"""
-    messages: List[Dict[str, Any]] = Field(..., description="对话消息列表")
+    messages: list[dict[str, Any]] = Field(..., description="对话消息列表")
     max_length: int = Field(default=500, description="最大摘要长度")
     use_llm: bool = Field(default=False, description="是否使用LLM生成摘要")
 
@@ -130,16 +128,16 @@ class SummarizeResponse(BaseModel):
     """摘要响应"""
     success: bool
     summary_text: str
-    key_points: List[str] = Field(default_factory=list)
-    entities_mentioned: List[str] = Field(default_factory=list)
-    topics: List[str] = Field(default_factory=list)
+    key_points: list[str] = Field(default_factory=list)
+    entities_mentioned: list[str] = Field(default_factory=list)
+    topics: list[str] = Field(default_factory=list)
     token_count: int
-    message_range: List[int] = Field(default_factory=list)
+    message_range: list[int] = Field(default_factory=list)
 
 
 class ManageWindowRequest(BaseModel):
     """窗口管理请求"""
-    messages: List[Dict[str, Any]] = Field(..., description="消息列表")
+    messages: list[dict[str, Any]] = Field(..., description="消息列表")
     max_tokens: int = Field(default=4096, description="最大Token数")
     keep_recent: int = Field(default=3, description="保留最近消息数")
 
@@ -147,18 +145,18 @@ class ManageWindowRequest(BaseModel):
 class ManageWindowResponse(BaseModel):
     """窗口管理响应"""
     success: bool
-    window_messages: List[Dict[str, Any]] = Field(default_factory=list)
+    window_messages: list[dict[str, Any]] = Field(default_factory=list)
     total_tokens: int
     max_tokens: int
     utilization: float
     overflow_count: int
-    summary: Optional[str] = None
+    summary: str | None = None
 
 
 class ResolvePronounsRequest(BaseModel):
     """代词消解请求"""
     text: str = Field(..., description="待处理的文本")
-    history: List[Dict[str, Any]] = Field(default_factory=list, description="历史消息")
+    history: list[dict[str, Any]] = Field(default_factory=list, description="历史消息")
 
 
 class ResolvePronounsResponse(BaseModel):
@@ -166,13 +164,13 @@ class ResolvePronounsResponse(BaseModel):
     success: bool
     original_text: str
     resolved_text: str
-    resolutions: List[Dict[str, Any]] = Field(default_factory=list)
+    resolutions: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class CompleteOmissionRequest(BaseModel):
     """省略补全请求"""
     text: str = Field(..., description="待处理的文本")
-    history: List[Dict[str, Any]] = Field(default_factory=list, description="历史消息")
+    history: list[dict[str, Any]] = Field(default_factory=list, description="历史消息")
 
 
 class CompleteOmissionResponse(BaseModel):
@@ -180,12 +178,12 @@ class CompleteOmissionResponse(BaseModel):
     success: bool
     original_text: str
     completed_text: str
-    omitted_parts: List[str] = Field(default_factory=list)
+    omitted_parts: list[str] = Field(default_factory=list)
     confidence: float
-    source_message_idx: Optional[int] = None
+    source_message_idx: int | None = None
 
 
-def _convert_to_messages(message_dicts: List[Dict[str, Any]]) -> List[Message]:
+def _convert_to_messages(message_dicts: list[dict[str, Any]]) -> list[Message]:
     """将字典列表转换为Message对象列表"""
     messages = []
     for i, msg_dict in enumerate(message_dicts):

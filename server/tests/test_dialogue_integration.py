@@ -6,15 +6,13 @@ AI 对话系统集成测试
 - 数据流完整性
 - 前后端交互
 """
-import pytest
-from fastapi.testclient import TestClient
-from unittest.mock import Mock, patch, MagicMock
-import tempfile
 import os
-import json
+import sys
 from datetime import datetime
 
-import sys
+import pytest
+from fastapi.testclient import TestClient
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from main import app
@@ -344,14 +342,14 @@ class TestEndToEndFlow:
             json={"title": "E2E Test Session"}
         )
         assert session_response.status_code in [200, 201]
-        
+
         session_data = session_response.json()
         session_id = session_data.get("id") or session_data.get("session_id")
-        
+
         if session_id:
             get_response = client.get(f"/chat/{session_id}")
             assert get_response.status_code == 200
-            
+
             delete_response = client.delete(f"/chat/{session_id}")
             assert delete_response.status_code in [200, 404]
 
@@ -359,18 +357,18 @@ class TestEndToEndFlow:
         """测试模型管理流程"""
         list_response = client.get("/models")
         assert list_response.status_code == 200
-        
+
         data = list_response.json()
         models = data if isinstance(data, list) else data.get("models", [])
-        
+
         assert isinstance(models, list)
 
     def test_dataset_management_flow(self, client):
         """测试数据集管理流程"""
         list_response = client.get("/datasets")
         assert list_response.status_code == 200
-        
+
         data = list_response.json()
         datasets = data if isinstance(data, list) else data.get("datasets", [])
-        
+
         assert isinstance(datasets, list)

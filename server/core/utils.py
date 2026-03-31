@@ -4,25 +4,23 @@
 - P2-3: 使用设备信息缓存
 - PERF-4: 优化 GPU 内存清理策略
 """
-import os
-import hashlib
 import gc
-from pathlib import Path
-from typing import Optional, List, Dict, Any
-import logging
+import hashlib
 import threading
 import time
+from pathlib import Path
+from typing import Any
 
 from core.logging import get_logger
 
 logger = get_logger(__name__)
 
-_device_info_cache: Optional[Dict[str, Any]] = None
+_device_info_cache: dict[str, Any] | None = None
 _device_info_lock = threading.Lock()
 _device_info_cache_time: float = 0
 DEVICE_INFO_CACHE_TTL = 5.0
 
-_vram_cache: Dict[str, Any] = {"value": 0.0, "time": 0}
+_vram_cache: dict[str, Any] = {"value": 0.0, "time": 0}
 _vram_cache_lock = threading.Lock()
 VRAM_CACHE_TTL = 0.5
 
@@ -31,29 +29,29 @@ def get_vram_usage(use_cache: bool = True) -> float:
     """获取 VRAM 使用量 (GB) - 带缓存"""
     try:
         current_time = time.time()
-        
+
         if use_cache:
             with _vram_cache_lock:
                 if current_time - _vram_cache["time"] < VRAM_CACHE_TTL:
                     return _vram_cache["value"]
-        
+
         import torch
 
         if torch.cuda.is_available():
             value = torch.cuda.memory_allocated(0) / (1024 ** 3)
-            
+
             if use_cache:
                 with _vram_cache_lock:
                     _vram_cache["value"] = value
                     _vram_cache["time"] = current_time
-            
+
             return value
     except Exception as e:
         logger.debug(f"获取 VRAM 使用量失败：{e}")
     return 0.0
 
 
-def get_available_memory() -> Optional[float]:
+def get_available_memory() -> float | None:
     """获取可用 VRAM (GB)"""
     try:
         import torch
@@ -71,7 +69,7 @@ def pre_training_resource_check(
     required_vram_gb: float = 6.0,
     method: str = "qlora",
     model_size: str = "7B"
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     训练前资源检查 + 智能降级建议
 
@@ -147,7 +145,7 @@ def calculate_file_hash(file_path: Path) -> str:
     return sha256_hash.hexdigest()
 
 
-def validate_file_type(file_path: Path, allowed_types: List[str]) -> bool:
+def validate_file_type(file_path: Path, allowed_types: list[str]) -> bool:
     """验证文件类型"""
     return file_path.suffix.lower() in allowed_types
 
@@ -195,14 +193,14 @@ class GPUMemoryCleaner:
     
     PERF-4: 优化 GPU 内存清理
     """
-    
+
     CLEANUP_COOLDOWN = 2.0
     AGGRESSIVE_CLEANUP_INTERVAL = 300.0
-    
+
     _last_cleanup_time: float = 0
     _last_aggressive_cleanup: float = 0
     _lock = threading.Lock()
-    
+
     @classmethod
     def cleanup(cls, aggressive: bool = False, force: bool = False) -> bool:
         """
@@ -222,60 +220,60 @@ class GPUMemoryCleaner:
                 return False
 
             current_time = time.time()
-            
+
             with cls._lock:
                 if not force:
                     if current_time - cls._last_cleanup_time < cls.CLEANUP_COOLDOWN:
                         return True
-                    
+
                     if aggressive and current_time - cls._last_aggressive_cleanup < cls.AGGRESSIVE_CLEANUP_INTERVAL:
                         aggressive = False
-                
+
                 cls._last_cleanup_time = current_time
-                
+
                 torch.cuda.synchronize()
                 torch.cuda.empty_cache()
-                
+
                 gc.collect()
-                
+
                 if aggressive:
                     cls._last_aggressive_cleanup = current_time
                     cls._do_aggressive_cleanup()
-                
+
                 vram_used = torch.cuda.memory_allocated(0) / (1024 ** 3)
                 vram_total = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
                 logger.debug(f"显存清理完成：{vram_used:.2f}/{vram_total:.2f}GB")
 
                 return True
-                
+
         except Exception as e:
             logger.warning(f"清理 GPU 内存失败：{e}")
         return False
-    
+
     @classmethod
     def _do_aggressive_cleanup(cls):
         """执行激进清理"""
         try:
             import torch
-            
+
             torch.cuda.reset_peak_memory_stats()
-            
+
             for i in range(torch.cuda.device_count()):
                 with torch.cuda.device(i):
                     mem_before = torch.cuda.memory_reserved()
-                    
+
                     torch.cuda.empty_cache()
                     torch.cuda.synchronize()
-                    
+
                     mem_after = torch.cuda.memory_reserved()
-                    
+
                     logger.debug(
                         f"GPU {i}: 释放 {(mem_before - mem_after) / (1024**3):.2f}GB"
                     )
-                    
+
         except Exception as e:
             logger.warning(f"激进清理失败：{e}")
-    
+
     @classmethod
     def reset_counters(cls):
         """重置计数器（用于测试）"""
@@ -305,7 +303,6 @@ def safe_cleanup_model(model: Any):
         model: 需要清理的模型对象
     """
     try:
-        import torch
 
         if model is None:
             return
@@ -350,15 +347,15 @@ def get_device_info(use_cache: bool = True) -> dict:
         use_cache: 是否使用缓存
     """
     global _device_info_cache, _device_info_cache_time
-    
+
     current_time = time.time()
-    
+
     if use_cache:
         with _device_info_lock:
-            if (_device_info_cache is not None and 
+            if (_device_info_cache is not None and
                 current_time - _device_info_cache_time < DEVICE_INFO_CACHE_TTL):
                 return _device_info_cache.copy()
-    
+
     try:
         import torch
 

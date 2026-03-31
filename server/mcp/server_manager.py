@@ -1,13 +1,14 @@
-from typing import Dict, List, Optional, Any
-from .types import MCPServerInfo, MCPTool, MCPToolResult
+from typing import Any, Optional
+
 from .client import MCPClient
+from .types import MCPServerInfo, MCPTool, MCPToolResult
 
 
 class MCPServerManager:
     def __init__(self):
-        self._servers: Dict[str, MCPClient] = {}
-        self._tool_to_server: Dict[str, str] = {}
-        self._server_configs: Dict[str, MCPServerInfo] = {}
+        self._servers: dict[str, MCPClient] = {}
+        self._tool_to_server: dict[str, str] = {}
+        self._server_configs: dict[str, MCPServerInfo] = {}
 
     async def add_server(self, name: str, server_info: MCPServerInfo) -> bool:
         if name in self._servers:
@@ -44,7 +45,7 @@ class MCPServerManager:
         server_info = self._server_configs[name]
         return await self.add_server(name, server_info)
 
-    async def list_all_tools(self) -> List[MCPTool]:
+    async def list_all_tools(self) -> list[MCPTool]:
         tools = []
         for client in self._servers.values():
             tools.extend(await client.list_tools())
@@ -53,7 +54,7 @@ class MCPServerManager:
     async def call_tool(
         self,
         tool_name: str,
-        arguments: Dict[str, Any]
+        arguments: dict[str, Any]
     ) -> MCPToolResult:
         if tool_name not in self._tool_to_server:
             return MCPToolResult(
@@ -72,19 +73,19 @@ class MCPServerManager:
             return "disconnected"
         return "not_found"
 
-    def get_server_names(self) -> List[str]:
+    def get_server_names(self) -> list[str]:
         return list(self._servers.keys())
 
-    def get_server_info(self, name: str) -> Optional[MCPServerInfo]:
+    def get_server_info(self, name: str) -> MCPServerInfo | None:
         return self._server_configs.get(name)
 
-    def get_all_server_info(self) -> Dict[str, MCPServerInfo]:
+    def get_all_server_info(self) -> dict[str, MCPServerInfo]:
         return self._server_configs.copy()
 
-    def get_tool_server(self, tool_name: str) -> Optional[str]:
+    def get_tool_server(self, tool_name: str) -> str | None:
         return self._tool_to_server.get(tool_name)
 
-    def get_tools_by_server(self, server_name: str) -> List[str]:
+    def get_tools_by_server(self, server_name: str) -> list[str]:
         return [
             tool_name
             for tool_name, srv_name in self._tool_to_server.items()
@@ -104,13 +105,13 @@ class MCPServerManager:
     def is_tool_available(self, tool_name: str) -> bool:
         return tool_name in self._tool_to_server
 
-    def get_connected_servers(self) -> List[str]:
+    def get_connected_servers(self) -> list[str]:
         return [
             name for name, client in self._servers.items()
             if client.is_connected
         ]
 
-    def get_disconnected_servers(self) -> List[str]:
+    def get_disconnected_servers(self) -> list[str]:
         return [
             name for name, client in self._servers.items()
             if not client.is_connected

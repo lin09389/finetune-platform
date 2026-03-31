@@ -1,10 +1,9 @@
-/**
- * API 服务配置
- * 支持连接复用、请求取消、错误自动重试
- */
+﻿/**
+ * API 鏈嶅姟閰嶇疆
+ * 鏀寔杩炴帴澶嶇敤銆佽姹傚彇娑堛€侀敊璇嚜鍔ㄩ噸璇? */
 import axios, { AxiosInstance } from 'axios';
 
-// 获取 API 基础 URL
+// 鑾峰彇 API 鍩虹 URL
 const getApiBaseUrl = () => {
   if (typeof window !== 'undefined' && (window as any).electronAPI) {
     return (window as any).electronAPI.getBackendUrlSync?.() || 'http://127.0.0.1:8000';
@@ -12,10 +11,10 @@ const getApiBaseUrl = () => {
   return ((import.meta as any).env?.VITE_API_URL || 'http://127.0.0.1:8000') as string;
 };
 
-// 导出 API_BASE_URL 供其他模块使用
+// Export base URL for other modules.
 export const API_BASE_URL = getApiBaseUrl();
 
-// ==================== 连接池管理 ====================
+// ==================== 杩炴帴姹犵鐞?====================
 
 interface ConnectionPoolEntry {
   controller: AbortController;
@@ -53,7 +52,7 @@ class ConnectionPool {
   }
 
   release(key: string): void {
-    // 只从池中移除，不 abort（请求已完成）
+    // Remove from pool only; completed requests should not be aborted here.
     this.pool.delete(key);
   }
 
@@ -117,7 +116,7 @@ class ConnectionPool {
 
 const connectionPool = new ConnectionPool();
 
-// ==================== 错误重试机制 ====================
+// ==================== 閿欒閲嶈瘯鏈哄埗 ====================
 
 interface RetryConfig {
   maxRetries: number;
@@ -185,7 +184,7 @@ async function fetchWithRetry<T>(
 
       if (attempt < retryConfig.maxRetries - 1) {
         const backoffDelay = calculateBackoff(attempt, retryConfig.baseDelay, retryConfig.maxDelay);
-        console.warn(`请求失败，${backoffDelay}ms 后重试 (第 ${attempt + 1}/${retryConfig.maxRetries} 次):`, error.message);
+        console.warn(`璇锋眰澶辫触锛?{backoffDelay}ms 鍚庨噸璇?(绗?${attempt + 1}/${retryConfig.maxRetries} 娆?:`, error.message);
         await delay(backoffDelay);
       }
     }
@@ -194,7 +193,7 @@ async function fetchWithRetry<T>(
   throw lastError;
 }
 
-// ==================== Axios 实例配置 ====================
+// ==================== Axios 瀹炰緥閰嶇疆 ====================
 
 const createAxiosInstance = (): AxiosInstance => {
   const instance = axios.create({
@@ -248,7 +247,7 @@ const createAxiosInstance = (): AxiosInstance => {
 
 export const apiClient = createAxiosInstance();
 
-// ==================== 请求取消管理 ====================
+// ==================== 璇锋眰鍙栨秷绠＄悊 ====================
 
 export const requestManager = {
   cancelRequest(key: string): void {
@@ -268,7 +267,7 @@ export const requestManager = {
   },
 };
 
-// 设备管理
+// 璁惧绠＄悊
 export const getDeviceInfo = async () => {
   const response = await apiClient.get('/device/info');
   return response.data;
@@ -284,7 +283,7 @@ export const getDeviceMemory = async () => {
   return response.data;
 };
 
-// 模型管理
+// 妯″瀷绠＄悊
 export const getModelList = async () => {
   const response = await apiClient.get('/models');
   return response.data;
@@ -305,7 +304,7 @@ export const getModelDetail = async (modelId: string) => {
   return response.data;
 };
 
-// 导入 ModelScope 模型
+// 瀵煎叆 ModelScope 妯″瀷
 export const importModelFromModelScope = async (modelName: string, modelscopePath?: string) => {
   const response = await apiClient.post('/model-center/import-modelscope', {
     model_name: modelName,
@@ -314,7 +313,7 @@ export const importModelFromModelScope = async (modelName: string, modelscopePat
   return response.data;
 };
 
-// 搜索模型（支持 ModelScope 和 HuggingFace）
+// Search models (ModelScope / HuggingFace)
 export const searchModels = async (query: string, limit: number = 20, source: string = 'modelscope') => {
   const response = await apiClient.post('/model-center/search', {
     query,
@@ -324,7 +323,7 @@ export const searchModels = async (query: string, limit: number = 20, source: st
   return response.data;
 };
 
-// 从 ModelScope 下载模型
+// 浠?ModelScope 涓嬭浇妯″瀷
 export const downloadModelFromModelScope = async (repoId: string, revision: string = 'master') => {
   const response = await apiClient.post('/model-center/download', {
     repo_id: repoId,
@@ -334,7 +333,7 @@ export const downloadModelFromModelScope = async (repoId: string, revision: stri
   return response.data;
 };
 
-// 从 HuggingFace 下载模型
+// 浠?HuggingFace 涓嬭浇妯″瀷
 export const downloadModelFromHuggingFace = async (repoId: string, revision: string = 'main') => {
   const response = await apiClient.post('/model-center/download', {
     repo_id: repoId,
@@ -344,49 +343,49 @@ export const downloadModelFromHuggingFace = async (repoId: string, revision: str
   return response.data;
 };
 
-// 获取模型下载进度
+// 鑾峰彇妯″瀷涓嬭浇杩涘害
 export const getDownloadProgress = async (taskId: string) => {
   const response = await apiClient.get(`/model-center/download/${taskId}`);
   return response.data;
 };
 
-// 获取推荐模型列表
+// 鑾峰彇鎺ㄨ崘妯″瀷鍒楄〃
 export const getModelSuggestions = async () => {
   const response = await apiClient.get('/model-center/suggestions');
   return response.data;
 };
 
-// 获取本地模型列表
+// 鑾峰彇鏈湴妯″瀷鍒楄〃
 export const getLocalModels = async () => {
   const response = await apiClient.get('/model-center/local');
   return response.data;
 };
 
-// 删除本地模型
+// 鍒犻櫎鏈湴妯″瀷
 export const deleteLocalModel = async (modelId: string) => {
   const response = await apiClient.delete(`/model-center/local/${modelId}`);
   return response.data;
 };
 
-// 获取模型下载源配置
+// Get model source config
 export const getModelSource = async () => {
   const response = await apiClient.get('/model-center/source');
   return response.data;
 };
 
-// 切换模型下载源
+// Set model source
 export const setModelSource = async (source: string) => {
   const response = await apiClient.post('/model-center/source', null, { params: { source } });
   return response.data;
 };
 
-// 检查网络状态
+// Check network status
 export const checkNetworkStatus = async () => {
   const response = await apiClient.get('/model-center/network/status');
   return response.data;
 };
 
-// 数据集管理
+// Dataset management
 export const getDatasetList = async () => {
   const response = await apiClient.get('/datasets');
   return response.data;
@@ -423,13 +422,13 @@ export const getDatasetStatistics = async (datasetId: string) => {
   return response.data;
 };
 
-// 训练管理
+// 璁粌绠＄悊
 export const startTraining = async (config: any) => {
   const response = await apiClient.post('/training/start', config);
   return response.data;
 };
 
-// P2-2: SWIFT 框架训练
+// P2-2: SWIFT 妗嗘灦璁粌
 export const startSwiftTraining = async (config: any) => {
   const response = await apiClient.post('/training/start-swift', config);
   return response.data;
@@ -477,12 +476,12 @@ export const subscribeTrainingProgress = (
 
       if (retryCount < config.maxRetries) {
         const backoffDelay = calculateBackoff(retryCount, config.baseDelay, config.maxDelay);
-        console.warn(`SSE 连接断开，${backoffDelay}ms 后重试 (第 ${retryCount + 1}/${config.maxRetries} 次)`);
+        console.warn(`SSE 杩炴帴鏂紑锛?{backoffDelay}ms 鍚庨噸璇?(绗?${retryCount + 1}/${config.maxRetries} 娆?`);
         retryCount++;
         retryTimer = setTimeout(connect, backoffDelay);
       } else {
         if (onError) {
-          onError(new Error('SSE 连接错误，已达到最大重试次数'));
+          onError(new Error('SSE connection error: max retries reached'));
         }
       }
     };
@@ -509,7 +508,7 @@ export const resumeTraining = async (trainingId: string, checkpoint: string) => 
   return response.data;
 };
 
-// 推理服务
+// 鎺ㄧ悊鏈嶅姟
 export const inference = async (config: {
   modelId: string;
   prompt: string;
@@ -605,7 +604,7 @@ export const streamInference = async (
       
       while (!done) {
         if (Date.now() - streamStartTime > STREAM_READ_TIMEOUT) {
-          throw new Error('流式读取超时');
+          throw new Error('娴佸紡璇诲彇瓒呮椂');
         }
         
         const readResult = await reader.read();
@@ -640,7 +639,7 @@ export const streamInference = async (
               if (data.stats && onStats) {
                 onStats(data.stats);
               }
-              console.log(`流式推理完成 - 共 ${chunkCount} 个 chunks`);
+              console.log(`娴佸紡鎺ㄧ悊瀹屾垚 - 鍏?${chunkCount} 涓?chunks`);
             }
           } catch (e) {
             if (e instanceof Error && e.message !== 'Stream error') {
@@ -664,7 +663,7 @@ export const streamInference = async (
       lastError = error;
 
       if (error.name === 'AbortError') {
-        console.log('流式推理已被取消');
+        console.log('娴佸紡鎺ㄧ悊宸茶鍙栨秷');
         throw error;
       }
 
@@ -674,7 +673,7 @@ export const streamInference = async (
 
       if (attempt < retryConf.maxRetries - 1) {
         const backoffDelay = calculateBackoff(attempt, retryConf.baseDelay, retryConf.maxDelay);
-        console.warn(`流式推理失败，${backoffDelay}ms 后重试 (第 ${attempt + 1}/${retryConf.maxRetries} 次):`, error.message);
+        console.warn(`娴佸紡鎺ㄧ悊澶辫触锛?{backoffDelay}ms 鍚庨噸璇?(绗?${attempt + 1}/${retryConf.maxRetries} 娆?:`, error.message);
         await delay(backoffDelay);
       }
     }
@@ -732,7 +731,7 @@ export const clearPerformanceHistory = async () => {
   return response.data;
 };
 
-// 对话历史管理
+// 瀵硅瘽鍘嗗彶绠＄悊
 export const getChatHistory = async (retryConfig?: Partial<RetryConfig>) => {
   return fetchWithRetry(async () => {
     const response = await fetch(`${API_BASE_URL}/chat`);
@@ -793,10 +792,10 @@ export const mergeLora = async (modelId: string, outputName: string) => {
   return response.data;
 };
 
-// ==================== Agent 操作 API ====================
+// ==================== Agent APIs (Direct-Cut Contract) ====================
 
 /**
- * 检测消息中的 Agent 意图
+ * Detect intent from plain user message.
  */
 export const detectAgentIntent = async (message: string) => {
   const response = await apiClient.post('/agent/detect-intent', { message });
@@ -804,7 +803,7 @@ export const detectAgentIntent = async (message: string) => {
 };
 
 /**
- * 执行 Agent 操作
+ * Execute a concrete agent action directly.
  */
 export const executeAgentAction = async (
   action: string,
@@ -816,23 +815,25 @@ export const executeAgentAction = async (
 };
 
 /**
- * 从聊天消息自动识别并执行操作
+ * Detect and execute from chat message in one request.
  */
 export const chatExecuteAgent = async (
   message: string, 
   autoConfirm: boolean = false,
-  context?: { content?: string; content_type?: string; generated_filename?: string }
+  context?: { content?: string; content_type?: string; generated_filename?: string },
+  sessionId?: string
 ) => {
   const response = await apiClient.post('/agent/chat-execute', { 
     message, 
     auto_confirm: autoConfirm,
-    context 
+    context,
+    session_id: sessionId
   });
   return response.data;
 };
 
 /**
- * 获取 Agent 支持的操作能力
+ * Get backend-declared agent capabilities.
  */
 export const getAgentCapabilities = async () => {
   const response = await apiClient.get('/agent/capabilities');
@@ -840,104 +841,118 @@ export const getAgentCapabilities = async () => {
 };
 
 /**
- * 获取审计统计信息
+ * @deprecated `/agent/audit/*` removed in direct-cut mode.
+ * Compatibility wrapper maps to `/agent-executor/stats`.
  */
 export const getAgentAuditStats = async () => {
-  const response = await apiClient.get('/agent/audit/stats');
-  return response.data;
+  const response = await apiClient.get('/agent-executor/stats');
+  return {
+    source: 'agent-executor',
+    ...response.data,
+  };
 };
 
 /**
- * 获取最近的审计日志
+ * @deprecated `/agent/audit/*` removed in direct-cut mode.
+ * Compatibility wrapper maps to `/agent-executor/audit-log`.
  */
 export const getAgentAuditRecent = async (limit: number = 50) => {
-  const response = await apiClient.get('/agent/audit/recent', { params: { limit } });
-  return response.data;
+  const response = await apiClient.get('/agent-executor/audit-log', { params: { limit } });
+  return {
+    source: 'agent-executor',
+    ...response.data,
+  };
 };
 
 /**
- * 增强版意图检测（支持多意图、置信度评分）
+ * Compatibility wrapper for richer intent detection payload.
  */
 export const detectIntentEnhanced = async (
   message: string,
   context?: Record<string, any>
 ) => {
-  const response = await apiClient.post('/agent/detect-intent-enhanced', { message, context });
+  const response = await apiClient.post('/agent/detect-intent', { message, context });
   return response.data;
 };
 
 /**
- * 多意图并行检测
+ * Multi-intent detection entrypoint.
  */
 export const detectMultiIntent = async (
   message: string,
   context?: Record<string, any>,
-  maxIntents: number = 5
+  _maxIntents: number = 5
 ) => {
-  const response = await apiClient.post('/agent/detect-multi-intent', {
+  const response = await apiClient.post('/agent/detect-intent-multi', {
     message,
     context,
-    max_intents: maxIntents,
   });
   return response.data;
 };
 
 /**
- * 处理澄清对话响应
+ * Local clarification helper kept for UI compatibility.
  */
 export const handleClarificationResponse = async (
-  dialogId: string,
+  _dialogId: string,
   response: string
 ) => {
-  const res = await apiClient.post('/agent/clarification/respond', {
-    dialog_id: dialogId,
-    response,
-  });
-  return res.data;
+  return {
+    success: true,
+    selected_option: {
+      value: response,
+    },
+  };
 };
 
-/**
- * 获取澄清对话详情
- */
-export const getClarificationDialog = async (dialogId: string) => {
-  const response = await apiClient.get(`/agent/clarification/${dialogId}`);
-  return response.data;
+export const getClarificationDialog = async (_dialogId: string) => {
+  return {
+    question: '',
+    options: [],
+    context: {},
+  };
 };
 
-/**
- * 从自然语言中提取结构化参数
- */
 export const extractParams = async (
   message: string,
-  paramTypes?: string[]
+  _paramTypes?: string[]
 ) => {
-  const response = await apiClient.post('/agent/extract-params', {
-    message,
-    param_types: paramTypes,
-  });
-  return response.data;
+  const response = await apiClient.post('/agent/detect-intent', { message });
+  const data = response.data || {};
+  return {
+    success: true,
+    params: data.params || {},
+    confidence: data.confidence ?? 0,
+    intent_type: data.intent_type ?? 'unknown',
+  };
 };
 
-/**
- * 获取支持的意图类型列表
- */
 export const getIntentTypes = async () => {
-  const response = await apiClient.get('/agent/intent-types');
-  return response.data;
+  return {
+    intent_types: [
+      'content_generation',
+      'save_content',
+      'composite_content_save',
+      'conversation',
+      'unknown',
+    ],
+  };
 };
 
-/**
- * 评估意图置信度详情
- */
 export const evaluateIntentConfidence = async (
   message: string,
   context?: Record<string, any>
 ) => {
-  const response = await apiClient.post('/agent/intent-confidence', { message, context });
-  return response.data;
+  const response = await apiClient.post('/agent/detect-intent', { message, context });
+  const data = response.data || {};
+  return {
+    confidence: data.confidence ?? 0,
+    intent_type: data.intent_type ?? 'unknown',
+    detected: Boolean(data.detected),
+  };
 };
 
-// 健康检查
+// Health check
 export const checkBackendHealth = async () => {
   try {
     const response = await apiClient.get('/health');
@@ -1002,4 +1017,182 @@ export const mcp = {
   getOverallStatus: () => apiClient.get('/mcp/status'),
 };
 
+// ==================== 鎺ㄧ悊寮曟搸 API (閲嶆瀯鐗? ====================
+
+export interface InferenceEngine {
+  name: string;
+  backend: string;
+  available: boolean;
+  supports_streaming: boolean;
+  supports_chat: boolean;
+}
+
+export interface GenerateRequest {
+  model_id: string;
+  prompt: string;
+  max_tokens?: number;
+  temperature?: number;
+  top_p?: number;
+  top_k?: number;
+  repetition_penalty?: number;
+  backend?: string;
+}
+
+export interface ChatGenerateRequest {
+  model_id: string;
+  messages: Array<{ role: string; content: string }>;
+  max_tokens?: number;
+  temperature?: number;
+  top_p?: number;
+  system_prompt?: string;
+  backend?: string;
+}
+
+export interface InferenceResponse {
+  text: string;
+  tokens_generated: number;
+  processing_time_ms: number;
+  model_id: string;
+  backend: string;
+  finish_reason: string;
+}
+
+export const listInferenceEngines = async (): Promise<{ engines: InferenceEngine[]; default_engine: string }> => {
+  const response = await apiClient.get('/inference-engine/engines');
+  return response.data;
+};
+
+export const getInferenceEngineInfo = async (engineName: string) => {
+  const response = await apiClient.get(`/inference-engine/engines/${engineName}`);
+  return response.data;
+};
+
+export const generateText = async (request: GenerateRequest): Promise<InferenceResponse> => {
+  const response = await apiClient.post('/inference-engine/generate', request);
+  return response.data;
+};
+
+export const generateChat = async (request: ChatGenerateRequest): Promise<InferenceResponse> => {
+  const response = await apiClient.post('/inference-engine/chat', request);
+  return response.data;
+};
+
+export const streamGenerate = async (
+  request: GenerateRequest,
+  onChunk: (content: string) => void,
+  onComplete?: () => void
+) => {
+  const response = await fetch(`${API_BASE_URL}/inference-engine/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('No reader available');
+
+  const decoder = new TextDecoder();
+  
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    const text = decoder.decode(value);
+    const lines = text.split('\n');
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.content) {
+            onChunk(data.content);
+          }
+          if (data.done && onComplete) {
+            onComplete();
+          }
+        } catch (e) {
+          // Ignore parse errors
+        }
+      }
+    }
+  }
+};
+
+export const loadInferenceModel = async (modelId: string, backend?: string) => {
+  const params = backend ? `?backend=${backend}` : '';
+  const response = await apiClient.post(`/inference-engine/models/${modelId}/load${params}`);
+  return response.data;
+};
+
+export const unloadInferenceModel = async (modelId: string, backend?: string) => {
+  const params = backend ? `?backend=${backend}` : '';
+  const response = await apiClient.delete(`/inference-engine/models/${modelId}${params}`);
+  return response.data;
+};
+
+export const getInferenceModelInfo = async (modelId: string, backend?: string) => {
+  const params = backend ? `?backend=${backend}` : '';
+  const response = await apiClient.get(`/inference-engine/models/${modelId}/info${params}`);
+  return response.data;
+};
+
+export const getInferenceEngineStats = async () => {
+  const response = await apiClient.get('/inference-engine/stats');
+  return response.data;
+};
+
+// ==================== Agent 鎵ц鍣?API (閲嶆瀯鐗? ====================
+
+export interface OperationResult {
+  success: boolean;
+  status: string;
+  message: string;
+  data?: Record<string, any>;
+  error?: string;
+  error_code?: string;
+  operation_id: string;
+  duration_ms: number;
+}
+
+export interface ExecuteRequest {
+  action: string;
+  params: Record<string, any>;
+  workspace?: string;
+}
+
+export const listAgentActions = async (): Promise<{ actions: string[]; count: number; executor: string }> => {
+  const response = await apiClient.get('/agent-executor/actions');
+  return response.data;
+};
+
+export const executeAgentActionNew = async (request: ExecuteRequest): Promise<OperationResult> => {
+  const response = await apiClient.post('/agent-executor/execute', request);
+  return response.data;
+};
+
+export const executeAgentBatch = async (
+  operations: Array<{ action: string; params: Record<string, any> }>,
+  workspace?: string
+): Promise<{ results: OperationResult[]; total: number }> => {
+  const response = await apiClient.post('/agent-executor/execute/batch', { operations, workspace });
+  return response.data;
+};
+
+export const listAgentHandlers = async () => {
+  const response = await apiClient.get('/agent-executor/handlers');
+  return response.data;
+};
+
+export const getAgentExecutorStats = async () => {
+  const response = await apiClient.get('/agent-executor/stats');
+  return response.data;
+};
+
+export const getAgentAuditLog = async (limit: number = 100) => {
+  const response = await apiClient.get(`/agent-executor/audit-log?limit=${limit}`);
+  return response.data;
+};
+
 export default apiClient;
+

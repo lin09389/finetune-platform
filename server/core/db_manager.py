@@ -2,12 +2,11 @@
 数据库连接管理模块
 提供连接池和上下文管理器支持
 """
+import logging
 import sqlite3
 import threading
-import logging
-from pathlib import Path
-from typing import Optional, ContextManager, Dict
 from contextlib import contextmanager
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +18,10 @@ class DatabaseConnectionPool:
     由于 SQLite 是文件数据库，使用线程局部存储来管理连接
     每个线程维护自己的连接，避免多线程问题
     """
-    
+
     _instance: Optional['DatabaseConnectionPool'] = None
     _lock = threading.Lock()
-    
+
     def __new__(cls, db_path: str = None):
         if cls._instance is None:
             with cls._lock:
@@ -30,16 +29,16 @@ class DatabaseConnectionPool:
                     cls._instance = super().__new__(cls)
                     cls._instance._initialized = False
         return cls._instance
-    
+
     def __init__(self, db_path: str = None):
         if self._initialized:
             return
-            
+
         self._db_path = db_path or "data/app.db"
         self._thread_local = threading.local()
         self._initialized = True
         logger.info(f"数据库连接池已初始化：{self._db_path}")
-    
+
     def _get_thread_connection(self) -> sqlite3.Connection:
         """获取当前线程的连接"""
         if not hasattr(self._thread_local, 'connection'):
@@ -50,7 +49,7 @@ class DatabaseConnectionPool:
             self._thread_local.connection = conn
             logger.debug(f"创建新数据库连接：线程 {threading.current_thread().name}")
         return self._thread_local.connection
-    
+
     @contextmanager
     def get_connection(self):
         """
@@ -70,7 +69,7 @@ class DatabaseConnectionPool:
             raise
         else:
             conn.commit()
-    
+
     def close_all(self):
         """关闭所有连接"""
         if hasattr(self._thread_local, 'connection'):
@@ -80,28 +79,28 @@ class DatabaseConnectionPool:
                 logger.debug("数据库连接已关闭")
             except Exception as e:
                 logger.warning(f"关闭数据库连接失败：{e}")
-    
+
     def execute_query(self, query: str, params: tuple = ()):
         """执行查询并返回所有结果"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, params)
             return cursor.fetchall()
-    
+
     def execute_one(self, query: str, params: tuple = ()):
         """执行查询并返回单个结果"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, params)
             return cursor.fetchone()
-    
+
     def execute_update(self, query: str, params: tuple = ()):
         """执行更新操作"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, params)
             return cursor.rowcount
-    
+
     def execute_many(self, query: str, params_list: list):
         """批量执行操作"""
         with self.get_connection() as conn:
@@ -110,7 +109,7 @@ class DatabaseConnectionPool:
             return cursor.rowcount
 
 
-_db_pools: Dict[str, DatabaseConnectionPool] = {}
+_db_pools: dict[str, DatabaseConnectionPool] = {}
 _pool_lock = threading.Lock()
 
 

@@ -7,13 +7,12 @@ Prompt 安全模块
 - 内容清理器
 - 安全中间件
 """
-import re
 import logging
-from typing import Dict, Any, Optional, List, Tuple
+import re
 from dataclasses import dataclass, field
-from enum import Enum
 from datetime import datetime
-import json
+from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +47,11 @@ class InjectionPattern:
     injection_type: InjectionType
     threat_level: ThreatLevel
     description: str
-    examples: List[str] = field(default_factory=list)
+    examples: list[str] = field(default_factory=list)
     mitigation: str = ""
 
 
-INJECTION_PATTERNS: List[InjectionPattern] = [
+INJECTION_PATTERNS: list[InjectionPattern] = [
     InjectionPattern(
         id="ignore_instructions",
         name="忽略指令",
@@ -191,12 +190,12 @@ class ScanResult:
     """扫描结果"""
     is_safe: bool
     threat_level: ThreatLevel
-    detected_patterns: List[Tuple[InjectionPattern, str]]
+    detected_patterns: list[tuple[InjectionPattern, str]]
     cleaned_content: str
-    warnings: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     scan_time: datetime = field(default_factory=datetime.now)
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "is_safe": self.is_safe,
             "threat_level": self.threat_level.value,
@@ -221,15 +220,15 @@ class PromptInjectionDetector:
     
     检测和防御各种 Prompt 注入攻击
     """
-    
-    def __init__(self, custom_patterns: Optional[List[InjectionPattern]] = None):
+
+    def __init__(self, custom_patterns: list[InjectionPattern] | None = None):
         self.patterns = list(INJECTION_PATTERNS)
         if custom_patterns:
             self.patterns.extend(custom_patterns)
-        
-        self._compiled_patterns: Dict[str, re.Pattern] = {}
+
+        self._compiled_patterns: dict[str, re.Pattern] = {}
         self._compile_patterns()
-    
+
     def _compile_patterns(self):
         """编译正则表达式"""
         for pattern in self.patterns:
@@ -237,31 +236,31 @@ class PromptInjectionDetector:
                 self._compiled_patterns[pattern.id] = re.compile(pattern.pattern)
             except re.error as e:
                 logger.error(f"编译模式失败 {pattern.id}: {e}")
-    
+
     def scan(self, content: str) -> ScanResult:
         """扫描内容"""
         detected = []
         max_threat_level = ThreatLevel.SAFE
         warnings = []
-        
+
         cleaned_content = self._preprocess(content)
-        
+
         for pattern in self.patterns:
             compiled = self._compiled_patterns.get(pattern.id)
             if not compiled:
                 continue
-            
+
             matches = compiled.findall(cleaned_content)
             if matches:
                 detected.append((pattern, matches[0] if isinstance(matches[0], str) else str(matches[0])))
-                
+
                 if pattern.threat_level.value > max_threat_level.value:
                     max_threat_level = pattern.threat_level
-                
+
                 warnings.append(f"检测到 {pattern.name}: {pattern.description}")
-        
+
         is_safe = max_threat_level in [ThreatLevel.SAFE, ThreatLevel.LOW]
-        
+
         return ScanResult(
             is_safe=is_safe,
             threat_level=max_threat_level,
@@ -269,15 +268,15 @@ class PromptInjectionDetector:
             cleaned_content=cleaned_content,
             warnings=warnings,
         )
-    
+
     def _preprocess(self, content: str) -> str:
         """预处理内容"""
         content = re.sub(r'[\u200b-\u200f\u2028-\u202f\u205f-\u206f\ufeff]', '', content)
-        
+
         content = re.sub(r'\\[uU]([0-9a-fA-F]{4})', '', content)
-        
+
         return content
-    
+
     def add_pattern(self, pattern: InjectionPattern):
         """添加模式"""
         self.patterns.append(pattern)
@@ -285,7 +284,7 @@ class PromptInjectionDetector:
             self._compiled_patterns[pattern.id] = re.compile(pattern.pattern)
         except re.error as e:
             logger.error(f"编译模式失败 {pattern.id}: {e}")
-    
+
     def remove_pattern(self, pattern_id: str) -> bool:
         """移除模式"""
         for i, p in enumerate(self.patterns):
@@ -294,8 +293,8 @@ class PromptInjectionDetector:
                 self._compiled_patterns.pop(pattern_id, None)
                 return True
         return False
-    
-    def get_patterns(self) -> List[Dict[str, Any]]:
+
+    def get_patterns(self) -> list[dict[str, Any]]:
         """获取所有模式"""
         return [
             {
@@ -315,41 +314,41 @@ class ContentSanitizer:
     
     清理和净化用户输入
     """
-    
-    def __init__(self, detector: Optional[PromptInjectionDetector] = None):
+
+    def __init__(self, detector: PromptInjectionDetector | None = None):
         self.detector = detector or PromptInjectionDetector()
-    
-    def sanitize(self, content: str, aggressive: bool = False) -> Tuple[str, ScanResult]:
+
+    def sanitize(self, content: str, aggressive: bool = False) -> tuple[str, ScanResult]:
         """清理内容"""
         result = self.detector.scan(content)
-        
+
         sanitized = content
-        
+
         for pattern, match in result.detected_patterns:
             if aggressive or pattern.threat_level in [ThreatLevel.HIGH, ThreatLevel.CRITICAL]:
                 sanitized = self._remove_pattern(sanitized, match)
             else:
                 sanitized = self._escape_pattern(sanitized, match)
-        
+
         sanitized = self._general_cleanup(sanitized)
-        
+
         return sanitized, result
-    
+
     def _remove_pattern(self, content: str, match: str) -> str:
         """移除匹配内容"""
         return content.replace(match, "[REMOVED]")
-    
+
     def _escape_pattern(self, content: str, match: str) -> str:
         """转义匹配内容"""
         escaped = match.replace("<", "&lt;").replace(">", "&gt;")
         return content.replace(match, escaped)
-    
+
     def _general_cleanup(self, content: str) -> str:
         """通用清理"""
         content = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', content)
-        
+
         content = re.sub(r'\n{3,}', '\n\n', content)
-        
+
         return content.strip()
 
 
@@ -359,36 +358,36 @@ class PromptSecurityMiddleware:
     
     集成到请求处理流程中
     """
-    
+
     def __init__(
         self,
-        detector: Optional[PromptInjectionDetector] = None,
-        sanitizer: Optional[ContentSanitizer] = None,
+        detector: PromptInjectionDetector | None = None,
+        sanitizer: ContentSanitizer | None = None,
         block_threshold: ThreatLevel = ThreatLevel.HIGH,
     ):
         self.detector = detector or PromptInjectionDetector()
         self.sanitizer = sanitizer or ContentSanitizer(self.detector)
         self.block_threshold = block_threshold
-        
-        self._scan_history: List[ScanResult] = []
+
+        self._scan_history: list[ScanResult] = []
         self._max_history = 1000
-    
+
     async def process_input(
         self,
         content: str,
-        context: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[bool, str, ScanResult]:
+        context: dict[str, Any] | None = None,
+    ) -> tuple[bool, str, ScanResult]:
         """
         处理输入
         
         返回: (是否允许, 处理后的内容, 扫描结果)
         """
         result = self.detector.scan(content)
-        
+
         self._scan_history.append(result)
         if len(self._scan_history) > self._max_history:
             self._scan_history = self._scan_history[-self._max_history:]
-        
+
         if not result.is_safe:
             if result.threat_level.value >= self.block_threshold.value:
                 logger.warning(
@@ -396,12 +395,12 @@ class PromptSecurityMiddleware:
                     f"patterns={[p.id for p, _ in result.detected_patterns]}"
                 )
                 return False, "", result
-        
+
         sanitized, _ = self.sanitizer.sanitize(content)
-        
+
         return True, sanitized, result
-    
-    def get_stats(self) -> Dict[str, Any]:
+
+    def get_stats(self) -> dict[str, Any]:
         """获取统计信息"""
         if not self._scan_history:
             return {
@@ -409,14 +408,14 @@ class PromptSecurityMiddleware:
                 "blocked": 0,
                 "threat_distribution": {},
             }
-        
+
         blocked = sum(1 for r in self._scan_history if not r.is_safe)
-        
-        threat_dist: Dict[str, int] = {}
+
+        threat_dist: dict[str, int] = {}
         for result in self._scan_history:
             level = result.threat_level.value
             threat_dist[level] = threat_dist.get(level, 0) + 1
-        
+
         return {
             "total_scans": len(self._scan_history),
             "blocked": blocked,
@@ -425,9 +424,9 @@ class PromptSecurityMiddleware:
         }
 
 
-_detector: Optional[PromptInjectionDetector] = None
-_sanitizer: Optional[ContentSanitizer] = None
-_middleware: Optional[PromptSecurityMiddleware] = None
+_detector: PromptInjectionDetector | None = None
+_sanitizer: ContentSanitizer | None = None
+_middleware: PromptSecurityMiddleware | None = None
 
 
 def get_injection_detector() -> PromptInjectionDetector:

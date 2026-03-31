@@ -1,8 +1,9 @@
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
+
 import torch
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ class ModelInfo:
     path: str
     size: int
     type: str
-    quantized: Optional[int] = None
+    quantized: int | None = None
 
 
 @dataclass
@@ -135,8 +136,7 @@ class CUDABackend(BaseBackend):
         )
 
     def load_model(self, model_path: str, quantize: int = 4):
-        from transformers import AutoModelForCausalLM, AutoTokenizer
-        from transformers import BitsAndBytesConfig
+        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
         quantization_config = None
         if quantize in [4, 8]:
@@ -158,12 +158,13 @@ class CUDABackend(BaseBackend):
         return self.model
 
     def train(self, config: TrainConfig) -> TrainResult:
-        from peft import LoraConfig, get_peft_model, TaskType
+        from peft import LoraConfig, TaskType, get_peft_model
         from transformers import (
+            DataCollatorForLanguageModeling,
             Trainer,
             TrainingArguments,
-            DataCollatorForLanguageModeling,
         )
+
         from datasets import load_dataset
 
         if not self.model:

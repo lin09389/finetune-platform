@@ -1,11 +1,12 @@
 """
 实体识别 API
 """
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+from typing import Any
 
-from core.entity_recognition import entity_recognizer, entity_highlighter
+from fastapi import APIRouter
+from pydantic import BaseModel
+
+from core.entity_recognition import entity_highlighter
 
 router = APIRouter(prefix="/entity", tags=["entity"])
 
@@ -14,7 +15,7 @@ class RecognizeRequest(BaseModel):
     text: str
     highlight: bool = True
     link_memory: bool = False
-    memory_entities: Optional[Dict[str, Any]] = None
+    memory_entities: dict[str, Any] | None = None
 
 
 class EntityResponse(BaseModel):
@@ -30,18 +31,18 @@ class EntityResponse(BaseModel):
 class RecognizeResponse(BaseModel):
     original_text: str
     highlighted_text: str
-    entities: List[EntityResponse]
+    entities: list[EntityResponse]
     entity_count: int
-    entity_stats: Dict[str, int]
+    entity_stats: dict[str, int]
 
 
 class BatchRecognizeRequest(BaseModel):
-    texts: List[str]
+    texts: list[str]
     highlight: bool = True
 
 
 class BatchRecognizeResponse(BaseModel):
-    results: List[RecognizeResponse]
+    results: list[RecognizeResponse]
 
 
 @router.post("/recognize", response_model=RecognizeResponse)
@@ -80,7 +81,7 @@ async def batch_recognize(request: BatchRecognizeRequest):
     results = []
     for text in request.texts:
         result = entity_highlighter.process_message(text, highlight=request.highlight)
-        
+
         entities = [
             EntityResponse(
                 text=e["text"],

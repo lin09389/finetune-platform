@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Gateway 模块 - 统一入口和消息路由
 借鉴 OpenClaw 架构设计
@@ -9,21 +8,21 @@ Gateway 模块 - 统一入口和消息路由
 - Binding Router 最具体匹配优先
 - Agent 隔离管理
 """
-from .server import GatewayServer
-from .router import MessageRouter
-from .session import GatewaySessionManager
-from .binding import BindingManager
 from .agent_isolation import AgentIsolationManager
+from .binding import BindingManager
 from .models import (
-    GatewayMessage,
-    GatewayResponse,
-    GatewayEvent,
+    AgentInfo,
+    BindingRule,
     DeviceInfo,
     DevicePairingRequest,
     DevicePairingResponse,
-    BindingRule,
-    AgentInfo,
+    GatewayEvent,
+    GatewayMessage,
+    GatewayResponse,
 )
+from .router import MessageRouter
+from .server import GatewayServer
+from .session import GatewaySessionManager
 
 _gateway_server = None
 _message_router = None

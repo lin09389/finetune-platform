@@ -67,3 +67,13 @@ pdfplumber>=0.10.0
 PyPDF2>=3.0.0
 python-docx>=1.1.0
 openpyxl>=3.1.0
+
+# Scheduler dependencies
+croniter>=1.3.0
+
+# Clipboard support
+pyperclip>=1.8.2
+
+# RAG Knowledge Base dependencies
+chromadb>=0.4.22
+sentence-transformers>=2.2.0

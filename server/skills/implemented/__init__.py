@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 技能实现模块
 
@@ -6,41 +5,41 @@
 每个技能应该是一个独立的 Python 文件，包含一个或多个继承自 SkillBase 的类。
 """
 
+from .cua_skills import (
+    CUA_SKILLS,
+    AppLaunchSkill,
+    FindTextSkill,
+    KeyboardTypeSkill,
+    MouseClickSkill,
+    MouseMoveSkill,
+    ScreenshotSkill,
+    WindowListSkill,
+)
 from .file_skills import (
+    FileDeleteSkill,
+    FileListSkill,
     FileReadSkill,
     FileWriteSkill,
-    FileListSkill,
-    FileDeleteSkill,
-)
-from .text_skills import (
-    TextRegexSkill,
-    TextReplaceSkill,
-    TextSplitSkill,
-    JsonParseSkill,
-    JsonStringifySkill,
-)
-from .system_skills import (
-    SystemInfoSkill,
-    CommandExecuteSkill,
-    DelaySkill,
-    CalculatorSkill,
-)
-from .github_skills import (
-    GitHubAnalyzerSkill,
-    CodePatternSkill,
 )
 from .frontend_design_skills import (
     FrontendDesignSkill,
 )
-from .cua_skills import (
-    ScreenshotSkill,
-    MouseClickSkill,
-    MouseMoveSkill,
-    KeyboardTypeSkill,
-    WindowListSkill,
-    AppLaunchSkill,
-    FindTextSkill,
-    CUA_SKILLS,
+from .github_skills import (
+    CodePatternSkill,
+    GitHubAnalyzerSkill,
+)
+from .system_skills import (
+    CalculatorSkill,
+    CommandExecuteSkill,
+    DelaySkill,
+    SystemInfoSkill,
+)
+from .text_skills import (
+    JsonParseSkill,
+    JsonStringifySkill,
+    TextRegexSkill,
+    TextReplaceSkill,
+    TextSplitSkill,
 )
 
 __all__ = [

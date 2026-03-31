@@ -3,7 +3,6 @@ CUA 键盘控制模块
 """
 import asyncio
 import time
-from typing import Optional, List
 
 import pyautogui
 import pyperclip
@@ -52,7 +51,7 @@ class KeyboardController:
                 return True
         return False
 
-    def type_text(self, text: str, interval: Optional[float] = None) -> OperationResult:
+    def type_text(self, text: str, interval: float | None = None) -> OperationResult:
         interval = interval if interval is not None else self.config.keyboard_delay
 
         def _type():
@@ -69,7 +68,7 @@ class KeyboardController:
         )
 
     async def type_text_async(
-        self, text: str, interval: Optional[float] = None
+        self, text: str, interval: float | None = None
     ) -> OperationResult:
         return await asyncio.to_thread(self.type_text, text, interval)
 
@@ -326,7 +325,7 @@ class KeyboardController:
     async def get_clipboard_content_async(self) -> OperationResult:
         return await asyncio.to_thread(self.get_clipboard_content)
 
-    def type_keys(self, keys: List[str], interval: Optional[float] = None) -> OperationResult:
+    def type_keys(self, keys: list[str], interval: float | None = None) -> OperationResult:
         interval = interval if interval is not None else self.config.keyboard_delay
 
         def _type_keys():
@@ -340,6 +339,6 @@ class KeyboardController:
         )
 
     async def type_keys_async(
-        self, keys: List[str], interval: Optional[float] = None
+        self, keys: list[str], interval: float | None = None
     ) -> OperationResult:
         return await asyncio.to_thread(self.type_keys, keys, interval)

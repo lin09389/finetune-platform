@@ -1,7 +1,7 @@
-from .process import ProcessOperations
-from .service import ServiceOperations
 from .environment import EnvironmentOperations
 from .info import SystemInfoOperations
+from .process import ProcessOperations
+from .service import ServiceOperations
 
 ProcessManager = ProcessOperations
 ServiceManager = ServiceOperations

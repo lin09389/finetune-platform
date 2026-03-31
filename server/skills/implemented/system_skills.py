@@ -1,13 +1,10 @@
-# -*- coding: utf-8 -*-
 """
 系统工具技能
 """
 import asyncio
 import platform
-import subprocess
 import time
 from datetime import datetime
-from typing import Any, Dict
 
 from skills.base import SkillBase
 from skills.models import (

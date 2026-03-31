@@ -1,0 +1,30 @@
+{
+  "id": "20260322_195839_63494d59",
+  "action": "clipboard_write",
+  "params": {
+    "content": "Agent clipboard test 15040"
+  },
+  "timestamp": "2026-03-22T19:58:39.194371",
+  "before_state": {
+    "previous_clipboard": "Agent clipboard test 37672"
+  },
+  "after_state": {
+    "success": true,
+    "data": {
+      "length": 26
+    }
+  },
+  "rollback_operations": [
+    {
+      "type": "clipboard_write",
+      "params": {
+        "content": "{previous_clipboard}"
+      },
+      "description": "恢复剪贴板内容"
+    }
+  ],
+  "rollback_deadline": "2026-03-23T19:58:39.190353",
+  "status": "executed",
+  "is_reversible": true,
+  "error": null
+}

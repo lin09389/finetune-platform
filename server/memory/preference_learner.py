@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 用户偏好学习模块
 
@@ -11,11 +10,10 @@
 import json
 import logging
 import re
-from typing import Dict, Any, Optional, List, Set, Tuple
-from datetime import datetime, timedelta
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
-import uuid
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +28,9 @@ class UserPreference:
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
     access_count: int = 0
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
-    def to_dict(self) -> Dict[str, Any]:
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "key": self.key,
             "value": self.value,
@@ -43,9 +41,9 @@ class UserPreference:
             "access_count": self.access_count,
             "metadata": self.metadata,
         }
-    
+
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "UserPreference":
+    def from_dict(cls, data: dict[str, Any]) -> "UserPreference":
         return cls(
             key=data["key"],
             value=data["value"],
@@ -66,8 +64,8 @@ class PreferenceConflict:
     new_value: Any
     existing_confidence: float
     new_confidence: float
-    resolution: Optional[str] = None
-    resolved_value: Optional[Any] = None
+    resolution: str | None = None
+    resolved_value: Any | None = None
 
 
 class PreferenceExtractor:
@@ -76,7 +74,7 @@ class PreferenceExtractor:
     
     从对话和操作中提取用户偏好
     """
-    
+
     PATTERNS = [
         (r"我喜欢(.+?)(?:，|。|$)", "positive_preference"),
         (r"我不喜欢(.+?)(?:，|。|$)", "negative_preference"),
@@ -88,12 +86,12 @@ class PreferenceExtractor:
         (r"设置(.+?)为(.+?)(?:，|。|$)", "setting"),
         (r"(.+?)用(.+?)(?:，|。|$)", "tool_preference"),
     ]
-    
+
     @classmethod
-    def extract_from_text(cls, text: str) -> List[Tuple[str, Any, float]]:
+    def extract_from_text(cls, text: str) -> list[tuple[str, Any, float]]:
         """从文本中提取偏好"""
         preferences = []
-        
+
         for pattern, pref_type in cls.PATTERNS:
             matches = re.finditer(pattern, text, re.IGNORECASE)
             for match in matches:
@@ -106,40 +104,40 @@ class PreferenceExtractor:
                 else:
                     key = match.group(1).strip()
                     value = True
-                
+
                 confidence = 0.7 if pref_type in ["setting", "default_setting"] else 0.5
-                
+
                 preferences.append((key, value, confidence))
-        
+
         return preferences
-    
+
     @classmethod
     def extract_from_operation(
         cls,
         operation_type: str,
-        params: Dict[str, Any],
-        result: Dict[str, Any]
-    ) -> List[Tuple[str, Any, float]]:
+        params: dict[str, Any],
+        result: dict[str, Any]
+    ) -> list[tuple[str, Any, float]]:
         """从操作中提取偏好"""
         preferences = []
-        
+
         if operation_type == "file_write":
             if "editor" in params:
                 preferences.append(("preferred_editor", params["editor"], 0.6))
             if "style" in params:
                 preferences.append(("code_style", params["style"], 0.5))
-        
+
         elif operation_type == "web_browse":
             if "browser" in params:
                 preferences.append(("preferred_browser", params["browser"], 0.6))
-        
+
         elif operation_type == "command_execute":
             if "shell" in params:
                 preferences.append(("preferred_shell", params["shell"], 0.6))
-        
+
         if result.get("success") and result.get("user_feedback") == "positive":
             preferences.append((f"successful_{operation_type}", params, 0.7))
-        
+
         return preferences
 
 
@@ -147,14 +145,14 @@ class PreferenceConflictResolver:
     """
     偏好冲突解决器
     """
-    
+
     STRATEGIES = {
         "confidence": lambda old, new: old if old.confidence >= new.confidence else new,
         "recency": lambda old, new: new,
         "frequency": lambda old, new: old if old.access_count >= new.access_count else new,
         "merge": None,
     }
-    
+
     @classmethod
     def resolve(
         cls,
@@ -165,7 +163,7 @@ class PreferenceConflictResolver:
         """解决偏好冲突"""
         if strategy not in cls.STRATEGIES:
             strategy = "confidence"
-        
+
         if strategy == "merge":
             if isinstance(existing.value, dict) and isinstance(new_pref.value, dict):
                 merged_value = {**existing.value, **new_pref.value}
@@ -173,7 +171,7 @@ class PreferenceConflictResolver:
                 merged_value = list(set(existing.value + new_pref.value))
             else:
                 merged_value = new_pref.value
-            
+
             return UserPreference(
                 key=existing.key,
                 value=merged_value,
@@ -181,7 +179,7 @@ class PreferenceConflictResolver:
                 source="merged",
                 access_count=existing.access_count + 1,
             )
-        
+
         resolver = cls.STRATEGIES[strategy]
         return resolver(existing, new_pref)
 
@@ -197,57 +195,57 @@ class UserPreferenceLearner:
     - 偏好应用
     - 冲突解决
     """
-    
-    def __init__(self, storage_path: Optional[Path] = None):
+
+    def __init__(self, storage_path: Path | None = None):
         self.storage_path = storage_path or Path("data/user_preferences")
         self.storage_path.mkdir(parents=True, exist_ok=True)
-        
-        self._preferences: Dict[str, Dict[str, UserPreference]] = {}
+
+        self._preferences: dict[str, dict[str, UserPreference]] = {}
         self._conflict_strategy = "confidence"
-        
+
         self._extractor = PreferenceExtractor()
         self._resolver = PreferenceConflictResolver()
-    
+
     def set_conflict_strategy(self, strategy: str):
         """设置冲突解决策略"""
         self._conflict_strategy = strategy
-    
+
     async def learn_from_text(
         self,
         text: str,
         user_id: str = "default"
-    ) -> List[UserPreference]:
+    ) -> list[UserPreference]:
         """从文本学习偏好"""
         extracted = self._extractor.extract_from_text(text)
-        
+
         learned = []
         for key, value, confidence in extracted:
             pref = await self._update_preference(user_id, key, value, confidence, "text")
             learned.append(pref)
-        
+
         return learned
-    
+
     async def learn_from_operation(
         self,
         operation_type: str,
-        params: Dict[str, Any],
-        result: Dict[str, Any],
+        params: dict[str, Any],
+        result: dict[str, Any],
         user_id: str = "default"
-    ) -> List[UserPreference]:
+    ) -> list[UserPreference]:
         """从操作学习偏好"""
         extracted = self._extractor.extract_from_operation(
             operation_type, params, result
         )
-        
+
         learned = []
         for key, value, confidence in extracted:
             pref = await self._update_preference(
                 user_id, key, value, confidence, "operation"
             )
             learned.append(pref)
-        
+
         return learned
-    
+
     async def _update_preference(
         self,
         user_id: str,
@@ -259,16 +257,16 @@ class UserPreferenceLearner:
         """更新偏好"""
         if user_id not in self._preferences:
             self._preferences[user_id] = {}
-        
+
         existing = self._preferences[user_id].get(key)
-        
+
         new_pref = UserPreference(
             key=key,
             value=value,
             confidence=confidence,
             source=source,
         )
-        
+
         if existing:
             resolved = self._resolver.resolve(
                 existing, new_pref, self._conflict_strategy
@@ -281,7 +279,7 @@ class UserPreferenceLearner:
             self._preferences[user_id][key] = new_pref
             self._persist_preference(user_id, new_pref)
             return new_pref
-    
+
     def get_preference(
         self,
         user_id: str,
@@ -291,156 +289,156 @@ class UserPreferenceLearner:
         """获取偏好值"""
         if user_id not in self._preferences:
             return default
-        
+
         pref = self._preferences[user_id].get(key)
         if pref:
             pref.access_count += 1
             pref.updated_at = datetime.now()
             return pref.value
-        
+
         return default
-    
-    def get_all_preferences(self, user_id: str) -> Dict[str, Any]:
+
+    def get_all_preferences(self, user_id: str) -> dict[str, Any]:
         """获取用户所有偏好"""
         if user_id not in self._preferences:
             return {}
-        
+
         return {
             key: pref.value
             for key, pref in self._preferences[user_id].items()
         }
-    
-    def get_preferences_by_prefix(self, user_id: str, prefix: str) -> Dict[str, Any]:
+
+    def get_preferences_by_prefix(self, user_id: str, prefix: str) -> dict[str, Any]:
         """获取指定前缀的偏好"""
         if user_id not in self._preferences:
             return {}
-        
+
         return {
             key: pref.value
             for key, pref in self._preferences[user_id].items()
             if key.startswith(prefix)
         }
-    
+
     def apply_to_params(
         self,
         user_id: str,
-        params: Dict[str, Any],
-        param_mapping: Optional[Dict[str, str]] = None
-    ) -> Dict[str, Any]:
+        params: dict[str, Any],
+        param_mapping: dict[str, str] | None = None
+    ) -> dict[str, Any]:
         """将偏好应用到参数"""
         result = params.copy()
-        
+
         if user_id not in self._preferences:
             return result
-        
+
         mapping = param_mapping or {}
-        
+
         for pref_key, pref in self._preferences[user_id].items():
             if pref_key in mapping:
                 param_key = mapping[pref_key]
             else:
                 param_key = pref_key
-            
+
             if param_key not in result:
                 result[param_key] = pref.value
-        
+
         return result
-    
+
     def delete_preference(self, user_id: str, key: str) -> bool:
         """删除偏好"""
         if user_id not in self._preferences:
             return False
-        
+
         if key in self._preferences[user_id]:
             del self._preferences[user_id][key]
             self._delete_persisted_preference(user_id, key)
             return True
-        
+
         return False
-    
+
     def clear_preferences(self, user_id: str):
         """清除用户所有偏好"""
         if user_id in self._preferences:
             del self._preferences[user_id]
-        
+
         user_file = self.storage_path / f"{user_id}.json"
         if user_file.exists():
             user_file.unlink()
-    
+
     def _persist_preference(self, user_id: str, preference: UserPreference):
         """持久化偏好"""
         user_file = self.storage_path / f"{user_id}.json"
-        
+
         try:
             data = {}
             if user_file.exists():
-                with open(user_file, "r", encoding="utf-8") as f:
+                with open(user_file, encoding="utf-8") as f:
                     data = json.load(f)
-            
+
             data[preference.key] = preference.to_dict()
-            
+
             with open(user_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-        
+
         except Exception as e:
             logger.error(f"持久化偏好失败: {e}")
-    
+
     def _delete_persisted_preference(self, user_id: str, key: str):
         """删除持久化的偏好"""
         user_file = self.storage_path / f"{user_id}.json"
-        
+
         try:
             if user_file.exists():
-                with open(user_file, "r", encoding="utf-8") as f:
+                with open(user_file, encoding="utf-8") as f:
                     data = json.load(f)
-                
+
                 if key in data:
                     del data[key]
-                    
+
                     with open(user_file, "w", encoding="utf-8") as f:
                         json.dump(data, f, ensure_ascii=False, indent=2)
-        
+
         except Exception as e:
             logger.error(f"删除持久化偏好失败: {e}")
-    
+
     def load_preferences(self, user_id: str) -> int:
         """加载用户偏好"""
         user_file = self.storage_path / f"{user_id}.json"
-        
+
         if not user_file.exists():
             return 0
-        
+
         try:
-            with open(user_file, "r", encoding="utf-8") as f:
+            with open(user_file, encoding="utf-8") as f:
                 data = json.load(f)
-            
+
             self._preferences[user_id] = {
                 key: UserPreference.from_dict(pref_data)
                 for key, pref_data in data.items()
             }
-            
+
             return len(self._preferences[user_id])
-        
+
         except Exception as e:
             logger.error(f"加载偏好失败: {e}")
             return 0
-    
-    def get_stats(self, user_id: str = "default") -> Dict[str, Any]:
+
+    def get_stats(self, user_id: str = "default") -> dict[str, Any]:
         """获取统计信息"""
         prefs = self._preferences.get(user_id, {})
-        
+
         return {
             "total_preferences": len(prefs),
             "by_source": self._count_by_attribute(prefs, "source"),
             "avg_confidence": sum(p.confidence for p in prefs.values()) / len(prefs) if prefs else 0,
             "total_access_count": sum(p.access_count for p in prefs.values()),
         }
-    
+
     def _count_by_attribute(
         self,
-        preferences: Dict[str, UserPreference],
+        preferences: dict[str, UserPreference],
         attr: str
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """按属性统计"""
         counts = {}
         for pref in preferences.values():
@@ -449,7 +447,7 @@ class UserPreferenceLearner:
         return counts
 
 
-_preference_learner: Optional[UserPreferenceLearner] = None
+_preference_learner: UserPreferenceLearner | None = None
 
 
 def get_preference_learner() -> UserPreferenceLearner:

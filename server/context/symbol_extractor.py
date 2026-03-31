@@ -6,10 +6,9 @@
 - Python: class, def, method
 - JavaScript/TypeScript: function, class, const arrow, React component
 """
-from pathlib import Path
-from typing import List, Dict, Any, Optional
-import re
 import logging
+import re
+from pathlib import Path
 
 from .models import SymbolInfo
 
@@ -36,7 +35,7 @@ class SymbolExtractor:
             "type": re.compile(r'(?:export\s+)?type\s+(\w+)\s*=', re.MULTILINE),
         }
 
-    def extract(self, file_path: str, content: Optional[str] = None) -> List[SymbolInfo]:
+    def extract(self, file_path: str, content: str | None = None) -> list[SymbolInfo]:
         """
         从文件中提取符号
 
@@ -52,7 +51,7 @@ class SymbolExtractor:
 
         if content is None:
             try:
-                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                with open(path, encoding="utf-8", errors="ignore") as f:
                     content = f.read()
             except Exception as e:
                 logger.warning(f"读取文件失败 {file_path}: {e}")
@@ -65,7 +64,7 @@ class SymbolExtractor:
         else:
             return []
 
-    def _extract_python(self, content: str, file_path: str) -> List[SymbolInfo]:
+    def _extract_python(self, content: str, file_path: str) -> list[SymbolInfo]:
         """提取 Python 符号"""
         symbols = []
         lines = content.split("\n")
@@ -127,7 +126,7 @@ class SymbolExtractor:
 
         return symbols
 
-    def _extract_python_docstring(self, content: str, end_pos: int) -> Optional[str]:
+    def _extract_python_docstring(self, content: str, end_pos: int) -> str | None:
         """提取 Python 函数/类的文档字符串"""
         colon_pos = content.find(":", end_pos - 50, end_pos + 10)
         if colon_pos == -1:
@@ -146,7 +145,7 @@ class SymbolExtractor:
 
         return None
 
-    def _parse_python_params(self, params_str: str) -> List[str]:
+    def _parse_python_params(self, params_str: str) -> list[str]:
         """解析 Python 函数参数"""
         if not params_str.strip():
             return []
@@ -161,7 +160,7 @@ class SymbolExtractor:
 
         return params
 
-    def _extract_javascript(self, content: str, file_path: str) -> List[SymbolInfo]:
+    def _extract_javascript(self, content: str, file_path: str) -> list[SymbolInfo]:
         """提取 JavaScript/TypeScript 符号"""
         symbols = []
 
@@ -235,7 +234,7 @@ class SymbolExtractor:
 
         return symbols
 
-    def _parse_js_params(self, params_str: str) -> List[str]:
+    def _parse_js_params(self, params_str: str) -> list[str]:
         """解析 JavaScript 函数参数"""
         if not params_str.strip():
             return []
@@ -247,14 +246,12 @@ class SymbolExtractor:
                 param_name = param.split(":")[0].split("=")[0].strip()
                 if param_name.startswith("{") or param_name.startswith("["):
                     param_name = "props" if param_name.startswith("{") else "args"
-                if param_name and param_name not in ["props", "args"]:
-                    params.append(param_name)
-                elif param_name in ["props", "args"]:
+                if param_name and param_name not in ["props", "args"] or param_name in ["props", "args"]:
                     params.append(param_name)
 
         return params
 
-    def extract_from_multiple(self, files: List[Dict[str, str]]) -> Dict[str, List[SymbolInfo]]:
+    def extract_from_multiple(self, files: list[dict[str, str]]) -> dict[str, list[SymbolInfo]]:
         """
         从多个文件中提取符号
 
@@ -275,7 +272,7 @@ class SymbolExtractor:
         return result
 
 
-_extractor_instance: Optional[SymbolExtractor] = None
+_extractor_instance: SymbolExtractor | None = None
 
 
 def get_symbol_extractor() -> SymbolExtractor:

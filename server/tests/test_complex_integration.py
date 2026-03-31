@@ -12,26 +12,23 @@
 8. 错误恢复与重试
 9. 端到端用户场景
 """
-import pytest
 import asyncio
-import httpx
-import json
-import time
-import tempfile
-from pathlib import Path
-from typing import Dict, Any, List, Optional
-from unittest.mock import Mock, patch, AsyncMock
-import sys
 import os
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agent.agent_config import ActionType, AgentConfig
-from agent.intent.detector import IntentDetector, IntentResult
-from agent.executor import AgentExecutor, ExecutionResult
-from agent.security import SecurityValidator
 from agent.audit import AuditLogger
-
+from agent.core import ExecutionResult
+from agent.core import UnifiedExecutor as AgentExecutor
+from agent.intent.detector import IntentDetector
+from agent.security_old import SecurityValidator
 
 BASE_URL = "http://127.0.0.1:8000"
 
@@ -76,7 +73,7 @@ class TestComplexScenarios:
             {"role": "assistant", "content": "太棒了，Python 和 JavaScript 都是非常流行的语言。"},
             {"role": "user", "content": "我叫什么名字？我擅长什么？"},
         ]
-        
+
         assert len(messages) == 5
         assert "张三" in messages[0]["content"]
         assert "软件工程师" in messages[0]["content"]
@@ -109,13 +106,13 @@ class TestComplexScenarios:
             ("今天天气怎么样", None, False),
             ("帮我写一首诗", None, False),
         ]
-        
+
         passed = 0
         total = len(test_cases)
-        
+
         for message, expected_action, should_detect in test_cases:
             result = detector.detect(message)
-            
+
             if should_detect:
                 if result.detected and result.action == expected_action:
                     passed += 1
@@ -126,7 +123,7 @@ class TestComplexScenarios:
                     passed += 1
                 else:
                     print(f"失败: '{message}' - 不应检测到意图，但检测到: {result.action}")
-        
+
         accuracy = passed / total * 100
         print(f"\n意图检测准确率: {passed}/{total} ({accuracy:.1f}%)")
         assert accuracy >= 80, f"意图检测准确率过低: {accuracy:.1f}%"
@@ -146,21 +143,21 @@ class TestComplexScenarios:
         5. 删除文件
         """
         results = []
-        
+
         result1 = await executor.execute(
             ActionType.FILE_CREATE,
             {"file_path": "test_chain.txt", "content": "Hello World"}
         )
         results.append(("创建文件", result1.success))
         assert result1.success, f"创建文件失败: {result1.error}"
-        
+
         result2 = await executor.execute(
             ActionType.FILE_WRITE,
             {"file_path": "test_chain.txt", "content": "Updated Content"}
         )
         results.append(("写入文件", result2.success))
         assert result2.success, f"写入文件失败: {result2.error}"
-        
+
         result3 = await executor.execute(
             ActionType.FILE_READ,
             {"file_path": "test_chain.txt"}
@@ -168,7 +165,7 @@ class TestComplexScenarios:
         results.append(("读取文件", result3.success))
         assert result3.success, f"读取文件失败: {result3.error}"
         assert "Updated Content" in result3.data.get("content", "")
-        
+
         result4 = await executor.execute(
             ActionType.FILE_LIST,
             {"directory": "."}
@@ -176,19 +173,19 @@ class TestComplexScenarios:
         results.append(("列出目录", result4.success))
         assert result4.success, f"列出目录失败: {result4.error}"
         assert result4.data.get("count", 0) >= 1
-        
+
         result5 = await executor.execute(
             ActionType.FILE_DELETE,
             {"file_path": "test_chain.txt", "confirmed": True}
         )
         results.append(("删除文件", result5.success))
         assert result5.success, f"删除文件失败: {result5.error}"
-        
+
         print("\n操作链执行结果:")
         for name, success in results:
             status = "成功" if success else "失败"
             print(f"  {status} {name}")
-        
+
         assert all(s for _, s in results), "操作链中存在失败的操作"
 
     # ==================== 场景 4: 危险操作确认 ====================
@@ -204,14 +201,14 @@ class TestComplexScenarios:
             ActionType.FILE_CREATE,
             {"file_path": "dangerous_test.txt", "content": "test"}
         )
-        
+
         validator = executor.validator
-        
+
         assert validator.is_dangerous_action(ActionType.FILE_DELETE) is True
         assert validator.is_dangerous_action(ActionType.FILE_WRITE) is True
         assert validator.is_dangerous_action(ActionType.FILE_READ) is False
         assert validator.is_dangerous_action(ActionType.FILE_LIST) is False
-        
+
         result = await executor.execute(
             ActionType.FILE_DELETE,
             {"file_path": "dangerous_test.txt", "confirmed": True}
@@ -227,7 +224,7 @@ class TestComplexScenarios:
         测试路径遍历攻击、危险扩展名等
         """
         validator = SecurityValidator(working_dir=temp_dir)
-        
+
         blocked_paths = [
             "../../../etc/passwd",
             "~/.ssh/id_rsa",
@@ -235,18 +232,18 @@ class TestComplexScenarios:
             "C:\\Windows\\System32\\config",
             "..\\..\\..\\secret.txt",
         ]
-        
+
         for path in blocked_paths:
             result = validator.validate_path(path)
             assert result.is_valid is False, f"应阻止危险路径: {path}"
-        
+
         safe_paths = [
             "test.txt",
             "subdir/file.py",
             "README.md",
             "config.json",
         ]
-        
+
         for path in safe_paths:
             result = validator.validate_path(path)
             assert result.is_valid is True, f"应允许安全路径: {path}"
@@ -261,21 +258,21 @@ class TestComplexScenarios:
         同时执行多个文件操作
         """
         tasks = []
-        
+
         for i in range(5):
             task = executor.execute(
                 ActionType.FILE_CREATE,
                 {"file_path": f"concurrent_{i}.txt", "content": f"Content {i}"}
             )
             tasks.append(task)
-        
+
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         success_count = sum(1 for r in results if isinstance(r, ExecutionResult) and r.success)
-        
+
         print(f"\n并发操作结果: {success_count}/5 成功")
         assert success_count >= 4, f"并发操作成功率过低: {success_count}/5"
-        
+
         for i in range(5):
             await executor.execute(
                 ActionType.FILE_DELETE,
@@ -297,13 +294,13 @@ class TestComplexScenarios:
         )
         assert result1.success is False
         assert result1.error is not None
-        
+
         result2 = await executor.execute(
             ActionType.FILE_DELETE,
             {"file_path": "another_nonexistent.txt", "confirmed": True}
         )
         assert result2.success is False
-        
+
         result3 = await executor.execute(
             ActionType.FILE_LIST,
             {"directory": "nonexistent_dir"}
@@ -319,7 +316,7 @@ class TestComplexScenarios:
         验证操作被正确记录
         """
         logger = AuditLogger(log_dir=temp_dir)
-        
+
         logger.start_session()
         logger.log(
             action=ActionType.FILE_CREATE,
@@ -334,11 +331,11 @@ class TestComplexScenarios:
             duration_ms=5.2
         )
         logger.end_session()
-        
+
         stats = logger.get_stats()
         assert stats["total"] == 2
         assert stats["success"] == 2
-        
+
         entries = logger.get_recent_entries(10)
         assert len(entries) == 2
 
@@ -352,19 +349,19 @@ class TestComplexScenarios:
         测试大文件的创建和读取
         """
         large_content = "x" * 100000
-        
+
         result1 = await executor.execute(
             ActionType.FILE_CREATE,
             {"file_path": "large_file.txt", "content": large_content}
         )
         assert result1.success, "创建大文件应成功"
-        
+
         result2 = await executor.execute(
             ActionType.FILE_READ,
             {"file_path": "large_file.txt"}
         )
         assert result2.success, "读取大文件应成功"
-        
+
         await executor.execute(
             ActionType.FILE_DELETE,
             {"file_path": "large_file.txt", "confirmed": True}
@@ -409,12 +406,12 @@ class TestComplexScenarios:
                 "params": {"file_path": "README.md"},
             },
         ]
-        
+
         results = []
-        
+
         for step in scenario_steps:
             intent = detector.detect(step["message"])
-            
+
             if step["execute"] and intent.detected:
                 result = await executor.execute(
                     intent.action,
@@ -433,12 +430,12 @@ class TestComplexScenarios:
                     "action": intent.action.value if intent.action else None,
                     "success": None,
                 })
-        
+
         print("\n端到端场景执行结果:")
         for r in results:
             status = "成功" if r["success"] or (r["detected"] and r["success"] is None) else "失败"
             print(f"  {status} '{r['message']}' -> {r['action']}")
-        
+
         successful = sum(1 for r in results if r["success"] is True or r["success"] is None)
         assert successful >= len(results) * 0.8, "端到端场景成功率过低"
 
@@ -449,7 +446,7 @@ class TestCUAIntegration:
     def test_cua_intent_detection(self):
         """测试 CUA 操作的意图检测"""
         detector = IntentDetector()
-        
+
         cua_commands = [
             ("截图", ActionType.SCREENSHOT),
             ("截屏", ActionType.SCREENSHOT),
@@ -459,7 +456,7 @@ class TestCUAIntegration:
             ("显示所有窗口", ActionType.WINDOW_LIST),
             ("当前活动窗口", ActionType.WINDOW_ACTIVE),
         ]
-        
+
         for command, expected in cua_commands:
             result = detector.detect(command)
             assert result.detected, f"应检测到意图: {command}"
@@ -472,25 +469,25 @@ class TestPerformance:
     def test_intent_detection_performance(self):
         """测试意图检测性能"""
         detector = IntentDetector()
-        
+
         test_messages = [
             "截图", "鼠标在哪里", "列出窗口", "创建文件",
             "读取 test.txt", "列出目录", "今天天气怎么样",
         ] * 100
-        
+
         start_time = time.time()
-        
+
         for msg in test_messages:
             detector.detect(msg)
-        
+
         elapsed = time.time() - start_time
         avg_time = elapsed / len(test_messages) * 1000
-        
-        print(f"\n意图检测性能:")
+
+        print("\n意图检测性能:")
         print(f"  总耗时: {elapsed:.3f}s")
         print(f"  平均耗时: {avg_time:.2f}ms/次")
         print(f"  QPS: {len(test_messages) / elapsed:.0f}")
-        
+
         assert avg_time < 10, f"意图检测平均耗时过高: {avg_time:.2f}ms"
 
 
@@ -522,13 +519,13 @@ class TestEdgeCases:
     async def test_unicode_content(self, executor):
         """测试 Unicode 内容"""
         unicode_content = "你好世界 Hello World 日本語 한국어"
-        
+
         result = await executor.execute(
             ActionType.FILE_CREATE,
             {"file_path": "unicode.txt", "content": unicode_content}
         )
         assert result.success is True
-        
+
         result = await executor.execute(
             ActionType.FILE_READ,
             {"file_path": "unicode.txt"}

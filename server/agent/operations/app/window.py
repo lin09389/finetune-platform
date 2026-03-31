@@ -2,13 +2,13 @@
 窗口管理操作模块
 """
 import asyncio
+import logging
 import platform
 import subprocess
 import time
-from typing import List, Optional, Dict, Any
 from dataclasses import dataclass
 from datetime import datetime
-import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +23,10 @@ class WindowInfo:
     height: int
     is_visible: bool
     is_focused: bool
-    process_name: Optional[str] = None
-    process_id: Optional[int] = None
-    
-    def to_dict(self) -> Dict[str, Any]:
+    process_name: str | None = None
+    process_id: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "title": self.title,
             "handle": self.handle,
@@ -46,17 +46,17 @@ class WindowOperationResult:
     success: bool
     message: str
     operation: str
-    window_title: Optional[str] = None
-    error: Optional[str] = None
-    duration_ms: Optional[float] = None
-    data: Optional[Dict[str, Any]] = None
+    window_title: str | None = None
+    error: str | None = None
+    duration_ms: float | None = None
+    data: dict[str, Any] | None = None
     timestamp: str = ""
-    
+
     def __post_init__(self):
         if not self.timestamp:
             self.timestamp = datetime.now().isoformat()
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "success": self.success,
             "message": self.message,
@@ -75,11 +75,11 @@ class WindowManager:
         self._initialized = False
         self._gw = None
         self._pywinauto = None
-    
+
     def initialize(self) -> bool:
         if self._initialized:
             return True
-        
+
         try:
             import pygetwindow as gw
             self._gw = gw
@@ -88,14 +88,14 @@ class WindowManager:
         except ImportError:
             logger.warning("pygetwindow not available, some features may not work")
             return False
-    
+
     def _get_window_by_id(self, window_id: str):
         if not self._initialized:
             self.initialize()
-        
+
         if not self._gw:
             raise RuntimeError("Window manager not initialized")
-        
+
         try:
             if self._platform == "Windows":
                 handle = int(window_id)
@@ -114,7 +114,7 @@ class WindowManager:
             if windows:
                 return windows[0]
             raise ValueError(f"Window not found: {window_id}")
-    
+
     def _window_to_info(self, win) -> WindowInfo:
         try:
             return WindowInfo(
@@ -131,46 +131,46 @@ class WindowManager:
             )
         except Exception as e:
             raise RuntimeError(f"Failed to convert window info: {e}")
-    
-    def list_windows(self, include_hidden: bool = False) -> List[WindowInfo]:
+
+    def list_windows(self, include_hidden: bool = False) -> list[WindowInfo]:
         if not self._initialized:
             self.initialize()
-        
+
         if not self._gw:
             return []
-        
+
         try:
             windows = self._gw.getAllWindows()
-            result: List[WindowInfo] = []
-            
+            result: list[WindowInfo] = []
+
             for win in windows:
                 if not win.title:
                     continue
-                
+
                 if not include_hidden and not win.visible:
                     continue
-                
+
                 try:
                     info = self._window_to_info(win)
                     result.append(info)
                 except Exception:
                     continue
-            
+
             return result
         except Exception as e:
             logger.error(f"Failed to list windows: {e}")
             return []
-    
-    async def list_windows_async(self, include_hidden: bool = False) -> List[WindowInfo]:
+
+    async def list_windows_async(self, include_hidden: bool = False) -> list[WindowInfo]:
         return await asyncio.to_thread(self.list_windows, include_hidden)
-    
-    def get_active_window(self) -> Optional[WindowInfo]:
+
+    def get_active_window(self) -> WindowInfo | None:
         if not self._initialized:
             self.initialize()
-        
+
         if not self._gw:
             return None
-        
+
         try:
             win = self._gw.getActiveWindow()
             if win is None:
@@ -179,17 +179,17 @@ class WindowManager:
         except Exception as e:
             logger.error(f"Failed to get active window: {e}")
             return None
-    
-    async def get_active_window_async(self) -> Optional[WindowInfo]:
+
+    async def get_active_window_async(self) -> WindowInfo | None:
         return await asyncio.to_thread(self.get_active_window)
-    
-    def find_window(self, title: str) -> Optional[WindowInfo]:
+
+    def find_window(self, title: str) -> WindowInfo | None:
         if not self._initialized:
             self.initialize()
-        
+
         if not self._gw:
             return None
-        
+
         try:
             windows = self._gw.getWindowsWithTitle(title)
             if not windows:
@@ -198,42 +198,42 @@ class WindowManager:
         except Exception as e:
             logger.error(f"Failed to find window: {e}")
             return None
-    
-    async def find_window_async(self, title: str) -> Optional[WindowInfo]:
+
+    async def find_window_async(self, title: str) -> WindowInfo | None:
         return await asyncio.to_thread(self.find_window, title)
-    
-    def find_windows(self, title_pattern: str) -> List[WindowInfo]:
+
+    def find_windows(self, title_pattern: str) -> list[WindowInfo]:
         if not self._initialized:
             self.initialize()
-        
+
         if not self._gw:
             return []
-        
+
         try:
             windows = self._gw.getWindowsWithTitle(title_pattern)
-            result: List[WindowInfo] = []
-            
+            result: list[WindowInfo] = []
+
             for win in windows:
                 try:
                     info = self._window_to_info(win)
                     result.append(info)
                 except Exception:
                     continue
-            
+
             return result
         except Exception as e:
             logger.error(f"Failed to find windows: {e}")
             return []
-    
+
     def activate_window(self, window_id: str) -> WindowOperationResult:
         start_time = time.perf_counter()
-        
+
         try:
             win = self._get_window_by_id(window_id)
             win.activate()
-            
+
             duration_ms = (time.perf_counter() - start_time) * 1000
-            
+
             return WindowOperationResult(
                 success=True,
                 message=f"窗口已激活：{win.title}",
@@ -248,19 +248,19 @@ class WindowManager:
                 operation="activate",
                 error=str(e),
             )
-    
+
     async def activate_window_async(self, window_id: str) -> WindowOperationResult:
         return await asyncio.to_thread(self.activate_window, window_id)
-    
+
     def minimize_window(self, window_id: str) -> WindowOperationResult:
         start_time = time.perf_counter()
-        
+
         try:
             win = self._get_window_by_id(window_id)
             win.minimize()
-            
+
             duration_ms = (time.perf_counter() - start_time) * 1000
-            
+
             return WindowOperationResult(
                 success=True,
                 message=f"窗口已最小化：{win.title}",
@@ -275,19 +275,19 @@ class WindowManager:
                 operation="minimize",
                 error=str(e),
             )
-    
+
     async def minimize_window_async(self, window_id: str) -> WindowOperationResult:
         return await asyncio.to_thread(self.minimize_window, window_id)
-    
+
     def maximize_window(self, window_id: str) -> WindowOperationResult:
         start_time = time.perf_counter()
-        
+
         try:
             win = self._get_window_by_id(window_id)
             win.maximize()
-            
+
             duration_ms = (time.perf_counter() - start_time) * 1000
-            
+
             return WindowOperationResult(
                 success=True,
                 message=f"窗口已最大化：{win.title}",
@@ -302,19 +302,19 @@ class WindowManager:
                 operation="maximize",
                 error=str(e),
             )
-    
+
     async def maximize_window_async(self, window_id: str) -> WindowOperationResult:
         return await asyncio.to_thread(self.maximize_window, window_id)
-    
+
     def restore_window(self, window_id: str) -> WindowOperationResult:
         start_time = time.perf_counter()
-        
+
         try:
             win = self._get_window_by_id(window_id)
             win.restore()
-            
+
             duration_ms = (time.perf_counter() - start_time) * 1000
-            
+
             return WindowOperationResult(
                 success=True,
                 message=f"窗口已还原：{win.title}",
@@ -329,29 +329,29 @@ class WindowManager:
                 operation="restore",
                 error=str(e),
             )
-    
+
     async def restore_window_async(self, window_id: str) -> WindowOperationResult:
         return await asyncio.to_thread(self.restore_window, window_id)
-    
+
     def close_window(self, window_id: str, force: bool = False) -> WindowOperationResult:
         start_time = time.perf_counter()
-        
+
         try:
             win = self._get_window_by_id(window_id)
             title = win.title
-            
+
             if force and self._platform == "Windows":
                 try:
-                    import win32gui
                     import win32con
+                    import win32gui
                     win32gui.PostMessage(win._hWnd, win32con.WM_CLOSE, 0, 0)
                 except ImportError:
                     win.close()
             else:
                 win.close()
-            
+
             duration_ms = (time.perf_counter() - start_time) * 1000
-            
+
             return WindowOperationResult(
                 success=True,
                 message=f"窗口已关闭：{title}",
@@ -366,19 +366,19 @@ class WindowManager:
                 operation="close",
                 error=str(e),
             )
-    
+
     async def close_window_async(self, window_id: str, force: bool = False) -> WindowOperationResult:
         return await asyncio.to_thread(self.close_window, window_id, force)
-    
+
     def move_window(self, window_id: str, x: int, y: int) -> WindowOperationResult:
         start_time = time.perf_counter()
-        
+
         try:
             win = self._get_window_by_id(window_id)
             win.moveTo(x, y)
-            
+
             duration_ms = (time.perf_counter() - start_time) * 1000
-            
+
             return WindowOperationResult(
                 success=True,
                 message=f"窗口已移动到 ({x}, {y})：{win.title}",
@@ -394,19 +394,19 @@ class WindowManager:
                 operation="move",
                 error=str(e),
             )
-    
+
     async def move_window_async(self, window_id: str, x: int, y: int) -> WindowOperationResult:
         return await asyncio.to_thread(self.move_window, window_id, x, y)
-    
+
     def resize_window(self, window_id: str, width: int, height: int) -> WindowOperationResult:
         start_time = time.perf_counter()
-        
+
         try:
             win = self._get_window_by_id(window_id)
             win.resizeTo(width, height)
-            
+
             duration_ms = (time.perf_counter() - start_time) * 1000
-            
+
             return WindowOperationResult(
                 success=True,
                 message=f"窗口大小已调整为 {width}x{height}：{win.title}",
@@ -422,10 +422,10 @@ class WindowManager:
                 operation="resize",
                 error=str(e),
             )
-    
+
     async def resize_window_async(self, window_id: str, width: int, height: int) -> WindowOperationResult:
         return await asyncio.to_thread(self.resize_window, window_id, width, height)
-    
+
     def move_and_resize(
         self,
         window_id: str,
@@ -435,14 +435,14 @@ class WindowManager:
         height: int,
     ) -> WindowOperationResult:
         start_time = time.perf_counter()
-        
+
         try:
             win = self._get_window_by_id(window_id)
             win.moveTo(x, y)
             win.resizeTo(width, height)
-            
+
             duration_ms = (time.perf_counter() - start_time) * 1000
-            
+
             return WindowOperationResult(
                 success=True,
                 message=f"窗口已移动到 ({x}, {y}) 并调整大小为 {width}x{height}：{win.title}",
@@ -458,7 +458,7 @@ class WindowManager:
                 operation="move_and_resize",
                 error=str(e),
             )
-    
+
     async def move_and_resize_async(
         self,
         window_id: str,
@@ -470,8 +470,8 @@ class WindowManager:
         return await asyncio.to_thread(
             self.move_and_resize, window_id, x, y, width, height
         )
-    
-    def get_window_rect(self, window_id: str) -> Optional[Dict[str, int]]:
+
+    def get_window_rect(self, window_id: str) -> dict[str, int] | None:
         try:
             win = self._get_window_by_id(window_id)
             return {
@@ -482,20 +482,20 @@ class WindowManager:
             }
         except Exception:
             return None
-    
+
     def bring_to_front(self, window_id: str) -> WindowOperationResult:
         return self.activate_window(window_id)
-    
+
     def send_to_back(self, window_id: str) -> WindowOperationResult:
         start_time = time.perf_counter()
-        
+
         try:
             win = self._get_window_by_id(window_id)
             win.minimize()
             win.restore()
-            
+
             duration_ms = (time.perf_counter() - start_time) * 1000
-            
+
             return WindowOperationResult(
                 success=True,
                 message=f"窗口已移到后台：{win.title}",
@@ -510,23 +510,23 @@ class WindowManager:
                 operation="send_to_back",
                 error=str(e),
             )
-    
+
     def center_window(self, window_id: str) -> WindowOperationResult:
         start_time = time.perf_counter()
-        
+
         try:
             win = self._get_window_by_id(window_id)
-            
+
             import pygetwindow as gw
             screen_width, screen_height = gw.size()
-            
+
             x = (screen_width - win.width) // 2
             y = (screen_height - win.height) // 2
-            
+
             win.moveTo(x, y)
-            
+
             duration_ms = (time.perf_counter() - start_time) * 1000
-            
+
             return WindowOperationResult(
                 success=True,
                 message=f"窗口已居中：{win.title}",
@@ -542,14 +542,14 @@ class WindowManager:
                 operation="center",
                 error=str(e),
             )
-    
+
     async def center_window_async(self, window_id: str) -> WindowOperationResult:
         return await asyncio.to_thread(self.center_window, window_id)
-    
+
     def _run_applescript(self, script: str) -> str:
         if self._platform != "Darwin":
             raise RuntimeError("AppleScript only available on macOS")
-        
+
         try:
             result = subprocess.run(
                 ["osascript", "-e", script],
@@ -560,11 +560,11 @@ class WindowManager:
             return result.stdout.strip()
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"AppleScript execution failed: {e.stderr}")
-    
-    def _run_wmctrl(self, args: List[str]) -> str:
+
+    def _run_wmctrl(self, args: list[str]) -> str:
         if self._platform != "Linux":
             raise RuntimeError("wmctrl only available on Linux")
-        
+
         try:
             result = subprocess.run(
                 ["wmctrl"] + args,
@@ -579,7 +579,7 @@ class WindowManager:
             raise RuntimeError("wmctrl not found, please install it")
 
 
-_window_manager_instance: Optional[WindowManager] = None
+_window_manager_instance: WindowManager | None = None
 
 
 def get_window_manager() -> WindowManager:

@@ -2,11 +2,11 @@
 Agent 统一模型定义
 定义所有执行器共用的结果类型和参数模型
 """
-from typing import Dict, Any, Optional, List
-from dataclasses import dataclass, field
-from enum import Enum
-from datetime import datetime
 import time
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from typing import Any
 
 
 class ResultStatus(str, Enum):
@@ -39,16 +39,16 @@ class OperationResult:
     action: str
     description: str
     status: ResultStatus = ResultStatus.SUCCESS
-    data: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-    error_code: Optional[str] = None
+    data: dict[str, Any] | None = None
+    error: str | None = None
+    error_code: str | None = None
     feedback: str = ""
     duration_ms: float = 0.0
     need_confirm: bool = False
     category: OperationCategory = OperationCategory.FILE
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=datetime.now)
-    
+
     def __post_init__(self):
         if not self.feedback:
             self.feedback = self._generate_feedback()
@@ -56,15 +56,15 @@ class OperationResult:
             pass
         elif not self.success and self.status == ResultStatus.SUCCESS:
             self.status = ResultStatus.FAILURE
-    
+
     def _generate_feedback(self) -> str:
         """生成反馈消息"""
         if self.success:
             return f"✅ {self.description}成功"
         else:
             return f"❌ {self.description}失败: {self.error or '未知错误'}"
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典"""
         return {
             "success": self.success,
@@ -81,13 +81,13 @@ class OperationResult:
             "metadata": self.metadata,
             "timestamp": self.timestamp.isoformat(),
         }
-    
+
     @classmethod
     def success_result(
         cls,
         action: str,
         description: str,
-        data: Dict[str, Any] = None,
+        data: dict[str, Any] = None,
         feedback: str = "",
         duration_ms: float = 0.0,
         category: OperationCategory = OperationCategory.FILE,
@@ -103,7 +103,7 @@ class OperationResult:
             duration_ms=duration_ms,
             category=category,
         )
-    
+
     @classmethod
     def failure_result(
         cls,
@@ -132,13 +132,13 @@ class OperationResult:
 @dataclass
 class FileResult(OperationResult):
     """文件操作结果"""
-    file_path: Optional[str] = None
-    file_size: Optional[int] = None
-    content: Optional[str] = None
+    file_path: str | None = None
+    file_size: int | None = None
+    content: str | None = None
     is_directory: bool = False
     category: OperationCategory = field(default=OperationCategory.FILE, init=False)
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         result = super().to_dict()
         result.update({
             "file_path": self.file_path,
@@ -152,13 +152,13 @@ class FileResult(OperationResult):
 @dataclass
 class CUAResult(OperationResult):
     """CUA操作结果"""
-    coordinates: Optional[tuple] = None
-    screenshot_path: Optional[str] = None
-    ocr_text: Optional[str] = None
-    window_title: Optional[str] = None
+    coordinates: tuple | None = None
+    screenshot_path: str | None = None
+    ocr_text: str | None = None
+    window_title: str | None = None
     category: OperationCategory = field(default=OperationCategory.CUA, init=False)
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         result = super().to_dict()
         result.update({
             "coordinates": self.coordinates,
@@ -172,11 +172,11 @@ class CUAResult(OperationResult):
 @dataclass
 class AppResult(OperationResult):
     """应用操作结果"""
-    app_name: Optional[str] = None
-    process_id: Optional[int] = None
+    app_name: str | None = None
+    process_id: int | None = None
     category: OperationCategory = field(default=OperationCategory.APP, init=False)
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         result = super().to_dict()
         result.update({
             "app_name": self.app_name,
@@ -191,15 +191,15 @@ class BatchResult(OperationResult):
     total_count: int = 0
     success_count: int = 0
     failure_count: int = 0
-    results: List[OperationResult] = field(default_factory=list)
-    
+    results: list[OperationResult] = field(default_factory=list)
+
     @property
     def success_rate(self) -> float:
         if self.total_count == 0:
             return 0.0
         return self.success_count / self.total_count * 100
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         result = super().to_dict()
         result.update({
             "total_count": self.total_count,
@@ -237,7 +237,7 @@ class CUAParams(OperationParams):
     button: str = "left"
     clicks: int = 1
     text: str = ""
-    keys: List[str] = field(default_factory=list)
+    keys: list[str] = field(default_factory=list)
     title: str = ""
     monitor: int = 0
 
@@ -247,23 +247,23 @@ class AppParams(OperationParams):
     """应用操作参数"""
     app_name: str = ""
     url: str = ""
-    args: List[str] = field(default_factory=list)
+    args: list[str] = field(default_factory=list)
 
 
 class OperationTimer:
     """操作计时器"""
-    
+
     def __init__(self):
         self._start_time = None
         self._end_time = None
-    
+
     def __enter__(self):
         self._start_time = time.perf_counter()
         return self
-    
+
     def __exit__(self, *args):
         self._end_time = time.perf_counter()
-    
+
     @property
     def duration_ms(self) -> float:
         if self._start_time is None:
@@ -275,7 +275,7 @@ class OperationTimer:
 def timed_operation(func):
     """操作计时装饰器"""
     import functools
-    
+
     @functools.wraps(func)
     async def async_wrapper(*args, **kwargs):
         timer = OperationTimer()
@@ -284,7 +284,7 @@ def timed_operation(func):
         if hasattr(result, 'duration_ms'):
             result.duration_ms = timer.duration_ms
         return result
-    
+
     @functools.wraps(func)
     def sync_wrapper(*args, **kwargs):
         timer = OperationTimer()
@@ -293,7 +293,7 @@ def timed_operation(func):
         if hasattr(result, 'duration_ms'):
             result.duration_ms = timer.duration_ms
         return result
-    
+
     import asyncio
     if asyncio.iscoroutinefunction(func):
         return async_wrapper

@@ -1,28 +1,35 @@
-from .container import DependencyContainer, ServiceLifetime, ServiceDescriptor, container
+from .container import DependencyContainer, ServiceDescriptor, ServiceLifetime, container
 from .engine import (
-    UnifiedExecutor,
     QueueManager,
+    ResourceConfig,
+    ResourceLimiter,
+    ResourceUsage,
+    SandboxConfig,
+    SandboxExecutor,
+    TaskInfo,
     TaskPriority,
     TaskStatus,
-    TaskInfo,
-    SandboxExecutor,
-    SandboxConfig,
-    ResourceLimiter,
-    ResourceConfig,
-    ResourceUsage,
+    UnifiedExecutor,
 )
+from .executor import ExecutorConfig, create_executor, get_executor, reset_executor
 from .interfaces import (
     BaseExecutor,
     BaseFeedback,
     BaseParser,
     BasePermissionController,
-)
-from .registry import ModuleRegistry, ModuleType, ModuleState, registry
-from .types import (
     ErrorCode,
-    ErrorResult,
     ExecutionResult,
     ExecutionStatus,
+    FileResult,
+    OperationContext,
+    OperationResult,
+    TaskResult,
+    UnifiedResult,
+    ValidationResult,
+)
+from .registry import ModuleRegistry, ModuleState, ModuleType, registry
+from .types import (
+    ErrorResult,
     FormattedResult,
     IntentType,
     ModuleInfo,
@@ -30,8 +37,10 @@ from .types import (
     PermissionLevel,
     PermissionResult,
     ProgressInfo,
-    ValidationResult,
 )
+
+AgentExecutor = UnifiedExecutor
+AgentExecutorNew = UnifiedExecutor
 
 __all__ = [
     "DependencyContainer",
@@ -68,4 +77,15 @@ __all__ = [
     "ResourceLimiter",
     "ResourceConfig",
     "ResourceUsage",
+    "UnifiedResult",
+    "OperationResult",
+    "FileResult",
+    "TaskResult",
+    "OperationContext",
+    "AgentExecutor",
+    "AgentExecutorNew",
+    "get_executor",
+    "create_executor",
+    "ExecutorConfig",
+    "reset_executor",
 ]

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import os
 import sys
 
@@ -12,7 +11,7 @@ for root, dirs, files in os.walk(api_dir):
         if f.endswith('.py'):
             filepath = os.path.join(root, f)
             try:
-                with open(filepath, 'r', encoding='utf-8') as file:
+                with open(filepath, encoding='utf-8') as file:
                     content = file.read()
                 print(f"OK: {filepath}")
             except UnicodeDecodeError as e:

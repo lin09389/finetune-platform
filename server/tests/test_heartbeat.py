@@ -1,28 +1,26 @@
 """
 Heartbeat 模块单元测试
 """
-import pytest
-import asyncio
 from datetime import datetime, timedelta
-from unittest.mock import Mock, AsyncMock, patch
 
-from heartbeat import HeartbeatScheduler, HeartbeatTask, HeartbeatConfig
+import pytest
+from heartbeat import HeartbeatScheduler, HeartbeatTask
 from heartbeat.task_executor import (
-    TaskExecutor,
-    TaskType,
-    TaskStatus,
     ProactiveTask,
+    TaskExecutor,
     TaskResult,
+    TaskStatus,
+    TaskType,
 )
 
 
 class TestHeartbeatScheduler:
     """Heartbeat 调度器测试"""
-    
+
     @pytest.fixture
     def scheduler(self):
         return HeartbeatScheduler()
-    
+
     @pytest.fixture
     def sample_task(self):
         return HeartbeatTask(
@@ -32,36 +30,36 @@ class TestHeartbeatScheduler:
             schedule="3600",
             enabled=True,
         )
-    
+
     def test_add_task(self, scheduler, sample_task):
         """测试添加任务"""
         scheduler.add_task(sample_task)
-        
+
         assert "task_1" in scheduler._tasks
         assert scheduler._tasks["task_1"].name == "Test Task"
-    
+
     def test_remove_task(self, scheduler, sample_task):
         """测试移除任务"""
         scheduler.add_task(sample_task)
         scheduler.remove_task("task_1")
-        
+
         assert "task_1" not in scheduler._tasks
-    
+
     def test_enable_task(self, scheduler, sample_task):
         """测试启用任务"""
         sample_task.enabled = False
         scheduler.add_task(sample_task)
         scheduler.enable_task("task_1")
-        
+
         assert scheduler._tasks["task_1"].enabled is True
-    
+
     def test_disable_task(self, scheduler, sample_task):
         """测试禁用任务"""
         scheduler.add_task(sample_task)
         scheduler.disable_task("task_1")
-        
+
         assert scheduler._tasks["task_1"].enabled is False
-    
+
     def test_parse_heartbeat_file(self, scheduler):
         """测试解析 HEARTBEAT.md 文件"""
         content = """
@@ -71,26 +69,26 @@ class TestHeartbeatScheduler:
 - [x] Generate report | 3600
 - [ ] Send reminder | 60
 """
-        
+
         tasks = scheduler.parse_heartbeat_file(content)
-        
+
         assert len(tasks) == 3
         assert tasks[0].name == "Check email"
         assert tasks[0].schedule == "1800"
         assert tasks[0].enabled is True
         assert tasks[1].enabled is False
-    
+
     def test_calculate_next_run_interval(self, scheduler, sample_task):
         """测试计算下次运行时间 - 间隔模式"""
         sample_task.schedule = "3600"
         sample_task.last_run = datetime.now()
-        
+
         scheduler.add_task(sample_task)
-        
+
         assert sample_task.next_run is not None
         expected = sample_task.last_run + timedelta(seconds=3600)
         assert abs((sample_task.next_run - expected).total_seconds()) < 1
-    
+
     def test_get_due_tasks(self, scheduler):
         """测试获取到期任务"""
         task1 = HeartbeatTask(
@@ -109,43 +107,43 @@ class TestHeartbeatScheduler:
             enabled=True,
             next_run=datetime.now() + timedelta(seconds=3600),
         )
-        
+
         scheduler.add_task(task1)
         scheduler.add_task(task2)
-        
+
         due_tasks = scheduler._get_due_tasks()
-        
+
         assert len(due_tasks) == 1
         assert due_tasks[0].id == "task_1"
-    
+
     def test_get_stats(self, scheduler, sample_task):
         """测试获取统计信息"""
         scheduler.add_task(sample_task)
-        
+
         stats = scheduler.get_stats()
-        
+
         assert stats["total_tasks"] == 1
         assert stats["enabled_tasks"] == 1
-    
+
     @pytest.mark.asyncio
     async def test_start_stop(self, scheduler):
         """测试启动和停止"""
         await scheduler.start()
-        
+
         assert scheduler._is_running is True
-        
+
         await scheduler.stop()
-        
+
         assert scheduler._is_running is False
 
 
 class TestTaskExecutor:
     """任务执行器测试"""
-    
+
     @pytest.fixture
     def executor(self):
         return TaskExecutor()
-    
+
     @pytest.fixture
     def sample_task(self):
         return ProactiveTask(
@@ -156,48 +154,48 @@ class TestTaskExecutor:
             schedule="3600",
             enabled=True,
         )
-    
+
     def test_add_task(self, executor, sample_task):
         """测试添加任务"""
         executor.add_task(sample_task)
-        
+
         assert "task_1" in executor._tasks
-    
+
     def test_remove_task(self, executor, sample_task):
         """测试移除任务"""
         executor.add_task(sample_task)
         executor.remove_task("task_1")
-        
+
         assert "task_1" not in executor._tasks
-    
+
     @pytest.mark.asyncio
     async def test_execute_check_task(self, executor, sample_task):
         """测试执行检查任务"""
         executor.add_task(sample_task)
-        
+
         result = await executor.execute_task("task_1")
-        
+
         assert result.status == TaskStatus.COMPLETED
         assert result.task_id == "task_1"
-    
+
     @pytest.mark.asyncio
     async def test_execute_disabled_task(self, executor, sample_task):
         """测试执行禁用任务"""
         sample_task.enabled = False
         executor.add_task(sample_task)
-        
+
         result = await executor.execute_task("task_1")
-        
+
         assert result.status == TaskStatus.CANCELLED
-    
+
     @pytest.mark.asyncio
     async def test_execute_nonexistent_task(self, executor):
         """测试执行不存在的任务"""
         result = await executor.execute_task("nonexistent")
-        
+
         assert result.status == TaskStatus.FAILED
         assert "not found" in result.error.lower()
-    
+
     @pytest.mark.asyncio
     async def test_execute_report_task(self, executor):
         """测试执行汇报任务"""
@@ -211,12 +209,12 @@ class TestTaskExecutor:
             config={"report_type": "daily"},
         )
         executor.add_task(task)
-        
+
         result = await executor.execute_task("report_task")
-        
+
         assert result.status == TaskStatus.COMPLETED
         assert "content" in result.result
-    
+
     @pytest.mark.asyncio
     async def test_execute_reminder_task(self, executor):
         """测试执行提醒任务"""
@@ -230,21 +228,21 @@ class TestTaskExecutor:
             config={"reminder_type": "meeting"},
         )
         executor.add_task(task)
-        
+
         result = await executor.execute_task("reminder_task")
-        
+
         assert result.status == TaskStatus.COMPLETED
         assert result.result["delivered"] is True
-    
+
     def test_register_handler(self, executor):
         """测试注册处理器"""
         async def custom_handler(task):
             return {"custom": True}
-        
+
         executor.register_handler(TaskType.CUSTOM, custom_handler)
-        
+
         assert TaskType.CUSTOM in executor._handlers
-    
+
     def test_get_result(self, executor, sample_task):
         """测试获取结果"""
         executor._results["task_1"] = TaskResult(
@@ -253,21 +251,21 @@ class TestTaskExecutor:
             status=TaskStatus.COMPLETED,
             started_at=datetime.now(),
         )
-        
+
         result = executor.get_result("task_1")
-        
+
         assert result is not None
         assert result.status == TaskStatus.COMPLETED
-    
+
     def test_get_stats(self, executor, sample_task):
         """测试获取统计"""
         executor.add_task(sample_task)
-        
+
         stats = executor.get_stats()
-        
+
         assert stats["total_tasks"] == 1
         assert stats["enabled_tasks"] == 1
-    
+
     def test_clear_old_results(self, executor):
         """测试清理旧结果"""
         old_result = TaskResult(
@@ -284,12 +282,12 @@ class TestTaskExecutor:
             started_at=datetime.now(),
             completed_at=datetime.now(),
         )
-        
+
         executor._results["old_task"] = old_result
         executor._results["new_task"] = new_result
-        
+
         cleaned = executor.clear_old_results(days=7)
-        
+
         assert cleaned == 1
         assert "old_task" not in executor._results
         assert "new_task" in executor._results
@@ -297,7 +295,7 @@ class TestTaskExecutor:
 
 class TestTaskTypes:
     """任务类型测试"""
-    
+
     @pytest.mark.asyncio
     async def test_check_project_status(self):
         """测试项目状态检查"""
@@ -309,12 +307,12 @@ class TestTaskTypes:
             config={"check_type": "project_status"},
         )
         executor.add_task(task)
-        
+
         result = await executor.execute_task("check_project")
-        
+
         assert result.status == TaskStatus.COMPLETED
         assert "status" in result.result
-    
+
     @pytest.mark.asyncio
     async def test_check_resource_usage(self):
         """测试资源使用检查"""
@@ -326,12 +324,12 @@ class TestTaskTypes:
             config={"check_type": "resource_usage"},
         )
         executor.add_task(task)
-        
+
         result = await executor.execute_task("check_resources")
-        
+
         assert result.status == TaskStatus.COMPLETED
         assert "metrics" in result.result
-    
+
     @pytest.mark.asyncio
     async def test_generate_daily_report(self):
         """测试生成日报"""
@@ -343,12 +341,12 @@ class TestTaskTypes:
             config={"report_type": "daily"},
         )
         executor.add_task(task)
-        
+
         result = await executor.execute_task("daily_report")
-        
+
         assert result.status == TaskStatus.COMPLETED
         assert "每日报告" in result.result["content"]
-    
+
     @pytest.mark.asyncio
     async def test_send_meeting_reminder(self):
         """测试发送会议提醒"""
@@ -364,9 +362,9 @@ class TestTaskTypes:
             },
         )
         executor.add_task(task)
-        
+
         result = await executor.execute_task("meeting_reminder")
-        
+
         assert result.status == TaskStatus.COMPLETED
         assert result.result["delivered"] is True
 

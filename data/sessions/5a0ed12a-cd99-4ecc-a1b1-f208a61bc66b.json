@@ -1,0 +1,34 @@
+{
+  "id": "5a0ed12a-cd99-4ecc-a1b1-f208a61bc66b",
+  "title": "save precondition test",
+  "messages": [],
+  "message_count": 0,
+  "created_at": "2026-03-31T15:33:58.244812",
+  "updated_at": "2026-03-31T15:33:58.248932",
+  "metadata": {
+    "execution_timeline": [
+      {
+        "timestamp": "2026-03-31T15:33:58.248932",
+        "stage": "detected",
+        "payload": {
+          "message": "save this",
+          "intent_type": "save_content"
+        }
+      },
+      {
+        "timestamp": "2026-03-31T15:33:58.248932",
+        "stage": "planned",
+        "payload": {
+          "intent_type": "save_content",
+          "params": {
+            "target_path": null,
+            "preconditions": {
+              "has_content": false,
+              "path_writable": false
+            }
+          }
+        }
+      }
+    ]
+  }
+}

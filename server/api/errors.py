@@ -1,12 +1,12 @@
-# -*- coding: utf-8 -*-
 """
 统一错误处理 - 参考 Ollama 错误处理模式
 提供一致的错误响应格式
 """
+from enum import Enum
+from typing import Any
+
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
-from typing import Optional, Dict, Any
-from enum import Enum
 
 
 class ErrorCode(str, Enum):
@@ -38,7 +38,7 @@ class ErrorCode(str, Enum):
     SERVICE_UNAVAILABLE = "service_unavailable"
 
 
-ERROR_MESSAGES: Dict[str, str] = {
+ERROR_MESSAGES: dict[str, str] = {
     ErrorCode.MODEL_NOT_FOUND: "模型不存在，请检查模型名称或先下载模型",
     ErrorCode.MODEL_LOAD_FAILED: "模型加载失败，请检查模型文件是否完整",
     ErrorCode.SESSION_NOT_FOUND: "会话不存在",
@@ -74,9 +74,9 @@ class APIError(Exception):
     def __init__(
         self,
         code: str,
-        message: Optional[str] = None,
+        message: str | None = None,
         status_code: int = 400,
-        details: Optional[Dict[str, Any]] = None
+        details: dict[str, Any] | None = None
     ):
         self.code = code if isinstance(code, str) else code.value
         self.message = message or ERROR_MESSAGES.get(self.code, f"操作失败: {self.code}")
@@ -84,12 +84,14 @@ class APIError(Exception):
         self.details = details or {}
         super().__init__(self.message)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
+        from core.tracing import trace_id_var
         return {
             "error": {
                 "code": self.code,
                 "message": self.message,
-                "details": self.details
+                "details": self.details,
+                "traceId": trace_id_var.get()
             }
         }
 
@@ -101,7 +103,7 @@ class APIError(Exception):
 
 
 class ModelNotFoundError(APIError):
-    def __init__(self, model_id: str, message: Optional[str] = None):
+    def __init__(self, model_id: str, message: str | None = None):
         super().__init__(
             code=ErrorCode.MODEL_NOT_FOUND,
             message=message,
@@ -111,7 +113,7 @@ class ModelNotFoundError(APIError):
 
 
 class ModelLoadFailedError(APIError):
-    def __init__(self, model_id: str, reason: Optional[str] = None):
+    def __init__(self, model_id: str, reason: str | None = None):
         super().__init__(
             code=ErrorCode.MODEL_LOAD_FAILED,
             status_code=500,
@@ -173,7 +175,7 @@ class OllamaNotRunningError(APIError):
 
 
 class OllamaUnavailableError(APIError):
-    def __init__(self, reason: Optional[str] = None):
+    def __init__(self, reason: str | None = None):
         super().__init__(
             code=ErrorCode.OLLAMA_UNAVAILABLE,
             status_code=503,
@@ -192,7 +194,7 @@ class ContextTooLongError(APIError):
 
 
 class MaliciousInputError(APIError):
-    def __init__(self, pattern: Optional[str] = None):
+    def __init__(self, pattern: str | None = None):
         super().__init__(
             code=ErrorCode.MALICIOUS_INPUT,
             status_code=400,
@@ -211,7 +213,7 @@ class InvalidInputError(APIError):
 
 
 class RateLimitedError(APIError):
-    def __init__(self, retry_after: Optional[int] = None):
+    def __init__(self, retry_after: int | None = None):
         super().__init__(
             code=ErrorCode.RATE_LIMITED,
             status_code=429,
@@ -220,7 +222,7 @@ class RateLimitedError(APIError):
 
 
 class InferenceFailedError(APIError):
-    def __init__(self, model_id: str, reason: Optional[str] = None):
+    def __init__(self, model_id: str, reason: str | None = None):
         super().__init__(
             code=ErrorCode.INFERENCE_FAILED,
             status_code=500,
@@ -229,7 +231,7 @@ class InferenceFailedError(APIError):
 
 
 class EmbeddingFailedError(APIError):
-    def __init__(self, text_preview: str, reason: Optional[str] = None):
+    def __init__(self, text_preview: str, reason: str | None = None):
         super().__init__(
             code=ErrorCode.EMBEDDING_FAILED,
             status_code=500,
@@ -238,7 +240,7 @@ class EmbeddingFailedError(APIError):
 
 
 class UploadFailedError(APIError):
-    def __init__(self, filename: str, reason: Optional[str] = None):
+    def __init__(self, filename: str, reason: str | None = None):
         super().__init__(
             code=ErrorCode.UPLOAD_FAILED,
             status_code=400,
@@ -247,7 +249,7 @@ class UploadFailedError(APIError):
 
 
 class ProcessingFailedError(APIError):
-    def __init__(self, operation: str, reason: Optional[str] = None):
+    def __init__(self, operation: str, reason: str | None = None):
         super().__init__(
             code=ErrorCode.PROCESSING_FAILED,
             status_code=500,
@@ -256,7 +258,7 @@ class ProcessingFailedError(APIError):
 
 
 class UnauthorizedError(APIError):
-    def __init__(self, message: Optional[str] = None):
+    def __init__(self, message: str | None = None):
         super().__init__(
             code=ErrorCode.UNAUTHORIZED,
             message=message or "未授权访问",
@@ -265,7 +267,7 @@ class UnauthorizedError(APIError):
 
 
 class ForbiddenError(APIError):
-    def __init__(self, message: Optional[str] = None):
+    def __init__(self, message: str | None = None):
         super().__init__(
             code=ErrorCode.FORBIDDEN,
             message=message or "禁止访问",
@@ -274,7 +276,7 @@ class ForbiddenError(APIError):
 
 
 class InternalError(APIError):
-    def __init__(self, reason: Optional[str] = None):
+    def __init__(self, reason: str | None = None):
         super().__init__(
             code=ErrorCode.INTERNAL_ERROR,
             status_code=500,
@@ -283,7 +285,7 @@ class InternalError(APIError):
 
 
 class ServiceUnavailableError(APIError):
-    def __init__(self, service: str, reason: Optional[str] = None):
+    def __init__(self, service: str, reason: str | None = None):
         super().__init__(
             code=ErrorCode.SERVICE_UNAVAILABLE,
             status_code=503,

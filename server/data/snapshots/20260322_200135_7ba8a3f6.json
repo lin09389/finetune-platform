@@ -1,0 +1,21 @@
+{
+  "id": "20260322_200135_7ba8a3f6",
+  "action": "record_start",
+  "params": {
+    "record_id": "test_rec"
+  },
+  "timestamp": "2026-03-22T20:01:35.392015",
+  "before_state": {},
+  "after_state": {
+    "success": true,
+    "data": {
+      "record_id": "test_rec",
+      "type": "mouse_keyboard"
+    }
+  },
+  "rollback_operations": [],
+  "rollback_deadline": "2026-03-23T20:01:35.392015",
+  "status": "executed",
+  "is_reversible": true,
+  "error": null
+}

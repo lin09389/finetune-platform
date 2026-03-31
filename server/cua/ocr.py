@@ -1,24 +1,15 @@
-# -*- coding: utf-8 -*-
 """
 CUA OCR 识别模块
 """
-import re
-import hashlib
 import asyncio
-from functools import lru_cache
-from typing import Optional, List, Dict, Any, Tuple
-from pathlib import Path
+import hashlib
+import re
+from typing import Any
 
 from PIL import Image
 
+from .exceptions import OCRError, OCRProcessingError, TesseractNotInstalledError
 from .types import Coordinate, Region
-from .exceptions import (
-    OCRError,
-    TesseractNotInstalledError,
-    OCRProcessingError,
-    TextNotFoundError
-)
-
 
 try:
     import pytesseract
@@ -49,15 +40,15 @@ SUPPORTED_LANGUAGES = {
 
 
 class OCRRecognizer:
-    def __init__(self, tesseract_path: Optional[str] = None):
+    def __init__(self, tesseract_path: str | None = None):
         self._tesseract_path = tesseract_path
         self._current_lang = "chi_sim+eng"
-        self._cache: Dict[str, Any] = {}
+        self._cache: dict[str, Any] = {}
         self._cache_max_size = 100
-        
+
         if tesseract_path and TESSERACT_AVAILABLE:
             pytesseract.pytesseract.tesseract_cmd = tesseract_path
-        
+
         self._check_tesseract()
 
     def _check_tesseract(self) -> None:
@@ -76,7 +67,7 @@ class OCRRecognizer:
         img_bytes = image.tobytes()
         return hashlib.md5(img_bytes + self._current_lang.encode()).hexdigest()
 
-    def _cache_get(self, key: str) -> Optional[Any]:
+    def _cache_get(self, key: str) -> Any | None:
         return self._cache.get(key)
 
     def _cache_set(self, key: str, value: Any) -> None:
@@ -95,7 +86,7 @@ class OCRRecognizer:
             )
         self._current_lang = lang
 
-    def get_available_languages(self) -> List[str]:
+    def get_available_languages(self) -> list[str]:
         try:
             langs = pytesseract.get_languages()
             return langs
@@ -105,76 +96,76 @@ class OCRRecognizer:
     def preprocess_image(self, image: Image.Image) -> Image.Image:
         if not CV2_AVAILABLE:
             return image.convert("L")
-        
+
         img_array = np.array(image)
-        
+
         if len(img_array.shape) == 3:
             gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
         else:
             gray = img_array
-        
+
         blurred = cv2.GaussianBlur(gray, (3, 3), 0)
-        
+
         _, binary = cv2.threshold(
             blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
         )
-        
+
         kernel = np.ones((1, 1), np.uint8)
         processed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-        
+
         return Image.fromarray(processed)
 
     def enhance_for_ocr(self, image: Image.Image) -> Image.Image:
         if not CV2_AVAILABLE:
             enhanced = image.convert("L")
             return enhanced.point(lambda x: 0 if x < 128 else 255)
-        
+
         img_array = np.array(image)
-        
+
         if len(img_array.shape) == 3:
             gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
         else:
             gray = img_array
-        
+
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         enhanced = clahe.apply(gray)
-        
+
         denoised = cv2.fastNlMeansDenoising(enhanced, None, 10, 7, 21)
-        
+
         _, binary = cv2.threshold(
             denoised, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
         )
-        
+
         return Image.fromarray(binary)
 
     def recognize(
         self,
         image: Image.Image,
-        lang: Optional[str] = None,
+        lang: str | None = None,
         preprocess: bool = True
     ) -> str:
         if not TESSERACT_AVAILABLE:
             raise TesseractNotInstalledError()
-        
+
         lang = lang or self._current_lang
-        
+
         cache_key = f"{self._get_image_hash(image)}_{lang}_{preprocess}"
         cached = self._cache_get(cache_key)
         if cached is not None:
             return cached
-        
+
         try:
             if preprocess:
                 processed_image = self.enhance_for_ocr(image)
             else:
                 processed_image = image
-            
+
             text = pytesseract.image_to_string(processed_image, lang=lang)
             result = text.strip()
-            
+
             self._cache_set(cache_key, result)
             return result
-            
+
         except Exception as e:
             raise OCRProcessingError(
                 f"OCR 识别失败: {str(e)}",
@@ -184,7 +175,7 @@ class OCRRecognizer:
     async def recognize_async(
         self,
         image: Image.Image,
-        lang: Optional[str] = None,
+        lang: str | None = None,
         preprocess: bool = True
     ) -> str:
         loop = asyncio.get_event_loop()
@@ -197,7 +188,7 @@ class OCRRecognizer:
         self,
         image: Image.Image,
         region: Region,
-        lang: Optional[str] = None,
+        lang: str | None = None,
         preprocess: bool = True
     ) -> str:
         cropped = image.crop((
@@ -212,7 +203,7 @@ class OCRRecognizer:
         self,
         image: Image.Image,
         region: Region,
-        lang: Optional[str] = None,
+        lang: str | None = None,
         preprocess: bool = True
     ) -> str:
         loop = asyncio.get_event_loop()
@@ -224,34 +215,34 @@ class OCRRecognizer:
     def get_text_boxes(
         self,
         image: Image.Image,
-        lang: Optional[str] = None,
+        lang: str | None = None,
         preprocess: bool = True
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         if not TESSERACT_AVAILABLE:
             raise TesseractNotInstalledError()
-        
+
         lang = lang or self._current_lang
-        
+
         try:
             if preprocess:
                 processed_image = self.enhance_for_ocr(image)
             else:
                 processed_image = image
-            
+
             data = pytesseract.image_to_data(
                 processed_image,
                 lang=lang,
                 output_type=pytesseract.Output.DICT
             )
-            
+
             boxes = []
             n_boxes = len(data["text"])
-            
+
             for i in range(n_boxes):
                 text = data["text"][i].strip()
                 if not text:
                     continue
-                
+
                 boxes.append({
                     "text": text,
                     "x": data["left"][i],
@@ -262,9 +253,9 @@ class OCRRecognizer:
                     "block_num": data["block_num"][i],
                     "line_num": data["line_num"][i],
                 })
-            
+
             return boxes
-            
+
         except Exception as e:
             raise OCRProcessingError(
                 f"获取文本框失败: {str(e)}",
@@ -275,18 +266,18 @@ class OCRRecognizer:
         self,
         image: Image.Image,
         text: str,
-        lang: Optional[str] = None,
+        lang: str | None = None,
         fuzzy: bool = False,
         use_regex: bool = False
-    ) -> List[Coordinate]:
+    ) -> list[Coordinate]:
         boxes = self.get_text_boxes(image, lang)
-        
+
         matches = []
-        
+
         for box in boxes:
             box_text = box["text"]
             matched = False
-            
+
             if use_regex:
                 try:
                     if re.search(text, box_text):
@@ -299,30 +290,30 @@ class OCRRecognizer:
             else:
                 if text == box_text:
                     matched = True
-            
+
             if matched:
                 center_x = box["x"] + box["width"] // 2
                 center_y = box["y"] + box["height"] // 2
                 matches.append(Coordinate(x=center_x, y=center_y))
-        
+
         return matches
 
     def find_text_regions(
         self,
         image: Image.Image,
         text: str,
-        lang: Optional[str] = None,
+        lang: str | None = None,
         fuzzy: bool = False,
         use_regex: bool = False
-    ) -> List[Region]:
+    ) -> list[Region]:
         boxes = self.get_text_boxes(image, lang)
-        
+
         matches = []
-        
+
         for box in boxes:
             box_text = box["text"]
             matched = False
-            
+
             if use_regex:
                 try:
                     if re.search(text, box_text):
@@ -335,7 +326,7 @@ class OCRRecognizer:
             else:
                 if text == box_text:
                     matched = True
-            
+
             if matched:
                 matches.append(Region(
                     x=box["x"],
@@ -343,25 +334,25 @@ class OCRRecognizer:
                     width=box["width"],
                     height=box["height"]
                 ))
-        
+
         return matches
 
     def find_all_text(
         self,
         image: Image.Image,
         text: str,
-        lang: Optional[str] = None,
+        lang: str | None = None,
         fuzzy: bool = False,
         use_regex: bool = False
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         boxes = self.get_text_boxes(image, lang)
-        
+
         matches = []
-        
+
         for box in boxes:
             box_text = box["text"]
             matched = False
-            
+
             if use_regex:
                 try:
                     if re.search(text, box_text):
@@ -374,7 +365,7 @@ class OCRRecognizer:
             else:
                 if text == box_text:
                     matched = True
-            
+
             if matched:
                 matches.append({
                     "text": box_text,
@@ -390,19 +381,19 @@ class OCRRecognizer:
                     ),
                     "confidence": box["confidence"]
                 })
-        
+
         return matches
 
     def get_text_confidence(
         self,
         image: Image.Image,
-        lang: Optional[str] = None
+        lang: str | None = None
     ) -> float:
         boxes = self.get_text_boxes(image, lang)
-        
+
         if not boxes:
             return 0.0
-        
+
         total_confidence = sum(box["confidence"] for box in boxes)
         return total_confidence / len(boxes)
 
@@ -418,5 +409,5 @@ class OCRRecognizer:
         return CV2_AVAILABLE
 
     @staticmethod
-    def get_supported_languages() -> Dict[str, str]:
+    def get_supported_languages() -> dict[str, str]:
         return SUPPORTED_LANGUAGES.copy()

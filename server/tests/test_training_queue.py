@@ -1,20 +1,26 @@
 """
 训练队列管理模块测试
 """
-import pytest
+import os
+import sys
 import tempfile
 import threading
 import time
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
-import sys
-import os
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.training_queue import (
-    TrainingQueue, TrainingTask, TaskStatus, TaskPriority,
-    get_training_queue, shutdown_queue, reset_training_queue
+    TaskPriority,
+    TaskStatus,
+    TrainingQueue,
+    TrainingTask,
+    get_training_queue,
+    reset_training_queue,
+    shutdown_queue,
 )
 
 
@@ -311,7 +317,7 @@ class TestTrainingQueuePersistence:
         assert state_file.exists()
 
         import json
-        with open(state_file, 'r', encoding='utf-8') as f:
+        with open(state_file, encoding='utf-8') as f:
             data = json.load(f)
 
         assert "history" in data

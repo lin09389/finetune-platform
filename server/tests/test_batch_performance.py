@@ -7,20 +7,19 @@
 - 模型调度器
 - 批处理逻辑
 """
-import pytest
-from unittest.mock import Mock, patch, MagicMock, AsyncMock
-import time
-import threading
-import asyncio
-
-import sys
 import os
+import sys
+import threading
+import time
+
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.performance import (
     PerformanceMetrics,
-    StreamingMetrics,
     PerformanceMonitor,
+    StreamingMetrics,
     get_performance_monitor,
 )
 
@@ -174,7 +173,7 @@ class TestPerformanceMonitor:
                 engine_type="huggingface"
             )
             monitor.record(metrics)
-        
+
         stats = monitor.get_stats()
         assert stats["total_requests"] == 5
         assert stats["requests_in_history"] == 5
@@ -183,7 +182,7 @@ class TestPerformanceMonitor:
 
     def test_get_stats_by_model(self):
         monitor = PerformanceMonitor()
-        
+
         for i in range(3):
             monitor.record(PerformanceMetrics(
                 tokens_per_second=50.0,
@@ -193,7 +192,7 @@ class TestPerformanceMonitor:
                 model_id="model_a",
                 engine_type="huggingface"
             ))
-        
+
         for i in range(2):
             monitor.record(PerformanceMetrics(
                 tokens_per_second=60.0,
@@ -203,10 +202,10 @@ class TestPerformanceMonitor:
                 model_id="model_b",
                 engine_type="vllm"
             ))
-        
+
         stats_a = monitor.get_stats(model_id="model_a")
         assert stats_a["requests_in_history"] == 3
-        
+
         stats_b = monitor.get_stats(model_id="model_b")
         assert stats_b["requests_in_history"] == 2
 
@@ -220,7 +219,7 @@ class TestPerformanceMonitor:
             model_id="test_model",
             engine_type="huggingface"
         ))
-        
+
         stats = monitor.get_stats(model_id="nonexistent")
         assert "message" in stats
 
@@ -240,7 +239,7 @@ class TestPerformanceMonitor:
                 min_chunk_latency_ms=10.0,
                 backpressure_events=i
             ))
-        
+
         stats = monitor.get_streaming_stats()
         assert stats["total_streaming_requests"] == 5
         assert stats["total_backpressure_events"] == 10
@@ -262,7 +261,7 @@ class TestPerformanceMonitor:
                 model_id="test",
                 engine_type="huggingface"
             ))
-        
+
         recommendations = monitor.get_recommendations()
         assert any(r["type"] == "warning" and "推理速度较低" in r["message"] for r in recommendations)
 
@@ -277,7 +276,7 @@ class TestPerformanceMonitor:
                 model_id="test",
                 engine_type="huggingface"
             ))
-        
+
         recommendations = monitor.get_recommendations()
         assert any(r["type"] == "warning" and "首字延迟较高" in r["message"] for r in recommendations)
 
@@ -292,7 +291,7 @@ class TestPerformanceMonitor:
                 model_id="test",
                 engine_type="huggingface"
             ))
-        
+
         recommendations = monitor.get_recommendations(vram_total_gb=10.0)
         assert any(r["type"] == "error" and "显存使用率过高" in r["message"] for r in recommendations)
 
@@ -307,13 +306,13 @@ class TestPerformanceMonitor:
                 model_id="test",
                 engine_type="vllm"
             ))
-        
+
         recommendations = monitor.get_recommendations()
         assert any(r["type"] == "success" for r in recommendations)
 
     def test_engine_distribution(self):
         monitor = PerformanceMonitor()
-        
+
         for i in range(3):
             monitor.record(PerformanceMetrics(
                 tokens_per_second=50.0,
@@ -323,7 +322,7 @@ class TestPerformanceMonitor:
                 model_id="test",
                 engine_type="huggingface"
             ))
-        
+
         for i in range(2):
             monitor.record(PerformanceMetrics(
                 tokens_per_second=60.0,
@@ -333,7 +332,7 @@ class TestPerformanceMonitor:
                 model_id="test",
                 engine_type="vllm"
             ))
-        
+
         stats = monitor.get_stats()
         assert stats["engine_distribution"]["huggingface"] == 3
         assert stats["engine_distribution"]["vllm"] == 2
@@ -364,7 +363,7 @@ class TestPerformanceMonitor:
                 engine_type="huggingface"
             ))
             monitor.record_error()
-        
+
         monitor.clear_history()
         assert len(monitor._history) == 0
         assert monitor._request_count == 0
@@ -373,7 +372,7 @@ class TestPerformanceMonitor:
     def test_thread_safety(self):
         monitor = PerformanceMonitor()
         errors = []
-        
+
         def record_metrics(thread_id):
             try:
                 for i in range(100):
@@ -387,13 +386,13 @@ class TestPerformanceMonitor:
                     ))
             except Exception as e:
                 errors.append(e)
-        
+
         threads = [threading.Thread(target=record_metrics, args=(i,)) for i in range(5)]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
-        
+
         assert len(errors) == 0
         assert monitor._request_count == 500
 

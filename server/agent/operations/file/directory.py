@@ -1,15 +1,17 @@
 import asyncio
 import shutil
-from pathlib import Path
-from typing import Optional, Callable, Awaitable, List, Dict, Any
-from pydantic import BaseModel, Field
+from collections.abc import Awaitable, Callable
 from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class DirectoryResult(BaseModel):
     success: bool = Field(default=True)
     path: str = ""
-    error: Optional[str] = None
+    error: str | None = None
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
 
 
@@ -21,22 +23,22 @@ class DirectoryInfo(BaseModel):
     file_count: int = 0
     dir_count: int = 0
     modified: str = ""
-    children: List["DirectoryInfo"] = Field(default_factory=list)
+    children: list["DirectoryInfo"] = Field(default_factory=list)
 
 
 class TreeResult(BaseModel):
     success: bool = Field(default=True)
-    root: Optional[DirectoryInfo] = None
+    root: DirectoryInfo | None = None
     total_files: int = 0
     total_dirs: int = 0
     total_size: int = 0
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class DirectoryExecutor:
     def __init__(
         self,
-        progress_callback: Optional[Callable[[str, float, str], Awaitable[None]]] = None,
+        progress_callback: Callable[[str, float, str], Awaitable[None]] | None = None,
     ):
         self.progress_callback = progress_callback
 
@@ -245,7 +247,7 @@ class DirectoryExecutor:
             total_dirs = 0
             total_size = 0
 
-            def build_tree(current_path: Path, depth: int) -> Optional[DirectoryInfo]:
+            def build_tree(current_path: Path, depth: int) -> DirectoryInfo | None:
                 nonlocal total_files, total_dirs, total_size
 
                 if max_depth >= 0 and depth > max_depth:
@@ -306,7 +308,7 @@ class DirectoryExecutor:
                 await self.progress_callback(
                     path,
                     1.0,
-                    f"目录树生成完成",
+                    "目录树生成完成",
                 )
 
             return TreeResult(
@@ -323,7 +325,7 @@ class DirectoryExecutor:
                 error=f"生成目录树失败: {str(e)}",
             )
 
-    async def get_size(self, path: str) -> Dict[str, Any]:
+    async def get_size(self, path: str) -> dict[str, Any]:
         dir_path = Path(path)
 
         if not dir_path.exists():
@@ -471,7 +473,7 @@ class DirectoryExecutor:
                 await self.progress_callback(
                     source,
                     1.0,
-                    f"目录结构复制完成",
+                    "目录结构复制完成",
                 )
 
             return DirectoryResult(

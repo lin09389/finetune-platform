@@ -1,7 +1,7 @@
+from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, FrozenSet, List, Optional, Set
+
 from pydantic import BaseModel, Field
-from dataclasses import dataclass, field
 
 
 class Permission(str, Enum):
@@ -34,24 +34,24 @@ class SensitivityLevel(str, Enum):
 @dataclass(frozen=True)
 class PathAccessRule:
     path_pattern: str
-    permissions: FrozenSet[Permission]
+    permissions: frozenset[Permission]
     sensitivity: SensitivityLevel = SensitivityLevel.LOW
     description: str = ""
 
 
 class RoleDefinition(BaseModel):
     role: Role
-    permissions: Set[Permission] = Field(default_factory=set)
-    inherits_from: Optional[Role] = None
+    permissions: set[Permission] = Field(default_factory=set)
+    inherits_from: Role | None = None
     max_file_size_mb: int = 10
     max_execution_time_seconds: int = 60
     max_concurrent_operations: int = 3
-    allowed_path_patterns: List[str] = Field(default_factory=list)
-    denied_path_patterns: List[str] = Field(default_factory=list)
+    allowed_path_patterns: list[str] = Field(default_factory=list)
+    denied_path_patterns: list[str] = Field(default_factory=list)
     description: str = ""
 
 
-ROLE_PERMISSIONS: Dict[Role, RoleDefinition] = {
+ROLE_PERMISSIONS: dict[Role, RoleDefinition] = {
     Role.ADMIN: RoleDefinition(
         role=Role.ADMIN,
         permissions=set(Permission),
@@ -110,7 +110,7 @@ ROLE_PERMISSIONS: Dict[Role, RoleDefinition] = {
     ),
 }
 
-DEFAULT_PATH_RULES: List[PathAccessRule] = [
+DEFAULT_PATH_RULES: list[PathAccessRule] = [
     PathAccessRule(
         path_pattern="/etc/*",
         permissions=frozenset({Permission.ADMIN}),
@@ -170,7 +170,7 @@ DEFAULT_PATH_RULES: List[PathAccessRule] = [
     ),
 ]
 
-ACTION_PERMISSION_MAPPING: Dict[str, Set[Permission]] = {
+ACTION_PERMISSION_MAPPING: dict[str, set[Permission]] = {
     "file_read": {Permission.FILE_READ},
     "file_write": {Permission.FILE_WRITE},
     "file_delete": {Permission.FILE_DELETE},
@@ -191,7 +191,7 @@ ACTION_PERMISSION_MAPPING: Dict[str, Set[Permission]] = {
     "admin_operation": {Permission.ADMIN},
 }
 
-SENSITIVE_OPERATIONS: Dict[str, SensitivityLevel] = {
+SENSITIVE_OPERATIONS: dict[str, SensitivityLevel] = {
     "file_delete": SensitivityLevel.HIGH,
     "process_stop": SensitivityLevel.HIGH,
     "service_stop": SensitivityLevel.HIGH,
@@ -203,10 +203,10 @@ SENSITIVE_OPERATIONS: Dict[str, SensitivityLevel] = {
 }
 
 
-def get_role_permissions(role: Role) -> Set[Permission]:
+def get_role_permissions(role: Role) -> set[Permission]:
     permissions = set()
-    current_role: Optional[Role] = role
-    
+    current_role: Role | None = role
+
     while current_role is not None:
         role_def = ROLE_PERMISSIONS.get(current_role)
         if role_def:
@@ -214,15 +214,15 @@ def get_role_permissions(role: Role) -> Set[Permission]:
             current_role = role_def.inherits_from
         else:
             break
-    
+
     return permissions
 
 
-def get_role_definition(role: Role) -> Optional[RoleDefinition]:
+def get_role_definition(role: Role) -> RoleDefinition | None:
     return ROLE_PERMISSIONS.get(role)
 
 
-def get_action_permissions(action: str) -> Set[Permission]:
+def get_action_permissions(action: str) -> set[Permission]:
     return ACTION_PERMISSION_MAPPING.get(action, set())
 
 
@@ -241,7 +241,7 @@ def match_path_pattern(path: str, pattern: str) -> bool:
     return fnmatch.fnmatch(path, pattern)
 
 
-def get_applicable_path_rules(path: str) -> List[PathAccessRule]:
+def get_applicable_path_rules(path: str) -> list[PathAccessRule]:
     applicable_rules = []
     for rule in DEFAULT_PATH_RULES:
         if match_path_pattern(path, rule.path_pattern):

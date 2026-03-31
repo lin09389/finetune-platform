@@ -1,11 +1,12 @@
 import asyncio
 import platform
 import socket
-import psutil
-from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from typing import Any
+
+import psutil
 
 
 class InfoType(str, Enum):
@@ -27,8 +28,8 @@ class OSInfo:
     processor: str
     boot_time: datetime
     hostname: str
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "system": self.system,
             "node": self.node,
@@ -49,11 +50,11 @@ class CPUInfo:
     max_freq_mhz: float
     min_freq_mhz: float
     cpu_percent: float
-    per_cpu_percent: List[float] = field(default_factory=list)
+    per_cpu_percent: list[float] = field(default_factory=list)
     brand: str = ""
     architecture: str = ""
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "physical_cores": self.physical_cores,
             "logical_cores": self.logical_cores,
@@ -77,8 +78,8 @@ class MemoryInfo:
     swap_used_gb: float
     swap_free_gb: float
     swap_percent: float
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "total_gb": round(self.total_gb, 2),
             "available_gb": round(self.available_gb, 2),
@@ -100,8 +101,8 @@ class DiskPartition:
     used_gb: float
     free_gb: float
     percent: float
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "device": self.device,
             "mountpoint": self.mountpoint,
@@ -115,11 +116,11 @@ class DiskPartition:
 
 @dataclass
 class DiskInfo:
-    partitions: List[DiskPartition] = field(default_factory=list)
+    partitions: list[DiskPartition] = field(default_factory=list)
     total_read_gb: float = 0.0
     total_write_gb: float = 0.0
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "partitions": [p.to_dict() for p in self.partitions],
             "total_read_gb": round(self.total_read_gb, 2),
@@ -130,14 +131,14 @@ class DiskInfo:
 @dataclass
 class NetworkInterface:
     name: str
-    addresses: List[Dict[str, str]]
+    addresses: list[dict[str, str]]
     bytes_sent_mb: float
     bytes_recv_mb: float
     packets_sent: int
     packets_recv: int
     is_up: bool
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "addresses": self.addresses,
@@ -151,12 +152,12 @@ class NetworkInterface:
 
 @dataclass
 class NetworkInfo:
-    interfaces: List[NetworkInterface] = field(default_factory=list)
+    interfaces: list[NetworkInterface] = field(default_factory=list)
     hostname: str = ""
-    default_gateway: Optional[str] = None
-    dns_servers: List[str] = field(default_factory=list)
-    
-    def to_dict(self) -> Dict[str, Any]:
+    default_gateway: str | None = None
+    dns_servers: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
         return {
             "interfaces": [i.to_dict() for i in self.interfaces],
             "hostname": self.hostname,
@@ -168,12 +169,12 @@ class NetworkInfo:
 class SystemInfoOperations:
     def __init__(self):
         self._is_windows = platform.system() == "Windows"
-    
-    async def get_os_info(self) -> Dict[str, Any]:
+
+    async def get_os_info(self) -> dict[str, Any]:
         try:
             boot_timestamp = psutil.boot_time()
             boot_time = datetime.fromtimestamp(boot_timestamp)
-            
+
             info = OSInfo(
                 system=platform.system(),
                 node=platform.node(),
@@ -184,19 +185,19 @@ class SystemInfoOperations:
                 boot_time=boot_time,
                 hostname=socket.gethostname(),
             )
-            
+
             return info.to_dict()
-            
+
         except Exception as e:
             return {"error": str(e)}
-    
-    async def get_cpu_info(self) -> Dict[str, Any]:
+
+    async def get_cpu_info(self) -> dict[str, Any]:
         try:
             cpu_percent = psutil.cpu_percent(interval=0.5)
             per_cpu_percent = psutil.cpu_percent(interval=0.5, percpu=True)
-            
+
             freq = psutil.cpu_freq()
-            
+
             if self._is_windows:
                 import subprocess
                 try:
@@ -212,7 +213,7 @@ class SystemInfoOperations:
                     brand = platform.processor() or ""
             else:
                 try:
-                    with open("/proc/cpuinfo", "r", encoding="utf-8") as f:
+                    with open("/proc/cpuinfo", encoding="utf-8") as f:
                         for line in f:
                             if "model name" in line:
                                 brand = line.split(":")[1].strip()
@@ -221,7 +222,7 @@ class SystemInfoOperations:
                             brand = ""
                 except Exception:
                     brand = platform.processor() or ""
-            
+
             info = CPUInfo(
                 physical_cores=psutil.cpu_count(logical=False) or 1,
                 logical_cores=psutil.cpu_count(logical=True) or 1,
@@ -233,19 +234,19 @@ class SystemInfoOperations:
                 brand=brand,
                 architecture=platform.machine(),
             )
-            
+
             return info.to_dict()
-            
+
         except Exception as e:
             return {"error": str(e)}
-    
-    async def get_memory_info(self) -> Dict[str, Any]:
+
+    async def get_memory_info(self) -> dict[str, Any]:
         try:
             virtual_mem = psutil.virtual_memory()
             swap_mem = psutil.swap_memory()
-            
+
             gb = 1024 ** 3
-            
+
             info = MemoryInfo(
                 total_gb=virtual_mem.total / gb,
                 available_gb=virtual_mem.available / gb,
@@ -256,21 +257,21 @@ class SystemInfoOperations:
                 swap_free_gb=swap_mem.free / gb,
                 swap_percent=swap_mem.percent,
             )
-            
+
             return info.to_dict()
-            
+
         except Exception as e:
             return {"error": str(e)}
-    
-    async def get_disk_info(self) -> Dict[str, Any]:
+
+    async def get_disk_info(self) -> dict[str, Any]:
         try:
             partitions = []
             gb = 1024 ** 3
-            
+
             for partition in psutil.disk_partitions():
                 try:
                     usage = psutil.disk_usage(partition.mountpoint)
-                    
+
                     partitions.append(DiskPartition(
                         device=partition.device,
                         mountpoint=partition.mountpoint,
@@ -282,29 +283,29 @@ class SystemInfoOperations:
                     ))
                 except PermissionError:
                     continue
-            
+
             disk_io = psutil.disk_io_counters()
-            
+
             info = DiskInfo(
                 partitions=partitions,
                 total_read_gb=disk_io.read_bytes / gb if disk_io else 0.0,
                 total_write_gb=disk_io.write_bytes / gb if disk_io else 0.0,
             )
-            
+
             return info.to_dict()
-            
+
         except Exception as e:
             return {"error": str(e)}
-    
-    async def get_network_info(self) -> Dict[str, Any]:
+
+    async def get_network_info(self) -> dict[str, Any]:
         try:
             interfaces = []
             mb = 1024 ** 2
-            
+
             net_io = psutil.net_io_counters(pernic=True)
             net_if_addrs = psutil.net_if_addrs()
             net_if_stats = psutil.net_if_stats()
-            
+
             for name, addrs in net_if_addrs.items():
                 addresses = []
                 for addr in addrs:
@@ -314,10 +315,10 @@ class SystemInfoOperations:
                         "netmask": addr.netmask or "",
                         "broadcast": addr.broadcast or "",
                     })
-                
+
                 io = net_io.get(name)
                 stats = net_if_stats.get(name)
-                
+
                 interfaces.append(NetworkInterface(
                     name=name,
                     addresses=addresses,
@@ -327,10 +328,10 @@ class SystemInfoOperations:
                     packets_recv=io.packets_recv if io else 0,
                     is_up=stats.isup if stats else False,
                 ))
-            
+
             default_gateway = None
             dns_servers = []
-            
+
             if self._is_windows:
                 try:
                     result = await asyncio.create_subprocess_exec(
@@ -341,7 +342,7 @@ class SystemInfoOperations:
                         stderr=asyncio.subprocess.PIPE,
                     )
                     stdout, _ = await result.communicate()
-                    
+
                     for line in stdout.decode().strip().split("\n"):
                         if ":" in line:
                             parts = line.split(":")
@@ -353,36 +354,36 @@ class SystemInfoOperations:
                     pass
             else:
                 try:
-                    with open("/etc/resolv.conf", "r", encoding="utf-8") as f:
+                    with open("/etc/resolv.conf", encoding="utf-8") as f:
                         for line in f:
                             if line.startswith("nameserver"):
                                 dns_servers.append(line.split()[1])
                 except Exception:
                     pass
-            
+
             info = NetworkInfo(
                 interfaces=interfaces,
                 hostname=socket.gethostname(),
                 default_gateway=default_gateway,
                 dns_servers=dns_servers[:5],
             )
-            
+
             return info.to_dict()
-            
+
         except Exception as e:
             return {"error": str(e)}
-    
-    async def get_all_info(self) -> Dict[str, Any]:
+
+    async def get_all_info(self) -> dict[str, Any]:
         os_task = self.get_os_info()
         cpu_task = self.get_cpu_info()
         memory_task = self.get_memory_info()
         disk_task = self.get_disk_info()
         network_task = self.get_network_info()
-        
+
         os_info, cpu_info, memory_info, disk_info, network_info = await asyncio.gather(
             os_task, cpu_task, memory_task, disk_task, network_task
         )
-        
+
         return {
             "os": os_info,
             "cpu": cpu_info,
@@ -391,8 +392,8 @@ class SystemInfoOperations:
             "network": network_info,
             "collected_at": datetime.now().isoformat(),
         }
-    
-    async def get_info(self, info_type: InfoType) -> Dict[str, Any]:
+
+    async def get_info(self, info_type: InfoType) -> dict[str, Any]:
         handlers = {
             InfoType.OS: self.get_os_info,
             InfoType.CPU: self.get_cpu_info,
@@ -401,27 +402,27 @@ class SystemInfoOperations:
             InfoType.NETWORK: self.get_network_info,
             InfoType.ALL: self.get_all_info,
         }
-        
+
         handler = handlers.get(info_type)
         if handler:
             return await handler()
-        
+
         return {"error": f"Unknown info type: {info_type}"}
-    
-    async def get_uptime(self) -> Dict[str, Any]:
+
+    async def get_uptime(self) -> dict[str, Any]:
         try:
             boot_timestamp = psutil.boot_time()
             boot_time = datetime.fromtimestamp(boot_timestamp)
             now = datetime.now()
-            
+
             uptime = now - boot_time
             total_seconds = int(uptime.total_seconds())
-            
+
             days = total_seconds // 86400
             hours = (total_seconds % 86400) // 3600
             minutes = (total_seconds % 3600) // 60
             seconds = total_seconds % 60
-            
+
             return {
                 "boot_time": boot_time.isoformat(),
                 "uptime_seconds": total_seconds,
@@ -431,40 +432,40 @@ class SystemInfoOperations:
                 "minutes": minutes,
                 "seconds": seconds,
             }
-            
+
         except Exception as e:
             return {"error": str(e)}
-    
-    async def get_battery_info(self) -> Dict[str, Any]:
+
+    async def get_battery_info(self) -> dict[str, Any]:
         try:
             if not hasattr(psutil, "sensors_battery"):
                 return {"error": "Battery information not available on this system"}
-            
+
             battery = psutil.sensors_battery()
-            
+
             if battery is None:
                 return {"error": "No battery detected"}
-            
+
             return {
                 "percent": battery.percent,
                 "power_plugged": battery.power_plugged,
                 "secs_left": battery.secs_left,
                 "status": "charging" if battery.power_plugged else "discharging",
             }
-            
+
         except Exception as e:
             return {"error": str(e)}
-    
-    async def get_temperature_info(self) -> Dict[str, Any]:
+
+    async def get_temperature_info(self) -> dict[str, Any]:
         try:
             if not hasattr(psutil, "sensors_temperatures"):
                 return {"error": "Temperature information not available on this system"}
-            
+
             temps = psutil.sensors_temperatures()
-            
+
             if not temps:
                 return {"error": "No temperature sensors available"}
-            
+
             result = {}
             for name, entries in temps.items():
                 result[name] = [
@@ -476,8 +477,8 @@ class SystemInfoOperations:
                     }
                     for i, entry in enumerate(entries)
                 ]
-            
+
             return result
-            
+
         except Exception as e:
             return {"error": str(e)}

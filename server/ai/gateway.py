@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 AI 网关 - 统一云端 AI 接口
 
@@ -12,16 +11,18 @@ AI 网关 - 统一云端 AI 接口
 - 流式传输优化
 - 智能超时设置
 """
-from typing import Dict, List, AsyncGenerator, Optional, Any
-from abc import ABC, abstractmethod
-import httpx
+import asyncio
 import json
 import logging
-import asyncio
+from abc import ABC, abstractmethod
+from collections.abc import AsyncGenerator
+from typing import Any
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
-_http_clients: Dict[str, httpx.AsyncClient] = {}
+_http_clients: dict[str, httpx.AsyncClient] = {}
 
 
 def get_http_client(timeout: float = 60.0) -> httpx.AsyncClient:
@@ -35,7 +36,7 @@ def get_http_client(timeout: float = 60.0) -> httpx.AsyncClient:
         HTTP 客户端实例
     """
     timeout_key = f"timeout_{int(timeout)}"
-    
+
     if timeout_key not in _http_clients:
         _http_clients[timeout_key] = httpx.AsyncClient(
             timeout=httpx.Timeout(
@@ -51,7 +52,7 @@ def get_http_client(timeout: float = 60.0) -> httpx.AsyncClient:
             ),
             follow_redirects=True
         )
-    
+
     return _http_clients[timeout_key]
 
 
@@ -68,22 +69,22 @@ class AIProvider(ABC):
     @abstractmethod
     async def chat(
         self,
-        messages: List[Dict],
+        messages: list[dict],
         model: str,
         api_key: str,
         **kwargs
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """非流式聊天"""
         pass
 
     @abstractmethod
     async def chat_stream(
         self,
-        messages: List[Dict],
+        messages: list[dict],
         model: str,
         api_key: str,
         **kwargs
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """流式聊天"""
         pass
 
@@ -93,11 +94,11 @@ class AIProvider(ABC):
         pass
 
     @abstractmethod
-    def list_models(self) -> List[str]:
+    def list_models(self) -> list[str]:
         """获取可用模型列表"""
         pass
 
-    async def test_connection(self) -> Dict[str, Any]:
+    async def test_connection(self) -> dict[str, Any]:
         """测试连接"""
         try:
             await self.chat(
@@ -141,7 +142,7 @@ class MinimaxProvider(AIProvider):
         """获取默认模型"""
         return "MiniMax-M2.5"
 
-    def list_models(self) -> List[str]:
+    def list_models(self) -> list[str]:
         """获取可用模型列表"""
         return [
             "MiniMax-M2.5",
@@ -153,11 +154,11 @@ class MinimaxProvider(AIProvider):
 
     async def chat(
         self,
-        messages: List[Dict],
+        messages: list[dict],
         model: str = None,
         api_key: str = "",
         **kwargs
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         非流式聊天
         
@@ -208,7 +209,7 @@ class MinimaxProvider(AIProvider):
 
                 message = data["choices"][0]["message"]
                 content = message.get("content", "") or message.get("reasoning_content", "")
-                
+
                 return {
                     "content": content,
                     "model": model,
@@ -219,9 +220,9 @@ class MinimaxProvider(AIProvider):
                 if e.response.status_code == 429 and attempt < max_retries - 1:
                     await asyncio.sleep(2 ** attempt)
                     continue
-                
+
                 error_detail = self._parse_error_response(e.response)
-                
+
                 if e.response.status_code == 401:
                     raise ValueError(f"API Key 认证失败：{error_detail}")
                 elif e.response.status_code == 403:
@@ -230,7 +231,7 @@ class MinimaxProvider(AIProvider):
                     raise ValueError(f"请求过于频繁：{error_detail}")
                 else:
                     raise ValueError(f"API 调用失败 ({e.response.status_code}): {error_detail}")
-                    
+
             except httpx.RequestError as e:
                 if attempt < max_retries - 1:
                     await asyncio.sleep(1)
@@ -241,11 +242,11 @@ class MinimaxProvider(AIProvider):
 
     async def chat_stream(
         self,
-        messages: List[Dict],
+        messages: list[dict],
         model: str = None,
         api_key: str = "",
         **kwargs
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """
         流式聊天
         
@@ -333,17 +334,17 @@ class GLMProvider(AIProvider):
         """获取默认模型"""
         return "glm-4"
 
-    def list_models(self) -> List[str]:
+    def list_models(self) -> list[str]:
         """获取可用模型列表"""
         return ["glm-4", "glm-3-turbo", "glm-4v"]
 
     async def chat(
         self,
-        messages: List[Dict],
+        messages: list[dict],
         model: str = None,
         api_key: str = "",
         **kwargs
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """非流式聊天"""
         if model is None:
             model = self.get_default_model()
@@ -375,7 +376,7 @@ class GLMProvider(AIProvider):
                 )
                 response.raise_for_status()
                 data = response.json()
-                
+
                 return {
                     "content": data["choices"][0]["message"]["content"],
                     "model": model,
@@ -386,9 +387,9 @@ class GLMProvider(AIProvider):
                 if e.response.status_code == 429 and attempt < max_retries - 1:
                     await asyncio.sleep(2 ** attempt)
                     continue
-                
+
                 error_detail = self._parse_error_response(e.response)
-                
+
                 if e.response.status_code == 401:
                     raise ValueError(f"API Key 认证失败：{error_detail}")
                 elif e.response.status_code == 403:
@@ -397,7 +398,7 @@ class GLMProvider(AIProvider):
                     raise ValueError(f"请求过于频繁：{error_detail}")
                 else:
                     raise ValueError(f"API 调用失败 ({e.response.status_code}): {error_detail}")
-                    
+
             except httpx.RequestError as e:
                 if attempt < max_retries - 1:
                     await asyncio.sleep(1)
@@ -408,11 +409,11 @@ class GLMProvider(AIProvider):
 
     async def chat_stream(
         self,
-        messages: List[Dict],
+        messages: list[dict],
         model: str = None,
         api_key: str = "",
         **kwargs
-    ) -> AsyncGenerator[Dict[str, Any], None]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """流式聊天"""
         if model is None:
             model = self.get_default_model()
@@ -443,7 +444,7 @@ class GLMProvider(AIProvider):
                 },
             ) as response:
                 response.raise_for_status()
-                
+
                 async for line in response.aiter_lines():
                     if line.startswith("data: "):
                         data = line[6:]
@@ -456,7 +457,7 @@ class GLMProvider(AIProvider):
                                 yield {"content": content, "delta": True}
                         except (json.JSONDecodeError, KeyError):
                             continue
-                            
+
         except httpx.HTTPStatusError as e:
             error_detail = self._parse_error_response(e.response)
             raise ValueError(f"流式调用失败 ({e.response.status_code}): {error_detail}")
@@ -472,25 +473,30 @@ class GLMProvider(AIProvider):
             return response.text or f"HTTP {response.status_code}"
 
 
-PROVIDERS: Dict[str, AIProvider] = {
+PROVIDERS: dict[str, AIProvider] = {
     "minimax": MinimaxProvider(coding_mode=False),
     "minimax-coding": MinimaxProvider(coding_mode=True),
     "glm": GLMProvider(),
 }
 
 
-def get_provider(provider: str, group_id: str = "", base_url: str = "") -> Optional[AIProvider]:
+def get_provider(provider: str, group_id: str = "", base_url: str = "", version: str = "") -> AIProvider | None:
     """
-    获取服务商实例
+    获取服务商实例，支持灰度分流
     
     Args:
         provider: 服务商名称 (minimax/minimax-coding/glm)
         group_id: Group ID（可选，用于 Minimax）
         base_url: 自定义 Base URL（可选）
+        version: 版本标签（用于灰度分流）
     
     Returns:
         服务商实例
     """
+    # 灰度分流逻辑：如果版本为 canary，强制使用高性能模型或灰度端点
+    if version == "canary" and provider == "minimax":
+        return MinimaxProvider(coding_mode=False, base_url="https://api-canary.minimaxi.com/v1")
+
     if provider not in PROVIDERS:
         return None
 
@@ -503,7 +509,7 @@ def get_provider(provider: str, group_id: str = "", base_url: str = "") -> Optio
     return PROVIDERS[provider]
 
 
-def list_providers() -> List[Dict]:
+def list_providers() -> list[dict]:
     """
     列出所有可用的服务商
     

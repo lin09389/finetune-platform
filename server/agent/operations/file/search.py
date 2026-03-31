@@ -1,22 +1,22 @@
-import asyncio
 import fnmatch
 import re
+from collections.abc import Awaitable, Callable
+from datetime import datetime
 from pathlib import Path
-from typing import Optional, Callable, Awaitable, List, Dict, Any
+
 from pydantic import BaseModel, Field
-from datetime import datetime, timedelta
 
 
 class SearchCriteria(BaseModel):
-    name_pattern: Optional[str] = None
-    content_pattern: Optional[str] = None
-    min_size: Optional[int] = None
-    max_size: Optional[int] = None
-    modified_after: Optional[str] = None
-    modified_before: Optional[str] = None
-    extensions: Optional[List[str]] = None
-    is_file: Optional[bool] = None
-    is_dir: Optional[bool] = None
+    name_pattern: str | None = None
+    content_pattern: str | None = None
+    min_size: int | None = None
+    max_size: int | None = None
+    modified_after: str | None = None
+    modified_before: str | None = None
+    extensions: list[str] | None = None
+    is_file: bool | None = None
+    is_dir: bool | None = None
     use_regex: bool = False
     case_sensitive: bool = False
 
@@ -28,24 +28,24 @@ class SearchResult(BaseModel):
     size: int = 0
     modified: str = ""
     match_type: str = "name"
-    line_number: Optional[int] = None
-    line_content: Optional[str] = None
+    line_number: int | None = None
+    line_content: str | None = None
 
 
 class SearchResults(BaseModel):
     success: bool = Field(default=True)
     criteria: SearchCriteria
-    results: List[SearchResult] = Field(default_factory=list)
+    results: list[SearchResult] = Field(default_factory=list)
     total: int = 0
     scanned: int = 0
-    error: Optional[str] = None
+    error: str | None = None
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
 
 
 class FileSearchExecutor:
     def __init__(
         self,
-        progress_callback: Optional[Callable[[str, float, str], Awaitable[None]]] = None,
+        progress_callback: Callable[[str, float, str], Awaitable[None]] | None = None,
         max_results: int = 1000,
     ):
         self.progress_callback = progress_callback
@@ -74,7 +74,7 @@ class FileSearchExecutor:
             )
 
         try:
-            results: List[SearchResult] = []
+            results: list[SearchResult] = []
             scanned = 0
 
             if recursive:
@@ -156,7 +156,7 @@ class FileSearchExecutor:
         recursive: bool = True,
         use_regex: bool = False,
         case_sensitive: bool = False,
-        extensions: Optional[List[str]] = None,
+        extensions: list[str] | None = None,
     ) -> SearchResults:
         criteria = SearchCriteria(
             content_pattern=pattern,
@@ -170,8 +170,8 @@ class FileSearchExecutor:
     async def search_by_size(
         self,
         directory: str,
-        min_size: Optional[int] = None,
-        max_size: Optional[int] = None,
+        min_size: int | None = None,
+        max_size: int | None = None,
         recursive: bool = True,
     ) -> SearchResults:
         criteria = SearchCriteria(
@@ -184,8 +184,8 @@ class FileSearchExecutor:
     async def search_by_time(
         self,
         directory: str,
-        modified_after: Optional[str] = None,
-        modified_before: Optional[str] = None,
+        modified_after: str | None = None,
+        modified_before: str | None = None,
         recursive: bool = True,
     ) -> SearchResults:
         criteria = SearchCriteria(
@@ -197,7 +197,7 @@ class FileSearchExecutor:
     async def search_by_extension(
         self,
         directory: str,
-        extensions: List[str],
+        extensions: list[str],
         recursive: bool = True,
     ) -> SearchResults:
         normalized_extensions = []
@@ -216,14 +216,14 @@ class FileSearchExecutor:
         self,
         directory: str,
         recursive: bool = True,
-    ) -> Dict[str, List[str]]:
+    ) -> dict[str, list[str]]:
         dir_path = Path(directory)
 
         if not dir_path.exists() or not dir_path.is_dir():
             return {}
 
         try:
-            size_map: Dict[int, List[str]] = {}
+            size_map: dict[int, list[str]] = {}
 
             if recursive:
                 items = list(dir_path.rglob("*"))
@@ -256,7 +256,7 @@ class FileSearchExecutor:
                         f"查找进度: {idx + 1}/{len(files)}",
                     )
 
-            duplicates: Dict[str, List[str]] = {}
+            duplicates: dict[str, list[str]] = {}
             for size, paths in size_map.items():
                 if len(paths) > 1:
                     duplicates[f"size_{size}"] = paths
@@ -277,7 +277,7 @@ class FileSearchExecutor:
         self,
         directory: str,
         recursive: bool = True,
-    ) -> List[str]:
+    ) -> list[str]:
         dir_path = Path(directory)
 
         if not dir_path.exists() or not dir_path.is_dir():
@@ -376,11 +376,11 @@ class FileSearchExecutor:
         self,
         file_path: Path,
         criteria: SearchCriteria,
-    ) -> List[SearchResult]:
-        results: List[SearchResult] = []
+    ) -> list[SearchResult]:
+        results: list[SearchResult] = []
 
         try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(file_path, encoding="utf-8", errors="ignore") as f:
                 lines = f.readlines()
 
             pattern = criteria.content_pattern

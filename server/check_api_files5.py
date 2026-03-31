@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import os
 
 # Check if files exist
@@ -18,6 +17,6 @@ for f in files:
             spec = importlib.util.spec_from_file_location("test_module", f)
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-            print(f'  Import: OK')
+            print('  Import: OK')
         except Exception as e:
             print(f'  Import FAIL: {e}')

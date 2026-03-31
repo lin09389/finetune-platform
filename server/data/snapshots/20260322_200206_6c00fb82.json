@@ -1,0 +1,149 @@
+{
+  "id": "20260322_200206_6c00fb82",
+  "action": "record_stop",
+  "params": {
+    "record_id": "test_rec"
+  },
+  "timestamp": "2026-03-22T20:02:06.604061",
+  "before_state": {},
+  "after_state": {
+    "success": true,
+    "data": {
+      "record_id": "test_rec",
+      "event_count": 18,
+      "events": [
+        {
+          "type": "mouse",
+          "action": "move",
+          "timestamp": "2026-03-22T20:02:06.044605",
+          "x": 644,
+          "y": 692
+        },
+        {
+          "type": "mouse",
+          "action": "move",
+          "timestamp": "2026-03-22T20:02:06.058629",
+          "x": 644,
+          "y": 692
+        },
+        {
+          "type": "mouse",
+          "action": "move",
+          "timestamp": "2026-03-22T20:02:06.127730",
+          "x": 653,
+          "y": 702
+        },
+        {
+          "type": "mouse",
+          "action": "move",
+          "timestamp": "2026-03-22T20:02:06.142256",
+          "x": 652,
+          "y": 702
+        },
+        {
+          "type": "mouse",
+          "action": "move",
+          "timestamp": "2026-03-22T20:02:06.155779",
+          "x": 651,
+          "y": 703
+        },
+        {
+          "type": "mouse",
+          "action": "move",
+          "timestamp": "2026-03-22T20:02:06.169297",
+          "x": 650,
+          "y": 703
+        },
+        {
+          "type": "mouse",
+          "action": "move",
+          "timestamp": "2026-03-22T20:02:06.176460",
+          "x": 649,
+          "y": 703
+        },
+        {
+          "type": "mouse",
+          "action": "move",
+          "timestamp": "2026-03-22T20:02:06.183475",
+          "x": 648,
+          "y": 703
+        },
+        {
+          "type": "mouse",
+          "action": "move",
+          "timestamp": "2026-03-22T20:02:06.203511",
+          "x": 644,
+          "y": 692
+        },
+        {
+          "type": "mouse",
+          "action": "move",
+          "timestamp": "2026-03-22T20:02:06.216762",
+          "x": 643,
+          "y": 692
+        },
+        {
+          "type": "mouse",
+          "action": "move",
+          "timestamp": "2026-03-22T20:02:06.238597",
+          "x": 642,
+          "y": 692
+        },
+        {
+          "type": "mouse",
+          "action": "move",
+          "timestamp": "2026-03-22T20:02:06.252790",
+          "x": 641,
+          "y": 692
+        },
+        {
+          "type": "mouse",
+          "action": "move",
+          "timestamp": "2026-03-22T20:02:06.383827",
+          "x": 640,
+          "y": 692
+        },
+        {
+          "type": "mouse",
+          "action": "move",
+          "timestamp": "2026-03-22T20:02:06.406037",
+          "x": 639,
+          "y": 692
+        },
+        {
+          "type": "mouse",
+          "action": "move",
+          "timestamp": "2026-03-22T20:02:06.419568",
+          "x": 638,
+          "y": 692
+        },
+        {
+          "type": "mouse",
+          "action": "move",
+          "timestamp": "2026-03-22T20:02:06.433656",
+          "x": 638,
+          "y": 692
+        },
+        {
+          "type": "mouse",
+          "action": "move",
+          "timestamp": "2026-03-22T20:02:06.454941",
+          "x": 637,
+          "y": 692
+        },
+        {
+          "type": "mouse",
+          "action": "move",
+          "timestamp": "2026-03-22T20:02:06.467797",
+          "x": 636,
+          "y": 692
+        }
+      ]
+    }
+  },
+  "rollback_operations": [],
+  "rollback_deadline": "2026-03-23T20:02:06.604061",
+  "status": "executed",
+  "is_reversible": true,
+  "error": null
+}

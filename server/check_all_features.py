@@ -1,9 +1,8 @@
-# -*- coding: utf-8 -*-
 """
 项目功能全面检测脚本
 """
-import sys
 import os
+import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -60,16 +59,16 @@ except Exception as e:
 # 2. 核心依赖检测
 print("\n[2] 核心依赖检测")
 print("-" * 40)
-for name, module in [("FastAPI", "fastapi"), ("Uvicorn", "uvicorn"), ("Pydantic", "pydantic"), 
-                     ("Transformers", "transformers"), ("Accelerate", "accelerate"), 
+for name, module in [("FastAPI", "fastapi"), ("Uvicorn", "uvicorn"), ("Pydantic", "pydantic"),
+                     ("Transformers", "transformers"), ("Accelerate", "accelerate"),
                      ("PEFT", "peft"), ("Datasets", "datasets")]:
     check_module(name, module)
 
 # 3. API 模块检测
 print("\n[3] API 模块检测")
 print("-" * 40)
-api_modules = ["api.device", "api.models", "api.datasets", "api.training", 
-               "api.inference", "api.chat_history", "api.rag", "api.workspace", 
+api_modules = ["api.device", "api.models", "api.datasets", "api.training",
+               "api.inference", "api.chat_history", "api.rag", "api.workspace",
                "api.model_center", "api.memory", "api.agent", "api.context"]
 for module in api_modules:
     check_module(module)
@@ -77,8 +76,8 @@ for module in api_modules:
 # 4. Context 模块检测
 print("\n[4] 项目上下文模块检测")
 print("-" * 40)
-context_modules = ["context", "context.models", "context.project_scanner", 
-                   "context.symbol_extractor", "context.code_indexer", 
+context_modules = ["context", "context.models", "context.project_scanner",
+                   "context.symbol_extractor", "context.code_indexer",
                    "context.context_retriever", "context.service"]
 for module in context_modules:
     check_module(module)
@@ -86,7 +85,7 @@ for module in context_modules:
 # 5. RAG 模块检测
 print("\n[5] RAG 模块检测")
 print("-" * 40)
-rag_modules = ["rag", "rag.embedder", "rag.vector_store", "rag.service", 
+rag_modules = ["rag", "rag.embedder", "rag.vector_store", "rag.service",
                "rag.document_parser", "rag.text_chunker"]
 for module in rag_modules:
     check_module(module)
@@ -94,7 +93,7 @@ for module in rag_modules:
 # 6. Agent 模块检测
 print("\n[6] Agent 模块检测")
 print("-" * 40)
-agent_modules = ["agent", "agent.config", "agent.security", "agent.executor", 
+agent_modules = ["agent", "agent.config", "agent.security", "agent.executor",
                  "agent.intent", "agent.audit"]
 for module in agent_modules:
     check_module(module)
@@ -102,7 +101,7 @@ for module in agent_modules:
 # 7. Core 模块检测
 print("\n[7] Core 模块检测")
 print("-" * 40)
-core_modules = ["core.config", "core.logging", "core.utils", "core.model_cache", 
+core_modules = ["core.config", "core.logging", "core.utils", "core.model_cache",
                 "core.training_queue", "core.training_state", "core.db_manager"]
 for module in core_modules:
     check_module(module)
@@ -121,7 +120,7 @@ client_path = server_path.parent / "client"
 for f in ["package.json", "vite.config.ts", "tsconfig.json"]:
     check_file(client_path / f, f)
 
-for comp in ["App.tsx", "main.tsx", "pages/Chat.tsx", "pages/Training.tsx", 
+for comp in ["App.tsx", "main.tsx", "pages/Chat.tsx", "pages/Training.tsx",
              "pages/ProjectContext.tsx", "components/CodePreview.tsx"]:
     check_file(client_path / "src" / comp, comp)
 
@@ -151,9 +150,9 @@ print("=" * 60)
 try:
     from fastapi.testclient import TestClient
     from main import app
-    
+
     client = TestClient(app)
-    
+
     endpoints = [
         ("/health", True),
         ("/", True),
@@ -174,7 +173,7 @@ try:
                 print(f"[ERROR] {ep} - Status: {response.status_code}")
         except Exception as e:
             print(f"[ERROR] {ep} - {e}")
-            
+
 except ImportError as e:
     print(f"[WARN] 无法导入测试客户端：{e}")
     print("  请安装：pip install httpx")

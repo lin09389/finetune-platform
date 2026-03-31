@@ -1,8 +1,8 @@
 """
 CUA 类型定义模块
 """
-from typing import NamedTuple
 from enum import Enum
+from typing import NamedTuple
 
 
 class Coordinate(NamedTuple):
@@ -28,7 +28,7 @@ class MouseButton(Enum):
 
 class KeyCode:
     """键码类型 - 常用键码映射"""
-    
+
     BACKSPACE = "\b"
     TAB = "\t"
     ENTER = "\n"
@@ -40,7 +40,7 @@ class KeyCode:
     ESCAPE = "\x1b"
     SPACE = " "
     DELETE = "\x7f"
-    
+
     F1 = "\x01\x01"
     F2 = "\x01\x02"
     F3 = "\x01\x03"
@@ -53,31 +53,31 @@ class KeyCode:
     F10 = "\x01\x0a"
     F11 = "\x01\x0b"
     F12 = "\x01\x0c"
-    
+
     HOME = "\x01\x20"
     END = "\x01\x21"
     PAGE_UP = "\x01\x22"
     PAGE_DOWN = "\x01\x23"
     INSERT = "\x01\x24"
-    
+
     UP = "\x01\x25"
     DOWN = "\x01\x26"
     LEFT = "\x01\x27"
     RIGHT = "\x01\x28"
-    
+
     CAPS_LOCK = "\x01\x30"
     NUM_LOCK = "\x01\x31"
     SCROLL_LOCK = "\x01\x32"
-    
+
     WIN = "\x01\x40"
     COMMAND = "\x01\x40"
     OPTION = "\x03"
-    
+
     @classmethod
     def is_special_key(cls, key: str) -> bool:
         """判断是否为特殊键"""
         return key.startswith("\x01") or key in ["\b", "\t", "\n", "\x1b", "\x7f"]
-    
+
     @classmethod
     def get_key_name(cls, key: str) -> str:
         """获取键名"""

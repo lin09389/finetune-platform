@@ -1,17 +1,16 @@
-import os
 import asyncio
-import tempfile
+import os
 import shutil
-import signal
-from typing import Dict, Any, Optional, List, Set
-from pathlib import Path
+import tempfile
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from pydantic import BaseModel, Field
-from dataclasses import dataclass
+from typing import Any
 
-from ..types import ExecutionResult, ExecutionStatus, ErrorCode
-from .resource_limiter import ResourceLimiter, ResourceConfig
+from pydantic import BaseModel, Field
+
+from ..types import ErrorCode, ExecutionResult, ExecutionStatus
+from .resource_limiter import ResourceConfig, ResourceLimiter
 
 
 class Permission(str, Enum):
@@ -34,17 +33,17 @@ class SandboxLevel(str, Enum):
 @dataclass
 class SandboxConfig:
     level: SandboxLevel = SandboxLevel.STANDARD
-    allowed_paths: List[str] = None
-    denied_paths: List[str] = None
-    allowed_commands: List[str] = None
-    denied_commands: List[str] = None
-    allowed_env_vars: List[str] = None
+    allowed_paths: list[str] = None
+    denied_paths: list[str] = None
+    allowed_commands: list[str] = None
+    denied_commands: list[str] = None
+    allowed_env_vars: list[str] = None
     max_file_size_mb: int = 10
     max_execution_time_seconds: int = 60
     max_memory_mb: int = 512
     allow_network: bool = False
     isolated_filesystem: bool = False
-    temp_dir: Optional[str] = None
+    temp_dir: str | None = None
 
     def __post_init__(self):
         if self.allowed_paths is None:
@@ -58,7 +57,7 @@ class SandboxConfig:
         if self.allowed_env_vars is None:
             self.allowed_env_vars = []
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "level": self.level.value,
             "allowed_paths": self.allowed_paths,
@@ -75,7 +74,7 @@ class SandboxConfig:
         }
 
 
-DANGEROUS_COMMANDS: Set[str] = {
+DANGEROUS_COMMANDS: set[str] = {
     "rm", "rmdir", "del", "format", "fdisk", "mkfs",
     "dd", "shred", "wipe", "sudo", "su", "chmod", "chown",
     "passwd", "useradd", "userdel", "groupadd", "groupdel",
@@ -88,7 +87,7 @@ DANGEROUS_COMMANDS: Set[str] = {
     "docker", "kubectl", "helm",
 }
 
-DANGEROUS_PATTERNS: Set[str] = {
+DANGEROUS_PATTERNS: set[str] = {
     "rm -rf", "rm -r", "del /s", "del /q",
     "sudo rm", "sudo dd", "> /dev/", "mkfs.",
     ":(){ :|:& };:", "chmod 777", "chown root",
@@ -100,15 +99,15 @@ DANGEROUS_PATTERNS: Set[str] = {
 class SandboxCheckResult(BaseModel):
     allowed: bool = Field(default=True)
     reason: str = Field(default="")
-    sanitized_value: Optional[str] = Field(default=None)
+    sanitized_value: str | None = Field(default=None)
     risk_level: str = Field(default="low")
 
 
 class SandboxExecutor:
     def __init__(
         self,
-        config: Optional[SandboxConfig] = None,
-        resource_limiter: Optional[ResourceLimiter] = None,
+        config: SandboxConfig | None = None,
+        resource_limiter: ResourceLimiter | None = None,
     ):
         self.config = config or SandboxConfig()
         self.resource_limiter = resource_limiter or ResourceLimiter(
@@ -118,12 +117,12 @@ class SandboxExecutor:
                 max_memory_mb=self.config.max_memory_mb,
             )
         )
-        self._isolated_dir: Optional[str] = None
-        self._permissions: Set[Permission] = self._get_default_permissions()
-        self._processes: Dict[str, asyncio.subprocess.Process] = {}
+        self._isolated_dir: str | None = None
+        self._permissions: set[Permission] = self._get_default_permissions()
+        self._processes: dict[str, asyncio.subprocess.Process] = {}
         self._lock = asyncio.Lock()
 
-    def _get_default_permissions(self) -> Set[Permission]:
+    def _get_default_permissions(self) -> set[Permission]:
         permissions = {
             SandboxLevel.STRICT: {Permission.FILE_READ},
             SandboxLevel.STANDARD: {
@@ -150,7 +149,7 @@ class SandboxExecutor:
 
     async def cleanup(self) -> None:
         await self.resource_limiter.stop_monitoring()
-        
+
         async with self._lock:
             for proc in self._processes.values():
                 try:
@@ -162,7 +161,7 @@ class SandboxExecutor:
                     except Exception:
                         pass
             self._processes.clear()
-        
+
         if self._isolated_dir and os.path.exists(self._isolated_dir):
             try:
                 shutil.rmtree(self._isolated_dir)
@@ -214,7 +213,7 @@ class SandboxExecutor:
                         break
                 except Exception:
                     continue
-            
+
             if not allowed:
                 return SandboxCheckResult(
                     allowed=False,
@@ -247,7 +246,7 @@ class SandboxExecutor:
             )
 
         cmd_lower = command.lower().strip()
-        
+
         for pattern in DANGEROUS_PATTERNS:
             if pattern.lower() in cmd_lower:
                 return SandboxCheckResult(
@@ -261,7 +260,7 @@ class SandboxExecutor:
             return SandboxCheckResult(allowed=False, reason="Empty command", risk_level="low")
 
         cmd_name = os.path.basename(cmd_parts[0])
-        
+
         if cmd_name.lower() in DANGEROUS_COMMANDS or cmd_name.lower() in {c.lower() for c in self.config.denied_commands}:
             return SandboxCheckResult(
                 allowed=False,
@@ -292,9 +291,9 @@ class SandboxExecutor:
     async def execute_command(
         self,
         command: str,
-        cwd: Optional[str] = None,
-        env: Optional[Dict[str, str]] = None,
-        timeout: Optional[int] = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        timeout: int | None = None,
     ) -> ExecutionResult:
         check = self.check_command(command)
         if not check.allowed:
@@ -315,7 +314,7 @@ class SandboxExecutor:
             cwd = path_check.sanitized_value
 
         timeout_val = timeout or self.config.max_execution_time_seconds
-        
+
         safe_env = self._build_safe_env(env)
 
         start_time = datetime.now()
@@ -389,7 +388,7 @@ class SandboxExecutor:
         self,
         operation: str,
         path: str,
-        content: Optional[bytes] = None,
+        content: bytes | None = None,
     ) -> ExecutionResult:
         write_ops = {"write", "create", "delete", "append"}
         is_write = operation.lower() in write_ops
@@ -515,9 +514,9 @@ class SandboxExecutor:
                 execution_time_ms=(datetime.now() - start_time).total_seconds() * 1000,
             )
 
-    def _build_safe_env(self, custom_env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    def _build_safe_env(self, custom_env: dict[str, str] | None = None) -> dict[str, str]:
         safe_env = {}
-        
+
         if self.config.allowed_env_vars:
             for var in self.config.allowed_env_vars:
                 if var in os.environ:
@@ -557,13 +556,13 @@ class SandboxExecutor:
                 return True
         return False
 
-    def get_isolated_dir(self) -> Optional[str]:
+    def get_isolated_dir(self) -> str | None:
         return self._isolated_dir
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         return self.config.to_dict()
 
-    def get_active_processes(self) -> List[str]:
+    def get_active_processes(self) -> list[str]:
         return list(self._processes.keys())
 
     def set_permission(self, permission: Permission, granted: bool) -> None:
@@ -572,5 +571,5 @@ class SandboxExecutor:
         else:
             self._permissions.discard(permission)
 
-    def get_permissions(self) -> Set[Permission]:
+    def get_permissions(self) -> set[Permission]:
         return self._permissions.copy()

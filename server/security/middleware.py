@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 安全中间件 - 过滤响应中的敏感数据
 
@@ -8,12 +7,12 @@
 - 错误信息脱敏
 - 敏感 Header 过滤
 """
+import json
+import logging
+
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
-import json
-import logging
-from typing import List, Set
 
 from .data_masking import data_masker
 
@@ -23,18 +22,18 @@ logger = logging.getLogger(__name__)
 class SecurityMiddleware(BaseHTTPMiddleware):
     """安全中间件"""
 
-    SENSITIVE_FIELDS: Set[str] = {
+    SENSITIVE_FIELDS: set[str] = {
         'api_key', 'apikey', 'api-key', 'token', 'secret', 'credential',
         'password', 'passwd', 'pwd', 'private_key', 'access_token',
         'refresh_token', 'auth_token', 'session_id', 'encrypted'
     }
 
-    SENSITIVE_HEADERS: Set[str] = {
+    SENSITIVE_HEADERS: set[str] = {
         'authorization', 'cookie', 'set-cookie', 'x-api-key',
         'x-auth-token', 'x-access-token'
     }
 
-    SENSITIVE_PARAMS: Set[str] = {
+    SENSITIVE_PARAMS: set[str] = {
         'api_key', 'apikey', 'token', 'secret', 'password', 'key'
     }
 
@@ -104,7 +103,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
 class ResponseMaskingMiddleware(BaseHTTPMiddleware):
     """响应脱敏中间件"""
 
-    def __init__(self, app: ASGIApp, sensitive_fields: Set[str] = None):
+    def __init__(self, app: ASGIApp, sensitive_fields: set[str] = None):
         super().__init__(app)
         self.sensitive_fields = sensitive_fields or set()
         logger.info("响应脱敏中间件已初始化")
@@ -176,6 +175,6 @@ def create_security_middleware(app: ASGIApp, enabled: bool = True) -> SecurityMi
 
 def create_response_masking_middleware(
     app: ASGIApp,
-    additional_fields: Set[str] = None
+    additional_fields: set[str] = None
 ) -> ResponseMaskingMiddleware:
     return ResponseMaskingMiddleware(app, sensitive_fields=additional_fields)

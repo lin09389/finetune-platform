@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Card, Select, Input, Button, Space, Divider, Tag, Row, Col, Slider, Alert, message, Badge } from 'antd'
 import { SendOutlined, LoadingOutlined, ClearOutlined, SwapOutlined } from '@ant-design/icons'
 import { useAppStore } from '../store/appStore'
-import { streamInference, getBackends, switchBackend, getOllamaStatus, getModelList } from '../services/api'
+import { streamInference, getBackends, switchBackend, getOllamaStatus, getModelList, listInferenceEngines, streamGenerate, type InferenceEngine } from '../services/api'
 import type { BackendInfo } from '../types'
 
 const { TextArea } = Input
@@ -17,6 +17,7 @@ export default function Inference() {
   const [temperature, setTemperature] = useState(0.7)
   const [currentBackend, setCurrentBackend] = useState<string>('huggingface')
   const [backends, setBackends] = useState<BackendInfo[]>([])
+  const [inferenceEngines, setInferenceEngines] = useState<InferenceEngine[]>([])
   const [ollamaModels, setOllamaModels] = useState<{ id: string; name: string }[]>([])
 
   useEffect(() => {
@@ -45,6 +46,13 @@ export default function Inference() {
           id: m.name,
           name: m.name
         })))
+      }
+      
+      try {
+        const enginesData = await listInferenceEngines()
+        setInferenceEngines(enginesData.engines)
+      } catch (e) {
+        console.warn('Failed to load inference engines:', e)
       }
     } catch (error) {
       console.error('Failed to load backends:', error)
@@ -96,18 +104,33 @@ export default function Inference() {
     setResponse('')
 
     try {
-      await streamInference(
-        {
-          modelId: selectedModel,
-          prompt: prompt,
-          maxTokens: maxTokens,
-          temperature: temperature,
-          backend: currentBackend
-        },
-        (text: string) => {
-          setResponse(prev => prev + text)
-        }
-      )
+      if (inferenceEngines.length > 0) {
+        await streamGenerate(
+          {
+            model_id: selectedModel,
+            prompt: prompt,
+            max_tokens: maxTokens,
+            temperature: temperature,
+            backend: currentBackend
+          },
+          (text: string) => {
+            setResponse(prev => prev + text)
+          }
+        )
+      } else {
+        await streamInference(
+          {
+            modelId: selectedModel,
+            prompt: prompt,
+            maxTokens: maxTokens,
+            temperature: temperature,
+            backend: currentBackend
+          },
+          (text: string) => {
+            setResponse(prev => prev + text)
+          }
+        )
+      }
     } catch (error: unknown) {
       const errorMsg = error instanceof Error ? error.message : '推理失败'
       setResponse(`错误: ${errorMsg}`)

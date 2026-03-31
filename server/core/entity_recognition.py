@@ -2,10 +2,9 @@
 实体识别服务
 支持命名实体识别（NER）和实体高亮
 """
-from dataclasses import dataclass
-from typing import List, Dict, Any, Optional, Tuple
 import re
-from datetime import datetime
+from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -15,9 +14,9 @@ class Entity:
     start: int
     end: int
     confidence: float = 1.0
-    metadata: Dict[str, Any] = None
+    metadata: dict[str, Any] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "text": self.text,
             "label": self.label,
@@ -140,7 +139,7 @@ class EntityRecognizer:
             for label, patterns in self.ENTITY_PATTERNS.items()
         }
 
-    def recognize(self, text: str) -> List[Entity]:
+    def recognize(self, text: str) -> list[Entity]:
         entities = []
         seen_ranges = set()
 
@@ -148,7 +147,7 @@ class EntityRecognizer:
             for pattern in patterns:
                 for match in pattern.finditer(text):
                     start, end = match.start(), match.end()
-                    
+
                     if any(
                         start < r_end and end > r_start
                         for r_start, r_end in seen_ranges
@@ -156,7 +155,7 @@ class EntityRecognizer:
                         continue
 
                     seen_ranges.add((start, end))
-                    
+
                     entity = Entity(
                         text=match.group(),
                         label=label,
@@ -173,7 +172,7 @@ class EntityRecognizer:
         entities.sort(key=lambda e: e.start)
         return entities
 
-    def highlight_text(self, text: str, entities: List[Entity]) -> str:
+    def highlight_text(self, text: str, entities: list[Entity]) -> str:
         if not entities:
             return text
 
@@ -182,10 +181,10 @@ class EntityRecognizer:
 
         for entity in entities:
             result.append(text[last_end:entity.start])
-            
+
             color = self.ENTITY_COLORS.get(entity.label, "#999")
             label_zh = self.ENTITY_LABELS_ZH.get(entity.label, entity.label)
-            
+
             result.append(
                 f'<span style="background-color: {color}20; '
                 f'border-bottom: 2px solid {color}; '
@@ -197,7 +196,7 @@ class EntityRecognizer:
         result.append(text[last_end:])
         return "".join(result)
 
-    def get_entity_stats(self, entities: List[Entity]) -> Dict[str, int]:
+    def get_entity_stats(self, entities: list[Entity]) -> dict[str, int]:
         stats = {}
         for entity in entities:
             label = self.ENTITY_LABELS_ZH.get(entity.label, entity.label)
@@ -206,9 +205,9 @@ class EntityRecognizer:
 
     def link_to_memory(
         self,
-        entities: List[Entity],
-        memory_entities: Dict[str, Any],
-    ) -> List[Entity]:
+        entities: list[Entity],
+        memory_entities: dict[str, Any],
+    ) -> list[Entity]:
         for entity in entities:
             if entity.text in memory_entities:
                 entity.metadata["memory_linked"] = True
@@ -227,8 +226,8 @@ class EntityHighlighter:
         text: str,
         highlight: bool = True,
         link_memory: bool = False,
-        memory_entities: Dict[str, Any] = None,
-    ) -> Dict[str, Any]:
+        memory_entities: dict[str, Any] = None,
+    ) -> dict[str, Any]:
         entities = self.recognizer.recognize(text)
 
         if link_memory and memory_entities:

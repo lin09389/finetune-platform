@@ -1,14 +1,12 @@
-# -*- coding: utf-8 -*-
 """
 智能记忆提取器
 结合规则提取和LLM辅助提取
 """
-from typing import List, Dict, Tuple, Optional, Any
-import re
-from dataclasses import dataclass, field
 import json
 import logging
-from datetime import datetime
+import re
+from dataclasses import dataclass, field
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -16,16 +14,16 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ExtractionResult:
     """提取结果"""
-    entities: List[Dict[str, Any]] = field(default_factory=list)
-    relations: List[Dict[str, Any]] = field(default_factory=list)
-    facts: List[Dict[str, Any]] = field(default_factory=list)
+    entities: list[dict[str, Any]] = field(default_factory=list)
+    relations: list[dict[str, Any]] = field(default_factory=list)
+    facts: list[dict[str, Any]] = field(default_factory=list)
     confidence: float = 0.0
     extraction_method: str = "unknown"
-    
+
     def is_empty(self) -> bool:
         return not self.entities and not self.relations and not self.facts
-    
-    def to_dict(self) -> Dict:
+
+    def to_dict(self) -> dict:
         return {
             'entities': self.entities,
             'relations': self.relations,
@@ -33,41 +31,41 @@ class ExtractionResult:
             'confidence': self.confidence,
             'extraction_method': self.extraction_method
         }
-    
+
     def merge(self, other: 'ExtractionResult') -> 'ExtractionResult':
         """合并两个提取结果"""
         merged = ExtractionResult()
-        
+
         entity_keys = set()
         for e in self.entities + other.entities:
             key = (e.get('name', ''), e.get('type', ''))
             if key not in entity_keys:
                 entity_keys.add(key)
                 merged.entities.append(e)
-        
+
         relation_keys = set()
         for r in self.relations + other.relations:
             key = (r.get('source', ''), r.get('target', ''), r.get('relation', ''))
             if key not in relation_keys:
                 relation_keys.add(key)
                 merged.relations.append(r)
-        
+
         fact_contents = set()
         for f in self.facts + other.facts:
             content = f.get('content', '')
             if content not in fact_contents:
                 fact_contents.add(content)
                 merged.facts.append(f)
-        
+
         merged.confidence = max(self.confidence, other.confidence)
         merged.extraction_method = f"{self.extraction_method}+{other.extraction_method}"
-        
+
         return merged
 
 
 class RuleBasedExtractor:
     """规则提取器（增强版）"""
-    
+
     ENTITY_PATTERNS = {
         'person': [
             (r'我叫(\S+)', 'name'),
@@ -116,7 +114,7 @@ class RuleBasedExtractor:
             (r'我总是(\S+)', 'description'),
         ],
     }
-    
+
     RELATION_PATTERNS = {
         'works_on': [
             (r'(\S+)在做(\S+)项目', ('subject', 'object')),
@@ -142,7 +140,7 @@ class RuleBasedExtractor:
             (r'(\S+)掌握(\S+)', ('subject', 'object')),
         ],
     }
-    
+
     FACT_PATTERNS = {
         'preference': [
             r'我喜欢(\S+)',
@@ -160,16 +158,16 @@ class RuleBasedExtractor:
             r'记得(.+)',
         ],
     }
-    
+
     IMPORTANT_KEYWORDS = [
         '记住', '别忘了', '记得', 'important',
         '我的', '我家', '我公司', '我学校', '我团队',
         '注意', '提醒我', '关键', '必须'
     ]
-    
+
     def __init__(self):
         self._compile_patterns()
-    
+
     def _compile_patterns(self):
         """预编译正则表达式"""
         self.compiled_entity_patterns = {}
@@ -178,30 +176,30 @@ class RuleBasedExtractor:
                 (re.compile(p, re.IGNORECASE), attr_name)
                 for p, attr_name in patterns
             ]
-        
+
         self.compiled_relation_patterns = {}
         for relation_type, patterns in self.RELATION_PATTERNS.items():
             self.compiled_relation_patterns[relation_type] = [
                 (re.compile(p, re.IGNORECASE), roles)
                 for p, roles in patterns
             ]
-        
+
         self.compiled_fact_patterns = {}
         for fact_type, patterns in self.FACT_PATTERNS.items():
             self.compiled_fact_patterns[fact_type] = [
                 re.compile(p, re.IGNORECASE)
                 for p in patterns
             ]
-    
+
     def extract(self, message: str, role: str = 'user') -> ExtractionResult:
         """执行规则提取"""
         if role != 'user':
             return ExtractionResult(extraction_method='rule_skipped')
-        
+
         entities = self._extract_entities(message)
         relations = self._extract_relations(message)
         facts = self._extract_facts(message)
-        
+
         confidence = 0.0
         if entities:
             confidence += 0.4
@@ -209,7 +207,7 @@ class RuleBasedExtractor:
             confidence += 0.3
         if facts:
             confidence += 0.3
-        
+
         return ExtractionResult(
             entities=entities,
             relations=relations,
@@ -217,27 +215,27 @@ class RuleBasedExtractor:
             confidence=min(1.0, confidence),
             extraction_method='rule'
         )
-    
-    def _extract_entities(self, message: str) -> List[Dict]:
+
+    def _extract_entities(self, message: str) -> list[dict]:
         """提取实体"""
         entities = []
         seen = set()
-        
+
         for entity_type, patterns in self.compiled_entity_patterns.items():
             for pattern, attr_name in patterns:
                 try:
                     matches = pattern.finditer(message)
                     for match in matches:
                         name = match.group(1).strip()
-                        
+
                         if len(name) < 2 or len(name) > 50:
                             continue
-                        
+
                         key = (name, entity_type)
                         if key in seen:
                             continue
                         seen.add(key)
-                        
+
                         entity = {
                             'name': name,
                             'type': entity_type,
@@ -246,24 +244,24 @@ class RuleBasedExtractor:
                             'source': 'rule',
                             'evidence': match.group(0)
                         }
-                        
+
                         if len(match.groups()) > 1 and match.group(2):
                             entity['attributes'][attr_name] = match.group(2).strip()
                         else:
                             entity['attributes'][attr_name] = name
-                        
+
                         entities.append(entity)
-                        
+
                 except Exception as e:
                     logger.warning(f"实体提取失败: {pattern.pattern}, {e}")
-        
+
         return entities
-    
-    def _extract_relations(self, message: str) -> List[Dict]:
+
+    def _extract_relations(self, message: str) -> list[dict]:
         """提取关系"""
         relations = []
         seen = set()
-        
+
         for relation_type, patterns in self.compiled_relation_patterns.items():
             for pattern, roles in patterns:
                 try:
@@ -272,18 +270,18 @@ class RuleBasedExtractor:
                         groups = match.groups()
                         if len(groups) < 2:
                             continue
-                        
+
                         source = groups[0].strip() if roles[0] == 'subject' else groups[1].strip()
                         target = groups[1].strip() if roles[1] == 'object' else groups[0].strip()
-                        
+
                         if len(source) < 2 or len(target) < 2:
                             continue
-                        
+
                         key = (source, target, relation_type)
                         if key in seen:
                             continue
                         seen.add(key)
-                        
+
                         relations.append({
                             'source': source,
                             'target': target,
@@ -292,48 +290,48 @@ class RuleBasedExtractor:
                             'confidence': 0.85,
                             'source_method': 'rule'
                         })
-                        
+
                 except Exception as e:
                     logger.warning(f"关系提取失败: {pattern.pattern}, {e}")
-        
+
         return relations
-    
-    def _extract_facts(self, message: str) -> List[Dict]:
+
+    def _extract_facts(self, message: str) -> list[dict]:
         """提取事实"""
         facts = []
         seen = set()
-        
+
         for fact_type, patterns in self.compiled_fact_patterns.items():
             for pattern in patterns:
                 try:
                     matches = pattern.finditer(message)
                     for match in matches:
                         content = match.group(0).strip()
-                        
+
                         if len(content) < 5 or len(content) > 200:
                             continue
-                        
+
                         if content in seen:
                             continue
                         seen.add(content)
-                        
+
                         facts.append({
                             'content': content,
                             'type': fact_type,
                             'confidence': 0.8,
                             'source': 'rule'
                         })
-                        
+
                 except Exception as e:
                     logger.warning(f"事实提取失败: {pattern.pattern}, {e}")
-        
+
         if any(kw in message for kw in self.IMPORTANT_KEYWORDS):
             sentences = re.split(r'[。！？!?]', message)
             for sentence in sentences:
                 sentence = sentence.strip()
                 if not sentence or len(sentence) < 10 or len(sentence) > 100:
                     continue
-                
+
                 if any(kw in sentence for kw in self.IMPORTANT_KEYWORDS):
                     if sentence not in seen:
                         seen.add(sentence)
@@ -343,13 +341,13 @@ class RuleBasedExtractor:
                             'confidence': 0.9,
                             'source': 'keyword'
                         })
-        
+
         return facts
 
 
 class LLMExtractor:
     """LLM辅助提取器"""
-    
+
     EXTRACTION_PROMPT = """分析以下文本，提取实体、关系和事实。
 文本: {message}
 
@@ -374,35 +372,35 @@ class LLMExtractor:
 
     def __init__(self, llm_client=None):
         self.llm_client = llm_client
-    
-    def extract(self, message: str, context: Dict = None) -> ExtractionResult:
+
+    def extract(self, message: str, context: dict = None) -> ExtractionResult:
         """执行LLM提取"""
         if not self.llm_client:
             return ExtractionResult(extraction_method='llm_unavailable')
-        
+
         try:
             prompt = self.EXTRACTION_PROMPT.format(message=message)
-            
+
             response = self.llm_client.generate(prompt)
-            
+
             result = self._parse_response(response)
             result.extraction_method = 'llm'
-            
+
             return result
-            
+
         except Exception as e:
             logger.error(f"LLM提取失败: {e}")
             return ExtractionResult(extraction_method='llm_failed')
-    
+
     def _parse_response(self, response: str) -> ExtractionResult:
         """解析LLM响应"""
         try:
             json_match = re.search(r'\{[\s\S]*\}', response)
             if not json_match:
                 return ExtractionResult(extraction_method='llm_parse_failed')
-            
+
             data = json.loads(json_match.group())
-            
+
             entities = []
             for e in data.get('entities', []):
                 entities.append({
@@ -412,7 +410,7 @@ class LLMExtractor:
                     'confidence': e.get('confidence', 0.7),
                     'source': 'llm'
                 })
-            
+
             relations = []
             for r in data.get('relations', []):
                 relations.append({
@@ -423,7 +421,7 @@ class LLMExtractor:
                     'confidence': r.get('confidence', 0.7),
                     'source_method': 'llm'
                 })
-            
+
             facts = []
             for f in data.get('facts', []):
                 facts.append({
@@ -432,7 +430,7 @@ class LLMExtractor:
                     'confidence': f.get('confidence', 0.7),
                     'source': 'llm'
                 })
-            
+
             return ExtractionResult(
                 entities=entities,
                 relations=relations,
@@ -440,7 +438,7 @@ class LLMExtractor:
                 confidence=0.8,
                 extraction_method='llm'
             )
-            
+
         except json.JSONDecodeError as e:
             logger.warning(f"JSON解析失败: {e}")
             return ExtractionResult(extraction_method='llm_json_error')
@@ -448,19 +446,19 @@ class LLMExtractor:
 
 class IntelligentMemoryExtractor:
     """智能记忆提取器（规则+LLM混合）"""
-    
+
     COMPLEX_PATTERNS = ['因为', '所以', '虽然', '但是', '如果', '那么', '不仅', '而且', '首先', '其次']
-    
+
     def __init__(self, llm_client=None, use_llm: bool = True):
         self.rule_extractor = RuleBasedExtractor()
         self.llm_extractor = LLMExtractor(llm_client) if use_llm else None
         self.use_llm = use_llm and llm_client is not None
-    
+
     def extract(
         self,
         message: str,
         role: str = 'user',
-        context: Dict = None
+        context: dict = None
     ) -> ExtractionResult:
         """
         执行智能提取
@@ -474,27 +472,27 @@ class IntelligentMemoryExtractor:
             提取结果
         """
         rule_result = self.rule_extractor.extract(message, role)
-        
+
         if not self.use_llm:
             return rule_result
-        
+
         if self._should_use_llm(message, rule_result):
             llm_result = self.llm_extractor.extract(message, context)
-            
+
             if not llm_result.is_empty():
                 merged = rule_result.merge(llm_result)
                 merged.extraction_method = 'rule+llm'
                 return merged
-        
+
         return rule_result
-    
+
     def extract_from_conversation(
         self,
-        messages: List[Dict[str, str]]
+        messages: list[dict[str, str]]
     ) -> ExtractionResult:
         """从对话历史中提取"""
         all_results = ExtractionResult()
-        
+
         for msg in messages:
             if msg.get('role') == 'user':
                 result = self.extract(
@@ -502,27 +500,27 @@ class IntelligentMemoryExtractor:
                     'user'
                 )
                 all_results = all_results.merge(result)
-        
+
         return all_results
-    
+
     def _should_use_llm(self, message: str, rule_result: ExtractionResult) -> bool:
         """判断是否需要LLM提取"""
         if rule_result.confidence >= 0.8:
             return False
-        
+
         if len(rule_result.entities) < 2 and len(rule_result.facts) < 1:
             return True
-        
+
         if any(p in message for p in self.COMPLEX_PATTERNS):
             return True
-        
+
         if len(message) > 200:
             return True
-        
+
         return False
 
 
-_memory_extractor: Optional[IntelligentMemoryExtractor] = None
+_memory_extractor: IntelligentMemoryExtractor | None = None
 
 
 def get_memory_extractor(llm_client=None) -> IntelligentMemoryExtractor:

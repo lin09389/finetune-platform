@@ -1,17 +1,16 @@
-# -*- coding: utf-8 -*-
 """
 OCR 识别 API
 支持图片文字识别，集成 Tesseract OCR 引擎
 """
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
-from typing import List, Optional
+import asyncio
 import base64
 import logging
-import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from io import BytesIO
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/ocr", tags=["ocr"])
@@ -59,7 +58,7 @@ class OCRResponse(BaseModel):
     """OCR 响应"""
     text: str = Field(..., description="识别的完整文本")
     confidence: float = Field(default=0.0, description="平均置信度")
-    regions: List[OCRRegion] = Field(default_factory=list, description="识别区域列表")
+    regions: list[OCRRegion] = Field(default_factory=list, description="识别区域列表")
     language: str = Field(default="", description="检测到的语言")
     processing_time: float = Field(default=0.0, description="处理时间（秒）")
     engine: str = Field(default="tesseract", description="使用的 OCR 引擎")
@@ -67,13 +66,13 @@ class OCRResponse(BaseModel):
 
 class BatchOCRRequest(BaseModel):
     """批量 OCR 请求"""
-    images: List[str] = Field(..., description="Base64 编码的图片列表")
+    images: list[str] = Field(..., description="Base64 编码的图片列表")
     language: str = Field(default="ch", description="语言代码")
 
 
 class BatchOCRResponse(BaseModel):
     """批量 OCR 响应"""
-    results: List[OCRResponse] = Field(default_factory=list)
+    results: list[OCRResponse] = Field(default_factory=list)
     total_processing_time: float = Field(default=0.0)
 
 
@@ -229,7 +228,7 @@ async def batch_ocr(request: BatchOCRRequest):
     )
 
 
-@router.get("/languages", response_model=List[LanguageInfo])
+@router.get("/languages", response_model=list[LanguageInfo])
 async def get_supported_languages():
     """获取支持的 OCR 语言列表"""
     languages = []

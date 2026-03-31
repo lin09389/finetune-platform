@@ -1,10 +1,10 @@
 """
 角色和权限模型定义
 """
-from enum import Enum
-from typing import Dict, List, Optional, Set
-from pydantic import BaseModel, Field
 from datetime import datetime
+from enum import Enum
+
+from pydantic import BaseModel, Field
 
 
 class Permission(str, Enum):
@@ -13,37 +13,37 @@ class Permission(str, Enum):
     FILE_WRITE = "file_write"
     FILE_DELETE = "file_delete"
     FILE_EXECUTE = "file_execute"
-    
+
     DIRECTORY_LIST = "directory_list"
     DIRECTORY_CREATE = "directory_create"
     DIRECTORY_DELETE = "directory_delete"
-    
+
     PROCESS_LIST = "process_list"
     PROCESS_VIEW = "process_view"
     PROCESS_KILL = "process_kill"
-    
+
     SERVICE_LIST = "service_list"
     SERVICE_VIEW = "service_view"
     SERVICE_START = "service_start"
     SERVICE_STOP = "service_stop"
     SERVICE_RESTART = "service_restart"
-    
+
     ENVIRONMENT_READ = "environment_read"
     ENVIRONMENT_WRITE = "environment_write"
-    
+
     NETWORK_CONNECT = "network_connect"
     NETWORK_LISTEN = "network_listen"
-    
+
     APP_LAUNCH = "app_launch"
     APP_CLOSE = "app_close"
     WINDOW_MANAGE = "window_manage"
-    
+
     CLIPBOARD_READ = "clipboard_read"
     CLIPBOARD_WRITE = "clipboard_write"
-    
+
     HARDWARE_MONITOR = "hardware_monitor"
     SYSTEM_INFO = "system_info"
-    
+
     ADMIN = "admin"
     AUDIT_VIEW = "audit_view"
     AUDIT_EXPORT = "audit_export"
@@ -88,21 +88,21 @@ class OperationType(str, Enum):
 class ResourcePermission(BaseModel):
     """资源权限"""
     resource_type: ResourceType
-    allowed_operations: Set[OperationType] = Field(default_factory=set)
-    denied_operations: Set[OperationType] = Field(default_factory=set)
-    path_patterns: List[str] = Field(default_factory=list)
-    excluded_paths: List[str] = Field(default_factory=list)
+    allowed_operations: set[OperationType] = Field(default_factory=set)
+    denied_operations: set[OperationType] = Field(default_factory=set)
+    path_patterns: list[str] = Field(default_factory=list)
+    excluded_paths: list[str] = Field(default_factory=list)
 
 
 class PermissionSet(BaseModel):
     """权限集合"""
-    permissions: Set[Permission] = Field(default_factory=set)
-    resource_permissions: List[ResourcePermission] = Field(default_factory=list)
+    permissions: set[Permission] = Field(default_factory=set)
+    resource_permissions: list[ResourcePermission] = Field(default_factory=list)
     max_file_size: int = 10 * 1024 * 1024
     max_execution_time: int = 60
     max_concurrent_tasks: int = 3
-    allowed_network_hosts: List[str] = Field(default_factory=list)
-    denied_network_hosts: List[str] = Field(default_factory=list)
+    allowed_network_hosts: list[str] = Field(default_factory=list)
+    denied_network_hosts: list[str] = Field(default_factory=list)
 
 
 class RoleDefinition(BaseModel):
@@ -111,13 +111,13 @@ class RoleDefinition(BaseModel):
     name: str
     description: str
     permission_set: PermissionSet
-    inherits_from: Optional[Role] = None
+    inherits_from: Role | None = None
     is_system: bool = True
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
 
-DEFAULT_ROLE_DEFINITIONS: Dict[Role, RoleDefinition] = {
+DEFAULT_ROLE_DEFINITIONS: dict[Role, RoleDefinition] = {
     Role.ADMIN: RoleDefinition(
         role=Role.ADMIN,
         name="Administrator",
@@ -202,7 +202,7 @@ def get_role_definition(role: Role) -> RoleDefinition:
     return DEFAULT_ROLE_DEFINITIONS.get(role, DEFAULT_ROLE_DEFINITIONS[Role.GUEST])
 
 
-def get_permission_for_operation(operation: str) -> Optional[Permission]:
+def get_permission_for_operation(operation: str) -> Permission | None:
     """根据操作类型获取所需权限"""
     operation_permission_map = {
         "file_read": Permission.FILE_READ,

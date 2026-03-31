@@ -2,42 +2,58 @@
 Finetune Platform Backend - Main Application
 大模型微调平台后端主应用
 """
-from fastapi import FastAPI, Request, HTTPException
+import json
+import logging
+import os
+import re
+import sys
+import uuid
+from contextlib import asynccontextmanager
+from datetime import datetime
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Request
+
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
-from collections import defaultdict
-import os
-import sys
-import logging
-import json
-from pathlib import Path
-from typing import Dict, List, Tuple
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from core.config import get_settings, settings
-from core.logging import get_logger, setup_logging
-from core.state import get_state_manager
-from api import device, models, datasets, training, workspace, model_center, agent, context, cloud_chat, skills, cua, mcp
-from api.feedback import router as feedback
-from api.help import router as help_router
-from api.code_executor import router as code_executor
-from api.smart_agent import router as smart_agent
-from api.inference import router as inference
-from api.chat import router as chat
-from api.knowledge import router as knowledge
-from api.memory_new import router as memory
-from api.gateway_api.routes import router as gateway
-from api.heartbeat import router as heartbeat
-from api.file_parser import router as file_parser
+from api import (
+    agent,
+    cloud_chat,
+    context,
+    cua,
+    datasets,
+    device,
+    mcp,
+    model_center,
+    models,
+    skills,
+    training,
+    workspace,
+)
+from api.agent_executor import router as agent_executor
+from api.chat.routes import router as chat
 from api.chat_branch import router as chat_branch
 from api.chat_share import router as chat_share
+from api.code_executor import router as code_executor
 from api.entity import router as entity
+from api.feedback import router as feedback
+from api.file_parser import router as file_parser
+from api.gateway_api.routes import router as gateway
+from api.heartbeat import router as heartbeat
+from api.help import router as help_router
+from api.inference import router as inference
+from api.inference_engine import router as inference_engine
+from api.knowledge import router as knowledge
+from api.memory_new import router as memory
 from api.ocr import router as ocr
-from api.errors import api_error_handler, http_exception_handler as api_http_exception_handler
+from api.smart_agent import router as smart_agent
+from core.config import settings
+from core.logging import setup_logging
+from core.tracing import trace_id_var, user_id_var
 from workspace.file_api import router as file_api_router
 from workspace.task_api import router as task_api_router
 
@@ -80,7 +96,7 @@ from security.rate_limiter import get_rate_limiter
 rate_limiter = get_rate_limiter()
 
 
-def check_rate_limit(client_ip: str, path: str = "") -> Tuple[bool, Dict]:
+def check_rate_limit(client_ip: str, path: str = "") -> tuple[bool, dict]:
     """
     检查是否超过速率限制
 
@@ -101,13 +117,13 @@ async def verify_auth(
     """验证 JWT 认证"""
     if os.getenv("ENABLE_AUTH", "false").lower() != "true":
         return True
-    
+
     if credentials is None:
         return False
-    
+
     from security.jwt_auth import get_jwt_manager
     jwt_manager = get_jwt_manager()
-    
+
     try:
         payload = jwt_manager.verify_token(credentials.credentials)
         return payload is not None
@@ -120,6 +136,25 @@ async def verify_auth(
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     logger.info("Initializing application...")
+    
+    # 初始化数据库表
+    from core.db_manager import get_db_pool
+    db_pool = get_db_pool()
+    db_pool.execute_update("""
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trace_id TEXT,
+            user_id TEXT,
+            action TEXT,
+            params TEXT,
+            status TEXT,
+            latency REAL,
+            error TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    logger.info("审计日志表已准备就绪")
+    
     logger.info(f"Models directory: {settings.models_dir_resolved}")
     logger.info(f"Datasets directory: {settings.datasets_dir_resolved}")
     logger.info(f"Outputs directory: {settings.outputs_dir_resolved}")
@@ -136,16 +171,16 @@ async def lifespan(app: FastAPI):
     logger.info(f"训练队列已初始化：max_concurrent={settings.max_concurrent_training}")
 
     try:
-        from api.chat.session import get_session_store
-        session_store = get_session_store()
+        from api.chat.session import get_session_manager
+        session_manager = get_session_manager()
         logger.info("会话存储已初始化")
     except Exception as e:
         logger.warning(f"会话存储初始化失败：{e}")
 
     try:
+        from context.service import get_context_service
         from rag.embedder import get_embedder
         from rag.vector_store import get_vector_store
-        from context.service import get_context_service
 
         embedder = get_embedder()
         vector_store = get_vector_store()
@@ -167,7 +202,7 @@ async def lifespan(app: FastAPI):
         logger.info("预初始化记忆服务...")
         from memory.memory_service import MemoryService
         memory_service = MemoryService()
-        logger.info(f"记忆服务已初始化")
+        logger.info("记忆服务已初始化")
     except Exception as e:
         logger.warning(f"记忆服务初始化失败：{e}")
 
@@ -187,20 +222,70 @@ app = FastAPI(
     default_response_class=UnicodeJSONResponse,
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.middleware("http")
+async def trace_middleware(request: Request, call_next):
+    """Trace ID 中间件"""
+    trace_id = request.headers.get("X-Trace-Id", str(uuid.uuid4()))
+    trace_id_var.set(trace_id)
+    
+    # 模拟获取 User ID (实际应从 JWT 中获取)
+    user_id = request.headers.get("X-User-Id", "anonymous")
+    user_id_var.set(user_id)
+    
+    response = await call_next(request)
+    response.headers["X-Trace-Id"] = trace_id
+    return response
+
+
+# 黑名单列表
+IP_BLACKLIST = {"1.2.3.4", "5.6.7.8"}
+
+# WAF 规则 (简单正则)
+WAF_RULES = [
+    re.compile(r"union\s+select", re.I),
+    re.compile(r"<script>.*?</script>", re.I),
+    re.compile(r"(\.\./){3,}", re.I),
+]
+
 
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
     """
     安全中间件
+    - IP 黑名单
+    - WAF 过滤
     - 速率限制
     - 请求日志
     - 错误处理
     """
     client_ip = request.client.host
     path = request.url.path
-    
+
+    # IP 黑名单检查
+    if client_ip in IP_BLACKLIST:
+        logger.warning(f"Blocked request from blacklisted IP: {client_ip}")
+        return JSONResponse(status_code=403, content={"error": "Forbidden", "detail": "Your IP is blacklisted"})
+
+    # WAF 规则检查
+    query_params = str(request.query_params)
+    body = await request.body()
+    payload = query_params + body.decode("utf-8", errors="ignore")
+    for rule in WAF_RULES:
+        if rule.search(payload):
+            logger.warning(f"Blocked malicious payload from IP: {client_ip}")
+            return JSONResponse(status_code=400, content={"error": "Bad Request", "detail": "Malicious payload detected"})
+
     skip_paths = ["/health", "/", "/favicon.ico"]
-    
+
     if path not in skip_paths:
         allowed, rate_info = check_rate_limit(client_ip, path)
         if not allowed:
@@ -213,9 +298,13 @@ async def security_middleware(request: Request, call_next):
                     "detail": rate_info.get('message', '请求过于频繁，请稍后再试'),
                     "retry_after": retry_after
                 },
-                headers={"Retry-After": str(retry_after)}
+                headers={
+                    "Retry-After": str(retry_after),
+                    "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+                    "Access-Control-Allow-Credentials": "true"
+                }
             )
-    
+
     try:
         response = await call_next(request)
         return response
@@ -226,6 +315,10 @@ async def security_middleware(request: Request, call_next):
             content={
                 "error": "Internal server error",
                 "detail": str(e) if os.getenv("DEBUG", "false") == "true" else "An unexpected error occurred"
+            },
+            headers={
+                "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+                "Access-Control-Allow-Credentials": "true"
             }
         )
 
@@ -234,14 +327,14 @@ async def security_middleware(request: Request, call_next):
 async def logging_middleware(request: Request, call_next):
     """日志中间件"""
     import time
-    
+
     start_time = time.time()
-    
+
     response = await call_next(request)
-    
+
     process_time = time.time() - start_time
     response.headers["X-Process-Time"] = f"{process_time:.4f}"
-    
+
     return response
 
 
@@ -249,15 +342,15 @@ async def logging_middleware(request: Request, call_next):
 async def security_headers_middleware(request: Request, call_next):
     """安全头中间件"""
     response = await call_next(request)
-    
+
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    
+
     if not DEBUG_MODE and "server" in response.headers:
         del response.headers["server"]
-    
+
     return response
 
 
@@ -266,11 +359,11 @@ app.include_router(models, prefix="/models", tags=["模型管理"])
 app.include_router(datasets, prefix="/datasets", tags=["数据集管理"])
 app.include_router(training, prefix="/training", tags=["训练管理"])
 app.include_router(inference, prefix="/inference", tags=["推理服务"])
-app.include_router(chat, prefix="/chat", tags=["对话管理"])
+app.include_router(chat, tags=["对话管理"])
 app.include_router(knowledge, prefix="/knowledge", tags=["知识库"])
 app.include_router(workspace, prefix="/workspace", tags=["工作空间管理"])
 app.include_router(model_center, prefix="/model-center", tags=["模型中心"])
-app.include_router(memory, prefix="/memory", tags=["智能记忆"])
+app.include_router(memory, tags=["智能记忆"])
 app.include_router(agent, prefix="/agent", tags=["Agent 操作"])
 app.include_router(context, prefix="/context", tags=["项目上下文"])
 app.include_router(file_api_router, prefix="/files", tags=["文件操作"])
@@ -290,6 +383,8 @@ app.include_router(entity, tags=["实体识别"])
 app.include_router(ocr, tags=["OCR识别"])
 app.include_router(feedback, tags=["用户反馈"])
 app.include_router(help_router, tags=["帮助系统"])
+app.include_router(inference_engine, tags=["推理引擎"])
+app.include_router(agent_executor, tags=["Agent执行器"])
 
 
 @app.get("/")
@@ -409,7 +504,7 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 if __name__ == "__main__":
     import uvicorn
-    
+
     uvicorn.run(
         "main:app",
         host=settings.host,

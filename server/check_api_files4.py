@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import os
 
 files = [
@@ -13,11 +12,11 @@ for filepath in files:
         size = os.path.getsize(filepath)
         with open(filepath, 'rb') as f:
             data = f.read()
-        
+
         print(f'{os.path.basename(filepath)}:')
         print(f'  Size: {size} bytes')
         print(f'  Last 50 bytes: {data[-50:]}')
-        
+
         # Check if file ends with newline
         if data.endswith(b'\n'):
             print('  Ends with newline: YES')
@@ -25,12 +24,12 @@ for filepath in files:
             print('  Ends with CRLF: YES')
         else:
             print('  Ends with newline: NO')
-        
+
         # Try to decode entire file
         try:
             text = data.decode('utf-8')
             print(f'  UTF-8 decode: OK ({len(text)} chars)')
         except UnicodeDecodeError as e:
             print(f'  UTF-8 decode FAIL: {e}')
-        
+
         print()

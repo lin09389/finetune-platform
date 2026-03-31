@@ -1,22 +1,22 @@
 """
 Risk Assessment Module
 """
+from .alert import (
+    AlertSeverity,
+    RiskAlert,
+    RiskAlertManager,
+    get_alert_manager,
+)
 from .rules import (
+    RiskCategory,
+    RiskFactor,
     RiskRule,
     RiskRuleEngine,
-    RiskFactor,
-    RiskCategory,
 )
 from .scorer import (
-    RiskScorer,
-    RiskScore,
     RiskLevel,
-)
-from .alert import (
-    RiskAlertManager,
-    RiskAlert,
-    AlertSeverity,
-    get_alert_manager,
+    RiskScore,
+    RiskScorer,
 )
 
 AlertManager = RiskAlertManager

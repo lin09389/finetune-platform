@@ -1,10 +1,10 @@
-# -*- coding: utf-8 -*-
 """
 模型下载管理 API
 从魔搭社区（ModelScope）下载和管理模型
 """
 import os
 import ssl
+
 import urllib3
 
 os.environ['CURL_CA_BUNDLE'] = ''
@@ -12,28 +12,29 @@ os.environ['REQUESTS_CA_BUNDLE'] = ''
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 ssl._create_default_https_context = ssl._create_unverified_context
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
-from pathlib import Path
-import logging
 import json
+import logging
 import threading
 import time
 from contextlib import contextmanager
+from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-download_tasks: Dict[str, Dict[str, Any]] = {}
+download_tasks: dict[str, dict[str, Any]] = {}
 download_tasks_lock = threading.Lock()
 
 MAX_DOWNLOAD_TASKS = 50
 TASK_EXPIRY_TIME = 3600
 
 from core.config import get_settings
+
 settings = get_settings()
 MODELS_DIR = settings.models_dir_resolved
 
@@ -46,6 +47,7 @@ def is_dev_environment() -> bool:
 def ssl_verify_context():
     if is_dev_environment():
         import ssl
+
         import urllib3
 
         original_create_default_https_context = ssl._create_default_https_context
@@ -72,7 +74,7 @@ def cleanup_expired_tasks():
         for task_id in expired_tasks:
             del download_tasks[task_id]
             logger.debug(f"清理过期任务: {task_id}")
-    
+
     return len(expired_tasks)
 
 
@@ -88,14 +90,14 @@ class ModelInfo(BaseModel):
     name: str
     downloads: int
     likes: int
-    library_name: Optional[str]
-    tags: List[str]
+    library_name: str | None
+    tags: list[str]
     source: str = "modelscope"
 
 
 class DownloadRequest(BaseModel):
     repo_id: str = Field(..., description="模型仓库 ID，如：Qwen/Qwen2.5-0.5B-Instruct")
-    revision: Optional[str] = Field(default="master", description="版本分支")
+    revision: str | None = Field(default="master", description="版本分支")
     source: str = Field(default="modelscope", description="下载源：modelscope/huggingface")
 
 
@@ -106,7 +108,7 @@ class DownloadProgress(BaseModel):
     downloaded_bytes: int
     total_bytes: int
     speed: str
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class ModelLocal(BaseModel):
@@ -115,7 +117,7 @@ class ModelLocal(BaseModel):
     path: str
     size: int
     created_at: str
-    config: Optional[Dict[str, Any]] = None
+    config: dict[str, Any] | None = None
 
 
 def download_model_from_modelscope(task_id: str, repo_id: str, revision: str):
@@ -272,7 +274,7 @@ print('DOWNLOAD_SUCCESS')
                 download_tasks[task_id]["error"] = str(e)
 
 
-@router.post("/search", response_model=List[ModelInfo])
+@router.post("/search", response_model=list[ModelInfo])
 async def search_models(request: ModelSearchRequest):
     """搜索模型（默认使用 ModelScope）"""
     if request.source == "modelscope":
@@ -281,14 +283,13 @@ async def search_models(request: ModelSearchRequest):
         return await search_huggingface_models(request)
 
 
-async def search_modelscope_models(request: ModelSearchRequest) -> List[ModelInfo]:
+async def search_modelscope_models(request: ModelSearchRequest) -> list[ModelInfo]:
     """搜索 ModelScope 模型"""
     try:
-        from modelscope.msdatasets import MsDataset
         from modelscope.hub.api import HubApi
 
         hub_api = HubApi()
-        
+
         models = hub_api.list_models(
             filter=request.query if request.query else None,
             limit=request.limit,
@@ -331,7 +332,7 @@ async def search_modelscope_models(request: ModelSearchRequest) -> List[ModelInf
             if response.status_code == 200:
                 data = response.json()
                 models = data.get("Data", {}).get("Models", [])
-                
+
                 return [
                     ModelInfo(
                         id=m.get("Id", ""),
@@ -347,11 +348,11 @@ async def search_modelscope_models(request: ModelSearchRequest) -> List[ModelInf
                 ]
         except Exception as e2:
             logger.error(f"备用 API 搜索也失败：{e2}", exc_info=True)
-        
+
         raise HTTPException(status_code=500, detail=f"搜索失败：{str(e)}")
 
 
-async def search_huggingface_models(request: ModelSearchRequest) -> List[ModelInfo]:
+async def search_huggingface_models(request: ModelSearchRequest) -> list[ModelInfo]:
     """搜索 HuggingFace 模型（备用）"""
     try:
         import requests
@@ -396,7 +397,7 @@ async def search_huggingface_models(request: ModelSearchRequest) -> List[ModelIn
         raise HTTPException(status_code=500, detail=f"搜索失败：{str(e)}")
 
 
-@router.post("/download", response_model=Dict[str, str])
+@router.post("/download", response_model=dict[str, str])
 async def download_model(request: DownloadRequest):
     """下载模型（默认使用 ModelScope）"""
     cleanup_expired_tasks()
@@ -464,12 +465,9 @@ async def cancel_download(task_id: str):
     with download_tasks_lock:
         if task_id not in download_tasks:
             raise HTTPException(status_code=404, detail="任务不存在")
-        
+
         task = download_tasks[task_id]
-        if task["status"] == "downloading":
-            task["status"] = "cancelled"
-            task["error"] = "用户取消"
-        elif task["status"] == "pending":
+        if task["status"] == "downloading" or task["status"] == "pending":
             task["status"] = "cancelled"
             task["error"] = "用户取消"
         else:
@@ -478,7 +476,7 @@ async def cancel_download(task_id: str):
     return {"message": "任务已取消", "task_id": task_id}
 
 
-@router.get("/local", response_model=List[ModelLocal])
+@router.get("/local", response_model=list[ModelLocal])
 async def list_local_models():
     """获取本地模型列表"""
     models = []
@@ -495,7 +493,7 @@ async def list_local_models():
 
         if info_path.exists():
             try:
-                with open(info_path, "r", encoding="utf-8") as f:
+                with open(info_path, encoding="utf-8") as f:
                     config = json.load(f)
             except Exception as e:
                 logger.warning(f"读取模型信息失败: {info_path}, 错误: {e}")
@@ -617,7 +615,7 @@ class ImportModelRequest(BaseModel):
 
 class ImportModelScopeRequest(BaseModel):
     model_name: str = Field(default="Qwen2.5-0.5B-Instruct", description="模型名称")
-    modelscope_path: Optional[str] = Field(
+    modelscope_path: str | None = Field(
         default=None,
         description="ModelScope 缓存路径，如不填则使用默认路径"
     )
@@ -684,8 +682,8 @@ async def import_local_model(request: ImportModelRequest):
 @router.post("/import-modelscope")
 async def import_modelscope_model(request: ImportModelScopeRequest):
     """导入 ModelScope 已下载的模型"""
-    import shutil
     import getpass
+    import shutil
 
     if request.modelscope_path:
         source_path = Path(request.modelscope_path)
@@ -769,15 +767,15 @@ async def get_network_status():
     import requests
     import urllib3
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-    
+
     results = {}
-    
+
     mirrors = {
         "modelscope.cn": "https://modelscope.cn",
         "huggingface.co": "https://huggingface.co",
         "hf-mirror.com": "https://hf-mirror.com",
     }
-    
+
     for name, url in mirrors.items():
         try:
             resp = requests.get(f"{url}/api/v1/models?PageSize=1" if "modelscope" in url else f"{url}/api/models?limit=1", timeout=5, verify=False)
@@ -790,12 +788,12 @@ async def get_network_status():
                 "status": "failed",
                 "error": str(e)[:50]
             }
-    
+
     proxy_status = {
         "http_proxy": settings.http_proxy or "未设置",
         "https_proxy": settings.https_proxy or "未设置",
     }
-    
+
     return {
         "mirrors": results,
         "proxy": proxy_status,
@@ -820,10 +818,10 @@ async def set_model_source(source: str):
     """切换模型下载源"""
     if source not in ["modelscope", "huggingface"]:
         raise HTTPException(status_code=400, detail="无效的下载源，请选择 modelscope 或 huggingface")
-    
+
     settings.model_source = source
     logger.info(f"模型下载源已切换为：{source}")
-    
+
     return {
         "message": "下载源已切换",
         "current_source": source

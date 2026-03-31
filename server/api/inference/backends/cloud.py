@@ -1,27 +1,22 @@
-# -*- coding: utf-8 -*-
 """
 云端推理后端实现 - 支持 OpenAI、Anthropic 等
 """
-from typing import Dict, List, Optional, Any, AsyncIterator
 import asyncio
 import logging
 import time
+from collections.abc import AsyncIterator
+from typing import Any
 
-from .base import (
-    InferenceBackend,
-    BackendType,
-    GenerationConfig,
-    GenerationResult
-)
+from .base import BackendType, GenerationConfig, GenerationResult, InferenceBackend
 
 logger = logging.getLogger(__name__)
 
 
 class CloudBackend(InferenceBackend):
     """云端推理后端"""
-    
+
     backend_type = BackendType.CLOUD
-    
+
     PROVIDERS = {
         "openai": {
             "base_url": "https://api.openai.com/v1",
@@ -36,35 +31,35 @@ class CloudBackend(InferenceBackend):
             "default_model": "deepseek-chat"
         }
     }
-    
-    def __init__(self, config: Dict[str, Any] = None):
+
+    def __init__(self, config: dict[str, Any] = None):
         super().__init__(config)
-        
+
         self.provider = config.get("provider", "openai")
         self.api_key = config.get("api_key", "")
         self.base_url = config.get("base_url")
         self.model_name = config.get("model_name")
-        
+
         self._client = None
-    
+
     async def load_model(self, model_name: str, **kwargs) -> bool:
         """加载模型（云端模型无需加载）"""
         self.model_name = model_name or self.model_name
-        
+
         if not self.api_key:
             logger.warning("API key not set")
             return False
-        
+
         self._is_loaded = True
         logger.info(f"Cloud backend ready: {self.provider}/{self.model_name}")
         return True
-    
+
     async def unload_model(self) -> bool:
         """卸载模型"""
         self._is_loaded = False
         self._client = None
         return True
-    
+
     async def generate(
         self,
         prompt: str,
@@ -72,17 +67,17 @@ class CloudBackend(InferenceBackend):
     ) -> GenerationResult:
         """生成文本"""
         config = config or GenerationConfig()
-        
+
         start_time = time.time()
-        
+
         try:
             result = await self._call_api(
                 messages=[{"role": "user", "content": prompt}],
                 config=config
             )
-            
+
             latency_ms = (time.time() - start_time) * 1000
-            
+
             return GenerationResult(
                 text=result.get("content", ""),
                 tokens_generated=result.get("completion_tokens", 0),
@@ -92,7 +87,7 @@ class CloudBackend(InferenceBackend):
                 total_tokens=result.get("total_tokens", 0),
                 latency_ms=latency_ms
             )
-            
+
         except Exception as e:
             logger.error(f"Cloud generation failed: {e}")
             return GenerationResult(
@@ -102,7 +97,7 @@ class CloudBackend(InferenceBackend):
                 model=self.model_name,
                 metadata={"error": str(e)}
             )
-    
+
     async def generate_stream(
         self,
         prompt: str,
@@ -110,7 +105,7 @@ class CloudBackend(InferenceBackend):
     ) -> AsyncIterator[str]:
         """流式生成文本"""
         config = config or GenerationConfig()
-        
+
         try:
             async for chunk in self._stream_api(
                 messages=[{"role": "user", "content": prompt}],
@@ -120,22 +115,22 @@ class CloudBackend(InferenceBackend):
         except Exception as e:
             logger.error(f"Cloud stream failed: {e}")
             yield f"[Error: {e}]"
-    
+
     async def chat(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         config: GenerationConfig = None
     ) -> GenerationResult:
         """对话生成"""
         config = config or GenerationConfig()
-        
+
         start_time = time.time()
-        
+
         try:
             result = await self._call_api(messages, config)
-            
+
             latency_ms = (time.time() - start_time) * 1000
-            
+
             return GenerationResult(
                 text=result.get("content", ""),
                 tokens_generated=result.get("completion_tokens", 0),
@@ -145,7 +140,7 @@ class CloudBackend(InferenceBackend):
                 total_tokens=result.get("total_tokens", 0),
                 latency_ms=latency_ms
             )
-            
+
         except Exception as e:
             logger.error(f"Cloud chat failed: {e}")
             return GenerationResult(
@@ -155,23 +150,23 @@ class CloudBackend(InferenceBackend):
                 model=self.model_name,
                 metadata={"error": str(e)}
             )
-    
+
     async def chat_stream(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         config: GenerationConfig = None
     ) -> AsyncIterator[str]:
         """流式对话生成"""
         config = config or GenerationConfig()
-        
+
         try:
             async for chunk in self._stream_api(messages, config):
                 yield chunk
         except Exception as e:
             logger.error(f"Cloud chat stream failed: {e}")
             yield f"[Error: {e}]"
-    
-    def get_model_info(self) -> Dict[str, Any]:
+
+    def get_model_info(self) -> dict[str, Any]:
         """获取模型信息"""
         return {
             "provider": self.provider,
@@ -179,19 +174,19 @@ class CloudBackend(InferenceBackend):
             "is_loaded": self._is_loaded,
             "backend_type": self.backend_type.value
         }
-    
+
     async def count_tokens(self, text: str) -> int:
         """计算 token 数量（估算）"""
         return len(text) // 4
-    
+
     async def _call_api(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         config: GenerationConfig
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """调用 API"""
         await asyncio.sleep(0.1)
-        
+
         return {
             "content": "This is a simulated response from the cloud backend.",
             "prompt_tokens": 10,
@@ -199,15 +194,15 @@ class CloudBackend(InferenceBackend):
             "total_tokens": 20,
             "finish_reason": "stop"
         }
-    
+
     async def _stream_api(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         config: GenerationConfig
     ) -> AsyncIterator[str]:
         """流式调用 API"""
         response = "This is a simulated streaming response."
-        
+
         for word in response.split():
             yield word + " "
             await asyncio.sleep(0.05)

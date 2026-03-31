@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 项目上下文理解模块
 功能：
@@ -6,26 +5,26 @@
 - 代码索引：提取符号、向量化、构建索引
 - 上下文检索：语义搜索、相关代码片段
 """
-from context.service import (
-    ContextService,
-    get_context_service,
+from context.context_retriever import (
+    ContextRetriever,
+    get_context_retriever,
 )
 from context.models import (
-    ProjectInfo,
-    FileInfo,
-    SymbolInfo,
     ContextResult,
-    TechStack,
-    ProjectStructure,
+    FileInfo,
     GitInfo,
+    ProjectInfo,
+    ProjectStructure,
+    SymbolInfo,
+    TechStack,
 )
 from context.project_scanner import (
     ProjectScanner,
     scan_project,
 )
-from context.context_retriever import (
-    ContextRetriever,
-    get_context_retriever,
+from context.service import (
+    ContextService,
+    get_context_service,
 )
 
 __all__ = [

@@ -1,20 +1,15 @@
 """
 模型管理 API - 支持下载、管理和导出
 """
-from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
-import os
-import shutil
-import uuid
 import json
-import time
-import asyncio
+import shutil
 import threading
-from pathlib import Path
 from datetime import datetime
-import logging
+from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from core.config import get_settings
 from core.logging import get_logger
@@ -24,7 +19,7 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
-_models_dir: Optional[Path] = None
+_models_dir: Path | None = None
 
 download_state = {
     "is_downloading": False,
@@ -48,8 +43,8 @@ def get_models_dir() -> Path:
 class ModelDownloadRequest(BaseModel):
     """模型下载请求"""
     model_name: str = Field(..., description="模型名称，如：Qwen/Qwen2.5-0.5B-Instruct")
-    revision: Optional[str] = Field(default="main", description="模型版本")
-    quantize: Optional[int] = Field(default=4, description="量化位数 (4/8/None)")
+    revision: str | None = Field(default="main", description="模型版本")
+    quantize: int | None = Field(default=4, description="量化位数 (4/8/None)")
     use_safetensors: bool = Field(default=True, description="使用 safetensors 格式")
 
 
@@ -61,17 +56,17 @@ class ModelInfo(BaseModel):
     size: int
     size_formatted: str
     type: str
-    quantized: Optional[int] = None
+    quantized: int | None = None
     created_at: str
-    updated_at: Optional[str] = None
-    config: Optional[Dict[str, Any]] = None
+    updated_at: str | None = None
+    config: dict[str, Any] | None = None
 
 
 class ModelConvertRequest(BaseModel):
     """模型转换请求"""
     model_id: str
     target_format: str = Field(..., description="目标格式：onnx/gguf/fp16/int8")
-    output_name: Optional[str] = None
+    output_name: str | None = None
 
 
 class ExportProgress(BaseModel):
@@ -81,11 +76,11 @@ class ExportProgress(BaseModel):
     completed: bool
 
 
-def get_models_list() -> List[ModelInfo]:
+def get_models_list() -> list[ModelInfo]:
     """获取模型列表"""
     models_dir = get_models_dir()
     models = []
-    
+
     if not models_dir.exists():
         return models
 
@@ -98,7 +93,7 @@ def get_models_list() -> List[ModelInfo]:
             continue
 
         try:
-            with open(config_file, "r", encoding="utf-8") as f:
+            with open(config_file, encoding="utf-8") as f:
                 config = json.load(f)
 
             total_size = sum(
@@ -129,32 +124,32 @@ def download_thread(request: ModelDownloadRequest):
     """下载线程（支持 ModelScope 和 HuggingFace）"""
     from core.config import get_settings
     settings = get_settings()
-    
+
     models_dir = get_models_dir()
     model_folder_name = safe_filename(request.model_name.replace("/", "--"))
     local_dir = models_dir / model_folder_name
-    
+
     try:
         download_state["is_downloading"] = True
         download_state["model_name"] = request.model_name
         download_state["progress"] = 0
         download_state["message"] = "Starting download..."
         download_state["error"] = None
-        
+
         logger.info(f"开始下载模型：{request.model_name}")
-        
+
         local_dir.mkdir(parents=True, exist_ok=True)
-        
+
         download_state["progress"] = 10
         download_state["message"] = "Downloading config.json..."
-        
+
         download_state["progress"] = 20
         download_state["message"] = f"Downloading {request.model_name}..."
-        
+
         if settings.model_source == "modelscope":
             try:
                 from modelscope import snapshot_download as ms_snapshot_download
-                
+
                 ms_snapshot_download(
                     model_id=request.model_name,
                     revision=request.revision or "master",
@@ -183,10 +178,10 @@ def download_thread(request: ModelDownloadRequest):
                 use_safetensors=request.use_safetensors,
             )
             source = "huggingface"
-        
+
         download_state["progress"] = 90
         download_state["message"] = "Saving metadata..."
-        
+
         config = {
             "model_name": request.model_name,
             "revision": request.revision,
@@ -196,22 +191,22 @@ def download_thread(request: ModelDownloadRequest):
             "use_safetensors": request.use_safetensors,
             "source": source,
         }
-        
+
         with open(local_dir / "config.json", "w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=2)
-        
+
         download_state["progress"] = 100
         download_state["message"] = "Download completed!"
         download_state["is_downloading"] = False
-        
+
         logger.info(f"模型下载完成：{request.model_name} (来源: {source})")
-        
+
     except Exception as e:
         logger.error(f"模型下载失败：{e}", exc_info=True)
         download_state["error"] = str(e)
         download_state["message"] = f"Download failed: {str(e)}"
         download_state["is_downloading"] = False
-        
+
         if local_dir.exists():
             try:
                 shutil.rmtree(local_dir)
@@ -230,16 +225,16 @@ async def download_model(request: ModelDownloadRequest):
     """下载模型"""
     if download_state["is_downloading"]:
         raise HTTPException(status_code=400, detail="Another download is in progress")
-    
+
     models_dir = get_models_dir()
     model_folder_name = safe_filename(request.model_name.replace("/", "--"))
-    
+
     local_dir = models_dir / model_folder_name
     if local_dir.exists():
         config_file = local_dir / "config.json"
         if config_file.exists():
             try:
-                with open(config_file, "r", encoding="utf-8") as f:
+                with open(config_file, encoding="utf-8") as f:
                     config = json.load(f)
                 if config.get("model_name") == request.model_name:
                     models = get_models_list()
@@ -251,10 +246,10 @@ async def download_model(request: ModelDownloadRequest):
                         }
             except Exception as e:
                 logger.debug(f"读取模型配置失败: {e}")
-    
+
     thread = threading.Thread(target=download_thread, args=(request,), daemon=True)
     thread.start()
-    
+
     return {
         "status": "started",
         "message": "Download started",
@@ -272,10 +267,10 @@ async def get_download_status():
 async def get_models_stats():
     """获取模型统计信息"""
     models = get_models_list()
-    
+
     total_size = sum(m.size for m in models)
     quantized_count = sum(1 for m in models if m.quantized)
-    
+
     return {
         "total_models": len(models),
         "total_size": total_size,
@@ -290,16 +285,16 @@ async def delete_model(model_id: str):
     """删除模型"""
     models_dir = get_models_dir()
     model_path = models_dir / model_id
-    
+
     if not model_path.exists():
         raise HTTPException(status_code=404, detail="模型不存在")
-    
+
     models = get_models_list()
     model = next((m for m in models if m.id == model_id), None)
-    
+
     if not model:
         raise HTTPException(status_code=404, detail="模型不存在")
-    
+
     try:
         shutil.rmtree(model_path)
         logger.info(f"模型已删除：{model_id}")
@@ -314,10 +309,10 @@ async def get_model(model_id: str):
     """获取模型详情"""
     models = get_models_list()
     model = next((m for m in models if m.id == model_id), None)
-    
+
     if not model:
         raise HTTPException(status_code=404, detail="模型不存在")
-    
+
     return model
 
 
@@ -326,15 +321,15 @@ async def convert_model(request: ModelConvertRequest):
     """转换模型格式"""
     models_dir = get_models_dir()
     model_path = models_dir / request.model_id
-    
+
     if not model_path.exists():
         raise HTTPException(status_code=404, detail="模型不存在")
-    
+
     target_format = request.target_format.lower()
-    
+
     if target_format not in ["onnx", "gguf", "fp16", "int8"]:
         raise HTTPException(status_code=400, detail=f"不支持的目标格式：{target_format}")
-    
+
     raise HTTPException(
         status_code=501,
         detail=f"Model conversion to {target_format} not implemented yet. "
@@ -343,28 +338,27 @@ async def convert_model(request: ModelConvertRequest):
 
 
 @router.post("/{model_id}/export/onnx")
-async def export_model_onnx(model_id: str, output_name: Optional[str] = None):
+async def export_model_onnx(model_id: str, output_name: str | None = None):
     """导出模型为 ONNX 格式"""
     models_dir = get_models_dir()
     settings = get_settings()
-    
+
     model_path = models_dir / model_id
     if not model_path.exists():
         raise HTTPException(status_code=404, detail="模型不存在")
-    
+
     output_name = output_name or f"{model_id}_onnx"
     output_dir = settings.outputs_dir_resolved / "exports" / output_name
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     async def export_thread():
         try:
             import torch
-            from transformers import AutoTokenizer, AutoModelForCausalLM
-            import onnx
             from torch.onnx import export
-            
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+
             logger.info(f"开始导出 ONNX: {model_id}")
-            
+
             tokenizer = AutoTokenizer.from_pretrained(
                 str(model_path), trust_remote_code=True
             )
@@ -375,9 +369,9 @@ async def export_model_onnx(model_id: str, output_name: Optional[str] = None):
                 trust_remote_code=True,
             )
             model.eval()
-            
+
             dummy_input = tokenizer("example input", return_tensors="pt")
-            
+
             onnx_path = output_dir / "model.onnx"
             export(
                 model,
@@ -392,9 +386,9 @@ async def export_model_onnx(model_id: str, output_name: Optional[str] = None):
                 },
                 opset_version=14,
             )
-            
+
             tokenizer.save_pretrained(output_dir)
-            
+
             config = {
                 "source_model": model_id,
                 "format": "onnx",
@@ -402,27 +396,27 @@ async def export_model_onnx(model_id: str, output_name: Optional[str] = None):
             }
             with open(output_dir / "export_config.json", "w") as f:
                 json.dump(config, f, indent=2)
-            
+
             logger.info(f"ONNX 导出完成：{output_dir}")
-            
+
             return {
                 "status": "success",
                 "path": str(output_dir),
                 "message": "Export completed"
             }
-            
+
         except Exception as e:
             logger.error(f"ONNX 导出失败：{e}", exc_info=True)
             return {
                 "status": "error",
                 "message": str(e)
             }
-    
+
     result = await export_thread()
-    
+
     if result["status"] == "error":
         raise HTTPException(status_code=500, detail=result["message"])
-    
+
     return result
 
 

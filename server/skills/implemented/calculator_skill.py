@@ -2,15 +2,14 @@
 计算器技能 - 执行数学计算
 """
 import math
-from typing import Dict, Any
 
 from skills.base import SkillBase
-from skills.models import SkillMetadata, SkillParameter, SkillResult, SkillCategory
+from skills.models import SkillCategory, SkillMetadata, SkillParameter, SkillResult
 
 
 class CalculatorSkill(SkillBase):
     """计算器技能"""
-    
+
     metadata = SkillMetadata(
         name="calculator",
         display_name="计算器",
@@ -27,7 +26,7 @@ class CalculatorSkill(SkillBase):
         ],
         tags=["math", "calculate", "utility"],
     )
-    
+
     SAFE_FUNCTIONS = {
         'abs': abs, 'round': round, 'min': min, 'max': max,
         'sum': sum, 'pow': pow, 'sqrt': math.sqrt,
@@ -35,20 +34,20 @@ class CalculatorSkill(SkillBase):
         'log': math.log, 'log10': math.log10, 'exp': math.exp,
         'pi': math.pi, 'e': math.e,
     }
-    
+
     async def execute(self, **kwargs) -> SkillResult:
         expression = kwargs.get("expression")
-        
+
         if not expression:
             return SkillResult(
                 success=False,
                 error="缺少 expression 参数",
                 error_code="MISSING_PARAMETER",
             )
-        
+
         try:
             result = self._safe_eval(expression)
-            
+
             return SkillResult(
                 success=True,
                 data={
@@ -57,14 +56,14 @@ class CalculatorSkill(SkillBase):
                 },
                 message=f"计算结果: {expression} = {result}",
             )
-            
+
         except Exception as e:
             return SkillResult(
                 success=False,
                 error=f"计算错误: {str(e)}",
                 error_code="CALCULATION_ERROR",
             )
-    
+
     def _safe_eval(self, expression: str):
         safe_dict = {"__builtins__": {}}
         safe_dict.update(self.SAFE_FUNCTIONS)

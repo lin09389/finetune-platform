@@ -1,7 +1,6 @@
-# -*- coding: utf-8 -*-
+import importlib.util
 import os
 import sys
-import importlib.util
 
 # Add server to path
 server_path = r'c:\Users\JHJ\Desktop\finetune-platform\server'
@@ -34,7 +33,7 @@ if spec and spec.loader:
     module = importlib.util.module_from_spec(spec)
     try:
         spec.loader.exec_module(module)
-        print(f'Module loaded successfully!')
+        print('Module loaded successfully!')
         print(f'Module has APIError: {hasattr(module, "APIError")}')
     except Exception as e:
         print(f'Module load error: {e}')

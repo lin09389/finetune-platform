@@ -1,29 +1,28 @@
 """
 CUA 安全控制模块
 """
-from typing import Callable, Dict, List, Optional, Any
-from datetime import datetime, timedelta
-from collections import defaultdict
-from dataclasses import dataclass, field
 import asyncio
-from enum import Enum
+from collections import defaultdict
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 
-from .models import PermissionLevel, OperationType, OperationResult, AuditLog
-from .exceptions import PermissionDeniedError, RateLimitExceededError, EmergencyStopError
 from .config import get_cua_config
+from .exceptions import EmergencyStopError, PermissionDeniedError, RateLimitExceededError
+from .models import AuditLog, OperationResult, OperationType, PermissionLevel
 
 
 @dataclass
 class RateLimitConfig:
     max_count: int
     window_seconds: int
-    timestamps: List[datetime] = field(default_factory=list)
+    timestamps: list[datetime] = field(default_factory=list)
 
 
 class PermissionManager:
     def __init__(self):
         self._permission_level: PermissionLevel = PermissionLevel.INTERACTIVE
-        self._operation_permissions: Dict[OperationType, PermissionLevel] = {
+        self._operation_permissions: dict[OperationType, PermissionLevel] = {
             OperationType.SCREENSHOT: PermissionLevel.READ_ONLY,
             OperationType.MOUSE_CLICK: PermissionLevel.INTERACTIVE,
             OperationType.MOUSE_MOVE: PermissionLevel.INTERACTIVE,
@@ -36,7 +35,7 @@ class PermissionManager:
             OperationType.WINDOW_MAXIMIZE: PermissionLevel.FULL_CONTROL,
             OperationType.WINDOW_CLOSE: PermissionLevel.FULL_CONTROL,
         }
-        self._permission_hierarchy: Dict[PermissionLevel, int] = {
+        self._permission_hierarchy: dict[PermissionLevel, int] = {
             PermissionLevel.READ_ONLY: 0,
             PermissionLevel.INTERACTIVE: 1,
             PermissionLevel.FULL_CONTROL: 2,
@@ -60,12 +59,12 @@ class PermissionManager:
     def set_operation_permission(self, operation: OperationType, level: PermissionLevel) -> None:
         self._operation_permissions[operation] = level
 
-    def get_all_operation_permissions(self) -> Dict[OperationType, PermissionLevel]:
+    def get_all_operation_permissions(self) -> dict[OperationType, PermissionLevel]:
         return self._operation_permissions.copy()
 
 
 class SafetyController:
-    SENSITIVE_OPERATIONS: Dict[OperationType, List[str]] = {
+    SENSITIVE_OPERATIONS: dict[OperationType, list[str]] = {
         OperationType.KEYBOARD_HOTKEY: [
             "delete", "ctrl+delete", "shift+delete",
             "alt+f4", "ctrl+alt+delete",
@@ -75,7 +74,7 @@ class SafetyController:
         OperationType.KEYBOARD_TYPE: [],
     }
 
-    SENSITIVE_KEYWORDS: List[str] = [
+    SENSITIVE_KEYWORDS: list[str] = [
         "format", "delete", "remove", "uninstall",
         "registry", "regedit", "taskkill", "shutdown",
         "restart", "reboot", "system32", "cmd", "powershell",
@@ -96,10 +95,10 @@ class SafetyController:
         self._permission_manager = PermissionManager()
         self._failsafe_enabled: bool = True
         self._emergency_stop_triggered: bool = False
-        self._confirmation_callback: Optional[Callable] = None
-        self._audit_logs: List[AuditLog] = []
+        self._confirmation_callback: Callable | None = None
+        self._audit_logs: list[AuditLog] = []
         self._audit_lock = asyncio.Lock()
-        self._rate_limits: Dict[OperationType, RateLimitConfig] = defaultdict(lambda: RateLimitConfig(max_count=100, window_seconds=60))
+        self._rate_limits: dict[OperationType, RateLimitConfig] = defaultdict(lambda: RateLimitConfig(max_count=100, window_seconds=60))
         self._rate_lock = asyncio.Lock()
         self._config = get_cua_config()
         self._initialize_from_config()
@@ -166,7 +165,7 @@ class SafetyController:
             )
             self._audit_logs.append(log_entry)
 
-    async def get_audit_logs(self, limit: int = 100) -> List[AuditLog]:
+    async def get_audit_logs(self, limit: int = 100) -> list[AuditLog]:
         async with self._audit_lock:
             return self._audit_logs[-limit:]
 
@@ -236,7 +235,7 @@ class SafetyController:
         return self._permission_manager
 
 
-_safety_controller: Optional[SafetyController] = None
+_safety_controller: SafetyController | None = None
 
 
 def get_safety_controller() -> SafetyController:

@@ -1,13 +1,11 @@
-# -*- coding: utf-8 -*-
 """
 核心配置管理模块
 """
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator
-from typing import List, Literal, Optional
 from pathlib import Path
-import os
+from typing import Literal
 
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 HF_MIRRORS = {
     "official": "https://huggingface.co",
@@ -28,7 +26,7 @@ class Settings(BaseSettings):
     )
 
     host: str = Field(default="127.0.0.1", description="服务主机")
-    port: int = Field(default=8000, ge=1, le=65535, description="服务端口")
+    port: int = Field(default=8001, ge=1, le=65535, description="服务端口")
 
     environment: Literal["development", "staging", "production"] = Field(
         default="development",
@@ -40,7 +38,7 @@ class Settings(BaseSettings):
         description="是否启用JWT认证（生产环境强制启用）"
     )
 
-    jwt_secret_key: Optional[str] = Field(
+    jwt_secret_key: str | None = Field(
         default=None,
         description="JWT 密钥（生产环境必须设置）"
     )
@@ -48,7 +46,7 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = Field(default=30, description="Access Token 过期时间（分钟）")
     jwt_refresh_token_expire_days: int = Field(default=7, description="Refresh Token 过期时间（天）")
 
-    allowed_origins: List[str] = Field(
+    allowed_origins: list[str] = Field(
         default=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000", "http://127.0.0.1:3000"],
         description="允许的 CORS 来源"
     )
@@ -57,9 +55,9 @@ class Settings(BaseSettings):
     rate_window: int = Field(default=60, ge=1, description="速率限制时间窗口 (秒)")
 
     base_dir: Path = Field(default=Path(__file__).parent.parent, description="基础目录")
-    models_dir: Optional[Path] = Field(default=None, description="模型目录")
-    datasets_dir: Optional[Path] = Field(default=None, description="数据集目录")
-    outputs_dir: Optional[Path] = Field(default=None, description="输出目录")
+    models_dir: Path | None = Field(default=None, description="模型目录")
+    datasets_dir: Path | None = Field(default=None, description="数据集目录")
+    outputs_dir: Path | None = Field(default=None, description="输出目录")
 
     ollama_base_url: str = Field(default="http://localhost:11434", description="Ollama 基础 URL")
 
@@ -106,16 +104,16 @@ class Settings(BaseSettings):
         description="模型下载源：modelscope/huggingface"
     )
 
-    modelscope_cache_dir: Optional[Path] = Field(
+    modelscope_cache_dir: Path | None = Field(
         default=None,
         description="ModelScope 缓存目录"
     )
 
-    http_proxy: Optional[str] = Field(
+    http_proxy: str | None = Field(
         default=None,
         description="HTTP 代理地址，如：http://127.0.0.1:7890"
     )
-    https_proxy: Optional[str] = Field(
+    https_proxy: str | None = Field(
         default=None,
         description="HTTPS 代理地址，如：http://127.0.0.1:7890"
     )
@@ -125,7 +123,7 @@ class Settings(BaseSettings):
     checkpoint_interval: int = Field(default=500, ge=100, description="检查点间隔步数")
 
     max_upload_size: int = Field(default=100 * 1024 * 1024, description="最大上传大小 (字节)")
-    allowed_file_types: List[str] = Field(
+    allowed_file_types: list[str] = Field(
         default=[".json", ".jsonl"],
         description="允许的文件类型"
     )
@@ -176,7 +174,7 @@ class Settings(BaseSettings):
     def hf_endpoint(self) -> str:
         """获取 HuggingFace 端点 URL"""
         return HF_MIRRORS.get(self.hf_mirror, HF_MIRRORS["hf-mirror"])
-    
+
     @property
     def inference_backend(self) -> str:
         """推理后端（兼容别名）"""

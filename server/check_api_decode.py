@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import os
 
 api_dir = r'c:\Users\JHJ\Desktop\finetune-platform\server\api'
@@ -9,7 +8,7 @@ for f in sorted(os.listdir(api_dir)):
         filepath = os.path.join(api_dir, f)
         with open(filepath, 'rb') as file:
             data = file.read()
-        
+
         # Try to decode
         try:
             text = data.decode('utf-8')

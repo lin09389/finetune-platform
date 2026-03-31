@@ -1,18 +1,19 @@
 import asyncio
-from pathlib import Path
-from typing import Optional, Callable, Awaitable, List
-from pydantic import BaseModel, Field
+from collections.abc import Awaitable, Callable
 from datetime import datetime
+from pathlib import Path
 
-from .copy import FileCopyExecutor, CopyResult
-from .move import FileMoveExecutor, MoveResult
+from pydantic import BaseModel, Field
+
+from .copy import FileCopyExecutor
+from .move import FileMoveExecutor
 
 
 class BatchItemResult(BaseModel):
     source: str = ""
     destination: str = ""
     success: bool = Field(default=True)
-    error: Optional[str] = None
+    error: str | None = None
     bytes_processed: int = 0
 
 
@@ -23,15 +24,15 @@ class BatchResult(BaseModel):
     succeeded: int = 0
     failed: int = 0
     total_bytes: int = 0
-    results: List[BatchItemResult] = Field(default_factory=list)
-    error: Optional[str] = None
+    results: list[BatchItemResult] = Field(default_factory=list)
+    error: str | None = None
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
 
 
 class BatchFileExecutor:
     def __init__(
         self,
-        progress_callback: Optional[Callable[[str, float, str], Awaitable[None]]] = None,
+        progress_callback: Callable[[str, float, str], Awaitable[None]] | None = None,
     ):
         self.progress_callback = progress_callback
         self.copy_executor = FileCopyExecutor(progress_callback)
@@ -39,7 +40,7 @@ class BatchFileExecutor:
 
     async def batch_copy(
         self,
-        sources: List[str],
+        sources: list[str],
         destination_dir: str,
         overwrite: bool = False,
     ) -> BatchResult:
@@ -55,7 +56,7 @@ class BatchFileExecutor:
                 error=f"目标路径不是目录: {destination_dir}",
             )
 
-        results: List[BatchItemResult] = []
+        results: list[BatchItemResult] = []
         succeeded = 0
         failed = 0
         total_bytes = 0
@@ -106,7 +107,7 @@ class BatchFileExecutor:
 
     async def batch_move(
         self,
-        sources: List[str],
+        sources: list[str],
         destination_dir: str,
         overwrite: bool = False,
     ) -> BatchResult:
@@ -122,7 +123,7 @@ class BatchFileExecutor:
                 error=f"目标路径不是目录: {destination_dir}",
             )
 
-        results: List[BatchItemResult] = []
+        results: list[BatchItemResult] = []
         succeeded = 0
         failed = 0
         total = len(sources)
@@ -169,10 +170,10 @@ class BatchFileExecutor:
 
     async def batch_delete(
         self,
-        paths: List[str],
+        paths: list[str],
         skip_missing: bool = True,
     ) -> BatchResult:
-        results: List[BatchItemResult] = []
+        results: list[BatchItemResult] = []
         succeeded = 0
         failed = 0
         total = len(paths)
@@ -246,8 +247,8 @@ class BatchFileExecutor:
 
     async def batch_rename(
         self,
-        paths: List[str],
-        new_names: List[str],
+        paths: list[str],
+        new_names: list[str],
         overwrite: bool = False,
     ) -> BatchResult:
         if len(paths) != len(new_names):
@@ -257,7 +258,7 @@ class BatchFileExecutor:
                 error="路径列表和新名称列表长度不匹配",
             )
 
-        results: List[BatchItemResult] = []
+        results: list[BatchItemResult] = []
         succeeded = 0
         failed = 0
         total = len(paths)
@@ -321,10 +322,10 @@ class BatchFileExecutor:
 
     async def batch_create_directories(
         self,
-        paths: List[str],
+        paths: list[str],
         parents: bool = True,
     ) -> BatchResult:
-        results: List[BatchItemResult] = []
+        results: list[BatchItemResult] = []
         succeeded = 0
         failed = 0
         total = len(paths)

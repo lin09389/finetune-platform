@@ -1,47 +1,48 @@
-# -*- coding: utf-8 -*-
 """
 CUA (Computer Use Agent) API 路由
 """
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
 import base64
 import io
 import logging
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Query
 from PIL import Image
+from pydantic import BaseModel, Field
 
 from cua import (
-    Coordinate,
-    Region,
-    MouseButton,
-    PermissionLevel,
-    OperationType,
-    ScreenshotResult,
-    WindowInfo,
-    OperationResult,
     CUAError,
-    PermissionDeniedError,
-    RateLimitExceededError,
-    EmergencyStopError,
-    WindowNotFoundError,
+    MouseButton,
     OCRError,
+    OperationType,
+    PermissionDeniedError,
+    PermissionLevel,
+    Region,
+    ScreenshotResult,
     TesseractNotInstalledError,
+    WindowNotFoundError,
 )
-from cua.screen import ScreenCapture
-from cua.mouse import MouseController, get_mouse_controller
 from cua.keyboard import KeyboardController
-from cua.window import WindowManager, get_window_manager
+from cua.mouse import get_mouse_controller
 from cua.ocr import OCRRecognizer
-from cua.recorder import ActionRecorder, RecordedAction, RecorderError, RecorderAlreadyRunningError, RecorderNotRunningError
-from cua.player import ActionPlayer, get_action_player
-from cua.safety import SafetyController, get_safety_controller
+from cua.player import get_action_player
+from cua.recorder import (
+    ActionRecorder,
+    RecordedAction,
+    RecorderAlreadyRunningError,
+    RecorderError,
+    RecorderNotRunningError,
+)
+from cua.safety import get_safety_controller
+from cua.screen import ScreenCapture
+from cua.window import get_window_manager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/cua", tags=["CUA - Computer Use Agent"])
 
-_screenshot_result: Optional[ScreenshotResult] = None
-_last_screenshot_base64: Optional[str] = None
+_screenshot_result: ScreenshotResult | None = None
+_last_screenshot_base64: str | None = None
 
 
 def get_screen_capture() -> ScreenCapture:
@@ -65,7 +66,7 @@ def get_action_recorder() -> ActionRecorder:
 
 class ScreenshotRequest(BaseModel):
     monitor: int = Field(default=0, ge=0, description="显示器索引")
-    region: Optional[Dict[str, int]] = Field(default=None, description="截图区域 {x, y, width, height}")
+    region: dict[str, int] | None = Field(default=None, description="截图区域 {x, y, width, height}")
     format: str = Field(default="png", description="图像格式")
     quality: int = Field(default=85, ge=1, le=100, description="JPEG 质量")
 
@@ -94,8 +95,8 @@ class MouseDragRequest(BaseModel):
 
 class MouseScrollRequest(BaseModel):
     clicks: int = Field(..., description="滚动次数，正数向上，负数向下")
-    x: Optional[int] = Field(default=None, ge=0, description="X 坐标")
-    y: Optional[int] = Field(default=None, ge=0, description="Y 坐标")
+    x: int | None = Field(default=None, ge=0, description="X 坐标")
+    y: int | None = Field(default=None, ge=0, description="Y 坐标")
 
 
 class KeyboardTypeRequest(BaseModel):
@@ -108,7 +109,7 @@ class KeyboardPressRequest(BaseModel):
 
 
 class KeyboardHotkeyRequest(BaseModel):
-    keys: List[str] = Field(..., description="组合键列表")
+    keys: list[str] = Field(..., description="组合键列表")
 
 
 class WindowActionRequest(BaseModel):
@@ -128,8 +129,8 @@ class WindowResizeRequest(BaseModel):
 
 
 class OCRRequest(BaseModel):
-    image_base64: Optional[str] = Field(default=None, description="Base64 编码的图像")
-    region: Optional[Dict[str, int]] = Field(default=None, description="识别区域")
+    image_base64: str | None = Field(default=None, description="Base64 编码的图像")
+    region: dict[str, int] | None = Field(default=None, description="识别区域")
     lang: str = Field(default="chi_sim+eng", description="OCR 语言")
 
 
@@ -144,8 +145,8 @@ class RecordActionRequest(BaseModel):
 
 
 class PlaybackRequest(BaseModel):
-    actions: Optional[List[Dict[str, Any]]] = Field(default=None, description="操作列表")
-    filepath: Optional[str] = Field(default=None, description="录制文件路径")
+    actions: list[dict[str, Any]] | None = Field(default=None, description="操作列表")
+    filepath: str | None = Field(default=None, description="录制文件路径")
     speed: float = Field(default=1.0, ge=0.1, le=10.0, description="回放速度")
 
 

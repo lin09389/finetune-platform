@@ -4,13 +4,12 @@ import io
 import logging
 import platform
 import subprocess
-import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
-from agent.core.types import ExecutionResult, ExecutionStatus, ErrorCode
+from agent.core.types import ErrorCode, ExecutionResult, ExecutionStatus
 
 logger = logging.getLogger(__name__)
 
@@ -28,14 +27,14 @@ class ClipboardContentType(str, Enum):
 class ClipboardContent:
     content_type: ClipboardContentType
     data: Any = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     size_bytes: int = 0
     format_name: str = ""
 
 
 @dataclass
 class ClipboardHistory:
-    items: List[ClipboardContent] = field(default_factory=list)
+    items: list[ClipboardContent] = field(default_factory=list)
     max_items: int = 100
     current_index: int = -1
 
@@ -75,11 +74,11 @@ class WindowsClipboardBackend:
     def _ensure_initialized(self) -> bool:
         if self._initialized:
             return True
-        
+
         try:
+            import win32api
             import win32clipboard
             import win32con
-            import win32api
             self._win32clipboard = win32clipboard
             self._win32con = win32con
             self._win32api = win32api
@@ -89,12 +88,12 @@ class WindowsClipboardBackend:
             logger.warning("pywin32 not available, using subprocess fallback")
             return False
 
-    def read_text(self) -> Optional[str]:
+    def read_text(self) -> str | None:
         if self._ensure_initialized():
             return self._read_text_win32()
         return self._read_text_powershell()
 
-    def _read_text_win32(self) -> Optional[str]:
+    def _read_text_win32(self) -> str | None:
         try:
             self._win32clipboard.OpenClipboard()
             try:
@@ -110,7 +109,7 @@ class WindowsClipboardBackend:
             logger.error(f"Failed to read text from clipboard (win32): {e}")
         return None
 
-    def _read_text_powershell(self) -> Optional[str]:
+    def _read_text_powershell(self) -> str | None:
         try:
             result = subprocess.run(
                 ["powershell", "-command", "Get-Clipboard"],
@@ -124,15 +123,15 @@ class WindowsClipboardBackend:
             logger.error(f"Failed to read text from clipboard (powershell): {e}")
         return None
 
-    def read_image(self) -> Optional[bytes]:
+    def read_image(self) -> bytes | None:
         if self._ensure_initialized():
             return self._read_image_win32()
         return self._read_image_powershell()
 
-    def _read_image_win32(self) -> Optional[bytes]:
+    def _read_image_win32(self) -> bytes | None:
         try:
             from PIL import Image
-            
+
             self._win32clipboard.OpenClipboard()
             try:
                 if self._win32clipboard.IsClipboardFormatAvailable(self._win32con.CF_DIB):
@@ -149,7 +148,7 @@ class WindowsClipboardBackend:
             logger.error(f"Failed to read image from clipboard (win32): {e}")
         return None
 
-    def _read_image_powershell(self) -> Optional[bytes]:
+    def _read_image_powershell(self) -> bytes | None:
         try:
             result = subprocess.run(
                 [
@@ -167,10 +166,10 @@ class WindowsClipboardBackend:
             logger.error(f"Failed to read image from clipboard (powershell): {e}")
         return None
 
-    def _dib_to_bytes(self, dib_data: bytes) -> Optional[bytes]:
+    def _dib_to_bytes(self, dib_data: bytes) -> bytes | None:
         try:
             from PIL import Image
-            
+
             img = Image.open(io.BytesIO(dib_data))
             output = io.BytesIO()
             img.save(output, format="PNG")
@@ -179,12 +178,12 @@ class WindowsClipboardBackend:
             logger.error(f"Failed to convert DIB to bytes: {e}")
             return None
 
-    def read_files(self) -> Optional[List[str]]:
+    def read_files(self) -> list[str] | None:
         if self._ensure_initialized():
             return self._read_files_win32()
         return self._read_files_powershell()
 
-    def _read_files_win32(self) -> Optional[List[str]]:
+    def _read_files_win32(self) -> list[str] | None:
         try:
             self._win32clipboard.OpenClipboard()
             try:
@@ -198,7 +197,7 @@ class WindowsClipboardBackend:
             logger.error(f"Failed to read files from clipboard (win32): {e}")
         return None
 
-    def _read_files_powershell(self) -> Optional[List[str]]:
+    def _read_files_powershell(self) -> list[str] | None:
         try:
             result = subprocess.run(
                 [
@@ -217,7 +216,7 @@ class WindowsClipboardBackend:
             logger.error(f"Failed to read files from clipboard (powershell): {e}")
         return None
 
-    def _parse_file_list(self, data: bytes) -> List[str]:
+    def _parse_file_list(self, data: bytes) -> list[str]:
         files = []
         try:
             decoded = data.decode("utf-16-le", errors="replace")
@@ -256,7 +255,7 @@ class WindowsClipboardBackend:
 
 
 class MacOSClipboardBackend:
-    def read_text(self) -> Optional[str]:
+    def read_text(self) -> str | None:
         try:
             result = subprocess.run(
                 ["pbpaste"],
@@ -269,7 +268,7 @@ class MacOSClipboardBackend:
             logger.error(f"Failed to read text from clipboard (pbpaste): {e}")
         return None
 
-    def read_image(self) -> Optional[bytes]:
+    def read_image(self) -> bytes | None:
         try:
             result = subprocess.run(
                 ["pngpaste", "-"],
@@ -285,7 +284,7 @@ class MacOSClipboardBackend:
             logger.error(f"Failed to read image from clipboard: {e}")
         return None
 
-    def _read_image_osascript(self) -> Optional[bytes]:
+    def _read_image_osascript(self) -> bytes | None:
         try:
             script = '''
             tell application "System Events"
@@ -306,7 +305,7 @@ class MacOSClipboardBackend:
             logger.error(f"Failed to read image via osascript: {e}")
         return None
 
-    def read_files(self) -> Optional[List[str]]:
+    def read_files(self) -> list[str] | None:
         try:
             script = '''
             tell application "Finder"
@@ -364,7 +363,7 @@ class LinuxClipboardBackend:
                 continue
         return "unknown"
 
-    def read_text(self) -> Optional[str]:
+    def read_text(self) -> str | None:
         if self._backend == "wayland":
             return self._read_text_wayland()
         elif self._backend == "xclip":
@@ -373,7 +372,7 @@ class LinuxClipboardBackend:
             return self._read_text_xsel()
         return None
 
-    def _read_text_wayland(self) -> Optional[str]:
+    def _read_text_wayland(self) -> str | None:
         try:
             result = subprocess.run(
                 ["wl-paste", "--no-newline"],
@@ -386,7 +385,7 @@ class LinuxClipboardBackend:
             logger.error(f"Failed to read text via wl-paste: {e}")
         return None
 
-    def _read_text_xclip(self) -> Optional[str]:
+    def _read_text_xclip(self) -> str | None:
         try:
             result = subprocess.run(
                 ["xclip", "-selection", "clipboard", "-o"],
@@ -399,7 +398,7 @@ class LinuxClipboardBackend:
             logger.error(f"Failed to read text via xclip: {e}")
         return None
 
-    def _read_text_xsel(self) -> Optional[str]:
+    def _read_text_xsel(self) -> str | None:
         try:
             result = subprocess.run(
                 ["xsel", "--clipboard", "--output"],
@@ -412,14 +411,14 @@ class LinuxClipboardBackend:
             logger.error(f"Failed to read text via xsel: {e}")
         return None
 
-    def read_image(self) -> Optional[bytes]:
+    def read_image(self) -> bytes | None:
         if self._backend == "wayland":
             return self._read_image_wayland()
         elif self._backend == "xclip":
             return self._read_image_xclip()
         return None
 
-    def _read_image_wayland(self) -> Optional[bytes]:
+    def _read_image_wayland(self) -> bytes | None:
         try:
             result = subprocess.run(
                 ["wl-paste", "--type", "image/png"],
@@ -432,7 +431,7 @@ class LinuxClipboardBackend:
             logger.error(f"Failed to read image via wl-paste: {e}")
         return None
 
-    def _read_image_xclip(self) -> Optional[bytes]:
+    def _read_image_xclip(self) -> bytes | None:
         try:
             result = subprocess.run(
                 ["xclip", "-selection", "clipboard", "-t", "image/png", "-o"],
@@ -445,12 +444,12 @@ class LinuxClipboardBackend:
             logger.error(f"Failed to read image via xclip: {e}")
         return None
 
-    def read_files(self) -> Optional[List[str]]:
+    def read_files(self) -> list[str] | None:
         if self._backend == "wayland":
             return self._read_files_wayland()
         return None
 
-    def _read_files_wayland(self) -> Optional[List[str]]:
+    def _read_files_wayland(self) -> list[str] | None:
         try:
             result = subprocess.run(
                 ["wl-paste", "--list-types"],
@@ -485,7 +484,7 @@ class ClipboardReader:
         self._history = ClipboardHistory(max_items=max_history) if enable_history else None
         self._enable_history = enable_history
 
-    def _create_backend(self) -> Union[WindowsClipboardBackend, MacOSClipboardBackend, LinuxClipboardBackend]:
+    def _create_backend(self) -> WindowsClipboardBackend | MacOSClipboardBackend | LinuxClipboardBackend:
         if PlatformClipboard.is_windows():
             return WindowsClipboardBackend()
         elif PlatformClipboard.is_macos():
@@ -499,7 +498,7 @@ class ClipboardReader:
         try:
             loop = asyncio.get_event_loop()
             text = await loop.run_in_executor(None, self._backend.read_text)
-            
+
             if text is None:
                 return ExecutionResult(
                     status=ExecutionStatus.FAILED,
@@ -507,17 +506,17 @@ class ClipboardReader:
                     error_code=ErrorCode.RESOURCE_NOT_FOUND,
                     error_message="No text content in clipboard",
                 )
-            
+
             content = ClipboardContent(
                 content_type=ClipboardContentType.TEXT,
                 data=text,
                 metadata={"encoding": "utf-8"},
                 size_bytes=len(text.encode("utf-8")),
             )
-            
+
             if self._enable_history:
                 self._add_to_history(content)
-            
+
             return ExecutionResult(
                 status=ExecutionStatus.SUCCESS,
                 action="clipboard_read_text",
@@ -537,7 +536,7 @@ class ClipboardReader:
         try:
             loop = asyncio.get_event_loop()
             image_data = await loop.run_in_executor(None, self._backend.read_image)
-            
+
             if image_data is None:
                 return ExecutionResult(
                     status=ExecutionStatus.FAILED,
@@ -545,22 +544,22 @@ class ClipboardReader:
                     error_code=ErrorCode.RESOURCE_NOT_FOUND,
                     error_message="No image content in clipboard",
                 )
-            
+
             if output_format == "base64":
                 output_data = base64.b64encode(image_data).decode("utf-8")
             else:
                 output_data = image_data
-            
+
             content = ClipboardContent(
                 content_type=ClipboardContentType.IMAGE,
                 data=output_data,
                 metadata={"format": "png", "output_format": output_format},
                 size_bytes=len(image_data),
             )
-            
+
             if self._enable_history:
                 self._add_to_history(content)
-            
+
             return ExecutionResult(
                 status=ExecutionStatus.SUCCESS,
                 action="clipboard_read_image",
@@ -584,7 +583,7 @@ class ClipboardReader:
         try:
             loop = asyncio.get_event_loop()
             files = await loop.run_in_executor(None, self._backend.read_files)
-            
+
             if files is None or len(files) == 0:
                 return ExecutionResult(
                     status=ExecutionStatus.FAILED,
@@ -592,7 +591,7 @@ class ClipboardReader:
                     error_code=ErrorCode.RESOURCE_NOT_FOUND,
                     error_message="No files in clipboard",
                 )
-            
+
             valid_files = []
             for file_path in files:
                 path = Path(file_path)
@@ -603,17 +602,17 @@ class ClipboardReader:
                         "is_dir": path.is_dir(),
                         "size": path.stat().st_size if path.is_file() else 0,
                     })
-            
+
             content = ClipboardContent(
                 content_type=ClipboardContentType.FILES,
                 data=valid_files,
                 metadata={"count": len(valid_files)},
                 size_bytes=sum(f["size"] for f in valid_files),
             )
-            
+
             if self._enable_history:
                 self._add_to_history(content)
-            
+
             return ExecutionResult(
                 status=ExecutionStatus.SUCCESS,
                 action="clipboard_read_files",
@@ -634,15 +633,15 @@ class ClipboardReader:
             text_result = await self.read_text()
             if text_result.status == ExecutionStatus.SUCCESS:
                 return text_result
-            
+
             image_result = await self.read_image()
             if image_result.status == ExecutionStatus.SUCCESS:
                 return image_result
-            
+
             files_result = await self.read_files()
             if files_result.status == ExecutionStatus.SUCCESS:
                 return files_result
-            
+
             return ExecutionResult(
                 status=ExecutionStatus.FAILED,
                 action="clipboard_read_auto",
@@ -665,19 +664,19 @@ class ClipboardReader:
             )
             if text:
                 return ClipboardContentType.TEXT
-            
+
             image = await asyncio.get_event_loop().run_in_executor(
                 None, self._backend.read_image
             )
             if image:
                 return ClipboardContentType.IMAGE
-            
+
             files = await asyncio.get_event_loop().run_in_executor(
                 None, self._backend.read_files
             )
             if files:
                 return ClipboardContentType.FILES
-            
+
             return ClipboardContentType.UNKNOWN
         except Exception:
             return ClipboardContentType.UNKNOWN
@@ -692,17 +691,17 @@ class ClipboardReader:
     def _add_to_history(self, content: ClipboardContent) -> None:
         if self._history is None:
             return
-        
+
         self._history.items.append(content)
         self._history.current_index = len(self._history.items) - 1
-        
+
         if len(self._history.items) > self._history.max_items:
             self._history.items = self._history.items[-self._history.max_items :]
 
-    def get_history(self) -> List[Dict[str, Any]]:
+    def get_history(self) -> list[dict[str, Any]]:
         if self._history is None:
             return []
-        
+
         return [
             {
                 "content_type": item.content_type.value,
@@ -730,7 +729,7 @@ class ClipboardReader:
             self._history.items.clear()
             self._history.current_index = -1
 
-    def get_platform_info(self) -> Dict[str, Any]:
+    def get_platform_info(self) -> dict[str, Any]:
         return {
             "platform": PlatformClipboard.get_platform(),
             "is_windows": PlatformClipboard.is_windows(),

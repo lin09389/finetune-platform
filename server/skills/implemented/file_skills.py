@@ -1,11 +1,8 @@
-# -*- coding: utf-8 -*-
 """
 基础文件操作技能
 """
-import os
 import shutil
 from pathlib import Path
-from typing import Any, Dict
 
 from skills.base import SkillBase
 from skills.models import (

@@ -1,12 +1,11 @@
-# -*- coding: utf-8 -*-
 """
 记忆提取器 - 从用户消息中提取需要记忆的信息
 """
-import re
-from typing import List, Dict, Any, Optional
 import logging
+import re
+from typing import Any
 
-from .models import MemoryType, MEMORY_IMPORTANCE
+from .models import MEMORY_IMPORTANCE, MemoryType
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +66,7 @@ class MemoryExtractor:
         self,
         message: str,
         role: str = 'user'
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         从消息中提取记忆
 
@@ -95,7 +94,7 @@ class MemoryExtractor:
 
         return memories
 
-    def _rule_extraction(self, message: str) -> List[Dict[str, Any]]:
+    def _rule_extraction(self, message: str) -> list[dict[str, Any]]:
         """规则提取"""
         memories = []
 
@@ -124,7 +123,7 @@ class MemoryExtractor:
 
         return memories
 
-    def _keyword_extraction(self, message: str) -> List[Dict[str, Any]]:
+    def _keyword_extraction(self, message: str) -> list[dict[str, Any]]:
         """关键词提取"""
         memories = []
 
@@ -147,7 +146,7 @@ class MemoryExtractor:
 
         return memories
 
-    def _deduplicate(self, memories: List[Dict]) -> List[Dict]:
+    def _deduplicate(self, memories: list[dict]) -> list[dict]:
         """去重"""
         seen = set()
         unique = []
@@ -160,8 +159,8 @@ class MemoryExtractor:
 
     def extract_from_conversation(
         self,
-        messages: List[Dict[str, str]]
-    ) -> List[Dict[str, Any]]:
+        messages: list[dict[str, str]]
+    ) -> list[dict[str, Any]]:
         """
         从对话历史中提取记忆
 

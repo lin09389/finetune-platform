@@ -1,11 +1,12 @@
 import asyncio
 import time
-import psutil
-from typing import Dict, Any, Optional, List
-from dataclasses import dataclass, field
-from enum import Enum
-from pydantic import BaseModel, Field
+from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
+from typing import Any
+
+import psutil
+from pydantic import BaseModel, Field
 
 
 class ResourceType(str, Enum):
@@ -37,7 +38,7 @@ class ResourceConfig:
     warning_threshold: float = 80.0
     check_interval_seconds: float = 1.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "max_cpu_percent": self.max_cpu_percent,
             "max_memory_mb": self.max_memory_mb,
@@ -59,7 +60,7 @@ class ResourceUsage(BaseModel):
     network_connections: int = Field(default=0)
     timestamp: datetime = Field(default_factory=datetime.now)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "cpu_percent": self.cpu_percent,
             "memory_mb": self.memory_mb,
@@ -76,21 +77,21 @@ class LimitCheckResult(BaseModel):
     current_value: float = Field(default=0.0)
     limit_value: float = Field(default=0.0)
     message: str = Field(default="")
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ResourceLimiter:
-    def __init__(self, config: Optional[ResourceConfig] = None):
+    def __init__(self, config: ResourceConfig | None = None):
         self.config = config or ResourceConfig()
         self._current_usage = ResourceUsage()
         self._task_count = 0
         self._network_count = 0
         self._lock = asyncio.Lock()
         self._monitoring = False
-        self._monitor_task: Optional[asyncio.Task] = None
-        self._start_time: Optional[float] = None
-        self._violations: List[Dict[str, Any]] = []
-        self._callbacks: Dict[str, callable] = {}
+        self._monitor_task: asyncio.Task | None = None
+        self._start_time: float | None = None
+        self._violations: list[dict[str, Any]] = []
+        self._callbacks: dict[str, callable] = {}
 
     async def start_monitoring(self) -> None:
         if self._monitoring:
@@ -124,7 +125,7 @@ class ResourceLimiter:
         cpu_percent = psutil.cpu_percent(interval=0.1)
         memory_info = psutil.virtual_memory()
         memory_mb = memory_info.used / (1024 * 1024)
-        
+
         async with self._lock:
             self._current_usage = ResourceUsage(
                 cpu_percent=cpu_percent,
@@ -136,7 +137,7 @@ class ResourceLimiter:
 
     async def _check_thresholds(self) -> None:
         usage = self._current_usage
-        
+
         if usage.cpu_percent > self.config.cpu_throttle_threshold:
             await self._handle_violation(
                 ResourceType.CPU,
@@ -176,7 +177,7 @@ class ResourceLimiter:
             "timestamp": datetime.now().isoformat(),
         }
         self._violations.append(violation)
-        
+
         callback = self._callbacks.get(resource_type.value)
         if callback:
             try:
@@ -213,7 +214,7 @@ class ResourceLimiter:
                 limit_value=limit,
                 message=f"CPU usage {current:.1f}% exceeds limit",
             )
-        
+
         return LimitCheckResult(
             allowed=True,
             resource_type=ResourceType.CPU,
@@ -236,7 +237,7 @@ class ResourceLimiter:
                 limit_value=limit,
                 message=f"Memory usage {current:.1f}MB exceeds limit {limit}MB",
             )
-        
+
         memory_percent = (current / limit) * 100
         if memory_percent > self.config.warning_threshold:
             return LimitCheckResult(
@@ -247,7 +248,7 @@ class ResourceLimiter:
                 limit_value=limit,
                 message=f"Memory usage at {memory_percent:.1f}% of limit",
             )
-        
+
         return LimitCheckResult(
             allowed=True,
             resource_type=ResourceType.MEMORY,
@@ -269,7 +270,7 @@ class ResourceLimiter:
                 limit_value=limit,
                 message=f"File size {size_mb:.2f}MB exceeds limit {limit}MB",
             )
-        
+
         return LimitCheckResult(
             allowed=True,
             resource_type=ResourceType.FILE_SIZE,
@@ -290,7 +291,7 @@ class ResourceLimiter:
                 limit_value=limit,
                 message=f"Execution time {elapsed_seconds:.1f}s exceeds limit {limit}s",
             )
-        
+
         if elapsed_seconds > limit * 0.8:
             return LimitCheckResult(
                 allowed=True,
@@ -298,9 +299,9 @@ class ResourceLimiter:
                 action=LimitAction.WARN,
                 current_value=elapsed_seconds,
                 limit_value=limit,
-                message=f"Execution time approaching limit",
+                message="Execution time approaching limit",
             )
-        
+
         return LimitCheckResult(
             allowed=True,
             resource_type=ResourceType.EXECUTION_TIME,
@@ -323,7 +324,7 @@ class ResourceLimiter:
                 limit_value=limit,
                 message=f"Concurrent task limit reached ({limit})",
             )
-        
+
         return LimitCheckResult(
             allowed=True,
             resource_type=ResourceType.CONCURRENT,
@@ -336,7 +337,7 @@ class ResourceLimiter:
         check = await self.check_concurrent_limit()
         if not check.allowed:
             return False
-        
+
         async with self._lock:
             self._task_count += 1
         return True
@@ -359,13 +360,13 @@ class ResourceLimiter:
     def get_current_usage(self) -> ResourceUsage:
         return self._current_usage
 
-    def get_violations(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_violations(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._violations[-limit:]
 
     def clear_violations(self) -> None:
         self._violations.clear()
 
-    async def check_all_limits(self) -> Dict[str, LimitCheckResult]:
+    async def check_all_limits(self) -> dict[str, LimitCheckResult]:
         return {
             "cpu": await self.check_cpu_limit(),
             "memory": await self.check_memory_limit(),
@@ -377,7 +378,7 @@ class ResourceLimiter:
             if hasattr(self.config, key):
                 setattr(self.config, key, value)
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         return {
             "config": self.config.to_dict(),
             "current_usage": self._current_usage.to_dict(),

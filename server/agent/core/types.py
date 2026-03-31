@@ -1,6 +1,18 @@
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from pydantic import BaseModel, Field
+
+from .interfaces.types import (
+    ExecutionResult,
+    ExecutionStatus,
+    FileResult,
+    OperationContext,
+    OperationResult,
+    TaskResult,
+    UnifiedResult,
+    ValidationResult,
+)
 
 
 class IntentType(str, Enum):
@@ -20,14 +32,6 @@ class PermissionLevel(str, Enum):
     REQUIRES_ELEVATION = "requires_elevation"
 
 
-class ExecutionStatus(str, Enum):
-    SUCCESS = "success"
-    FAILED = "failed"
-    PARTIAL = "partial"
-    PENDING = "pending"
-    CANCELLED = "cancelled"
-
-
 class ErrorCode(str, Enum):
     PARSE_ERROR = "parse_error"
     PERMISSION_DENIED = "permission_denied"
@@ -36,58 +40,42 @@ class ErrorCode(str, Enum):
     TIMEOUT_ERROR = "timeout_error"
     RESOURCE_NOT_FOUND = "resource_not_found"
     INTERNAL_ERROR = "internal_error"
+    SERVICE_UNAVAILABLE = "service_unavailable"
 
 
 class ParseResult(BaseModel):
     intent: IntentType = Field(default=IntentType.UNKNOWN)
     action: str = Field(default="")
-    params: Dict[str, Any] = Field(default_factory=dict)
+    params: dict[str, Any] = Field(default_factory=dict)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     raw_message: str = Field(default="")
-    alternatives: List["ParseResult"] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    alternatives: list["ParseResult"] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class PermissionResult(BaseModel):
     level: PermissionLevel = Field(default=PermissionLevel.ALLOWED)
     reason: str = Field(default="")
-    required_verification: Optional[str] = Field(default=None)
-    allowed_actions: List[str] = Field(default_factory=list)
-    denied_actions: List[str] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-
-
-class ValidationResult(BaseModel):
-    is_valid: bool = Field(default=True)
-    errors: List[str] = Field(default_factory=list)
-    warnings: List[str] = Field(default_factory=list)
-    sanitized_params: Dict[str, Any] = Field(default_factory=dict)
-
-
-class ExecutionResult(BaseModel):
-    status: ExecutionStatus = Field(default=ExecutionStatus.SUCCESS)
-    action: str = Field(default="")
-    output: Any = Field(default=None)
-    error_code: Optional[ErrorCode] = Field(default=None)
-    error_message: str = Field(default="")
-    execution_time_ms: float = Field(default=0.0)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    required_verification: str | None = Field(default=None)
+    allowed_actions: list[str] = Field(default_factory=list)
+    denied_actions: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class FormattedResult(BaseModel):
     success: bool = Field(default=True)
     message: str = Field(default="")
     data: Any = Field(default=None)
-    suggestions: List[str] = Field(default_factory=list)
-    follow_up_actions: List[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+    follow_up_actions: list[str] = Field(default_factory=list)
 
 
 class ErrorResult(BaseModel):
     error_code: ErrorCode = Field(default=ErrorCode.INTERNAL_ERROR)
     message: str = Field(default="")
-    details: Dict[str, Any] = Field(default_factory=dict)
+    details: dict[str, Any] = Field(default_factory=dict)
     recoverable: bool = Field(default=True)
-    recovery_suggestions: List[str] = Field(default_factory=list)
+    recovery_suggestions: list[str] = Field(default_factory=list)
 
 
 class ProgressInfo(BaseModel):
@@ -97,7 +85,7 @@ class ProgressInfo(BaseModel):
     message: str = ""
     current_step: int = 0
     total_steps: int = 0
-    eta_seconds: Optional[float] = None
+    eta_seconds: float | None = None
 
 
 class ModuleInfo(BaseModel):
@@ -105,8 +93,28 @@ class ModuleInfo(BaseModel):
     version: str = "1.0.0"
     description: str = ""
     author: str = ""
-    dependencies: List[str] = Field(default_factory=list)
-    supported_actions: List[str] = Field(default_factory=list)
+    dependencies: list[str] = Field(default_factory=list)
+    supported_actions: list[str] = Field(default_factory=list)
 
 
 ParseResult.model_rebuild()
+
+__all__ = [
+    "IntentType",
+    "PermissionLevel",
+    "ErrorCode",
+    "ParseResult",
+    "PermissionResult",
+    "FormattedResult",
+    "ErrorResult",
+    "ProgressInfo",
+    "ModuleInfo",
+    "UnifiedResult",
+    "ExecutionResult",
+    "OperationResult",
+    "FileResult",
+    "TaskResult",
+    "OperationContext",
+    "ExecutionStatus",
+    "ValidationResult",
+]

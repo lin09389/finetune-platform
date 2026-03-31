@@ -1,13 +1,13 @@
-# -*- coding: utf-8 -*-
 """
 对话模块路由 - 整合会话管理、历史记录、上下文管理
 """
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
 
-from .session import SessionManager, get_session_manager
-from .context import ContextManager, get_context_manager
+from .context import get_context_manager
+from .session import get_session_manager
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -16,7 +16,7 @@ class SendMessageRequest(BaseModel):
     """发送消息请求"""
     content: str = Field(..., description="消息内容")
     role: str = Field(default="user", description="角色")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="元数据")
 
 
 class MessageResponse(BaseModel):
@@ -57,7 +57,7 @@ async def list_sessions(
     """列出会话"""
     manager = get_session_manager()
     sessions = manager.list_sessions(limit=limit, offset=offset)
-    
+
     return {
         "sessions": [
             {
@@ -78,10 +78,10 @@ async def get_session(session_id: str):
     """获取会话详情"""
     manager = get_session_manager()
     session = manager.get_session(session_id)
-    
+
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     return {
         "id": session.id,
         "title": session.title,
@@ -97,10 +97,10 @@ async def delete_session(session_id: str):
     """删除会话"""
     manager = get_session_manager()
     success = manager.delete_session(session_id)
-    
+
     if not success:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     return {"success": True, "session_id": session_id}
 
 
@@ -109,24 +109,24 @@ async def send_message(session_id: str, request: SendMessageRequest):
     """发送消息"""
     session_manager = get_session_manager()
     context_manager = get_context_manager()
-    
+
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     message = session.add_message(
         role=request.role,
         content=request.content,
         metadata=request.metadata
     )
-    
+
     context_manager.add_message(
         session_id=session_id,
         role=request.role,
         content=request.content,
         metadata=request.metadata
     )
-    
+
     return {
         "id": message.id,
         "session_id": session_id,
@@ -144,12 +144,12 @@ async def get_messages(
     """获取会话消息"""
     manager = get_session_manager()
     session = manager.get_session(session_id)
-    
+
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     messages = session.get_messages(limit=limit)
-    
+
     return {
         "messages": [
             {
@@ -169,14 +169,14 @@ async def clear_messages(session_id: str):
     """清空会话消息"""
     session_manager = get_session_manager()
     context_manager = get_context_manager()
-    
+
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     session.clear_messages()
     context_manager.clear_context(session_id)
-    
+
     return {"success": True, "session_id": session_id}
 
 
@@ -185,10 +185,10 @@ async def update_session_title(session_id: str, title: str):
     """更新会话标题"""
     manager = get_session_manager()
     success = manager.update_session_title(session_id, title)
-    
+
     if not success:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
     return {"success": True, "session_id": session_id, "title": title}
 
 
@@ -197,7 +197,7 @@ async def get_context(session_id: str):
     """获取会话上下文"""
     manager = get_context_manager()
     context = manager.get_context(session_id)
-    
+
     return {
         "session_id": session_id,
         "message_count": len(context.messages),
@@ -212,5 +212,5 @@ async def set_system_prompt(session_id: str, prompt: str):
     manager = get_context_manager()
     context = manager.get_context(session_id)
     context.set_system_prompt(prompt)
-    
+
     return {"success": True, "session_id": session_id}
