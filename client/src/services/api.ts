@@ -226,17 +226,20 @@ const createAxiosInstance = (): AxiosInstance => {
       return response;
     },
     (error) => {
+      const suppressErrorLogging = Boolean((error.config as any)?.suppressErrorLogging);
       const key = (error.config as any)?._connectionKey;
       if (key) {
         connectionPool.release(key);
       }
 
-      if (error.response) {
-        console.error('API Error:', error.response.data);
-      } else if (error.request) {
-        console.error('Network Error:', error.request);
-      } else {
-        console.error('Error:', error.message);
+      if (!suppressErrorLogging) {
+        if (error.response) {
+          console.error('API Error:', error.response.data);
+        } else if (error.request) {
+          console.error('Network Error:', error.request);
+        } else {
+          console.error('Error:', error.message);
+        }
       }
       return Promise.reject(error);
     }
@@ -712,7 +715,14 @@ export const getOllamaStatus = async () => {
 
 export const getInferenceModels = async () => {
   const response = await apiClient.get('/inference/models');
-  return response.data;
+  const data = response.data;
+  if (Array.isArray(data)) {
+    return data;
+  }
+  if (Array.isArray(data?.models)) {
+    return data.models;
+  }
+  return [];
 };
 
 export const getPerformanceStats = async (modelId?: string) => {
@@ -955,7 +965,7 @@ export const evaluateIntentConfidence = async (
 // Health check
 export const checkBackendHealth = async () => {
   try {
-    const response = await apiClient.get('/health');
+    const response = await apiClient.get('/health', { suppressErrorLogging: true } as any);
     return response.status === 200;
   } catch {
     return false;

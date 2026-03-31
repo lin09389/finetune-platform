@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Card, Row, Col, Progress, Table, Tag, Space, Button, Empty } from 'antd'
+import { useEffect } from 'react'
+import { Row, Col, Progress, Table, Tag, Button, Empty } from 'antd'
 import { motion } from 'framer-motion'
 import {
   ThunderboltOutlined,
@@ -20,6 +20,9 @@ import {
 import { useNavigate } from 'react-router-dom'
 import { useAppStore } from '../store/appStore'
 import { getDeviceInfo } from '../services/api'
+import GlassCard from '../components/shared/GlassCard'
+import AnimatedLayout from '../components/shared/AnimatedLayout'
+import styles from './Dashboard.module.css'
 
 interface QuickAction {
   title: string
@@ -48,27 +51,21 @@ const containerVariants = {
   show: {
     opacity: 1,
     transition: {
-      staggerChildren: 0.05
+      staggerChildren: 0.08
     }
   }
 }
 
 const itemVariants = {
-  hidden: { opacity: 0, y: 10 },
+  hidden: { opacity: 0, y: 12, filter: 'blur(4px)' },
   show: { 
     opacity: 1, 
     y: 0,
+    filter: 'blur(0px)',
     transition: {
-      duration: 0.3,
+      duration: 0.4,
       ease: [0.16, 1, 0.3, 1] as const
     }
-  }
-}
-
-const cardHoverVariants = {
-  hover: { 
-    y: -2,
-    transition: { duration: 0.2, ease: [0.16, 1, 0.3, 1] as const }
   }
 }
 
@@ -81,118 +78,69 @@ const StatCard: React.FC<StatCardProps> = ({
   color,
   icon,
   progress,
-  delay = 0
 }) => {
   return (
-    <motion.div
-      variants={itemVariants}
-      whileHover="hover"
-      initial="hidden"
-      animate="show"
-      transition={{ delay: delay * 0.05 }}
-    >
-      <motion.div variants={cardHoverVariants}>
-        <Card
-          className="stat-card"
-          style={{
-            borderRadius: '8px',
-            border: '1px solid var(--border-color)',
-            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.02)',
-            overflow: 'hidden',
-          }}
-          styles={{ body: { padding: '20px' } }}
-        >
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ 
-                fontSize: 'var(--text-xs)', 
-                color: 'var(--text-secondary)', 
-                marginBottom: 'var(--space-2)',
-                fontWeight: 'var(--font-medium)',
-                textTransform: 'uppercase',
-                letterSpacing: 'var(--tracking-wide)'
-              }}>
-                {title}
-              </div>
-              <div style={{ 
-                fontSize: 'var(--text-3xl)', 
-                fontWeight: 'var(--font-semibold)', 
-                color: 'var(--text-primary)',
-                display: 'flex',
-                alignItems: 'baseline',
-                gap: 'var(--space-1)',
-              }}>
-                {prefix}
-                {value.toFixed(total ? 1 : 0)}
-                {total !== undefined && (
-                  <span style={{ 
-                    fontSize: 'var(--text-sm)', 
-                    fontWeight: 'var(--font-normal)', 
-                    color: 'var(--text-tertiary)' 
-                  }}>
-                    / {total} {suffix}
-                  </span>
-                )}
-                {total === undefined && suffix && (
-                  <span style={{ 
-                    fontSize: 'var(--text-sm)', 
-                    fontWeight: 'var(--font-normal)', 
-                    color: 'var(--text-tertiary)' 
-                  }}>
-                    {suffix}
-                  </span>
-                )}
-              </div>
-            </div>
-            <div style={{
-              width: 44,
-              height: 44,
-              borderRadius: 'var(--radius-lg)',
-              background: color,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 'var(--text-xl)',
-              color: 'var(--text-inverse)',
-            }}>
-              {icon}
-            </div>
+    <GlassCard className={styles.statCard}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ 
+            fontSize: 'var(--text-xs)', 
+            color: 'var(--text-tertiary)', 
+            marginBottom: 'var(--space-2)',
+            fontWeight: 'var(--font-semibold)',
+            textTransform: 'uppercase',
+            letterSpacing: 'var(--tracking-widest)'
+          }}>
+            {title}
           </div>
-          
-          {progress !== undefined && (
-            <div style={{ marginTop: 16 }}>
-              <Progress
-                percent={progress}
-                strokeColor={color}
-                trailColor="var(--border-color)"
-                size={{ height: 4 }}
-                showInfo={false}
-                style={{ margin: 0 }}
-              />
-              <div style={{ 
-                fontSize: '12px', 
-                color: 'var(--text-tertiary)', 
-                marginTop: 6,
-                textAlign: 'right'
-              }}>
-                {progress}% 已使用
-              </div>
-            </div>
-          )}
-        </Card>
-      </motion.div>
-    </motion.div>
+          <div className={styles.statValue}>
+            {prefix}
+            {value.toFixed(total ? 1 : 0)}
+            {total !== undefined && (
+              <span className={styles.statTotal}>
+                / {total} {suffix}
+              </span>
+            )}
+            {total === undefined && suffix && (
+              <span className={styles.statTotal}>
+                {suffix}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className={styles.statIcon} style={{ background: color }}>
+          {icon}
+        </div>
+      </div>
+      
+      {progress !== undefined && (
+        <div style={{ marginTop: 'var(--space-4)' }}>
+          <Progress
+            percent={progress}
+            strokeColor={color}
+            trailColor="var(--border-color)"
+            size={{ height: 4 }}
+            showInfo={false}
+            style={{ margin: 0 }}
+          />
+          <div style={{ 
+            fontSize: 'var(--text-xs)', 
+            color: 'var(--text-tertiary)', 
+            marginTop: 'var(--space-2)',
+            textAlign: 'right',
+            fontWeight: 'var(--font-medium)'
+          }}>
+            {progress}% 已使用
+          </div>
+        </div>
+      )}
+    </GlassCard>
   )
 }
 
 export default function Dashboard() {
   const navigate = useNavigate()
   const { backendStatus, deviceInfo, setDeviceInfo, models, datasets, trainingRecords } = useAppStore()
-  const [, setMounted] = useState(false)
-
-  useEffect(() => {
-    setMounted(true)
-  }, [])
 
   const fetchDeviceInfo = async () => {
     if (backendStatus !== 'connected') return
@@ -217,11 +165,12 @@ export default function Dashboard() {
           <Tag 
             icon={<CheckCircleOutlined />} 
             style={{ 
-              borderRadius: '4px', 
-              fontWeight: 500,
+              borderRadius: 'var(--radius-sm)', 
+              fontWeight: 600,
               background: 'var(--success-light)',
               borderColor: 'var(--success)',
-              color: 'var(--success)'
+              color: 'var(--success)',
+              padding: '2px 8px'
             }}
           >
             完成
@@ -232,11 +181,12 @@ export default function Dashboard() {
           <Tag 
             icon={<CloseCircleOutlined />} 
             style={{ 
-              borderRadius: '4px', 
-              fontWeight: 500,
+              borderRadius: 'var(--radius-sm)', 
+              fontWeight: 600,
               background: 'var(--error-light)',
               borderColor: 'var(--error)',
-              color: 'var(--error)'
+              color: 'var(--error)',
+              padding: '2px 8px'
             }}
           >
             失败
@@ -247,11 +197,12 @@ export default function Dashboard() {
           <Tag 
             icon={<ExclamationCircleOutlined />} 
             style={{ 
-              borderRadius: '4px', 
-              fontWeight: 500,
+              borderRadius: 'var(--radius-sm)', 
+              fontWeight: 600,
               background: 'var(--warning-light)',
               borderColor: 'var(--warning)',
-              color: 'var(--warning)'
+              color: 'var(--warning)',
+              padding: '2px 8px'
             }}
           >
             停止
@@ -262,11 +213,12 @@ export default function Dashboard() {
           <Tag 
             icon={<ClockCircleOutlined spin />} 
             style={{ 
-              borderRadius: '4px', 
-              fontWeight: 500,
+              borderRadius: 'var(--radius-sm)', 
+              fontWeight: 600,
               background: 'var(--info-light)',
               borderColor: 'var(--info)',
-              color: 'var(--info)'
+              color: 'var(--info)',
+              padding: '2px 8px'
             }}
           >
             训练中
@@ -283,9 +235,9 @@ export default function Dashboard() {
       render: (id: string) => {
         const model = models.find(m => m.id === id)
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <FolderOutlined style={{ color: 'var(--accent-primary)' }} />
-            <span style={{ fontWeight: 500 }}>{model?.name || id}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <FolderOutlined style={{ color: 'var(--accent-primary)', fontSize: '16px' }} />
+            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{model?.name || id}</span>
           </div>
         )
       }
@@ -297,9 +249,9 @@ export default function Dashboard() {
       render: (id: string) => {
         const dataset = datasets.find(d => d.id === id)
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <DatabaseOutlined style={{ color: 'var(--accent-secondary)' }} />
-            <span>{dataset?.name || id}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <DatabaseOutlined style={{ color: 'var(--accent-secondary)', fontSize: '16px' }} />
+            <span style={{ color: 'var(--text-secondary)' }}>{dataset?.name || id}</span>
           </div>
         )
       }
@@ -311,11 +263,12 @@ export default function Dashboard() {
       render: (method: string) => (
         <Tag 
           style={{ 
-            borderRadius: '4px', 
-            fontWeight: 500,
+            borderRadius: 'var(--radius-sm)', 
+            fontWeight: 600,
             background: method === 'qlora' ? 'var(--success-light)' : 'var(--info-light)',
             borderColor: method === 'qlora' ? 'var(--success)' : 'var(--info)',
-            color: method === 'qlora' ? 'var(--success)' : 'var(--info)'
+            color: method === 'qlora' ? 'var(--success)' : 'var(--info)',
+            padding: '2px 8px'
           }}
         >
           {method?.toUpperCase() || 'QLoRA'}
@@ -333,7 +286,7 @@ export default function Dashboard() {
       dataIndex: 'startTime',
       key: 'startTime',
       render: (date: string) => (
-        <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+        <span style={{ color: 'var(--text-tertiary)', fontSize: 'var(--text-xs)', fontWeight: 500 }}>
           {new Date(date).toLocaleString('zh-CN')}
         </span>
       )
@@ -344,395 +297,242 @@ export default function Dashboard() {
     {
       title: '开始训练',
       icon: <RocketOutlined />,
-      color: '#2d2d2d',
+      color: 'var(--text-primary)',
       onClick: () => navigate('/training'),
-      description: '创建新的微调任务',
+      description: '创建并部署新的微调任务，支持 LoRA/QLoRA',
       stats: '快速启动'
     },
     {
       title: '模型管理',
       icon: <FolderOutlined />,
-      color: '#5b8a72',
+      color: 'var(--accent-secondary)',
       onClick: () => navigate('/models'),
-      description: '下载或管理模型',
+      description: '高效管理本地模型库，支持多格式导入与导出',
       stats: `${models.length} 个模型`
     },
     {
       title: '数据集管理',
       icon: <DatabaseOutlined />,
-      color: '#d4a373',
+      color: 'var(--accent-primary)',
       onClick: () => navigate('/datasets'),
-      description: '上传训练数据',
+      description: '上传并清洗您的训练数据集，支持 JSONL/CSV',
       stats: `${datasets.length} 个数据集`
     },
     {
       title: 'AI 对话',
       icon: <MessageOutlined />,
-      color: '#6b7280',
+      color: 'var(--text-secondary)',
       onClick: () => navigate('/chat'),
-      description: '测试模型效果',
+      description: '与您的模型进行实时对话，测试微调后的生成效果',
       stats: '立即体验'
     }
   ]
 
   return (
-    <motion.div 
-      style={{ padding: '0 24px 24px' }}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.3 }}
-    >
-      {/* 页面标题 */}
-      <motion.div 
-        className="page-header"
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-        style={{ marginBottom: 24 }}
-      >
-        <h1 style={{ 
-          fontSize: '24px', 
-          fontWeight: 600, 
-          margin: 0,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          color: 'var(--text-primary)'
-        }}>
-          <span style={{
-            width: 36,
-            height: 36,
-            borderRadius: '8px',
-            background: '#2d2d2d',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '18px',
-            color: '#fff',
-          }}>
-            <ThunderboltOutlined />
-          </span>
-          仪表盘
-        </h1>
-        <p style={{ 
-          margin: '8px 0 0 48px', 
-          color: 'var(--text-secondary)',
-          fontSize: '14px'
-        }}>
-          欢迎回来，这里是您的 AI 微调工作台概览
-        </p>
-      </motion.div>
+    <AnimatedLayout animationKey="dashboard">
+      <div className={styles.dashboardContainer}>
+        {/* 页面标题 */}
+        <div className={styles.pageHeader}>
+          <div className={styles.titleWrapper}>
+            <div className={styles.titleIcon}>
+              <ThunderboltOutlined />
+            </div>
+            <h1 className={styles.titleText}>仪表盘</h1>
+          </div>
+          <p className={styles.subtitle}>
+            欢迎回来，这里是您的 AI 微调工作台概览。
+          </p>
+        </div>
 
-      {backendStatus !== 'connected' ? (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.98 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.3 }}
-        >
-          <Card
-            style={{
-              borderRadius: '8px',
-              textAlign: 'center',
-              padding: '60px 20px',
-              border: '1px solid var(--border-color)',
-            }}
-          >
+        {backendStatus !== 'connected' ? (
+          <GlassCard intensity="high" style={{ textAlign: 'center', padding: 'var(--space-12) var(--space-6)' }}>
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
               description={
                 <div>
-                  <p style={{ fontSize: '16px', color: 'var(--text-secondary)', marginBottom: 16 }}>
-                    后端服务未连接，请先启动应用
+                  <p style={{ fontSize: 'var(--text-lg)', color: 'var(--text-secondary)', marginBottom: 'var(--space-6)' }}>
+                    后端服务未连接，请先启动应用以获取实时监控。
                   </p>
                   <Button 
                     type="primary" 
                     icon={<SettingOutlined />}
                     onClick={() => navigate('/device')}
+                    size="large"
+                    style={{ borderRadius: 'var(--radius-md)', fontWeight: 600 }}
                   >
                     查看设备状态
                   </Button>
                 </div>
               }
             />
-          </Card>
-        </motion.div>
-      ) : (
-        <>
-          {/* 资源统计卡片 */}
+          </GlassCard>
+        ) : (
           <motion.div
             variants={containerVariants}
             initial="hidden"
             animate="show"
           >
-            <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+            {/* 资源统计卡片 */}
+            <Row gutter={[24, 24]} style={{ marginBottom: 'var(--space-8)' }}>
               <Col xs={24} sm={12} lg={6}>
-                <StatCard
-                  title="GPU 显存"
-                  value={deviceInfo?.vram_free || 0}
-                  total={deviceInfo?.vram_total || 0}
-                  suffix="GB"
-                  color="#2d2d2d"
-                  icon={<ThunderboltOutlined />}
-                  progress={Math.round(((deviceInfo?.vram_total || 1) - (deviceInfo?.vram_free || 0)) / (deviceInfo?.vram_total || 1) * 100)}
-                  delay={0}
-                />
+                <motion.div variants={itemVariants}>
+                  <StatCard
+                    title="GPU 显存"
+                    value={deviceInfo?.vram_free || 0}
+                    total={deviceInfo?.vram_total || 0}
+                    suffix="GB"
+                    color="var(--text-primary)"
+                    icon={<ThunderboltOutlined />}
+                    progress={Math.round(((deviceInfo?.vram_total || 1) - (deviceInfo?.vram_free || 0)) / (deviceInfo?.vram_total || 1) * 100)}
+                  />
+                </motion.div>
               </Col>
 
               <Col xs={24} sm={12} lg={6}>
-                <StatCard
-                  title="系统内存"
-                  value={deviceInfo?.memory_free || 0}
-                  total={deviceInfo?.memory_total || 0}
-                  suffix="GB"
-                  color="#5b8a72"
-                  icon={<DatabaseOutlined />}
-                  progress={Math.round(((deviceInfo?.memory_total || 1) - (deviceInfo?.memory_free || 0)) / (deviceInfo?.memory_total || 1) * 100)}
-                  delay={1}
-                />
+                <motion.div variants={itemVariants}>
+                  <StatCard
+                    title="系统内存"
+                    value={deviceInfo?.memory_free || 0}
+                    total={deviceInfo?.memory_total || 0}
+                    suffix="GB"
+                    color="var(--accent-secondary)"
+                    icon={<DatabaseOutlined />}
+                    progress={Math.round(((deviceInfo?.memory_total || 1) - (deviceInfo?.memory_free || 0)) / (deviceInfo?.memory_total || 1) * 100)}
+                  />
+                </motion.div>
               </Col>
 
               <Col xs={24} sm={12} lg={6}>
-                <StatCard
-                  title="模型数量"
-                  value={models.length}
-                  color="#d4a373"
-                  icon={<FolderOutlined />}
-                  delay={2}
-                />
+                <motion.div variants={itemVariants}>
+                  <StatCard
+                    title="模型数量"
+                    value={models.length}
+                    color="var(--accent-primary)"
+                    icon={<FolderOutlined />}
+                  />
+                </motion.div>
               </Col>
 
               <Col xs={24} sm={12} lg={6}>
-                <StatCard
-                  title="数据集数量"
-                  value={datasets.length}
-                  color="#6b7280"
-                  icon={<CloudOutlined />}
-                  delay={3}
-                />
+                <motion.div variants={itemVariants}>
+                  <StatCard
+                    title="数据集数量"
+                    value={datasets.length}
+                    color="var(--text-secondary)"
+                    icon={<CloudOutlined />}
+                  />
+                </motion.div>
               </Col>
             </Row>
-          </motion.div>
 
-          {/* 快捷操作 */}
-          <motion.div 
-            style={{ marginBottom: 24 }}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
-          >
-            <h3 style={{ 
-              fontSize: '16px', 
-              fontWeight: 600, 
-              marginBottom: 16,
-              color: 'var(--text-primary)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-            }}>
-              <PlayCircleOutlined style={{ color: 'var(--accent-primary)' }} />
-              快捷操作
-            </h3>
-            <Row gutter={[16, 16]}>
-              {quickActions.map((action, index) => (
-                <Col xs={24} sm={12} lg={6} key={index}>
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ 
-                      duration: 0.3, 
-                      delay: 0.3 + index * 0.05,
-                      ease: [0.16, 1, 0.3, 1]
-                    }}
-                    whileHover={{ y: -2 }}
-                    whileTap={{ scale: 0.98 }}
-                  >
-                    <Card
-                      className="quick-action-card"
-                      onClick={action.onClick}
-                      style={{
-                        borderRadius: '8px',
-                        border: '1px solid var(--border-color)',
-                        cursor: 'pointer',
-                        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.02)',
-                        overflow: 'hidden',
-                        position: 'relative',
-                      }}
-                      styles={{ body: { padding: '24px' } }}
+            {/* 快捷操作 */}
+            <div style={{ marginBottom: 'var(--space-8)' }}>
+              <h3 className={styles.sectionTitle}>
+                <PlayCircleOutlined style={{ color: 'var(--accent-primary)' }} />
+                快捷操作
+              </h3>
+              <Row gutter={[24, 24]}>
+                {quickActions.map((action, index) => (
+                  <Col xs={24} sm={12} lg={6} key={index}>
+                    <motion.div
+                      variants={itemVariants}
+                      whileTap={{ scale: 0.98 }}
+                      style={{ height: '100%' }}
                     >
-                      {/* 背景装饰 */}
-                      <div style={{
-                        position: 'absolute',
-                        top: -20,
-                        right: -20,
-                        width: 80,
-                        height: 80,
-                        borderRadius: '50%',
-                        background: action.color,
-                        opacity: 0.05,
-                      }} />
-                      
-                      <Space direction="vertical" size="middle" style={{ width: '100%', position: 'relative', zIndex: 1 }}>
-                        <div style={{
-                          width: 48,
-                          height: 48,
-                          borderRadius: '8px',
-                          background: action.color,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '24px',
-                          color: '#fff',
-                        }}>
+                      <GlassCard
+                        className={styles.quickActionCard}
+                        onClick={action.onClick}
+                        intensity="low"
+                      >
+                        <div className={styles.quickActionIcon} style={{ background: action.color }}>
                           {action.icon}
                         </div>
                         <div>
-                          <div style={{ 
-                            fontWeight: 600, 
-                            fontSize: '15px',
-                            color: 'var(--text-primary)',
-                            marginBottom: 4,
-                          }}>
+                          <div className={styles.quickActionTitle}>
                             {action.title}
                           </div>
-                          <div style={{ 
-                            color: 'var(--text-secondary)', 
-                            fontSize: '13px',
-                            marginBottom: 8,
-                          }}>
+                          <div className={styles.quickActionDesc}>
                             {action.description}
                           </div>
                           {action.stats && (
                             <Tag 
                               style={{ 
-                                background: 'var(--bg-elevated)',
+                                background: 'rgba(0, 0, 0, 0.05)',
                                 color: 'var(--text-secondary)',
                                 border: '1px solid var(--border-color)',
-                                borderRadius: '4px',
-                                fontSize: '12px',
-                                fontWeight: 500,
+                                borderRadius: 'var(--radius-sm)',
+                                fontSize: 'var(--text-xs)',
+                                fontWeight: 600,
+                                padding: '2px 8px'
                               }}
                             >
                               {action.stats}
                             </Tag>
                           )}
                         </div>
-                      </Space>
-                    </Card>
-                  </motion.div>
-                </Col>
-              ))}
-            </Row>
-          </motion.div>
+                      </GlassCard>
+                    </motion.div>
+                  </Col>
+                ))}
+              </Row>
+            </div>
 
-          {/* 最近训练记录 */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.4, ease: [0.16, 1, 0.3, 1] }}
-          >
-            <Card
-              className="training-history-card"
-              style={{
-                borderRadius: '8px',
-                border: '1px solid var(--border-color)',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.02)',
-              }}
-              title={
-                <div style={{ 
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
-                  alignItems: 'center',
-                  padding: '4px 0',
-                }}>
-                  <span style={{ 
-                    fontSize: '16px', 
-                    fontWeight: 600,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                  }}>
+            {/* 最近训练记录 */}
+            <motion.div variants={itemVariants}>
+              <GlassCard
+                className={styles.historyCard}
+                intensity="medium"
+                noHover
+              >
+                <div className={styles.historyHeader}>
+                  <span className={styles.sectionTitle} style={{ marginBottom: 0 }}>
                     <ClockCircleOutlined style={{ color: 'var(--accent-primary)' }} />
                     最近训练
                   </span>
                   <Button 
-                    type="link" 
+                    type="text" 
                     icon={<ArrowRightOutlined />}
                     onClick={() => navigate('/history')}
-                    style={{ fontWeight: 500 }}
+                    style={{ fontWeight: 600, color: 'var(--accent-primary)' }}
                   >
                     查看全部
                   </Button>
                 </div>
-              }
-            >
-              {recentTrainings.length === 0 ? (
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description={
-                    <div>
-                      <p style={{ color: 'var(--text-secondary)' }}>暂无训练记录</p>
-                      <Button 
-                        type="primary" 
-                        icon={<PlusOutlined />}
-                        onClick={() => navigate('/training')}
-                        style={{ marginTop: 8 }}
-                      >
-                        开始训练
-                      </Button>
-                    </div>
-                  }
-                  style={{ padding: '40px 0' }}
-                />
-              ) : (
-                <Table
-                  columns={trainingColumns}
-                  dataSource={recentTrainings}
-                  rowKey="id"
-                  pagination={false}
-                  size="middle"
-                />
-              )}
-            </Card>
+                
+                <div className={styles.tableWrapper} style={{ marginTop: 'var(--space-6)' }}>
+                  {recentTrainings.length === 0 ? (
+                    <Empty
+                      image={Empty.PRESENTED_IMAGE_SIMPLE}
+                      description={
+                        <div>
+                          <p style={{ color: 'var(--text-tertiary)', marginBottom: 'var(--space-4)' }}>暂无训练记录</p>
+                          <Button 
+                            type="primary" 
+                            icon={<PlusOutlined />}
+                            onClick={() => navigate('/training')}
+                            style={{ borderRadius: 'var(--radius-md)', fontWeight: 600 }}
+                          >
+                            开始训练
+                          </Button>
+                        </div>
+                      }
+                      style={{ padding: 'var(--space-10) 0' }}
+                    />
+                  ) : (
+                    <Table
+                      columns={trainingColumns}
+                      dataSource={recentTrainings}
+                      rowKey="id"
+                      pagination={false}
+                      size="middle"
+                    />
+                  )}
+                </div>
+              </GlassCard>
+            </motion.div>
           </motion.div>
-        </>
-      )}
-
-      <style>{`
-        .stat-card {
-          transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        
-        .stat-card:hover {
-          border-color: var(--border-hover);
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
-        }
-        
-        .quick-action-card {
-          transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        
-        .quick-action-card:hover {
-          border-color: var(--border-hover);
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
-        }
-        
-        .training-history-card .ant-card-head {
-          border-bottom: 1px solid var(--border-color);
-        }
-        
-        .training-history-card .ant-table {
-          background: transparent;
-        }
-        
-        .training-history-card .ant-table-thead > tr > th {
-          background: var(--bg-elevated);
-          border-bottom: 1px solid var(--border-color);
-        }
-        
-        .training-history-card .ant-table-tbody > tr:hover > td {
-          background: var(--bg-hover);
-        }
-      `}</style>
-    </motion.div>
+        )}
+      </div>
+    </AnimatedLayout>
   )
 }

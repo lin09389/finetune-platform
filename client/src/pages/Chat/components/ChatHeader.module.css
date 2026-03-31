@@ -1,0 +1,54 @@
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3) var(--space-6);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--glass-border);
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border-color);
+  margin: 0 var(--space-2);
+  opacity: 0.5;
+}
+
+.btnText {
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  margin-left: var(--space-1);
+}
+
+.select, .modelSelect {
+  min-width: 100px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-neumorph-out);
+  transition: all 0.2s ease;
+}
+
+.modelSelect {
+  min-width: 160px;
+}
+
+.select:hover, .modelSelect:hover {
+  box-shadow: var(--shadow-sm);
+}
+
+:global(.ant-select-selection-item) {
+  font-size: var(--text-xs) !important;
+  font-weight: 600 !important;
+  color: var(--text-secondary) !important;
+}
+
+@media (max-width: 1024px) {
+  .btnText {
+    display: none;
+  }
+}

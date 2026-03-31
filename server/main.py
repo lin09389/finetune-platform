@@ -20,6 +20,16 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# Force UTF-8 console IO on Windows to avoid mojibake in subprocess logs.
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+os.environ.setdefault("PYTHONUTF8", "1")
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from api import (
     agent,
     cloud_chat,
@@ -189,14 +199,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"上下文服务初始化失败：{e}")
 
-    try:
-        logger.info("预加载嵌入模型...")
-        from rag.embedder import get_embedder
-        embedder = get_embedder()
-        _ = embedder.dimension
-        logger.info("嵌入模型预加载完成")
-    except Exception as e:
-        logger.warning(f"嵌入模型预加载失败（将使用懒加载）：{e}")
+    # try:
+    #     logger.info("预加载嵌入模型...")
+    #     from rag.embedder import get_embedder
+    #     embedder = get_embedder()
+    #     _ = embedder.dimension
+    #     logger.info("嵌入模型预加载完成")
+    # except Exception as e:
+    #     logger.warning(f"嵌入模型预加载失败（将使用懒加载）：{e}")
 
     try:
         logger.info("预初始化记忆服务...")

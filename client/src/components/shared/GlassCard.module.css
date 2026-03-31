@@ -1,0 +1,67 @@
+.glassCard {
+  position: relative;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-glass);
+  overflow: hidden;
+  transition: border-color var(--transition-base), box-shadow var(--transition-base);
+  width: 100%;
+}
+
+.intensity-low {
+  --glass-blur: blur(8px) saturate(120%);
+  --glass-bg: rgba(255, 255, 255, 0.45);
+}
+
+.intensity-medium {
+  --glass-blur: blur(16px) saturate(160%);
+  --glass-bg: rgba(255, 255, 255, 0.65);
+}
+
+.intensity-high {
+  --glass-blur: blur(24px) saturate(200%);
+  --glass-bg: rgba(255, 255, 255, 0.8);
+}
+
+:global(.dark-theme) .intensity-low {
+  --glass-bg: rgba(30, 30, 30, 0.4);
+}
+
+:global(.dark-theme) .intensity-medium {
+  --glass-bg: rgba(30, 30, 30, 0.6);
+}
+
+:global(.dark-theme) .intensity-high {
+  --glass-bg: rgba(30, 30, 30, 0.75);
+}
+
+.glassCard:hover {
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 12px 48px 0 rgba(31, 38, 135, 0.12);
+}
+
+:global(.dark-theme) .glassCard:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 12px 48px 0 rgba(0, 0, 0, 0.4);
+}
+
+.reflection {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--glass-reflection);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.content {
+  position: relative;
+  z-index: 2;
+  padding: var(--space-6);
+  height: 100%;
+}

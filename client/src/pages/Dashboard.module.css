@@ -1,0 +1,153 @@
+.dashboardContainer {
+  padding: 0 var(--space-6) var(--space-6);
+  min-height: 100%;
+}
+
+.pageHeader {
+  margin-bottom: var(--space-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.titleWrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.titleIcon {
+  width: clamp(32px, 4vw, 44px);
+  height: clamp(32px, 4vw, 44px);
+  border-radius: var(--radius-lg);
+  background: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-xl);
+  color: var(--text-inverse);
+  box-shadow: var(--shadow-md);
+}
+
+.titleText {
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
+  margin: 0;
+  color: var(--text-primary);
+  letter-spacing: var(--tracking-tight);
+}
+
+.subtitle {
+  margin: 0 0 0 calc(clamp(32px, 4vw, 44px) + var(--space-4));
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.sectionTitle {
+  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  margin-bottom: var(--space-4);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Stat Card Customization */
+.statValue {
+  font-size: var(--text-3xl);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.statTotal {
+  font-size: var(--text-sm);
+  font-weight: var(--font-normal);
+  color: var(--text-tertiary);
+}
+
+.statIcon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-xl);
+  color: var(--text-inverse);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Quick Action Card */
+.quickActionCard {
+  cursor: pointer;
+  height: 100%;
+}
+
+.quickActionIcon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-xl);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-2xl);
+  color: var(--text-inverse);
+  margin-bottom: var(--space-4);
+  box-shadow: var(--shadow-md);
+}
+
+.quickActionTitle {
+  font-weight: var(--font-bold);
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+  margin-bottom: var(--space-1);
+}
+
+.quickActionDesc {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-4);
+  line-height: var(--leading-relaxed);
+}
+
+/* History Card */
+.historyCard {
+  margin-top: var(--space-8);
+}
+
+.historyHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.tableWrapper :global(.ant-table) {
+  background: transparent;
+}
+
+.tableWrapper :global(.ant-table-thead > tr > th) {
+  background: rgba(0, 0, 0, 0.02);
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-wider);
+}
+
+:global(.dark-theme) .tableWrapper :global(.ant-table-thead > tr > th) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tableWrapper :global(.ant-table-tbody > tr > td) {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.tableWrapper :global(.ant-table-tbody > tr:hover > td) {
+  background: var(--bg-hover) !important;
+}

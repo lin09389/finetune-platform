@@ -1,4 +1,4 @@
-import { useState, useEffect, Suspense, lazy } from 'react'
+import { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { Layout, message, ConfigProvider, theme as antdTheme } from 'antd'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -38,7 +38,7 @@ const HeartbeatPage = lazy(() => import('./pages/HeartbeatPage'))
 const FeedbackPanel = lazy(() => import('./components/FeedbackPanel'))
 const HelpPanel = lazy(() => import('./components/HelpPanel'))
 
-// 页面过渡动画配置
+// 椤甸潰杩囨浮鍔ㄧ敾閰嶇疆
 const pageVariants = {
   initial: { opacity: 0, y: 10 },
   animate: { opacity: 1, y: 0 },
@@ -50,7 +50,7 @@ const pageTransition = {
   ease: [0.16, 1, 0.3, 1] as const
 }
 
-// 页面包装组件
+// 椤甸潰鍖呰缁勪欢
 function PageWrapper({ children }: { children: React.ReactNode }) {
   return (
     <motion.div
@@ -66,7 +66,7 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
   )
 }
 
-// 加载动画组件
+// 鍔犺浇鍔ㄧ敾缁勪欢
 const LoadingScreen = () => (
   <motion.div
     initial={{ opacity: 0 }}
@@ -97,8 +97,7 @@ const LoadingScreen = () => (
         color: 'var(--text-inverse)',
       }}
     >
-      ⚡
-    </motion.div>
+      鈿?    </motion.div>
     <div style={{ textAlign: 'center' }}>
       <div style={{
         fontSize: '18px',
@@ -112,13 +111,13 @@ const LoadingScreen = () => (
         fontSize: '14px',
         color: 'var(--text-secondary)',
       }}>
-        正在初始化...
+        姝ｅ湪鍒濆鍖?..
       </div>
     </div>
   </motion.div>
 )
 
-// 页面加载占位
+// 椤甸潰鍔犺浇鍗犱綅
 const PageLoader = () => (
   <div style={{
     display: 'flex',
@@ -141,7 +140,7 @@ const PageLoader = () => (
   </div>
 )
 
-// 路由配置
+// 璺敱閰嶇疆
 const routes = [
   { path: '/dashboard', element: <Dashboard /> },
   { path: '/device', element: <DeviceInfo /> },
@@ -173,8 +172,22 @@ function AppContent() {
   const { setBackendUrl, setBackendStatus, sidebarCollapsed } = useAppStore()
   const { theme } = useTheme()
   const [loading, setLoading] = useState(true)
-
+  const disconnectWarnedRef = useRef(false)
   useEffect(() => {
+    const applyBackendStatus = (isHealthy: boolean) => {
+      setBackendStatus(isHealthy ? 'connected' : 'disconnected')
+
+      if (isHealthy) {
+        disconnectWarnedRef.current = false
+        return
+      }
+
+      if (!disconnectWarnedRef.current) {
+        message.warning('后端服务未连接，请启动应用')
+        disconnectWarnedRef.current = true
+      }
+    }
+
     const initApp = async () => {
       try {
         if (window.electronAPI) {
@@ -185,14 +198,10 @@ function AppContent() {
         }
 
         const isHealthy = await checkBackendHealth()
-        setBackendStatus(isHealthy ? 'connected' : 'disconnected')
-
-        if (!isHealthy) {
-          message.warning('后端服务未连接，请启动应用')
-        }
+        applyBackendStatus(isHealthy)
       } catch (error) {
         console.error('Init error:', error)
-        setBackendStatus('disconnected')
+        applyBackendStatus(false)
       } finally {
         setLoading(false)
       }
@@ -203,9 +212,9 @@ function AppContent() {
     const checkInterval = setInterval(async () => {
       try {
         const isHealthy = await checkBackendHealth()
-        setBackendStatus(isHealthy ? 'connected' : 'disconnected')
+        applyBackendStatus(isHealthy)
       } catch (error) {
-        setBackendStatus('disconnected')
+        applyBackendStatus(false)
       }
     }, 5000)
 
@@ -228,33 +237,39 @@ function AppContent() {
             colorWarning: '#d4a373',
             colorError: '#c45c48',
             colorInfo: '#5b8a72',
-            borderRadius: 6,
-            borderRadiusLG: 8,
+            borderRadius: 8,
+            borderRadiusLG: 12,
             borderRadiusSM: 4,
-            fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-            fontSize: 14,
-            fontSizeLG: 16,
-            fontSizeSM: 12,
-            controlHeight: 36,
-            controlHeightLG: 44,
-            controlHeightSM: 28,
+            fontFamily: "'Inter', 'Source Han Sans CN', -apple-system, BlinkMacSystemFont, sans-serif",
+            fontSize: 15,
+            fontSizeLG: 18,
+            fontSizeSM: 13,
+            controlHeight: 40,
+            controlHeightLG: 48,
+            controlHeightSM: 32,
+            boxShadow: 'var(--shadow-md)',
           },
           components: {
             Button: {
-              borderRadius: 6,
-              controlHeight: 36,
+              borderRadius: 8,
+              controlHeight: 40,
+              fontWeight: 600,
             },
             Card: {
-              borderRadius: 8,
+              borderRadius: 12,
+              boxShadow: 'var(--shadow-sm)',
             },
             Input: {
-              borderRadius: 6,
+              borderRadius: 8,
+              controlHeight: 40,
             },
             Select: {
-              borderRadius: 6,
+              borderRadius: 8,
+              controlHeight: 40,
             },
             Modal: {
-              borderRadius: 12,
+              borderRadius: 16,
+              boxShadow: 'var(--shadow-xl)',
             },
             Tooltip: {
               borderRadius: 6,
@@ -272,16 +287,17 @@ function AppContent() {
           <Layout
             style={{
               marginLeft: sidebarCollapsed ? 72 : 240,
-              transition: 'margin-left 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+              transition: 'margin-left 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
               minHeight: '100vh',
+              background: 'transparent',
             }}
           >
             <HeaderBar />
             <Content
               style={{
-                margin: '20px 16px',
+                margin: 'clamp(16px, 2vw, 32px) clamp(12px, 2vw, 24px)',
                 padding: 0,
-                minHeight: 'calc(100vh - 64px - 40px)',
+                minHeight: 'calc(100vh - 64px - 64px)',
               }}
             >
               <AnimatePresence mode="wait">
@@ -319,3 +335,4 @@ function App() {
 }
 
 export default App
+

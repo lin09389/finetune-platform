@@ -2,10 +2,12 @@ const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const { spawn, exec } = require('child_process');
 const fs = require('fs');
+const http = require('http');
 
 let mainWindow;
 let pythonProcess;
 const isDev = !app.isPackaged;
+const DEV_FRONTEND_URL = process.env.ELECTRON_RENDERER_URL || 'http://127.0.0.1:5173';
 
 function getServerPath() {
   if (isDev) {
@@ -51,20 +53,70 @@ function startBackend() {
   pythonProcess = spawn(pythonCmd, ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8000'], {
     cwd: serverPath,
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, PYTHONPATH: serverPath }
+    env: {
+      ...process.env,
+      PYTHONPATH: serverPath,
+      PYTHONIOENCODING: 'utf-8',
+      PYTHONUTF8: '1',
+    }
   });
 
+  pythonProcess.stdout.setEncoding('utf8');
+  pythonProcess.stderr.setEncoding('utf8');
+
   pythonProcess.stdout.on('data', (data) => {
-    console.log('[Python]', data.toString());
+    console.log('[Python]', data);
   });
 
   pythonProcess.stderr.on('data', (data) => {
-    console.error('[Python Error]', data.toString());
+    console.error('[Python Error]', data);
   });
 
   pythonProcess.on('close', (code) => {
     console.log(`Backend process exited with code ${code}`);
   });
+}
+
+function probeHttp(url, timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    const req = http.get(url, { timeout: timeoutMs }, (res) => {
+      res.resume();
+      resolve(res.statusCode >= 200 && res.statusCode < 500);
+    });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
+async function waitForFrontend(url, maxRetries = 30, intervalMs = 1000) {
+  for (let i = 0; i < maxRetries; i++) {
+    const ok = await probeHttp(url);
+    if (ok) return true;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return false;
+}
+
+async function loadDevRendererWithRetry(window, url, maxRetries = 120, intervalMs = 1000) {
+  for (let i = 0; i < maxRetries; i++) {
+    if (!window || window.isDestroyed()) return false;
+
+    const ready = await probeHttp(url, 1500);
+    if (ready) {
+      try {
+        await window.loadURL(url);
+        return true;
+      } catch (e) {
+        // Keep retrying while dev server stabilizes.
+      }
+    }
+
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return false;
 }
 
 function createWindow() {
@@ -82,7 +134,8 @@ function createWindow() {
   });
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
+    // Keep a safe origin to avoid landing on chrome-error:// pages.
+    mainWindow.loadURL('about:blank');
     mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, '../client/dist/index.html'));
@@ -107,9 +160,13 @@ app.whenReady().then(async () => {
     
     startBackend();
     
-    setTimeout(() => {
-      createWindow();
-    }, 3000);
+    createWindow();
+    if (isDev && mainWindow) {
+      const loaded = await loadDevRendererWithRetry(mainWindow, DEV_FRONTEND_URL, 120, 1000);
+      if (!loaded) {
+        console.warn(`Failed to load frontend at ${DEV_FRONTEND_URL} after retries`);
+      }
+    }
   } catch (error) {
     console.error('Failed to start application:', error);
     dialog.showErrorBox('启动失败', error.message);

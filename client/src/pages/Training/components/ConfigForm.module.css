@@ -1,0 +1,53 @@
+.form {
+  padding: var(--space-4) 0;
+}
+
+.divider {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-tertiary);
+  margin: var(--space-8) 0 var(--space-6);
+  border-top-color: var(--border-color);
+}
+
+.labelWithIcon {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  font-weight: 600;
+}
+
+.smallLabel {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  margin-bottom: var(--space-1);
+  display: block;
+}
+
+.presetGroup {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  justify-content: center;
+}
+
+:global(.ant-form-item-label > label) {
+  font-size: var(--text-sm) !important;
+  font-weight: 600 !important;
+  color: var(--text-secondary) !important;
+}
+
+:global(.ant-input-number), :global(.ant-select-selector) {
+  border-radius: var(--radius-md) !important;
+  background: var(--bg-secondary) !important;
+  border-color: var(--border-color) !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+
+:global(.ant-input-number:focus), :global(.ant-select-focused .ant-select-selector) {
+  border-color: var(--accent-primary) !important;
+  box-shadow: 0 0 0 4px rgba(212, 163, 115, 0.1) !important;
+}
