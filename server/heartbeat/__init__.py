@@ -97,6 +97,31 @@ class HeartbeatScheduler:
         """注册任务处理器"""
         self._handlers[task_type] = handler
 
+    def register_task(self, name: str, task_func: Callable, interval_seconds: int) -> str:
+        task_id = f"heartbeat_{len(self._tasks)+1}"
+        task = HeartbeatTask(id=task_id, name=name, description=name, schedule=str(interval_seconds), metadata={"type": "custom", "task_func": task_func})
+        self.add_task(task)
+        return task_id
+
+    def unregister_task(self, task_id: str) -> bool:
+        existed = task_id in self._tasks
+        self.remove_task(task_id)
+        return existed
+
+    async def execute_task(self, task_id: str):
+        task = self._tasks.get(task_id)
+        if not task:
+            return None
+        func = task.metadata.get("task_func")
+        if callable(func):
+            result = await func()
+            task.last_run = datetime.now()
+            task.run_count += 1
+            task.last_result = str(result)
+            self._calculate_next_run(task)
+            return result
+        return await self._execute_task(task)
+
     def add_task(self, task: HeartbeatTask):
         """添加任务"""
         self._tasks[task.id] = task

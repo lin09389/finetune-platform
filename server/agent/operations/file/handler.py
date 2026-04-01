@@ -28,9 +28,12 @@ class FileOperationHandler(OperationHandler):
     def __init__(
         self,
         context: OperationContext | None = None,
+        workspace: str | None = None,
         allowed_extensions: list[str] | None = None,
         max_file_size: int = 100 * 1024 * 1024,
     ):
+        if context is None and workspace is not None:
+            context = OperationContext(workspace=workspace)
         super().__init__(context)
         self.allowed_extensions = [x.lower() for x in allowed_extensions] if allowed_extensions else None
         self.max_file_size = max_file_size

@@ -5,36 +5,37 @@ pydantic-settings==2.1.0
 python-multipart==0.0.6
 python-dotenv==1.0.0
 
-# PyTorch (GPU version - install separately if needed)
-# Run: install-gpu.bat for NVIDIA GPU
-# Or: pip install torch==2.1.2 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+# PyTorch
+# Install the GPU-specific wheel separately when needed.
 torch==2.1.2
-transformers==4.36.2
-accelerate==0.25.1
-peft==0.7.1
+transformers==4.57.1
+accelerate==1.13.0
+peft==0.18.1
 bitsandbytes==0.41.3
 
-# GaLore: 梯度低秩投影 (论文: GaLore)
-# 安装命令: pip install galore-torch
-# 或者从 GitHub: pip install git+https://github.com/jiaweizzhao/GaLore.git
+# Training and data
 scipy==1.11.4
-datasets==2.14.6
-
-huggingface-hub==0.20.1
-safetensors==0.4.1
-
-# ModelScope SDK (魔搭社区)
+scikit-learn==1.5.2
+joblib==1.4.2
+datasets==3.6.0
+huggingface-hub==0.36.0
+safetensors==0.7.0
 modelscope>=1.10.0
 
+# Runtime utilities
 psutil==5.9.8
-requests==2.31.0
+requests==2.32.5
+chardet==5.2.0
 
-# Screen capture
+# Screen capture and OCR
 mss==9.0.1
 Pillow==10.2.0
+pytesseract>=0.3.10
 
 # Keyboard and mouse input
 pynput==1.7.6
+pyautogui>=0.9.54
+pywin32>=305; sys_platform == 'win32'
 
 # Testing
 pytest==7.4.3
@@ -53,27 +54,20 @@ onnxruntime==1.16.3
 python-magic-bin==0.4.14; sys_platform == 'win32'
 python-magic==0.4.27; sys_platform != 'win32'
 
-# CUA (Computer Use Agent) dependencies
-pyautogui>=0.9.54
-pytesseract>=0.3.10
-Pillow>=9.0.0
-pywin32>=305; sys_platform == 'win32'
-
-# MCP (Model Context Protocol) dependencies
+# MCP and parsing
 websockets>=11.0
-
-# File parsing dependencies
 pdfplumber>=0.10.0
 PyPDF2>=3.0.0
 python-docx>=1.1.0
 openpyxl>=3.1.0
 
-# Scheduler dependencies
+# Scheduler and clipboard
 croniter>=1.3.0
-
-# Clipboard support
 pyperclip>=1.8.2
 
-# RAG Knowledge Base dependencies
+# RAG knowledge base
 chromadb>=0.4.22
-sentence-transformers>=2.2.0
+sentence-transformers==5.2.3
+
+# OCR alternatives
+rapidocr-onnxruntime==1.4.4

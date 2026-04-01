@@ -16,6 +16,9 @@ vi.mock('../services/api', () => ({
 
 vi.mock('antd', async () => {
   const actual = await vi.importActual('antd') as Record<string, any>
+  const Modal = Object.assign(actual.Modal, {
+    confirm: vi.fn(({ onOk }: { onOk: () => void }) => onOk?.()),
+  })
   return {
     ...actual,
     message: {
@@ -23,10 +26,7 @@ vi.mock('antd', async () => {
       error: vi.fn(),
       warning: vi.fn(),
     },
-    Modal: {
-      ...(actual['Modal'] || {}),
-      confirm: vi.fn(({ onOk }: { onOk: () => void }) => onOk()),
-    },
+    Modal,
   }
 })
 

@@ -324,6 +324,10 @@ class Credential:
         self.access_count += 1
         return self._value
 
+    @property
+    def name(self) -> str:
+        return self.credential_id
+
     def is_expired(self) -> bool:
         """检查是否过期"""
         if self.expires_at is None:
@@ -368,9 +372,10 @@ class CredentialManager:
         value: str,
         expires_in_hours: int | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> str:
+        name: str | None = None,
+    ) -> Any:
         """存储凭证"""
-        credential_id = str(uuid.uuid4())
+        credential_id = name or str(uuid.uuid4())
 
         expires_at = None
         if expires_in_hours:
@@ -389,7 +394,7 @@ class CredentialManager:
 
         logger.info(f"存储凭证: {credential_type} ({credential_id})")
 
-        return credential_id
+        return credential if name else credential_id
 
     def get_credential(self, credential_id: str) -> Credential | None:
         """获取凭证"""
@@ -556,6 +561,10 @@ class IsolatedExecutor:
                 exit_code=-1,
                 execution_time=execution_time,
             )
+
+    async def execute(self, command: str, args: list[str] | None = None, **kwargs) -> ExecutionResult:
+        joined = " ".join([command] + (args or []))
+        return await self.execute_command(joined, cwd=kwargs.get("cwd"), env=kwargs.get("env"), timeout=kwargs.get("timeout"))
 
     async def execute_file_operation(
         self,

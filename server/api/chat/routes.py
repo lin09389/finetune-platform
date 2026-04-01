@@ -1,7 +1,4 @@
-"""
-对话模块路由 - 整合会话管理、历史记录、上下文管理
-"""
-from typing import Any
+﻿from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -13,14 +10,29 @@ router = APIRouter(prefix="/chat", tags=["Chat"])
 
 
 class SendMessageRequest(BaseModel):
-    """发送消息请求"""
-    content: str = Field(..., description="消息内容")
-    role: str = Field(default="user", description="角色")
-    metadata: dict[str, Any] = Field(default_factory=dict, description="元数据")
+    content: str = Field(..., description="Message content")
+    role: str = Field(default="user", description="Message role")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Message metadata")
+
+
+class CreateSessionRequest(BaseModel):
+    title: str = Field(default="New Chat")
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class LegacyMessageItem(BaseModel):
+    id: str | None = None
+    role: str = Field(default="user")
+    content: str = Field(default="")
+    timestamp: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class LegacyMessagesRequest(BaseModel):
+    messages: list[LegacyMessageItem] = Field(default_factory=list)
 
 
 class MessageResponse(BaseModel):
-    """消息响应"""
     id: str
     session_id: str
     role: str
@@ -29,7 +41,6 @@ class MessageResponse(BaseModel):
 
 
 class SessionResponse(BaseModel):
-    """会话响应"""
     id: str
     title: str
     message_count: int
@@ -38,23 +49,35 @@ class SessionResponse(BaseModel):
 
 
 @router.post("/sessions")
-async def create_session(title: str = "新对话"):
-    """创建新会话"""
+async def create_session(title: str = "New Chat"):
     manager = get_session_manager()
     session = manager.create_session(title=title)
     return {
         "id": session.id,
         "title": session.title,
-        "created_at": session.created_at.isoformat()
+        "created_at": session.created_at.isoformat(),
+    }
+
+
+@router.post("")
+async def create_session_compat(request: CreateSessionRequest):
+    manager = get_session_manager()
+    session = manager.create_session(title=request.title, metadata=request.metadata)
+    return {
+        "id": session.id,
+        "session_id": session.id,
+        "title": session.title,
+        "created_at": session.created_at.isoformat(),
+        "updated_at": session.updated_at.isoformat(),
+        "metadata": session.metadata,
     }
 
 
 @router.get("/sessions")
 async def list_sessions(
     limit: int = Query(default=20, ge=1, le=100),
-    offset: int = Query(default=0, ge=0)
+    offset: int = Query(default=0, ge=0),
 ):
-    """列出会话"""
     manager = get_session_manager()
     sessions = manager.list_sessions(limit=limit, offset=offset)
 
@@ -65,17 +88,24 @@ async def list_sessions(
                 "title": s.title,
                 "message_count": s.message_count,
                 "created_at": s.created_at.isoformat(),
-                "updated_at": s.updated_at.isoformat()
+                "updated_at": s.updated_at.isoformat(),
             }
             for s in sessions
         ],
-        "total": manager.get_session_count()
+        "total": manager.get_session_count(),
     }
+
+
+@router.get("")
+async def list_sessions_compat(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    return await list_sessions(limit=limit, offset=offset)
 
 
 @router.get("/sessions/{session_id}")
 async def get_session(session_id: str):
-    """获取会话详情"""
     manager = get_session_manager()
     session = manager.get_session(session_id)
 
@@ -88,13 +118,17 @@ async def get_session(session_id: str):
         "message_count": session.message_count,
         "created_at": session.created_at.isoformat(),
         "updated_at": session.updated_at.isoformat(),
-        "metadata": session.metadata
+        "metadata": session.metadata,
     }
+
+
+@router.get("/{session_id}")
+async def get_session_compat(session_id: str):
+    return await get_session(session_id)
 
 
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
-    """删除会话"""
     manager = get_session_manager()
     success = manager.delete_session(session_id)
 
@@ -104,9 +138,13 @@ async def delete_session(session_id: str):
     return {"success": True, "session_id": session_id}
 
 
+@router.delete("/{session_id}")
+async def delete_session_compat(session_id: str):
+    return await delete_session(session_id)
+
+
 @router.post("/sessions/{session_id}/messages")
 async def send_message(session_id: str, request: SendMessageRequest):
-    """发送消息"""
     session_manager = get_session_manager()
     context_manager = get_context_manager()
 
@@ -117,14 +155,14 @@ async def send_message(session_id: str, request: SendMessageRequest):
     message = session.add_message(
         role=request.role,
         content=request.content,
-        metadata=request.metadata
+        metadata=request.metadata,
     )
 
     context_manager.add_message(
         session_id=session_id,
         role=request.role,
         content=request.content,
-        metadata=request.metadata
+        metadata=request.metadata,
     )
 
     return {
@@ -132,16 +170,52 @@ async def send_message(session_id: str, request: SendMessageRequest):
         "session_id": session_id,
         "role": message.role,
         "content": message.content,
-        "created_at": message.created_at.isoformat()
+        "created_at": message.created_at.isoformat(),
     }
+
+
+@router.post("/{session_id}/messages")
+async def send_messages_compat(session_id: str, request: LegacyMessagesRequest):
+    if not request.messages:
+        raise HTTPException(status_code=400, detail="No messages provided")
+
+    session_manager = get_session_manager()
+    context_manager = get_context_manager()
+    session = session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    created_messages: list[dict[str, Any]] = []
+    for item in request.messages:
+        message = session.add_message(
+            role=item.role,
+            content=item.content,
+            metadata=item.metadata,
+        )
+        context_manager.add_message(
+            session_id=session_id,
+            role=item.role,
+            content=item.content,
+            metadata=item.metadata,
+        )
+        created_messages.append(
+            {
+                "id": message.id,
+                "session_id": session_id,
+                "role": message.role,
+                "content": message.content,
+                "created_at": message.created_at.isoformat(),
+            }
+        )
+
+    return {"messages": created_messages, "count": len(created_messages)}
 
 
 @router.get("/sessions/{session_id}/messages")
 async def get_messages(
     session_id: str,
-    limit: int = Query(default=50, ge=1, le=200)
+    limit: int = Query(default=50, ge=1, le=200),
 ):
-    """获取会话消息"""
     manager = get_session_manager()
     session = manager.get_session(session_id)
 
@@ -156,17 +230,16 @@ async def get_messages(
                 "id": m.id,
                 "role": m.role,
                 "content": m.content,
-                "created_at": m.created_at.isoformat()
+                "created_at": m.created_at.isoformat(),
             }
             for m in messages
         ],
-        "total": len(messages)
+        "total": len(messages),
     }
 
 
 @router.delete("/sessions/{session_id}/messages")
 async def clear_messages(session_id: str):
-    """清空会话消息"""
     session_manager = get_session_manager()
     context_manager = get_context_manager()
 
@@ -182,7 +255,6 @@ async def clear_messages(session_id: str):
 
 @router.put("/sessions/{session_id}/title")
 async def update_session_title(session_id: str, title: str):
-    """更新会话标题"""
     manager = get_session_manager()
     success = manager.update_session_title(session_id, title)
 
@@ -194,7 +266,6 @@ async def update_session_title(session_id: str, title: str):
 
 @router.get("/sessions/{session_id}/context")
 async def get_context(session_id: str):
-    """获取会话上下文"""
     manager = get_context_manager()
     context = manager.get_context(session_id)
 
@@ -202,13 +273,12 @@ async def get_context(session_id: str):
         "session_id": session_id,
         "message_count": len(context.messages),
         "system_prompt": context.system_prompt,
-        "messages": [m.to_dict() for m in context.messages]
+        "messages": [m.to_dict() for m in context.messages],
     }
 
 
 @router.put("/sessions/{session_id}/system-prompt")
 async def set_system_prompt(session_id: str, prompt: str):
-    """设置系统提示"""
     manager = get_context_manager()
     context = manager.get_context(session_id)
     context.set_system_prompt(prompt)

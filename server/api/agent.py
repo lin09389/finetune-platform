@@ -19,6 +19,7 @@ from agent.core import UnifiedExecutor as AgentExecutor
 from agent.intent.detector import get_detector
 from api.chat.session import get_session_manager
 from core.config import get_settings
+from security.audit_log import get_audit_logger
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -27,6 +28,14 @@ settings = get_settings()
 _agent_config: AgentConfig | None = None
 _executor: AgentExecutor | None = None
 _detector = None
+HIGH_RISK_ACTIONS = {
+    "file_delete",
+    "dir_delete",
+    "directory_delete",
+    "process_kill",
+    "service_stop",
+    "command_execute",
+}
 
 
 class DetectIntentRequest(BaseModel):
@@ -62,9 +71,11 @@ class ExecuteRequest(BaseModel):
 
 class ExecuteResponse(BaseModel):
     success: bool
+    status: str = "unknown"
     message: str = ""
     data: dict[str, Any] | None = None
     error: str | None = None
+    error_code: str | None = None
     need_confirm: bool = False
 
 
@@ -118,6 +129,10 @@ def _execution_payload(
     error_code: str | None = None,
 ) -> dict[str, Any]:
     return {"status": status, "error": error, "error_code": error_code, "result": result}
+
+
+def _requires_confirmation(action: str) -> bool:
+    return action in HIGH_RISK_ACTIONS
 
 
 def _append_state(session_id: str | None, stage: str, payload: dict[str, Any] | None = None) -> None:
@@ -297,16 +312,31 @@ async def execute_action(request: ExecuteRequest):
             raise HTTPException(400, f"Unsupported action: {request.action}")
 
     params = dict(request.params)
-    if action_value in ("file_delete", "dir_delete", "directory_delete"):
+    if _requires_confirmation(action_value):
         params["confirmed"] = bool(request.confirm)
+        if not request.confirm:
+            return ExecuteResponse(
+                success=False,
+                status="needs_confirmation",
+                message=f"Action '{action_value}' requires explicit confirmation",
+                data={"action": action_value, "params": params},
+                error="confirmation_required",
+                error_code="needs_confirmation",
+                need_confirm=True,
+            )
 
     result = await executor.execute(action_value, params)
     need_confirm = bool((result.data or {}).get("need_confirm"))
+    error_code = None
+    if result.error_code:
+        error_code = result.error_code.value if hasattr(result.error_code, "value") else str(result.error_code)
     return ExecuteResponse(
         success=result.success,
+        status="executed" if result.success else "failed",
         message=result.message or result.feedback or "",
         data=result.data,
         error=result.error,
+        error_code=error_code,
         need_confirm=need_confirm,
     )
 
@@ -440,9 +470,9 @@ async def chat_execute(request: ChatExecuteRequest):
 
     params = dict(intent.params or {})
     need_confirm = bool(intent.need_confirm)
-    if intent.action in ("file_delete", "dir_delete", "directory_delete"):
+    if _requires_confirmation(intent.action):
         params["confirmed"] = bool(request.auto_confirm)
-        if need_confirm and not request.auto_confirm:
+        if (need_confirm or _requires_confirmation(intent.action)) and not request.auto_confirm:
             _append_state(request.session_id, "planned", {"action": intent.action, "needs_confirmation": True})
             return ChatExecuteResponse(
                 detected=True,
@@ -484,7 +514,20 @@ async def chat_execute(request: ChatExecuteRequest):
 @router.get("/capabilities")
 async def get_capabilities():
     executor = get_executor()
+    actions = sorted(executor.get_supported_actions())
     return {
-        "actions": sorted(executor.get_supported_actions()),
+        "actions": actions,
+        "capabilities": actions,
         "workspace": str(get_agent_config().working_dir),
     }
+
+
+@router.get("/audit/stats")
+async def get_audit_stats():
+    return get_audit_logger().get_stats()
+
+
+@router.get("/audit/recent")
+async def get_recent_audit_events(limit: int = 50):
+    events = get_audit_logger().get_recent_events(limit=limit)
+    return {"events": [event.to_dict() for event in events], "total": len(events)}

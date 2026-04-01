@@ -134,6 +134,9 @@ class SessionManager:
         session.last_active = datetime.now()
         return True
 
+    def get_session(self, session_id: str) -> AgentSession | None:
+        return self._sessions.get(session_id)
+
     def close_session(self, session_id: str) -> bool:
         with self._lock:
             session = self._sessions.get(session_id)
@@ -181,8 +184,8 @@ class AgentIsolationManager:
         max_storage_mb: int = 100,
         name: str | None = None,
         config: dict[str, Any] | None = None,
-    ) -> bool:
-        self.workspace_manager.create_workspace(
+    ) -> AgentWorkspace:
+        workspace = self.workspace_manager.create_workspace(
             agent_id=agent_id,
             isolation_level=isolation_level,
             max_storage_mb=max_storage_mb,
@@ -190,7 +193,7 @@ class AgentIsolationManager:
         )
         self._agent_config[agent_id] = config or {}
         self._session_kv.setdefault(agent_id, {})
-        return True
+        return workspace
 
     def create_session(self, agent_id: str) -> AgentSession:
         return self.session_manager.create_session(agent_id)

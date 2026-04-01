@@ -4,6 +4,12 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
+from ...operations.base import CompositeOperationHandler as LegacyCompositeOperationHandler
+from ...operations.base import OperationContext as LegacyOperationContext
+from ...operations.cua_operations import CUAOperationHandler as LegacyCUAOperationHandler
+from ...operations.file_operations import FileOperationHandler as LegacyFileOperationHandler
+from ...operations.system_operations import SystemOperationHandler as LegacySystemOperationHandler
+from ...security_old import SecurityValidator
 from ..interfaces.base_executor import BaseExecutor
 from ..types import ErrorCode, ExecutionResult, ExecutionStatus, ValidationResult
 from .queue_manager import QueueManager, TaskInfo, TaskPriority, TaskStatus
@@ -38,6 +44,23 @@ def normalize_params(params: dict[str, Any], action: str) -> dict[str, Any]:
                 break
 
     return normalized
+
+
+LEGACY_ACTION_MAP = {
+    "file_list": "dir_list",
+    "directory_create": "dir_create",
+    "directory_delete": "dir_delete",
+}
+
+LEGACY_PRIORITY_ACTIONS = {
+    "file_create",
+    "file_read",
+    "file_write",
+    "file_delete",
+    "file_list",
+    "app_open",
+    "url_open",
+}
 
 
 class ExecutorConfig:
@@ -78,29 +101,52 @@ class UnifiedExecutor(BaseExecutor):
         resource_config: ResourceConfig | None = None,
     ):
         self.config = config or ExecutorConfig()
+        sandbox_level = getattr(self.config, "sandbox_level", SandboxLevel.STANDARD)
+        default_timeout = getattr(self.config, "default_timeout", 60.0)
+        max_concurrent_tasks = getattr(self.config, "max_concurrent_tasks", 5)
+        max_retries = getattr(self.config, "max_retries", 3)
+        log_executions = getattr(self.config, "log_executions", True)
 
         self.sandbox_config = sandbox_config or SandboxConfig(
-            level=self.config.sandbox_level,
-            max_execution_time_seconds=int(self.config.default_timeout),
+            level=sandbox_level,
+            max_execution_time_seconds=int(default_timeout),
         )
 
         self.resource_config = resource_config or ResourceConfig(
-            max_execution_time_seconds=int(self.config.default_timeout),
-            max_concurrent_tasks=self.config.max_concurrent_tasks,
+            max_execution_time_seconds=int(default_timeout),
+            max_concurrent_tasks=max_concurrent_tasks,
         )
 
         self.resource_limiter = ResourceLimiter(self.resource_config)
         self.sandbox_executor = SandboxExecutor(self.sandbox_config, self.resource_limiter)
         self.queue_manager = QueueManager(
-            max_concurrent=self.config.max_concurrent_tasks,
-            default_timeout=self.config.default_timeout,
-            default_max_retries=self.config.max_retries,
+            max_concurrent=max_concurrent_tasks,
+            default_timeout=default_timeout,
+            default_max_retries=max_retries,
         )
 
         self._initialized = False
         self._action_handlers: dict[str, Callable] = {}
         self._execution_log: list[dict[str, Any]] = []
         self._log_lock = asyncio.Lock()
+        self._log_enabled = log_executions
+        self.validator = None
+        self._legacy_handler: LegacyCompositeOperationHandler | None = None
+        self._legacy_mode = False
+
+        workspace = getattr(self.config, "working_dir", None)
+        if workspace is not None:
+            self._legacy_mode = True
+            self.validator = SecurityValidator(workspace)
+            legacy_context = LegacyOperationContext(workspace=str(workspace), timeout=int(default_timeout))
+            self._legacy_handler = LegacyCompositeOperationHandler(
+                handlers=[
+                    LegacyFileOperationHandler(context=legacy_context),
+                    LegacySystemOperationHandler(context=legacy_context),
+                    LegacyCUAOperationHandler(context=legacy_context),
+                ],
+                context=legacy_context,
+            )
 
     async def initialize(self) -> None:
         if self._initialized:
@@ -136,15 +182,18 @@ class UnifiedExecutor(BaseExecutor):
         if not self._initialized:
             await self.initialize()
 
+        action = action.value if hasattr(action, "value") else action
         normalized_params = normalize_params(params, action)
+
+        if self._legacy_handler and self._legacy_mode and action in LEGACY_PRIORITY_ACTIONS:
+            return await self._execute_action(action, normalized_params)
 
         validation = await self.validate_params(action, normalized_params)
         if not validation.is_valid:
-            return ExecutionResult(
-                status=ExecutionStatus.FAILED,
+            return ExecutionResult.fail(
                 action=action,
+                error="; ".join(validation.errors),
                 error_code=ErrorCode.VALIDATION_ERROR,
-                error_message="; ".join(validation.errors),
             )
 
         sanitized_params = validation.sanitized_params
@@ -159,26 +208,23 @@ class UnifiedExecutor(BaseExecutor):
 
             task_info = await self.queue_manager.wait_for_task(task_id)
             if task_info and task_info.status == TaskStatus.COMPLETED:
-                return ExecutionResult(
-                    status=ExecutionStatus.SUCCESS,
+                return ExecutionResult.ok(
                     action=action,
+                    data=task_info.result if isinstance(task_info.result, dict) else {"result": task_info.result},
                     output=task_info.result,
-                    metadata={"task_id": task_id, "queued": True},
                 )
             elif task_info:
-                return ExecutionResult(
-                    status=ExecutionStatus.FAILED,
+                return ExecutionResult.fail(
                     action=action,
+                    error=task_info.error_message or "Task queue execution failed",
                     error_code=ErrorCode.EXECUTION_ERROR,
-                    error_message=task_info.error_message,
-                    metadata={"task_id": task_id, "queued": True},
+                    data={"task_id": task_id, "queued": True},
                 )
             else:
-                return ExecutionResult(
-                    status=ExecutionStatus.FAILED,
+                return ExecutionResult.fail(
                     action=action,
+                    error="Task queue error",
                     error_code=ErrorCode.INTERNAL_ERROR,
-                    error_message="Task queue error",
                 )
 
         return await self._execute_action(action, sanitized_params)
@@ -186,7 +232,7 @@ class UnifiedExecutor(BaseExecutor):
     async def _execute_action(self, action: str, params: dict[str, Any]) -> ExecutionResult:
         start_time = datetime.now()
 
-        if self.config.log_executions:
+        if self._log_enabled:
             await self._log_execution(action, params, "started")
 
         try:
@@ -197,10 +243,10 @@ class UnifiedExecutor(BaseExecutor):
                 result = await self._route_action(action, params)
 
             execution_time = (datetime.now() - start_time).total_seconds() * 1000
-            result.execution_time_ms = execution_time
+            result.duration_ms = execution_time
             result.action = action
 
-            if self.config.log_executions:
+            if self._log_enabled:
                 await self._log_execution(
                     action, params, "completed",
                     result.status.value, execution_time,
@@ -212,27 +258,44 @@ class UnifiedExecutor(BaseExecutor):
             execution_time = (datetime.now() - start_time).total_seconds() * 1000
             logger.error(f"Execution failed: {action} - {e}")
 
-            if self.config.log_executions:
+            if self._log_enabled:
                 await self._log_execution(
                     action, params, "failed",
                     "error", execution_time, str(e),
                 )
 
-            return ExecutionResult(
-                status=ExecutionStatus.FAILED,
+            return ExecutionResult.fail(
                 action=action,
+                error=str(e),
                 error_code=ErrorCode.INTERNAL_ERROR,
-                error_message=str(e),
-                execution_time_ms=execution_time,
             )
 
     async def _route_action(self, action: str, params: dict[str, Any]) -> ExecutionResult:
+        if self._legacy_handler and self._legacy_mode and action in LEGACY_PRIORITY_ACTIONS:
+            legacy_action = LEGACY_ACTION_MAP.get(action, action)
+            legacy_params = dict(params)
+            if "file_path" in legacy_params and "path" not in legacy_params:
+                legacy_params["path"] = legacy_params["file_path"]
+            if action == "file_delete" and not legacy_params.get("confirmed"):
+                return ExecutionResult.fail(
+                    action=action,
+                    error="Delete requires confirmation",
+                    error_code=ErrorCode.PERMISSION_DENIED,
+                    data={"need_confirm": True},
+                )
+            if action == "file_list" and "path" not in legacy_params:
+                legacy_params["path"] = legacy_params.get("directory", ".")
+            return await self._legacy_handler.execute(legacy_action, legacy_params)
+
         handler_type = ACTION_HANDLERS.get(action)
 
         if handler_type == "file":
             return await self._handle_file_action(action, params)
         elif handler_type == "command":
             return await self._handle_command_action(action, params)
+        elif self._legacy_handler:
+            legacy_action = LEGACY_ACTION_MAP.get(action, action)
+            return await self._legacy_handler.execute(legacy_action, params)
         else:
             return await self._handle_custom_action(action, params)
 
@@ -272,11 +335,10 @@ class UnifiedExecutor(BaseExecutor):
         )
 
     async def _handle_custom_action(self, action: str, params: dict[str, Any]) -> ExecutionResult:
-        return ExecutionResult(
-            status=ExecutionStatus.FAILED,
+        return ExecutionResult.fail(
             action=action,
+            error=f"Unknown action: {action}",
             error_code=ErrorCode.VALIDATION_ERROR,
-            error_message=f"Unknown action: {action}",
         )
 
     async def validate_params(self, action: str, params: dict[str, Any]) -> ValidationResult:

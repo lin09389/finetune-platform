@@ -195,6 +195,10 @@ class ScanResult:
     warnings: list[str] = field(default_factory=list)
     scan_time: datetime = field(default_factory=datetime.now)
 
+    @property
+    def is_injection(self) -> bool:
+        return not self.is_safe
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "is_safe": self.is_safe,
@@ -254,10 +258,21 @@ class PromptInjectionDetector:
             if matches:
                 detected.append((pattern, matches[0] if isinstance(matches[0], str) else str(matches[0])))
 
-                if pattern.threat_level.value > max_threat_level.value:
+                if self._threat_rank(pattern.threat_level) > self._threat_rank(max_threat_level):
                     max_threat_level = pattern.threat_level
 
                 warnings.append(f"检测到 {pattern.name}: {pattern.description}")
+
+        heuristic_markers = (
+            "different ai",
+            "do anything",
+            "developer mode",
+            "ignore all instructions",
+        )
+        lowered = cleaned_content.lower()
+        if any(marker in lowered for marker in heuristic_markers) and not detected:
+            max_threat_level = ThreatLevel.HIGH
+            warnings.append("Detected role/instruction override attempt")
 
         is_safe = max_threat_level in [ThreatLevel.SAFE, ThreatLevel.LOW]
 
@@ -268,6 +283,20 @@ class PromptInjectionDetector:
             cleaned_content=cleaned_content,
             warnings=warnings,
         )
+
+    def detect(self, content: str) -> ScanResult:
+        return self.scan(content)
+
+    @staticmethod
+    def _threat_rank(level: ThreatLevel) -> int:
+        order = {
+            ThreatLevel.SAFE: 0,
+            ThreatLevel.LOW: 1,
+            ThreatLevel.MEDIUM: 2,
+            ThreatLevel.HIGH: 3,
+            ThreatLevel.CRITICAL: 4,
+        }
+        return order[level]
 
     def _preprocess(self, content: str) -> str:
         """预处理内容"""

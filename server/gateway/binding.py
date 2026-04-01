@@ -2,6 +2,7 @@
 Gateway binding router and manager.
 """
 import logging
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -217,9 +218,38 @@ class BindingManager:
         self._router.add_binding(self._to_runtime_binding(rule))
         return True
 
+    def create_binding(
+        self,
+        binding_type: BindingType,
+        target_id: str,
+        agent_id: str,
+        priority: int = 0,
+        metadata: dict[str, Any] | None = None,
+    ) -> Binding:
+        if agent_id not in self._agents:
+            self._agents[agent_id] = AgentInfo(id=agent_id, name=agent_id, workspace_path=".")
+
+        rule = BindingRule(
+            id=f"binding_{uuid.uuid4().hex[:8]}",
+            agent_id=agent_id,
+            peer_id=target_id if binding_type == BindingType.PEER else None,
+            guild_id=target_id if binding_type == BindingType.GUILD else None,
+            channel_id=target_id if binding_type == BindingType.CHANNEL else None,
+            team_id=target_id if binding_type == BindingType.TEAM else None,
+            account_id=target_id if binding_type == BindingType.ACCOUNT else None,
+            priority=priority,
+            metadata=metadata or {},
+            enabled=True,
+        )
+        self.add_binding(rule)
+        return self._to_runtime_binding(rule)
+
     def remove_binding(self, rule_id: str) -> bool:
         self._bindings.pop(rule_id, None)
         return self._router.remove_binding(rule_id)
+
+    def delete_binding(self, binding_id: str) -> bool:
+        return self.remove_binding(binding_id)
 
     def get_all_bindings(self) -> list[BindingRule]:
         return list(self._bindings.values())

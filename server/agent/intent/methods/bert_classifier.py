@@ -1,11 +1,14 @@
 """
-意图检测方法 - BERT分类器
+BERT intent detection adapter.
 
-基于BERT模型的意图分类（适配统一数据模型）
+Wraps the legacy BERT classifier and normalizes it to the unified
+`IntentResult` contract used by the detector pipeline.
 """
+
 import logging
 import threading
 
+from ..bert_classifier import get_bert_classifier
 from ..models import ConfidenceLevel, DetectionMethod, IntentCategory, IntentResult
 
 logger = logging.getLogger(__name__)
@@ -15,7 +18,7 @@ _classifier_lock = threading.Lock()
 
 
 class BERTClassifierAdapter:
-    """BERT分类器适配器"""
+    """Adapter around the legacy BERT classifier singleton."""
 
     def __init__(self):
         self._classifier = None
@@ -30,22 +33,17 @@ class BERTClassifierAdapter:
                 return
 
             try:
-                import os
-                import sys
-                parent_dir = os.path.dirname(os.path.dirname(__file__))
-                if parent_dir not in sys.path:
-                    sys.path.insert(0, parent_dir)
-
-                from bert_classifier import get_bert_classifier
                 self._classifier = get_bert_classifier()
-                self._initialized = True
-
-                if self._classifier.is_loaded():
-                    logger.info("BERT分类器初始化成功")
+                if self._classifier and self._classifier.is_loaded():
+                    logger.info("BERT intent classifier initialized")
                 else:
-                    logger.warning("BERT分类器模型未加载")
-            except Exception as e:
-                logger.warning(f"BERT分类器初始化失败: {e}")
+                    logger.warning(
+                        "BERT intent classifier model not loaded; using degraded mode"
+                    )
+            except Exception as exc:
+                logger.warning(f"BERT intent classifier initialization failed: {exc}")
+                self._classifier = None
+            finally:
                 self._initialized = True
 
     def is_available(self) -> bool:
@@ -55,7 +53,7 @@ class BERTClassifierAdapter:
     def predict(
         self,
         text: str,
-        session_id: str | None = None
+        session_id: str | None = None,
     ) -> IntentResult | None:
         self._ensure_initialized()
 
@@ -64,13 +62,12 @@ class BERTClassifierAdapter:
 
         try:
             result = self._classifier.predict_with_params(text)
-
             return IntentResult(
                 detected=True,
                 intent_type=result.intent,
                 action=result.intent,
                 params=result.params,
-                description=f"BERT分类: {result.intent}",
+                description=f"BERT classifier: {result.intent}",
                 confidence=result.confidence,
                 confidence_level=ConfidenceLevel.from_score(result.confidence),
                 method=DetectionMethod.BERT,
@@ -78,35 +75,37 @@ class BERTClassifierAdapter:
                 need_confirm=False,
                 alternatives=[],
                 raw_match=text,
-                session_id=session_id
+                session_id=session_id,
             )
-        except Exception as e:
-            logger.error(f"BERT预测失败: {e}")
+        except Exception as exc:
+            logger.error(f"BERT prediction failed: {exc}")
             return None
 
     def predict_top_k(
         self,
         text: str,
         k: int = 3,
-        session_id: str | None = None
+        session_id: str | None = None,
     ) -> list[IntentResult]:
         self._ensure_initialized()
-
-        results = []
-
         if self._classifier is None or not self._classifier.is_loaded():
-            return results
+            return []
 
         try:
             top_k_results = self._classifier.get_top_k_intents(text, k=k)
+        except Exception as exc:
+            logger.error(f"BERT top-k prediction failed: {exc}")
+            return []
 
-            for intent_name, confidence in top_k_results:
-                results.append(IntentResult(
+        results: list[IntentResult] = []
+        for intent_name, confidence in top_k_results:
+            results.append(
+                IntentResult(
                     detected=True,
                     intent_type=intent_name,
                     action=intent_name,
                     params={},
-                    description=f"BERT分类: {intent_name}",
+                    description=f"BERT classifier: {intent_name}",
                     confidence=confidence,
                     confidence_level=ConfidenceLevel.from_score(confidence),
                     method=DetectionMethod.BERT,
@@ -114,11 +113,9 @@ class BERTClassifierAdapter:
                     need_confirm=False,
                     alternatives=[],
                     raw_match=text,
-                    session_id=session_id
-                ))
-        except Exception as e:
-            logger.error(f"BERT Top-K预测失败: {e}")
-
+                    session_id=session_id,
+                )
+            )
         return results
 
 

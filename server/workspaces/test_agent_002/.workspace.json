@@ -2,9 +2,10 @@
   "agent_id": "test_agent_002",
   "isolation_level": "standard",
   "allowed_paths": [
-    "workspaces\\test_agent_002"
+    "C:\\Users\\JHJ\\Desktop\\finetune-platform\\server\\workspaces\\test_agent_002"
   ],
   "denied_paths": [],
   "max_storage_mb": 100,
-  "created_at": "2026-03-29T21:50:12.044886"
+  "created_at": "2026-04-02T00:25:42.576347",
+  "metadata": {}
 }

@@ -9,6 +9,7 @@ import os
 import threading
 import traceback as tb
 import uuid
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -315,6 +316,86 @@ class ResourceCheckResponse(BaseModel):
     device_name: str | None = None
 
 
+SUPPORTED_DATASET_FORMATS = (
+    "messages",
+    "text",
+    "content",
+    "instruction+output",
+    "instruction+input+output",
+)
+
+
+def detect_dataset_sample_format(example: Any) -> str:
+    """Detect the supported dataset sample format for a single record."""
+    if not isinstance(example, Mapping):
+        raise ValueError("Dataset sample must be a JSON object")
+
+    if "messages" in example:
+        return "messages"
+
+    if "instruction" in example:
+        if "output" not in example:
+            raise ValueError("Alpaca format requires an 'output' field when 'instruction' is present")
+        if "input" in example:
+            return "instruction+input+output"
+        return "instruction+output"
+
+    if "content" in example:
+        return "content"
+
+    if "text" in example:
+        return "text"
+
+    supported = ", ".join(SUPPORTED_DATASET_FORMATS)
+    raise ValueError(f"Unsupported dataset sample format; expected one of: {supported}")
+
+
+def format_dataset_sample(example: dict[str, Any], tokenizer) -> dict[str, str]:
+    """Normalize a supported dataset sample into the shared text field."""
+    sample_format = detect_dataset_sample_format(example)
+
+    if sample_format == "messages":
+        messages = example.get("messages", [])
+
+        if hasattr(tokenizer, "apply_chat_template") and messages:
+            try:
+                text = tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=False
+                )
+                return {"text": text}
+            except Exception as e:
+                logger.warning(f"chat_template 搴旂敤澶辫触锛屼娇鐢ㄧ畝鍗曟牸寮忓寲: {e}")
+
+        text = ""
+        for msg in messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if role == "user":
+                text += f"User: {content}\n"
+            elif role == "assistant":
+                text += f"Assistant: {content}\n"
+            elif role == "system":
+                text += f"System: {content}\n"
+        return {"text": text}
+
+    if sample_format in {"instruction+output", "instruction+input+output"}:
+        instruction = example.get("instruction", "")
+        input_text = example.get("input", "")
+        output = example.get("output", "")
+        if input_text:
+            text = f"Instruction: {instruction}\nInput: {input_text}\nResponse: {output}"
+        else:
+            text = f"Instruction: {instruction}\nResponse: {output}"
+        return {"text": text}
+
+    if sample_format == "content":
+        return {"text": example.get("content", "")}
+
+    return {"text": example.get("text", "")}
+
+
 def load_model_and_tokenizer(
     model_path: str,
     method: str,
@@ -467,56 +548,7 @@ def load_dataset(dataset_path: str, tokenizer, max_length: int = 512):
     logger.info(f"加载数据集：{dataset_path}")
 
     def format_conversation(example):
-        """支持多种数据格式：
-        1. messages 格式 (ChatML): [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
-        2. instruction 格式 (Alpaca): {"instruction": "...", "input": "...", "output": "..."}
-        3. 纯文本格式: {"text": "..."}
-        4. content 格式: {"content": "..."}
-        """
-        if "messages" in example:
-            messages = example.get("messages", [])
-
-            if hasattr(tokenizer, 'apply_chat_template') and messages:
-                try:
-                    text = tokenizer.apply_chat_template(
-                        messages,
-                        tokenize=False,
-                        add_generation_prompt=False
-                    )
-                    return {"text": text}
-                except Exception as e:
-                    logger.warning(f"chat_template 应用失败，使用简单格式化: {e}")
-
-            text = ""
-            for msg in messages:
-                role = msg.get("role", "")
-                content = msg.get("content", "")
-                if role == "user":
-                    text += f"User: {content}\n"
-                elif role == "assistant":
-                    text += f"Assistant: {content}\n"
-                elif role == "system":
-                    text += f"System: {content}\n"
-            return {"text": text}
-
-        elif "instruction" in example:
-            instruction = example.get("instruction", "")
-            input_text = example.get("input", "")
-            output = example.get("output", "")
-            if input_text:
-                text = f"Instruction: {instruction}\nInput: {input_text}\nResponse: {output}"
-            else:
-                text = f"Instruction: {instruction}\nResponse: {output}"
-            return {"text": text}
-
-        elif "content" in example:
-            return {"text": example.get("content", "")}
-
-        elif "text" in example:
-            return {"text": example.get("text", "")}
-
-        else:
-            raise ValueError(f"不支持的数据格式: {example.keys()}")
+        return format_dataset_sample(example, tokenizer)
 
     if dataset_path.endswith(".jsonl"):
         data = []
@@ -540,8 +572,7 @@ def load_dataset(dataset_path: str, tokenizer, max_length: int = 512):
 
     original_columns = dataset.column_names
     dataset = dataset.map(tokenize_function, batched=True)
-    columns_to_remove = [col for col in original_columns if col != 'input_ids' and col != 'attention_mask' and col != 'labels']
-    dataset = dataset.remove_columns(columns_to_remove)
+    columns_to_remove = [col for col in original_columns if col not in {"text"}]
 
     def set_labels(examples):
         import copy
@@ -582,7 +613,9 @@ def load_dataset(dataset_path: str, tokenizer, max_length: int = 512):
         return examples
 
     dataset = dataset.map(set_labels, batched=True)
-    dataset = dataset.train_test_split(test_size=0.1)
+    if columns_to_remove:
+        dataset = dataset.remove_columns(columns_to_remove)
+    dataset = split_train_test_dataset(dataset)
 
     logger.info(f"数据集大小：训练={len(dataset['train'])}, 测试={len(dataset.get('test', []))}")
     return dataset
@@ -657,9 +690,29 @@ def load_multiple_datasets(
         seed=42
     )
 
-    interleaved = interleaved.train_test_split(test_size=0.1)
+    interleaved = split_train_test_dataset(interleaved)
     logger.info(f"混合数据集大小：训练={len(interleaved['train'])}, 测试={len(interleaved.get('test', []))}")
     return interleaved
+
+
+def split_train_test_dataset(dataset, test_size: float = 0.1):
+    """Create a stable train/test split even for very small datasets."""
+    from datasets import DatasetDict
+
+    sample_count = len(dataset)
+    if sample_count <= 1:
+        return DatasetDict({
+            "train": dataset,
+            "test": dataset.select([]),
+        })
+
+    if sample_count < 10:
+        test_items = 1
+    else:
+        test_items = max(1, int(round(sample_count * test_size)))
+
+    test_items = min(test_items, sample_count - 1)
+    return dataset.train_test_split(test_size=test_items, seed=42)
 
 
 class ProgressCallback:
@@ -675,7 +728,8 @@ class ProgressCallback:
         model=None,
         tokenizer=None,
         trainer=None,
-        train_logger=None
+        train_logger=None,
+        event_loop=None,
     ):
         self.total_steps = total_steps
         self.start_time = start_time
@@ -690,7 +744,7 @@ class ProgressCallback:
         self.tokenizer = tokenizer
         self.trainer = trainer
         self.train_logger = train_logger
-        self._event_loop = kwargs.get("event_loop")
+        self._event_loop = event_loop
 
         self._checkpoint_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="checkpoint_saver")
         self._pending_checkpoint = None
@@ -1345,8 +1399,6 @@ def training_thread(
             if "CUDA" in str(e) or "memory" in str(e).lower() or "NCCL" in str(e):
                 raise RecoverableError(f"GPU 错误：{e}")
             raise
-
-        callback.on_train_end(None, None, None)
 
         output_dir = Path(record.output_path)
         lora_path = output_dir / "lora_adapter"
@@ -2312,11 +2364,46 @@ async def resume_training(task_id: str, checkpoint_name: str):
     if not original_record:
         raise HTTPException(status_code=404, detail="Training record not found")
 
-    config_dict = original_record.config
+    config_dict = dict(original_record.config)
     config_dict["resume_from_checkpoint"] = str(checkpoint_path)
     config = TrainingConfigInput(**config_dict)
+    model_path = settings.models_dir_resolved / config.model_id
+    dataset_dir = settings.datasets_dir_resolved / config.dataset_id
 
-    return await start_training(config)
+    if not model_path.exists():
+        raise HTTPException(status_code=404, detail=f"Model not found: {config.model_id}")
+    if not dataset_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Dataset not found: {config.dataset_id}")
+
+    dataset_file = None
+    for ext in [".json", ".jsonl"]:
+        for pattern in [f"{config.dataset_id}{ext}", f"data{ext}", f"*{ext}"]:
+            potential_file = dataset_dir / pattern
+            if potential_file.exists():
+                dataset_file = potential_file
+                break
+            for f in dataset_dir.glob(pattern):
+                dataset_file = f
+                break
+            if dataset_file:
+                break
+        if dataset_file:
+            break
+
+    if not dataset_file:
+        raise HTTPException(status_code=404, detail=f"Dataset file not found in: {config.dataset_id}")
+
+    return _start_training_task(
+        config=config,
+        state=state,
+        settings=settings,
+        model_path=model_path,
+        dataset_file=dataset_file,
+        use_queue=False,
+        priority="normal",
+        record_id=task_id,
+        output_path=output_dir,
+    )
 
 
 @router.post("/check-resources", response_model=ResourceCheckResponse)
@@ -2453,12 +2540,19 @@ class TrainingValidator:
 
                     if isinstance(data, list) and len(data) > 0:
                         first_item = data[0]
-                        if isinstance(first_item, dict):
-                            if 'messages' not in first_item and 'text' not in first_item and 'content' not in first_item:
-                                result.errors.append("数据集缺少必需字段：messages 或 text")
+                        try:
+                            detect_dataset_sample_format(first_item)
+                        except ValueError as e:
+                            result.errors.append(str(e))
+                    elif isinstance(data, list):
+                        result.errors.append("数据集至少需要包含一条样本")
                     elif isinstance(data, dict):
-                        if 'messages' not in data and 'text' not in data and 'content' not in data:
-                            result.errors.append("数据集缺少必需字段：messages 或 text")
+                        try:
+                            detect_dataset_sample_format(data)
+                        except ValueError as e:
+                            result.errors.append(str(e))
+                    else:
+                        result.errors.append("数据集根节点必须是 JSON 对象或对象数组")
                 except json.JSONDecodeError as e:
                     result.errors.append(f"JSON 格式错误：{e}")
         except Exception as e:
@@ -2516,6 +2610,87 @@ class TrainingValidator:
             result.warnings.append(
                 f"训练轮数 {config.epochs} 较多，注意过拟合风险"
             )
+
+
+def _start_training_task(
+    config: TrainingConfigInput,
+    state: TrainingState,
+    settings: Settings,
+    model_path: Path,
+    dataset_file: Path,
+    use_queue: bool,
+    priority: str,
+    record_id: str | None = None,
+    output_path: Path | None = None,
+) -> TrainingRecordResponse:
+    """Internal helper to start or resume a training task with stable identifiers."""
+    record_id = record_id or str(uuid.uuid4())
+    output_path = output_path or (settings.outputs_dir_resolved / f"train_{record_id[:8]}")
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    record = TrainingRecord(
+        id=record_id,
+        model_name=config.model_id,
+        dataset_name=config.dataset_id,
+        method=config.method,
+        status="queued" if use_queue else "running",
+        start_time=datetime.now().isoformat(),
+        config=config.model_dump(),
+        output_path=str(output_path),
+        checkpoint_path=None,
+    )
+
+    state.set_current_record(record)
+    config.output_path = str(output_path)
+
+    try:
+        event_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        event_loop = None
+
+    def run_training():
+        training_thread(
+            config,
+            str(model_path),
+            str(dataset_file),
+            state,
+            record,
+            event_loop=event_loop,
+            task_id=record_id,
+        )
+
+    if use_queue:
+        priority_map = {
+            "urgent": TaskPriority.URGENT,
+            "high": TaskPriority.HIGH,
+            "normal": TaskPriority.NORMAL,
+            "low": TaskPriority.LOW,
+        }
+        task_priority = priority_map.get(priority.lower(), TaskPriority.NORMAL)
+
+        queue = get_training_queue()
+        success = queue.submit(
+            task_id=record_id,
+            config=config,
+            callback=run_training,
+            priority=task_priority
+        )
+
+        if not success:
+            raise HTTPException(status_code=503, detail="Task queue is full")
+
+        logger.info(f"训练任务已加入队列：{record_id}")
+        return TrainingRecordResponse(**record.model_dump())
+
+    thread = threading.Thread(
+        target=run_training,
+        daemon=True
+    )
+    state.register_training_task(record_id, thread)
+    thread.start()
+
+    logger.info(f"训练任务已启动：{record_id}")
+    return TrainingRecordResponse(**record.model_dump())
 
 
 @router.post("/start", response_model=TrainingRecordResponse)
@@ -2616,65 +2791,15 @@ async def start_training(
             if "max_seq_length" in recommended:
                 config.max_seq_length = recommended["max_seq_length"]
 
-    record_id = str(uuid.uuid4())
-    output_path = settings.outputs_dir_resolved / f"train_{record_id[:8]}"
-    output_path.mkdir(parents=True, exist_ok=True)
-
-    record = TrainingRecord(
-        id=record_id,
-        model_name=config.model_id,
-        dataset_name=config.dataset_id,
-        method=config.method,
-        status="queued" if use_queue else "running",
-        start_time=datetime.now().isoformat(),
-        config=config.model_dump(),
-        output_path=str(output_path),
-        checkpoint_path=None,
+    return _start_training_task(
+        config=config,
+        state=state,
+        settings=settings,
+        model_path=model_path,
+        dataset_file=dataset_file,
+        use_queue=use_queue,
+        priority=priority,
     )
-
-    state.set_current_record(record)
-    config.output_path = str(output_path)
-
-    try:
-        event_loop = asyncio.get_running_loop()
-    except RuntimeError:
-        event_loop = None
-
-    def run_training():
-        training_thread(config, str(model_path), str(dataset_file), state, record, event_loop=event_loop, task_id=record_id)
-
-    if use_queue:
-        priority_map = {
-            "urgent": TaskPriority.URGENT,
-            "high": TaskPriority.HIGH,
-            "normal": TaskPriority.NORMAL,
-            "low": TaskPriority.LOW,
-        }
-        task_priority = priority_map.get(priority.lower(), TaskPriority.NORMAL)
-
-        queue = get_training_queue()
-        success = queue.submit(
-            task_id=record_id,
-            config=config,
-            callback=run_training,
-            priority=task_priority
-        )
-
-        if not success:
-            raise HTTPException(status_code=503, detail="Task queue is full")
-
-        logger.info(f"训练任务已加入队列：{record_id}")
-        return TrainingRecordResponse(**record.model_dump())
-    else:
-        thread = threading.Thread(
-            target=run_training,
-            daemon=True
-        )
-        state.register_training_task(record_id, thread)
-        thread.start()
-
-        logger.info(f"训练任务已启动：{record_id}")
-        return TrainingRecordResponse(**record.model_dump())
 
 
 @router.get("/queue/status")
@@ -2700,8 +2825,16 @@ async def get_task_status(task_id: str):
 async def cancel_task(task_id: str):
     """取消队列中的任务"""
     queue = get_training_queue()
+    state = get_state()
 
     if queue.cancel(task_id):
+        current_record = state.get_current_record()
+        if current_record and current_record.id == task_id and state.is_training():
+            state.queue_training_state(False)
+            state.queue_progress_update(
+                status="stopped",
+                message="Training cancelled by user"
+            )
         return {"message": f"Task {task_id} cancelled"}
 
     raise HTTPException(status_code=400, detail="Task not found or already running")

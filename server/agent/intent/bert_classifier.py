@@ -485,6 +485,9 @@ class BERTIntentClassifier:
 
 _classifier_instance = None
 
+# Backward-compatible alias for older imports.
+BertIntentClassifier = BERTIntentClassifier
+
 
 def get_bert_classifier(config: BERTConfig | None = None) -> BERTIntentClassifier:
     """获取 BERT 分类器单例"""

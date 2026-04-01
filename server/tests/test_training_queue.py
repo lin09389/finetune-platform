@@ -165,11 +165,12 @@ class TestTrainingQueue:
     def test_cancel_running_task(self, queue):
         """测试取消运行中的任务"""
         started = threading.Event()
-        cancelled = threading.Event()
+        finished = threading.Event()
 
         def long_callback():
             started.set()
-            time.sleep(10)
+            time.sleep(0.5)
+            finished.set()
 
         queue.submit("cancel-test", {}, long_callback)
         started.wait(timeout=2.0)
@@ -177,6 +178,8 @@ class TestTrainingQueue:
         result = queue.cancel("cancel-test")
         assert result is True
 
+        finished.wait(timeout=2.0)
+        time.sleep(0.2)
         status = queue.get_task_status("cancel-test")
         assert status["status"] == "cancelled"
 

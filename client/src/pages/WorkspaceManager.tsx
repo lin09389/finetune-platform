@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
-import { Card, Button, Space, Input, List, Tag, Modal, Form, Empty, Badge, App } from 'antd'
-import { PlusOutlined, EditOutlined, DeleteOutlined, FolderOutlined } from '@ant-design/icons'
+import { useEffect, useState } from 'react'
+import { App, Badge, Button, Card, Empty, Form, Input, List, Modal, Space, Tag } from 'antd'
+import { DeleteOutlined, EditOutlined, FolderOutlined, PlusOutlined } from '@ant-design/icons'
 import { API_BASE_URL } from '../services/api'
 
 const { TextArea } = Input
@@ -15,6 +15,18 @@ interface Workspace {
   vector_count: number
 }
 
+type WorkspaceListResponse = Workspace[] | { workspaces?: Workspace[] }
+
+function normalizeWorkspaces(data: WorkspaceListResponse): Workspace[] {
+  if (Array.isArray(data)) {
+    return data
+  }
+  if (data && Array.isArray(data.workspaces)) {
+    return data.workspaces
+  }
+  return []
+}
+
 export default function WorkspaceManager() {
   const { message } = App.useApp()
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
@@ -23,105 +35,98 @@ export default function WorkspaceManager() {
   const [form] = Form.useForm()
 
   useEffect(() => {
-    loadWorkspaces()
+    void loadWorkspaces()
   }, [])
 
-  // 加载工作空间列表
   const loadWorkspaces = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/workspace/workspaces`)
-      if (response.ok) {
-        const data = await response.json()
-        setWorkspaces(data)
+      if (!response.ok) {
+        message.error('加载工作空间失败')
+        return
       }
+      const data = (await response.json()) as WorkspaceListResponse
+      setWorkspaces(normalizeWorkspaces(data))
     } catch (error) {
       console.error('Failed to load workspaces:', error)
-      message.error('加载失败')
+      message.error('加载工作空间失败')
     }
   }
 
-  // 创建工作空间
   const handleCreate = async (values: { name: string; description?: string }) => {
     try {
       const response = await fetch(`${API_BASE_URL}/workspace/workspaces`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values)
+        body: JSON.stringify(values),
       })
 
       if (response.ok) {
-        message.success('工作空间已创建')
+        message.success('工作空间创建成功')
         setModalVisible(false)
         form.resetFields()
-        loadWorkspaces()
+        await loadWorkspaces()
       } else {
-        message.error('创建失败')
+        message.error('创建工作空间失败')
       }
-    } catch (error) {
-      message.error('创建失败')
+    } catch {
+      message.error('创建工作空间失败')
     }
   }
 
-  // 更新工作空间
   const handleUpdate = async (values: { name?: string; description?: string }) => {
     if (!editingWorkspace) return
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/workspace/workspaces/${editingWorkspace.id}`,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(values)
-        }
-      )
+      const response = await fetch(`${API_BASE_URL}/workspace/workspaces/${editingWorkspace.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+      })
 
       if (response.ok) {
-        message.success('已更新')
+        message.success('工作空间更新成功')
         setModalVisible(false)
         setEditingWorkspace(null)
         form.resetFields()
-        loadWorkspaces()
+        await loadWorkspaces()
       } else {
-        message.error('更新失败')
+        message.error('更新工作空间失败')
       }
-    } catch (error) {
-      message.error('更新失败')
+    } catch {
+      message.error('更新工作空间失败')
     }
   }
 
-  // 删除工作空间
   const handleDelete = async (id: string) => {
     Modal.confirm({
       title: '确认删除',
-      content: '删除后将无法恢复，确定继续吗？',
+      content: '删除后将无法恢复，确认继续吗？',
       onOk: async () => {
         try {
-          const response = await fetch(
-            `${API_BASE_URL}/workspace/workspaces/${id}`,
-            { method: 'DELETE' }
-          )
+          const response = await fetch(`${API_BASE_URL}/workspace/workspaces/${id}`, {
+            method: 'DELETE',
+          })
 
           if (response.ok) {
-            message.success('已删除')
-            loadWorkspaces()
+            message.success('工作空间已删除')
+            await loadWorkspaces()
           } else {
-            message.error('删除失败')
+            message.error('删除工作空间失败')
           }
-        } catch (error) {
-          message.error('删除失败')
+        } catch {
+          message.error('删除工作空间失败')
         }
-      }
+      },
     })
   }
 
-  // 打开创建/编辑弹窗
   const openModal = (workspace?: Workspace) => {
     if (workspace) {
       setEditingWorkspace(workspace)
       form.setFieldsValue({
         name: workspace.name,
-        description: workspace.description
+        description: workspace.description,
       })
     } else {
       setEditingWorkspace(null)
@@ -138,7 +143,12 @@ export default function WorkspaceManager() {
         <Card
           variant="borderless"
           extra={
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => openModal()}>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              data-testid="workspace-create-primary"
+              onClick={() => openModal()}
+            >
               新建工作空间
             </Button>
           }
@@ -189,7 +199,7 @@ export default function WorkspaceManager() {
                             <Tag color="blue">{ws.vector_count} 向量</Tag>
                           </Space>
                           <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>
-                            创建：{new Date(ws.created_at).toLocaleDateString('zh-CN')}
+                            创建于：{new Date(ws.created_at).toLocaleDateString('zh-CN')}
                           </div>
                         </div>
                       }
@@ -199,18 +209,19 @@ export default function WorkspaceManager() {
               )}
             />
           ) : (
-            <Empty
-              description="暂无工作空间"
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-            >
-              <Button type="primary" icon={<PlusOutlined />} onClick={() => openModal()}>
+            <Empty description="暂无工作空间" image={Empty.PRESENTED_IMAGE_SIMPLE}>
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                data-testid="workspace-create-empty"
+                onClick={() => openModal()}
+              >
                 创建工作空间
               </Button>
             </Empty>
           )}
         </Card>
 
-        {/* 创建/编辑弹窗 */}
         <Modal
           title={editingWorkspace ? '编辑工作空间' : '创建工作空间'}
           open={modalVisible}
@@ -231,17 +242,11 @@ export default function WorkspaceManager() {
               label="名称"
               rules={[{ required: true, message: '请输入名称' }]}
             >
-              <Input placeholder="如：个人知识库、项目文档" />
+              <Input placeholder="例如：个人知识库、项目文档" />
             </Form.Item>
 
-            <Form.Item
-              name="description"
-              label="描述"
-            >
-              <TextArea
-                rows={3}
-                placeholder="可选，描述工作空间用途"
-              />
+            <Form.Item name="description" label="描述">
+              <TextArea rows={3} placeholder="可选，用于说明该工作空间用途" />
             </Form.Item>
           </Form>
         </Modal>

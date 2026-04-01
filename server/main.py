@@ -44,6 +44,7 @@ from api import (
     training,
     workspace,
 )
+from api.compat import router as compat_router
 from api.agent_executor import router as agent_executor
 from api.chat.routes import router as chat
 from api.chat_branch import router as chat_branch
@@ -375,6 +376,7 @@ app.include_router(workspace, prefix="/workspace", tags=["工作空间管理"])
 app.include_router(model_center, prefix="/model-center", tags=["模型中心"])
 app.include_router(memory, tags=["智能记忆"])
 app.include_router(agent, prefix="/agent", tags=["Agent 操作"])
+app.include_router(compat_router, tags=["兼容路由"])
 app.include_router(context, prefix="/context", tags=["项目上下文"])
 app.include_router(file_api_router, prefix="/files", tags=["文件操作"])
 app.include_router(task_api_router, prefix="/tasks", tags=["任务追踪"])
@@ -412,12 +414,14 @@ async def root():
 async def health_check():
     """健康检查"""
     import torch
+    from agent.intent.methods.bert_classifier import bert_classifier
 
     health = {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "version": "2.0.0",
         "cuda_available": torch.cuda.is_available() if hasattr(torch, "cuda") else False,
+        "intent_backend_status": "loaded" if bert_classifier.is_available() else "degraded",
     }
 
     if torch.cuda.is_available():

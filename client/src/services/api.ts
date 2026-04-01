@@ -1,4 +1,4 @@
-﻿/**
+/**
  * API 鏈嶅姟閰嶇疆
  * 鏀寔杩炴帴澶嶇敤銆佽姹傚彇娑堛€侀敊璇嚜鍔ㄩ噸璇? */
 import axios, { AxiosInstance } from 'axios';

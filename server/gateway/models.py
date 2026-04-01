@@ -1,6 +1,7 @@
 """
-Gateway 数据模型
+Gateway 数据模型。
 """
+
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -9,7 +10,8 @@ from pydantic import BaseModel, Field
 
 
 class MessageType(str, Enum):
-    """消息类型"""
+    """消息类型。"""
+
     REQUEST = "request"
     RESPONSE = "response"
     EVENT = "event"
@@ -18,7 +20,8 @@ class MessageType(str, Enum):
 
 
 class DeviceType(str, Enum):
-    """设备类型"""
+    """设备类型。"""
+
     CLI = "cli"
     WEB = "web"
     DESKTOP = "desktop"
@@ -27,7 +30,8 @@ class DeviceType(str, Enum):
 
 
 class DeviceStatus(str, Enum):
-    """设备状态"""
+    """设备状态。"""
+
     ONLINE = "online"
     OFFLINE = "offline"
     PAIRING = "pairing"
@@ -35,7 +39,8 @@ class DeviceStatus(str, Enum):
 
 
 class GatewayMessage(BaseModel):
-    """Gateway 消息"""
+    """Gateway 消息。"""
+
     id: str = Field(..., description="消息 ID")
     type: MessageType = Field(..., description="消息类型")
     action: str = Field(..., description="动作名称")
@@ -43,11 +48,12 @@ class GatewayMessage(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now, description="时间戳")
     source: str | None = Field(None, description="来源设备 ID")
     target: str | None = Field(None, description="目标 Agent ID")
-    correlation_id: str | None = Field(None, description="关联 ID（用于请求响应匹配）")
+    correlation_id: str | None = Field(None, description="关联 ID，用于请求与响应匹配")
 
 
 class GatewayResponse(BaseModel):
-    """Gateway 响应"""
+    """Gateway 响应。"""
+
     id: str = Field(..., description="响应 ID")
     correlation_id: str = Field(..., description="关联的请求 ID")
     success: bool = Field(..., description="是否成功")
@@ -57,7 +63,8 @@ class GatewayResponse(BaseModel):
 
 
 class GatewayEvent(BaseModel):
-    """Gateway 事件"""
+    """Gateway 事件。"""
+
     id: str = Field(..., description="事件 ID")
     event_type: str = Field(..., description="事件类型")
     data: dict[str, Any] = Field(default_factory=dict, description="事件数据")
@@ -66,7 +73,8 @@ class GatewayEvent(BaseModel):
 
 
 class DeviceInfo(BaseModel):
-    """设备信息"""
+    """设备信息。"""
+
     id: str = Field(..., description="设备 ID")
     type: DeviceType = Field(..., description="设备类型")
     name: str = Field(..., description="设备名称")
@@ -78,15 +86,17 @@ class DeviceInfo(BaseModel):
 
 
 class DevicePairingRequest(BaseModel):
-    """设备配对请求"""
+    """设备配对请求。"""
+
     device_id: str = Field(..., description="设备 ID")
     device_type: DeviceType = Field(..., description="设备类型")
     device_name: str = Field(..., description="设备名称")
-    challenge: str | None = Field(None, description="挑战码（用于签名验证）")
+    challenge: str | None = Field(None, description="挑战码，用于签名验证")
 
 
 class DevicePairingResponse(BaseModel):
-    """设备配对响应"""
+    """设备配对响应。"""
+
     success: bool = Field(..., description="是否成功")
     device_id: str = Field(..., description="设备 ID")
     token: str | None = Field(None, description="认证 Token")
@@ -95,24 +105,26 @@ class DevicePairingResponse(BaseModel):
 
 
 class BindingRule(BaseModel):
-    """绑定规则"""
+    """绑定规则。"""
+
     id: str = Field(..., description="规则 ID")
     agent_id: str = Field(..., description="目标 Agent ID")
-    priority: int = Field(0, description="优先级（数值越大优先级越高）")
+    priority: int = Field(0, description="优先级，数值越大优先级越高")
 
-    peer_id: str | None = Field(None, description="精确匹配 peer ID")
-    guild_id: str | None = Field(None, description="匹配 guild ID")
-    channel_id: str | None = Field(None, description="匹配 channel ID")
-    team_id: str | None = Field(None, description="匹配 team ID")
-    account_id: str | None = Field(None, description="匹配 account ID")
-    roles: list[str] | None = Field(None, description="匹配角色列表")
+    peer_id: str | None = Field(None, description="精确匹配的 peer ID")
+    guild_id: str | None = Field(None, description="匹配的 guild ID")
+    channel_id: str | None = Field(None, description="匹配的 channel ID")
+    team_id: str | None = Field(None, description="匹配的 team ID")
+    account_id: str | None = Field(None, description="匹配的 account ID")
+    roles: list[str] | None = Field(None, description="匹配的角色列表")
 
     enabled: bool = Field(True, description="是否启用")
     metadata: dict[str, Any] = Field(default_factory=dict, description="元数据")
 
 
 class AgentInfo(BaseModel):
-    """Agent 信息"""
+    """Agent 信息。"""
+
     id: str = Field(..., description="Agent ID")
     name: str = Field(..., description="Agent 名称")
     workspace_path: str = Field(..., description="工作空间路径")
@@ -123,8 +135,9 @@ class AgentInfo(BaseModel):
 
 
 class HeartbeatConfig(BaseModel):
-    """Heartbeat 配置"""
-    interval_seconds: int = Field(1800, description="心跳间隔（秒）")
+    """Heartbeat 配置。"""
+
+    interval_seconds: int = Field(1800, description="心跳间隔，单位秒")
     enabled: bool = Field(True, description="是否启用")
     tasks: list[str] = Field(default_factory=list, description="任务列表")
     max_retries: int = Field(3, description="最大重试次数")

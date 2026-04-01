@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+﻿const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const { spawn, exec } = require('child_process');
 const fs = require('fs');
@@ -17,23 +17,20 @@ function getServerPath() {
 }
 
 function getPythonCommand() {
-  if (process.platform === 'win32') {
-    return 'python';
-  }
-  return 'python3';
+  return process.platform === 'win32' ? 'python' : 'python3';
 }
 
 async function checkPythonAndDeps() {
   const pythonCmd = getPythonCommand();
-  
+
   return new Promise((resolve, reject) => {
-    exec(`${pythonCmd} --version`, (error, stdout, stderr) => {
+    exec(`${pythonCmd} --version`, (error) => {
       if (error) {
         reject(new Error('Python not found. Please install Python 3.8+'));
         return;
       }
-      
-      exec(`${pythonCmd} -c "import fastapi; import torch; import transformers; import peft"`, (depError, depStdout, depStderr) => {
+
+      exec(`${pythonCmd} -c "import fastapi; import torch; import transformers; import peft"`, (depError) => {
         if (depError) {
           console.warn('Python dependencies may be missing:', depError.message);
           console.warn('Please run: pip install -r requirements.txt');
@@ -49,7 +46,7 @@ async function checkPythonAndDeps() {
 function startBackend() {
   const serverPath = getServerPath();
   const pythonCmd = getPythonCommand();
-  
+
   pythonProcess = spawn(pythonCmd, ['-m', 'uvicorn', 'main:app', '--host', '127.0.0.1', '--port', '8000'], {
     cwd: serverPath,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -58,7 +55,7 @@ function startBackend() {
       PYTHONPATH: serverPath,
       PYTHONIOENCODING: 'utf-8',
       PYTHONUTF8: '1',
-    }
+    },
   });
 
   pythonProcess.stdout.setEncoding('utf8');
@@ -91,15 +88,6 @@ function probeHttp(url, timeoutMs = 2000) {
   });
 }
 
-async function waitForFrontend(url, maxRetries = 30, intervalMs = 1000) {
-  for (let i = 0; i < maxRetries; i++) {
-    const ok = await probeHttp(url);
-    if (ok) return true;
-    await new Promise((r) => setTimeout(r, intervalMs));
-  }
-  return false;
-}
-
 async function loadDevRendererWithRetry(window, url, maxRetries = 120, intervalMs = 1000) {
   for (let i = 0; i < maxRetries; i++) {
     if (!window || window.isDestroyed()) return false;
@@ -128,9 +116,9 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.js'),
     },
-    title: 'Finetune Platform - 大模型微调平台'
+    title: 'Finetune Platform - 大模型微调平台',
   });
 
   if (isDev) {
@@ -150,16 +138,16 @@ app.whenReady().then(async () => {
   try {
     console.log('Checking Python environment...');
     const pythonStatus = await checkPythonAndDeps();
-    
+
     if (!pythonStatus.installed) {
       dialog.showErrorBox(
         'Python 依赖缺失',
         pythonStatus.message || '请先安装 Python 依赖：pip install -r requirements.txt'
       );
     }
-    
+
     startBackend();
-    
+
     createWindow();
     if (isDev && mainWindow) {
       const loaded = await loadDevRendererWithRetry(mainWindow, DEV_FRONTEND_URL, 120, 1000);
@@ -189,23 +177,23 @@ app.on('activate', () => {
   }
 });
 
-ipcMain.handle('select-folder', async (event, defaultPath) => {
+ipcMain.handle('select-folder', async (_event, defaultPath) => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory'],
-    defaultPath: defaultPath || app.getPath('documents')
+    defaultPath: defaultPath || app.getPath('documents'),
   });
   return result.filePaths[0] || null;
 });
 
-ipcMain.handle('select-file', async (event, filters) => {
+ipcMain.handle('select-file', async (_event, filters) => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
-    filters: filters || [{ name: 'All Files', extensions: ['*'] }]
+    filters: filters || [{ name: 'All Files', extensions: ['*'] }],
   });
   return result.filePaths[0] || null;
 });
 
-ipcMain.handle('read-file', async (event, filePath) => {
+ipcMain.handle('read-file', async (_event, filePath) => {
   try {
     const buffer = await fs.promises.readFile(filePath);
     const base64 = buffer.toString('base64');
@@ -217,9 +205,7 @@ ipcMain.handle('read-file', async (event, filePath) => {
   }
 });
 
-ipcMain.handle('get-backend-url', () => {
-  return 'http://127.0.0.1:8000';
-});
+ipcMain.handle('get-backend-url', () => 'http://127.0.0.1:8000');
 
 ipcMain.handle('restart-backend', () => {
   if (pythonProcess) {
@@ -229,10 +215,8 @@ ipcMain.handle('restart-backend', () => {
   return true;
 });
 
-ipcMain.handle('open-folder', async (event, folderPath) => {
+ipcMain.handle('open-folder', async (_event, folderPath) => {
   await shell.openPath(folderPath);
 });
 
-ipcMain.handle('get-app-path', () => {
-  return app.getAppPath();
-});
+ipcMain.handle('get-app-path', () => app.getAppPath());

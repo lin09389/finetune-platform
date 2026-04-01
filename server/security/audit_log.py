@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 class AuditEventType(str, Enum):
     """审计事件类型"""
     AUTHENTICATION = "authentication"
+    USER_LOGIN = "authentication"
+    USER_LOGOUT = "authentication"
     AUTHORIZATION = "authorization"
     DATA_ACCESS = "data_access"
     DATA_MODIFICATION = "data_modification"

@@ -227,6 +227,15 @@ class TrainingQueue:
                 task.callback()
 
             with self._lock:
+                if task.status == TaskStatus.CANCELLED:
+                    task.completed_at = datetime.now()
+                    self._running_tasks.pop(task.task_id, None)
+                    self._running_threads.pop(task.task_id, None)
+                    self._all_tasks.pop(task.task_id, None)
+                    self._add_to_history(task)
+                    logger.info(f"任务已取消：{task.task_id}")
+                    return
+
                 task.status = TaskStatus.COMPLETED
                 task.completed_at = datetime.now()
                 self._running_tasks.pop(task.task_id, None)

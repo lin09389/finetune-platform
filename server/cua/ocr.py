@@ -7,16 +7,17 @@ import re
 from typing import Any
 
 from PIL import Image
+from core.tesseract import configure_tesseract
 
 from .exceptions import OCRError, OCRProcessingError, TesseractNotInstalledError
 from .types import Coordinate, Region
 
 try:
     import pytesseract
-    TESSERACT_AVAILABLE = True
 except ImportError:
-    TESSERACT_AVAILABLE = False
     pytesseract = None
+
+TESSERACT_AVAILABLE, TESSERACT_PATH, TESSERACT_ERROR = configure_tesseract()
 
 try:
     import cv2
@@ -46,7 +47,7 @@ class OCRRecognizer:
         self._cache: dict[str, Any] = {}
         self._cache_max_size = 100
 
-        if tesseract_path and TESSERACT_AVAILABLE:
+        if tesseract_path and pytesseract is not None:
             pytesseract.pytesseract.tesseract_cmd = tesseract_path
 
         self._check_tesseract()
