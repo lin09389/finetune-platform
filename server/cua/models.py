@@ -5,7 +5,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .types import Coordinate, Region
 
@@ -48,8 +48,7 @@ class ScreenshotResult(BaseModel):
     base64: str | None = Field(default=None, description="Base64 编码的图像数据")
     monitor_index: int = Field(default=0, ge=0, description="显示器索引")
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class MousePosition(BaseModel):
@@ -185,5 +184,4 @@ class RecordedAction(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict, description="操作数据")
     duration: float = Field(default=0.0, description="操作持续时间（秒）")
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)

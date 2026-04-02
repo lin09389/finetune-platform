@@ -1,10 +1,10 @@
 import React from 'react'
 import { Progress, Steps, Alert } from 'antd'
-import { 
-  CheckCircleOutlined, 
-  ClockCircleOutlined, 
+import {
+  CheckCircleOutlined,
+  ClockCircleOutlined,
   ThunderboltOutlined,
-  LoadingOutlined
+  LoadingOutlined,
 } from '@ant-design/icons'
 import { motion, AnimatePresence } from 'framer-motion'
 import NeumorphicButton from '../../../components/shared/NeumorphicButton'
@@ -33,9 +33,9 @@ const ProgressPanel: React.FC<ProgressPanelProps> = ({
   progress,
   onReset,
 }) => {
-  const getStepsCurrent = (s: string): number => {
-    if (s === 'completed' || s === 'failed') return 2
-    if (s === 'training' || s === 'loading') return 1
+  const getStepsCurrent = (currentStatus: string): number => {
+    if (currentStatus === 'completed' || currentStatus === 'failed') return 2
+    if (currentStatus === 'training' || currentStatus === 'loading') return 1
     return 0
   }
 
@@ -43,7 +43,7 @@ const ProgressPanel: React.FC<ProgressPanelProps> = ({
     <div className={styles.container}>
       <AnimatePresence mode="wait">
         {status === 'idle' && (
-          <motion.div 
+          <motion.div
             key="idle"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -51,13 +51,13 @@ const ProgressPanel: React.FC<ProgressPanelProps> = ({
             className={styles.emptyState}
           >
             <div className={styles.emptyIcon}><ThunderboltOutlined /></div>
-            <h4 className={styles.emptyTitle}>待训练</h4>
-            <p className={styles.emptyDesc}>选择模型和数据集后开始训练</p>
+            <h4 className={styles.emptyTitle}>等待训练</h4>
+            <p className={styles.emptyDesc}>选择模型和数据集后即可开始训练。</p>
           </motion.div>
         )}
 
         {status === 'loading' && (
-          <motion.div 
+          <motion.div
             key="loading"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -66,12 +66,12 @@ const ProgressPanel: React.FC<ProgressPanelProps> = ({
           >
             <div className={styles.loadingIcon}><LoadingOutlined spin /></div>
             <h4 className={styles.loadingTitle}>正在加载模型...</h4>
-            <p className={styles.loadingDesc}>{progress?.message || '正在准备环境，请稍候'}</p>
+            <p className={styles.loadingDesc}>{progress?.message || '正在准备训练环境，请稍候。'}</p>
           </motion.div>
         )}
 
         {status === 'training' && progress && (
-          <motion.div 
+          <motion.div
             key="training"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -85,15 +85,15 @@ const ProgressPanel: React.FC<ProgressPanelProps> = ({
                 strokeColor="var(--accent-primary)"
                 strokeWidth={8}
                 size={160}
-                format={(p) => (
+                format={(percent) => (
                   <div className={styles.circleContent}>
-                    <span className={styles.percentText}>{p}%</span>
+                    <span className={styles.percentText}>{percent}%</span>
                     <span className={styles.stepText}>{progress.step} / {progress.totalSteps}</span>
                   </div>
                 )}
               />
             </div>
-            
+
             <div className={styles.statsGrid}>
               <div className={styles.statItem}>
                 <label>Loss</label>
@@ -135,14 +135,14 @@ const ProgressPanel: React.FC<ProgressPanelProps> = ({
         )}
 
         {status === 'completed' && (
-          <motion.div 
+          <motion.div
             key="completed"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             className={styles.resultState}
           >
             <div className={styles.successIcon}><CheckCircleOutlined /></div>
-            <h3 className={styles.resultTitle}>训练圆满完成</h3>
+            <h3 className={styles.resultTitle}>训练已完成</h3>
             <div className={styles.resultSummary}>
               <div className={styles.summaryItem}>最终 Loss: <strong>{progress?.loss?.toFixed(4)}</strong></div>
               <div className={styles.summaryItem}>总步数: <strong>{progress?.step}</strong></div>
@@ -155,7 +155,7 @@ const ProgressPanel: React.FC<ProgressPanelProps> = ({
         )}
 
         {status === 'failed' && (
-          <motion.div 
+          <motion.div
             key="failed"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}

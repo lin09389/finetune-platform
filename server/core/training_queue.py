@@ -141,6 +141,11 @@ class TrainingQueue:
         self._worker_running = False
         if self._worker_thread:
             self._worker_thread.join(timeout=5.0)
+        with self._lock:
+            running_threads = list(self._running_threads.values())
+        for thread in running_threads:
+            if thread.is_alive():
+                thread.join(timeout=5.0)
         logger.info("队列工作线程已停止")
 
     def _worker_loop(self):

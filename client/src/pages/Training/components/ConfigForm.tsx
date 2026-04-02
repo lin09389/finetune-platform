@@ -1,11 +1,10 @@
 import React from 'react'
-import { Form, Select, InputNumber, Button, Space, Divider, Switch, Row, Col } from 'antd'
-import { 
-  ThunderboltOutlined, 
-  PlayCircleOutlined, 
-  StopOutlined, 
-  CheckCircleOutlined,
-  InfoCircleOutlined
+import { Alert, Form, Select, InputNumber, Button, Space, Divider, Switch, Row, Col } from 'antd'
+import {
+  ThunderboltOutlined,
+  PlayCircleOutlined,
+  StopOutlined,
+  CheckCircleOutlined
 } from '@ant-design/icons'
 import NeumorphicButton from '../../../components/shared/NeumorphicButton'
 import styles from './ConfigForm.module.css'
@@ -23,8 +22,6 @@ interface ConfigFormProps {
   onSwiftChange: (checked: boolean) => void
   precisionPreset: 'max' | 'balanced' | 'fast'
   onPrecisionChange: (preset: any) => void
-  useDora: boolean
-  onDoraChange: (checked: boolean) => void
   memoryPreset: 'auto' | '6gb' | '8gb' | '12gb'
   onMemoryChange: (preset: any) => void
   useFlashAttn: boolean
@@ -33,14 +30,6 @@ interface ConfigFormProps {
   onQuantizationChange: (bit: any) => void
   gradientAccumulation: number
   onGradAccChange: (val: number) => void
-  useLoraPlus: boolean
-  onLoraPlusChange: (checked: boolean) => void
-  loraPlusLrRatio: number
-  onLoraPlusLrRatioChange: (val: number) => void
-  useGalore: boolean
-  onGaloreChange: (checked: boolean) => void
-  galoreRank: number
-  onGaloreRankChange: (val: number) => void
   onApplyPreset: (preset: 'low' | 'medium' | 'high') => void
 }
 
@@ -57,8 +46,6 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
   onSwiftChange,
   precisionPreset,
   onPrecisionChange,
-  useDora,
-  onDoraChange,
   memoryPreset,
   onMemoryChange,
   useFlashAttn,
@@ -82,7 +69,10 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
           <Form.Item label="基础模型" name="modelId" rules={[{ required: true }]}>
             <Select
               placeholder="选择基础模型"
-              options={models.map(m => ({ value: m.id, label: `${m.name} ${m.quantized ? `(INT${m.quantized})` : ''}` }))}
+              options={models.map((m) => ({
+                value: m.id,
+                label: `${m.name} ${m.quantized ? `(INT${m.quantized})` : ''}`,
+              }))}
               showSearch
             />
           </Form.Item>
@@ -91,55 +81,53 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
           <Form.Item label="训练数据集" name="datasetId" rules={[{ required: true }]}>
             <Select
               placeholder="选择数据集"
-              options={datasets.map(d => ({ value: d.id, label: `${d.name} (${d.samples}条)` }))}
+              options={datasets.map((d) => ({ value: d.id, label: `${d.name} (${d.samples}条)` }))}
               showSearch
             />
           </Form.Item>
         </Col>
       </Row>
 
-      <Divider className={styles.divider}>加速与精度框架</Divider>
-      
+      <Divider className={styles.divider}>加速与精度策略</Divider>
+
       <Row gutter={24}>
         <Col span={8}>
           <Form.Item
-            label={<span className={styles.labelWithIcon}><ThunderboltOutlined /> SWIFT 框架</span>}
-            tooltip="阿里 SWIFT 框架可提升训练速度 25%"
+            label={<span className={styles.labelWithIcon}><ThunderboltOutlined /> SWIFT 框架（实验）</span>}
+            tooltip="SWIFT 作为可选实验后端保留，发布版主推 LoRA / QLoRA"
           >
             <Switch checked={useSwift} onChange={onSwiftChange} disabled={!swiftAvailable} />
           </Form.Item>
         </Col>
         <Col span={8}>
-          <Form.Item
-            label={<span className={styles.labelWithIcon}><CheckCircleOutlined /> 精度预设</span>}
-          >
+          <Form.Item label={<span className={styles.labelWithIcon}><CheckCircleOutlined /> 精度预设</span>}>
             <Select value={precisionPreset} onChange={onPrecisionChange}>
-              <Select.Option value="max">🏆 最高 (Max)</Select.Option>
-              <Select.Option value="balanced">⚖️ 平衡 (Balanced)</Select.Option>
-              <Select.Option value="fast">⚡ 快速 (Fast)</Select.Option>
+              <Select.Option value="max">最高 (Max)</Select.Option>
+              <Select.Option value="balanced">平衡 (Balanced)</Select.Option>
+              <Select.Option value="fast">快速 (Fast)</Select.Option>
             </Select>
           </Form.Item>
         </Col>
         <Col span={8}>
-          <Form.Item
-            label={<span className={styles.labelWithIcon}><InfoCircleOutlined /> DoRA 微调</span>}
-            tooltip="DoRA 分解权重为幅度和方向"
-          >
-            <Switch checked={useDora} onChange={onDoraChange} disabled={precisionPreset === 'fast'} />
-          </Form.Item>
+          <Alert
+            type="info"
+            showIcon
+            message="发布版已关闭 DoRA / LoRA+ / GaLore"
+            description="当前仅开放 LoRA / QLoRA 主线训练，避免将实验性能力误当成稳定能力使用。"
+          />
         </Col>
       </Row>
 
-      <Divider className={styles.divider}>显存管理优化</Divider>
+      <Divider className={styles.divider}>显存与吞吐优化</Divider>
 
       <Row gutter={24}>
         <Col span={12}>
           <Form.Item label="显存优化预设">
             <Select value={memoryPreset} onChange={onMemoryChange}>
-              <Select.Option value="auto">🤖 自动检测</Select.Option>
-              <Select.Option value="6gb">💾 6GB (极致)</Select.Option>
-              <Select.Option value="8gb">💾 8GB (平衡)</Select.Option>
-              <Select.Option value="12gb">💾 12GB (DeepSpeed)</Select.Option>
+              <Select.Option value="auto">自动检测</Select.Option>
+              <Select.Option value="6gb">6GB (极致省显存)</Select.Option>
+              <Select.Option value="8gb">8GB (平衡)</Select.Option>
+              <Select.Option value="12gb">12GB (高吞吐)</Select.Option>
             </Select>
           </Form.Item>
         </Col>
@@ -148,7 +136,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
             <Select value={quantizationBit} onChange={onQuantizationChange} disabled={memoryPreset !== 'auto'}>
               <Select.Option value={4}>4bit (省显存)</Select.Option>
               <Select.Option value={8}>8bit (平衡)</Select.Option>
-              <Select.Option value={0}>无量化 (高精度)</Select.Option>
+              <Select.Option value={0}>不量化 (高精度)</Select.Option>
             </Select>
           </Form.Item>
         </Col>
@@ -157,7 +145,14 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
       <Row gutter={24}>
         <Col span={8}>
           <Form.Item label="梯度累积">
-            <InputNumber min={1} max={128} value={gradientAccumulation} onChange={(v) => onGradAccChange(v || 16)} style={{ width: '100%' }} disabled={memoryPreset !== 'auto'} />
+            <InputNumber
+              min={1}
+              max={128}
+              value={gradientAccumulation}
+              onChange={(v) => onGradAccChange(v || 16)}
+              style={{ width: '100%' }}
+              disabled={memoryPreset !== 'auto'}
+            />
           </Form.Item>
         </Col>
         <Col span={8}>
@@ -167,7 +162,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
         </Col>
         <Col span={8}>
           <div className={styles.presetGroup}>
-            <label className={styles.smallLabel}>参数快捷预设</label>
+            <label className={styles.smallLabel}>快捷预设</label>
             <Space>
               <Button size="small" onClick={() => onApplyPreset('low')}>6GB</Button>
               <Button size="small" onClick={() => onApplyPreset('medium')}>8GB</Button>

@@ -1,0 +1,11 @@
+{
+  "agent_id": "test_agent_001",
+  "isolation_level": "standard",
+  "allowed_paths": [
+    "C:\\Users\\JHJ\\Desktop\\finetune-platform\\workspaces\\test_agent_001"
+  ],
+  "denied_paths": [],
+  "max_storage_mb": 100,
+  "created_at": "2026-04-02T16:58:54.991672",
+  "metadata": {}
+}

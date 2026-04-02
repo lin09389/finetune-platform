@@ -46,6 +46,19 @@ class ChatMessage:
         }
 
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ChatMessage":
+        return cls(
+            id=data.get("id", ""),
+            role=MessageRole(data.get("role", MessageRole.USER)),
+            content=data.get("content", ""),
+            timestamp=datetime.fromisoformat(data["timestamp"]) if data.get("timestamp") else datetime.now(),
+            priority=MessagePriority(data.get("priority", MessagePriority.NORMAL)),
+            token_count=data.get("token_count", 0),
+            importance=data.get("importance", 0.5),
+            metadata=data.get("metadata", {}),
+        )
+
 @dataclass
 class ContextWindow:
     max_tokens: int = 4096
@@ -132,7 +145,7 @@ class ContextManager:
         self.window.current_tokens += token_count
         return message
 
-    def get_context(self, include_system: bool = False, max_messages: int | None = None) -> list[dict[str, Any]]:
+    def get_context(self, include_system: bool = True, max_messages: int | None = None) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
         if include_system and self.system_message:
             result.append(self.system_message.to_dict())
@@ -165,6 +178,7 @@ class ContextManager:
 
     def get_stats(self) -> dict[str, Any]:
         return {
+            "total_messages": len(self.messages),
             "message_count": len(self.messages),
             "total_tokens": self.window.current_tokens,
             "max_tokens": self.window.max_tokens,

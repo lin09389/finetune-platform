@@ -28,6 +28,8 @@ detect_dataset_sample_format = training_module.detect_dataset_sample_format
 load_dataset = training_module.load_dataset
 resume_training = training_module.resume_training
 split_train_test_dataset = training_module.split_train_test_dataset
+validate_release_supported_features = training_module._validate_release_supported_features
+get_checkpoints = training_module.get_checkpoints
 
 try:
     from fastapi.testclient import TestClient
@@ -261,6 +263,77 @@ class TestTrainingDatasetValidation:
         assert len(split["train"]) == 1
         assert len(split["test"]) == 1
 
+
+class TestTrainingReleaseFeatureGuards:
+    def test_release_guard_rejects_dora_flag(self):
+        config = TrainingConfigInput(model_id="model", dataset_id="dataset", use_dora=True)
+
+        with pytest.raises(training_module.HTTPException, match="DoRA"):
+            validate_release_supported_features(config)
+
+    def test_release_guard_rejects_dora_method(self):
+        config = TrainingConfigInput(model_id="model", dataset_id="dataset", method="dora")
+
+        with pytest.raises(training_module.HTTPException, match="DoRA"):
+            validate_release_supported_features(config)
+
+    @pytest.mark.parametrize(
+        ("field_name", "value", "expected_message"),
+        [
+            ("use_lora_plus", True, "LoRA+"),
+            ("use_galore", True, "GaLore"),
+        ],
+    )
+    def test_release_guard_rejects_experimental_features(self, field_name, value, expected_message):
+        config = TrainingConfigInput(model_id="model", dataset_id="dataset", **{field_name: value})
+
+        with pytest.raises(training_module.HTTPException, match=expected_message):
+            validate_release_supported_features(config)
+
+    def test_release_guard_limits_swift_to_lora_variants(self):
+        config = TrainingConfigInput(model_id="model", dataset_id="dataset", method="full")
+
+        with pytest.raises(training_module.HTTPException, match="SWIFT"):
+            validate_release_supported_features(config, backend="swift")
+
+    def test_release_guard_allows_standard_release_path(self):
+        config = TrainingConfigInput(model_id="model", dataset_id="dataset", method="qlora")
+
+        validate_release_supported_features(config)
+
+    @pytest.mark.asyncio
+    async def test_get_checkpoints_uses_record_output_path(self, tmp_path, monkeypatch):
+        task_id = "checkpoint-task"
+        output_dir = tmp_path / "custom-output"
+        checkpoint_dir = output_dir / "checkpoints"
+        checkpoint_dir.mkdir(parents=True)
+        (checkpoint_dir / "checkpoint-20").mkdir()
+        time_10 = checkpoint_dir / "checkpoint-10"
+        time_10.mkdir()
+
+        record = TrainingRecord(
+            id=task_id,
+            model_name="demo-model",
+            dataset_name="demo-dataset",
+            method="qlora",
+            status="completed",
+            start_time="2026-04-02T00:00:00",
+            config={},
+            output_path=str(output_dir),
+        )
+
+        class FakeState:
+            def get_history(self):
+                return [record]
+
+        monkeypatch.setattr(training_module, "get_state", lambda: FakeState())
+        monkeypatch.setattr(training_module, "get_config", lambda: get_settings())
+
+        checkpoints = await get_checkpoints(task_id)
+
+        assert [item["step"] for item in checkpoints] == [10, 20]
+        assert all(item["path"].startswith(str(checkpoint_dir)) for item in checkpoints)
+
     def test_progress_callback_accepts_event_loop_argument(self, tmp_path):
         state = TrainingState(tmp_path / "history.json")
         record = TrainingRecord(
@@ -352,5 +425,72 @@ class TestTrainingDatasetValidation:
 
         assert result == {"ok": True}
         assert captured["record_id"] == task_id
+        assert captured["output_path"] == output_dir
+        assert captured["config"].resume_from_checkpoint == str(checkpoint_dir)
+
+    @pytest.mark.asyncio
+    async def test_resume_training_uses_record_output_path_for_checkpoint_lookup(self, tmp_path, monkeypatch):
+        task_id = "resume-custom"
+        output_dir = tmp_path / "nested" / "custom-output"
+        checkpoint_dir = output_dir / "checkpoints" / "checkpoint-10"
+        checkpoint_dir.mkdir(parents=True)
+
+        settings = get_settings()
+        original_outputs_dir = settings.outputs_dir
+        original_models_dir = settings.models_dir
+        original_datasets_dir = settings.datasets_dir
+        settings.outputs_dir = tmp_path / "outputs"
+        settings.models_dir = tmp_path / "models"
+        settings.datasets_dir = tmp_path / "datasets"
+
+        model_dir = settings.models_dir / "demo-model"
+        model_dir.mkdir(parents=True)
+        dataset_dir = settings.datasets_dir / "demo-dataset"
+        dataset_dir.mkdir(parents=True)
+        (dataset_dir / "data.json").write_text(
+            json.dumps([{"instruction": "hi", "output": "there"}], ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        history_record = TrainingRecord(
+            id=task_id,
+            model_name="demo-model",
+            dataset_name="demo-dataset",
+            method="qlora",
+            status="stopped",
+            start_time="2026-04-02T00:00:00",
+            config={
+                "model_id": "demo-model",
+                "dataset_id": "demo-dataset",
+                "method": "qlora",
+            },
+            output_path=str(output_dir),
+        )
+
+        class FakeState:
+            def is_training(self):
+                return False
+
+            def get_history(self):
+                return [history_record]
+
+        captured = {}
+
+        def fake_start_training_task(**kwargs):
+            captured.update(kwargs)
+            return {"ok": True}
+
+        monkeypatch.setattr(training_module, "get_state", lambda: FakeState())
+        monkeypatch.setattr(training_module, "get_config", lambda: settings)
+        monkeypatch.setattr(training_module, "_start_training_task", fake_start_training_task)
+
+        try:
+            result = await resume_training(task_id, "checkpoint-10")
+        finally:
+            settings.outputs_dir = original_outputs_dir
+            settings.models_dir = original_models_dir
+            settings.datasets_dir = original_datasets_dir
+
+        assert result == {"ok": True}
         assert captured["output_path"] == output_dir
         assert captured["config"].resume_from_checkpoint == str(checkpoint_dir)

@@ -202,7 +202,7 @@ class AuditLogger:
         """添加异常规则"""
         self._anomaly_rules.append(rule)
 
-    async def log(
+    async def _log_async(
         self,
         action: ActionType,
         params: dict[str, Any],
@@ -254,6 +254,41 @@ class AuditLogger:
         if entry.error:
             log_msg += f" - 错误: {entry.error}"
         logger.info(log_msg)
+
+    def log(
+        self,
+        action: ActionType,
+        params: dict[str, Any],
+        result: Any,
+        duration: float = 0.0,
+        duration_ms: float | None = None,
+        user_id: str | None = None,
+        user_ip: str | None = None,
+        client_info: dict | None = None,
+        category: AuditCategory = AuditCategory.OTHER,
+        risk_score: float | None = None,
+    ):
+        """Support both legacy sync callers and async contexts."""
+        effective_duration = duration_ms if duration_ms is not None else duration
+        coro = self._log_async(
+            action=action,
+            params=params,
+            result=result,
+            duration=effective_duration,
+            user_id=user_id,
+            user_ip=user_ip,
+            client_info=client_info,
+            category=category,
+            risk_score=risk_score,
+        )
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(coro)
+            return None
+
+        return loop.create_task(coro)
 
     def _sanitize_params(self, params: dict[str, Any]) -> dict[str, Any]:
         """清理敏感参数"""

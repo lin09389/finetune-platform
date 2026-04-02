@@ -220,6 +220,11 @@ async def list_models():
     return get_models_list()
 
 
+@router.get("/list")
+async def list_models_compat():
+    return get_models_list()
+
+
 @router.post("/download")
 async def download_model(request: ModelDownloadRequest):
     """下载模型"""

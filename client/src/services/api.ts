@@ -506,6 +506,11 @@ export const getTrainingHistory = async () => {
   return response.data;
 };
 
+export const getTrainingCheckpoints = async (trainingId: string) => {
+  const response = await apiClient.get(`/training/checkpoints/${trainingId}`);
+  return response.data;
+};
+
 export const resumeTraining = async (trainingId: string, checkpoint: string) => {
   const response = await apiClient.post(`/training/resume/${trainingId}/${checkpoint}`);
   return response.data;

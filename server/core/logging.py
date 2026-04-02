@@ -5,10 +5,10 @@ import logging
 import sys
 from pathlib import Path
 
-from pythonjsonlogger import jsonlogger
+from pythonjsonlogger.json import JsonFormatter
 
 
-class CustomJsonFormatter(jsonlogger.JsonFormatter):
+class CustomJsonFormatter(JsonFormatter):
     """Custom JSON log formatter"""
     pass
 

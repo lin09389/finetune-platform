@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 @dataclass
@@ -34,8 +34,7 @@ class WhitelistConfig(BaseModel):
     entries: dict[str, WhitelistEntry] = Field(default_factory=dict)
     categories: set[str] = Field(default_factory=lambda: {"general", "development", "browser", "office", "system", "media"})
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 DEFAULT_WINDOWS_APPS: dict[str, WhitelistEntry] = {

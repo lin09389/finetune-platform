@@ -105,6 +105,14 @@ class ProjectInfo(BaseModel):
     indexed_at: str | None = Field(None, description="索引时间")
 
 
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key == "tech_stack":
+            return [self.tech_stack.language, *self.tech_stack.frameworks]
+        if key == "file_count":
+            return len(self.files) + len(self.key_files)
+        return getattr(self, key, default)
+
 class ContextResult(BaseModel):
     """上下文检索结果"""
     type: str = Field(..., description="结果类型：file/project/symbol")

@@ -325,6 +325,11 @@ async def list_datasets():
     return get_datasets_list()
 
 
+@router.get("/list")
+async def list_datasets_compat():
+    return get_datasets_list()
+
+
 @router.post("/upload", response_model=DatasetUploadResponse)
 async def upload_dataset(
     file: UploadFile = File(..., description="数据集文件"),

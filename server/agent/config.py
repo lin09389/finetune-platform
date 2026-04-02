@@ -6,7 +6,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ActionType(str, Enum):
@@ -161,8 +161,7 @@ class SecurityConfig(BaseModel):
     allowed_directories: list[str] = []
     forbidden_directories: list[str] = []
 
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
 
 
 SECURITY_CONFIG = SecurityConfig()
@@ -177,5 +176,4 @@ class AgentConfig(BaseModel):
     operation_timeout: int = 30
     security: SecurityConfig = SecurityConfig()
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)

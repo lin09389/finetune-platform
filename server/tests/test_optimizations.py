@@ -87,13 +87,8 @@ def test_training_state():
 
         time.sleep(0.5)
 
-        import asyncio
-        loop = asyncio.new_event_loop()
-        try:
-            progress = loop.run_until_complete(state.get_progress())
-            print(f"  最终进度：step={progress.step}, loss={progress.loss:.4f}, status={progress.status}")
-        finally:
-            loop.close()
+        progress = state.get_progress()
+        print(f"  最终进度：step={progress.step}, loss={progress.loss:.4f}, status={progress.status}")
 
         print("  [OK] 队列更新正常")
 
@@ -101,13 +96,9 @@ def test_training_state():
         state.queue_training_state(True)
         time.sleep(0.2)
 
-        loop = asyncio.new_event_loop()
-        try:
-            is_training = loop.run_until_complete(state.is_training())
-            print(f"  训练状态：{is_training}")
-            assert is_training == True, "状态更新失败"
-        finally:
-            loop.close()
+        is_training = state.is_training()
+        print(f"  训练状态：{is_training}")
+        assert is_training is True, "状态更新失败"
 
         state.queue_training_state(False)
         print("  [OK] 状态更新正常")

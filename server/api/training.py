@@ -324,6 +324,12 @@ SUPPORTED_DATASET_FORMATS = (
     "instruction+input+output",
 )
 
+RELEASE_EXPERIMENTAL_FEATURE_MESSAGES = {
+    "use_dora": "DoRA 目前未纳入发布版稳定能力，请使用 LoRA / QLoRA 训练路径",
+    "use_lora_plus": "LoRA+ 目前仅保留实验接线，发布版暂不开放",
+    "use_galore": "GaLore 当前依赖和兼容性尚未收敛，发布版暂不开放",
+}
+
 
 def detect_dataset_sample_format(example: Any) -> str:
     """Detect the supported dataset sample format for a single record."""
@@ -394,6 +400,44 @@ def format_dataset_sample(example: dict[str, Any], tokenizer) -> dict[str, str]:
         return {"text": example.get("content", "")}
 
     return {"text": example.get("text", "")}
+
+
+def _validate_release_supported_features(
+    config: TrainingConfigInput,
+    backend: str = "standard",
+) -> None:
+    """Reject experimental fine-tuning options from the public release path."""
+    for field_name, detail in RELEASE_EXPERIMENTAL_FEATURE_MESSAGES.items():
+        if getattr(config, field_name, False):
+            raise HTTPException(status_code=400, detail=detail)
+
+    if config.method == "dora":
+        raise HTTPException(
+            status_code=400,
+            detail=RELEASE_EXPERIMENTAL_FEATURE_MESSAGES["use_dora"],
+        )
+
+    if backend == "swift" and config.method not in {"lora", "qlora"}:
+        raise HTTPException(
+            status_code=400,
+            detail="SWIFT 发布路径当前仅开放 LoRA / QLoRA",
+        )
+
+
+def _get_training_record_by_id(state: TrainingState, task_id: str) -> TrainingRecord | None:
+    """Look up a training record from history by task id."""
+    for record in state.get_history():
+        if record.id == task_id:
+            return record
+    return None
+
+
+def _resolve_training_output_dir(state: TrainingState, settings: Settings, task_id: str) -> Path:
+    """Resolve a task's output directory, preferring the persisted training record."""
+    record = _get_training_record_by_id(state, task_id)
+    if record and record.output_path:
+        return Path(record.output_path)
+    return settings.outputs_dir_resolved / f"train_{task_id[:8]}"
 
 
 def load_model_and_tokenizer(
@@ -2079,6 +2123,8 @@ async def start_swift_training(
     if state.is_training():
         raise HTTPException(status_code=400, detail="Training already in progress")
 
+    _validate_release_supported_features(config, backend="swift")
+
     model_path = settings.models_dir_resolved / config.model_id
     if not model_path.exists():
         raise HTTPException(status_code=404, detail=f"Model not found: {config.model_id}")
@@ -2320,7 +2366,7 @@ async def get_checkpoints(task_id: str):
     state = get_state()
     settings = get_config()
 
-    output_dir = settings.outputs_dir_resolved / f"train_{task_id[:8]}"
+    output_dir = _resolve_training_output_dir(state, settings, task_id)
     checkpoint_dir = output_dir / "checkpoints"
 
     if not checkpoint_dir.exists():
@@ -2348,21 +2394,15 @@ async def resume_training(task_id: str, checkpoint_name: str):
     if state.is_training():
         raise HTTPException(status_code=400, detail="Training already in progress")
 
-    output_dir = settings.outputs_dir_resolved / f"train_{task_id[:8]}"
+    original_record = _get_training_record_by_id(state, task_id)
+    if not original_record:
+        raise HTTPException(status_code=404, detail="Training record not found")
+
+    output_dir = _resolve_training_output_dir(state, settings, task_id)
     checkpoint_path = output_dir / "checkpoints" / checkpoint_name
 
     if not checkpoint_path.exists():
         raise HTTPException(status_code=404, detail="Checkpoint not found")
-
-    history = state.get_history()
-    original_record = None
-    for r in history:
-        if r.id == task_id:
-            original_record = r
-            break
-
-    if not original_record:
-        raise HTTPException(status_code=404, detail="Training record not found")
 
     config_dict = dict(original_record.config)
     config_dict["resume_from_checkpoint"] = str(checkpoint_path)
@@ -2713,6 +2753,8 @@ async def start_training(
 
     if state.is_training():
         raise HTTPException(status_code=400, detail="Training already in progress")
+
+    _validate_release_supported_features(config)
 
     model_path = settings.models_dir_resolved / config.model_id
     if not model_path.exists():

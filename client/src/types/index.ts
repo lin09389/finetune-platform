@@ -92,6 +92,14 @@ export interface TrainingRecord {
   endTime?: string
   config: TrainingConfig
   outputPath: string
+  checkpointPath?: string
+}
+
+export interface Checkpoint {
+  name: string
+  path: string
+  step: number
+  created: string
 }
 
 export interface InferenceRequest {

@@ -3,6 +3,7 @@ Agent 安全模块
 
 提供 RBAC 权限控制、敏感操作验证、风险评估等功能
 """
+from ..security_old import SecurityValidator
 from .rbac import (
     InheritanceResolver,
     OperationType,
@@ -50,6 +51,7 @@ from .verification import (
 )
 
 __all__ = [
+    "SecurityValidator",
     "Permission",
     "Role",
     "ResourceType",

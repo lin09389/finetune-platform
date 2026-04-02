@@ -31,6 +31,11 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
+try:
+    from agent.agent_config import ActionType as LegacyActionType
+except Exception:  # pragma: no cover
+    LegacyActionType = None
+
 
 @dataclass
 class DetectorConfig:
@@ -94,6 +99,11 @@ class IntentDetector:
             if not text:
                 return self._create_empty_result(session_id)
 
+            fast_result = self._detect_fast_action(text, session_id)
+            if fast_result is not None:
+                self._record_success(fast_result, start_time)
+                return fast_result
+
             if self._config.use_context and session_id:
                 self._update_context(session_id, "user", text)
 
@@ -116,6 +126,7 @@ class IntentDetector:
                 return self._create_unknown_result(text, session_id)
 
             best_result = self._select_best_result(results, text, session_id)
+            self._coerce_action_enum(best_result)
 
             # 低置信度降级策略：如果置信度低于 0.6，触发二次确认或高级 LLM 校验
             if best_result.confidence < 0.6 and self._config.use_llm_fallback:
@@ -174,6 +185,81 @@ class IntentDetector:
             clarification_dialog=result.clarification,
             chain=[]
         )
+
+    def _detect_fast_action(self, text: str, session_id: str | None) -> IntentResult | None:
+        compact = text.strip().lower().replace(" ", "")
+
+        if any(token in compact for token in ["天气", "写一首诗", "写首诗"]):
+            return self._create_unknown_result(text, session_id)
+
+        fast_rules: list[tuple[tuple[str, ...], str, IntentCategory, str]] = [
+            (("当前活动窗口",), "window_active", IntentCategory.CUA_OPERATION, "Get active window"),
+            (("截图", "截屏", "屏幕照片", "屏幕截图"), "screenshot", IntentCategory.CUA_OPERATION, "Capture the screen"),
+            (("鼠标在哪", "鼠标位置", "获取鼠标位置", "当前位置鼠标"), "mouse_position", IntentCategory.CUA_OPERATION, "Get current mouse position"),
+            (("列出窗口", "所有窗口", "打开的窗口", "活动窗口", "显示窗口"), "window_list", IntentCategory.CUA_OPERATION, "List windows"),
+            (("创建文件", "新建文件", "创建readme", "新建readme"), "file_create", IntentCategory.FILE_OPERATION, "Create a file"),
+            (("读取", "查看", "打开readme"), "file_read", IntentCategory.FILE_OPERATION, "Read a file"),
+            (("列出目录", "显示目录", "当前目录文件", "目录内容"), "file_list", IntentCategory.FILE_OPERATION, "List directory contents"),
+        ]
+
+        for keywords, action_name, category, description in fast_rules:
+            if any(keyword in compact for keyword in keywords):
+                return self._build_fast_result(action_name, category, description, text, session_id)
+
+        if compact.startswith("创建") or compact.startswith("新建"):
+            return self._build_fast_result("file_create", IntentCategory.FILE_OPERATION, "Create a file", text, session_id)
+        if compact.startswith("读取") or compact.startswith("查看"):
+            return self._build_fast_result("file_read", IntentCategory.FILE_OPERATION, "Read a file", text, session_id)
+
+        return None
+
+    def _build_fast_result(
+        self,
+        action_name: str,
+        category: IntentCategory,
+        description: str,
+        text: str,
+        session_id: str | None,
+    ) -> IntentResult:
+        params = self._extract_fast_params(action_name, text)
+        result = IntentResult(
+            detected=True,
+            intent_type=action_name,
+            action=action_name,
+            params=params,
+            description=description,
+            confidence=0.98,
+            confidence_level=ConfidenceLevel.HIGH,
+            method=DetectionMethod.RULE,
+            category=category,
+            need_confirm=False,
+            alternatives=[],
+            raw_match=text,
+            session_id=session_id,
+        )
+        self._coerce_action_enum(result)
+        return result
+
+    def _extract_fast_params(self, action_name: str, text: str) -> dict[str, Any]:
+        params: dict[str, Any] = {}
+        if action_name not in {"file_create", "file_read", "file_delete", "file_write"}:
+            return params
+
+        match = re.search(r"([A-Za-z0-9_./\-]+\.[A-Za-z0-9_]+)", text)
+        if match:
+            params["file_path"] = match.group(1)
+        return params
+
+    def _coerce_action_enum(self, result: IntentResult) -> IntentResult:
+        if not result or not getattr(result, "action", None) or LegacyActionType is None:
+            return result
+
+        action_value = result.action.value if hasattr(result.action, "value") else str(result.action)
+        try:
+            result.action = LegacyActionType(action_value)
+        except Exception:
+            result.action = action_value
+        return result
 
     def _run_detection_methods(
         self,

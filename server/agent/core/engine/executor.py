@@ -242,6 +242,8 @@ class UnifiedExecutor(BaseExecutor):
             else:
                 result = await self._route_action(action, params)
 
+            result = self._coerce_execution_result(action, result)
+
             execution_time = (datetime.now() - start_time).total_seconds() * 1000
             result.duration_ms = execution_time
             result.action = action
@@ -269,6 +271,41 @@ class UnifiedExecutor(BaseExecutor):
                 error=str(e),
                 error_code=ErrorCode.INTERNAL_ERROR,
             )
+
+    def _coerce_execution_result(self, action: str, result: Any) -> ExecutionResult:
+        if isinstance(result, ExecutionResult):
+            return result
+
+        if hasattr(result, "success"):
+            legacy_error_code = getattr(result, "error_code", None)
+            normalized_error_code = None
+            if legacy_error_code:
+                try:
+                    normalized_error_code = ErrorCode(str(legacy_error_code).lower())
+                except Exception:
+                    normalized_error_code = ErrorCode.EXECUTION_ERROR
+
+            payload = getattr(result, "data", None)
+            if result.success:
+                return ExecutionResult.ok(
+                    action=action,
+                    message=getattr(result, "message", "Operation succeeded"),
+                    data=payload,
+                    output=payload,
+                )
+
+            return ExecutionResult.fail(
+                action=action,
+                error=getattr(result, "error", None) or getattr(result, "message", "Operation failed"),
+                error_code=normalized_error_code or ErrorCode.EXECUTION_ERROR,
+                data=payload,
+            )
+
+        return ExecutionResult.fail(
+            action=action,
+            error="Unknown execution result type",
+            error_code=ErrorCode.INTERNAL_ERROR,
+        )
 
     async def _route_action(self, action: str, params: dict[str, Any]) -> ExecutionResult:
         if self._legacy_handler and self._legacy_mode and action in LEGACY_PRIORITY_ACTIONS:

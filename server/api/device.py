@@ -66,6 +66,12 @@ def get_device_info() -> dict[str, Any]:
     info["memory_used"] = mem.used / (1024 ** 3)
     info["memory_free"] = mem.available / (1024 ** 3)
 
+    info["memory"] = {
+        "total_gb": round(info["memory_total"], 2),
+        "used_gb": round(info["memory_used"], 2),
+        "free_gb": round(info["memory_free"], 2),
+    }
+
     return info
 
 

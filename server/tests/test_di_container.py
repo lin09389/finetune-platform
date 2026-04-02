@@ -13,6 +13,8 @@ from core.di_container import (
 
 
 class TestService:
+    __test__ = False
+
     """测试服务"""
     def __init__(self, name: str = "default"):
         self.name = name
@@ -20,12 +22,16 @@ class TestService:
 
 
 class TestServiceWithDependency:
+    __test__ = False
+
     """带依赖的测试服务"""
     def __init__(self, dependency: TestService):
         self.dependency = dependency
 
 
 class TestDisposableService:
+    __test__ = False
+
     """可释放的测试服务"""
     def __init__(self):
         self.disposed = False

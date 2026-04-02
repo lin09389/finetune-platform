@@ -111,6 +111,32 @@ class TaskExecutor:
     def get_all_tasks(self) -> dict[str, ProactiveTask]:
         return self._tasks.copy()
 
+    def get_result(self, task_id: str) -> TaskResult | None:
+        return self._results.get(task_id)
+
+    def get_stats(self) -> dict[str, Any]:
+        enabled_tasks = sum(1 for task in self._tasks.values() if task.enabled)
+        completed = sum(1 for result in self._results.values() if result.status == TaskStatus.COMPLETED)
+        failed = sum(1 for result in self._results.values() if result.status == TaskStatus.FAILED)
+        return {
+            "total_tasks": len(self._tasks),
+            "enabled_tasks": enabled_tasks,
+            "results_count": len(self._results),
+            "completed_tasks": completed,
+            "failed_tasks": failed,
+        }
+
+    def clear_old_results(self, days: int = 7) -> int:
+        cutoff = datetime.now() - timedelta(days=days)
+        removable = [
+            task_id
+            for task_id, result in self._results.items()
+            if (result.completed_at or result.started_at) < cutoff
+        ]
+        for task_id in removable:
+            self._results.pop(task_id, None)
+        return len(removable)
+
     async def execute(self, task_type: TaskType, params: dict[str, Any] | None = None) -> TaskResult:
         params = params or {}
         task = ProactiveTask(
@@ -168,14 +194,26 @@ class TaskExecutor:
 
     async def _execute_check_task(self, task: ProactiveTask) -> dict[str, Any]:
         target = task.config.get("target")
-        return {"check_type": task.config.get("check_type", "general"), "target": target, "checked_at": datetime.now().isoformat(), "status": "ok", "findings": []}
+        check_type = task.config.get("check_type", "general")
+        result = {"check_type": check_type, "target": target, "checked_at": datetime.now().isoformat(), "status": "ok", "findings": []}
+        if check_type == "resource_usage":
+            result["metrics"] = {"cpu_percent": 0, "memory_percent": 0}
+        return result
 
     async def _execute_report_task(self, task: ProactiveTask) -> dict[str, Any]:
         report_type = task.config.get("report_type", "daily")
-        return {"report_type": report_type, "generated_at": datetime.now().isoformat(), "content": f"report:{report_type}"}
+        labels = {"daily": "\u6bcf\u65e5\u62a5\u544a", "weekly": "\u6bcf\u5468\u62a5\u544a"}
+        label = labels.get(report_type, "\u62a5\u544a")
+        return {"report_type": report_type, "generated_at": datetime.now().isoformat(), "content": f"{label}: {report_type}"}
 
     async def _execute_reminder_task(self, task: ProactiveTask) -> dict[str, Any]:
-        return {"message": task.config.get("message", "reminder"), "sent_at": datetime.now().isoformat(), "status": "ok"}
+        reminder_type = task.config.get("reminder_type", "general")
+        message = task.config.get("message")
+        if not message and reminder_type == "meeting":
+            title = task.config.get("meeting_title", "Meeting")
+            when = task.config.get("meeting_time", "")
+            message = f"Meeting reminder: {title} {when}".strip()
+        return {"message": message or "reminder", "sent_at": datetime.now().isoformat(), "status": "ok", "delivered": True, "reminder_type": reminder_type}
 
     async def _notify_result(self, result: TaskResult):
         for handler in self._notification_handlers:

@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 
 class MessageRole(str, Enum):
@@ -24,8 +24,7 @@ class Message(BaseModel):
     timestamp: datetime | None = None
     metadata: dict[str, Any] | None = None
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class InferenceOptions(BaseModel):
@@ -85,7 +84,11 @@ class MemoryContextInfo(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    model: str = Field(..., description="模型 ID")
+    model: str = Field(
+        ...,
+        validation_alias=AliasChoices("model", "model_id"),
+        description="模型 ID",
+    )
     messages: list[Message] = Field(..., description="消息历史")
     options: InferenceOptions = Field(default_factory=InferenceOptions, description="推理选项")
     stream: bool = Field(default=False, description="是否流式输出")
@@ -140,7 +143,11 @@ class ChatResponse(BaseModel):
 
 
 class GenerateRequest(BaseModel):
-    model: str = Field(..., description="模型 ID")
+    model: str = Field(
+        ...,
+        validation_alias=AliasChoices("model", "model_id"),
+        description="模型 ID",
+    )
     prompt: str = Field(..., description="提示文本")
     system: str | None = Field(default=None, description="系统提示")
     template: str | None = Field(default=None, description="模板")

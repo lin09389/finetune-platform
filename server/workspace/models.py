@@ -7,7 +7,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProjectStatus(str, Enum):
@@ -66,8 +66,7 @@ class Project(BaseModel):
     file_count: int = Field(default=0, description="文件数量")
     total_size: int = Field(default=0, description="总大小（字节）")
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class FileVersion(BaseModel):
@@ -107,8 +106,7 @@ class FileInfo(BaseModel):
     updated_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="更新时间")
     tags: list[str] = Field(default_factory=list, description="文件标签")
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class ProjectStatistics(BaseModel):
@@ -212,8 +210,7 @@ class Task(BaseModel):
     completed_at: str | None = Field(default=None, description="完成时间")
     created_by: str | None = Field(default=None, description="创建者")
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class TaskNotification(BaseModel):

@@ -26,6 +26,22 @@ global.ResizeObserver = vi.fn().mockImplementation(() => ({
 // Mock scrollTo
 window.scrollTo = vi.fn() as unknown as typeof window.scrollTo
 
+// rc-table / antd may request computed styles with pseudo elements in jsdom.
+const originalGetComputedStyle = window.getComputedStyle.bind(window)
+window.getComputedStyle = ((element: Element, pseudoElt?: string | null) => {
+  if (pseudoElt) {
+    return {
+      getPropertyValue: () => '',
+      overflow: 'auto',
+      overflowX: 'auto',
+      overflowY: 'auto',
+      width: '0px',
+      height: '0px',
+    } as CSSStyleDeclaration
+  }
+  return originalGetComputedStyle(element)
+}) as typeof window.getComputedStyle
+
 // Mock localStorage
 const localStorageMock = {
   getItem: vi.fn(),

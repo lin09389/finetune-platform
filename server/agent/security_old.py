@@ -201,7 +201,9 @@ class SecurityValidator:
 
     def is_dangerous_action(self, action: ActionType) -> bool:
         """检查是否为危险操作"""
-        return action in DANGEROUS_ACTIONS
+        if action in DANGEROUS_ACTIONS:
+            return True
+        return action == ActionType.FILE_WRITE
 
     def validate_content(self, content: str, max_size: int = 10 * 1024 * 1024) -> ValidationResult:
         """

@@ -293,6 +293,12 @@ class DIContainer:
     ) -> T:
         """创建服务实例"""
         if descriptor.factory:
+            try:
+                factory_sig = inspect.signature(descriptor.factory)
+                if len(factory_sig.parameters) == 0:
+                    return descriptor.factory()
+            except (TypeError, ValueError):
+                pass
             return descriptor.factory(self)
 
         implementation = descriptor.implementation

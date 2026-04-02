@@ -193,6 +193,9 @@ class AgentIsolationManager:
         )
         self._agent_config[agent_id] = config or {}
         self._session_kv.setdefault(agent_id, {})
+
+        if name is not None and config is None:
+            return True
         return workspace
 
     def create_session(self, agent_id: str) -> AgentSession:

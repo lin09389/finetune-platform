@@ -35,6 +35,27 @@ class TrainingProgress(BaseModel):
     status: str = "idle"
     message: str = ""
 
+    def __await__(self):
+        async def _return_self():
+            return self
+        return _return_self().__await__()
+
+
+class AwaitableBool:
+    def __init__(self, value: bool):
+        self.value = value
+
+    def __bool__(self):
+        return self.value
+
+    def __eq__(self, other):
+        return self.value == other
+
+    def __await__(self):
+        async def _return_value():
+            return self.value
+        return _return_value().__await__()
+
 
 class TrainingRecord(BaseModel):
     """训练记录"""

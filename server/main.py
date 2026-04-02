@@ -404,7 +404,8 @@ async def root():
     """根路由"""
     return {
         "message": "Finetune Platform API",
-        "version": "2.0.0",
+        "version": "1.0.0",
+        "api_version": "2.0.0",
         "docs": "/docs",
         "health": "/health"
     }
@@ -417,7 +418,8 @@ async def health_check():
     from agent.intent.methods.bert_classifier import bert_classifier
 
     health = {
-        "status": "healthy",
+        "status": "ok",
+        "service_status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "version": "2.0.0",
         "cuda_available": torch.cuda.is_available() if hasattr(torch, "cuda") else False,

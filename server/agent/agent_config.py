@@ -5,7 +5,7 @@ import platform
 from enum import Enum
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ActionType(str, Enum):
@@ -152,5 +152,4 @@ class AgentConfig(BaseModel):
 
     operation_timeout: int = 30
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)

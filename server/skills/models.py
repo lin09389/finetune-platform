@@ -5,7 +5,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SkillStatus(str, Enum):
@@ -86,8 +86,7 @@ class SkillMetadata(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
     updated_at: datetime = Field(default_factory=datetime.now, description="更新时间")
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class SkillResult(BaseModel):
@@ -103,8 +102,7 @@ class SkillResult(BaseModel):
     tokens_used: int | None = Field(default=None, description="使用的 token 数量")
     created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class SkillExecution(BaseModel):
@@ -131,8 +129,7 @@ class SkillExecution(BaseModel):
             return int(delta.total_seconds() * 1000)
         return None
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class SkillChain(BaseModel):

@@ -399,7 +399,7 @@ async def list_models(backend: str | None = Query(None, description="后端类�
     try:
         scheduler = get_scheduler()
         models = await scheduler.list_models(backend)
-        return {"models": models}
+        return models
     except Exception as e:
         logger.error(f"获取模型列表失败: {e}")
         raise HTTPException(status_code=500, detail=f"获取模型列表失败: {str(e)}")
