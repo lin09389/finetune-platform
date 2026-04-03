@@ -45,6 +45,9 @@ interface ChatHeaderProps {
   useKnowledge: boolean
   onToggleKnowledge: () => void
   collectionsCount: number
+  knowledgeCollections: { id: string; name: string }[]
+  selectedKnowledgeCollection?: string
+  onKnowledgeCollectionChange: (collectionId?: string) => void
   
   useMemory: boolean
   onToggleMemory: () => void
@@ -76,6 +79,9 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
   useKnowledge,
   onToggleKnowledge,
   collectionsCount,
+  knowledgeCollections,
+  selectedKnowledgeCollection,
+  onKnowledgeCollectionChange,
   useMemory,
   onToggleMemory,
   theme,
@@ -202,6 +208,20 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
           </motion.div>
         </Tooltip>
         
+        <Select
+          placeholder="知识库集合"
+          value={selectedKnowledgeCollection}
+          onChange={onKnowledgeCollectionChange}
+          className={styles.select}
+          options={knowledgeCollections.map((collection) => ({
+            value: collection.id,
+            label: collection.name,
+          }))}
+          disabled={collectionsCount === 0}
+          allowClear
+          bordered={false}
+        />
+
         {!useCloudAI && (
           <Space size="small">
             <Select

@@ -68,8 +68,11 @@ describe('WorkspaceManager', () => {
     })
   })
 
-  it('shows create button', () => {
+  it('shows create button', async () => {
     render(<WorkspaceManager />)
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8000/workspace/workspaces')
+    })
     expect(screen.getByTestId('workspace-create-primary')).toBeInTheDocument()
   })
 

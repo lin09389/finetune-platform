@@ -49,13 +49,19 @@ class SessionResponse(BaseModel):
 
 
 @router.post("/sessions")
-async def create_session(title: str = "New Chat"):
+async def create_session(request: CreateSessionRequest | None = None, title: str | None = None):
     manager = get_session_manager()
-    session = manager.create_session(title=title)
+    resolved_title = request.title if request and request.title else (title or "New Chat")
+    session = manager.create_session(
+        title=resolved_title,
+        metadata=request.metadata if request else None,
+    )
     return {
         "id": session.id,
         "title": session.title,
+        "message_count": session.message_count,
         "created_at": session.created_at.isoformat(),
+        "updated_at": session.updated_at.isoformat(),
     }
 
 

@@ -297,7 +297,12 @@ export default function SkillMemory() {
               清除历史
             </Button>
           </Space>
-          <Table columns={historyColumns} dataSource={history} rowKey={(_, i) => i?.toString() || '0'} pagination={{ pageSize: 20 }} />
+          <Table
+            columns={historyColumns}
+            dataSource={history}
+            rowKey={(record) => `${record.skill_name}-${record.timestamp}-${record.duration}`}
+            pagination={{ pageSize: 20 }}
+          />
         </Card>
       ),
     },

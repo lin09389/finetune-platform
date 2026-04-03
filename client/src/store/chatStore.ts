@@ -1,6 +1,10 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { ChatMessage } from '../types'
+import type {
+  ChatMessage,
+  PlaygroundAttachment,
+  PlaygroundSnapshot,
+} from '../types'
 import { API_BASE_URL } from '../services/api'
 
 export interface ChatSession {
@@ -30,9 +34,12 @@ export interface ChatSettings {
   useKnowledge: boolean
   knowledgeCollection?: string
   useMemory: boolean
+  systemPrompt: string
   temperature: number
+  topP: number
   maxTokens: number
   autoRetrieve: boolean
+  responseFormat: 'text' | 'json'
 }
 
 export interface StreamState {
@@ -56,6 +63,12 @@ interface ChatStore {
   error: string | null
   settings: ChatSettings
   streamState: StreamState
+  promptDraft: string
+  attachments: PlaygroundAttachment[]
+  selectedExperimentId: string | null
+  responseView: 'response' | 'sources' | 'metadata' | 'raw'
+  lastRunMetadata: PlaygroundSnapshot | null
+  experimentSnapshots: PlaygroundSnapshot[]
 
   createSession: (title?: string, modelId?: string) => Promise<ChatSession>
   loadSession: (sessionId: string) => Promise<void>
@@ -82,6 +95,15 @@ interface ChatStore {
   cancelAgentExecution: () => void
 
   updateSettings: (settings: Partial<ChatSettings>) => void
+  setPromptDraft: (prompt: string) => void
+  setAttachments: (attachments: PlaygroundAttachment[]) => void
+  addAttachment: (attachment: PlaygroundAttachment) => void
+  removeAttachment: (attachmentId: string) => void
+  clearAttachments: () => void
+  addExperimentSnapshot: (snapshot: PlaygroundSnapshot) => void
+  setSelectedExperimentId: (experimentId: string | null) => void
+  setResponseView: (view: ChatStore['responseView']) => void
+  setLastRunMetadata: (snapshot: PlaygroundSnapshot | null) => void
 
   setError: (error: string | null) => void
   setIsLoading: (loading: boolean) => void
@@ -104,9 +126,12 @@ export const useChatStore = create<ChatStore>()(
         backend: 'ollama',
         useKnowledge: false,
         useMemory: true,
+        systemPrompt: '',
         temperature: 0.7,
+        topP: 0.9,
         maxTokens: 2048,
         autoRetrieve: true,
+        responseFormat: 'text',
       },
       streamState: {
         status: 'idle',
@@ -116,6 +141,12 @@ export const useChatStore = create<ChatStore>()(
         startTime: null,
         bytesReceived: 0,
       },
+      promptDraft: '',
+      attachments: [],
+      selectedExperimentId: null,
+      responseView: 'response',
+      lastRunMetadata: null,
+      experimentSnapshots: [],
 
       createSession: async (title = '新对话', modelId) => {
         try {
@@ -165,17 +196,34 @@ export const useChatStore = create<ChatStore>()(
 
       loadSession: async (sessionId) => {
         try {
-          const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}`)
+          const [sessionResponse, messagesResponse] = await Promise.all([
+            fetch(`${API_BASE_URL}/chat/sessions/${sessionId}`),
+            fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/messages`),
+          ])
           
-          if (!response.ok) {
+          if (!sessionResponse.ok || !messagesResponse.ok) {
             throw new Error('加载会话失败')
           }
           
-          const data = await response.json()
+          const sessionData = await sessionResponse.json()
+          const messagesData = await messagesResponse.json()
           
           set({
             currentSessionId: sessionId,
-            messages: data.messages || [],
+            messages: (messagesData.messages || []).map((message: any) => ({
+              ...message,
+              timestamp: message.created_at || message.timestamp,
+            })),
+            sessions: get().sessions.map((session) =>
+              session.id === sessionId
+                ? {
+                    ...session,
+                    title: sessionData.title || session.title,
+                    messageCount: sessionData.message_count ?? session.messageCount,
+                    updatedAt: sessionData.updated_at || session.updatedAt,
+                  }
+                : session
+            ),
           })
         } catch (error) {
           console.error('加载会话失败:', error)
@@ -393,6 +441,50 @@ export const useChatStore = create<ChatStore>()(
         }))
       },
 
+      setPromptDraft: (promptDraft) => {
+        set({ promptDraft })
+      },
+
+      setAttachments: (attachments) => {
+        set({ attachments })
+      },
+
+      addAttachment: (attachment) => {
+        set((state) => ({
+          attachments: [...state.attachments, attachment],
+        }))
+      },
+
+      removeAttachment: (attachmentId) => {
+        set((state) => ({
+          attachments: state.attachments.filter((attachment) => attachment.id !== attachmentId),
+        }))
+      },
+
+      clearAttachments: () => {
+        set({ attachments: [] })
+      },
+
+      addExperimentSnapshot: (snapshot) => {
+        set((state) => ({
+          experimentSnapshots: [snapshot, ...state.experimentSnapshots].slice(0, 100),
+          selectedExperimentId: snapshot.id,
+          lastRunMetadata: snapshot,
+        }))
+      },
+
+      setSelectedExperimentId: (selectedExperimentId) => {
+        set({ selectedExperimentId })
+      },
+
+      setResponseView: (responseView) => {
+        set({ responseView })
+      },
+
+      setLastRunMetadata: (lastRunMetadata) => {
+        set({ lastRunMetadata })
+      },
+
       setError: (error) => {
         set({ error })
       },
@@ -407,6 +499,12 @@ export const useChatStore = create<ChatStore>()(
         currentSessionId: state.currentSessionId,
         settings: state.settings,
         sessions: state.sessions.slice(0, 50),
+        promptDraft: state.promptDraft,
+        attachments: state.attachments,
+        selectedExperimentId: state.selectedExperimentId,
+        responseView: state.responseView,
+        lastRunMetadata: state.lastRunMetadata,
+        experimentSnapshots: state.experimentSnapshots.slice(0, 50),
       }),
     }
   )

@@ -354,14 +354,13 @@ class UnifiedContextManager:
 
         try:
             memory_service = self._get_memory_service()
+            memory_service.set_session(session_id=session_id, user_id=user_id)
 
-            memories = memory_service.recall(
+            memories = await memory_service.recall(
                 query=query,
-                user_id=user_id,
                 session_id=session_id,
                 top_k=options.memory_top_k,
-                memory_type=options.memory_include_types[0] if options.memory_include_types else None,
-                include_graph=True
+                memory_type=options.memory_include_types[0] if options.memory_include_types else None
             )
 
             for mem in memories:
@@ -550,13 +549,12 @@ class UnifiedContextManager:
         """
         try:
             memory_service = self._get_memory_service()
+            memory_service.set_session(session_id=session_id or "default", user_id=user_id)
 
-            result = memory_service.process_message(
+            result = await memory_service.process_message(
                 message=message,
                 role=role,
-                user_id=user_id,
-                session_id=session_id,
-                extract_memories=True
+                extract=True
             )
 
             self._cache.clear_session(session_id or "default")

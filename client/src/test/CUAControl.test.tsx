@@ -59,14 +59,20 @@ describe('CUAControl', () => {
     })
   })
 
-  it('renders main panel title', () => {
+  it('renders main panel title', async () => {
     render(<CUAControl />)
     expect(screen.getByText(/Computer Use Agent/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(mockApiGet).toHaveBeenCalledWith('/cua/screen/info')
+    })
   })
 
-  it('shows screenshot action in default tab', () => {
+  it('shows screenshot action in default tab', async () => {
     render(<CUAControl />)
     expect(screen.getByTestId('cua-btn-screenshot')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(mockApiGet).toHaveBeenCalledWith('/cua/mouse/position')
+    })
   })
 
   it('renders mouse controls after switching tab', async () => {

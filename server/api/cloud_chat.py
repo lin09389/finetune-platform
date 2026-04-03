@@ -8,12 +8,14 @@
 """
 import json
 import logging
+import time
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from api.types import KnowledgeSource, MemoryContextInfo, UnifiedContextInfo
 from ai.gateway import get_provider, list_providers
 from security.audit_log import audit_logger
 from security.encryption import secure_storage
@@ -27,7 +29,7 @@ class CloudChatRequest(BaseModel):
     """云端聊天请求"""
     provider: str = Field(..., description="服务商：minimax/glm")
     model: str | None = Field(None, description="模型名称")
-    messages: list[dict[str, str]] = Field(..., description="消息列表")
+    messages: list[dict[str, Any]] = Field(..., description="消息列表")
     temperature: float = Field(default=0.7, ge=0, le=2, description="温度参数")
     max_tokens: int = Field(default=2000, ge=1, le=32000, description="最大生成 token 数")
     stream: bool = Field(default=False, description="是否流式输出")
@@ -37,6 +39,13 @@ class CloudChatRequest(BaseModel):
     group_id: str | None = Field(None, description="Group ID（可选，用于 Minimax）")
     base_url: str | None = Field(None, description="自定义 Base URL（可选）")
     version: str | None = Field(None, description="版本标签（用于灰度分流）")
+    system_prompt: str | None = Field(default=None, description="System prompt")
+    attachments: list[dict[str, Any]] = Field(default_factory=list, description="Prompt attachments")
+    response_format: str | None = Field(default=None, description="Response format")
+    memory: dict[str, Any] | None = Field(default=None, description="记忆配置")
+    knowledge: dict[str, Any] | None = Field(default=None, description="知识库配置")
+    context: dict[str, Any] | None = Field(default=None, description="项目上下文配置")
+    session: dict[str, Any] | None = Field(default=None, description="会话配置")
 
 
 class CloudChatResponse(BaseModel):
@@ -45,6 +54,12 @@ class CloudChatResponse(BaseModel):
     content: str
     provider: str
     model: str
+    knowledge_sources: list[KnowledgeSource] | None = None
+    retrieval_info: dict[str, Any] | None = None
+    memory_context: MemoryContextInfo | None = None
+    unified_context: UnifiedContextInfo | None = None
+    raw_response: dict[str, Any] | None = None
+    duration_ms: int | None = None
 
 
 class ProviderInfo(BaseModel):
@@ -84,6 +99,150 @@ class APIKeyStatus(BaseModel):
     has_group_id: bool = False
 
 
+async def _build_cloud_context(request: CloudChatRequest) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    messages = [dict(message) for message in request.messages]
+    if request.attachments:
+        attachment_notes: list[str] = []
+        image_attachments = [attachment for attachment in request.attachments if attachment.get("type") == "image"]
+
+        for attachment in request.attachments:
+            if attachment.get("type") == "image":
+                continue
+
+            snippet = (attachment.get("content") or "").strip()
+            if len(snippet) > 2000:
+                snippet = snippet[:2000] + "..."
+            attachment_notes.append(
+                f"[{attachment.get('name', 'attachment')}]\n{snippet or 'No readable text content provided.'}"
+            )
+
+        if attachment_notes and messages:
+            for message in reversed(messages):
+                if message.get("role") == "user":
+                    message["content"] = (
+                        f"{message.get('content', '').strip()}\n\nAttached context:\n\n"
+                        + "\n\n".join(attachment_notes)
+                    ).strip()
+                    break
+
+        if image_attachments:
+            supports_image = request.provider == "glm" and request.model == "glm-4v"
+            if not supports_image:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Image attachments currently require the GLM provider with the glm-4v model.",
+                )
+
+            for message in reversed(messages):
+                if message.get("role") != "user":
+                    continue
+
+                image_blocks = []
+                for attachment in image_attachments:
+                    preview_url = attachment.get("preview_url") or attachment.get("content")
+                    if preview_url:
+                        image_blocks.append(
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": preview_url},
+                            }
+                        )
+
+                message["content"] = [
+                    {"type": "text", "text": message.get("content", "")},
+                    *image_blocks,
+                ]
+                break
+
+    last_user_message = next((msg.get("content", "") for msg in reversed(messages) if msg.get("role") == "user"), "")
+    if isinstance(last_user_message, list):
+        last_user_message = next(
+            (
+                part.get("text", "")
+                for part in last_user_message
+                if isinstance(part, dict) and part.get("type") == "text"
+            ),
+            "",
+        )
+    if not last_user_message:
+        return messages, {}
+
+    memory_options = request.memory or {}
+    knowledge_options = request.knowledge or {}
+    context_options = request.context or {}
+    session_options = request.session or {}
+
+    from context.unified_manager import ContextOptions, get_unified_context_manager
+
+    manager = get_unified_context_manager()
+    unified_context = await manager.build_context(
+        query=last_user_message,
+        user_id=session_options.get("user_id", "default"),
+        session_id=session_options.get("session_id"),
+        options=ContextOptions(
+            use_memory=bool(memory_options.get("enabled", True) and memory_options.get("auto_retrieve", True)),
+            use_knowledge=bool(knowledge_options.get("use_knowledge", False)),
+            use_project_context=bool(context_options.get("use_context", False)),
+            memory_top_k=int(memory_options.get("top_k", 3)),
+            memory_include_types=memory_options.get("include_types"),
+            knowledge_collection_id=knowledge_options.get("collection_id"),
+            knowledge_top_k=int(knowledge_options.get("top_k", 5)),
+            knowledge_auto_retrieve=bool(knowledge_options.get("auto_retrieve", True)),
+            project_path=context_options.get("project_path"),
+            project_max_length=int(context_options.get("max_context_length", 1500)),
+        ),
+    )
+
+    metadata: dict[str, Any] = {}
+    if unified_context.total_sources > 0:
+        system_prompt = unified_context.build_system_prompt(
+            base_prompt=request.system_prompt or "你是一个有帮助的 AI 助手。"
+        )
+        if messages and messages[0].get("role") == "system":
+            messages[0]["content"] = f"{system_prompt}\n\n{messages[0].get('content', '')}".strip()
+        else:
+            messages.insert(0, {"role": "system", "content": system_prompt})
+
+        if unified_context.knowledge_sources:
+            metadata["knowledge_sources"] = [
+                {
+                    "id": source.id,
+                    "source": source.source,
+                    "score": source.score,
+                    "content_preview": source.content[:100] + "..." if len(source.content) > 100 else source.content,
+                }
+                for source in unified_context.knowledge_sources
+            ]
+            metadata["retrieval_info"] = {
+                "query": last_user_message,
+                "method": "unified",
+                "total_results": unified_context.knowledge_count,
+                "retrieval_time": unified_context.knowledge_retrieval_time,
+            }
+
+        if unified_context.memory_count > 0:
+            metadata["memory_context"] = {
+                "retrieved": True,
+                "sources_count": unified_context.memory_count,
+                "context_preview": unified_context.context_text[:200] if unified_context.context_text else "",
+            }
+
+        metadata["unified_context"] = {
+            "total_sources": unified_context.total_sources,
+            "memory_count": unified_context.memory_count,
+            "knowledge_count": unified_context.knowledge_count,
+            "project_count": unified_context.project_count,
+            "retrieval_time": unified_context.retrieval_time,
+        }
+
+    if request.system_prompt and (
+        not messages or messages[0].get("role") != "system"
+    ):
+        messages.insert(0, {"role": "system", "content": request.system_prompt})
+
+    return messages, metadata
+
+
 @router.get("/providers", response_model=ProviderListResponse)
 async def get_providers():
     """获取支持的云端 AI 服务商列表"""
@@ -106,10 +265,25 @@ async def get_providers():
 async def cloud_chat(request: CloudChatRequest):
     """云端 AI 聊天"""
     try:
+        start_time = time.time()
+        api_key = request.api_key
+        group_id = request.group_id or ""
+        base_url = request.base_url or ""
+
+        if not api_key:
+            key_data = secure_storage.get(f"cloud_{request.provider}_key")
+            if key_data:
+                api_key = key_data.get("api_key", "")
+                group_id = group_id or key_data.get("group_id", "")
+                base_url = base_url or key_data.get("base_url", "")
+
+        if not api_key:
+            raise HTTPException(status_code=400, detail=f"未配置 {request.provider} 的 API Key")
+
         provider = get_provider(
             request.provider,
-            group_id=request.group_id or "",
-            base_url=request.base_url or "",
+            group_id=group_id,
+            base_url=base_url,
             version=request.version or ""
         )
 
@@ -117,10 +291,12 @@ async def cloud_chat(request: CloudChatRequest):
             raise HTTPException(status_code=400, detail=f"不支持的服务商：{request.provider}")
 
         model = request.model or provider.get_default_model()
+        messages, metadata = await _build_cloud_context(request)
 
         response = await provider.chat(
-            messages=request.messages,
+            messages=messages,
             model=model,
+            api_key=api_key,
             temperature=request.temperature,
             max_tokens=request.max_tokens,
             extra_params=request.extra_params
@@ -140,7 +316,13 @@ async def cloud_chat(request: CloudChatRequest):
             success=True,
             content=response.get("content", ""),
             provider=request.provider,
-            model=model
+            model=model,
+            knowledge_sources=[KnowledgeSource(**source) for source in metadata.get("knowledge_sources", [])] or None,
+            retrieval_info=metadata.get("retrieval_info"),
+            memory_context=MemoryContextInfo(**metadata["memory_context"]) if metadata.get("memory_context") else None,
+            unified_context=UnifiedContextInfo(**metadata["unified_context"]) if metadata.get("unified_context") else None,
+            raw_response=response,
+            duration_ms=int((time.time() - start_time) * 1000),
         )
 
     except Exception as e:
@@ -160,6 +342,7 @@ async def cloud_chat_stream(request: CloudChatRequest):
     """云端 AI 流式聊天"""
     async def generate():
         try:
+            start_time = time.time()
             # 获取 API Key（优先使用请求中的，否则从安全存储获取）
             api_key = request.api_key
             group_id = request.group_id or ""
@@ -189,9 +372,12 @@ async def cloud_chat_stream(request: CloudChatRequest):
                 return
 
             model = request.model or provider.get_default_model()
+            messages, metadata = await _build_cloud_context(request)
+            if metadata:
+                yield f"data: {json.dumps({'type': 'metadata', 'model': model, 'backend': 'cloud', **metadata}, ensure_ascii=False)}\n\n"
 
             async for chunk in provider.chat_stream(
-                messages=request.messages,
+                messages=messages,
                 model=model,
                 temperature=request.temperature,
                 max_tokens=request.max_tokens,
@@ -200,6 +386,26 @@ async def cloud_chat_stream(request: CloudChatRequest):
             ):
                 yield f"data: {json.dumps(chunk)}\n\n"
 
+            last_user_message = next(
+                (message.get("content", "") for message in reversed(request.messages) if message.get("role") == "user"),
+                "",
+            )
+            if request.memory and request.memory.get("enabled", True) and request.memory.get("auto_extract", True) and last_user_message:
+                try:
+                    from context.unified_manager import get_unified_context_manager
+
+                    manager = get_unified_context_manager()
+                    session_options = request.session or {}
+                    await manager.extract_and_store_memory(
+                        message=last_user_message,
+                        role="user",
+                        user_id=session_options.get("user_id", "default"),
+                        session_id=session_options.get("session_id"),
+                    )
+                except Exception as memory_error:
+                    logger.warning(f"cloud chat memory extraction failed: {memory_error}")
+
+            yield f"data: {json.dumps({'type': 'metadata', 'model': model, 'backend': 'cloud', 'duration_ms': int((time.time() - start_time) * 1000)}, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
 
         except Exception as e:

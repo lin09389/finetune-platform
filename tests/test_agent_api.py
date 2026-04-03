@@ -1,48 +1,50 @@
-import requests
 import json
+import requests
 
-BASE_URL = "http://127.0.0.1:8000"
+BASE_URL = 'http://127.0.0.1:8000'
 
-print("=" * 50)
-print("测试 Agent API")
-print("=" * 50)
 
-# 测试 1: 检测意图
-print("\n[测试 1] 检测意图: 打开计算器")
-response = requests.post(
-    f"{BASE_URL}/agent/detect-intent",
-    json={"message": "打开计算器"}
-)
-print(f"状态码: {response.status_code}")
-print(f"响应: {json.dumps(response.json(), ensure_ascii=False, indent=2)}")
+def main() -> None:
+    print('=' * 50)
+    print('娴嬭瘯 Agent API')
+    print('=' * 50)
 
-# 测试 2: 执行操作
-print("\n[测试 2] 执行操作: app_open calculator")
-response = requests.post(
-    f"{BASE_URL}/agent/execute",
-    json={"action": "app_open", "params": {"app_name": "calculator"}}
-)
-print(f"状态码: {response.status_code}")
-print(f"响应: {json.dumps(response.json(), ensure_ascii=False, indent=2)}")
+    print('\n[娴嬭瘯 1] 妫€娴嬫剰鍥? 鎵撳紑璁＄畻鍣?')
+    response = requests.post(
+        f'{BASE_URL}/agent/detect-intent',
+        json={'message': '鎵撳紑璁＄畻鍣?'},
+    )
+    print(f'鐘舵€佺爜: {response.status_code}')
+    print(f"鍝嶅簲: {json.dumps(response.json(), ensure_ascii=False, indent=2)}")
 
-# 测试 3: chat-execute
-print("\n[测试 3] chat-execute: 打开计算器")
-response = requests.post(
-    f"{BASE_URL}/agent/chat-execute",
-    json={"message": "打开计算器", "auto_confirm": False}
-)
-print(f"状态码: {response.status_code}")
-print(f"响应: {json.dumps(response.json(), ensure_ascii=False, indent=2)}")
+    print('\n[娴嬭瘯 2] 鎵ц鎿嶄綔: app_open calculator')
+    response = requests.post(
+        f'{BASE_URL}/agent/execute',
+        json={'action': 'app_open', 'params': {'app_name': 'calculator'}},
+    )
+    print(f'鐘舵€佺爜: {response.status_code}')
+    print(f"鍝嶅簲: {json.dumps(response.json(), ensure_ascii=False, indent=2)}")
 
-# 测试 4: 打开记事本
-print("\n[测试 4] 执行操作: app_open notepad")
-response = requests.post(
-    f"{BASE_URL}/agent/execute",
-    json={"action": "app_open", "params": {"app_name": "notepad"}}
-)
-print(f"状态码: {response.status_code}")
-print(f"响应: {json.dumps(response.json(), ensure_ascii=False, indent=2)}")
+    print('\n[娴嬭瘯 3] chat-execute: 鎵撳紑璁＄畻鍣?')
+    response = requests.post(
+        f'{BASE_URL}/agent/chat-execute',
+        json={'message': '鎵撳紑璁＄畻鍣?', 'auto_confirm': False},
+    )
+    print(f'鐘舵€佺爜: {response.status_code}')
+    print(f"鍝嶅簲: {json.dumps(response.json(), ensure_ascii=False, indent=2)}")
 
-print("\n" + "=" * 50)
-print("测试完成")
-print("=" * 50)
+    print('\n[娴嬭瘯 4] 鎵ц鎿嶄綔: app_open notepad')
+    response = requests.post(
+        f'{BASE_URL}/agent/execute',
+        json={'action': 'app_open', 'params': {'app_name': 'notepad'}},
+    )
+    print(f'鐘舵€佺爜: {response.status_code}')
+    print(f"鍝嶅簲: {json.dumps(response.json(), ensure_ascii=False, indent=2)}")
+
+    print('\n' + '=' * 50)
+    print('娴嬭瘯瀹屾垚')
+    print('=' * 50)
+
+
+if __name__ == '__main__':
+    main()

@@ -37,7 +37,7 @@ window.getComputedStyle = ((element: Element, pseudoElt?: string | null) => {
       overflowY: 'auto',
       width: '0px',
       height: '0px',
-    } as CSSStyleDeclaration
+    } as unknown as CSSStyleDeclaration
   }
   return originalGetComputedStyle(element)
 }) as typeof window.getComputedStyle

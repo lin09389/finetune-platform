@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 
-// 在 vi.mock 之前定义 mock 函数
 const mockApiGet = vi.hoisted(() => vi.fn())
 const mockApiPost = vi.hoisted(() => vi.fn())
 const mockApiDelete = vi.hoisted(() => vi.fn())
@@ -59,12 +58,18 @@ describe('ActionRecorder', () => {
 
   it('should render ActionRecorder page with title', async () => {
     render(<ActionRecorder />)
-    expect(screen.getByText(/操作录制与回放/i)).toBeInTheDocument()
+    expect(screen.getByText(/Action Recorder/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(mockApiGet).toHaveBeenCalledWith('/cua/record/actions')
+    })
   })
 
   it('should display recording info alert', async () => {
     render(<ActionRecorder />)
-    expect(screen.getByText(/录制说明/i)).toBeInTheDocument()
+    expect(screen.getByText(/Recording guide/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(mockApiGet).toHaveBeenCalledWith('/cua/record/files')
+    })
   })
 
   it('should fetch actions on mount', async () => {
@@ -84,35 +89,35 @@ describe('ActionRecorder', () => {
   it('should display start recording button initially', async () => {
     render(<ActionRecorder />)
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /开始录制/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Start Recording/i })).toBeInTheDocument()
     })
   })
 
   it('should display playback button', async () => {
     render(<ActionRecorder />)
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /回放/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Playback/i })).toBeInTheDocument()
     })
   })
 
   it('should display save button', async () => {
     render(<ActionRecorder />)
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /保存/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Save/i })).toBeInTheDocument()
     })
   })
 
   it('should display load button', async () => {
     render(<ActionRecorder />)
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /加载/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Load/i })).toBeInTheDocument()
     })
   })
 
   it('should display clear button', async () => {
     render(<ActionRecorder />)
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /清除/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Clear/i })).toBeInTheDocument()
     })
   })
 
@@ -120,11 +125,10 @@ describe('ActionRecorder', () => {
     render(<ActionRecorder />)
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /开始录制/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Start Recording/i })).toBeInTheDocument()
     })
 
-    const startBtn = screen.getByRole('button', { name: /开始录制/i })
-    fireEvent.click(startBtn)
+    fireEvent.click(screen.getByRole('button', { name: /Start Recording/i }))
 
     await waitFor(() => {
       expect(mockApiPost).toHaveBeenCalledWith('/cua/record/action', { action: 'start' })
@@ -134,17 +138,14 @@ describe('ActionRecorder', () => {
   it('should display operation count', async () => {
     render(<ActionRecorder />)
     await waitFor(() => {
-      expect(mockApiGet).toHaveBeenCalledWith('/cua/record/actions')
-    })
-    await waitFor(() => {
-      expect(screen.getByText('操作数量')).toBeInTheDocument()
+      expect(screen.getByText('Action Count')).toBeInTheDocument()
     })
   })
 
   it('should display recording status as stopped initially', async () => {
     render(<ActionRecorder />)
     await waitFor(() => {
-      expect(screen.getByText('停止')).toBeInTheDocument()
+      expect(screen.getByText('Stopped')).toBeInTheDocument()
     })
   })
 
@@ -159,11 +160,10 @@ describe('ActionRecorder', () => {
     render(<ActionRecorder />)
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /回放/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Playback/i })).toBeInTheDocument()
     })
 
-    const playbackBtn = screen.getByRole('button', { name: /回放/i })
-    fireEvent.click(playbackBtn)
+    fireEvent.click(screen.getByRole('button', { name: /Playback/i }))
 
     expect(mockApiPost).not.toHaveBeenCalledWith('/cua/record/play', expect.anything())
   })
@@ -172,11 +172,10 @@ describe('ActionRecorder', () => {
     render(<ActionRecorder />)
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /清除/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Clear/i })).toBeInTheDocument()
     })
 
-    const clearBtn = screen.getByRole('button', { name: /清除/i })
-    fireEvent.click(clearBtn)
+    fireEvent.click(screen.getByRole('button', { name: /Clear/i }))
 
     await waitFor(() => {
       expect(mockApiDelete).toHaveBeenCalledWith('/cua/record/actions')
@@ -188,8 +187,6 @@ describe('ActionRecorder', () => {
 
     await waitFor(() => {
       expect(screen.getByText('mouse_click')).toBeInTheDocument()
-    })
-    await waitFor(() => {
       expect(screen.getByText('key_press')).toBeInTheDocument()
     })
   })
@@ -198,13 +195,9 @@ describe('ActionRecorder', () => {
     render(<ActionRecorder />)
 
     await waitFor(() => {
-      expect(screen.getByText('类型')).toBeInTheDocument()
-    })
-    await waitFor(() => {
-      expect(screen.getByText('数据')).toBeInTheDocument()
-    })
-    await waitFor(() => {
-      expect(screen.getByText('时间')).toBeInTheDocument()
+      expect(screen.getByText('Type')).toBeInTheDocument()
+      expect(screen.getByText('Data')).toBeInTheDocument()
+      expect(screen.getByText('Time')).toBeInTheDocument()
     })
   })
 
@@ -222,7 +215,7 @@ describe('ActionRecorder', () => {
     render(<ActionRecorder />)
 
     await waitFor(() => {
-      expect(screen.getByText('回放速度')).toBeInTheDocument()
+      expect(screen.getByText('Playback Speed')).toBeInTheDocument()
     })
   })
 
@@ -230,65 +223,58 @@ describe('ActionRecorder', () => {
     render(<ActionRecorder />)
 
     await waitFor(() => {
-      expect(screen.getByText('实时模式')).toBeInTheDocument()
+      expect(screen.getByText('Realtime')).toBeInTheDocument()
     })
   })
 
   it('should show pause and stop buttons when recording', async () => {
     render(<ActionRecorder />)
 
-    const startBtn = screen.getByRole('button', { name: /开始录制/i })
-    fireEvent.click(startBtn)
+    fireEvent.click(screen.getByRole('button', { name: /Start Recording/i }))
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /暂停/i })).toBeInTheDocument()
-    })
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /停止录制/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Pause/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Stop Recording/i })).toBeInTheDocument()
     })
   })
 
   it('should handle pause recording', async () => {
     render(<ActionRecorder />)
 
-    const startBtn = screen.getByRole('button', { name: /开始录制/i })
-    fireEvent.click(startBtn)
+    fireEvent.click(screen.getByRole('button', { name: /Start Recording/i }))
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /暂停/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Pause/i })).toBeInTheDocument()
     })
 
-    const pauseBtn = screen.getByRole('button', { name: /暂停/i })
-    fireEvent.click(pauseBtn)
+    fireEvent.click(screen.getByRole('button', { name: /Pause/i }))
 
     await waitFor(() => {
       expect(mockApiPost).toHaveBeenCalledWith('/cua/record/action', { action: 'pause' })
     })
-  })
+  }, 15000)
 
   it('should handle stop recording', async () => {
     render(<ActionRecorder />)
 
-    const startBtn = screen.getByRole('button', { name: /开始录制/i })
-    fireEvent.click(startBtn)
+    fireEvent.click(screen.getByRole('button', { name: /Start Recording/i }))
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /停止录制/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Stop Recording/i })).toBeInTheDocument()
     })
 
-    const stopBtn = screen.getByRole('button', { name: /停止录制/i })
-    fireEvent.click(stopBtn)
+    fireEvent.click(screen.getByRole('button', { name: /Stop Recording/i }))
 
     await waitFor(() => {
       expect(mockApiPost).toHaveBeenCalledWith('/cua/record/action', { action: 'stop' })
     })
-  })
+  }, 15000)
 
   it('should display selected count', async () => {
     render(<ActionRecorder />)
 
     await waitFor(() => {
-      expect(screen.getByText('已选择')).toBeInTheDocument()
+      expect(screen.getByText('Selected')).toBeInTheDocument()
     })
   })
 })

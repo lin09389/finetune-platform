@@ -83,6 +83,15 @@ class MemoryContextInfo(BaseModel):
     context_preview: str = Field(default="", description="上下文预览")
 
 
+class AttachmentInfo(BaseModel):
+    name: str = Field(..., description="Attachment name")
+    type: str = Field(..., description="Attachment type")
+    mime_type: str | None = Field(default=None, description="Attachment MIME type")
+    size: int | None = Field(default=None, description="Attachment size")
+    content: str | None = Field(default=None, description="Inline attachment content")
+    preview_url: str | None = Field(default=None, description="Preview URL or data URL")
+
+
 class ChatRequest(BaseModel):
     model: str = Field(
         ...,
@@ -93,6 +102,9 @@ class ChatRequest(BaseModel):
     options: InferenceOptions = Field(default_factory=InferenceOptions, description="推理选项")
     stream: bool = Field(default=False, description="是否流式输出")
     format: str | None = Field(default=None, description="输出格式: json/text")
+    system_prompt: str | None = Field(default=None, description="System prompt")
+    attachments: list[AttachmentInfo] = Field(default_factory=list, description="Prompt attachments")
+    response_format: str | None = Field(default=None, description="Response format alias")
     keep_alive: str | None = Field(default=None, description="模型保活时间")
 
     memory: MemoryOptions = Field(default_factory=MemoryOptions, description="记忆系统选项")
@@ -136,6 +148,8 @@ class ChatResponse(BaseModel):
 
     memory_context: MemoryContextInfo | None = Field(default=None, description="记忆上下文信息")
     unified_context: UnifiedContextInfo | None = Field(default=None, description="统一上下文信息")
+    raw_response: dict[str, Any] | None = Field(default=None, description="Raw backend payload")
+    duration_ms: int | None = Field(default=None, description="Duration in milliseconds")
 
     total_duration: float | None = Field(default=None, description="总耗时(秒)")
     load_duration: float | None = Field(default=None, description="模型加载耗时")

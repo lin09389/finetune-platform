@@ -1,12 +1,12 @@
 """
 云端推理后端实现 - 支持 OpenAI、Anthropic 等
 """
-import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
 from typing import Any
 
+from ai.gateway import get_provider
 from .base import BackendType, GenerationConfig, GenerationResult, InferenceBackend
 
 logger = logging.getLogger(__name__)
@@ -34,6 +34,7 @@ class CloudBackend(InferenceBackend):
 
     def __init__(self, config: dict[str, Any] = None):
         super().__init__(config)
+        config = self.config
 
         self.provider = config.get("provider", "openai")
         self.api_key = config.get("api_key", "")
@@ -185,14 +186,33 @@ class CloudBackend(InferenceBackend):
         config: GenerationConfig
     ) -> dict[str, Any]:
         """调用 API"""
-        await asyncio.sleep(0.1)
+        provider = get_provider(
+            self.provider,
+            group_id=self.config.get("group_id", ""),
+            base_url=self.base_url or "",
+            version=self.config.get("version", ""),
+        )
+        if provider is None:
+            raise ValueError(f"Unsupported cloud provider: {self.provider}")
+        if not self.api_key:
+            raise ValueError("API key not set")
 
+        model = self.model_name or provider.get_default_model()
+        response = await provider.chat(
+            messages=messages,
+            model=model,
+            api_key=self.api_key,
+            temperature=config.temperature,
+            max_tokens=config.max_tokens,
+            top_p=config.top_p,
+        )
+        usage = response.get("usage", {}) or {}
         return {
-            "content": "This is a simulated response from the cloud backend.",
-            "prompt_tokens": 10,
-            "completion_tokens": 10,
-            "total_tokens": 20,
-            "finish_reason": "stop"
+            "content": response.get("content", ""),
+            "prompt_tokens": usage.get("prompt_tokens", 0),
+            "completion_tokens": usage.get("completion_tokens", 0),
+            "total_tokens": usage.get("total_tokens", 0),
+            "finish_reason": response.get("finish_reason", "stop")
         }
 
     async def _stream_api(
@@ -201,8 +221,26 @@ class CloudBackend(InferenceBackend):
         config: GenerationConfig
     ) -> AsyncIterator[str]:
         """流式调用 API"""
-        response = "This is a simulated streaming response."
+        provider = get_provider(
+            self.provider,
+            group_id=self.config.get("group_id", ""),
+            base_url=self.base_url or "",
+            version=self.config.get("version", ""),
+        )
+        if provider is None:
+            raise ValueError(f"Unsupported cloud provider: {self.provider}")
+        if not self.api_key:
+            raise ValueError("API key not set")
 
-        for word in response.split():
-            yield word + " "
-            await asyncio.sleep(0.05)
+        model = self.model_name or provider.get_default_model()
+        async for chunk in provider.chat_stream(
+            messages=messages,
+            model=model,
+            api_key=self.api_key,
+            temperature=config.temperature,
+            max_tokens=config.max_tokens,
+            top_p=config.top_p,
+        ):
+            content = chunk.get("content", "")
+            if content:
+                yield content

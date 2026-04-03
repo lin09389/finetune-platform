@@ -1,8 +1,12 @@
 """
 核心功能 E2E 测试
 """
+import re
+
 import pytest
 from playwright.sync_api import Page, expect
+
+BASE_URL = "http://localhost:5173"
 
 
 class TestHealthCheck:
@@ -193,7 +197,7 @@ class TestFrontendPages:
     def test_home_page(self, page: Page):
         """测试首页加载"""
         page.goto(BASE_URL)
-        expect(page).to_have_title(/Finetune Platform/)
+        expect(page).to_have_title(re.compile("Finetune Platform"))
     
     @pytest.mark.skip(reason="需要启动前端服务")
     def test_cua_control_page(self, page: Page):

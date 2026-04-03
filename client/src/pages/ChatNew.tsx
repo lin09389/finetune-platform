@@ -227,7 +227,7 @@ const ChatPage: React.FC = () => {
     }
 
     if (useCloudAI && cloudAIConfig) {
-      await sendCloudMessage(content, {
+      await sendCloudMessage({ prompt: content }, {
         provider: cloudAIConfig.provider,
         apiKey: cloudAIConfig.api_key,
         keyId: cloudAIConfig.key_id,
@@ -236,7 +236,7 @@ const ChatPage: React.FC = () => {
         baseUrl: cloudAIConfig.base_url,
       })
     } else {
-      await sendMessage(content)
+      await sendMessage({ prompt: content })
     }
   }, [executeFromMessage, addMessage, useCloudAI, cloudAIConfig, selectedCloudModel, sendCloudMessage, sendMessage])
 

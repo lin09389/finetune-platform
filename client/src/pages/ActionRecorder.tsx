@@ -1,29 +1,71 @@
-import React, { useState, useEffect } from 'react';
-import { Card, Button, Table, Space, Typography, Tag, message, Modal, Input, Slider, Row, Col, Statistic, Divider, List, Select, Alert } from 'antd';
-import { PlayCircleOutlined, PauseCircleOutlined, StopOutlined, SaveOutlined, FolderOpenOutlined, DeleteOutlined, ClockCircleOutlined, AimOutlined, KeyOutlined, EyeOutlined } from '@ant-design/icons';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Alert,
+  Button,
+  Card,
+  Col,
+  Divider,
+  Input,
+  List,
+  Modal,
+  Row,
+  Select,
+  Slider,
+  Space,
+  Statistic,
+  Table,
+  Tag,
+  Typography,
+  message,
+} from 'antd';
+import {
+  AimOutlined,
+  ClockCircleOutlined,
+  DeleteOutlined,
+  EyeOutlined,
+  FolderOpenOutlined,
+  KeyOutlined,
+  PauseCircleOutlined,
+  PlayCircleOutlined,
+  SaveOutlined,
+  StopOutlined,
+} from '@ant-design/icons';
 import { apiClient } from '../services/api';
 import type { RecordedAction } from '../types';
 
 const { Title } = Typography;
+
+type TableAction = RecordedAction & {
+  _rowKey: string;
+};
 
 export const ActionRecorder: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [actions, setActions] = useState<RecordedAction[]>([]);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
-  const [selectedActions, setSelectedActions] = useState<number[]>([]);
+  const [selectedActionKeys, setSelectedActionKeys] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [saveModalVisible, setSaveModalVisible] = useState(false);
   const [loadModalVisible, setLoadModalVisible] = useState(false);
   const [filename, setFilename] = useState('');
   const [savedFiles, setSavedFiles] = useState<string[]>([]);
   const [playbackMode, setPlaybackMode] = useState<'realtime' | 'fast'>('realtime');
-  
+
   useEffect(() => {
-    fetchActions();
-    fetchSavedFiles();
+    void fetchActions();
+    void fetchSavedFiles();
   }, []);
-  
+
+  const tableData = useMemo<TableAction[]>(
+    () =>
+      actions.map((action, index) => ({
+        ...action,
+        _rowKey: `${action.action_type}-${action.timestamp}-${index}`,
+      })),
+    [actions]
+  );
+
   const fetchActions = async () => {
     try {
       const response = await apiClient.get('/cua/record/actions');
@@ -32,7 +74,7 @@ export const ActionRecorder: React.FC = () => {
       console.error('Failed to fetch actions:', error);
     }
   };
-  
+
   const fetchSavedFiles = async () => {
     try {
       const response = await apiClient.get('/cua/record/files');
@@ -41,106 +83,111 @@ export const ActionRecorder: React.FC = () => {
       console.error('Failed to fetch saved files:', error);
     }
   };
-  
+
   const handleStartRecording = async () => {
     try {
       await apiClient.post('/cua/record/action', { action: 'start' });
       setIsRecording(true);
       setIsPaused(false);
-      message.success('开始录制');
+      message.success('Recording started');
     } catch (error) {
-      message.error('启动录制失败');
+      message.error('Failed to start recording');
     }
   };
-  
+
   const handlePauseRecording = async () => {
     try {
       await apiClient.post('/cua/record/action', { action: isPaused ? 'resume' : 'pause' });
       setIsPaused(!isPaused);
-      message.success(isPaused ? '继续录制' : '暂停录制');
+      message.success(isPaused ? 'Recording resumed' : 'Recording paused');
     } catch (error) {
-      message.error('操作失败');
+      message.error('Recording action failed');
     }
   };
-  
+
   const handleStopRecording = async () => {
     try {
       await apiClient.post('/cua/record/action', { action: 'stop' });
       setIsRecording(false);
       setIsPaused(false);
-      fetchActions();
-      message.success('录制已停止');
+      await fetchActions();
+      message.success('Recording stopped');
     } catch (error) {
-      message.error('停止录制失败');
+      message.error('Failed to stop recording');
     }
   };
-  
+
   const handlePlayback = async () => {
     if (actions.length === 0) {
-      message.warning('没有可回放的操作');
+      message.warning('No recorded actions to play');
       return;
     }
+
     setLoading(true);
     try {
       await apiClient.post('/cua/record/play', {
-        actions: selectedActions.length > 0 
-          ? actions.filter((_, i) => selectedActions.includes(i))
-          : undefined,
+        actions:
+          selectedActionKeys.length > 0
+            ? tableData
+                .filter((action) => selectedActionKeys.includes(action._rowKey))
+                .map(({ _rowKey, ...action }) => action)
+            : undefined,
         speed: playbackSpeed,
-        mode: playbackMode
+        mode: playbackMode,
       });
-      message.success('回放完成');
+      message.success('Playback finished');
     } catch (error) {
-      message.error('回放失败');
+      message.error('Playback failed');
     } finally {
       setLoading(false);
     }
   };
-  
+
   const handleSave = async () => {
     if (!filename) {
-      message.warning('请输入文件名');
+      message.warning('Please enter a filename');
       return;
     }
+
     try {
       await apiClient.post('/cua/record/save', { filename });
       setSaveModalVisible(false);
       setFilename('');
-      fetchSavedFiles();
-      message.success('保存成功');
+      await fetchSavedFiles();
+      message.success('Recording saved');
     } catch (error) {
-      message.error('保存失败');
+      message.error('Failed to save recording');
     }
   };
-  
+
   const handleLoad = async (file: string) => {
     try {
       await apiClient.post('/cua/record/load', { filepath: file });
-      fetchActions();
+      await fetchActions();
       setLoadModalVisible(false);
-      message.success('加载成功');
+      message.success('Recording loaded');
     } catch (error) {
-      message.error('加载失败');
+      message.error('Failed to load recording');
     }
   };
-  
+
   const handleClear = async () => {
     Modal.confirm({
-      title: '确认清除',
-      content: '确定要清除所有录制的操作吗？',
+      title: 'Clear recordings',
+      content: 'Remove all recorded actions?',
       onOk: async () => {
         try {
           await apiClient.delete('/cua/record/actions');
           setActions([]);
-          setSelectedActions([]);
-          message.success('已清除');
+          setSelectedActionKeys([]);
+          message.success('Actions cleared');
         } catch (error) {
-          message.error('清除失败');
+          message.error('Failed to clear actions');
         }
-      }
+      },
     });
   };
-  
+
   const getActionIcon = (type: string) => {
     switch (type) {
       case 'mouse_move':
@@ -155,7 +202,7 @@ export const ActionRecorder: React.FC = () => {
         return <EyeOutlined />;
     }
   };
-  
+
   const getActionColor = (type: string) => {
     switch (type) {
       case 'mouse_click':
@@ -170,17 +217,17 @@ export const ActionRecorder: React.FC = () => {
         return 'default';
     }
   };
-  
+
   const columns = [
     {
       title: '#',
       dataIndex: 'index',
       key: 'index',
       width: 50,
-      render: (_: unknown, __: unknown, index: number) => index + 1
+      render: (_: unknown, __: unknown, index: number) => index + 1,
     },
     {
-      title: '类型',
+      title: 'Type',
       dataIndex: 'action_type',
       key: 'type',
       width: 150,
@@ -188,86 +235,77 @@ export const ActionRecorder: React.FC = () => {
         <Tag icon={getActionIcon(type)} color={getActionColor(type)}>
           {type}
         </Tag>
-      )
+      ),
     },
     {
-      title: '数据',
+      title: 'Data',
       dataIndex: 'data',
       key: 'data',
       ellipsis: true,
-      render: (data: object) => JSON.stringify(data)
+      render: (data: object) => JSON.stringify(data),
     },
     {
-      title: '时间',
+      title: 'Time',
       dataIndex: 'timestamp',
       key: 'timestamp',
       width: 150,
-      render: (ts: number) => new Date(ts * 1000).toLocaleTimeString()
-    }
+      render: (ts: number) => new Date(ts * 1000).toLocaleTimeString(),
+    },
   ];
-  
+
   const rowSelection = {
-    selectedRowKeys: selectedActions,
-    onChange: (keys: React.Key[]) => setSelectedActions(keys as number[])
+    selectedRowKeys: selectedActionKeys,
+    onChange: (keys: React.Key[]) => setSelectedActionKeys(keys.map(String)),
   };
-  
+
   return (
     <div className="action-recorder-page" style={{ padding: 24 }}>
       <Title level={2}>
-        <ClockCircleOutlined /> 操作录制与回放
+        <ClockCircleOutlined /> Action Recorder
       </Title>
-      
+
       <Alert
-        message="录制说明"
-        description="点击开始录制后，您的鼠标和键盘操作将被记录。可以随时暂停、继续或停止录制。录制完成后可以回放或保存。"
+        message="Recording guide"
+        description="Start recording to capture mouse and keyboard actions. You can pause, resume, stop, replay, and save the sequence."
         type="info"
         showIcon
         style={{ marginBottom: 24 }}
       />
-      
+
       <Row gutter={16} style={{ marginBottom: 24 }}>
         <Col span={4}>
           <Card>
             <Statistic
-              title="录制状态"
-              value={isRecording ? (isPaused ? '暂停' : '录制中') : '停止'}
-              valueStyle={{ 
-                color: isRecording ? (isPaused ? '#faad14' : '#52c41a') : '#8c8c8c' 
+              title="Status"
+              value={isRecording ? (isPaused ? 'Paused' : 'Recording') : 'Stopped'}
+              valueStyle={{
+                color: isRecording ? (isPaused ? '#faad14' : '#52c41a') : '#8c8c8c',
               }}
             />
           </Card>
         </Col>
         <Col span={4}>
           <Card>
-            <Statistic title="操作数量" value={actions.length} />
+            <Statistic title="Action Count" value={actions.length} />
           </Card>
         </Col>
         <Col span={4}>
           <Card>
-            <Statistic title="已选择" value={selectedActions.length} />
+            <Statistic title="Selected" value={selectedActionKeys.length} />
           </Card>
         </Col>
         <Col span={4}>
           <Card>
-            <Statistic
-              title="回放速度"
-              value={playbackSpeed}
-              suffix="x"
-            />
+            <Statistic title="Playback Speed" value={playbackSpeed} suffix="x" />
           </Card>
         </Col>
       </Row>
-      
+
       <Card style={{ marginBottom: 24 }}>
         <Space size="middle">
           {!isRecording ? (
-            <Button
-              type="primary"
-              icon={<PlayCircleOutlined />}
-              onClick={handleStartRecording}
-              size="large"
-            >
-              开始录制
+            <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleStartRecording} size="large">
+              Start Recording
             </Button>
           ) : (
             <>
@@ -276,21 +314,16 @@ export const ActionRecorder: React.FC = () => {
                 onClick={handlePauseRecording}
                 size="large"
               >
-                {isPaused ? '继续' : '暂停'}
+                {isPaused ? 'Resume' : 'Pause'}
               </Button>
-              <Button
-                danger
-                icon={<StopOutlined />}
-                onClick={handleStopRecording}
-                size="large"
-              >
-                停止录制
+              <Button danger icon={<StopOutlined />} onClick={handleStopRecording} size="large">
+                Stop Recording
               </Button>
             </>
           )}
-          
+
           <Divider type="vertical" style={{ height: 40 }} />
-          
+
           <Button
             icon={<PlayCircleOutlined />}
             onClick={handlePlayback}
@@ -298,19 +331,19 @@ export const ActionRecorder: React.FC = () => {
             loading={loading}
             size="large"
           >
-            回放
+            Playback
           </Button>
-          
+
           <Select
             value={playbackMode}
             onChange={setPlaybackMode}
             style={{ width: 120 }}
             options={[
-              { label: '实时模式', value: 'realtime' },
-              { label: '快速模式', value: 'fast' }
+              { label: 'Realtime', value: 'realtime' },
+              { label: 'Fast', value: 'fast' },
             ]}
           />
-          
+
           <Slider
             min={0.1}
             max={5}
@@ -320,58 +353,46 @@ export const ActionRecorder: React.FC = () => {
             style={{ width: 150 }}
             tooltip={{ formatter: (v) => `${v}x` }}
           />
-          
+
           <Divider type="vertical" style={{ height: 40 }} />
-          
+
           <Button icon={<SaveOutlined />} onClick={() => setSaveModalVisible(true)}>
-            保存
+            Save
           </Button>
           <Button icon={<FolderOpenOutlined />} onClick={() => setLoadModalVisible(true)}>
-            加载
+            Load
           </Button>
           <Button icon={<DeleteOutlined />} danger onClick={handleClear}>
-            清除
+            Clear
           </Button>
         </Space>
       </Card>
-      
-      <Card title="操作列表">
+
+      <Card title="Recorded Actions">
         <Table
           columns={columns}
-          dataSource={actions}
-          rowKey={(_, index) => index?.toString() || '0'}
+          dataSource={tableData}
+          rowKey="_rowKey"
           rowSelection={rowSelection}
           pagination={{ pageSize: 20 }}
           size="small"
         />
       </Card>
-      
-      <Modal
-        title="保存录制"
-        open={saveModalVisible}
-        onOk={handleSave}
-        onCancel={() => setSaveModalVisible(false)}
-      >
+
+      <Modal title="Save Recording" open={saveModalVisible} onOk={handleSave} onCancel={() => setSaveModalVisible(false)}>
         <Input
-          placeholder="输入文件名"
+          placeholder="Enter filename"
           value={filename}
           onChange={(e) => setFilename(e.target.value)}
           suffix=".json"
         />
       </Modal>
-      
-      <Modal
-        title="加载录制"
-        open={loadModalVisible}
-        onCancel={() => setLoadModalVisible(false)}
-        footer={null}
-      >
+
+      <Modal title="Load Recording" open={loadModalVisible} onCancel={() => setLoadModalVisible(false)} footer={null}>
         <List
           dataSource={savedFiles}
           renderItem={(file) => (
-            <List.Item
-              actions={[<Button onClick={() => handleLoad(file)}>加载</Button>]}
-            >
+            <List.Item actions={[<Button key={file} onClick={() => handleLoad(file)}>Load</Button>]}>
               {file}
             </List.Item>
           )}

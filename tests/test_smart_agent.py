@@ -1,50 +1,52 @@
 import requests
-import json
 
 BASE_URL = 'http://127.0.0.1:8001'
 
-print('=' * 60)
-print('测试智能 Agent 自动判断并执行操作')
-print('=' * 60)
 
-# 测试 1: 截图
-print('\n1. 测试: 截图')
-response = requests.post(f'{BASE_URL}/smart-agent/smart-execute', json={
-    'message': '截屏',
-    'auto_execute': True
-})
-data = response.json()
-print(f"检测到: {data.get('detected')}")
-print(f"操作: {data.get('action')}")
-print(f"执行成功: {data.get('success')}")
-print(f"反馈: {data.get('feedback')}")
+def main() -> None:
+    print('=' * 60)
+    print('娴嬭瘯鏅鸿兘 Agent 鑷姩鍒ゆ柇骞舵墽琛屾搷浣?')
+    print('=' * 60)
 
-# 测试 2: 获取鼠标位置
-print('\n2. 测试: 获取鼠标位置')
-response = requests.post(f'{BASE_URL}/smart-agent/smart-execute', json={
-    'message': '鼠标在哪里',
-    'auto_execute': True
-})
-data = response.json()
-print(f"检测到: {data.get('detected')}")
-print(f"操作: {data.get('action')}")
-print(f"执行成功: {data.get('success')}")
-print(f"反馈: {data.get('feedback')}")
+    print('\n1. 娴嬭瘯: 鎴浘')
+    response = requests.post(
+        f'{BASE_URL}/smart-agent/smart-execute',
+        json={'message': '鎴睆', 'auto_execute': True},
+    )
+    data = response.json()
+    print(f"妫€娴嬪埌: {data.get('detected')}")
+    print(f"鎿嶄綔: {data.get('action')}")
+    print(f"鎵ц鎴愬姛: {data.get('success')}")
+    print(f"鍙嶉: {data.get('feedback')}")
 
-# 测试 3: 列出窗口
-print('\n3. 测试: 列出窗口')
-response = requests.post(f'{BASE_URL}/smart-agent/smart-execute', json={
-    'message': '列出所有窗口',
-    'auto_execute': True
-})
-data = response.json()
-print(f"检测到: {data.get('detected')}")
-print(f"操作: {data.get('action')}")
-print(f"执行成功: {data.get('success')}")
-print(f"反馈: {data.get('feedback')}")
-if data.get('result_data'):
-    print(f"窗口数量: {data['result_data'].get('count')}")
+    print('\n2. 娴嬭瘯: 鑾峰彇榧犳爣浣嶇疆')
+    response = requests.post(
+        f'{BASE_URL}/smart-agent/smart-execute',
+        json={'message': '榧犳爣鍦ㄥ摢閲?', 'auto_execute': True},
+    )
+    data = response.json()
+    print(f"妫€娴嬪埌: {data.get('detected')}")
+    print(f"鎿嶄綔: {data.get('action')}")
+    print(f"鎵ц鎴愬姛: {data.get('success')}")
+    print(f"鍙嶉: {data.get('feedback')}")
 
-print('\n' + '=' * 60)
-print('测试完成!')
-print('=' * 60)
+    print('\n3. 娴嬭瘯: 鍒楀嚭绐楀彛')
+    response = requests.post(
+        f'{BASE_URL}/smart-agent/smart-execute',
+        json={'message': '鍒楀嚭鎵€鏈夌獥鍙?', 'auto_execute': True},
+    )
+    data = response.json()
+    print(f"妫€娴嬪埌: {data.get('detected')}")
+    print(f"鎿嶄綔: {data.get('action')}")
+    print(f"鎵ц鎴愬姛: {data.get('success')}")
+    print(f"鍙嶉: {data.get('feedback')}")
+    if data.get('result_data'):
+        print(f"绐楀彛鏁伴噺: {data['result_data'].get('count')}")
+
+    print('\n' + '=' * 60)
+    print('娴嬭瘯瀹屾垚!')
+    print('=' * 60)
+
+
+if __name__ == '__main__':
+    main()

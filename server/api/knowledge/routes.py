@@ -33,6 +33,7 @@ class CreateKBRequest(BaseModel):
 class SearchRequest(BaseModel):
     """搜索请求"""
     query: str = Field(..., description="查询文本")
+    collection_id: str = Field(..., description="集合 ID")
     top_k: int = Field(default=5, ge=1, le=20, description="返回数量")
 
 
@@ -342,11 +343,7 @@ async def list_collections():
 
 
 @router.post("/search")
-async def search_documents(
-    query: str = Form(..., description="查询文本"),
-    collection_id: str = Form(..., description="集合 ID"),
-    top_k: int = Form(default=5, ge=1, le=20, description="返回结果数量")
-):
+async def search_documents(request: SearchRequest):
     """
     搜索知识库文档
     
@@ -358,19 +355,20 @@ async def search_documents(
         rag_service = get_rag_service()
 
         results = rag_service.search(
-            collection_name=collection_id,
-            query=query,
-            top_k=top_k
+            collection_name=request.collection_id,
+            query=request.query,
+            top_k=request.top_k
         )
 
         context = rag_service.search_with_context(
-            collection_name=collection_id,
-            query=query,
-            top_k=top_k
+            collection_name=request.collection_id,
+            query=request.query,
+            top_k=request.top_k
         )
 
         return {
-            "query": query,
+            "query": request.query,
+            "collection_id": request.collection_id,
             "results": results,
             "context": context
         }

@@ -3,7 +3,10 @@
 记忆 API 路由
 """
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from .models import (
     MemoryCreateRequest,
@@ -14,6 +17,43 @@ from .models import (
 from .service import get_memory_api_service
 
 router = APIRouter(prefix="/memory", tags=["Memory"])
+
+
+class SessionMessageRequest(BaseModel):
+    role: str
+    content: str
+    entities: list[str] | None = None
+
+
+class GraphEntityRequest(BaseModel):
+    name: str
+    entity_type: str
+    attributes: dict[str, Any] | None = None
+    confidence: float = Field(default=0.5, ge=0, le=1)
+
+
+class GraphRelationRequest(BaseModel):
+    source_name: str
+    target_name: str
+    relation_type: str
+    evidence: str = ""
+
+
+class GraphContextRequest(BaseModel):
+    entity_id: str
+    depth: int = 2
+
+
+class GraphPathRequest(BaseModel):
+    source_id: str
+    target_id: str
+    max_depth: int = 4
+
+
+class GraphSearchRequest(BaseModel):
+    query: str = ""
+    entity_types: list[str] | None = None
+    limit: int = 10
 
 
 @router.get("/")
@@ -212,10 +252,10 @@ async def get_session_context(session_id: str, max_tokens: int = 4000):
 
 
 @router.post("/sessions/{session_id}/messages")
-async def add_session_message(session_id: str, role: str, content: str, entities: list[str] = None):
+async def add_session_message(session_id: str, request: SessionMessageRequest):
     """添加会话消息"""
     service = get_memory_api_service()
-    success = service.add_session_message(session_id, role, content, entities)
+    success = service.add_session_message(session_id, request.role, request.content, request.entities)
     return {"success": success}
 
 
@@ -236,18 +276,28 @@ async def get_active_entities(session_id: str, threshold: float = 0.3):
 
 
 @router.post("/graph/entities")
-async def add_graph_entity(name: str, entity_type: str, attributes: dict = None, confidence: float = 0.5):
+async def add_graph_entity(request: GraphEntityRequest):
     """添加图谱实体"""
     service = get_memory_api_service()
-    entity_id, is_new = service.add_entity(name, entity_type, attributes, confidence)
+    entity_id, is_new = service.add_entity(
+        request.name,
+        request.entity_type,
+        request.attributes,
+        request.confidence,
+    )
     return {"entity_id": entity_id, "is_new": is_new}
 
 
 @router.post("/graph/relations")
-async def add_graph_relation(source_name: str, target_name: str, relation_type: str, evidence: str = ""):
+async def add_graph_relation(request: GraphRelationRequest):
     """添加图谱关系"""
     service = get_memory_api_service()
-    relation_id = service.add_relation(source_name, target_name, relation_type, evidence)
+    relation_id = service.add_relation(
+        request.source_name,
+        request.target_name,
+        request.relation_type,
+        request.evidence,
+    )
     return {"relation_id": relation_id}
 
 
@@ -262,26 +312,26 @@ async def get_graph_entity(entity_id: str):
 
 
 @router.post("/graph/context")
-async def get_graph_context(entity_id: str, depth: int = 2):
+async def get_graph_context(request: GraphContextRequest):
     """获取图谱上下文"""
     service = get_memory_api_service()
-    context = service.get_entity_context(entity_id, depth)
+    context = service.get_entity_context(request.entity_id, request.depth)
     return {"context": context}
 
 
 @router.post("/graph/path")
-async def find_graph_path(source_id: str, target_id: str, max_depth: int = 4):
+async def find_graph_path(request: GraphPathRequest):
     """查找图谱路径"""
     service = get_memory_api_service()
-    paths = service.find_path(source_id, target_id, max_depth)
+    paths = service.find_path(request.source_id, request.target_id, request.max_depth)
     return {"paths": paths}
 
 
 @router.post("/graph/search")
-async def search_graph(query: str, entity_types: list[str] = None, limit: int = 10):
+async def search_graph(request: GraphSearchRequest):
     """搜索图谱"""
     service = get_memory_api_service()
-    results = service.search_graph(query, entity_types, limit)
+    results = service.search_graph(request.query, request.entity_types, request.limit)
     return {"results": results}
 
 

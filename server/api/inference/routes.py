@@ -12,7 +12,7 @@ from api.errors import (
     InvalidInputError,
     MaliciousInputError,
 )
-from api.inference.backends.base import GenerationResult
+from api.inference.backends.base import GenerationConfig, GenerationResult
 from api.inference.circuit_breaker import CircuitBreakerOpenError, get_circuit_breaker
 from api.inference.scheduler import BackendType, get_scheduler
 from api.types import (
@@ -74,6 +74,34 @@ def sanitize_input(text: str) -> str:
     if len(text) > MAX_MESSAGE_LENGTH:
         text = text[:MAX_MESSAGE_LENGTH]
     return text
+
+
+def build_attachment_context(attachments: list) -> str:
+    """Build a lightweight attachment context block for prompt injection."""
+    if not attachments:
+        return ""
+
+    lines: list[str] = ["Attached context:"]
+    for attachment in attachments:
+        attachment_type = getattr(attachment, "type", "text")
+        name = getattr(attachment, "name", "attachment")
+        mime_type = getattr(attachment, "mime_type", "")
+        content = getattr(attachment, "content", "") or ""
+
+        if attachment_type == "image":
+            raise InvalidInputError(
+                "attachments",
+                "Image attachments are not supported by the local inference endpoint.",
+            )
+
+        snippet = sanitize_input(content)
+        if len(snippet) > 2000:
+            snippet = snippet[:2000] + "..."
+
+        descriptor = f"{name} ({mime_type})" if mime_type else name
+        lines.append(f"[{descriptor}]\n{snippet or 'No readable text content provided.'}")
+
+    return "\n\n".join(lines)
 
 
 @router.post("/generate", response_model=GenerateResponse)
@@ -183,13 +211,17 @@ async def chat(request: ChatRequest):
 
         msg.content = sanitize_input(msg.content)
 
-    system_prompt = ""
+    system_prompt = request.system_prompt or ""
     knowledge_sources_response = None
     retrieval_info = None
     memory_context_info = None
     unified_context_info = None
 
     last_user_message = request.get_last_user_message()
+    attachment_context = build_attachment_context(request.attachments)
+    if attachment_context and request.messages:
+        request.messages[-1].content = f"{request.messages[-1].content}\n\n{attachment_context}".strip()
+        last_user_message = request.get_last_user_message()
 
     from context.unified_manager import ContextOptions, get_unified_context_manager
 
@@ -217,7 +249,7 @@ async def chat(request: ChatRequest):
 
     if unified_context.total_sources > 0:
         system_prompt = unified_context.build_system_prompt(
-            base_prompt="你是一个有帮助的 AI 助手。"
+            base_prompt=system_prompt or "你是一个有帮助的 AI 助手。"
         )
 
         if unified_context.knowledge_sources:
@@ -255,26 +287,46 @@ async def chat(request: ChatRequest):
             retrieval_time=unified_context.retrieval_time
         )
 
+    if system_prompt and (
+        not request.messages
+        or (request.messages[0].role.value if hasattr(request.messages[0].role, "value") else request.messages[0].role)
+        != "system"
+    ):
+        from api.types import Message, MessageRole
+
+        request.messages.insert(
+            0,
+            Message(role=MessageRole.SYSTEM, content=system_prompt),
+        )
+
     try:
         scheduler = get_scheduler()
         backend = await scheduler.get_backend(request.options.backend)
 
-        if system_prompt:
-            from api.inference.backends.base import InferenceContext
-            context = InferenceContext(
-                model_id=request.model,
-                prompt="",
-                system_prompt=system_prompt,
-                messages=request.messages,
-                temperature=request.options.temperature,
-                top_p=request.options.top_p,
-                top_k=request.options.top_k,
-                max_tokens=request.options.max_tokens,
-                repetition_penalty=request.options.repetition_penalty,
-            )
-            result = await backend.chat(request, context)
-        else:
+        backend_name = request.options.backend or "ollama"
+        if backend_name == "ollama":
             result = await backend.chat(request)
+        else:
+            messages = [
+                {
+                    "role": msg.role.value if hasattr(msg.role, "value") else msg.role,
+                    "content": msg.content,
+                }
+                for msg in request.messages
+            ]
+            if system_prompt and (not messages or messages[0]["role"] != "system"):
+                messages = [{"role": "system", "content": system_prompt}, *messages]
+
+            result = await backend.chat(
+                messages,
+                GenerationConfig(
+                    max_tokens=request.options.max_tokens,
+                    temperature=request.options.temperature,
+                    top_p=request.options.top_p,
+                    top_k=request.options.top_k,
+                    repetition_penalty=request.options.repetition_penalty,
+                ),
+            )
 
         logger.info(f"Chat result type: {type(result)}, isinstance GenerationResult: {isinstance(result, GenerationResult)}")
         if hasattr(result, 'text'):
@@ -297,7 +349,15 @@ async def chat(request: ChatRequest):
                     completion_tokens=result.tokens_generated,
                     total_tokens=result.total_tokens
                 ),
-                total_duration=result.latency_ms / 1000.0 if result.latency_ms else None
+                total_duration=result.latency_ms / 1000.0 if result.latency_ms else None,
+                duration_ms=result.latency_ms,
+                raw_response={
+                    "model": result.model,
+                    "finish_reason": result.finish_reason,
+                    "tokens_generated": result.tokens_generated,
+                    "prompt_tokens": result.prompt_tokens,
+                    "total_tokens": result.total_tokens,
+                },
             )
         else:
             response = result
@@ -325,6 +385,18 @@ async def chat(request: ChatRequest):
         response.retrieval_info = retrieval_info
         response.memory_context = memory_context_info
         response.unified_context = unified_context_info
+        if response.duration_ms is None:
+            response.duration_ms = int((time.time() - start_time) * 1000)
+        if response.raw_response is None:
+            response.raw_response = {
+                "message": {
+                    "role": response.message.role,
+                    "content": response.message.content,
+                },
+                "model": response.model,
+                "backend": response.backend,
+                "usage": response.usage.model_dump() if hasattr(response.usage, "model_dump") else {},
+            }
 
         if request.memory.enabled and request.memory.auto_extract and last_user_message:
             try:
@@ -361,7 +433,8 @@ async def chat_stream(request: ChatRequest):
         scheduler = get_scheduler()
         backend = await scheduler.get_backend(request.options.backend)
 
-        if hasattr(backend, 'chat_stream'):
+        backend_name = request.options.backend or "ollama"
+        if hasattr(backend, 'chat_stream') and backend_name == "ollama":
             return StreamingResponse(
                 backend.chat_stream(request),
                 media_type="text/event-stream",
@@ -372,12 +445,24 @@ async def chat_stream(request: ChatRequest):
                 }
             )
         else:
+            messages = [
+                {
+                    "role": msg.role.value if hasattr(msg.role, "value") else msg.role,
+                    "content": msg.content,
+                }
+                for msg in request.messages
+            ]
             return StreamingResponse(
-                backend.generate_stream(GenerateRequest(
-                    model=request.model,
-                    prompt=request.messages[-1].content,
-                    options=request.options
-                )),
+                backend.chat_stream(
+                    messages,
+                    GenerationConfig(
+                        max_tokens=request.options.max_tokens,
+                        temperature=request.options.temperature,
+                        top_p=request.options.top_p,
+                        top_k=request.options.top_k,
+                        repetition_penalty=request.options.repetition_penalty,
+                    ),
+                ),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",

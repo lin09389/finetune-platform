@@ -133,6 +133,69 @@ export interface RetrievalInfo {
   retrieval_time: number
 }
 
+export type PlaygroundAttachmentType = 'text' | 'image'
+
+export interface PlaygroundAttachment {
+  id: string
+  name: string
+  type: PlaygroundAttachmentType
+  mimeType: string
+  size: number
+  content?: string
+  previewUrl?: string
+}
+
+export interface PlaygroundRunMetrics {
+  model?: string
+  backend?: string
+  duration_ms?: number
+  prompt_tokens?: number
+  completion_tokens?: number
+  total_tokens?: number
+  used_knowledge?: boolean
+  used_memory?: boolean
+}
+
+export interface PlaygroundExperimentConfig {
+  prompt: string
+  systemPrompt: string
+  responseFormat: 'text' | 'json'
+  modelId: string
+  backend: 'ollama' | 'huggingface' | 'cloud'
+  temperature: number
+  topP: number
+  maxTokens: number
+  useKnowledge: boolean
+  knowledgeCollection?: string
+  useMemory: boolean
+  autoRetrieve: boolean
+  attachments: PlaygroundAttachment[]
+}
+
+export interface PlaygroundSnapshot {
+  id: string
+  createdAt: string
+  title: string
+  response: string
+  raw_response?: unknown
+  knowledge_sources?: KnowledgeSource[]
+  retrieval_info?: RetrievalInfo
+  memory_context?: {
+    retrieved: boolean
+    sources_count: number
+    context_preview: string
+  }
+  unified_context?: {
+    total_sources: number
+    memory_count: number
+    knowledge_count: number
+    project_count?: number
+    retrieval_time: number
+  }
+  experiment_config: PlaygroundExperimentConfig
+  run_metrics?: PlaygroundRunMetrics
+}
+
 export interface BackendInfo {
   id: string
   name: string
@@ -148,6 +211,13 @@ export interface ChatMessage {
   isLoading?: boolean
   knowledge_sources?: KnowledgeSource[]
   retrieval_info?: RetrievalInfo
+  memory_context?: PlaygroundSnapshot['memory_context']
+  unified_context?: PlaygroundSnapshot['unified_context']
+  raw_response?: unknown
+  attachments?: PlaygroundAttachment[]
+  experiment_config?: Partial<PlaygroundExperimentConfig>
+  run_metrics?: PlaygroundRunMetrics
+  isEdited?: boolean
 }
 
 export interface ChatSession {

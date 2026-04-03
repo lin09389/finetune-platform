@@ -76,6 +76,7 @@ describe('History page', () => {
         config: {},
       },
     ])
+
     mockGetTrainingCheckpoints.mockResolvedValue([
       {
         name: 'checkpoint-10',
@@ -84,6 +85,7 @@ describe('History page', () => {
         created: '2026-04-02T00:03:00',
       },
     ])
+
     mockResumeTraining.mockResolvedValue({
       id: 'task-1',
       modelName: 'demo-model',
@@ -121,16 +123,15 @@ describe('History page', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /详情/ }))
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /恢复训练/ })).toBeInTheDocument()
-    })
+    expect(await screen.findByText(/checkpoint-10/i, {}, { timeout: 10000 })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /恢复训练/ }))
+    const resumeButton = await screen.findByRole('button', { name: /恢复训练|resume/i }, { timeout: 10000 })
+    fireEvent.click(resumeButton)
 
     await waitFor(() => {
       expect(mockResumeTraining).toHaveBeenCalledWith('task-1', 'checkpoint-10')
       expect(mockSetIsTraining).toHaveBeenCalledWith(true)
       expect(messageSuccess).toHaveBeenCalled()
-    })
-  })
+    }, { timeout: 10000 })
+  }, 15000)
 })

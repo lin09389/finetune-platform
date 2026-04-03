@@ -1,7 +1,12 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
-import { useChatStore } from '../../store/chatStore'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { API_BASE_URL } from '../../services/api'
-import type { KnowledgeSource, RetrievalInfo } from '../../types'
+import { useChatStore } from '../../store/chatStore'
+import type {
+  KnowledgeSource,
+  PlaygroundAttachment,
+  PlaygroundRunMetrics,
+  RetrievalInfo,
+} from '../../types'
 
 interface StreamConfig {
   maxRetries?: number
@@ -13,7 +18,7 @@ interface StreamConfig {
   onStatusChange?: (status: StreamState['status']) => void
 }
 
-interface StreamMetadata {
+export interface StreamMetadata {
   knowledgeSources?: KnowledgeSource[]
   retrievalInfo?: RetrievalInfo
   memoryContext?: {
@@ -25,8 +30,32 @@ interface StreamMetadata {
     total_sources: number
     memory_count: number
     knowledge_count: number
+    project_count?: number
     retrieval_time: number
   }
+  rawResponse?: unknown
+  runMetrics?: PlaygroundRunMetrics
+}
+
+export interface ChatSendPayload {
+  prompt: string
+  systemPrompt?: string
+  responseFormat?: 'text' | 'json'
+  attachments?: PlaygroundAttachment[]
+  knowledgeOverride?: { enabled: boolean; collectionId?: string }
+  memoryOverride?: { enabled: boolean }
+  parameterOverrides?: {
+    temperature?: number
+    topP?: number
+    maxTokens?: number
+    backend?: 'ollama' | 'huggingface' | 'cloud'
+    modelId?: string
+  }
+}
+
+interface ChatRunResult {
+  content: string
+  metadata?: StreamMetadata
 }
 
 interface StreamState {
@@ -37,6 +66,26 @@ interface StreamState {
   startTime: number | null
   bytesReceived: number
   speed: number
+}
+
+interface CloudConfig {
+  provider: string
+  apiKey?: string
+  keyId?: string
+  model: string
+  groupId?: string
+  baseUrl?: string
+}
+
+function toRequestAttachments(attachments: PlaygroundAttachment[] = []) {
+  return attachments.map((attachment) => ({
+    name: attachment.name,
+    type: attachment.type,
+    mime_type: attachment.mimeType,
+    size: attachment.size,
+    content: attachment.content,
+    preview_url: attachment.previewUrl,
+  }))
 }
 
 export function useChatStream(config: StreamConfig = {}) {
@@ -72,7 +121,6 @@ export function useChatStream(config: StreamConfig = {}) {
     stopStreaming,
     completeStreaming,
     settings,
-    messages,
     currentSessionId,
     updateMessage,
   } = useChatStore()
@@ -92,104 +140,22 @@ export function useChatStream(config: StreamConfig = {}) {
         setState((prev) => ({
           ...prev,
           status: 'error',
-          error: '请求超时',
+          error: 'Request timed out.',
         }))
         onStatusChange?.('error')
-        onError?.('请求超时')
+        onError?.('Request timed out.')
       }
     }, timeout)
-  }, [timeout, clearTimeouts, onStatusChange, onError])
+  }, [clearTimeouts, onError, onStatusChange, timeout])
 
-  const buildChatHistory = useCallback(() => {
-    return messages
-      .filter((m) => m.role === 'user' || m.role === 'assistant')
-      .filter((m) => !m.isLoading)
-      .map((m) => ({ role: m.role, content: m.content }))
-  }, [messages])
-
-  const sendMessage = useCallback(async (content: string, options?: {
-    systemPrompt?: string
-    knowledgeOverride?: { enabled: boolean; collectionId?: string }
-    memoryOverride?: { enabled: boolean }
-  }) => {
-    if (!content.trim()) return
-
-    addMessage({
-      role: 'user',
-      content: content.trim(),
-    })
-
-    const assistantMessageId = addMessage({
-      role: 'assistant',
-      content: '',
-      isLoading: true,
-    })
-
-    startStreaming(assistantMessageId)
-    lastContentRef.current = ''
-
-    setState({
-      status: 'connecting',
-      content: '',
-      error: null,
-      chunksReceived: 0,
-      startTime: Date.now(),
-      bytesReceived: 0,
-      speed: 0,
-    })
-    onStatusChange?.('connecting')
-
-    abortControllerRef.current = new AbortController()
-    startTimeout()
-
-    try {
-      const chatHistory = buildChatHistory()
-      chatHistory.push({ role: 'user', content: content.trim() })
-
-      const useKnowledge = options?.knowledgeOverride?.enabled ?? settings.useKnowledge
-      const knowledgeCollection = options?.knowledgeOverride?.collectionId ?? settings.knowledgeCollection
-      const useMemory = options?.memoryOverride?.enabled ?? settings.useMemory
-
-      const response = await fetch(`${API_BASE_URL}/inference/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: settings.modelId,
-          messages: chatHistory,
-          options: {
-            max_tokens: settings.maxTokens,
-            temperature: settings.temperature,
-            backend: settings.backend,
-          },
-          memory: {
-            enabled: useMemory,
-            auto_extract: true,
-            auto_retrieve: true,
-            top_k: 3,
-          },
-          knowledge: {
-            use_knowledge: useKnowledge && !!knowledgeCollection,
-            collection_id: knowledgeCollection,
-            auto_retrieve: settings.autoRetrieve,
-            top_k: 5,
-            include_sources: true,
-          },
-          session: {
-            session_id: currentSessionId,
-            user_id: 'default',
-          },
-        }),
-        signal: abortControllerRef.current.signal,
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`)
-      }
-
-      const data = await response.json()
-      const fullContent = data.message?.content || data.text || ''
-
+  const finalizeRun = useCallback(
+    (
+      assistantMessageId: string,
+      fullContent: string,
+      metadata?: StreamMetadata,
+      prompt?: string,
+      attachments?: PlaygroundAttachment[]
+    ) => {
       setState((prev) => {
         const elapsed = Date.now() - (prev.startTime || Date.now())
         return {
@@ -202,245 +168,403 @@ export function useChatStream(config: StreamConfig = {}) {
       onStatusChange?.('completed')
 
       updateStreamingContent(fullContent)
-      
-      const metadata: StreamMetadata = {
-        knowledgeSources: data.knowledge_sources,
-        retrievalInfo: data.retrieval_info,
-        memoryContext: data.memory_context,
-        unifiedContext: data.unified_context,
-      }
-      
       updateMessage(assistantMessageId, {
-        knowledge_sources: metadata.knowledgeSources,
-        retrieval_info: metadata.retrievalInfo,
+        knowledge_sources: metadata?.knowledgeSources,
+        retrieval_info: metadata?.retrievalInfo,
+        memory_context: metadata?.memoryContext,
+        unified_context: metadata?.unifiedContext,
+        raw_response: metadata?.rawResponse,
+        run_metrics: metadata?.runMetrics,
+        experiment_config: prompt
+          ? {
+              prompt,
+              systemPrompt: settings.systemPrompt,
+              responseFormat: settings.responseFormat,
+              modelId: settings.modelId,
+              backend: settings.backend,
+              temperature: settings.temperature,
+              topP: settings.topP,
+              maxTokens: settings.maxTokens,
+              useKnowledge: settings.useKnowledge,
+              knowledgeCollection: settings.knowledgeCollection,
+              useMemory: settings.useMemory,
+              autoRetrieve: settings.autoRetrieve,
+              attachments: attachments || [],
+            }
+          : undefined,
       })
-
       completeStreaming()
-
       onComplete?.(fullContent, metadata)
       retryCountRef.current = 0
+    },
+    [
+      completeStreaming,
+      onComplete,
+      onStatusChange,
+      settings,
+      updateMessage,
+      updateStreamingContent,
+    ]
+  )
 
-      if (currentSessionId) {
-        await fetch(`${API_BASE_URL}/chat/sessions/${currentSessionId}/messages`, {
+  const sendMessage = useCallback(
+    async (payload: ChatSendPayload): Promise<ChatRunResult | undefined> => {
+      const prompt = payload.prompt.trim()
+      if (!prompt) return undefined
+
+      const attachments = payload.attachments || []
+
+      addMessage({
+        role: 'user',
+        content: prompt,
+        attachments,
+      })
+
+      const assistantMessageId = addMessage({
+        role: 'assistant',
+        content: '',
+        isLoading: true,
+      })
+
+      startStreaming(assistantMessageId)
+      lastContentRef.current = ''
+
+      setState({
+        status: 'connecting',
+        content: '',
+        error: null,
+        chunksReceived: 0,
+        startTime: Date.now(),
+        bytesReceived: 0,
+        speed: 0,
+      })
+      onStatusChange?.('connecting')
+
+      abortControllerRef.current = new AbortController()
+      startTimeout()
+
+      try {
+        const useKnowledge = payload.knowledgeOverride?.enabled ?? settings.useKnowledge
+        const knowledgeCollection =
+          payload.knowledgeOverride?.collectionId ?? settings.knowledgeCollection
+        const useMemory = payload.memoryOverride?.enabled ?? settings.useMemory
+
+        const response = await fetch(`${API_BASE_URL}/inference/chat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            messages: [
-              { role: 'user', content: content.trim() },
-              { role: 'assistant', content: fullContent },
-            ],
+            model: payload.parameterOverrides?.modelId || settings.modelId,
+            messages: [{ role: 'user', content: prompt }],
+            options: {
+              max_tokens: payload.parameterOverrides?.maxTokens ?? settings.maxTokens,
+              temperature: payload.parameterOverrides?.temperature ?? settings.temperature,
+              top_p: payload.parameterOverrides?.topP ?? settings.topP,
+              backend:
+                payload.parameterOverrides?.backend === 'cloud'
+                  ? 'ollama'
+                  : payload.parameterOverrides?.backend ?? settings.backend,
+            },
+            system_prompt: payload.systemPrompt ?? settings.systemPrompt,
+            attachments: toRequestAttachments(attachments),
+            response_format: payload.responseFormat ?? settings.responseFormat,
+            memory: {
+              enabled: useMemory,
+              auto_extract: true,
+              auto_retrieve: true,
+              top_k: 3,
+            },
+            knowledge: {
+              use_knowledge: useKnowledge && !!knowledgeCollection,
+              collection_id: knowledgeCollection,
+              auto_retrieve: settings.autoRetrieve,
+              top_k: 5,
+              include_sources: true,
+            },
+            session: {
+              session_id: currentSessionId,
+              user_id: 'default',
+            },
           }),
-        }).catch(console.error)
-      }
-
-    } catch (error: unknown) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        setState((prev) => ({
-          ...prev,
-          status: 'stopped',
-        }))
-        onStatusChange?.('stopped')
-        stopStreaming()
-        updateMessage(assistantMessageId, {
-          content: lastContentRef.current + '\n\n（已停止生成）',
-          isLoading: false,
+          signal: abortControllerRef.current.signal,
         })
-        return
-      }
 
-      const errorMsg = error instanceof Error ? error.message : '请求失败'
-      
-      if (retryCountRef.current < maxRetries) {
-        retryCountRef.current++
-        setState((prev) => ({
-          ...prev,
-          status: 'connecting',
-          error: `重试中 (${retryCountRef.current}/${maxRetries})...`,
-        }))
-        
-        setTimeout(() => {
-          sendMessage(content, options)
-        }, retryDelay * retryCountRef.current)
-        return
-      }
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.detail || `HTTP error: ${response.status}`)
+        }
 
-      setState((prev) => ({
-        ...prev,
-        status: 'error',
-        error: errorMsg,
-      }))
-      onStatusChange?.('error')
-      onError?.(errorMsg)
+        const data = await response.json()
+        const fullContent = data.message?.content || data.text || ''
+        const metadata: StreamMetadata = {
+          knowledgeSources: data.knowledge_sources,
+          retrievalInfo: data.retrieval_info,
+          memoryContext: data.memory_context,
+          unifiedContext: data.unified_context,
+          rawResponse: data.raw_response ?? data,
+          runMetrics: {
+            model: data.model,
+            backend: data.backend,
+            duration_ms:
+              typeof data.duration_ms === 'number'
+                ? data.duration_ms
+                : typeof data.total_duration === 'number'
+                  ? Math.round(data.total_duration * 1000)
+                  : undefined,
+            prompt_tokens: data.usage?.prompt_tokens,
+            completion_tokens: data.usage?.completion_tokens,
+            total_tokens: data.usage?.total_tokens,
+            used_knowledge: Boolean(data.knowledge_sources?.length),
+            used_memory: Boolean(data.memory_context?.retrieved),
+          },
+        }
 
-      updateMessage(assistantMessageId, {
-        content: `错误: ${errorMsg}`,
-        isLoading: false,
-      })
-      completeStreaming()
-    } finally {
-      clearTimeouts()
-      abortControllerRef.current = null
-    }
-  }, [
-    addMessage,
-    startStreaming,
-    updateStreamingContent,
-    stopStreaming,
-    completeStreaming,
-    updateMessage,
-    settings,
-    messages,
-    currentSessionId,
-    maxRetries,
-    retryDelay,
-    buildChatHistory,
-    startTimeout,
-    clearTimeouts,
-    onComplete,
-    onError,
-    onStatusChange,
-  ])
+        finalizeRun(assistantMessageId, fullContent, metadata, prompt, attachments)
 
-  const sendCloudMessage = useCallback(async (content: string, cloudConfig: {
-    provider: string
-    apiKey?: string
-    keyId?: string
-    model: string
-    groupId?: string
-    baseUrl?: string
-  }) => {
-    if (!content.trim()) return
-
-    addMessage({
-      role: 'user',
-      content: content.trim(),
-    })
-
-    const assistantMessageId = addMessage({
-      role: 'assistant',
-      content: '',
-      isLoading: true,
-    })
-
-    startStreaming(assistantMessageId)
-    lastContentRef.current = ''
-
-    setState({
-      status: 'connecting',
-      content: '',
-      error: null,
-      chunksReceived: 0,
-      startTime: Date.now(),
-      bytesReceived: 0,
-      speed: 0,
-    })
-    onStatusChange?.('connecting')
-
-    abortControllerRef.current = new AbortController()
-    startTimeout()
-
-    try {
-      const chatHistory = buildChatHistory()
-      chatHistory.push({ role: 'user', content: content.trim() })
-
-      let knowledgeContext = ''
-      if (settings.useKnowledge && settings.knowledgeCollection) {
-        try {
-          const ragResponse = await fetch(`${API_BASE_URL}/knowledge/search`, {
+        if (currentSessionId) {
+          await fetch(`${API_BASE_URL}/chat/sessions/${currentSessionId}/messages`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              collection_id: settings.knowledgeCollection,
-              query: content,
-              top_k: 5,
+              messages: [
+                { role: 'user', content: prompt },
+                { role: 'assistant', content: fullContent },
+              ],
             }),
+          }).catch(console.error)
+        }
+
+        return { content: fullContent, metadata }
+      } catch (error: unknown) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          setState((prev) => ({
+            ...prev,
+            status: 'stopped',
+          }))
+          onStatusChange?.('stopped')
+          stopStreaming()
+          updateMessage(assistantMessageId, {
+            content: `${lastContentRef.current}\n\n(Generation stopped.)`,
+            isLoading: false,
           })
-          if (ragResponse.ok) {
-            const ragData = await ragResponse.json()
-            if (ragData.results?.length > 0) {
-              knowledgeContext = '\n\n[知识库相关信息]\n' + 
-                ragData.results.map((r: { content: string }) => r.content).join('\n\n')
-            }
-          }
-        } catch (e) {
-          console.warn('知识库检索失败:', e)
+          return undefined
         }
-      }
 
-      if (knowledgeContext) {
-        chatHistory[chatHistory.length - 1] = {
-          role: 'user',
-          content: `请参考以下信息回答问题：${knowledgeContext}\n\n问题：${content}`,
+        const errorMsg = error instanceof Error ? error.message : 'Request failed.'
+
+        if (retryCountRef.current < maxRetries) {
+          retryCountRef.current += 1
+          setState((prev) => ({
+            ...prev,
+            status: 'connecting',
+            error: `Retrying (${retryCountRef.current}/${maxRetries})...`,
+          }))
+
+          await new Promise((resolve) =>
+            setTimeout(resolve, retryDelay * retryCountRef.current)
+          )
+          return sendMessage(payload)
         }
-      }
 
-      const response = await fetch(`${API_BASE_URL}/cloud/chat/stream`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider: cloudConfig.provider,
-          api_key: cloudConfig.apiKey,
-          key_id: cloudConfig.keyId,
-          group_id: cloudConfig.groupId,
-          base_url: cloudConfig.baseUrl,
-          model: cloudConfig.model,
-          messages: chatHistory,
-          stream: true,
-        }),
-        signal: abortControllerRef.current.signal,
+        setState((prev) => ({
+          ...prev,
+          status: 'error',
+          error: errorMsg,
+        }))
+        onStatusChange?.('error')
+        onError?.(errorMsg)
+
+        updateMessage(assistantMessageId, {
+          content: `Error: ${errorMsg}`,
+          isLoading: false,
+        })
+        completeStreaming()
+        return undefined
+      } finally {
+        clearTimeouts()
+        abortControllerRef.current = null
+      }
+    },
+    [
+      addMessage,
+      clearTimeouts,
+      completeStreaming,
+      currentSessionId,
+      finalizeRun,
+      maxRetries,
+      onError,
+      onStatusChange,
+      retryDelay,
+      settings,
+      startStreaming,
+      startTimeout,
+      stopStreaming,
+      updateMessage,
+    ]
+  )
+
+  const sendCloudMessage = useCallback(
+    async (
+      payload: ChatSendPayload,
+      cloudConfig: CloudConfig
+    ): Promise<ChatRunResult | undefined> => {
+      const prompt = payload.prompt.trim()
+      if (!prompt) return undefined
+
+      const attachments = payload.attachments || []
+
+      addMessage({
+        role: 'user',
+        content: prompt,
+        attachments,
       })
 
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}))
-        throw new Error(error.detail || '云端 AI 调用失败')
-      }
+      const assistantMessageId = addMessage({
+        role: 'assistant',
+        content: '',
+        isLoading: true,
+      })
 
-      const reader = response.body?.getReader()
-      if (!reader) {
-        throw new Error('无法读取响应流')
-      }
+      startStreaming(assistantMessageId)
+      lastContentRef.current = ''
 
-      const decoder = new TextDecoder()
-      let fullContent = ''
+      setState({
+        status: 'connecting',
+        content: '',
+        error: null,
+        chunksReceived: 0,
+        startTime: Date.now(),
+        bytesReceived: 0,
+        speed: 0,
+      })
+      onStatusChange?.('connecting')
 
-      setState((prev) => ({
-        ...prev,
-        status: 'streaming',
-      }))
-      onStatusChange?.('streaming')
+      abortControllerRef.current = new AbortController()
+      startTimeout()
 
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
+      try {
+        const response = await fetch(`${API_BASE_URL}/cloud/chat/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider: cloudConfig.provider,
+            api_key: cloudConfig.apiKey,
+            key_id: cloudConfig.keyId,
+            group_id: cloudConfig.groupId,
+            base_url: cloudConfig.baseUrl,
+            model: cloudConfig.model,
+            messages: [{ role: 'user', content: prompt }],
+            stream: true,
+            system_prompt: payload.systemPrompt ?? settings.systemPrompt,
+            attachments: toRequestAttachments(attachments),
+            response_format: payload.responseFormat ?? settings.responseFormat,
+            temperature: payload.parameterOverrides?.temperature ?? settings.temperature,
+            max_tokens: payload.parameterOverrides?.maxTokens ?? settings.maxTokens,
+            extra_params: {
+              top_p: payload.parameterOverrides?.topP ?? settings.topP,
+            },
+            memory: {
+              enabled: payload.memoryOverride?.enabled ?? settings.useMemory,
+              auto_extract: true,
+              auto_retrieve: true,
+              top_k: 3,
+            },
+            knowledge: {
+              use_knowledge:
+                (payload.knowledgeOverride?.enabled ?? settings.useKnowledge) &&
+                !!(payload.knowledgeOverride?.collectionId ?? settings.knowledgeCollection),
+              collection_id:
+                payload.knowledgeOverride?.collectionId ?? settings.knowledgeCollection,
+              auto_retrieve: settings.autoRetrieve,
+              top_k: 5,
+              include_sources: true,
+            },
+            session: {
+              session_id: currentSessionId,
+              user_id: 'default',
+            },
+          }),
+          signal: abortControllerRef.current.signal,
+        })
 
-        const chunk = decoder.decode(value)
-        const lines = chunk.split('\n')
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}))
+          throw new Error(error.detail || 'Cloud chat failed.')
+        }
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6)
-            if (data === '[DONE]') continue
+        const reader = response.body?.getReader()
+        if (!reader) {
+          throw new Error('Unable to read the response stream.')
+        }
+
+        const decoder = new TextDecoder()
+        let fullContent = ''
+        let metadata: StreamMetadata | undefined
+
+        setState((prev) => ({
+          ...prev,
+          status: 'streaming',
+        }))
+        onStatusChange?.('streaming')
+
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          const chunk = decoder.decode(value)
+          const lines = chunk.split('\n')
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+
+            const raw = line.slice(6)
+            if (raw === '[DONE]') continue
 
             try {
-              const parsed = JSON.parse(data)
-              
+              const parsed = JSON.parse(raw)
+
               if (parsed.error) {
                 throw new Error(parsed.error)
               }
-              
+
+              if (parsed.type === 'metadata') {
+                metadata = {
+                  ...metadata,
+                  knowledgeSources: parsed.knowledge_sources ?? metadata?.knowledgeSources,
+                  retrievalInfo: parsed.retrieval_info ?? metadata?.retrievalInfo,
+                  memoryContext: parsed.memory_context ?? metadata?.memoryContext,
+                  unifiedContext: parsed.unified_context ?? metadata?.unifiedContext,
+                  rawResponse: parsed.raw_response ?? metadata?.rawResponse,
+                  runMetrics: {
+                    ...(metadata?.runMetrics || {}),
+                    model: parsed.model || metadata?.runMetrics?.model || cloudConfig.model,
+                    backend: parsed.backend || metadata?.runMetrics?.backend || 'cloud',
+                    duration_ms: parsed.duration_ms ?? metadata?.runMetrics?.duration_ms,
+                    prompt_tokens: parsed.usage?.prompt_tokens ?? metadata?.runMetrics?.prompt_tokens,
+                    completion_tokens:
+                      parsed.usage?.completion_tokens ?? metadata?.runMetrics?.completion_tokens,
+                    total_tokens: parsed.usage?.total_tokens ?? metadata?.runMetrics?.total_tokens,
+                    used_knowledge:
+                      Boolean(parsed.knowledge_sources?.length) || metadata?.runMetrics?.used_knowledge,
+                    used_memory:
+                      Boolean(parsed.memory_context?.retrieved) || metadata?.runMetrics?.used_memory,
+                  },
+                }
+                continue
+              }
+
               if (parsed.content) {
                 fullContent += parsed.content
                 lastContentRef.current = fullContent
                 updateStreamingContent(fullContent)
-                
+
                 setState((prev) => ({
                   ...prev,
                   content: fullContent,
                   chunksReceived: prev.chunksReceived + 1,
                   bytesReceived: prev.bytesReceived + parsed.content.length,
                 }))
-                
+
                 onChunk?.(parsed.content, fullContent)
               }
             } catch (parseError) {
@@ -451,72 +575,85 @@ export function useChatStream(config: StreamConfig = {}) {
             }
           }
         }
-      }
 
-      setState((prev) => {
-        const elapsed = Date.now() - (prev.startTime || Date.now())
-        return {
-          ...prev,
-          status: 'completed',
-          content: fullContent,
-          speed: elapsed > 0 ? (fullContent.length / elapsed) * 1000 : 0,
+        if (!metadata) {
+          metadata = {
+            runMetrics: {
+              model: cloudConfig.model,
+              backend: 'cloud',
+            },
+          }
         }
-      })
-      onStatusChange?.('completed')
 
-      completeStreaming()
-      onComplete?.(fullContent)
+        finalizeRun(assistantMessageId, fullContent, metadata, prompt, attachments)
 
-    } catch (error: unknown) {
-      if (error instanceof Error && error.name === 'AbortError') {
+        if (currentSessionId) {
+          await fetch(`${API_BASE_URL}/chat/sessions/${currentSessionId}/messages`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages: [
+                { role: 'user', content: prompt },
+                { role: 'assistant', content: fullContent },
+              ],
+            }),
+          }).catch(console.error)
+        }
+
+        return { content: fullContent, metadata }
+      } catch (error: unknown) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          setState((prev) => ({
+            ...prev,
+            status: 'stopped',
+          }))
+          onStatusChange?.('stopped')
+          stopStreaming()
+          updateMessage(assistantMessageId, {
+            content: `${lastContentRef.current}\n\n(Generation stopped.)`,
+            isLoading: false,
+          })
+          return undefined
+        }
+
+        const errorMsg = error instanceof Error ? error.message : 'Cloud chat failed.'
+
         setState((prev) => ({
           ...prev,
-          status: 'stopped',
+          status: 'error',
+          error: errorMsg,
         }))
-        onStatusChange?.('stopped')
-        stopStreaming()
+        onStatusChange?.('error')
+        onError?.(errorMsg)
+
         updateMessage(assistantMessageId, {
-          content: lastContentRef.current + '\n\n（已停止生成）',
+          content: `Error: ${errorMsg}`,
           isLoading: false,
         })
-        return
+        completeStreaming()
+        return undefined
+      } finally {
+        clearTimeouts()
+        abortControllerRef.current = null
       }
-
-      const errorMsg = error instanceof Error ? error.message : '云端 AI 调用失败'
-      
-      setState((prev) => ({
-        ...prev,
-        status: 'error',
-        error: errorMsg,
-      }))
-      onStatusChange?.('error')
-      onError?.(errorMsg)
-
-      updateMessage(assistantMessageId, {
-        content: `错误：${errorMsg}`,
-        isLoading: false,
-      })
-      completeStreaming()
-    } finally {
-      clearTimeouts()
-      abortControllerRef.current = null
-    }
-  }, [
-    addMessage,
-    startStreaming,
-    updateStreamingContent,
-    stopStreaming,
-    completeStreaming,
-    updateMessage,
-    settings,
-    buildChatHistory,
-    startTimeout,
-    clearTimeouts,
-    onChunk,
-    onComplete,
-    onError,
-    onStatusChange,
-  ])
+    },
+    [
+      addMessage,
+      clearTimeouts,
+      completeStreaming,
+      currentSessionId,
+      finalizeRun,
+      onChunk,
+      onError,
+      onStatusChange,
+      settings,
+      startStreaming,
+      startTimeout,
+      stopStreaming,
+      updateMessage,
+      updateStreamingContent,
+    ]
+  )
 
   const stop = useCallback(() => {
     if (abortControllerRef.current) {
@@ -529,15 +666,11 @@ export function useChatStream(config: StreamConfig = {}) {
       status: 'stopped',
     }))
     onStatusChange?.('stopped')
-  }, [stopStreaming, clearTimeouts, onStatusChange])
+  }, [clearTimeouts, onStatusChange, stopStreaming])
 
   const retry = useCallback(() => {
     retryCountRef.current = 0
-    const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')
-    if (lastUserMessage) {
-      sendMessage(lastUserMessage.content)
-    }
-  }, [messages, sendMessage])
+  }, [])
 
   useEffect(() => {
     return () => {
