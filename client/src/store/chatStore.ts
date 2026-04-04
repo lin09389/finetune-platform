@@ -3,6 +3,8 @@ import { persist } from 'zustand/middleware'
 import type {
   ChatMessage,
   PlaygroundAttachment,
+  PlaygroundCandidate,
+  PlaygroundPreset,
   PlaygroundSnapshot,
 } from '../types'
 import { API_BASE_URL } from '../services/api'
@@ -40,6 +42,7 @@ export interface ChatSettings {
   maxTokens: number
   autoRetrieve: boolean
   responseFormat: 'text' | 'json'
+  candidateCount: number
 }
 
 export interface StreamState {
@@ -65,10 +68,14 @@ interface ChatStore {
   streamState: StreamState
   promptDraft: string
   attachments: PlaygroundAttachment[]
+  activeCandidates: PlaygroundCandidate[]
+  selectedCandidateId: string | null
   selectedExperimentId: string | null
   responseView: 'response' | 'sources' | 'metadata' | 'raw'
   lastRunMetadata: PlaygroundSnapshot | null
   experimentSnapshots: PlaygroundSnapshot[]
+  presets: PlaygroundPreset[]
+  selectedPresetId: string | null
 
   createSession: (title?: string, modelId?: string) => Promise<ChatSession>
   loadSession: (sessionId: string) => Promise<void>
@@ -100,10 +107,20 @@ interface ChatStore {
   addAttachment: (attachment: PlaygroundAttachment) => void
   removeAttachment: (attachmentId: string) => void
   clearAttachments: () => void
+  setActiveCandidates: (candidates: PlaygroundCandidate[]) => void
+  updateActiveCandidate: (
+    candidateId: string,
+    updates: Partial<PlaygroundCandidate>
+  ) => void
+  clearActiveCandidates: () => void
+  setSelectedCandidateId: (candidateId: string | null) => void
   addExperimentSnapshot: (snapshot: PlaygroundSnapshot) => void
   setSelectedExperimentId: (experimentId: string | null) => void
   setResponseView: (view: ChatStore['responseView']) => void
   setLastRunMetadata: (snapshot: PlaygroundSnapshot | null) => void
+  savePreset: (preset: PlaygroundPreset) => void
+  deletePreset: (presetId: string) => void
+  setSelectedPresetId: (presetId: string | null) => void
 
   setError: (error: string | null) => void
   setIsLoading: (loading: boolean) => void
@@ -132,6 +149,7 @@ export const useChatStore = create<ChatStore>()(
         maxTokens: 2048,
         autoRetrieve: true,
         responseFormat: 'text',
+        candidateCount: 2,
       },
       streamState: {
         status: 'idle',
@@ -143,10 +161,14 @@ export const useChatStore = create<ChatStore>()(
       },
       promptDraft: '',
       attachments: [],
+      activeCandidates: [],
+      selectedCandidateId: null,
       selectedExperimentId: null,
       responseView: 'response',
       lastRunMetadata: null,
       experimentSnapshots: [],
+      presets: [],
+      selectedPresetId: null,
 
       createSession: async (title = '新对话', modelId) => {
         try {
@@ -465,10 +487,38 @@ export const useChatStore = create<ChatStore>()(
         set({ attachments: [] })
       },
 
+      setActiveCandidates: (activeCandidates) => {
+        set({
+          activeCandidates,
+          selectedCandidateId: activeCandidates[0]?.id || null,
+        })
+      },
+
+      updateActiveCandidate: (candidateId, updates) => {
+        set((state) => ({
+          activeCandidates: state.activeCandidates.map((candidate) =>
+            candidate.id === candidateId ? { ...candidate, ...updates } : candidate
+          ),
+        }))
+      },
+
+      clearActiveCandidates: () => {
+        set({
+          activeCandidates: [],
+          selectedCandidateId: null,
+        })
+      },
+
+      setSelectedCandidateId: (selectedCandidateId) => {
+        set({ selectedCandidateId })
+      },
+
       addExperimentSnapshot: (snapshot) => {
         set((state) => ({
           experimentSnapshots: [snapshot, ...state.experimentSnapshots].slice(0, 100),
           selectedExperimentId: snapshot.id,
+          activeCandidates: snapshot.candidates,
+          selectedCandidateId: snapshot.selectedCandidateId,
           lastRunMetadata: snapshot,
         }))
       },
@@ -483,6 +533,33 @@ export const useChatStore = create<ChatStore>()(
 
       setLastRunMetadata: (lastRunMetadata) => {
         set({ lastRunMetadata })
+      },
+
+      savePreset: (preset) => {
+        set((state) => {
+          const existing = state.presets.find((item) => item.id === preset.id)
+          if (existing) {
+            return {
+              presets: state.presets.map((item) => (item.id === preset.id ? preset : item)),
+            }
+          }
+
+          return {
+            presets: [preset, ...state.presets].slice(0, 50),
+          }
+        })
+      },
+
+      deletePreset: (presetId) => {
+        set((state) => ({
+          presets: state.presets.filter((preset) => preset.id !== presetId),
+          selectedPresetId:
+            state.selectedPresetId === presetId ? null : state.selectedPresetId,
+        }))
+      },
+
+      setSelectedPresetId: (selectedPresetId) => {
+        set({ selectedPresetId })
       },
 
       setError: (error) => {
@@ -501,10 +578,14 @@ export const useChatStore = create<ChatStore>()(
         sessions: state.sessions.slice(0, 50),
         promptDraft: state.promptDraft,
         attachments: state.attachments,
+        activeCandidates: state.activeCandidates,
+        selectedCandidateId: state.selectedCandidateId,
         selectedExperimentId: state.selectedExperimentId,
         responseView: state.responseView,
         lastRunMetadata: state.lastRunMetadata,
         experimentSnapshots: state.experimentSnapshots.slice(0, 50),
+        presets: state.presets.slice(0, 50),
+        selectedPresetId: state.selectedPresetId,
       }),
     }
   )

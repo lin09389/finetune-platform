@@ -156,6 +156,38 @@ export interface PlaygroundRunMetrics {
   used_memory?: boolean
 }
 
+export type PlaygroundCandidateStatus =
+  | 'idle'
+  | 'connecting'
+  | 'streaming'
+  | 'completed'
+  | 'error'
+  | 'stopped'
+
+export interface PlaygroundCandidate {
+  id: string
+  index: number
+  content: string
+  status: PlaygroundCandidateStatus
+  error?: string
+  raw_response?: unknown
+  knowledge_sources?: KnowledgeSource[]
+  retrieval_info?: RetrievalInfo
+  memory_context?: {
+    retrieved: boolean
+    sources_count: number
+    context_preview: string
+  }
+  unified_context?: {
+    total_sources: number
+    memory_count: number
+    knowledge_count: number
+    project_count?: number
+    retrieval_time: number
+  }
+  run_metrics?: PlaygroundRunMetrics
+}
+
 export interface PlaygroundExperimentConfig {
   prompt: string
   systemPrompt: string
@@ -169,6 +201,7 @@ export interface PlaygroundExperimentConfig {
   knowledgeCollection?: string
   useMemory: boolean
   autoRetrieve: boolean
+  candidateCount: number
   attachments: PlaygroundAttachment[]
 }
 
@@ -177,6 +210,8 @@ export interface PlaygroundSnapshot {
   createdAt: string
   title: string
   response: string
+  selectedCandidateId: string
+  candidates: PlaygroundCandidate[]
   raw_response?: unknown
   knowledge_sources?: KnowledgeSource[]
   retrieval_info?: RetrievalInfo
@@ -194,6 +229,14 @@ export interface PlaygroundSnapshot {
   }
   experiment_config: PlaygroundExperimentConfig
   run_metrics?: PlaygroundRunMetrics
+}
+
+export interface PlaygroundPreset {
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+  config: PlaygroundExperimentConfig
 }
 
 export interface BackendInfo {

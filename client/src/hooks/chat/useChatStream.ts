@@ -4,6 +4,7 @@ import { useChatStore } from '../../store/chatStore'
 import type {
   KnowledgeSource,
   PlaygroundAttachment,
+  PlaygroundCandidate,
   PlaygroundRunMetrics,
   RetrievalInfo,
 } from '../../types'
@@ -53,7 +54,7 @@ export interface ChatSendPayload {
   }
 }
 
-interface ChatRunResult {
+export interface ChatRunResult {
   content: string
   metadata?: StreamMetadata
 }
@@ -77,6 +78,12 @@ interface CloudConfig {
   baseUrl?: string
 }
 
+interface RunTransportOptions {
+  runId?: string
+  onChunk?: (content: string, fullContent: string) => void
+  onStatusChange?: (status: StreamState['status']) => void
+}
+
 function toRequestAttachments(attachments: PlaygroundAttachment[] = []) {
   return attachments.map((attachment) => ({
     name: attachment.name,
@@ -86,6 +93,27 @@ function toRequestAttachments(attachments: PlaygroundAttachment[] = []) {
     content: attachment.content,
     preview_url: attachment.previewUrl,
   }))
+}
+
+function toCandidate(
+  candidateId: string,
+  index: number,
+  result?: ChatRunResult,
+  error?: string
+): PlaygroundCandidate {
+  return {
+    id: candidateId,
+    index,
+    content: result?.content || '',
+    status: error ? 'error' : 'completed',
+    error,
+    raw_response: result?.metadata?.rawResponse,
+    knowledge_sources: result?.metadata?.knowledgeSources,
+    retrieval_info: result?.metadata?.retrievalInfo,
+    memory_context: result?.metadata?.memoryContext,
+    unified_context: result?.metadata?.unifiedContext,
+    run_metrics: result?.metadata?.runMetrics,
+  }
 }
 
 export function useChatStream(config: StreamConfig = {}) {
@@ -109,10 +137,10 @@ export function useChatStream(config: StreamConfig = {}) {
     speed: 0,
   })
 
-  const abortControllerRef = useRef<AbortController | null>(null)
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const retryCountRef = useRef(0)
-  const lastContentRef = useRef('')
+  const abortControllersRef = useRef<Map<string, AbortController>>(new Map())
+  const timeoutRefs = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const retryCountsRef = useRef<Map<string, number>>(new Map())
+  const lastContentRef = useRef<Map<string, string>>(new Map())
 
   const {
     addMessage,
@@ -125,18 +153,30 @@ export function useChatStream(config: StreamConfig = {}) {
     updateMessage,
   } = useChatStore()
 
-  const clearTimeouts = useCallback(() => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current)
-      timeoutRef.current = null
+  const clearTimeoutFor = useCallback((runId: string) => {
+    const timeoutHandle = timeoutRefs.current.get(runId)
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle)
+      timeoutRefs.current.delete(runId)
     }
   }, [])
 
-  const startTimeout = useCallback(() => {
-    clearTimeouts()
-    timeoutRef.current = setTimeout(() => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort()
+  const clearAllTimeouts = useCallback(() => {
+    for (const timeoutHandle of timeoutRefs.current.values()) {
+      clearTimeout(timeoutHandle)
+    }
+    timeoutRefs.current.clear()
+  }, [])
+
+  const startTimeout = useCallback(
+    (runId: string) => {
+      clearTimeoutFor(runId)
+      const timeoutHandle = setTimeout(() => {
+        const controller = abortControllersRef.current.get(runId)
+        if (!controller) {
+          return
+        }
+        controller.abort()
         setState((prev) => ({
           ...prev,
           status: 'error',
@@ -144,12 +184,55 @@ export function useChatStream(config: StreamConfig = {}) {
         }))
         onStatusChange?.('error')
         onError?.('Request timed out.')
-      }
-    }, timeout)
-  }, [clearTimeouts, onError, onStatusChange, timeout])
+      }, timeout)
+      timeoutRefs.current.set(runId, timeoutHandle)
+    },
+    [clearTimeoutFor, onError, onStatusChange, timeout]
+  )
 
-  const finalizeRun = useCallback(
+  const buildExperimentConfig = useCallback(
+    (prompt: string, attachments: PlaygroundAttachment[] = []) => ({
+      prompt,
+      systemPrompt: settings.systemPrompt,
+      responseFormat: settings.responseFormat,
+      modelId: settings.modelId,
+      backend: settings.backend,
+      temperature: settings.temperature,
+      topP: settings.topP,
+      maxTokens: settings.maxTokens,
+      useKnowledge: settings.useKnowledge,
+      knowledgeCollection: settings.knowledgeCollection,
+      useMemory: settings.useMemory,
+      autoRetrieve: settings.autoRetrieve,
+      candidateCount: settings.candidateCount,
+      attachments,
+    }),
+    [settings]
+  )
+
+  const saveSessionMessages = useCallback(
+    async (prompt: string, content: string) => {
+      if (!currentSessionId) {
+        return
+      }
+
+      await fetch(`${API_BASE_URL}/chat/sessions/${currentSessionId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            { role: 'user', content: prompt },
+            { role: 'assistant', content },
+          ],
+        }),
+      }).catch(console.error)
+    },
+    [currentSessionId]
+  )
+
+  const finalizeSingleRun = useCallback(
     (
+      runId: string,
       assistantMessageId: string,
       fullContent: string,
       metadata?: StreamMetadata,
@@ -175,73 +258,39 @@ export function useChatStream(config: StreamConfig = {}) {
         unified_context: metadata?.unifiedContext,
         raw_response: metadata?.rawResponse,
         run_metrics: metadata?.runMetrics,
-        experiment_config: prompt
-          ? {
-              prompt,
-              systemPrompt: settings.systemPrompt,
-              responseFormat: settings.responseFormat,
-              modelId: settings.modelId,
-              backend: settings.backend,
-              temperature: settings.temperature,
-              topP: settings.topP,
-              maxTokens: settings.maxTokens,
-              useKnowledge: settings.useKnowledge,
-              knowledgeCollection: settings.knowledgeCollection,
-              useMemory: settings.useMemory,
-              autoRetrieve: settings.autoRetrieve,
-              attachments: attachments || [],
-            }
-          : undefined,
+        experiment_config: prompt ? buildExperimentConfig(prompt, attachments || []) : undefined,
       })
       completeStreaming()
       onComplete?.(fullContent, metadata)
-      retryCountRef.current = 0
+      retryCountsRef.current.set(runId, 0)
     },
     [
+      buildExperimentConfig,
       completeStreaming,
       onComplete,
       onStatusChange,
-      settings,
       updateMessage,
       updateStreamingContent,
     ]
   )
 
-  const sendMessage = useCallback(
-    async (payload: ChatSendPayload): Promise<ChatRunResult | undefined> => {
+  const runLocalTransport = useCallback(
+    async (
+      payload: ChatSendPayload,
+      options: RunTransportOptions = {}
+    ): Promise<ChatRunResult | undefined> => {
       const prompt = payload.prompt.trim()
-      if (!prompt) return undefined
+      if (!prompt) {
+        return undefined
+      }
 
+      const runId = options.runId || `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
       const attachments = payload.attachments || []
+      const retryCount = retryCountsRef.current.get(runId) || 0
 
-      addMessage({
-        role: 'user',
-        content: prompt,
-        attachments,
-      })
-
-      const assistantMessageId = addMessage({
-        role: 'assistant',
-        content: '',
-        isLoading: true,
-      })
-
-      startStreaming(assistantMessageId)
-      lastContentRef.current = ''
-
-      setState({
-        status: 'connecting',
-        content: '',
-        error: null,
-        chunksReceived: 0,
-        startTime: Date.now(),
-        bytesReceived: 0,
-        speed: 0,
-      })
-      onStatusChange?.('connecting')
-
-      abortControllerRef.current = new AbortController()
-      startTimeout()
+      abortControllersRef.current.set(runId, new AbortController())
+      startTimeout(runId)
+      options.onStatusChange?.('connecting')
 
       try {
         const useKnowledge = payload.knowledgeOverride?.enabled ?? settings.useKnowledge
@@ -285,7 +334,7 @@ export function useChatStream(config: StreamConfig = {}) {
               user_id: 'default',
             },
           }),
-          signal: abortControllerRef.current.signal,
+          signal: abortControllersRef.current.get(runId)?.signal,
         })
 
         if (!response.ok) {
@@ -293,8 +342,12 @@ export function useChatStream(config: StreamConfig = {}) {
           throw new Error(errorData.detail || `HTTP error: ${response.status}`)
         }
 
+        options.onStatusChange?.('streaming')
+
         const data = await response.json()
         const fullContent = data.message?.content || data.text || ''
+        lastContentRef.current.set(runId, fullContent)
+        options.onChunk?.(fullContent, fullContent)
         const metadata: StreamMetadata = {
           knowledgeSources: data.knowledge_sources,
           retrievalInfo: data.retrieval_info,
@@ -318,128 +371,53 @@ export function useChatStream(config: StreamConfig = {}) {
           },
         }
 
-        finalizeRun(assistantMessageId, fullContent, metadata, prompt, attachments)
-
-        if (currentSessionId) {
-          await fetch(`${API_BASE_URL}/chat/sessions/${currentSessionId}/messages`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              messages: [
-                { role: 'user', content: prompt },
-                { role: 'assistant', content: fullContent },
-              ],
-            }),
-          }).catch(console.error)
-        }
-
         return { content: fullContent, metadata }
       } catch (error: unknown) {
         if (error instanceof Error && error.name === 'AbortError') {
-          setState((prev) => ({
-            ...prev,
-            status: 'stopped',
-          }))
-          onStatusChange?.('stopped')
-          stopStreaming()
-          updateMessage(assistantMessageId, {
-            content: `${lastContentRef.current}\n\n(Generation stopped.)`,
-            isLoading: false,
-          })
+          options.onStatusChange?.('stopped')
           return undefined
         }
 
-        const errorMsg = error instanceof Error ? error.message : 'Request failed.'
-
-        if (retryCountRef.current < maxRetries) {
-          retryCountRef.current += 1
-          setState((prev) => ({
-            ...prev,
-            status: 'connecting',
-            error: `Retrying (${retryCountRef.current}/${maxRetries})...`,
-          }))
-
-          await new Promise((resolve) =>
-            setTimeout(resolve, retryDelay * retryCountRef.current)
-          )
-          return sendMessage(payload)
+        const errorMessage = error instanceof Error ? error.message : 'Request failed.'
+        if (retryCount < maxRetries) {
+          retryCountsRef.current.set(runId, retryCount + 1)
+          await new Promise((resolve) => setTimeout(resolve, retryDelay * (retryCount + 1)))
+          return runLocalTransport(payload, options)
         }
-
-        setState((prev) => ({
-          ...prev,
-          status: 'error',
-          error: errorMsg,
-        }))
-        onStatusChange?.('error')
-        onError?.(errorMsg)
-
-        updateMessage(assistantMessageId, {
-          content: `Error: ${errorMsg}`,
-          isLoading: false,
-        })
-        completeStreaming()
-        return undefined
+        options.onStatusChange?.('error')
+        throw new Error(errorMessage)
       } finally {
-        clearTimeouts()
-        abortControllerRef.current = null
+        clearTimeoutFor(runId)
+        abortControllersRef.current.delete(runId)
       }
     },
     [
-      addMessage,
-      clearTimeouts,
-      completeStreaming,
+      clearTimeoutFor,
       currentSessionId,
-      finalizeRun,
       maxRetries,
-      onError,
-      onStatusChange,
       retryDelay,
       settings,
-      startStreaming,
       startTimeout,
-      stopStreaming,
-      updateMessage,
     ]
   )
 
-  const sendCloudMessage = useCallback(
+  const runCloudTransport = useCallback(
     async (
       payload: ChatSendPayload,
-      cloudConfig: CloudConfig
+      cloudConfig: CloudConfig,
+      options: RunTransportOptions = {}
     ): Promise<ChatRunResult | undefined> => {
       const prompt = payload.prompt.trim()
-      if (!prompt) return undefined
+      if (!prompt) {
+        return undefined
+      }
 
+      const runId = options.runId || `cloud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
       const attachments = payload.attachments || []
 
-      addMessage({
-        role: 'user',
-        content: prompt,
-        attachments,
-      })
-
-      const assistantMessageId = addMessage({
-        role: 'assistant',
-        content: '',
-        isLoading: true,
-      })
-
-      startStreaming(assistantMessageId)
-      lastContentRef.current = ''
-
-      setState({
-        status: 'connecting',
-        content: '',
-        error: null,
-        chunksReceived: 0,
-        startTime: Date.now(),
-        bytesReceived: 0,
-        speed: 0,
-      })
-      onStatusChange?.('connecting')
-
-      abortControllerRef.current = new AbortController()
-      startTimeout()
+      abortControllersRef.current.set(runId, new AbortController())
+      startTimeout(runId)
+      options.onStatusChange?.('connecting')
 
       try {
         const response = await fetch(`${API_BASE_URL}/cloud/chat/stream`, {
@@ -483,7 +461,7 @@ export function useChatStream(config: StreamConfig = {}) {
               user_id: 'default',
             },
           }),
-          signal: abortControllerRef.current.signal,
+          signal: abortControllersRef.current.get(runId)?.signal,
         })
 
         if (!response.ok) {
@@ -500,29 +478,29 @@ export function useChatStream(config: StreamConfig = {}) {
         let fullContent = ''
         let metadata: StreamMetadata | undefined
 
-        setState((prev) => ({
-          ...prev,
-          status: 'streaming',
-        }))
-        onStatusChange?.('streaming')
+        options.onStatusChange?.('streaming')
 
         // eslint-disable-next-line no-constant-condition
         while (true) {
           const { done, value } = await reader.read()
-          if (done) break
+          if (done) {
+            break
+          }
 
           const chunk = decoder.decode(value)
           const lines = chunk.split('\n')
-
           for (const line of lines) {
-            if (!line.startsWith('data: ')) continue
+            if (!line.startsWith('data: ')) {
+              continue
+            }
 
             const raw = line.slice(6)
-            if (raw === '[DONE]') continue
+            if (raw === '[DONE]') {
+              continue
+            }
 
             try {
               const parsed = JSON.parse(raw)
-
               if (parsed.error) {
                 throw new Error(parsed.error)
               }
@@ -555,17 +533,8 @@ export function useChatStream(config: StreamConfig = {}) {
 
               if (parsed.content) {
                 fullContent += parsed.content
-                lastContentRef.current = fullContent
-                updateStreamingContent(fullContent)
-
-                setState((prev) => ({
-                  ...prev,
-                  content: fullContent,
-                  chunksReceived: prev.chunksReceived + 1,
-                  bytesReceived: prev.bytesReceived + parsed.content.length,
-                }))
-
-                onChunk?.(parsed.content, fullContent)
+                lastContentRef.current.set(runId, fullContent)
+                options.onChunk?.(parsed.content, fullContent)
               }
             } catch (parseError) {
               if (parseError instanceof SyntaxError) {
@@ -585,106 +554,362 @@ export function useChatStream(config: StreamConfig = {}) {
           }
         }
 
-        finalizeRun(assistantMessageId, fullContent, metadata, prompt, attachments)
-
-        if (currentSessionId) {
-          await fetch(`${API_BASE_URL}/chat/sessions/${currentSessionId}/messages`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              messages: [
-                { role: 'user', content: prompt },
-                { role: 'assistant', content: fullContent },
-              ],
-            }),
-          }).catch(console.error)
-        }
-
         return { content: fullContent, metadata }
       } catch (error: unknown) {
         if (error instanceof Error && error.name === 'AbortError') {
+          options.onStatusChange?.('stopped')
+          return undefined
+        }
+
+        options.onStatusChange?.('error')
+        throw error instanceof Error ? error : new Error('Cloud chat failed.')
+      } finally {
+        clearTimeoutFor(runId)
+        abortControllersRef.current.delete(runId)
+      }
+    },
+    [clearTimeoutFor, currentSessionId, settings, startTimeout]
+  )
+
+  const sendMessage = useCallback(
+    async (payload: ChatSendPayload): Promise<ChatRunResult | undefined> => {
+      const prompt = payload.prompt.trim()
+      if (!prompt) {
+        return undefined
+      }
+
+      const runId = `single_local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+      const attachments = payload.attachments || []
+
+      addMessage({
+        role: 'user',
+        content: prompt,
+        attachments,
+      })
+
+      const assistantMessageId = addMessage({
+        role: 'assistant',
+        content: '',
+        isLoading: true,
+      })
+
+      startStreaming(assistantMessageId)
+      lastContentRef.current.set(runId, '')
+      setState({
+        status: 'connecting',
+        content: '',
+        error: null,
+        chunksReceived: 0,
+        startTime: Date.now(),
+        bytesReceived: 0,
+        speed: 0,
+      })
+      onStatusChange?.('connecting')
+
+      try {
+        const result = await runLocalTransport(payload, {
+          runId,
+          onChunk: (chunk, fullContent) => {
+            updateStreamingContent(fullContent)
+            setState((prev) => ({
+              ...prev,
+              status: 'streaming',
+              content: fullContent,
+              chunksReceived: prev.chunksReceived + 1,
+              bytesReceived: prev.bytesReceived + chunk.length,
+            }))
+            onChunk?.(chunk, fullContent)
+          },
+          onStatusChange,
+        })
+
+        if (!result) {
           setState((prev) => ({
             ...prev,
             status: 'stopped',
           }))
-          onStatusChange?.('stopped')
           stopStreaming()
           updateMessage(assistantMessageId, {
-            content: `${lastContentRef.current}\n\n(Generation stopped.)`,
+            content: `${lastContentRef.current.get(runId) || ''}\n\n(Generation stopped.)`,
             isLoading: false,
           })
           return undefined
         }
 
-        const errorMsg = error instanceof Error ? error.message : 'Cloud chat failed.'
-
+        finalizeSingleRun(runId, assistantMessageId, result.content, result.metadata, prompt, attachments)
+        await saveSessionMessages(prompt, result.content)
+        return result
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Request failed.'
         setState((prev) => ({
           ...prev,
           status: 'error',
-          error: errorMsg,
+          error: errorMessage,
         }))
         onStatusChange?.('error')
-        onError?.(errorMsg)
-
+        onError?.(errorMessage)
         updateMessage(assistantMessageId, {
-          content: `Error: ${errorMsg}`,
+          content: `Error: ${errorMessage}`,
           isLoading: false,
         })
         completeStreaming()
         return undefined
-      } finally {
-        clearTimeouts()
-        abortControllerRef.current = null
       }
     },
     [
       addMessage,
-      clearTimeouts,
       completeStreaming,
-      currentSessionId,
-      finalizeRun,
+      finalizeSingleRun,
       onChunk,
       onError,
       onStatusChange,
-      settings,
+      runLocalTransport,
+      saveSessionMessages,
       startStreaming,
-      startTimeout,
       stopStreaming,
       updateMessage,
       updateStreamingContent,
     ]
   )
 
+  const sendCloudMessage = useCallback(
+    async (
+      payload: ChatSendPayload,
+      cloudConfig: CloudConfig
+    ): Promise<ChatRunResult | undefined> => {
+      const prompt = payload.prompt.trim()
+      if (!prompt) {
+        return undefined
+      }
+
+      const runId = `single_cloud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+      const attachments = payload.attachments || []
+
+      addMessage({
+        role: 'user',
+        content: prompt,
+        attachments,
+      })
+
+      const assistantMessageId = addMessage({
+        role: 'assistant',
+        content: '',
+        isLoading: true,
+      })
+
+      startStreaming(assistantMessageId)
+      lastContentRef.current.set(runId, '')
+      setState({
+        status: 'connecting',
+        content: '',
+        error: null,
+        chunksReceived: 0,
+        startTime: Date.now(),
+        bytesReceived: 0,
+        speed: 0,
+      })
+      onStatusChange?.('connecting')
+
+      try {
+        const result = await runCloudTransport(payload, cloudConfig, {
+          runId,
+          onChunk: (chunk, fullContent) => {
+            updateStreamingContent(fullContent)
+            setState((prev) => ({
+              ...prev,
+              status: 'streaming',
+              content: fullContent,
+              chunksReceived: prev.chunksReceived + 1,
+              bytesReceived: prev.bytesReceived + chunk.length,
+            }))
+            onChunk?.(chunk, fullContent)
+          },
+          onStatusChange,
+        })
+
+        if (!result) {
+          setState((prev) => ({
+            ...prev,
+            status: 'stopped',
+          }))
+          stopStreaming()
+          updateMessage(assistantMessageId, {
+            content: `${lastContentRef.current.get(runId) || ''}\n\n(Generation stopped.)`,
+            isLoading: false,
+          })
+          return undefined
+        }
+
+        finalizeSingleRun(runId, assistantMessageId, result.content, result.metadata, prompt, attachments)
+        await saveSessionMessages(prompt, result.content)
+        return result
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Cloud chat failed.'
+        setState((prev) => ({
+          ...prev,
+          status: 'error',
+          error: errorMessage,
+        }))
+        onStatusChange?.('error')
+        onError?.(errorMessage)
+        updateMessage(assistantMessageId, {
+          content: `Error: ${errorMessage}`,
+          isLoading: false,
+        })
+        completeStreaming()
+        return undefined
+      }
+    },
+    [
+      addMessage,
+      completeStreaming,
+      finalizeSingleRun,
+      onChunk,
+      onError,
+      onStatusChange,
+      runCloudTransport,
+      saveSessionMessages,
+      startStreaming,
+      stopStreaming,
+      updateMessage,
+      updateStreamingContent,
+    ]
+  )
+
+  const runExperimentCandidates = useCallback(
+    async (
+      payload: ChatSendPayload,
+      count: number,
+      cloudConfig?: CloudConfig
+    ): Promise<PlaygroundCandidate[]> => {
+      const safeCount = Math.min(4, Math.max(1, count))
+      const prompt = payload.prompt.trim()
+      if (!prompt) {
+        return []
+      }
+
+      setState({
+        status: 'connecting',
+        content: '',
+        error: null,
+        chunksReceived: 0,
+        startTime: Date.now(),
+        bytesReceived: 0,
+        speed: 0,
+      })
+      onStatusChange?.('connecting')
+
+      const candidates = await Promise.all(
+        Array.from({ length: safeCount }, async (_, index) => {
+          const candidateId = `candidate_${Date.now()}_${index + 1}_${Math.random().toString(36).slice(2, 8)}`
+          try {
+            const result =
+              cloudConfig && (payload.parameterOverrides?.backend === 'cloud' || settings.backend === 'cloud')
+                ? await runCloudTransport(payload, cloudConfig, {
+                    runId: candidateId,
+                    onChunk: (_chunk, fullContent) => {
+                      if (index === 0) {
+                        setState((prev) => ({
+                          ...prev,
+                          status: 'streaming',
+                          content: fullContent,
+                        }))
+                      }
+                    },
+                    onStatusChange: (status) => {
+                      if (index === 0) {
+                        setState((prev) => ({
+                          ...prev,
+                          status,
+                        }))
+                      }
+                    },
+                  })
+                : await runLocalTransport(payload, {
+                    runId: candidateId,
+                    onChunk: (_chunk, fullContent) => {
+                      if (index === 0) {
+                        setState((prev) => ({
+                          ...prev,
+                          status: 'streaming',
+                          content: fullContent,
+                        }))
+                      }
+                    },
+                    onStatusChange: (status) => {
+                      if (index === 0) {
+                        setState((prev) => ({
+                          ...prev,
+                          status,
+                        }))
+                      }
+                    },
+                  })
+
+            if (!result) {
+              return {
+                id: candidateId,
+                index,
+                content: lastContentRef.current.get(candidateId) || '',
+                status: 'stopped' as const,
+              }
+            }
+
+            return toCandidate(candidateId, index, result)
+          } catch (error: unknown) {
+            const messageText = error instanceof Error ? error.message : 'Request failed.'
+            return toCandidate(candidateId, index, undefined, messageText)
+          }
+        })
+      )
+
+      const primary = candidates.find((candidate) => candidate.status === 'completed') || candidates[0]
+      if (primary) {
+        setState((prev) => ({
+          ...prev,
+          status: candidates.some((candidate) => candidate.status === 'completed') ? 'completed' : 'error',
+          content: primary.content,
+        }))
+      }
+
+      return candidates
+    },
+    [onStatusChange, runCloudTransport, runLocalTransport, settings.backend]
+  )
+
   const stop = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
+    for (const controller of abortControllersRef.current.values()) {
+      controller.abort()
     }
-    clearTimeouts()
+    abortControllersRef.current.clear()
+    clearAllTimeouts()
     stopStreaming()
     setState((prev) => ({
       ...prev,
       status: 'stopped',
     }))
     onStatusChange?.('stopped')
-  }, [clearTimeouts, onStatusChange, stopStreaming])
+  }, [clearAllTimeouts, onStatusChange, stopStreaming])
 
   const retry = useCallback(() => {
-    retryCountRef.current = 0
+    retryCountsRef.current.clear()
   }, [])
 
   useEffect(() => {
     return () => {
-      clearTimeouts()
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort()
+      clearAllTimeouts()
+      for (const controller of abortControllersRef.current.values()) {
+        controller.abort()
       }
+      abortControllersRef.current.clear()
     }
-  }, [clearTimeouts])
+  }, [clearAllTimeouts])
 
   return {
     state,
     sendMessage,
     sendCloudMessage,
+    runExperimentCandidates,
     stop,
     retry,
     isStreaming: state.status === 'connecting' || state.status === 'streaming',
