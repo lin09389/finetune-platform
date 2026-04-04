@@ -56,6 +56,13 @@ tmp/
 temp/
 *.tmp
 
+# Runtime state
+server/data/.vault
+server/data/credentials/
+server/data/sessions/
+server/data/vectors/
+server/workspaces/*/.workspace.json
+
 # Docker
 .docker/
 
