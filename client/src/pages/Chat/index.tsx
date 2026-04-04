@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Card,
+  Collapse,
   Empty,
   Input,
   List,
@@ -25,6 +26,8 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   ExperimentOutlined,
+  StarFilled,
+  StarOutlined,
   HistoryOutlined,
   ImportOutlined,
   SaveOutlined,
@@ -43,6 +46,7 @@ import { useChatStream } from '../../hooks/chat/useChatStream'
 import { useChatStore } from '../../store/chatStore'
 import { API_BASE_URL, getBackends, getInferenceModels, getOllamaStatus } from '../../services/api'
 import type {
+  AgentTimelineEvent,
   PlaygroundAttachment,
   PlaygroundCandidate,
   PlaygroundPreset,
@@ -82,6 +86,22 @@ interface CompareField {
 interface DiffLine {
   type: 'added' | 'removed'
   value: string
+}
+
+interface AgentTaskHistoryItem {
+  id: string
+  title: string
+  status: string
+  summary: string
+  toolName?: string
+  createdAt: string
+}
+
+interface AgentStepGroup {
+  key: string
+  label: string
+  status: string
+  events: AgentTimelineEvent[]
 }
 
 const pageStyle: React.CSSProperties = {
@@ -253,6 +273,12 @@ const ChatPage: React.FC = () => {
     sessions,
     currentSessionId,
     messages,
+    agentMode,
+    agentTaskStatus,
+    agentTimeline,
+    pendingAgentConfirmation,
+    agentWorkspaceRoot,
+    autoApproveSafeTools,
     settings,
     promptDraft,
     attachments,
@@ -269,6 +295,12 @@ const ChatPage: React.FC = () => {
     deleteSession,
     loadSessions,
     clearMessages,
+    setAgentMode,
+    setAgentTaskStatus,
+    clearAgentTimeline,
+    setPendingAgentConfirmation,
+    setAgentWorkspaceRoot,
+    setAutoApproveSafeTools,
     updateSettings,
     setPromptDraft,
     setAttachments,
@@ -277,6 +309,7 @@ const ChatPage: React.FC = () => {
     setActiveCandidates,
     clearActiveCandidates,
     addExperimentSnapshot,
+    updateExperimentSnapshot,
     setSelectedCandidateId,
     setSelectedExperimentId,
     setResponseView,
@@ -290,6 +323,11 @@ const ChatPage: React.FC = () => {
   const [presetName, setPresetName] = useState('')
   const [compareSnapshotIds, setCompareSnapshotIds] = useState<string[]>([])
   const [compareOnlyDiff, setCompareOnlyDiff] = useState(false)
+  const [historySearch, setHistorySearch] = useState('')
+  const [historyBackendFilter, setHistoryBackendFilter] = useState<string>('all')
+  const [historyModelFilter, setHistoryModelFilter] = useState<string>('all')
+  const [historyFavoritesOnly, setHistoryFavoritesOnly] = useState(false)
+  const [historySort, setHistorySort] = useState<'newest' | 'recent' | 'favorites'>('newest')
   const [lastImportSummary, setLastImportSummary] = useState<{
     imported: number
     overwritten: number
@@ -315,6 +353,11 @@ const ChatPage: React.FC = () => {
 
   const {
     runExperimentCandidates,
+    runAgentTask,
+    resumeAgentTask,
+    resumeAgentFromEvent,
+    confirmAgentAction,
+    cancelAgentAction,
     stop: stopStream,
     isStreaming,
     state: streamState,
@@ -377,6 +420,339 @@ const ChatPage: React.FC = () => {
     }
     return buildResponseDiff(primaryCandidate.content, selectedCandidate.content)
   }, [primaryCandidate, selectedCandidate])
+  const latestUserMessage = useMemo(() => {
+    return [...messages].reverse().find((message) => message.role === 'user') || null
+  }, [messages])
+  const agentStatusColor = useMemo(() => {
+    switch (agentTaskStatus) {
+      case 'planning':
+        return 'processing'
+      case 'running':
+        return 'blue'
+      case 'waiting_confirmation':
+        return 'gold'
+      case 'completed':
+        return 'green'
+      case 'failed':
+        return 'red'
+      case 'stopped':
+        return 'default'
+      default:
+        return 'default'
+    }
+  }, [agentTaskStatus])
+  const historyBackendOptions = useMemo(() => {
+    return Array.from(
+      new Set(experimentSnapshots.map((snapshot) => snapshot.experiment_config.backend).filter(Boolean))
+    )
+  }, [experimentSnapshots])
+  const historyModelOptions = useMemo(() => {
+    return Array.from(
+      new Set(experimentSnapshots.map((snapshot) => snapshot.experiment_config.modelId).filter(Boolean))
+    )
+  }, [experimentSnapshots])
+  const filteredExperimentSnapshots = useMemo(() => {
+    const query = historySearch.trim().toLowerCase()
+
+    return experimentSnapshots
+      .filter((snapshot) => {
+        const matchesQuery =
+          !query ||
+          [
+            snapshot.title,
+            snapshot.response,
+            snapshot.experiment_config.prompt,
+            snapshot.experiment_config.modelId,
+            snapshot.experiment_config.backend,
+          ]
+            .filter(Boolean)
+            .some((value) => String(value).toLowerCase().includes(query))
+
+        const matchesBackend =
+          historyBackendFilter === 'all' ||
+          snapshot.experiment_config.backend === historyBackendFilter
+
+        const matchesModel =
+          historyModelFilter === 'all' ||
+          snapshot.experiment_config.modelId === historyModelFilter
+
+        const matchesFavorite = !historyFavoritesOnly || Boolean(snapshot.isFavorite)
+
+        return matchesQuery && matchesBackend && matchesModel && matchesFavorite
+      })
+      .sort((left, right) => {
+        if (historySort === 'favorites') {
+          const favoriteDelta = Number(Boolean(right.isFavorite)) - Number(Boolean(left.isFavorite))
+          if (favoriteDelta !== 0) {
+            return favoriteDelta
+          }
+        }
+
+        if (historySort === 'recent') {
+          return (
+            new Date(right.lastViewedAt || right.createdAt).getTime() -
+            new Date(left.lastViewedAt || left.createdAt).getTime()
+          )
+        }
+
+        return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+      })
+  }, [
+    experimentSnapshots,
+    historyBackendFilter,
+    historyFavoritesOnly,
+    historyModelFilter,
+    historySearch,
+    historySort,
+  ])
+  const agentTaskHistory = useMemo<AgentTaskHistoryItem[]>(() => {
+    return [...agentTimeline]
+      .filter(
+        (event) =>
+          event.type === 'task_status' ||
+          event.type === 'tool_result' ||
+          event.type === 'confirmation_request' ||
+          event.type === 'assistant_message'
+      )
+      .reverse()
+      .slice(0, 8)
+      .map((event) => ({
+        id: event.id,
+        title: event.title,
+        status: event.status || (event.type === 'confirmation_request' ? 'pending' : 'recorded'),
+        summary: event.description || event.tool_name || event.type,
+        toolName: event.tool_name,
+        createdAt: event.createdAt,
+      }))
+  }, [agentTimeline])
+  const agentStepGroups = useMemo<AgentStepGroup[]>(() => {
+    const groups = new Map<string, AgentStepGroup>()
+
+    agentTimeline.forEach((event) => {
+      const stepMatch = event.title.match(/Step\s+(\d+)/i)
+      const key = stepMatch ? `step-${stepMatch[1]}` : 'overview'
+      const label = stepMatch ? `Step ${stepMatch[1]}` : 'Overview'
+      const existing = groups.get(key)
+      if (existing) {
+        existing.events.push(event)
+        if (event.status) {
+          existing.status = event.status
+        }
+        return
+      }
+
+      groups.set(key, {
+        key,
+        label,
+        status: event.status || 'recorded',
+        events: [event],
+      })
+    })
+
+    return Array.from(groups.values())
+  }, [agentTimeline])
+
+  const renderAgentEvent = useCallback((event: AgentTimelineEvent) => {
+    const borderColor =
+      event.status === 'failed'
+        ? 'rgba(255,77,79,0.28)'
+        : event.status === 'completed'
+          ? 'rgba(82,196,26,0.28)'
+          : event.status === 'cancelled'
+            ? 'rgba(140,140,140,0.24)'
+            : 'rgba(22,119,255,0.22)'
+
+    const background =
+      event.status === 'failed'
+        ? 'rgba(255,77,79,0.08)'
+        : event.status === 'completed'
+          ? 'rgba(82,196,26,0.08)'
+          : event.status === 'cancelled'
+            ? 'rgba(140,140,140,0.08)'
+            : 'rgba(22,119,255,0.06)'
+
+    const payload = event.payload || {}
+    const actionName =
+      typeof payload.action === 'string'
+        ? payload.action
+        : typeof payload.pending_action === 'string'
+          ? payload.pending_action
+          : undefined
+    const commandText =
+      typeof payload.command === 'string'
+        ? payload.command
+        : typeof payload.cmd === 'string'
+          ? payload.cmd
+          : typeof payload.executed_command === 'string'
+            ? payload.executed_command
+          : undefined
+    const stdoutText =
+      typeof payload.stdout === 'string'
+        ? payload.stdout
+        : typeof payload.output === 'string'
+          ? payload.output
+          : undefined
+    const stderrText =
+      typeof payload.stderr === 'string'
+        ? payload.stderr
+        : typeof payload.error_output === 'string'
+          ? payload.error_output
+          : undefined
+    const filePath =
+      typeof payload.path === 'string'
+        ? payload.path
+        : typeof payload.file_path === 'string'
+          ? payload.file_path
+          : typeof payload.target_path === 'string'
+            ? payload.target_path
+            : undefined
+    const diffSummary =
+      typeof payload.diff === 'string'
+        ? payload.diff
+        : typeof payload.patch === 'string'
+          ? payload.patch
+          : typeof payload.content === 'string' && payload.content.length < 1000
+            ? payload.content
+            : undefined
+    const riskLevel =
+      typeof payload.riskLevel === 'string'
+        ? payload.riskLevel
+        : typeof payload.risk_level === 'string'
+          ? payload.risk_level
+          : undefined
+    const hasCommandShape =
+      event.type === 'command_output' ||
+      event.tool_name === 'command_run' ||
+      event.tool_name === 'tests_run' ||
+      Boolean(commandText)
+    const hasFileShape =
+      event.type === 'file_change' ||
+      event.tool_name === 'file_write' ||
+      event.tool_name === 'file_patch' ||
+      event.tool_name === 'file_read' ||
+      Boolean(filePath)
+    const isConfirmation = event.type === 'confirmation_request'
+
+    return (
+      <div
+        key={event.id}
+        style={{
+          borderRadius: 16,
+          border: `1px solid ${borderColor}`,
+          background,
+          padding: 12,
+        }}
+      >
+        <Space direction="vertical" size={6} style={{ width: '100%' }}>
+          <Space wrap size={8}>
+            <Text strong>{event.title}</Text>
+            <Tag>{event.type}</Tag>
+            {event.tool_name ? <Tag color="geekblue">{event.tool_name}</Tag> : null}
+            {event.status ? <Tag color={event.status === 'failed' ? 'red' : event.status === 'completed' ? 'green' : event.status === 'cancelled' ? 'default' : 'processing'}>{event.status}</Tag> : null}
+          </Space>
+          {event.description ? <Text>{event.description}</Text> : null}
+
+          {isConfirmation ? (
+            <div
+              data-testid="agent-event-confirmation"
+              style={{
+                borderRadius: 12,
+                padding: '10px 12px',
+                background: 'rgba(250, 173, 20, 0.08)',
+                border: '1px solid rgba(250, 173, 20, 0.24)',
+              }}
+            >
+              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                {actionName ? <Text strong>{`Action: ${actionName}`}</Text> : null}
+                {riskLevel ? <Text type="secondary">{`Risk: ${riskLevel}`}</Text> : null}
+                {'params' in payload ? (
+                  <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12 }}>
+                    {JSON.stringify((payload as { params?: unknown }).params, null, 2)}
+                  </pre>
+                ) : null}
+              </Space>
+            </div>
+          ) : null}
+
+          {hasCommandShape ? (
+            <div
+              data-testid="agent-event-command"
+              style={{
+                borderRadius: 12,
+                padding: '10px 12px',
+                background: 'rgba(22, 119, 255, 0.08)',
+                border: '1px solid rgba(22, 119, 255, 0.18)',
+              }}
+            >
+              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                {commandText ? <Text code>{commandText}</Text> : null}
+                {'message' in payload && typeof payload.message === 'string' ? (
+                  <Text>{payload.message}</Text>
+                ) : null}
+                {stdoutText ? (
+                  <div>
+                    <Text strong>stdout</Text>
+                    <pre style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap', fontSize: 12 }}>
+                      {stdoutText}
+                    </pre>
+                  </div>
+                ) : null}
+                {stderrText ? (
+                  <div>
+                    <Text strong type="danger">
+                      stderr
+                    </Text>
+                    <pre style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap', fontSize: 12 }}>
+                      {stderrText}
+                    </pre>
+                  </div>
+                ) : null}
+                {'error' in payload && typeof payload.error === 'string' && payload.error ? (
+                  <Text type="danger">{payload.error}</Text>
+                ) : null}
+              </Space>
+            </div>
+          ) : null}
+
+          {hasFileShape ? (
+            <div
+              data-testid="agent-event-file"
+              style={{
+                borderRadius: 12,
+                padding: '10px 12px',
+                background: 'rgba(82, 196, 26, 0.08)',
+                border: '1px solid rgba(82, 196, 26, 0.18)',
+              }}
+            >
+              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                {filePath ? <Text code>{filePath}</Text> : null}
+                {'message' in payload && typeof payload.message === 'string' ? (
+                  <Text>{payload.message}</Text>
+                ) : null}
+                {'summary' in payload && typeof payload.summary === 'string' ? (
+                  <Text type="secondary">{payload.summary}</Text>
+                ) : null}
+                {diffSummary ? (
+                  <div>
+                    <Text strong>Change summary</Text>
+                    <pre style={{ margin: '4px 0 0', whiteSpace: 'pre-wrap', fontSize: 12 }}>
+                      {diffSummary}
+                    </pre>
+                  </div>
+                ) : null}
+              </Space>
+            </div>
+          ) : null}
+
+          {event.payload && !isConfirmation && !hasCommandShape && !hasFileShape ? (
+            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12 }}>
+              {JSON.stringify(event.payload, null, 2)}
+            </pre>
+          ) : null}
+        </Space>
+      </div>
+    )
+  }, [])
 
   const loadCollections = useCallback(async () => {
     try {
@@ -486,6 +862,45 @@ const ChatPage: React.FC = () => {
   }, [loadBackends, loadCloudAIConfig, loadCollections, loadSessions])
 
   useEffect(() => {
+    if (!currentSessionId || !agentMode) {
+      return
+    }
+
+    const timeoutHandle = window.setTimeout(() => {
+      void fetch(`${API_BASE_URL}/chat/sessions/${currentSessionId}/metadata`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          metadata: {
+            agent_mode: agentMode,
+            agent_status: agentTaskStatus,
+            execution_timeline: agentTimeline,
+            pending_confirmation: pendingAgentConfirmation,
+            workspace_root: agentWorkspaceRoot,
+            auto_approve_safe_tools: autoApproveSafeTools,
+            last_agent_goal: promptDraft,
+          },
+        }),
+      }).catch((error) => {
+        console.error('Failed to sync agent session metadata:', error)
+      })
+    }, 150)
+
+    return () => {
+      window.clearTimeout(timeoutHandle)
+    }
+  }, [
+    agentMode,
+    agentTaskStatus,
+    agentTimeline,
+    agentWorkspaceRoot,
+    autoApproveSafeTools,
+    currentSessionId,
+    pendingAgentConfirmation,
+    promptDraft,
+  ])
+
+  useEffect(() => {
     if (!settings.modelId && currentModelOptions.length > 0) {
       updateSettings({ modelId: currentModelOptions[0]!.id })
     }
@@ -520,6 +935,9 @@ const ChatPage: React.FC = () => {
 
   const handleNewExperiment = useCallback(() => {
     clearMessages()
+    clearAgentTimeline()
+    setPendingAgentConfirmation(null)
+    setAgentTaskStatus('idle')
     setPromptDraft('')
     clearAttachments()
     clearActiveCandidates()
@@ -527,9 +945,12 @@ const ChatPage: React.FC = () => {
     setLastRunMetadata(null)
   }, [
     clearActiveCandidates,
+    clearAgentTimeline,
     clearAttachments,
     clearMessages,
+    setAgentTaskStatus,
     setLastRunMetadata,
+    setPendingAgentConfirmation,
     setPromptDraft,
     setSelectedExperimentId,
   ])
@@ -803,6 +1224,8 @@ const ChatPage: React.FC = () => {
     const snapshot: PlaygroundSnapshot = {
       id: `experiment_${Date.now()}`,
       createdAt: new Date().toISOString(),
+      lastViewedAt: new Date().toISOString(),
+      isFavorite: false,
       title: prompt.slice(0, 48) || 'Untitled experiment',
       response: selectedCandidate.content,
       selectedCandidateId: selectedCandidate.id,
@@ -852,13 +1275,175 @@ const ChatPage: React.FC = () => {
     settings,
   ])
 
+  const handleRunAgent = useCallback(async () => {
+    const prompt = promptDraft.trim()
+    if (!prompt) {
+      message.warning('Describe the task before starting Agent Mode.')
+      return
+    }
+
+    if (settings.backend === 'cloud' && !cloudAIConfig) {
+      setConfigModalOpen(true)
+      return
+    }
+
+    clearActiveCandidates()
+    setSelectedExperimentId(null)
+    setLastRunMetadata(null)
+
+    await runAgentTask(
+      {
+        prompt,
+        systemPrompt: settings.systemPrompt,
+        responseFormat: settings.responseFormat,
+        attachments,
+        parameterOverrides: {
+          temperature: settings.temperature,
+          topP: settings.topP,
+          maxTokens: settings.maxTokens,
+          modelId: settings.modelId,
+          backend: settings.backend,
+        },
+      },
+      settings.backend === 'cloud' && cloudAIConfig
+        ? {
+            provider: cloudAIConfig.provider,
+            apiKey: cloudAIConfig.api_key,
+            keyId: cloudAIConfig.key_id,
+            model: settings.modelId,
+            groupId: cloudAIConfig.group_id,
+            baseUrl: cloudAIConfig.base_url,
+          }
+        : undefined
+    )
+  }, [
+    attachments,
+    clearActiveCandidates,
+    cloudAIConfig,
+    promptDraft,
+    runAgentTask,
+    setLastRunMetadata,
+    setSelectedExperimentId,
+    settings,
+  ])
+
+  const handlePrimaryAction = useCallback(() => {
+    if (agentMode) {
+      void handleRunAgent()
+      return
+    }
+    void handleRun()
+  }, [agentMode, handleRun, handleRunAgent])
+
+  const handleResumeAgent = useCallback(() => {
+    if (pendingAgentConfirmation) {
+      void confirmAgentAction()
+      return
+    }
+
+    const baseGoal =
+      promptDraft.trim() ||
+      latestUserMessage?.content?.trim() ||
+      'Continue the previous task from the most recent execution state.'
+
+    void resumeAgentTask(
+      {
+        prompt: baseGoal,
+        systemPrompt: settings.systemPrompt,
+        responseFormat: settings.responseFormat,
+        attachments,
+        parameterOverrides: {
+          temperature: settings.temperature,
+          topP: settings.topP,
+          maxTokens: settings.maxTokens,
+          modelId: settings.modelId,
+          backend: settings.backend,
+        },
+      },
+      settings.backend === 'cloud' && cloudAIConfig
+        ? {
+            provider: cloudAIConfig.provider,
+            apiKey: cloudAIConfig.api_key,
+            keyId: cloudAIConfig.key_id,
+            model: settings.modelId,
+            groupId: cloudAIConfig.group_id,
+            baseUrl: cloudAIConfig.base_url,
+          }
+        : undefined
+    )
+  }, [
+    attachments,
+    cloudAIConfig,
+    confirmAgentAction,
+    latestUserMessage?.content,
+    pendingAgentConfirmation,
+    promptDraft,
+    resumeAgentTask,
+    settings,
+  ])
+
+  const handleRetryAgent = useCallback(() => {
+    if (!agentMode) {
+      return
+    }
+
+    clearAgentTimeline()
+    setPendingAgentConfirmation(null)
+    setAgentTaskStatus('idle')
+    void handleRunAgent()
+  }, [agentMode, clearAgentTimeline, handleRunAgent, setAgentTaskStatus, setPendingAgentConfirmation])
+
+  const handleResumeFromHistoryItem = useCallback(
+    (eventId: string) => {
+      const baseGoal =
+        promptDraft.trim() ||
+        latestUserMessage?.content?.trim() ||
+        'Continue the previous task from the selected execution step.'
+
+      void resumeAgentFromEvent(
+        eventId,
+        {
+          prompt: baseGoal,
+          systemPrompt: settings.systemPrompt,
+          responseFormat: settings.responseFormat,
+          attachments,
+          parameterOverrides: {
+            temperature: settings.temperature,
+            topP: settings.topP,
+            maxTokens: settings.maxTokens,
+            modelId: settings.modelId,
+            backend: settings.backend,
+          },
+        },
+        settings.backend === 'cloud' && cloudAIConfig
+          ? {
+              provider: cloudAIConfig.provider,
+              apiKey: cloudAIConfig.api_key,
+              keyId: cloudAIConfig.key_id,
+              model: settings.modelId,
+              groupId: cloudAIConfig.group_id,
+              baseUrl: cloudAIConfig.base_url,
+            }
+          : undefined
+      )
+    },
+    [attachments, cloudAIConfig, latestUserMessage?.content, promptDraft, resumeAgentFromEvent, settings]
+  )
+
   const handleLoadSnapshot = useCallback(
     (snapshot: PlaygroundSnapshot) => {
       applyConfig(snapshot.experiment_config)
       setActiveCandidates(snapshot.candidates || [])
       setSelectedCandidateId(snapshot.selectedCandidateId || snapshot.candidates?.[0]?.id || null)
       setSelectedExperimentId(snapshot.id)
-      setLastRunMetadata(snapshot)
+      const updatedSnapshot = {
+        ...snapshot,
+        lastViewedAt: new Date().toISOString(),
+      }
+      updateExperimentSnapshot(snapshot.id, {
+        lastViewedAt: updatedSnapshot.lastViewedAt,
+      })
+      setLastRunMetadata(updatedSnapshot)
       setResponseView('response')
     },
     [
@@ -868,6 +1453,7 @@ const ChatPage: React.FC = () => {
       setResponseView,
       setSelectedCandidateId,
       setSelectedExperimentId,
+      updateExperimentSnapshot,
     ]
   )
 
@@ -1040,6 +1626,7 @@ const ChatPage: React.FC = () => {
       setLastRunMetadata({
         ...selectedSnapshot,
         selectedCandidateId: nextPrimary?.id || resolvedSelectedCandidateId || '',
+        lastViewedAt: new Date().toISOString(),
         candidates: nextCandidates,
         response: nextPrimary?.content || '',
         raw_response: nextPrimary?.raw_response,
@@ -1051,6 +1638,25 @@ const ChatPage: React.FC = () => {
       })
     },
     [selectedSnapshot, setActiveCandidates, setLastRunMetadata, setSelectedCandidateId]
+  )
+
+  const handleToggleFavoriteSnapshot = useCallback(
+    (snapshot: PlaygroundSnapshot) => {
+      const nextFavorite = !snapshot.isFavorite
+      updateExperimentSnapshot(snapshot.id, {
+        isFavorite: nextFavorite,
+        lastViewedAt: new Date().toISOString(),
+      })
+      if (selectedSnapshot?.id === snapshot.id) {
+        setLastRunMetadata({
+          ...snapshot,
+          isFavorite: nextFavorite,
+          lastViewedAt: new Date().toISOString(),
+        })
+      }
+      message.success(nextFavorite ? 'Experiment added to favorites.' : 'Experiment removed from favorites.')
+    },
+    [selectedSnapshot, setLastRunMetadata, updateExperimentSnapshot]
   )
 
   const handleRerunCandidate = useCallback(
@@ -1193,8 +1799,13 @@ const ChatPage: React.FC = () => {
             </Space>
 
             <Space size={8} wrap>
+              <Space size={8}>
+                <Text strong>Agent Mode</Text>
+                <Switch checked={agentMode} onChange={setAgentMode} data-testid="agent-mode-switch" />
+              </Space>
+              <Tag color={agentStatusColor}>{agentMode ? `Agent: ${agentTaskStatus}` : 'Playground only'}</Tag>
               <Tag color={isStreaming ? 'processing' : 'default'}>
-                {isStreaming ? 'Running' : 'Idle'}
+                {isStreaming ? 'Running' : agentMode ? 'Ready for task' : 'Idle'}
               </Tag>
               <Button icon={<HistoryOutlined />} onClick={() => setHistoryOpen(true)}>
                 Sessions
@@ -1214,12 +1825,48 @@ const ChatPage: React.FC = () => {
                 <Space direction="vertical" size={16} style={{ width: '100%' }}>
                   <div>
                     <Title level={3} style={{ marginTop: 0, marginBottom: 4 }}>
-                      Build
+                      {agentMode ? 'Agent Workspace' : 'Build'}
                     </Title>
                     <Text type="secondary">
-                      Tune the prompt, choose context sources, and run a single experiment.
+                      {agentMode
+                        ? 'Give the assistant a goal, inspect each execution step, and confirm risky actions before they run.'
+                        : 'Tune the prompt, choose context sources, and run a single experiment.'}
                     </Text>
                   </div>
+
+                  <Card size="small" title="Agent Controls" data-testid="agent-panel">
+                    <Space direction="vertical" size={14} style={{ width: '100%' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <Text strong>Enable Agent Mode</Text>
+                          <div>
+                            <Text type="secondary">Switch from playground experiments to task execution.</Text>
+                          </div>
+                        </div>
+                        <Switch checked={agentMode} onChange={setAgentMode} />
+                      </div>
+
+                      <div>
+                        <Text strong>Workspace Root</Text>
+                        <Input
+                          data-testid="agent-workspace-root"
+                          placeholder="C:\\project\\workspace"
+                          value={agentWorkspaceRoot}
+                          onChange={(event) => setAgentWorkspaceRoot(event.target.value)}
+                        />
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <Text strong>Auto-approve safe tools</Text>
+                          <div>
+                            <Text type="secondary">Read-only tools can continue without extra confirmation.</Text>
+                          </div>
+                        </div>
+                        <Switch checked={autoApproveSafeTools} onChange={setAutoApproveSafeTools} />
+                      </div>
+                    </Space>
+                  </Card>
 
                   <Card size="small" title="System Prompt">
                     <TextArea
@@ -1546,16 +2193,30 @@ const ChatPage: React.FC = () => {
                       size="large"
                       type="primary"
                       icon={<PlayCircleOutlined />}
-                      onClick={handleRun}
+                      onClick={handlePrimaryAction}
                       loading={isStreaming}
                       data-testid="run-button"
                     >
-                      Run Experiment
+                      {agentMode ? 'Run Task' : 'Run Experiment'}
                     </Button>
                     <Space wrap>
                       <Button onClick={stopStream} disabled={!isStreaming}>
                         Stop
                       </Button>
+                      {agentMode && pendingAgentConfirmation ? (
+                        <>
+                          <Button
+                            type="primary"
+                            onClick={() => void confirmAgentAction()}
+                            data-testid="agent-confirm-button"
+                          >
+                            Confirm Action
+                          </Button>
+                          <Button danger onClick={cancelAgentAction} data-testid="agent-cancel-button">
+                            Reject
+                          </Button>
+                        </>
+                      ) : null}
                       <Button icon={<ReloadOutlined />} onClick={handleNewExperiment}>
                         Reset
                       </Button>
@@ -1567,6 +2228,127 @@ const ChatPage: React.FC = () => {
 
             <div style={{ ...scrollPanelStyle, padding: 18 }} data-testid="playground-right-panel">
               <div style={{ overflowY: 'auto', paddingRight: 4, display: 'grid', gap: 16 }}>
+                {agentMode ? (
+                  <>
+                    <Card size="small" style={panelStyle} data-testid="agent-status-card">
+                      <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                        <Space wrap>
+                          <Tag icon={<RobotOutlined />} color="blue">
+                            Agent Mode
+                          </Tag>
+                          <Tag color={agentStatusColor}>{agentTaskStatus}</Tag>
+                          {agentWorkspaceRoot ? <Tag>{agentWorkspaceRoot}</Tag> : null}
+                          {pendingAgentConfirmation ? <Tag color="gold">Awaiting confirmation</Tag> : null}
+                        </Space>
+                        <Paragraph style={{ marginBottom: 0 }} type="secondary">
+                          The execution timeline below shows planning, tool calls, confirmations, and final task outcome.
+                        </Paragraph>
+                        <Space wrap>
+                          <Button
+                            size="small"
+                            type="primary"
+                            onClick={handleResumeAgent}
+                            disabled={
+                              !(agentTaskStatus === 'waiting_confirmation' || agentTaskStatus === 'stopped')
+                            }
+                            data-testid="agent-resume-button"
+                          >
+                            Resume
+                          </Button>
+                          <Button
+                            size="small"
+                            onClick={handleRetryAgent}
+                            disabled={
+                              !['failed', 'stopped', 'completed', 'waiting_confirmation'].includes(
+                                agentTaskStatus
+                              )
+                            }
+                            data-testid="agent-retry-button"
+                          >
+                            Retry
+                          </Button>
+                        </Space>
+                      </Space>
+                    </Card>
+
+                    {pendingAgentConfirmation ? (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        message="Confirmation required"
+                        description={
+                          <Space direction="vertical" size={8}>
+                            <Text>{pendingAgentConfirmation.description}</Text>
+                            <Text type="secondary">
+                              Action: {pendingAgentConfirmation.action} | Risk: {pendingAgentConfirmation.riskLevel}
+                            </Text>
+                          </Space>
+                        }
+                      />
+                    ) : null}
+
+                    <Card size="small" title="Execution Timeline" data-testid="agent-timeline-card">
+                      {agentStepGroups.length ? (
+                        <Collapse
+                          ghost
+                          items={agentStepGroups.map((group) => ({
+                            key: group.key,
+                            label: (
+                              <Space wrap size={8}>
+                                <Text strong>{group.label}</Text>
+                                <Tag>{group.status}</Tag>
+                                <Tag>{group.events.length} events</Tag>
+                              </Space>
+                            ),
+                            children: (
+                              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                                {group.events.map(renderAgentEvent)}
+                              </Space>
+                            ),
+                          }))}
+                        />
+                      ) : (
+                        <Empty description="Start an agent task to inspect the execution timeline." />
+                      )}
+                    </Card>
+
+                    <Card size="small" title="Task History" data-testid="agent-history-card">
+                      {agentTaskHistory.length ? (
+                        <List
+                          dataSource={agentTaskHistory}
+                          renderItem={(item) => (
+                            <List.Item key={item.id}>
+                              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                                <Space wrap size={8}>
+                                  <Text strong>{item.title}</Text>
+                                  <Tag>{item.status}</Tag>
+                                  {item.toolName ? <Tag color="geekblue">{item.toolName}</Tag> : null}
+                                </Space>
+                                <Text>{item.summary}</Text>
+                                <Text type="secondary">
+                                  {new Date(item.createdAt).toLocaleString('zh-CN')}
+                                </Text>
+                                <Space>
+                                  <Button
+                                    size="small"
+                                    type="link"
+                                    data-testid={`agent-history-resume-${item.id}`}
+                                    onClick={() => handleResumeFromHistoryItem(item.id)}
+                                  >
+                                    Continue From Here
+                                  </Button>
+                                </Space>
+                              </Space>
+                            </List.Item>
+                          )}
+                        />
+                      ) : (
+                        <Empty description="Task history will appear after the first execution step." />
+                      )}
+                    </Card>
+                  </>
+                ) : null}
+
                 <Card size="small" style={panelStyle}>
                   <Space direction="vertical" size={8} style={{ width: '100%' }}>
                     <Space wrap>
@@ -1895,76 +2677,184 @@ const ChatPage: React.FC = () => {
                   size="small"
                   title="Experiment History"
                   extra={
-                    <Button
-                      type="link"
-                      icon={<CopyOutlined />}
-                      disabled={!selectedSnapshot}
-                      onClick={async () => {
-                        if (!selectedSnapshot) return
-                        const primaryCandidate =
-                          displayedCandidates.find(
-                            (candidate) =>
-                              candidate.id ===
-                              (selectedCandidate?.id || selectedSnapshot.selectedCandidateId)
-                          ) || selectedCandidate
-                        await navigator.clipboard.writeText(
-                          primaryCandidate?.content || selectedSnapshot.response
-                        )
-                        message.success('Response copied.')
-                      }}
-                    >
-                      Copy Response
-                    </Button>
+                    <Space size={8} wrap>
+                      <Tag data-testid="history-count-tag">
+                        {filteredExperimentSnapshots.length}/{experimentSnapshots.length} shown
+                      </Tag>
+                      <Button
+                        type="link"
+                        onClick={() => {
+                          setHistorySearch('')
+                          setHistoryBackendFilter('all')
+                          setHistoryModelFilter('all')
+                          setHistoryFavoritesOnly(false)
+                          setHistorySort('newest')
+                        }}
+                        disabled={
+                          !historySearch.trim() &&
+                          historyBackendFilter === 'all' &&
+                          historyModelFilter === 'all' &&
+                          !historyFavoritesOnly &&
+                          historySort === 'newest'
+                        }
+                      >
+                        Clear Filters
+                      </Button>
+                      <Button
+                        type="link"
+                        icon={<CopyOutlined />}
+                        disabled={!selectedSnapshot}
+                        onClick={async () => {
+                          if (!selectedSnapshot) return
+                          const primaryCandidate =
+                            displayedCandidates.find(
+                              (candidate) =>
+                                candidate.id ===
+                                (selectedCandidate?.id || selectedSnapshot.selectedCandidateId)
+                            ) || selectedCandidate
+                          await navigator.clipboard.writeText(
+                            primaryCandidate?.content || selectedSnapshot.response
+                          )
+                          message.success('Response copied.')
+                        }}
+                      >
+                        Copy Response
+                      </Button>
+                    </Space>
                   }
                 >
                   {experimentSnapshots.length ? (
-                    <List
-                      data-testid="experiment-history"
-                      dataSource={experimentSnapshots}
-                      renderItem={(snapshot) => (
-                        <List.Item
-                          actions={[
-                            <Button
-                              key="load"
-                              type="link"
-                              onClick={() => handleLoadSnapshot(snapshot)}
-                            >
-                              Load
-                            </Button>,
-                            <Button
-                              key="compare"
-                              type="link"
-                              onClick={() => handleToggleCompare(snapshot.id)}
-                            >
-                              {compareSnapshotIds.includes(snapshot.id) ? 'Compared' : 'Compare'}
-                            </Button>,
-                            <Button
-                              key="copy-prompt"
-                              type="link"
-                              onClick={async () => {
-                                await navigator.clipboard.writeText(snapshot.experiment_config.prompt)
-                                message.success('Prompt copied.')
-                              }}
-                            >
-                              Copy Prompt
-                            </Button>,
+                    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                      <Input
+                        data-testid="history-search-input"
+                        placeholder="Search title, prompt, response, model, or backend"
+                        value={historySearch}
+                        onChange={(event) => setHistorySearch(event.target.value)}
+                      />
+                      <Space size={8} wrap style={{ width: '100%' }}>
+                        <Segmented
+                          data-testid="history-sort"
+                          value={historySort}
+                          options={[
+                            { label: 'Newest', value: 'newest' },
+                            { label: 'Recently Viewed', value: 'recent' },
+                            { label: 'Favorites First', value: 'favorites' },
                           ]}
-                        >
-                          <div style={{ width: '100%' }}>
-                            <Space direction="vertical" size={2} style={{ width: '100%' }}>
-                              <Space wrap size={8}>
-                                <Text strong>{snapshot.title}</Text>
-                                <Tag>{snapshot.candidates?.length || 1} candidates</Tag>
-                              </Space>
-                              <Text type="secondary">
-                                {new Date(snapshot.createdAt).toLocaleString('zh-CN')}
-                              </Text>
-                              <Text ellipsis>{snapshot.response.slice(0, 120) || 'No response content.'}</Text>
-                            </Space>
-                          </div>
-                        </List.Item>
+                          onChange={(value) =>
+                            setHistorySort(value as 'newest' | 'recent' | 'favorites')
+                          }
+                        />
+                        <Switch
+                          data-testid="history-favorites-only"
+                          checked={historyFavoritesOnly}
+                          onChange={setHistoryFavoritesOnly}
+                        />
+                        <Text type="secondary">Favorites only</Text>
+                      </Space>
+                      <Space size={8} wrap style={{ width: '100%' }}>
+                        <Select
+                          data-testid="history-backend-filter"
+                          style={{ minWidth: 160 }}
+                          value={historyBackendFilter}
+                          options={[
+                            { label: 'All backends', value: 'all' },
+                            ...historyBackendOptions.map((backend) => ({
+                              label: backend,
+                              value: backend,
+                            })),
+                          ]}
+                          onChange={setHistoryBackendFilter}
+                        />
+                        <Select
+                          data-testid="history-model-filter"
+                          style={{ minWidth: 180 }}
+                          value={historyModelFilter}
+                          options={[
+                            { label: 'All models', value: 'all' },
+                            ...historyModelOptions.map((model) => ({
+                              label: model,
+                              value: model,
+                            })),
+                          ]}
+                          onChange={setHistoryModelFilter}
+                        />
+                      </Space>
+                      {filteredExperimentSnapshots.length ? (
+                        <List
+                          data-testid="experiment-history"
+                          dataSource={filteredExperimentSnapshots}
+                          renderItem={(snapshot) => (
+                            <List.Item
+                              actions={[
+                                <Button
+                                  key="load"
+                                  type="link"
+                                  onClick={() => handleLoadSnapshot(snapshot)}
+                                >
+                                  Load
+                                </Button>,
+                                <Button
+                                  key="compare"
+                                  type="link"
+                                  onClick={() => handleToggleCompare(snapshot.id)}
+                                >
+                                  {compareSnapshotIds.includes(snapshot.id) ? 'Compared' : 'Compare'}
+                                </Button>,
+                                <Button
+                                  key="copy-prompt"
+                                  type="link"
+                                  onClick={async () => {
+                                    await navigator.clipboard.writeText(snapshot.experiment_config.prompt)
+                                    message.success('Prompt copied.')
+                                  }}
+                                >
+                                  Copy Prompt
+                                </Button>,
+                              ]}
+                            >
+                              <div style={{ width: '100%' }}>
+                                <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                                  <Space wrap size={8}>
+                                    <Text strong>{snapshot.title}</Text>
+                                    <Button
+                                      type="text"
+                                      size="small"
+                                      data-testid={`history-favorite-${snapshot.id}`}
+                                      icon={
+                                        snapshot.isFavorite ? (
+                                          <StarFilled style={{ color: '#faad14' }} />
+                                        ) : (
+                                          <StarOutlined />
+                                        )
+                                      }
+                                      onClick={() => handleToggleFavoriteSnapshot(snapshot)}
+                                    />
+                                    <Tag>{snapshot.experiment_config.backend}</Tag>
+                                    <Tag>{snapshot.experiment_config.modelId || 'Unknown model'}</Tag>
+                                    <Tag>{snapshot.candidates?.length || 1} candidates</Tag>
+                                    {snapshot.isFavorite ? <Tag color="gold">Favorite</Tag> : null}
+                                  </Space>
+                                  <Text type="secondary">
+                                    {new Date(snapshot.createdAt).toLocaleString('zh-CN')}
+                                  </Text>
+                                  {snapshot.lastViewedAt ? (
+                                    <Text type="secondary">
+                                      Viewed {new Date(snapshot.lastViewedAt).toLocaleString('zh-CN')}
+                                    </Text>
+                                  ) : null}
+                                  <Text ellipsis>{snapshot.response.slice(0, 120) || 'No response content.'}</Text>
+                                </Space>
+                              </div>
+                            </List.Item>
+                          )}
+                        />
+                      ) : (
+                        <Empty
+                          image={Empty.PRESENTED_IMAGE_SIMPLE}
+                          description="No experiments match the current filters."
+                        />
                       )}
-                    />
+                    </Space>
                   ) : (
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No experiments yet." />
                   )}

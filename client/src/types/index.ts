@@ -208,6 +208,8 @@ export interface PlaygroundExperimentConfig {
 export interface PlaygroundSnapshot {
   id: string
   createdAt: string
+  lastViewedAt?: string
+  isFavorite?: boolean
   title: string
   response: string
   selectedCandidateId: string
@@ -237,6 +239,43 @@ export interface PlaygroundPreset {
   createdAt: string
   updatedAt: string
   config: PlaygroundExperimentConfig
+}
+
+export type AgentTaskStatus =
+  | 'idle'
+  | 'planning'
+  | 'running'
+  | 'waiting_confirmation'
+  | 'failed'
+  | 'completed'
+  | 'stopped'
+
+export type AgentTimelineEventType =
+  | 'assistant_message'
+  | 'plan_update'
+  | 'tool_call'
+  | 'tool_result'
+  | 'confirmation_request'
+  | 'file_change'
+  | 'command_output'
+  | 'task_status'
+
+export interface AgentTimelineEvent {
+  id: string
+  type: AgentTimelineEventType
+  title: string
+  description?: string
+  status?: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  tool_name?: string
+  payload?: Record<string, unknown>
+  createdAt: string
+}
+
+export interface AgentPendingConfirmation {
+  action: string
+  description: string
+  params: Record<string, unknown>
+  riskLevel: 'low' | 'medium' | 'high'
 }
 
 export interface BackendInfo {

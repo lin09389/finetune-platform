@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { API_BASE_URL } from '../../services/api'
 import { useChatStore } from '../../store/chatStore'
 import type {
+  AgentPendingConfirmation,
+  AgentTaskStatus,
+  AgentTimelineEvent,
   KnowledgeSource,
   PlaygroundAttachment,
   PlaygroundCandidate,
@@ -78,6 +81,49 @@ interface CloudConfig {
   baseUrl?: string
 }
 
+interface AgentRunResult {
+  status: AgentTaskStatus
+  response?: ChatRunResult
+  pendingConfirmation?: AgentPendingConfirmation | null
+  timeline: AgentTimelineEvent[]
+  summary?: string
+}
+
+interface AgentDecisionData {
+  action?: string
+  confidence?: number
+  description?: string
+  execution?: {
+    status?: string
+    error?: string | null
+  }
+  intent_type?: string
+  need_confirm?: boolean
+  params?: Record<string, unknown>
+  result?: Record<string, unknown> & {
+    need_inference?: boolean
+    message?: string
+    feedback?: string
+    recovery_hint?: string
+    completed_actions?: Array<{
+      action?: string
+      params?: Record<string, unknown>
+      success?: boolean
+      message?: string
+      error?: string | null
+      data?: Record<string, unknown>
+    }>
+    step_records?: Array<{
+      step?: number
+      status?: string
+      action?: string
+      params?: Record<string, unknown>
+      description?: string
+      result?: Record<string, unknown>
+    }>
+  }
+}
+
 interface RunTransportOptions {
   runId?: string
   onChunk?: (content: string, fullContent: string) => void
@@ -93,6 +139,20 @@ function toRequestAttachments(attachments: PlaygroundAttachment[] = []) {
     content: attachment.content,
     preview_url: attachment.previewUrl,
   }))
+}
+
+function createAgentEvent(
+  type: AgentTimelineEvent['type'],
+  title: string,
+  overrides: Partial<AgentTimelineEvent> = {}
+): AgentTimelineEvent {
+  return {
+    id: `agent_event_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    type,
+    title,
+    createdAt: new Date().toISOString(),
+    ...overrides,
+  }
 }
 
 function toCandidate(
@@ -144,6 +204,13 @@ export function useChatStream(config: StreamConfig = {}) {
 
   const {
     addMessage,
+    agentWorkspaceRoot,
+    autoApproveSafeTools,
+    setAgentTaskStatus,
+    appendAgentTimeline,
+    replaceAgentTimeline,
+    clearAgentTimeline,
+    setPendingAgentConfirmation,
     startStreaming,
     updateStreamingContent,
     stopStreaming,
@@ -877,6 +944,589 @@ export function useChatStream(config: StreamConfig = {}) {
     [onStatusChange, runCloudTransport, runLocalTransport, settings.backend]
   )
 
+  const handleAgentDecision = useCallback(
+    async (
+      data: AgentDecisionData,
+      payload: ChatSendPayload,
+      cloudConfig?: CloudConfig
+    ): Promise<AgentRunResult | undefined> => {
+      const executionStatus = String(data.execution?.status || '')
+      const intentType = data.intent_type || 'agent_task'
+      const description = data.description || payload.prompt
+      const action = data.action || intentType
+
+      appendAgentTimeline(
+        createAgentEvent('plan_update', 'Intent detected', {
+          description,
+          status: 'completed',
+          payload: {
+            intent_type: intentType,
+            confidence: data.confidence,
+          },
+        })
+      )
+
+      if (data.need_confirm) {
+        const pendingConfirmation: AgentPendingConfirmation = {
+          action,
+          description,
+          params: data.params || {},
+          riskLevel: 'high',
+        }
+        setPendingAgentConfirmation(pendingConfirmation)
+        setAgentTaskStatus('waiting_confirmation')
+        appendAgentTimeline(
+          createAgentEvent('tool_call', `Awaiting confirmation for ${action}`, {
+            tool_name: action,
+            status: 'pending',
+            payload: data.params || {},
+          })
+        )
+        appendAgentTimeline(
+          createAgentEvent('confirmation_request', 'Confirmation required', {
+            description,
+            status: 'pending',
+            payload: {
+              action,
+              params: data.params || {},
+            },
+          })
+        )
+        return {
+          status: 'waiting_confirmation',
+          pendingConfirmation,
+          timeline: [],
+          summary: description,
+        }
+      }
+
+      const completedActions = Array.isArray(data.result?.completed_actions)
+        ? data.result?.completed_actions
+        : []
+      const stepRecords = Array.isArray(data.result?.step_records) ? data.result?.step_records : []
+
+      if (stepRecords.length > 0) {
+        stepRecords.forEach((stepRecord) => {
+          appendAgentTimeline(
+            createAgentEvent('plan_update', `Step ${stepRecord.step || '?'} status`, {
+              description:
+                stepRecord.description ||
+                `Step ${stepRecord.step || '?'} is ${stepRecord.status || 'pending'}.`,
+              status:
+                stepRecord.status === 'failed'
+                  ? 'failed'
+                  : stepRecord.status === 'completed'
+                    ? 'completed'
+                    : stepRecord.status === 'waiting_confirmation'
+                      ? 'pending'
+                      : 'running',
+              payload: stepRecord,
+            })
+          )
+        })
+      }
+
+      if (completedActions.length > 0) {
+        completedActions.forEach((step, index) => {
+          appendAgentTimeline(
+            createAgentEvent('tool_call', `Step ${index + 1}: ${step.action || 'action'}`, {
+              tool_name: step.action,
+              status: step.success ? 'completed' : 'failed',
+              payload: step.params || {},
+            })
+          )
+          appendAgentTimeline(
+            createAgentEvent('tool_result', step.success ? 'Step completed' : 'Step failed', {
+              tool_name: step.action,
+              description: step.message || step.error || `Completed ${step.action || 'action'}.`,
+              status: step.success ? 'completed' : 'failed',
+              payload: step.data || {},
+            })
+          )
+
+          const actionName = step.action || ''
+          if (
+            actionName.startsWith('file_') ||
+            actionName.startsWith('dir_')
+          ) {
+            appendAgentTimeline(
+              createAgentEvent('file_change', `File step ${index + 1}`, {
+                tool_name: actionName,
+                status: step.success ? 'completed' : 'failed',
+                description: step.message || step.error || `Processed ${actionName}.`,
+                payload: {
+                  action: actionName,
+                  message: step.message,
+                  error: step.error,
+                  ...(step.data || {}),
+                },
+              })
+            )
+          }
+
+          if (
+            actionName === 'command_execute' ||
+            actionName === 'command_run' ||
+            actionName === 'tests_run'
+          ) {
+            appendAgentTimeline(
+              createAgentEvent('command_output', `Command step ${index + 1}`, {
+                tool_name: actionName,
+                status: step.success ? 'completed' : 'failed',
+                description: step.message || step.error || `Executed ${actionName}.`,
+                payload: {
+                  action: actionName,
+                  message: step.message,
+                  error: step.error,
+                  ...(step.data || {}),
+                },
+              })
+            )
+          }
+        })
+      }
+
+      if (data.result?.recovery_hint) {
+        appendAgentTimeline(
+          createAgentEvent('task_status', 'Recovery guidance', {
+            description: data.result.recovery_hint,
+            status: executionStatus === 'failed' ? 'failed' : 'completed',
+          })
+        )
+      }
+
+      if (data.result?.need_inference || action === 'conversation' || executionStatus === 'planned') {
+        setAgentTaskStatus('running')
+        appendAgentTimeline(
+          createAgentEvent('assistant_message', 'Switching to model generation', {
+            description: 'This task requires reasoning or drafting, so the assistant is generating content next.',
+            status: 'running',
+          })
+        )
+        const generated =
+          cloudConfig && (payload.parameterOverrides?.backend === 'cloud' || settings.backend === 'cloud')
+            ? await sendCloudMessage(payload, cloudConfig)
+            : await sendMessage(payload)
+
+        if (!generated) {
+          setAgentTaskStatus('stopped')
+          appendAgentTimeline(
+            createAgentEvent('task_status', 'Task stopped', {
+              description: 'Generation stopped before completion.',
+              status: 'cancelled',
+              payload: { status: 'stopped' },
+            })
+          )
+          return {
+            status: 'stopped',
+            timeline: [],
+          }
+        }
+
+        lastContentRef.current.set('latest_agent_content', generated.content)
+        setAgentTaskStatus('completed')
+        appendAgentTimeline(
+          createAgentEvent('assistant_message', 'Generation completed', {
+            description: generated.content.slice(0, 240) || 'The assistant completed the requested task.',
+            status: 'completed',
+          })
+        )
+        appendAgentTimeline(
+          createAgentEvent('task_status', 'Task completed', {
+            status: 'completed',
+            payload: { status: 'completed' },
+          })
+        )
+        return {
+          status: 'completed',
+          response: generated,
+          timeline: [],
+          summary: generated.content,
+        }
+      }
+
+      setAgentTaskStatus(executionStatus === 'failed' ? 'failed' : 'completed')
+      appendAgentTimeline(
+        createAgentEvent('tool_call', `Run ${action}`, {
+          tool_name: action,
+          status: executionStatus === 'failed' ? 'failed' : 'completed',
+          payload: data.params || {},
+        })
+      )
+      appendAgentTimeline(
+        createAgentEvent('tool_result', executionStatus === 'failed' ? 'Action failed' : 'Action completed', {
+          tool_name: action,
+          description:
+            data.execution?.error || data.result?.message || data.result?.feedback || description,
+          status: executionStatus === 'failed' ? 'failed' : 'completed',
+          payload: data.result || data.execution || {},
+        })
+      )
+      appendAgentTimeline(
+        createAgentEvent('task_status', executionStatus === 'failed' ? 'Task failed' : 'Task completed', {
+          status: executionStatus === 'failed' ? 'failed' : 'completed',
+          payload: { status: executionStatus === 'failed' ? 'failed' : 'completed' },
+        })
+      )
+      return {
+        status: executionStatus === 'failed' ? 'failed' : 'completed',
+        timeline: [],
+        summary: data.result?.message || data.execution?.error || description,
+      }
+    },
+    [
+      appendAgentTimeline,
+      sendCloudMessage,
+      sendMessage,
+      setAgentTaskStatus,
+      setPendingAgentConfirmation,
+      settings.backend,
+    ]
+  )
+
+  const runAgentTask = useCallback(
+    async (payload: ChatSendPayload, cloudConfig?: CloudConfig): Promise<AgentRunResult | undefined> => {
+      const prompt = payload.prompt.trim()
+      if (!prompt) {
+        return undefined
+      }
+
+      addMessage({
+        role: 'user',
+        content: prompt,
+        attachments: payload.attachments || [],
+      })
+
+      clearAgentTimeline()
+      setPendingAgentConfirmation(null)
+      setAgentTaskStatus('planning')
+
+      const timeline: AgentTimelineEvent[] = [
+        createAgentEvent('task_status', 'Task received', {
+          description: 'Agent is analyzing the request and deciding the next step.',
+          status: 'running',
+          payload: { status: 'planning' },
+        }),
+        createAgentEvent('plan_update', 'Planning next step', {
+          description: prompt,
+          status: 'running',
+        }),
+      ]
+      replaceAgentTimeline(timeline)
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/agent/run-loop`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: prompt,
+            auto_confirm: autoApproveSafeTools,
+            session_id: currentSessionId,
+            max_steps: 5,
+            context: {
+              workspace_root: agentWorkspaceRoot,
+              content: lastContentRef.current.get('latest_agent_content') || '',
+              attachments: toRequestAttachments(payload.attachments || []),
+            },
+          }),
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.detail || 'Agent task failed.')
+        }
+
+        const data = (await response.json()) as AgentDecisionData
+        return handleAgentDecision(data, payload, cloudConfig)
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Agent task failed.'
+        setPendingAgentConfirmation(null)
+        setAgentTaskStatus('failed')
+        appendAgentTimeline(
+          createAgentEvent('task_status', 'Task failed', {
+            description: errorMessage,
+            status: 'failed',
+            payload: { status: 'failed' },
+          })
+        )
+        onError?.(errorMessage)
+        return {
+          status: 'failed',
+          timeline: [],
+          summary: errorMessage,
+        }
+      }
+    },
+    [
+      addMessage,
+      agentWorkspaceRoot,
+      appendAgentTimeline,
+      autoApproveSafeTools,
+      clearAgentTimeline,
+      currentSessionId,
+      handleAgentDecision,
+      onError,
+      replaceAgentTimeline,
+      sendCloudMessage,
+      sendMessage,
+      setAgentTaskStatus,
+      setPendingAgentConfirmation,
+      settings.backend,
+    ]
+  )
+
+  const resumeAgentTask = useCallback(
+    async (payload: ChatSendPayload, cloudConfig?: CloudConfig): Promise<AgentRunResult | undefined> => {
+      if (!currentSessionId) {
+        return runAgentTask(payload, cloudConfig)
+      }
+
+      setPendingAgentConfirmation(null)
+      setAgentTaskStatus('running')
+      appendAgentTimeline(
+        createAgentEvent('task_status', 'Resuming task', {
+          description: 'Loading the latest execution state from the current session.',
+          status: 'running',
+          payload: { status: 'running' },
+        })
+      )
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/agent/resume`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: currentSessionId,
+            auto_confirm: autoApproveSafeTools,
+            context: {
+              workspace_root: agentWorkspaceRoot,
+              attachments: toRequestAttachments(payload.attachments || []),
+            },
+          }),
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.detail || 'Agent resume failed.')
+        }
+
+        const data = (await response.json()) as AgentDecisionData
+        return handleAgentDecision(
+          {
+            ...data,
+            description: data.description || payload.prompt || 'Continue the current task.',
+          },
+          payload,
+          cloudConfig
+        )
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Agent resume failed.'
+        setAgentTaskStatus('failed')
+        appendAgentTimeline(
+          createAgentEvent('task_status', 'Resume failed', {
+            description: errorMessage,
+            status: 'failed',
+            payload: { status: 'failed' },
+          })
+        )
+        onError?.(errorMessage)
+        return {
+          status: 'failed',
+          timeline: [],
+          summary: errorMessage,
+        }
+      }
+    },
+    [
+      agentWorkspaceRoot,
+      appendAgentTimeline,
+      autoApproveSafeTools,
+      currentSessionId,
+      handleAgentDecision,
+      onError,
+      runAgentTask,
+      setAgentTaskStatus,
+      setPendingAgentConfirmation,
+    ]
+  )
+
+  const resumeAgentFromEvent = useCallback(
+    async (
+      eventId: string,
+      payload: ChatSendPayload,
+      cloudConfig?: CloudConfig
+    ): Promise<AgentRunResult | undefined> => {
+      if (!currentSessionId) {
+        return runAgentTask(payload, cloudConfig)
+      }
+
+      setPendingAgentConfirmation(null)
+      setAgentTaskStatus('running')
+      appendAgentTimeline(
+        createAgentEvent('task_status', 'Resuming from selected step', {
+          description: 'Loading the selected execution state from the current session.',
+          status: 'running',
+          payload: { status: 'running', event_id: eventId },
+        })
+      )
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/agent/resume-from-event`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            session_id: currentSessionId,
+            event_id: eventId,
+            auto_confirm: autoApproveSafeTools,
+            context: {
+              workspace_root: agentWorkspaceRoot,
+              attachments: toRequestAttachments(payload.attachments || []),
+            },
+          }),
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.detail || 'Resume from event failed.')
+        }
+
+        const data = (await response.json()) as AgentDecisionData
+        return handleAgentDecision(
+          {
+            ...data,
+            description: data.description || payload.prompt || 'Continue from the selected task step.',
+          },
+          payload,
+          cloudConfig
+        )
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Resume from event failed.'
+        setAgentTaskStatus('failed')
+        appendAgentTimeline(
+          createAgentEvent('task_status', 'Resume from step failed', {
+            description: errorMessage,
+            status: 'failed',
+            payload: { status: 'failed', event_id: eventId },
+          })
+        )
+        onError?.(errorMessage)
+        return {
+          status: 'failed',
+          timeline: [],
+          summary: errorMessage,
+        }
+      }
+    },
+    [
+      agentWorkspaceRoot,
+      appendAgentTimeline,
+      autoApproveSafeTools,
+      currentSessionId,
+      handleAgentDecision,
+      onError,
+      runAgentTask,
+      setAgentTaskStatus,
+      setPendingAgentConfirmation,
+    ]
+  )
+
+  const confirmAgentAction = useCallback(async (): Promise<AgentRunResult | undefined> => {
+    const pending = useChatStore.getState().pendingAgentConfirmation
+    if (!pending) {
+      return undefined
+    }
+
+    setAgentTaskStatus('running')
+    appendAgentTimeline(
+      createAgentEvent('tool_call', `Confirmed ${pending.action}`, {
+        tool_name: pending.action,
+        description: pending.description,
+        status: 'running',
+        payload: pending.params,
+      })
+    )
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/agent/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: pending.action,
+          params: pending.params,
+          confirm: true,
+        }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || 'Agent action failed.')
+      }
+
+      const data = await response.json()
+      const nextStatus: AgentTaskStatus = data.success ? 'completed' : 'failed'
+      setPendingAgentConfirmation(null)
+      setAgentTaskStatus(nextStatus)
+      appendAgentTimeline(
+        createAgentEvent('tool_result', data.success ? 'Confirmed action completed' : 'Confirmed action failed', {
+          tool_name: pending.action,
+          description: data.message || data.error || pending.description,
+          status: data.success ? 'completed' : 'failed',
+          payload: data.data || {},
+        })
+      )
+      appendAgentTimeline(
+        createAgentEvent('task_status', data.success ? 'Task completed' : 'Task failed', {
+          status: data.success ? 'completed' : 'failed',
+          payload: { status: nextStatus },
+        })
+      )
+      return {
+        status: nextStatus,
+        timeline: [],
+        summary: data.message || data.error || pending.description,
+      }
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Agent action failed.'
+      setAgentTaskStatus('failed')
+      appendAgentTimeline(
+        createAgentEvent('task_status', 'Task failed', {
+          description: errorMessage,
+          status: 'failed',
+          payload: { status: 'failed' },
+        })
+      )
+      onError?.(errorMessage)
+      return {
+        status: 'failed',
+        timeline: [],
+        summary: errorMessage,
+      }
+    }
+  }, [appendAgentTimeline, onError, setAgentTaskStatus, setPendingAgentConfirmation])
+
+  const cancelAgentAction = useCallback(() => {
+    const pending = useChatStore.getState().pendingAgentConfirmation
+    setPendingAgentConfirmation(null)
+    setAgentTaskStatus('stopped')
+    appendAgentTimeline(
+      createAgentEvent('confirmation_request', 'Confirmation rejected', {
+        description: pending?.description || 'The user rejected the pending action.',
+        status: 'cancelled',
+        payload: {
+          action: pending?.action,
+          status: 'cancelled',
+        },
+      })
+    )
+    appendAgentTimeline(
+      createAgentEvent('task_status', 'Task stopped', {
+        description: 'Execution stopped after confirmation was rejected.',
+        status: 'cancelled',
+        payload: { status: 'stopped' },
+      })
+    )
+  }, [appendAgentTimeline, setAgentTaskStatus, setPendingAgentConfirmation])
+
   const stop = useCallback(() => {
     for (const controller of abortControllersRef.current.values()) {
       controller.abort()
@@ -884,12 +1534,14 @@ export function useChatStream(config: StreamConfig = {}) {
     abortControllersRef.current.clear()
     clearAllTimeouts()
     stopStreaming()
+    setPendingAgentConfirmation(null)
+    setAgentTaskStatus('stopped')
     setState((prev) => ({
       ...prev,
       status: 'stopped',
     }))
     onStatusChange?.('stopped')
-  }, [clearAllTimeouts, onStatusChange, stopStreaming])
+  }, [clearAllTimeouts, onStatusChange, setAgentTaskStatus, setPendingAgentConfirmation, stopStreaming])
 
   const retry = useCallback(() => {
     retryCountsRef.current.clear()
@@ -910,6 +1562,11 @@ export function useChatStream(config: StreamConfig = {}) {
     sendMessage,
     sendCloudMessage,
     runExperimentCandidates,
+    runAgentTask,
+    resumeAgentTask,
+    resumeAgentFromEvent,
+    confirmAgentAction,
+    cancelAgentAction,
     stop,
     retry,
     isStreaming: state.status === 'connecting' || state.status === 'streaming',

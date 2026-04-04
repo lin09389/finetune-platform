@@ -66,6 +66,12 @@ describe('Chat Playground', () => {
   const deleteSession = vi.fn()
   const loadSessions = vi.fn().mockResolvedValue(undefined)
   const clearMessages = vi.fn()
+  const setAgentMode = vi.fn()
+  const setAgentTaskStatus = vi.fn()
+  const clearAgentTimeline = vi.fn()
+  const setPendingAgentConfirmation = vi.fn()
+  const setAgentWorkspaceRoot = vi.fn()
+  const setAutoApproveSafeTools = vi.fn()
   const updateSettings = vi.fn()
   const setPromptDraft = vi.fn()
   const setAttachments = vi.fn()
@@ -74,6 +80,7 @@ describe('Chat Playground', () => {
   const setActiveCandidates = vi.fn()
   const clearActiveCandidates = vi.fn()
   const addExperimentSnapshot = vi.fn()
+  const updateExperimentSnapshot = vi.fn()
   const setSelectedCandidateId = vi.fn()
   const setSelectedExperimentId = vi.fn()
   const setResponseView = vi.fn()
@@ -97,12 +104,23 @@ describe('Chat Playground', () => {
       run_metrics: { model: 'llama3', backend: 'ollama' },
     },
   ])
+  const runAgentTask = vi.fn().mockResolvedValue({ status: 'completed' })
+  const resumeAgentTask = vi.fn().mockResolvedValue({ status: 'completed' })
+  const resumeAgentFromEvent = vi.fn().mockResolvedValue({ status: 'completed' })
+  const confirmAgentAction = vi.fn().mockResolvedValue({ status: 'completed' })
+  const cancelAgentAction = vi.fn()
   const stop = vi.fn()
 
   const createStoreState = (overrides: Record<string, unknown> = {}) => ({
     sessions: [],
     currentSessionId: 'session-1',
     messages: [],
+    agentMode: false,
+    agentTaskStatus: 'idle',
+    agentTimeline: [],
+    pendingAgentConfirmation: null,
+    agentWorkspaceRoot: '',
+    autoApproveSafeTools: false,
     settings: {
       modelId: 'llama3',
       backend: 'ollama',
@@ -132,6 +150,12 @@ describe('Chat Playground', () => {
     deleteSession,
     loadSessions,
     clearMessages,
+    setAgentMode,
+    setAgentTaskStatus,
+    clearAgentTimeline,
+    setPendingAgentConfirmation,
+    setAgentWorkspaceRoot,
+    setAutoApproveSafeTools,
     updateSettings,
     setPromptDraft,
     setAttachments,
@@ -140,6 +164,7 @@ describe('Chat Playground', () => {
     setActiveCandidates,
     clearActiveCandidates,
     addExperimentSnapshot,
+    updateExperimentSnapshot,
     setSelectedCandidateId,
     setSelectedExperimentId,
     setResponseView,
@@ -215,6 +240,11 @@ describe('Chat Playground', () => {
     mockUseChatStore.mockReturnValue(createStoreState())
     mockUseChatStream.mockReturnValue({
       runExperimentCandidates,
+      runAgentTask,
+      resumeAgentTask,
+      resumeAgentFromEvent,
+      confirmAgentAction,
+      cancelAgentAction,
       stop,
       isStreaming: false,
       state: {
@@ -232,6 +262,175 @@ describe('Chat Playground', () => {
     expect(screen.getByTestId('parameter-panel')).toBeInTheDocument()
     expect(screen.getByTestId('preset-panel')).toBeInTheDocument()
     expect(screen.getByTestId('candidate-grid')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-panel')).toBeInTheDocument()
+  })
+
+  it('runs an agent task when agent mode is enabled', async () => {
+    mockUseChatStore.mockReturnValue(
+      createStoreState({
+        agentMode: true,
+        agentTaskStatus: 'idle',
+      })
+    )
+
+    render(<Chat />)
+
+    fireEvent.click(await screen.findByTestId('run-button'))
+
+    await waitFor(() => {
+      expect(runAgentTask).toHaveBeenCalledWith(
+        {
+          prompt: 'Explain this repo',
+          systemPrompt: 'You are helpful.',
+          responseFormat: 'text',
+          attachments: [],
+          parameterOverrides: {
+            temperature: 0.7,
+            topP: 0.9,
+            maxTokens: 2048,
+            modelId: 'llama3',
+            backend: 'ollama',
+          },
+        },
+        undefined
+      )
+      expect(clearActiveCandidates).toHaveBeenCalled()
+      expect(setSelectedExperimentId).toHaveBeenCalledWith(null)
+    })
+  })
+
+  it('resumes or retries agent tasks from the status card', async () => {
+    mockUseChatStore.mockReturnValue(
+      createStoreState({
+        agentMode: true,
+        agentTaskStatus: 'waiting_confirmation',
+        pendingAgentConfirmation: {
+          action: 'command_run',
+          description: 'Run tests',
+          params: { command: 'pytest' },
+          riskLevel: 'high',
+        },
+        agentTimeline: [
+          {
+            id: 'evt-1',
+            type: 'confirmation_request',
+            title: 'Confirmation required',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      })
+    )
+
+    render(<Chat />)
+
+    fireEvent.click(await screen.findByTestId('agent-resume-button'))
+
+    await waitFor(() => {
+      expect(confirmAgentAction).toHaveBeenCalledTimes(1)
+    })
+
+    fireEvent.click(screen.getByTestId('agent-retry-button'))
+
+    await waitFor(() => {
+      expect(clearAgentTimeline).toHaveBeenCalled()
+      expect(setPendingAgentConfirmation).toHaveBeenCalledWith(null)
+    })
+  })
+
+  it('shows task history when agent timeline exists', async () => {
+    mockUseChatStore.mockReturnValue(
+      createStoreState({
+        agentMode: true,
+        agentTaskStatus: 'stopped',
+        agentTimeline: [
+          {
+            id: 'evt-1',
+            type: 'tool_result',
+            title: 'Read target file',
+            tool_name: 'file_read',
+            description: 'Loaded app config.',
+            payload: { path: 'client/src/app.tsx', summary: 'Loaded app config.' },
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      })
+    )
+
+    render(<Chat />)
+
+    fireEvent.click(await screen.findByTestId('agent-resume-button'))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('agent-history-card')).toBeInTheDocument()
+    })
+  })
+
+  it('uses the dedicated resume endpoint flow when continuing without pending confirmation', async () => {
+    mockUseChatStore.mockReturnValue(
+      createStoreState({
+        agentMode: true,
+        agentTaskStatus: 'stopped',
+        agentTimeline: [
+          {
+            id: 'evt-1',
+            type: 'tool_result',
+            title: 'Read target file',
+            tool_name: 'file_read',
+            description: 'Loaded app config.',
+            payload: { path: 'client/src/app.tsx', summary: 'Loaded app config.' },
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      })
+    )
+
+    render(<Chat />)
+
+    fireEvent.click(await screen.findByTestId('agent-resume-button'))
+
+    await waitFor(() => {
+      expect(resumeAgentTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: 'Explain this repo',
+        }),
+        undefined
+      )
+    })
+  })
+
+  it('can continue from a specific task history item', async () => {
+    mockUseChatStore.mockReturnValue(
+      createStoreState({
+        agentMode: true,
+        agentTaskStatus: 'completed',
+        agentTimeline: [
+          {
+            id: 'evt-history-1',
+            type: 'tool_result',
+            title: 'Read target file',
+            tool_name: 'file_read',
+            description: 'Loaded app config.',
+            payload: { path: 'client/src/app.tsx' },
+            status: 'completed',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      })
+    )
+
+    render(<Chat />)
+
+    fireEvent.click(await screen.findByTestId('agent-history-resume-evt-history-1'))
+
+    await waitFor(() => {
+      expect(resumeAgentFromEvent).toHaveBeenCalledWith(
+        'evt-history-1',
+        expect.objectContaining({
+          prompt: 'Explain this repo',
+        }),
+        undefined
+      )
+    })
   })
 
   it('loads backends, sessions, cloud config, and knowledge collections on mount', async () => {
@@ -517,6 +716,116 @@ describe('Chat Playground', () => {
 
     expect(screen.getAllByTestId('compare-diff-field').length).toBeGreaterThan(0)
     expect(screen.queryAllByTestId('compare-same-field')).toHaveLength(0)
+  })
+
+  it('filters experiment history by search, exposes sorting, and supports favorites', async () => {
+    mockUseChatStore.mockReturnValue(
+      createStoreState({
+        experimentSnapshots: [
+          {
+            id: 'exp-1',
+            createdAt: '2026-04-04T10:00:00.000Z',
+            lastViewedAt: '2026-04-04T10:10:00.000Z',
+            isFavorite: false,
+            title: 'Ollama debug run',
+            response: 'First ollama result',
+            selectedCandidateId: 'exp-1-candidate-1',
+            candidates: [
+              {
+                id: 'exp-1-candidate-1',
+                index: 0,
+                content: 'First ollama result',
+                status: 'completed',
+              },
+            ],
+            experiment_config: {
+              prompt: 'Debug ollama prompt',
+              systemPrompt: 'System',
+              responseFormat: 'text',
+              modelId: 'llama3',
+              backend: 'ollama',
+              temperature: 0.7,
+              topP: 0.9,
+              maxTokens: 1024,
+              useKnowledge: true,
+              knowledgeCollection: 'kb-1',
+              useMemory: true,
+              autoRetrieve: true,
+              candidateCount: 2,
+              attachments: [],
+            },
+          },
+          {
+            id: 'exp-2',
+            createdAt: '2026-04-04T10:05:00.000Z',
+            lastViewedAt: '2026-04-04T10:20:00.000Z',
+            isFavorite: true,
+            title: 'Cloud json run',
+            response: 'Second cloud result',
+            selectedCandidateId: 'exp-2-candidate-1',
+            candidates: [
+              {
+                id: 'exp-2-candidate-1',
+                index: 0,
+                content: 'Second cloud result',
+                status: 'completed',
+              },
+            ],
+            experiment_config: {
+              prompt: 'Return cloud JSON',
+              systemPrompt: 'System',
+              responseFormat: 'json',
+              modelId: 'glm-4',
+              backend: 'cloud',
+              temperature: 1,
+              topP: 0.8,
+              maxTokens: 2048,
+              useKnowledge: false,
+              knowledgeCollection: 'kb-1',
+              useMemory: false,
+              autoRetrieve: false,
+              candidateCount: 2,
+              attachments: [],
+            },
+          },
+        ],
+      })
+    )
+
+    render(<Chat />)
+
+    expect(await screen.findByText('Ollama debug run')).toBeInTheDocument()
+    expect(screen.getByText('Cloud json run')).toBeInTheDocument()
+    expect(screen.getByTestId('history-count-tag')).toHaveTextContent('2/2 shown')
+    expect(screen.getByTestId('history-sort')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByTestId('history-search-input'), {
+      target: { value: 'cloud' },
+    })
+    expect(screen.queryByText('Ollama debug run')).not.toBeInTheDocument()
+    expect(screen.getByText('Cloud json run')).toBeInTheDocument()
+    expect(screen.getByTestId('history-count-tag')).toHaveTextContent('1/2 shown')
+
+    expect(screen.getByTestId('history-backend-filter')).toBeInTheDocument()
+    expect(screen.getByTestId('history-model-filter')).toBeInTheDocument()
+    expect(screen.getByTestId('history-favorites-only')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Clear Filters'))
+    expect(await screen.findByText('Ollama debug run')).toBeInTheDocument()
+    expect(screen.getByText('Cloud json run')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('history-favorite-exp-1'))
+    expect(updateExperimentSnapshot).toHaveBeenCalledWith(
+      'exp-1',
+      expect.objectContaining({
+        isFavorite: true,
+      })
+    )
+
+    fireEvent.click(screen.getByTestId('history-favorites-only'))
+    expect(screen.queryByText('Ollama debug run')).not.toBeInTheDocument()
+    expect(screen.getByText('Cloud json run')).toBeInTheDocument()
+    expect(screen.getByTestId('history-count-tag')).toHaveTextContent('1/2 shown')
   })
 
   it('updates the active preset in place', async () => {

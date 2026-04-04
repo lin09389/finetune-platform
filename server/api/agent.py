@@ -5,6 +5,7 @@ Direct-cut v2 contract:
 - /agent/detect-intent-multi
 - /agent/execute
 - /agent/chat-execute
+- /agent/run-loop
 """
 
 import logging
@@ -84,6 +85,27 @@ class ChatExecuteRequest(BaseModel):
     auto_confirm: bool = False
     context: dict[str, Any] | None = None
     session_id: str | None = None
+
+
+class ResumeRequest(BaseModel):
+    session_id: str
+    auto_confirm: bool = False
+    context: dict[str, Any] | None = None
+
+
+class ResumeFromEventRequest(BaseModel):
+    session_id: str
+    event_id: str
+    auto_confirm: bool = False
+    context: dict[str, Any] | None = None
+
+
+class RunLoopRequest(BaseModel):
+    message: str
+    auto_confirm: bool = False
+    context: dict[str, Any] | None = None
+    session_id: str | None = None
+    max_steps: int = Field(default=5, ge=1, le=10)
 
 
 class ChatExecuteResponse(BaseModel):
@@ -218,6 +240,86 @@ def _heuristic_save_intent(message: str, context: dict[str, Any] | None = None) 
         }
 
     return None
+
+
+def _find_resume_event(timeline: list[dict[str, Any]]) -> dict[str, Any] | None:
+    interesting_types = {"tool_result", "file_change", "command_output", "confirmation_request"}
+    interesting_stages = {"persisted", "generated", "planned"}
+
+    for item in reversed(timeline):
+        if item.get("type") in interesting_types:
+            return item
+        if item.get("stage") in interesting_stages:
+            return item
+    return None
+
+
+def _find_resume_event_by_id(timeline: list[dict[str, Any]], event_id: str) -> dict[str, Any] | None:
+    for item in timeline:
+        if str(item.get("id") or "") == event_id:
+            return item
+    return None
+
+
+def _build_resume_message(session: Any, event_id: str | None = None) -> tuple[str, dict[str, Any]]:
+    metadata = session.metadata or {}
+    timeline = metadata.get("execution_timeline", [])
+    if not isinstance(timeline, list):
+        timeline = []
+
+    last_goal = metadata.get("last_agent_goal")
+    if not isinstance(last_goal, str) or not last_goal.strip():
+        for message in reversed(session.messages):
+            if getattr(message, "role", "") == "user" and getattr(message, "content", "").strip():
+                last_goal = message.content.strip()
+                break
+    if not isinstance(last_goal, str) or not last_goal.strip():
+        last_goal = "Continue the previous task from the most recent execution state."
+
+    pending_confirmation = metadata.get("pending_confirmation")
+    if isinstance(pending_confirmation, dict) and pending_confirmation.get("action"):
+        action = pending_confirmation.get("action")
+        description = pending_confirmation.get("description") or "Continue the pending action."
+        return (
+            last_goal,
+            {
+                "resume_reason": "pending_confirmation",
+                "pending_confirmation": pending_confirmation,
+                "resume_action": action,
+                "resume_description": description,
+            },
+        )
+
+    if event_id:
+        last_event = _find_resume_event_by_id(timeline, event_id)
+        if not last_event:
+            raise HTTPException(status_code=404, detail="Execution event not found")
+    else:
+        last_event = _find_resume_event(timeline)
+    if not last_event:
+        return (
+            last_goal,
+            {
+                "resume_reason": "last_goal_only",
+            },
+        )
+
+    title = last_event.get("title") or last_event.get("stage") or "latest execution step"
+    payload = last_event.get("payload") or {}
+    description = last_event.get("description") or ""
+    return (
+        (
+            f"{last_goal}\n\n"
+            "Continue from the last execution state instead of restarting.\n\n"
+            f"Latest step: {title}\n"
+            f"Latest result: {payload or description}"
+        ),
+        {
+            "resume_reason": "selected_event" if event_id else "latest_event",
+            "resume_event": last_event,
+            "resume_title": title,
+        },
+    )
 
 
 @router.post("/detect-intent", response_model=DetectIntentResponse)
@@ -508,6 +610,264 @@ async def chat_execute(request: ChatExecuteRequest):
         ),
         result=result.to_dict(),
         error=result.error if not result.success else None,
+    )
+
+
+@router.post("/resume", response_model=ChatExecuteResponse)
+async def resume_chat_execute(request: ResumeRequest):
+    manager = get_session_manager()
+    session = manager.get_session(request.session_id)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    metadata = session.metadata or {}
+    pending_confirmation = metadata.get("pending_confirmation")
+
+    if isinstance(pending_confirmation, dict) and pending_confirmation.get("action") and request.auto_confirm:
+        executor = get_executor()
+        action = str(pending_confirmation["action"])
+        params = dict(pending_confirmation.get("params") or {})
+        if _requires_confirmation(action):
+            params["confirmed"] = True
+
+        _append_state(request.session_id, "resumed", {"action": action, "mode": "confirm_pending"})
+        result = await executor.execute(action, params)
+        if result.success:
+            _append_state(request.session_id, "persisted", {"action": action, "result": result.to_dict()})
+        else:
+            _append_state(request.session_id, "persisted", {"action": action, "error": result.error})
+
+        return ChatExecuteResponse(
+            detected=True,
+            intent_type="resume_pending_confirmation",
+            action=action,
+            params=params,
+            description=str(pending_confirmation.get("description") or "Resumed pending confirmation"),
+            confidence=1.0,
+            need_confirm=False,
+            execution=_execution_payload(
+                "executed" if result.success else "failed",
+                result.error,
+                result.to_dict(),
+                result.error_code.value if result.error_code else None,
+            ),
+            result=result.to_dict(),
+            error=result.error if not result.success else None,
+        )
+
+    message, resume_context = _build_resume_message(session)
+    merged_context = {
+        **resume_context,
+        **(request.context or {}),
+        "workspace_root": (request.context or {}).get("workspace_root") or metadata.get("workspace_root"),
+    }
+    _append_state(request.session_id, "resumed", {"mode": resume_context.get("resume_reason")})
+    return await chat_execute(
+        ChatExecuteRequest(
+            message=message,
+            auto_confirm=request.auto_confirm,
+            context=merged_context,
+            session_id=request.session_id,
+        )
+    )
+
+
+@router.post("/resume-from-event", response_model=ChatExecuteResponse)
+async def resume_from_event(request: ResumeFromEventRequest):
+    manager = get_session_manager()
+    session = manager.get_session(request.session_id)
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    message, resume_context = _build_resume_message(session, request.event_id)
+    merged_context = {
+        **resume_context,
+        **(request.context or {}),
+        "workspace_root": (request.context or {}).get("workspace_root")
+        or (session.metadata or {}).get("workspace_root"),
+    }
+    _append_state(
+        request.session_id,
+        "resumed",
+        {"mode": "selected_event", "event_id": request.event_id},
+    )
+    return await chat_execute(
+        ChatExecuteRequest(
+            message=message,
+            auto_confirm=request.auto_confirm,
+            context=merged_context,
+            session_id=request.session_id,
+        )
+    )
+
+
+@router.post("/run-loop", response_model=ChatExecuteResponse)
+async def run_loop(request: RunLoopRequest):
+    detector = get_unified_detector()
+    executor = get_executor()
+
+    _append_state(request.session_id, "detected", {"message": request.message, "mode": "run_loop"})
+    multi = detector.detect_multi(request.message, session_id=request.session_id, context=request.context)
+
+    intents = multi.intents[: request.max_steps] if multi.intents else []
+    completed_actions: list[dict[str, Any]] = []
+    step_records: list[dict[str, Any]] = []
+
+    if not intents:
+        return ChatExecuteResponse(
+            detected=False,
+            execution=_execution_payload("skipped"),
+            result={"reason": "no_intent_detected", "completed_actions": completed_actions, "step_records": step_records},
+        )
+
+    for index, intent in enumerate(intents, start=1):
+        if not intent.detected:
+            step_records.append(
+                {
+                    "step": index,
+                    "status": "skipped",
+                    "intent_type": intent.intent_type or "unknown",
+                    "reason": "intent_not_detected",
+                }
+            )
+            continue
+
+        intent_type = intent.intent_type or ""
+        params = dict(intent.params or {})
+        step_record: dict[str, Any] = {
+            "step": index,
+            "intent_type": intent_type,
+            "action": intent.action,
+            "params": params,
+            "status": "pending",
+            "description": intent.description,
+        }
+
+        if intent_type in ("conversation", "content_generation", "generate_content") or not intent.action:
+            step_record["status"] = "needs_inference"
+            step_records.append(step_record)
+            _append_state(
+                request.session_id,
+                "planned",
+                {
+                    "step": index,
+                    "intent_type": intent_type or "conversation",
+                    "remaining_requires_inference": True,
+                    "completed_actions": completed_actions,
+                    "step_records": step_records,
+                },
+            )
+            return ChatExecuteResponse(
+                detected=True,
+                intent_type=intent_type or "conversation",
+                action=intent.action or "conversation",
+                params=params,
+                description=intent.description,
+                confidence=float(intent.confidence or 0.0),
+                need_confirm=False,
+                execution=_execution_payload("planned"),
+                result={
+                    "type": intent_type or "conversation",
+                    "need_inference": True,
+                    "completed_actions": completed_actions,
+                    "step_records": step_records,
+                    "recovery_hint": f"Resume from step {index} after content generation.",
+                },
+            )
+
+        if _requires_confirmation(intent.action):
+            params["confirmed"] = bool(request.auto_confirm)
+            if not request.auto_confirm:
+                step_record["status"] = "waiting_confirmation"
+                step_records.append(step_record)
+                _append_state(
+                    request.session_id,
+                    "planned",
+                    {
+                        "step": index,
+                        "action": intent.action,
+                        "needs_confirmation": True,
+                        "completed_actions": completed_actions,
+                        "step_records": step_records,
+                    },
+                )
+                return ChatExecuteResponse(
+                    detected=True,
+                    intent_type=intent_type,
+                    action=intent.action,
+                    params=params,
+                    description=intent.description,
+                    confidence=float(intent.confidence or 0.0),
+                    need_confirm=True,
+                    execution=_execution_payload("needs_confirmation"),
+                    result={
+                        "need_confirm": True,
+                        "completed_actions": completed_actions,
+                        "step_records": step_records,
+                        "pending_action": intent.action,
+                        "pending_params": params,
+                        "recovery_hint": f"Confirm step {index} to continue the loop.",
+                    },
+                )
+
+        _append_state(request.session_id, "planned", {"action": intent.action, "params": params})
+        result = await executor.execute(intent.action, params)
+        action_result = {
+            "action": intent.action,
+            "params": params,
+            "success": result.success,
+            "message": result.message or result.feedback or "",
+            "error": result.error,
+            "data": result.data,
+        }
+        completed_actions.append(action_result)
+        step_record["status"] = "completed" if result.success else "failed"
+        step_record["result"] = action_result
+        step_records.append(step_record)
+
+        if result.success:
+            _append_state(request.session_id, "persisted", {"action": intent.action, "result": result.to_dict()})
+        else:
+            _append_state(request.session_id, "persisted", {"action": intent.action, "error": result.error})
+            return ChatExecuteResponse(
+                detected=True,
+                intent_type=intent_type,
+                action=intent.action,
+                params=params,
+                description=intent.description,
+                confidence=float(intent.confidence or 0.0),
+                need_confirm=False,
+                execution=_execution_payload(
+                    "failed",
+                    result.error,
+                    result.to_dict(),
+                    result.error_code.value if result.error_code else None,
+                ),
+                result={
+                    "completed_actions": completed_actions,
+                    "step_records": step_records,
+                    "last_result": result.to_dict(),
+                    "recovery_hint": f"Fix the failure at step {index} or resume from an earlier successful step.",
+                },
+                error=result.error,
+            )
+
+    return ChatExecuteResponse(
+        detected=True,
+        intent_type="multi_action" if len(completed_actions) > 1 else intents[0].intent_type or "",
+        action=completed_actions[-1]["action"] if completed_actions else None,
+        params=completed_actions[-1]["params"] if completed_actions else {},
+        description=f"Executed {len(completed_actions)} action(s)",
+        confidence=1.0 if completed_actions else 0.0,
+        need_confirm=False,
+        execution=_execution_payload("executed", result={"completed_actions": completed_actions, "step_records": step_records}),
+        result={
+            "completed_actions": completed_actions,
+            "step_records": step_records,
+            "message": f"Executed {len(completed_actions)} action(s)",
+        },
     )
 
 

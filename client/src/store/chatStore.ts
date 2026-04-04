@@ -1,6 +1,9 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type {
+  AgentPendingConfirmation,
+  AgentTaskStatus,
+  AgentTimelineEvent,
   ChatMessage,
   PlaygroundAttachment,
   PlaygroundCandidate,
@@ -17,6 +20,7 @@ export interface ChatSession {
   createdAt: string
   updatedAt: string
   messageCount: number
+  metadata?: Record<string, unknown>
 }
 
 export interface AgentExecution {
@@ -61,6 +65,12 @@ interface ChatStore {
   streamingMessageId: string | null
   streamingContent: string
   agentExecution: AgentExecution | null
+  agentMode: boolean
+  agentTaskStatus: AgentTaskStatus
+  agentTimeline: AgentTimelineEvent[]
+  pendingAgentConfirmation: AgentPendingConfirmation | null
+  agentWorkspaceRoot: string
+  autoApproveSafeTools: boolean
   isStreaming: boolean
   isLoading: boolean
   error: string | null
@@ -100,6 +110,14 @@ interface ChatStore {
   setAgentExecution: (execution: AgentExecution | null) => void
   confirmAgentExecution: () => Promise<void>
   cancelAgentExecution: () => void
+  setAgentMode: (enabled: boolean) => void
+  setAgentTaskStatus: (status: AgentTaskStatus) => void
+  appendAgentTimeline: (event: AgentTimelineEvent) => void
+  replaceAgentTimeline: (events: AgentTimelineEvent[]) => void
+  clearAgentTimeline: () => void
+  setPendingAgentConfirmation: (confirmation: AgentPendingConfirmation | null) => void
+  setAgentWorkspaceRoot: (workspaceRoot: string) => void
+  setAutoApproveSafeTools: (enabled: boolean) => void
 
   updateSettings: (settings: Partial<ChatSettings>) => void
   setPromptDraft: (prompt: string) => void
@@ -115,6 +133,10 @@ interface ChatStore {
   clearActiveCandidates: () => void
   setSelectedCandidateId: (candidateId: string | null) => void
   addExperimentSnapshot: (snapshot: PlaygroundSnapshot) => void
+  updateExperimentSnapshot: (
+    snapshotId: string,
+    updates: Partial<PlaygroundSnapshot>
+  ) => void
   setSelectedExperimentId: (experimentId: string | null) => void
   setResponseView: (view: ChatStore['responseView']) => void
   setLastRunMetadata: (snapshot: PlaygroundSnapshot | null) => void
@@ -135,6 +157,12 @@ export const useChatStore = create<ChatStore>()(
       streamingMessageId: null,
       streamingContent: '',
       agentExecution: null,
+      agentMode: false,
+      agentTaskStatus: 'idle',
+      agentTimeline: [],
+      pendingAgentConfirmation: null,
+      agentWorkspaceRoot: '',
+      autoApproveSafeTools: false,
       isStreaming: false,
       isLoading: false,
       error: null,
@@ -188,7 +216,18 @@ export const useChatStore = create<ChatStore>()(
           const session = await response.json()
           
           set((state) => ({
-            sessions: [session, ...state.sessions],
+            sessions: [
+              {
+                ...session,
+                modelId: session.model_id || modelId || get().settings.modelId,
+                backend: get().settings.backend,
+                createdAt: session.created_at || session.createdAt,
+                updatedAt: session.updated_at || session.updatedAt,
+                messageCount: session.message_count ?? session.messageCount ?? 0,
+                metadata: session.metadata || {},
+              },
+              ...state.sessions,
+            ],
             currentSessionId: session.id,
             messages: [],
           }))
@@ -236,6 +275,27 @@ export const useChatStore = create<ChatStore>()(
               ...message,
               timestamp: message.created_at || message.timestamp,
             })),
+            promptDraft:
+              typeof sessionData.metadata?.last_agent_goal === 'string'
+                ? sessionData.metadata.last_agent_goal
+                : get().promptDraft,
+            agentMode: Boolean(sessionData.metadata?.agent_mode),
+            agentTaskStatus: sessionData.metadata?.agent_status || 'idle',
+            agentTimeline: Array.isArray(sessionData.metadata?.execution_timeline)
+              ? sessionData.metadata.execution_timeline.map((event: any, index: number) => ({
+                  id: event.id || `session_event_${index}`,
+                  type: event.type || 'task_status',
+                  title: event.title || event.stage || 'Session event',
+                  description: event.description,
+                  status: event.status,
+                  tool_name: event.tool_name,
+                  payload: event.payload,
+                  createdAt: event.createdAt || event.timestamp || new Date().toISOString(),
+                }))
+              : [],
+            pendingAgentConfirmation: sessionData.metadata?.pending_confirmation || null,
+            agentWorkspaceRoot: sessionData.metadata?.workspace_root || '',
+            autoApproveSafeTools: Boolean(sessionData.metadata?.auto_approve_safe_tools),
             sessions: get().sessions.map((session) =>
               session.id === sessionId
                 ? {
@@ -243,6 +303,7 @@ export const useChatStore = create<ChatStore>()(
                     title: sessionData.title || session.title,
                     messageCount: sessionData.message_count ?? session.messageCount,
                     updatedAt: sessionData.updated_at || session.updatedAt,
+                    metadata: sessionData.metadata || session.metadata || {},
                   }
                 : session
             ),
@@ -252,6 +313,8 @@ export const useChatStore = create<ChatStore>()(
           set({
             currentSessionId: sessionId,
             messages: [],
+            agentTimeline: [],
+            pendingAgentConfirmation: null,
           })
         }
       },
@@ -293,7 +356,18 @@ export const useChatStore = create<ChatStore>()(
           }
           
           const data = await response.json()
-          set({ sessions: data.sessions || [] })
+          set({
+            sessions: (data.sessions || []).map((session: any) => ({
+              id: session.id,
+              title: session.title,
+              modelId: session.model_id || '',
+              backend: session.backend || 'ollama',
+              createdAt: session.created_at || session.createdAt,
+              updatedAt: session.updated_at || session.updatedAt,
+              messageCount: session.message_count ?? session.messageCount ?? 0,
+              metadata: session.metadata || {},
+            })),
+          })
         } catch (error) {
           console.error('加载会话列表失败:', error)
         }
@@ -457,6 +531,40 @@ export const useChatStore = create<ChatStore>()(
         set({ agentExecution: null })
       },
 
+      setAgentMode: (agentMode) => {
+        set({ agentMode })
+      },
+
+      setAgentTaskStatus: (agentTaskStatus) => {
+        set({ agentTaskStatus })
+      },
+
+      appendAgentTimeline: (event) => {
+        set((state) => ({
+          agentTimeline: [...state.agentTimeline, event].slice(-200),
+        }))
+      },
+
+      replaceAgentTimeline: (agentTimeline) => {
+        set({ agentTimeline: agentTimeline.slice(-200) })
+      },
+
+      clearAgentTimeline: () => {
+        set({ agentTimeline: [] })
+      },
+
+      setPendingAgentConfirmation: (pendingAgentConfirmation) => {
+        set({ pendingAgentConfirmation })
+      },
+
+      setAgentWorkspaceRoot: (agentWorkspaceRoot) => {
+        set({ agentWorkspaceRoot })
+      },
+
+      setAutoApproveSafeTools: (autoApproveSafeTools) => {
+        set({ autoApproveSafeTools })
+      },
+
       updateSettings: (newSettings) => {
         set((state) => ({
           settings: { ...state.settings, ...newSettings },
@@ -523,6 +631,23 @@ export const useChatStore = create<ChatStore>()(
         }))
       },
 
+      updateExperimentSnapshot: (snapshotId, updates) => {
+        set((state) => {
+          const experimentSnapshots = state.experimentSnapshots.map((snapshot) =>
+            snapshot.id === snapshotId ? { ...snapshot, ...updates } : snapshot
+          )
+          const lastRunMetadata =
+            state.lastRunMetadata?.id === snapshotId
+              ? { ...state.lastRunMetadata, ...updates }
+              : state.lastRunMetadata
+
+          return {
+            experimentSnapshots,
+            lastRunMetadata,
+          }
+        })
+      },
+
       setSelectedExperimentId: (selectedExperimentId) => {
         set({ selectedExperimentId })
       },
@@ -576,6 +701,9 @@ export const useChatStore = create<ChatStore>()(
         currentSessionId: state.currentSessionId,
         settings: state.settings,
         sessions: state.sessions.slice(0, 50),
+        agentMode: state.agentMode,
+        agentWorkspaceRoot: state.agentWorkspaceRoot,
+        autoApproveSafeTools: state.autoApproveSafeTools,
         promptDraft: state.promptDraft,
         attachments: state.attachments,
         activeCandidates: state.activeCandidates,
@@ -586,6 +714,7 @@ export const useChatStore = create<ChatStore>()(
         experimentSnapshots: state.experimentSnapshots.slice(0, 50),
         presets: state.presets.slice(0, 50),
         selectedPresetId: state.selectedPresetId,
+        pendingAgentConfirmation: state.pendingAgentConfirmation,
       }),
     }
   )

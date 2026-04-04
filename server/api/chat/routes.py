@@ -20,6 +20,10 @@ class CreateSessionRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class UpdateSessionMetadataRequest(BaseModel):
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class LegacyMessageItem(BaseModel):
     id: str | None = None
     role: str = Field(default="user")
@@ -268,6 +272,22 @@ async def update_session_title(session_id: str, title: str):
         raise HTTPException(status_code=404, detail="Session not found")
 
     return {"success": True, "session_id": session_id, "title": title}
+
+
+@router.put("/sessions/{session_id}/metadata")
+async def update_session_metadata(session_id: str, request: UpdateSessionMetadataRequest):
+    manager = get_session_manager()
+    success = manager.update_session_metadata(session_id, request.metadata)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = manager.get_session(session_id)
+    return {
+        "success": True,
+        "session_id": session_id,
+        "metadata": session.metadata if session else request.metadata,
+    }
 
 
 @router.get("/sessions/{session_id}/context")
