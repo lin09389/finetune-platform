@@ -2,6 +2,8 @@
 
 import logging
 import platform
+import re
+import shlex
 import subprocess
 import webbrowser
 from typing import Any
@@ -40,6 +42,8 @@ class SystemOperationHandler(OperationHandler):
             "disk_info",
             "network_info",
             "command_execute",
+            "command_run",
+            "tests_run",
             "app_open",
             "url_open",
         ]
@@ -58,6 +62,8 @@ class SystemOperationHandler(OperationHandler):
             "disk_info": "获取磁盘信息",
             "network_info": "获取网络信息",
             "command_execute": "执行系统命令",
+            "command_run": "执行系统命令",
+            "tests_run": "运行测试命令",
             "app_open": "打开应用程序",
             "url_open": "打开网址",
         }
@@ -70,6 +76,8 @@ class SystemOperationHandler(OperationHandler):
             "service_start": lambda p: "name" not in p and "缺少参数: name" or None,
             "service_stop": lambda p: "name" not in p and "缺少参数: name" or None,
             "command_execute": self._validate_command,
+            "command_run": self._validate_command,
+            "tests_run": self._validate_command,
             "app_open": lambda p: "app_name" not in p and "缺少参数: app_name" or None,
             "url_open": lambda p: "url" not in p and "缺少参数: url" or None,
         }
@@ -102,6 +110,8 @@ class SystemOperationHandler(OperationHandler):
             "disk_info": self._disk_info,
             "network_info": self._network_info,
             "command_execute": self._command_execute,
+            "command_run": self._command_execute,
+            "tests_run": self._command_execute,
             "app_open": self._app_open,
             "url_open": self._url_open,
         }
@@ -109,6 +119,8 @@ class SystemOperationHandler(OperationHandler):
         handler = handlers.get(action)
         if not handler:
             return OperationResult.fail(error=f"未实现的操作: {action}", error_code="NOT_IMPLEMENTED")
+        if action in {"command_execute", "command_run", "tests_run"}:
+            params = {**params, "__action__": action}
         return await handler(params)
 
     async def _process_list(self, params: dict[str, Any]) -> OperationResult:
@@ -326,21 +338,217 @@ class SystemOperationHandler(OperationHandler):
             },
         )
 
+    def _stringify_command(self, command: Any) -> str:
+        if isinstance(command, (list, tuple)):
+            return " ".join(str(part) for part in command)
+        return str(command)
+
+    def _classify_command_kind(self, action: str, command_text: str) -> str:
+        if action == "tests_run":
+            return "test_run"
+
+        lowered = command_text.lower()
+        test_markers = (
+            "pytest",
+            "npm test",
+            "pnpm test",
+            "yarn test",
+            "vitest",
+            "jest",
+            "unittest",
+            "go test",
+            "cargo test",
+            "gradle test",
+            "mvn test",
+        )
+        return "test_run" if any(marker in lowered for marker in test_markers) else "command"
+
+    def _summarize_command_output(self, command_text: str, returncode: int, stdout: str, stderr: str) -> str:
+        base = f"Command exited with code {returncode}: {command_text}"
+        if returncode == 0:
+            return base
+        if stderr.strip():
+            return f"{base} ({stderr.strip().splitlines()[0]})"
+        if stdout.strip():
+            return f"{base} ({stdout.strip().splitlines()[-1]})"
+        return base
+
+    def _extract_test_summary(self, stdout: str, stderr: str, returncode: int) -> dict[str, Any]:
+        combined = "\n".join(part for part in (stdout, stderr) if part).strip()
+        summary: dict[str, Any] = {
+            "passed": 0,
+            "failed": 0,
+            "errors": 0,
+            "skipped": 0,
+            "returncode": returncode,
+        }
+        patterns = {
+            "passed": [r"(\d+)\s+passed", r"passed[:=]\s*(\d+)"],
+            "failed": [r"(\d+)\s+failed", r"fail(?:ed|ures)?[:=]\s*(\d+)"],
+            "errors": [r"(\d+)\s+errors?", r"errors?[:=]\s*(\d+)"],
+            "skipped": [r"(\d+)\s+skipped", r"skipped[:=]\s*(\d+)"],
+        }
+        for key, key_patterns in patterns.items():
+            for pattern in key_patterns:
+                match = re.search(pattern, combined, re.IGNORECASE)
+                if match:
+                    summary[key] = int(match.group(1))
+                    break
+        if combined:
+            summary["summary_line"] = combined.splitlines()[-1][:240]
+        framework_markers = {
+            "pytest": "pytest",
+            "vitest": "vitest",
+            "jest": "jest",
+            "unittest": "unittest",
+        }
+        lowered = combined.lower()
+        summary["framework"] = next(
+            (name for marker, name in framework_markers.items() if marker in lowered),
+            "unknown",
+        )
+        summary["failure_cases"] = self._extract_test_failures(combined)
+        summary["failure_files"] = self._extract_failure_files(combined)
+        summary["exit_reason"] = self._extract_test_exit_reason(combined, returncode)
+        summary["succeeded"] = returncode == 0 and summary["failed"] == 0 and summary["errors"] == 0
+        return summary
+
+    def _extract_test_failures(self, combined: str) -> list[dict[str, str]]:
+        failure_cases: list[dict[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        patterns = [
+            re.compile(
+                r"_{2,}\s+(?P<name>[A-Za-z0-9_./:\\\-\[\] ()]+?)\s+_{2,}\s*(?P<message>[^\n]+)?",
+                re.MULTILINE,
+            ),
+            re.compile(
+                r"FAILED\s+(?P<name>[A-Za-z0-9_./:\\\-\[\] ()]+?)\s+-\s+(?P<message>[^\n]+)",
+                re.MULTILINE,
+            ),
+        ]
+        for pattern in patterns:
+            for match in pattern.finditer(combined):
+                name = (match.group("name") or "").strip()
+                message = (match.groupdict().get("message") or "").strip()
+                if not name:
+                    continue
+                key = (name, message)
+                if key in seen:
+                    continue
+                seen.add(key)
+                failure_cases.append({"name": name[:240], "message": message[:240]})
+                if len(failure_cases) >= 5:
+                    return failure_cases
+        return failure_cases
+
+    def _extract_failure_files(self, combined: str) -> list[str]:
+        file_matches = re.findall(
+            r"([A-Za-z0-9_./\\-]+(?:test|spec)[A-Za-z0-9_./\\-]*\.(?:py|ts|tsx|js|jsx))",
+            combined,
+            re.IGNORECASE,
+        )
+        deduped: list[str] = []
+        for match in file_matches:
+            normalized = match.strip()
+            if normalized and normalized not in deduped:
+                deduped.append(normalized)
+            if len(deduped) >= 5:
+                break
+        return deduped
+
+    def _extract_test_exit_reason(self, combined: str, returncode: int) -> str:
+        if returncode == 0:
+            return "completed"
+        lowered = combined.lower()
+        if "timeout" in lowered:
+            return "timeout"
+        if "interrupted" in lowered or "keyboardinterrupt" in lowered:
+            return "interrupted"
+        if "failed" in lowered:
+            return "failed"
+        if "error" in lowered:
+            return "error"
+        return "non_zero_exit"
+
     async def _command_execute(self, params: dict[str, Any]) -> OperationResult:
         command = params["command"]
         timeout = int(params.get("timeout", 60))
         shell = bool(params.get("shell", False))
+        action = str(params.get("__action__", "command_execute"))
+        command_text = self._stringify_command(command)
+        command_kind = self._classify_command_kind(action, command_text)
 
         try:
-            result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, shell=shell)
+            normalized_command: Any = command
+            if isinstance(command, str) and not shell:
+                normalized_command = shlex.split(command, posix=platform.system() != "Windows")
+            result = subprocess.run(
+                normalized_command,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                shell=shell,
+            )
+            data: dict[str, Any] = {
+                "kind": command_kind,
+                "command": command_text,
+                "returncode": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "summary": self._summarize_command_output(
+                    command_text,
+                    result.returncode,
+                    result.stdout,
+                    result.stderr,
+                ),
+            }
+            if command_kind == "test_run":
+                data["test_summary"] = self._extract_test_summary(
+                    result.stdout,
+                    result.stderr,
+                    result.returncode,
+                )
+            if result.returncode != 0:
+                return OperationResult.fail(
+                    error=f"命令执行返回非零退出码: {result.returncode}",
+                    error_code="COMMAND_EXIT_NONZERO",
+                    data=data,
+                )
             return OperationResult.ok(
                 message="命令执行完成",
-                data={"returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr},
+                data=data,
             )
-        except subprocess.TimeoutExpired:
-            return OperationResult.fail(error=f"命令执行超时 ({timeout}s)", error_code="COMMAND_TIMEOUT")
+        except subprocess.TimeoutExpired as exc:
+            data = {
+                "kind": command_kind,
+                "command": command_text,
+                "timed_out": True,
+                "timeout": timeout,
+                "stdout": exc.stdout or "",
+                "stderr": exc.stderr or "",
+                "summary": f"Command timed out after {timeout}s: {command_text}",
+            }
+            if command_kind == "test_run":
+                data["test_summary"] = self._extract_test_summary(
+                    exc.stdout or "",
+                    exc.stderr or "",
+                    124,
+                )
+            return OperationResult.fail(
+                error=f"命令执行超时 ({timeout}s)",
+                error_code="COMMAND_TIMEOUT",
+                data=data,
+            )
         except Exception as e:
-            return OperationResult.fail(error=f"命令执行失败: {e}", error_code="COMMAND_ERROR")
+            return OperationResult.fail(
+                error=f"命令执行失败: {e}",
+                error_code="COMMAND_ERROR",
+                data={
+                    "kind": command_kind,
+                    "command": command_text,
+                    "summary": f"Command execution failed: {command_text}",
+                },
+            )
 
     async def _app_open(self, params: dict[str, Any]) -> OperationResult:
         app_name = str(params.get("app_name", "")).strip()

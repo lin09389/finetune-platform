@@ -1,7 +1,9 @@
 ﻿"""File operation handler for unified executor."""
 
+import difflib
 import fnmatch
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +14,55 @@ from ..base import OperationHandler
 
 DANGEROUS_PATH_PATTERNS: list[str] = []
 DANGEROUS_PATHS: list[str] = []
+
+
+def _content_preview(content: str, limit: int = 400) -> str:
+    if len(content) <= limit:
+        return content
+    return f"{content[:limit]}..."
+
+
+def _build_diff(path: Path, before: str, after: str) -> str:
+    diff_lines = list(
+        difflib.unified_diff(
+            before.splitlines(),
+            after.splitlines(),
+            fromfile=f"{path.name} (before)",
+            tofile=f"{path.name} (after)",
+            lineterm="",
+        )
+    )
+    if not diff_lines:
+        return ""
+    max_lines = 200
+    if len(diff_lines) > max_lines:
+        omitted = len(diff_lines) - max_lines
+        diff_lines = diff_lines[:max_lines] + [f"... diff truncated, {omitted} more lines omitted"]
+    return "\n".join(diff_lines)
+
+
+def _count_changed_lines(before: str, after: str) -> dict[str, int]:
+    added = 0
+    removed = 0
+    for line in difflib.ndiff(before.splitlines(), after.splitlines()):
+        if line.startswith("+ "):
+            added += 1
+        elif line.startswith("- "):
+            removed += 1
+    return {"added_lines": added, "removed_lines": removed}
+
+
+def _extract_patch_paths(patch: str) -> list[str]:
+    paths: list[str] = []
+    for line in patch.splitlines():
+        if line.startswith("+++ ") or line.startswith("--- "):
+            raw = line[4:].strip()
+            if raw == "/dev/null":
+                continue
+            normalized = raw.removeprefix("a/").removeprefix("b/")
+            if normalized and normalized not in paths:
+                paths.append(normalized)
+    return paths
 
 
 def get_desktop_path() -> str:
@@ -50,6 +101,7 @@ class FileOperationHandler(OperationHandler):
             "file_create",
             "file_read",
             "file_write",
+            "file_patch",
             "file_delete",
             "file_copy",
             "file_move",
@@ -97,6 +149,7 @@ class FileOperationHandler(OperationHandler):
             "file_create": self._file_create,
             "file_read": self._file_read,
             "file_write": self._file_write,
+            "file_patch": self._file_patch,
             "file_delete": self._file_delete,
             "file_copy": self._file_copy,
             "file_move": self._file_move,
@@ -134,7 +187,15 @@ class FileOperationHandler(OperationHandler):
         path.parent.mkdir(parents=True, exist_ok=True)
         async with aiofiles.open(path, "w", encoding=encoding) as f:
             await f.write(content)
-        return UnifiedResult.ok(action="file_create", message=f"Created {raw}", data={"path": str(path)})
+        return UnifiedResult.ok(
+            action="file_create",
+            message=f"Created {raw}",
+            data={
+                "path": str(path),
+                "summary": f"Created file with {len(content)} characters",
+                "content_preview": _content_preview(content),
+            },
+        )
 
     async def _file_read(self, params: dict[str, Any]) -> UnifiedResult:
         raw = params.get("path") or params.get("file_path")
@@ -153,7 +214,16 @@ class FileOperationHandler(OperationHandler):
         encoding = params.get("encoding", "utf-8")
         async with aiofiles.open(path, "r", encoding=encoding) as f:
             content = await f.read()
-        return UnifiedResult.ok(action="file_read", message=f"Read {raw}", data={"path": str(path), "content": content})
+        return UnifiedResult.ok(
+            action="file_read",
+            message=f"Read {raw}",
+            data={
+                "path": str(path),
+                "content": content,
+                "summary": f"Read {len(content)} characters",
+                "content_preview": _content_preview(content),
+            },
+        )
 
     async def _file_write(self, params: dict[str, Any]) -> UnifiedResult:
         raw = params.get("path") or params.get("file_path")
@@ -171,10 +241,142 @@ class FileOperationHandler(OperationHandler):
         mode = params.get("mode", "overwrite")
         io_mode = "a" if mode == "append" else "w"
         encoding = params.get("encoding", "utf-8")
+        previous_content = ""
+        if path.exists():
+            try:
+                async with aiofiles.open(path, "r", encoding=encoding) as existing_file:
+                    previous_content = await existing_file.read()
+            except Exception:
+                previous_content = ""
         path.parent.mkdir(parents=True, exist_ok=True)
         async with aiofiles.open(path, io_mode, encoding=encoding) as f:
             await f.write(content)
-        return UnifiedResult.ok(action="file_write", message=f"Wrote {raw}", data={"path": str(path)})
+        final_content = previous_content + content if io_mode == "a" else content
+        changed = final_content != previous_content
+        line_stats = _count_changed_lines(previous_content, final_content) if changed else {
+            "added_lines": 0,
+            "removed_lines": 0,
+        }
+        diff = _build_diff(path, previous_content, final_content) if changed else ""
+        return UnifiedResult.ok(
+            action="file_write",
+            message=f"Wrote {raw}",
+            data={
+                "path": str(path),
+                "mode": mode,
+                "summary": (
+                    f"{'Updated' if changed else 'Rewrote'} file with {len(final_content)} total characters; "
+                    f"+{line_stats['added_lines']} / -{line_stats['removed_lines']} lines"
+                ),
+                "content_preview": _content_preview(final_content),
+                "previous_preview": _content_preview(previous_content) if previous_content else "",
+                "diff": diff,
+                "patch": diff,
+                **line_stats,
+            },
+        )
+
+    async def _file_patch(self, params: dict[str, Any]) -> UnifiedResult:
+        patch = params.get("patch")
+        if not isinstance(patch, str) or not patch.strip():
+            return UnifiedResult.fail(
+                action="file_patch",
+                error="Missing patch content",
+                error_code=ErrorCode.VALIDATION_ERROR,
+            )
+
+        workspace_root = Path(self.context.workspace if self.context and self.context.workspace else Path.cwd()).resolve()
+        patch_paths = _extract_patch_paths(patch)
+        if not patch_paths:
+            return UnifiedResult.fail(
+                action="file_patch",
+                error="Patch does not reference any files",
+                error_code=ErrorCode.VALIDATION_ERROR,
+            )
+
+        resolved_paths: list[Path] = []
+        for raw_path in patch_paths:
+            candidate = Path(raw_path)
+            if candidate.is_absolute():
+                return UnifiedResult.fail(
+                    action="file_patch",
+                    error=f"Patch contains absolute path: {raw_path}",
+                    error_code=ErrorCode.PERMISSION_DENIED,
+                )
+            resolved = (workspace_root / candidate).resolve()
+            if not self._is_safe_path(resolved):
+                return UnifiedResult.fail(
+                    action="file_patch",
+                    error=f"Patch path outside safe scope: {raw_path}",
+                    error_code=ErrorCode.PERMISSION_DENIED,
+                )
+            resolved_paths.append(resolved)
+
+        try:
+            check = subprocess.run(
+                ["git", "-C", str(workspace_root), "apply", "--check", "--whitespace=nowarn", "-"],
+                input=patch,
+                text=True,
+                capture_output=True,
+                timeout=15,
+                check=False,
+            )
+        except Exception as exc:
+            return UnifiedResult.fail(
+                action="file_patch",
+                error=f"Unable to validate patch: {exc}",
+                error_code=ErrorCode.INTERNAL_ERROR,
+            )
+        if check.returncode != 0:
+            return UnifiedResult.fail(
+                action="file_patch",
+                error=(check.stderr or check.stdout or "Patch validation failed").strip(),
+                error_code=ErrorCode.VALIDATION_ERROR,
+                data={"patch": patch, "paths": [str(path) for path in resolved_paths]},
+            )
+
+        try:
+            apply_result = subprocess.run(
+                ["git", "-C", str(workspace_root), "apply", "--whitespace=nowarn", "-"],
+                input=patch,
+                text=True,
+                capture_output=True,
+                timeout=15,
+                check=False,
+            )
+        except Exception as exc:
+            return UnifiedResult.fail(
+                action="file_patch",
+                error=f"Unable to apply patch: {exc}",
+                error_code=ErrorCode.INTERNAL_ERROR,
+                data={"patch": patch, "paths": [str(path) for path in resolved_paths]},
+            )
+        if apply_result.returncode != 0:
+            return UnifiedResult.fail(
+                action="file_patch",
+                error=(apply_result.stderr or apply_result.stdout or "Patch apply failed").strip(),
+                error_code=ErrorCode.INTERNAL_ERROR,
+                data={"patch": patch, "paths": [str(path) for path in resolved_paths]},
+            )
+
+        previews: dict[str, str] = {}
+        for path in resolved_paths[:3]:
+            try:
+                previews[str(path)] = _content_preview(path.read_text(encoding="utf-8"))
+            except Exception:
+                previews[str(path)] = ""
+
+        return UnifiedResult.ok(
+            action="file_patch",
+            message=f"Applied patch to {len(resolved_paths)} file(s)",
+            data={
+                "summary": f"Applied patch to {len(resolved_paths)} file(s)",
+                "patch": patch,
+                "diff": patch,
+                "applied_files": [str(path) for path in resolved_paths],
+                "content_previews": previews,
+            },
+        )
 
     async def _file_delete(self, params: dict[str, Any]) -> UnifiedResult:
         raw = params.get("path") or params.get("file_path")

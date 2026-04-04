@@ -81,7 +81,7 @@ interface ChatStore {
   activeCandidates: PlaygroundCandidate[]
   selectedCandidateId: string | null
   selectedExperimentId: string | null
-  responseView: 'response' | 'sources' | 'metadata' | 'raw'
+  responseView: 'response' | 'patch' | 'sources' | 'metadata' | 'raw'
   lastRunMetadata: PlaygroundSnapshot | null
   experimentSnapshots: PlaygroundSnapshot[]
   presets: PlaygroundPreset[]
@@ -93,6 +93,7 @@ interface ChatStore {
   updateSessionTitle: (sessionId: string, title: string) => void
   setCurrentSessionId: (sessionId: string | null) => void
   loadSessions: () => Promise<void>
+  updateSessionMetadata: (sessionId: string, metadata: Record<string, unknown>) => void
 
   addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => string
   updateMessage: (id: string, updates: Partial<ChatMessage>) => void
@@ -371,6 +372,23 @@ export const useChatStore = create<ChatStore>()(
         } catch (error) {
           console.error('加载会话列表失败:', error)
         }
+      },
+
+      updateSessionMetadata: (sessionId, metadata) => {
+        set((state) => ({
+          sessions: state.sessions.map((session) =>
+            session.id === sessionId
+              ? {
+                  ...session,
+                  metadata: {
+                    ...(session.metadata || {}),
+                    ...metadata,
+                  },
+                  updatedAt: new Date().toISOString(),
+                }
+              : session
+          ),
+        }))
       },
 
       addMessage: (message) => {

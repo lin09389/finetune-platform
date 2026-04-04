@@ -46,6 +46,7 @@ export interface ChatSendPayload {
   systemPrompt?: string
   responseFormat?: 'text' | 'json'
   attachments?: PlaygroundAttachment[]
+  agentContext?: Record<string, unknown>
   knowledgeOverride?: { enabled: boolean; collectionId?: string }
   memoryOverride?: { enabled: boolean }
   parameterOverrides?: {
@@ -89,6 +90,13 @@ interface AgentRunResult {
   summary?: string
 }
 
+interface PatchApplyResult extends AgentRunResult {}
+
+interface PatchApplyOptions {
+  rerunCommand?: string
+  autoFinalize?: boolean
+}
+
 interface AgentDecisionData {
   action?: string
   confidence?: number
@@ -105,6 +113,9 @@ interface AgentDecisionData {
     message?: string
     feedback?: string
     recovery_hint?: string
+    prompt_override?: string
+    auto_repair_pipeline?: boolean
+    rerun_command?: string
     completed_actions?: Array<{
       action?: string
       params?: Record<string, unknown>
@@ -155,6 +166,56 @@ function createAgentEvent(
   }
 }
 
+function extractPatchDraftContent(text: string) {
+  const fencedMatch = text.match(/```(?:diff|patch)?\s*\n([\s\S]*?)```/i)
+  const candidate = fencedMatch?.[1]?.trim() || text.trim()
+
+  if (
+    !candidate ||
+    (!candidate.includes('diff --git') &&
+      !(candidate.includes('--- ') && candidate.includes('+++ ')) &&
+      !candidate.includes('@@'))
+  ) {
+    return null
+  }
+
+  return candidate
+}
+
+function buildAutomaticRepairSummary(options: {
+  patchedFiles: string[]
+  rerunCommand?: string
+  passed?: number
+  failed?: number
+}) {
+  const fileText = options.patchedFiles.length
+    ? `Patched ${options.patchedFiles.join(', ')}.`
+    : 'Applied the generated patch draft.'
+  const verificationText = options.rerunCommand
+    ? ` Reran \`${options.rerunCommand}\` and got ${options.passed || 0} passed / ${options.failed || 0} failed.`
+    : ''
+  const recommendation =
+    (options.failed || 0) > 0
+      ? ' Review the remaining failing output before drafting the next patch.'
+      : ' Verification passed, so the task is ready for a completion summary or handoff.'
+  return `${fileText}${verificationText}${recommendation}`
+}
+
+function buildAutomaticHandoffNote(options: {
+  patchedFiles: string[]
+  rerunCommand?: string
+  passed?: number
+  failed?: number
+}) {
+  const fileText = options.patchedFiles.length
+    ? `Updated files: ${options.patchedFiles.join(', ')}.`
+    : 'Updated the generated target files.'
+  const verificationText = options.rerunCommand
+    ? ` Verified with \`${options.rerunCommand}\` (${options.passed || 0} passed, ${options.failed || 0} failed).`
+    : ''
+  return `${fileText}${verificationText} Next owner step: review the final diff once and merge or continue the broader task.`
+}
+
 function toCandidate(
   candidateId: string,
   index: number,
@@ -173,6 +234,89 @@ function toCandidate(
     memory_context: result?.metadata?.memoryContext,
     unified_context: result?.metadata?.unifiedContext,
     run_metrics: result?.metadata?.runMetrics,
+  }
+}
+
+function buildAgentFollowupPrompt(
+  followupPrompt: string,
+  completedActions: Array<{
+    action?: string
+    success?: boolean
+    data?: Record<string, unknown>
+  }>
+) {
+  const latestFileRead = [...completedActions]
+    .reverse()
+    .find((step) => step.action === 'file_read' && step.success)
+
+  if (!latestFileRead?.data) {
+    return null
+  }
+
+  const filePath =
+    typeof latestFileRead.data.path === 'string'
+      ? latestFileRead.data.path
+      : typeof latestFileRead.data.file_path === 'string'
+        ? latestFileRead.data.file_path
+        : 'unknown file'
+
+  const content =
+    typeof latestFileRead.data.content === 'string' && latestFileRead.data.content.trim()
+      ? latestFileRead.data.content
+      : typeof latestFileRead.data.content_preview === 'string'
+        ? latestFileRead.data.content_preview
+        : ''
+
+  if (!content.trim()) {
+    return null
+  }
+
+  return `${followupPrompt}\n\nFile: ${filePath}\n\nFile content:\n\`\`\`\n${content.slice(0, 4000)}\n\`\`\``
+}
+
+function buildVerificationOutcome(
+  rerunData: {
+  success?: boolean
+  message?: string
+  error?: string
+  data?: Record<string, unknown>
+},
+  options?: {
+    patchedFiles?: string[]
+    rerunCommand?: string
+  }
+) {
+  const testSummary =
+    rerunData.data && typeof rerunData.data.test_summary === 'object' && rerunData.data.test_summary
+      ? (rerunData.data.test_summary as {
+          failed?: number
+          passed?: number
+          failure_files?: string[]
+        })
+      : null
+  const hasFailures = Boolean((testSummary?.failed || 0) > 0 || rerunData.success === false)
+  const failureFiles =
+    Array.isArray(testSummary?.failure_files) && testSummary?.failure_files.length
+      ? testSummary.failure_files.filter((file): file is string => typeof file === 'string')
+      : []
+
+  return {
+    title: hasFailures ? 'Verification still failing' : 'Patch verified successfully',
+    description: hasFailures
+      ? failureFiles.length
+        ? `Tests are still failing after the patch. Start with ${failureFiles[0]} before redrafting the patch.`
+        : 'Tests are still failing after the patch. Inspect the failure details before redrafting the patch.'
+      : 'The patched code passed the rerun command. Review the touched file once, then keep moving.',
+    status: hasFailures ? ('failed' as const) : ('completed' as const),
+    payload: {
+      verification_outcome: hasFailures ? 'failed' : 'passed',
+      failure_files: failureFiles,
+      patched_files: options?.patchedFiles || [],
+      rerun_command: options?.rerunCommand,
+      passed: testSummary?.passed || 0,
+      failed: testSummary?.failed || 0,
+      summary: rerunData.message || rerunData.error,
+    },
   }
 }
 
@@ -1045,6 +1189,9 @@ export function useChatStream(config: StreamConfig = {}) {
           )
 
           const actionName = step.action || ''
+          if (actionName === 'file_read' && step.success && typeof step.data?.content === 'string') {
+            lastContentRef.current.set('latest_agent_content', step.data.content)
+          }
           if (
             actionName.startsWith('file_') ||
             actionName.startsWith('dir_')
@@ -1086,6 +1233,47 @@ export function useChatStream(config: StreamConfig = {}) {
         })
       }
 
+      if (typeof data.result?.loop_summary === 'string' && data.result.loop_summary.trim()) {
+        appendAgentTimeline(
+          createAgentEvent('task_status', 'Loop summary', {
+            description: data.result.loop_summary,
+            status:
+              executionStatus === 'failed'
+                ? 'failed'
+                : executionStatus === 'needs_confirmation'
+                  ? 'pending'
+                  : 'completed',
+            payload: {
+              loop_summary: data.result.loop_summary,
+              completed_steps: data.result.completed_steps,
+              failed_steps: data.result.failed_steps,
+              waiting_steps: data.result.waiting_steps,
+              inference_steps: data.result.inference_steps,
+            },
+          })
+        )
+      }
+
+      if (
+        typeof data.result?.recommended_next_step === 'string' &&
+        data.result.recommended_next_step.trim()
+      ) {
+        appendAgentTimeline(
+          createAgentEvent('task_status', 'Recommended next step', {
+            description: data.result.recommended_next_step,
+            status:
+              executionStatus === 'failed'
+                ? 'failed'
+                : executionStatus === 'needs_confirmation'
+                  ? 'pending'
+                  : 'completed',
+            payload: {
+              recommended_next_step: data.result.recommended_next_step,
+            },
+          })
+        )
+      }
+
       if (data.result?.recovery_hint) {
         appendAgentTimeline(
           createAgentEvent('task_status', 'Recovery guidance', {
@@ -1095,18 +1283,36 @@ export function useChatStream(config: StreamConfig = {}) {
         )
       }
 
-      if (data.result?.need_inference || action === 'conversation' || executionStatus === 'planned') {
+      const followupPrompt =
+        typeof payload.agentContext?.followup_prompt === 'string'
+          ? payload.agentContext.followup_prompt
+          : undefined
+      const promptOverride =
+        (typeof data.result?.prompt_override === 'string' ? data.result.prompt_override : undefined) ||
+        (followupPrompt ? buildAgentFollowupPrompt(followupPrompt, completedActions) : null)
+
+      if (data.result?.need_inference || action === 'conversation' || executionStatus === 'planned' || promptOverride) {
         setAgentTaskStatus('running')
         appendAgentTimeline(
           createAgentEvent('assistant_message', 'Switching to model generation', {
-            description: 'This task requires reasoning or drafting, so the assistant is generating content next.',
+            description: promptOverride
+              ? 'The agent gathered the file context and is now summarizing the likely failure points.'
+              : 'This task requires reasoning or drafting, so the assistant is generating content next.',
             status: 'running',
           })
         )
+        const followupPayload: ChatSendPayload = promptOverride
+          ? {
+              ...payload,
+              prompt: promptOverride,
+              attachments: [],
+              agentContext: undefined,
+            }
+          : payload
         const generated =
           cloudConfig && (payload.parameterOverrides?.backend === 'cloud' || settings.backend === 'cloud')
-            ? await sendCloudMessage(payload, cloudConfig)
-            : await sendMessage(payload)
+            ? await sendCloudMessage(followupPayload, cloudConfig)
+            : await sendMessage(followupPayload)
 
         if (!generated) {
           setAgentTaskStatus('stopped')
@@ -1124,24 +1330,89 @@ export function useChatStream(config: StreamConfig = {}) {
         }
 
         lastContentRef.current.set('latest_agent_content', generated.content)
-        setAgentTaskStatus('completed')
         appendAgentTimeline(
           createAgentEvent('assistant_message', 'Generation completed', {
             description: generated.content.slice(0, 240) || 'The assistant completed the requested task.',
             status: 'completed',
           })
         )
+
+        const autoRepairEnabled = Boolean(
+          payload.agentContext?.auto_repair_pipeline || data.result?.auto_repair_pipeline
+        )
+        const generatedPatchDraft =
+          promptOverride && autoRepairEnabled ? extractPatchDraftContent(generated.content) : null
+        if (generatedPatchDraft) {
+          const rerunCommandFromResult =
+            typeof data.result?.rerun_command === 'string' ? data.result.rerun_command : undefined
+          const rerunCommandFromSteps = [...completedActions]
+            .reverse()
+            .find(
+              (step) =>
+                step.action === 'tests_run' &&
+                typeof step.data?.command === 'string' &&
+                step.data.command.trim()
+            )?.data?.command as string | undefined
+          const pendingConfirmation: AgentPendingConfirmation = {
+            action: 'file_patch',
+            description:
+              'Patch draft ready. Confirm to apply it and continue verification automatically.',
+            params: {
+              patch: generatedPatchDraft,
+              rerun_command: rerunCommandFromResult || rerunCommandFromSteps,
+              auto_finalize: true,
+            },
+            riskLevel: 'high',
+          }
+          setPendingAgentConfirmation(pendingConfirmation)
+          setAgentTaskStatus('waiting_confirmation')
+          appendAgentTimeline(
+            createAgentEvent('confirmation_request', 'Patch draft ready for review', {
+              description:
+                'The agent drafted a patch and paused before applying it. Confirm to continue the automatic repair pipeline.',
+              status: 'pending',
+              payload: {
+                action: 'file_patch',
+                rerun_command: rerunCommandFromResult || rerunCommandFromSteps,
+                auto_finalize: true,
+              },
+            })
+          )
+          appendAgentTimeline(
+            createAgentEvent('task_status', 'Awaiting patch confirmation', {
+              description:
+                'The patch draft is ready. Confirm once to apply it, rerun verification, and finalize the repair automatically.',
+              status: 'pending',
+              payload: {
+                status: 'waiting_confirmation',
+                action: 'file_patch',
+                rerun_command: rerunCommandFromResult || rerunCommandFromSteps,
+                auto_finalize: true,
+              },
+            })
+          )
+          return {
+            status: 'waiting_confirmation',
+            response: generated,
+            pendingConfirmation,
+            timeline: [],
+            summary: 'Patch draft ready for review.',
+          }
+        }
+
+        setAgentTaskStatus('completed')
         appendAgentTimeline(
           createAgentEvent('task_status', 'Task completed', {
-            status: 'completed',
-            payload: { status: 'completed' },
-          })
-        )
+          status: 'completed',
+          payload: { status: 'completed' },
+        })
+      )
         return {
           status: 'completed',
           response: generated,
           timeline: [],
-          summary: generated.content,
+          summary:
+            (typeof data.result?.loop_summary === 'string' && data.result.loop_summary) || generated.content,
         }
       }
 
@@ -1171,7 +1442,11 @@ export function useChatStream(config: StreamConfig = {}) {
       return {
         status: executionStatus === 'failed' ? 'failed' : 'completed',
         timeline: [],
-        summary: data.result?.message || data.execution?.error || description,
+        summary:
+          (typeof data.result?.loop_summary === 'string' && data.result.loop_summary) ||
+          data.result?.message ||
+          data.execution?.error ||
+          description,
       }
     },
     [
@@ -1227,6 +1502,7 @@ export function useChatStream(config: StreamConfig = {}) {
               workspace_root: agentWorkspaceRoot,
               content: lastContentRef.current.get('latest_agent_content') || '',
               attachments: toRequestAttachments(payload.attachments || []),
+              ...(payload.agentContext || {}),
             },
           }),
         })
@@ -1430,10 +1706,247 @@ export function useChatStream(config: StreamConfig = {}) {
     ]
   )
 
+  const applyPatchDraft = useCallback(
+    async (patch: string, options?: PatchApplyOptions): Promise<PatchApplyResult | undefined> => {
+      if (!patch.trim()) {
+        return undefined
+      }
+
+      const recentFailedTestsCommand = [...useChatStore.getState().agentTimeline]
+        .reverse()
+        .find(
+          (event) =>
+            event.tool_name === 'tests_run' &&
+            event.status === 'failed' &&
+            typeof event.payload?.command === 'string' &&
+            event.payload.command.trim()
+        )?.payload?.command as string | undefined
+
+      setAgentTaskStatus('running')
+      appendAgentTimeline(
+        createAgentEvent('tool_call', 'Applying patch draft', {
+          tool_name: 'file_patch',
+          description: 'Applying the generated patch draft to the workspace.',
+          status: 'running',
+          payload: { patch_preview: patch.slice(0, 400) },
+        })
+      )
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/agent/execute`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'file_patch',
+            params: { patch },
+            confirm: true,
+          }),
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.detail || 'Applying patch draft failed.')
+        }
+
+        const data = await response.json()
+        const nextStatus: AgentTaskStatus = data.success ? 'completed' : 'failed'
+        setAgentTaskStatus(nextStatus)
+        appendAgentTimeline(
+          createAgentEvent('file_change', data.success ? 'Patch applied' : 'Patch apply failed', {
+            tool_name: 'file_patch',
+            description: data.message || data.error || 'Patch draft processed.',
+            status: data.success ? 'completed' : 'failed',
+            payload: {
+              ...(data.data || { patch }),
+              rerun_command: data.success ? recentFailedTestsCommand : undefined,
+            },
+          })
+        )
+        if (data.success && options?.rerunCommand?.trim()) {
+          const patchedFiles = Array.isArray(data.data?.applied_files)
+            ? data.data.applied_files.filter((file: unknown): file is string => typeof file === 'string')
+            : []
+          appendAgentTimeline(
+            createAgentEvent('tool_call', 'Rerunning tests after patch', {
+              tool_name: 'tests_run',
+              description: options.rerunCommand,
+              status: 'running',
+              payload: { command: options.rerunCommand },
+            })
+          )
+
+          const rerunResponse = await fetch(`${API_BASE_URL}/agent/execute`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'tests_run',
+              params: { command: options.rerunCommand },
+              confirm: true,
+            }),
+          })
+
+          if (!rerunResponse.ok) {
+            const errorData = await rerunResponse.json().catch(() => ({}))
+            throw new Error(errorData.detail || 'Rerunning tests after patch failed.')
+          }
+
+          const rerunData = await rerunResponse.json()
+          appendAgentTimeline(
+            createAgentEvent('command_output', rerunData.success ? 'Tests rerun completed' : 'Tests rerun failed', {
+              tool_name: 'tests_run',
+              description: rerunData.message || rerunData.error || options.rerunCommand,
+              status: rerunData.success ? 'completed' : 'failed',
+              payload: rerunData.data || { command: options.rerunCommand },
+            })
+          )
+          const verificationOutcome = buildVerificationOutcome(rerunData, {
+            patchedFiles,
+            rerunCommand: options.rerunCommand,
+          })
+          appendAgentTimeline(
+            createAgentEvent('task_status', verificationOutcome.title, {
+              description: verificationOutcome.description,
+              status: verificationOutcome.status,
+              payload: verificationOutcome.payload,
+            })
+          )
+
+          const rerunStatus: AgentTaskStatus = rerunData.success ? 'completed' : 'failed'
+          setAgentTaskStatus(rerunStatus)
+          if (options?.autoFinalize && rerunData.success) {
+            const testSummary =
+              rerunData.data && typeof rerunData.data.test_summary === 'object' && rerunData.data.test_summary
+                ? (rerunData.data.test_summary as {
+                    passed?: number
+                    failed?: number
+                  })
+                : null
+            const automaticSummary = buildAutomaticRepairSummary({
+              patchedFiles,
+              rerunCommand: options.rerunCommand,
+              passed: testSummary?.passed,
+              failed: testSummary?.failed,
+            })
+            const automaticHandoff = buildAutomaticHandoffNote({
+              patchedFiles,
+              rerunCommand: options.rerunCommand,
+              passed: testSummary?.passed,
+              failed: testSummary?.failed,
+            })
+            appendAgentTimeline(
+              createAgentEvent('assistant_message', 'Automatic repair completed', {
+                description: automaticSummary,
+                status: 'completed',
+                payload: {
+                  automatic_pipeline: 'repair_complete',
+                  patched_files: patchedFiles,
+                  rerun_command: options.rerunCommand,
+                },
+              })
+            )
+            appendAgentTimeline(
+              createAgentEvent('task_status', 'Completion summary', {
+                description: automaticSummary,
+                status: 'completed',
+                payload: {
+                  completion_summary: automaticSummary,
+                  patched_files: patchedFiles,
+                  rerun_command: options.rerunCommand,
+                },
+              })
+            )
+            appendAgentTimeline(
+              createAgentEvent('task_status', 'Handoff ready', {
+                description: automaticHandoff,
+                status: 'completed',
+                payload: {
+                  handoff_note: automaticHandoff,
+                  patched_files: patchedFiles,
+                  rerun_command: options.rerunCommand,
+                },
+              })
+            )
+          }
+          appendAgentTimeline(
+            createAgentEvent('task_status', rerunData.success ? 'Patch and test task completed' : 'Patch applied but tests failed', {
+              status: rerunData.success ? 'completed' : 'failed',
+              description:
+                options?.autoFinalize && rerunData.success
+                  ? buildAutomaticRepairSummary({
+                      patchedFiles,
+                      rerunCommand: options.rerunCommand,
+                      passed:
+                        typeof rerunData.data?.test_summary?.passed === 'number'
+                          ? rerunData.data.test_summary.passed
+                          : undefined,
+                      failed:
+                        typeof rerunData.data?.test_summary?.failed === 'number'
+                          ? rerunData.data.test_summary.failed
+                          : undefined,
+                    })
+                  : undefined,
+              payload: {
+                status: rerunStatus,
+                automatic_pipeline: options?.autoFinalize ? 'repair_complete' : undefined,
+                patched_files: patchedFiles,
+                rerun_command: options.rerunCommand,
+              },
+            })
+          )
+
+          return {
+            status: rerunStatus,
+            timeline: [],
+            summary: rerunData.message || rerunData.error || 'Patch applied and tests rerun.',
+          }
+        }
+
+        appendAgentTimeline(
+          createAgentEvent('task_status', data.success ? 'Patch task completed' : 'Patch task failed', {
+            status: data.success ? 'completed' : 'failed',
+            payload: { status: nextStatus },
+          })
+        )
+
+        return {
+          status: nextStatus,
+          timeline: [],
+          summary: data.message || data.error || 'Patch draft processed.',
+        }
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Applying patch draft failed.'
+        setAgentTaskStatus('failed')
+        appendAgentTimeline(
+          createAgentEvent('task_status', 'Patch task failed', {
+            description: errorMessage,
+            status: 'failed',
+            payload: { status: 'failed' },
+          })
+        )
+        onError?.(errorMessage)
+        return {
+          status: 'failed',
+          timeline: [],
+          summary: errorMessage,
+        }
+      }
+    },
+    [appendAgentTimeline, onError, setAgentTaskStatus]
+  )
+
   const confirmAgentAction = useCallback(async (): Promise<AgentRunResult | undefined> => {
     const pending = useChatStore.getState().pendingAgentConfirmation
     if (!pending) {
       return undefined
+    }
+
+    if (pending.action === 'file_patch' && typeof pending.params.patch === 'string') {
+      setPendingAgentConfirmation(null)
+      return applyPatchDraft(pending.params.patch, {
+        rerunCommand:
+          typeof pending.params.rerun_command === 'string' ? pending.params.rerun_command : undefined,
+        autoFinalize: Boolean(pending.params.auto_finalize),
+      })
     }
 
     setAgentTaskStatus('running')
@@ -1502,7 +2015,13 @@ export function useChatStream(config: StreamConfig = {}) {
         summary: errorMessage,
       }
     }
-  }, [appendAgentTimeline, onError, setAgentTaskStatus, setPendingAgentConfirmation])
+  }, [
+    appendAgentTimeline,
+    applyPatchDraft,
+    onError,
+    setAgentTaskStatus,
+    setPendingAgentConfirmation,
+  ])
 
   const cancelAgentAction = useCallback(() => {
     const pending = useChatStore.getState().pendingAgentConfirmation
@@ -1566,6 +2085,7 @@ export function useChatStream(config: StreamConfig = {}) {
     resumeAgentTask,
     resumeAgentFromEvent,
     confirmAgentAction,
+    applyPatchDraft,
     cancelAgentAction,
     stop,
     retry,

@@ -164,3 +164,129 @@ async def test_save_content_path_violation_returns_block_or_permission_error_cod
         assert data["execution"]["status"] in ("failed", "needs_confirmation")
         if data["execution"]["status"] == "failed":
             assert data["execution"]["error_code"] in ("permission_denied", "validation_error")
+
+
+@pytest.mark.asyncio
+async def test_run_loop_returns_specific_recovery_hint_for_failed_tests(client):
+    resp = await client.post(
+        "/agent/run-loop",
+        json={
+            "message": "run tests",
+            "max_steps": 1,
+            "auto_confirm": True,
+            "context": {
+                "detected_intents": [
+                    {
+                        "detected": True,
+                        "intent_type": "tests_run",
+                        "action": "tests_run",
+                        "params": {
+                            "command": [
+                                "python",
+                                "-c",
+                                (
+                                    "import sys; "
+                                    "print('FAILED tests/test_chat.py::test_resume - AssertionError: boom'); "
+                                    "print('1 failed, 4 passed in 0.12s'); "
+                                    "sys.exit(1)"
+                                ),
+                            ]
+                        },
+                        "description": "run the test suite",
+                        "confidence": 1.0,
+                        "need_confirm": False,
+                    }
+                ]
+            },
+        },
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["execution"]["status"] == "failed"
+    assert "test_resume" in data["result"]["recovery_hint"]
+    assert data["result"]["last_result"]["data"]["test_summary"]["failed"] == 1
+    assert "Completed 0 step(s) before the task failed." in data["result"]["loop_summary"]
+    assert "test_resume" in data["result"]["recommended_next_step"]
+
+
+@pytest.mark.asyncio
+async def test_run_loop_auto_repair_pipeline_reads_failure_file_and_returns_prompt_override(client):
+    resp = await client.post(
+        "/agent/run-loop",
+        json={
+            "message": "run tests and repair automatically",
+            "max_steps": 2,
+            "auto_confirm": True,
+            "context": {
+                "auto_repair_pipeline": True,
+                "detected_intents": [
+                    {
+                        "detected": True,
+                        "intent_type": "tests_run",
+                        "action": "tests_run",
+                        "params": {
+                            "command": [
+                                "python",
+                                "-c",
+                                (
+                                    "import sys; "
+                                    "print('FAILED tests/test_agent_api_contract.py::test_run_loop_auto_repair_pipeline_reads_failure_file_and_returns_prompt_override - AssertionError: boom'); "
+                                    "print('1 failed, 0 passed in 0.01s'); "
+                                    "sys.exit(1)"
+                                ),
+                            ]
+                        },
+                        "description": "run tests",
+                        "confidence": 1.0,
+                        "need_confirm": False,
+                    }
+                ],
+            },
+        },
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["execution"]["status"] == "failed"
+    assert data["result"]["need_inference"] is True
+    assert data["result"]["auto_repair_pipeline"] is True
+    assert data["result"]["pipeline_stage"] == "repair_context_loaded"
+    assert "draft a concrete patch proposal" in data["result"]["prompt_override"]
+    assert "tests/test_agent_api_contract.py" in data["result"]["prompt_override"]
+    assert "python" in data["result"]["rerun_command"]
+    assert any(action["action"] == "file_read" for action in data["result"]["completed_actions"])
+    assert "Automatic repair prep completed" in data["result"]["recommended_next_step"]
+
+
+@pytest.mark.asyncio
+async def test_run_loop_returns_completion_summary_for_successful_steps(client):
+    resp = await client.post(
+        "/agent/run-loop",
+        json={
+            "message": "run a safe command",
+            "max_steps": 1,
+            "auto_confirm": True,
+            "context": {
+                "detected_intents": [
+                    {
+                        "detected": True,
+                        "intent_type": "command_run",
+                        "action": "command_run",
+                        "params": {"command": ["python", "-c", "print('ok from run-loop')"]},
+                        "description": "run a safe command",
+                        "confidence": 1.0,
+                        "need_confirm": False,
+                    }
+                ]
+            },
+        },
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["execution"]["status"] == "executed"
+    assert data["result"]["completed_steps"] == 1
+    assert "Completed 1 step(s) successfully." in data["result"]["loop_summary"]
+    assert "command run" in data["result"]["loop_summary"]
+    assert "Review the latest result" in data["result"]["recommended_next_step"]

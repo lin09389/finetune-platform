@@ -99,6 +99,7 @@ async def list_sessions(
                 "message_count": s.message_count,
                 "created_at": s.created_at.isoformat(),
                 "updated_at": s.updated_at.isoformat(),
+                "metadata": s.metadata,
             }
             for s in sessions
         ],

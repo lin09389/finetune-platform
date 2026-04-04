@@ -97,11 +97,23 @@ interface AgentTaskHistoryItem {
   createdAt: string
 }
 
+interface AgentOutcomeItem {
+  id: string
+  title: string
+  summary: string
+  createdAt: string
+}
+
 interface AgentStepGroup {
   key: string
   label: string
   status: string
   events: AgentTimelineEvent[]
+}
+
+interface PatchDraft {
+  content: string
+  fileHints: string[]
 }
 
 const pageStyle: React.CSSProperties = {
@@ -187,6 +199,31 @@ function buildResponseDiff(baseText: string, nextText: string) {
     removedCount: removed.length,
     preview,
     hasChanges: added.length > 0 || removed.length > 0,
+  }
+}
+
+function extractPatchDraft(text: string): PatchDraft | null {
+  const fencedMatch = text.match(/```(?:diff|patch)?\s*\n([\s\S]*?)```/i)
+  const candidate = fencedMatch?.[1]?.trim() || text.trim()
+
+  if (
+    !candidate ||
+    (!candidate.includes('diff --git') &&
+      !(candidate.includes('--- ') && candidate.includes('+++ ')) &&
+      !candidate.includes('@@'))
+  ) {
+    return null
+  }
+
+  const fileHints = Array.from(
+    new Set(
+      [...candidate.matchAll(/(?:\+\+\+|---)\s+(?:a\/|b\/)?([^\n\r\t ]+)/g)].map((match) => match[1]!).filter(Boolean)
+    )
+  )
+
+  return {
+    content: candidate,
+    fileHints,
   }
 }
 
@@ -317,6 +354,7 @@ const ChatPage: React.FC = () => {
     savePreset,
     deletePreset,
     setSelectedPresetId,
+    updateSessionMetadata,
   } = useChatStore()
 
   const [collections, setCollections] = useState<KnowledgeCollection[]>([])
@@ -334,6 +372,7 @@ const ChatPage: React.FC = () => {
     skipped: number
   } | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [selectedTaskOutcomeId, setSelectedTaskOutcomeId] = useState<string | null>(null)
   const [memoryManagerOpen, setMemoryManagerOpen] = useState(false)
   const [configModalOpen, setConfigModalOpen] = useState(false)
   const [localModels, setLocalModels] = useState<Record<'ollama' | 'huggingface', ModelOption[]>>({
@@ -357,6 +396,7 @@ const ChatPage: React.FC = () => {
     resumeAgentTask,
     resumeAgentFromEvent,
     confirmAgentAction,
+    applyPatchDraft,
     cancelAgentAction,
     stop: stopStream,
     isStreaming,
@@ -423,6 +463,18 @@ const ChatPage: React.FC = () => {
   const latestUserMessage = useMemo(() => {
     return [...messages].reverse().find((message) => message.role === 'user') || null
   }, [messages])
+  const recentFailedTestsCommand = useMemo(() => {
+    const event = [...agentTimeline]
+      .reverse()
+      .find(
+        (item) =>
+          item.tool_name === 'tests_run' &&
+          item.status === 'failed' &&
+          typeof item.payload?.command === 'string' &&
+          item.payload.command.trim()
+      )
+    return typeof event?.payload?.command === 'string' ? event.payload.command : null
+  }, [agentTimeline])
   const agentStatusColor = useMemo(() => {
     switch (agentTaskStatus) {
       case 'planning':
@@ -520,8 +572,36 @@ const ChatPage: React.FC = () => {
         id: event.id,
         title: event.title,
         status: event.status || (event.type === 'confirmation_request' ? 'pending' : 'recorded'),
-        summary: event.description || event.tool_name || event.type,
+        summary:
+          (typeof event.payload?.loop_summary === 'string' && event.payload.loop_summary) ||
+          (typeof event.payload?.recommended_next_step === 'string' && event.payload.recommended_next_step) ||
+          event.description ||
+          event.tool_name ||
+          event.type,
         toolName: event.tool_name,
+        createdAt: event.createdAt,
+      }))
+  }, [agentTimeline])
+  const agentOutcomeItems = useMemo<AgentOutcomeItem[]>(() => {
+    return [...agentTimeline]
+      .filter(
+        (event) =>
+          event.type === 'task_status' &&
+          ((typeof event.payload?.completion_summary === 'string' &&
+            event.payload.completion_summary.trim()) ||
+            (typeof event.payload?.handoff_note === 'string' && event.payload.handoff_note.trim()))
+      )
+      .reverse()
+      .slice(0, 4)
+      .map((event) => ({
+        id: event.id,
+        title: event.title,
+        summary:
+          (typeof event.payload?.completion_summary === 'string' &&
+            event.payload.completion_summary) ||
+          (typeof event.payload?.handoff_note === 'string' && event.payload.handoff_note) ||
+          event.description ||
+          event.title,
         createdAt: event.createdAt,
       }))
   }, [agentTimeline])
@@ -551,6 +631,608 @@ const ChatPage: React.FC = () => {
 
     return Array.from(groups.values())
   }, [agentTimeline])
+
+  const handleRetryTestCommand = useCallback(
+    (command: string) => {
+      const trimmedCommand = command.trim()
+      if (!trimmedCommand) {
+        return
+      }
+
+      const retryCloudConfig =
+        settings.backend === 'cloud' && cloudAIConfig?.model
+          ? {
+              provider: cloudAIConfig.provider,
+              apiKey: cloudAIConfig.api_key,
+              keyId: cloudAIConfig.key_id,
+              model: cloudAIConfig.model,
+              groupId: cloudAIConfig.group_id,
+              baseUrl: cloudAIConfig.base_url,
+            }
+          : undefined
+
+      void runAgentTask(
+        {
+          prompt: `Retry this test command: ${trimmedCommand}`,
+          systemPrompt: settings.systemPrompt,
+          responseFormat: settings.responseFormat,
+          attachments: [],
+          parameterOverrides: {
+            temperature: settings.temperature,
+            topP: settings.topP,
+            maxTokens: settings.maxTokens,
+            backend: settings.backend,
+            modelId: settings.modelId,
+          },
+          agentContext: {
+            detected_intents: [
+              {
+                detected: true,
+                intent_type: 'tests_run',
+                action: 'tests_run',
+                params: { command: trimmedCommand },
+                description: 'Retry the previous failing test command.',
+                confidence: 1,
+                need_confirm: false,
+              },
+            ],
+          },
+        },
+        retryCloudConfig
+      )
+    },
+    [cloudAIConfig, runAgentTask, settings]
+  )
+
+  const handleOpenFailingFile = useCallback(
+    (filePath: string) => {
+      const trimmedPath = filePath.trim()
+      if (!trimmedPath) {
+        return
+      }
+
+      const cloudConfig =
+        settings.backend === 'cloud' && cloudAIConfig?.model
+          ? {
+              provider: cloudAIConfig.provider,
+              apiKey: cloudAIConfig.api_key,
+              keyId: cloudAIConfig.key_id,
+              model: cloudAIConfig.model,
+              groupId: cloudAIConfig.group_id,
+              baseUrl: cloudAIConfig.base_url,
+            }
+          : undefined
+
+      void runAgentTask(
+        {
+          prompt: `Open the failing test file: ${trimmedPath}`,
+          systemPrompt: settings.systemPrompt,
+          responseFormat: settings.responseFormat,
+          attachments: [],
+          parameterOverrides: {
+            temperature: settings.temperature,
+            topP: settings.topP,
+            maxTokens: settings.maxTokens,
+            backend: settings.backend,
+            modelId: settings.modelId,
+          },
+          agentContext: {
+            detected_intents: [
+              {
+                detected: true,
+                intent_type: 'file_read',
+                action: 'file_read',
+                params: { path: trimmedPath },
+                description: 'Open the first failing test file.',
+                confidence: 1,
+                need_confirm: false,
+              },
+            ],
+          },
+        },
+        cloudConfig
+      )
+    },
+    [cloudAIConfig, runAgentTask, settings]
+  )
+
+  const handleAnalyzeFailingFile = useCallback(
+    (filePath: string) => {
+      const trimmedPath = filePath.trim()
+      if (!trimmedPath) {
+        return
+      }
+
+      const cloudConfig =
+        settings.backend === 'cloud' && cloudAIConfig?.model
+          ? {
+              provider: cloudAIConfig.provider,
+              apiKey: cloudAIConfig.api_key,
+              keyId: cloudAIConfig.key_id,
+              model: cloudAIConfig.model,
+              groupId: cloudAIConfig.group_id,
+              baseUrl: cloudAIConfig.base_url,
+            }
+          : undefined
+
+      void runAgentTask(
+        {
+          prompt: `Inspect the failing test file and explain the likely failure points: ${trimmedPath}`,
+          systemPrompt: settings.systemPrompt,
+          responseFormat: settings.responseFormat,
+          attachments: [],
+          parameterOverrides: {
+            temperature: settings.temperature,
+            topP: settings.topP,
+            maxTokens: settings.maxTokens,
+            backend: settings.backend,
+            modelId: settings.modelId,
+          },
+          agentContext: {
+            followup_prompt:
+              `Read ${trimmedPath} and summarize the likely cause of the failing test. ` +
+              'Call out suspicious assertions, fixtures, or setup issues in concise bullets.',
+            detected_intents: [
+              {
+                detected: true,
+                intent_type: 'file_read',
+                action: 'file_read',
+                params: { path: trimmedPath },
+                description: 'Read the failing test file before summarizing it.',
+                confidence: 1,
+                need_confirm: false,
+              },
+            ],
+          },
+        },
+        cloudConfig
+      )
+    },
+    [cloudAIConfig, runAgentTask, settings]
+  )
+
+  const handleCreateFixPlan = useCallback(
+    (filePath: string) => {
+      const trimmedPath = filePath.trim()
+      if (!trimmedPath) {
+        return
+      }
+
+      const cloudConfig =
+        settings.backend === 'cloud' && cloudAIConfig?.model
+          ? {
+              provider: cloudAIConfig.provider,
+              apiKey: cloudAIConfig.api_key,
+              keyId: cloudAIConfig.key_id,
+              model: cloudAIConfig.model,
+              groupId: cloudAIConfig.group_id,
+              baseUrl: cloudAIConfig.base_url,
+            }
+          : undefined
+
+      void runAgentTask(
+        {
+          prompt: `Create a fix plan for the failing test file: ${trimmedPath}`,
+          systemPrompt: settings.systemPrompt,
+          responseFormat: settings.responseFormat,
+          attachments: [],
+          parameterOverrides: {
+            temperature: settings.temperature,
+            topP: settings.topP,
+            maxTokens: settings.maxTokens,
+            backend: settings.backend,
+            modelId: settings.modelId,
+          },
+          agentContext: {
+            followup_prompt:
+              `Read ${trimmedPath} and write a concise fix plan for the failing test. ` +
+              'Return 3-5 actionable steps, calling out what to inspect first and what to change next.',
+            detected_intents: [
+              {
+                detected: true,
+                intent_type: 'file_read',
+                action: 'file_read',
+                params: { path: trimmedPath },
+                description: 'Read the failing test file before creating a fix plan.',
+                confidence: 1,
+                need_confirm: false,
+              },
+            ],
+          },
+        },
+        cloudConfig
+      )
+    },
+    [cloudAIConfig, runAgentTask, settings]
+  )
+
+  const handleStartGuidedFix = useCallback(
+    (filePath: string) => {
+      const trimmedPath = filePath.trim()
+      if (!trimmedPath) {
+        return
+      }
+
+      const cloudConfig =
+        settings.backend === 'cloud' && cloudAIConfig?.model
+          ? {
+              provider: cloudAIConfig.provider,
+              apiKey: cloudAIConfig.api_key,
+              keyId: cloudAIConfig.key_id,
+              model: cloudAIConfig.model,
+              groupId: cloudAIConfig.group_id,
+              baseUrl: cloudAIConfig.base_url,
+            }
+          : undefined
+
+      void runAgentTask(
+        {
+          prompt: `Start a guided fix for the failing test file: ${trimmedPath}`,
+          systemPrompt: settings.systemPrompt,
+          responseFormat: settings.responseFormat,
+          attachments: [],
+          parameterOverrides: {
+            temperature: settings.temperature,
+            topP: settings.topP,
+            maxTokens: settings.maxTokens,
+            backend: settings.backend,
+            modelId: settings.modelId,
+          },
+          agentContext: {
+            followup_prompt:
+              `Read ${trimmedPath} and produce a guided fix response for the failing test. ` +
+              'Explain the most likely root cause first, then list the first concrete code change to try next.',
+            detected_intents: [
+              {
+                detected: true,
+                intent_type: 'file_read',
+                action: 'file_read',
+                params: { path: trimmedPath },
+                description: 'Read the failing test file before starting a guided fix.',
+                confidence: 1,
+                need_confirm: false,
+              },
+            ],
+          },
+        },
+        cloudConfig
+      )
+    },
+    [cloudAIConfig, runAgentTask, settings]
+  )
+
+  const handleDraftPatchProposal = useCallback(
+      (filePath: string) => {
+      const trimmedPath = filePath.trim()
+      if (!trimmedPath) {
+        return
+      }
+
+      const cloudConfig =
+        settings.backend === 'cloud' && cloudAIConfig?.model
+          ? {
+              provider: cloudAIConfig.provider,
+              apiKey: cloudAIConfig.api_key,
+              keyId: cloudAIConfig.key_id,
+              model: cloudAIConfig.model,
+              groupId: cloudAIConfig.group_id,
+              baseUrl: cloudAIConfig.base_url,
+            }
+          : undefined
+
+      void runAgentTask(
+        {
+          prompt: `Draft a patch proposal for the failing test file: ${trimmedPath}`,
+          systemPrompt: settings.systemPrompt,
+          responseFormat: settings.responseFormat,
+          attachments: [],
+          parameterOverrides: {
+            temperature: settings.temperature,
+            topP: settings.topP,
+            maxTokens: settings.maxTokens,
+            backend: settings.backend,
+            modelId: settings.modelId,
+          },
+          agentContext: {
+            followup_prompt:
+              `Read ${trimmedPath} and draft a patch proposal for the failing test. ` +
+              'Suggest concrete code edits in a diff-like format without applying changes.',
+            detected_intents: [
+              {
+                detected: true,
+                intent_type: 'file_read',
+                action: 'file_read',
+                params: { path: trimmedPath },
+                description: 'Read the failing test file before drafting a patch proposal.',
+                confidence: 1,
+                need_confirm: false,
+              },
+            ],
+          },
+        },
+        cloudConfig
+      )
+      },
+      [cloudAIConfig, runAgentTask, settings]
+    )
+
+  const handleSummarizeVerifiedFix = useCallback(
+    (filePath: string) => {
+      const trimmedPath = filePath.trim()
+      if (!trimmedPath) {
+        return
+      }
+
+      const cloudConfig =
+        settings.backend === 'cloud' && cloudAIConfig?.model
+          ? {
+              provider: cloudAIConfig.provider,
+              apiKey: cloudAIConfig.api_key,
+              keyId: cloudAIConfig.key_id,
+              model: cloudAIConfig.model,
+              groupId: cloudAIConfig.group_id,
+              baseUrl: cloudAIConfig.base_url,
+            }
+          : undefined
+
+      void runAgentTask(
+        {
+          prompt: `Summarize why this verified fix worked: ${trimmedPath}`,
+          systemPrompt: settings.systemPrompt,
+          responseFormat: settings.responseFormat,
+          attachments: [],
+          parameterOverrides: {
+            temperature: settings.temperature,
+            topP: settings.topP,
+            maxTokens: settings.maxTokens,
+            backend: settings.backend,
+            modelId: settings.modelId,
+          },
+          agentContext: {
+            followup_prompt:
+              `Read ${trimmedPath} and summarize why the verified patch fixed the failing test. ` +
+              'Explain the key code change, why it addressed the failure, and what to watch for next time.',
+            detected_intents: [
+              {
+                action: 'file_read',
+                params: { path: trimmedPath },
+                detected: true,
+                confidence: 1.0,
+                description: 'Read the verified file before summarizing the fix.',
+                intent_type: 'file_read',
+                need_confirm: false,
+              },
+            ],
+          },
+        },
+        cloudConfig
+      )
+    },
+    [cloudAIConfig, runAgentTask, settings]
+  )
+
+  const handleReviewVerifiedFix = useCallback(
+    (filePath: string) => {
+      const trimmedPath = filePath.trim()
+      if (!trimmedPath) {
+        return
+      }
+
+      const cloudConfig =
+        settings.backend === 'cloud' && cloudAIConfig?.model
+          ? {
+              provider: cloudAIConfig.provider,
+              apiKey: cloudAIConfig.api_key,
+              keyId: cloudAIConfig.key_id,
+              model: cloudAIConfig.model,
+              groupId: cloudAIConfig.group_id,
+              baseUrl: cloudAIConfig.base_url,
+            }
+          : undefined
+
+      void runAgentTask(
+        {
+          prompt: `Review this verified fix for remaining risks: ${trimmedPath}`,
+          systemPrompt: settings.systemPrompt,
+          responseFormat: settings.responseFormat,
+          attachments: [],
+          parameterOverrides: {
+            temperature: settings.temperature,
+            topP: settings.topP,
+            maxTokens: settings.maxTokens,
+            backend: settings.backend,
+            modelId: settings.modelId,
+          },
+          agentContext: {
+            followup_prompt:
+              `Read ${trimmedPath} and perform a concise final review of the verified fix. ` +
+              'Call out any remaining risks, edge cases, or follow-up tests worth running, and say if the change looks ready.',
+            detected_intents: [
+              {
+                action: 'file_read',
+                params: { path: trimmedPath },
+                detected: true,
+                confidence: 1.0,
+                description: 'Read the verified file before reviewing the fix.',
+                intent_type: 'file_read',
+                need_confirm: false,
+              },
+            ],
+          },
+        },
+        cloudConfig
+      )
+    },
+    [cloudAIConfig, runAgentTask, settings]
+  )
+
+  const handleCreateCompletionSummary = useCallback(
+    (filePath: string) => {
+      const trimmedPath = filePath.trim()
+      if (!trimmedPath) {
+        return
+      }
+
+      const cloudConfig =
+        settings.backend === 'cloud' && cloudAIConfig?.model
+          ? {
+              provider: cloudAIConfig.provider,
+              apiKey: cloudAIConfig.api_key,
+              keyId: cloudAIConfig.key_id,
+              model: cloudAIConfig.model,
+              groupId: cloudAIConfig.group_id,
+              baseUrl: cloudAIConfig.base_url,
+            }
+          : undefined
+
+      void runAgentTask(
+        {
+          prompt: `Create a completion summary for this verified fix: ${trimmedPath}`,
+          systemPrompt: settings.systemPrompt,
+          responseFormat: settings.responseFormat,
+          attachments: [],
+          parameterOverrides: {
+            temperature: settings.temperature,
+            topP: settings.topP,
+            maxTokens: settings.maxTokens,
+            backend: settings.backend,
+            modelId: settings.modelId,
+          },
+          agentContext: {
+            followup_prompt:
+              `Read ${trimmedPath} and write a concise completion summary for the verified fix. ` +
+              'Include what changed, why it fixed the issue, what was verified, and any recommended follow-up in 3-5 bullets.',
+            detected_intents: [
+              {
+                action: 'file_read',
+                params: { path: trimmedPath },
+                detected: true,
+                confidence: 1.0,
+                description: 'Read the verified file before writing the completion summary.',
+                intent_type: 'file_read',
+                need_confirm: false,
+              },
+            ],
+          },
+        },
+        cloudConfig
+      )
+    },
+    [cloudAIConfig, runAgentTask, settings]
+  )
+
+  const handleCreateHandoffNote = useCallback(
+    (filePath: string) => {
+      const trimmedPath = filePath.trim()
+      if (!trimmedPath) {
+        return
+      }
+
+      const cloudConfig =
+        settings.backend === 'cloud' && cloudAIConfig?.model
+          ? {
+              provider: cloudAIConfig.provider,
+              apiKey: cloudAIConfig.api_key,
+              keyId: cloudAIConfig.key_id,
+              model: cloudAIConfig.model,
+              groupId: cloudAIConfig.group_id,
+              baseUrl: cloudAIConfig.base_url,
+            }
+          : undefined
+
+      void runAgentTask(
+        {
+          prompt: `Create a handoff note for this verified fix: ${trimmedPath}`,
+          systemPrompt: settings.systemPrompt,
+          responseFormat: settings.responseFormat,
+          attachments: [],
+          parameterOverrides: {
+            temperature: settings.temperature,
+            topP: settings.topP,
+            maxTokens: settings.maxTokens,
+            backend: settings.backend,
+            modelId: settings.modelId,
+          },
+          agentContext: {
+            followup_prompt:
+              `Read ${trimmedPath} and write a short handoff note for the verified fix. ` +
+              'Cover what changed, what was verified, remaining watchouts, and the recommended next owner action.',
+            detected_intents: [
+              {
+                action: 'file_read',
+                params: { path: trimmedPath },
+                detected: true,
+                confidence: 1.0,
+                description: 'Read the verified file before preparing the handoff note.',
+                intent_type: 'file_read',
+                need_confirm: false,
+              },
+            ],
+          },
+        },
+        cloudConfig
+      )
+    },
+    [cloudAIConfig, runAgentTask, settings]
+  )
+
+  const handleAnalyzePatchFailure = useCallback(
+    (filePath: string, failureReason?: string) => {
+      const trimmedPath = filePath.trim()
+      if (!trimmedPath) {
+        return
+      }
+
+      const cloudConfig =
+        settings.backend === 'cloud' && cloudAIConfig?.model
+          ? {
+              provider: cloudAIConfig.provider,
+              apiKey: cloudAIConfig.api_key,
+              keyId: cloudAIConfig.key_id,
+              model: cloudAIConfig.model,
+              groupId: cloudAIConfig.group_id,
+              baseUrl: cloudAIConfig.base_url,
+            }
+          : undefined
+
+      const reasonSuffix = failureReason?.trim() ? ` Patch error: ${failureReason.trim()}` : ''
+
+      void runAgentTask(
+        {
+          prompt: `Analyze why the patch failed for: ${trimmedPath}.${reasonSuffix}`,
+          systemPrompt: settings.systemPrompt,
+          responseFormat: settings.responseFormat,
+          attachments: [],
+          parameterOverrides: {
+            temperature: settings.temperature,
+            topP: settings.topP,
+            maxTokens: settings.maxTokens,
+            backend: settings.backend,
+            modelId: settings.modelId,
+          },
+          agentContext: {
+            followup_prompt:
+              `Read ${trimmedPath} and analyze why the patch failed to apply. ` +
+              `Use this failure reason if helpful: ${failureReason || 'patch does not apply'}. ` +
+              'Explain whether the patch is stale, the hunk context is wrong, or the target file likely changed.',
+            detected_intents: [
+              {
+                detected: true,
+                intent_type: 'file_read',
+                action: 'file_read',
+                params: { path: trimmedPath },
+                description: 'Read the patch target before analyzing the patch failure.',
+                confidence: 1,
+                need_confirm: false,
+              },
+            ],
+          },
+        },
+        cloudConfig
+      )
+    },
+    [cloudAIConfig, runAgentTask, settings]
+  )
 
   const renderAgentEvent = useCallback((event: AgentTimelineEvent) => {
     const borderColor =
@@ -598,6 +1280,31 @@ const ChatPage: React.FC = () => {
         : typeof payload.error_output === 'string'
           ? payload.error_output
           : undefined
+    const commandSummary =
+      typeof payload.summary === 'string'
+        ? payload.summary
+        : undefined
+    const testSummary =
+      'test_summary' in payload && payload.test_summary && typeof payload.test_summary === 'object'
+        ? (payload.test_summary as {
+            passed?: number
+            failed?: number
+            errors?: number
+            skipped?: number
+            summary_line?: string
+            framework?: string
+            exit_reason?: string
+            failure_files?: string[]
+            failure_cases?: Array<{ name?: string; message?: string }>
+          })
+        : null
+    const testSuggestion =
+      event.tool_name === 'tests_run' && testSummary
+        ? (testSummary.failed || 0) > 0 || event.status === 'failed'
+          ? 'Verification still failing. Recommended next step: inspect the failed file, analyze the failure, then redraft or refine the patch.'
+          : 'Verification passed. Recommended next step: keep this patch, review the touched file once, and move on.'
+        : null
+    const firstFailureFile = testSummary?.failure_files?.[0]
     const filePath =
       typeof payload.path === 'string'
         ? payload.path
@@ -614,6 +1321,14 @@ const ChatPage: React.FC = () => {
           : typeof payload.content === 'string' && payload.content.length < 1000
             ? payload.content
             : undefined
+    const patchPayload =
+      event.tool_name === 'file_patch' && diffSummary ? extractPatchDraft(diffSummary) : null
+    const patchSuggestion =
+      event.tool_name === 'file_patch'
+        ? event.status === 'completed'
+          ? 'Recommended next step: rerun the failing tests first, then inspect the patched file if anything still looks off.'
+          : 'Recommended next step: inspect the target file, analyze why the patch failed, then redraft a patch against the latest file contents.'
+        : null
     const riskLevel =
       typeof payload.riskLevel === 'string'
         ? payload.riskLevel
@@ -632,6 +1347,30 @@ const ChatPage: React.FC = () => {
       event.tool_name === 'file_read' ||
       Boolean(filePath)
     const isConfirmation = event.type === 'confirmation_request'
+    const verificationOutcome =
+      event.type === 'task_status' &&
+      'verification_outcome' in payload &&
+      typeof payload.verification_outcome === 'string'
+        ? payload.verification_outcome
+        : null
+    const verificationFiles =
+      verificationOutcome && Array.isArray(payload.failure_files)
+        ? payload.failure_files.filter((file): file is string => typeof file === 'string')
+        : []
+    const verificationPatchedFiles =
+      verificationOutcome && Array.isArray(payload.patched_files)
+        ? payload.patched_files.filter((file): file is string => typeof file === 'string')
+        : []
+    const verificationRerunCommand =
+      verificationOutcome && typeof payload.rerun_command === 'string' ? payload.rerun_command : undefined
+    const firstVerificationFailureFile = verificationFiles[0]
+    const firstVerificationPatchedFile = verificationPatchedFiles[0]
+    const loopSummary =
+      event.type === 'task_status' && typeof payload.loop_summary === 'string' ? payload.loop_summary : null
+    const recommendedNextStep =
+      event.type === 'task_status' && typeof payload.recommended_next_step === 'string'
+        ? payload.recommended_next_step
+        : null
 
     return (
       <div
@@ -651,6 +1390,165 @@ const ChatPage: React.FC = () => {
             {event.status ? <Tag color={event.status === 'failed' ? 'red' : event.status === 'completed' ? 'green' : event.status === 'cancelled' ? 'default' : 'processing'}>{event.status}</Tag> : null}
           </Space>
           {event.description ? <Text>{event.description}</Text> : null}
+
+          {loopSummary ? (
+            <Alert
+              type={event.status === 'failed' ? 'warning' : 'info'}
+              showIcon
+              data-testid={`agent-loop-summary-${event.id}`}
+              message="Task summary"
+              description={loopSummary}
+            />
+          ) : null}
+
+          {recommendedNextStep ? (
+            <Alert
+              type={event.status === 'failed' ? 'warning' : 'success'}
+              showIcon
+              data-testid={`agent-next-step-${event.id}`}
+              message="Recommended next step"
+              description={recommendedNextStep}
+            />
+          ) : null}
+
+          {verificationOutcome ? (
+            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+              <Alert
+                type={verificationOutcome === 'passed' ? 'success' : 'warning'}
+                showIcon
+                data-testid={`agent-verification-outcome-${event.id}`}
+                message={
+                  verificationOutcome === 'passed'
+                    ? 'Patch verification passed'
+                    : 'Patch verification still failing'
+                }
+                description={
+                  verificationOutcome === 'passed'
+                    ? event.description
+                    : verificationFiles.length
+                      ? `${event.description || ''} Failing files: ${verificationFiles.join(', ')}`
+                      : event.description
+                }
+              />
+              {verificationOutcome === 'passed' && verificationPatchedFiles.length ? (
+                <div>
+                  <Text strong>Patched files</Text>
+                  <div style={{ marginTop: 4 }}>
+                    <Space wrap size={6}>
+                      {verificationPatchedFiles.map((file) => (
+                        <Tag key={file} color="green">
+                          {file}
+                        </Tag>
+                      ))}
+                    </Space>
+                  </div>
+                </div>
+              ) : null}
+              <Space wrap>
+                {verificationOutcome === 'failed' && verificationRerunCommand ? (
+                  <Button
+                    size="small"
+                    type="primary"
+                    data-testid={`agent-verification-retry-tests-${event.id}`}
+                    onClick={() => handleRetryTestCommand(verificationRerunCommand)}
+                  >
+                    Retry tests
+                  </Button>
+                ) : null}
+                {verificationOutcome === 'failed' && firstVerificationFailureFile ? (
+                  <Button
+                    size="small"
+                    data-testid={`agent-verification-open-failing-file-${event.id}`}
+                    onClick={() => handleOpenFailingFile(firstVerificationFailureFile)}
+                  >
+                    Open failing file
+                  </Button>
+                ) : null}
+                {verificationOutcome === 'failed' && firstVerificationFailureFile ? (
+                  <Button
+                    size="small"
+                    data-testid={`agent-verification-analyze-failing-file-${event.id}`}
+                    onClick={() => handleAnalyzeFailingFile(firstVerificationFailureFile)}
+                  >
+                    Analyze failing file
+                  </Button>
+                ) : null}
+                {verificationOutcome === 'failed' && firstVerificationFailureFile ? (
+                  <Button
+                    size="small"
+                    data-testid={`agent-verification-create-fix-plan-${event.id}`}
+                    onClick={() => handleCreateFixPlan(firstVerificationFailureFile)}
+                  >
+                    Create fix plan
+                  </Button>
+                ) : null}
+                {verificationOutcome === 'failed' && firstVerificationFailureFile ? (
+                  <Button
+                    size="small"
+                    data-testid={`agent-verification-redraft-patch-${event.id}`}
+                    onClick={() => handleDraftPatchProposal(firstVerificationFailureFile)}
+                  >
+                    Redraft patch
+                  </Button>
+                ) : null}
+                {verificationOutcome === 'failed' && firstVerificationFailureFile ? (
+                  <Button
+                    size="small"
+                    data-testid={`agent-verification-start-guided-fix-${event.id}`}
+                    onClick={() => handleStartGuidedFix(firstVerificationFailureFile)}
+                  >
+                    Start guided fix
+                  </Button>
+                ) : null}
+                {verificationOutcome === 'passed' && firstVerificationPatchedFile ? (
+                  <Button
+                    size="small"
+                    data-testid={`agent-verification-open-patched-file-${event.id}`}
+                    onClick={() => handleOpenFailingFile(firstVerificationPatchedFile)}
+                  >
+                    Open patched file
+                  </Button>
+                ) : null}
+                {verificationOutcome === 'passed' && firstVerificationPatchedFile ? (
+                  <Button
+                    size="small"
+                    data-testid={`agent-verification-summarize-fix-${event.id}`}
+                    onClick={() => handleSummarizeVerifiedFix(firstVerificationPatchedFile)}
+                  >
+                    Summarize fix
+                  </Button>
+                ) : null}
+                {verificationOutcome === 'passed' && firstVerificationPatchedFile ? (
+                  <Button
+                    size="small"
+                    data-testid={`agent-verification-review-fix-${event.id}`}
+                    onClick={() => handleReviewVerifiedFix(firstVerificationPatchedFile)}
+                  >
+                    Review final fix
+                  </Button>
+                ) : null}
+                {verificationOutcome === 'passed' && firstVerificationPatchedFile ? (
+                  <Button
+                    size="small"
+                    type="primary"
+                    data-testid={`agent-verification-completion-summary-${event.id}`}
+                    onClick={() => handleCreateCompletionSummary(firstVerificationPatchedFile)}
+                  >
+                    Completion summary
+                  </Button>
+                ) : null}
+                {verificationOutcome === 'passed' && firstVerificationPatchedFile ? (
+                  <Button
+                    size="small"
+                    data-testid={`agent-verification-handoff-note-${event.id}`}
+                    onClick={() => handleCreateHandoffNote(firstVerificationPatchedFile)}
+                  >
+                    Handoff note
+                  </Button>
+                ) : null}
+              </Space>
+            </Space>
+          ) : null}
 
           {isConfirmation ? (
             <div
@@ -688,6 +1586,122 @@ const ChatPage: React.FC = () => {
                 {commandText ? <Text code>{commandText}</Text> : null}
                 {'message' in payload && typeof payload.message === 'string' ? (
                   <Text>{payload.message}</Text>
+                ) : null}
+                {commandSummary ? <Text type="secondary">{commandSummary}</Text> : null}
+                {testSummary ? (
+                  <Space wrap size={6}>
+                    <Tag color="green">{`Passed ${testSummary.passed || 0}`}</Tag>
+                    <Tag color="red">{`Failed ${testSummary.failed || 0}`}</Tag>
+                    <Tag color="orange">{`Errors ${testSummary.errors || 0}`}</Tag>
+                    <Tag>{`Skipped ${testSummary.skipped || 0}`}</Tag>
+                    {testSummary.framework ? <Tag color="blue">{testSummary.framework}</Tag> : null}
+                    {testSummary.exit_reason ? <Tag>{testSummary.exit_reason}</Tag> : null}
+                  </Space>
+                ) : null}
+                {testSummary?.summary_line ? (
+                  <Text type="secondary">{testSummary.summary_line}</Text>
+                ) : null}
+                {testSuggestion ? (
+                  <Alert
+                    type={event.status === 'failed' ? 'warning' : 'success'}
+                    showIcon
+                    data-testid={`agent-test-suggestion-${event.id}`}
+                    message={testSuggestion}
+                  />
+                ) : null}
+                {testSummary?.failure_files?.length ? (
+                  <div>
+                    <Text strong>Failed files</Text>
+                    <div style={{ marginTop: 4 }}>
+                      <Space wrap size={6}>
+                        {testSummary.failure_files.map((file) => (
+                          <Tag key={file}>{file}</Tag>
+                        ))}
+                      </Space>
+                    </div>
+                  </div>
+                ) : null}
+                {testSummary?.failure_cases?.length ? (
+                  <div>
+                    <Text strong>Failed cases</Text>
+                    <Space direction="vertical" size={4} style={{ width: '100%', marginTop: 4 }}>
+                      {testSummary.failure_cases.slice(0, 3).map((failure, index) => (
+                        <div
+                          key={`${failure.name || 'case'}-${index}`}
+                          style={{
+                            borderRadius: 8,
+                            padding: '6px 8px',
+                            background: 'rgba(255,255,255,0.55)',
+                            border: '1px solid rgba(15, 23, 42, 0.08)',
+                          }}
+                        >
+                          {failure.name ? <Text code>{failure.name}</Text> : null}
+                          {failure.message ? (
+                            <div>
+                              <Text type="secondary">{failure.message}</Text>
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+                    </Space>
+                  </div>
+                ) : null}
+                {event.tool_name === 'tests_run' && event.status === 'failed' && commandText ? (
+                  <Space>
+                    <Button
+                      size="small"
+                      type="primary"
+                      data-testid={`agent-retry-tests-${event.id}`}
+                      onClick={() => handleRetryTestCommand(commandText)}
+                    >
+                      Retry tests
+                    </Button>
+                    {firstFailureFile ? (
+                      <Button
+                        size="small"
+                        data-testid={`agent-open-failing-file-${event.id}`}
+                        onClick={() => handleOpenFailingFile(firstFailureFile)}
+                      >
+                        Open failing file
+                      </Button>
+                    ) : null}
+                    {firstFailureFile ? (
+                      <Button
+                        size="small"
+                        data-testid={`agent-analyze-failing-file-${event.id}`}
+                        onClick={() => handleAnalyzeFailingFile(firstFailureFile)}
+                      >
+                        Analyze failing file
+                      </Button>
+                    ) : null}
+                    {firstFailureFile ? (
+                      <Button
+                        size="small"
+                        data-testid={`agent-create-fix-plan-${event.id}`}
+                        onClick={() => handleCreateFixPlan(firstFailureFile)}
+                      >
+                        Create fix plan
+                      </Button>
+                    ) : null}
+                    {firstFailureFile ? (
+                      <Button
+                        size="small"
+                        data-testid={`agent-start-guided-fix-${event.id}`}
+                        onClick={() => handleStartGuidedFix(firstFailureFile)}
+                      >
+                        Start guided fix
+                      </Button>
+                    ) : null}
+                    {firstFailureFile ? (
+                      <Button
+                        size="small"
+                        data-testid={`agent-draft-patch-proposal-${event.id}`}
+                        onClick={() => handleDraftPatchProposal(firstFailureFile)}
+                      >
+                        Draft patch proposal
+                      </Button>
+                    ) : null}
+                  </Space>
                 ) : null}
                 {stdoutText ? (
                   <div>
@@ -732,6 +1746,14 @@ const ChatPage: React.FC = () => {
                 {'summary' in payload && typeof payload.summary === 'string' ? (
                   <Text type="secondary">{payload.summary}</Text>
                 ) : null}
+                {patchSuggestion ? (
+                  <Alert
+                    type={event.status === 'completed' ? 'success' : 'warning'}
+                    showIcon
+                    data-testid={`agent-patch-suggestion-${event.id}`}
+                    message={patchSuggestion}
+                  />
+                ) : null}
                 {diffSummary ? (
                   <div>
                     <Text strong>Change summary</Text>
@@ -739,6 +1761,100 @@ const ChatPage: React.FC = () => {
                       {diffSummary}
                     </pre>
                   </div>
+                ) : null}
+                {event.tool_name === 'file_patch' &&
+                event.status === 'completed' &&
+                'rerun_command' in payload &&
+                typeof payload.rerun_command === 'string' &&
+                payload.rerun_command.trim() ? (
+                  <Space>
+                    <Button
+                      size="small"
+                      type="primary"
+                      data-testid={`agent-rerun-tests-after-patch-${event.id}`}
+                      onClick={() => handleRetryTestCommand(payload.rerun_command as string)}
+                    >
+                      Rerun failing tests
+                    </Button>
+                  </Space>
+                ) : null}
+                {event.tool_name === 'file_patch' &&
+                event.status === 'completed' &&
+                ((Array.isArray(payload.applied_files) && typeof payload.applied_files[0] === 'string') ||
+                  typeof filePath === 'string') ? (
+                  <Space>
+                    <Button
+                      size="small"
+                      data-testid={`agent-open-patched-file-${event.id}`}
+                      onClick={() =>
+                        handleOpenFailingFile(
+                          (Array.isArray(payload.applied_files) && typeof payload.applied_files[0] === 'string'
+                            ? payload.applied_files[0]
+                            : filePath) as string
+                        )
+                      }
+                    >
+                      Open patched file
+                    </Button>
+                  </Space>
+                ) : null}
+                {event.tool_name === 'file_patch' && event.status === 'failed' ? (
+                  <Space>
+                    {patchPayload ? (
+                      <Button
+                        size="small"
+                        data-testid={`agent-copy-failed-patch-${event.id}`}
+                        onClick={async () => {
+                          await navigator.clipboard.writeText(patchPayload.content)
+                          message.success('Failed patch copied.')
+                        }}
+                      >
+                        Copy failed patch
+                      </Button>
+                    ) : null}
+                    {((Array.isArray(payload.paths) && typeof payload.paths[0] === 'string') ||
+                      patchPayload?.fileHints?.[0]) ? (
+                      <Button
+                        size="small"
+                        data-testid={`agent-open-patch-target-${event.id}`}
+                        onClick={() =>
+                          handleOpenFailingFile(
+                            (Array.isArray(payload.paths) && typeof payload.paths[0] === 'string'
+                              ? payload.paths[0]
+                              : patchPayload?.fileHints?.[0] || '') as string
+                          )
+                        }
+                      >
+                        Open patch target
+                      </Button>
+                    ) : null}
+                    {((Array.isArray(payload.paths) && typeof payload.paths[0] === 'string') ||
+                      patchPayload?.fileHints?.[0]) ? (
+                      <Button
+                        size="small"
+                        data-testid={`agent-analyze-patch-failure-${event.id}`}
+                        onClick={() =>
+                          handleAnalyzePatchFailure(
+                            (Array.isArray(payload.paths) && typeof payload.paths[0] === 'string'
+                              ? payload.paths[0]
+                              : patchPayload?.fileHints?.[0] || '') as string,
+                            typeof payload.error === 'string' ? payload.error : event.description
+                          )
+                        }
+                      >
+                        Analyze patch failure
+                      </Button>
+                    ) : null}
+                    {patchPayload?.fileHints?.[0] ? (
+                      <Button
+                        size="small"
+                        data-testid={`agent-redraft-patch-${event.id}`}
+                        onClick={() => handleDraftPatchProposal(patchPayload.fileHints[0]!)}
+                      >
+                        Redraft patch
+                      </Button>
+                    ) : null}
+                  </Space>
                 ) : null}
               </Space>
             </div>
@@ -752,7 +1868,19 @@ const ChatPage: React.FC = () => {
         </Space>
       </div>
     )
-  }, [])
+  }, [
+    handleAnalyzeFailingFile,
+    handleAnalyzePatchFailure,
+      handleCreateFixPlan,
+      handleCreateCompletionSummary,
+      handleDraftPatchProposal,
+      handleCreateHandoffNote,
+      handleOpenFailingFile,
+      handleRetryTestCommand,
+      handleReviewVerifiedFix,
+      handleSummarizeVerifiedFix,
+      handleStartGuidedFix,
+    ])
 
   const loadCollections = useCallback(async () => {
     try {
@@ -867,6 +1995,23 @@ const ChatPage: React.FC = () => {
     }
 
     const timeoutHandle = window.setTimeout(() => {
+      const outcomePayload = agentOutcomeItems.map((item) => ({
+        id: item.id,
+        title: item.title,
+        summary: item.summary,
+        createdAt: item.createdAt,
+      }))
+      updateSessionMetadata(currentSessionId, {
+        agent_mode: agentMode,
+        agent_status: agentTaskStatus,
+        execution_timeline: agentTimeline,
+        pending_confirmation: pendingAgentConfirmation,
+        workspace_root: agentWorkspaceRoot,
+        auto_approve_safe_tools: autoApproveSafeTools,
+        last_agent_goal: promptDraft,
+        task_outcomes: outcomePayload,
+        latest_task_outcome: outcomePayload[0] || null,
+      })
       void fetch(`${API_BASE_URL}/chat/sessions/${currentSessionId}/metadata`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -879,6 +2024,8 @@ const ChatPage: React.FC = () => {
             workspace_root: agentWorkspaceRoot,
             auto_approve_safe_tools: autoApproveSafeTools,
             last_agent_goal: promptDraft,
+            task_outcomes: outcomePayload,
+            latest_task_outcome: outcomePayload[0] || null,
           },
         }),
       }).catch((error) => {
@@ -896,8 +2043,10 @@ const ChatPage: React.FC = () => {
     agentWorkspaceRoot,
     autoApproveSafeTools,
     currentSessionId,
+    agentOutcomeItems,
     pendingAgentConfirmation,
     promptDraft,
+    updateSessionMetadata,
   ])
 
   useEffect(() => {
@@ -943,6 +2092,7 @@ const ChatPage: React.FC = () => {
     clearActiveCandidates()
     setSelectedExperimentId(null)
     setLastRunMetadata(null)
+    setSelectedTaskOutcomeId(null)
   }, [
     clearActiveCandidates,
     clearAgentTimeline,
@@ -953,7 +2103,18 @@ const ChatPage: React.FC = () => {
     setPendingAgentConfirmation,
     setPromptDraft,
     setSelectedExperimentId,
+    setSelectedTaskOutcomeId,
   ])
+
+  const handleLoadOutcomeFromHistory = useCallback(
+    async (sessionId: string, outcomeId: string) => {
+      setHistoryOpen(false)
+      await loadSession(sessionId)
+      setSelectedTaskOutcomeId(outcomeId)
+      setAgentMode(true)
+    },
+    [loadSession, setAgentMode]
+  )
 
   const buildCurrentConfig = useCallback(() => {
     return {
@@ -1297,6 +2458,9 @@ const ChatPage: React.FC = () => {
         systemPrompt: settings.systemPrompt,
         responseFormat: settings.responseFormat,
         attachments,
+        agentContext: {
+          auto_repair_pipeline: true,
+        },
         parameterOverrides: {
           temperature: settings.temperature,
           topP: settings.topP,
@@ -1466,6 +2630,7 @@ const ChatPage: React.FC = () => {
     responseContent,
     selectedSnapshot?.experiment_config.responseFormat || settings.responseFormat
   )
+  const patchDraft = useMemo(() => extractPatchDraft(responseContent), [responseContent])
 
   const responseTabs = [
     {
@@ -1483,6 +2648,75 @@ const ChatPage: React.FC = () => {
         )
       ) : (
         <Empty description="Run an experiment to see the model response." />
+      ),
+    },
+    {
+      key: 'patch',
+      label: 'Patch Draft',
+      children: patchDraft ? (
+        <Space direction="vertical" size={12} style={{ width: '100%' }} data-testid="patch-draft-panel">
+          {patchDraft.fileHints.length ? (
+            <div>
+              <Text strong>Files</Text>
+              <div style={{ marginTop: 6 }}>
+                <Space wrap size={6}>
+                  {patchDraft.fileHints.map((fileHint) => (
+                    <Tag key={fileHint}>{fileHint}</Tag>
+                  ))}
+                </Space>
+              </div>
+            </div>
+          ) : null}
+          <Button
+            size="small"
+            icon={<CopyOutlined />}
+            data-testid="patch-draft-copy"
+            onClick={async () => {
+              await navigator.clipboard.writeText(patchDraft.content)
+              message.success('Patch draft copied.')
+            }}
+          >
+            Copy patch draft
+          </Button>
+          <Button
+            size="small"
+            type="primary"
+            data-testid="patch-draft-apply"
+            onClick={() => {
+              Modal.confirm({
+                title: 'Apply patch draft?',
+                content:
+                  'This will apply the generated diff to the current workspace. Review the patch draft before continuing.',
+                okText: 'Apply patch',
+                cancelText: 'Cancel',
+                onOk: () => applyPatchDraft(patchDraft.content),
+              })
+            }}
+          >
+            Apply patch draft
+          </Button>
+          {recentFailedTestsCommand ? (
+            <Button
+              size="small"
+              data-testid="patch-draft-apply-rerun"
+              onClick={() => {
+                Modal.confirm({
+                  title: 'Apply patch and rerun tests?',
+                  content:
+                    'This will apply the generated diff and immediately rerun the most recent failing test command.',
+                  okText: 'Apply and rerun',
+                  cancelText: 'Cancel',
+                  onOk: () => applyPatchDraft(patchDraft.content, { rerunCommand: recentFailedTestsCommand }),
+                })
+              }}
+            >
+              Apply and rerun tests
+            </Button>
+          ) : null}
+          <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12 }}>{patchDraft.content}</pre>
+        </Space>
+      ) : (
+        <Empty description="No diff-style patch draft was detected in this response." />
       ),
     },
     {
@@ -2346,6 +3580,46 @@ const ChatPage: React.FC = () => {
                         <Empty description="Task history will appear after the first execution step." />
                       )}
                     </Card>
+
+                    <Card size="small" title="Task Outcomes" data-testid="agent-outcomes-card">
+                      {agentOutcomeItems.length ? (
+                        <List
+                          dataSource={agentOutcomeItems}
+                          renderItem={(item) => (
+                            <List.Item
+                              key={item.id}
+                              data-testid={`agent-outcome-item-${item.id}`}
+                              style={{
+                                borderRadius: 12,
+                                padding: 12,
+                                background:
+                                  selectedTaskOutcomeId === item.id
+                                    ? 'rgba(22, 119, 255, 0.10)'
+                                    : 'transparent',
+                                border:
+                                  selectedTaskOutcomeId === item.id
+                                    ? '1px solid rgba(22, 119, 255, 0.28)'
+                                    : '1px solid transparent',
+                              }}
+                            >
+                              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                                <Space wrap size={8}>
+                                  <Text strong>{item.title}</Text>
+                                  <Tag color="green">Recorded</Tag>
+                                  {selectedTaskOutcomeId === item.id ? <Tag color="blue">Focused</Tag> : null}
+                                </Space>
+                                <Text>{item.summary}</Text>
+                                <Text type="secondary">
+                                  {new Date(item.createdAt).toLocaleString('zh-CN')}
+                                </Text>
+                              </Space>
+                            </List.Item>
+                          )}
+                        />
+                      ) : (
+                        <Empty description="Completion summaries and handoff notes will appear here." />
+                      )}
+                    </Card>
                   </>
                 ) : null}
 
@@ -2514,14 +3788,14 @@ const ChatPage: React.FC = () => {
                 </Card>
 
                 <Card size="small" style={panelStyle}>
-                  <Tabs
-                    data-testid="response-tabs"
-                    activeKey={responseView}
-                    items={responseTabs}
-                    onChange={(value) =>
-                      setResponseView(value as 'response' | 'sources' | 'metadata' | 'raw')
-                    }
-                  />
+                    <Tabs
+                      data-testid="response-tabs"
+                      activeKey={responseView}
+                      items={responseTabs}
+                      onChange={(value) =>
+                        setResponseView(value as 'response' | 'patch' | 'sources' | 'metadata' | 'raw')
+                      }
+                    />
                 </Card>
 
                 {selectedCandidate && primaryCandidate && selectedCandidateDiff?.hasChanges ? (
@@ -2873,8 +4147,10 @@ const ChatPage: React.FC = () => {
             created_at: session.createdAt,
             updated_at: session.updatedAt,
             message_count: session.messageCount,
+            metadata: session.metadata,
           }))}
           onLoadSession={(id) => loadSession(id)}
+          onLoadOutcome={handleLoadOutcomeFromHistory}
           onDeleteSession={(id) => deleteSession(id)}
         />
 

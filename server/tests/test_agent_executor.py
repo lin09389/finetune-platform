@@ -2,6 +2,9 @@
 Agent 执行器单元测试
 """
 
+import shutil
+import subprocess
+
 import pytest
 
 from agent.core import (
@@ -20,6 +23,7 @@ from agent.operations.base import (
 )
 from agent.core.interfaces.types import ExecutionStatus, ErrorCode
 from agent.operations.file.handler import FileOperationHandler
+from agent.operations.system_operations import SystemOperationHandler
 AgentExecutorNew = UnifiedExecutor
 reset_executor = lambda: None
 
@@ -177,6 +181,106 @@ class TestFileOperationHandler:
 
         assert result.success is True
         assert result.data["count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_file_write_includes_diff_and_line_stats(self, handler, tmp_path):
+        """测试 file_write 返回 diff 和行变更统计"""
+        target = tmp_path / "diff_test.txt"
+        target.write_text("alpha\nbeta\n", encoding="utf-8")
+
+        result = await handler.run(
+            "file_write",
+            {
+                "path": "diff_test.txt",
+                "content": "alpha\ngamma\n",
+                "mode": "overwrite",
+            },
+        )
+
+        assert result.success is True
+        assert result.data["path"].endswith("diff_test.txt")
+        assert "--- diff_test.txt (before)" in result.data["diff"]
+        assert "+++ diff_test.txt (after)" in result.data["diff"]
+        assert result.data["added_lines"] >= 1
+        assert result.data["removed_lines"] >= 1
+        assert "lines" in result.data["summary"]
+
+    @pytest.mark.asyncio
+    async def test_file_patch_applies_unified_diff(self, handler, tmp_path):
+        """娴嬭瘯 file_patch 鍙互搴旂敤 unified diff"""
+        if shutil.which("git") is None:
+            pytest.skip("git is required for file_patch test")
+
+        subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True, check=True)
+        target = tmp_path / "patch_test.txt"
+        target.write_text("alpha\nbeta\n", encoding="utf-8")
+
+        patch = "\n".join(
+            [
+                "--- a/patch_test.txt",
+                "+++ b/patch_test.txt",
+                "@@ -1,2 +1,2 @@",
+                " alpha",
+                "-beta",
+                "+gamma",
+                "",
+            ]
+        )
+
+        result = await handler.run(
+            "file_patch",
+            {
+                "patch": patch,
+            },
+        )
+
+        assert result.success is True
+        assert "Applied patch" in result.data["summary"]
+        assert result.data["applied_files"][0].endswith("patch_test.txt")
+        assert target.read_text(encoding="utf-8") == "alpha\ngamma\n"
+
+
+class TestSystemOperationHandler:
+    """系统操作处理器测试"""
+
+    @pytest.fixture
+    def handler(self, tmp_path):
+        context = OperationContext(workspace=str(tmp_path))
+        return SystemOperationHandler(context=context)
+
+    @pytest.mark.asyncio
+    async def test_tests_run_extracts_structured_summary(self, handler):
+        """测试 tests_run 返回结构化统计和失败明细"""
+        result = await handler.run(
+            "tests_run",
+            {
+                "command": [
+                    "python",
+                    "-c",
+                    (
+                        "import sys; "
+                        "print('FAILED tests/test_chat.py::test_resume - AssertionError: boom'); "
+                        "print('=========================== short test summary info ==========================='); "
+                        "print('FAILED tests/test_chat.py::test_resume - AssertionError: boom'); "
+                        "print('1 failed, 4 passed in 0.12s'); "
+                        "sys.exit(1)"
+                    ),
+                ]
+            },
+        )
+
+        assert result.success is False
+        assert result.data["kind"] == "test_run"
+        assert result.data["command"].startswith("python -c")
+        assert result.data["returncode"] == 1
+        test_summary = result.data["test_summary"]
+        assert test_summary["failed"] == 1
+        assert test_summary["passed"] == 4
+        assert test_summary["framework"] in ("pytest", "unknown")
+        assert test_summary["exit_reason"] == "failed"
+        assert test_summary["failure_files"] == ["tests/test_chat.py"]
+        assert test_summary["failure_cases"][0]["name"] == "tests/test_chat.py::test_resume"
+        assert "AssertionError" in test_summary["failure_cases"][0]["message"]
 
 
 class TestCompositeOperationHandler:

@@ -31,11 +31,14 @@ _executor: AgentExecutor | None = None
 _detector = None
 HIGH_RISK_ACTIONS = {
     "file_delete",
+    "file_patch",
     "dir_delete",
     "directory_delete",
     "process_kill",
     "service_stop",
     "command_execute",
+    "command_run",
+    "tests_run",
 }
 
 
@@ -155,6 +158,176 @@ def _execution_payload(
 
 def _requires_confirmation(action: str) -> bool:
     return action in HIGH_RISK_ACTIONS
+
+
+def _build_action_recovery_hint(action: str, result: Any, step: int) -> str:
+    data = (result.data or {}) if result else {}
+    if isinstance(data, dict) and data.get("kind") == "test_run":
+        test_summary = data.get("test_summary") or {}
+        failure_files = test_summary.get("failure_files") or []
+        failure_cases = test_summary.get("failure_cases") or []
+        if failure_cases:
+            first_case = failure_cases[0]
+            case_name = first_case.get("name") or "the failing test"
+            case_message = first_case.get("message") or "Inspect the failure output and update the code or assertions."
+            return f"Fix {case_name} before resuming. {case_message}"
+        if failure_files:
+            return f"Investigate {failure_files[0]} and rerun the tests from step {step} after applying a fix."
+        return f"Review the failed test output from step {step}, fix the issue, then rerun the test command."
+    if isinstance(data, dict) and action.startswith("file_"):
+        target = data.get("path") or data.get("file_path") or "the target file"
+        return f"Check {target} for invalid content or path issues, then retry step {step}."
+    return f"Fix the failure at step {step} or resume from an earlier successful step."
+
+
+def _result_message(result: Any) -> str:
+    if not result:
+        return ""
+    return getattr(result, "message", "") or getattr(result, "feedback", "") or ""
+
+
+def _result_error_code(result: Any) -> str | None:
+    error_code = getattr(result, "error_code", None)
+    if not error_code:
+        return None
+    return error_code.value if hasattr(error_code, "value") else str(error_code)
+
+
+def _result_to_dict(result: Any) -> dict[str, Any]:
+    if not result:
+        return {}
+    try:
+        return result.to_dict()
+    except AttributeError:
+        return {
+            "success": bool(getattr(result, "success", False)),
+            "message": _result_message(result),
+            "data": getattr(result, "data", None),
+            "error": getattr(result, "error", None),
+            "error_code": _result_error_code(result),
+            "feedback": getattr(result, "feedback", None),
+        }
+
+
+def _summarize_action(action_result: dict[str, Any]) -> str:
+    action = action_result.get("action") or "unknown_action"
+    data = action_result.get("data") or {}
+    if isinstance(data, dict):
+        if action == "file_patch":
+            applied_files = data.get("applied_files") or []
+            if isinstance(applied_files, list) and applied_files:
+                return f"patched {applied_files[0]}"
+        if action == "file_write":
+            target = data.get("path") or data.get("file_path")
+            if isinstance(target, str) and target:
+                return f"wrote {target}"
+        if action == "file_read":
+            target = data.get("path") or data.get("file_path")
+            if isinstance(target, str) and target:
+                return f"read {target}"
+        if data.get("kind") == "test_run":
+            test_summary = data.get("test_summary") or {}
+            failed = int(test_summary.get("failed") or 0)
+            passed = int(test_summary.get("passed") or 0)
+            return f"ran tests ({passed} passed, {failed} failed)"
+        if data.get("kind") == "command_run":
+            command = data.get("command")
+            if isinstance(command, str) and command:
+                return f"ran command `{command}`"
+    return str(action).replace("_", " ")
+
+
+def _build_run_loop_summary(
+    completed_actions: list[dict[str, Any]],
+    step_records: list[dict[str, Any]],
+    final_status: str,
+    recovery_hint: str | None = None,
+) -> dict[str, Any]:
+    completed = sum(1 for step in step_records if step.get("status") == "completed")
+    failed = sum(1 for step in step_records if step.get("status") == "failed")
+    waiting = sum(1 for step in step_records if step.get("status") == "waiting_confirmation")
+    inference = sum(1 for step in step_records if step.get("status") == "needs_inference")
+    executed_preview = [_summarize_action(action) for action in completed_actions[-3:]]
+
+    if final_status == "failed":
+        summary = (
+            f"Completed {completed} step(s) before the task failed."
+            + (f" Last actions: {', '.join(executed_preview)}." if executed_preview else "")
+        )
+        recommended_next = recovery_hint or "Investigate the failed step and resume from the latest good state."
+    elif final_status == "needs_confirmation":
+        summary = (
+            f"Completed {completed} step(s) and paused for confirmation."
+            + (f" Last actions: {', '.join(executed_preview)}." if executed_preview else "")
+        )
+        recommended_next = recovery_hint or "Confirm the pending step to continue the task."
+    elif final_status == "needs_inference":
+        summary = (
+            f"Completed {completed} step(s) and now needs model reasoning to continue."
+            + (f" Last actions: {', '.join(executed_preview)}." if executed_preview else "")
+        )
+        recommended_next = recovery_hint or "Continue with model generation, then resume the remaining steps."
+    else:
+        summary = (
+            f"Completed {completed} step(s) successfully."
+            + (f" Last actions: {', '.join(executed_preview)}." if executed_preview else "")
+        )
+        if failed:
+            summary += f" {failed} step(s) still failed."
+        if waiting:
+            summary += f" {waiting} step(s) are waiting for confirmation."
+        if inference:
+            summary += f" {inference} step(s) still require inference."
+        recommended_next = recovery_hint or "Review the latest result and continue with the next planned task."
+
+    return {
+        "loop_summary": summary,
+        "recommended_next_step": recommended_next,
+        "completed_steps": completed,
+        "failed_steps": failed,
+        "waiting_steps": waiting,
+        "inference_steps": inference,
+    }
+
+
+def _should_run_auto_repair_pipeline(request: RunLoopRequest, action: str, result: Any) -> bool:
+    if action != "tests_run":
+        return False
+    context = request.context or {}
+    if not context.get("auto_repair_pipeline"):
+        return False
+    data = getattr(result, "data", None) or {}
+    if not isinstance(data, dict) or data.get("kind") != "test_run":
+        return False
+    test_summary = data.get("test_summary") or {}
+    failure_files = test_summary.get("failure_files") or []
+    return bool(isinstance(failure_files, list) and failure_files)
+
+
+def _build_auto_repair_prompt(target_file: str, command: str | None = None) -> str:
+    command_note = f"\n\nFailing command:\n{command}" if command else ""
+    return (
+        f"Read {target_file} and analyze why the latest test run is failing."
+        f"{command_note}\n\n"
+        "Then draft a concrete patch proposal in unified diff format. "
+        "Explain the likely root cause first, then provide the patch."
+    )
+
+
+def _resolve_run_loop_intents(request: RunLoopRequest, detector: Any) -> list[Any]:
+    override_intents = (request.context or {}).get("detected_intents")
+    if isinstance(override_intents, list) and override_intents:
+        resolved = []
+        for item in override_intents[: request.max_steps]:
+            if isinstance(item, DetectIntentResponse):
+                resolved.append(item)
+            elif isinstance(item, dict):
+                resolved.append(DetectIntentResponse(**item))
+        if resolved:
+            return resolved
+
+    multi = detector.detect_multi(request.message, session_id=request.session_id, context=request.context)
+    return multi.intents[: request.max_steps] if multi.intents else []
 
 
 def _append_state(session_id: str | None, stage: str, payload: dict[str, Any] | None = None) -> None:
@@ -435,7 +608,7 @@ async def execute_action(request: ExecuteRequest):
     return ExecuteResponse(
         success=result.success,
         status="executed" if result.success else "failed",
-        message=result.message or result.feedback or "",
+        message=_result_message(result),
         data=result.data,
         error=result.error,
         error_code=error_code,
@@ -507,7 +680,7 @@ async def chat_execute(request: ChatExecuteRequest):
                     "executed" if exec_result.success else "failed",
                     exec_result.error,
                     exec_result.to_dict(),
-                    exec_result.error_code.value if exec_result.error_code else None,
+                    _result_error_code(exec_result),
                 ),
                 result=exec_result.to_dict(),
                 error=exec_result.error if not exec_result.success else None,
@@ -606,7 +779,7 @@ async def chat_execute(request: ChatExecuteRequest):
             "executed" if result.success else "failed",
             result.error,
             result.to_dict(),
-            result.error_code.value if result.error_code else None,
+            _result_error_code(result),
         ),
         result=result.to_dict(),
         error=result.error if not result.success else None,
@@ -650,7 +823,7 @@ async def resume_chat_execute(request: ResumeRequest):
                 "executed" if result.success else "failed",
                 result.error,
                 result.to_dict(),
-                result.error_code.value if result.error_code else None,
+                _result_error_code(result),
             ),
             result=result.to_dict(),
             error=result.error if not result.success else None,
@@ -709,17 +882,21 @@ async def run_loop(request: RunLoopRequest):
     executor = get_executor()
 
     _append_state(request.session_id, "detected", {"message": request.message, "mode": "run_loop"})
-    multi = detector.detect_multi(request.message, session_id=request.session_id, context=request.context)
-
-    intents = multi.intents[: request.max_steps] if multi.intents else []
+    intents = _resolve_run_loop_intents(request, detector)
     completed_actions: list[dict[str, Any]] = []
     step_records: list[dict[str, Any]] = []
 
     if not intents:
+        summary = _build_run_loop_summary(completed_actions, step_records, "skipped", "No executable steps were found.")
         return ChatExecuteResponse(
             detected=False,
             execution=_execution_payload("skipped"),
-            result={"reason": "no_intent_detected", "completed_actions": completed_actions, "step_records": step_records},
+            result={
+                "reason": "no_intent_detected",
+                "completed_actions": completed_actions,
+                "step_records": step_records,
+                **summary,
+            },
         )
 
     for index, intent in enumerate(intents, start=1):
@@ -748,6 +925,12 @@ async def run_loop(request: RunLoopRequest):
         if intent_type in ("conversation", "content_generation", "generate_content") or not intent.action:
             step_record["status"] = "needs_inference"
             step_records.append(step_record)
+            summary = _build_run_loop_summary(
+                completed_actions,
+                step_records,
+                "needs_inference",
+                f"Resume from step {index} after content generation.",
+            )
             _append_state(
                 request.session_id,
                 "planned",
@@ -774,6 +957,7 @@ async def run_loop(request: RunLoopRequest):
                     "completed_actions": completed_actions,
                     "step_records": step_records,
                     "recovery_hint": f"Resume from step {index} after content generation.",
+                    **summary,
                 },
             )
 
@@ -782,6 +966,12 @@ async def run_loop(request: RunLoopRequest):
             if not request.auto_confirm:
                 step_record["status"] = "waiting_confirmation"
                 step_records.append(step_record)
+                summary = _build_run_loop_summary(
+                    completed_actions,
+                    step_records,
+                    "needs_confirmation",
+                    f"Confirm step {index} to continue the loop.",
+                )
                 _append_state(
                     request.session_id,
                     "planned",
@@ -809,6 +999,7 @@ async def run_loop(request: RunLoopRequest):
                         "pending_action": intent.action,
                         "pending_params": params,
                         "recovery_hint": f"Confirm step {index} to continue the loop.",
+                        **summary,
                     },
                 )
 
@@ -818,7 +1009,7 @@ async def run_loop(request: RunLoopRequest):
             "action": intent.action,
             "params": params,
             "success": result.success,
-            "message": result.message or result.feedback or "",
+            "message": _result_message(result),
             "error": result.error,
             "data": result.data,
         }
@@ -828,9 +1019,64 @@ async def run_loop(request: RunLoopRequest):
         step_records.append(step_record)
 
         if result.success:
-            _append_state(request.session_id, "persisted", {"action": intent.action, "result": result.to_dict()})
+            _append_state(request.session_id, "persisted", {"action": intent.action, "result": _result_to_dict(result)})
         else:
             _append_state(request.session_id, "persisted", {"action": intent.action, "error": result.error})
+            recovery_hint = _build_action_recovery_hint(intent.action, result, index)
+            prompt_override = None
+            rerun_command = None
+            target_file = None
+            if _should_run_auto_repair_pipeline(request, intent.action, result):
+                test_data = getattr(result, "data", None) or {}
+                test_summary = test_data.get("test_summary") or {}
+                failure_files = test_summary.get("failure_files") or []
+                target_file = failure_files[0] if failure_files else None
+                rerun_command = test_data.get("command")
+                if isinstance(target_file, str) and target_file.strip():
+                    read_params = {"path": target_file.strip()}
+                    read_result = await executor.execute("file_read", read_params)
+                    read_action_result = {
+                        "action": "file_read",
+                        "params": read_params,
+                        "success": read_result.success,
+                        "message": _result_message(read_result),
+                        "error": read_result.error,
+                        "data": getattr(read_result, "data", None),
+                    }
+                    completed_actions.append(read_action_result)
+                    step_records.append(
+                        {
+                            "step": index + 1,
+                            "intent_type": "file_read",
+                            "action": "file_read",
+                            "params": read_params,
+                            "status": "completed" if read_result.success else "failed",
+                            "description": "Read the first failing test file for automatic repair analysis.",
+                            "result": read_action_result,
+                        }
+                    )
+                    if read_result.success:
+                        _append_state(
+                            request.session_id,
+                            "persisted",
+                            {"action": "file_read", "result": _result_to_dict(read_result)},
+                        )
+                        command = test_data.get("command")
+                        prompt_override = _build_auto_repair_prompt(
+                            target_file.strip(),
+                            command if isinstance(command, str) else None,
+                        )
+                        recovery_hint = (
+                            f"Automatic repair prep completed for {target_file.strip()}. "
+                            "Review the generated patch proposal before applying changes."
+                        )
+                    else:
+                        _append_state(
+                            request.session_id,
+                            "persisted",
+                            {"action": "file_read", "error": read_result.error},
+                        )
+            summary = _build_run_loop_summary(completed_actions, step_records, "failed", recovery_hint)
             return ChatExecuteResponse(
                 detected=True,
                 intent_type=intent_type,
@@ -842,18 +1088,32 @@ async def run_loop(request: RunLoopRequest):
                 execution=_execution_payload(
                     "failed",
                     result.error,
-                    result.to_dict(),
-                    result.error_code.value if result.error_code else None,
+                    _result_to_dict(result),
+                    _result_error_code(result),
                 ),
                 result={
                     "completed_actions": completed_actions,
                     "step_records": step_records,
-                    "last_result": result.to_dict(),
-                    "recovery_hint": f"Fix the failure at step {index} or resume from an earlier successful step.",
+                    "last_result": _result_to_dict(result),
+                    "recovery_hint": recovery_hint,
+                    "prompt_override": prompt_override,
+                    "need_inference": bool(prompt_override),
+                    "auto_repair_pipeline": bool(prompt_override),
+                    "pipeline_stage": "repair_context_loaded" if prompt_override else "execution_failed",
+                    "target_file": target_file.strip() if isinstance(target_file, str) else None,
+                    "rerun_command": (
+                        rerun_command
+                        if isinstance(rerun_command, str)
+                        else " ".join(str(part) for part in rerun_command)
+                        if isinstance(rerun_command, list)
+                        else None
+                    ),
+                    **summary,
                 },
                 error=result.error,
             )
 
+    summary = _build_run_loop_summary(completed_actions, step_records, "completed")
     return ChatExecuteResponse(
         detected=True,
         intent_type="multi_action" if len(completed_actions) > 1 else intents[0].intent_type or "",
@@ -867,6 +1127,7 @@ async def run_loop(request: RunLoopRequest):
             "completed_actions": completed_actions,
             "step_records": step_records,
             "message": f"Executed {len(completed_actions)} action(s)",
+            **summary,
         },
     )
 
