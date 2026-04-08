@@ -7,7 +7,7 @@ import Sidebar from './components/Sidebar'
 import HeaderBar from './components/HeaderBar'
 import ErrorBoundary from './components/ErrorBoundary'
 import { useAppStore } from './store/appStore'
-import { checkBackendHealth } from './services/api'
+import { API_BASE_URL, checkBackendHealth } from './services/api'
 import { ThemeProvider, useTheme } from './theme'
 import { useResponsive } from './hooks/useResponsive'
 import PageSkeleton from './components/shared/PageSkeleton'
@@ -191,7 +191,7 @@ function AppContent() {
           const url = await window.electronAPI.getBackendUrl()
           setBackendUrl(url)
         } else {
-          setBackendUrl('http://127.0.0.1:8000')
+          setBackendUrl(API_BASE_URL)
         }
 
         const isHealthy = await checkBackendHealth()
