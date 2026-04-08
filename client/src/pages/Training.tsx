@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Card, Row, Col, Form, Select, InputNumber, Button, Space, Progress, Tag, message, Divider, Alert, Steps, Switch } from 'antd'
+import { Card, Row, Col, Form, Select, InputNumber, Button, Space, Progress, Tag, Divider, Alert, Steps, Switch, App } from 'antd'
 import { PlayCircleOutlined, StopOutlined, ThunderboltOutlined, CheckCircleOutlined, ClockCircleOutlined, LineChartOutlined } from '@ant-design/icons'
 import { useAppStore } from '../store/appStore'
 import { startTraining, stopTraining, subscribeTrainingProgress, startSwiftTraining, API_BASE_URL } from '../services/api'
@@ -15,6 +15,7 @@ interface ChartDataPoint {
 }
 
 export default function Training() {
+  const { message } = App.useApp()
   const { models, datasets, backendStatus, isTraining, setIsTraining, deviceInfo, addTrainingRecord } = useAppStore()
   const [form] = Form.useForm()
   const [progress, setProgress] = useState<TrainingProgressType | null>(null)

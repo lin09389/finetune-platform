@@ -1,4 +1,4 @@
-"""
+﻿"""
 训练管理 API - 线程安全版本 + 断点续训支持
 """
 import asyncio
@@ -2880,3 +2880,4 @@ async def cancel_task(task_id: str):
         return {"message": f"Task {task_id} cancelled"}
 
     raise HTTPException(status_code=400, detail="Task not found or already running")
+

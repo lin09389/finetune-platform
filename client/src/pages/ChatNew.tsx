@@ -1,6 +1,6 @@
-import React, { useEffect, useCallback, useState } from 'react'
+﻿import React, { useEffect, useCallback, useState } from 'react'
 import { Modal, Alert, Space, Button, message } from 'antd'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
 import { Virtuoso } from 'react-virtuoso'
 import {
   CheckCircleOutlined,
@@ -13,6 +13,7 @@ import { useChatStore } from '../store/chatStore'
 import { useChatStream } from '../hooks/chat/useChatStream'
 import { useAgentExecutor } from '../hooks/chat/useAgentExecutor'
 import { useTheme } from '../theme'
+import { useResponsive } from '../hooks/useResponsive'
 
 import ChatHeader from '../components/chat/ChatHeader'
 import ChatMessage from '../components/ChatMessage'
@@ -21,13 +22,9 @@ import ChatHistoryDrawer from '../components/ChatHistoryDrawer'
 import MemoryManager from '../components/MemoryManager'
 import APIKeyManager from '../pages/APIKeyManager'
 
-import { 
-  getBackends, 
-  getOllamaStatus, 
-  getInferenceModels, 
-  API_BASE_URL,
-} from '../services/api'
+import { getBackends, getOllamaStatus, getInferenceModels, API_BASE_URL } from '../services/api'
 import { transitions } from '../theme/animations'
+import styles from './ChatNew.module.css'
 
 const VIRTUAL_SCROLL_THRESHOLD = 100
 
@@ -42,7 +39,9 @@ interface APIKeyConfig {
 
 const ChatPage: React.FC = () => {
   const { theme, toggleTheme } = useTheme()
-  
+  const { isMobile } = useResponsive()
+  const prefersReducedMotion = useReducedMotion()
+
   const {
     sessions,
     messages,
@@ -63,52 +62,38 @@ const ChatPage: React.FC = () => {
   const [ollamaModels, setOllamaModels] = useState<{ id: string; name: string }[]>([])
   const [hfModels, setHfModels] = useState<{ id: string; name: string }[]>([])
   const [collections, setCollections] = useState<{ id: string; name: string; count: number }[]>([])
-  
+
   const [historyOpen, setHistoryOpen] = useState(false)
   const [memoryManagerOpen, setMemoryManagerOpen] = useState(false)
   const [configModalOpen, setConfigModalOpen] = useState(false)
-  
+
   const [useCloudAI, setUseCloudAI] = useState(false)
   const [cloudAIConfig, setCloudAIConfig] = useState<APIKeyConfig | null>(null)
   const [selectedCloudModel, setSelectedCloudModel] = useState<string>('MiniMax-M2.5')
 
-  const { 
-    sendMessage, 
-    sendCloudMessage, 
-    stop: stopStream, 
-    isStreaming: isActivelyStreaming,
-  } = useChatStream({
-    onChunk: (_chunk, _fullContent) => {
-      // 可以在这里处理 chunk
+  const { sendMessage, sendCloudMessage, stop: stopStream, isStreaming: isActivelyStreaming } = useChatStream({
+    onChunk: () => {
+      // streaming chunk hook
     },
-    onComplete: (_content, _metadata) => {
-      // 可以在这里处理完成
+    onComplete: () => {
+      // stream completed
     },
     onError: (error) => {
       message.error(error)
     },
   })
 
-  const {
-    executeFromMessage,
-    confirmExecution,
-    cancelExecution,
-  } = useAgentExecutor({
+  const { executeFromMessage, confirmExecution, cancelExecution } = useAgentExecutor({
     onConfirmRequired: (task, msg) => {
-      console.log('需要确认:', task.action, msg)
+      console.log('Need confirmation:', task.action, msg)
     },
   })
 
   useEffect(() => {
-    Promise.allSettled([
-      loadBackends(),
-      loadSessions(),
-      loadCloudAIConfig(),
-      loadCollections(),
-    ]).then((results) => {
-      const failed = results.filter(r => r.status === 'rejected')
+    Promise.allSettled([loadBackends(), loadSessions(), loadCloudAIConfig(), loadCollections()]).then((results) => {
+      const failed = results.filter((r) => r.status === 'rejected')
       if (failed.length > 0) {
-        console.warn(`${failed.length} 个初始请求失败`)
+        console.warn(`${failed.length} init requests failed`)
       }
     })
   }, [])
@@ -116,22 +101,26 @@ const ChatPage: React.FC = () => {
   const loadBackends = async () => {
     try {
       const data = await getBackends()
-      
+
       if (data.current === 'ollama') {
         const ollamaStatus = await getOllamaStatus()
-        setOllamaModels(ollamaStatus.models.map((m: { name: string }) => ({
-          id: m.name,
-          name: m.name,
-        })))
+        setOllamaModels(
+          ollamaStatus.models.map((m: { name: string }) => ({
+            id: m.name,
+            name: m.name,
+          }))
+        )
         if (!settings.modelId && ollamaStatus.models.length > 0) {
           updateSettings({ modelId: ollamaStatus.models[0].name })
         }
       } else {
         const models = await getInferenceModels()
-        setHfModels(models.map((m: { id: string; name?: string }) => ({
-          id: m.id,
-          name: m.name || m.id,
-        })))
+        setHfModels(
+          models.map((m: { id: string; name?: string }) => ({
+            id: m.id,
+            name: m.name || m.id,
+          }))
+        )
         if (!settings.modelId && models.length > 0) {
           updateSettings({ modelId: models[0].id })
         }
@@ -142,7 +131,7 @@ const ChatPage: React.FC = () => {
         { id: 'huggingface', name: 'HuggingFace', available: data.current === 'huggingface' },
       ])
     } catch (error) {
-      console.error('加载后端失败:', error)
+      console.error('Failed to load backends:', error)
     }
   }
 
@@ -151,14 +140,16 @@ const ChatPage: React.FC = () => {
       const response = await fetch(`${API_BASE_URL}/knowledge/collections`)
       if (response.ok) {
         const data = await response.json()
-        setCollections(data.collections.map((c: { name: string; count?: number }) => ({
-          id: c.name,
-          name: c.name,
-          count: c.count || 0,
-        })))
+        setCollections(
+          data.collections.map((c: { name: string; count?: number }) => ({
+            id: c.name,
+            name: c.name,
+            count: c.count || 0,
+          }))
+        )
       }
     } catch (error) {
-      console.error('加载知识库列表失败:', error)
+      console.error('Failed to load knowledge collections:', error)
     }
   }
 
@@ -170,9 +161,9 @@ const ChatPage: React.FC = () => {
         if (data.keys && data.keys.length > 0) {
           const firstKey = data.keys[0]
           const keyData = await fetch(`${API_BASE_URL}/cloud/api-keys/${firstKey.id}/data`)
-            .then(r => r.json())
+            .then((r) => r.json())
             .catch(() => ({}))
-          
+
           const config: APIKeyConfig = {
             provider: firstKey.provider,
             api_key: '',
@@ -187,10 +178,10 @@ const ChatPage: React.FC = () => {
           return
         }
       }
-    } catch (e) {
-      console.log('从后端加载配置失败')
+    } catch {
+      console.log('Failed to load cloud config from backend')
     }
-    
+
     const saved = localStorage.getItem('cloud_ai_config')
     if (saved) {
       try {
@@ -203,97 +194,114 @@ const ChatPage: React.FC = () => {
           setSelectedCloudModel(config.model)
         }
       } catch (e) {
-        console.error('加载云端 AI 配置失败:', e)
+        console.error('Failed to parse cloud config:', e)
       }
     }
   }
 
-  const handleSend = useCallback(async (content: string) => {
-    if (!content.trim()) return
+  const handleSend = useCallback(
+    async (content: string) => {
+      if (!content.trim()) return
 
-    const agentResult = await executeFromMessage(content)
-    
-    if (agentResult.executed) {
-      if (agentResult.result && typeof agentResult.result === 'object' && 'need_confirm' in agentResult.result) {
+      const agentResult = await executeFromMessage(content)
+
+      if (agentResult.executed) {
+        if (agentResult.result && typeof agentResult.result === 'object' && 'need_confirm' in agentResult.result) {
+          return
+        }
+
+        const formattedResult = formatAgentResult(agentResult.result)
+        addMessage({ role: 'assistant', content: formattedResult })
         return
       }
-      
-      const formattedResult = formatAgentResult(agentResult.result)
-      addMessage({
-        role: 'assistant',
-        content: formattedResult,
-      })
-      return
-    }
 
-    if (useCloudAI && cloudAIConfig) {
-      await sendCloudMessage({ prompt: content }, {
-        provider: cloudAIConfig.provider,
-        apiKey: cloudAIConfig.api_key,
-        keyId: cloudAIConfig.key_id,
-        model: selectedCloudModel,
-        groupId: cloudAIConfig.group_id,
-        baseUrl: cloudAIConfig.base_url,
-      })
-    } else {
-      await sendMessage({ prompt: content })
-    }
-  }, [executeFromMessage, addMessage, useCloudAI, cloudAIConfig, selectedCloudModel, sendCloudMessage, sendMessage])
+      if (useCloudAI && cloudAIConfig) {
+        await sendCloudMessage(
+          { prompt: content },
+          {
+            provider: cloudAIConfig.provider,
+            apiKey: cloudAIConfig.api_key,
+            keyId: cloudAIConfig.key_id,
+            model: selectedCloudModel,
+            groupId: cloudAIConfig.group_id,
+            baseUrl: cloudAIConfig.base_url,
+          }
+        )
+      } else {
+        await sendMessage({ prompt: content })
+      }
+    },
+    [
+      executeFromMessage,
+      addMessage,
+      useCloudAI,
+      cloudAIConfig,
+      selectedCloudModel,
+      sendCloudMessage,
+      sendMessage,
+    ]
+  )
 
-  const handleRetry = useCallback((messageId: string) => {
-    const msgIndex = messages.findIndex(m => m.id === messageId)
-    if (msgIndex === -1) return
+  const handleRetry = useCallback(
+    (messageId: string) => {
+      const msgIndex = messages.findIndex((m) => m.id === messageId)
+      if (msgIndex === -1) return
 
-    const userMessage = messages[msgIndex - 1]
-    if (!userMessage || userMessage.role !== 'user') return
+      const userMessage = messages[msgIndex - 1]
+      if (!userMessage || userMessage.role !== 'user') return
 
-    const newMessages = messages.slice(0, msgIndex - 1)
-    useChatStore.setState({ messages: newMessages })
-    
-    handleSend(userMessage.content)
-  }, [messages, handleSend])
+      const newMessages = messages.slice(0, msgIndex - 1)
+      useChatStore.setState({ messages: newMessages })
 
-  const handleExportChat = useCallback((format: 'markdown' | 'json') => {
-    if (messages.length === 0) {
-      message.warning('暂无对话内容')
-      return
-    }
+      handleSend(userMessage.content)
+    },
+    [messages, handleSend]
+  )
 
-    const title = messages.find(m => m.role === 'user')?.content.slice(0, 20) || '新对话'
-
-    if (format === 'markdown') {
-      let content = `# ${title}\n\n`
-      content += `导出时间: ${new Date().toLocaleString('zh-CN')}\n\n---\n\n`
-      
-      for (const msg of messages) {
-        const role = msg.role === 'user' ? '👤 用户' : '🤖 助手'
-        content += `## ${role}\n\n${msg.content}\n\n`
+  const handleExportChat = useCallback(
+    (format: 'markdown' | 'json') => {
+      if (messages.length === 0) {
+        message.warning('暂无对话内容')
+        return
       }
 
-      const blob = new Blob([content], { type: 'text/markdown' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${title}_${Date.now()}.md`
-      a.click()
-      URL.revokeObjectURL(url)
-      message.success('已导出为 Markdown')
-    } else {
-      const data = {
-        title,
-        exportedAt: new Date().toISOString(),
-        messages,
+      const title = messages.find((m) => m.role === 'user')?.content.slice(0, 20) || '新对话'
+
+      if (format === 'markdown') {
+        let content = `# ${title}\n\n`
+        content += `导出时间: ${new Date().toLocaleString('zh-CN')}\n\n---\n\n`
+
+        for (const msg of messages) {
+          const role = msg.role === 'user' ? '用户' : '助手'
+          content += `## ${role}\n\n${msg.content}\n\n`
+        }
+
+        const blob = new Blob([content], { type: 'text/markdown' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${title}_${Date.now()}.md`
+        a.click()
+        URL.revokeObjectURL(url)
+        message.success('已导出为 Markdown')
+      } else {
+        const data = {
+          title,
+          exportedAt: new Date().toISOString(),
+          messages,
+        }
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${title}_${Date.now()}.json`
+        a.click()
+        URL.revokeObjectURL(url)
+        message.success('已导出为 JSON')
       }
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${title}_${Date.now()}.json`
-      a.click()
-      URL.revokeObjectURL(url)
-      message.success('已导出为 JSON')
-    }
-  }, [messages])
+    },
+    [messages]
+  )
 
   const handleClearChat = useCallback(() => {
     Modal.confirm({
@@ -310,51 +318,45 @@ const ChatPage: React.FC = () => {
 
   const formatAgentResult = (result: unknown): string => {
     if (!result) return '操作完成'
-    
+
     if (result && typeof result === 'object' && 'success' in result && result.success === false) {
-      return `❌ 操作失败：${'error' in result ? result.error : '未知错误'}`
+      return `操作失败: ${'error' in result ? result.error : '未知错误'}`
     }
-    
+
     const resultObj = result as Record<string, unknown>
     const data = resultObj['data'] as Record<string, unknown> | undefined
-    const action = data?.['action'] || resultObj['action'] || ''
-    
+    const action = String(data?.['action'] || resultObj['action'] || '')
+
     const actionMessages: Record<string, () => string> = {
-      file_create: () => `✅ 文件已创建：${data?.['path'] || '完成'}`,
-      file_read: () => `📄 文件内容：\n\`\`\`\n${data?.['content'] || ''}\n\`\`\``,
-      file_write: () => `✅ 文件已更新：${data?.['path'] || '完成'}`,
-      file_delete: () => `✅ 文件已删除`,
+      file_create: () => `文件已创建: ${String(data?.['path'] || '完成')}`,
+      file_read: () => `文件内容:\n\n${String(data?.['content'] || '')}`,
+      file_write: () => `文件已更新: ${String(data?.['path'] || '完成')}`,
+      file_delete: () => `文件已删除: ${String(data?.['path'] || '完成')}`,
       file_list: () => {
-        const files = (data?.['files'] || []) as Array<{ is_dir?: boolean; name: string }>
-        return `📂 找到 ${data?.['count'] || 0} 个项目：\n${files.map((f) => 
-          `${f.is_dir ? '📁' : '📄'} ${f.name}`
-        ).join('\n')}`
+        const files = ((data?.['files'] || []) as Array<{ is_dir?: boolean; name: string }>).slice(0, 20)
+        const list = files.map((f) => `${f.is_dir ? '[目录]' : '[文件]'} ${f.name}`).join('\n')
+        return `找到 ${String(data?.['count'] || files.length)} 项:\n${list}`
       },
     }
-    
-    const formatter = actionMessages[action as string]
-    
-    return formatter ? formatter() : `✅ 操作完成：${resultObj['message'] || '成功'}`
+
+    const formatter = actionMessages[action]
+    return formatter ? formatter() : `操作完成: ${String(resultObj['message'] || '成功')}`
   }
 
   const enableVirtualScroll = messages.length > VIRTUAL_SCROLL_THRESHOLD
 
-  const modelOptions = settings.backend === 'ollama'
-    ? ollamaModels.map(m => ({ id: m.id, name: m.name }))
-    : hfModels.map(m => ({ id: m.id, name: m.name }))
+  const modelOptions =
+    settings.backend === 'ollama'
+      ? ollamaModels.map((m) => ({ id: m.id, name: m.name }))
+      : hfModels.map((m) => ({ id: m.id, name: m.name }))
 
   return (
     <motion.div
-      className="chat-container"
-      initial={{ opacity: 0, y: 20 }}
+      className={styles.chatContainer}
+      initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={transitions.slower}
-      style={{
-        height: 'calc(100vh - 72px)',
-        display: 'flex',
-        flexDirection: 'column',
-        background: 'var(--bg-primary)',
-      }}
+      transition={prefersReducedMotion ? { duration: 0 } : transitions.slower}
+      style={isMobile ? { height: 'calc(100vh - 64px)' } : undefined}
     >
       <ChatHeader
         onNewChat={() => createSession()}
@@ -400,12 +402,7 @@ const ChatPage: React.FC = () => {
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
             transition={transitions.base}
-            style={{
-              padding: '8px 24px',
-              background: 'var(--bg-secondary)',
-              borderBottom: '1px solid var(--border-color)',
-              overflow: 'hidden',
-            }}
+            className={styles.agentBanner}
           >
             <Alert
               message={
@@ -416,19 +413,23 @@ const ChatPage: React.FC = () => {
                   {agentExecution.status === 'confirming' && <ThunderboltFilled style={{ color: '#faad14' }} />}
                   <span>
                     {agentExecution.status === 'executing' && '正在执行操作...'}
-                    {agentExecution.status === 'completed' && `✅ ${agentExecution.description || '操作完成'}`}
-                    {agentExecution.status === 'failed' && `❌ 执行失败：${agentExecution.error}`}
-                    {agentExecution.status === 'confirming' && `⚠️ 确认执行：${agentExecution.description}`}
+                    {agentExecution.status === 'completed' && `已完成: ${agentExecution.description || '操作完成'}`}
+                    {agentExecution.status === 'failed' && `执行失败: ${agentExecution.error}`}
+                    {agentExecution.status === 'confirming' && `等待确认: ${agentExecution.description}`}
                   </span>
                 </Space>
               }
               type={
-                agentExecution.status === 'failed' ? 'error' :
-                agentExecution.status === 'completed' ? 'success' :
-                agentExecution.status === 'confirming' ? 'warning' : 'info'
+                agentExecution.status === 'failed'
+                  ? 'error'
+                  : agentExecution.status === 'completed'
+                    ? 'success'
+                    : agentExecution.status === 'confirming'
+                      ? 'warning'
+                      : 'info'
               }
               showIcon
-              style={{ borderRadius: 8, maxWidth: 768, margin: '0 auto' }}
+              style={{ borderRadius: 8, maxWidth: 860, margin: '0 auto' }}
               action={
                 agentExecution.status === 'confirming' && (
                   <Space>
@@ -447,55 +448,22 @@ const ChatPage: React.FC = () => {
       </AnimatePresence>
 
       <motion.div
-        className="chat-messages-area"
-        initial={{ opacity: 0 }}
+        className={styles.chatMessagesArea}
+        initial={prefersReducedMotion ? false : { opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ delay: 0.2, ...transitions.base }}
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          padding: '24px 24px 0',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
+        transition={prefersReducedMotion ? { duration: 0 } : { delay: 0.16, ...transitions.base }}
       >
-        <div style={{ maxWidth: 768, width: '100%', margin: '0 auto', flex: 1 }}>
+        <div className={styles.messagesInner}>
           {messages.length === 0 ? (
             <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
+              initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.94 }}
               animate={{ opacity: 1, scale: 1 }}
-              transition={transitions.spring}
-              style={{
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'var(--text-tertiary)',
-                padding: '40px 20px',
-              }}
+              transition={prefersReducedMotion ? { duration: 0 } : transitions.spring}
+              className={styles.emptyState}
             >
-              <div style={{
-                width: 80,
-                height: 80,
-                borderRadius: '50%',
-                background: 'var(--gradient-primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '40px',
-                color: '#fff',
-                marginBottom: 24,
-                boxShadow: '0 8px 30px rgba(59, 130, 246, 0.3)',
-              }}>
-                🤖
-              </div>
-              <h3 style={{ margin: '0 0 8px', color: 'var(--text-primary)' }}>
-                开始新的对话
-              </h3>
-              <p style={{ color: 'var(--text-secondary)', textAlign: 'center' }}>
-                选择模型后，输入您的问题开始对话
-              </p>
+              <div className={styles.emptyOrb}>AI</div>
+              <h3 className={styles.emptyTitle}>开始新的对话</h3>
+              <p className={styles.emptyDesc}>选择模型后，输入你的问题并开始探索。</p>
             </motion.div>
           ) : enableVirtualScroll ? (
             <Virtuoso
@@ -515,7 +483,7 @@ const ChatPage: React.FC = () => {
                 />
               )}
               followOutput="smooth"
-              style={{ height: 'calc(100vh - 280px)' }}
+              style={{ height: isMobile ? 'calc(100vh - 240px)' : 'calc(100vh - 280px)' }}
               alignToBottom
             />
           ) : (
@@ -527,7 +495,9 @@ const ChatPage: React.FC = () => {
                   content={msg.content}
                   timestamp={msg.timestamp}
                   isLoading={msg.isLoading}
-                  isStreaming={isActivelyStreaming && msg.id === messages[messages.length - 1]?.id && msg.role === 'assistant'}
+                  isStreaming={
+                    isActivelyStreaming && msg.id === messages[messages.length - 1]?.id && msg.role === 'assistant'
+                  }
                   onRetry={msg.role === 'assistant' ? () => handleRetry(msg.id) : undefined}
                   onDelete={() => deleteMessage(msg.id)}
                   knowledge_sources={msg.knowledge_sources}
@@ -547,18 +517,13 @@ const ChatPage: React.FC = () => {
         loading={isLoading}
         isStreaming={isActivelyStreaming}
         modelId={useCloudAI ? selectedCloudModel : settings.modelId}
-        suggestions={[
-          '帮我解释一下这个概念',
-          '写一段代码实现...',
-          '分析这个问题',
-          '总结一下要点',
-        ]}
+        suggestions={['帮我解释一下这个概念', '写一段代码实现...', '分析这个问题', '总结一下要点']}
       />
 
       <ChatHistoryDrawer
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
-        sessions={sessions.map(s => ({
+        sessions={sessions.map((s) => ({
           id: s.id,
           title: s.title,
           created_at: s.createdAt,
@@ -569,17 +534,9 @@ const ChatPage: React.FC = () => {
         onDeleteSession={(id) => deleteSession(id)}
       />
 
-      <MemoryManager
-        open={memoryManagerOpen}
-        onClose={() => setMemoryManagerOpen(false)}
-      />
+      <MemoryManager open={memoryManagerOpen} onClose={() => setMemoryManagerOpen(false)} />
 
-      <Modal
-        open={configModalOpen}
-        onCancel={() => setConfigModalOpen(false)}
-        footer={null}
-        width={600}
-      >
+      <Modal open={configModalOpen} onCancel={() => setConfigModalOpen(false)} footer={null} width={600}>
         <APIKeyManager
           onConfigChange={(config: APIKeyConfig) => {
             setCloudAIConfig(config)
@@ -593,35 +550,6 @@ const ChatPage: React.FC = () => {
           initialConfig={cloudAIConfig}
         />
       </Modal>
-
-      <style>{`
-        .chat-container {
-          position: relative;
-        }
-        
-        .chat-messages-area::-webkit-scrollbar {
-          width: 6px;
-        }
-
-        .chat-messages-area::-webkit-scrollbar-track {
-          background: transparent;
-        }
-
-        .chat-messages-area::-webkit-scrollbar-thumb {
-          background: var(--border-color);
-          border-radius: 3px;
-        }
-
-        .chat-messages-area::-webkit-scrollbar-thumb:hover {
-          background: var(--text-tertiary);
-        }
-        
-        @media (max-width: 768px) {
-          .chat-messages-area {
-            padding: 16px 12px 0 !important;
-          }
-        }
-      `}</style>
     </motion.div>
   )
 }

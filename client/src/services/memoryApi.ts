@@ -3,8 +3,9 @@
  * 支持知识图谱、短期记忆、MCP协议
  */
 import axios from 'axios'
+import { API_BASE_URL } from './api'
 
-const API_BASE = 'http://127.0.0.1:8000/memory'
+const API_BASE = `${API_BASE_URL}/memory`
 
 export interface Entity {
   id: string

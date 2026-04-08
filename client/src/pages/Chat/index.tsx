@@ -104,6 +104,16 @@ interface AgentOutcomeItem {
   createdAt: string
 }
 
+interface AutomationTraceItem {
+  id: string
+  type: 'auto_continue' | 'auto_recover'
+  title: string
+  reason: string
+  createdAt: string
+  status: string
+  attempt: number
+}
+
 interface AgentStepGroup {
   key: string
   label: string
@@ -225,6 +235,59 @@ function extractPatchDraft(text: string): PatchDraft | null {
     content: candidate,
     fileHints,
   }
+}
+
+function buildAutomationMarkdownReport(options: {
+  scope: 'all' | 'auto_continue' | 'auto_recover'
+  limit: number
+  items: AutomationTraceItem[]
+  recommendedNextStep: string
+}) {
+  const scopeLabel =
+    options.scope === 'all'
+      ? 'All automation events'
+      : options.scope === 'auto_continue'
+        ? 'Auto-continue events'
+        : 'Auto-recover events'
+  const selected = options.items.slice(0, Math.max(1, options.limit))
+  const failed = selected.filter((item) => item.status === 'failed')
+  const lines: string[] = [
+    '# Automation Failure Chain Report',
+    '',
+    `- Generated at: ${new Date().toLocaleString('zh-CN')}`,
+    `- Scope: ${scopeLabel}`,
+    `- Included events: ${selected.length}`,
+    `- Failed events: ${failed.length}`,
+    '',
+    '## Recent Events',
+  ]
+
+  if (!selected.length) {
+    lines.push('', 'No automation events in the selected scope.')
+  } else {
+    selected.forEach((item, index) => {
+      lines.push(
+        '',
+        `### ${index + 1}. ${item.title}`,
+        `- Type: ${item.type === 'auto_recover' ? 'Auto Recover' : 'Auto Continue'}`,
+        `- Status: ${item.status}`,
+        `- Attempt: ${item.attempt}`,
+        `- Time: ${new Date(item.createdAt).toLocaleString('zh-CN')}`,
+        `- Reason: ${item.reason}`
+      )
+    })
+  }
+
+  lines.push(
+    '',
+    '## Recommended Next Step',
+    '',
+    options.recommendedNextStep.trim()
+      ? options.recommendedNextStep.trim()
+      : 'Review the latest failed automation step and resume from that event.'
+  )
+
+  return lines.join('\n')
 }
 
 function buildCompareFields(snapshot: PlaygroundSnapshot, allSnapshots: PlaygroundSnapshot[]): CompareField[] {
@@ -373,6 +436,10 @@ const ChatPage: React.FC = () => {
   } | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [selectedTaskOutcomeId, setSelectedTaskOutcomeId] = useState<string | null>(null)
+  const [automationTraceFilter, setAutomationTraceFilter] = useState<
+    'all' | 'auto_continue' | 'auto_recover'
+  >('all')
+  const [automationReportLimit, setAutomationReportLimit] = useState(8)
   const [memoryManagerOpen, setMemoryManagerOpen] = useState(false)
   const [configModalOpen, setConfigModalOpen] = useState(false)
   const [localModels, setLocalModels] = useState<Record<'ollama' | 'huggingface', ModelOption[]>>({
@@ -605,6 +672,74 @@ const ChatPage: React.FC = () => {
         createdAt: event.createdAt,
       }))
   }, [agentTimeline])
+  const automationTraceItems = useMemo<AutomationTraceItem[]>(() => {
+    return [...agentTimeline]
+      .filter(
+        (event) =>
+          event.type === 'task_status' &&
+          (event.payload?.automation_type === 'auto_continue' ||
+            event.payload?.automation_type === 'auto_recover')
+      )
+      .reverse()
+      .slice(0, 20)
+      .map((event) => ({
+        id: event.id,
+        type: event.payload?.automation_type === 'auto_recover' ? 'auto_recover' : 'auto_continue',
+        title: event.title,
+        reason:
+          (typeof event.payload?.automation_reason === 'string' && event.payload.automation_reason) ||
+          event.description ||
+          event.title,
+        createdAt: event.createdAt,
+        status: event.status || 'completed',
+        attempt:
+          typeof event.payload?.automation_attempt === 'number'
+            ? event.payload.automation_attempt
+            : 1,
+      }))
+  }, [agentTimeline])
+  const filteredAutomationTraceItems = useMemo(() => {
+    if (automationTraceFilter === 'all') {
+      return automationTraceItems
+    }
+    return automationTraceItems.filter((item) => item.type === automationTraceFilter)
+  }, [automationTraceFilter, automationTraceItems])
+  const automationFailureSummary = useMemo(() => {
+    const failedItems = filteredAutomationTraceItems.filter((item) => item.status === 'failed')
+    const scopeText =
+      automationTraceFilter === 'all'
+        ? 'all automation events'
+        : automationTraceFilter === 'auto_continue'
+          ? 'auto-continue events'
+          : 'auto-recover events'
+    const lines = [
+      `Automation trace summary (${scopeText})`,
+      `Total events: ${filteredAutomationTraceItems.length}`,
+      `Failed events: ${failedItems.length}`,
+    ]
+
+    if (failedItems.length > 0) {
+      lines.push('Failure chain:')
+      failedItems.slice(0, 8).forEach((item, index) => {
+        lines.push(
+          `${index + 1}. ${item.title} | attempt ${item.attempt} | ${item.reason} | ${new Date(
+            item.createdAt
+          ).toLocaleString('zh-CN')}`
+        )
+      })
+    }
+
+    return lines.join('\n')
+  }, [automationTraceFilter, filteredAutomationTraceItems])
+  const automationMarkdownReport = useMemo(() => {
+    const nextStep = agentTaskHistory[0]?.summary || ''
+    return buildAutomationMarkdownReport({
+      scope: automationTraceFilter,
+      limit: automationReportLimit,
+      items: filteredAutomationTraceItems,
+      recommendedNextStep: nextStep,
+    })
+  }, [agentTaskHistory, automationReportLimit, automationTraceFilter, filteredAutomationTraceItems])
   const agentStepGroups = useMemo<AgentStepGroup[]>(() => {
     const groups = new Map<string, AgentStepGroup>()
 
@@ -2621,6 +2756,120 @@ const ChatPage: React.FC = () => {
     ]
   )
 
+  const handleRestoreAndRunSnapshot = useCallback(
+    async (snapshot: PlaygroundSnapshot) => {
+      const config = snapshot.experiment_config
+
+      if (!config.prompt.trim()) {
+        message.warning('Snapshot prompt is empty. Update it before rerunning.')
+        return
+      }
+
+      if (config.attachments.some((attachment) => attachment.type === 'image') && !canUseImageAttachments) {
+        message.error('Image attachments are only available for cloud mode with GLM-4V right now.')
+        return
+      }
+
+      if (config.backend === 'cloud' && !cloudAIConfig) {
+        setConfigModalOpen(true)
+        return
+      }
+
+      applyConfig(config)
+      setAgentMode(false)
+      setSelectedTaskOutcomeId(null)
+
+      const candidates = await runExperimentCandidates(
+        {
+          prompt: config.prompt,
+          systemPrompt: config.systemPrompt,
+          responseFormat: config.responseFormat,
+          attachments: config.attachments || [],
+          parameterOverrides: {
+            temperature: config.temperature,
+            topP: config.topP,
+            maxTokens: config.maxTokens,
+            modelId: config.modelId,
+            backend: config.backend,
+          },
+        },
+        config.candidateCount || 1,
+        config.backend === 'cloud' && cloudAIConfig
+          ? {
+              provider: cloudAIConfig.provider,
+              apiKey: cloudAIConfig.api_key,
+              keyId: cloudAIConfig.key_id,
+              model: config.modelId,
+              groupId: cloudAIConfig.group_id,
+              baseUrl: cloudAIConfig.base_url,
+            }
+          : undefined
+      )
+
+      if (!candidates.length) {
+        return
+      }
+
+      const selected =
+        candidates.find((candidate) => candidate.status === 'completed') || candidates[0]
+
+      if (!selected) {
+        return
+      }
+
+      const now = new Date().toISOString()
+      const rerunSnapshot: PlaygroundSnapshot = {
+        id: `experiment_${Date.now()}`,
+        createdAt: now,
+        lastViewedAt: now,
+        isFavorite: false,
+        title: `${snapshot.title} (rerun)`.slice(0, 64),
+        response: selected.content,
+        selectedCandidateId: selected.id,
+        candidates,
+        raw_response: selected.raw_response,
+        knowledge_sources: selected.knowledge_sources,
+        retrieval_info: selected.retrieval_info,
+        memory_context: selected.memory_context,
+        unified_context: selected.unified_context,
+        experiment_config: {
+          ...config,
+          attachments: config.attachments || [],
+        },
+        run_metrics: selected.run_metrics,
+      }
+
+      addExperimentSnapshot(rerunSnapshot)
+      setActiveCandidates(candidates)
+      setSelectedCandidateId(selected.id)
+      setSelectedExperimentId(rerunSnapshot.id)
+      setLastRunMetadata(rerunSnapshot)
+      setResponseView('response')
+
+      if (!currentSessionId) {
+        await createSession(rerunSnapshot.title, config.modelId)
+      }
+
+      message.success('Snapshot restored and rerun complete.')
+    },
+    [
+      addExperimentSnapshot,
+      applyConfig,
+      canUseImageAttachments,
+      cloudAIConfig,
+      createSession,
+      currentSessionId,
+      runExperimentCandidates,
+      setActiveCandidates,
+      setAgentMode,
+      setLastRunMetadata,
+      setResponseView,
+      setSelectedCandidateId,
+      setSelectedExperimentId,
+      setSelectedTaskOutcomeId,
+    ]
+  )
+
   const latestAssistantMessage = [...messages].reverse().find((msg) => msg.role === 'assistant')
   const responseContent =
     (isStreaming ? streamState.content : selectedCandidate?.content || selectedSnapshot?.response) ||
@@ -3521,6 +3770,103 @@ const ChatPage: React.FC = () => {
                       />
                     ) : null}
 
+                    <Card
+                      size="small"
+                      title="Automation Trace"
+                      data-testid="agent-automation-trace-card"
+                      extra={
+                        <Space wrap size={8}>
+                          <Segmented
+                            data-testid="automation-trace-filter"
+                            size="small"
+                            value={automationTraceFilter}
+                            options={[
+                              { label: 'All', value: 'all' },
+                              { label: 'Continue', value: 'auto_continue' },
+                              { label: 'Recover', value: 'auto_recover' },
+                            ]}
+                            onChange={(value) =>
+                              setAutomationTraceFilter(value as 'all' | 'auto_continue' | 'auto_recover')
+                            }
+                          />
+                          <Select
+                            size="small"
+                            style={{ minWidth: 110 }}
+                            data-testid="automation-report-limit"
+                            value={automationReportLimit}
+                            options={[
+                              { label: 'Last 5', value: 5 },
+                              { label: 'Last 8', value: 8 },
+                              { label: 'Last 12', value: 12 },
+                            ]}
+                            onChange={(value) => setAutomationReportLimit(value)}
+                          />
+                          <Button
+                            size="small"
+                            data-testid="automation-trace-copy-summary"
+                            onClick={async () => {
+                              if (!navigator.clipboard?.writeText) {
+                                message.warning('Clipboard is unavailable in this environment.')
+                                return
+                              }
+                              await navigator.clipboard.writeText(automationFailureSummary)
+                              message.success('Automation summary copied.')
+                            }}
+                          >
+                            Copy Failure Summary
+                          </Button>
+                          <Button
+                            size="small"
+                            icon={<DownloadOutlined />}
+                            data-testid="automation-trace-export-markdown"
+                            onClick={() => {
+                              const blob = new Blob([automationMarkdownReport], {
+                                type: 'text/markdown;charset=utf-8',
+                              })
+                              const url = URL.createObjectURL(blob)
+                              const anchor = document.createElement('a')
+                              anchor.href = url
+                              anchor.download = `automation-trace-${new Date()
+                                .toISOString()
+                                .replace(/[:.]/g, '-')}.md`
+                              anchor.click()
+                              URL.revokeObjectURL(url)
+                              message.success('Automation markdown report exported.')
+                            }}
+                          >
+                            Export Markdown
+                          </Button>
+                        </Space>
+                      }
+                    >
+                      {filteredAutomationTraceItems.length ? (
+                        <List
+                          size="small"
+                          dataSource={filteredAutomationTraceItems}
+                          renderItem={(item) => (
+                            <List.Item key={item.id} data-testid={`agent-automation-item-${item.id}`}>
+                              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                                <Space wrap size={8}>
+                                  <Text strong>{item.title}</Text>
+                                  <Tag color={item.type === 'auto_recover' ? 'purple' : 'blue'}>
+                                    {item.type === 'auto_recover' ? 'Auto Recover' : 'Auto Continue'}
+                                  </Tag>
+                                  <Tag>{item.status}</Tag>
+                                  <Tag>Attempt {item.attempt}</Tag>
+                                </Space>
+                                <Text>{item.reason}</Text>
+                                <Text type="secondary">
+                                  {new Date(item.createdAt).toLocaleString('zh-CN')}
+                                </Text>
+                              </Space>
+                            </List.Item>
+                          )}
+                        />
+                      ) : (
+                        <Empty description="No automation events for the current filter." />
+                      )}
+                    </Card>
+
                     <Card size="small" title="Execution Timeline" data-testid="agent-timeline-card">
                       {agentStepGroups.length ? (
                         <Collapse
@@ -4066,6 +4412,16 @@ const ChatPage: React.FC = () => {
                                   onClick={() => handleLoadSnapshot(snapshot)}
                                 >
                                   Load
+                                </Button>,
+                                <Button
+                                  key="restore-run"
+                                  type="link"
+                                  data-testid={`history-restore-run-${snapshot.id}`}
+                                  onClick={() => {
+                                    void handleRestoreAndRunSnapshot(snapshot)
+                                  }}
+                                >
+                                  Restore & Run
                                 </Button>,
                                 <Button
                                   key="compare"

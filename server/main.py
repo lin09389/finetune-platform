@@ -1,6 +1,6 @@
-"""
+﻿"""
 Finetune Platform Backend - Main Application
-大模型微调平台后端主应用
+澶фā鍨嬪井璋冨钩鍙板悗绔富搴旂敤
 """
 import json
 import logging
@@ -70,7 +70,7 @@ from workspace.task_api import router as task_api_router
 
 
 class UnicodeJSONResponse(JSONResponse):
-    """支持中文的 JSON 响应"""
+    """鏀寔涓枃鐨?JSON 鍝嶅簲"""
     def render(self, content) -> bytes:
         return json.dumps(
             content,
@@ -109,14 +109,14 @@ rate_limiter = get_rate_limiter()
 
 def check_rate_limit(client_ip: str, path: str = "") -> tuple[bool, dict]:
     """
-    检查是否超过速率限制
+    妫€鏌ユ槸鍚﹁秴杩囬€熺巼闄愬埗
 
     Args:
-        client_ip: 客户端 IP
-        path: API 路径
+        client_ip: 瀹㈡埛绔?IP
+        path: API 璺緞
 
     Returns:
-        (是否允许, 限制信息)
+        (鏄惁鍏佽, 闄愬埗淇℃伅)
     """
     return rate_limiter.is_allowed(client_ip, endpoint=path)
 
@@ -125,7 +125,7 @@ async def verify_auth(
     request: Request,
     credentials: HTTPAuthorizationCredentials = None
 ) -> bool:
-    """验证 JWT 认证"""
+    """楠岃瘉 JWT 璁よ瘉"""
     if os.getenv("ENABLE_AUTH", "false").lower() != "true":
         return True
 
@@ -145,10 +145,10 @@ async def verify_auth(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期管理"""
+    """搴旂敤鐢熷懡鍛ㄦ湡绠＄悊"""
     logger.info("Initializing application...")
     
-    # 初始化数据库表
+    # 鍒濆鍖栨暟鎹簱琛?
     from core.db_manager import get_db_pool
     db_pool = get_db_pool()
     db_pool.execute_update("""
@@ -164,7 +164,7 @@ async def lifespan(app: FastAPI):
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    logger.info("审计日志表已准备就绪")
+    logger.info("瀹¤鏃ュ織琛ㄥ凡鍑嗗灏辩华")
     
     logger.info(f"Models directory: {settings.models_dir_resolved}")
     logger.info(f"Datasets directory: {settings.datasets_dir_resolved}")
@@ -179,14 +179,14 @@ async def lifespan(app: FastAPI):
         max_concurrent=settings.max_concurrent_training,
         max_queue_size=10
     )
-    logger.info(f"训练队列已初始化：max_concurrent={settings.max_concurrent_training}")
+    logger.info(f"璁粌闃熷垪宸插垵濮嬪寲锛歮ax_concurrent={settings.max_concurrent_training}")
 
     try:
         from api.chat.session import get_session_manager
         session_manager = get_session_manager()
-        logger.info("会话存储已初始化")
+        logger.info("浼氳瘽瀛樺偍宸插垵濮嬪寲")
     except Exception as e:
-        logger.warning(f"会话存储初始化失败：{e}")
+        logger.warning(f"Session manager init failed: {e}")
 
     try:
         from context.service import get_context_service
@@ -198,24 +198,24 @@ async def lifespan(app: FastAPI):
         context_service = get_context_service(embedder=embedder, vector_store=vector_store)
         logger.info("项目上下文服务已初始化")
     except Exception as e:
-        logger.warning(f"上下文服务初始化失败：{e}")
+        logger.warning(f"Context service init failed: {e}")
 
     # try:
-    #     logger.info("预加载嵌入模型...")
+    #     logger.info("棰勫姞杞藉祵鍏ユā鍨?..")
     #     from rag.embedder import get_embedder
     #     embedder = get_embedder()
     #     _ = embedder.dimension
-    #     logger.info("嵌入模型预加载完成")
+    #     logger.info("宓屽叆妯″瀷棰勫姞杞藉畬鎴?)
     # except Exception as e:
-    #     logger.warning(f"嵌入模型预加载失败（将使用懒加载）：{e}")
+    #     logger.warning(f"Context service init failed: {e}")
 
     try:
-        logger.info("预初始化记忆服务...")
+        logger.info("棰勫垵濮嬪寲璁板繂鏈嶅姟...")
         from memory.memory_service import MemoryService
         memory_service = MemoryService()
-        logger.info("记忆服务已初始化")
+        logger.info("璁板繂鏈嶅姟宸插垵濮嬪寲")
     except Exception as e:
-        logger.warning(f"记忆服务初始化失败：{e}")
+        logger.warning(f"Memory service init failed: {e}")
 
     yield
 
@@ -224,7 +224,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Finetune Platform API",
-    description="大模型微调平台后端 API - 支持 LoRA/QLoRA 微调，消费级显卡优化",
+    description="澶фā鍨嬪井璋冨钩鍙板悗绔?API - 鏀寔 LoRA/QLoRA 寰皟锛屾秷璐圭骇鏄惧崱浼樺寲",
     version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -244,11 +244,11 @@ app.add_middleware(
 
 @app.middleware("http")
 async def trace_middleware(request: Request, call_next):
-    """Trace ID 中间件"""
+    """Trace middleware."""
     trace_id = request.headers.get("X-Trace-Id", str(uuid.uuid4()))
     trace_id_var.set(trace_id)
     
-    # 模拟获取 User ID (实际应从 JWT 中获取)
+    # 妯℃嫙鑾峰彇 User ID (瀹為檯搴斾粠 JWT 涓幏鍙?
     user_id = request.headers.get("X-User-Id", "anonymous")
     user_id_var.set(user_id)
     
@@ -257,10 +257,10 @@ async def trace_middleware(request: Request, call_next):
     return response
 
 
-# 黑名单列表
+# 榛戝悕鍗曞垪琛?
 IP_BLACKLIST = {"1.2.3.4", "5.6.7.8"}
 
-# WAF 规则 (简单正则)
+# WAF 瑙勫垯 (绠€鍗曟鍒?
 WAF_RULES = [
     re.compile(r"union\s+select", re.I),
     re.compile(r"<script>.*?</script>", re.I),
@@ -271,22 +271,22 @@ WAF_RULES = [
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
     """
-    安全中间件
-    - IP 黑名单
-    - WAF 过滤
-    - 速率限制
-    - 请求日志
-    - 错误处理
+    瀹夊叏涓棿浠?
+    - IP 榛戝悕鍗?
+    - WAF 杩囨护
+    - 閫熺巼闄愬埗
+    - 璇锋眰鏃ュ織
+    - 閿欒澶勭悊
     """
     client_ip = request.client.host
     path = request.url.path
 
-    # IP 黑名单检查
+    # IP 榛戝悕鍗曟鏌?
     if client_ip in IP_BLACKLIST:
         logger.warning(f"Blocked request from blacklisted IP: {client_ip}")
         return JSONResponse(status_code=403, content={"error": "Forbidden", "detail": "Your IP is blacklisted"})
 
-    # WAF 规则检查
+    # WAF 瑙勫垯妫€鏌?
     query_params = str(request.query_params)
     body = await request.body()
     payload = query_params + body.decode("utf-8", errors="ignore")
@@ -306,7 +306,7 @@ async def security_middleware(request: Request, call_next):
                 status_code=429,
                 content={
                     "error": rate_info.get('error', 'rate_limit_exceeded'),
-                    "detail": rate_info.get('message', '请求过于频繁，请稍后再试'),
+                    "detail": rate_info.get('message', '璇锋眰杩囦簬棰戠箒锛岃绋嶅悗鍐嶈瘯'),
                     "retry_after": retry_after
                 },
                 headers={
@@ -336,7 +336,7 @@ async def security_middleware(request: Request, call_next):
 
 @app.middleware("http")
 async def logging_middleware(request: Request, call_next):
-    """日志中间件"""
+    """Logging middleware."""
     import time
 
     start_time = time.time()
@@ -351,7 +351,7 @@ async def logging_middleware(request: Request, call_next):
 
 @app.middleware("http")
 async def security_headers_middleware(request: Request, call_next):
-    """安全头中间件"""
+    """瀹夊叏澶翠腑闂翠欢"""
     response = await call_next(request)
 
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -365,43 +365,45 @@ async def security_headers_middleware(request: Request, call_next):
     return response
 
 
-app.include_router(device, prefix="/device", tags=["设备管理"])
-app.include_router(models, prefix="/models", tags=["模型管理"])
-app.include_router(datasets, prefix="/datasets", tags=["数据集管理"])
-app.include_router(training, prefix="/training", tags=["训练管理"])
-app.include_router(inference, prefix="/inference", tags=["推理服务"])
-app.include_router(chat, tags=["对话管理"])
-app.include_router(knowledge, prefix="/knowledge", tags=["知识库"])
-app.include_router(workspace, prefix="/workspace", tags=["工作空间管理"])
-app.include_router(model_center, prefix="/model-center", tags=["模型中心"])
-app.include_router(memory, tags=["智能记忆"])
-app.include_router(agent, prefix="/agent", tags=["Agent 操作"])
-app.include_router(compat_router, tags=["兼容路由"])
-app.include_router(context, prefix="/context", tags=["项目上下文"])
-app.include_router(file_api_router, prefix="/files", tags=["文件操作"])
-app.include_router(task_api_router, prefix="/tasks", tags=["任务追踪"])
-app.include_router(cloud_chat, prefix="/cloud", tags=["云端 AI"])
-app.include_router(skills, tags=["技能管理"])
-app.include_router(cua, tags=["CUA - Computer Use Agent"])
+app.include_router(device, prefix="/device", tags=["Device"])
+app.include_router(models, prefix="/models", tags=["Models"])
+app.include_router(datasets, prefix="/datasets", tags=["Datasets"])
+app.include_router(training, prefix="/training", tags=["Training"])
+app.include_router(inference, prefix="/inference", tags=["Inference"])
+app.include_router(chat, tags=["Chat"])
+app.include_router(knowledge, prefix="/knowledge", tags=["Knowledge"])
+# Backward compatibility for legacy frontend paths.
+app.include_router(knowledge, prefix="/v2/knowledge", tags=["Knowledge v2"])
+app.include_router(workspace, prefix="/workspace", tags=["Workspace"])
+app.include_router(model_center, prefix="/model-center", tags=["Model Center"])
+app.include_router(memory, tags=["Memory"])
+app.include_router(agent, prefix="/agent", tags=["Agent"])
+app.include_router(compat_router, tags=["Compatibility"])
+app.include_router(context, prefix="/context", tags=["Context"])
+app.include_router(file_api_router, prefix="/files", tags=["Files"])
+app.include_router(task_api_router, prefix="/tasks", tags=["Tasks"])
+app.include_router(cloud_chat, prefix="/cloud", tags=["Cloud"])
+app.include_router(skills, tags=["Skills"])
+app.include_router(cua, tags=["CUA"])
 app.include_router(mcp, tags=["MCP"])
-app.include_router(smart_agent, prefix="/smart-agent", tags=["智能 Agent"])
+app.include_router(smart_agent, prefix="/smart-agent", tags=["Smart Agent"])
 app.include_router(gateway, tags=["Gateway"])
 app.include_router(heartbeat, tags=["Heartbeat"])
-app.include_router(code_executor, prefix="/code", tags=["代码执行"])
-app.include_router(file_parser, tags=["文件解析"])
-app.include_router(chat_branch, tags=["对话分支"])
-app.include_router(chat_share, tags=["对话分享"])
-app.include_router(entity, tags=["实体识别"])
-app.include_router(ocr, tags=["OCR识别"])
-app.include_router(feedback, tags=["用户反馈"])
-app.include_router(help_router, tags=["帮助系统"])
-app.include_router(inference_engine, tags=["推理引擎"])
-app.include_router(agent_executor, tags=["Agent执行器"])
+app.include_router(code_executor, prefix="/code", tags=["Code"])
+app.include_router(file_parser, tags=["File Parser"])
+app.include_router(chat_branch, tags=["Chat Branch"])
+app.include_router(chat_share, tags=["Chat Share"])
+app.include_router(entity, tags=["Entity"])
+app.include_router(ocr, tags=["OCR"])
+app.include_router(feedback, tags=["Feedback"])
+app.include_router(help_router, tags=["Help"])
+app.include_router(inference_engine, tags=["Inference Engine"])
+app.include_router(agent_executor, tags=["Agent Executor"])
 
 
 @app.get("/")
 async def root():
-    """根路由"""
+    """Root endpoint."""
     return {
         "message": "Finetune Platform API",
         "version": "1.0.0",
@@ -413,7 +415,7 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """健康检查"""
+    """Health check endpoint."""
     import torch
     from agent.intent.methods.bert_classifier import bert_classifier
 
@@ -437,7 +439,7 @@ async def health_check():
                 },
             }
         except Exception as e:
-            logger.warning(f"获取 GPU 信息失败：{e}")
+            logger.warning(f"Failed to get GPU info: {e}")
             health["gpu_info"] = {"error": str(e)}
 
     return health
@@ -445,18 +447,18 @@ async def health_check():
 
 @app.get("/api/info")
 async def api_info():
-    """API 信息"""
+    """API metadata."""
     return {
         "name": "Finetune Platform API",
         "version": "2.0.0",
-        "description": "大模型微调平台后端 API",
+        "description": "Finetune Platform backend API",
         "features": [
-            "LoRA/QLoRA 微调",
-            "模型管理",
-            "数据集管理",
-            "训练监控",
-            "推理服务",
-            "Ollama 集成"
+            "LoRA/QLoRA fine-tuning",
+            "Model management",
+            "Dataset management",
+            "Training monitor",
+            "Inference service",
+            "Ollama integration"
         ],
         "endpoints": {
             "device": "/device",
@@ -476,7 +478,7 @@ from api.errors import APIError
 
 @app.exception_handler(APIError)
 async def custom_api_error_handler(request: Request, exc: APIError):
-    """API 错误处理"""
+    """Handle custom API errors."""
     logger.warning(f"API Error: {exc.code} - {exc.message}")
     return JSONResponse(
         status_code=exc.status_code,
@@ -486,7 +488,7 @@ async def custom_api_error_handler(request: Request, exc: APIError):
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    """HTTP 异常处理"""
+    """Handle HTTP exceptions."""
     logger.warning(f"HTTP Exception: {exc.status_code} - {exc.detail}")
     if isinstance(exc.detail, dict) and "error" in exc.detail:
         return JSONResponse(
@@ -507,7 +509,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
-    """通用异常处理"""
+    """Handle uncaught exceptions."""
     logger.error(f"Unhandled exception: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,
@@ -528,3 +530,6 @@ if __name__ == "__main__":
         reload=os.getenv("DEBUG", "false") == "true",
         log_level=os.getenv("LOG_LEVEL", "info").lower()
     )
+
+
+

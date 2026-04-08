@@ -4,6 +4,7 @@ CUA (Computer Use Agent) API 路由
 import base64
 import io
 import logging
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -62,6 +63,12 @@ def get_action_recorder() -> ActionRecorder:
     if '_action_recorder' not in globals():
         _action_recorder = ActionRecorder()
     return _action_recorder
+
+
+def get_recordings_dir() -> Path:
+    records_dir = Path("data/records")
+    records_dir.mkdir(parents=True, exist_ok=True)
+    return records_dir
 
 
 class ScreenshotRequest(BaseModel):
@@ -142,6 +149,14 @@ class FindTextRequest(BaseModel):
 
 class RecordActionRequest(BaseModel):
     action: str = Field(..., description="操作: start, stop, pause, resume")
+
+
+class RecordSaveRequest(BaseModel):
+    filename: str = Field(..., description="保存的录制文件名")
+
+
+class RecordLoadRequest(BaseModel):
+    filepath: str = Field(..., description="录制文件路径或文件名")
 
 
 class PlaybackRequest(BaseModel):
@@ -680,20 +695,76 @@ async def get_recorded_actions():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.delete("/record/actions")
+async def clear_recorded_actions():
+    try:
+        recorder = get_action_recorder()
+        recorder.clear_actions()
+        return {"success": True, "message": "Recorded actions cleared"}
+    except Exception as e:
+        logger.error(f"清空录制动作失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/record/save")
+async def save_recorded_actions(request: RecordSaveRequest):
+    try:
+        recorder = get_action_recorder()
+        filename = request.filename.strip()
+        if not filename:
+            raise HTTPException(status_code=400, detail="Filename is required")
+
+        if not filename.endswith(".json"):
+            filename = f"{filename}.json"
+
+        filepath = get_recordings_dir() / Path(filename).name
+        recorder.save_to_file(str(filepath))
+        return {
+            "success": True,
+            "message": "Recording saved",
+            "filename": filepath.name,
+            "filepath": str(filepath),
+            "action_count": recorder.get_action_count(),
+        }
+    except RecorderError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"保存录制动作失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/record/load")
+async def load_recorded_actions(request: RecordLoadRequest):
+    try:
+        filepath = Path(request.filepath)
+        if not filepath.is_absolute():
+            filepath = get_recordings_dir() / filepath.name
+
+        recorder = get_action_recorder()
+        actions = recorder.load_from_file(str(filepath))
+        return {
+            "success": True,
+            "message": "Recording loaded",
+            "filepath": str(filepath),
+            "action_count": len(actions),
+        }
+    except RecorderError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"加载录制动作失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/record/files")
 async def get_record_files():
     """获取已保存的录制文件列表"""
     try:
-        from pathlib import Path
-
-        records_dir = Path("data/records")
-        records_dir.mkdir(parents=True, exist_ok=True)
-
         files = []
-        for f in records_dir.glob("*.json"):
+        for f in get_recordings_dir().glob("*.json"):
             stat = f.stat()
             files.append({
                 "filename": f.name,
+                "filepath": str(f),
                 "size": stat.st_size,
                 "modified": stat.st_mtime,
             })

@@ -15,6 +15,29 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/gateway", tags=["Gateway"])
 
 
+def _serialize_device(auth_manager, device: dict[str, Any]) -> dict[str, Any]:
+    permissions = auth_manager.get_device_permissions(device["device_id"]) or {}
+    return {
+        "id": device["device_id"],
+        "device_id": device["device_id"],
+        "name": device.get("device_name") or device["device_id"],
+        "device_name": device.get("device_name") or device["device_id"],
+        "type": device.get("device_type", "unknown"),
+        "device_type": device.get("device_type", "unknown"),
+        "status": device.get("status", "unknown"),
+        "created_at": device.get("created_at"),
+        "last_seen": device.get("last_active"),
+        "last_active": device.get("last_active"),
+        "expires_at": device.get("expires_at"),
+        "metadata": device.get("metadata", {}),
+        "permissions": permissions.get("allowed_actions", []),
+        "permission_level": permissions.get("level"),
+        "denied_actions": permissions.get("denied_actions", []),
+        "rate_limit": permissions.get("rate_limit"),
+        "rate_window": permissions.get("rate_window"),
+    }
+
+
 class DeviceRegisterRequest(BaseModel):
     device_id: str | None = None
     device_type: str = "web"
@@ -93,6 +116,8 @@ async def register_device(request: DeviceRegisterRequest):
         device_name=request.device_name,
         metadata=request.metadata,
     )
+    if not result:
+        raise HTTPException(status_code=500, detail="Failed to register device")
     return {"success": True, **result}
 
 
@@ -116,6 +141,8 @@ async def create_challenge(device_id: str):
 async def verify_challenge(request: ChallengeVerifyRequest):
     auth_manager = get_device_auth_manager()
     ok = auth_manager.verify_challenge(request.device_id, request.challenge_id, request.signed_response)
+    if not ok:
+        raise HTTPException(status_code=401, detail="Challenge verification failed")
     return {"success": ok, "device_id": request.device_id}
 
 
@@ -128,7 +155,8 @@ async def list_devices(device_type: str | None = None, status: str | None = None
         devices = auth_manager.get_devices_by_status(DeviceStatus(status))
     else:
         devices = auth_manager.get_all_devices()
-    return {"devices": devices, "total": len(devices)}
+    serialized_devices = [_serialize_device(auth_manager, device) for device in devices]
+    return {"devices": serialized_devices, "total": len(serialized_devices)}
 
 
 @router.get("/devices/{device_id}")
@@ -137,13 +165,15 @@ async def get_device(device_id: str):
     info = auth_manager.get_device_info(device_id)
     if not info:
         raise HTTPException(status_code=404, detail="Device not found")
-    return info
+    return _serialize_device(auth_manager, info)
 
 
 @router.delete("/devices/{device_id}")
 async def unregister_device(device_id: str):
     auth_manager = get_device_auth_manager()
     ok = auth_manager.unregister_device(device_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Device not found")
     return {"success": ok, "device_id": device_id}
 
 
@@ -163,6 +193,8 @@ async def set_device_permissions(
         denied_actions=denied_actions,
         rate_limit=rate_limit,
     )
+    if not ok:
+        raise HTTPException(status_code=404, detail="Device not found")
     return {"success": ok, "device_id": device_id}
 
 
@@ -192,6 +224,8 @@ async def send_and_wait(request: MessageSendRequest, timeout: int = 60):
         payload=request.payload,
         timeout=timeout,
     )
+    if result is None:
+        raise HTTPException(status_code=504, detail="No response received from target agent")
     return {"success": True, "result": result}
 
 
@@ -199,6 +233,8 @@ async def send_and_wait(request: MessageSendRequest, timeout: int = 60):
 async def broadcast_message(payload: dict[str, Any], exclude: list[str] | None = None):
     communicator = get_cross_agent_communicator()
     sent_to = await communicator.broadcast(source_agent="api", payload=payload, exclude=exclude)
+    if not sent_to:
+        raise HTTPException(status_code=404, detail="No target agents available for broadcast")
     return {"success": True, "sent_to": sent_to, "count": len(sent_to)}
 
 
@@ -289,6 +325,8 @@ async def list_spawned_agents(parent_agent: str | None = None):
 async def terminate_spawned_agent(spawned_id: str):
     communicator = get_cross_agent_communicator()
     ok = await communicator.terminate_agent(spawned_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Spawned agent not found")
     return {"success": ok, "spawned_id": spawned_id}
 
 

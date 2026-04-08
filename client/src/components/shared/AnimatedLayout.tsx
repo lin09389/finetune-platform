@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 
 interface AnimatedLayoutProps {
   children: React.ReactNode;
@@ -18,6 +18,12 @@ const pageTransition = {
 };
 
 const AnimatedLayout: React.FC<AnimatedLayoutProps> = ({ children, animationKey }) => {
+  const reduceMotion = useReducedMotion();
+
+  if (reduceMotion) {
+    return <div style={{ width: '100%', height: '100%' }}>{children}</div>;
+  }
+
   return (
     <AnimatePresence mode="wait">
       <motion.div

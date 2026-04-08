@@ -591,6 +591,138 @@ describe('Chat Playground', () => {
     })
   })
 
+  it('renders automation trace events when present in timeline', async () => {
+    mockUseChatStore.mockReturnValue(
+      createStoreState({
+        agentMode: true,
+        agentTimeline: [
+          {
+            id: 'auto-event-1',
+            type: 'task_status',
+            title: 'Auto-continue attempt 1',
+            description: 'Continue with recommended next step.',
+            status: 'running',
+            payload: {
+              automation_type: 'auto_continue',
+              automation_attempt: 1,
+              automation_reason: 'Continue with recommended next step.',
+            },
+            createdAt: '2026-04-05T10:00:00.000Z',
+          },
+        ],
+      })
+    )
+
+    render(<Chat />)
+
+    expect(await screen.findByTestId('agent-automation-trace-card')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-automation-item-auto-event-1')).toHaveTextContent(
+      'Auto-continue attempt 1'
+    )
+    expect(screen.getByText('Auto Continue')).toBeInTheDocument()
+  })
+
+  it('filters automation trace and copies failure summary', async () => {
+    const writeTextMock = navigator.clipboard.writeText as ReturnType<typeof vi.fn>
+    mockUseChatStore.mockReturnValue(
+      createStoreState({
+        agentMode: true,
+        agentTimeline: [
+          {
+            id: 'auto-continue-1',
+            type: 'task_status',
+            title: 'Auto-continue attempt 1',
+            description: 'Continue after recommendation.',
+            status: 'completed',
+            payload: {
+              automation_type: 'auto_continue',
+              automation_attempt: 1,
+              automation_reason: 'Continue after recommendation.',
+            },
+            createdAt: '2026-04-05T10:00:00.000Z',
+          },
+          {
+            id: 'auto-recover-1',
+            type: 'task_status',
+            title: 'Auto-recover attempt 1',
+            description: 'Recover after failed command.',
+            status: 'failed',
+            payload: {
+              automation_type: 'auto_recover',
+              automation_attempt: 1,
+              automation_reason: 'Recover after failed command.',
+            },
+            createdAt: '2026-04-05T10:10:00.000Z',
+          },
+        ],
+      })
+    )
+
+    render(<Chat />)
+
+    expect(await screen.findByTestId('agent-automation-item-auto-continue-1')).toBeInTheDocument()
+    expect(screen.getByTestId('agent-automation-item-auto-recover-1')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Recover'))
+    expect(screen.queryByTestId('agent-automation-item-auto-continue-1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('agent-automation-item-auto-recover-1')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('automation-trace-copy-summary'))
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledTimes(1)
+      expect(writeTextMock).toHaveBeenCalledWith(expect.stringContaining('Failed events: 1'))
+      expect(writeTextMock).toHaveBeenCalledWith(expect.stringContaining('Failure chain:'))
+    })
+  })
+
+  it('exports automation trace as markdown report', async () => {
+    const createObjectUrlMock = global.URL.createObjectURL as ReturnType<typeof vi.fn>
+    const revokeObjectUrlMock = global.URL.revokeObjectURL as ReturnType<typeof vi.fn>
+    const originalCreateElement = document.createElement.bind(document)
+    const anchorClickMock = vi.fn()
+    const createElementSpy = vi
+      .spyOn(document, 'createElement')
+      .mockImplementation(((tagName: string, options?: ElementCreationOptions) => {
+        const element = originalCreateElement(tagName, options)
+        if (tagName.toLowerCase() === 'a') {
+          ;(element as HTMLAnchorElement).click = anchorClickMock as unknown as () => void
+        }
+        return element
+      }) as typeof document.createElement)
+    mockUseChatStore.mockReturnValue(
+      createStoreState({
+        agentMode: true,
+        agentTimeline: [
+          {
+            id: 'auto-recover-export',
+            type: 'task_status',
+            title: 'Auto-recover attempt 1',
+            description: 'Recover after failed command.',
+            status: 'failed',
+            payload: {
+              automation_type: 'auto_recover',
+              automation_attempt: 1,
+              automation_reason: 'Recover after failed command.',
+            },
+            createdAt: '2026-04-05T10:10:00.000Z',
+          },
+        ],
+      })
+    )
+
+    render(<Chat />)
+
+    fireEvent.click(await screen.findByTestId('automation-trace-export-markdown'))
+
+    await waitFor(() => {
+      expect(anchorClickMock).toHaveBeenCalledTimes(1)
+      expect(createObjectUrlMock).toHaveBeenCalledTimes(1)
+      expect(revokeObjectUrlMock).toHaveBeenCalledTimes(1)
+    })
+
+    createElementSpy.mockRestore()
+  })
+
   it('resumes or retries agent tasks from the status card', async () => {
     mockUseChatStore.mockReturnValue(
       createStoreState({
@@ -2194,6 +2326,20 @@ describe('Chat Playground', () => {
     expect(screen.getByText('Cloud json run')).toBeInTheDocument()
     expect(screen.getByTestId('history-count-tag')).toHaveTextContent('2/2 shown')
     expect(screen.getByTestId('history-sort')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('history-restore-run-exp-1'))
+    await waitFor(() => {
+      expect(runExperimentCandidates).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: 'Debug ollama prompt',
+          systemPrompt: 'System',
+          responseFormat: 'text',
+        }),
+        2,
+        undefined
+      )
+      expect(addExperimentSnapshot).toHaveBeenCalledTimes(1)
+    })
 
     fireEvent.change(screen.getByTestId('history-search-input'), {
       target: { value: 'cloud' },

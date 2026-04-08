@@ -1,8 +1,17 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react'
+﻿import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { Input, Button, Tooltip, message, Avatar, Typography } from 'antd'
-import { SendOutlined, AudioOutlined, StopOutlined, RobotOutlined, ThunderboltOutlined, ClearOutlined } from '@ant-design/icons'
+import {
+  SendOutlined,
+  AudioOutlined,
+  StopOutlined,
+  RobotOutlined,
+  ThunderboltOutlined,
+  ClearOutlined,
+} from '@ant-design/icons'
 import { motion, AnimatePresence } from 'framer-motion'
 import { transitions } from '../../theme/animations'
+import { useResponsive } from '../../hooks/useResponsive'
+import styles from './ChatInput.module.css'
 
 const { TextArea } = Input
 const { Text } = Typography
@@ -22,12 +31,7 @@ interface ChatInputProps {
   onSuggestionClick?: (suggestion: string) => void
 }
 
-const DEFAULT_SUGGESTIONS = [
-  '帮我解释一下这个概念',
-  '写一段代码实现...',
-  '分析这个问题',
-  '总结一下要点',
-]
+const DEFAULT_SUGGESTIONS = ['帮我解释一下这个概念', '写一段代码实现...', '分析这个问题', '总结一下要点']
 
 const ChatInput: React.FC<ChatInputProps> = ({
   onSend,
@@ -43,6 +47,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   suggestions = DEFAULT_SUGGESTIONS,
   onSuggestionClick,
 }) => {
+  const { isMobile } = useResponsive()
   const [value, setValue] = useState('')
   const [isFocused, setIsFocused] = useState(false)
   const [showSuggestions, setShowSuggestions] = useState(false)
@@ -53,39 +58,44 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   const handleSend = useCallback(() => {
     if (!canSend) return
-    
     onSend(value.trim())
     setValue('')
     setShowSuggestions(false)
   }, [canSend, onSend, value])
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      if (isStreaming) {
-        onStop?.()
-      } else {
-        handleSend()
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        if (isStreaming) {
+          onStop?.()
+        } else {
+          handleSend()
+        }
       }
-    }
-  }, [handleSend, isStreaming, onStop])
+    },
+    [handleSend, isStreaming, onStop]
+  )
 
-  const handleSuggestionClick = useCallback((suggestion: string) => {
-    setValue(suggestion)
-    setShowSuggestions(false)
-    textareaRef.current?.focus()
-    onSuggestionClick?.(suggestion)
-  }, [onSuggestionClick])
+  const handleSuggestionClick = useCallback(
+    (suggestion: string) => {
+      setValue(suggestion)
+      setShowSuggestions(false)
+      textareaRef.current?.focus()
+      onSuggestionClick?.(suggestion)
+    },
+    [onSuggestionClick]
+  )
 
   const handleVoiceInput = useCallback(() => {
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      message.warning('您的浏览器不支持语音输入')
+      message.warning('当前浏览器不支持语音输入')
       return
     }
 
     const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition
     const recognition = new SpeechRecognition()
-    
+
     recognition.lang = 'zh-CN'
     recognition.continuous = false
     recognition.interimResults = true
@@ -101,7 +111,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
     }
 
     recognition.onerror = (event: any) => {
-      console.error('语音识别错误:', event.error)
+      console.error('Voice input error:', event.error)
       message.error('语音识别失败')
       setIsRecording(false)
     }
@@ -133,14 +143,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.3, ...transitions.base }}
-      style={{
-        padding: '16px 24px 24px',
-        background: 'var(--bg-primary)',
-        borderTop: '1px solid var(--border-color)',
-      }}
+      transition={{ delay: 0.24, ...transitions.base }}
+      className={`${styles.inputShell} ${isMobile ? styles.inputShellMobile : styles.inputShellDesktop}`}
     >
-      <div style={{ maxWidth: 768, margin: '0 auto' }}>
+      <div className={styles.container}>
         <AnimatePresence>
           {showSuggestions && suggestions.length > 0 && !value && (
             <motion.div
@@ -148,32 +154,16 @@ const ChatInput: React.FC<ChatInputProps> = ({
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
               transition={transitions.base}
-              style={{
-                marginBottom: 12,
-                display: 'flex',
-                gap: 8,
-                flexWrap: 'wrap',
-                overflow: 'hidden',
-              }}
+              className={styles.suggestions}
             >
               {suggestions.map((suggestion, index) => (
                 <motion.div
                   key={index}
-                  initial={{ opacity: 0, scale: 0.9 }}
+                  initial={{ opacity: 0, scale: 0.92 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: index * 0.05 }}
+                  transition={{ delay: index * 0.04 }}
                 >
-                  <Button
-                    size="small"
-                    onClick={() => handleSuggestionClick(suggestion)}
-                    style={{
-                      borderRadius: 16,
-                      background: 'var(--bg-secondary)',
-                      border: '1px solid var(--border-color)',
-                      color: 'var(--text-secondary)',
-                      fontSize: 13,
-                    }}
-                  >
+                  <Button size="small" onClick={() => handleSuggestionClick(suggestion)} className={styles.suggestionBtn}>
                     {suggestion}
                   </Button>
                 </motion.div>
@@ -184,18 +174,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
         <motion.div
           animate={{
-            boxShadow: isFocused 
-              ? '0 0 0 2px var(--primary-500), 0 4px 12px rgba(59, 130, 246, 0.15)'
-              : '0 2px 8px rgba(0, 0, 0, 0.04)',
+            boxShadow: isFocused
+              ? '0 0 0 2px color-mix(in srgb, var(--accent-primary) 55%, transparent), 0 8px 18px -12px color-mix(in srgb, var(--accent-primary) 45%, transparent)'
+              : '0 8px 18px -14px rgba(0, 0, 0, 0.28)',
           }}
           transition={transitions.base}
-          style={{
-            background: 'var(--bg-secondary)',
-            borderRadius: 16,
-            border: '1px solid var(--border-color)',
-            padding: '12px 16px',
-            transition: 'box-shadow 0.3s ease',
-          }}
+          className={`${styles.editorCard} ${isMobile ? styles.editorCardMobile : styles.editorCardDesktop}`}
         >
           <TextArea
             ref={textareaRef}
@@ -221,33 +205,18 @@ const ChatInput: React.FC<ChatInputProps> = ({
             autoSize={{ minRows: 1, maxRows: 6 }}
             disabled={disabled || loading}
             maxLength={maxLength}
-            style={{
-              resize: 'none',
-              border: 'none',
-              background: 'transparent',
-              fontSize: '15px',
-              lineHeight: 1.6,
-              boxShadow: 'none',
-              padding: 0,
-            }}
+            className={styles.textarea}
           />
-          
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginTop: 12,
-            paddingTop: 12,
-            borderTop: '1px solid var(--border-color)',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+
+          <div className={styles.toolbar}>
+            <div className={styles.toolbarLeft}>
               {showModelInfo && modelId ? (
                 <>
                   <Avatar
                     size={24}
                     icon={<RobotOutlined />}
-                    style={{ 
-                      background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                    style={{
+                      background: 'var(--gradient-secondary)',
                       width: 24,
                       height: 24,
                     }}
@@ -261,25 +230,24 @@ const ChatInput: React.FC<ChatInputProps> = ({
                   请先选择模型
                 </Text>
               )}
-              
+
               <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
                 {value.length}/{maxLength}
               </Text>
             </div>
-            
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Tooltip title="快捷输入建议">
+
+            <div className={styles.toolbarRight}>
+              <Tooltip title="快捷建议">
                 <Button
                   type="text"
                   size="small"
                   icon={<ThunderboltOutlined />}
                   onClick={() => setShowSuggestions(!showSuggestions)}
-                  style={{ 
-                    color: showSuggestions ? 'var(--primary-500)' : 'var(--text-tertiary)',
-                  }}
+                  style={{ color: showSuggestions ? 'var(--accent-primary)' : undefined }}
+                  className={styles.ghostIcon}
                 />
               </Tooltip>
-              
+
               <Tooltip title="语音输入">
                 <Button
                   type="text"
@@ -287,60 +255,25 @@ const ChatInput: React.FC<ChatInputProps> = ({
                   icon={<AudioOutlined />}
                   onClick={handleVoiceInput}
                   danger={isRecording}
-                  style={{ 
-                    color: isRecording ? 'var(--error)' : 'var(--text-tertiary)',
-                  }}
+                  className={styles.ghostIcon}
                 />
               </Tooltip>
-              
+
               {onClear && (
                 <Tooltip title="清空对话">
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<ClearOutlined />}
-                    onClick={onClear}
-                    style={{ color: 'var(--text-tertiary)' }}
-                  />
+                  <Button type="text" size="small" icon={<ClearOutlined />} onClick={onClear} className={styles.ghostIcon} />
                 </Tooltip>
               )}
-              
+
               {isStreaming ? (
-                <motion.div
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <Button
-                    type="primary"
-                    danger
-                    icon={<StopOutlined />}
-                    onClick={onStop}
-                    style={{
-                      borderRadius: 8,
-                      height: 36,
-                      padding: '0 16px',
-                    }}
-                  >
+                <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                  <Button type="primary" danger icon={<StopOutlined />} onClick={onStop} className={styles.stopBtn}>
                     停止
                   </Button>
                 </motion.div>
               ) : (
-                <motion.div
-                  whileHover={{ scale: canSend ? 1.02 : 1 }}
-                  whileTap={{ scale: canSend ? 0.98 : 1 }}
-                >
-                  <Button
-                    type="primary"
-                    icon={<SendOutlined />}
-                    onClick={handleSend}
-                    disabled={!canSend}
-                    style={{
-                      borderRadius: 8,
-                      height: 36,
-                      padding: '0 20px',
-                      fontWeight: 500,
-                    }}
-                  >
+                <motion.div whileHover={{ scale: canSend ? 1.02 : 1 }} whileTap={{ scale: canSend ? 0.98 : 1 }}>
+                  <Button type="primary" icon={<SendOutlined />} onClick={handleSend} disabled={!canSend} className={styles.sendBtn}>
                     发送
                   </Button>
                 </motion.div>
@@ -348,12 +281,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
             </div>
           </div>
         </motion.div>
-        
-        <div style={{
-          display: 'flex',
-          justifyContent: 'center',
-          marginTop: 8,
-        }}>
+
+        <div className={styles.hint}>
           <Text type="secondary" style={{ fontSize: 11 }}>
             按 Enter 发送 · Shift+Enter 换行 · 按 / 快速聚焦
           </Text>

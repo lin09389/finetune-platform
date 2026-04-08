@@ -52,12 +52,38 @@ html {
 body {
   min-height: 100vh;
   background-color: var(--bg-primary);
+  background-image: var(--gradient-mesh);
+  background-attachment: fixed;
   color: var(--text-primary);
   transition: background-color var(--transition-base), color var(--transition-base);
 }
 
 body, #root {
   min-height: 100vh;
+}
+
+#root {
+  position: relative;
+  isolation: isolate;
+}
+
+#root::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background-image:
+    linear-gradient(120deg, rgba(255, 255, 255, 0.22), transparent 32%),
+    linear-gradient(300deg, rgba(63, 143, 112, 0.08), transparent 40%);
+}
+
+.app-shell {
+  position: relative;
+}
+
+.app-content {
+  animation: surface-rise 420ms var(--ease-smooth);
 }
 
 /* ============================================
@@ -171,25 +197,55 @@ table {
 }
 
 .ant-layout-sider {
-  background: var(--bg-secondary);
-  border-right: 1px solid var(--border-color);
+  background: transparent;
+  border-right: 1px solid transparent;
   transition: all var(--transition-base);
 }
 
 .ant-layout-header {
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: transparent;
+  border-bottom: 1px solid transparent;
+  backdrop-filter: blur(16px) saturate(130%);
+  -webkit-backdrop-filter: blur(16px) saturate(130%);
 }
 
 .ant-layout-content {
-  background: var(--bg-primary);
+  background: transparent;
 }
 
 .ant-layout-footer {
   background: var(--bg-secondary);
   border-top: 1px solid var(--border-color);
+}
+
+.ant-card {
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+}
+
+.ant-card:hover {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
+}
+
+.ant-btn {
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast) !important;
+}
+
+.ant-btn:hover {
+  transform: translateY(-1px);
+}
+
+@keyframes surface-rise {
+  from {
+    opacity: 0.86;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* ============================================
@@ -354,6 +410,14 @@ table {
     display: none;
   }
 
+  .app-main {
+    margin-left: 0 !important;
+  }
+
+  .app-content {
+    margin: 10px !important;
+  }
+
   .ant-card {
     margin-bottom: var(--space-3);
   }
@@ -436,5 +500,15 @@ table {
   body {
     background: white;
     color: black;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-content,
+  .ant-card,
+  .ant-btn {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
   }
 }

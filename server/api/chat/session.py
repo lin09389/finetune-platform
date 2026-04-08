@@ -206,6 +206,14 @@ class SessionManager:
         self._save_session(session)
         return True
 
+    def save_session(self, session_id: str) -> bool:
+        session = self._sessions.get(session_id)
+        if not session:
+            return False
+        session.updated_at = datetime.now()
+        self._save_session(session)
+        return True
+
     def append_execution_state(self, session_id: str, state: dict[str, Any]) -> bool:
         session = self._sessions.get(session_id)
         if not session:

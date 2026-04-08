@@ -357,20 +357,21 @@ def test_chat_integration(result: TestResult):
 
     # 测试聊天历史
     try:
-        resp = requests.get(f"{BASE_URL}/chat/history", timeout=10)
+        resp = requests.get(f"{BASE_URL}/chat/sessions", timeout=10)
         if resp.status_code == 200:
             data = resp.json()
-            result.add("聊天", f"获取聊天历史 ({len(data)}个会话)", True)
+            sessions = data.get("sessions", []) if isinstance(data, dict) else []
+            result.add("聊天", f"获取聊天列表 ({len(sessions)}个会话)", True)
         else:
-            result.add("聊天", "获取聊天历史", False, f"状态码: {resp.status_code}")
+            result.add("聊天", "获取聊天列表", False, f"状态码: {resp.status_code}")
     except Exception as e:
-        result.add("聊天", "获取聊天历史", False, str(e))
+        result.add("聊天", "获取聊天列表", False, str(e))
 
     # 测试创建会话
     try:
         resp = requests.post(
-            f"{BASE_URL}/chat/session",
-            json={"title": "功能测试会话", "model_id": "test"},
+            f"{BASE_URL}/chat/sessions",
+            json={"title": "功能测试会话", "metadata": {"model_id": "test"}},
             timeout=10
         )
         if resp.status_code == 200:
@@ -381,8 +382,15 @@ def test_chat_integration(result: TestResult):
             # 测试添加消息
             if session_id:
                 msg_resp = requests.post(
-                    f"{BASE_URL}/chat/session/{session_id}/message",
-                    json={"messages": [{"id": "test_msg", "role": "user", "content": "测试消息", "timestamp": datetime.now().isoformat()}]},
+                    f"{BASE_URL}/chat/sessions/{session_id}/messages",
+                    json={
+                        "role": "user",
+                        "content": "测试消息",
+                        "metadata": {
+                            "legacy_message_id": "test_msg",
+                            "legacy_timestamp": datetime.now().isoformat(),
+                        },
+                    },
                     timeout=10
                 )
                 if msg_resp.status_code == 200:
@@ -391,7 +399,7 @@ def test_chat_integration(result: TestResult):
                     result.add("聊天", "添加消息", False, f"状态码: {msg_resp.status_code}")
 
                 # 清理测试会话
-                requests.delete(f"{BASE_URL}/chat/session/{session_id}", timeout=5)
+                requests.delete(f"{BASE_URL}/chat/sessions/{session_id}", timeout=5)
         else:
             result.add("聊天", "创建会话", False, f"状态码: {resp.status_code}")
     except Exception as e:

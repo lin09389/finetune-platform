@@ -370,55 +370,52 @@ def test_chat_history_api(result: TestResult):
     """Test chat history endpoints"""
     print("\n[7] Testing Chat History API...")
 
-    # Test get history
-    resp, err = test_api("GET", "/chat/history")
+    # Test list sessions
+    resp, err = test_api("GET", "/chat/sessions")
     if err:
-        result.add_fail("GET /chat/history", err)
+        result.add_fail("GET /chat/sessions", err)
     elif resp.status_code == 200:
         data = resp.json()
-        result.add_pass("GET /chat/history", f"{len(data) if isinstance(data, list) else 0} sessions")
+        result.add_pass(
+            "GET /chat/sessions",
+            f"{len(data.get('sessions', [])) if isinstance(data, dict) else 0} sessions"
+        )
     else:
-        result.add_fail("GET /chat/history", f"Status {resp.status_code}")
-
-    # Test get stats
-    resp, err = test_api("GET", "/chat/stats")
-    if err:
-        result.add_fail("GET /chat/stats", err)
-    elif resp.status_code == 200:
-        data = resp.json()
-        result.add_pass("GET /chat/stats", data)
-    else:
-        result.add_fail("GET /chat/stats", f"Status {resp.status_code}")
+        result.add_fail("GET /chat/sessions", f"Status {resp.status_code}")
 
     # Test create session
-    resp, err = test_api("POST", "/chat/session", data={"title": "Test Session", "model_id": "test"})
+    resp, err = test_api(
+        "POST",
+        "/chat/sessions",
+        data={"title": "Test Session", "metadata": {"model_id": "test"}}
+    )
     if err:
-        result.add_fail("POST /chat/session", err)
+        result.add_fail("POST /chat/sessions", err)
     elif resp.status_code == 200:
         data = resp.json()
         session_id = data.get("id")
-        result.add_pass("POST /chat/session", f"Created session: {session_id}")
+        result.add_pass("POST /chat/sessions", f"Created session: {session_id}")
 
         # Test get session
         if session_id:
-            resp2, err2 = test_api("GET", f"/chat/session/{session_id}")
+            resp2, err2 = test_api("GET", f"/chat/sessions/{session_id}")
             if err2:
-                result.add_fail("GET /chat/session/{id}", err2)
+                result.add_fail("GET /chat/sessions/{id}", err2)
             elif resp2.status_code == 200:
-                result.add_pass("GET /chat/session/{id}", "Session retrieved")
+                result.add_pass("GET /chat/sessions/{id}", "Session retrieved")
             else:
-                result.add_fail("GET /chat/session/{id}", f"Status {resp2.status_code}")
+                result.add_fail("GET /chat/sessions/{id}", f"Status {resp2.status_code}")
 
             # Test delete session
-            resp3, err3 = test_api("DELETE", f"/chat/session/{session_id}")
+            resp3, err3 = test_api("DELETE", f"/chat/sessions/{session_id}")
             if err3:
-                result.add_fail("DELETE /chat/session/{id}", err3)
+                result.add_fail("DELETE /chat/sessions/{id}", err3)
             elif resp3.status_code == 200:
-                result.add_pass("DELETE /chat/session/{id}", "Session deleted")
+                result.add_pass("DELETE /chat/sessions/{id}", "Session deleted")
             else:
-                result.add_fail("DELETE /chat/session/{id}", f"Status {resp3.status_code}")
+                result.add_fail("DELETE /chat/sessions/{id}", f"Status {resp3.status_code}")
     else:
-        result.add_fail("POST /chat/session", f"Status {resp.status_code}")
+        result.add_fail("POST /chat/sessions", f"Status {resp.status_code}")
 
 
 def test_rag_api(result: TestResult):

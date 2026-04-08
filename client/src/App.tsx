@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, Suspense, lazy } from 'react'
+﻿import { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { Layout, message, ConfigProvider, theme as antdTheme } from 'antd'
-import { AnimatePresence, motion } from 'framer-motion'
+import { Layout, App as AntApp, ConfigProvider, theme as antdTheme } from 'antd'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 
 import Sidebar from './components/Sidebar'
 import HeaderBar from './components/HeaderBar'
@@ -9,11 +9,12 @@ import ErrorBoundary from './components/ErrorBoundary'
 import { useAppStore } from './store/appStore'
 import { checkBackendHealth } from './services/api'
 import { ThemeProvider, useTheme } from './theme'
+import { useResponsive } from './hooks/useResponsive'
+import PageSkeleton from './components/shared/PageSkeleton'
 import zhCN from 'antd/locale/zh_CN'
 
 const { Content } = Layout
 
-// 懒加载页面组件
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const DeviceInfo = lazy(() => import('./pages/DeviceInfo'))
 const ModelManager = lazy(() => import('./pages/ModelManager'))
@@ -38,20 +39,24 @@ const HeartbeatPage = lazy(() => import('./pages/HeartbeatPage'))
 const FeedbackPanel = lazy(() => import('./components/FeedbackPanel'))
 const HelpPanel = lazy(() => import('./components/HelpPanel'))
 
-// 椤甸潰杩囨浮鍔ㄧ敾閰嶇疆
 const pageVariants = {
-  initial: { opacity: 0, y: 10 },
-  animate: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -10 }
+  initial: { opacity: 0, y: 16, scale: 0.995, filter: 'blur(3px)' },
+  animate: { opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' },
+  exit: { opacity: 0, y: -12, scale: 0.996, filter: 'blur(2px)' },
 }
 
 const pageTransition = {
-  duration: 0.3,
-  ease: [0.16, 1, 0.3, 1] as const
+  duration: 0.38,
+  ease: [0.16, 1, 0.3, 1] as const,
 }
 
-// 椤甸潰鍖呰缁勪欢
 function PageWrapper({ children }: { children: React.ReactNode }) {
+  const shouldReduceMotion = useReducedMotion()
+
+  if (shouldReduceMotion) {
+    return <div style={{ height: '100%' }}>{children}</div>
+  }
+
   return (
     <motion.div
       initial="initial"
@@ -66,7 +71,6 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
   )
 }
 
-// 鍔犺浇鍔ㄧ敾缁勪欢
 const LoadingScreen = () => (
   <motion.div
     initial={{ opacity: 0 }}
@@ -84,63 +88,53 @@ const LoadingScreen = () => (
   >
     <motion.div
       animate={{ opacity: [0.8, 1, 0.8] }}
-      transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+      transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
       style={{
-        width: 56,
-        height: 56,
-        borderRadius: '12px',
-        background: 'var(--text-primary)',
+        width: 64,
+        height: 64,
+        borderRadius: '14px',
+        background: 'var(--gradient-primary)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        fontSize: '28px',
+        fontSize: '24px',
+        fontWeight: 800,
         color: 'var(--text-inverse)',
+        boxShadow: 'var(--shadow-lg)',
       }}
     >
-      鈿?    </motion.div>
+      FT
+    </motion.div>
     <div style={{ textAlign: 'center' }}>
-      <div style={{
-        fontSize: '18px',
-        fontWeight: 600,
-        color: 'var(--text-primary)',
-        marginBottom: 8,
-      }}>
+      <div
+        style={{
+          fontSize: '20px',
+          fontWeight: 700,
+          color: 'var(--text-primary)',
+          marginBottom: 8,
+          letterSpacing: '0.02em',
+        }}
+      >
         Finetune Platform
       </div>
-      <div style={{
-        fontSize: '14px',
-        color: 'var(--text-secondary)',
-      }}>
-        姝ｅ湪鍒濆鍖?..
+      <div
+        style={{
+          fontSize: '14px',
+          color: 'var(--text-secondary)',
+        }}
+      >
+        正在加载工作台...
       </div>
     </div>
   </motion.div>
 )
 
-// 椤甸潰鍔犺浇鍗犱綅
 const PageLoader = () => (
-  <div style={{
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    height: '100%',
-    minHeight: '400px',
-  }}>
-    <motion.div
-      animate={{ rotate: 360 }}
-      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-      style={{
-        width: 32,
-        height: 32,
-        border: '2px solid var(--border-color)',
-        borderTopColor: 'var(--accent-primary)',
-        borderRadius: '50%',
-      }}
-    />
+  <div style={{ minHeight: '400px' }}>
+    <PageSkeleton />
   </div>
 )
 
-// 璺敱閰嶇疆
 const routes = [
   { path: '/dashboard', element: <Dashboard /> },
   { path: '/device', element: <DeviceInfo /> },
@@ -168,11 +162,14 @@ const routes = [
 ]
 
 function AppContent() {
+  const { message } = AntApp.useApp()
   const location = useLocation()
   const { setBackendUrl, setBackendStatus, sidebarCollapsed } = useAppStore()
   const { theme } = useTheme()
+  const { isMobile } = useResponsive()
   const [loading, setLoading] = useState(true)
   const disconnectWarnedRef = useRef(false)
+
   useEffect(() => {
     const applyBackendStatus = (isHealthy: boolean) => {
       setBackendStatus(isHealthy ? 'connected' : 'disconnected')
@@ -183,7 +180,7 @@ function AppContent() {
       }
 
       if (!disconnectWarnedRef.current) {
-        message.warning('后端服务未连接，请启动应用')
+        message.warning('后端服务未连接，请先启动后端')
         disconnectWarnedRef.current = true
       }
     }
@@ -213,13 +210,13 @@ function AppContent() {
       try {
         const isHealthy = await checkBackendHealth()
         applyBackendStatus(isHealthy)
-      } catch (error) {
+      } catch {
         applyBackendStatus(false)
       }
     }, 5000)
 
     return () => clearInterval(checkInterval)
-  }, [])
+  }, [setBackendStatus, setBackendUrl])
 
   if (loading) {
     return <LoadingScreen />
@@ -233,17 +230,17 @@ function AppContent() {
           algorithm: theme === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
           token: {
             colorPrimary: '#d4a373',
-            colorSuccess: '#5b8a72',
+            colorSuccess: '#3f8f70',
             colorWarning: '#d4a373',
-            colorError: '#c45c48',
-            colorInfo: '#5b8a72',
-            borderRadius: 8,
-            borderRadiusLG: 12,
+            colorError: '#cc5f45',
+            colorInfo: '#3f8f70',
+            borderRadius: 10,
+            borderRadiusLG: 14,
             borderRadiusSM: 4,
-            fontFamily: "'Inter', 'Source Han Sans CN', -apple-system, BlinkMacSystemFont, sans-serif",
-            fontSize: 15,
+            fontFamily: "'Avenir Next', 'Segoe UI Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+            fontSize: 14,
             fontSizeLG: 18,
-            fontSizeSM: 13,
+            fontSizeSM: 12,
             controlHeight: 40,
             controlHeightLG: 48,
             controlHeightSM: 32,
@@ -251,20 +248,20 @@ function AppContent() {
           },
           components: {
             Button: {
-              borderRadius: 8,
+              borderRadius: 10,
               controlHeight: 40,
               fontWeight: 600,
             },
             Card: {
-              borderRadius: 12,
+              borderRadius: 14,
               boxShadow: 'var(--shadow-sm)',
             },
             Input: {
-              borderRadius: 8,
+              borderRadius: 10,
               controlHeight: 40,
             },
             Select: {
-              borderRadius: 8,
+              borderRadius: 10,
               controlHeight: 40,
             },
             Modal: {
@@ -272,21 +269,23 @@ function AppContent() {
               boxShadow: 'var(--shadow-xl)',
             },
             Tooltip: {
-              borderRadius: 6,
+              borderRadius: 8,
             },
-          }
+          },
         }}
       >
         <Layout
+          className="app-shell"
           style={{
             minHeight: '100vh',
-            background: 'var(--bg-primary)',
+            background: 'transparent',
           }}
         >
           <Sidebar />
           <Layout
+            className="app-main"
             style={{
-              marginLeft: sidebarCollapsed ? 72 : 240,
+              marginLeft: isMobile ? 0 : sidebarCollapsed ? 72 : 240,
               transition: 'margin-left 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
               minHeight: '100vh',
               background: 'transparent',
@@ -294,10 +293,11 @@ function AppContent() {
           >
             <HeaderBar />
             <Content
+              className="app-content"
               style={{
-                margin: 'clamp(16px, 2vw, 32px) clamp(12px, 2vw, 24px)',
+                margin: isMobile ? '12px 10px 20px' : 'clamp(16px, 2vw, 32px) clamp(12px, 2vw, 24px)',
                 padding: 0,
-                minHeight: 'calc(100vh - 64px - 64px)',
+                minHeight: 'calc(100vh - 56px - 32px)',
               }}
             >
               <AnimatePresence mode="wait">
@@ -309,9 +309,7 @@ function AppContent() {
                       path={path}
                       element={
                         <PageWrapper>
-                          <Suspense fallback={<PageLoader />}>
-                            {element}
-                          </Suspense>
+                          <Suspense fallback={<PageLoader />}>{element}</Suspense>
                         </PageWrapper>
                       }
                     />
@@ -335,4 +333,3 @@ function App() {
 }
 
 export default App
-

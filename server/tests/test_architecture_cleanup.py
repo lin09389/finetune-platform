@@ -1,0 +1,268 @@
+from __future__ import annotations
+
+import json
+import importlib
+
+import pytest
+from fastapi import HTTPException
+from httpx import ASGITransport, AsyncClient
+
+workspace_api = importlib.import_module("api.workspace")
+chat_session = importlib.import_module("api.chat.session")
+chat_branch_api = importlib.import_module("api.chat_branch")
+cua_api = importlib.import_module("api.cua")
+heartbeat_api = importlib.import_module("api.heartbeat")
+gateway_routes = importlib.import_module("api.gateway_api.routes")
+main_module = importlib.import_module("main")
+
+from api.chat_branch import (
+    CreateBranchRequest,
+    create_branch,
+    get_message_tree,
+    list_branches,
+    merge_branch,
+    switch_branch,
+)
+from api.cua import (
+    RecordLoadRequest,
+    RecordSaveRequest,
+    clear_recorded_actions,
+    get_action_recorder,
+    load_recorded_actions,
+    save_recorded_actions,
+)
+from cua.recorder import RecordedAction
+from gateway.cross_agent import CrossAgentCommunicator
+from gateway.device_auth import DeviceAuthManager
+from heartbeat import HeartbeatScheduler
+
+
+class _VectorStoreStub:
+    def __init__(self) -> None:
+        self.collections: dict[str, list[dict]] = {}
+
+    def get_or_create_collection(self, name: str):
+        self.collections.setdefault(name, [])
+        return name
+
+    def get_collection_stats(self, name: str):
+        return {"count": len(self.collections.get(name, []))}
+
+    def list_documents(self, name: str):
+        return list(self.collections.get(name, []))
+
+    def delete_collection(self, name: str):
+        self.collections.pop(name, None)
+
+
+@pytest.mark.asyncio
+async def test_workspace_metadata_persists(tmp_path, monkeypatch):
+    metadata_file = tmp_path / "metadata.json"
+    monkeypatch.setattr(workspace_api, "WORKSPACE_METADATA_FILE", metadata_file)
+    monkeypatch.setattr(workspace_api, "workspaces", {})
+    monkeypatch.setattr(workspace_api, "get_vector_store", lambda: _VectorStoreStub())
+
+    created = await workspace_api.create_workspace(
+        workspace_api.WorkspaceCreate(name="Persistent", description="test")
+    )
+
+    assert metadata_file.exists()
+    payload = json.loads(metadata_file.read_text(encoding="utf-8"))
+    assert created.id in payload
+    assert payload[created.id]["name"] == "Persistent"
+
+
+@pytest.mark.asyncio
+async def test_cua_record_save_load_and_clear(tmp_path, monkeypatch):
+    recorder = get_action_recorder()
+    recorder.clear_actions()
+    recorder._actions = [
+        RecordedAction(action_type="mouse_move", timestamp=0.1, data={"x": 10, "y": 20})
+    ]
+
+    monkeypatch.setattr(cua_api, "get_recordings_dir", lambda: tmp_path)
+
+    saved = await save_recorded_actions(RecordSaveRequest(filename="session-one"))
+    assert saved["success"] is True
+    assert (tmp_path / "session-one.json").exists()
+
+    recorder.clear_actions()
+    loaded = await load_recorded_actions(RecordLoadRequest(filepath="session-one.json"))
+    assert loaded["success"] is True
+    assert recorder.get_action_count() == 1
+
+    cleared = await clear_recorded_actions()
+    assert cleared["success"] is True
+    assert recorder.get_action_count() == 0
+
+
+@pytest.mark.asyncio
+async def test_chat_branch_uses_session_storage(tmp_path):
+    chat_session._session_manager = chat_session.SessionManager(storage_path=str(tmp_path / "sessions"))
+    manager = chat_session.get_session_manager()
+    session = manager.create_session(title="Branch Test")
+    session.add_message(role="user", content="hello")
+    manager.save_session(session.id)
+
+    response = await create_branch(
+        CreateBranchRequest(session_id=session.id, from_message_id=session.messages[0].id, branch_name="alt")
+    )
+    assert response.success is True
+
+    branches = await list_branches(session.id)
+    assert len(branches.branches) == 1
+    assert branches.branches[0].root_message_id == session.messages[0].id
+
+    tree = await get_message_tree(session.id)
+    assert tree.root_id == session.messages[0].id
+    assert session.messages[0].id in tree.nodes
+
+    switched = await switch_branch(session.id, response.branch.id)
+    assert switched["success"] is True
+
+    with pytest.raises(HTTPException) as exc:
+        await merge_branch(session.id, response.branch.id)
+    assert exc.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_training_root_alias_is_removed():
+    transport = ASGITransport(app=main_module.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/training")
+
+    assert response.status_code in {404, 405}
+
+
+@pytest.mark.asyncio
+async def test_chat_compat_routes_are_removed():
+    transport = ASGITransport(app=main_module.app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        create_response = await client.post("/chat", json={"title": "compat route"})
+        get_response = await client.get("/chat/test-session")
+        delete_response = await client.delete("/chat/test-session")
+        message_response = await client.post(
+            "/chat/test-session/messages",
+            json={"messages": [{"role": "user", "content": "hello"}]},
+        )
+
+    assert create_response.status_code in {404, 405}
+    assert get_response.status_code in {404, 405}
+    assert delete_response.status_code in {404, 405}
+    assert message_response.status_code in {404, 405}
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_missing_task_operations_raise_404(monkeypatch):
+    scheduler = HeartbeatScheduler()
+    monkeypatch.setattr(heartbeat_api, "get_heartbeat_scheduler", lambda: scheduler)
+
+    with pytest.raises(HTTPException) as exc:
+        await heartbeat_api.delete_task("missing-task")
+    assert exc.value.status_code == 404
+
+    with pytest.raises(HTTPException) as exc:
+        await heartbeat_api.enable_task("missing-task")
+    assert exc.value.status_code == 404
+
+    with pytest.raises(HTTPException) as exc:
+        await heartbeat_api.disable_task("missing-task")
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_create_task_returns_task_payload(monkeypatch):
+    scheduler = HeartbeatScheduler()
+    monkeypatch.setattr(heartbeat_api, "get_heartbeat_scheduler", lambda: scheduler)
+
+    response = await heartbeat_api.create_task(
+        heartbeat_api.TaskCreateRequest(
+            name="demo",
+            description="desc",
+            schedule="60",
+            task_type="check",
+            enabled=True,
+            config={"scope": "test"},
+        )
+    )
+
+    assert response["success"] is True
+    assert response["task"]["name"] == "demo"
+    assert response["task"]["task_type"] == "check"
+    assert response["task"]["config"] == {"scope": "test"}
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_list_and_get_task_return_canonical_fields(monkeypatch):
+    scheduler = HeartbeatScheduler()
+    task = heartbeat_api.HeartbeatTask(
+        id="task-1",
+        name="demo",
+        description="desc",
+        schedule="60",
+        enabled=True,
+        metadata={"type": "report", "scope": "test"},
+    )
+    scheduler.add_task(task)
+    monkeypatch.setattr(heartbeat_api, "get_heartbeat_scheduler", lambda: scheduler)
+
+    tasks = await heartbeat_api.list_tasks()
+    fetched = await heartbeat_api.get_task("task-1")
+
+    assert tasks["tasks"][0]["task_type"] == "report"
+    assert tasks["tasks"][0]["config"] == {"scope": "test"}
+    assert fetched["task_type"] == "report"
+    assert fetched["config"] == {"scope": "test"}
+
+
+@pytest.mark.asyncio
+async def test_gateway_missing_entities_raise_http_errors(monkeypatch):
+    auth_manager = DeviceAuthManager(secret_key="test")
+    communicator = CrossAgentCommunicator()
+    monkeypatch.setattr(gateway_routes, "get_device_auth_manager", lambda: auth_manager)
+    monkeypatch.setattr(gateway_routes, "get_cross_agent_communicator", lambda: communicator)
+
+    with pytest.raises(HTTPException) as exc:
+        await gateway_routes.unregister_device("missing-device")
+    assert exc.value.status_code == 404
+
+    with pytest.raises(HTTPException) as exc:
+        await gateway_routes.set_device_permissions("missing-device", level="user")
+    assert exc.value.status_code == 404
+
+    with pytest.raises(HTTPException) as exc:
+        await gateway_routes.send_and_wait(
+            gateway_routes.MessageSendRequest(target_agent="missing-agent", payload={"hello": "world"})
+        )
+    assert exc.value.status_code == 504
+
+    with pytest.raises(HTTPException) as exc:
+        await gateway_routes.broadcast_message(payload={"hello": "world"})
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_gateway_devices_include_canonical_fields_and_permissions(monkeypatch):
+    auth_manager = DeviceAuthManager(secret_key="test")
+    monkeypatch.setattr(gateway_routes, "get_device_auth_manager", lambda: auth_manager)
+
+    registered = await gateway_routes.register_device(
+        gateway_routes.DeviceRegisterRequest(
+            device_id="device-1",
+            device_type="web",
+            device_name="Demo Device",
+            metadata={"source": "test"},
+        )
+    )
+    assert registered["success"] is True
+
+    devices = await gateway_routes.list_devices()
+    device = devices["devices"][0]
+
+    assert device["id"] == "device-1"
+    assert device["device_id"] == "device-1"
+    assert device["name"] == "Demo Device"
+    assert device["device_name"] == "Demo Device"
+    assert device["type"] == "web"
+    assert device["device_type"] == "web"
+    assert "chat" in device["permissions"]

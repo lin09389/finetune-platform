@@ -1,6 +1,7 @@
 .dashboardContainer {
   padding: 0 var(--space-6) var(--space-6);
   min-height: 100%;
+  position: relative;
 }
 
 .pageHeader {
@@ -8,6 +9,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  padding: var(--space-4) 0 var(--space-2);
 }
 
 .titleWrapper {
@@ -20,7 +22,7 @@
   width: clamp(32px, 4vw, 44px);
   height: clamp(32px, 4vw, 44px);
   border-radius: var(--radius-lg);
-  background: var(--text-primary);
+  background: var(--gradient-primary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -41,6 +43,7 @@
   margin: 0 0 0 calc(clamp(32px, 4vw, 44px) + var(--space-4));
   color: var(--text-secondary);
   font-size: var(--text-sm);
+  max-width: 68ch;
 }
 
 .sectionTitle {
@@ -85,6 +88,12 @@
 .quickActionCard {
   cursor: pointer;
   height: 100%;
+  transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-base);
+}
+
+.quickActionCard:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lg);
 }
 
 .quickActionIcon {
@@ -98,6 +107,11 @@
   color: var(--text-inverse);
   margin-bottom: var(--space-4);
   box-shadow: var(--shadow-md);
+  transition: transform var(--transition-base);
+}
+
+.quickActionCard:hover .quickActionIcon {
+  transform: rotate(-4deg) scale(1.04);
 }
 
 .quickActionTitle {
@@ -117,6 +131,7 @@
 /* History Card */
 .historyCard {
   margin-top: var(--space-8);
+  border: 1px solid color-mix(in srgb, var(--border-color) 84%, transparent);
 }
 
 .historyHeader {
@@ -150,4 +165,14 @@
 
 .tableWrapper :global(.ant-table-tbody > tr:hover > td) {
   background: var(--bg-hover) !important;
+}
+
+@media (max-width: 768px) {
+  .dashboardContainer {
+    padding: 0 var(--space-2) var(--space-5);
+  }
+
+  .subtitle {
+    margin-left: 0;
+  }
 }

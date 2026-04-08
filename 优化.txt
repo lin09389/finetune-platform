@@ -1,157 +1,478 @@
-这是一个非常宏大且前沿的架构设计话题。将分层意图架构 (Layered Intent Architecture) 与 混合模型架构 (Hybrid Model Architecture) 结合，代表了当前 AI 工程化（AI Engineering）的最高水平。
+可以。下面我直接给你一份按优先级排序的架构整改方案，目标不是继续堆功能，而是先把项目从“功能很多”收敛成“主链路真实可用”。
 
-这种组合旨在解决单一模型架构无法同时满足的“不可能三角”：高智能（推理强）、低成本（响应快）、高安全（可控稳）。
+  ---
+  一、先给结论
 
-下面我将分三部分详解：首先拆解两个核心概念，然后展示它们如何融合成终极架构，最后给出落地实施指南。
+  你现在最需要的不是加模块，而是做三件事：
 
-第一部分：分层意图架构 (Layered Intent Architecture)
-—— 解决“做什么”和“怎么做”的决策流问题
+  1. 建立唯一事实源
+    - 一个领域只能有一套真实存储和一条 canonical API
+  2. 清掉伪实现
+    - 前端按钮不能调用不存在的接口
+    - 后端接口不能只返回 success 却不改数据
+  3. 把模块分级
+    - 核心能力优先闭环
+    - 试验能力降级展示，不和核心能力同级竞争资源
 
-这是一种自上而下、由粗到细的决策漏斗。它不依赖单一模型完成所有任务，而是通过多层过滤和路由，将请求分发到最合适的处理单元。
+  ---
+  二、建议你把项目先分成 3 条产品线
 
-🏗️ 四层核心结构
-层级   名称   核心职责   关键技术/组件   耗时/成本
-L1   网关过滤层(Gateway & Sanitization)   安检与清洗拦截攻击、过滤脏数据、限流。   正则、关键词匹配、轻量级 BERT、WAF 规则   ⚡ 极低 ((Routing & Mode Switching)   交通指挥判断意图复杂度，决定走哪条路。(这是灵魂层)   小参数模型 (1B-3B)、语义向量检索、规则引擎   🚀 低 ((Core Processing)   执行大脑根据路由结果，并行运行不同模式。   Chat 模式: 通用 LLMFlow 模式: 硬编码工作流ReAct 模式: 自主 Agent 循环   🐢 中/高 (取决于模式)
-L4   执行守卫层(Execution Guardrails)   刹车与审计在执行前/后进行最终合规性检查。   策略引擎 (OPA)、沙箱 (Docker)、人工审核接口   🛡️ 可变
+  A. 核心主线 1：Training
 
-💡 核心价值
-*   降本：80% 的简单请求（如闲聊、查状态）在 L2 被分流到廉价通道，只有 20% 的复杂请求进入昂贵的 ReAct 循环。
-*   增效：确定性任务（如重置密码）走硬编码 Flow，速度是纯 LLM 的 100 倍且 100% 准确。
-*   安全：L1 和 L4 构成双重防线，即使 L3 的模型产生幻觉或恶意代码，也会被 L4 物理拦截。
+  这是你当前最成熟、最接近“可交付系统”的部分。
 
-第二部分：混合模型架构 (Hybrid Model Architecture)
-—— 解决“用什么脑子想”的算力效率问题
+  范围：
+  - 数据集
+  - 模型
+  - 训练任务
+  - 训练进度
+  - 训练历史
 
-这里的“混合”主要指模型架构的混合（Transformer + SSM/Mamba）以及推理模式的混合（系统 1 快思考 + 系统 2 慢思考）。
+  核心文件：
+  - server/api/training.py:38
+  - server/core/training_state.py:81
+  - server/core/training_queue.py:76
+  - client/src/pages/Training/index.tsx:31
 
-🧬 两大混合维度
+  ---
+  B. 核心主线 2：Chat / Inference / Knowledge
 
-1. 架构混合：Transformer + Mamba (SSM)
-*   Transformer (Attention 机制)：
-    *   优势：全局关联能力强，逻辑推理深，适合复杂任务。
-    *   劣势：计算复杂度 O(n^2)，长文本显存爆炸，推理慢。
-*   Mamba / SSM (状态空间模型)：
-    *   优势：线性复杂度 O(n)，推理速度极快，显存占用低，适合长文本和流式处理。
-    *   劣势：复杂逻辑推理能力略弱于顶级 Transformer。
-*   混合策略：
-    *   在模型内部交替堆叠 Transformer 层和 Mamba 层。
-    *   或者动态路由：简单 token 走 Mamba 路径，关键逻辑 token 走 Transformer 路径。
+  这是第二条应该重点闭环的主线。
 
-2. 认知混合：System 1 + System 2
-*   System 1 (快思考)：直觉、模式匹配、快速反应。由小模型或 Mamba 主导。
-*   System 2 (慢思考)：逻辑推导、规划、反思。由大参数 Transformer 主导。
-*   混合策略：System 1 生成初稿或候选方案，System 2 进行批判性审查和修正。
+  范围：
+  - 会话
+  - 流式聊天
+  - inference backend
+  - knowledge 检索
+  - memory/context 注入
 
-💡 核心价值
-*   无限上下文：利用 Mamba 处理百万级 Token 文档而不丢失信息。
-*   极致性价比：简单任务用“小脑”（SSM），复杂任务用“大脑”（Transformer），算力利用率最大化。
-*   实时响应：流式生成时，大部分 token 由高速 SSM 生成，用户感觉不到延迟。
+  核心文件：
+  - server/api/inference/routes.py:189
+  - server/api/chat/routes.py:55
+  - server/api/chat/session.py:102
+  - client/src/pages/ChatNew.tsx:202
 
-第三部分：终极融合 —— 混合模型驱动的分层意图系统
+  ---
+  C. 扩展主线：Workspace / Agent / Gateway / Heartbeat / CUA / MCP
 
-当我们将两者结合，就得到了一个动态自适应的智能流体系统。在这个系统中，分层架构决定流程，混合模型提供动力。
+  这些不是不能做，而是不能和核心链路抢优先级。
 
-🌐 融合架构图解
+  建议：
+  - 暂时定义为 experimental
+  - 没闭环前不要当成主产品承诺
+  - UI 上应弱化、标实验态，避免误导用户
 
-graph TD
-    User[用户输入] --> L1[L1: 混合感知网关]
-    
-    subgraph "L2: 动态智能路由 (Hybrid Router)"
-        L1 --> Analyzer{混合分析引擎}
-        Analyzer -- 简单/高频/短文本 --> Path_Fast[路径 A: 系统 1]
-        Analyzer -- 复杂/逻辑/多步 --> Path_Slow[路径 B: 系统 2]
-        Analyzer -- 超长文档/记忆 --> Path_Long[路径 C: 长程记忆]
-    end
-    
-    subgraph "L3: 混合模型执行集群"
-        Path_Fast --> Model_SSM🚀 Mamba/小模型专家
-        Path_Slow --> Model_Transformer🧠 Transformer/MoE 专家
-        Path_Long --> Model_Hybrid📚 混合架构模型
-    end
-    
-    Model_SSM --> L4[L4: 混合守卫层]
-    Model_Transformer --> L4
-    Model_Hybrid --> L4
-    
-    subgraph "L4: 实时流式守卫"
-        L4 --> Check_Fast[SSM 实时流检测]
-        L4 --> Check_Slow[Transformer 深度语义审计]
-        Check_Fast --> Decision{通过？}
-        Check_Slow --> Decision
-        Decision -- 是 --> Output[输出]
-        Decision -- 否 --> Block[阻断/人工介入]
-    end
+  ---
+  三、整改优先级路线图
 
-⚙️ 核心运作机制详解
+  ---
+  P0：先恢复“系统可信度”
 
-1. L2 层的“动态门控” (Dynamic Gating)
-传统的 L2 只是简单的分类器。在融合架构中，L2 是一个微型混合模型：
-*   输入分析：它不仅看意图类别，还计算熵值（不确定性）和长度。
-*   动态决策：
-    *   若 Length  10k tokens to 激活 Path Long (Hybrid Model)，利用 Mamba 压缩上下文。
+  这一步的目标是：
 
-2. L3 层的“按需变形”
-*   场景 A：日常问答
-    *   系统自动调用 Mamba 专家。
-    *   效果：响应时间 < 100ms，成本仅为 Transformer 的 1/10。
-*   场景 B：复杂调试 (ReAct)
-    *   系统调用 Transformer 专家 启动 ReAct 循环。
-    *   Thought: “我需要查看日志。” to Action: read_log()。
-    *   Observation: 返回大量日志数据。
-    *   优化：此时系统动态切换内部状态，用 Mamba 处理日志读取（长序列），用 Transformer 进行错误定位推理。
-*   场景 C：长文档分析
-    *   系统调用 混合架构模型。
-    *   Mamba 层负责“阅读”整本书，建立全局状态向量。
-    *   Transformer 层负责针对具体问题，从状态向量中提取精确答案。
+  - 前端每个操作都有真实后端支撑
+  - 后端 success 一定对应真实状态变化
+  - 用户不会被“假成功”误导
 
-3. L4 层的“双流审计”
-*   快流 (Fast Stream)：使用 SSM 实时扫描生成的每一个 Token。如果发现敏感词或异常模式，毫秒级切断生成流。
-*   慢流 (Slow Stream)：在生成结束后（或关键节点），使用 Transformer 对整体语义进行深度审计，防止“隐晦的恶意意图”或“逻辑陷阱”。
+  ---
+  任务 1：统一 Chat Branch 存储体系
 
-📊 性能对比：传统 vs. 融合架构
-维度   传统单层 Transformer   分层意图 (仅路由)   融合架构 (分层 + 混合模型)
-简单请求延迟   ~600ms   ~300ms   ~40ms (SSM 加速)
-长文本处理上限   ~32k (显存受限)   ~100k (需分段)   1M+ Tokens (线性扩展)
-复杂推理准确率   高   高   极高 (专用 Transformer + 自我修正)
-Token 成本    (所有请求同等对待)    (部分分流)   **** (80% 流量走廉价 SSM)
-安全性   中 (依赖 Prompt)   高 (多层拦截)   极高 (流式 + 深度双重审计)
-能源效率   低   中   高 (按需激活计算单元)
+  优先级：最高
 
-🛠️ 落地实施路线图
+  当前问题
 
-如果你要构建这样的系统，建议按以下步骤演进：
+  ChatBranchManager 读的是一套独立文件结构，而主聊天系统写的是另一套。
 
-阶段一：搭建分层骨架 (Layering First)
-*   目标：实现 L1-L4 的流程打通。
-*   动作：
-    *   部署 L1 网关（Nginx + 规则引擎）。
-    *   训练/微调一个小模型（如 Qwen-1.5B）作为 L2 路由器。
-    *   实现 L3 的三种模式（Chat, Flow, ReAct），暂时全部使用同一个大模型后端。
-    *   开发 L4 的基础规则拦截。
-*   收益：立即获得安全性和成本优化的初步成果。
+  证据：
+  - client/src/components/ChatBranchManager.tsx:54
+  - server/api/chat_branch.py:16
+  - server/api/chat/session.py:105
 
-阶段二：引入混合基座 (Hybrid Base)
-*   目标：替换 L3 的核心模型。
-*   动作：
-    *   引入支持 Transformer + Mamba 的开源模型（如 Jamba, Zephyr-Mamba, 或百度/阿里的最新混合架构模型）。
-    *   配置推理引擎（如 vLLM 或 TGI），开启动态批处理和连续批处理。
-    *   调整 L2 路由策略，开始将短文本请求导向模型的 Mamba 主导模式（如果模型支持内部路由）。
+  架构决策
 
-阶段三：全链路自适应 (Full Adaptivity)
-*   目标：实现 System 1 + System 2 的显式协作。
-*   动作：
-    *   训练专用路由判别器：使用强化学习 (RL)，以 准确率 - λ * 成本 为奖励函数，优化 L2 的路由决策。
-    *   实现协作工作流：让 SSM 生成草稿，Transformer 进行审核（Self-Correction Loop）。
-    *   流式守卫：在推理引擎层面集成 SSM 实时检测插件。
+  把 SessionManager 对应的 session 存储 定义为 chat 领域唯一事实源。
 
-总结
+  推荐整改
 
-分层意图架构解决了流程控制问题，让系统变得有序、安全、可管理；
-混合模型架构解决了算力效率问题，让系统变得快速、便宜、能处理长文本。
+  方案
 
-两者的结合，就是未来的 AI 操作系统：
-*   它像水一样灵活：遇到石头（简单任务）绕过去（SSM 快通），遇到大坝（复杂任务）积蓄力量（Transformer 深算）。
-*   它像人一样思考：既有直觉反应（System 1），又有逻辑深思（System 2）。
-*   它像堡垒一样安全：层层设防，内外兼修。
+  - 废弃 data/chat/session_{id}.json 这套分支专用存储
+  - 所有 branch/tree 信息都挂到主 session 存储体系上
+  - server/api/chat_branch.py 不再自己管理独立 session 文件
 
-这是目前构建企业级、大规模、高可靠 AI 应用的唯一最优解。
+  文件焦点
+
+  - server/api/chat/session.py:105
+  - server/api/chat/routes.py:55
+  - server/api/chat_branch.py:16
+  - client/src/components/ChatBranchManager.tsx:78
+
+  验收标准
+
+  - 创建会话后，branch API 能读取到同一个 session
+  - branch tree 能反映真实消息历史
+  - 切换 branch 后刷新页面仍然存在
+  - 不再依赖 data/chat/...
+
+  ---
+  任务 2：处理 Action Recorder 缺失接口
+
+  优先级：最高
+
+  当前问题
+
+  前端调用了不存在的接口：
+
+  - POST /cua/record/save
+  - POST /cua/record/load
+  - DELETE /cua/record/actions
+
+  证据：
+  - client/src/pages/ActionRecorder.tsx:153
+  - client/src/pages/ActionRecorder.tsx:165
+  - client/src/pages/ActionRecorder.tsx:180
+  - server/api/cua.py:630
+  - server/api/cua.py:665
+
+  架构决策
+
+  在这个阶段，不允许“有按钮没后端”。
+
+  推荐整改
+
+  短期
+
+  二选一，必须立刻做一个：
+  1. 补齐后端接口
+  2. 前端先隐藏 save/load/clear 操作
+
+  如果你问我建议，我更倾向于：
+  - 如果 CUA 不是当前主线：先隐藏按钮
+  - 如果 CUA 是你后续重点：补齐完整保存/加载协议
+
+  文件焦点
+
+  - client/src/pages/ActionRecorder.tsx:153
+  - server/api/cua.py:630
+
+  验收标准
+
+  - 前端页面不再出现 404 操作
+  - 每个按钮都有真实副作用
+  - 成功 toast 只在状态持久化后出现
+
+  ---
+  任务 3：禁用“假成功”接口
+
+  优先级：最高
+
+  重点对象：
+  - branch merge
+  - heartbeat/gateway 某些乐观 success
+
+  证据：
+  - server/api/chat_branch.py:173
+  - client/src/components/ChatBranchManager.tsx:223
+  - server/api/heartbeat.py:94
+  - server/api/gateway_api/routes.py:96
+
+  架构决策
+
+  没有真实状态变化，就不能返回 success。
+
+  推荐整改
+
+  - 对 branch merge：
+    - 要么实现真实 merge
+    - 要么暂时删除 / 禁用“合并分支”按钮
+  - 对 heartbeat/gateway：
+    - success 必须依赖后端验证结果
+    - 不能默认 {"success": true} 当通用出口
+
+  验收标准
+
+  - “成功提示”一定能通过刷新页面验证
+  - 接口返回值必须包含真实结果，而不只是 success 布尔值
+
+  ---
+  P1：补齐数据闭环
+
+  这一步目标是：
+
+  - 系统重启后数据不丢
+  - 存储与 UI 认知一致
+  - 核心状态可以被追溯
+
+  ---
+  任务 4：让 Workspace 元数据持久化
+
+  优先级：高
+
+  当前问题
+
+  workspace 现在只存在内存：
+  - server/api/workspace.py:19
+
+  架构决策
+
+  workspace 必须成为“可重启恢复”的对象，而不是临时变量。
+
+  推荐整改
+
+  把 workspace 元数据持久化为统一存储对象，至少包含：
+
+  - workspace_id
+  - name
+  - description
+  - created_at
+  - updated_at
+  - document_count
+  - vector_collection_name
+  - status
+
+  同时保留：
+  - 启动时重建内存索引
+  - 删除时同步清理向量集合/元数据
+
+  文件焦点
+
+  - server/api/workspace.py:19
+  - client/src/pages/WorkspaceManager.tsx:43
+
+  验收标准
+
+  - 创建 workspace 后重启服务仍可见
+  - 列表与实际向量集合一致
+  - 删除 workspace 后状态一致更新
+
+  ---
+  任务 5：真正实现 Branch Merge，或者明确废弃
+
+  优先级：高
+
+  当前问题
+
+  merge-branch 只是返回成功，不改数据：
+  - server/api/chat_branch.py:173
+
+  架构决策
+
+  Branch merge 不能停留在“接口名字存在”。
+
+  推荐整改
+
+  如果保留 merge 功能，需要明确定义 merge 语义：
+
+  你需要先定一种规则
+
+  - 是把 branch 的消息 append 到主分支？
+  - 还是合并节点图结构？
+  - 还是只做“切换主分支 + 保留历史”？
+
+  我建议别做复杂 git-like merge，先做最简单可解释版本：
+
+  推荐版本
+
+  - 只允许把某 branch 的后续节点挂接到当前主链末端
+  - 保留来源 branch_id
+  - 记录 merge_at / merge_from
+  - 冲突场景先不支持
+
+  如果你不准备现在做，就先移除 merge UI。
+
+  验收标准
+
+  - merge 后刷新仍保留
+  - merge 后消息链真实变化
+  - UI 能看到 merge 来源信息
+
+  ---
+  P2：减少架构噪音，建立 canonical path
+
+  这一步目标是：
+
+  - 同一功能只有一条“官方路径”
+  - 减少维护误改
+  - 给后续重构腾空间
+
+  ---
+  任务 6：清理 Knowledge 的 stub 文件
+
+  优先级：高
+
+  当前问题
+
+  项目同时存在：
+  - server/api/knowledge.py
+  - server/api/knowledge/routes.py
+
+  其中前者是误导性 stub：
+  - server/api/knowledge.py:29
+
+  架构决策
+
+  knowledge 领域只能保留一个正式入口。
+
+  推荐整改
+
+  二选一：
+  1. 直接删除 server/api/knowledge.py
+  2. 或重命名为 knowledge_stub_unused.py 并从代码树移除引用价值
+
+  我更建议：直接删
+
+  验收标准
+
+  - 开发者不会再误改 stub
+  - knowledge 路由来源唯一且明确
+  - 文档/导出路径一致
+
+  ---
+  任务 7：统一前后端默认配置
+
+  优先级：高
+
+  当前问题
+
+  默认端口不一致：
+  - 后端 8001：server/core/config.py:28
+  - 前端 8000：client/src/services/api.ts:8
+  - client/src/App.tsx:194
+
+  架构决策
+
+  配置必须有一个统一源，至少在默认开发态一致。
+
+  推荐整改
+
+  - 前后端统一默认端口
+  - 前端不要在多处硬编码 backend URL
+  - 最终只保留一个默认来源
+
+  验收标准
+
+  - 新开发者拉仓库后按默认命令能直接连通
+  - health 检查不会因为默认值漂移而误报
+
+  ---
+  任务 8：收敛前端状态中心
+
+  优先级：中高
+
+  当前问题
+
+  appStore 和 chatStore 存在职责重叠：
+  - client/src/store/appStore.ts:26
+  - client/src/store/chatStore.ts:61
+
+  架构决策
+
+  一个业务域只能有一个主要 store。
+
+  推荐整改
+
+  - chatStore 成为 chat 领域唯一 store
+  - appStore 只保留全局壳层状态
+    - 主题
+    - backend status
+    - sidebar
+    - 全局设备信息
+  - 清理 chat/session 在 appStore 中的残留状态
+
+  验收标准
+
+  - chat 页面所有消息/会话/流式状态只来自一个 store
+  - 不再有双份 session state
+
+  ---
+  P3：模块分层与产品收口
+
+  这一步不是 bug fix，而是长期稳定性的关键。
+
+  ---
+  任务 9：给非核心模块降级
+
+  建议把这些模块标记为 experimental：
+
+  - Gateway
+  - Heartbeat
+  - CUA
+  - MCP
+
+  原因：
+  - 当前它们不是系统最稳的闭环
+  - 继续把它们放在一线主功能，会稀释主链路资源
+
+  推荐整改
+
+  - UI 上加实验标识
+  - 没闭环的功能入口先下沉
+  - 文档明确“实验特性 / 开发中”
+
+  ---
+  任务 10：建立“伪实现红线”
+
+  以后任何功能上线都必须满足 4 条：
+
+  1. 前端操作有真实后端接口
+  2. 后端返回 success 必须有真实状态变化
+  3. 刷新页面后状态仍能验证
+  4. 至少有一条端到端测试或契约测试
+
+  ---
+  四、建议你按这个顺序改
+
+  第一批：先做
+
+  1. Chat Branch 存储统一
+  2. Action Recorder 缺失接口/隐藏无效按钮
+  3. 移除假 success
+  4. Workspace 持久化
+
+  这是恢复系统可信度的关键批次。
+
+  ---
+  第二批：紧接着做
+
+  5. 删除 knowledge stub
+  6. 统一默认配置
+  7. 收敛 chat state/store
+
+  这是降低维护成本的关键批次。
+
+  ---
+  第三批：最后做
+
+  8. Gateway/Heartbeat/CUA/MCP 重新分级
+  9. 补契约测试
+  10. 清理 legacy alias / 兼容层
+
+  这是为长期演进做准备。
+
+  ---
+  五、如果我是这个项目的架构 owner，我会定这几个硬规则
+
+  规则 1
+
+  一个领域只能有一个 canonical 存储模型。
+
+  例如：
+  - chat session 只能有一套真实 session storage
+  - workspace 只能有一套元数据持久化模型
+
+  ---
+  规则 2
+
+  任何 success 都必须可刷新验证。
+
+  ---
+  规则 3
+
+  所有 experimental 功能默认不进入主承诺。
+
+  ---
+  规则 4
+
+  优先做闭环，不优先做展示面。
+
+  ---

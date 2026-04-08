@@ -1,4 +1,4 @@
-"""
+﻿"""
 核心配置管理模块
 """
 from pathlib import Path
@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     )
 
     host: str = Field(default="127.0.0.1", description="服务主机")
-    port: int = Field(default=8001, ge=1, le=65535, description="服务端口")
+    port: int = Field(default=8000, ge=1, le=65535, description="服务端口")
 
     environment: Literal["development", "staging", "production"] = Field(
         default="development",

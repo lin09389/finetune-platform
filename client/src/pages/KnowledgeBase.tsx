@@ -43,7 +43,7 @@ export default function KnowledgeBase() {
 
   const checkEmbedderStatus = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/v2/knowledge/embedder/status`, {
+      const response = await fetch(`${API_BASE_URL}/knowledge/embedder/status`, {
         signal: AbortSignal.timeout(5000)
       })
       if (response.ok) {
@@ -58,7 +58,7 @@ export default function KnowledgeBase() {
   const preloadEmbedder = async () => {
     setPreloading(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/v2/knowledge/embedder/preload`, {
+      const response = await fetch(`${API_BASE_URL}/knowledge/embedder/preload`, {
         method: 'POST',
         signal: AbortSignal.timeout(120000)
       })
@@ -125,7 +125,7 @@ export default function KnowledgeBase() {
         
         setUploadStatus('正在上传文件...')
         
-        const response = await fetch(`${API_BASE_URL}/v2/knowledge/upload`, {
+        const response = await fetch(`${API_BASE_URL}/knowledge/upload`, {
           method: 'POST',
           body: formData,
           signal: controller.signal,
@@ -177,7 +177,7 @@ export default function KnowledgeBase() {
 
   const loadCollectionInfo = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/v2/knowledge/collections/${collectionId}`, {
+      const response = await fetch(`${API_BASE_URL}/knowledge/collections/${collectionId}`, {
         signal: AbortSignal.timeout(10000)
       })
       if (response.ok) {
@@ -192,7 +192,7 @@ export default function KnowledgeBase() {
   const handleDelete = async (docId: string) => {
     try {
       const response = await fetch(
-        `${API_BASE_URL}/v2/knowledge/collections/${collectionId}/documents/${docId}`,
+        `${API_BASE_URL}/knowledge/collections/${collectionId}/documents/${docId}`,
         { method: 'DELETE' }
       )
       

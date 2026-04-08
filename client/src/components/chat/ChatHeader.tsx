@@ -1,10 +1,10 @@
-import React, { useCallback } from 'react'
+﻿import React, { useCallback } from 'react'
 import { Button, Space, Select, Dropdown, Tooltip, Modal, message } from 'antd'
-import { 
-  PlusOutlined, 
-  HistoryOutlined, 
-  ExportOutlined, 
-  MoreOutlined, 
+import {
+  PlusOutlined,
+  HistoryOutlined,
+  ExportOutlined,
+  MoreOutlined,
   ClearOutlined,
   CloudOutlined,
   BookOutlined,
@@ -14,6 +14,8 @@ import {
 } from '@ant-design/icons'
 import { motion } from 'framer-motion'
 import { transitions } from '../../theme/animations'
+import { useResponsive } from '../../hooks/useResponsive'
+import styles from './ChatHeader.module.css'
 
 interface BackendInfo {
   id: string
@@ -27,30 +29,23 @@ interface ChatHeaderProps {
   onOpenMemory: () => void
   onClearChat: () => void
   onExportChat: (format: 'markdown' | 'json') => void
-  
   currentBackend: string
   backends: BackendInfo[]
   onBackendChange: (backend: string) => void
-  
   currentModel: string | undefined
   models: { id: string; name: string }[]
   onModelChange: (model: string) => void
-  
   useCloudAI: boolean
   onToggleCloudAI: () => void
   cloudAIConfigured: boolean
   onOpenCloudAIConfig: () => void
-  
   useKnowledge: boolean
   onToggleKnowledge: () => void
   collectionsCount: number
-  
   useMemory: boolean
   onToggleMemory: () => void
-  
   theme: 'light' | 'dark'
   onToggleTheme: () => void
-  
   messageCount: number
   isLoading: boolean
   isStreaming: boolean
@@ -83,17 +78,22 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
   isLoading,
   isStreaming,
 }) => {
-  const handleExport = useCallback((format: 'markdown' | 'json') => {
-    if (messageCount === 0) {
-      message.warning('暂无对话内容')
-      return
-    }
-    onExportChat(format)
-  }, [messageCount, onExportChat])
+  const { isMobile } = useResponsive()
+
+  const handleExport = useCallback(
+    (format: 'markdown' | 'json') => {
+      if (messageCount === 0) {
+        message.warning('暂无对话内容')
+        return
+      }
+      onExportChat(format)
+    },
+    [messageCount, onExportChat]
+  )
 
   const handleClear = useCallback(() => {
     if (messageCount === 0) return
-    
+
     Modal.confirm({
       title: '确认清空',
       content: '确定要清空当前对话吗？',
@@ -103,13 +103,13 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
     })
   }, [messageCount, onClearChat])
 
-  const backendOptions = backends.map(b => ({
+  const backendOptions = backends.map((b) => ({
     value: b.id,
     label: b.available ? b.name : `${b.name} (不可用)`,
     disabled: !b.available,
   }))
 
-  const modelOptions = models.map(m => ({
+  const modelOptions = models.map((m) => ({
     value: m.id,
     label: m.name,
   }))
@@ -118,49 +118,28 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
     <motion.div
       initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.1, ...transitions.base }}
-      style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '12px 24px',
-        background: 'var(--bg-secondary)',
-        borderBottom: '1px solid var(--border-color)',
-        flexShrink: 0,
-      }}
+      transition={{ delay: 0.08, ...transitions.base }}
+      className={`${styles.header} ${isMobile ? styles.headerMobile : ''}`}
     >
-      <Space>
+      <Space wrap>
         <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={onNewChat}
-            style={{ borderRadius: 8, height: 36 }}
-          >
+          <Button type="primary" icon={<PlusOutlined />} onClick={onNewChat} className={styles.actionButton}>
             新对话
           </Button>
         </motion.div>
-        
+
         <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-          <Button
-            icon={<HistoryOutlined />}
-            onClick={onOpenHistory}
-            style={{ borderRadius: 8, height: 36 }}
-          >
+          <Button icon={<HistoryOutlined />} onClick={onOpenHistory} className={styles.actionButton}>
             历史
           </Button>
         </motion.div>
-        
+
         <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-          <Button
-            icon={<BulbOutlined />}
-            onClick={onOpenMemory}
-            style={{ borderRadius: 8, height: 36 }}
-          >
+          <Button icon={<BulbOutlined />} onClick={onOpenMemory} className={styles.actionButton}>
             记忆
           </Button>
         </motion.div>
-        
+
         <Tooltip title={!cloudAIConfigured ? '点击配置云端 AI' : useCloudAI ? '当前使用云端 AI' : '切换到云端 AI'}>
           <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
             <Button
@@ -173,34 +152,34 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
                 }
               }}
               type={useCloudAI ? 'primary' : 'default'}
-              style={{ borderRadius: 8, height: 36 }}
+              className={styles.actionButton}
             >
-              {useCloudAI ? '☁️ 云端' : '🤖 本地'}
+              {useCloudAI ? '云端' : '本地'}
             </Button>
           </motion.div>
         </Tooltip>
-        
-        <Tooltip title={collectionsCount === 0 ? '请先在知识库页面上传文档' : useKnowledge ? '禁用知识库检索' : '启用知识库检索'}>
+
+        <Tooltip title={collectionsCount === 0 ? '请先在知识库页面上传文档' : useKnowledge ? '关闭知识检索' : '开启知识检索'}>
           <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
             <Button
               icon={<BookOutlined />}
               onClick={onToggleKnowledge}
               type={useKnowledge ? 'primary' : 'default'}
-              style={{ borderRadius: 8, height: 36 }}
+              className={styles.actionButton}
               disabled={collectionsCount === 0}
             >
               知识库
             </Button>
           </motion.div>
         </Tooltip>
-        
-        <Tooltip title={useMemory ? '禁用记忆系统' : '启用记忆系统'}>
+
+        <Tooltip title={useMemory ? '关闭记忆系统' : '开启记忆系统'}>
           <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
             <Button
               icon={<BulbOutlined />}
               onClick={onToggleMemory}
               type={useMemory ? 'primary' : 'default'}
-              style={{ borderRadius: 8, height: 36 }}
+              className={styles.actionButton}
             >
               记忆
             </Button>
@@ -208,64 +187,59 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
         </Tooltip>
       </Space>
 
-      <Space>
+      <Space wrap>
         <Tooltip title={theme === 'light' ? '切换到深色模式' : '切换到浅色模式'}>
-          <motion.div 
-            whileHover={{ scale: 1.05, rotate: 15 }} 
-            whileTap={{ scale: 0.95 }}
-          >
-            <Button
-              icon={theme === 'light' ? <MoonOutlined /> : <SunOutlined />}
-              onClick={onToggleTheme}
-              style={{ borderRadius: 8, height: 36 }}
-            />
+          <motion.div whileHover={{ scale: 1.05, rotate: 12 }} whileTap={{ scale: 0.95 }}>
+            <Button icon={theme === 'light' ? <MoonOutlined /> : <SunOutlined />} onClick={onToggleTheme} className={styles.actionButton} />
           </motion.div>
         </Tooltip>
-        
+
         {!useCloudAI && (
           <>
             <Select
               value={currentBackend}
               onChange={onBackendChange}
-              style={{ width: 130, borderRadius: 8 }}
+              style={{ width: isMobile ? 120 : 130, borderRadius: 8 }}
+              className={styles.compactSelect}
               options={backendOptions}
             />
-            
+
             <Select
               placeholder={currentBackend === 'ollama' ? '选择 Ollama 模型' : '选择模型'}
               value={currentModel}
               onChange={onModelChange}
-              style={{ width: 180, borderRadius: 8 }}
+              style={{ width: isMobile ? 160 : 180, borderRadius: 8 }}
+              className={styles.compactSelect}
               options={modelOptions}
               disabled={isLoading || isStreaming}
               loading={models.length === 0}
             />
           </>
         )}
-        
+
         <Dropdown
           menu={{
             items: [
-              { 
-                key: 'md', 
-                label: '导出 Markdown', 
-                icon: <ExportOutlined />, 
+              {
+                key: 'md',
+                label: '导出 Markdown',
+                icon: <ExportOutlined />,
                 onClick: () => handleExport('markdown'),
                 disabled: messageCount === 0,
               },
-              { 
-                key: 'json', 
-                label: '导出 JSON', 
-                icon: <ExportOutlined />, 
+              {
+                key: 'json',
+                label: '导出 JSON',
+                icon: <ExportOutlined />,
                 onClick: () => handleExport('json'),
                 disabled: messageCount === 0,
               },
               { type: 'divider' },
-              { 
-                key: 'clear', 
-                label: '清空对话', 
-                icon: <ClearOutlined />, 
-                danger: true, 
+              {
+                key: 'clear',
+                label: '清空对话',
+                icon: <ClearOutlined />,
+                danger: true,
                 onClick: handleClear,
                 disabled: messageCount === 0,
               },
@@ -273,10 +247,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
           }}
         >
           <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-            <Button 
-              icon={<MoreOutlined />} 
-              style={{ borderRadius: 8, height: 36 }} 
-            />
+            <Button icon={<MoreOutlined />} className={styles.actionButton} />
           </motion.div>
         </Dropdown>
       </Space>

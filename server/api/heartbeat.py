@@ -22,6 +22,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/heartbeat", tags=["Heartbeat"])
 
 
+def _serialize_task(task: HeartbeatTask) -> dict[str, Any]:
+    task_config = dict(task.metadata or {})
+    task_type = task_config.pop("type", "check")
+    return {
+        "id": task.id,
+        "name": task.name,
+        "description": task.description,
+        "schedule": task.schedule,
+        "task_type": task_type,
+        "enabled": task.enabled,
+        "config": task_config,
+        "status": task.last_result or "pending",
+        "last_run": task.last_run,
+        "next_run": task.next_run,
+    }
+
+
 class TaskCreateRequest(BaseModel):
     """任务创建请求"""
     name: str
@@ -64,13 +81,7 @@ async def list_tasks():
 
     tasks = []
     for task_id, task in scheduler._tasks.items():
-        tasks.append({
-            "id": task.id,
-            "name": task.name,
-            "description": task.description,
-            "schedule": task.schedule,
-            "enabled": task.enabled,
-        })
+        tasks.append(_serialize_task(task))
 
     return {"tasks": tasks, "total": len(tasks)}
 
@@ -91,7 +102,7 @@ async def create_task(request: TaskCreateRequest):
 
     scheduler.add_task(task)
 
-    return {"success": True, "task_id": task.id}
+    return {"success": True, "task": _serialize_task(task)}
 
 
 @router.get("/tasks/{task_id}")
@@ -103,13 +114,7 @@ async def get_task(task_id: str):
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    return {
-        "id": task.id,
-        "name": task.name,
-        "description": task.description,
-        "schedule": task.schedule,
-        "enabled": task.enabled,
-    }
+    return _serialize_task(task)
 
 
 @router.delete("/tasks/{task_id}")
@@ -117,9 +122,12 @@ async def delete_task(task_id: str):
     """删除任务"""
     scheduler = get_heartbeat_scheduler()
 
+    if not scheduler.get_task(task_id):
+        raise HTTPException(status_code=404, detail="Task not found")
+
     scheduler.remove_task(task_id)
 
-    return {"success": True, "task_id": task_id}
+    return {"success": True, "task_id": task_id, "message": "Task deleted"}
 
 
 @router.post("/tasks/{task_id}/enable")
@@ -127,9 +135,17 @@ async def enable_task(task_id: str):
     """启用任务"""
     scheduler = get_heartbeat_scheduler()
 
+    if not scheduler.get_task(task_id):
+        raise HTTPException(status_code=404, detail="Task not found")
+
     scheduler.enable_task(task_id)
 
-    return {"success": True, "task_id": task_id}
+    return {
+        "success": True,
+        "task_id": task_id,
+        "enabled": True,
+        "message": "Task enabled",
+    }
 
 
 @router.post("/tasks/{task_id}/disable")
@@ -137,9 +153,17 @@ async def disable_task(task_id: str):
     """禁用任务"""
     scheduler = get_heartbeat_scheduler()
 
+    if not scheduler.get_task(task_id):
+        raise HTTPException(status_code=404, detail="Task not found")
+
     scheduler.disable_task(task_id)
 
-    return {"success": True, "task_id": task_id}
+    return {
+        "success": True,
+        "task_id": task_id,
+        "enabled": False,
+        "message": "Task disabled",
+    }
 
 
 @router.get("/results")
@@ -164,7 +188,7 @@ async def start_heartbeat():
     """启动 Heartbeat 调度器"""
     scheduler = get_heartbeat_scheduler()
 
-    if scheduler._running:
+    if scheduler._is_running:
         return {"success": False, "message": "Heartbeat scheduler already running"}
 
     await scheduler.start()
@@ -177,7 +201,7 @@ async def stop_heartbeat():
     """停止 Heartbeat 调度器"""
     scheduler = get_heartbeat_scheduler()
 
-    if not scheduler._running:
+    if not scheduler._is_running:
         return {"success": False, "message": "Heartbeat scheduler not running"}
 
     await scheduler.stop()

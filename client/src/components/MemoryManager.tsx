@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 增强版记忆管理组件
  * 支持知识图谱、短期记忆、MCP协议
  */
@@ -473,14 +473,14 @@ export default function MemoryManager({ open, onClose }: MemoryManagerProps) {
       >
         {selectedMemory && (
           <>
-            <p><strong>ID:</strong> {selectedMemory.id}</p>
-            <p><strong>类型:</strong> {getTypeConfig(selectedMemory.type).label}</p>
-            <p><strong>内容:</strong></p>
+            <div><strong>ID:</strong> {selectedMemory.id}</div>
+            <div><strong>类型:</strong> {getTypeConfig(selectedMemory.type).label}</div>
+            <div><strong>内容:</strong></div>
             <Card size="small">{selectedMemory.content}</Card>
-            <p><strong>重要度:</strong> {renderImportance(selectedMemory.importance)}</p>
-            <p><strong>创建时间:</strong> {formatDate(selectedMemory.created_at)}</p>
-            <p><strong>最后访问:</strong> {formatDate(selectedMemory.last_accessed)}</p>
-            <p><strong>访问次数:</strong> {selectedMemory.access_count}</p>
+            <div><strong>重要度:</strong> {renderImportance(selectedMemory.importance)}</div>
+            <div><strong>创建时间:</strong> {formatDate(selectedMemory.created_at)}</div>
+            <div><strong>最后访问:</strong> {formatDate(selectedMemory.last_accessed)}</div>
+            <div><strong>访问次数:</strong> {selectedMemory.access_count}</div>
           </>
         )}
       </Drawer>

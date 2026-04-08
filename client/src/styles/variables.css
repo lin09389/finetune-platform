@@ -6,7 +6,7 @@
   /* ============================================
      字体系统
      ============================================ */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-sans: 'Avenir Next', 'Segoe UI Variable', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', Consolas, Monaco, monospace;
   --font-serif: 'Source Han Serif CN', 'Noto Serif SC', Georgia, serif;
 
@@ -93,7 +93,7 @@
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
   --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.06), 0 10px 10px -5px rgba(0, 0, 0, 0.02);
   --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.12);
-  --shadow-glass: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+  --shadow-glass: 0 14px 34px -18px rgba(16, 24, 40, 0.35), 0 8px 18px -12px rgba(16, 24, 40, 0.25);
   --shadow-neumorph-out: 6px 6px 12px rgba(0, 0, 0, 0.05), -6px -6px 12px rgba(255, 255, 255, 0.8);
   --shadow-neumorph-in: inset 4px 4px 8px rgba(0, 0, 0, 0.05), inset -4px -4px 8px rgba(255, 255, 255, 0.8);
   --shadow-inner: inset 0 2px 4px rgba(0, 0, 0, 0.04);
@@ -102,10 +102,10 @@
   /* ============================================
      玻璃拟态令牌
      ============================================ */
-  --glass-bg: rgba(255, 255, 255, 0.65);
-  --glass-border: rgba(255, 255, 255, 0.4);
-  --glass-blur: blur(12px) saturate(180%);
-  --glass-reflection: linear-gradient(135deg, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0) 100%);
+  --glass-bg: rgba(255, 255, 255, 0.62);
+  --glass-border: rgba(255, 255, 255, 0.48);
+  --glass-blur: blur(18px) saturate(170%);
+  --glass-reflection: linear-gradient(135deg, rgba(255, 255, 255, 0.42) 0%, rgba(255, 255, 255, 0.06) 45%, rgba(255, 255, 255, 0) 100%);
 
   /* ============================================
      过渡系统
@@ -189,15 +189,16 @@
   /* ============================================
      渐变系统
      ============================================ */
-  --gradient-primary: linear-gradient(135deg, var(--primary-300, #d4a373) 0%, var(--primary-500, #b08257) 100%);
-  --gradient-secondary: linear-gradient(135deg, var(--accent-secondary, #5b8a72) 0%, var(--success-dark, #4a7560) 100%);
+  --gradient-primary: linear-gradient(135deg, #c58e57 0%, #9b6b3f 100%);
+  --gradient-secondary: linear-gradient(135deg, #3f8f70 0%, #2f6f58 100%);
   --gradient-success: linear-gradient(135deg, var(--success, #5b8a72) 0%, var(--success-dark, #4a7560) 100%);
   --gradient-warning: linear-gradient(135deg, var(--warning, #d4a373) 0%, var(--warning-dark, #b88a5e) 100%);
   --gradient-error: linear-gradient(135deg, var(--error, #c45c48) 0%, var(--error-dark, #a34a3a) 100%);
   --gradient-info: linear-gradient(135deg, var(--info, #5b8a72) 0%, var(--info-dark, #4a7560) 100%);
-  --gradient-mesh: radial-gradient(at 40% 20%, rgba(212, 163, 115, 0.15) 0px, transparent 50%),
-                   radial-gradient(at 80% 0%, rgba(91, 138, 114, 0.1) 0px, transparent 50%),
-                   radial-gradient(at 0% 50%, rgba(212, 163, 115, 0.1) 0px, transparent 50%);
+  --gradient-mesh: radial-gradient(circle at 12% 18%, rgba(197, 142, 87, 0.2) 0px, transparent 46%),
+                   radial-gradient(circle at 86% 6%, rgba(63, 143, 112, 0.16) 0px, transparent 44%),
+                   radial-gradient(circle at 72% 84%, rgba(95, 123, 163, 0.12) 0px, transparent 42%),
+                   radial-gradient(circle at 4% 72%, rgba(197, 142, 87, 0.12) 0px, transparent 40%);
   --gradient-card-shine: linear-gradient(135deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.05) 50%, rgba(255, 255, 255, 0) 100%);
   --gradient-button: linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 100%);
 
@@ -232,18 +233,18 @@
    ============================================ */
 .light-theme {
   /* 背景色 */
-  --bg-primary: #faf9f7;
+  --bg-primary: #f5f6f8;
   --bg-secondary: #ffffff;
-  --bg-elevated: #f5f4f2;
-  --bg-hover: #f0efed;
-  --bg-active: #e8e7e5;
+  --bg-elevated: #f0f2f5;
+  --bg-hover: #eaedf2;
+  --bg-active: #e2e6ed;
   --bg-disabled: #f5f5f5;
   --bg-overlay: rgba(0, 0, 0, 0.45);
 
   /* 文字色 */
-  --text-primary: #2d2d2d;
-  --text-secondary: #6b7280;
-  --text-tertiary: #9ca3af;
+  --text-primary: #1d2433;
+  --text-secondary: #5d667a;
+  --text-tertiary: #8d96a9;
   --text-disabled: #d1d5db;
   --text-inverse: #ffffff;
   --text-link: var(--accent-primary);
@@ -256,9 +257,9 @@
   --border-focus: var(--text-primary);
 
   /* 强调色 - 铜金 */
-  --accent-primary: #d4a373;
-  --accent-secondary: #5b8a72;
-  --accent-tertiary: #c45c48;
+  --accent-primary: #c58e57;
+  --accent-secondary: #3f8f70;
+  --accent-tertiary: #cc5f45;
 
   /* 功能色 */
   --success: #5b8a72;
@@ -304,18 +305,18 @@
    ============================================ */
 .dark-theme {
   /* 背景色 */
-  --bg-primary: #1a1a1a;
-  --bg-secondary: #242424;
-  --bg-elevated: #2d2d2d;
-  --bg-hover: #363636;
-  --bg-active: #404040;
+  --bg-primary: #0f141d;
+  --bg-secondary: #171d28;
+  --bg-elevated: #202838;
+  --bg-hover: #273247;
+  --bg-active: #2f3b53;
   --bg-disabled: #2d2d2d;
   --bg-overlay: rgba(0, 0, 0, 0.65);
 
   /* 文字色 */
-  --text-primary: #f5f5f5;
-  --text-secondary: #a3a3a3;
-  --text-tertiary: #737373;
+  --text-primary: #edf1f8;
+  --text-secondary: #b8c0cf;
+  --text-tertiary: #8f99ad;
   --text-disabled: #525252;
   --text-inverse: #1a1a1a;
   --text-link: var(--accent-primary);
@@ -328,9 +329,9 @@
   --border-focus: var(--text-primary);
 
   /* 强调色 - 铜金 */
-  --accent-primary: #d4a373;
-  --accent-secondary: #7aa88f;
-  --accent-tertiary: #d4786a;
+  --accent-primary: #d2a073;
+  --accent-secondary: #60aa8b;
+  --accent-tertiary: #df7f69;
 
   /* 功能色 */
   --success: #7aa88f;
@@ -382,8 +383,8 @@
   --shadow-neumorph-in: inset 4px 4px 8px rgba(0, 0, 0, 0.3), inset -4px -4px 8px rgba(255, 255, 255, 0.05);
 
   /* 玻璃拟态重写 - 深色模式 */
-  --glass-bg: rgba(30, 30, 30, 0.6);
-  --glass-border: rgba(255, 255, 255, 0.1);
-  --glass-blur: blur(16px) saturate(150%);
+  --glass-bg: rgba(17, 25, 37, 0.62);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-blur: blur(20px) saturate(140%);
   --glass-reflection: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 100%);
 }

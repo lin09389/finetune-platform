@@ -7,8 +7,6 @@ from .context import get_context_manager
 from .session import get_session_manager
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
-
-
 class SendMessageRequest(BaseModel):
     content: str = Field(..., description="Message content")
     role: str = Field(default="user", description="Message role")
@@ -22,18 +20,6 @@ class CreateSessionRequest(BaseModel):
 
 class UpdateSessionMetadataRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class LegacyMessageItem(BaseModel):
-    id: str | None = None
-    role: str = Field(default="user")
-    content: str = Field(default="")
-    timestamp: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class LegacyMessagesRequest(BaseModel):
-    messages: list[LegacyMessageItem] = Field(default_factory=list)
 
 
 class MessageResponse(BaseModel):
@@ -69,20 +55,6 @@ async def create_session(request: CreateSessionRequest | None = None, title: str
     }
 
 
-@router.post("")
-async def create_session_compat(request: CreateSessionRequest):
-    manager = get_session_manager()
-    session = manager.create_session(title=request.title, metadata=request.metadata)
-    return {
-        "id": session.id,
-        "session_id": session.id,
-        "title": session.title,
-        "created_at": session.created_at.isoformat(),
-        "updated_at": session.updated_at.isoformat(),
-        "metadata": session.metadata,
-    }
-
-
 @router.get("/sessions")
 async def list_sessions(
     limit: int = Query(default=20, ge=1, le=100),
@@ -107,14 +79,6 @@ async def list_sessions(
     }
 
 
-@router.get("")
-async def list_sessions_compat(
-    limit: int = Query(default=20, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
-):
-    return await list_sessions(limit=limit, offset=offset)
-
-
 @router.get("/sessions/{session_id}")
 async def get_session(session_id: str):
     manager = get_session_manager()
@@ -133,11 +97,6 @@ async def get_session(session_id: str):
     }
 
 
-@router.get("/{session_id}")
-async def get_session_compat(session_id: str):
-    return await get_session(session_id)
-
-
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
     manager = get_session_manager()
@@ -147,11 +106,6 @@ async def delete_session(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
 
     return {"success": True, "session_id": session_id}
-
-
-@router.delete("/{session_id}")
-async def delete_session_compat(session_id: str):
-    return await delete_session(session_id)
 
 
 @router.post("/sessions/{session_id}/messages")
@@ -168,6 +122,7 @@ async def send_message(session_id: str, request: SendMessageRequest):
         content=request.content,
         metadata=request.metadata,
     )
+    session_manager.save_session(session_id)
 
     context_manager.add_message(
         session_id=session_id,
@@ -183,43 +138,6 @@ async def send_message(session_id: str, request: SendMessageRequest):
         "content": message.content,
         "created_at": message.created_at.isoformat(),
     }
-
-
-@router.post("/{session_id}/messages")
-async def send_messages_compat(session_id: str, request: LegacyMessagesRequest):
-    if not request.messages:
-        raise HTTPException(status_code=400, detail="No messages provided")
-
-    session_manager = get_session_manager()
-    context_manager = get_context_manager()
-    session = session_manager.get_session(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    created_messages: list[dict[str, Any]] = []
-    for item in request.messages:
-        message = session.add_message(
-            role=item.role,
-            content=item.content,
-            metadata=item.metadata,
-        )
-        context_manager.add_message(
-            session_id=session_id,
-            role=item.role,
-            content=item.content,
-            metadata=item.metadata,
-        )
-        created_messages.append(
-            {
-                "id": message.id,
-                "session_id": session_id,
-                "role": message.role,
-                "content": message.content,
-                "created_at": message.created_at.isoformat(),
-            }
-        )
-
-    return {"messages": created_messages, "count": len(created_messages)}
 
 
 @router.get("/sessions/{session_id}/messages")
@@ -259,6 +177,7 @@ async def clear_messages(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found")
 
     session.clear_messages()
+    session_manager.save_session(session_id)
     context_manager.clear_context(session_id)
 
     return {"success": True, "session_id": session_id}
