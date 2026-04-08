@@ -230,6 +230,7 @@ finetune-platform/
 - `GET /datasets/{id}/statistics` - 统计信息
 
 ### 训练管理
+- `GET /training/status` - 当前训练状态
 - `POST /training/start` - 开始训练
 - `POST /training/stop` - 停止训练
 - `GET /training/progress` - 训练进度
@@ -237,12 +238,22 @@ finetune-platform/
 - `GET /training/history` - 训练历史
 - `POST /training/resume/{id}/{checkpoint}` - 恢复训练
 
+### Chat Session
+- `GET /chat/sessions` - 会话列表
+- `POST /chat/sessions` - 创建会话
+- `GET /chat/sessions/{id}` - 会话详情
+- `DELETE /chat/sessions/{id}` - 删除会话
+- `POST /chat/sessions/{id}/messages` - 添加消息
+- `GET /chat/sessions/{id}/messages` - 获取消息列表
+
 ### 推理服务
 - `POST /inference/generate` - 文本生成
 - `POST /inference/chat` - 聊天对话
 - `POST /inference/stream` - 流式输出
 - `GET /inference/backends` - 后端列表
 - `POST /inference/merge` - 合并 LoRA
+
+> 说明：`/chat` 旧兼容路由与 `GET /training` 根别名已移除，请使用上面的 canonical 路径。
 
 ## 🧪 测试
 

@@ -379,12 +379,18 @@ LOG_FORMAT=text  # 或 "json"
 - 设备：`/device/info`、`/device/vram`
 - 模型：`/models`、`/models/download`、`/models/{id}`
 - 数据集：`/datasets`、`/datasets/upload`、`/datasets/{id}/statistics`
-- 训练：`/training/start`、`/training/stop`、`/training/progress/stream`
+- 训练：`/training/status`、`/training/start`、`/training/stop`、`/training/progress/stream`
+- Chat Session：`/chat/sessions`、`/chat/sessions/{session_id}`、`/chat/sessions/{session_id}/messages`
 - 推理：`/inference/chat`、`/inference/stream`、`/inference/merge`
 - RAG：`/rag/upload`、`/rag/query`
 - 上下文：`/context/scan`、`/context/index`、`/context/retrieve`
 - Gateway：`/gateway/status`、`/gateway/devices`、`/gateway/messages`、`/gateway/bindings`、`/gateway/ws`
 - 性能监控：`/inference/performance`、`/inference/optimize`
+
+架构收口现状（2026-04-08）：
+- `Chat` 兼容旧路由已下线，统一使用 `/chat/sessions...`
+- `Training` 根别名 `GET /training` 已下线，统一使用 `/training/status`
+- `Gateway / Heartbeat / CUA / MCP` 当前按 experimental 对待，页面提示不代表稳定主承诺
 
 ## 项目特性
 
