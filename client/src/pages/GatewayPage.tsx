@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
+  Alert,
   Card,
   Table,
   Button,
@@ -30,10 +31,11 @@ import {
   SafetyOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
-import { apiClient } from '../services/api'
+import { API_BASE_URL, apiClient } from '../services/api'
 
 const { Title } = Typography
 const { TabPane } = Tabs
+const gatewayWebSocketUrl = API_BASE_URL.replace(/^http/i, 'ws') + '/gateway/ws'
 
 interface Device {
   id: string
@@ -81,6 +83,30 @@ export default function GatewayPage() {
     return () => clearInterval(interval)
   }, [])
 
+  const getApiErrorMessage = (error: any, fallback: string) =>
+    error?.response?.data?.detail || error?.response?.data?.message || fallback
+
+  const normalizeDevice = (device: any): Device => ({
+    id: device.id || device.device_id,
+    name: device.name || device.device_name || device.id || device.device_id,
+    type: device.type || device.device_type || 'unknown',
+    status: device.status || 'unknown',
+    permissions: device.permissions || device.allowed_actions || [],
+    last_seen: device.last_seen || device.last_active || '',
+    created_at: device.created_at || '',
+  })
+
+  const normalizeBinding = (binding: any): Binding => ({
+    id: binding.id,
+    name: binding.name || binding.id,
+    peer_id: binding.peer_id,
+    guild_id: binding.guild_id,
+    channel_id: binding.channel_id,
+    agent_id: binding.agent_id,
+    priority: binding.priority ?? 0,
+    enabled: binding.enabled ?? true,
+  })
+
   const fetchGatewayData = async () => {
     setLoading(true)
     try {
@@ -91,8 +117,8 @@ export default function GatewayPage() {
       ])
       
       setGatewayStatus(statusRes.data || {})
-      setDevices(devicesRes.data?.devices || [])
-      setBindings(bindingsRes.data?.bindings || [])
+      setDevices((devicesRes.data?.devices || []).map(normalizeDevice))
+      setBindings((bindingsRes.data?.bindings || []).map(normalizeBinding))
     } catch (error) {
       console.error('Failed to fetch gateway data:', error)
     } finally {
@@ -103,9 +129,11 @@ export default function GatewayPage() {
   const handleRegisterDevice = async (values: any) => {
     try {
       const response = await apiClient.post('/gateway/devices/register', {
-        name: values.name,
+        device_name: values.name,
         device_type: values.type,
-        permissions: values.permissions || [],
+        metadata: {
+          requested_permissions: values.permissions || [],
+        },
       })
       
       if (response.data?.success) {
@@ -117,7 +145,7 @@ export default function GatewayPage() {
         message.error(response.data?.message || '注册失败')
       }
     } catch (error: any) {
-      message.error(error.response?.data?.detail || '注册失败')
+      message.error(getApiErrorMessage(error, '注册失败'))
     }
   }
 
@@ -142,27 +170,35 @@ export default function GatewayPage() {
         message.error(response.data?.message || '创建失败')
       }
     } catch (error: any) {
-      message.error(error.response?.data?.detail || '创建失败')
+      message.error(getApiErrorMessage(error, '创建失败'))
     }
   }
 
   const handleDeleteDevice = async (deviceId: string) => {
     try {
-      await apiClient.delete(`/gateway/devices/${deviceId}`)
+      const response = await apiClient.delete(`/gateway/devices/${deviceId}`)
+      if (!response.data?.success) {
+        message.error(response.data?.message || '删除失败')
+        return
+      }
       message.success('设备已删除')
       fetchGatewayData()
-    } catch (error) {
-      message.error('删除失败')
+    } catch (error: any) {
+      message.error(getApiErrorMessage(error, '删除失败'))
     }
   }
 
   const handleDeleteBinding = async (bindingId: string) => {
     try {
-      await apiClient.delete(`/gateway/bindings/${bindingId}`)
+      const response = await apiClient.delete(`/gateway/bindings/${bindingId}`)
+      if (!response.data?.success) {
+        message.error(response.data?.message || '删除失败')
+        return
+      }
       message.success('绑定规则已删除')
       fetchGatewayData()
-    } catch (error) {
-      message.error('删除失败')
+    } catch (error: any) {
+      message.error(getApiErrorMessage(error, '删除失败'))
     }
   }
 
@@ -191,8 +227,8 @@ export default function GatewayPage() {
       key: 'status',
       render: (status: string) => (
         <Badge 
-          status={status === 'online' ? 'success' : status === 'offline' ? 'default' : 'warning'} 
-          text={status === 'online' ? '在线' : status === 'offline' ? '离线' : '待认证'}
+          status={status === 'active' ? 'success' : status === 'inactive' ? 'default' : 'warning'} 
+          text={status === 'active' ? '在线' : status === 'inactive' ? '离线' : '待认证'}
         />
       ),
     },
@@ -291,9 +327,16 @@ export default function GatewayPage() {
 
   return (
     <div style={{ padding: '0 0 24px' }}>
+      <Alert
+        type="warning"
+        showIcon
+        message="实验功能"
+        description="Gateway 当前仍处于实验阶段，页面展示与操作结果需要以实际后端状态和设备绑定结果为准。"
+        style={{ marginBottom: 16 }}
+      />
       <Title level={4} style={{ marginBottom: 24 }}>
         <ClusterOutlined style={{ marginRight: 8 }} />
-        Gateway 管理
+        Gateway 管理（实验）
       </Title>
 
       <Row gutter={16} style={{ marginBottom: 24 }}>
@@ -301,7 +344,7 @@ export default function GatewayPage() {
           <Card>
             <Statistic
               title="在线设备"
-              value={devices.filter(d => d.status === 'online').length}
+              value={devices.filter(d => d.status === 'active').length}
               prefix={<LinkOutlined />}
               valueStyle={{ color: '#52c41a' }}
             />
@@ -426,13 +469,13 @@ export default function GatewayPage() {
                   <Badge status="success" text="运行中" />
                 </Descriptions.Item>
                 <Descriptions.Item label="WebSocket">
-                  <Tag color="blue">ws://127.0.0.1:8000/gateway/ws</Tag>
+                  <Tag color="blue">{gatewayWebSocketUrl}</Tag>
                 </Descriptions.Item>
                 <Descriptions.Item label="活跃连接">
-                  {gatewayStatus.active_connections || 0}
+                  {gatewayStatus.gateway?.active_connections || 0}
                 </Descriptions.Item>
                 <Descriptions.Item label="消息队列">
-                  {gatewayStatus.message_queue_size || 0}
+                  {gatewayStatus.router?.message_queue_size || 0}
                 </Descriptions.Item>
               </Descriptions>
             </Card>

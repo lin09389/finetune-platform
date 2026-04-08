@@ -749,7 +749,7 @@ export const clearPerformanceHistory = async () => {
 // 瀵硅瘽鍘嗗彶绠＄悊
 export const getChatHistory = async (retryConfig?: Partial<RetryConfig>) => {
   return fetchWithRetry(async () => {
-    const response = await fetch(`${API_BASE_URL}/chat`);
+    const response = await fetch(`${API_BASE_URL}/chat/sessions`);
     if (!response.ok) throw new Error('Failed to fetch chat history');
     const data = await response.json();
     return data.sessions || [];
@@ -758,7 +758,7 @@ export const getChatHistory = async (retryConfig?: Partial<RetryConfig>) => {
 
 export const createChatSession = async (title: string, modelId: string, retryConfig?: Partial<RetryConfig>) => {
   return fetchWithRetry(async () => {
-    const response = await fetch(`${API_BASE_URL}/chat`, {
+    const response = await fetch(`${API_BASE_URL}/chat/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title, metadata: { model_id: modelId } })
@@ -770,7 +770,7 @@ export const createChatSession = async (title: string, modelId: string, retryCon
 
 export const getChatSession = async (sessionId: string, retryConfig?: Partial<RetryConfig>) => {
   return fetchWithRetry(async () => {
-    const response = await fetch(`${API_BASE_URL}/chat/${sessionId}`);
+    const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}`);
     if (!response.ok) throw new Error('Failed to fetch session');
     return response.json();
   }, retryConfig);
@@ -778,7 +778,7 @@ export const getChatSession = async (sessionId: string, retryConfig?: Partial<Re
 
 export const deleteChatSession = async (sessionId: string, retryConfig?: Partial<RetryConfig>) => {
   return fetchWithRetry(async () => {
-    const response = await fetch(`${API_BASE_URL}/chat/${sessionId}`, {
+    const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}`, {
       method: 'DELETE'
     });
     if (!response.ok) throw new Error('Failed to delete session');
@@ -792,13 +792,26 @@ export const addChatMessages = async (
   retryConfig?: Partial<RetryConfig>
 ) => {
   return fetchWithRetry(async () => {
-    const response = await fetch(`${API_BASE_URL}/chat/${sessionId}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages })
-    });
-    if (!response.ok) throw new Error('Failed to add messages');
-    return response.json();
+    const createdMessages = []
+    for (const item of messages) {
+      const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          role: item.role,
+          content: item.content,
+          metadata: item.id || item.timestamp
+            ? {
+                legacy_message_id: item.id,
+                legacy_timestamp: item.timestamp,
+              }
+            : {},
+        })
+      })
+      if (!response.ok) throw new Error('Failed to add messages')
+      createdMessages.push(await response.json())
+    }
+    return { messages: createdMessages, count: createdMessages.length }
   }, retryConfig);
 };
 

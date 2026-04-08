@@ -403,11 +403,11 @@ export const CUAControl: React.FC = () => {
   return (
     <div className="cua-control-page" style={{ padding: 24 }}>
       <Title level={2}>
-        <DesktopOutlined /> Computer Use Agent 控制面板
+        <DesktopOutlined /> Computer Use Agent 控制面板（实验）
       </Title>
       <Alert
-        message="安全提示"
-        description="CUA 功能允许 AI 直接操作您的电脑，请确认每一步操作含义，敏感动作需要确认。"
+        message="实验功能与安全提示"
+        description="CUA 仍处于实验阶段，并且允许 AI 直接操作本机。请只在可控环境中使用，并对敏感操作保持人工确认。"
         type="warning"
         showIcon
         style={{ marginBottom: 24 }}

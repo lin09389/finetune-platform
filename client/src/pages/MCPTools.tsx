@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
+  Alert,
   Card,
   Table,
   Button,
@@ -263,8 +264,15 @@ export default function MCPTools() {
 
   return (
     <div style={{ padding: 24 }}>
+      <Alert
+        type="warning"
+        showIcon
+        message="实验功能"
+        description="MCP 服务器接入与工具调用当前仍处于实验阶段，配置和调用结果应以实际服务状态为准。"
+        style={{ marginBottom: 16 }}
+      />
       <Title level={2}>
-        <ApiOutlined /> MCP 工具集成
+        <ApiOutlined /> MCP 工具集成（实验）
       </Title>
 
       <Row gutter={16} style={{ marginBottom: 24 }}>

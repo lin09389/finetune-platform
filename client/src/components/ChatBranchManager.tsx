@@ -231,7 +231,8 @@ const ChatBranchManager: React.FC<ChatBranchManagerProps> = ({
         message.success('分支已合并');
         fetchData();
       } else {
-        message.error('合并分支失败');
+        const errorData = await response.json().catch(() => null);
+        message.warning(errorData?.detail || '合并分支暂未实现');
       }
     } catch (error) {
       console.error('Failed to merge branch:', error);
@@ -333,9 +334,9 @@ const ChatBranchManager: React.FC<ChatBranchManagerProps> = ({
                           {
                             key: 'merge',
                             icon: <MergeOutlined />,
-                            label: '合并到当前分支',
+                            label: '合并到当前分支（待实现）',
                             onClick: () => handleMergeBranch(branch.id),
-                            disabled: currentBranchId === branch.id,
+                            disabled: true,
                           },
                           {
                             key: 'delete',

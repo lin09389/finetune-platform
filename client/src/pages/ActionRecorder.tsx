@@ -39,6 +39,13 @@ type TableAction = RecordedAction & {
   _rowKey: string;
 };
 
+type SavedRecording = {
+  filename: string;
+  filepath?: string;
+  size?: number;
+  modified?: number;
+};
+
 export const ActionRecorder: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -49,7 +56,7 @@ export const ActionRecorder: React.FC = () => {
   const [saveModalVisible, setSaveModalVisible] = useState(false);
   const [loadModalVisible, setLoadModalVisible] = useState(false);
   const [filename, setFilename] = useState('');
-  const [savedFiles, setSavedFiles] = useState<string[]>([]);
+  const [savedFiles, setSavedFiles] = useState<SavedRecording[]>([]);
   const [playbackMode, setPlaybackMode] = useState<'realtime' | 'fast'>('realtime');
 
   useEffect(() => {
@@ -78,7 +85,14 @@ export const ActionRecorder: React.FC = () => {
   const fetchSavedFiles = async () => {
     try {
       const response = await apiClient.get('/cua/record/files');
-      setSavedFiles(response.data.files || []);
+      const files = Array.isArray(response.data.files) ? response.data.files : [];
+      setSavedFiles(
+        files
+          .map((file: string | SavedRecording) =>
+            typeof file === 'string' ? { filename: file, filepath: file } : file
+          )
+          .filter((file: SavedRecording) => Boolean(file.filename))
+      );
     } catch (error) {
       console.error('Failed to fetch saved files:', error);
     }
@@ -160,9 +174,9 @@ export const ActionRecorder: React.FC = () => {
     }
   };
 
-  const handleLoad = async (file: string) => {
+  const handleLoad = async (file: SavedRecording) => {
     try {
-      await apiClient.post('/cua/record/load', { filepath: file });
+      await apiClient.post('/cua/record/load', { filepath: file.filepath || file.filename });
       await fetchActions();
       setLoadModalVisible(false);
       message.success('Recording loaded');
@@ -261,12 +275,12 @@ export const ActionRecorder: React.FC = () => {
   return (
     <div className="action-recorder-page" style={{ padding: 24 }}>
       <Title level={2}>
-        <ClockCircleOutlined /> Action Recorder
+        <ClockCircleOutlined /> Action Recorder（实验）
       </Title>
 
       <Alert
-        message="Recording guide"
-        description="Start recording to capture mouse and keyboard actions. You can pause, resume, stop, replay, and save the sequence."
+        message="Experimental recording guide"
+        description="This recorder is still experimental. Use it in a controlled environment and verify saved or replayed actions before relying on them."
         type="info"
         showIcon
         style={{ marginBottom: 24 }}
@@ -392,8 +406,10 @@ export const ActionRecorder: React.FC = () => {
         <List
           dataSource={savedFiles}
           renderItem={(file) => (
-            <List.Item actions={[<Button key={file} onClick={() => handleLoad(file)}>Load</Button>]}>
-              {file}
+            <List.Item
+              actions={[<Button key={file.filepath || file.filename} onClick={() => handleLoad(file)}>Load</Button>]}
+            >
+              {file.filename}
             </List.Item>
           )}
         />

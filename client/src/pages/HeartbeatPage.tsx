@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
+  Alert,
   Card,
   Table,
   Button,
@@ -84,6 +85,9 @@ export default function HeartbeatPage() {
     return () => clearInterval(interval)
   }, [])
 
+  const getApiErrorMessage = (error: any, fallback: string) =>
+    error?.response?.data?.detail || error?.response?.data?.message || fallback
+
   const fetchHeartbeatData = async () => {
     setLoading(true)
     try {
@@ -123,28 +127,36 @@ export default function HeartbeatPage() {
         message.error(response.data?.message || '创建失败')
       }
     } catch (error: any) {
-      message.error(error.response?.data?.detail || '创建失败')
+      message.error(getApiErrorMessage(error, '创建失败'))
     }
   }
 
   const handleToggleTask = async (taskId: string, enabled: boolean) => {
     try {
       const endpoint = enabled ? '/heartbeat/tasks/{id}/enable' : '/heartbeat/tasks/{id}/disable'
-      await apiClient.post(endpoint.replace('{id}', taskId))
+      const response = await apiClient.post(endpoint.replace('{id}', taskId))
+      if (!response.data?.success) {
+        message.error(response.data?.message || '操作失败')
+        return
+      }
       message.success(enabled ? '任务已启用' : '任务已禁用')
       fetchHeartbeatData()
-    } catch (error) {
-      message.error('操作失败')
+    } catch (error: any) {
+      message.error(getApiErrorMessage(error, '操作失败'))
     }
   }
 
   const handleDeleteTask = async (taskId: string) => {
     try {
-      await apiClient.delete(`/heartbeat/tasks/${taskId}`)
+      const response = await apiClient.delete(`/heartbeat/tasks/${taskId}`)
+      if (!response.data?.success) {
+        message.error(response.data?.message || '删除失败')
+        return
+      }
       message.success('任务已删除')
       fetchHeartbeatData()
-    } catch (error) {
-      message.error('删除失败')
+    } catch (error: any) {
+      message.error(getApiErrorMessage(error, '删除失败'))
     }
   }
 
@@ -157,8 +169,8 @@ export default function HeartbeatPage() {
       } else {
         message.warning(response.data?.message || '启动失败')
       }
-    } catch (error) {
-      message.error('启动失败')
+    } catch (error: any) {
+      message.error(getApiErrorMessage(error, '启动失败'))
     }
   }
 
@@ -171,8 +183,8 @@ export default function HeartbeatPage() {
       } else {
         message.warning(response.data?.message || '停止失败')
       }
-    } catch (error) {
-      message.error('停止失败')
+    } catch (error: any) {
+      message.error(getApiErrorMessage(error, '停止失败'))
     }
   }
 
@@ -268,9 +280,16 @@ export default function HeartbeatPage() {
 
   return (
     <div style={{ padding: '0 0 24px' }}>
+      <Alert
+        type="warning"
+        showIcon
+        message="实验功能"
+        description="Heartbeat 当前仍处于实验阶段，任务执行成功与否应以实际调度结果和任务记录为准。"
+        style={{ marginBottom: 16 }}
+      />
       <Title level={4} style={{ marginBottom: 24 }}>
         <HeartOutlined style={{ marginRight: 8 }} />
-        Heartbeat 任务调度
+        Heartbeat 任务调度（实验）
       </Title>
 
       <Row gutter={16} style={{ marginBottom: 24 }}>
