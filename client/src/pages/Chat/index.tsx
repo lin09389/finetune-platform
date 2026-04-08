@@ -19,6 +19,7 @@ import {
   message,
 } from 'antd'
 import {
+  BranchesOutlined,
   ClearOutlined,
   CloudOutlined,
   CopyOutlined,
@@ -39,10 +40,21 @@ import {
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import AnimatedLayout from '../../components/shared/AnimatedLayout'
+import ChatBranchManager from '../../components/ChatBranchManager'
 import ChatHistoryDrawer from '../../components/ChatHistoryDrawer'
 import MemoryManager from '../../components/MemoryManager'
 import APIKeyManager from '../APIKeyManager'
 import { useChatStream } from '../../hooks/chat/useChatStream'
+import {
+  type ConversationBranchSummary,
+  type ConversationTreeNode,
+  createConversationBranch,
+  fetchConversationTreeState,
+  saveConversationMessage,
+  switchConversationBranch,
+  switchConversationToMainTimeline,
+} from '../../services/conversationTreeApi'
+import { updateChatSessionMetadata } from '../../services/chatSessionApi'
 import { useChatStore } from '../../store/chatStore'
 import { API_BASE_URL, getBackends, getInferenceModels, getOllamaStatus } from '../../services/api'
 import type {
@@ -429,6 +441,14 @@ const ChatPage: React.FC = () => {
   const [historyModelFilter, setHistoryModelFilter] = useState<string>('all')
   const [historyFavoritesOnly, setHistoryFavoritesOnly] = useState(false)
   const [historySort, setHistorySort] = useState<'newest' | 'recent' | 'favorites'>('newest')
+  const [branchManagerOpen, setBranchManagerOpen] = useState(false)
+  const [branchNodes, setBranchNodes] = useState<Record<string, ConversationTreeNode>>({})
+  const [branchRootId, setBranchRootId] = useState<string | null>(null)
+  const [branchSummaries, setBranchSummaries] = useState<ConversationBranchSummary[]>([])
+  const [currentBranchId, setCurrentBranchId] = useState<string | null>(null)
+  const [replyAnchorId, setReplyAnchorId] = useState<string | null>(null)
+  const [selectedConversationNodeId, setSelectedConversationNodeId] = useState<string | null>(null)
+  const [showActivePathOnly, setShowActivePathOnly] = useState(false)
   const [lastImportSummary, setLastImportSummary] = useState<{
     imported: number
     overwritten: number
@@ -472,6 +492,25 @@ const ChatPage: React.FC = () => {
     onError: (error) => message.error(error),
   })
 
+  const refreshBranchState = useCallback(
+    async (sessionId: string) => {
+      try {
+        const state = await fetchConversationTreeState(sessionId)
+        setBranchNodes(state.tree.nodes || {})
+        setBranchRootId(state.tree.root_id || null)
+        setCurrentBranchId(state.tree.current_branch_id || null)
+        setBranchSummaries(state.branches || [])
+      } catch (error) {
+        console.error('Failed to refresh branch state:', error)
+        setBranchNodes({})
+        setBranchRootId(null)
+        setCurrentBranchId(null)
+        setBranchSummaries([])
+      }
+    },
+    []
+  )
+
   const selectedSnapshot = useMemo(() => {
     if (selectedExperimentId) {
       if (lastRunMetadata?.id === selectedExperimentId) {
@@ -481,6 +520,11 @@ const ChatPage: React.FC = () => {
     }
     return lastRunMetadata
   }, [experimentSnapshots, lastRunMetadata, selectedExperimentId])
+
+  const currentSession = useMemo(
+    () => sessions.find((session) => session.id === currentSessionId) || null,
+    [currentSessionId, sessions]
+  )
 
   const currentModelOptions = useMemo(() => {
     if (settings.backend === 'cloud') {
@@ -624,6 +668,99 @@ const ChatPage: React.FC = () => {
     historySearch,
     historySort,
   ])
+
+  const currentBranch = useMemo(
+    () => branchSummaries.find((branch) => branch.id === currentBranchId) || null,
+    [branchSummaries, currentBranchId]
+  )
+
+  const sortedBranchMessages = useMemo(() => {
+    return Object.values(branchNodes).sort(
+      (left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime()
+    )
+  }, [branchNodes])
+
+  const activeBranchTipId = useMemo(() => {
+    if (currentBranchId) {
+      const branch = branchSummaries.find((item) => item.id === currentBranchId)
+      if (branch?.last_message_id && branchNodes[branch.last_message_id]) {
+        return branch.last_message_id
+      }
+      if (branch?.root_message_id && branchNodes[branch.root_message_id]) {
+        return branch.root_message_id
+      }
+    }
+
+    const trunkMessages = sortedBranchMessages.filter((node) => !node.branch_name)
+    if (trunkMessages.length) {
+      return trunkMessages[trunkMessages.length - 1]!.id
+    }
+
+    return sortedBranchMessages[sortedBranchMessages.length - 1]?.id || null
+  }, [branchNodes, branchSummaries, currentBranchId, sortedBranchMessages])
+
+  const currentPathTipId = useMemo(() => {
+    if (replyAnchorId && branchNodes[replyAnchorId]) {
+      return replyAnchorId
+    }
+    return activeBranchTipId
+  }, [activeBranchTipId, branchNodes, replyAnchorId])
+
+  const currentPathIds = useMemo(() => {
+    if (!currentPathTipId) {
+      return new Set<string>()
+    }
+
+    const path = new Set<string>()
+    let cursor: string | null = currentPathTipId
+    while (cursor && branchNodes[cursor] && !path.has(cursor)) {
+      const currentNode: ConversationTreeNode | undefined = branchNodes[cursor]
+      if (!currentNode) {
+        break
+      }
+      path.add(cursor)
+      cursor = currentNode.parent_id
+    }
+    return path
+  }, [branchNodes, currentPathTipId])
+
+  const branchPathMessages = useMemo(() => {
+    const items: ConversationTreeNode[] = []
+    if (!currentPathTipId) {
+      return items
+    }
+
+    let cursor: string | null = currentPathTipId
+    while (cursor && branchNodes[cursor]) {
+      items.unshift(branchNodes[cursor]!)
+      cursor = branchNodes[cursor]!.parent_id
+    }
+    return items
+  }, [branchNodes, currentPathTipId])
+
+  const visibleConversationNodes = useMemo(() => {
+    if (!showActivePathOnly) {
+      return sortedBranchMessages
+    }
+    return sortedBranchMessages.filter((node) => currentPathIds.has(node.id))
+  }, [currentPathIds, showActivePathOnly, sortedBranchMessages])
+
+  const viewedConversationNode = useMemo(() => {
+    if (selectedConversationNodeId && branchNodes[selectedConversationNodeId]) {
+      return branchNodes[selectedConversationNodeId]
+    }
+    if (currentPathTipId && branchNodes[currentPathTipId]) {
+      return branchNodes[currentPathTipId]
+    }
+    return null
+  }, [branchNodes, currentPathTipId, selectedConversationNodeId])
+
+  const viewedParentNode = useMemo(() => {
+    if (!viewedConversationNode?.parent_id) {
+      return null
+    }
+    return branchNodes[viewedConversationNode.parent_id] || null
+  }, [branchNodes, viewedConversationNode])
   const agentTaskHistory = useMemo<AgentTaskHistoryItem[]>(() => {
     return [...agentTimeline]
       .filter(
@@ -2125,6 +2262,29 @@ const ChatPage: React.FC = () => {
   }, [loadBackends, loadCloudAIConfig, loadCollections, loadSessions])
 
   useEffect(() => {
+    if (!currentSessionId) {
+      setBranchNodes({})
+      setBranchRootId(null)
+      setCurrentBranchId(null)
+      setBranchSummaries([])
+      setReplyAnchorId(null)
+      setSelectedConversationNodeId(null)
+      return
+    }
+
+    if (!messages.length) {
+      void loadSession(currentSessionId)
+    }
+    void refreshBranchState(currentSessionId)
+  }, [currentSessionId, loadSession, messages.length, refreshBranchState])
+
+  useEffect(() => {
+    if (selectedConversationNodeId && !branchNodes[selectedConversationNodeId]) {
+      setSelectedConversationNodeId(null)
+    }
+  }, [branchNodes, selectedConversationNodeId])
+
+  useEffect(() => {
     if (!currentSessionId || !agentMode) {
       return
     }
@@ -2147,22 +2307,16 @@ const ChatPage: React.FC = () => {
         task_outcomes: outcomePayload,
         latest_task_outcome: outcomePayload[0] || null,
       })
-      void fetch(`${API_BASE_URL}/chat/sessions/${currentSessionId}/metadata`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          metadata: {
-            agent_mode: agentMode,
-            agent_status: agentTaskStatus,
-            execution_timeline: agentTimeline,
-            pending_confirmation: pendingAgentConfirmation,
-            workspace_root: agentWorkspaceRoot,
-            auto_approve_safe_tools: autoApproveSafeTools,
-            last_agent_goal: promptDraft,
-            task_outcomes: outcomePayload,
-            latest_task_outcome: outcomePayload[0] || null,
-          },
-        }),
+      void updateChatSessionMetadata(currentSessionId, {
+        agent_mode: agentMode,
+        agent_status: agentTaskStatus,
+        execution_timeline: agentTimeline,
+        pending_confirmation: pendingAgentConfirmation,
+        workspace_root: agentWorkspaceRoot,
+        auto_approve_safe_tools: autoApproveSafeTools,
+        last_agent_goal: promptDraft,
+        task_outcomes: outcomePayload,
+        latest_task_outcome: outcomePayload[0] || null,
       }).catch((error) => {
         console.error('Failed to sync agent session metadata:', error)
       })
@@ -2308,6 +2462,90 @@ const ChatPage: React.FC = () => {
     setLastImportSummary(null)
     message.success('Preset saved.')
   }, [buildCurrentConfig, presetName, promptDraft, savePreset, setSelectedPresetId])
+
+  const handleSwitchToMainTimeline = useCallback(async () => {
+    if (!currentSessionId) {
+      return
+    }
+
+    await switchConversationToMainTimeline(currentSessionId)
+    setReplyAnchorId(null)
+    await refreshBranchState(currentSessionId)
+  }, [currentSessionId, refreshBranchState])
+
+  const ensureReplyContext = useCallback(
+    async (sessionId: string) => {
+      if (!replyAnchorId || replyAnchorId === activeBranchTipId) {
+        return
+      }
+
+      const createPayload = await createConversationBranch(
+        sessionId,
+        replyAnchorId,
+        `Reply ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
+      )
+      const nextBranchId = createPayload?.branch?.id as string | undefined
+      if (!nextBranchId) {
+        throw new Error('The branch service did not return a branch id.')
+      }
+
+      await switchConversationBranch(sessionId, nextBranchId)
+      await refreshBranchState(sessionId)
+    },
+    [activeBranchTipId, refreshBranchState, replyAnchorId]
+  )
+
+  const persistPrimaryCandidateToSession = useCallback(
+    async (sessionId: string, prompt: string, candidate: PlaygroundCandidate) => {
+      const persistMessage = async (
+        role: 'user' | 'assistant',
+        content: string,
+        metadata?: Record<string, unknown>
+      ) => {
+        await saveConversationMessage(sessionId, role, content, metadata)
+      }
+
+      await persistMessage('user', prompt, {
+        source: 'playground',
+        attachments: attachments.map((attachment) => ({
+          id: attachment.id,
+          name: attachment.name,
+          type: attachment.type,
+        })),
+      })
+      await persistMessage('assistant', candidate.content, {
+        source: 'playground',
+        candidate_id: candidate.id,
+        run_metrics: candidate.run_metrics,
+        knowledge_sources_count: candidate.knowledge_sources?.length || 0,
+      })
+    },
+    [attachments]
+  )
+
+  const handleContinueFromMessage = useCallback(
+    async (messageId: string) => {
+      if (!currentSessionId) {
+        message.info('Run one experiment first so there is a session to branch from.')
+        return
+      }
+
+      setReplyAnchorId(messageId)
+      setSelectedConversationNodeId(messageId)
+      setResponseView('response')
+      if (currentBranchId && messageId === activeBranchTipId) {
+        return
+      }
+
+      const selectedNode = branchNodes[messageId]
+      message.success(
+        selectedNode
+          ? `Next run will continue from: ${selectedNode.content.slice(0, 24)}`
+          : 'Next run will continue from the selected message.'
+      )
+    },
+    [activeBranchTipId, branchNodes, currentBranchId, currentSessionId, setResponseView]
+  )
 
   const handleUpdatePreset = useCallback(() => {
     if (!selectedPreset) {
@@ -2476,6 +2714,12 @@ const ChatPage: React.FC = () => {
       return
     }
 
+    let activeSessionId = currentSessionId
+    if (!activeSessionId) {
+      const createdSession = await createSession(prompt.slice(0, 48) || 'Untitled experiment', settings.modelId)
+      activeSessionId = createdSession.id
+    }
+
     const candidates = await runExperimentCandidates(
       {
         prompt,
@@ -2552,9 +2796,21 @@ const ChatPage: React.FC = () => {
 
     addExperimentSnapshot(snapshot)
     setResponseView('response')
-
-    if (!currentSessionId) {
-      await createSession(snapshot.title, settings.modelId)
+    if (activeSessionId) {
+      try {
+        await ensureReplyContext(activeSessionId)
+        await persistPrimaryCandidateToSession(activeSessionId, prompt, selectedCandidate)
+        await loadSession(activeSessionId)
+        await refreshBranchState(activeSessionId)
+        setReplyAnchorId(null)
+      } catch (error) {
+        console.error('Failed to persist experiment result into the session tree:', error)
+        message.warning(
+          error instanceof Error
+            ? error.message
+            : 'The experiment completed, but the conversation tree could not be updated.'
+        )
+      }
     }
   }, [
     addExperimentSnapshot,
@@ -2563,10 +2819,15 @@ const ChatPage: React.FC = () => {
     cloudAIConfig,
     createSession,
     currentSessionId,
+    ensureReplyContext,
+    loadSession,
+    persistPrimaryCandidateToSession,
     promptDraft,
+    refreshBranchState,
     runExperimentCandidates,
     setActiveCandidates,
     setSelectedCandidateId,
+    setReplyAnchorId,
     setResponseView,
     settings,
   ])
@@ -2872,6 +3133,7 @@ const ChatPage: React.FC = () => {
 
   const latestAssistantMessage = [...messages].reverse().find((msg) => msg.role === 'assistant')
   const responseContent =
+    viewedConversationNode?.content ||
     (isStreaming ? streamState.content : selectedCandidate?.content || selectedSnapshot?.response) ||
     latestAssistantMessage?.content ||
     ''
@@ -3369,6 +3631,201 @@ const ChatPage: React.FC = () => {
                       placeholder="Describe the task, ask a question, or paste a prompt template..."
                       onChange={(event) => setPromptDraft(event.target.value)}
                     />
+                  </Card>
+
+                  <Card
+                    size="small"
+                    title="Conversation Path"
+                    extra={
+                      <Space size={8} wrap>
+                        <Space size={8}>
+                          <Text type="secondary">Active path only</Text>
+                          <Switch checked={showActivePathOnly} onChange={setShowActivePathOnly} />
+                        </Space>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            if (!viewedParentNode) {
+                              return
+                            }
+                            setSelectedConversationNodeId(viewedParentNode.id)
+                            setResponseView('response')
+                          }}
+                          disabled={!viewedParentNode}
+                        >
+                          Parent
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            if (!currentPathTipId) {
+                              return
+                            }
+                            setSelectedConversationNodeId(currentPathTipId)
+                            setResponseView('response')
+                          }}
+                          disabled={!currentPathTipId || selectedConversationNodeId === currentPathTipId}
+                        >
+                          Latest tip
+                        </Button>
+                        <Button
+                          size="small"
+                          icon={<BranchesOutlined />}
+                          onClick={() => setBranchManagerOpen(true)}
+                          disabled={!currentSessionId}
+                        >
+                          Branches
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            void handleSwitchToMainTimeline().catch((error) => {
+                              message.warning(
+                                error instanceof Error
+                                  ? error.message
+                                  : 'Failed to return to the main timeline.'
+                              )
+                            })
+                          }}
+                          disabled={!currentSessionId || (!currentBranchId && !replyAnchorId)}
+                        >
+                          Main Line
+                        </Button>
+                      </Space>
+                    }
+                  >
+                    {!currentSessionId ? (
+                      <Empty
+                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                        description="Run an experiment once to start building the conversation tree."
+                      />
+                    ) : !sortedBranchMessages.length ? (
+                      <Empty
+                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                        description="This session has no persisted messages yet."
+                      />
+                    ) : (
+                      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                        <Space wrap size={8}>
+                          {currentSession ? <Tag>{currentSession.title}</Tag> : null}
+                          <Tag color={currentBranch ? 'blue' : 'default'}>
+                            {currentBranch ? `Current branch: ${currentBranch.name}` : 'Current branch: main line'}
+                          </Tag>
+                          <Tag>
+                            {visibleConversationNodes.length}/{sortedBranchMessages.length} messages
+                          </Tag>
+                          <Tag color="processing">{branchPathMessages.length} on active path</Tag>
+                          <Tag color="magenta">
+                            {sortedBranchMessages.filter((node) => node.children_ids.length > 1).length} branch points
+                          </Tag>
+                          {branchRootId ? <Tag>Root ready</Tag> : null}
+                          {replyAnchorId && branchNodes[replyAnchorId] ? (
+                            <Tag color="gold">
+                              Reply anchor: {branchNodes[replyAnchorId]!.content.slice(0, 18)}
+                            </Tag>
+                          ) : null}
+                        </Space>
+
+                        {branchPathMessages.length ? (
+                          <div>
+                            <Text type="secondary">Active path</Text>
+                            <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                              {branchPathMessages.map((node, index) => (
+                                <Tag key={node.id} color={node.id === currentPathTipId ? 'gold' : 'processing'}>
+                                  {index + 1}. {node.role}
+                                </Tag>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <List
+                          size="small"
+                          dataSource={visibleConversationNodes}
+                          renderItem={(node) => {
+                            const parentNode = node.parent_id ? branchNodes[node.parent_id] : null
+                            const isOnCurrentPath = currentPathIds.has(node.id)
+                            const isReplyAnchor = node.id === replyAnchorId
+                            const isCurrentTip = node.id === currentPathTipId
+                            const childCount = node.children_ids.length
+                            const hasBranches = childCount > 1
+
+                            return (
+                              <List.Item
+                                onClick={() => {
+                                  setSelectedConversationNodeId(node.id)
+                                  setResponseView('response')
+                                }}
+                                style={{
+                                  cursor: 'pointer',
+                                  borderRadius: 14,
+                                  padding: '12px 14px',
+                                  marginBottom: 8,
+                                  border: isReplyAnchor
+                                    ? '1px solid rgba(250, 173, 20, 0.55)'
+                                    : isOnCurrentPath
+                                      ? '1px solid rgba(22, 119, 255, 0.28)'
+                                      : '1px solid rgba(15, 23, 42, 0.08)',
+                                  background: isReplyAnchor
+                                    ? 'rgba(250, 173, 20, 0.12)'
+                                    : selectedConversationNodeId === node.id
+                                      ? 'rgba(114, 46, 209, 0.10)'
+                                    : isOnCurrentPath
+                                      ? 'rgba(22, 119, 255, 0.08)'
+                                      : 'rgba(15, 23, 42, 0.02)',
+                                }}
+                                actions={[
+                                  <Button
+                                    key="continue"
+                                    type={isReplyAnchor ? 'primary' : 'link'}
+                                    size="small"
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      void handleContinueFromMessage(node.id)
+                                    }}
+                                  >
+                                    {isReplyAnchor ? 'Selected' : 'Continue here'}
+                                  </Button>,
+                                ]}
+                              >
+                                <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                                  <Space wrap size={8}>
+                                    <Tag color={node.role === 'user' ? 'cyan' : node.role === 'assistant' ? 'purple' : 'default'}>
+                                      {node.role}
+                                    </Tag>
+                                    {node.branch_name ? <Tag color="blue">{node.branch_name}</Tag> : null}
+                                    {isCurrentTip ? <Tag color="gold">Current tip</Tag> : null}
+                                    {isOnCurrentPath ? <Tag color="processing">Active path</Tag> : null}
+                                    {node.id === branchRootId ? <Tag>Root</Tag> : null}
+                                    {childCount > 0 ? (
+                                      <Tag color={hasBranches ? 'magenta' : 'default'}>
+                                        {childCount} child{childCount > 1 ? 'ren' : ''}
+                                      </Tag>
+                                    ) : (
+                                      <Tag>Leaf</Tag>
+                                    )}
+                                    {hasBranches ? <Tag color="magenta">Branch point</Tag> : null}
+                                  </Space>
+                                  <Text strong>{node.content.slice(0, 96) || '(empty message)'}</Text>
+                                  <Space wrap size={8}>
+                                    <Text type="secondary">
+                                      {new Date(node.timestamp).toLocaleString('zh-CN')}
+                                    </Text>
+                                    {parentNode ? (
+                                      <Text type="secondary">
+                                        Parent: {parentNode.content.slice(0, 40)}
+                                      </Text>
+                                    ) : (
+                                      <Text type="secondary">Parent: root</Text>
+                                    )}
+                                  </Space>
+                                </Space>
+                              </List.Item>
+                            )
+                          }}
+                        />
+                      </Space>
+                    )}
                   </Card>
 
                   <Card
@@ -4134,6 +4591,64 @@ const ChatPage: React.FC = () => {
                 </Card>
 
                 <Card size="small" style={panelStyle}>
+                    {viewedConversationNode ? (
+                      <Alert
+                        style={{ marginBottom: 12 }}
+                        type="info"
+                        showIcon
+                        message={`Viewing ${viewedConversationNode.role} node from the conversation tree`}
+                        description={
+                          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                            <Space wrap size={8}>
+                              {viewedConversationNode.branch_name ? (
+                                <Tag color="blue">{viewedConversationNode.branch_name}</Tag>
+                              ) : (
+                                <Tag>Main line</Tag>
+                              )}
+                              <Tag color={viewedConversationNode.id === currentPathTipId ? 'gold' : 'default'}>
+                                {viewedConversationNode.id === currentPathTipId ? 'Current tip' : 'Historical node'}
+                              </Tag>
+                              {replyAnchorId === viewedConversationNode.id ? (
+                                <Tag color="gold">Reply anchor</Tag>
+                              ) : null}
+                              {viewedParentNode ? (
+                                <Tag>Parent ready</Tag>
+                              ) : (
+                                <Tag>Root node</Tag>
+                              )}
+                            </Space>
+                            <Space wrap size={8}>
+                              <Button
+                                size="small"
+                                onClick={() => {
+                                  if (!viewedParentNode) {
+                                    return
+                                  }
+                                  setSelectedConversationNodeId(viewedParentNode.id)
+                                  setResponseView('response')
+                                }}
+                                disabled={!viewedParentNode}
+                              >
+                                Jump to parent
+                              </Button>
+                              <Button
+                                size="small"
+                                onClick={() => {
+                                  if (!currentPathTipId) {
+                                    return
+                                  }
+                                  setSelectedConversationNodeId(currentPathTipId)
+                                  setResponseView('response')
+                                }}
+                                disabled={!currentPathTipId || selectedConversationNodeId === currentPathTipId}
+                              >
+                                Jump to latest tip
+                              </Button>
+                            </Space>
+                          </Space>
+                        }
+                      />
+                    ) : null}
                     <Tabs
                       data-testid="response-tabs"
                       activeKey={responseView}
@@ -4493,6 +5008,23 @@ const ChatPage: React.FC = () => {
             </div>
           </div>
         </div>
+
+        <ChatBranchManager
+          visible={branchManagerOpen}
+          sessionId={currentSessionId || ''}
+          onClose={() => setBranchManagerOpen(false)}
+          onBranchSwitch={() => {
+            if (currentSessionId) {
+              void refreshBranchState(currentSessionId)
+            }
+            setReplyAnchorId(null)
+          }}
+          onBranchCreate={() => {
+            if (currentSessionId) {
+              void refreshBranchState(currentSessionId)
+            }
+          }}
+        />
 
         <ChatHistoryDrawer
           open={historyOpen}

@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { API_BASE_URL } from '../../services/api'
+import {
+  executeAgentAction,
+  resumeAgentFromTimelineEvent,
+  resumeAgentSession,
+  runAgentLoop,
+} from '../../services/agentRunApi'
+import { persistChatRunToSession } from '../../services/chatSessionApi'
 import { useChatStore } from '../../store/chatStore'
 import type {
   AgentPendingConfirmation,
@@ -427,16 +434,7 @@ export function useChatStream(config: StreamConfig = {}) {
         return
       }
 
-      await fetch(`${API_BASE_URL}/chat/sessions/${currentSessionId}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [
-            { role: 'user', content: prompt },
-            { role: 'assistant', content },
-          ],
-        }),
-      }).catch(console.error)
+      await persistChatRunToSession(currentSessionId, prompt, content)
     },
     [currentSessionId]
   )
@@ -1490,29 +1488,18 @@ export function useChatStream(config: StreamConfig = {}) {
       replaceAgentTimeline(timeline)
 
       try {
-        const response = await fetch(`${API_BASE_URL}/agent/run-loop`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: prompt,
-            auto_confirm: autoApproveSafeTools,
-            session_id: currentSessionId,
-            max_steps: 5,
-            context: {
-              workspace_root: agentWorkspaceRoot,
-              content: lastContentRef.current.get('latest_agent_content') || '',
-              attachments: toRequestAttachments(payload.attachments || []),
-              ...(payload.agentContext || {}),
-            },
-          }),
+        const data = await runAgentLoop<AgentDecisionData>({
+          message: prompt,
+          auto_confirm: autoApproveSafeTools,
+          session_id: currentSessionId,
+          max_steps: 5,
+          context: {
+            workspace_root: agentWorkspaceRoot,
+            content: lastContentRef.current.get('latest_agent_content') || '',
+            attachments: toRequestAttachments(payload.attachments || []),
+            ...(payload.agentContext || {}),
+          },
         })
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}))
-          throw new Error(errorData.detail || 'Agent task failed.')
-        }
-
-        const data = (await response.json()) as AgentDecisionData
         return handleAgentDecision(data, payload, cloudConfig)
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Agent task failed.'
@@ -1568,25 +1555,14 @@ export function useChatStream(config: StreamConfig = {}) {
       )
 
       try {
-        const response = await fetch(`${API_BASE_URL}/agent/resume`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            session_id: currentSessionId,
-            auto_confirm: autoApproveSafeTools,
-            context: {
-              workspace_root: agentWorkspaceRoot,
-              attachments: toRequestAttachments(payload.attachments || []),
-            },
-          }),
+        const data = await resumeAgentSession<AgentDecisionData>({
+          session_id: currentSessionId,
+          auto_confirm: autoApproveSafeTools,
+          context: {
+            workspace_root: agentWorkspaceRoot,
+            attachments: toRequestAttachments(payload.attachments || []),
+          },
         })
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}))
-          throw new Error(errorData.detail || 'Agent resume failed.')
-        }
-
-        const data = (await response.json()) as AgentDecisionData
         return handleAgentDecision(
           {
             ...data,
@@ -1647,26 +1623,15 @@ export function useChatStream(config: StreamConfig = {}) {
       )
 
       try {
-        const response = await fetch(`${API_BASE_URL}/agent/resume-from-event`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            session_id: currentSessionId,
-            event_id: eventId,
-            auto_confirm: autoApproveSafeTools,
-            context: {
-              workspace_root: agentWorkspaceRoot,
-              attachments: toRequestAttachments(payload.attachments || []),
-            },
-          }),
+        const data = await resumeAgentFromTimelineEvent<AgentDecisionData>({
+          session_id: currentSessionId,
+          event_id: eventId,
+          auto_confirm: autoApproveSafeTools,
+          context: {
+            workspace_root: agentWorkspaceRoot,
+            attachments: toRequestAttachments(payload.attachments || []),
+          },
         })
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}))
-          throw new Error(errorData.detail || 'Resume from event failed.')
-        }
-
-        const data = (await response.json()) as AgentDecisionData
         return handleAgentDecision(
           {
             ...data,
@@ -1733,22 +1698,16 @@ export function useChatStream(config: StreamConfig = {}) {
       )
 
       try {
-        const response = await fetch(`${API_BASE_URL}/agent/execute`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'file_patch',
-            params: { patch },
-            confirm: true,
-          }),
+        const data = await executeAgentAction<{
+          success?: boolean
+          message?: string
+          error?: string
+          data?: Record<string, unknown>
+        }>({
+          action: 'file_patch',
+          params: { patch },
+          confirm: true,
         })
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}))
-          throw new Error(errorData.detail || 'Applying patch draft failed.')
-        }
-
-        const data = await response.json()
         const nextStatus: AgentTaskStatus = data.success ? 'completed' : 'failed'
         setAgentTaskStatus(nextStatus)
         appendAgentTimeline(
@@ -1775,22 +1734,16 @@ export function useChatStream(config: StreamConfig = {}) {
             })
           )
 
-          const rerunResponse = await fetch(`${API_BASE_URL}/agent/execute`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'tests_run',
-              params: { command: options.rerunCommand },
-              confirm: true,
-            }),
+          const rerunData = await executeAgentAction<{
+            success?: boolean
+            message?: string
+            error?: string
+            data?: Record<string, unknown>
+          }>({
+            action: 'tests_run',
+            params: { command: options.rerunCommand },
+            confirm: true,
           })
-
-          if (!rerunResponse.ok) {
-            const errorData = await rerunResponse.json().catch(() => ({}))
-            throw new Error(errorData.detail || 'Rerunning tests after patch failed.')
-          }
-
-          const rerunData = await rerunResponse.json()
           appendAgentTimeline(
             createAgentEvent('command_output', rerunData.success ? 'Tests rerun completed' : 'Tests rerun failed', {
               tool_name: 'tests_run',
@@ -1867,6 +1820,13 @@ export function useChatStream(config: StreamConfig = {}) {
               })
             )
           }
+          const finalTestSummary =
+            rerunData.data && typeof rerunData.data.test_summary === 'object' && rerunData.data.test_summary
+              ? (rerunData.data.test_summary as {
+                  passed?: number
+                  failed?: number
+                })
+              : null
           appendAgentTimeline(
             createAgentEvent('task_status', rerunData.success ? 'Patch and test task completed' : 'Patch applied but tests failed', {
               status: rerunData.success ? 'completed' : 'failed',
@@ -1875,14 +1835,8 @@ export function useChatStream(config: StreamConfig = {}) {
                   ? buildAutomaticRepairSummary({
                       patchedFiles,
                       rerunCommand: options.rerunCommand,
-                      passed:
-                        typeof rerunData.data?.test_summary?.passed === 'number'
-                          ? rerunData.data.test_summary.passed
-                          : undefined,
-                      failed:
-                        typeof rerunData.data?.test_summary?.failed === 'number'
-                          ? rerunData.data.test_summary.failed
-                          : undefined,
+                      passed: finalTestSummary?.passed,
+                      failed: finalTestSummary?.failed,
                     })
                   : undefined,
               payload: {
@@ -1960,22 +1914,16 @@ export function useChatStream(config: StreamConfig = {}) {
     )
 
     try {
-      const response = await fetch(`${API_BASE_URL}/agent/execute`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: pending.action,
-          params: pending.params,
-          confirm: true,
-        }),
+      const data = await executeAgentAction<{
+        success?: boolean
+        message?: string
+        error?: string
+        data?: Record<string, unknown>
+      }>({
+        action: pending.action,
+        params: pending.params,
+        confirm: true,
       })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.detail || 'Agent action failed.')
-      }
-
-      const data = await response.json()
       const nextStatus: AgentTaskStatus = data.success ? 'completed' : 'failed'
       setPendingAgentConfirmation(null)
       setAgentTaskStatus(nextStatus)

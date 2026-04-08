@@ -3,6 +3,8 @@
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from api.chat_branch import get_next_message_tree_metadata, register_branch_message
+
 from .context import get_context_manager
 from .session import get_session_manager
 
@@ -117,18 +119,20 @@ async def send_message(session_id: str, request: SendMessageRequest):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    message_metadata, current_branch_id = get_next_message_tree_metadata(session, request.metadata)
     message = session.add_message(
         role=request.role,
         content=request.content,
-        metadata=request.metadata,
+        metadata=message_metadata,
     )
+    register_branch_message(session, current_branch_id, message.id)
     session_manager.save_session(session_id)
 
     context_manager.add_message(
         session_id=session_id,
         role=request.role,
         content=request.content,
-        metadata=request.metadata,
+        metadata=message_metadata,
     )
 
     return {

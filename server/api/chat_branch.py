@@ -15,7 +15,10 @@ router = APIRouter(prefix="/chat", tags=["chat-branch"])
 
 BRANCHES_METADATA_KEY = "branches"
 CURRENT_BRANCH_METADATA_KEY = "current_branch_id"
-MERGE_STATUS_NOT_IMPLEMENTED = "Branch merge is not implemented yet for canonical chat sessions."
+MESSAGE_PARENT_ID_METADATA_KEY = "parent_id"
+MESSAGE_BRANCH_ID_METADATA_KEY = "branch_id"
+MESSAGE_MERGED_FROM_BRANCH_METADATA_KEY = "merged_from_branch_id"
+MESSAGE_MERGED_AT_METADATA_KEY = "merged_at"
 
 
 class MessageNode(BaseModel):
@@ -34,6 +37,7 @@ class ChatBranch(BaseModel):
     name: str
     created_at: str
     root_message_id: str | None = None
+    last_message_id: str | None = None
     message_count: int = 0
 
 
@@ -73,6 +77,7 @@ def _coerce_branch(branch_id: str, session_id: str, payload: dict[str, Any]) -> 
         name=payload.get("name", "Branch"),
         created_at=payload.get("created_at", datetime.now().isoformat()),
         root_message_id=payload.get("root_message_id"),
+        last_message_id=payload.get("last_message_id"),
         message_count=payload.get("message_count", 0),
     )
 
@@ -100,38 +105,123 @@ def _save_branch_state(
     get_session_manager().update_session_metadata(session.id, metadata)
 
 
+def get_message_parent_id(message: Any) -> str | None:
+    metadata = getattr(message, "metadata", {}) or {}
+    parent_id = metadata.get(MESSAGE_PARENT_ID_METADATA_KEY)
+    return parent_id if isinstance(parent_id, str) and parent_id else None
+
+
+def get_message_branch_id(message: Any) -> str | None:
+    metadata = getattr(message, "metadata", {}) or {}
+    branch_id = metadata.get(MESSAGE_BRANCH_ID_METADATA_KEY)
+    return branch_id if isinstance(branch_id, str) and branch_id else None
+
+
+def set_message_tree_metadata(message: Any, parent_id: str | None, branch_id: str | None) -> None:
+    metadata = dict(getattr(message, "metadata", {}) or {})
+    if parent_id:
+        metadata[MESSAGE_PARENT_ID_METADATA_KEY] = parent_id
+    else:
+        metadata.pop(MESSAGE_PARENT_ID_METADATA_KEY, None)
+
+    if branch_id:
+        metadata[MESSAGE_BRANCH_ID_METADATA_KEY] = branch_id
+    else:
+        metadata.pop(MESSAGE_BRANCH_ID_METADATA_KEY, None)
+
+    message.metadata = metadata
+
+
+def _build_message_lookup(session: Session) -> dict[str, Any]:
+    return {message.id: message for message in session.messages}
+
+
+def _get_branch_tip(session: Session, branch_id: str | None, branches: dict[str, ChatBranch]) -> str | None:
+    if branch_id:
+        branch = branches.get(branch_id)
+        if branch:
+            return branch.last_message_id or branch.root_message_id
+
+    for message in reversed(session.messages):
+        if not get_message_branch_id(message):
+            return message.id
+
+    return session.messages[-1].id if session.messages else None
+
+
+def _count_branch_messages(session: Session, branch_id: str) -> int:
+    return sum(1 for message in session.messages if get_message_branch_id(message) == branch_id)
+
+
+def get_next_message_tree_metadata(
+    session: Session,
+    metadata: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], str | None]:
+    branches = _load_branches(session)
+    current_branch_id = session.metadata.get(CURRENT_BRANCH_METADATA_KEY)
+    if current_branch_id not in branches:
+        current_branch_id = None
+
+    message_metadata = dict(metadata or {})
+    parent_id = _get_branch_tip(session, current_branch_id, branches)
+    if parent_id:
+        message_metadata[MESSAGE_PARENT_ID_METADATA_KEY] = parent_id
+    else:
+        message_metadata.pop(MESSAGE_PARENT_ID_METADATA_KEY, None)
+
+    if current_branch_id:
+        message_metadata[MESSAGE_BRANCH_ID_METADATA_KEY] = current_branch_id
+    else:
+        message_metadata.pop(MESSAGE_BRANCH_ID_METADATA_KEY, None)
+
+    return message_metadata, current_branch_id
+
+
+def register_branch_message(session: Session, branch_id: str | None, message_id: str) -> None:
+    if not branch_id:
+        return
+
+    branches = _load_branches(session)
+    branch = branches.get(branch_id)
+    if not branch:
+        return
+
+    branch.last_message_id = message_id
+    branch.message_count = _count_branch_messages(session, branch_id)
+    _save_branch_state(session, branches, current_branch_id=branch_id)
+
+
 def _build_message_tree(session: Session, branches: dict[str, ChatBranch]) -> tuple[dict[str, MessageNode], str | None]:
     if not session.messages:
         return {}, None
 
-    branch_names = {
-        branch.root_message_id: branch.name
-        for branch in branches.values()
-        if branch.root_message_id
-    }
+    branch_names = {branch_id: branch.name for branch_id, branch in branches.items()}
 
     nodes: dict[str, MessageNode] = {}
-    previous_id: str | None = None
-    root_id: str | None = None
-
     for message in session.messages:
+        parent_id = get_message_parent_id(message)
+        branch_id = get_message_branch_id(message)
         node = MessageNode(
             id=message.id,
             role=message.role,
             content=message.content,
             timestamp=message.created_at.isoformat(),
-            parent_id=previous_id,
+            parent_id=parent_id,
             children_ids=[],
-            branch_name=branch_names.get(message.id),
+            branch_name=branch_names.get(branch_id),
         )
         nodes[message.id] = node
 
-        if previous_id and previous_id in nodes:
-            nodes[previous_id].children_ids.append(message.id)
-
-        if root_id is None:
+    root_id: str | None = None
+    for message in session.messages:
+        parent_id = nodes[message.id].parent_id
+        if parent_id and parent_id in nodes:
+            nodes[parent_id].children_ids.append(message.id)
+        elif root_id is None:
             root_id = message.id
-        previous_id = message.id
+
+    if root_id is None and session.messages:
+        root_id = session.messages[0].id
 
     return nodes, root_id
 
@@ -151,7 +241,8 @@ async def create_branch(request: CreateBranchRequest):
         name=request.branch_name or f"Branch {datetime.now().strftime('%H:%M')}",
         created_at=datetime.now().isoformat(),
         root_message_id=request.from_message_id,
-        message_count=len(session.messages),
+        last_message_id=request.from_message_id,
+        message_count=0,
     )
 
     branches[branch_id] = branch
@@ -165,6 +256,8 @@ async def create_branch(request: CreateBranchRequest):
 async def list_branches(session_id: str):
     session = _get_session_or_404(session_id)
     branches = _load_branches(session)
+    for branch in branches.values():
+        branch.message_count = _count_branch_messages(session, branch.id)
     return BranchesListResponse(branches=list(branches.values()))
 
 
@@ -219,5 +312,71 @@ async def merge_branch(session_id: str, branch_id: str):
     branches = _load_branches(session)
     if branch_id not in branches:
         raise HTTPException(status_code=404, detail="Branch not found")
+    source_branch = branches[branch_id]
+    current_branch_id = session.metadata.get(CURRENT_BRANCH_METADATA_KEY)
 
-    raise HTTPException(status_code=409, detail=MERGE_STATUS_NOT_IMPLEMENTED)
+    if current_branch_id == branch_id:
+        raise HTTPException(status_code=409, detail="Cannot merge the current branch into itself")
+
+    message_lookup = _build_message_lookup(session)
+    source_root_id = source_branch.root_message_id
+    if not source_root_id or source_root_id not in message_lookup:
+        raise HTTPException(status_code=409, detail="Branch root message is missing")
+
+    source_messages = [
+        message for message in session.messages
+        if get_message_branch_id(message) == branch_id
+    ]
+    if not source_messages:
+        del branches[branch_id]
+        _save_branch_state(session, branches, current_branch_id=current_branch_id)
+        get_session_manager().save_session(session.id)
+        return {
+            "success": True,
+            "message": "Branch metadata removed because the branch had no branch-specific messages",
+            "merged_count": 0,
+            "target_branch_id": current_branch_id,
+        }
+
+    source_entry_messages = [
+        message for message in source_messages
+        if get_message_parent_id(message) == source_root_id
+    ]
+    if not source_entry_messages:
+        raise HTTPException(status_code=409, detail="Branch entry point could not be determined")
+
+    target_tip_id = _get_branch_tip(session, current_branch_id, branches)
+    if target_tip_id is None:
+        target_tip_id = source_root_id
+
+    merged_at = datetime.now().isoformat()
+    target_branch_id = current_branch_id if current_branch_id in branches else None
+
+    for entry_message in source_entry_messages:
+        set_message_tree_metadata(entry_message, target_tip_id, target_branch_id)
+
+    for message in source_messages:
+        metadata = dict(message.metadata or {})
+        if message not in source_entry_messages:
+            metadata[MESSAGE_BRANCH_ID_METADATA_KEY] = target_branch_id
+            if target_branch_id is None:
+                metadata.pop(MESSAGE_BRANCH_ID_METADATA_KEY, None)
+        metadata[MESSAGE_MERGED_FROM_BRANCH_METADATA_KEY] = branch_id
+        metadata[MESSAGE_MERGED_AT_METADATA_KEY] = merged_at
+        message.metadata = metadata
+
+    if target_branch_id:
+        target_branch = branches[target_branch_id]
+        target_branch.last_message_id = source_messages[-1].id
+        target_branch.message_count = _count_branch_messages(session, target_branch_id)
+
+    del branches[branch_id]
+    _save_branch_state(session, branches, current_branch_id=target_branch_id)
+    get_session_manager().save_session(session.id)
+
+    return {
+        "success": True,
+        "message": "Branch merged successfully",
+        "merged_count": len(source_messages),
+        "target_branch_id": target_branch_id,
+    }

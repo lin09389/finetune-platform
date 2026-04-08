@@ -11,6 +11,13 @@ import type {
   PlaygroundSnapshot,
 } from '../types'
 import { API_BASE_URL } from '../services/api'
+import {
+  createChatSession,
+  deleteChatSession,
+  getChatSession,
+  getChatSessionMessages,
+  listChatSessions,
+} from '../services/chatSessionApi'
 
 export interface ChatSession {
   id: string
@@ -201,32 +208,15 @@ export const useChatStore = create<ChatStore>()(
 
       createSession: async (title = '新对话', modelId) => {
         try {
-          const response = await fetch(`${API_BASE_URL}/chat/sessions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              title, 
-              model_id: modelId || get().settings.modelId 
-            }),
-          })
-          
-          if (!response.ok) {
-            throw new Error('创建会话失败')
-          }
-          
-          const session = await response.json()
+          const session = await createChatSession(
+            title,
+            modelId || get().settings.modelId,
+            get().settings.backend
+          )
           
           set((state) => ({
             sessions: [
-              {
-                ...session,
-                modelId: session.model_id || modelId || get().settings.modelId,
-                backend: get().settings.backend,
-                createdAt: session.created_at || session.createdAt,
-                updatedAt: session.updated_at || session.updatedAt,
-                messageCount: session.message_count ?? session.messageCount ?? 0,
-                metadata: session.metadata || {},
-              },
+              session,
               ...state.sessions,
             ],
             currentSessionId: session.id,
@@ -258,32 +248,36 @@ export const useChatStore = create<ChatStore>()(
 
       loadSession: async (sessionId) => {
         try {
-          const [sessionResponse, messagesResponse] = await Promise.all([
-            fetch(`${API_BASE_URL}/chat/sessions/${sessionId}`),
-            fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/messages`),
+          const [sessionData, messagesData] = await Promise.all([
+            getChatSession(sessionId, get().settings.backend),
+            getChatSessionMessages(sessionId),
           ])
-          
-          if (!sessionResponse.ok || !messagesResponse.ok) {
-            throw new Error('加载会话失败')
-          }
-          
-          const sessionData = await sessionResponse.json()
-          const messagesData = await messagesResponse.json()
+          const sessionMetadata = sessionData.metadata || {}
+          const agentStatus =
+            typeof sessionMetadata.agent_status === 'string'
+              ? (sessionMetadata.agent_status as AgentTaskStatus)
+              : 'idle'
+          const pendingConfirmation =
+            sessionMetadata.pending_confirmation &&
+            typeof sessionMetadata.pending_confirmation === 'object'
+              ? (sessionMetadata.pending_confirmation as AgentPendingConfirmation)
+              : null
+          const workspaceRoot =
+            typeof sessionMetadata.workspace_root === 'string'
+              ? sessionMetadata.workspace_root
+              : ''
           
           set({
             currentSessionId: sessionId,
-            messages: (messagesData.messages || []).map((message: any) => ({
-              ...message,
-              timestamp: message.created_at || message.timestamp,
-            })),
+            messages: messagesData.messages || [],
             promptDraft:
-              typeof sessionData.metadata?.last_agent_goal === 'string'
-                ? sessionData.metadata.last_agent_goal
+              typeof sessionMetadata.last_agent_goal === 'string'
+                ? sessionMetadata.last_agent_goal
                 : get().promptDraft,
-            agentMode: Boolean(sessionData.metadata?.agent_mode),
-            agentTaskStatus: sessionData.metadata?.agent_status || 'idle',
-            agentTimeline: Array.isArray(sessionData.metadata?.execution_timeline)
-              ? sessionData.metadata.execution_timeline.map((event: any, index: number) => ({
+            agentMode: Boolean(sessionMetadata.agent_mode),
+            agentTaskStatus: agentStatus,
+            agentTimeline: Array.isArray(sessionMetadata.execution_timeline)
+              ? sessionMetadata.execution_timeline.map((event: any, index: number) => ({
                   id: event.id || `session_event_${index}`,
                   type: event.type || 'task_status',
                   title: event.title || event.stage || 'Session event',
@@ -294,17 +288,17 @@ export const useChatStore = create<ChatStore>()(
                   createdAt: event.createdAt || event.timestamp || new Date().toISOString(),
                 }))
               : [],
-            pendingAgentConfirmation: sessionData.metadata?.pending_confirmation || null,
-            agentWorkspaceRoot: sessionData.metadata?.workspace_root || '',
-            autoApproveSafeTools: Boolean(sessionData.metadata?.auto_approve_safe_tools),
+            pendingAgentConfirmation: pendingConfirmation,
+            agentWorkspaceRoot: workspaceRoot,
+            autoApproveSafeTools: Boolean(sessionMetadata.auto_approve_safe_tools),
             sessions: get().sessions.map((session) =>
               session.id === sessionId
                 ? {
                     ...session,
                     title: sessionData.title || session.title,
-                    messageCount: sessionData.message_count ?? session.messageCount,
-                    updatedAt: sessionData.updated_at || session.updatedAt,
-                    metadata: sessionData.metadata || session.metadata || {},
+                    messageCount: sessionData.messageCount ?? session.messageCount,
+                    updatedAt: sessionData.updatedAt || session.updatedAt,
+                    metadata: sessionMetadata || session.metadata || {},
                   }
                 : session
             ),
@@ -322,9 +316,7 @@ export const useChatStore = create<ChatStore>()(
 
       deleteSession: async (sessionId) => {
         try {
-          await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}`, { 
-            method: 'DELETE' 
-          })
+          await deleteChatSession(sessionId)
         } catch (error) {
           console.error('删除会话失败:', error)
         }
@@ -350,24 +342,9 @@ export const useChatStore = create<ChatStore>()(
 
       loadSessions: async () => {
         try {
-          const response = await fetch(`${API_BASE_URL}/chat/sessions`)
-          
-          if (!response.ok) {
-            throw new Error('加载会话列表失败')
-          }
-          
-          const data = await response.json()
+          const sessions = await listChatSessions(get().settings.backend)
           set({
-            sessions: (data.sessions || []).map((session: any) => ({
-              id: session.id,
-              title: session.title,
-              modelId: session.model_id || '',
-              backend: session.backend || 'ollama',
-              createdAt: session.created_at || session.createdAt,
-              updatedAt: session.updated_at || session.updatedAt,
-              messageCount: session.message_count ?? session.messageCount ?? 0,
-              metadata: session.metadata || {},
-            })),
+            sessions,
           })
         } catch (error) {
           console.error('加载会话列表失败:', error)

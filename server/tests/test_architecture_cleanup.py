@@ -16,13 +16,18 @@ gateway_routes = importlib.import_module("api.gateway_api.routes")
 main_module = importlib.import_module("main")
 
 from api.chat_branch import (
+    CURRENT_BRANCH_METADATA_KEY,
     CreateBranchRequest,
+    MESSAGE_BRANCH_ID_METADATA_KEY,
+    MESSAGE_MERGED_FROM_BRANCH_METADATA_KEY,
+    MESSAGE_PARENT_ID_METADATA_KEY,
     create_branch,
     get_message_tree,
     list_branches,
     merge_branch,
     switch_branch,
 )
+from api.chat.routes import SendMessageRequest, send_message
 from api.cua import (
     RecordLoadRequest,
     RecordSaveRequest,
@@ -97,32 +102,62 @@ async def test_cua_record_save_load_and_clear(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_chat_branch_uses_session_storage(tmp_path):
+async def test_chat_branch_merge_reparents_messages_into_main_tree(tmp_path):
     chat_session._session_manager = chat_session.SessionManager(storage_path=str(tmp_path / "sessions"))
     manager = chat_session.get_session_manager()
     session = manager.create_session(title="Branch Test")
-    session.add_message(role="user", content="hello")
-    manager.save_session(session.id)
+    await send_message(session.id, SendMessageRequest(content="root", role="user"))
+    session = manager.get_session(session.id)
+    root_message = session.messages[0]
+
+    await send_message(session.id, SendMessageRequest(content="trunk reply", role="assistant"))
+    session = manager.get_session(session.id)
+    trunk_message = session.messages[-1]
 
     response = await create_branch(
-        CreateBranchRequest(session_id=session.id, from_message_id=session.messages[0].id, branch_name="alt")
+        CreateBranchRequest(session_id=session.id, from_message_id=root_message.id, branch_name="alt")
     )
     assert response.success is True
-
-    branches = await list_branches(session.id)
-    assert len(branches.branches) == 1
-    assert branches.branches[0].root_message_id == session.messages[0].id
-
-    tree = await get_message_tree(session.id)
-    assert tree.root_id == session.messages[0].id
-    assert session.messages[0].id in tree.nodes
 
     switched = await switch_branch(session.id, response.branch.id)
     assert switched["success"] is True
 
-    with pytest.raises(HTTPException) as exc:
-        await merge_branch(session.id, response.branch.id)
-    assert exc.value.status_code == 409
+    await send_message(session.id, SendMessageRequest(content="branch reply", role="assistant"))
+    await send_message(session.id, SendMessageRequest(content="branch follow-up", role="user"))
+
+    session = manager.get_session(session.id)
+    branch_first_message = session.messages[-2]
+    branch_second_message = session.messages[-1]
+    assert branch_first_message.metadata[MESSAGE_PARENT_ID_METADATA_KEY] == root_message.id
+    assert branch_first_message.metadata[MESSAGE_BRANCH_ID_METADATA_KEY] == response.branch.id
+    assert branch_second_message.metadata[MESSAGE_PARENT_ID_METADATA_KEY] == branch_first_message.id
+    assert branch_second_message.metadata[MESSAGE_BRANCH_ID_METADATA_KEY] == response.branch.id
+
+    manager.update_session_metadata(session.id, {CURRENT_BRANCH_METADATA_KEY: None})
+
+    merged = await merge_branch(session.id, response.branch.id)
+    assert merged["success"] is True
+    assert merged["merged_count"] == 2
+    assert merged["target_branch_id"] is None
+
+    session = manager.get_session(session.id)
+    branch_first_message = session.messages[-2]
+    branch_second_message = session.messages[-1]
+
+    branches = await list_branches(session.id)
+    assert branches.branches == []
+    assert branch_first_message.metadata[MESSAGE_PARENT_ID_METADATA_KEY] == trunk_message.id
+    assert MESSAGE_BRANCH_ID_METADATA_KEY not in branch_first_message.metadata
+    assert branch_first_message.metadata[MESSAGE_MERGED_FROM_BRANCH_METADATA_KEY] == response.branch.id
+    assert branch_second_message.metadata[MESSAGE_PARENT_ID_METADATA_KEY] == branch_first_message.id
+    assert MESSAGE_BRANCH_ID_METADATA_KEY not in branch_second_message.metadata
+    assert branch_second_message.metadata[MESSAGE_MERGED_FROM_BRANCH_METADATA_KEY] == response.branch.id
+
+    tree = await get_message_tree(session.id)
+    assert tree.root_id == root_message.id
+    assert tree.nodes[root_message.id].children_ids == [trunk_message.id]
+    assert tree.nodes[trunk_message.id].children_ids == [branch_first_message.id]
+    assert tree.nodes[branch_first_message.id].children_ids == [branch_second_message.id]
 
 
 @pytest.mark.asyncio
