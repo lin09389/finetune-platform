@@ -71,7 +71,7 @@ class PreferenceConflict:
 class PreferenceExtractor:
     """
     偏好提取器
-    
+
     从对话和操作中提取用户偏好
     """
 
@@ -187,7 +187,7 @@ class PreferenceConflictResolver:
 class UserPreferenceLearner:
     """
     用户偏好学习器
-    
+
     功能：
     - 偏好提取
     - 偏好存储

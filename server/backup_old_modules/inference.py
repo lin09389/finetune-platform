@@ -80,7 +80,7 @@ def get_friendly_error(error_key: str, original_error: str = "") -> str:
 def parse_ollama_error(error_text: str) -> str:
     """解析 Ollama 错误信息并返回友好的中文提示"""
     error_lower = error_text.lower()
-    
+
     if "model" in error_lower and ("not found" in error_lower or "does not exist" in error_lower):
         return get_friendly_error("model_not_found")
     if "connection" in error_lower or "refused" in error_lower:
@@ -89,7 +89,7 @@ def parse_ollama_error(error_text: str) -> str:
         return get_friendly_error("ollama_unavailable")
     if "context" in error_lower and ("length" in error_lower or "too long" in error_lower):
         return get_friendly_error("context_too_long")
-    
+
     return error_text
 
 
@@ -97,24 +97,24 @@ def sanitize_input(text: str) -> str:
     """清理和验证输入文本"""
     if not text:
         return text
-    
+
     text = text.strip()
-    
+
     if len(text) > MAX_MESSAGE_LENGTH:
         text = text[:MAX_MESSAGE_LENGTH]
-    
+
     return text
 
 
 def detect_prompt_injection(text: str) -> bool:
     """检测潜在的 Prompt 注入攻击"""
     text_lower = text.lower()
-    
+
     for pattern in PROMPT_INJECTION_PATTERNS:
         if re.search(pattern, text_lower, re.IGNORECASE):
             logger.warning(f"检测到潜在的 Prompt 注入: {pattern}")
             return True
-    
+
     return False
 
 
@@ -348,27 +348,27 @@ def unload_model(model_id: str):
 def load_lora_adapter(model, lora_path: str):
     """加载 LoRA 适配器"""
     from pathlib import Path
-    
+
     full_lora_path = Path(lora_path)
     if not full_lora_path.is_absolute():
         full_lora_path = settings.outputs_dir_resolved / lora_path
-    
+
     if not full_lora_path.exists():
         raise HTTPException(status_code=404, detail=f"LoRA 适配器不存在：{lora_path}")
-    
+
     cache_key = str(full_lora_path)
-    
+
     if cache_key in lora_adapter_cache:
         logger.info(f"从缓存加载 LoRA 适配器：{lora_path}")
         return lora_adapter_cache[cache_key]
-    
+
     try:
         from peft import PeftModel
-        
+
         logger.info(f"加载 LoRA 适配器：{full_lora_path}")
         lora_model = PeftModel.from_pretrained(model, str(full_lora_path))
         lora_adapter_cache[cache_key] = lora_model
-        
+
         logger.info(f"LoRA 适配器加载完成：{lora_path}")
         return lora_model
     except ImportError:
@@ -388,26 +388,26 @@ def clear_cache():
 def clean_think_tags(text: str) -> str:
     """清理 Qwen3 等模型的思考链内容"""
     import re
-    
+
     if not text:
         return ""
-    
+
     text = re.sub(r'<think[^>]*>.*?</think\s*>', '', text, flags=re.DOTALL | re.IGNORECASE)
     text = re.sub(r'<\|im_start\|>.*?<\|im_end\|>', '', text, flags=re.DOTALL)
     text = text.replace('<|im_start|>', '').replace('<|im_end|>', '')
-    
+
     thinking_starters = [
-        '嗯，', '嗯，', 
+        '嗯，', '嗯，',
         '用户发来', '用户想', '用户可能', '用户问', '用户没有', '用户说',
         '我需要', '我应该', '我要', '我可以', '我得',
-        '首先，', '首先,', 
+        '首先，', '首先,',
         '接下来', '然后', '最后',
         '可能用户', '可能他们',
         '要避免', '需要避免',
-        '比如，', '比如,', 
-        '不过，', '不过,', 
-        '另外，', '另外,', 
-        '对了，', '对了,', 
+        '比如，', '比如,',
+        '不过，', '不过,',
+        '另外，', '另外,',
+        '对了，', '对了,',
         '检查一下', '检查有',
         '作为AI', '作为助手',
         '中文里', '中文环境',
@@ -415,36 +415,36 @@ def clean_think_tags(text: str) -> str:
         '可能的回答', '回复结构',
         '还要注意',
     ]
-    
+
     result_sentences = []
     sentences = re.split(r'([。！？\n])', text)
-    
+
     i = 0
     while i < len(sentences):
         sentence = sentences[i]
-        
+
         if i + 1 < len(sentences) and sentences[i + 1] in '。！？\n':
             full_sentence = sentence + sentences[i + 1]
             i += 2
         else:
             full_sentence = sentence
             i += 1
-        
+
         stripped = full_sentence.strip()
         if not stripped:
             continue
-        
+
         is_thinking = False
         for starter in thinking_starters:
             if stripped.startswith(starter):
                 is_thinking = True
                 break
-        
+
         if is_thinking:
             continue
-        
+
         result_sentences.append(full_sentence)
-    
+
     result = ''.join(result_sentences).strip()
     return result if result else text.strip()
 
@@ -464,7 +464,7 @@ def ollama_inference(
             "Content-Type": "application/json; charset=utf-8",
             "Accept": "application/json; charset=utf-8",
         }
-        
+
         response = requests.post(
             f"{OLLAMA_BASE_URL}/api/generate",
             headers=headers,
@@ -493,7 +493,7 @@ def ollama_inference(
         result = response.json()
         response_text = result.get("response", "")
         response_text = clean_think_tags(response_text)
-        
+
         return {
             "text": response_text,
             "tokens": result.get("eval_count", 0),
@@ -516,7 +516,7 @@ def ollama_chat(
             "Content-Type": "application/json; charset=utf-8",
             "Accept": "application/json; charset=utf-8",
         }
-        
+
         response = requests.post(
             f"{OLLAMA_BASE_URL}/api/chat",
             headers=headers,
@@ -543,15 +543,15 @@ def ollama_chat(
         result = response.json()
         message = result.get("message", {})
         response_text = message.get("content", "")
-        
+
         if not response_text and message.get("thinking"):
             response_text = message.get("thinking", "")
             logger.info("使用 thinking 字段作为响应（content 为空）")
-        
+
         logger.info(f"Ollama chat 原始响应: {response_text[:100] if response_text else 'EMPTY'}...")
         response_text = clean_think_tags(response_text)
         logger.info(f"清理后响应: {response_text[:100] if response_text else 'EMPTY'}...")
-        
+
         return {
             "text": response_text,
             "tokens": result.get("eval_count", 0),
@@ -671,19 +671,19 @@ async def chat(request: ChatRequest):
     for msg in request.messages:
         if not msg.content or not msg.content.strip():
             raise HTTPException(status_code=400, detail="消息内容不能为空")
-        
+
         if detect_prompt_injection(msg.content):
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail="检测到潜在的恶意输入，请修改您的消息内容"
             )
-        
+
         msg.content = sanitize_input(msg.content)
 
     system_prompt = ""
     knowledge_sources_response = None
     retrieval_info = None
-    
+
     last_user_message = ""
     for msg in reversed(request.messages):
         if msg.role == "user":
@@ -693,22 +693,22 @@ async def chat(request: ChatRequest):
     if request.use_knowledge and request.collection_id and last_user_message:
         try:
             from context.knowledge_integration import get_knowledge_integrator
-            
+
             integrator = get_knowledge_integrator()
-            
+
             should_retrieve, reason = integrator.should_retrieve_knowledge(
                 query=last_user_message,
                 collection_id=request.collection_id,
                 force_retrieve=not request.auto_retrieve
             )
-            
+
             if should_retrieve:
                 retrieval_result = integrator.retrieve_knowledge(
                     query=last_user_message,
                     collection_id=request.collection_id,
                     top_k=request.top_k
                 )
-                
+
                 if retrieval_result.sources:
                     knowledge_context = retrieval_result.context
                     system_prompt = f"""你是一个有帮助的 AI 助手。请基于以下参考资料回答用户的问题。
@@ -721,7 +721,7 @@ async def chat(request: ChatRequest):
 2. 如果参考资料中没有相关信息，请明确说明
 3. 引用具体内容时，请标注来源编号（如 [参考资料 1]）
 4. 保持回答简洁、准确、有帮助"""
-                    
+
                     knowledge_sources_response = [
                         KnowledgeSourceResponse(
                             id=s.id,
@@ -731,14 +731,14 @@ async def chat(request: ChatRequest):
                         )
                         for s in retrieval_result.sources
                     ]
-                    
+
                     retrieval_info = {
                         "query": retrieval_result.query,
                         "method": retrieval_result.retrieval_method,
                         "total_results": retrieval_result.total_results,
                         "retrieval_time": retrieval_result.retrieval_time
                     }
-                    
+
                     logger.info(f"知识库检索完成: {len(retrieval_result.sources)} 个结果, "
                                f"method={retrieval_result.retrieval_method}, "
                                f"time={retrieval_result.retrieval_time:.3f}s")
@@ -794,7 +794,7 @@ async def chat(request: ChatRequest):
         )
 
         response_text = result["text"]
-        
+
         if knowledge_sources_response and request.include_sources:
             from context.knowledge_integration import get_knowledge_integrator
             integrator = get_knowledge_integrator()
@@ -958,13 +958,13 @@ async def stream_inference(request: InferenceRequest):
                                 if " Halb" in chunk:
                                     in_think_block = True
                                     chunk = chunk.split(" Halb")[-1] if " Halb" in chunk else chunk
-                                
+
                                 if "Full" in chunk:
                                     in_think_block = False
                                     chunk = chunk.split("Full")[-1] if "Full" in chunk else chunk
                                 elif in_think_block:
                                     chunk = ""
-                                
+
                                 if chunk:
                                     stats.add_chunk(chunk)
                                     yield await create_sse_event({
@@ -1045,14 +1045,14 @@ async def stream_inference(request: InferenceRequest):
         async def generate() -> AsyncGenerator[str, None]:
             chunk_count = 0
             stats.start()
-            
+
             try:
                 def get_next_token():
                     try:
                         return next(streamer)
                     except StopIteration:
                         return None
-                
+
                 while True:
                     if generation_error:
                         logger.error(f"生成过程中检测到错误: {generation_error}")
@@ -1061,18 +1061,18 @@ async def stream_inference(request: InferenceRequest):
                             "done": True
                         }, "error")
                         return
-                    
+
                     text = await asyncio.to_thread(get_next_token)
-                    
+
                     if text is None:
                         if not generation_complete.is_set():
                             await asyncio.sleep(0.1)
                             continue
                         break
-                    
+
                     if text:
                         text = text.replace("<|im_end|>", "").replace("<|im_start|>", "")
-                        
+
                         if text:
                             chunk_count += 1
                             stats.add_chunk(text)
@@ -1080,9 +1080,9 @@ async def stream_inference(request: InferenceRequest):
                                 "content": text,
                                 "done": False
                             })
-                
+
                 await asyncio.to_thread(thread.join, timeout=5.0)
-                
+
                 if generation_error:
                     yield await create_sse_event({
                         "error": str(generation_error),
@@ -1095,7 +1095,7 @@ async def stream_inference(request: InferenceRequest):
                         "done": True,
                         "stats": stats.to_dict()
                     }, "done")
-                    
+
             except Exception as e:
                 logger.error(f"HuggingFace 流式错误：{e}", exc_info=True)
                 yield await create_sse_event({"error": str(e), "done": True}, "error")
@@ -1321,11 +1321,11 @@ async def get_merge_status():
 async def get_performance_stats(model_id: Optional[str] = None):
     """获取性能统计"""
     from core.performance import get_performance_monitor
-    
+
     monitor = get_performance_monitor()
     stats = monitor.get_stats(model_id)
     streaming_stats = monitor.get_streaming_stats()
-    
+
     return {
         "inference": stats,
         "streaming": streaming_stats,
@@ -1337,13 +1337,13 @@ async def get_performance_recommendations():
     """获取性能优化建议"""
     from core.performance import get_performance_monitor
     from core.utils import get_device_info
-    
+
     monitor = get_performance_monitor()
     device_info = get_device_info()
     vram_total = device_info.get("memory_total", 0)
-    
+
     recommendations = monitor.get_recommendations(vram_total)
-    
+
     return {
         "recommendations": recommendations,
         "device_info": device_info,
@@ -1354,8 +1354,8 @@ async def get_performance_recommendations():
 async def clear_performance_history():
     """清空性能历史"""
     from core.performance import get_performance_monitor
-    
+
     monitor = get_performance_monitor()
     monitor.clear_history()
-    
+
     return {"message": "性能历史已清空"}

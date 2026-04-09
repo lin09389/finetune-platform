@@ -1,46 +1,46 @@
 import requests
 
-BASE_URL = 'http://127.0.0.1:8001'
+BASE_URL = "http://127.0.0.1:8001"
 
 
 def main() -> None:
-    print('娴嬭瘯鏅鸿兘 Agent 鏂囦欢鎿嶄綔')
-    print('=' * 60)
+    print("Test smart-agent file operations")
+    print("=" * 60)
 
-    print('\n1. 娴嬭瘯: 鍒涘缓鏂囦欢')
+    print("\n1. Create file")
     response = requests.post(
-        f'{BASE_URL}/smart-agent/smart-execute',
-        json={'message': '鍒涘缓 test_smart.txt 鏂囦欢', 'auto_execute': True},
+        f"{BASE_URL}/smart-agent/smart-execute",
+        json={"message": "create file test_smart.txt", "auto_execute": True},
     )
     data = response.json()
-    print(f"妫€娴嬪埌: {data.get('detected')}")
-    print(f"鎿嶄綔: {data.get('action')}")
-    print(f"鍙嶉: {data.get('feedback')}")
+    print(f"Detected: {data.get('detected')}")
+    print(f"Action: {data.get('action')}")
+    print(f"Feedback: {data.get('feedback')}")
 
-    print('\n2. 娴嬭瘯: 鍐欏叆鏂囦欢')
+    print("\n2. Write file")
     response = requests.post(
-        f'{BASE_URL}/smart-agent/smart-execute',
-        json={'message': '鎶?test_smart.txt 鐨勫唴瀹规敼鎴?Hello World', 'auto_execute': True},
+        f"{BASE_URL}/smart-agent/smart-execute",
+        json={"message": "write Hello World to test_smart.txt", "auto_execute": True},
     )
     data = response.json()
-    print(f"妫€娴嬪埌: {data.get('detected')}")
-    print(f"鎿嶄綔: {data.get('action')}")
-    print(f"鍙嶉: {data.get('feedback')}")
+    print(f"Detected: {data.get('detected')}")
+    print(f"Action: {data.get('action')}")
+    print(f"Feedback: {data.get('feedback')}")
 
-    print('\n3. 娴嬭瘯: 璇诲彇鏂囦欢')
+    print("\n3. Read file")
     response = requests.post(
-        f'{BASE_URL}/smart-agent/smart-execute',
-        json={'message': '璇诲彇 test_smart.txt', 'auto_execute': True},
+        f"{BASE_URL}/smart-agent/smart-execute",
+        json={"message": "read test_smart.txt", "auto_execute": True},
     )
     data = response.json()
-    print(f"妫€娴嬪埌: {data.get('detected')}")
-    print(f"鎿嶄綔: {data.get('action')}")
-    print(f"鍙嶉: {data.get('feedback')}")
+    print(f"Detected: {data.get('detected')}")
+    print(f"Action: {data.get('action')}")
+    print(f"Feedback: {data.get('feedback')}")
     if data.get('result_data'):
-      print(f"缁撴灉: {data['result_data']}")
+        print(f"Result: {data['result_data']}")
 
-    print('\n' + '=' * 60)
+    print("\n" + "=" * 60)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

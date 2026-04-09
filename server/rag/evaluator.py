@@ -38,7 +38,7 @@ class RetrievalEvaluator:
     def __init__(self, k_values: list[int] | None = None):
         """
         初始化评估器
-        
+
         Args:
             k_values: 评估的 K 值列表，如 [1, 3, 5, 10]
         """
@@ -55,12 +55,12 @@ class RetrievalEvaluator:
     ) -> float:
         """
         计算 Precision@K
-        
+
         Args:
             retrieved_ids: 检索结果 ID 列表
             relevant_ids: 相关文档 ID 列表
             k: 截断位置
-            
+
         Returns:
             Precision@K 值
         """
@@ -82,12 +82,12 @@ class RetrievalEvaluator:
     ) -> float:
         """
         计算 Recall@K
-        
+
         Args:
             retrieved_ids: 检索结果 ID 列表
             relevant_ids: 相关文档 ID 列表
             k: 截断位置
-            
+
         Returns:
             Recall@K 值
         """
@@ -104,11 +104,11 @@ class RetrievalEvaluator:
     def mrr(self, retrieved_ids: list[str], relevant_ids: list[str]) -> float:
         """
         计算 MRR (Mean Reciprocal Rank)
-        
+
         Args:
             retrieved_ids: 检索结果 ID 列表
             relevant_ids: 相关文档 ID 列表
-            
+
         Returns:
             MRR 值
         """
@@ -128,12 +128,12 @@ class RetrievalEvaluator:
     ) -> float:
         """
         计算 NDCG@K (Normalized Discounted Cumulative Gain)
-        
+
         Args:
             retrieved_ids: 检索结果 ID 列表
             relevant_ids: 相关文档 ID 列表
             k: 截断位置
-            
+
         Returns:
             NDCG@K 值
         """
@@ -160,11 +160,11 @@ class RetrievalEvaluator:
     ) -> float:
         """
         计算 MAP (Mean Average Precision)
-        
+
         Args:
             retrieved_ids: 检索结果 ID 列表
             relevant_ids: 相关文档 ID 列表
-            
+
         Returns:
             MAP 值
         """
@@ -190,12 +190,12 @@ class RetrievalEvaluator:
     ) -> EvaluationResult:
         """
         评估单个查询
-        
+
         Args:
             query: 查询文本
             retrieved_ids: 检索结果 ID 列表
             relevant_ids: 相关文档 ID 列表
-            
+
         Returns:
             评估结果
         """
@@ -224,12 +224,12 @@ class RetrievalEvaluator:
     ) -> BatchEvaluationResult:
         """
         批量评估
-        
+
         Args:
             queries: 查询文本列表
             retrieved_ids_list: 检索结果 ID 列表的列表
             relevant_ids_list: 相关文档 ID 列表的列表
-            
+
         Returns:
             批量评估结果
         """
@@ -305,7 +305,7 @@ class OnlineEvaluator:
     ):
         """
         记录用户反馈
-        
+
         Args:
             query: 查询文本
             retrieved_ids: 检索结果 ID 列表
@@ -327,10 +327,10 @@ class OnlineEvaluator:
     def get_click_through_rate(self, position: int) -> float:
         """
         获取特定位置的点击率
-        
+
         Args:
             position: 位置索引（从 0 开始）
-            
+
         Returns:
             点击率
         """

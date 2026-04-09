@@ -1,4 +1,4 @@
-﻿"""Unified Agent API.
+"""Unified Agent API.
 
 Direct-cut v2 contract:
 - /agent/detect-intent

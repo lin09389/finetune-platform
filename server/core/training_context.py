@@ -29,7 +29,7 @@ logger = get_logger(__name__)
 class TrainingContext:
     """
     训练上下文管理器 - 统一管理所有训练相关状态
-    
+
     修复：
     - P0-4: 统一全局状态管理
     - 使用依赖注入模式

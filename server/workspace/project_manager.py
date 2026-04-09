@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class ProjectManager:
     """
     项目管理器
-    
+
     功能：
     - 项目 CRUD 操作
     - 项目持久化存储（SQLite + JSON 备份）
@@ -120,7 +120,7 @@ class ProjectManager:
         db_pool = get_db_pool(str(self._db_path))
 
         db_pool.execute_update("""
-            INSERT OR REPLACE INTO projects 
+            INSERT OR REPLACE INTO projects
             (id, name, description, tags, status, metadata, created_at, updated_at, file_count, total_size)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
@@ -169,7 +169,7 @@ class ProjectManager:
     ) -> list[Project]:
         """
         列出项目
-        
+
         Args:
             status: 按状态筛选
             tags: 按标签筛选
@@ -217,7 +217,7 @@ class ProjectManager:
     def delete_project(self, project_id: str, hard: bool = False) -> bool:
         """
         删除项目
-        
+
         Args:
             project_id: 项目ID
             hard: 是否硬删除（物理删除）

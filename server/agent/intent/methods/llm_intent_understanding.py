@@ -123,7 +123,7 @@ class LLMIntentUnderstanding:
 
             data = json.loads(response)
             intents_data = data.get("intents", [])
-            
+
             # 兼容单对象格式
             if not isinstance(intents_data, list) and isinstance(data, dict) and "intent_type" in data:
                 intents_data = [data]
@@ -151,7 +151,7 @@ class LLMIntentUnderstanding:
                     session_id=session_id
                 )
                 results.append(res)
-            
+
             return results
 
         except Exception as e:

@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class MemoryAwareSkill(SkillBase):
     """
     记忆感知技能基类
-    
+
     功能：
     - 记忆上下文注入钩子
     - 记忆相关性排序
@@ -80,7 +80,7 @@ class MemoryAwareSkill(SkillBase):
     ) -> list[tuple[dict[str, Any], float]]:
         """
         按相关性排序记忆
-        
+
         使用多维度评分：
         - 语义相似度
         - 时间衰减
@@ -131,7 +131,7 @@ class MemoryAwareSkill(SkillBase):
     ) -> str:
         """
         压缩和摘要记忆
-        
+
         将多条记忆压缩为简洁的摘要
         """
         if not memories:
@@ -171,7 +171,7 @@ class MemoryAwareSkill(SkillBase):
     ) -> list[dict[str, Any]]:
         """
         跨会话记忆检索
-        
+
         检索所有会话中的相关记忆
         """
         if not self._memory_service:
@@ -199,7 +199,7 @@ class MemoryAwareSkill(SkillBase):
     ) -> dict[str, Any]:
         """
         注入记忆上下文到参数
-        
+
         在技能执行前自动调用
         """
         query = json.dumps(parameters, ensure_ascii=False)

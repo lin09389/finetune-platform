@@ -273,8 +273,6 @@ class OptimizedStreamingResponse:
     async def stream(self) -> AsyncGenerator[str, None]:
         """流式生成器，支持批量推送"""
         self._latency_stats.start()
-        flush_task = None
-
         try:
             async for token in self.generator:
                 generated_at = time.time()

@@ -1,42 +1,33 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useCallback, useRef, useState } from 'react'
+import { Button, Card, Image, message, Modal, Space, Spin, Typography, Upload } from 'antd'
 import {
-  Upload,
-  Button,
-  Image,
-  Modal,
-  message,
-  Space,
-  Typography,
-  Card,
-  Spin,
-} from 'antd';
-import {
-  PictureOutlined,
+  CopyOutlined,
   DeleteOutlined,
   EyeOutlined,
+  PictureOutlined,
   ScanOutlined,
-  CopyOutlined,
-} from '@ant-design/icons';
-import type { UploadFile, UploadProps } from 'antd';
+} from '@ant-design/icons'
+import type { UploadFile, UploadProps } from 'antd'
+import { API_BASE_URL } from '../services/api'
 
-const { Text } = Typography;
+const { Text } = Typography
 
 interface ImageUploadProps {
-  onUpload: (file: File, preview: string) => void;
-  onOCR?: (result: OCRResult) => void;
-  accept?: string;
-  maxSize?: number;
-  showOCR?: boolean;
+  onUpload: (file: File, preview: string) => void
+  onOCR?: (result: OCRResult) => void
+  accept?: string
+  maxSize?: number
+  showOCR?: boolean
 }
 
 interface OCRResult {
-  text: string;
-  confidence: number;
+  text: string
+  confidence: number
   regions?: Array<{
-    boundingBox: string;
-    text: string;
-    confidence: number;
-  }>;
+    bounding_box: string
+    text: string
+    confidence: number
+  }>
 }
 
 const ImageUpload: React.FC<ImageUploadProps> = ({
@@ -46,92 +37,110 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
   maxSize = 10 * 1024 * 1024,
   showOCR = true,
 }) => {
-  const [fileList, setFileList] = useState<UploadFile[]>([]);
-  const [previewVisible, setPreviewVisible] = useState(false);
-  const [previewImage, setPreviewImage] = useState('');
-  const [ocrLoading, setOcrLoading] = useState(false);
-  const [ocrResult, setOcrResult] = useState<OCRResult | null>(null);
-  const fileRef = useRef<File | null>(null);
+  const [fileList, setFileList] = useState<UploadFile[]>([])
+  const [previewVisible, setPreviewVisible] = useState(false)
+  const [previewImage, setPreviewImage] = useState('')
+  const [ocrLoading, setOcrLoading] = useState(false)
+  const [ocrResult, setOcrResult] = useState<OCRResult | null>(null)
+  const fileRef = useRef<File | null>(null)
 
   const beforeUpload = useCallback(
     (file: File) => {
-      const isImage = file.type.startsWith('image/');
-      if (!isImage) {
-        message.error('只能上传图片文件');
-        return false;
+      if (!file.type.startsWith('image/')) {
+        message.error('只能上传图片文件')
+        return false
       }
 
       if (file.size > maxSize) {
-        message.error(`图片大小不能超过 ${Math.round(maxSize / 1024 / 1024)}MB`);
-        return false;
+        message.error(`图片大小不能超过 ${Math.round(maxSize / 1024 / 1024)}MB`)
+        return false
       }
 
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
+      const reader = new FileReader()
+      reader.readAsDataURL(file)
       reader.onload = () => {
-        const preview = reader.result as string;
-        setPreviewImage(preview);
-        fileRef.current = file;
-        onUpload(file, preview);
-      };
+        const preview = reader.result as string
+        setPreviewImage(preview)
+        setFileList([
+          {
+            uid: file.name,
+            name: file.name,
+            status: 'done',
+            url: preview,
+          },
+        ])
+        fileRef.current = file
+        onUpload(file, preview)
+      }
 
-      return false;
+      return false
     },
     [maxSize, onUpload]
-  );
+  )
 
   const handleOCR = useCallback(async () => {
     if (!previewImage) {
-      message.warning('请先上传图片');
-      return;
+      message.warning('请先上传图片')
+      return
     }
 
-    setOcrLoading(true);
+    setOcrLoading(true)
     try {
-      const response = await fetch('/api/ocr', {
+      const response = await fetch(`${API_BASE_URL}/ocr`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_base64: previewImage.split(',')[1] }),
-      });
+        body: JSON.stringify({
+          image_base64: previewImage.split(',')[1],
+        }),
+      })
 
-      if (response.ok) {
-        const result = await response.json();
-        setOcrResult(result);
-        onOCR?.(result);
-        message.success('OCR 识别完成');
-      } else {
-        message.error('OCR 识别失败');
+      if (!response.ok) {
+        message.error('OCR 识别失败')
+        return
       }
-    } catch (error) {
-      console.error('OCR error:', error);
-      message.error('OCR 识别失败');
-    } finally {
-      setOcrLoading(false);
-    }
-  }, [previewImage, onOCR]);
 
-  const handleCopyText = useCallback(() => {
-    if (ocrResult?.text) {
-      navigator.clipboard.writeText(ocrResult.text);
-      message.success('文本已复制');
+      const result = await response.json()
+      setOcrResult(result)
+      onOCR?.(result)
+      message.success('OCR 识别完成')
+    } catch (error) {
+      console.error('OCR error:', error)
+      message.error('OCR 识别失败')
+    } finally {
+      setOcrLoading(false)
     }
-  }, [ocrResult]);
+  }, [onOCR, previewImage])
+
+  const handleCopyText = useCallback(async () => {
+    if (!ocrResult?.text) return
+
+    try {
+      await navigator.clipboard.writeText(ocrResult.text)
+      message.success('文本已复制')
+    } catch (error) {
+      console.error('Copy OCR text failed:', error)
+      message.error('复制失败')
+    }
+  }, [ocrResult])
 
   const handleRemove = useCallback(() => {
-    setFileList([]);
-    setPreviewImage('');
-    setOcrResult(null);
-    fileRef.current = null;
-  }, []);
+    setFileList([])
+    setPreviewImage('')
+    setOcrResult(null)
+    fileRef.current = null
+  }, [])
 
   const uploadProps: UploadProps = {
     fileList,
     beforeUpload,
-    onRemove: handleRemove,
+    onRemove: () => {
+      handleRemove()
+      return true
+    },
     accept,
     maxCount: 1,
     showUploadList: false,
-  };
+  }
 
   return (
     <div className="image-upload-container">
@@ -152,25 +161,14 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
           extra={
             <Space>
               {showOCR && (
-                <Button
-                  icon={<ScanOutlined />}
-                  onClick={handleOCR}
-                  loading={ocrLoading}
-                >
+                <Button icon={<ScanOutlined />} onClick={() => void handleOCR()} loading={ocrLoading}>
                   OCR 识别
                 </Button>
               )}
-              <Button
-                icon={<EyeOutlined />}
-                onClick={() => setPreviewVisible(true)}
-              >
+              <Button icon={<EyeOutlined />} onClick={() => setPreviewVisible(true)}>
                 预览
               </Button>
-              <Button
-                danger
-                icon={<DeleteOutlined />}
-                onClick={handleRemove}
-              >
+              <Button danger icon={<DeleteOutlined />} onClick={handleRemove}>
                 删除
               </Button>
             </Space>
@@ -195,14 +193,9 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
                   <div style={{ marginBottom: 8 }}>
                     <Text strong>识别结果</Text>
                     <Text type="secondary" style={{ marginLeft: 8 }}>
-                      置信度: {(ocrResult.confidence * 100).toFixed(1)}%
+                      置信度 {(ocrResult.confidence * 100).toFixed(1)}%
                     </Text>
-                    <Button
-                      size="small"
-                      icon={<CopyOutlined />}
-                      onClick={handleCopyText}
-                      style={{ marginLeft: 8 }}
-                    >
+                    <Button size="small" icon={<CopyOutlined />} onClick={() => void handleCopyText()} style={{ marginLeft: 8 }}>
                       复制
                     </Button>
                   </div>
@@ -239,21 +232,11 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
         </Card>
       )}
 
-      <Modal
-        open={previewVisible}
-        footer={null}
-        onCancel={() => setPreviewVisible(false)}
-        width="80%"
-        centered
-      >
-        <img
-          src={previewImage}
-          alt="preview"
-          style={{ width: '100%', borderRadius: 8 }}
-        />
+      <Modal open={previewVisible} footer={null} onCancel={() => setPreviewVisible(false)} width="80%" centered>
+        <img src={previewImage} alt="preview" style={{ width: '100%', borderRadius: 8 }} />
       </Modal>
     </div>
-  );
-};
+  )
+}
 
-export default ImageUpload;
+export default ImageUpload

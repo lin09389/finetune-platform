@@ -59,7 +59,7 @@ AsyncEventHandler = Callable[[Event], Any]
 class EventBus:
     """
     事件总线实现
-    
+
     特性:
     - 支持同步和异步事件处理器
     - 支持事件过滤
@@ -86,12 +86,12 @@ class EventBus:
     ) -> 'EventBus':
         """
         订阅事件
-        
+
         Args:
             event_type: 事件类型
             handler: 事件处理器
             once: 是否只处理一次
-            
+
         Returns:
             self (支持链式调用)
         """
@@ -119,11 +119,11 @@ class EventBus:
     def unsubscribe(self, event_type: EventType, handler: EventHandler) -> bool:
         """
         取消订阅
-        
+
         Args:
             event_type: 事件类型
             handler: 事件处理器
-            
+
         Returns:
             是否成功取消
         """
@@ -148,10 +148,10 @@ class EventBus:
     def add_filter(self, filter_func: Callable[[Event], bool]) -> 'EventBus':
         """
         添加事件过滤器
-        
+
         Args:
             filter_func: 过滤函数，返回 True 表示允许事件通过
-            
+
         Returns:
             self
         """
@@ -164,11 +164,11 @@ class EventBus:
     ) -> 'EventBus':
         """
         添加中间件
-        
+
         Args:
             middleware: 中间件函数，可以修改或拦截事件
                        返回 None 表示拦截事件
-                       
+
         Returns:
             self
         """
@@ -178,7 +178,7 @@ class EventBus:
     def publish(self, event: Event) -> None:
         """
         同步发布事件
-        
+
         Args:
             event: 事件对象
         """
@@ -216,7 +216,7 @@ class EventBus:
     async def publish_async(self, event: Event) -> None:
         """
         异步发布事件
-        
+
         Args:
             event: 事件对象
         """
@@ -277,11 +277,11 @@ class EventBus:
     ) -> list[Event]:
         """
         获取事件历史
-        
+
         Args:
             event_type: 过滤事件类型（可选）
             limit: 返回数量限制
-            
+
         Returns:
             事件列表
         """
@@ -341,7 +341,7 @@ def reset_event_bus() -> EventBus:
 def subscribe(event_type: EventType) -> Callable:
     """
     事件订阅装饰器
-    
+
     用法:
         @subscribe(EventType.TRAINING_COMPLETED)
         def on_training_completed(event: Event):
@@ -356,12 +356,12 @@ def subscribe(event_type: EventType) -> Callable:
 def emit(event_type: EventType, payload: dict[str, Any], source: str = "unknown") -> Event:
     """
     快捷发布事件
-    
+
     Args:
         event_type: 事件类型
         payload: 事件数据
         source: 事件来源
-        
+
     Returns:
         创建的事件对象
     """
@@ -381,12 +381,12 @@ async def emit_async(
 ) -> Event:
     """
     快捷异步发布事件
-    
+
     Args:
         event_type: 事件类型
         payload: 事件数据
         source: 事件来源
-        
+
     Returns:
         创建的事件对象
     """

@@ -61,7 +61,7 @@ class QueryEngine:
     ):
         """
         初始化查询引擎
-        
+
         Args:
             table_store: 表格存储实例
             db_connector: 数据库连接器实例
@@ -81,12 +81,12 @@ class QueryEngine:
     ) -> QueryResult:
         """
         执行 SQL 查询
-        
+
         Args:
             sql: SQL 语句
             params: 参数
             limit: 结果限制
-            
+
         Returns:
             查询结果
         """
@@ -105,11 +105,11 @@ class QueryEngine:
     ) -> list[dict[str, Any]]:
         """
         在表格存储上执行查询
-        
+
         Args:
             table_id: 表格 ID
             sql: SQL 语句（使用 {table} 作为表名占位符）
-            
+
         Returns:
             查询结果
         """
@@ -123,12 +123,12 @@ class QueryEngine:
     ) -> SQLGenerationResult:
         """
         自然语言转 SQL
-        
+
         Args:
             question: 自然语言问题
             tables: 相关表名（可选，自动推断）
             context: 额外上下文
-            
+
         Returns:
             SQL 生成结果
         """
@@ -345,14 +345,14 @@ class QueryEngine:
     ) -> dict[str, Any]:
         """
         执行查询（支持 SQL 和自然语言）
-        
+
         Args:
             query_text: 查询文本（SQL 或自然语言）
             query_type: 查询类型（sql/nl/auto）
             tables: 相关表名
             context: 额外上下文
             execute: 是否执行查询
-            
+
         Returns:
             查询结果
         """
@@ -445,12 +445,12 @@ class QueryEngine:
     ) -> list[QueryHistory]:
         """
         获取查询历史
-        
+
         Args:
             limit: 返回数量限制
             query_type: 按类型过滤
             success_only: 只返回成功的查询
-            
+
         Returns:
             查询历史列表
         """
@@ -471,11 +471,11 @@ class QueryEngine:
     ) -> list[str]:
         """
         建议查询示例
-        
+
         Args:
             table_name: 表名（可选）
             limit: 返回数量
-            
+
         Returns:
             查询示例列表
         """
@@ -509,10 +509,10 @@ class QueryEngine:
     def validate_sql(self, sql: str) -> dict[str, Any]:
         """
         验证 SQL 语法
-        
+
         Args:
             sql: SQL 语句
-            
+
         Returns:
             验证结果
         """
@@ -556,10 +556,10 @@ class QueryEngine:
     def explain_query(self, sql: str) -> dict[str, Any]:
         """
         解释 SQL 查询
-        
+
         Args:
             sql: SQL 语句
-            
+
         Returns:
             解释结果
         """

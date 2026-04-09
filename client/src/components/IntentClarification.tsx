@@ -1,5 +1,21 @@
-﻿import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, Badge, Button, Card, Empty, Input, List, Modal, Progress, Space, Spin, Tag, Typography, message as antdMessage } from 'antd'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Empty,
+  Input,
+  List,
+  Modal,
+  Progress,
+  Space,
+  Spin,
+  Tag,
+  Typography,
+  message as antdMessage,
+} from 'antd'
+import { detectMultiIntent } from '../services/api'
 
 const { Text, Title } = Typography
 
@@ -28,8 +44,9 @@ interface ClarificationOption {
 }
 
 interface ClarificationDialog {
-  question: string
-  options: ClarificationOption[]
+  question?: string
+  options?: ClarificationOption[]
+  reason?: string
 }
 
 interface IntentClarificationProps {
@@ -73,8 +90,8 @@ const IntentClarification: React.FC<IntentClarificationProps> = ({
   const checkMissingParams = useCallback(
     (intent: DetectedIntent): string[] => {
       const required = requiredParamsMap[intent.action] || []
-      const existing = new Set(intent.params.map((p) => p.name))
-      return required.filter((name) => !existing.has(name) || !intent.params.find((p) => p.name === name)?.value)
+      const existing = new Set(intent.params.map((param) => param.name))
+      return required.filter((name) => !existing.has(name) || !intent.params.find((param) => param.name === name)?.value)
     },
     [requiredParamsMap]
   )
@@ -101,12 +118,7 @@ const IntentClarification: React.FC<IntentClarificationProps> = ({
 
     setLoading(true)
     try {
-      const response = await fetch('/api/agent/detect-intent-multi', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, context }),
-      })
-      const data = await response.json()
+      const data = await detectMultiIntent(message, context)
 
       if (!data.detected) {
         setDetectedIntents([])
@@ -118,6 +130,7 @@ const IntentClarification: React.FC<IntentClarificationProps> = ({
       setDetectedIntents(intents)
       setHasAmbiguity(Boolean(data.has_ambiguity))
       setClarificationDialog(data.clarification_dialog || null)
+
       if (intents.length === 1 && !data.has_ambiguity) {
         setSelectedIntent(intents[0] || null)
       }
@@ -127,7 +140,7 @@ const IntentClarification: React.FC<IntentClarificationProps> = ({
     } finally {
       setLoading(false)
     }
-  }, [message, context])
+  }, [context, message])
 
   useEffect(() => {
     if (visible && message) {
@@ -146,13 +159,15 @@ const IntentClarification: React.FC<IntentClarificationProps> = ({
 
   const handleConfirm = () => {
     if (!selectedIntent) return
+
     const params: Record<string, unknown> = {}
-    selectedIntent.params.forEach((p) => {
-      params[p.name] = p.value
+    selectedIntent.params.forEach((param) => {
+      params[param.name] = param.value
     })
-    Object.entries(customParams).forEach(([k, v]) => {
-      if (v) params[k] = v
+    Object.entries(customParams).forEach(([key, value]) => {
+      if (value) params[key] = value
     })
+
     onConfirm(selectedIntent, params)
   }
 
@@ -177,10 +192,16 @@ const IntentClarification: React.FC<IntentClarificationProps> = ({
       onCancel={onCancel}
       width={760}
       footer={[
-        <Button key="cancel" onClick={onCancel}>Cancel</Button>,
-        <Button key="confirm" type="primary" disabled={!selectedIntent} onClick={handleConfirm}>Confirm</Button>,
+        <Button key="cancel" onClick={onCancel}>
+          Cancel
+        </Button>,
+        <Button key="confirm" type="primary" disabled={!selectedIntent} onClick={handleConfirm}>
+          Confirm
+        </Button>,
         detectedIntents.length > 1 ? (
-          <Button key="all" onClick={() => onMultiIntentSelect && onMultiIntentSelect(detectedIntents)}>Run All</Button>
+          <Button key="all" onClick={() => onMultiIntentSelect && onMultiIntentSelect(detectedIntents)}>
+            Run All
+          </Button>
         ) : null,
       ]}
     >
@@ -191,10 +212,13 @@ const IntentClarification: React.FC<IntentClarificationProps> = ({
           {hasAmbiguity && clarificationDialog ? (
             <Card>
               <Space direction="vertical">
-                <Text strong>{clarificationDialog.question}</Text>
+                <Text strong>{clarificationDialog.question || '需要更多信息才能继续执行。'}</Text>
+                {clarificationDialog.reason ? <Text type="secondary">原因：{clarificationDialog.reason}</Text> : null}
                 <Space wrap>
-                  {(clarificationDialog.options || []).map((opt, idx) => (
-                    <Button key={idx} onClick={() => handleClarificationResponse(opt.value)}>{opt.label}</Button>
+                  {(clarificationDialog.options || []).map((option, idx) => (
+                    <Button key={idx} onClick={() => handleClarificationResponse(option.value)}>
+                      {option.label}
+                    </Button>
                   ))}
                 </Space>
               </Space>
@@ -205,7 +229,9 @@ const IntentClarification: React.FC<IntentClarificationProps> = ({
             <Empty description="No intent detected" />
           ) : (
             <>
-              <Title level={5}>Detected Intents <Badge count={detectedIntents.length} /></Title>
+              <Title level={5}>
+                Detected Intents <Badge count={detectedIntents.length} />
+              </Title>
               <List
                 dataSource={detectedIntents}
                 renderItem={(intent) => {
@@ -226,8 +252,10 @@ const IntentClarification: React.FC<IntentClarificationProps> = ({
                         </Space>
                         <Progress percent={Math.round(intent.confidence * 100)} size="small" />
                         <Space wrap>
-                          {intent.params.map((p) => (
-                            <Tag key={p.name}>{p.name}: {String(p.value)}</Tag>
+                          {intent.params.map((param) => (
+                            <Tag key={param.name}>
+                              {param.name}: {String(param.value)}
+                            </Tag>
                           ))}
                         </Space>
                         {missing.length > 0 ? (
@@ -248,7 +276,7 @@ const IntentClarification: React.FC<IntentClarificationProps> = ({
                         key={name}
                         value={customParams[name] || ''}
                         placeholder={`Input ${name}`}
-                        onChange={(e) => setCustomParams((prev) => ({ ...prev, [name]: e.target.value }))}
+                        onChange={(event) => setCustomParams((prev) => ({ ...prev, [name]: event.target.value }))}
                       />
                     ))}
                   </Space>

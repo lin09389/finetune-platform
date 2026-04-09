@@ -1,4 +1,4 @@
-﻿"""Chat session persistence service."""
+"""Chat session persistence service."""
 
 import json
 import logging

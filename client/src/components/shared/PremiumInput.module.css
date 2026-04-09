@@ -10,6 +10,7 @@
   font-weight: var(--font-medium);
   color: var(--text-secondary);
   transition: color var(--transition-base);
+  padding-left: var(--space-1);
 }
 
 .inputWrapper {
@@ -17,6 +18,8 @@
   display: flex;
   align-items: center;
   width: 100%;
+  /* GPU 加速 */
+  transform: translateZ(0);
 }
 
 .input {
@@ -30,68 +33,81 @@
   transition: all var(--transition-base);
   outline: none;
   box-shadow: var(--shadow-sm);
+  z-index: 2;
+}
+
+.input::placeholder {
+  color: var(--text-tertiary);
+  opacity: 0.6;
+}
+
+.input:hover {
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow-md);
 }
 
 .input:focus {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 4px rgba(212, 163, 115, 0.1);
+  background: var(--bg-primary);
+  box-shadow: 0 0 0 1px var(--accent-primary), 0 8px 16px -4px rgba(0, 0, 0, 0.08);
 }
 
+/* 焦点环特效 */
 .focusRing {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: -1px;
   border-radius: var(--radius-md);
   pointer-events: none;
-  border: 2px solid transparent;
+  border: 2px solid var(--accent-primary);
+  opacity: 0;
+  transform: scale(0.98);
   transition: all var(--transition-base);
   z-index: 1;
 }
 
 .input:focus ~ .focusRing {
-  border-color: var(--accent-primary);
-  opacity: 0.1;
-  transform: scale(1.01);
+  opacity: 0.15;
+  transform: scale(1.02);
+  filter: blur(4px);
 }
 
 .icon {
   position: absolute;
-  left: var(--space-3);
+  left: var(--space-3.5);
   color: var(--text-tertiary);
   pointer-events: none;
   display: flex;
   align-items: center;
-  font-size: var(--text-lg);
-  z-index: 2;
+  font-size: 1.1em;
+  z-index: 3;
+  transition: color var(--transition-base);
 }
 
 .suffix {
   position: absolute;
-  right: var(--space-3);
+  right: var(--space-3.5);
   color: var(--text-tertiary);
   display: flex;
   align-items: center;
-  font-size: var(--text-lg);
-  z-index: 2;
+  font-size: 1.1em;
+  z-index: 3;
+  transition: color var(--transition-base);
+}
+
+.input:focus ~ .icon {
+  color: var(--accent-primary);
 }
 
 .withIcon {
-  padding-left: var(--space-10);
+  padding-left: var(--space-11);
 }
 
 .withSuffix {
-  padding-right: var(--space-10);
+  padding-right: var(--space-11);
 }
 
 .error {
-  border-color: var(--error);
-}
-
-.error:focus {
-  border-color: var(--error);
-  box-shadow: 0 0 0 4px rgba(196, 92, 72, 0.1);
+  border-color: var(--error) !important;
 }
 
 .errorText {
@@ -99,6 +115,7 @@
   color: var(--error);
   margin: 0;
   padding-left: var(--space-1);
+  animation: fadeInDown 0.2s var(--ease-smooth);
 }
 
 :global(.dark-theme) .input {
@@ -106,5 +123,17 @@
 }
 
 :global(.dark-theme) .input:focus {
-  box-shadow: 0 0 0 4px rgba(212, 163, 115, 0.05);
+  background: var(--bg-secondary);
+  box-shadow: 0 0 0 1px var(--accent-primary), 0 8px 24px -4px rgba(0, 0, 0, 0.4);
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

@@ -9,12 +9,26 @@
   box-shadow: var(--shadow-neumorph-out);
   cursor: pointer;
   outline: none;
-  transition: all var(--transition-base);
+  transition: all var(--transition-fast);
   font-weight: var(--font-medium);
   letter-spacing: var(--tracking-wide);
   color: var(--text-primary);
   overflow: hidden;
   user-select: none;
+  /* GPU 加速与性能优化 */
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  will-change: transform, box-shadow;
+}
+
+.button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--gradient-button);
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: 0;
 }
 
 .inner {
@@ -76,15 +90,21 @@
 }
 
 /* States */
+.button:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md), var(--shadow-neumorph-out);
+}
+
 .button:active, .active {
   box-shadow: var(--shadow-neumorph-in);
-  transform: translateY(1px);
+  transform: translateY(1px) scale(0.98);
 }
 
 .button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  box-shadow: none;
+  box-shadow: none !important;
+  transform: none !important;
   border: 1px solid var(--border-color);
 }
 
@@ -95,4 +115,14 @@
 
 :global(.dark-theme) .variant-ghost {
   background: transparent;
+}
+
+.loadingIcon {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }

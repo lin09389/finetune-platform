@@ -6,7 +6,7 @@
 import logging
 
 from ..core.confidence import confidence_calculator
-from ..core.patterns import RULE_PATTERNS, get_intent_definition
+from ..core.patterns import RULE_PATTERNS
 from ..models import ConfidenceLevel, DetectionMethod, IntentCategory, IntentResult
 
 logger = logging.getLogger(__name__)
@@ -54,8 +54,6 @@ class RuleMatcher:
                     total_length=len(text),
                     has_params=bool(params)
                 )
-
-                intent_def = get_intent_definition(rule.action)
 
                 return IntentResult(
                     detected=True,

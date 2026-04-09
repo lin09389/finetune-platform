@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class EnhancedMemoryService:
     """
     增强记忆服务
-    
+
     整合多层记忆架构：
     - 工作记忆（当前对话上下文）
     - 短期记忆（会话级记忆）
@@ -74,12 +74,12 @@ class EnhancedMemoryService:
     ) -> dict[str, Any]:
         """
         处理消息
-        
+
         Args:
             message: 消息内容
             role: 角色
             extract: 是否提取记忆
-            
+
         Returns:
             处理结果
         """
@@ -152,12 +152,12 @@ class EnhancedMemoryService:
     ) -> dict[str, Any]:
         """
         获取上下文
-        
+
         Args:
             query: 查询文本
             max_memories: 最大记忆数
             include_knowledge_graph: 是否包含知识图谱
-            
+
         Returns:
             上下文字典
         """
@@ -221,13 +221,13 @@ class EnhancedMemoryService:
     ) -> list[dict[str, Any]]:
         """
         检索记忆
-        
+
         Args:
             query: 查询文本
             top_k: 返回数量
             memory_type: 记忆类型过滤
             user_id: 用户 ID（可选，用于兼容性）
-            
+
         Returns:
             记忆列表
         """
@@ -269,13 +269,13 @@ class EnhancedMemoryService:
     ) -> dict[str, Any]:
         """
         主动记忆
-        
+
         Args:
             content: 记忆内容
             memory_type: 记忆类型
             importance: 重要性
             entities: 相关实体
-            
+
         Returns:
             存储结果
         """
@@ -323,11 +323,11 @@ class EnhancedMemoryService:
     ) -> bool:
         """
         遗忘记忆
-        
+
         Args:
             memory_id: 记忆ID
             memory_scope: 记忆范围 (long_term/short_term/knowledge_graph)
-            
+
         Returns:
             是否成功
         """
@@ -396,11 +396,11 @@ class EnhancedMemoryService:
     ) -> dict[str, Any]:
         """
         导入记忆
-        
+
         Args:
             data: 导入数据
             merge: 是否合并
-            
+
         Returns:
             导入结果
         """

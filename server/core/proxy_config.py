@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class ProxyConfig:
     """
     代理配置
-    
+
     支持从环境变量读取和应用代理设置
     """
     http_proxy: str | None = None
@@ -130,7 +130,7 @@ class ProxyConfig:
 class ProxyManager:
     """
     代理管理器
-    
+
     提供统一的代理配置管理，支持多种 HTTP 客户端
     """
 
@@ -165,10 +165,10 @@ class ProxyManager:
     def get_proxies_for(self, url: str) -> dict[str, str]:
         """
         根据URL获取代理配置
-        
+
         Args:
             url: 目标URL
-            
+
         Returns:
             代理配置字典
         """
@@ -207,11 +207,11 @@ class ProxyManager:
     def test_proxy(proxy_url: str, test_url: str = "https://www.google.com") -> bool:
         """
         测试代理是否可用
-        
+
         Args:
             proxy_url: 代理地址
             test_url: 测试URL
-            
+
         Returns:
             是否可用
         """
@@ -252,7 +252,7 @@ def reset_proxy_manager() -> ProxyManager:
 def with_proxy(func):
     """
     代理装饰器
-    
+
     自动为函数应用代理配置
     """
     from functools import wraps

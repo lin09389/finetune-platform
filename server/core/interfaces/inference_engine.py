@@ -76,7 +76,7 @@ class StreamChunk:
 class InferenceEngineInterface(ABC):
     """
     推理引擎接口
-    
+
     定义文本生成和对话的标准接口，支持多种后端：
     - HuggingFace Transformers
     - Ollama
@@ -90,7 +90,7 @@ class InferenceEngineInterface(ABC):
     def backend(self) -> InferenceBackend:
         """
         获取后端类型
-        
+
         Returns:
             后端类型
         """
@@ -101,7 +101,7 @@ class InferenceEngineInterface(ABC):
     def name(self) -> str:
         """
         获取引擎名称
-        
+
         Returns:
             引擎名称
         """
@@ -111,7 +111,7 @@ class InferenceEngineInterface(ABC):
     def is_available(self) -> bool:
         """
         检查引擎是否可用
-        
+
         Returns:
             是否可用
         """
@@ -121,10 +121,10 @@ class InferenceEngineInterface(ABC):
     async def generate(self, request: InferenceRequest) -> InferenceResponse:
         """
         生成文本
-        
+
         Args:
             request: 推理请求
-            
+
         Returns:
             推理响应
         """
@@ -134,10 +134,10 @@ class InferenceEngineInterface(ABC):
     async def chat(self, request: ChatRequest) -> InferenceResponse:
         """
         聊天对话
-        
+
         Args:
             request: 聊天请求
-            
+
         Returns:
             推理响应
         """
@@ -150,10 +150,10 @@ class InferenceEngineInterface(ABC):
     ) -> AsyncGenerator[StreamChunk, None]:
         """
         流式生成
-        
+
         Args:
             request: 推理请求
-            
+
         Yields:
             流式响应块
         """
@@ -163,7 +163,7 @@ class InferenceEngineInterface(ABC):
     def get_available_models(self) -> list[str]:
         """
         获取可用模型列表
-        
+
         Returns:
             模型 ID 列表
         """
@@ -173,10 +173,10 @@ class InferenceEngineInterface(ABC):
     def load_model(self, model_id: str) -> bool:
         """
         加载模型
-        
+
         Args:
             model_id: 模型 ID
-            
+
         Returns:
             是否成功
         """
@@ -186,10 +186,10 @@ class InferenceEngineInterface(ABC):
     def unload_model(self, model_id: str) -> bool:
         """
         卸载模型
-        
+
         Args:
             model_id: 模型 ID
-            
+
         Returns:
             是否成功
         """
@@ -199,10 +199,10 @@ class InferenceEngineInterface(ABC):
     def get_model_info(self, model_id: str) -> dict[str, Any] | None:
         """
         获取模型信息
-        
+
         Args:
             model_id: 模型 ID
-            
+
         Returns:
             模型信息
         """
@@ -211,7 +211,7 @@ class InferenceEngineInterface(ABC):
     def supports_streaming(self) -> bool:
         """
         是否支持流式生成
-        
+
         Returns:
             是否支持
         """
@@ -220,7 +220,7 @@ class InferenceEngineInterface(ABC):
     def supports_chat(self) -> bool:
         """
         是否支持聊天模式
-        
+
         Returns:
             是否支持
         """
@@ -229,7 +229,7 @@ class InferenceEngineInterface(ABC):
     def get_stats(self) -> dict[str, Any]:
         """
         获取引擎统计信息
-        
+
         Returns:
             统计信息
         """

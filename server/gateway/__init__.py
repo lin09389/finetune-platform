@@ -9,6 +9,7 @@ Gateway 模块 - 统一入口和消息路由
 - Agent 隔离管理
 """
 from .agent_isolation import AgentIsolationManager
+from .binding import BindingManager
 from .models import (
     AgentInfo,
     BindingRule,
@@ -19,7 +20,6 @@ from .models import (
     GatewayMessage,
     GatewayResponse,
 )
-from .binding import BindingManager
 from .router import MessageRouter
 from .server import GatewayServer
 from .session import GatewaySessionManager

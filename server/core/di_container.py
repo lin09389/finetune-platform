@@ -38,7 +38,7 @@ class ServiceDescriptor(Generic[T]):
 class ServiceScope:
     """
     服务作用域
-    
+
     在作用域内创建的服务实例会在作用域结束时自动释放
     """
 
@@ -95,7 +95,7 @@ class ServiceScope:
 class DIContainer:
     """
     依赖注入容器
-    
+
     特性:
     - 支持单例、瞬态、作用域生命周期
     - 支持工厂方法注册
@@ -121,14 +121,14 @@ class DIContainer:
     ) -> 'DIContainer':
         """
         注册服务
-        
+
         Args:
             service_type: 服务类型（通常是接口或基类）
             implementation: 实现类型
             lifetime: 生命周期
             factory: 工厂方法
             on_dispose: 释放回调
-            
+
         Returns:
             self (支持链式调用)
         """
@@ -196,12 +196,12 @@ class DIContainer:
     ) -> 'DIContainer':
         """
         注册现有实例
-        
+
         Args:
             service_type: 服务类型
             instance: 服务实例
             on_dispose: 释放回调
-            
+
         Returns:
             self
         """
@@ -226,12 +226,12 @@ class DIContainer:
     ) -> 'DIContainer':
         """
         注册工厂方法
-        
+
         Args:
             service_type: 服务类型
             factory: 工厂方法，接收容器参数
             lifetime: 生命周期
-            
+
         Returns:
             self
         """
@@ -244,13 +244,13 @@ class DIContainer:
     def resolve(self, service_type: type[TService]) -> TService:
         """
         解析服务
-        
+
         Args:
             service_type: 服务类型
-            
+
         Returns:
             服务实例
-            
+
         Raises:
             KeyError: 服务未注册
             RuntimeError: 检测到循环依赖
@@ -438,7 +438,7 @@ def reset_container() -> DIContainer:
 def inject(service_type: type[T]) -> Callable:
     """
     依赖注入装饰器
-    
+
     用法:
         @inject(DatabaseService)
         def my_function(db: DatabaseService):

@@ -290,7 +290,7 @@ class ConversationContext:
 class UnifiedIntentDetector:
     """
     统一意图检测器 - 升级版
-    
+
     支持功能：
     - 多层检测架构（规则->语义->模糊->上下文->LLM）
     - 多意图并行检测
@@ -381,7 +381,7 @@ class UnifiedIntentDetector:
     def _detect_composite_request(self, message: str) -> dict[str, Any] | None:
         """
         检测复合请求 - 包含内容生成+保存的请求
-        
+
         例如: "帮我写一个我的妈妈记叙文保存"
         应该返回: {"type": "composite", "needs_content_generation": True, "content_type": "记叙文", "topic": "我的妈妈", "save": True}
         """
@@ -1575,12 +1575,12 @@ class UnifiedIntentDetector:
     ) -> IntentResult:
         """
         检测用户意图
-        
+
         Args:
             message: 用户消息
             session_id: 会话ID
             context: 额外上下文
-            
+
         Returns:
             IntentResult: 检测结果
         """
@@ -1732,12 +1732,12 @@ class UnifiedIntentDetector:
     ) -> MultiIntentResult:
         """
         多意图检测
-        
+
         Args:
             message: 用户消息
             session_id: 会话ID
             context: 额外上下文
-            
+
         Returns:
             MultiIntentResult: 多意图检测结果
         """
@@ -1807,12 +1807,12 @@ class UnifiedIntentDetector:
     ) -> IntentResult:
         """
         使用LLM进行意图检测
-        
+
         Args:
             message: 用户消息
             session_id: 会话ID
             context: 额外上下文
-            
+
         Returns:
             IntentResult: 检测结果
         """

@@ -92,13 +92,13 @@ class ShortTermMemory:
     ) -> ConversationMessage:
         """
         添加消息到短期记忆
-        
+
         Args:
             role: 角色 (user/assistant)
             content: 消息内容
             entities: 相关实体ID列表
             force_importance: 强制重要性分数
-            
+
         Returns:
             添加的消息对象
         """
@@ -138,12 +138,12 @@ class ShortTermMemory:
     ) -> str:
         """
         获取上下文（带衰减和重要性加权）
-        
+
         Args:
             max_tokens: 最大token数
             include_importance: 是否包含重要性标记
             include_timestamp: 是否包含时间戳
-            
+
         Returns:
             格式化的上下文字符串
         """
@@ -240,8 +240,6 @@ class ShortTermMemory:
             return "暂无对话记录"
 
         user_messages = [m for m in self.conversation_buffer if m.role == 'user']
-        assistant_messages = [m for m in self.conversation_buffer if m.role == 'assistant']
-
         topics = self.get_active_topics()
         entities = self.get_active_entities()
 

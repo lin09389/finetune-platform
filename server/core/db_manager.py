@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class DatabaseConnectionPool:
     """
     SQLite 数据库连接池
-    
+
     由于 SQLite 是文件数据库，使用线程局部存储来管理连接
     每个线程维护自己的连接，避免多线程问题
     """
@@ -54,7 +54,7 @@ class DatabaseConnectionPool:
     def get_connection(self):
         """
         获取数据库连接的上下文管理器
-        
+
         用法：
             with db_pool.get_connection() as conn:
                 cursor = conn.cursor()
@@ -146,7 +146,7 @@ def close_all_pools():
 def get_db_connection(db_path: str = None):
     """
     获取数据库连接的便捷函数
-    
+
     用法：
         with get_db_connection() as conn:
             cursor = conn.cursor()

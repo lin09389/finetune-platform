@@ -196,8 +196,6 @@ class RiskRuleEngine:
     def get_applicable_rules(self, context: dict) -> list[RiskRule]:
         """获取适用的规则"""
         all_rules = {**self._rules, **self._custom_rules}
-        operation = context.get("operation", "")
-
         applicable = []
         for rule in all_rules.values():
             if not rule.enabled:

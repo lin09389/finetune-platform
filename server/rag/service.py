@@ -39,7 +39,7 @@ class RAGService:
     ):
         """
         初始化 RAG 服务
-        
+
         Args:
             vector_db_path: 向量数据库路径
             chunk_size: 分块大小
@@ -101,12 +101,12 @@ class RAGService:
     ) -> dict[str, Any]:
         """
         上传文档到知识库
-        
+
         Args:
             file_path: 文件路径
             collection_name: 集合名称（工作空间 ID）
             metadata: 元数据
-            
+
         Returns:
             处理结果
         """
@@ -179,13 +179,13 @@ class RAGService:
     ) -> list[dict[str, Any]]:
         """
         搜索相关文档，支持降级策略
-        
+
         Args:
             collection_name: 集合名称
             query: 查询文本
             top_k: 返回数量
             mode: 搜索模式 (vector/keyword/hybrid/fallback)
-            
+
         Returns:
             搜索结果
         """
@@ -366,12 +366,12 @@ class RAGService:
     ) -> str:
         """
         搜索并组装上下文
-        
+
         Args:
             collection_name: 集合名称
             query: 查询文本
             top_k: 返回数量
-            
+
         Returns:
             组装的上下文文本
         """
@@ -394,16 +394,16 @@ class RAGService:
     ) -> bool:
         """
         删除文档
-        
+
         Args:
             collection_name: 集合名称
             doc_id: 文档 ID
-            
+
         Returns:
             是否成功
         """
         try:
-            stats = self.vector_store.get_collection_stats(collection_name)
+            self.vector_store.delete_documents(collection_name, [doc_id])
             logger.info(f"删除文档：{doc_id}, 集合：{collection_name}")
 
             return True
@@ -414,10 +414,10 @@ class RAGService:
     def get_collection_info(self, collection_name: str) -> dict[str, Any]:
         """
         获取集合信息
-        
+
         Args:
             collection_name: 集合名称
-            
+
         Returns:
             集合信息
         """
@@ -431,12 +431,12 @@ class RAGService:
     ) -> list[dict[str, Any]]:
         """
         列出集合中的所有文档
-        
+
         Args:
             collection_name: 集合名称
             limit: 返回数量限制
             offset: 偏移量
-            
+
         Returns:
             文档列表
         """
@@ -467,7 +467,7 @@ class RAGService:
     def list_collections(self) -> list[dict[str, Any]]:
         """
         列出所有集合
-        
+
         Returns:
             集合列表
         """
@@ -507,15 +507,15 @@ class RAGService:
     ) -> dict[str, Any]:
         """
         创建集合
-        
+
         Args:
             name: 集合名称
             metadata: 元数据
-            
+
         Returns:
             集合信息
         """
-        collection = self.vector_store.get_or_create_collection(name)
+        self.vector_store.get_or_create_collection(name)
         return {
             "id": name,
             "name": name,
@@ -526,10 +526,10 @@ class RAGService:
     def delete_collection(self, collection_name: str) -> bool:
         """
         删除集合
-        
+
         Args:
             collection_name: 集合名称
-            
+
         Returns:
             是否成功
         """

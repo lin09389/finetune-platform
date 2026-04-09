@@ -107,7 +107,7 @@ class FeedbackStats:
 class FeedbackManager:
     """
     反馈管理器
-    
+
     收集、存储和分析用户反馈
     """
 
@@ -149,7 +149,7 @@ class FeedbackManager:
     ) -> UserFeedback:
         """
         提交反馈
-        
+
         Args:
             feedback_type: 反馈类型
             category: 反馈类别
@@ -165,7 +165,7 @@ class FeedbackManager:
             session_id: 会话ID
             user_id: 用户ID
             metadata: 元数据
-            
+
         Returns:
             UserFeedback: 创建的反馈
         """
@@ -230,10 +230,10 @@ class FeedbackManager:
     def get_stats(self, days: int = 7) -> FeedbackStats:
         """
         获取反馈统计
-        
+
         Args:
             days: 统计最近几天的数据
-            
+
         Returns:
             FeedbackStats: 统计结果
         """

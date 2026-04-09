@@ -1,10 +1,9 @@
-﻿"""Gateway integration tests for the unified gateway API contract."""
+"""Gateway integration tests for the unified gateway API contract."""
 
 import pytest
-from httpx import ASGITransport, AsyncClient
-
 from gateway.cross_agent import get_cross_agent_communicator
 from gateway.device_auth import get_device_auth_manager
+from httpx import ASGITransport, AsyncClient
 from main import app
 
 

@@ -167,8 +167,6 @@ class GitHubAnalyzerSkill(SkillBase):
         recommendations = []
 
         language = repo_info.get("language", "")
-        topics = repo_info.get("topics", [])
-
         if language == "Python":
             recommendations.append({
                 "category": "architecture",

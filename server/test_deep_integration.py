@@ -134,7 +134,7 @@ class DeepTestSuite:
         print("\n[边界测试] 空字符串输入")
         try:
             if self.client:
-                response = self.client.post("/chat", json={
+                self.client.post("/chat", json={
                     "messages": [{"role": "user", "content": ""}],
                     "model": "test"
                 })
@@ -148,7 +148,7 @@ class DeepTestSuite:
         try:
             long_text = "A" * 100000
             if self.client:
-                response = self.client.post("/chat", json={
+                self.client.post("/chat", json={
                     "messages": [{"role": "user", "content": long_text}],
                     "model": "test"
                 })
@@ -162,7 +162,7 @@ class DeepTestSuite:
         try:
             special_text = "Hello 🌍 世界！こんにちは"
             if self.client:
-                response = self.client.post("/chat", json={
+                self.client.post("/chat", json={
                     "messages": [{"role": "user", "content": special_text}],
                     "model": "test"
                 })
@@ -175,7 +175,7 @@ class DeepTestSuite:
         try:
             large_data = {"data": "x" * 1000000}
             if self.client:
-                response = self.client.post("/chat", json=large_data)
+                self.client.post("/chat", json=large_data)
                 # 应该合理处理
                 result.add_pass("超大 JSON 处理正常")
         except Exception as e:
@@ -191,7 +191,7 @@ class DeepTestSuite:
                 current = current["nested"]
 
             if self.client:
-                response = self.client.post("/chat", json=deep_data)
+                self.client.post("/chat", json=deep_data)
                 result.add_pass("嵌套数据处理正常")
         except Exception as e:
             result.add_fail(f"嵌套数据处理失败：{e}")
@@ -211,7 +211,7 @@ class DeepTestSuite:
         try:
             sql_injection = "'; DROP TABLE users; --"
             if self.client:
-                response = self.client.post("/chat", json={
+                self.client.post("/chat", json={
                     "messages": [{"role": "user", "content": sql_injection}],
                     "model": "test"
                 })
@@ -225,7 +225,7 @@ class DeepTestSuite:
         try:
             xss_payload = "<script>alert('XSS')</script>"
             if self.client:
-                response = self.client.post("/chat", json={
+                self.client.post("/chat", json={
                     "messages": [{"role": "user", "content": xss_payload}],
                     "model": "test"
                 })
@@ -296,7 +296,7 @@ class DeepTestSuite:
             def health_check():
                 try:
                     if self.client:
-                        response = self.client.get("/health")
+                        self.client.get("/health")
                         if response.status_code == 200:
                             return True
                 except Exception:
@@ -557,7 +557,7 @@ class DeepTestSuite:
 
             for _ in range(10):
                 start = time.time()
-                response = self.client.get("/health")
+                self.client.get("/health")
                 elapsed = (time.time() - start) * 1000  # ms
                 response_times.append(elapsed)
 

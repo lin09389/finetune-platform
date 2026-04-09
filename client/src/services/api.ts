@@ -1,9 +1,10 @@
 /**
- * API 鏈嶅姟閰嶇疆
- * 鏀寔杩炴帴澶嶇敤銆佽姹傚彇娑堛€侀敊璇嚜鍔ㄩ噸璇? */
+ * API service layer.
+ * Handles connection reuse, request cancellation, and automatic retry logic.
+ */
 import axios, { AxiosInstance } from 'axios';
 
-// 鑾峰彇 API 鍩虹 URL
+// Resolve backend API base URL.
 const getApiBaseUrl = () => {
   if (typeof window !== 'undefined' && (window as any).electronAPI) {
     return (window as any).electronAPI.getBackendUrlSync?.() || 'http://127.0.0.1:8000';
@@ -14,7 +15,7 @@ const getApiBaseUrl = () => {
 // Export base URL for other modules.
 export const API_BASE_URL = getApiBaseUrl();
 
-// ==================== 杩炴帴姹犵鐞?====================
+// ==================== Connection Pool ====================
 
 interface ConnectionPoolEntry {
   controller: AbortController;
@@ -102,6 +103,8 @@ class ConnectionPool {
     keysToRemove.forEach(key => this.pool.delete(key));
   }
 
+// ==================== Retry Logic ====================
+
   private startCleanup(): void {
     this.cleanupTimer = setInterval(() => this.cleanup(), this.cleanupInterval);
   }
@@ -116,7 +119,7 @@ class ConnectionPool {
 
 const connectionPool = new ConnectionPool();
 
-// ==================== 閿欒閲嶈瘯鏈哄埗 ====================
+// ==================== Retry Logic ====================
 
 interface RetryConfig {
   maxRetries: number;
@@ -184,7 +187,7 @@ async function fetchWithRetry<T>(
 
       if (attempt < retryConfig.maxRetries - 1) {
         const backoffDelay = calculateBackoff(attempt, retryConfig.baseDelay, retryConfig.maxDelay);
-        console.warn(`璇锋眰澶辫触锛?{backoffDelay}ms 鍚庨噸璇?(绗?${attempt + 1}/${retryConfig.maxRetries} 娆?:`, error.message);
+        console.warn(`Request failed, retrying in ${Math.round(backoffDelay)}ms (${attempt + 1}/${retryConfig.maxRetries})`, error.message);
         await delay(backoffDelay);
       }
     }
@@ -193,7 +196,7 @@ async function fetchWithRetry<T>(
   throw lastError;
 }
 
-// ==================== Axios 瀹炰緥閰嶇疆 ====================
+// ==================== Axios Instance Creation ====================
 
 const createAxiosInstance = (): AxiosInstance => {
   const instance = axios.create({
@@ -250,7 +253,7 @@ const createAxiosInstance = (): AxiosInstance => {
 
 export const apiClient = createAxiosInstance();
 
-// ==================== 璇锋眰鍙栨秷绠＄悊 ====================
+// ==================== Request Manager ====================
 
 export const requestManager = {
   cancelRequest(key: string): void {
@@ -270,7 +273,7 @@ export const requestManager = {
   },
 };
 
-// 璁惧绠＄悊
+// Device APIs
 export const getDeviceInfo = async () => {
   const response = await apiClient.get('/device/info');
   return response.data;
@@ -286,7 +289,7 @@ export const getDeviceMemory = async () => {
   return response.data;
 };
 
-// 妯″瀷绠＄悊
+// Model APIs
 export const getModelList = async () => {
   const response = await apiClient.get('/models');
   return response.data;
@@ -307,7 +310,7 @@ export const getModelDetail = async (modelId: string) => {
   return response.data;
 };
 
-// 瀵煎叆 ModelScope 妯″瀷
+// Import model from ModelScope.
 export const importModelFromModelScope = async (modelName: string, modelscopePath?: string) => {
   const response = await apiClient.post('/model-center/import-modelscope', {
     model_name: modelName,
@@ -326,7 +329,7 @@ export const searchModels = async (query: string, limit: number = 20, source: st
   return response.data;
 };
 
-// 浠?ModelScope 涓嬭浇妯″瀷
+// Download model from ModelScope.
 export const downloadModelFromModelScope = async (repoId: string, revision: string = 'master') => {
   const response = await apiClient.post('/model-center/download', {
     repo_id: repoId,
@@ -336,7 +339,7 @@ export const downloadModelFromModelScope = async (repoId: string, revision: stri
   return response.data;
 };
 
-// 浠?HuggingFace 涓嬭浇妯″瀷
+// Download model from Hugging Face.
 export const downloadModelFromHuggingFace = async (repoId: string, revision: string = 'main') => {
   const response = await apiClient.post('/model-center/download', {
     repo_id: repoId,
@@ -346,25 +349,25 @@ export const downloadModelFromHuggingFace = async (repoId: string, revision: str
   return response.data;
 };
 
-// 鑾峰彇妯″瀷涓嬭浇杩涘害
+// Get model download progress.
 export const getDownloadProgress = async (taskId: string) => {
   const response = await apiClient.get(`/model-center/download/${taskId}`);
   return response.data;
 };
 
-// 鑾峰彇鎺ㄨ崘妯″瀷鍒楄〃
+// Get model suggestions.
 export const getModelSuggestions = async () => {
   const response = await apiClient.get('/model-center/suggestions');
   return response.data;
 };
 
-// 鑾峰彇鏈湴妯″瀷鍒楄〃
+// Get local model list.
 export const getLocalModels = async () => {
   const response = await apiClient.get('/model-center/local');
   return response.data;
 };
 
-// 鍒犻櫎鏈湴妯″瀷
+// Delete local model.
 export const deleteLocalModel = async (modelId: string) => {
   const response = await apiClient.delete(`/model-center/local/${modelId}`);
   return response.data;
@@ -425,13 +428,13 @@ export const getDatasetStatistics = async (datasetId: string) => {
   return response.data;
 };
 
-// 璁粌绠＄悊
+// Training APIs
 export const startTraining = async (config: any) => {
   const response = await apiClient.post('/training/start', config);
   return response.data;
 };
 
-// P2-2: SWIFT 妗嗘灦璁粌
+// P2-2: SWIFT training support
 export const startSwiftTraining = async (config: any) => {
   const response = await apiClient.post('/training/start-swift', config);
   return response.data;
@@ -479,7 +482,7 @@ export const subscribeTrainingProgress = (
 
       if (retryCount < config.maxRetries) {
         const backoffDelay = calculateBackoff(retryCount, config.baseDelay, config.maxDelay);
-        console.warn(`SSE 杩炴帴鏂紑锛?{backoffDelay}ms 鍚庨噸璇?(绗?${retryCount + 1}/${config.maxRetries} 娆?`);
+        console.warn(`SSE disconnected, retrying in ${Math.round(backoffDelay)}ms (${retryCount + 1}/${config.maxRetries})`);
         retryCount++;
         retryTimer = setTimeout(connect, backoffDelay);
       } else {
@@ -510,13 +513,13 @@ export const getTrainingCheckpoints = async (trainingId: string) => {
   const response = await apiClient.get(`/training/checkpoints/${trainingId}`);
   return response.data;
 };
-
+// Inference APIs
 export const resumeTraining = async (trainingId: string, checkpoint: string) => {
   const response = await apiClient.post(`/training/resume/${trainingId}/${checkpoint}`);
   return response.data;
 };
 
-// 鎺ㄧ悊鏈嶅姟
+// Inference service.
 export const inference = async (config: {
   modelId: string;
   prompt: string;
@@ -612,7 +615,7 @@ export const streamInference = async (
       
       while (!done) {
         if (Date.now() - streamStartTime > STREAM_READ_TIMEOUT) {
-          throw new Error('娴佸紡璇诲彇瓒呮椂');
+          throw new Error('Stream read timed out');
         }
         
         const readResult = await reader.read();
@@ -647,7 +650,7 @@ export const streamInference = async (
               if (data.stats && onStats) {
                 onStats(data.stats);
               }
-              console.log(`娴佸紡鎺ㄧ悊瀹屾垚 - 鍏?${chunkCount} 涓?chunks`);
+              console.log(`Streaming inference completed with ${chunkCount} chunks`);
             }
           } catch (e) {
             if (e instanceof Error && e.message !== 'Stream error') {
@@ -671,7 +674,7 @@ export const streamInference = async (
       lastError = error;
 
       if (error.name === 'AbortError') {
-        console.log('娴佸紡鎺ㄧ悊宸茶鍙栨秷');
+        console.log('Streaming inference was cancelled');
         throw error;
       }
 
@@ -681,7 +684,7 @@ export const streamInference = async (
 
       if (attempt < retryConf.maxRetries - 1) {
         const backoffDelay = calculateBackoff(attempt, retryConf.baseDelay, retryConf.maxDelay);
-        console.warn(`娴佸紡鎺ㄧ悊澶辫触锛?{backoffDelay}ms 鍚庨噸璇?(绗?${attempt + 1}/${retryConf.maxRetries} 娆?:`, error.message);
+        console.warn(`Streaming inference failed, retrying in ${Math.round(backoffDelay)}ms (${attempt + 1}/${retryConf.maxRetries})`, error.message);
         await delay(backoffDelay);
       }
     }
@@ -746,7 +749,7 @@ export const clearPerformanceHistory = async () => {
   return response.data;
 };
 
-// 瀵硅瘽鍘嗗彶绠＄悊
+// Chat history APIs.
 export const getChatHistory = async (retryConfig?: Partial<RetryConfig>) => {
   return fetchWithRetry(async () => {
     const response = await fetch(`${API_BASE_URL}/chat/sessions`);
@@ -1045,7 +1048,9 @@ export const mcp = {
   getOverallStatus: () => apiClient.get('/mcp/status'),
 };
 
-// ==================== 鎺ㄧ悊寮曟搸 API (閲嶆瀯鐗? ====================
+// ==================== Inference Engine APIs ====================
+
+// ==================== Inference Engine APIs (Refactor) ====================
 
 export interface InferenceEngine {
   name: string;
@@ -1170,7 +1175,9 @@ export const getInferenceEngineStats = async () => {
   return response.data;
 };
 
-// ==================== Agent 鎵ц鍣?API (閲嶆瀯鐗? ====================
+// ==================== Agent Executor APIs ====================
+
+// ==================== Agent Executor APIs (Refactor) ====================
 
 export interface OperationResult {
   success: boolean;

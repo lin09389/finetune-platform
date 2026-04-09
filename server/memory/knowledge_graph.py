@@ -143,14 +143,14 @@ class KnowledgeGraph:
     ) -> tuple[str, bool]:
         """
         添加实体
-        
+
         Args:
             name: 实体名称
             entity_type: 实体类型
             attributes: 属性字典
             confidence: 置信度
             source: 来源
-            
+
         Returns:
             (entity_id, is_new) - 实体ID和是否新建
         """
@@ -190,7 +190,7 @@ class KnowledgeGraph:
     ) -> str | None:
         """
         添加关系
-        
+
         Args:
             source_name: 源实体名称
             target_name: 目标实体名称
@@ -198,7 +198,7 @@ class KnowledgeGraph:
             evidence: 证据文本
             weight: 关系权重
             confidence: 置信度
-            
+
         Returns:
             关系ID，如果失败返回None
         """
@@ -251,11 +251,11 @@ class KnowledgeGraph:
     def get_entity_context(self, entity_id: str, depth: int = 2) -> dict[str, Any]:
         """
         获取实体上下文（多跳关系遍历）
-        
+
         Args:
             entity_id: 实体ID
             depth: 遍历深度
-            
+
         Returns:
             包含实体、关系和关联实体的上下文字典
         """
@@ -328,12 +328,12 @@ class KnowledgeGraph:
     ) -> list[list[dict]]:
         """
         查找两个实体之间的所有路径
-        
+
         Args:
             source_id: 源实体ID
             target_id: 目标实体ID
             max_depth: 最大搜索深度
-            
+
         Returns:
             路径列表，每条路径是关系字典的列表
         """

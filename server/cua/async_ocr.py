@@ -60,7 +60,7 @@ class OCRTask:
 class AsyncOCRService:
     """
     异步 OCR 服务
-    
+
     支持异步OCR识别、任务状态查询、结果缓存
     """
 
@@ -131,13 +131,13 @@ class AsyncOCRService:
     ) -> str:
         """
         提交OCR任务
-        
+
         Args:
             image_data: 图像数据
             lang: 语言
             use_cache: 是否使用缓存
             priority: 优先级
-            
+
         Returns:
             str: 任务ID
         """
@@ -275,13 +275,13 @@ class AsyncOCRService:
     ) -> str:
         """
         同步识别（等待结果）
-        
+
         Args:
             image_data: 图像数据
             lang: 语言
             use_cache: 是否使用缓存
             timeout: 超时时间
-            
+
         Returns:
             str: 识别结果
         """

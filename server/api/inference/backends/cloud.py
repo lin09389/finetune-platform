@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from ai.gateway import get_provider
+
 from .base import BackendType, GenerationConfig, GenerationResult, InferenceBackend
 
 logger = logging.getLogger(__name__)

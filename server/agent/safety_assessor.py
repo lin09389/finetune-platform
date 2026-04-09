@@ -108,7 +108,7 @@ DANGEROUS_URL_PATTERNS: set[str] = {
 class SafetyAssessor:
     """
     安全评估器
-    
+
     统一评估所有操作的安全级别
     """
 
@@ -122,11 +122,11 @@ class SafetyAssessor:
     def assess(self, action: ActionType, params: dict[str, Any]) -> SafetyAssessment:
         """
         评估操作安全级别
-        
+
         Args:
             action: 操作类型
             params: 操作参数
-            
+
         Returns:
             SafetyAssessment: 安全评估结果
         """
@@ -310,10 +310,10 @@ class SafetyAssessor:
     def is_safe_action(self, action: ActionType) -> bool:
         """
         快速判断操作是否安全（只读操作）
-        
+
         Args:
             action: 操作类型
-            
+
         Returns:
             bool: 是否为安全操作
         """
@@ -322,11 +322,11 @@ class SafetyAssessor:
     def requires_confirmation(self, action: ActionType, params: dict[str, Any] = None) -> bool:
         """
         判断操作是否需要确认
-        
+
         Args:
             action: 操作类型
             params: 操作参数
-            
+
         Returns:
             bool: 是否需要确认
         """

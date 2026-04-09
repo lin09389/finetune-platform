@@ -9,6 +9,7 @@
     "dev": "concurrently \"npm run dev:react\" \"npm run dev:electron\"",
     "dev:react": "cd client && npm run dev -- --host 127.0.0.1 --port 5173",
     "dev:electron": "wait-on http://127.0.0.1:5173 && electron .",
+    "check:encoding": "python scripts/check_encoding.py",
     "build": "cd client && npm run build",
     "build:electron": "electron-builder",
     "start": "electron ."

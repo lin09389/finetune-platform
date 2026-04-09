@@ -1,86 +1,87 @@
-# 前端页面高级质感升级计划 (Advanced Frontend UI/UX Upgrade Plan)
+# 前端页面全面升级计划 (Tailwind CSS + 视觉高级感 + 60fps 动效)
 
-本项目旨在通过引入现代化设计语言、统一设计规范、添加高级微交互及优化视觉层次，将 Finetune Platform 的前端界面提升至专业级质感，并确保在 4K/Retina 屏幕及主流设备上的完美呈现。
+本计划旨在通过引入 Tailwind CSS 并结合现有的 Ant Design 和 Framer Motion 体系，对整个项目的前端进行深度视觉与交互升级。目标是打造一个具有“玻璃拟态”、“微质感”和“编辑主义”风格的高级感界面，同时确保极致的性能（60fps）和可访问性。
 
 ## 1. 现状分析 (Current State Analysis)
 
-### 1.1 现有优势
-- **设计令牌系统**：已有初步的 `variables.css`，支持字体、间距、颜色等。
-- **主题支持**：已实现亮色/暗色/系统跟随模式。
-- **动画基础**：集成 `framer-motion`，已有基础的页面过渡。
-- **响应式断点**：定义了基本的响应式断点。
+- **技术栈**: React 18, Ant Design 5, Framer Motion, Vite, TypeScript。
+- **样式架构**: 现有的样式通过 `variables.css` 定义了大量的 CSS 变量（流体字体、8pt 网格、分层阴影、玻璃拟态令牌），并混合使用了 CSS Modules 和全局 CSS。
+- **主题系统**: 已有亮色（编辑主义）和深色（高级深色）主题，通过 `ThemeProvider.tsx` 切换类名实现。
+- **动效**: `framer-motion` 已在部分组件中使用，且有一套基础的 `animations.css` 关键帧。
+- **不足**: 样式管理不够统一，部分组件缺乏极致的质感打磨，动效缺乏全站一致的“令牌（Tokens）”约束，性能优化（如 GPU 加速）尚未全面覆盖。
 
-### 1.2 改进空间
-- **4K/Retina 适配**：目前最高适配至 1600px，在 4K 屏幕下比例失调。
-- **样式一致性**：存在大量内联样式、硬编码颜色，部分组件未遵循设计令牌。
-- **质感深度**：视觉层次较为扁平，缺少高级的物理质感（如玻璃拟态、深度阴影）。
-- **无障碍支持**：ARIA 标签不完整，键盘导航支持有限。
-- **性能优化**：部分组件重渲染频繁，动画性能有待提升。
+## 2. 核心升级方案 (Proposed Changes)
 
-## 2. 改进方案 (Proposed Changes)
+### 2.1 样式架构与工具链升级
+- **引入 Tailwind CSS**: 作为主要的样式生产力工具，提供高效的原子化类名管理，同时保持对 CSS 变量的高度兼容。
+- **配置 `tailwind.config.ts`**:
+    - **主题映射**: 将现有的 CSS 变量（如 `--text-*`, `--space-*`, `--bg-*`, `--accent-*`）映射到 Tailwind 的配置中，实现样式体系的无缝集成。
+    - **动画令牌 (Motion Tokens)**: 在 Tailwind 中定义统一的 `duration`, `easing` 和 `delay` 令牌（如 `duration-smooth`, `ease-spring`, `delay-stagger`）。
+    - **深色模式**: 配置 `darkMode: 'class'`，完美适配现有的主题切换逻辑。
 
-### 阶段一：设计令牌系统升级 (Design Tokens Upgrade)
-**目标**：构建支持 4K 缩放、玻璃拟态及高分辨率显示的底层令牌系统。
+### 2.2 视觉高级感与材质打磨 (Visuals & Texture)
+- **玻璃拟态 (Glassmorphism 2.0)**:
+    - 优化 `GlassCard.tsx`，引入多层反射渐变（Reflection Layer）和微妙的微质感噪声背景（Micro-texture noise）。
+    - 使用 `backdrop-blur-xl` 和 `saturate-150` 增强通透感。
+- **微质感 (Micro-textures)**:
+    - 为关键容器添加微妙的边框高光（Inner Border Glow）和阴影层次（Layered Shadows）。
+    - 使用 `ring-1 ring-white/10` 或 `border-white/5` 实现极致细微的轮廓感。
+- **统一色彩与字体层级**:
+    - 亮色模式采用“编辑主义”风格：纸白背景 (`#faf9f7`)、炭黑文字 (`#2d2d2d`)、铜金强调 (`#d4a373`)。
+    - 深色模式采用“高级深空”风格：深空黑背景 (`#0f141d`)、冰白文字 (`#edf1f8`)、铜金强调。
+    - 字体统一采用现有的流体字体缩放（Fluid Typography）。
 
-- **文件**: [variables.css](file:///c:/Users/JHJ/Desktop/finetune-platform/client/src/styles/variables.css)
-- **内容**:
-    - **流体排版与间距 (Fluid Scaling)**：引入基于 `clamp()` 的流体字号和间距，确保从移动端到 4K 屏幕的平滑缩放。
-    - **玻璃拟态令牌 (Glassmorphism Tokens)**：定义 `backdrop-blur`、半透明背景及高光边框变量。
-    - **高级阴影系统 (Advanced Shadows)**：引入分层阴影 (Layered Shadows) 以增强空间深度感。
-    - **高分辨率资产**：配置高分辨率图标库（如 Lucide React）及自定义 Web Fonts。
+### 2.3 高性能动效系统 (60fps Animations)
+- **动效令牌化**: 建立 `theme/animations.ts` 和 Tailwind 配置中的动画规范，确保跨组件一致性。
+- **GPU 加速与优化**:
+    - 所有过渡动画优先使用 `transform` 和 `opacity`。
+    - 在动画元素上应用 `will-change: transform, opacity` 和 `contain: content/layout` 以优化合成层。
+    - 确保所有交互（Hover, Active, Page Transition）在主流设备上均达到 60fps。
+- **交互级联动画**:
+    - **指针级联 (Desktop)**: 增强鼠标悬浮时的微缩放 (`scale-102`)、位移 (`-translate-y-1`) 和阴影扩散效果。
+    - **手势级联 (Mobile)**: 优化触控反馈（Active 态的快速缩放），针对移动端减弱复杂的背景模糊以提升性能。
 
-### 阶段二：高级 UI 组件库构建 (Premium Component Library)
-**目标**：交付一套可复用、具有高级质感的 UI 基础组件。
+### 2.4 可访问性与性能指标 (Accessibility & Perf)
+- **响应式降级**: 在全局样式中强制执行 `@media (prefers-reduced-motion: reduce)`，禁用或简化不必要的动画。
+- **Lighthouse 目标**:
+    - **FCP (First Contentful Paint)**: < 1.8s（通过样式精简、关键 CSS 内联实现）。
+    - **CLS (Cumulative Layout Shift)**: < 0.1（通过预设容器高度、使用 `aspect-ratio` 实现）。
+- **可访问性**: 确保交互元素具有清晰的焦点状态（Focus Ring）和正确的 ARIA 属性。
 
-- **目录**: `client/src/components/shared/`
-- **组件**:
-    - **GlassCard**：具备背景模糊、微弱渐变边框和深度阴影的卡片组件。
-    - **NeumorphicButton**：利用内阴影和外阴影构建的物理质感按钮。
-    - **PremiumInput**：带有微交互反馈（如聚焦时的发光效果）的输入框。
-    - **AnimatedLayout**：封装 Framer Motion 的布局组件，支持更细腻的页面切换动画。
+## 3. 具体实施步骤 (Implementation Steps)
 
-### 阶段三：视觉层次与布局优化 (Visual & Layout Overhaul)
-**目标**：重构核心页面，优化留白比例，增强信息层级。
+### 阶段 1: 环境搭建与配置
+1.  安装依赖: `npm install -D tailwindcss postcss autoprefixer`。
+2.  初始化并配置 `tailwind.config.ts`，导入现有的设计令牌（Colors, Spacing, Fonts, Transitions）。
+3.  重写 `src/styles/index.css`，引入 Tailwind 指令，并清理重复的全局样式。
 
-- **页面**: `Dashboard`, `Chat`, `Training`, `ModelManager`
-- **任务**:
-    - **消除硬编码**：全面替换内联样式和硬编码颜色为设计令牌。
-    - **优化留白 (Whitespace)**：增加关键区域的呼吸感，调整视觉中心。
-    - **组件拆分**：重构臃肿的 `Chat.tsx` 和 `Training.tsx`，提升可维护性。
-    - **添加微交互**：为所有可点击元素添加触感反馈、悬浮提升效果。
+### 阶段 2: 核心组件库升级
+1.  **GlassCard**: 使用 Tailwind 重构，增加反射层和噪声质感。
+2.  **NeumorphicButton**: 优化物理按压感（Inset Shadows）和 GPU 加速过渡。
+3.  **PremiumInput**: 增强焦点态的视觉反馈（Glow Effect）。
+4.  **AnimatedLayout**: 统一页面切换的进出场动画逻辑。
 
-### 阶段四：无障碍与深色模式增强 (A11y & Dark Mode)
-**目标**：确保符合 WCAG AA 标准，提供极致的深色模式体验。
+### 阶段 3: 布局与全局交互升级
+1.  **Sidebar & HeaderBar**: 引入玻璃拟态和交错入场动画（Staggered Animations）。
+2.  **Navigation**: 优化菜单项的激活态反馈（微位移 + 渐变背景）。
+3.  **ThemeToggle**: 增加流畅的图标切换动画。
 
-- **任务**:
-    - **A11y 审计**：补全 ARIA 标签，实现完整的键盘导航（Focus Trap, Arrow Key Navigation）。
-    - **对比度优化**：确保所有文字与背景的对比度满足 4.5:1。
-    - **深色模式质感**：在深色模式下使用深浅不一的灰色层级而非纯黑，增强细节可见度。
+### 阶段 4: 性能审计与文档交付
+1.  **Storybook**: 初始化 Storybook 环境，创建核心组件和动效演示页面。
+2.  **审计**: 使用 Lighthouse 进行性能测试，并编写可访问性检查报告。
+3.  **交付文档**: 编写《前端升级迁移指南》和《设计系统令牌手册》。
 
-### 阶段五：4K/Retina 与多端测试 (Testing & Verification)
-**目标**：确保跨浏览器、跨分辨率的视觉一致性与高性能。
+## 4. 交付清单 (Deliverables)
 
-- **环境**: Chrome, Safari, Edge, Firefox, iOS/Android Chrome.
-- **任务**:
-    - **4K 还原测试**：验证流体缩放在 3840px 宽度下的表现。
-    - **性能审计**：使用 Lighthouse 进行性能、可访问性及 SEO 评分（目标 ≥ 95）。
-    - **交付文档**：生成 `design-tokens.md` 供后续开发参考。
+- [ ] **全局样式入口**: `src/styles/index.css` (含 Tailwind 指令)。
+- [ ] **动画令牌配置**: `tailwind.config.ts` 中的动效扩展。
+- [ ] **核心组件升级**: `GlassCard`, `NeumorphicButton`, `PremiumInput`, `AnimatedLayout` 等。
+- [ ] **交互演示**: 本地 Storybook 或专用演示页面。
+- [ ] **审计报告**: 包含性能 (FCP, CLS) 和可访问性 (WCAG) 的说明。
+- [ ] **迁移指南**: 指导如何在现有业务代码中逐步采用新样式体系。
 
-## 3. 验收标准 (Acceptance Criteria)
+## 5. 假设与决策 (Assumptions & Decisions)
 
-- [ ] **视觉质感**：所有卡片、按钮具备统一的高级质感（玻璃/物理拟态），动画流畅无卡顿。
-- [ ] **响应式表现**：页面在 320px 至 3840px (4K) 宽度下布局完美，文字间距自动适配。
-- [ ] **代码质量**：全项目无硬编码颜色和内联样式，CSS 变量覆盖率 100%。
-- [ ] **无障碍**：通过 axe-core 扫描，核心路径支持全键盘操作。
-- [ ] **性能指标**：Lighthouse Performance 评分 ≥ 90，First Contentful Paint < 1.2s。
-- [ ] **交付物**：包含可复用的 UI 组件库及完整的 `design-tokens.md` 文档。
-
-## 4. 假设与决策 (Assumptions & Decisions)
-
-- **假设 1**：用户同意在现有 Ant Design 基础上进行深度样式覆盖，而非完全替换 AntD。
-- **决策 1**：选用 `Framer Motion` 作为核心动画引擎，因其在 React 生态中具有最佳的声明式动画体验。
-- **决策 2**：采用 `Lucide React` 替代部分 AntD 图标，以获得更轻盈、现代的视觉感。
-- **决策 3**：使用 CSS Grid 布局系统进行页面级重构，以应对 4K 下复杂的响应式需求。
-
----
-*计划生成日期：2026-03-31*
+- **假设**: 现有的 Ant Design 5 组件通过全局 CSS 覆盖或自定义 Token 能够完美融入 Tailwind 体系。
+- **决策**: 优先使用 `framer-motion` 处理复杂的交互式动画（如拖拽、物理模拟），使用 Tailwind 处理基础的状态过渡（Hover, Transition）。
+- **灰度发布**: 升级后的样式通过全局 CSS 变量和类名控制，旧代码如未应用新类名将保持原样，支持按模块逐步迁移。

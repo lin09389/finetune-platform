@@ -11,7 +11,7 @@ from ...operations.file_operations import FileOperationHandler as LegacyFileOper
 from ...operations.system_operations import SystemOperationHandler as LegacySystemOperationHandler
 from ...security_old import SecurityValidator
 from ..interfaces.base_executor import BaseExecutor
-from ..types import ErrorCode, ExecutionResult, ExecutionStatus, ValidationResult
+from ..types import ErrorCode, ExecutionResult, ValidationResult
 from .queue_manager import QueueManager, TaskInfo, TaskPriority, TaskStatus
 from .resource_limiter import ResourceConfig, ResourceLimiter
 from .sandbox_executor import SandboxConfig, SandboxExecutor, SandboxLevel

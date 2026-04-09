@@ -55,7 +55,7 @@ class HelpTopicResponse(BaseModel):
 async def get_help_overview():
     """
     获取帮助概览
-    
+
     返回所有命令类别和命令列表
     """
     system = get_help_system()
@@ -89,7 +89,7 @@ async def search_help_commands(
 ):
     """
     搜索帮助命令
-    
+
     根据关键词搜索相关命令
     """
     results = search_help(q)[:limit]
@@ -107,7 +107,7 @@ async def search_help_commands(
 async def get_category_help(category: str):
     """
     获取类别帮助
-    
+
     返回指定类别下的所有命令
     """
     category_mapping = {
@@ -144,7 +144,7 @@ async def get_category_help(category: str):
 async def get_command_help(command: str):
     """
     获取命令详细帮助
-    
+
     返回指定命令的详细帮助信息
     """
     system = get_help_system()
@@ -168,7 +168,7 @@ async def get_command_help(command: str):
 async def get_help_topic(topic: str):
     """
     获取帮助主题
-    
+
     返回指定主题的详细帮助内容
     """
     system = get_help_system()
@@ -191,7 +191,7 @@ async def get_formatted_help(
 ):
     """
     获取格式化的帮助文本
-    
+
     返回可直接显示的帮助文本
     """
     return {

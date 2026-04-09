@@ -77,7 +77,7 @@ class MemoryState:
 class ModelCache:
     """
     模型缓存 - LRU 策略
-    
+
     参考 Ollama sched.go 的模型管理设计
     """
 
@@ -191,7 +191,7 @@ class ModelCache:
 class SessionManager:
     """
     会话管理器
-    
+
     统一管理所有会话状态
     """
 
@@ -273,7 +273,7 @@ class SessionManager:
 class StateManager:
     """
     统一状态管理器
-    
+
     管理所有运行时状态：
     - 模型缓存
     - 会话状态

@@ -402,13 +402,13 @@ class ContextAwareDetector:
     ) -> tuple[str | None, dict[str, Any], float, DialogueState]:
         """
         结合上下文检测意图
-        
+
         Args:
             message: 用户消息
             session_id: 会话ID
             base_intent: 基础检测结果
             base_params: 基础参数
-            
+
         Returns:
             (intent_name, params, confidence_boost, state)
         """
@@ -584,12 +584,12 @@ class MultiTurnIntentProcessor:
     ) -> dict[str, Any]:
         """
         处理多轮对话意图
-        
+
         Args:
             message: 用户消息
             session_id: 会话ID
             context: 额外上下文
-            
+
         Returns:
             处理结果
         """

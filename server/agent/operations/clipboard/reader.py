@@ -130,8 +130,6 @@ class WindowsClipboardBackend:
 
     def _read_image_win32(self) -> bytes | None:
         try:
-            from PIL import Image
-
             self._win32clipboard.OpenClipboard()
             try:
                 if self._win32clipboard.IsClipboardFormatAvailable(self._win32con.CF_DIB):

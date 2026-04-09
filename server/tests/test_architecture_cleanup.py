@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 import importlib
+import json
 
 import pytest
 from fastapi import HTTPException
@@ -15,31 +15,32 @@ heartbeat_api = importlib.import_module("api.heartbeat")
 gateway_routes = importlib.import_module("api.gateway_api.routes")
 main_module = importlib.import_module("main")
 
-from api.chat_branch import (
+from gateway.cross_agent import CrossAgentCommunicator  # noqa: E402
+from gateway.device_auth import DeviceAuthManager  # noqa: E402
+from heartbeat import HeartbeatScheduler  # noqa: E402
+
+from api.chat.routes import SendMessageRequest, send_message  # noqa: E402
+from api.chat_branch import (  # noqa: E402
     CURRENT_BRANCH_METADATA_KEY,
-    CreateBranchRequest,
     MESSAGE_BRANCH_ID_METADATA_KEY,
     MESSAGE_MERGED_FROM_BRANCH_METADATA_KEY,
     MESSAGE_PARENT_ID_METADATA_KEY,
+    CreateBranchRequest,
     create_branch,
     get_message_tree,
     list_branches,
     merge_branch,
     switch_branch,
-)
-from api.chat.routes import SendMessageRequest, send_message
-from api.cua import (
+)  # noqa: E402
+from api.cua import (  # noqa: E402
     RecordLoadRequest,
     RecordSaveRequest,
     clear_recorded_actions,
     get_action_recorder,
     load_recorded_actions,
     save_recorded_actions,
-)
-from cua.recorder import RecordedAction
-from gateway.cross_agent import CrossAgentCommunicator
-from gateway.device_auth import DeviceAuthManager
-from heartbeat import HeartbeatScheduler
+)  # noqa: E402
+from cua.recorder import RecordedAction  # noqa: E402
 
 
 class _VectorStoreStub:

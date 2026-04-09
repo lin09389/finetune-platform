@@ -15,7 +15,7 @@ _gpu_architecture_supported: bool | None = None
 def get_gpu_compute_capability() -> tuple[int, int] | None:
     """
     获取 GPU 计算能力版本
-    
+
     Returns:
         Tuple[int, int]: (major, minor) 计算能力版本，如 (8, 6) 表示 SM 86
         None: 如果 CUDA 不可用
@@ -38,13 +38,13 @@ def get_gpu_compute_capability() -> tuple[int, int] | None:
 def is_gpu_architecture_supported() -> bool:
     """
     检测 GPU 架构是否支持 Flash Attention 2
-    
+
     Flash Attention 2 需要 Ampere 架构及以上：
     - RTX 30 系列 (Ampere, SM 80+)
     - RTX 40 系列 (Ada Lovelace, SM 89+)
     - A100, A10, A30, A40 系列 (Ampere)
     - H100, H200 系列 (Hopper, SM 90+)
-    
+
     Returns:
         bool: 是否支持 Flash Attention 2
     """
@@ -84,7 +84,7 @@ def is_gpu_architecture_supported() -> bool:
 def is_flash_attn_2_installed() -> tuple[bool, str | None]:
     """
     检测 flash-attn 库是否已安装
-    
+
     Returns:
         Tuple[bool, Optional[str]]: (是否安装, 版本号)
     """
@@ -114,12 +114,12 @@ def is_flash_attn_2_installed() -> tuple[bool, str | None]:
 def is_flash_attn_2_available() -> bool:
     """
     检测 Flash Attention 2 是否可用
-    
+
     需要同时满足以下条件：
     1. GPU 架构支持（Ampere 及以上）
     2. flash-attn 库已安装
     3. CUDA 可用
-    
+
     Returns:
         bool: Flash Attention 2 是否可用
     """
@@ -161,10 +161,10 @@ def is_flash_attn_2_available() -> bool:
 def get_attention_implementation(force_eager: bool = False) -> str:
     """
     获取推荐的 attention 实现方式
-    
+
     Args:
         force_eager: 是否强制使用 eager 实现
-    
+
     Returns:
         str: "flash_attention_2" 或 "eager"
     """
@@ -183,7 +183,7 @@ def get_attention_implementation(force_eager: bool = False) -> str:
 def get_flash_attention_info() -> dict:
     """
     获取 Flash Attention 详细信息
-    
+
     Returns:
         dict: 包含检测结果的详细信息
     """
@@ -205,7 +205,7 @@ def get_flash_attention_info() -> dict:
 def reset_detection_cache():
     """
     重置检测缓存
-    
+
     用于在 GPU 状态变化后重新检测
     """
     global _flash_attn_available, _flash_attn_version, _gpu_architecture_supported

@@ -62,7 +62,7 @@ class LoadRequest:
 class ModelScheduler:
     """
     模型调度器
-    
+
     功能：
     - 模型加载/卸载管理
     - 并发控制
@@ -105,13 +105,13 @@ class ModelScheduler:
     ) -> bool:
         """
         加载模型
-        
+
         Args:
             model_name: 模型名称
             model_path: 模型路径
             priority: 加载优先级
             backend: 后端类型
-            
+
         Returns:
             是否成功
         """
@@ -168,11 +168,11 @@ class ModelScheduler:
     async def unload_model(self, model_name: str, force: bool = False) -> bool:
         """
         卸载模型
-        
+
         Args:
             model_name: 模型名称
             force: 是否强制卸载
-            
+
         Returns:
             是否成功
         """
@@ -208,10 +208,10 @@ class ModelScheduler:
     async def release_model(self, model_name: str) -> bool:
         """
         释放模型引用
-        
+
         Args:
             model_name: 模型名称
-            
+
         Returns:
             是否成功
         """
@@ -290,10 +290,10 @@ class ModelScheduler:
     async def get_backend(self, backend_type: str | None = None):
         """
         获取后端实例
-        
+
         Args:
             backend_type: 后端类型，None 表示使用默认
-            
+
         Returns:
             后端实例
         """
@@ -323,10 +323,10 @@ class ModelScheduler:
     async def is_backend_available(self, backend_type: str) -> bool:
         """
         检查后端是否可用
-        
+
         Args:
             backend_type: 后端类型
-            
+
         Returns:
             是否可用
         """
@@ -362,10 +362,10 @@ class ModelScheduler:
     async def list_models(self, backend_type: str | None = None) -> list[dict[str, Any]]:
         """
         列出可用模型
-        
+
         Args:
             backend_type: 后端类型，None 表示所有后端
-            
+
         Returns:
             模型列表
         """

@@ -1,4 +1,4 @@
-﻿"""
+"""
 训练管理 API - 线程安全版本 + 断点续训支持
 """
 import asyncio
@@ -37,7 +37,7 @@ router = APIRouter()
 
 class TrainingWebSocketManager:
     """训练 WebSocket 管理器 - 实时推送训练进度（重构版）
-    
+
     修复:
     - P0-3: WebSocket 连接泄漏，添加超时机制和心跳检测
     """
@@ -497,8 +497,6 @@ def load_model_and_tokenizer(
                 logger.warning(f"bitsandbytes 不可用，将使用标准 LoRA: {e}")
                 method = "lora"
 
-        attn_implementation = "flash_attention_2" if use_flash_attn else "eager"
-
         load_kwargs = {
             "pretrained_model_name_or_path": model_path,
             "quantization_config": quantization_config,
@@ -623,12 +621,12 @@ def load_dataset(dataset_path: str, tokenizer, max_length: int = 512):
         labels = []
         for input_ids, text in zip(examples["input_ids"], examples["text"]):
             label = copy.deepcopy(input_ids)
-            
+
             # Find User/Instruction prompt end to mask out the prompt
             # For simplicity, if we find "Assistant:" or "Response:", mask everything before it
             assistant_token_ids = tokenizer.encode("Assistant:", add_special_tokens=False)
             response_token_ids = tokenizer.encode("Response:", add_special_tokens=False)
-            
+
             mask_idx = -1
             # Simple matching for assistant/response tokens
             for i in range(len(label) - max(len(assistant_token_ids), len(response_token_ids))):
@@ -638,21 +636,21 @@ def load_dataset(dataset_path: str, tokenizer, max_length: int = 512):
                 elif label[i:i+len(response_token_ids)] == response_token_ids:
                     mask_idx = i + len(response_token_ids)
                     break
-            
+
             if mask_idx != -1:
                 # Mask out user prompt
                 for i in range(mask_idx):
                     label[i] = -100
-            
+
             # Mask out padding tokens
             pad_token_id = tokenizer.pad_token_id
             if pad_token_id is not None:
                 for i in range(len(label)):
                     if label[i] == pad_token_id:
                         label[i] = -100
-                        
+
             labels.append(label)
-            
+
         examples["labels"] = labels
         return examples
 
@@ -896,7 +894,7 @@ class ProgressCallback:
         ):
             self._do_save_checkpoint()
             self.last_checkpoint_step = self.current_step
-        
+
         return control
 
     def _update_progress(self, state, args, kwargs):
@@ -1362,7 +1360,6 @@ def training_thread(
                 logger.warning("GaLore 与 LoRA+ 同时启用可能存在冲突，建议关闭 LoRA+")
 
             try:
-                import galore_torch
                 from galore_torch import GaLoreAdamW
 
                 logger.info(f"配置 GaLore: rank={config.galore_rank}, update_gap={config.galore_update_proj_gap}")
@@ -1499,18 +1496,18 @@ def training_thread(
 
     finally:
         state.queue_training_state(False)
-        
+
         if task_id:
             state.unregister_training_task(task_id)
             logger.debug(f"已注销训练任务线程：{task_id}")
-        
+
         if retry_count == 0:
             _cleanup_training_resources(model, tokenizer, trainer)
 
 
 def _apply_precision_preset(config: TrainingConfigInput) -> TrainingConfigInput:
     """应用精度预设配置
-    
+
     预设选项:
     - max: 最高精度（全参数/DoRA, 余弦退火，早停）
     - balanced: 平衡精度和效率（高秩 LoRA）
@@ -1582,7 +1579,7 @@ def _apply_precision_preset(config: TrainingConfigInput) -> TrainingConfigInput:
 
 def _apply_memory_preset(config: TrainingConfigInput) -> TrainingConfigInput:
     """应用显存预设配置
-    
+
     预设选项:
     - auto: 自动根据显存调整
     - 6gb: 6GB 显存优化 (极致压缩)
@@ -1643,7 +1640,7 @@ def _apply_memory_preset(config: TrainingConfigInput) -> TrainingConfigInput:
 
 def _degrade_training_config(config: TrainingConfigInput) -> TrainingConfigInput:
     """智能降级训练配置
-    
+
     根据当前显存情况自动调整参数
     """
     degraded = config.model_copy()
@@ -1855,10 +1852,10 @@ async def progress_stream(
     heartbeat: int = Query(default=30, ge=10, le=120, description="心跳间隔（秒）")
 ):
     """SSE 进度流 - 每次进度更新都发送（重构版）
-    
+
     修复:
     - P1-2: 添加连接超时机制和心跳检测
-    
+
     Args:
         timeout: 连接超时时间（秒），默认 300 秒
         heartbeat: 心跳间隔（秒），默认 30 秒
@@ -1973,7 +1970,6 @@ async def training_websocket(websocket: WebSocket, task_id: str):
 @router.get("/metrics/{task_id}")
 async def get_training_metrics(task_id: str):
     """获取训练指标数据（用于图表展示）"""
-    state = get_state()
     settings = get_config()
 
     output_dir = settings.outputs_dir_resolved / f"train_{task_id[:8]}"
@@ -2018,7 +2014,6 @@ async def get_training_metrics(task_id: str):
 @router.get("/chart-data/{task_id}")
 async def get_chart_data(task_id: str):
     """获取图表数据（简化版，直接返回绘图数据）"""
-    state = get_state()
     settings = get_config()
 
     output_dir = settings.outputs_dir_resolved / f"train_{task_id[:8]}"
@@ -2110,7 +2105,6 @@ async def start_swift_training(
     """使用 SWIFT 框架启动训练"""
     from backends.swift_backend import SwiftTrainConfig, get_swift_backend
 
-    state = get_state()
     settings = get_config()
 
     swift_backend = get_swift_backend()
@@ -2204,8 +2198,6 @@ async def _monitor_swift_training(
     logger.info(f"开始监控 SWIFT 训练：{task_id}")
 
     state.queue_training_state(True)
-    last_status = "running"
-
     while True:
         await asyncio.sleep(3)
 
@@ -2302,7 +2294,6 @@ async def _monitor_swift_training(
             logger.info(f"SWIFT 训练已停止：{task_id}")
             break
 
-        last_status = current_status
 
 
 @router.post("/swift/stop")
@@ -2319,9 +2310,9 @@ async def stop_swift_training():
     success = swift_backend.stop_training()
 
     if success:
-        state = get_state()
-        state.queue_training_state(False)
-        state.queue_progress_update(
+        training_state = get_state()
+        training_state.queue_training_state(False)
+        training_state.queue_progress_update(
             status="stopped",
             message="SWIFT training stopped by user"
         )
@@ -2453,7 +2444,8 @@ async def check_resources(
     required_vram: float = Query(default=6.0, description="预计需要显存(GB)")
 ):
     """检查训练资源
-    
+    state = get_state()
+
     在开始训练前检查系统资源，并提供智能降级建议
     """
     result = pre_training_resource_check(
@@ -2741,14 +2733,13 @@ async def start_training(
     priority: str = "normal"
 ):
     """开始训练
-    
+
     Args:
         config: 训练配置
         skip_resource_check: 是否跳过资源检查
         use_queue: 是否使用队列模式
         priority: 任务优先级(urgent/high/normal/low)
     """
-    state = get_state()
     settings = get_config()
 
     if state.is_training():

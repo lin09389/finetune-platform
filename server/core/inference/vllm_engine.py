@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class VLLMEngine(InferenceEngine):
     """
     vLLM 推理引擎
-    
+
     特性：
     - PagedAttention 内存优化
     - 高吞吐量批处理
@@ -51,7 +51,7 @@ class VLLMEngine(InferenceEngine):
             raise RuntimeError(f"模型路径不存在：{model_path}")
 
         try:
-            from vllm import LLM, SamplingParams
+            from vllm import LLM
 
             from core.config import get_settings
 
@@ -83,7 +83,7 @@ class VLLMEngine(InferenceEngine):
     def _build_vllm_config(self, settings) -> dict[str, Any]:
         """
         构建 vLLM 配置
-        
+
         将 Settings 转换为 vLLM LLM 参数
         """
         config = {
@@ -265,7 +265,7 @@ class VLLMEngine(InferenceEngine):
     async def apply_lora(self, lora_path: str) -> None:
         """
         应用 LoRA 适配器
-        
+
         注意：vLLM 的 LoRA 支持需要在初始化时配置
         """
         if not self._is_loaded:

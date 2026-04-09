@@ -1,4 +1,4 @@
-﻿"""
+"""
 Gateway binding router and manager.
 """
 import logging

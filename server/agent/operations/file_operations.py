@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class FileOperationHandler(OperationHandler):
     """
     文件操作处理器
-    
+
     支持的操作:
     - file_create: 创建文件
     - file_read: 读取文件

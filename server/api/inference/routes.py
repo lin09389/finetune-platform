@@ -107,8 +107,6 @@ def build_attachment_context(attachments: list) -> str:
 @router.post("/generate", response_model=GenerateResponse)
 async def generate(request: GenerateRequest):
     """生成文本 - 参考 Ollama /api/generate"""
-    start_time = time.time()
-
     if not request.prompt or not request.prompt.strip():
         raise InvalidInputError("prompt", "提示内容不能为空")
 
@@ -194,8 +192,6 @@ async def chat(request: ChatRequest):
     print(f"=== request.options: {request.options} ===", file=sys.stderr, flush=True)
     logger.info(f"=== NEW /inference/chat called with model: {request.model}, backend: {request.options.backend if request.options else 'None'} ===")
     logger.info(f"=== Request messages: {len(request.messages) if request.messages else 0} ===")
-    start_time = time.time()
-
     if not request.messages or len(request.messages) == 0:
         raise InvalidInputError("messages", "消息列表不能为空")
 

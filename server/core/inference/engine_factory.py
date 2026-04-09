@@ -37,7 +37,7 @@ class EngineConfig:
 class InferenceEngineFactory:
     """
     推理引擎工厂
-    
+
     特性:
     - 支持动态注册新引擎类型
     - 支持多引擎实例管理
@@ -53,7 +53,7 @@ class InferenceEngineFactory:
     def register(cls, name: str, engine_class: type[BaseInferenceEngine]) -> None:
         """
         注册引擎类型
-        
+
         Args:
             name: 引擎名称
             engine_class: 引擎类
@@ -65,10 +65,10 @@ class InferenceEngineFactory:
     def unregister(cls, name: str) -> bool:
         """
         注销引擎类型
-        
+
         Args:
             name: 引擎名称
-            
+
         Returns:
             是否成功
         """
@@ -83,14 +83,14 @@ class InferenceEngineFactory:
     def create(cls, name: str, **kwargs) -> BaseInferenceEngine:
         """
         创建引擎实例
-        
+
         Args:
             name: 引擎名称
             **kwargs: 引擎参数
-            
+
         Returns:
             引擎实例
-            
+
         Raises:
             ValueError: 引擎未注册
         """
@@ -104,11 +104,11 @@ class InferenceEngineFactory:
     def get_or_create(cls, name: str, **kwargs) -> BaseInferenceEngine:
         """
         获取或创建引擎实例（单例模式）
-        
+
         Args:
             name: 引擎名称
             **kwargs: 引擎参数
-            
+
         Returns:
             引擎实例
         """
@@ -123,10 +123,10 @@ class InferenceEngineFactory:
     def create_from_config(cls, config: EngineConfig) -> BaseInferenceEngine:
         """
         从配置创建引擎
-        
+
         Args:
             config: 引擎配置
-            
+
         Returns:
             引擎实例
         """
@@ -210,11 +210,11 @@ def get_engine_factory() -> type[InferenceEngineFactory]:
 def get_engine(backend: str | None = None, **kwargs) -> BaseInferenceEngine:
     """
     获取推理引擎实例
-    
+
     Args:
         backend: 后端名称，None 使用默认
         **kwargs: 引擎参数
-        
+
     Returns:
         引擎实例
     """
@@ -238,13 +238,13 @@ async def generate(
 ) -> InferenceResponse:
     """
     快捷生成函数
-    
+
     Args:
         prompt: 输入提示
         model_id: 模型 ID
         backend: 后端名称
         **kwargs: 其他参数
-        
+
     Returns:
         推理响应
     """
@@ -267,13 +267,13 @@ async def chat(
 ) -> InferenceResponse:
     """
     快捷聊天函数
-    
+
     Args:
         messages: 消息列表
         model_id: 模型 ID
         backend: 后端名称
         **kwargs: 其他参数
-        
+
     Returns:
         推理响应
     """

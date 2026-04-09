@@ -153,8 +153,6 @@ class TestHeartbeatIntegration:
     async def test_full_task_lifecycle(self):
         """测试完整任务生命周期"""
         scheduler = HeartbeatScheduler()
-        executor = TaskExecutor()
-
         call_count = 0
 
         async def counting_task():

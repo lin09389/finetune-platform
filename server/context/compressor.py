@@ -84,8 +84,6 @@ class DialogCompressor:
                 compressed_tokens=sum(m.token_count for m in messages)
             )
 
-        original_tokens = sum(m.token_count for m in messages)
-
         if strategy == "summary":
             compressed, result = self._compress_with_summary(messages, target_ratio)
         elif strategy == "sliding_window":
@@ -102,8 +100,6 @@ class DialogCompressor:
         messages: list[ChatMessage],
         target_ratio: float
     ) -> tuple[list[ChatMessage], CompressionResult]:
-        original_tokens = sum(m.token_count for m in messages)
-
         recent_messages = messages[-self.keep_recent_count:]
         old_messages = messages[:-self.keep_recent_count]
 

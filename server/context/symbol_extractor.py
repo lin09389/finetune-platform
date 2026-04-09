@@ -67,8 +67,6 @@ class SymbolExtractor:
     def _extract_python(self, content: str, file_path: str) -> list[SymbolInfo]:
         """提取 Python 符号"""
         symbols = []
-        lines = content.split("\n")
-
         for match in self.python_patterns["class"].finditer(content):
             class_name = match.group(1)
             line_num = content[:match.start()].count("\n") + 1

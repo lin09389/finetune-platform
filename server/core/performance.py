@@ -38,7 +38,7 @@ class StreamingMetrics:
 class PerformanceMonitor:
     """
     性能监控器
-    
+
     功能：
     - 收集推理性能指标
     - 计算统计数据

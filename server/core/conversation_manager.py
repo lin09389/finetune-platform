@@ -357,13 +357,13 @@ class ConversationManager:
         parent_branch_id: str | None = None
     ) -> ConversationBranch:
         """创建新分支
-        
+
         Args:
             session_id: 会话 ID
             from_message_id: 从哪条消息开始分支（如果为 None，则从头开始）
             name: 分支名称
             parent_branch_id: 父分支 ID
-        
+
         Returns:
             新创建的分支
         """
@@ -453,11 +453,11 @@ class ConversationManager:
         include_context: bool = True
     ) -> list[MessageNode]:
         """获取分支的消息列表
-        
+
         Args:
             branch_id: 分支 ID
             include_context: 是否包含父分支的上下文消息
-        
+
         Returns:
             消息列表（按时间顺序）
         """
@@ -495,12 +495,12 @@ class ConversationManager:
         to_branch_id: str
     ) -> list[MessageNode]:
         """切换分支
-        
+
         Args:
             session_id: 会话 ID
             from_branch_id: 当前分支 ID
             to_branch_id: 目标分支 ID
-        
+
         Returns:
             目标分支的消息列表
         """
@@ -516,11 +516,11 @@ class ConversationManager:
         target_branch_id: str
     ) -> bool:
         """合并分支
-        
+
         Args:
             source_branch_id: 源分支 ID
             target_branch_id: 目标分支 ID
-        
+
         Returns:
             是否成功
         """
@@ -570,7 +570,7 @@ class ConversationManager:
         allow_export: bool = True
     ) -> ShareLink:
         """创建分享链接
-        
+
         Args:
             session_id: 会话 ID
             branch_id: 分支 ID（可选，不指定则分享整个会话）
@@ -578,7 +578,7 @@ class ConversationManager:
             max_views: 最大查看次数，0 表示无限
             password: 访问密码（可选）
             allow_export: 是否允许导出
-        
+
         Returns:
             分享链接
         """
@@ -619,11 +619,11 @@ class ConversationManager:
 
     def access_share(self, short_code: str, password: str | None = None) -> dict[str, Any]:
         """访问分享内容
-        
+
         Args:
             short_code: 短码
             password: 访问密码
-        
+
         Returns:
             分享内容
         """
@@ -727,7 +727,7 @@ class ConversationManager:
         offset: int = 0
     ) -> list[dict[str, Any]]:
         """搜索消息
-        
+
         Args:
             query: 搜索关键词
             session_ids: 会话 ID 列表（可选）
@@ -737,7 +737,7 @@ class ConversationManager:
             end_date: 结束日期（可选）
             limit: 返回数量限制
             offset: 偏移量
-        
+
         Returns:
             匹配的消息列表
         """
@@ -977,12 +977,12 @@ class ConversationManager:
         end_date: str | None = None
     ) -> dict[str, Any]:
         """获取统计信息
-        
+
         Args:
             session_ids: 会话 ID 列表（可选，不指定则统计全部）
             start_date: 开始日期（可选）
             end_date: 结束日期（可选）
-        
+
         Returns:
             统计信息
         """
@@ -1046,11 +1046,11 @@ class ConversationManager:
         max_depth: int = 10
     ) -> dict[str, Any]:
         """获取对话树结构
-        
+
         Args:
             session_id: 会话 ID
             max_depth: 最大深度
-        
+
         Returns:
             对话树结构
         """

@@ -109,16 +109,16 @@ class CreateSessionRequest(BaseModel):
 async def add_message(request: AddMessageRequest):
     """
     添加消息到上下文
-    
+
     - 自动计算 Token 数
     - 自动评估重要性
     - 超过阈值自动触发压缩
     """
     try:
         manager = get_context_manager(request.session_id)
-        
+
         role = MessageRole(request.role)
-        
+
         priority_map = {
             "critical": MessagePriority.CRITICAL,
             "high": MessagePriority.HIGH,
@@ -126,7 +126,7 @@ async def add_message(request: AddMessageRequest):
             "low": MessagePriority.LOW
         }
         priority = priority_map.get(request.priority, MessagePriority.NORMAL)
-        
+
         message = manager.add_message(
             role=role,
             content=request.content,
@@ -134,7 +134,7 @@ async def add_message(request: AddMessageRequest):
             importance=request.importance,
             metadata=request.metadata
         )
-        
+
         return MessageResponse(
             id=message.id,
             role=message.role.value,
@@ -156,18 +156,18 @@ async def add_message(request: AddMessageRequest):
 async def set_system_message(request: SetSystemMessageRequest):
     """
     设置系统消息
-    
+
     - 系统消息具有最高优先级
     - 不会被压缩删除
     """
     try:
         manager = get_context_manager(request.session_id)
-        
+
         message = manager.add_message(
             role=MessageRole.SYSTEM,
             content=request.content
         )
-        
+
         return {
             "success": True,
             "message": "系统消息已设置",
@@ -182,7 +182,7 @@ async def set_system_message(request: SetSystemMessageRequest):
 async def compress_context(request: CompressRequest):
     """
     手动压缩上下文
-    
+
     支持多种压缩策略：
     - summary: 生成摘要替换旧消息
     - sliding_window: 滑动窗口保留首尾
@@ -192,16 +192,16 @@ async def compress_context(request: CompressRequest):
     try:
         manager = get_context_manager(request.session_id)
         compressor = get_dialog_compressor()
-        
+
         compressed, result = compressor.compress(
             messages=manager.messages,
             strategy=request.strategy,
             target_ratio=request.target_ratio
         )
-        
+
         manager.messages = compressed
         manager.window.current_tokens = sum(m.token_count for m in compressed)
-        
+
         return CompressResponse(
             success=True,
             result=result.to_dict(),
@@ -219,17 +219,17 @@ async def compress_context(request: CompressRequest):
 async def get_context(request: GetContextRequest):
     """
     获取上下文消息列表
-    
+
     返回格式化的消息列表，可用于构建 LLM 输入
     """
     try:
         manager = get_context_manager(request.session_id)
-        
+
         context = manager.get_context(
             include_system=request.include_system,
             max_messages=request.max_messages
         )
-        
+
         return {
             "success": True,
             "session_id": request.session_id,
@@ -245,7 +245,7 @@ async def get_context(request: GetContextRequest):
 async def get_context_string(request: GetContextStringRequest):
     """
     获取上下文字符串
-    
+
     支持多种格式：
     - default: [Role]: content 格式
     - markdown: ## Role 格式
@@ -253,12 +253,12 @@ async def get_context_string(request: GetContextStringRequest):
     """
     try:
         manager = get_context_manager(request.session_id)
-        
+
         context_string = manager.get_context_string(
             format_type=request.format_type,
             max_messages=request.max_messages
         )
-        
+
         return {
             "success": True,
             "session_id": request.session_id,
@@ -274,13 +274,13 @@ async def get_context_string(request: GetContextStringRequest):
 async def clear_context(request: ClearContextRequest):
     """
     清空上下文
-    
+
     可选择是否保留系统消息
     """
     try:
         manager = get_context_manager(request.session_id)
         manager.clear(keep_system=request.keep_system)
-        
+
         return {
             "success": True,
             "message": "上下文已清空",
@@ -295,7 +295,7 @@ async def clear_context(request: ClearContextRequest):
 async def get_stats(session_id: str = "default"):
     """
     获取上下文统计信息
-    
+
     包括：
     - 消息数量
     - Token 使用情况
@@ -305,7 +305,7 @@ async def get_stats(session_id: str = "default"):
     try:
         manager = get_context_manager(session_id)
         stats = manager.get_stats()
-        
+
         return {
             "success": True,
             "session_id": session_id,
@@ -320,13 +320,13 @@ async def get_stats(session_id: str = "default"):
 async def set_max_tokens(request: SetMaxTokensRequest):
     """
     动态调整上下文窗口大小
-    
+
     调整后如超过阈值会自动触发压缩
     """
     try:
         manager = get_context_manager(request.session_id)
         manager.set_max_tokens(request.max_tokens)
-        
+
         return {
             "success": True,
             "message": f"上下文窗口已调整为 {request.max_tokens} tokens",
@@ -341,7 +341,7 @@ async def set_max_tokens(request: SetMaxTokensRequest):
 async def create_session(request: CreateSessionRequest):
     """
     创建新的上下文会话
-    
+
     可自定义各项参数
     """
     try:
@@ -352,7 +352,7 @@ async def create_session(request: CreateSessionRequest):
             compression_threshold=request.compression_threshold,
             target_utilization=request.target_utilization
         )
-        
+
         return {
             "success": True,
             "session_id": request.session_id,
@@ -373,12 +373,12 @@ async def create_session(request: CreateSessionRequest):
 async def delete_session(session_id: str):
     """
     删除上下文会话
-    
+
     释放相关资源
     """
     try:
         success = remove_context_manager(session_id)
-        
+
         if success:
             return {
                 "success": True,
@@ -401,7 +401,7 @@ async def list_sessions():
     """
     try:
         sessions = list_context_managers()
-        
+
         session_stats = []
         for session_id in sessions:
             manager = get_context_manager(session_id)
@@ -409,7 +409,7 @@ async def list_sessions():
                 "session_id": session_id,
                 "stats": manager.get_stats()
             })
-        
+
         return {
             "success": True,
             "total": len(sessions),
@@ -429,12 +429,12 @@ async def get_messages(
 ):
     """
     查询消息
-    
+
     支持按角色、数量、关键词过滤
     """
     try:
         manager = get_context_manager(session_id)
-        
+
         if keyword:
             messages = manager.find_messages(keyword)
         elif role:
@@ -443,7 +443,7 @@ async def get_messages(
             messages = manager.get_recent_messages(recent)
         else:
             messages = manager.messages
-        
+
         return {
             "success": True,
             "session_id": session_id,

@@ -1,8 +1,8 @@
-﻿import pytest
+import pytest
 from httpx import ASGITransport, AsyncClient
+from main import app
 
 from api.chat.session import get_session_manager
-from main import app
 
 
 @pytest.fixture

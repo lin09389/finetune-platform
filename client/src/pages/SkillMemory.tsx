@@ -125,20 +125,24 @@ export default function SkillMemory() {
 
   const handleUpdateConfig = async (values: Partial<SkillMemoryConfig>) => {
     if (!editingConfig) return
+
     try {
       const response = await fetch(`${API_BASE_URL}/skills/memory/configs/${editingConfig.skill_name}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(values),
       })
-      if (response.ok) {
-        await fetchConfigs()
-        setEditModalVisible(false)
-        message.success('配置更新成功')
-      } else {
+
+      if (!response.ok) {
         message.error('更新配置失败')
+        return
       }
-    } catch {
+
+      await fetchConfigs()
+      setEditModalVisible(false)
+      message.success('配置已更新')
+    } catch (error) {
+      console.error('Failed to update config:', error)
       message.error('更新配置失败')
     }
   }
@@ -148,13 +152,16 @@ export default function SkillMemory() {
       const response = await fetch(`${API_BASE_URL}/skills/memory/preferences/${key}`, {
         method: 'DELETE',
       })
-      if (response.ok) {
-        await fetchPreferences()
-        message.success('偏好已删除')
-      } else {
+
+      if (!response.ok) {
         message.error('删除偏好失败')
+        return
       }
-    } catch {
+
+      await fetchPreferences()
+      message.success('偏好已删除')
+    } catch (error) {
+      console.error('Failed to delete preference:', error)
       message.error('删除偏好失败')
     }
   }
@@ -162,19 +169,22 @@ export default function SkillMemory() {
   const handleClearHistory = async () => {
     Modal.confirm({
       title: '确认清空',
-      content: '确定要清空所有操作历史吗？',
+      content: '确定要清空全部操作历史吗？',
       onOk: async () => {
         try {
           const response = await fetch(`${API_BASE_URL}/skills/memory/history`, {
             method: 'DELETE',
           })
-          if (response.ok) {
-            setHistory([])
-            message.success('历史已清空')
-          } else {
+
+          if (!response.ok) {
             message.error('清空历史失败')
+            return
           }
-        } catch {
+
+          setHistory([])
+          message.success('历史已清空')
+        } catch (error) {
+          console.error('Failed to clear history:', error)
           message.error('清空历史失败')
         }
       },
@@ -182,18 +192,47 @@ export default function SkillMemory() {
   }
 
   const configColumns: ColumnsType<SkillMemoryConfig> = [
-    { title: '技能名称', dataIndex: 'skill_name', key: 'skill_name', render: (name: string) => <Tag color="blue">{name}</Tag> },
+    {
+      title: '技能名称',
+      dataIndex: 'skill_name',
+      key: 'skill_name',
+      render: (name: string) => <Tag color="blue">{name}</Tag>,
+    },
     {
       title: '记忆启用',
       dataIndex: 'memory_enabled',
       key: 'memory_enabled',
       render: (enabled: boolean) => <Badge status={enabled ? 'success' : 'default'} text={enabled ? '启用' : '禁用'} />,
     },
-    { title: '上下文注入', dataIndex: 'context_injection', key: 'context_injection', render: (enabled: boolean) => <Switch checked={enabled} size="small" disabled /> },
-    { title: '结果存储', dataIndex: 'result_storage', key: 'result_storage', render: (enabled: boolean) => <Switch checked={enabled} size="small" disabled /> },
-    { title: '偏好学习', dataIndex: 'preference_learning', key: 'preference_learning', render: (enabled: boolean) => <Switch checked={enabled} size="small" disabled /> },
-    { title: '最大记忆数', dataIndex: 'max_memories', key: 'max_memories' },
-    { title: '相关性阈值', dataIndex: 'relevance_threshold', key: 'relevance_threshold', render: (v: number) => `${(v * 100).toFixed(0)}%` },
+    {
+      title: '上下文注入',
+      dataIndex: 'context_injection',
+      key: 'context_injection',
+      render: (enabled: boolean) => <Switch checked={enabled} size="small" disabled />,
+    },
+    {
+      title: '结果存储',
+      dataIndex: 'result_storage',
+      key: 'result_storage',
+      render: (enabled: boolean) => <Switch checked={enabled} size="small" disabled />,
+    },
+    {
+      title: '偏好学习',
+      dataIndex: 'preference_learning',
+      key: 'preference_learning',
+      render: (enabled: boolean) => <Switch checked={enabled} size="small" disabled />,
+    },
+    {
+      title: '最大记忆数',
+      dataIndex: 'max_memories',
+      key: 'max_memories',
+    },
+    {
+      title: '相关性阈值',
+      dataIndex: 'relevance_threshold',
+      key: 'relevance_threshold',
+      render: (value: number) => `${(value * 100).toFixed(0)}%`,
+    },
     {
       title: '操作',
       key: 'action',
@@ -214,12 +253,17 @@ export default function SkillMemory() {
   const preferenceColumns: ColumnsType<UserPreference> = [
     { title: '偏好键', dataIndex: 'key', key: 'key' },
     { title: '偏好值', dataIndex: 'value', key: 'value', ellipsis: true },
-    { title: '学习时间', dataIndex: 'learned_at', key: 'learned_at', render: (t: string) => new Date(t).toLocaleString() },
+    {
+      title: '学习时间',
+      dataIndex: 'learned_at',
+      key: 'learned_at',
+      render: (value: string) => new Date(value).toLocaleString(),
+    },
     {
       title: '置信度',
       dataIndex: 'confidence',
       key: 'confidence',
-      render: (v: number) => <Progress percent={v * 100} size="small" status={v > 0.8 ? 'success' : 'normal'} />,
+      render: (value: number) => <Progress percent={value * 100} size="small" status={value > 0.8 ? 'success' : 'normal'} />,
     },
     {
       title: '操作',
@@ -231,18 +275,33 @@ export default function SkillMemory() {
   ]
 
   const historyColumns: ColumnsType<OperationHistory> = [
-    { title: '技能', dataIndex: 'skill_name', key: 'skill_name', render: (name: string) => <Tag>{name}</Tag> },
-    { title: '时间', dataIndex: 'timestamp', key: 'timestamp', render: (t: string) => new Date(t).toLocaleString() },
+    {
+      title: '技能',
+      dataIndex: 'skill_name',
+      key: 'skill_name',
+      render: (name: string) => <Tag>{name}</Tag>,
+    },
+    {
+      title: '时间',
+      dataIndex: 'timestamp',
+      key: 'timestamp',
+      render: (value: string) => new Date(value).toLocaleString(),
+    },
     {
       title: '状态',
       dataIndex: 'success',
       key: 'success',
       render: (success: boolean) => <Badge status={success ? 'success' : 'error'} text={success ? '成功' : '失败'} />,
     },
-    { title: '耗时', dataIndex: 'duration', key: 'duration', render: (d: number) => `${d.toFixed(2)}s` },
+    {
+      title: '耗时',
+      dataIndex: 'duration',
+      key: 'duration',
+      render: (value: number) => `${value.toFixed(2)}s`,
+    },
   ]
 
-  const successRate = history.length > 0 ? (history.filter((h) => h.success).length / history.length) * 100 : 0
+  const successRate = history.length > 0 ? (history.filter((item) => item.success).length / history.length) * 100 : 0
 
   const tabItems = [
     {
@@ -268,7 +327,7 @@ export default function SkillMemory() {
       children: (
         <Card>
           <Space style={{ marginBottom: 16 }}>
-            <Button icon={<SyncOutlined />} onClick={fetchPreferences}>
+            <Button icon={<SyncOutlined />} onClick={() => void fetchPreferences()}>
               刷新
             </Button>
           </Space>
@@ -290,10 +349,10 @@ export default function SkillMemory() {
       children: (
         <Card>
           <Space style={{ marginBottom: 16 }}>
-            <Button icon={<SyncOutlined />} onClick={fetchHistory}>
+            <Button icon={<SyncOutlined />} onClick={() => void fetchHistory()}>
               刷新
             </Button>
-            <Button icon={<DeleteOutlined />} danger onClick={handleClearHistory}>
+            <Button icon={<DeleteOutlined />} danger onClick={() => void handleClearHistory()}>
               清除历史
             </Button>
           </Space>
@@ -311,7 +370,8 @@ export default function SkillMemory() {
   return (
     <div className="skill-memory-page" style={{ padding: 24 }}>
       <Title level={2}>
-        <BankOutlined style={{ marginRight: 8 }} /> 记忆-技能配置
+        <BankOutlined style={{ marginRight: 8 }} />
+        记忆-技能配置
       </Title>
 
       <Row gutter={16} style={{ marginBottom: 24 }}>
@@ -332,7 +392,12 @@ export default function SkillMemory() {
         </Col>
         <Col span={6}>
           <Card>
-            <Statistic title="成功率" value={successRate.toFixed(1)} suffix="%" valueStyle={{ color: successRate > 80 ? '#3f8600' : '#cf1322' }} />
+            <Statistic
+              title="成功率"
+              value={successRate.toFixed(1)}
+              suffix="%"
+              valueStyle={{ color: successRate > 80 ? '#3f8600' : '#cf1322' }}
+            />
           </Card>
         </Col>
       </Row>

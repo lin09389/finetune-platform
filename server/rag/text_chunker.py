@@ -29,7 +29,7 @@ class TextChunker:
     ):
         """
         初始化分块器
-        
+
         Args:
             chunk_size: 每块最大字符数
             chunk_overlap: 块间重叠字符数
@@ -42,11 +42,11 @@ class TextChunker:
     def chunk(self, text: str, metadata: dict | None = None) -> list[TextChunk]:
         """
         智能分块（优先在句子/段落边界切分）
-        
+
         Args:
             text: 待分块的文本
             metadata: 元数据
-            
+
         Returns:
             文本块列表
         """

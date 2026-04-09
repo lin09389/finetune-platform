@@ -119,7 +119,7 @@ class OperationPattern:
 class OperationMemoryManager:
     """
     操作记忆管理器
-    
+
     功能：
     - 操作历史持久化
     - 操作模式识别

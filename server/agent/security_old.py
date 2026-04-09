@@ -37,7 +37,7 @@ class SecurityValidator:
     ) -> ValidationResult:
         """
         验证文件路径安全性
-        
+
         防止：
         1. 路径遍历攻击（../）
         2. 访问系统敏感目录
@@ -104,7 +104,7 @@ class SecurityValidator:
     def validate_app(self, app_name: str) -> ValidationResult:
         """
         验证应用名称（白名单机制）
-        
+
         防止命令注入攻击
         """
         if not app_name:
@@ -160,7 +160,7 @@ class SecurityValidator:
     def validate_url(self, url: str, allow_localhost: bool = None) -> ValidationResult:
         """
         验证 URL 安全性
-        
+
         Args:
             url: 要验证的 URL
             allow_localhost: 是否允许 localhost，None 时使用配置

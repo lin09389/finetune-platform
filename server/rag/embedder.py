@@ -33,7 +33,7 @@ class Embedder:
     def __init__(self, model_name: str = "shibing624/text2vec-base-chinese"):
         """
         初始化向量化器
-        
+
         Args:
             model_name: 嵌入模型名称
                 - 中文：shibing624/text2vec-base-chinese (768 维)
@@ -64,10 +64,10 @@ class Embedder:
     def embed(self, texts: list[str]) -> list[list[float]]:
         """
         将文本列表转换为向量
-        
+
         Args:
             texts: 文本列表
-            
+
         Returns:
             向量列表
         """
@@ -92,10 +92,10 @@ class Embedder:
     def embed_single(self, text: str) -> list[float]:
         """
         将单个文本转换为向量
-        
+
         Args:
             text: 输入文本
-            
+
         Returns:
             向量
         """
@@ -105,11 +105,11 @@ class Embedder:
     def embed_chunks(self, chunks: list[str], batch_size: int = 32) -> list[list[float]]:
         """
         批量向量化文本块
-        
+
         Args:
             chunks: 文本块列表
             batch_size: 批次大小
-            
+
         Returns:
             向量列表
         """

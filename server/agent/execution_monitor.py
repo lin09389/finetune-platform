@@ -77,7 +77,7 @@ class ActionStats:
 class ExecutionMonitor:
     """
     执行监控器
-    
+
     统计操作执行成功率、失败原因、响应时间等指标
     """
 
@@ -107,7 +107,7 @@ class ExecutionMonitor:
     ) -> None:
         """
         记录执行结果
-        
+
         Args:
             action: 操作类型
             status: 执行状态
@@ -200,10 +200,10 @@ class ExecutionMonitor:
     def get_stats(self, action: str = None) -> dict[str, Any]:
         """
         获取统计数据
-        
+
         Args:
             action: 操作类型，为None时返回所有统计
-            
+
         Returns:
             Dict: 统计数据
         """

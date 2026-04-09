@@ -94,7 +94,7 @@ class AuditEvent:
 class AuditLogger:
     """
     审计日志记录器
-    
+
     功能：
     - 记录审计事件
     - 查询审计日志

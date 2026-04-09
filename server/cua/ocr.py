@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from PIL import Image
+
 from core.tesseract import configure_tesseract
 
 from .exceptions import OCRError, OCRProcessingError, TesseractNotInstalledError

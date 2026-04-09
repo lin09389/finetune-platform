@@ -125,51 +125,51 @@ class CollectionInfo(BaseModel):
 
 class KnowledgeBaseManager:
     """知识库管理器"""
-    
+
     def __init__(self):
         self.rag_service = get_rag_service()
         self.vector_store = get_vector_store()
         self.query_stats: Dict[str, List[Dict[str, Any]]] = {}
         self.error_log: Dict[str, List[Dict[str, Any]]] = {}
         self.start_time = time.time()
-    
+
     def record_query(self, collection_id: str, query: str, latency_ms: float, hit: bool):
         """记录查询统计"""
         if collection_id not in self.query_stats:
             self.query_stats[collection_id] = []
-        
+
         self.query_stats[collection_id].append({
             "query": query,
             "latency_ms": latency_ms,
             "hit": hit,
             "timestamp": datetime.now().isoformat()
         })
-        
+
         if len(self.query_stats[collection_id]) > 1000:
             self.query_stats[collection_id] = self.query_stats[collection_id][-500:]
-    
+
     def record_error(self, collection_id: str, error: str, context: Dict[str, Any]):
         """记录错误"""
         if collection_id not in self.error_log:
             self.error_log[collection_id] = []
-        
+
         self.error_log[collection_id].append({
             "error": error,
             "context": context,
             "timestamp": datetime.now().isoformat()
         })
-        
+
         if len(self.error_log[collection_id]) > 100:
             self.error_log[collection_id] = self.error_log[collection_id][-50:]
-    
+
     def get_collection_stats(self, collection_id: str) -> Dict[str, Any]:
         """获取集合统计信息"""
         try:
             stats = self.vector_store.get_collection_stats(collection_id)
             collection = self.vector_store.get_or_create_collection(collection_id)
-            
+
             all_data = collection.get(include=["metadatas"])
-            
+
             doc_ids = set()
             chunk_count = 0
             if all_data['metadatas']:
@@ -178,17 +178,17 @@ class KnowledgeBaseManager:
                     if doc_id:
                         doc_ids.add(doc_id)
                     chunk_count += 1
-            
+
             bm25_index_path = Path(f"data/bm25_indices/{collection_id}.json")
             bm25_indexed = bm25_index_path.exists()
-            
+
             storage_path = Path("data/vectors")
             storage_size = 0
             if storage_path.exists():
                 for file in storage_path.rglob("*"):
                     if file.is_file():
                         storage_size += file.stat().st_size
-            
+
             return {
                 "collection_id": collection_id,
                 "document_count": len(doc_ids),
@@ -202,32 +202,32 @@ class KnowledgeBaseManager:
         except Exception as e:
             logger.error(f"获取集合统计失败：{e}")
             raise
-    
+
     def get_collection_monitor(self, collection_id: str) -> Dict[str, Any]:
         """获取集合监控信息"""
         queries = self.query_stats.get(collection_id, [])
         errors = self.error_log.get(collection_id, [])
-        
+
         avg_latency = 0.0
         avg_hit_rate = 0.0
-        
+
         if queries:
             avg_latency = sum(q["latency_ms"] for q in queries) / len(queries)
             avg_hit_rate = sum(1 for q in queries if q["hit"]) / len(queries)
-        
+
         query_counts: Dict[str, int] = {}
         for q in queries:
             query_text = q["query"]
             query_counts[query_text] = query_counts.get(query_text, 0) + 1
-        
+
         popular_queries = sorted(
             [{"query": k, "count": v} for k, v in query_counts.items()],
             key=lambda x: x["count"],
             reverse=True
         )[:10]
-        
+
         recent_errors = errors[-10:] if errors else []
-        
+
         return {
             "collection_id": collection_id,
             "avg_retrieval_latency_ms": round(avg_latency, 2),
@@ -257,26 +257,26 @@ async def unified_search(
 ):
     """
     统一检索接口
-    
+
     支持三种检索方法：
     - vector: 纯向量检索（语义相似度）
     - keyword: 纯关键词检索（BM25）
     - hybrid: 混合检索（向量 + 关键词融合）
-    
+
     可选重排序功能提升结果质量
     """
     start_time = time.time()
     kb_manager = get_kb_manager()
-    
+
     try:
         rag_service = get_rag_service()
         hybrid_retriever = get_hybrid_retriever(
             vector_store=rag_service.vector_store,
             embedder=rag_service.embedder
         )
-        
+
         results: List[SearchResult] = []
-        
+
         if request.method == "vector":
             results = hybrid_retriever.search_vector_only(
                 collection_name=collection_id,
@@ -298,7 +298,7 @@ async def unified_search(
                 top_k=request.top_k,
                 filter_metadata=request.filter_metadata
             )
-        
+
         reranked = False
         if request.use_rerank and results:
             reranker = get_reranker()
@@ -311,14 +311,14 @@ async def unified_search(
                 }
                 for r in results
             ]
-            
+
             rerank_top_k = request.rerank_top_k or request.top_k
             reranked_results = reranker.rerank(
                 query=request.query,
                 results=results_dict,
                 top_k=rerank_top_k
             )
-            
+
             results = [
                 SearchResult(
                     id=r.id,
@@ -331,7 +331,7 @@ async def unified_search(
                 for r in reranked_results
             ]
             reranked = True
-        
+
         results_dict = [
             {
                 "id": r.id,
@@ -344,18 +344,18 @@ async def unified_search(
             }
             for r in results
         ]
-        
+
         context = "\n\n".join([r.content for r in results])
-        
+
         latency_ms = (time.time() - start_time) * 1000
-        
+
         kb_manager.record_query(
             collection_id=collection_id,
             query=request.query,
             latency_ms=latency_ms,
             hit=len(results) > 0
         )
-        
+
         return UnifiedSearchResponse(
             query=request.query,
             method=request.method,
@@ -365,7 +365,7 @@ async def unified_search(
             retrieval_time_ms=round(latency_ms, 2),
             reranked=reranked
         )
-    
+
     except Exception as e:
         kb_manager.record_error(
             collection_id=collection_id,
@@ -380,7 +380,7 @@ async def unified_search(
 async def get_knowledge_base_stats(collection_id: str):
     """
     获取知识库统计信息
-    
+
     返回：
     - 文档数量
     - 向量数量
@@ -392,7 +392,7 @@ async def get_knowledge_base_stats(collection_id: str):
         kb_manager = get_kb_manager()
         stats = kb_manager.get_collection_stats(collection_id)
         return KnowledgeBaseStats(**stats)
-    
+
     except Exception as e:
         logger.error(f"获取统计信息失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"获取统计信息失败：{str(e)}")
@@ -402,7 +402,7 @@ async def get_knowledge_base_stats(collection_id: str):
 async def get_knowledge_base_monitor(collection_id: str):
     """
     获取知识库监控信息
-    
+
     返回：
     - 平均检索延迟
     - 总查询次数
@@ -415,7 +415,7 @@ async def get_knowledge_base_monitor(collection_id: str):
         kb_manager = get_kb_manager()
         monitor = kb_manager.get_collection_monitor(collection_id)
         return KnowledgeBaseMonitor(**monitor)
-    
+
     except Exception as e:
         logger.error(f"获取监控信息失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"获取监控信息失败：{str(e)}")
@@ -427,10 +427,10 @@ async def get_all_knowledge_bases_stats():
     try:
         vector_store = get_vector_store()
         collections = vector_store.list_collections()
-        
+
         kb_manager = get_kb_manager()
         all_stats = []
-        
+
         for name in collections:
             try:
                 stats = kb_manager.get_collection_stats(name)
@@ -438,17 +438,17 @@ async def get_all_knowledge_bases_stats():
             except Exception as e:
                 logger.warning(f"获取集合 {name} 统计失败：{e}")
                 continue
-        
+
         total_vectors = sum(s["vector_count"] for s in all_stats)
         total_docs = sum(s["document_count"] for s in all_stats)
-        
+
         return {
             "total_collections": len(all_stats),
             "total_documents": total_docs,
             "total_vectors": total_vectors,
             "collections": all_stats
         }
-    
+
     except Exception as e:
         logger.error(f"获取所有统计信息失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"获取统计信息失败：{str(e)}")
@@ -458,46 +458,46 @@ async def get_all_knowledge_bases_stats():
 async def export_knowledge_base(request: ExportRequest):
     """
     导出知识库
-    
+
     支持格式：
     - JSON: 完整的结构化数据
     - CSV: 表格格式（不含向量）
-    
+
     可选包含向量和元数据
     """
     try:
         vector_store = get_vector_store()
         collection = vector_store.get_or_create_collection(request.collection_id)
-        
+
         include = ["documents", "metadatas"]
         if request.include_embeddings:
             include.append("embeddings")
-        
+
         all_data = collection.get(include=include)
-        
+
         if not all_data['documents']:
             raise HTTPException(status_code=404, detail="知识库为空")
-        
+
         export_data = []
         for i, doc in enumerate(all_data['documents']):
             item = {
                 "id": all_data['ids'][i],
                 "content": doc
             }
-            
+
             if request.include_metadata and all_data['metadatas']:
                 item["metadata"] = all_data['metadatas'][i]
-            
+
             if request.include_embeddings and all_data.get('embeddings'):
                 item["embedding"] = all_data['embeddings'][i]
-            
+
             export_data.append(item)
-        
+
         if request.format == "json":
             output = io.StringIO()
             json.dump(export_data, output, ensure_ascii=False, indent=2)
             output.seek(0)
-            
+
             return StreamingResponse(
                 iter([output.getvalue()]),
                 media_type="application/json",
@@ -505,11 +505,11 @@ async def export_knowledge_base(request: ExportRequest):
                     "Content-Disposition": f"attachment; filename={request.collection_id}_export.json"
                 }
             )
-        
+
         else:
             output = io.StringIO()
             writer = csv.writer(output)
-            
+
             headers = ["id", "content"]
             if request.include_metadata:
                 all_keys = set()
@@ -517,18 +517,18 @@ async def export_knowledge_base(request: ExportRequest):
                     if "metadata" in item:
                         all_keys.update(item["metadata"].keys())
                 headers.extend(sorted(all_keys))
-            
+
             writer.writerow(headers)
-            
+
             for item in export_data:
                 row = [item["id"], item["content"]]
                 if request.include_metadata and "metadata" in item:
                     for key in sorted(all_keys):
                         row.append(item["metadata"].get(key, ""))
                 writer.writerow(row)
-            
+
             output.seek(0)
-            
+
             return StreamingResponse(
                 iter([output.getvalue()]),
                 media_type="text/csv",
@@ -536,7 +536,7 @@ async def export_knowledge_base(request: ExportRequest):
                     "Content-Disposition": f"attachment; filename={request.collection_id}_export.csv"
                 }
             )
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -554,16 +554,16 @@ async def import_knowledge_base(
 ):
     """
     导入知识库
-    
+
     支持格式：
     - JSON: 包含 id, content, metadata(可选), embedding(可选)
     - CSV: 第一行为表头，必须包含 id 和 content 列
-    
+
     支持批量导入和去重
     """
     try:
         content = await file.read()
-        
+
         if format == "json":
             data = json.loads(content.decode('utf-8'))
             if not isinstance(data, list):
@@ -572,13 +572,13 @@ async def import_knowledge_base(
             text = content.decode('utf-8')
             reader = csv.DictReader(io.StringIO(text))
             data = list(reader)
-        
+
         if not data:
             raise HTTPException(status_code=400, detail="导入文件为空")
-        
+
         rag_service = get_rag_service()
         vector_store = get_vector_store()
-        
+
         existing_ids = set()
         if skip_duplicates:
             try:
@@ -587,17 +587,17 @@ async def import_knowledge_base(
                 existing_ids = set(existing_data['ids'])
             except Exception:
                 pass
-        
+
         imported_count = 0
         skipped_count = 0
         error_count = 0
         errors = []
-        
+
         batch_documents = []
         batch_embeddings = []
         batch_metadatas = []
         batch_ids = []
-        
+
         for i, item in enumerate(data):
             try:
                 if format == "json":
@@ -610,23 +610,23 @@ async def import_knowledge_base(
                     content_text = item.get("content", "")
                     metadata = {k: v for k, v in item.items() if k not in ["id", "content"]}
                     embedding = None
-                
+
                 if not content_text:
                     error_count += 1
                     errors.append(f"第 {i+1} 条记录缺少内容")
                     continue
-                
+
                 if skip_duplicates and doc_id in existing_ids:
                     skipped_count += 1
                     continue
-                
+
                 batch_ids.append(doc_id)
                 batch_documents.append(content_text)
                 batch_metadatas.append(metadata)
                 batch_embeddings.append(embedding)
-                
+
                 imported_count += 1
-                
+
                 if len(batch_documents) >= batch_size:
                     _save_batch(
                         vector_store, collection_id,
@@ -636,17 +636,17 @@ async def import_knowledge_base(
                     batch_embeddings = []
                     batch_metadatas = []
                     batch_ids = []
-            
+
             except Exception as e:
                 error_count += 1
                 errors.append(f"第 {i+1} 条记录处理失败：{str(e)}")
-        
+
         if batch_documents:
             _save_batch(
                 vector_store, collection_id,
                 batch_documents, batch_embeddings, batch_metadatas, batch_ids
             )
-        
+
         return ImportResponse(
             collection_id=collection_id,
             imported_count=imported_count,
@@ -654,7 +654,7 @@ async def import_knowledge_base(
             error_count=error_count,
             errors=errors[:10]
         )
-    
+
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="JSON 格式错误")
     except HTTPException:
@@ -674,7 +674,7 @@ def _save_batch(
 ):
     """保存批次数据"""
     valid_embeddings = [e for e in embeddings if e is not None]
-    
+
     if len(valid_embeddings) == len(embeddings):
         vector_store.add_documents(
             collection_name=collection_id,
@@ -686,7 +686,7 @@ def _save_batch(
     else:
         rag_service = get_rag_service()
         computed_embeddings = rag_service.embedder.embed_chunks(documents)
-        
+
         vector_store.add_documents(
             collection_name=collection_id,
             documents=documents,
@@ -702,7 +702,7 @@ async def create_collection(request: CollectionCreateRequest):
     try:
         vector_store = get_vector_store()
         collection = vector_store.get_or_create_collection(request.collection_id)
-        
+
         return CollectionInfo(
             id=request.collection_id,
             name=request.collection_id,
@@ -712,7 +712,7 @@ async def create_collection(request: CollectionCreateRequest):
             created_at=datetime.now().isoformat(),
             metadata=request.metadata or {}
         )
-    
+
     except Exception as e:
         logger.error(f"创建集合失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"创建集合失败：{str(e)}")
@@ -724,10 +724,10 @@ async def list_collections():
     try:
         vector_store = get_vector_store()
         collections = vector_store.list_collections()
-        
+
         kb_manager = get_kb_manager()
         collection_infos = []
-        
+
         for name in collections:
             try:
                 stats = kb_manager.get_collection_stats(name)
@@ -742,9 +742,9 @@ async def list_collections():
             except Exception as e:
                 logger.warning(f"获取集合 {name} 信息失败：{e}")
                 continue
-        
+
         return collection_infos
-    
+
     except Exception as e:
         logger.error(f"列出集合失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"列出集合失败：{str(e)}")
@@ -756,13 +756,13 @@ async def delete_collection(collection_id: str):
     try:
         vector_store = get_vector_store()
         vector_store.delete_collection(collection_id)
-        
+
         bm25_index_path = Path(f"data/bm25_indices/{collection_id}.json")
         if bm25_index_path.exists():
             bm25_index_path.unlink()
-        
+
         return {"message": "集合已删除", "collection_id": collection_id}
-    
+
     except Exception as e:
         logger.error(f"删除集合失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"删除集合失败：{str(e)}")
@@ -772,7 +772,7 @@ async def delete_collection(collection_id: str):
 async def build_search_index(collection_id: str):
     """
     构建检索索引
-    
+
     - 构建 BM25 关键词索引
     - 优化向量索引
     """
@@ -782,26 +782,26 @@ async def build_search_index(collection_id: str):
             vector_store=rag_service.vector_store,
             embedder=rag_service.embedder
         )
-        
+
         collection = rag_service.vector_store.get_or_create_collection(collection_id)
         all_data = collection.get(include=["documents", "metadatas"])
-        
+
         if not all_data['documents']:
             return {"message": "集合为空，无需构建索引", "collection_id": collection_id}
-        
+
         hybrid_retriever.build_bm25_index(
             collection_name=collection_id,
             documents=all_data['documents'],
             ids=all_data['ids'],
             metadatas=all_data['metadatas']
         )
-        
+
         return {
             "message": "索引构建成功",
             "collection_id": collection_id,
             "document_count": len(all_data['documents'])
         }
-    
+
     except Exception as e:
         logger.error(f"构建索引失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"构建索引失败：{str(e)}")
@@ -817,10 +817,10 @@ async def list_documents(
     try:
         rag_service = get_rag_service()
         documents = rag_service.list_documents(collection_id)
-        
+
         total = len(documents)
         paginated = documents[offset:offset + limit]
-        
+
         return {
             "collection_id": collection_id,
             "total": total,
@@ -828,7 +828,7 @@ async def list_documents(
             "limit": limit,
             "offset": offset
         }
-    
+
     except Exception as e:
         logger.error(f"列出文档失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"列出文档失败：{str(e)}")
@@ -840,23 +840,23 @@ async def delete_document(collection_id: str, doc_id: str):
     try:
         vector_store = get_vector_store()
         collection = vector_store.get_or_create_collection(collection_id)
-        
+
         all_data = collection.get(
             where={"doc_id": doc_id},
             include=[]
         )
-        
+
         if not all_data['ids']:
             raise HTTPException(status_code=404, detail="文档不存在")
-        
+
         collection.delete(ids=all_data['ids'])
-        
+
         return {
             "message": "文档已删除",
             "doc_id": doc_id,
             "deleted_chunks": len(all_data['ids'])
         }
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -873,25 +873,25 @@ async def add_document(
     """添加单个文档"""
     try:
         rag_service = get_rag_service()
-        
+
         meta_dict = {}
         if metadata:
             try:
                 meta_dict = json.loads(metadata)
             except json.JSONDecodeError:
                 pass
-        
+
         chunks = rag_service.chunker.chunk(content, meta_dict)
-        
+
         if not chunks:
             raise HTTPException(status_code=400, detail="文档内容无法分块")
-        
+
         chunk_texts = [chunk.content for chunk in chunks]
         embeddings = rag_service.embedder.embed_chunks(chunk_texts)
-        
+
         doc_id = f"doc_{uuid.uuid4().hex[:8]}"
         doc_metadatas = []
-        
+
         for i, chunk in enumerate(chunks):
             doc_meta = {
                 "source": "manual_input",
@@ -903,21 +903,21 @@ async def add_document(
                 **meta_dict
             }
             doc_metadatas.append(doc_meta)
-        
+
         ids = rag_service.vector_store.add_documents(
             collection_name=collection_id,
             documents=chunk_texts,
             embeddings=embeddings,
             metadatas=doc_metadatas
         )
-        
+
         return {
             "message": "文档已添加",
             "doc_id": doc_id,
             "chunk_count": len(chunks),
             "vector_count": len(ids)
         }
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -931,13 +931,13 @@ async def knowledge_base_health():
     try:
         vector_store = get_vector_store()
         collections = vector_store.list_collections()
-        
+
         return {
             "status": "healthy",
             "collections_count": len(collections),
             "timestamp": datetime.now().isoformat()
         }
-    
+
     except Exception as e:
         return {
             "status": "unhealthy",

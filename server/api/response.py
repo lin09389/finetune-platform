@@ -90,7 +90,6 @@ class ResponseBuilder:
         self.start_time = time.time()
 
     def success(self, data: Any) -> StandardResponse:
-        latency_ms = (time.time() - self.start_time) * 1000
         return success_response(
             data=data,
             request_id=self.request_id,
@@ -104,7 +103,6 @@ class ResponseBuilder:
         details: dict[str, Any] | None = None,
         suggestion: str | None = None
     ) -> StandardResponse:
-        latency_ms = (time.time() - self.start_time) * 1000
         return error_response(
             code=code,
             message=message,

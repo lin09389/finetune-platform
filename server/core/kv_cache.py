@@ -72,7 +72,7 @@ class CacheStats:
 class KVCache:
     """
     键值缓存管理器
-    
+
     功能：
     - 多种缓存策略（LRU/LFU/FIFO/TTL）
     - 内存限制和自动淘汰
@@ -315,7 +315,7 @@ class KVCache:
 class KVCacheManager:
     """
     KV 缓存管理器
-    
+
     管理多个命名缓存实例
     """
 

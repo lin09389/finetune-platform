@@ -3,9 +3,24 @@
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border-right: 1px solid var(--glass-border) !important;
-  transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  transition: width 0.4s var(--ease-smooth) !important;
   box-shadow: var(--shadow-glass);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  /* GPU 加速 */
+  transform: translateZ(0);
+}
+
+/* 微质感噪声 */
+.sidebar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.02;
+  pointer-events: none;
+  z-index: -1;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
 }
 
 .logoArea {
@@ -14,7 +29,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  transition: all 0.3s ease;
+  transition: all 0.3s var(--ease-smooth);
 }
 
 .logoIcon {
@@ -30,11 +45,12 @@
   flex-shrink: 0;
   box-shadow: var(--shadow-md);
   cursor: pointer;
-  transition: transform 0.2s ease;
+  transition: transform 0.3s var(--ease-bounce);
+  will-change: transform;
 }
 
 .logoIcon:hover {
-  transform: scale(1.05);
+  transform: scale(1.1) rotate(5deg);
 }
 
 .logoTitle {
@@ -58,24 +74,16 @@
   border-bottom: 1px solid var(--glass-border);
 }
 
-.statusBadge {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1-5) var(--space-3);
-  border-radius: var(--radius-full);
-  font-size: 11px;
-  font-weight: var(--font-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  transition: all 0.3s ease;
-}
-
 .menuWrapper {
   padding: var(--space-4) var(--space-2);
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-width: none;
+}
+
+.menuWrapper::-webkit-scrollbar {
+  display: none;
 }
 
 .menuItem {
@@ -87,27 +95,28 @@
   border-radius: var(--radius-lg);
   cursor: pointer;
   color: var(--text-secondary);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.25s var(--ease-smooth);
   position: relative;
+  will-change: transform, background-color;
 }
 
 .menuItem:hover {
-  background: color-mix(in srgb, var(--bg-hover) 82%, transparent);
+  background: color-mix(in srgb, var(--bg-hover) 60%, transparent);
   color: var(--text-primary);
-  transform: translateX(2px);
+  transform: translateX(4px);
 }
 
 :global(.dark-theme) .menuItem:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .menuItemActive {
   background: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--accent-primary) 18%, transparent) 0%,
-    color-mix(in srgb, var(--bg-hover) 88%, transparent) 100%
+    color-mix(in srgb, var(--accent-primary) 12%, transparent) 0%,
+    color-mix(in srgb, var(--bg-hover) 40%, transparent) 100%
   ) !important;
-  color: var(--text-primary) !important;
+  color: var(--accent-primary) !important;
   box-shadow: var(--shadow-sm);
 }
 
@@ -116,11 +125,12 @@
   left: 0;
   top: 50%;
   transform: translateY(-50%);
-  width: 4px;
-  height: 16px;
+  width: 3px;
+  height: 18px;
   background: var(--accent-primary);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-  box-shadow: 0 0 12px color-mix(in srgb, var(--accent-primary) 72%, transparent);
+  border-radius: 0 var(--radius-full) var(--radius-full) 0;
+  box-shadow: 0 0 12px var(--accent-primary);
+  animation: scaleIn 0.3s var(--ease-smooth);
 }
 
 .menuIcon {
@@ -128,7 +138,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.2s ease;
+  transition: transform 0.3s var(--ease-bounce);
+}
+
+.menuItem:hover .menuIcon {
+  transform: scale(1.2);
 }
 
 .menuLabel {
@@ -142,6 +156,7 @@
   color: var(--text-tertiary);
   margin-top: 1px;
   white-space: nowrap;
+  opacity: 0.8;
 }
 
 .collapseBtn {
@@ -154,10 +169,15 @@
   gap: var(--space-3);
   font-size: var(--text-sm);
   font-weight: var(--font-semibold);
-  transition: all 0.2s ease;
+  transition: all 0.2s var(--ease-smooth);
 }
 
 .collapseBtn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+@keyframes scaleIn {
+  from { transform: translateY(-50%) scaleY(0); opacity: 0; }
+  to { transform: translateY(-50%) scaleY(1); opacity: 1; }
 }

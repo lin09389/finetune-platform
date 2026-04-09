@@ -54,7 +54,7 @@ class CrossEncoderReranker:
     ):
         """
         初始化重排序器
-        
+
         Args:
             model_name: Cross-Encoder 模型名称
             device: 设备（cuda/cpu）
@@ -123,14 +123,14 @@ class CrossEncoderReranker:
     ) -> list[RerankResult]:
         """
         重排序
-        
+
         Args:
             query: 查询文本
             documents: 文档列表
             ids: 文档 ID 列表
             metadatas: 元数据列表
             top_k: 返回结果数量
-            
+
         Returns:
             重排序结果列表
         """
@@ -196,7 +196,7 @@ class LLMReranker:
     def __init__(self, llm_client=None):
         """
         初始化 LLM 重排序器
-        
+
         Args:
             llm_client: LLM 客户端
         """
@@ -260,7 +260,7 @@ class MultiStageReranker:
     ):
         """
         初始化多阶段重排序器
-        
+
         Args:
             first_stage_model: 第一阶段模型
             second_stage_model: 第二阶段模型（可选）

@@ -23,7 +23,7 @@ class ConfigSource:
 class ConfigLoader:
     """
     配置加载器
-    
+
     功能：
     - 多来源配置加载
     - 配置优先级管理

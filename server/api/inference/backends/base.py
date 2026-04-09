@@ -52,7 +52,7 @@ class GenerationResult:
 class InferenceBackend(ABC):
     """
     推理后端抽象基类
-    
+
     所有推理后端都需要实现此接口
     """
 
@@ -68,11 +68,11 @@ class InferenceBackend(ABC):
     async def load_model(self, model_name: str, **kwargs) -> bool:
         """
         加载模型
-        
+
         Args:
             model_name: 模型名称或路径
             **kwargs: 额外参数
-            
+
         Returns:
             是否成功
         """
@@ -82,7 +82,7 @@ class InferenceBackend(ABC):
     async def unload_model(self) -> bool:
         """
         卸载模型
-        
+
         Returns:
             是否成功
         """
@@ -96,11 +96,11 @@ class InferenceBackend(ABC):
     ) -> GenerationResult:
         """
         生成文本
-        
+
         Args:
             prompt: 输入提示
             config: 生成配置
-            
+
         Returns:
             生成结果
         """
@@ -114,11 +114,11 @@ class InferenceBackend(ABC):
     ) -> AsyncIterator[str]:
         """
         流式生成文本
-        
+
         Args:
             prompt: 输入提示
             config: 生成配置
-            
+
         Yields:
             生成的文本片段
         """
@@ -132,11 +132,11 @@ class InferenceBackend(ABC):
     ) -> GenerationResult:
         """
         对话生成
-        
+
         Args:
             messages: 消息列表
             config: 生成配置
-            
+
         Returns:
             生成结果
         """
@@ -150,11 +150,11 @@ class InferenceBackend(ABC):
     ) -> AsyncIterator[str]:
         """
         流式对话生成
-        
+
         Args:
             messages: 消息列表
             config: 生成配置
-            
+
         Yields:
             生成的文本片段
         """
@@ -164,7 +164,7 @@ class InferenceBackend(ABC):
     def get_model_info(self) -> dict[str, Any]:
         """
         获取模型信息
-        
+
         Returns:
             模型信息字典
         """
@@ -174,10 +174,10 @@ class InferenceBackend(ABC):
     async def count_tokens(self, text: str) -> int:
         """
         计算 token 数量
-        
+
         Args:
             text: 输入文本
-            
+
         Returns:
             token 数量
         """
@@ -190,7 +190,7 @@ class InferenceBackend(ABC):
     async def health_check(self) -> dict[str, Any]:
         """
         健康检查
-        
+
         Returns:
             健康状态
         """
@@ -203,7 +203,7 @@ class InferenceBackend(ABC):
     async def get_memory_usage(self) -> dict[str, Any]:
         """
         获取内存使用情况
-        
+
         Returns:
             内存使用信息
         """
@@ -216,10 +216,10 @@ class InferenceBackend(ABC):
     async def warmup(self, prompt: str = "Hello") -> bool:
         """
         预热模型
-        
+
         Args:
             prompt: 预热提示
-            
+
         Returns:
             是否成功
         """

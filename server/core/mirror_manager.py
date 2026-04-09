@@ -70,7 +70,7 @@ class DownloadProgress:
 class MirrorManager:
     """
     镜像管理器
-    
+
     特性:
     - 支持多种镜像源
     - 自动检测国内环境
@@ -126,7 +126,10 @@ class MirrorManager:
     def _setup_modelscope(self) -> None:
         """配置 ModelScope SDK"""
         try:
-            import modelscope
+            import importlib.util
+
+            if importlib.util.find_spec("modelscope") is None:
+                raise ImportError
             if self.config.modelscope_endpoint:
                 os.environ["MODELSCOPE_CACHE"] = self.cache_dir
             logger.info("ModelScope SDK 已配置")
@@ -154,13 +157,13 @@ class MirrorManager:
     ) -> str:
         """
         下载模型（支持自动回退）
-        
+
         Args:
             model_id: 模型 ID
             local_dir: 本地目录
             revision: 模型版本
             max_retries: 最大重试次数
-            
+
         Returns:
             模型本地路径
         """
@@ -278,7 +281,7 @@ class MirrorManager:
         try:
             from modelscope.msdatasets import MsDataset
 
-            ds = MsDataset.load(dataset_id, subset_name="default")
+            MsDataset.load(dataset_id, subset_name="default")
             return local_dir
         except ImportError:
             raise RuntimeError("ModelScope SDK 未安装")
@@ -300,8 +303,7 @@ class MirrorManager:
                 continue
 
             try:
-                response = requests.get(config.hf_endpoint, timeout=10)
-                results[src.value] = response.status_code == 200
+                results[src.value] = requests.get(config.hf_endpoint, timeout=10).status_code == 200
             except Exception:
                 results[src.value] = False
 
@@ -312,7 +314,7 @@ class MirrorManager:
         """检测是否在中国大陆环境"""
         try:
             import requests
-            response = requests.get("https://huggingface.co", timeout=5)
+            requests.get("https://huggingface.co", timeout=5)
             return False
         except Exception:
             return True

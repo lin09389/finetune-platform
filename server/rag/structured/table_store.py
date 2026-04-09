@@ -37,7 +37,7 @@ class TableStore:
     def __init__(self, storage_path: str = "data/tables"):
         """
         初始化表格存储
-        
+
         Args:
             storage_path: 存储路径
         """
@@ -113,7 +113,7 @@ class TableStore:
         cursor = conn.cursor()
 
         cursor.execute("""
-            INSERT OR REPLACE INTO table_registry 
+            INSERT OR REPLACE INTO table_registry
             (table_id, name, description, source_file, source_type, row_count, column_count, columns_json, created_at, updated_at, tags_json)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
@@ -148,7 +148,7 @@ class TableStore:
     ) -> TableMetadata:
         """
         导入 CSV 文件
-        
+
         Args:
             file_path: CSV 文件路径
             name: 表格名称（默认使用文件名）
@@ -156,7 +156,7 @@ class TableStore:
             tags: 标签列表
             encoding: 文件编码
             delimiter: 分隔符
-            
+
         Returns:
             表格元数据
         """
@@ -202,14 +202,14 @@ class TableStore:
     ) -> TableMetadata | list[TableMetadata]:
         """
         导入 Excel 文件
-        
+
         Args:
             file_path: Excel 文件路径
             name: 表格名称（默认使用文件名）
             description: 表格描述
             tags: 标签列表
             sheet_name: 工作表名称/索引/列表，None 表示所有工作表
-            
+
         Returns:
             单个表格元数据或列表
         """
@@ -286,13 +286,13 @@ class TableStore:
     ) -> TableMetadata:
         """
         创建空表格
-        
+
         Args:
             name: 表格名称
             columns: 列定义列表，如 [{"name": "id", "type": "INTEGER"}, ...]
             description: 表格描述
             tags: 标签列表
-            
+
         Returns:
             表格元数据
         """
@@ -337,11 +337,11 @@ class TableStore:
     ) -> int:
         """
         插入行数据
-        
+
         Args:
             table_id: 表格 ID
             rows: 行数据列表
-            
+
         Returns:
             插入的行数
         """
@@ -390,7 +390,7 @@ class TableStore:
     ) -> list[dict[str, Any]]:
         """
         查询表格数据
-        
+
         Args:
             table_id: 表格 ID
             columns: 要查询的列（None 表示所有列）
@@ -398,7 +398,7 @@ class TableStore:
             order_by: 排序字段
             limit: 返回行数限制
             offset: 偏移量
-            
+
         Returns:
             查询结果列表
         """
@@ -442,11 +442,11 @@ class TableStore:
     ) -> list[dict[str, Any]]:
         """
         在指定表格上执行 SQL 查询
-        
+
         Args:
             table_id: 表格 ID
             sql: SQL 查询语句（使用 {table} 作为表名占位符）
-            
+
         Returns:
             查询结果
         """
@@ -488,11 +488,11 @@ class TableStore:
     ) -> list[TableMetadata]:
         """
         列出表格
-        
+
         Args:
             tags: 按标签过滤
             source_type: 按源类型过滤
-            
+
         Returns:
             表格元数据列表
         """
@@ -509,10 +509,10 @@ class TableStore:
     def delete_table(self, table_id: str) -> bool:
         """
         删除表格
-        
+
         Args:
             table_id: 表格 ID
-            
+
         Returns:
             是否成功
         """
@@ -537,10 +537,10 @@ class TableStore:
     def get_schema(self, table_id: str) -> dict[str, Any]:
         """
         获取表格结构
-        
+
         Args:
             table_id: 表格 ID
-            
+
         Returns:
             表格结构信息
         """

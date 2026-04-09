@@ -190,7 +190,7 @@ def format_time(seconds: float) -> str:
 class GPUMemoryCleaner:
     """
     GPU 内存清理器 - 智能清理策略
-    
+
     PERF-4: 优化 GPU 内存清理
     """
 
@@ -205,11 +205,11 @@ class GPUMemoryCleaner:
     def cleanup(cls, aggressive: bool = False, force: bool = False) -> bool:
         """
         智能清理 GPU 内存
-        
+
         Args:
             aggressive: 是否激进清理
             force: 是否强制清理（忽略冷却时间）
-        
+
         Returns:
             是否清理成功
         """
@@ -284,12 +284,12 @@ class GPUMemoryCleaner:
 def cleanup_gpu_memory(aggressive: bool = False):
     """
     清理 GPU 内存 - 智能清理版本
-    
+
     PERF-4: 使用智能清理策略，减少不必要的清理操作
-    
+
     Args:
         aggressive: 是否激进清理（清理所有 CUDA 缓存，适合长时运行后清理）
-    
+
     Returns:
         bool: 是否清理成功
     """
@@ -342,7 +342,7 @@ def safe_cleanup_model(model: Any):
 def get_device_info(use_cache: bool = True) -> dict:
     """
     获取设备信息 - P2-3: 使用缓存
-    
+
     Args:
         use_cache: 是否使用缓存
     """

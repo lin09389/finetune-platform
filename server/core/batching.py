@@ -76,7 +76,7 @@ class BatchResult:
 class DynamicBatcher:
     """
     动态批处理器
-    
+
     功能：
     - 请求队列管理
     - 自动批处理
@@ -153,7 +153,7 @@ class DynamicBatcher:
     ) -> dict[str, Any]:
         """
         提交请求
-        
+
         返回处理结果
         """
         if self._queue.full():
@@ -311,7 +311,7 @@ class DynamicBatcher:
 class BatchScheduler:
     """
     批处理调度器
-    
+
     管理多个批处理器实例
     """
 

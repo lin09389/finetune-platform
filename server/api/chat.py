@@ -1,4 +1,4 @@
-﻿"""Compatibility shim for chat router.
+"""Compatibility shim for chat router.
 
 Canonical implementation is in api.chat.routes.
 """

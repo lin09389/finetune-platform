@@ -78,7 +78,6 @@ class MultiIntentParser:
             )
 
         cleaned_segments = []
-        separators_used = []
 
         for seg in segments:
             cleaned = self._clean_segment(seg)
@@ -203,7 +202,6 @@ class MultiIntentParser:
 
     def detect_sequence(self, message: str) -> list[IntentSegment]:
         segments = []
-        current_pos = 0
 
         split_positions = []
         for pattern, sep_type in self._compiled_separators:

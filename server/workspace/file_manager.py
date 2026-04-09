@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 class FileManager:
     """
     文件管理器
-    
+
     功能：
     - 文件上传、下载、删除
     - 文件元数据管理
@@ -132,8 +132,8 @@ class FileManager:
         db_pool = get_db_pool(str(self._db_path))
 
         db_pool.execute_update("""
-            INSERT OR REPLACE INTO files 
-            (id, project_id, path, name, file_type, size, content_hash, 
+            INSERT OR REPLACE INTO files
+            (id, project_id, path, name, file_type, size, content_hash,
              current_version, version_count, metadata, created_at, updated_at, tags)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
@@ -180,7 +180,7 @@ class FileManager:
     ) -> FileUploadResult:
         """
         上传文件
-        
+
         Args:
             project_id: 项目ID
             file_path: 文件相对路径
@@ -292,11 +292,11 @@ class FileManager:
     def download_file(self, file_id: str, version: int | None = None) -> tuple[bytes, FileInfo] | None:
         """
         下载文件
-        
+
         Args:
             file_id: 文件ID
             version: 版本号（None 表示最新版本）
-        
+
         Returns:
             (内容, 文件信息) 或 None
         """
@@ -372,7 +372,7 @@ class FileManager:
     ) -> list[FileInfo]:
         """
         列出文件
-        
+
         Args:
             project_id: 项目ID
             file_type: 文件类型筛选
@@ -454,10 +454,10 @@ class FileManager:
     def get_storage_stats(self, project_id: str | None = None) -> dict[str, Any]:
         """
         获取存储统计信息
-        
+
         Args:
             project_id: 项目ID（可选，不提供则返回所有项目的统计）
-        
+
         Returns:
             存储统计信息
         """
@@ -485,10 +485,10 @@ class FileManager:
     def get_file_by_hash(self, content_hash: str) -> FileInfo | None:
         """
         通过内容哈希查找文件（用于秒传）
-        
+
         Args:
             content_hash: 内容哈希
-        
+
         Returns:
             文件信息或None
         """
@@ -501,10 +501,10 @@ class FileManager:
     def check_disk_space(self, required_size: int) -> bool:
         """
         检查磁盘空间是否足够
-        
+
         Args:
             required_size: 需要的空间大小（字节）
-        
+
         Returns:
             是否有足够空间
         """
@@ -519,10 +519,10 @@ class FileManager:
     def cleanup_temp_files(self, max_age_hours: int = 24) -> int:
         """
         清理临时文件
-        
+
         Args:
             max_age_hours: 最大保留时间（小时）
-        
+
         Returns:
             清理的文件数量
         """
@@ -550,10 +550,10 @@ class FileManager:
     def get_file_tree(self, project_id: str) -> dict[str, Any]:
         """
         获取文件树结构
-        
+
         Args:
             project_id: 项目ID
-        
+
         Returns:
             文件树结构
         """
@@ -593,10 +593,10 @@ class FileManager:
     def batch_delete_files(self, file_ids: list[str]) -> dict[str, Any]:
         """
         批量删除文件
-        
+
         Args:
             file_ids: 文件ID列表
-        
+
         Returns:
             删除结果
         """
@@ -621,11 +621,11 @@ class FileManager:
     def get_recent_files(self, project_id: str, limit: int = 10) -> list[FileInfo]:
         """
         获取最近修改的文件
-        
+
         Args:
             project_id: 项目ID
             limit: 返回数量
-        
+
         Returns:
             文件列表
         """

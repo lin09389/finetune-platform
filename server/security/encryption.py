@@ -74,10 +74,10 @@ class SecureStorage:
     def encrypt(self, plaintext: str) -> str:
         """
         加密字符串
-        
+
         Args:
             plaintext: 明文字符串
-            
+
         Returns:
             密文字符串（Base64 编码）
         """
@@ -91,10 +91,10 @@ class SecureStorage:
     def decrypt(self, ciphertext: str) -> str:
         """
         解密字符串
-        
+
         Args:
             ciphertext: 密文字符串（Base64 编码）
-            
+
         Returns:
             明文字符串
         """
@@ -109,7 +109,7 @@ class SecureStorage:
     def store(self, key: str, value: Any) -> None:
         """
         存储数据
-        
+
         Args:
             key: 存储键
             value: 要存储的值（将被加密）
@@ -128,10 +128,10 @@ class SecureStorage:
     def get(self, key: str) -> Any | None:
         """
         获取数据
-        
+
         Args:
             key: 存储键
-            
+
         Returns:
             解密后的值，如果不存在返回 None
         """
@@ -155,10 +155,10 @@ class SecureStorage:
     def delete(self, key: str) -> bool:
         """
         删除数据
-        
+
         Args:
             key: 存储键
-            
+
         Returns:
             是否删除成功
         """
@@ -243,13 +243,13 @@ class SecureStorage:
     def get_key_data(self, key_id: str) -> dict:
         """
         获取完整的 Key 数据（包含 group_id 和 base_url）
-        
+
         Args:
             key_id: Key ID
 
         Returns:
             包含 provider、group_id、base_url 的字典
-            
+
         Raises:
             KeyError: Key 不存在
         """

@@ -241,8 +241,6 @@ class RateLimiter:
 
     def cleanup(self, max_age: int = 3600):
         current_time = time.time()
-        cutoff = current_time - max_age
-
         keys_to_delete = []
         for key, entry in self._storage.items():
             if not entry.timestamps:

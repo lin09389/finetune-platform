@@ -28,10 +28,10 @@ _http_clients: dict[str, httpx.AsyncClient] = {}
 def get_http_client(timeout: float = 60.0) -> httpx.AsyncClient:
     """
     获取或创建 HTTP 客户端（复用连接池）
-    
+
     Args:
         timeout: 超时时间（秒）
-    
+
     Returns:
         HTTP 客户端实例
     """
@@ -123,7 +123,7 @@ class MinimaxProvider(AIProvider):
     ):
         """
         初始化 Minimax 适配器
-        
+
         Args:
             coding_mode: 是否启用编程模式
             group_id: Group ID（可选）
@@ -161,13 +161,13 @@ class MinimaxProvider(AIProvider):
     ) -> dict[str, Any]:
         """
         非流式聊天
-        
+
         Args:
             messages: 消息列表
             model: 模型名称
             api_key: API Key
             kwargs: 其他参数
-            
+
         Returns:
             响应结果
         """
@@ -249,13 +249,13 @@ class MinimaxProvider(AIProvider):
     ) -> AsyncGenerator[dict[str, Any], None]:
         """
         流式聊天
-        
+
         Args:
             messages: 消息列表
             model: 模型名称
             api_key: API Key
             kwargs: 其他参数
-            
+
         Yields:
             响应片段
         """
@@ -483,13 +483,13 @@ PROVIDERS: dict[str, AIProvider] = {
 def get_provider(provider: str, group_id: str = "", base_url: str = "", version: str = "") -> AIProvider | None:
     """
     获取服务商实例，支持灰度分流
-    
+
     Args:
         provider: 服务商名称 (minimax/minimax-coding/glm)
         group_id: Group ID（可选，用于 Minimax）
         base_url: 自定义 Base URL（可选）
         version: 版本标签（用于灰度分流）
-    
+
     Returns:
         服务商实例
     """
@@ -512,7 +512,7 @@ def get_provider(provider: str, group_id: str = "", base_url: str = "", version:
 def list_providers() -> list[dict]:
     """
     列出所有可用的服务商
-    
+
     Returns:
         服务商信息列表
     """

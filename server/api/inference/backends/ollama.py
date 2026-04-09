@@ -1,4 +1,4 @@
-﻿"""
+"""
 Ollama 推理后端实现
 """
 import logging

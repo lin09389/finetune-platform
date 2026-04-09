@@ -1,64 +1,72 @@
-/**
- * 性能监控面板组件
- * 
- * 功能：
- * - 推理引擎选择
- * - 性能指标显示
- * - 配置优化建议
- */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react'
 import {
-  Card,
-  Select,
-  Statistic,
-  Row,
-  Col,
-  Progress,
-  Tag,
-  Button,
-  Tooltip,
   Alert,
-  Switch,
-  Slider,
+  Button,
+  Card,
+  Col,
   Divider,
-} from 'antd';
+  Progress,
+  Row,
+  Select,
+  Slider,
+  Statistic,
+  Switch,
+  Tag,
+  Tooltip,
+} from 'antd'
 import {
-  ThunderboltOutlined,
   DashboardOutlined,
-  SettingOutlined,
   ReloadOutlined,
-} from '@ant-design/icons';
+  SettingOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons'
+import { API_BASE_URL } from '../services/api'
 
 interface PerformanceMetrics {
-  tokensPerSecond: number;
-  firstTokenLatency: number;
-  memoryUsage: number;
-  gpuUtilization: number;
-  cacheHitRate: number;
-  batchSize: number;
-  queueLength: number;
+  tokensPerSecond: number
+  firstTokenLatency: number
+  memoryUsage: number
+  gpuUtilization: number
+  cacheHitRate: number
+  batchSize: number
+  queueLength: number
 }
 
 interface EngineConfig {
-  engine: 'huggingface' | 'vllm' | 'ollama';
-  quantization: 'none' | 'gptq' | 'awq' | 'gguf' | 'int8' | 'int4';
-  batchSize: number;
-  maxTokens: number;
-  temperature: number;
-  useCache: boolean;
-  flashAttention: boolean;
+  engine: 'huggingface' | 'vllm' | 'ollama'
+  quantization: 'none' | 'gptq' | 'awq' | 'gguf' | 'int8' | 'int4'
+  batchSize: number
+  maxTokens: number
+  temperature: number
+  useCache: boolean
+  flashAttention: boolean
 }
 
 interface OptimizationSuggestion {
-  type: 'performance' | 'memory' | 'quality';
-  title: string;
-  description: string;
-  impact: 'high' | 'medium' | 'low';
-  suggestedValue?: any;
+  type: 'performance' | 'memory' | 'quality'
+  title: string
+  description: string
+  impact: 'high' | 'medium' | 'low'
+  suggestedValue?: unknown
+}
+
+interface PerformanceApiMetrics {
+  average_latency_ms?: number
+  tokens_per_second?: number
+  gpu_memory_used_mb?: number
+  gpu_utilization_percent?: number
+  queue_length?: number
+}
+
+interface SuggestionApiItem {
+  category?: string
+  suggestion?: string
+  impact?: string
+  priority?: string
 }
 
 const PerformanceMonitor: React.FC = () => {
-  const [engine, setEngine] = useState<string>('huggingface');
+  const [engine, setEngine] = useState<string>('huggingface')
   const [metrics, setMetrics] = useState<PerformanceMetrics>({
     tokensPerSecond: 0,
     firstTokenLatency: 0,
@@ -67,7 +75,7 @@ const PerformanceMonitor: React.FC = () => {
     cacheHitRate: 0,
     batchSize: 1,
     queueLength: 0,
-  });
+  })
   const [config, setConfig] = useState<EngineConfig>({
     engine: 'huggingface',
     quantization: 'none',
@@ -76,90 +84,92 @@ const PerformanceMonitor: React.FC = () => {
     temperature: 0.7,
     useCache: true,
     flashAttention: false,
-  });
-  const [suggestions, setSuggestions] = useState<OptimizationSuggestion[]>([]);
+  })
+  const [suggestions, setSuggestions] = useState<OptimizationSuggestion[]>([])
+
+  const mapMetrics = (data: PerformanceApiMetrics): PerformanceMetrics => ({
+    tokensPerSecond: Number(data.tokens_per_second || 0),
+    firstTokenLatency: Number(data.average_latency_ms || 0),
+    memoryUsage: Number(data.gpu_memory_used_mb || 0),
+    gpuUtilization: Number(data.gpu_utilization_percent || 0),
+    cacheHitRate: 0,
+    batchSize: config.batchSize,
+    queueLength: Number(data.queue_length || 0),
+  })
+
+  const mapSuggestion = (item: SuggestionApiItem): OptimizationSuggestion => ({
+    type: item.category === 'memory' ? 'memory' : 'performance',
+    title: item.category ? `${item.category.toUpperCase()} 优化建议` : '优化建议',
+    description: item.suggestion || '暂无说明',
+    impact: item.priority === 'high' ? 'high' : item.priority === 'medium' ? 'medium' : 'low',
+  })
 
   const fetchMetrics = useCallback(async () => {
     try {
-      const response = await fetch('/api/inference/metrics');
-      if (response.ok) {
-        const data = await response.json();
-        setMetrics(data);
-      }
+      const response = await fetch(`${API_BASE_URL}/inference/performance/metrics`)
+      if (!response.ok) return
+
+      const data = await response.json()
+      setMetrics((prev) => ({
+        ...prev,
+        ...mapMetrics(data),
+      }))
     } catch (error) {
-      console.error('Failed to fetch metrics:', error);
+      console.error('Failed to fetch metrics:', error)
     }
-  }, []);
+  }, [config.batchSize])
 
   const fetchSuggestions = useCallback(async () => {
     try {
-      const response = await fetch('/api/inference/suggestions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config),
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setSuggestions(data.suggestions || []);
-      }
+      const response = await fetch(`${API_BASE_URL}/inference/performance/suggestions`)
+      if (!response.ok) return
+
+      const data: SuggestionApiItem[] = await response.json()
+      setSuggestions((data || []).map(mapSuggestion))
     } catch (error) {
-      console.error('Failed to fetch suggestions:', error);
+      console.error('Failed to fetch suggestions:', error)
     }
-  }, [config]);
+  }, [])
 
   useEffect(() => {
-    fetchMetrics();
-    const interval = setInterval(fetchMetrics, 5000);
-    return () => clearInterval(interval);
-  }, [fetchMetrics]);
+    void fetchMetrics()
+    const interval = setInterval(() => {
+      void fetchMetrics()
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [fetchMetrics])
 
   useEffect(() => {
-    fetchSuggestions();
-  }, [fetchSuggestions]);
+    void fetchSuggestions()
+  }, [fetchSuggestions])
 
   const handleEngineChange = (value: string) => {
-    setEngine(value);
-    setConfig(prev => ({ ...prev, engine: value as any }));
-  };
+    setEngine(value)
+    setConfig((prev) => ({ ...prev, engine: value as EngineConfig['engine'] }))
+  }
 
-  const handleConfigChange = (key: keyof EngineConfig, value: any) => {
-    setConfig(prev => ({ ...prev, [key]: value }));
-  };
-
-  const applySuggestion = (suggestion: OptimizationSuggestion) => {
-    if (suggestion.suggestedValue !== undefined) {
-      const keyMap: Record<string, keyof EngineConfig> = {
-        'quantization': 'quantization',
-        'batch_size': 'batchSize',
-        'max_tokens': 'maxTokens',
-        'flash_attention': 'flashAttention',
-        'use_cache': 'useCache',
-      };
-      
-      const key = Object.keys(keyMap).find(k => 
-        suggestion.title.toLowerCase().includes(k.replace('_', ' '))
-      );
-      
-      if (key && keyMap[key]) {
-        handleConfigChange(keyMap[key], suggestion.suggestedValue);
-      }
-    }
-  };
+  const handleConfigChange = (key: keyof EngineConfig, value: unknown) => {
+    setConfig((prev) => ({ ...prev, [key]: value }))
+  }
 
   const getPerformanceColor = (value: number, thresholds: [number, number]) => {
-    if (value >= thresholds[1]) return '#52c41a';
-    if (value >= thresholds[0]) return '#faad14';
-    return '#ff4d4f';
-  };
+    if (value >= thresholds[1]) return '#52c41a'
+    if (value >= thresholds[0]) return '#faad14'
+    return '#ff4d4f'
+  }
 
   const getImpactColor = (impact: string) => {
     switch (impact) {
-      case 'high': return 'red';
-      case 'medium': return 'orange';
-      case 'low': return 'green';
-      default: return 'default';
+      case 'high':
+        return 'red'
+      case 'medium':
+        return 'orange'
+      case 'low':
+        return 'green'
+      default:
+        return 'default'
     }
-  };
+  }
 
   return (
     <div className="performance-monitor">
@@ -170,7 +180,7 @@ const PerformanceMonitor: React.FC = () => {
           </span>
         }
         extra={
-          <Button icon={<ReloadOutlined />} onClick={fetchMetrics}>
+          <Button icon={<ReloadOutlined />} onClick={() => void fetchMetrics()}>
             刷新
           </Button>
         }
@@ -184,15 +194,15 @@ const PerformanceMonitor: React.FC = () => {
                   <Select
                     value={engine}
                     onChange={handleEngineChange}
-                    style={{ width: 200, marginRight: 16 }}
+                    style={{ width: 220, marginRight: 16 }}
                     options={[
-                      { value: 'huggingface', label: 'HuggingFace (默认)' },
-                      { value: 'vllm', label: 'vLLM (高性能)' },
-                      { value: 'ollama', label: 'Ollama (本地)' },
+                      { value: 'huggingface', label: 'HuggingFace（默认）' },
+                      { value: 'vllm', label: 'vLLM（高性能）' },
+                      { value: 'ollama', label: 'Ollama（本地）' },
                     ]}
                   />
-                  <Tooltip title="vLLM 提供最高性能，但需要额外安装">
-                    <Tag color="blue">推荐: vLLM</Tag>
+                  <Tooltip title="vLLM 通常有更高吞吐，但需要额外安装与兼容性验证。">
+                    <Tag color="blue">推荐：vLLM</Tag>
                   </Tooltip>
                 </div>
               }
@@ -211,9 +221,7 @@ const PerformanceMonitor: React.FC = () => {
                 title="推理速度"
                 value={metrics.tokensPerSecond}
                 suffix="tokens/s"
-                valueStyle={{
-                  color: getPerformanceColor(metrics.tokensPerSecond, [30, 50]),
-                }}
+                valueStyle={{ color: getPerformanceColor(metrics.tokensPerSecond, [30, 50]) }}
                 prefix={<ThunderboltOutlined />}
               />
               <Progress
@@ -226,12 +234,10 @@ const PerformanceMonitor: React.FC = () => {
           <Col span={6}>
             <Card size="small">
               <Statistic
-                title="首字延迟"
+                title="平均延迟"
                 value={metrics.firstTokenLatency}
                 suffix="ms"
-                valueStyle={{
-                  color: getPerformanceColor(500 - metrics.firstTokenLatency, [200, 300]),
-                }}
+                valueStyle={{ color: getPerformanceColor(500 - metrics.firstTokenLatency, [200, 300]) }}
               />
               <Progress
                 percent={Math.min(100, ((500 - metrics.firstTokenLatency) / 400) * 100)}
@@ -245,32 +251,28 @@ const PerformanceMonitor: React.FC = () => {
               <Statistic
                 title="显存占用"
                 value={metrics.memoryUsage}
-                suffix="%"
-                valueStyle={{
-                  color: getPerformanceColor(100 - metrics.memoryUsage, [30, 50]),
-                }}
+                suffix="MB"
+                valueStyle={{ color: getPerformanceColor(12000 - metrics.memoryUsage, [2000, 6000]) }}
               />
               <Progress
-                percent={metrics.memoryUsage}
+                percent={Math.min(100, metrics.memoryUsage / 120)}
                 showInfo={false}
-                strokeColor={getPerformanceColor(100 - metrics.memoryUsage, [30, 50])}
+                strokeColor={getPerformanceColor(12000 - metrics.memoryUsage, [2000, 6000])}
               />
             </Card>
           </Col>
           <Col span={6}>
             <Card size="small">
               <Statistic
-                title="缓存命中率"
-                value={metrics.cacheHitRate * 100}
+                title="GPU 利用率"
+                value={metrics.gpuUtilization}
                 suffix="%"
-                valueStyle={{
-                  color: getPerformanceColor(metrics.cacheHitRate * 100, [50, 80]),
-                }}
+                valueStyle={{ color: getPerformanceColor(metrics.gpuUtilization, [50, 80]) }}
               />
               <Progress
-                percent={metrics.cacheHitRate * 100}
+                percent={metrics.gpuUtilization}
                 showInfo={false}
-                strokeColor={getPerformanceColor(metrics.cacheHitRate * 100, [50, 80])}
+                strokeColor={getPerformanceColor(metrics.gpuUtilization, [50, 80])}
               />
             </Card>
           </Col>
@@ -285,10 +287,10 @@ const PerformanceMonitor: React.FC = () => {
                 <span>量化方式：</span>
                 <Select
                   value={config.quantization}
-                  onChange={(v) => handleConfigChange('quantization', v)}
-                  style={{ width: 150, marginLeft: 8 }}
+                  onChange={(value) => handleConfigChange('quantization', value)}
+                  style={{ width: 180, marginLeft: 8 }}
                   options={[
-                    { value: 'none', label: '无量化 (FP16)' },
+                    { value: 'none', label: '无量化（FP16）' },
                     { value: 'int8', label: 'INT8 量化' },
                     { value: 'int4', label: 'INT4 量化' },
                     { value: 'gptq', label: 'GPTQ' },
@@ -301,11 +303,11 @@ const PerformanceMonitor: React.FC = () => {
                 <span>批处理大小：</span>
                 <Slider
                   value={config.batchSize}
-                  onChange={(v) => handleConfigChange('batchSize', v)}
+                  onChange={(value) => handleConfigChange('batchSize', value)}
                   min={1}
                   max={32}
                   marks={{ 1: '1', 8: '8', 16: '16', 32: '32' }}
-                  style={{ width: 200, display: 'inline-block', marginLeft: 8 }}
+                  style={{ width: 220, display: 'inline-block', marginLeft: 8 }}
                 />
               </div>
             </Col>
@@ -314,18 +316,20 @@ const PerformanceMonitor: React.FC = () => {
                 <span>Flash Attention：</span>
                 <Switch
                   checked={config.flashAttention}
-                  onChange={(v) => handleConfigChange('flashAttention', v)}
+                  onChange={(value) => handleConfigChange('flashAttention', value)}
                   style={{ marginLeft: 8 }}
                 />
-                <Tooltip title="启用 Flash Attention 2 可显著提升推理速度">
-                  <Tag color="blue" style={{ marginLeft: 8 }}>推荐开启</Tag>
+                <Tooltip title="启用 Flash Attention 2 通常可以改善推理吞吐。">
+                  <Tag color="blue" style={{ marginLeft: 8 }}>
+                    推荐开启
+                  </Tag>
                 </Tooltip>
               </div>
               <div style={{ marginBottom: 16 }}>
                 <span>KV Cache：</span>
                 <Switch
                   checked={config.useCache}
-                  onChange={(v) => handleConfigChange('useCache', v)}
+                  onChange={(value) => handleConfigChange('useCache', value)}
                   style={{ marginLeft: 8 }}
                 />
               </div>
@@ -339,25 +343,16 @@ const PerformanceMonitor: React.FC = () => {
             <Card title="优化建议" size="small">
               {suggestions.map((suggestion, index) => (
                 <Alert
-                  key={index}
+                  key={`${suggestion.title}-${index}`}
                   message={
                     <span>
-                      <Tag color={getImpactColor(suggestion.impact)}>
-                        {suggestion.impact.toUpperCase()}
-                      </Tag>
+                      <Tag color={getImpactColor(suggestion.impact)}>{suggestion.impact.toUpperCase()}</Tag>
                       {suggestion.title}
                     </span>
                   }
                   description={suggestion.description}
                   type={suggestion.type === 'performance' ? 'success' : 'info'}
                   showIcon
-                  action={
-                    suggestion.suggestedValue !== undefined && (
-                      <Button size="small" onClick={() => applySuggestion(suggestion)}>
-                        应用
-                      </Button>
-                    )
-                  }
                   style={{ marginBottom: 8 }}
                 />
               ))}
@@ -366,7 +361,7 @@ const PerformanceMonitor: React.FC = () => {
         )}
       </Card>
     </div>
-  );
-};
+  )
+}
 
-export default PerformanceMonitor;
+export default PerformanceMonitor

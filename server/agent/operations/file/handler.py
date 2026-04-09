@@ -1,4 +1,4 @@
-﻿"""File operation handler for unified executor."""
+"""File operation handler for unified executor."""
 
 import difflib
 import fnmatch
@@ -212,7 +212,7 @@ class FileOperationHandler(OperationHandler):
             return UnifiedResult.fail(action="file_read", error=f"File too large: {path}", error_code=ErrorCode.VALIDATION_ERROR)
 
         encoding = params.get("encoding", "utf-8")
-        async with aiofiles.open(path, "r", encoding=encoding) as f:
+        async with aiofiles.open(path, encoding=encoding) as f:
             content = await f.read()
         return UnifiedResult.ok(
             action="file_read",
@@ -244,7 +244,7 @@ class FileOperationHandler(OperationHandler):
         previous_content = ""
         if path.exists():
             try:
-                async with aiofiles.open(path, "r", encoding=encoding) as existing_file:
+                async with aiofiles.open(path, encoding=encoding) as existing_file:
                     previous_content = await existing_file.read()
             except Exception:
                 previous_content = ""

@@ -140,7 +140,7 @@ class KnowledgeIntegrator:
     ):
         """
         初始化知识库集成器
-        
+
         Args:
             default_top_k: 默认返回结果数量
             retrieval_top_k: 初始检索数量
@@ -194,12 +194,12 @@ class KnowledgeIntegrator:
     ) -> tuple[bool, str]:
         """
         判断是否需要检索知识库
-        
+
         Args:
             query: 用户查询
             collection_id: 知识库集合 ID
             force_retrieve: 强制检索
-            
+
         Returns:
             (是否需要检索, 原因)
         """
@@ -234,10 +234,10 @@ class KnowledgeIntegrator:
     def detect_domain(self, query: str) -> dict[str, Any] | None:
         """
         检测查询所属领域
-        
+
         Args:
             query: 用户查询
-            
+
         Returns:
             检测到的领域信息，未检测到则返回 None
         """
@@ -268,10 +268,10 @@ class KnowledgeIntegrator:
     def get_collection_for_domain(self, domain_id: str) -> str | None:
         """
         根据领域获取对应的知识库集合名称
-        
+
         Args:
             domain_id: 领域 ID
-            
+
         Returns:
             知识库集合名称
         """
@@ -294,14 +294,14 @@ class KnowledgeIntegrator:
     ) -> KnowledgeRetrievalResult:
         """
         检索知识库
-        
+
         Args:
             query: 查询文本
             collection_id: 集合 ID
             top_k: 返回结果数量
             use_hybrid: 是否使用混合检索
             use_rerank: 是否使用重排序
-            
+
         Returns:
             检索结果
         """
@@ -416,10 +416,10 @@ class KnowledgeIntegrator:
     def _build_context(self, sources: list[KnowledgeSource]) -> str:
         """
         构建上下文文本
-        
+
         Args:
             sources: 知识来源列表
-            
+
         Returns:
             上下文文本
         """
@@ -448,12 +448,12 @@ class KnowledgeIntegrator:
     ) -> list[dict[str, str]]:
         """
         将检索到的知识注入到对话消息中
-        
+
         Args:
             messages: 原始消息列表
             retrieval_result: 检索结果
             system_prompt_template: 系统提示词模板
-            
+
         Returns:
             注入知识后的消息列表
         """
@@ -510,11 +510,11 @@ class KnowledgeIntegrator:
     ) -> str:
         """
         格式化知识来源引用
-        
+
         Args:
             sources: 知识来源列表
             style: 格式风格 (markdown/json/text)
-            
+
         Returns:
             格式化后的引用文本
         """
@@ -547,12 +547,12 @@ class KnowledgeIntegrator:
     ) -> str:
         """
         在回复中添加知识来源引用
-        
+
         Args:
             response: 原始回复
             sources: 知识来源列表
             include_citation: 是否包含引用
-            
+
         Returns:
             增强后的回复
         """
@@ -570,7 +570,7 @@ class KnowledgeAwareChatManager:
     def __init__(self, integrator: KnowledgeIntegrator | None = None):
         """
         初始化对话管理器
-        
+
         Args:
             integrator: 知识集成器实例
         """
@@ -587,14 +587,14 @@ class KnowledgeAwareChatManager:
     ) -> tuple[KnowledgeRetrievalResult | None, dict[str, Any]]:
         """
         处理用户消息，自动检索知识
-        
+
         Args:
             session_id: 会话 ID
             user_message: 用户消息
             collection_id: 知识库集合 ID
             auto_retrieve: 是否自动检索
             force_retrieve: 强制检索
-            
+
         Returns:
             (检索结果, 处理信息)
         """
@@ -641,11 +641,11 @@ class KnowledgeAwareChatManager:
     ) -> list[KnowledgeRetrievalResult]:
         """
         获取会话的知识检索历史
-        
+
         Args:
             session_id: 会话 ID
             limit: 最大返回数量
-            
+
         Returns:
             检索结果列表
         """
@@ -655,7 +655,7 @@ class KnowledgeAwareChatManager:
     def clear_session_knowledge(self, session_id: str):
         """
         清除会话的知识检索历史
-        
+
         Args:
             session_id: 会话 ID
         """
@@ -670,12 +670,12 @@ class KnowledgeAwareChatManager:
     ) -> str:
         """
         构建知识增强的提示词
-        
+
         Args:
             user_message: 用户消息
             retrieval_result: 检索结果
             conversation_history: 对话历史
-            
+
         Returns:
             增强后的提示词
         """

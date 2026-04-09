@@ -139,7 +139,7 @@ class ConfigWizard:
 class EnvironmentDetector:
     """
     环境检测器
-    
+
     自动检测系统环境和硬件配置
     """
 
@@ -230,7 +230,7 @@ class EnvironmentDetector:
 class ConfigAdvisor:
     """
     配置顾问
-    
+
     基于系统信息生成配置建议
     """
 
@@ -373,7 +373,7 @@ class ConfigAdvisor:
 class QuickSetup:
     """
     快速设置
-    
+
     一键配置功能
     """
 

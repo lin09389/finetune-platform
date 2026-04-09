@@ -1,4 +1,4 @@
-﻿import React, { useState, useCallback, useRef, useEffect } from 'react'
+import React, { useState, useCallback, useRef, useEffect } from 'react'
 import { Input, Button, Tooltip, message, Avatar, Typography } from 'antd'
 import {
   SendOutlined,

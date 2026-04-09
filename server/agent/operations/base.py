@@ -116,7 +116,7 @@ class OperationContext:
 class OperationHandler(ABC):
     """
     操作处理器抽象基类
-    
+
     实现单一职责原则：每个处理器只负责一类操作
     实现开闭原则：通过继承扩展新的操作类型
     """
@@ -129,11 +129,11 @@ class OperationHandler(ABC):
     async def execute(self, action: str, params: dict[str, Any]) -> OperationResult:
         """
         执行操作
-        
+
         Args:
             action: 操作类型
             params: 操作参数
-            
+
         Returns:
             操作结果
         """
@@ -143,7 +143,7 @@ class OperationHandler(ABC):
     def get_supported_actions(self) -> list[str]:
         """
         获取支持的操作类型列表
-        
+
         Returns:
             操作类型列表
         """
@@ -152,10 +152,10 @@ class OperationHandler(ABC):
     def supports(self, action: str) -> bool:
         """
         检查是否支持指定操作
-        
+
         Args:
             action: 操作类型
-            
+
         Returns:
             是否支持
         """
@@ -164,11 +164,11 @@ class OperationHandler(ABC):
     def validate_params(self, action: str, params: dict[str, Any]) -> str | None:
         """
         验证操作参数
-        
+
         Args:
             action: 操作类型
             params: 操作参数
-            
+
         Returns:
             错误信息，None 表示验证通过
         """
@@ -177,10 +177,10 @@ class OperationHandler(ABC):
     def get_action_description(self, action: str) -> str:
         """
         获取操作描述
-        
+
         Args:
             action: 操作类型
-            
+
         Returns:
             操作描述
         """
@@ -190,7 +190,7 @@ class OperationHandler(ABC):
     def get_action_descriptions(self) -> dict[str, str]:
         """
         获取所有操作的描述
-        
+
         Returns:
             操作描述字典
         """
@@ -203,11 +203,11 @@ class OperationHandler(ABC):
     async def pre_execute(self, action: str, params: dict[str, Any]) -> OperationResult | None:
         """
         执行前钩子
-        
+
         Args:
             action: 操作类型
             params: 操作参数
-            
+
         Returns:
             如果返回非 None，则跳过实际执行
         """
@@ -221,12 +221,12 @@ class OperationHandler(ABC):
     ) -> OperationResult:
         """
         执行后钩子
-        
+
         Args:
             action: 操作类型
             params: 操作参数
             result: 执行结果
-            
+
         Returns:
             处理后的结果
         """
@@ -235,13 +235,13 @@ class OperationHandler(ABC):
     async def run(self, action: str, params: dict[str, Any]) -> OperationResult:
         """
         运行操作（模板方法）
-        
+
         包含完整的执行流程：验证 -> 预处理 -> 执行 -> 后处理
-        
+
         Args:
             action: 操作类型
             params: 操作参数
-            
+
         Returns:
             操作结果
         """
@@ -294,7 +294,7 @@ class OperationHandler(ABC):
 class CompositeOperationHandler(OperationHandler):
     """
     组合操作处理器
-    
+
     将多个操作处理器组合在一起
     """
 

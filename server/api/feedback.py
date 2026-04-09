@@ -80,7 +80,7 @@ class ImprovementSuggestion(BaseModel):
 async def submit_feedback(request: FeedbackSubmitRequest):
     """
     提交用户反馈
-    
+
     用户可以对操作结果进行反馈，包括：
     - 意图检测是否正确
     - 执行是否成功
@@ -124,7 +124,7 @@ async def submit_feedback(request: FeedbackSubmitRequest):
 async def get_stats(days: int = 7):
     """
     获取反馈统计
-    
+
     返回最近几天的反馈统计数据
     """
     stats = get_feedback_stats(days)
@@ -146,7 +146,7 @@ async def get_stats(days: int = 7):
 async def get_intent_corrections():
     """
     获取意图纠正数据
-    
+
     返回用户对意图检测的纠正记录
     """
     manager = get_feedback_manager()
@@ -159,7 +159,7 @@ async def get_intent_corrections():
 async def get_improvement_suggestions():
     """
     获取改进建议
-    
+
     返回用户提交的改进建议
     """
     manager = get_feedback_manager()
@@ -172,7 +172,7 @@ async def get_improvement_suggestions():
 async def get_recent_feedbacks(limit: int = 50):
     """
     获取最近的反馈
-    
+
     返回最近提交的反馈列表
     """
     manager = get_feedback_manager()

@@ -83,11 +83,11 @@ class DatasetUploadResponse(BaseModel):
 def validate_path_security(base_dir: Path, target_path: Path) -> bool:
     """
     验证路径安全性，防止路径遍历攻击
-    
+
     Args:
         base_dir: 基础目录
         target_path: 目标路径
-    
+
     Returns:
         是否安全
     """
@@ -103,10 +103,10 @@ def validate_path_security(base_dir: Path, target_path: Path) -> bool:
 def validate_file_content(file_path: Path) -> tuple[bool, str]:
     """
     验证文件内容
-    
+
     Args:
         file_path: 文件路径
-    
+
     Returns:
         (是否有效，错误消息)
     """
@@ -133,10 +133,10 @@ def validate_file_content(file_path: Path) -> tuple[bool, str]:
 def validate_dataset_format(file_path: Path) -> tuple[bool, str, int]:
     """
     验证数据集格式
-    
+
     Args:
         file_path: 文件路径
-    
+
     Returns:
         (是否有效，错误消息，样本数)
     """
@@ -190,11 +190,11 @@ def validate_dataset_format(file_path: Path) -> tuple[bool, str, int]:
 def compute_statistics(file_path: Path, sample_limit: int = 1000) -> DatasetStatistics:
     """
     计算数据集统计信息
-    
+
     Args:
         file_path: 文件路径
         sample_limit: 采样上限
-    
+
     Returns:
         统计信息
     """
@@ -338,7 +338,7 @@ async def upload_dataset(
 ):
     """
     上传数据集
-    
+
     安全校验:
     - 文件类型验证
     - 文件大小限制

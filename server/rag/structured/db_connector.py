@@ -349,7 +349,6 @@ class PostgreSQLConnector(DatabaseConnector):
     def connect(self) -> bool:
         """建立连接"""
         try:
-            import psycopg2
             from psycopg2 import pool
 
             self._pool = pool.ThreadedConnectionPool(
@@ -480,8 +479,8 @@ class PostgreSQLConnector(DatabaseConnector):
         """获取所有表名"""
         result = self.query(
             """
-            SELECT table_name 
-            FROM information_schema.tables 
+            SELECT table_name
+            FROM information_schema.tables
             WHERE table_schema = %s AND table_type = 'BASE TABLE'
             ORDER BY table_name
             """,
@@ -494,7 +493,7 @@ class PostgreSQLConnector(DatabaseConnector):
         try:
             columns_result = self.query(
                 """
-                SELECT 
+                SELECT
                     column_name as name,
                     data_type as type,
                     is_nullable,
@@ -691,7 +690,7 @@ class MySQLConnector(DatabaseConnector):
         try:
             columns_result = self.query(
                 """
-                SELECT 
+                SELECT
                     column_name as name,
                     data_type as type,
                     is_nullable,
@@ -755,7 +754,7 @@ def get_db_connector(
 ) -> DatabaseConnector:
     """
     获取数据库连接器
-    
+
     Args:
         db_type: 数据库类型（sqlite/postgresql/mysql）
         database: 数据库名或路径
@@ -763,7 +762,7 @@ def get_db_connector(
         port: 端口
         username: 用户名
         password: 密码
-        
+
     Returns:
         数据库连接器实例
     """

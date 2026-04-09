@@ -186,11 +186,11 @@ class IntentDetector:
     def detect(self, message: str, context: dict[str, Any] | None = None) -> IntentResult:
         """
         检测消息中的意图
-        
+
         Args:
             message: 用户消息
             context: 上下文信息（如当前对话内容、生成的文本等）
-            
+
         Returns:
             IntentResult: 检测结果
         """

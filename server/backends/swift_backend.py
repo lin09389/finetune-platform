@@ -63,7 +63,7 @@ class SwiftTrainConfig:
 class SwiftBackend:
     """
     SWIFT 框架后端 - CLI 调用模式（重构版）
-    
+
     修复：
     - P1-4: 进程组管理，防止僵尸进程
     - 添加进程监控和自动清理
@@ -287,7 +287,7 @@ class SwiftBackend:
     ) -> bool:
         """
         启动训练
-        
+
         P1-4: 使用进程组管理，防止僵尸进程
         """
         with self._process_lock:

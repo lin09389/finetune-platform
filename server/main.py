@@ -1,6 +1,6 @@
-﻿"""
+"""
 Finetune Platform Backend - Main Application
-澶фā鍨嬪井璋冨钩鍙板悗绔富搴旂敤
+大模型微调平台后端应用
 """
 import json
 import logging
@@ -13,7 +13,6 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -30,7 +29,7 @@ if hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
-from api import (
+from api import (  # noqa: E402
     agent,
     cloud_chat,
     context,
@@ -44,12 +43,12 @@ from api import (
     training,
     workspace,
 )
-from api.compat import router as compat_router
 from api.agent_executor import router as agent_executor
 from api.chat.routes import router as chat
 from api.chat_branch import router as chat_branch
 from api.chat_share import router as chat_share
 from api.code_executor import router as code_executor
+from api.compat import router as compat_router
 from api.entity import router as entity
 from api.feedback import router as feedback
 from api.file_parser import router as file_parser
@@ -70,7 +69,7 @@ from workspace.task_api import router as task_api_router
 
 
 class UnicodeJSONResponse(JSONResponse):
-    """鏀寔涓枃鐨?JSON 鍝嶅簲"""
+    """????? JSON ???"""
     def render(self, content) -> bytes:
         return json.dumps(
             content,
@@ -102,21 +101,21 @@ ALLOWED_ORIGINS = settings.allowed_origins
 DEBUG_MODE = os.getenv("DEBUG", "false").lower() == "true"
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 
-from security.rate_limiter import get_rate_limiter
+from security.rate_limiter import get_rate_limiter  # noqa: E402
 
 rate_limiter = get_rate_limiter()
 
 
 def check_rate_limit(client_ip: str, path: str = "") -> tuple[bool, dict]:
     """
-    妫€鏌ユ槸鍚﹁秴杩囬€熺巼闄愬埗
+    ???????????
 
     Args:
-        client_ip: 瀹㈡埛绔?IP
-        path: API 璺緞
+        client_ip: ??? IP
+        path: API ??
 
     Returns:
-        (鏄惁鍏佽, 闄愬埗淇℃伅)
+        (????, ????)
     """
     return rate_limiter.is_allowed(client_ip, endpoint=path)
 
@@ -125,7 +124,7 @@ async def verify_auth(
     request: Request,
     credentials: HTTPAuthorizationCredentials = None
 ) -> bool:
-    """楠岃瘉 JWT 璁よ瘉"""
+    """?? JWT ???"""
     if os.getenv("ENABLE_AUTH", "false").lower() != "true":
         return True
 
@@ -145,10 +144,10 @@ async def verify_auth(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """搴旂敤鐢熷懡鍛ㄦ湡绠＄悊"""
+    """?????????"""
     logger.info("Initializing application...")
-    
-    # 鍒濆鍖栨暟鎹簱琛?
+
+    # ?????????
     from core.db_manager import get_db_pool
     db_pool = get_db_pool()
     db_pool.execute_update("""
@@ -164,8 +163,8 @@ async def lifespan(app: FastAPI):
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    logger.info("瀹¤鏃ュ織琛ㄥ凡鍑嗗灏辩华")
-    
+    logger.info("??????????")
+
     logger.info(f"Models directory: {settings.models_dir_resolved}")
     logger.info(f"Datasets directory: {settings.datasets_dir_resolved}")
     logger.info(f"Outputs directory: {settings.outputs_dir_resolved}")
@@ -175,16 +174,16 @@ async def lifespan(app: FastAPI):
     settings.outputs_dir_resolved.mkdir(parents=True, exist_ok=True)
 
     from core.training_queue import get_training_queue
-    queue = get_training_queue(
+    get_training_queue(
         max_concurrent=settings.max_concurrent_training,
-        max_queue_size=10
+        max_queue_size=10,
     )
-    logger.info(f"璁粌闃熷垪宸插垵濮嬪寲锛歮ax_concurrent={settings.max_concurrent_training}")
+    logger.info(f"?????????max_concurrent={settings.max_concurrent_training}")
 
     try:
         from api.chat.session import get_session_manager
-        session_manager = get_session_manager()
-        logger.info("浼氳瘽瀛樺偍宸插垵濮嬪寲")
+        get_session_manager()
+        logger.info("????????")
     except Exception as e:
         logger.warning(f"Session manager init failed: {e}")
 
@@ -195,25 +194,25 @@ async def lifespan(app: FastAPI):
 
         embedder = get_embedder()
         vector_store = get_vector_store()
-        context_service = get_context_service(embedder=embedder, vector_store=vector_store)
+        get_context_service(embedder=embedder, vector_store=vector_store)
         logger.info("项目上下文服务已初始化")
     except Exception as e:
         logger.warning(f"Context service init failed: {e}")
 
     # try:
-    #     logger.info("棰勫姞杞藉祵鍏ユā鍨?..")
+    #     logger.info("???????...")
     #     from rag.embedder import get_embedder
     #     embedder = get_embedder()
     #     _ = embedder.dimension
-    #     logger.info("宓屽叆妯″瀷棰勫姞杞藉畬鎴?)
+    #     logger.info("?????????")
     # except Exception as e:
     #     logger.warning(f"Context service init failed: {e}")
 
     try:
-        logger.info("棰勫垵濮嬪寲璁板繂鏈嶅姟...")
+        logger.info("???????...")
         from memory.memory_service import MemoryService
-        memory_service = MemoryService()
-        logger.info("璁板繂鏈嶅姟宸插垵濮嬪寲")
+        MemoryService()
+        logger.info("????????")
     except Exception as e:
         logger.warning(f"Memory service init failed: {e}")
 
@@ -224,7 +223,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Finetune Platform API",
-    description="澶фā鍨嬪井璋冨钩鍙板悗绔?API - 鏀寔 LoRA/QLoRA 寰皟锛屾秷璐圭骇鏄惧崱浼樺寲",
+    description="????????? API - ?? LoRA/QLoRA ????????????",
     version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -247,20 +246,20 @@ async def trace_middleware(request: Request, call_next):
     """Trace middleware."""
     trace_id = request.headers.get("X-Trace-Id", str(uuid.uuid4()))
     trace_id_var.set(trace_id)
-    
-    # 妯℃嫙鑾峰彇 User ID (瀹為檯搴斾粠 JWT 涓幏鍙?
+
+    # ???? User ID????? JWT ?????
     user_id = request.headers.get("X-User-Id", "anonymous")
     user_id_var.set(user_id)
-    
+
     response = await call_next(request)
     response.headers["X-Trace-Id"] = trace_id
     return response
 
 
-# 榛戝悕鍗曞垪琛?
+# ??????
 IP_BLACKLIST = {"1.2.3.4", "5.6.7.8"}
 
-# WAF 瑙勫垯 (绠€鍗曟鍒?
+# WAF ????????
 WAF_RULES = [
     re.compile(r"union\s+select", re.I),
     re.compile(r"<script>.*?</script>", re.I),
@@ -271,22 +270,22 @@ WAF_RULES = [
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
     """
-    瀹夊叏涓棿浠?
-    - IP 榛戝悕鍗?
-    - WAF 杩囨护
-    - 閫熺巼闄愬埗
-    - 璇锋眰鏃ュ織
-    - 閿欒澶勭悊
+    ??????
+    - IP ???
+    - WAF ??
+    - ????
+    - ????
+    - ????
     """
     client_ip = request.client.host
     path = request.url.path
 
-    # IP 榛戝悕鍗曟鏌?
+    # IP ??????
     if client_ip in IP_BLACKLIST:
         logger.warning(f"Blocked request from blacklisted IP: {client_ip}")
         return JSONResponse(status_code=403, content={"error": "Forbidden", "detail": "Your IP is blacklisted"})
 
-    # WAF 瑙勫垯妫€鏌?
+    # WAF ?????
     query_params = str(request.query_params)
     body = await request.body()
     payload = query_params + body.decode("utf-8", errors="ignore")
@@ -306,7 +305,7 @@ async def security_middleware(request: Request, call_next):
                 status_code=429,
                 content={
                     "error": rate_info.get('error', 'rate_limit_exceeded'),
-                    "detail": rate_info.get('message', '璇锋眰杩囦簬棰戠箒锛岃绋嶅悗鍐嶈瘯'),
+                    "detail": rate_info.get('message', '????????????'),
                     "retry_after": retry_after
                 },
                 headers={
@@ -351,7 +350,7 @@ async def logging_middleware(request: Request, call_next):
 
 @app.middleware("http")
 async def security_headers_middleware(request: Request, call_next):
-    """瀹夊叏澶翠腑闂翠欢"""
+    """???????"""
     response = await call_next(request)
 
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -417,6 +416,7 @@ async def root():
 async def health_check():
     """Health check endpoint."""
     import torch
+
     from agent.intent.methods.bert_classifier import bert_classifier
 
     health = {
@@ -473,7 +473,7 @@ async def api_info():
     }
 
 
-from api.errors import APIError
+from api.errors import APIError  # noqa: E402
 
 
 @app.exception_handler(APIError)

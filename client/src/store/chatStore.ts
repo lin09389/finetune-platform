@@ -18,6 +18,22 @@ import {
   getChatSessionMessages,
   listChatSessions,
 } from '../services/chatSessionApi'
+import {
+  appendAgentTimelineEvent,
+  initialChatAgentState,
+  replaceAgentTimelineEvents,
+  resetAgentRuntimeState,
+} from './chatAgentState'
+import {
+  addExperimentSnapshotRecord,
+  clearActiveExperimentCandidates,
+  deleteExperimentPreset,
+  initialChatExperimentState,
+  saveExperimentPreset,
+  setActiveExperimentCandidates,
+  updateExperimentSnapshotRecord,
+} from './chatExperimentState'
+import { mergeLoadedSessionRecord, parseAgentSessionState } from './chatSessionState'
 
 export interface ChatSession {
   id: string
@@ -165,12 +181,7 @@ export const useChatStore = create<ChatStore>()(
       streamingMessageId: null,
       streamingContent: '',
       agentExecution: null,
-      agentMode: false,
-      agentTaskStatus: 'idle',
-      agentTimeline: [],
-      pendingAgentConfirmation: null,
-      agentWorkspaceRoot: '',
-      autoApproveSafeTools: false,
+      ...initialChatAgentState,
       isStreaming: false,
       isLoading: false,
       error: null,
@@ -197,14 +208,7 @@ export const useChatStore = create<ChatStore>()(
       },
       promptDraft: '',
       attachments: [],
-      activeCandidates: [],
-      selectedCandidateId: null,
-      selectedExperimentId: null,
-      responseView: 'response',
-      lastRunMetadata: null,
-      experimentSnapshots: [],
-      presets: [],
-      selectedPresetId: null,
+      ...initialChatExperimentState,
 
       createSession: async (title = '新对话', modelId) => {
         try {
@@ -252,55 +256,20 @@ export const useChatStore = create<ChatStore>()(
             getChatSession(sessionId, get().settings.backend),
             getChatSessionMessages(sessionId),
           ])
-          const sessionMetadata = sessionData.metadata || {}
-          const agentStatus =
-            typeof sessionMetadata.agent_status === 'string'
-              ? (sessionMetadata.agent_status as AgentTaskStatus)
-              : 'idle'
-          const pendingConfirmation =
-            sessionMetadata.pending_confirmation &&
-            typeof sessionMetadata.pending_confirmation === 'object'
-              ? (sessionMetadata.pending_confirmation as AgentPendingConfirmation)
-              : null
-          const workspaceRoot =
-            typeof sessionMetadata.workspace_root === 'string'
-              ? sessionMetadata.workspace_root
-              : ''
+          const agentSessionState = parseAgentSessionState(sessionData.metadata)
           
           set({
             currentSessionId: sessionId,
             messages: messagesData.messages || [],
-            promptDraft:
-              typeof sessionMetadata.last_agent_goal === 'string'
-                ? sessionMetadata.last_agent_goal
-                : get().promptDraft,
-            agentMode: Boolean(sessionMetadata.agent_mode),
-            agentTaskStatus: agentStatus,
-            agentTimeline: Array.isArray(sessionMetadata.execution_timeline)
-              ? sessionMetadata.execution_timeline.map((event: any, index: number) => ({
-                  id: event.id || `session_event_${index}`,
-                  type: event.type || 'task_status',
-                  title: event.title || event.stage || 'Session event',
-                  description: event.description,
-                  status: event.status,
-                  tool_name: event.tool_name,
-                  payload: event.payload,
-                  createdAt: event.createdAt || event.timestamp || new Date().toISOString(),
-                }))
-              : [],
-            pendingAgentConfirmation: pendingConfirmation,
-            agentWorkspaceRoot: workspaceRoot,
-            autoApproveSafeTools: Boolean(sessionMetadata.auto_approve_safe_tools),
+            promptDraft: agentSessionState.promptDraft ?? get().promptDraft,
+            agentMode: agentSessionState.agentMode,
+            agentTaskStatus: agentSessionState.agentTaskStatus,
+            agentTimeline: agentSessionState.agentTimeline,
+            pendingAgentConfirmation: agentSessionState.pendingAgentConfirmation,
+            agentWorkspaceRoot: agentSessionState.agentWorkspaceRoot,
+            autoApproveSafeTools: agentSessionState.autoApproveSafeTools,
             sessions: get().sessions.map((session) =>
-              session.id === sessionId
-                ? {
-                    ...session,
-                    title: sessionData.title || session.title,
-                    messageCount: sessionData.messageCount ?? session.messageCount,
-                    updatedAt: sessionData.updatedAt || session.updatedAt,
-                    metadata: sessionMetadata || session.metadata || {},
-                  }
-                : session
+              session.id === sessionId ? mergeLoadedSessionRecord(session, sessionData) : session
             ),
           })
         } catch (error) {
@@ -308,8 +277,7 @@ export const useChatStore = create<ChatStore>()(
           set({
             currentSessionId: sessionId,
             messages: [],
-            agentTimeline: [],
-            pendingAgentConfirmation: null,
+            ...resetAgentRuntimeState(),
           })
         }
       },
@@ -536,16 +504,16 @@ export const useChatStore = create<ChatStore>()(
 
       appendAgentTimeline: (event) => {
         set((state) => ({
-          agentTimeline: [...state.agentTimeline, event].slice(-200),
+          agentTimeline: appendAgentTimelineEvent(state.agentTimeline, event),
         }))
       },
 
       replaceAgentTimeline: (agentTimeline) => {
-        set({ agentTimeline: agentTimeline.slice(-200) })
+        set({ agentTimeline: replaceAgentTimelineEvents(agentTimeline) })
       },
 
       clearAgentTimeline: () => {
-        set({ agentTimeline: [] })
+        set({ agentTimeline: resetAgentRuntimeState().agentTimeline })
       },
 
       setPendingAgentConfirmation: (pendingAgentConfirmation) => {
@@ -591,10 +559,7 @@ export const useChatStore = create<ChatStore>()(
       },
 
       setActiveCandidates: (activeCandidates) => {
-        set({
-          activeCandidates,
-          selectedCandidateId: activeCandidates[0]?.id || null,
-        })
+        set(setActiveExperimentCandidates(activeCandidates))
       },
 
       updateActiveCandidate: (candidateId, updates) => {
@@ -606,10 +571,7 @@ export const useChatStore = create<ChatStore>()(
       },
 
       clearActiveCandidates: () => {
-        set({
-          activeCandidates: [],
-          selectedCandidateId: null,
-        })
+        set(clearActiveExperimentCandidates())
       },
 
       setSelectedCandidateId: (selectedCandidateId) => {
@@ -617,30 +579,18 @@ export const useChatStore = create<ChatStore>()(
       },
 
       addExperimentSnapshot: (snapshot) => {
-        set((state) => ({
-          experimentSnapshots: [snapshot, ...state.experimentSnapshots].slice(0, 100),
-          selectedExperimentId: snapshot.id,
-          activeCandidates: snapshot.candidates,
-          selectedCandidateId: snapshot.selectedCandidateId,
-          lastRunMetadata: snapshot,
-        }))
+        set((state) => addExperimentSnapshotRecord(state.experimentSnapshots, snapshot))
       },
 
       updateExperimentSnapshot: (snapshotId, updates) => {
-        set((state) => {
-          const experimentSnapshots = state.experimentSnapshots.map((snapshot) =>
-            snapshot.id === snapshotId ? { ...snapshot, ...updates } : snapshot
+        set((state) =>
+          updateExperimentSnapshotRecord(
+            state.experimentSnapshots,
+            snapshotId,
+            updates,
+            state.lastRunMetadata
           )
-          const lastRunMetadata =
-            state.lastRunMetadata?.id === snapshotId
-              ? { ...state.lastRunMetadata, ...updates }
-              : state.lastRunMetadata
-
-          return {
-            experimentSnapshots,
-            lastRunMetadata,
-          }
-        })
+        )
       },
 
       setSelectedExperimentId: (selectedExperimentId) => {
@@ -656,26 +606,13 @@ export const useChatStore = create<ChatStore>()(
       },
 
       savePreset: (preset) => {
-        set((state) => {
-          const existing = state.presets.find((item) => item.id === preset.id)
-          if (existing) {
-            return {
-              presets: state.presets.map((item) => (item.id === preset.id ? preset : item)),
-            }
-          }
-
-          return {
-            presets: [preset, ...state.presets].slice(0, 50),
-          }
-        })
+        set((state) => saveExperimentPreset(state.presets, preset))
       },
 
       deletePreset: (presetId) => {
-        set((state) => ({
-          presets: state.presets.filter((preset) => preset.id !== presetId),
-          selectedPresetId:
-            state.selectedPresetId === presetId ? null : state.selectedPresetId,
-        }))
+        set((state) =>
+          deleteExperimentPreset(state.presets, presetId, state.selectedPresetId)
+        )
       },
 
       setSelectedPresetId: (selectedPresetId) => {

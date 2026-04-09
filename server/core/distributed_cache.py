@@ -248,7 +248,7 @@ def cached(
 ):
     """
     缓存装饰器
-    
+
     Args:
         key_prefix: 缓存键前缀
         ttl: 过期时间（秒）

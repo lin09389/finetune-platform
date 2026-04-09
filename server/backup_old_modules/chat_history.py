@@ -26,7 +26,7 @@ DB_PATH = DB_DIR / "chat_history.db"
 def init_db():
     """初始化数据库"""
     pool = init_db_pool(str(DB_PATH))
-    
+
     with pool.get_connection() as conn:
         cursor = conn.cursor()
 

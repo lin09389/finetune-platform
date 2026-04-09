@@ -2,26 +2,26 @@
 模型下载管理 API
 从魔搭社区（ModelScope）下载和管理模型
 """
-import os
-import ssl
-
-import urllib3
-
-os.environ['CURL_CA_BUNDLE'] = ''
-os.environ['REQUESTS_CA_BUNDLE'] = ''
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-ssl._create_default_https_context = ssl._create_unverified_context
-
 import json
 import logging
+import os
+import ssl
 import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+import urllib3
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+
+from core.config import get_settings
+
+os.environ["CURL_CA_BUNDLE"] = ""
+os.environ["REQUESTS_CA_BUNDLE"] = ""
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+ssl._create_default_https_context = ssl._create_unverified_context
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +32,6 @@ download_tasks_lock = threading.Lock()
 
 MAX_DOWNLOAD_TASKS = 50
 TASK_EXPIRY_TIME = 3600
-
-from core.config import get_settings
 
 settings = get_settings()
 MODELS_DIR = settings.models_dir_resolved
@@ -139,7 +137,7 @@ def download_model_from_modelscope(task_id: str, repo_id: str, revision: str):
             if task_id in download_tasks:
                 download_tasks[task_id]["progress"] = 10
 
-        model_dir = snapshot_download(
+        snapshot_download(
             model_id=repo_id,
             revision=revision,
             cache_dir=str(settings.modelscope_cache_dir_resolved),

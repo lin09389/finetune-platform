@@ -24,7 +24,7 @@ class SemanticMatchResult:
 class SemanticMatcher:
     """
     语义匹配器
-    
+
     支持实例复用和懒加载初始化
     """
 
@@ -82,7 +82,7 @@ class SemanticMatcher:
     def warmup(self, intent_samples: dict[str, list[str]] = None):
         """
         预热模型
-        
+
         Args:
             intent_samples: 意图样本，用于预计算向量
         """
@@ -119,12 +119,12 @@ class SemanticMatcher:
     def match(self, query: str, top_k: int = 3, threshold: float = 0.5) -> list[SemanticMatchResult]:
         """
         匹配查询与意图
-        
+
         Args:
             query: 查询文本
             top_k: 返回前k个结果
             threshold: 相似度阈值
-            
+
         Returns:
             List[SemanticMatchResult]: 匹配结果列表
         """

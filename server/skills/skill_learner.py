@@ -161,7 +161,7 @@ class OperationSuggestion:
 class SkillLearner:
     """
     技能学习器
-    
+
     功能：
     - 执行记录收集
     - 成功率统计

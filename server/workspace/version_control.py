@@ -26,7 +26,7 @@ class VersionDiff:
 class VersionControl:
     """
     版本控制器
-    
+
     功能：
     - 创建文件版本
     - 获取版本历史
@@ -129,7 +129,7 @@ class VersionControl:
         db_pool = get_db_pool(str(self._db_path))
 
         db_pool.execute_update("""
-            INSERT OR REPLACE INTO file_versions 
+            INSERT OR REPLACE INTO file_versions
             (version_id, file_id, version_number, content_hash, size, message, author, created_at, metadata)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
@@ -155,7 +155,7 @@ class VersionControl:
     ) -> FileVersion:
         """
         创建新版本
-        
+
         Args:
             file_id: 文件ID
             content: 文件内容
@@ -163,7 +163,7 @@ class VersionControl:
             message: 版本说明
             author: 作者
             metadata: 元数据
-        
+
         Returns:
             版本信息
         """
@@ -224,12 +224,12 @@ class VersionControl:
     ) -> list[FileVersion]:
         """
         获取版本历史
-        
+
         Args:
             file_id: 文件ID
             limit: 返回数量限制
             offset: 偏移量
-        
+
         Returns:
             版本列表（按版本号倒序）
         """
@@ -261,12 +261,12 @@ class VersionControl:
     ) -> FileVersionDiff | None:
         """
         对比两个版本
-        
+
         Args:
             file_id: 文件ID
             version_from: 起始版本
             version_to: 目标版本
-        
+
         Returns:
             版本差异
         """
@@ -348,11 +348,11 @@ class VersionControl:
     def rollback_to_version(self, file_id: str, version_number: int) -> bytes | None:
         """
         回滚到指定版本
-        
+
         Args:
             file_id: 文件ID
             version_number: 目标版本号
-        
+
         Returns:
             版本内容
         """
@@ -400,11 +400,11 @@ class VersionControl:
     def cleanup_old_versions(self, file_id: str, keep_count: int = 10) -> int:
         """
         清理旧版本，保留最近的 N 个版本
-        
+
         Args:
             file_id: 文件ID
             keep_count: 保留数量
-        
+
         Returns:
             删除的版本数量
         """

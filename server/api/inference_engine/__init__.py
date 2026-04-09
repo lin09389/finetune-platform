@@ -2,11 +2,9 @@
 推理引擎 API 路由
 集成重构后的推理引擎模块
 """
-import asyncio
 import json
-from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -225,3 +223,6 @@ async def get_inference_stats():
     """获取推理统计"""
     factory = get_engine_factory()
     return factory.get_stats()
+
+
+__all__ = ["router"]

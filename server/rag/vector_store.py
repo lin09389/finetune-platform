@@ -16,7 +16,7 @@ class VectorStore:
     def __init__(self, db_path: str = "data/vectors"):
         """
         初始化向量存储
-        
+
         Args:
             db_path: 数据库路径
         """
@@ -46,10 +46,10 @@ class VectorStore:
     def get_or_create_collection(self, name: str) -> Any:
         """
         获取或创建集合
-        
+
         Args:
             name: 集合名称
-            
+
         Returns:
             集合对象
         """
@@ -73,14 +73,14 @@ class VectorStore:
     ) -> list[str]:
         """
         添加文档到集合
-        
+
         Args:
             collection_name: 集合名称
             documents: 文档内容列表
             embeddings: 向量列表（可选，不提供则使用集合默认）
             metadatas: 元数据列表
             ids: 文档 ID 列表（可选，自动生成）
-            
+
         Returns:
             文档 ID 列表
         """
@@ -114,13 +114,13 @@ class VectorStore:
     ) -> list[dict[str, Any]]:
         """
         搜索相似文档
-        
+
         Args:
             collection_name: 集合名称
             query_embedding: 查询向量
             top_k: 返回结果数量
             filter_metadata: 元数据过滤条件
-            
+
         Returns:
             搜索结果列表
         """
@@ -165,14 +165,14 @@ class VectorStore:
     ) -> list[dict[str, Any]]:
         """
         通过文本搜索相似文档
-        
+
         Args:
             collection_name: 集合名称
             query_text: 查询文本
             embedder: 向量化器实例
             top_k: 返回结果数量
             filter_metadata: 元数据过滤条件
-            
+
         Returns:
             搜索结果列表
         """
@@ -183,7 +183,7 @@ class VectorStore:
     def delete_collection(self, collection_name: str):
         """
         删除集合
-        
+
         Args:
             collection_name: 集合名称
         """
@@ -198,7 +198,7 @@ class VectorStore:
     def delete_documents(self, collection_name: str, ids: list[str]):
         """
         删除文档
-        
+
         Args:
             collection_name: 集合名称
             ids: 文档 ID 列表
@@ -210,10 +210,10 @@ class VectorStore:
     def get_collection_stats(self, collection_name: str) -> dict[str, Any]:
         """
         获取集合统计信息
-        
+
         Args:
             collection_name: 集合名称
-            
+
         Returns:
             统计信息
         """
@@ -228,7 +228,7 @@ class VectorStore:
     def list_collections(self) -> list[str]:
         """
         列出所有集合
-        
+
         Returns:
             集合名称列表
         """
@@ -243,11 +243,11 @@ class VectorStore:
     ) -> list[dict[str, Any]]:
         """
         根据 ID 获取文档
-        
+
         Args:
             collection_name: 集合名称
             ids: 文档 ID 列表
-            
+
         Returns:
             文档列表
         """

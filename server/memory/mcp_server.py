@@ -81,7 +81,7 @@ class MCPSearchResult:
 class MCPServer:
     """
     MCP 服务器
-    
+
     实现 Model Context Protocol，提供：
     - 资源列表
     - 资源读取

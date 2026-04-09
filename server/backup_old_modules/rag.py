@@ -67,7 +67,7 @@ async def upload_document(
 ):
     """
     上传文档到知识库
-    
+
     - 支持格式：PDF, DOCX, TXT, MD
     - 自动解析、分块、向量化
     """
@@ -75,7 +75,7 @@ async def upload_document(
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as tmp:
             shutil.copyfileobj(file.file, tmp)
             tmp_path = tmp.name
-        
+
         try:
             rag_service = get_rag_service()
             result = rag_service.upload_document(
@@ -83,7 +83,7 @@ async def upload_document(
                 collection_name=collection_id,
                 metadata={"original_filename": file.filename}
             )
-            
+
             return UploadResponse(
                 doc_id=result["doc_id"],
                 file_name=result["file_name"],
@@ -95,7 +95,7 @@ async def upload_document(
         finally:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
-    
+
     except Exception as e:
         logger.error(f"上传文档失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"上传失败：{str(e)}")
@@ -105,31 +105,31 @@ async def upload_document(
 async def search_documents(request: SearchRequest, collection_id: str = Form(...)):
     """
     搜索知识库文档
-    
+
     - 语义搜索（向量相似度）
     - 返回最相关的文档片段
     """
     try:
         rag_service = get_rag_service()
-        
+
         results = rag_service.search(
             collection_name=collection_id,
             query=request.query,
             top_k=request.top_k
         )
-        
+
         context = rag_service.search_with_context(
             collection_name=collection_id,
             query=request.query,
             top_k=request.top_k
         )
-        
+
         return SearchResponse(
             query=request.query,
             results=results,
             context=context
         )
-    
+
     except Exception as e:
         logger.error(f"搜索失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"搜索失败：{str(e)}")
@@ -140,16 +140,16 @@ async def get_collection_info(collection_id: str):
     """获取集合信息"""
     try:
         rag_service = get_rag_service()
-        
+
         stats = rag_service.get_collection_info(collection_id)
         documents = rag_service.list_documents(collection_id)
-        
+
         return {
             "name": collection_id,
             "count": stats.get("count", 0),
             "documents": documents
         }
-    
+
     except Exception as e:
         logger.error(f"获取集合信息失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"获取失败：{str(e)}")
@@ -161,12 +161,12 @@ async def delete_document(collection_id: str, doc_id: str):
     try:
         rag_service = get_rag_service()
         success = rag_service.delete_document(collection_id, doc_id)
-        
+
         if success:
             return {"message": "删除成功", "doc_id": doc_id}
         else:
             raise HTTPException(status_code=404, detail="文档不存在")
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -180,7 +180,7 @@ async def list_collections():
     try:
         vector_store = get_rag_service().vector_store
         collections = vector_store.list_collections()
-        
+
         collection_infos = []
         for name in collections:
             try:
@@ -191,9 +191,9 @@ async def list_collections():
                 })
             except Exception:
                 continue
-        
+
         return {"collections": collection_infos}
-    
+
     except Exception as e:
         logger.error(f"列出集合失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"获取失败：{str(e)}")
@@ -218,21 +218,21 @@ class RAGChatResponse(BaseModel):
 async def rag_chat(request: RAGChatRequest):
     """
     RAG 增强的聊天
-    
+
     - 先检索相关知识
     - 组装上下文后调用 LLM
     """
     try:
         rag_service = get_rag_service()
-        
+
         results = rag_service.search(
             collection_name=request.collection_id,
             query=request.query,
             top_k=request.top_k
         )
-        
+
         context = "\n\n".join([r["content"] for r in results])
-        
+
         system_prompt = request.system_prompt or """你是一个有帮助的助手。请基于以下上下文回答问题。如果上下文中没有相关信息，请说明你不知道。"""
 
         prompt = f"""{system_prompt}
@@ -243,12 +243,12 @@ async def rag_chat(request: RAGChatRequest):
 问题：{request.query}
 
 回答："""
-        
+
         import requests
         from core.config import get_settings
-        
+
         settings = get_settings()
-        
+
         try:
             response = requests.post(
                 f"{settings.ollama_base_url}/api/generate",
@@ -259,20 +259,20 @@ async def rag_chat(request: RAGChatRequest):
                 },
                 timeout=60
             )
-            
+
             if response.status_code == 200:
                 answer = response.json().get("response", "")
             else:
                 answer = f"[LLM 调用失败：{response.status_code}]"
         except Exception as e:
             answer = f"[LLM 调用失败：{str(e)}]"
-        
+
         return RAGChatResponse(
             answer=answer,
             context=context,
             sources=results
         )
-    
+
     except Exception as e:
         logger.error(f"RAG 聊天失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"RAG 聊天失败：{str(e)}")
@@ -302,7 +302,7 @@ async def hybrid_search(
 ):
     """
     混合检索
-    
+
     - 结合向量检索和 BM25 关键词检索
     - 支持 RRF 和加权融合两种方式
     - 可调节向量/关键词权重
@@ -313,16 +313,16 @@ async def hybrid_search(
             vector_store=rag_service.vector_store,
             embedder=rag_service.embedder
         )
-        
+
         hybrid_retriever.set_weights(request.vector_weight, request.keyword_weight)
         hybrid_retriever.set_fusion_method(request.fusion_method)
-        
+
         results = hybrid_retriever.search(
             collection_name=collection_id,
             query=request.query,
             top_k=request.top_k
         )
-        
+
         results_dict = [
             {
                 "id": r.id,
@@ -335,16 +335,16 @@ async def hybrid_search(
             }
             for r in results
         ]
-        
+
         context = "\n\n".join([r.content for r in results])
-        
+
         return HybridSearchResponse(
             query=request.query,
             results=results_dict,
             context=context,
             retrieval_method=f"hybrid_{request.fusion_method}"
         )
-    
+
     except Exception as e:
         logger.error(f"混合检索失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"混合检索失败：{str(e)}")
@@ -363,13 +363,13 @@ async def vector_search(
             vector_store=rag_service.vector_store,
             embedder=rag_service.embedder
         )
-        
+
         results = hybrid_retriever.search_vector_only(
             collection_name=collection_id,
             query=query,
             top_k=top_k
         )
-        
+
         return {
             "query": query,
             "results": [
@@ -382,7 +382,7 @@ async def vector_search(
                 for r in results
             ]
         }
-    
+
     except Exception as e:
         logger.error(f"向量检索失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"向量检索失败：{str(e)}")
@@ -401,13 +401,13 @@ async def keyword_search(
             vector_store=rag_service.vector_store,
             embedder=rag_service.embedder
         )
-        
+
         results = hybrid_retriever.search_keyword_only(
             collection_name=collection_id,
             query=query,
             top_k=top_k
         )
-        
+
         return {
             "query": query,
             "results": [
@@ -420,7 +420,7 @@ async def keyword_search(
                 for r in results
             ]
         }
-    
+
     except Exception as e:
         logger.error(f"关键词检索失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"关键词检索失败：{str(e)}")
@@ -445,13 +445,13 @@ class RerankResponse(BaseModel):
 async def rerank_results(request: RerankRequest):
     """
     对检索结果进行重排序
-    
+
     - 使用 Cross-Encoder 模型计算相关性
     - 支持设置分数阈值过滤低质量结果
     """
     try:
         reranker = get_reranker()
-        
+
         if request.threshold is not None:
             results = reranker.rerank_with_threshold(
                 query=request.query,
@@ -465,7 +465,7 @@ async def rerank_results(request: RerankRequest):
                 results=request.results,
                 top_k=request.top_k
             )
-        
+
         results_dict = [
             {
                 "id": r.id,
@@ -477,13 +477,13 @@ async def rerank_results(request: RerankRequest):
             }
             for r in results
         ]
-        
+
         return RerankResponse(
             query=request.query,
             results=results_dict,
             reranked_count=len(results)
         )
-    
+
     except Exception as e:
         logger.error(f"重排序失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"重排序失败：{str(e)}")
@@ -515,7 +515,7 @@ async def search_and_rerank(
 ):
     """
     检索并重排序（一体化接口）
-    
+
     - 先进行混合检索或向量检索
     - 再使用 Cross-Encoder 重排序
     - 返回最终的高质量结果
@@ -527,7 +527,7 @@ async def search_and_rerank(
             embedder=rag_service.embedder
         )
         reranker = get_reranker()
-        
+
         if request.use_hybrid:
             hybrid_retriever.set_weights(request.vector_weight, request.keyword_weight)
             initial_results = hybrid_retriever.search(
@@ -543,7 +543,7 @@ async def search_and_rerank(
                 top_k=request.retrieval_top_k
             )
             retrieval_method = "vector"
-        
+
         initial_results_dict = [
             {
                 "id": r.id,
@@ -553,13 +553,13 @@ async def search_and_rerank(
             }
             for r in initial_results
         ]
-        
+
         reranked_results = reranker.rerank(
             query=request.query,
             results=initial_results_dict,
             top_k=request.top_k
         )
-        
+
         results_dict = [
             {
                 "id": r.id,
@@ -571,9 +571,9 @@ async def search_and_rerank(
             }
             for r in reranked_results
         ]
-        
+
         context = "\n\n".join([r.content for r in reranked_results])
-        
+
         return SearchAndRerankResponse(
             query=request.query,
             results=results_dict,
@@ -581,7 +581,7 @@ async def search_and_rerank(
             retrieval_method=retrieval_method,
             reranked=True
         )
-    
+
     except Exception as e:
         logger.error(f"检索重排序失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"检索重排序失败：{str(e)}")
@@ -606,25 +606,25 @@ class EvaluateResponse(BaseModel):
 async def evaluate_retrieval(request: EvaluateRequest):
     """
     评估检索质量
-    
+
     - 计算 MRR、MAP、Precision@K、Recall@K、NDCG@K 等指标
     - 支持批量评估多个查询
     """
     try:
         evaluator = get_evaluator(k_values=request.k_values)
-        
+
         result = evaluator.evaluate_batch(
             queries=request.queries,
             retrieved_ids_list=request.retrieved_ids_list,
             relevant_ids_list=request.relevant_ids_list
         )
-        
+
         return EvaluateResponse(
             total_queries=result.total_queries,
             avg_metrics=result.avg_metrics,
             individual_count=len(result.individual_results)
         )
-    
+
     except Exception as e:
         logger.error(f"评估失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"评估失败：{str(e)}")
@@ -642,22 +642,22 @@ class FeedbackRequest(BaseModel):
 async def record_feedback(request: FeedbackRequest):
     """
     记录用户反馈
-    
+
     - 用于在线评估和持续改进
     - 记录点击和相关性标记
     """
     try:
         online_evaluator = get_online_evaluator()
-        
+
         online_evaluator.record_feedback(
             query=request.query,
             retrieved_ids=request.retrieved_ids,
             clicked_ids=request.clicked_ids,
             relevant_ids=request.relevant_ids
         )
-        
+
         return {"message": "反馈已记录", "query": request.query}
-    
+
     except Exception as e:
         logger.error(f"记录反馈失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"记录反馈失败：{str(e)}")
@@ -670,7 +670,7 @@ async def get_online_metrics():
         online_evaluator = get_online_evaluator()
         metrics = online_evaluator.get_recent_metrics()
         popular_docs = online_evaluator.get_popular_documents(top_k=10)
-        
+
         return {
             "metrics": metrics,
             "popular_documents": [
@@ -678,7 +678,7 @@ async def get_online_metrics():
                 for doc_id, clicks in popular_docs
             ]
         }
-    
+
     except Exception as e:
         logger.error(f"获取在线指标失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"获取在线指标失败：{str(e)}")
@@ -690,9 +690,9 @@ async def get_evaluation_history():
     try:
         evaluator = get_evaluator()
         history = evaluator.get_evaluation_history()
-        
+
         return {"history": history}
-    
+
     except Exception as e:
         logger.error(f"获取评估历史失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"获取评估历史失败：{str(e)}")
@@ -702,7 +702,7 @@ async def get_evaluation_history():
 async def build_bm25_index(collection_id: str):
     """
     构建 BM25 索引
-    
+
     - 从向量数据库读取文档
     - 构建 BM25 倒排索引
     """
@@ -712,27 +712,27 @@ async def build_bm25_index(collection_id: str):
             vector_store=rag_service.vector_store,
             embedder=rag_service.embedder
         )
-        
+
         collection = rag_service.vector_store.get_or_create_collection(collection_id)
-        
+
         all_data = collection.get(include=["documents", "metadatas"])
-        
+
         if not all_data['documents']:
             return {"message": "集合为空，无需构建索引", "collection_id": collection_id}
-        
+
         hybrid_retriever.build_bm25_index(
             collection_name=collection_id,
             documents=all_data['documents'],
             ids=all_data['ids'],
             metadatas=all_data['metadatas']
         )
-        
+
         return {
             "message": "BM25 索引构建成功",
             "collection_id": collection_id,
             "document_count": len(all_data['documents'])
         }
-    
+
     except Exception as e:
         logger.error(f"构建 BM25 索引失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"构建 BM25 索引失败：{str(e)}")
@@ -747,9 +747,9 @@ async def get_bm25_stats(collection_id: str):
             vector_store=rag_service.vector_store,
             embedder=rag_service.embedder
         )
-        
+
         bm25_index = hybrid_retriever._get_bm25_index(collection_id)
-        
+
         return {
             "collection_id": collection_id,
             "document_count": bm25_index.N,
@@ -761,7 +761,7 @@ async def get_bm25_stats(collection_id: str):
                 "language": bm25_index.language
             }
         }
-    
+
     except Exception as e:
         logger.error(f"获取 BM25 统计失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"获取 BM25 统计失败：{str(e)}")

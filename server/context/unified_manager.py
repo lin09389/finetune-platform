@@ -267,13 +267,13 @@ class UnifiedContextManager:
     ) -> UnifiedContext:
         """
         构建统一上下文
-        
+
         Args:
             query: 用户查询
             user_id: 用户ID
             session_id: 会话ID
             options: 上下文配置
-            
+
         Returns:
             统一上下文结果
         """
@@ -537,13 +537,13 @@ class UnifiedContextManager:
     ) -> dict[str, Any]:
         """
         从消息中提取并存储记忆
-        
+
         Args:
             message: 消息内容
             role: 角色 (user/assistant)
             user_id: 用户ID
             session_id: 会话ID
-            
+
         Returns:
             提取结果
         """

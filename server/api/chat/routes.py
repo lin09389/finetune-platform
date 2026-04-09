@@ -1,4 +1,4 @@
-﻿from typing import Any
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field

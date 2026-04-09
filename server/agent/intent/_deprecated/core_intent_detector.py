@@ -602,7 +602,7 @@ class EnhancedIntentDetector:
     ) -> MultiIntentResult:
         """
         检测意图（支持多意图）
-        
+
         Args:
             message: 用户消息
             context: 上下文信息

@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query
 
 from api.inference.performance import (
     get_optimization_suggestions,

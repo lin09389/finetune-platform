@@ -73,10 +73,10 @@ class MemoryDeduplicator:
     ) -> list[tuple[int, int, float]]:
         """
         查找重复记忆
-        
+
         Args:
             memories: 记忆列表
-            
+
         Returns:
             重复对列表 [(index1, index2, similarity), ...]
         """
@@ -98,11 +98,11 @@ class MemoryDeduplicator:
     ) -> tuple[list[dict[str, Any]], int]:
         """
         去重
-        
+
         Args:
             memories: 记忆列表
             strategy: 合并策略
-            
+
         Returns:
             (去重后的列表, 移除的数量)
         """
@@ -232,11 +232,11 @@ class MemoryUpdater:
     ) -> tuple[dict[str, Any], list[MemoryConflict]]:
         """
         更新记忆
-        
+
         Args:
             existing: 现有记忆
             new_data: 新数据
-            
+
         Returns:
             (更新后的记忆, 冲突列表)
         """
@@ -291,12 +291,12 @@ class MemoryUpdater:
     ) -> MergeResult:
         """
         批量更新
-        
+
         Args:
             existing_memories: 现有记忆列表
             new_memories: 新记忆列表
             match_field: 匹配字段
-            
+
         Returns:
             合并结果
         """
@@ -399,11 +399,11 @@ class MemoryMerger:
     ) -> MergeResult:
         """
         合并记忆
-        
+
         Args:
             existing_memories: 现有记忆
             new_memories: 新记忆
-            
+
         Returns:
             合并结果
         """
@@ -485,7 +485,7 @@ class MemoryMerger:
     ) -> MergeResult:
         """
         智能合并
-        
+
         根据上下文自动选择最佳合并策略
         """
         if context and context.get('high_confidence_mode'):

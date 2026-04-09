@@ -51,7 +51,7 @@ class MemorySearchResult:
 class MemoryServiceRefactored:
     """
     重构后的记忆服务
-    
+
     特性:
     - 依赖倒置：依赖 EmbedderInterface 和 VectorStoreInterface
     - 可测试性：可注入 Mock 实现
@@ -103,13 +103,13 @@ class MemoryServiceRefactored:
     ) -> MemoryEntry:
         """
         存储记忆
-        
+
         Args:
             content: 记忆内容
             role: 角色 (user/assistant/system)
             importance: 重要性 (0-1)
             metadata: 元数据
-            
+
         Returns:
             记忆条目
         """
@@ -150,12 +150,12 @@ class MemoryServiceRefactored:
     ) -> list[MemorySearchResult]:
         """
         搜索记忆
-        
+
         Args:
             query: 查询文本
             top_k: 返回数量
             filter_role: 过滤角色
-            
+
         Returns:
             搜索结果列表
         """
@@ -190,10 +190,10 @@ class MemoryServiceRefactored:
     async def get(self, entry_id: str) -> MemoryEntry | None:
         """
         获取指定记忆
-        
+
         Args:
             entry_id: 记忆 ID
-            
+
         Returns:
             记忆条目
         """
@@ -220,10 +220,10 @@ class MemoryServiceRefactored:
     async def delete(self, entry_id: str) -> bool:
         """
         删除记忆
-        
+
         Args:
             entry_id: 记忆 ID
-            
+
         Returns:
             是否成功
         """
@@ -239,11 +239,11 @@ class MemoryServiceRefactored:
     async def update_importance(self, entry_id: str, importance: float) -> bool:
         """
         更新记忆重要性
-        
+
         Args:
             entry_id: 记忆 ID
             importance: 新的重要性
-            
+
         Returns:
             是否成功
         """
@@ -264,10 +264,10 @@ class MemoryServiceRefactored:
     async def get_recent(self, limit: int = 10) -> list[MemoryEntry]:
         """
         获取最近的记忆
-        
+
         Args:
             limit: 返回数量
-            
+
         Returns:
             记忆列表
         """
@@ -283,7 +283,7 @@ class MemoryServiceRefactored:
     async def clear(self) -> bool:
         """
         清空所有记忆
-        
+
         Returns:
             是否成功
         """
@@ -497,12 +497,12 @@ def create_memory_service(
 ) -> MemoryServiceRefactored:
     """
     创建记忆服务
-    
+
     Args:
         embedder: 嵌入器实例
         vector_store: 向量存储实例
         use_mock: 是否使用 Mock 实现
-        
+
     Returns:
         记忆服务实例
     """

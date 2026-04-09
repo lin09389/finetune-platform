@@ -57,10 +57,20 @@ temp/
 *.tmp
 
 # Runtime state
+data/
+server/data/*.db
+server/data/*.db-*
+server/data/.encryption_key
+server/data/chat_history.db
+server/data/documents/
+server/data/memories/
+server/data/snapshots/
+server/data/tables/
 server/data/.vault
 server/data/credentials/
 server/data/sessions/
 server/data/vectors/
+server/data/workspaces/
 server/workspaces/*/.workspace.json
 
 # Docker

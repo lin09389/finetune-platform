@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 class NotificationManager:
     """
     通知管理器
-    
+
     功能：
     - 管理任务相关通知
     - 支持通知订阅/推送
@@ -211,7 +211,7 @@ class NotificationManager:
 class TaskManager:
     """
     任务管理器
-    
+
     功能：
     - 任务 CRUD 操作
     - 任务状态管理
@@ -410,7 +410,7 @@ class TaskManager:
     ) -> list[Task]:
         """
         列出任务
-        
+
         Args:
             project_id: 按项目筛选
             status: 按状态筛选
@@ -539,7 +539,7 @@ class TaskManager:
     def delete_task(self, task_id: str, hard: bool = False) -> bool:
         """
         删除任务
-        
+
         Args:
             task_id: 任务ID
             hard: 是否硬删除（物理删除）

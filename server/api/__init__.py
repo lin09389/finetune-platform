@@ -19,3 +19,23 @@ from api.models import router as models
 from api.skills import router as skills
 from api.training import router as training
 from api.workspace import router as workspace
+
+__all__ = [
+    "agent",
+    "chat",
+    "cloud_chat",
+    "context",
+    "cua",
+    "datasets",
+    "device",
+    "gateway",
+    "inference",
+    "knowledge",
+    "mcp",
+    "memory",
+    "model_center",
+    "models",
+    "skills",
+    "training",
+    "workspace",
+]

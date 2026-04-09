@@ -91,7 +91,7 @@ class StreamChunk:
 class BaseInferenceEngine(ABC):
     """
     推理引擎抽象基类
-    
+
     实现开闭原则：通过继承扩展新的推理后端
     实现接口隔离：分离必要方法和可选方法
     """
@@ -121,10 +121,10 @@ class BaseInferenceEngine(ABC):
     async def generate(self, request: InferenceRequest) -> InferenceResponse:
         """
         生成文本
-        
+
         Args:
             request: 推理请求
-            
+
         Returns:
             推理响应
         """
@@ -134,10 +134,10 @@ class BaseInferenceEngine(ABC):
     async def chat(self, request: ChatRequest) -> InferenceResponse:
         """
         聊天对话
-        
+
         Args:
             request: 聊天请求
-            
+
         Returns:
             推理响应
         """
@@ -161,7 +161,7 @@ class BaseInferenceEngine(ABC):
     async def stream(self, request: InferenceRequest) -> AsyncGenerator[StreamChunk, None]:
         """
         流式生成（可选实现）
-        
+
         默认实现：生成完整响应后一次性返回
         子类可重写以实现真正的流式输出
         """
@@ -203,12 +203,12 @@ class BaseInferenceEngine(ABC):
     ) -> InferenceResponse:
         """
         带重试的生成
-        
+
         Args:
             request: 推理请求
             max_retries: 最大重试次数
             retry_delay: 重试延迟（秒）
-            
+
         Returns:
             推理响应
         """
@@ -252,4 +252,4 @@ class TimeMeasurer:
         return (end - self.start_time) * 1000
 
 
-import asyncio
+import asyncio  # noqa: E402

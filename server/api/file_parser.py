@@ -88,7 +88,7 @@ async def upload_file(
 ):
     """
     上传并解析文件
-    
+
     支持的文件类型：
     - PDF (.pdf)
     - Word (.docx, .doc)
@@ -148,7 +148,7 @@ async def upload_multiple_files(
 ):
     """
     批量上传并解析多个文件
-    
+
     最多同时上传10个文件
     """
     if len(files) > 10:
@@ -274,7 +274,7 @@ async def get_file_content(
 ):
     """
     获取文件内容
-    
+
     Args:
         file_id: 文件ID
         include_chunks: 是否包含分块信息
@@ -335,7 +335,7 @@ async def get_file_chunks(file_id: str):
 async def delete_file(file_id: str):
     """
     删除文件
-    
+
     同时删除文件内容、元数据和向量索引
     """
     from core.file_parser import get_file_parser, get_file_vector_service
@@ -369,7 +369,7 @@ async def delete_file(file_id: str):
 async def search_files(request: SearchRequest):
     """
     在文件中搜索内容
-    
+
     支持在指定文件或所有文件中搜索
     """
     from core.file_parser import get_file_vector_service
@@ -470,7 +470,7 @@ async def search_in_file(
 async def reindex_file(file_id: str):
     """
     重新索引文件
-    
+
     重新向量化文件内容
     """
     from core.file_parser import get_file_parser, get_file_vector_service

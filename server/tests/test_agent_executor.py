@@ -15,15 +15,16 @@ from agent.core import (
 from agent.core.executor import (
     CompositeOperationHandler,
 )
+from agent.core.interfaces.types import ExecutionStatus
 from agent.operations.base import (
+    OperationContext,
     OperationHandler,
     OperationResult,
-    OperationContext,
-    OperationStatus
+    OperationStatus,
 )
-from agent.core.interfaces.types import ExecutionStatus, ErrorCode
 from agent.operations.file.handler import FileOperationHandler
 from agent.operations.system_operations import SystemOperationHandler
+
 AgentExecutorNew = UnifiedExecutor
 reset_executor = lambda: None
 
@@ -207,7 +208,7 @@ class TestFileOperationHandler:
 
     @pytest.mark.asyncio
     async def test_file_patch_applies_unified_diff(self, handler, tmp_path):
-        """娴嬭瘯 file_patch 鍙互搴旂敤 unified diff"""
+        """?? `file_patch` ??????? unified diff?"""
         if shutil.which("git") is None:
             pytest.skip("git is required for file_patch test")
 

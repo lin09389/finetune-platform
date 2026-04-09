@@ -15,7 +15,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 try:
-    from cryptography.fernet import Fernet, InvalidToken
+    from cryptography.fernet import Fernet
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
     CRYPTO_AVAILABLE = True
@@ -37,7 +37,7 @@ class EncryptedData:
 class EncryptionManager:
     """
     加密管理器
-    
+
     使用 Fernet 对称加密保护敏感数据
     """
 
@@ -47,7 +47,7 @@ class EncryptionManager:
     def __init__(self, storage_path: Path = None, password: str = None):
         """
         初始化加密管理器
-        
+
         Args:
             storage_path: 密钥存储路径
             password: 主密码（可选，不提供则自动生成）
@@ -125,10 +125,10 @@ class EncryptionManager:
     def encrypt(self, plaintext: str) -> str:
         """
         加密数据
-        
+
         Args:
             plaintext: 明文
-            
+
         Returns:
             str: 加密后的数据（Base64编码）
         """
@@ -149,10 +149,10 @@ class EncryptionManager:
     def decrypt(self, ciphertext: str) -> str:
         """
         解密数据
-        
+
         Args:
             ciphertext: 密文
-            
+
         Returns:
             str: 解密后的明文
         """
@@ -202,7 +202,7 @@ class EncryptionManager:
     def rotate_key(self) -> bool:
         """
         轮换密钥
-        
+
         Returns:
             bool: 是否成功
         """
@@ -227,7 +227,7 @@ class EncryptionManager:
 class SecureCredentialStorage:
     """
     安全凭证存储
-    
+
     使用加密存储敏感凭证
     """
 
@@ -236,7 +236,7 @@ class SecureCredentialStorage:
     def __init__(self, storage_path: Path = None):
         """
         初始化安全凭证存储
-        
+
         Args:
             storage_path: 存储路径
         """
@@ -283,12 +283,12 @@ class SecureCredentialStorage:
     def store(self, key: str, value: str, metadata: dict[str, Any] = None) -> bool:
         """
         存储凭证
-        
+
         Args:
             key: 凭证键
             value: 凭证值
             metadata: 元数据
-            
+
         Returns:
             bool: 是否成功
         """
@@ -312,10 +312,10 @@ class SecureCredentialStorage:
     def retrieve(self, key: str) -> str | None:
         """
         获取凭证
-        
+
         Args:
             key: 凭证键
-            
+
         Returns:
             Optional[str]: 凭证值
         """

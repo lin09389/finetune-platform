@@ -32,7 +32,7 @@ class OperationCategory(str, Enum):
 class OperationResult:
     """
     统一操作结果类型
-    
+
     所有执行器应返回此类型或其子类
     """
     success: bool

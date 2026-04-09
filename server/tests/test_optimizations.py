@@ -15,9 +15,13 @@ server_path = Path(__file__).parent.parent
 sys.path.insert(0, str(server_path))
 os.chdir(server_path)
 
-from core.training_queue import TaskPriority, get_training_queue
-from core.training_state import get_training_state
-from core.utils import cleanup_gpu_memory, get_vram_usage, pre_training_resource_check
+from core.training_queue import TaskPriority, get_training_queue  # noqa: E402
+from core.training_state import get_training_state  # noqa: E402
+from core.utils import (  # noqa: E402
+    cleanup_gpu_memory,
+    get_vram_usage,
+    pre_training_resource_check,
+)
 
 
 def test_resource_check():

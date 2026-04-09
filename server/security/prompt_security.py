@@ -221,7 +221,7 @@ class ScanResult:
 class PromptInjectionDetector:
     """
     Prompt 注入检测器
-    
+
     检测和防御各种 Prompt 注入攻击
     """
 
@@ -340,7 +340,7 @@ class PromptInjectionDetector:
 class ContentSanitizer:
     """
     内容清理器
-    
+
     清理和净化用户输入
     """
 
@@ -384,7 +384,7 @@ class ContentSanitizer:
 class PromptSecurityMiddleware:
     """
     Prompt 安全中间件
-    
+
     集成到请求处理流程中
     """
 
@@ -408,7 +408,7 @@ class PromptSecurityMiddleware:
     ) -> tuple[bool, str, ScanResult]:
         """
         处理输入
-        
+
         返回: (是否允许, 处理后的内容, 扫描结果)
         """
         result = self.detector.scan(content)

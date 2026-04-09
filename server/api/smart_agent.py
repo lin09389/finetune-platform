@@ -1,4 +1,4 @@
-﻿"""Smart agent API wrapper with unified response contract."""
+"""Smart agent API wrapper with unified response contract."""
 
 import logging
 from typing import Any

@@ -79,19 +79,19 @@ class ChatPersistenceService:
             """)
 
             cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_messages_session 
+                CREATE INDEX IF NOT EXISTS idx_messages_session
                 ON chat_messages(session_id)
             """)
             cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_messages_parent 
+                CREATE INDEX IF NOT EXISTS idx_messages_parent
                 ON chat_messages(parent_id)
             """)
             cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_branches_session 
+                CREATE INDEX IF NOT EXISTS idx_branches_session
                 ON chat_branches(session_id)
             """)
             cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_shares_session 
+                CREATE INDEX IF NOT EXISTS idx_shares_session
                 ON chat_shares(session_id)
             """)
 
@@ -187,7 +187,7 @@ class ChatPersistenceService:
         with pool.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO chat_messages 
+                INSERT INTO chat_messages
                 (id, session_id, role, content, parent_id, branch_id, metadata)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (message_id, session_id, role, content, parent_id, branch_id,
@@ -322,7 +322,7 @@ class ChatPersistenceService:
         with pool.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO chat_shares 
+                INSERT INTO chat_shares
                 (share_id, session_id, title, messages, expires_at, is_public)
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (share_id, session_id, title, json.dumps(messages),
@@ -346,7 +346,7 @@ class ChatPersistenceService:
         with pool.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT share_id, session_id, title, created_at, expires_at, 
+                SELECT share_id, session_id, title, created_at, expires_at,
                        view_count, is_public, messages
                 FROM chat_shares WHERE share_id = ?
             """, (share_id,))
@@ -392,7 +392,7 @@ class ChatPersistenceService:
         with pool.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                DELETE FROM chat_shares 
+                DELETE FROM chat_shares
                 WHERE expires_at IS NOT NULL AND expires_at < CURRENT_TIMESTAMP
             """)
             deleted_count = cursor.rowcount

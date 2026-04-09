@@ -351,7 +351,7 @@ class Credential:
 class CredentialManager:
     """
     凭证管理器
-    
+
     安全存储和管理敏感凭证
     """
 
@@ -448,7 +448,7 @@ class CredentialManager:
 class IsolatedExecutor:
     """
     隔离执行器
-    
+
     在沙箱环境中安全执行命令
     """
 
@@ -658,7 +658,7 @@ class IsolatedExecutor:
 class SandboxManager:
     """
     沙箱管理器
-    
+
     管理多个隔离执行环境
     """
 
@@ -735,7 +735,7 @@ def get_sandbox_manager() -> SandboxManager:
 class CommandValidator:
     """
     命令验证器
-    
+
     检测和拦截危险命令
     """
 
@@ -793,7 +793,7 @@ class CommandValidator:
 class FilesystemIsolation:
     """
     文件系统隔离
-    
+
     提供虚拟文件系统映射和路径重定向
     """
 
@@ -860,7 +860,7 @@ class FilesystemIsolation:
 class ProcessIsolation:
     """
     进程隔离
-    
+
     管理子进程和资源限制
     """
 
@@ -999,7 +999,7 @@ class ProcessIsolation:
 class NetworkIsolation:
     """
     网络隔离
-    
+
     控制网络访问
     """
 
@@ -1094,7 +1094,7 @@ class NetworkIsolation:
 class EnhancedSandbox:
     """
     增强版沙箱
-    
+
     集成所有隔离功能
     """
 

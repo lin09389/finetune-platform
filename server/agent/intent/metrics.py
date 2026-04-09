@@ -42,7 +42,7 @@ class IntentMetrics:
     ):
         """
         记录预测结果
-        
+
         Args:
             predicted: 预测的意图
             actual: 实际意图（如果已知）

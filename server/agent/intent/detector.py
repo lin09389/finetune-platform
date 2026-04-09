@@ -93,7 +93,7 @@ class IntentDetector:
             pass
 
         start_time = time.time()
-        
+
         try:
             text = text.strip()
             if not text:
@@ -174,7 +174,7 @@ class IntentDetector:
                     clarification_dialog=None,
                     chain=[]
                 )
-        
+
         # 否则回退到单意图检测逻辑
         result = self.detect(text, session_id, context)
 

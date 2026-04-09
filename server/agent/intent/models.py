@@ -116,12 +116,12 @@ class DetectionMetrics:
     method_usage: dict[str, int] = field(default_factory=dict)
     intent_distribution: dict[str, int] = field(default_factory=dict)
     confidence_distribution: dict[str, int] = field(default_factory=lambda: {"high": 0, "medium": 0, "low": 0, "unknown": 0})
-    
+
     # 评估指标
     true_positives: int = 0
     false_positives: int = 0
     false_negatives: int = 0
-    
+
     last_reset: datetime = field(default_factory=datetime.now)
 
     def record_detection(
@@ -150,7 +150,7 @@ class DetectionMetrics:
             self.confidence_distribution["low"] += 1
         else:
             self.confidence_distribution["unknown"] += 1
-            
+
         # 记录评估指标
         if is_correct is True:
             self.true_positives += 1
@@ -163,7 +163,7 @@ class DetectionMetrics:
         self.total_response_time_ms = (
             self.total_response_time_ms * (self.total_requests - 1) + response_time_ms
         ) / self.total_requests
-        
+
         if is_false_negative:
             self.false_negatives += 1
 
@@ -172,12 +172,12 @@ class DetectionMetrics:
             self.successful_detections / self.total_requests
             if self.total_requests > 0 else 0
         )
-        
+
         # 计算精度、召回率、F1
         precision = self.true_positives / (self.true_positives + self.false_positives) if (self.true_positives + self.false_positives) > 0 else 0
         recall = self.true_positives / (self.true_positives + self.false_negatives) if (self.true_positives + self.false_negatives) > 0 else 0
         f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-        
+
         return {
             "total_requests": self.total_requests,
             "successful_detections": self.successful_detections,

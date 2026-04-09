@@ -169,9 +169,9 @@ class FrontendDesignSkill(SkillBase):
         primary = colors.get("primary", "#2d2d2d")
         return f'''// 主按钮 - 实心填充
 <button className="
-  px-6 py-3 
-  bg-[{primary}] 
-  text-white 
+  px-6 py-3
+  bg-[{primary}]
+  text-white
   text-sm font-medium
   rounded-md
   transition-all duration-200
@@ -224,7 +224,7 @@ class FrontendDesignSkill(SkillBase):
   <label className="text-sm font-medium text-[#2d2d2d]">
     邮箱地址
   </label>
-  <input 
+  <input
     type="email"
     className="
       w-full px-4 py-3

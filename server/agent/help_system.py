@@ -328,7 +328,7 @@ TROUBLESHOOTING_HELP: list[HelpTopic] = [
 
 ### 文件不存在
 **问题**: 提示"文件不存在"
-**解决**: 
+**解决**:
 - 检查文件名是否正确，注意大小写
 - 使用"列出文件"查看目录内容
 - 确认文件路径是否正确
@@ -379,7 +379,7 @@ TROUBLESHOOTING_HELP: list[HelpTopic] = [
 class HelpSystem:
     """
     帮助系统
-    
+
     提供操作指南、命令示例和帮助信息
     """
 

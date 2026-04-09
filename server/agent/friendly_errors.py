@@ -233,11 +233,11 @@ ERROR_SOLUTIONS: dict[str, FriendlyError] = {
 def get_friendly_error(error_key: str, context: dict[str, Any] = None) -> FriendlyError:
     """
     获取友好错误信息
-    
+
     Args:
         error_key: 错误键
         context: 上下文信息
-        
+
     Returns:
         FriendlyError: 友好错误信息
     """
@@ -251,12 +251,12 @@ def get_friendly_error(error_key: str, context: dict[str, Any] = None) -> Friend
 def format_error_message(error_key: str, details: str = None, context: dict[str, Any] = None) -> str:
     """
     格式化错误消息
-    
+
     Args:
         error_key: 错误键
         details: 详细信息
         context: 上下文信息
-        
+
     Returns:
         str: 格式化后的错误消息
     """
@@ -284,10 +284,10 @@ def format_error_message(error_key: str, details: str = None, context: dict[str,
 def categorize_error(error_message: str) -> str:
     """
     根据错误消息自动分类
-    
+
     Args:
         error_message: 原始错误消息
-        
+
     Returns:
         str: 错误键
     """
@@ -323,13 +323,13 @@ def create_error_response(
 ) -> dict[str, Any]:
     """
     创建错误响应
-    
+
     Args:
         error_key: 错误键
         details: 详细信息
         context: 上下文信息
         include_suggestions: 是否包含建议
-        
+
     Returns:
         Dict: 错误响应
     """

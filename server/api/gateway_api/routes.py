@@ -1,15 +1,19 @@
-﻿"""Gateway REST API routes."""
+"""Gateway REST API routes."""
 
 import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, WebSocket
-from pydantic import BaseModel, Field
-
-from gateway import get_binding_manager, get_gateway_server, get_gateway_session_manager, get_message_router
+from gateway import (
+    get_binding_manager,
+    get_gateway_server,
+    get_gateway_session_manager,
+    get_message_router,
+)
 from gateway.agent_isolation import get_isolation_manager
 from gateway.cross_agent import MessagePriority, MessageType, get_cross_agent_communicator
 from gateway.device_auth import DeviceStatus, DeviceType, PermissionLevel, get_device_auth_manager
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/gateway", tags=["Gateway"])

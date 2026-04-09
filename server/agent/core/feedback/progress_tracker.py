@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -254,7 +254,6 @@ class ProgressTracker:
 
     async def cleanup_completed_tasks(self, max_age_hours: int = 24) -> int:
         async with self._lock:
-            cutoff = datetime.now() - timedelta(hours=max_age_hours)
             tasks_to_remove = []
 
             for task_id, task in self._tasks.items():

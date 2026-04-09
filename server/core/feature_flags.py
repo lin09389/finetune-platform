@@ -37,7 +37,7 @@ class FeatureDefinition:
 class FeatureFlags:
     """
     特性开关配置
-    
+
     支持从环境变量加载，用于灰度发布和回滚
     """
     use_new_agent_executor: bool = False
@@ -143,7 +143,7 @@ class FeatureFlags:
 class FeatureManager:
     """
     特性管理器
-    
+
     提供更高级的特性控制功能：
     - 百分比灰度
     - 条件判断
@@ -309,12 +309,12 @@ def reset_flags() -> FeatureFlags:
 def feature_enabled(feature_name: str) -> Callable:
     """
     特性开关装饰器
-    
+
     用法:
         @feature_enabled("use_new_agent_executor")
         def new_executor():
             ...
-        
+
         @feature_enabled("use_new_agent_executor", fallback=old_executor)
         def execute():
             ...
@@ -336,9 +336,9 @@ def feature_toggle(
 ) -> Callable:
     """
     特性切换装饰器
-    
+
     根据特性开关选择不同的实现
-    
+
     用法:
         def execute():
             return feature_toggle(

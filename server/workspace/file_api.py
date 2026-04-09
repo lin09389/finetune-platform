@@ -112,7 +112,7 @@ async def upload_file(
 ):
     """
     上传文件（小文件 < 10MB）
-    
+
     适用于小文件的快速上传
     """
     content = await file.read()
@@ -152,7 +152,7 @@ async def upload_file(
 async def init_chunk_upload(data: ChunkUploadInit):
     """
     初始化分块上传
-    
+
     用于大文件的分块上传，支持断点续传
     """
     if data.file_size > MAX_FILE_SIZE:
@@ -213,7 +213,7 @@ async def upload_chunk(
 ):
     """
     上传分块
-    
+
     上传文件的指定分块
     """
     if upload_id not in upload_sessions:
@@ -249,7 +249,7 @@ async def upload_chunk(
 async def complete_chunk_upload(data: ChunkUploadComplete):
     """
     完成分块上传
-    
+
     合并所有分块并创建文件
     """
     if data.upload_id not in upload_sessions:
@@ -307,7 +307,7 @@ async def download_file(
 ):
     """
     下载文件
-    
+
     支持下载指定版本或最新版本
     """
     file_manager = get_file_manager()
@@ -342,7 +342,7 @@ async def preview_file(
 ):
     """
     预览文件
-    
+
     支持文本预览、代码高亮、图片预览
     """
     file_manager = get_file_manager()
@@ -452,7 +452,7 @@ async def edit_file(
 ):
     """
     编辑文件
-    
+
     保存文件内容并创建新版本
     """
     file_manager = get_file_manager()
@@ -490,7 +490,7 @@ async def edit_file(
 async def auto_save_file(data: AutoSaveRequest):
     """
     自动保存文件
-    
+
     定期自动保存，避免数据丢失
     """
     file_manager = get_file_manager()
@@ -563,7 +563,7 @@ async def get_file_history(
 ):
     """
     获取文件版本历史
-    
+
     返回文件的所有版本记录
     """
     version_control = get_version_control()
@@ -579,7 +579,7 @@ async def get_file_version(
 ):
     """
     获取文件指定版本
-    
+
     返回指定版本的文件内容
     """
     version_control = get_version_control()
@@ -612,7 +612,7 @@ async def compare_versions(
 ):
     """
     对比文件版本
-    
+
     返回两个版本之间的差异
     """
     version_control = get_version_control()
@@ -632,7 +632,7 @@ async def rollback_file(
 ):
     """
     回滚文件到指定版本
-    
+
     将文件恢复到历史版本
     """
     version_control = get_version_control()
@@ -676,7 +676,7 @@ async def delete_file_version(
 ):
     """
     删除文件版本
-    
+
     删除指定的历史版本
     """
     version_control = get_version_control()
@@ -707,7 +707,7 @@ async def delete_file_version(
 async def search_files(data: FileSearchRequest):
     """
     搜索文件
-    
+
     按关键词、类型、路径搜索文件
     """
     file_manager = get_file_manager()
@@ -744,7 +744,7 @@ async def search_files(data: FileSearchRequest):
 async def get_file_info(file_id: str):
     """
     获取文件信息
-    
+
     返回文件的详细元数据
     """
     file_manager = get_file_manager()
@@ -760,7 +760,7 @@ async def get_file_info(file_id: str):
 async def delete_file(file_id: str):
     """
     删除文件
-    
+
     删除文件及其所有版本
     """
     file_manager = get_file_manager()
@@ -785,7 +785,7 @@ async def move_file(
 ):
     """
     移动文件
-    
+
     移动文件到新路径
     """
     file_manager = get_file_manager()
@@ -811,7 +811,7 @@ async def copy_file(
 ):
     """
     复制文件
-    
+
     复制文件到新路径
     """
     file_manager = get_file_manager()

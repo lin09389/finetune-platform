@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class OllamaEngine(BaseInferenceEngine):
     """
     Ollama 推理引擎
-    
+
     特性:
     - 支持远程 Ollama 服务
     - 支持流式生成
@@ -74,10 +74,10 @@ class OllamaEngine(BaseInferenceEngine):
     def load_model(self, model_id: str) -> bool:
         """
         拉取/加载模型
-        
+
         Args:
             model_id: 模型名称
-            
+
         Returns:
             是否成功
         """
@@ -108,17 +108,17 @@ class OllamaEngine(BaseInferenceEngine):
     def unload_model(self, model_id: str) -> bool:
         """
         卸载模型（从内存中移除）
-        
+
         Args:
             model_id: 模型名称
-            
+
         Returns:
             是否成功
         """
         try:
             import requests
 
-            response = requests.delete(
+            requests.delete(
                 f"{self.base_url}/api/unload",
                 json={"name": model_id},
                 timeout=30,
@@ -283,11 +283,11 @@ class OllamaEngine(BaseInferenceEngine):
     async def embed(self, model_id: str, prompt: str) -> list[float]:
         """
         生成嵌入向量
-        
+
         Args:
             model_id: 嵌入模型名称
             prompt: 输入文本
-            
+
         Returns:
             嵌入向量
         """

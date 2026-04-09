@@ -24,7 +24,7 @@ class CacheEntry(Generic[T]):
 class CacheInterface(ABC, Generic[T]):
     """
     缓存接口
-    
+
     支持多种缓存策略：
     - LRU (Least Recently Used)
     - LFU (Least Frequently Used)
@@ -35,10 +35,10 @@ class CacheInterface(ABC, Generic[T]):
     def get(self, key: str) -> T | None:
         """
         获取缓存值
-        
+
         Args:
             key: 缓存键
-            
+
         Returns:
             缓存值，不存在返回 None
         """
@@ -48,12 +48,12 @@ class CacheInterface(ABC, Generic[T]):
     def set(self, key: str, value: T, ttl: int | None = None) -> bool:
         """
         设置缓存值
-        
+
         Args:
             key: 缓存键
             value: 缓存值
             ttl: 过期时间（秒）
-            
+
         Returns:
             是否成功
         """
@@ -63,10 +63,10 @@ class CacheInterface(ABC, Generic[T]):
     def delete(self, key: str) -> bool:
         """
         删除缓存
-        
+
         Args:
             key: 缓存键
-            
+
         Returns:
             是否成功
         """
@@ -76,10 +76,10 @@ class CacheInterface(ABC, Generic[T]):
     def exists(self, key: str) -> bool:
         """
         检查缓存是否存在
-        
+
         Args:
             key: 缓存键
-            
+
         Returns:
             是否存在
         """
@@ -89,7 +89,7 @@ class CacheInterface(ABC, Generic[T]):
     def clear(self) -> bool:
         """
         清空缓存
-        
+
         Returns:
             是否成功
         """
@@ -99,7 +99,7 @@ class CacheInterface(ABC, Generic[T]):
     def size(self) -> int:
         """
         获取缓存大小
-        
+
         Returns:
             缓存条目数量
         """
@@ -109,7 +109,7 @@ class CacheInterface(ABC, Generic[T]):
     def get_keys(self) -> list[str]:
         """
         获取所有缓存键
-        
+
         Returns:
             缓存键列表
         """
@@ -118,7 +118,7 @@ class CacheInterface(ABC, Generic[T]):
     def get_stats(self) -> dict[str, Any]:
         """
         获取缓存统计信息
-        
+
         Returns:
             统计信息
         """

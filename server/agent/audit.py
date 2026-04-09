@@ -96,7 +96,7 @@ class AnomalyRule:
 class AuditLogger:
     """
     增强版审计日志记录器
-    
+
     功能：
     1. 记录所有 Agent 操作
     2. 支持持久化存储（文件 + SQLite）

@@ -20,12 +20,12 @@ def setup_logging(
 ) -> logging.Logger:
     """
     Setup logging
-    
+
     Args:
         log_dir: Log directory
         log_level: Log level
         enable_json: Whether to enable JSON format
-    
+
     Returns:
         Configured logger instance
     """

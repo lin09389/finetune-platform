@@ -4,7 +4,6 @@ Gateway 模块单元测试
 from unittest.mock import Mock
 
 import pytest
-from agent.config import AgentConfig
 from gateway.agent_isolation import AgentIsolationManager
 from gateway.binding import BindingManager
 from gateway.cross_agent import (
@@ -16,7 +15,6 @@ from gateway.device_auth import (
     PermissionLevel,
 )
 from gateway.models import AgentInfo, BindingRule
-
 
 class TestBindingManager:
     """Binding Manager 测试"""

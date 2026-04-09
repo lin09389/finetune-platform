@@ -1,6 +1,8 @@
-"""
-技能管理 API
-"""
+"""Skills API."""
+
+import json
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -10,6 +12,8 @@ from skills.models import SkillCategory
 from skills.registry import SkillRegistry
 
 router = APIRouter(prefix="/skills", tags=["skills"])
+
+SKILL_MEMORY_STATE_FILE = Path("data/skills/memory_state.json")
 
 
 class SkillExecuteRequest(BaseModel):
@@ -54,20 +58,85 @@ def get_registry() -> SkillRegistry:
     return SkillRegistry.get_instance()
 
 
-def category_to_str(cat) -> str:
+def category_to_str(cat: Any) -> str:
     if isinstance(cat, str):
         return cat
-    if hasattr(cat, 'value'):
+    if hasattr(cat, "value"):
         return cat.value
     return str(cat)
 
 
-def param_type_to_str(pt) -> str:
-    if isinstance(pt, str):
-        return pt
-    if hasattr(pt, 'value'):
-        return pt.value
-    return str(pt)
+def param_type_to_str(param_type: Any) -> str:
+    if isinstance(param_type, str):
+        return param_type
+    if hasattr(param_type, "value"):
+        return param_type.value
+    return str(param_type)
+
+
+def _default_skill_memory_state() -> dict[str, Any]:
+    return {
+        "configs": {},
+        "preferences": {},
+        "history": [],
+    }
+
+
+def _load_skill_memory_state() -> dict[str, Any]:
+    if not SKILL_MEMORY_STATE_FILE.exists():
+        return _default_skill_memory_state()
+
+    try:
+        with open(SKILL_MEMORY_STATE_FILE, encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return _default_skill_memory_state()
+
+    state = _default_skill_memory_state()
+    state["configs"] = payload.get("configs", {}) or {}
+    state["preferences"] = payload.get("preferences", {}) or {}
+    state["history"] = payload.get("history", []) or []
+    return state
+
+
+def _persist_skill_memory_state() -> None:
+    SKILL_MEMORY_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(SKILL_MEMORY_STATE_FILE, "w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "configs": _memory_configs,
+                "preferences": _user_preferences,
+                "history": _operation_history[-200:],
+            },
+            handle,
+            ensure_ascii=False,
+            indent=2,
+        )
+
+
+def _build_default_memory_config(skill_name: str) -> dict[str, Any]:
+    return {
+        "skill_name": skill_name,
+        "memory_enabled": True,
+        "context_injection": True,
+        "result_storage": True,
+        "preference_learning": True,
+        "max_memories": 50,
+        "relevance_threshold": 0.7,
+    }
+
+
+def _append_operation_history(entry: dict[str, Any]) -> None:
+    _operation_history.append(entry)
+    if len(_operation_history) > 200:
+        del _operation_history[:-200]
+    _persist_skill_memory_state()
+
+
+_skill_memory_state = _load_skill_memory_state()
+_memory_configs: dict[str, dict[str, Any]] = _skill_memory_state["configs"]
+_user_preferences: dict[str, dict[str, Any]] = _skill_memory_state["preferences"]
+_operation_history: list[dict[str, Any]] = _skill_memory_state["history"]
 
 
 @router.get("", response_model=dict[str, Any])
@@ -79,8 +148,8 @@ async def list_skills(
 
     if category:
         try:
-            cat_enum = SkillCategory(category.lower())
-            names = registry.list_skills_by_category(cat_enum)
+            category_enum = SkillCategory(category.lower())
+            names = registry.list_skills_by_category(category_enum)
         except ValueError:
             names = []
     elif tag:
@@ -91,18 +160,23 @@ async def list_skills(
     skills = []
     for name in names:
         metadata = registry.get_metadata(name)
-        if metadata:
-            params = []
-            for p in metadata.parameters:
-                params.append({
-                    "name": p.name,
-                    "type": param_type_to_str(p.type),
-                    "description": p.description,
-                    "required": p.required,
-                    "default": p.default,
-                })
+        if not metadata:
+            continue
 
-            skills.append(SkillResponse(
+        params = []
+        for parameter in metadata.parameters:
+            params.append(
+                {
+                    "name": parameter.name,
+                    "type": param_type_to_str(parameter.type),
+                    "description": parameter.description,
+                    "required": parameter.required,
+                    "default": parameter.default,
+                }
+            )
+
+        skills.append(
+            SkillResponse(
                 name=metadata.name,
                 display_name=metadata.display_name,
                 description=metadata.description,
@@ -111,7 +185,8 @@ async def list_skills(
                 tags=list(metadata.tags),
                 parameters=params,
                 enabled=metadata.enabled,
-            ).model_dump())
+            ).model_dump()
+        )
 
     return {"skills": skills}
 
@@ -131,7 +206,7 @@ async def get_stats():
 
 @router.get("/categories", response_model=list[str])
 async def list_categories():
-    return [c.value for c in SkillCategory]
+    return [category.value for category in SkillCategory]
 
 
 @router.get("/{skill_name}", response_model=SkillResponse)
@@ -140,17 +215,19 @@ async def get_skill(skill_name: str):
     metadata = registry.get_metadata(skill_name)
 
     if not metadata:
-        raise HTTPException(status_code=404, detail=f"技能不存在: {skill_name}")
+        raise HTTPException(status_code=404, detail=f"Skill not found: {skill_name}")
 
     params = []
-    for p in metadata.parameters:
-        params.append({
-            "name": p.name,
-            "type": param_type_to_str(p.type),
-            "description": p.description,
-            "required": p.required,
-            "default": p.default,
-        })
+    for parameter in metadata.parameters:
+        params.append(
+            {
+                "name": parameter.name,
+                "type": param_type_to_str(parameter.type),
+                "description": parameter.description,
+                "required": parameter.required,
+                "default": parameter.default,
+            }
+        )
 
     return SkillResponse(
         name=metadata.name,
@@ -169,7 +246,7 @@ async def execute_skill(request: SkillExecuteRequest):
     registry = get_registry()
 
     if not registry.has_skill(request.skill_name):
-        raise HTTPException(status_code=404, detail=f"技能不存在: {request.skill_name}")
+        raise HTTPException(status_code=404, detail=f"Skill not found: {request.skill_name}")
 
     try:
         execution = await registry.execute(
@@ -182,26 +259,37 @@ async def execute_skill(request: SkillExecuteRequest):
 
         result_data = None
         error_msg = None
-
         if execution.result:
             if execution.result.success:
                 result_data = execution.result.data
             else:
                 error_msg = execution.result.error
 
+        _append_operation_history(
+            {
+                "skill_name": execution.skill_name,
+                "timestamp": (
+                    execution.completed_at or execution.started_at or datetime.now()
+                ).isoformat(),
+                "success": bool(execution.result and execution.result.success),
+                "duration": float((execution.duration_ms or 0) / 1000),
+                "params": execution.parameters,
+                "status": execution.status.value if hasattr(execution.status, "value") else str(execution.status),
+            }
+        )
+
         return ExecutionResponse(
             execution_id=execution.execution_id,
             skill_name=execution.skill_name,
-            status=execution.status.value if hasattr(execution.status, 'value') else str(execution.status),
+            status=execution.status.value if hasattr(execution.status, "value") else str(execution.status),
             result=result_data,
             error=error_msg,
             started_at=execution.started_at.isoformat() if execution.started_at else None,
             completed_at=execution.completed_at.isoformat() if execution.completed_at else None,
             duration_ms=execution.duration_ms,
         )
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"执行失败: {str(e)}")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Execution failed: {exc}") from exc
 
 
 @router.get("/execution/{execution_id}", response_model=ExecutionResponse)
@@ -210,11 +298,10 @@ async def get_execution(execution_id: str):
     execution = registry.get_execution(execution_id)
 
     if not execution:
-        raise HTTPException(status_code=404, detail=f"执行记录不存在: {execution_id}")
+        raise HTTPException(status_code=404, detail=f"Execution not found: {execution_id}")
 
     result_data = None
     error_msg = None
-
     if execution.result:
         if execution.result.success:
             result_data = execution.result.data
@@ -224,7 +311,7 @@ async def get_execution(execution_id: str):
     return ExecutionResponse(
         execution_id=execution.execution_id,
         skill_name=execution.skill_name,
-        status=execution.status.value if hasattr(execution.status, 'value') else str(execution.status),
+        status=execution.status.value if hasattr(execution.status, "value") else str(execution.status),
         result=result_data,
         error=error_msg,
         started_at=execution.started_at.isoformat() if execution.started_at else None,
@@ -239,89 +326,92 @@ async def scan_skills():
 
     try:
         from skills.scanner import SkillScanner
+
         scanner = SkillScanner()
         discovered = scanner.scan()
-
         registered = []
+
         for skill_class in discovered:
             if registry.register(skill_class):
                 registered.append(skill_class.get_metadata().name)
 
-        return {
-            "success": True,
-            "discovered": len(discovered),
-            "registered": registered,
-        }
-
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e),
-        }
-
-
-_memory_configs: dict[str, dict[str, Any]] = {}
-_user_preferences: dict[str, dict[str, Any]] = {}
-_operation_history: list[dict[str, Any]] = []
+        return {"success": True, "discovered": len(discovered), "registered": registered}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
 
 
 @router.get("/memory/configs")
 async def get_memory_configs():
-    """获取技能记忆配置"""
+    registry = get_registry()
+    skill_names = set(registry.list_skills()) | set(_memory_configs.keys())
     configs = []
-    for skill_name in ["ScreenshotSkill", "CodeAnalysisSkill", "FileOperationSkill"]:
-        config = _memory_configs.get(skill_name, {
-            "skill_name": skill_name,
-            "memory_enabled": True,
-            "context_injection": True,
-            "result_storage": True,
-            "preference_learning": True,
-            "max_memories": 50,
-            "relevance_threshold": 0.7,
-        })
+
+    for skill_name in sorted(skill_names):
+        config = _build_default_memory_config(skill_name)
+        config.update(_memory_configs.get(skill_name, {}))
+        config["skill_name"] = skill_name
+        _memory_configs.setdefault(skill_name, config)
         configs.append(config)
+
+    if skill_names:
+        _persist_skill_memory_state()
+
     return {"configs": configs}
 
 
 @router.post("/memory/configs")
 async def update_memory_config(request: dict[str, Any]):
-    """更新技能记忆配置"""
     skill_name = request.get("skill_name")
     if not skill_name:
         raise HTTPException(status_code=400, detail="skill_name is required")
-    _memory_configs[skill_name] = request
-    return {"success": True, "config": request}
+
+    config = _build_default_memory_config(skill_name)
+    config.update(request)
+    config["skill_name"] = skill_name
+    _memory_configs[skill_name] = config
+    _persist_skill_memory_state()
+    return {"success": True, "config": config}
+
+
+@router.put("/memory/configs/{skill_name}")
+async def replace_memory_config(skill_name: str, request: dict[str, Any]):
+    config = _build_default_memory_config(skill_name)
+    config.update(_memory_configs.get(skill_name, {}))
+    config.update(request)
+    config["skill_name"] = skill_name
+    _memory_configs[skill_name] = config
+    _persist_skill_memory_state()
+    return {"success": True, "config": config}
 
 
 @router.get("/memory/preferences")
-async def get_memory_preference():
-    """获取用户偏好"""
-    return {"preferences": list(_user_preferences.values()) if _user_preferences else [
-        {"key": "preferred_language", "value": "python", "confidence": 0.9, "source": "learned"},
-        {"key": "code_style", "value": "pep8", "confidence": 0.85, "source": "learned"},
-    ]}
+async def get_memory_preferences():
+    return {"preferences": list(_user_preferences.values())}
 
 
 @router.delete("/memory/preferences/{key}")
 async def delete_memory_preference(key: str):
-    """删除用户偏好"""
     if key in _user_preferences:
         del _user_preferences[key]
+        _persist_skill_memory_state()
     return {"success": True}
 
 
 @router.get("/memory/history")
 async def get_memory_history(limit: int = 50):
-    """获取操作历史"""
-    history = _operation_history[-limit:] if _operation_history else [
-        {"id": "1", "skill": "ScreenshotSkill", "action": "capture", "timestamp": "2024-01-15T10:00:00Z", "success": True},
-        {"id": "2", "skill": "CodeAnalysisSkill", "action": "analyze", "timestamp": "2024-01-15T10:05:00Z", "success": True},
-    ]
-    return {"history": history, "total": len(history)}
+    history = list(reversed(_operation_history[-limit:]))
+    return {"history": history, "total": len(_operation_history)}
+
+
+@router.delete("/memory/history")
+async def delete_memory_history():
+    _operation_history.clear()
+    _persist_skill_memory_state()
+    return {"success": True}
 
 
 @router.post("/memory/history/clear")
 async def clear_memory_history():
-    """清除操作历史"""
     _operation_history.clear()
+    _persist_skill_memory_state()
     return {"success": True}

@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field

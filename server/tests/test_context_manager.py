@@ -110,7 +110,7 @@ class TestContextManager:
 
     def test_add_user_message(self, manager):
         """测试添加用户消息"""
-        msg = manager.add_message(
+        manager.add_message(
             role=MessageRole.USER,
             content="Hello"
         )
@@ -120,7 +120,7 @@ class TestContextManager:
 
     def test_add_system_message(self, manager):
         """测试添加系统消息"""
-        msg = manager.add_message(
+        manager.add_message(
             role=MessageRole.SYSTEM,
             content="You are a helpful assistant"
         )

@@ -83,7 +83,7 @@ class CommunicationChannel:
 class CrossAgentCommunicator:
     """
     跨 Agent 通信管理器
-    
+
     功能:
     - 消息传递
     - 子 Agent spawn

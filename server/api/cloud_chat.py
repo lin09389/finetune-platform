@@ -15,8 +15,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from api.types import KnowledgeSource, MemoryContextInfo, UnifiedContextInfo
 from ai.gateway import get_provider, list_providers
+from api.types import KnowledgeSource, MemoryContextInfo, UnifiedContextInfo
 from security.audit_log import audit_logger
 from security.encryption import secure_storage
 

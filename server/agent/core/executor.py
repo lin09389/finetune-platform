@@ -1,4 +1,4 @@
-﻿"""Unified executor entrypoint for agent operations."""
+"""Unified executor entrypoint for agent operations."""
 
 import asyncio
 import logging

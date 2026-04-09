@@ -11,9 +11,71 @@ env:
   NODE_VERSION: '18'
 
 jobs:
-  lint:
-    name: Code Quality Check
+  encoding:
+    name: Encoding Hygiene
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Check encoding hygiene
+        run: python scripts/check_encoding.py
+
+  python_hygiene:
+    name: Python Hygiene
+    runs-on: ubuntu-latest
+    needs: encoding
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install Ruff
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff
+
+      - name: Run focused Ruff gate
+        run: ruff check server --select W291,W293,I001,UP015,UP012 --output-format=github
+
+  python_smoke:
+    name: Python Smoke Tests
+    runs-on: ubuntu-latest
+    needs: python_hygiene
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-asyncio pytest-cov
+          pip install -r server/requirements.txt
+
+      - name: Run smoke tests
+        run: |
+          cd server
+          pytest tests/test_training.py tests/test_gateway_api_signature_contract.py -q
+
+  lint_advisory:
+    name: Python Lint Advisory
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    needs: encoding
     steps:
       - uses: actions/checkout@v4
       
@@ -42,12 +104,13 @@ jobs:
       - name: Run MyPy (Type Check)
         run: |
           cd server
-          mypy . --ignore-missing-imports --no-error-summary || true
+          mypy . --ignore-missing-imports --no-error-summary
 
-  test:
-    name: Unit Tests
+  test_advisory:
+    name: Python Tests Advisory
     runs-on: ubuntu-latest
-    needs: lint
+    continue-on-error: true
+    needs: encoding
     steps:
       - uses: actions/checkout@v4
       
@@ -66,7 +129,7 @@ jobs:
       - name: Run tests with coverage
         run: |
           cd server
-          pytest tests/ -v --cov=. --cov-report=xml --cov-report=html || true
+          pytest tests/ -v --cov=. --cov-report=xml --cov-report=html
       
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -78,6 +141,7 @@ jobs:
   frontend:
     name: Frontend Build
     runs-on: ubuntu-latest
+    needs: encoding
     steps:
       - uses: actions/checkout@v4
       
@@ -103,9 +167,11 @@ jobs:
           cd client
           npm run build
 
-  security:
-    name: Security Scan
+  security_advisory:
+    name: Security Advisory
     runs-on: ubuntu-latest
+    continue-on-error: true
+    needs: encoding
     steps:
       - uses: actions/checkout@v4
       
@@ -120,4 +186,4 @@ jobs:
       - name: Check dependencies for vulnerabilities
         run: |
           cd server
-          safety check -r requirements.txt || true
+          safety check -r requirements.txt

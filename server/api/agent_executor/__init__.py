@@ -2,8 +2,7 @@
 Agent 执行器 API 路由
 集成重构后的 Agent 操作处理器
 """
-import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -11,13 +10,11 @@ from pydantic import BaseModel, Field
 from agent.core import (
     OperationContext,
     UnifiedExecutor,
-    create_executor,
     get_executor,
 )
-from agent.core.executor import ExecutorConfig
+from core.feature_flags import get_flags
 
 AgentExecutorNew = UnifiedExecutor
-from core.feature_flags import get_flags
 
 router = APIRouter(prefix="/agent-executor", tags=["Agent Executor"])
 
@@ -33,6 +30,9 @@ class BatchExecuteRequest(BaseModel):
     """批量执行请求"""
     operations: list[dict[str, Any]]
     workspace: str | None = None
+
+
+__all__ = ["router", "AgentExecutorNew"]
 
 
 @router.get("/actions")

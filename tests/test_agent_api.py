@@ -1,50 +1,51 @@
 import json
 import requests
 
-BASE_URL = 'http://127.0.0.1:8000'
+BASE_URL = "http://127.0.0.1:8000"
+SAMPLE_MESSAGE = "Please open calculator"
 
 
 def main() -> None:
-    print('=' * 50)
-    print('娴嬭瘯 Agent API')
-    print('=' * 50)
+    print("=" * 50)
+    print("Test Agent API")
+    print("=" * 50)
 
-    print('\n[娴嬭瘯 1] 妫€娴嬫剰鍥? 鎵撳紑璁＄畻鍣?')
+    print("\n[Test 1] Detect intent")
     response = requests.post(
-        f'{BASE_URL}/agent/detect-intent',
-        json={'message': '鎵撳紑璁＄畻鍣?'},
+        f"{BASE_URL}/agent/detect-intent",
+        json={"message": SAMPLE_MESSAGE},
     )
-    print(f'鐘舵€佺爜: {response.status_code}')
-    print(f"鍝嶅簲: {json.dumps(response.json(), ensure_ascii=False, indent=2)}")
+    print(f"Status: {response.status_code}")
+    print(json.dumps(response.json(), ensure_ascii=False, indent=2))
 
-    print('\n[娴嬭瘯 2] 鎵ц鎿嶄綔: app_open calculator')
+    print("\n[Test 2] Execute action: app_open calculator")
     response = requests.post(
-        f'{BASE_URL}/agent/execute',
-        json={'action': 'app_open', 'params': {'app_name': 'calculator'}},
+        f"{BASE_URL}/agent/execute",
+        json={"action": "app_open", "params": {"app_name": "calculator"}},
     )
-    print(f'鐘舵€佺爜: {response.status_code}')
-    print(f"鍝嶅簲: {json.dumps(response.json(), ensure_ascii=False, indent=2)}")
+    print(f"Status: {response.status_code}")
+    print(json.dumps(response.json(), ensure_ascii=False, indent=2))
 
-    print('\n[娴嬭瘯 3] chat-execute: 鎵撳紑璁＄畻鍣?')
+    print("\n[Test 3] Chat execute")
     response = requests.post(
-        f'{BASE_URL}/agent/chat-execute',
-        json={'message': '鎵撳紑璁＄畻鍣?', 'auto_confirm': False},
+        f"{BASE_URL}/agent/chat-execute",
+        json={"message": SAMPLE_MESSAGE, "auto_confirm": False},
     )
-    print(f'鐘舵€佺爜: {response.status_code}')
-    print(f"鍝嶅簲: {json.dumps(response.json(), ensure_ascii=False, indent=2)}")
+    print(f"Status: {response.status_code}")
+    print(json.dumps(response.json(), ensure_ascii=False, indent=2))
 
-    print('\n[娴嬭瘯 4] 鎵ц鎿嶄綔: app_open notepad')
+    print("\n[Test 4] Execute action: app_open notepad")
     response = requests.post(
-        f'{BASE_URL}/agent/execute',
-        json={'action': 'app_open', 'params': {'app_name': 'notepad'}},
+        f"{BASE_URL}/agent/execute",
+        json={"action": "app_open", "params": {"app_name": "notepad"}},
     )
-    print(f'鐘舵€佺爜: {response.status_code}')
-    print(f"鍝嶅簲: {json.dumps(response.json(), ensure_ascii=False, indent=2)}")
+    print(f"Status: {response.status_code}")
+    print(json.dumps(response.json(), ensure_ascii=False, indent=2))
 
-    print('\n' + '=' * 50)
-    print('娴嬭瘯瀹屾垚')
-    print('=' * 50)
+    print("\n" + "=" * 50)
+    print("Done")
+    print("=" * 50)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

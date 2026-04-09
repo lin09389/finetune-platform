@@ -478,11 +478,11 @@ class IntentDetectionErrorManager:
     ) -> tuple[Any, dict[str, Any] | None]:
         """
         带保护的执行
-        
+
         Args:
             func: 要执行的函数
             message: 用户消息（用于缓存键）
-            
+
         Returns:
             (result, error_info)
         """

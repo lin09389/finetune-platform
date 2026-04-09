@@ -132,7 +132,7 @@ class AgentExecutor:
     ) -> ExecutionResult:
         """
         执行操作的主入口
-        
+
         流程：
         1. 安全评估
         2. 创建快照（可选）
@@ -836,7 +836,7 @@ class AgentExecutor:
             return ExecutionResult(False, error="键盘控制模块不可用，请确保安装了 pyautogui 和 pyperclip")
 
         try:
-            result = keyboard.type_text(text, interval=interval)
+            keyboard.type_text(text, interval=interval)
 
             logger.info(f"键盘输入：{text[:50]}{'...' if len(text) > 50 else ''}")
 
@@ -858,8 +858,6 @@ class AgentExecutor:
             return ExecutionResult(False, error="键盘控制模块不可用")
 
         try:
-            result = keyboard.press(key)
-
             logger.info(f"按下按键：{key}")
 
             return ExecutionResult(
@@ -883,8 +881,6 @@ class AgentExecutor:
             return ExecutionResult(False, error="键盘控制模块不可用")
 
         try:
-            result = keyboard.hotkey(*keys)
-
             logger.info(f"按下组合键：{'+'.join(keys)}")
 
             return ExecutionResult(
@@ -1510,8 +1506,6 @@ class AgentExecutor:
         self._recording_data[record_id] = []
 
         try:
-            import threading
-
             from pynput import keyboard, mouse
 
             events_list = self._recording_data[record_id]
@@ -1631,8 +1625,6 @@ class AgentExecutor:
         """回放录制"""
         record_id = params.get("record_id", "default")
         events = params.get("events", [])
-        speed = params.get("speed", 1.0)
-
         if not events and record_id in self._recording_data:
             events = self._recording_data.get(record_id, [])
 
@@ -1719,8 +1711,6 @@ class AgentExecutor:
             if os.name == 'nt':
                 try:
                     import win32service
-                    import win32serviceutil
-
                     scm = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_ENUMERATE_SERVICE)
                     service_list = win32service.EnumServicesStatus(scm, win32service.SERVICE_WIN32, win32service.SERVICE_STATE_ALL)
 

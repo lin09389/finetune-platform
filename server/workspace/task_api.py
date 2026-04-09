@@ -31,7 +31,7 @@ async def create_task(
 ):
     """
     创建新任务
-    
+
     - **title**: 任务标题（必填）
     - **description**: 任务描述
     - **project_id**: 所属项目ID
@@ -63,7 +63,7 @@ async def list_tasks(
 ):
     """
     获取任务列表
-    
+
     支持多种筛选条件：
     - 按项目、状态、优先级、负责人筛选
     - 按标签筛选（多个标签用逗号分隔）
@@ -97,7 +97,7 @@ async def get_task_statistics(
 ):
     """
     获取任务统计信息
-    
+
     返回：
     - 任务总数
     - 各状态任务数量
@@ -141,7 +141,7 @@ async def update_task(
 ):
     """
     更新任务信息
-    
+
     可更新：
     - 标题、描述
     - 状态、优先级
@@ -172,7 +172,7 @@ async def delete_task(
 ):
     """
     删除任务
-    
+
     - **hard=false**: 软删除（标记为已取消）
     - **hard=true**: 硬删除（物理删除）
     """
@@ -199,7 +199,7 @@ async def assign_task(
 ):
     """
     将任务分配给指定负责人
-    
+
     会自动发送通知给负责人
     """
     try:
@@ -226,10 +226,10 @@ async def update_task_progress(
 ):
     """
     更新任务进度
-    
+
     - **progress**: 进度百分比（0-100）
     - **message**: 进度消息（可选，会发送通知）
-    
+
     当进度达到100%时，自动将任务标记为完成
     """
     try:
@@ -256,7 +256,7 @@ async def update_subtask(
 ):
     """
     更新子任务完成状态
-    
+
     会自动计算并更新父任务的进度百分比
     """
     try:
@@ -279,7 +279,7 @@ async def update_subtask(
 async def start_task(task_id: str):
     """
     将任务状态改为"进行中"
-    
+
     会自动记录开始时间并发送通知
     """
     try:
@@ -302,7 +302,7 @@ async def start_task(task_id: str):
 async def complete_task(task_id: str):
     """
     将任务状态改为"已完成"
-    
+
     会自动记录完成时间、设置进度为100%并发送通知
     """
     try:
@@ -325,7 +325,7 @@ async def complete_task(task_id: str):
 async def cancel_task(task_id: str):
     """
     将任务状态改为"已取消"
-    
+
     会发送通知给负责人
     """
     try:
@@ -352,7 +352,7 @@ async def get_notifications(
 ):
     """
     获取任务通知列表
-    
+
     - **recipient**: 按接收者筛选
     - **unread_only**: 仅返回未读通知
     - **limit**: 返回数量限制（默认50，最多200）
@@ -392,7 +392,7 @@ async def mark_all_notifications_read(
 ):
     """
     标记所有通知为已读
-    
+
     可指定接收者，不指定则标记所有通知
     """
     try:
@@ -415,7 +415,7 @@ async def notification_stream(
 ):
     """
     实时通知流（Server-Sent Events）
-    
+
     客户端可通过 EventSource 连接此端点接收实时通知
     """
     async def event_generator():

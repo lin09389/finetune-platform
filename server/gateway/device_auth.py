@@ -1,4 +1,4 @@
-﻿"""
+"""
 Gateway device auth manager.
 """
 import hashlib

@@ -80,7 +80,7 @@ class ProgressInfo:
 class ProgressTracker:
     """
     进度追踪器
-    
+
     追踪操作进度并支持 SSE 推送
     """
 
@@ -292,7 +292,7 @@ def get_progress_tracker() -> ProgressTracker:
 class ProgressContext:
     """
     进度上下文管理器
-    
+
     用于自动管理进度
     """
 

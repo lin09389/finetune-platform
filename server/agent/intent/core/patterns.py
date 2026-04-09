@@ -4,7 +4,6 @@
 整合所有检测器的规则模式，消除重复定义
 """
 import hashlib
-import os
 import re
 import threading
 import time

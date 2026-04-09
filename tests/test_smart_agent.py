@@ -1,52 +1,52 @@
 import requests
 
-BASE_URL = 'http://127.0.0.1:8001'
+BASE_URL = "http://127.0.0.1:8001"
 
 
 def main() -> None:
-    print('=' * 60)
-    print('娴嬭瘯鏅鸿兘 Agent 鑷姩鍒ゆ柇骞舵墽琛屾搷浣?')
-    print('=' * 60)
+    print("=" * 60)
+    print("Test smart-agent behavior routing")
+    print("=" * 60)
 
-    print('\n1. 娴嬭瘯: 鎴浘')
+    print("\n1. Greeting request")
     response = requests.post(
-        f'{BASE_URL}/smart-agent/smart-execute',
-        json={'message': '鎴睆', 'auto_execute': True},
+        f"{BASE_URL}/smart-agent/smart-execute",
+        json={"message": "hello", "auto_execute": True},
     )
     data = response.json()
-    print(f"妫€娴嬪埌: {data.get('detected')}")
-    print(f"鎿嶄綔: {data.get('action')}")
-    print(f"鎵ц鎴愬姛: {data.get('success')}")
-    print(f"鍙嶉: {data.get('feedback')}")
+    print(f"Detected: {data.get('detected')}")
+    print(f"Action: {data.get('action')}")
+    print(f"Success: {data.get('success')}")
+    print(f"Feedback: {data.get('feedback')}")
 
-    print('\n2. 娴嬭瘯: 鑾峰彇榧犳爣浣嶇疆')
+    print("\n2. Intent classification request")
     response = requests.post(
-        f'{BASE_URL}/smart-agent/smart-execute',
-        json={'message': '榧犳爣鍦ㄥ摢閲?', 'auto_execute': True},
+        f"{BASE_URL}/smart-agent/smart-execute",
+        json={"message": "analyze this intent", "auto_execute": True},
     )
     data = response.json()
-    print(f"妫€娴嬪埌: {data.get('detected')}")
-    print(f"鎿嶄綔: {data.get('action')}")
-    print(f"鎵ц鎴愬姛: {data.get('success')}")
-    print(f"鍙嶉: {data.get('feedback')}")
+    print(f"Detected: {data.get('detected')}")
+    print(f"Action: {data.get('action')}")
+    print(f"Success: {data.get('success')}")
+    print(f"Feedback: {data.get('feedback')}")
 
-    print('\n3. 娴嬭瘯: 鍒楀嚭绐楀彛')
+    print("\n3. Batch task request")
     response = requests.post(
-        f'{BASE_URL}/smart-agent/smart-execute',
-        json={'message': '鍒楀嚭鎵€鏈夌獥鍙?', 'auto_execute': True},
+        f"{BASE_URL}/smart-agent/smart-execute",
+        json={"message": "list the current tasks", "auto_execute": True},
     )
     data = response.json()
-    print(f"妫€娴嬪埌: {data.get('detected')}")
-    print(f"鎿嶄綔: {data.get('action')}")
-    print(f"鎵ц鎴愬姛: {data.get('success')}")
-    print(f"鍙嶉: {data.get('feedback')}")
+    print(f"Detected: {data.get('detected')}")
+    print(f"Action: {data.get('action')}")
+    print(f"Success: {data.get('success')}")
+    print(f"Feedback: {data.get('feedback')}")
     if data.get('result_data'):
-        print(f"绐楀彛鏁伴噺: {data['result_data'].get('count')}")
+        print(f"Count: {data['result_data'].get('count')}")
 
-    print('\n' + '=' * 60)
-    print('娴嬭瘯瀹屾垚!')
-    print('=' * 60)
+    print("\n" + "=" * 60)
+    print("Done")
+    print("=" * 60)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

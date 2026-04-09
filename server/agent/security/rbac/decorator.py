@@ -13,7 +13,7 @@ from .models import Permission, Role, get_permission_for_operation
 def require_permission(permission: Permission | str):
     """
     Permission check decorator
-    
+
     Usage:
         @require_permission(Permission.FILE_READ)
         async def read_file(path: str):
@@ -61,7 +61,7 @@ def require_permission(permission: Permission | str):
 def require_role(role: Role | str):
     """
     Role check decorator
-    
+
     Usage:
         @require_role(Role.ADMIN)
         async def admin_operation():
@@ -131,11 +131,11 @@ def require_admin(func: Callable) -> Callable:
 async def check_permission(user_id: str, operation: str) -> bool:
     """
     Check if user has permission to execute specified operation
-    
+
     Args:
         user_id: User ID
         operation: Operation type
-    
+
     Returns:
         Whether has permission
     """

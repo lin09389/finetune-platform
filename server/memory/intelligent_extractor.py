@@ -462,12 +462,12 @@ class IntelligentMemoryExtractor:
     ) -> ExtractionResult:
         """
         执行智能提取
-        
+
         Args:
             message: 消息内容
             role: 角色
             context: 上下文信息
-            
+
         Returns:
             提取结果
         """

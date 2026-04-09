@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 class GatewayServer:
     """
     Gateway 服务器
-    
+
     功能:
     - WebSocket 连接管理
     - 设备配对与认证

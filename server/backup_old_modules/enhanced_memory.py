@@ -91,7 +91,7 @@ class ExtractRequest(BaseModel):
 async def process_message(request: ProcessMessageRequest):
     """
     处理消息 - 完整的记忆处理流程
-    
+
     包括：
     - 短期记忆存储
     - 智能记忆提取
@@ -106,10 +106,10 @@ async def process_message(request: ProcessMessageRequest):
             session_id=request.session_id,
             extract_memories=request.extract_memories
         )
-        
+
         logger.info(f"处理消息: 提取 {len(result['entities_extracted'])} 实体, "
                    f"{len(result['relations_extracted'])} 关系")
-        
+
         return {
             "success": True,
             "result": result
@@ -123,12 +123,12 @@ async def process_message(request: ProcessMessageRequest):
 async def extract_memory(request: ExtractRequest):
     """
     智能提取记忆
-    
+
     使用规则+LLM混合提取
     """
     try:
         result = extract_memories(request.message, request.role)
-        
+
         return {
             "success": True,
             "extraction": result.to_dict()
@@ -149,7 +149,7 @@ async def recall_memory(request: RecallRequest):
             top_k=request.top_k,
             memory_type=request.memory_type
         )
-        
+
         return {
             "success": True,
             "memories": memories,
@@ -174,7 +174,7 @@ async def list_memories(
             memory_type=memory_type,
             limit=limit
         )
-        
+
         return {
             "success": True,
             "count": len(memories),
@@ -194,7 +194,7 @@ async def forget_memory(
     try:
         service = get_memory_service()
         success = service.forget(user_id, memory_id)
-        
+
         if success:
             return {"success": True, "message": "记忆已删除"}
         else:
@@ -212,7 +212,7 @@ async def clear_all_memories(user_id: str = Query(default="default")):
     try:
         service = get_memory_service()
         success = service.clear_all(user_id)
-        
+
         if success:
             return {"success": True, "message": "所有记忆已清除"}
         else:
@@ -230,7 +230,7 @@ async def get_summary(user_id: str = Query(default="default")):
     try:
         service = get_enhanced_memory_service()
         summary = service.get_user_summary(user_id)
-        
+
         return {
             "success": True,
             "summary": summary
@@ -251,7 +251,7 @@ async def get_context(
     try:
         service = get_enhanced_memory_service()
         context = service._build_enhanced_context(query, user_id, session_id)
-        
+
         return {
             "success": True,
             "context": context
@@ -267,7 +267,7 @@ async def get_stats(user_id: str = Query(default="default")):
     try:
         service = get_enhanced_memory_service()
         stats = service.get_stats(user_id)
-        
+
         return {
             "success": True,
             "stats": stats
@@ -283,7 +283,7 @@ async def export_state(user_id: str = Query(default="default")):
     try:
         service = get_enhanced_memory_service()
         state = service.export_state(user_id)
-        
+
         return {
             "success": True,
             "state": state
@@ -302,7 +302,7 @@ async def import_state(
     try:
         service = get_enhanced_memory_service()
         service.import_state(state, user_id)
-        
+
         return {
             "success": True,
             "message": "状态导入成功"
@@ -323,7 +323,7 @@ async def add_entity(request: AddEntityRequest):
             attributes=request.attributes,
             confidence=request.confidence
         )
-        
+
         return {
             "success": True,
             "entity_id": entity_id,
@@ -346,7 +346,7 @@ async def add_relation(request: AddRelationRequest):
             relation_type=request.relation_type,
             evidence=request.evidence
         )
-        
+
         if relation_id:
             return {
                 "success": True,
@@ -367,7 +367,7 @@ async def get_entity(entity_id: str):
     try:
         kg = get_knowledge_graph()
         entity = kg.get_entity(entity_id)
-        
+
         if entity:
             return {
                 "success": True,
@@ -388,7 +388,7 @@ async def get_entity_context(request: GetEntityContextRequest):
     try:
         kg = get_knowledge_graph()
         context = kg.get_entity_context(request.entity_id, request.depth)
-        
+
         return {
             "success": True,
             "context": context
@@ -408,7 +408,7 @@ async def find_path(request: FindPathRequest):
             request.target_id,
             request.max_depth
         )
-        
+
         return {
             "success": True,
             "paths": paths,
@@ -425,16 +425,16 @@ async def search_knowledge_graph(request: SearchKnowledgeGraphRequest):
     try:
         kg = get_knowledge_graph()
         results = []
-        
+
         for entity in kg.get_all_entities():
             if request.query.lower() in entity.name.lower():
                 if request.entity_types and entity.entity_type not in request.entity_types:
                     continue
                 results.append(entity.to_dict())
-                
+
                 if len(results) >= request.limit:
                     break
-        
+
         return {
             "success": True,
             "results": results,
@@ -451,7 +451,7 @@ async def get_graph_stats():
     try:
         kg = get_knowledge_graph()
         stats = kg.get_stats()
-        
+
         return {
             "success": True,
             "stats": stats
@@ -467,7 +467,7 @@ async def delete_entity(entity_id: str):
     try:
         kg = get_knowledge_graph()
         success = kg.delete_entity(entity_id)
-        
+
         if success:
             return {"success": True, "message": "实体已删除"}
         else:
@@ -485,7 +485,7 @@ async def list_relations():
     try:
         kg = get_knowledge_graph()
         relations = kg.get_all_relations()
-        
+
         return {
             "success": True,
             "relations": [r.to_dict() for r in relations],
@@ -502,7 +502,7 @@ async def list_sessions():
     try:
         manager = get_stm_manager()
         sessions = manager.get_all_sessions()
-        
+
         return {
             "success": True,
             "sessions": sessions,
@@ -523,7 +523,7 @@ async def get_session_context(
         stm = get_short_term_memory(session_id)
         context = stm.get_context(max_tokens)
         summary = stm.summarize()
-        
+
         return {
             "success": True,
             "context": context,
@@ -547,7 +547,7 @@ async def add_session_message(
             content=request.content,
             entities=request.entities
         )
-        
+
         return {
             "success": True,
             "message": message.to_dict()
@@ -563,7 +563,7 @@ async def clear_session(session_id: str):
     try:
         manager = get_stm_manager()
         manager.clear_session(session_id)
-        
+
         return {"success": True, "message": "会话已清空"}
     except Exception as e:
         logger.error(f"清空会话失败: {e}")
@@ -579,7 +579,7 @@ async def get_active_entities(
     try:
         stm = get_short_term_memory(session_id)
         entities = stm.get_active_entities(threshold)
-        
+
         return {
             "success": True,
             "entities": entities,

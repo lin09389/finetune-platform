@@ -25,7 +25,7 @@ except Exception as e:
 
 # Try direct import
 print("\n3. Direct import using importlib:")
-import importlib.util
+import importlib.util  # noqa: E402
 
 filepath = os.path.join(server_path, 'api', 'errors.py')
 spec = importlib.util.spec_from_file_location("api.errors", filepath)

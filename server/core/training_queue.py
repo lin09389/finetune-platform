@@ -76,7 +76,7 @@ class TrainingTask:
 class TrainingQueue:
     """
     训练任务队列管理器（重构版）
-    
+
     修复：
     - P0-2: 完善任务取消功能
     - P1-3: 状态文件原子写入
@@ -115,7 +115,7 @@ class TrainingQueue:
 
         self._all_tasks: dict[str, TrainingTask] = {}
         self._cancelled_tasks: set[str] = set()
-        
+
         self._active_count = 0
         self._active_count_lock = threading.Lock()
 
@@ -167,16 +167,16 @@ class TrainingQueue:
                             with self._active_count_lock:
                                 self._active_count -= 1
                         break
-                    
+
                     if not acquired_slot:
                         with self._active_count_lock:
                             if self._active_count < self.max_concurrent:
                                 self._active_count += 1
                                 acquired_slot = True
-                    
+
                     if acquired_slot:
                         break
-                    
+
                     time.sleep(0.1)
                 else:
                     if not self._worker_running:

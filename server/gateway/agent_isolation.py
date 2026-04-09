@@ -1,4 +1,4 @@
-﻿"""
+"""
 Gateway agent isolation manager.
 """
 import json

@@ -44,10 +44,10 @@ class ModelWarmer:
     async def warmup(self, models: list[str] | None = None) -> list[WarmupResult]:
         """
         预热模型
-        
+
         Args:
             models: 要预热的模型列表，如果为None则使用配置中的模型
-            
+
         Returns:
             预热结果列表
         """

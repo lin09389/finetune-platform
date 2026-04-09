@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, Suspense, lazy } from 'react'
+import { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { Layout, App as AntApp, ConfigProvider, theme as antdTheme } from 'antd'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
@@ -36,6 +36,8 @@ const SkillMemory = lazy(() => import('./pages/SkillMemory'))
 const MCPTools = lazy(() => import('./pages/MCPTools'))
 const GatewayPage = lazy(() => import('./pages/GatewayPage'))
 const HeartbeatPage = lazy(() => import('./pages/HeartbeatPage'))
+const DesignSystem = lazy(() => import('./pages/DesignSystem'))
+const SharedChat = lazy(() => import('./pages/SharedChat'))
 const FeedbackPanel = lazy(() => import('./components/FeedbackPanel'))
 const HelpPanel = lazy(() => import('./components/HelpPanel'))
 
@@ -157,6 +159,8 @@ const routes = [
   { path: '/mcp', element: <MCPTools /> },
   { path: '/gateway', element: <GatewayPage /> },
   { path: '/heartbeat', element: <HeartbeatPage /> },
+  { path: '/design-system', element: <DesignSystem /> },
+  { path: '/share/:shareId', element: <SharedChat /> },
   { path: '/feedback', element: <FeedbackPanel /> },
   { path: '/help', element: <HelpPanel /> },
 ]
@@ -204,7 +208,7 @@ function AppContent() {
       }
     }
 
-    initApp()
+    void initApp()
 
     const checkInterval = setInterval(async () => {
       try {
@@ -216,7 +220,7 @@ function AppContent() {
     }, 5000)
 
     return () => clearInterval(checkInterval)
-  }, [setBackendStatus, setBackendUrl])
+  }, [message, setBackendStatus, setBackendUrl])
 
   if (loading) {
     return <LoadingScreen />

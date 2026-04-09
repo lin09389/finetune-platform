@@ -131,7 +131,7 @@ class TestMockVectorStore:
     def test_get_document(self, store):
         """测试获取文档"""
         store.create_collection("test")
-        ids = store.add_documents(
+        store.add_documents(
             collection_name="test",
             documents=["test doc"],
             embeddings=[[0.1] * 64],

@@ -1,4 +1,4 @@
-﻿"""
+"""
 核心配置管理模块
 """
 from pathlib import Path

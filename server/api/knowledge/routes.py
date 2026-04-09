@@ -129,7 +129,7 @@ async def upload_document(
 ):
     """
     上传文档到知识库（同步模式）
-    
+
     - 支持格式：PDF, DOCX, TXT, MD
     - 自动解析、分块、向量化
     """
@@ -186,7 +186,7 @@ async def upload_document_async(
 ):
     """
     上传文档到知识库（异步模式）
-    
+
     - 立即返回 task_id
     - 通过 /upload/status/{task_id} 查询进度
     """
@@ -346,7 +346,7 @@ async def list_collections():
 async def search_documents(request: SearchRequest):
     """
     搜索知识库文档
-    
+
     - 语义搜索（向量相似度）
     - 返回最相关的文档片段
     """

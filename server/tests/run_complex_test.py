@@ -5,18 +5,17 @@ import os
 import sys
 import tempfile
 import time
+import asyncio
 from pathlib import Path
 
 server_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, server_dir)
 
-import asyncio
-
-from agent.agent_config import ActionType
-from agent.audit import AuditLogger
-from agent.core import UnifiedExecutor as AgentExecutor
-from agent.intent.detector import IntentDetector
-from agent.security import SecurityValidator
+from agent.agent_config import ActionType  # noqa: E402
+from agent.audit import AuditLogger  # noqa: E402
+from agent.core import UnifiedExecutor as AgentExecutor  # noqa: E402
+from agent.intent.detector import IntentDetector  # noqa: E402
+from agent.security import SecurityValidator  # noqa: E402
 
 
 def test_intent_detection():

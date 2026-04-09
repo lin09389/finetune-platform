@@ -10,11 +10,10 @@ Heartbeat 模块 - 主动唤醒机制
 import asyncio
 import logging
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 from .task_executor import ProactiveTask, TaskExecutor, TaskResult, TaskStatus, TaskType
 
@@ -49,7 +48,7 @@ class HeartbeatConfig:
 class HeartbeatScheduler:
     """
     Heartbeat 调度器
-    
+
     功能:
     - 定时唤醒 Agent
     - 解析 HEARTBEAT.md 任务清单

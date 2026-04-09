@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class ModelCache:
     """
     带有 LRU 淘汰策略的模型缓存
-    
+
     特性：
     - 最大容量限制
     - LRU 淘汰策略

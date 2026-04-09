@@ -35,7 +35,7 @@ class BM25Index:
     ):
         """
         初始化 BM25 索引
-        
+
         Args:
             k1: BM25 参数 k1，控制词频饱和度
             b: BM25 参数 b，控制文档长度归一化
@@ -60,10 +60,10 @@ class BM25Index:
     def _tokenize(self, text: str) -> list[str]:
         """
         分词
-        
+
         Args:
             text: 输入文本
-            
+
         Returns:
             词元列表
         """
@@ -91,7 +91,7 @@ class BM25Index:
     ):
         """
         添加文档到索引
-        
+
         Args:
             documents: 文档列表
             ids: 文档 ID 列表
@@ -124,11 +124,11 @@ class BM25Index:
     def search(self, query: str, top_k: int = 10) -> list[SearchResult]:
         """
         搜索
-        
+
         Args:
             query: 查询文本
             top_k: 返回结果数量
-            
+
         Returns:
             搜索结果列表
         """
@@ -180,7 +180,7 @@ class HybridRetriever:
     ):
         """
         初始化混合检索器
-        
+
         Args:
             vector_weight: 向量检索权重
             keyword_weight: 关键词检索权重
@@ -219,12 +219,12 @@ class HybridRetriever:
     ) -> list[SearchResult]:
         """
         混合搜索
-        
+
         Args:
             query: 查询文本
             collection_name: 集合名称
             top_k: 返回结果数量
-            
+
         Returns:
             搜索结果列表
         """

@@ -38,7 +38,7 @@ class ScreenInfo:
 class CUAOperationHandler(OperationHandler):
     """
     CUA 操作处理器
-    
+
     支持的操作:
     - mouse_click: 鼠标点击
     - mouse_double_click: 鼠标双击
@@ -814,8 +814,6 @@ class CUAOperationHandler(OperationHandler):
             )
 
         try:
-            import threading
-
             from pynput import keyboard, mouse
 
             self._recording_data[record_id] = []
@@ -919,8 +917,6 @@ class CUAOperationHandler(OperationHandler):
     async def _execute_record_play(self, params: dict[str, Any]) -> UnifiedResult:
         record_id = params.get("record_id", "default")
         events = params.get("events", [])
-        speed = params.get("speed", 1.0)
-
         if not events and record_id in self._recording_data:
             events = self._recording_data.get(record_id, [])
 

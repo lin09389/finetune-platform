@@ -17,10 +17,10 @@ class DocumentParser:
     def parse(self, file_path: str) -> str | None:
         """
         解析文档内容
-        
+
         Args:
             file_path: 文件路径
-            
+
         Returns:
             解析后的文本内容
         """

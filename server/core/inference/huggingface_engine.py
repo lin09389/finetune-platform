@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class HuggingFaceEngine(BaseInferenceEngine):
     """
     HuggingFace 推理引擎
-    
+
     特性:
     - 支持本地模型加载
     - 支持 LoRA 适配器
@@ -53,9 +53,12 @@ class HuggingFaceEngine(BaseInferenceEngine):
     def is_available(self) -> bool:
         """检查 Transformers 是否可用"""
         try:
-            import torch
-            import transformers
-            return True
+            import importlib.util
+
+            return (
+                importlib.util.find_spec("torch") is not None
+                and importlib.util.find_spec("transformers") is not None
+            )
         except ImportError:
             return False
 
@@ -73,13 +76,13 @@ class HuggingFaceEngine(BaseInferenceEngine):
     ) -> bool:
         """
         加载模型
-        
+
         Args:
             model_id: 模型 ID 或路径
             load_in_8bit: 是否使用 INT8 量化
             load_in_4bit: 是否使用 INT4 量化
             lora_adapter: LoRA 适配器路径
-            
+
         Returns:
             是否成功
         """

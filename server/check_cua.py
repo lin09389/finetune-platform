@@ -43,7 +43,7 @@ def check_cua_controllers():
     for name, module, cls, hint in controllers:
         try:
             mod = __import__(module, fromlist=[cls])
-            cls_obj = getattr(mod, cls)
+            getattr(mod, cls)
             print(f"  [OK] {name} ({cls}) - 可用")
             available += 1
         except ImportError as e:
@@ -111,7 +111,7 @@ def check_pynput():
     print_header("pynput 检查")
 
     try:
-        from pynput import keyboard, mouse
+        __import__("pynput")
         print("  [OK] pynput 已安装")
 
         if platform.system() == "Darwin":
@@ -144,7 +144,7 @@ def check_window_manager():
             print("      安装: pip install pywin32")
     elif system == "Darwin":
         try:
-            import AppKit
+            __import__("AppKit")
             print("  [OK] pyobjc 已安装")
         except ImportError:
             print("  [X] pyobjc 未安装")

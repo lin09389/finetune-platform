@@ -1,7 +1,8 @@
-﻿from dataclasses import dataclass
+from dataclasses import dataclass
 from typing import Any
 
 from agent.agent_config import ActionType
+
 from .detector import get_detector
 
 

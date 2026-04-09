@@ -36,7 +36,7 @@ class ScreenInfo:
 class CUAOperationHandler(OperationHandler):
     """
     CUA 操作处理器
-    
+
     支持的操作:
     - mouse_click: 鼠标点击
     - mouse_double_click: 鼠标双击

@@ -59,7 +59,7 @@ class TestComplexScenarios:
     async def test_multi_turn_conversation_with_memory(self, executor):
         """
         场景 1: 多轮对话与记忆系统
-        
+
         流程：
         1. 用户说"我的名字是张三"
         2. 系统提取记忆
@@ -84,7 +84,7 @@ class TestComplexScenarios:
     def test_intent_detection_comprehensive(self, detector):
         """
         场景 2: 智能意图检测全面测试
-        
+
         测试各种自然语言表达的意图识别
         """
         test_cases = [
@@ -134,7 +134,7 @@ class TestComplexScenarios:
     async def test_operation_chain(self, executor, temp_dir):
         """
         场景 3: 操作链执行
-        
+
         模拟用户连续执行多个操作：
         1. 创建文件
         2. 写入内容
@@ -194,7 +194,7 @@ class TestComplexScenarios:
     async def test_dangerous_operation_confirmation(self, executor, temp_dir):
         """
         场景 4: 危险操作确认机制
-        
+
         测试危险操作需要确认才能执行
         """
         await executor.execute(
@@ -220,7 +220,7 @@ class TestComplexScenarios:
     def test_security_validation(self, temp_dir):
         """
         场景 5: 安全验证测试
-        
+
         测试路径遍历攻击、危险扩展名等
         """
         validator = SecurityValidator(working_dir=temp_dir)
@@ -254,7 +254,7 @@ class TestComplexScenarios:
     async def test_concurrent_operations(self, executor, temp_dir):
         """
         场景 6: 并发请求处理
-        
+
         同时执行多个文件操作
         """
         tasks = []
@@ -285,7 +285,7 @@ class TestComplexScenarios:
     async def test_error_recovery(self, executor):
         """
         场景 7: 错误恢复测试
-        
+
         测试各种错误情况的处理
         """
         result1 = await executor.execute(
@@ -312,7 +312,7 @@ class TestComplexScenarios:
     def test_audit_logging(self, temp_dir):
         """
         场景 8: 审计日志测试
-        
+
         验证操作被正确记录
         """
         logger = AuditLogger(log_dir=temp_dir)
@@ -345,7 +345,7 @@ class TestComplexScenarios:
     async def test_large_file_handling(self, executor, temp_dir):
         """
         场景 9: 大文件处理测试
-        
+
         测试大文件的创建和读取
         """
         large_content = "x" * 100000
@@ -373,7 +373,7 @@ class TestComplexScenarios:
     async def test_end_to_end_user_scenario(self, executor, detector, temp_dir):
         """
         场景 10: 端到端用户场景
-        
+
         模拟真实用户的完整操作流程：
         1. 用户说"创建一个项目目录"
         2. 用户说"创建 README.md 文件"

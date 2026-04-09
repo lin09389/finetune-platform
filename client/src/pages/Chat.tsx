@@ -1,3 +1,3 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import ChatPage from './Chat/index'
+import ChatPage from './Chat/index'
 
 export default ChatPage

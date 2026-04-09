@@ -464,11 +464,11 @@ class IntentEvaluator:
     ) -> dict[str, Any]:
         """
         运行评估
-        
+
         Args:
             detector: 意图检测器实例
             verbose: 是否输出详细信息
-            
+
         Returns:
             评估结果
         """

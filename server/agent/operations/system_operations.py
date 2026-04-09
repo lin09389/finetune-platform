@@ -1,4 +1,4 @@
-﻿"""System operation handler for process/service/system/app/browser actions."""
+"""System operation handler for process/service/system/app/browser actions."""
 
 import logging
 import platform

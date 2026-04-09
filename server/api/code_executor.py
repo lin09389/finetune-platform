@@ -470,7 +470,7 @@ async def execute_typescript_code(
 async def execute_code(request: ExecuteRequest):
     """
     执行代码
-    
+
     在沙箱环境中安全执行代码，支持 Python、JavaScript、TypeScript
     """
     logger.info(f"执行代码请求: language={request.language}, timeout={request.timeout}s")
