@@ -98,11 +98,13 @@ const ChatPage: React.FC = () => {
     })
   }, [])
 
-  const loadBackends = async () => {
+  const loadBackends = async (preferredBackend?: string) => {
     try {
       const data = await getBackends()
+      const activeBackend = preferredBackend || settings.backend || data.current
+      const shouldAutoSelectModel = Boolean(preferredBackend) || !settings.modelId
 
-      if (data.current === 'ollama') {
+      if (activeBackend === 'ollama') {
         const ollamaStatus = await getOllamaStatus()
         setOllamaModels(
           ollamaStatus.models.map((m: { name: string }) => ({
@@ -110,7 +112,7 @@ const ChatPage: React.FC = () => {
             name: m.name,
           }))
         )
-        if (!settings.modelId && ollamaStatus.models.length > 0) {
+        if (shouldAutoSelectModel && ollamaStatus.models.length > 0) {
           updateSettings({ modelId: ollamaStatus.models[0].name })
         }
       } else {
@@ -121,15 +123,25 @@ const ChatPage: React.FC = () => {
             name: m.name || m.id,
           }))
         )
-        if (!settings.modelId && models.length > 0) {
+        if (shouldAutoSelectModel && models.length > 0) {
           updateSettings({ modelId: models[0].id })
         }
       }
 
-      setBackends([
-        { id: 'ollama', name: 'Ollama', available: data.current === 'ollama' },
-        { id: 'huggingface', name: 'HuggingFace', available: data.current === 'huggingface' },
-      ])
+      if (Array.isArray(data.backends) && data.backends.length > 0) {
+        setBackends(
+          data.backends.map((backend: { id: string; name: string; available: boolean }) => ({
+            id: backend.id,
+            name: backend.name,
+            available: backend.available,
+          }))
+        )
+      } else {
+        setBackends([
+          { id: 'ollama', name: 'Ollama', available: data.current === 'ollama' },
+          { id: 'huggingface', name: 'HuggingFace', available: data.current === 'huggingface' },
+        ])
+      }
     } catch (error) {
       console.error('Failed to load backends:', error)
     }
@@ -368,7 +380,7 @@ const ChatPage: React.FC = () => {
         backends={backends}
         onBackendChange={async (backend) => {
           updateSettings({ backend: backend as 'ollama' | 'huggingface' | 'cloud', modelId: '' })
-          await loadBackends()
+          await loadBackends(backend)
         }}
         currentModel={settings.modelId}
         models={modelOptions}

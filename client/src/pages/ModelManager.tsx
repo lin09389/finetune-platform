@@ -1,9 +1,12 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Table, Button, Space, Tag, Modal, Form, Select, Input, Card, message, Popconfirm, Empty, Progress, Tabs } from 'antd'
-import { DeleteOutlined, DownloadOutlined, FolderOpenOutlined, SearchOutlined, ReloadOutlined, ImportOutlined } from '@ant-design/icons'
+import { Table, Button, Space, Tag, Modal, Form, Select, Input, message, Popconfirm, Empty, Progress, Tabs } from 'antd'
+import { DeleteOutlined, DownloadOutlined, FolderOpenOutlined, SearchOutlined, ReloadOutlined, ImportOutlined, DatabaseOutlined } from '@ant-design/icons'
 import { useAppStore } from '../store/appStore'
 import { getModelList, downloadModel, deleteModel, importModelFromModelScope } from '../services/api'
 import type { ModelInfo } from '../types'
+import { MotionList, MotionItem } from '../components/shared/MotionWrapper'
+import styles from './ModelManager.module.css'
+import glassStyles from '../components/shared/GlassCard.module.css'
 
 const popularModels = [
   { value: 'Qwen/Qwen2.5-0.5B-Instruct', label: 'Qwen2.5-0.5B (推荐4GB)' },
@@ -195,46 +198,54 @@ export default function ModelManager() {
   ]
 
   return (
-    <div style={{ padding: '0 24px' }}>
-      <div className="page-container">
-        <div className="page-title">
+    <MotionList className={styles.container} stagger={0.08}>
+      <MotionItem>
+      <div className={`${glassStyles.glassCard} ${styles.headerCard}`}>
+        <h1 className={styles.title}>
+          <DatabaseOutlined />
           模型管理
-          <Space style={{ marginLeft: 'auto' }}>
-            <Input
-              placeholder="搜索模型..."
-              prefix={<SearchOutlined />}
-              value={searchText}
-              onChange={e => setSearchText(e.target.value)}
-              style={{ width: 200 }}
-              allowClear
-            />
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={fetchModels}
-              loading={loading}
-            >
-              刷新
-            </Button>
-            <Button
-              type="primary"
-              icon={<DownloadOutlined />}
-              onClick={() => setDownloadModalVisible(true)}
-            >
-              下载模型
-            </Button>
-            <Button
-              icon={<ImportOutlined />}
-              onClick={() => setImportModelScopeModalVisible(true)}
-            >
-              导入 ModelScope 模型
-            </Button>
-          </Space>
-        </div>
+        </h1>
+        <Space>
+          <Input
+            placeholder="搜索模型..."
+            prefix={<SearchOutlined />}
+            value={searchText}
+            onChange={e => setSearchText(e.target.value)}
+            style={{ width: 240 }}
+            className="glass-input"
+            allowClear
+          />
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={fetchModels}
+            loading={loading}
+          >
+            刷新
+          </Button>
+          <Button
+            type="primary"
+            icon={<DownloadOutlined />}
+            onClick={() => setDownloadModalVisible(true)}
+          >
+            下载模型
+          </Button>
+          <Button
+            icon={<ImportOutlined />}
+            onClick={() => setImportModelScopeModalVisible(true)}
+          >
+            导入 ModelScope
+          </Button>
+        </Space>
+      </div>
+      </MotionItem>
 
+      <MotionItem>
+      <div className={`${glassStyles.glassCard} ${styles.tableCard}`}>
         {backendStatus !== 'connected' ? (
           <Empty 
             image={Empty.PRESENTED_IMAGE_SIMPLE}
             description="后端服务未连接，请先启动应用" 
+            style={{ margin: 'auto' }}
           />
         ) : (
           <Table
@@ -264,6 +275,7 @@ export default function ModelManager() {
           />
         )}
       </div>
+      </MotionItem>
 
       <Modal
         title="下载模型（魔搭社区）"
@@ -277,12 +289,14 @@ export default function ModelManager() {
         width={500}
         closable={!downloading}
         maskClosable={!downloading}
+        className="glass-modal"
       >
         <Form
           form={downloadForm}
           layout="vertical"
           onFinish={handleDownload}
           initialValues={{ quantize: 4 }}
+          style={{ marginTop: 24 }}
         >
           <Form.Item
             label="选择模型"
@@ -309,15 +323,15 @@ export default function ModelManager() {
           </Form.Item>
 
           {downloading && (
-            <div style={{ marginBottom: 16 }}>
-              <Progress percent={downloadProgress} status="active" />
-              <div style={{ textAlign: 'center', color: '#666', fontSize: 12, marginTop: 8 }}>
+            <div style={{ marginBottom: 24 }}>
+              <Progress percent={downloadProgress} status="active" strokeColor="var(--accent-primary)" />
+              <div style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13, marginTop: 8 }}>
                 正在下载模型，请稍候...
               </div>
             </div>
           )}
 
-          <Form.Item>
+          <Form.Item style={{ marginBottom: 0 }}>
             <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
               <Button onClick={() => setDownloadModalVisible(false)} disabled={downloading}>
                 取消
@@ -329,14 +343,14 @@ export default function ModelManager() {
           </Form.Item>
         </Form>
 
-        <Card size="small" style={{ marginTop: 16, background: '#fafafa' }}>
-          <b>显存建议：</b>
-          <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
+        <div className={styles.modalDescription} style={{ marginTop: 24 }}>
+          <b style={{ color: 'var(--text-primary)' }}>显存建议：</b>
+          <ul style={{ margin: '8px 0 0', paddingLeft: 20, color: 'var(--text-secondary)' }}>
             <li>INT4: 6GB 显存可运行 7B 模型</li>
             <li>INT8: 10GB 显存可运行 7B 模型</li>
             <li>FP16: 13GB+ 显存可运行 7B 模型</li>
           </ul>
-        </Card>
+        </div>
       </Modal>
 
       <Modal
@@ -350,6 +364,7 @@ export default function ModelManager() {
         width={550}
         closable={!importingModelModelScope}
         maskClosable={!importingModelModelScope}
+        className="glass-modal"
       >
         <Tabs
           items={[
@@ -357,16 +372,16 @@ export default function ModelManager() {
               key: 'qwen35',
               label: 'Qwen3.5 2B',
               children: (
-                <div>
-                  <p style={{ marginBottom: 16 }}>
-                    从魔搭社区（ModelScope）导入已下载的 <b>Qwen3.5 2B</b> 模型。
+                <div style={{ paddingTop: 16 }}>
+                  <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
+                    从魔搭社区（ModelScope）导入已下载的 <b style={{ color: 'var(--text-primary)' }}>Qwen3.5 2B</b> 模型。
                   </p>
-                  <Card size="small" style={{ background: '#f5f5f5', marginBottom: 16 }}>
-                    <b>默认路径：</b><br />
-                    <code style={{ fontSize: 12 }}>
+                  <div className={styles.modalDescription}>
+                    <b style={{ color: 'var(--text-primary)' }}>默认路径：</b><br />
+                    <code style={{ fontSize: 12, color: 'var(--accent-primary)', marginTop: 8, display: 'block', wordBreak: 'break-all' }}>
                       C:\Users\{'<用户名>'}\.cache\modelscope\hub\models\Qwen\Qwen3.5-2B
                     </code>
-                  </Card>
+                  </div>
                 </div>
               )
             },
@@ -374,8 +389,8 @@ export default function ModelManager() {
               key: 'custom',
               label: '自定义路径',
               children: (
-                <div>
-                  <p style={{ marginBottom: 16 }}>
+                <div style={{ paddingTop: 16 }}>
+                  <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
                     指定 ModelScope 模型目录的自定义路径。
                   </p>
                 </div>
@@ -389,6 +404,7 @@ export default function ModelManager() {
           layout="vertical"
           onFinish={handleImportModelScope}
           initialValues={{ model_name: 'Qwen3.5-2B' }}
+          style={{ marginTop: 16 }}
         >
           <Form.Item
             label="模型名称"
@@ -409,7 +425,7 @@ export default function ModelManager() {
             />
           </Form.Item>
 
-          <Form.Item>
+          <Form.Item style={{ marginBottom: 0 }}>
             <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
               <Button onClick={() => setImportModelScopeModalVisible(false)} disabled={importingModelModelScope}>
                 取消
@@ -421,16 +437,16 @@ export default function ModelManager() {
           </Form.Item>
         </Form>
 
-        <Card size="small" style={{ marginTop: 16, background: '#fafafa' }}>
-          <b>导入说明：</b>
-          <ul style={{ margin: '8px 0 0', paddingLeft: 20, fontSize: 12 }}>
+        <div className={styles.modalDescription} style={{ marginTop: 24 }}>
+          <b style={{ color: 'var(--text-primary)' }}>导入说明：</b>
+          <ul style={{ margin: '8px 0 0', paddingLeft: 20, fontSize: 13, color: 'var(--text-secondary)' }}>
             <li>确保模型已从魔搭社区下载完成</li>
             <li>导入过程会复制模型文件到项目目录</li>
             <li>导入完成后可在模型列表中查看</li>
             <li>Qwen3.5 2B 约 4GB，建议 8GB+ 显存使用 INT4 量化</li>
           </ul>
-        </Card>
+        </div>
       </Modal>
-    </div>
+    </MotionList>
   )
 }

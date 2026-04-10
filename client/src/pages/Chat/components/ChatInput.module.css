@@ -50,7 +50,7 @@
 
 .inputWrapper:focus-within {
   border-color: var(--accent-primary);
-  box-shadow: 0 0 0 4px rgba(212, 163, 115, 0.1), var(--shadow-xl);
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.06), var(--shadow-md);
 }
 
 .toolbar {

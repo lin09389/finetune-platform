@@ -327,6 +327,173 @@ function buildVerificationOutcome(
   }
 }
 
+function mergeRunMetadata(base: StreamMetadata | undefined, incoming: StreamMetadata): StreamMetadata {
+  return {
+    ...base,
+    ...incoming,
+    runMetrics: {
+      ...(base?.runMetrics || {}),
+      ...(incoming.runMetrics || {}),
+    },
+    knowledgeSources: incoming.knowledgeSources ?? base?.knowledgeSources,
+    retrievalInfo: incoming.retrievalInfo ?? base?.retrievalInfo,
+    memoryContext: incoming.memoryContext ?? base?.memoryContext,
+    unifiedContext: incoming.unifiedContext ?? base?.unifiedContext,
+    rawResponse: incoming.rawResponse ?? base?.rawResponse,
+  }
+}
+
+function parseSseData(raw: string): {
+  done?: boolean
+  delta?: string
+  error?: string
+  metadata?: StreamMetadata
+} {
+  if (!raw) {
+    return {}
+  }
+
+  if (raw === '[DONE]') {
+    return { done: true }
+  }
+
+  try {
+    const parsed = JSON.parse(raw)
+    if (typeof parsed === 'string') {
+      return { delta: parsed }
+    }
+
+    if (parsed?.error) {
+      return { error: String(parsed.error) }
+    }
+
+    if (parsed?.type === 'done') {
+      return { done: true }
+    }
+
+    if (parsed?.type === 'error') {
+      return { error: String(parsed.error || 'Stream failed.') }
+    }
+
+    if (parsed?.type === 'delta') {
+      return { delta: typeof parsed.content === 'string' ? parsed.content : '' }
+    }
+
+    if (parsed?.type === 'metadata') {
+      return {
+        metadata: {
+          knowledgeSources: parsed.knowledge_sources,
+          retrievalInfo: parsed.retrieval_info,
+          memoryContext: parsed.memory_context,
+          unifiedContext: parsed.unified_context,
+          rawResponse: parsed.raw_response,
+          runMetrics: {
+            model: parsed.model,
+            backend: parsed.backend,
+            duration_ms: parsed.duration_ms,
+            prompt_tokens: parsed.usage?.prompt_tokens,
+            completion_tokens: parsed.usage?.completion_tokens,
+            total_tokens: parsed.usage?.total_tokens,
+            used_knowledge: Boolean(parsed.knowledge_sources?.length),
+            used_memory: Boolean(parsed.memory_context?.retrieved),
+          },
+        },
+      }
+    }
+
+    if (typeof parsed?.content === 'string') {
+      return { delta: parsed.content }
+    }
+
+    if (typeof parsed?.delta === 'string') {
+      return { delta: parsed.delta }
+    }
+
+    return {}
+  } catch {
+    return { delta: raw }
+  }
+}
+
+async function consumeTextEventStream(options: {
+  response: Response
+  onChunk?: (chunk: string, fullContent: string) => void
+  initialMetadata?: StreamMetadata
+}): Promise<ChatRunResult> {
+  const reader = options.response.body?.getReader()
+  if (!reader) {
+    throw new Error('Unable to read the response stream.')
+  }
+
+  const decoder = new TextDecoder()
+  let fullContent = ''
+  let metadata = options.initialMetadata
+  let buffer = ''
+  let sawSseLine = false
+  let streamDone = false
+
+  const handleRawDelta = (delta: string) => {
+    if (!delta) {
+      return
+    }
+    fullContent += delta
+    options.onChunk?.(delta, fullContent)
+  }
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) {
+      break
+    }
+
+    buffer += decoder.decode(value, { stream: true })
+
+    let lineBreakIndex = buffer.indexOf('\n')
+    while (lineBreakIndex >= 0) {
+      const rawLine = buffer.slice(0, lineBreakIndex)
+      buffer = buffer.slice(lineBreakIndex + 1)
+      const line = rawLine.trim()
+
+      if (!line) {
+        lineBreakIndex = buffer.indexOf('\n')
+        continue
+      }
+
+      if (line.startsWith('data:')) {
+        sawSseLine = true
+        const payload = parseSseData(line.slice(5).trimStart())
+        if (payload.error) {
+          throw new Error(payload.error)
+        }
+        if (payload.metadata) {
+          metadata = mergeRunMetadata(metadata, payload.metadata)
+        }
+        if (payload.delta) {
+          handleRawDelta(payload.delta)
+        }
+        if (payload.done) {
+          streamDone = true
+        }
+      } else if (!sawSseLine) {
+        handleRawDelta(rawLine)
+      }
+
+      lineBreakIndex = buffer.indexOf('\n')
+    }
+  }
+
+  if (!sawSseLine && buffer) {
+    handleRawDelta(buffer)
+  }
+
+  if (!streamDone && sawSseLine) {
+    // best-effort compat: stream can still be valid without explicit done marker
+  }
+
+  return { content: fullContent, metadata }
+}
+
 export function useChatStream(config: StreamConfig = {}) {
   const {
     maxRetries = 3,
@@ -507,12 +674,20 @@ export function useChatStream(config: StreamConfig = {}) {
           payload.knowledgeOverride?.collectionId ?? settings.knowledgeCollection
         const useMemory = payload.memoryOverride?.enabled ?? settings.useMemory
 
-        const response = await fetch(`${API_BASE_URL}/inference/chat`, {
+        const systemPrompt = payload.systemPrompt ?? settings.systemPrompt
+        const streamMessages = [
+          ...(systemPrompt?.trim()
+            ? [{ role: 'system' as const, content: systemPrompt.trim() }]
+            : []),
+          { role: 'user' as const, content: prompt },
+        ]
+
+        const response = await fetch(`${API_BASE_URL}/inference/chat/stream`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             model: payload.parameterOverrides?.modelId || settings.modelId,
-            messages: [{ role: 'user', content: prompt }],
+            messages: streamMessages,
             options: {
               max_tokens: payload.parameterOverrides?.maxTokens ?? settings.maxTokens,
               temperature: payload.parameterOverrides?.temperature ?? settings.temperature,
@@ -522,7 +697,7 @@ export function useChatStream(config: StreamConfig = {}) {
                   ? 'ollama'
                   : payload.parameterOverrides?.backend ?? settings.backend,
             },
-            system_prompt: payload.systemPrompt ?? settings.systemPrompt,
+            system_prompt: systemPrompt,
             attachments: toRequestAttachments(attachments),
             response_format: payload.responseFormat ?? settings.responseFormat,
             memory: {
@@ -552,35 +727,24 @@ export function useChatStream(config: StreamConfig = {}) {
         }
 
         options.onStatusChange?.('streaming')
-
-        const data = await response.json()
-        const fullContent = data.message?.content || data.text || ''
-        lastContentRef.current.set(runId, fullContent)
-        options.onChunk?.(fullContent, fullContent)
         const metadata: StreamMetadata = {
-          knowledgeSources: data.knowledge_sources,
-          retrievalInfo: data.retrieval_info,
-          memoryContext: data.memory_context,
-          unifiedContext: data.unified_context,
-          rawResponse: data.raw_response ?? data,
           runMetrics: {
-            model: data.model,
-            backend: data.backend,
-            duration_ms:
-              typeof data.duration_ms === 'number'
-                ? data.duration_ms
-                : typeof data.total_duration === 'number'
-                  ? Math.round(data.total_duration * 1000)
-                  : undefined,
-            prompt_tokens: data.usage?.prompt_tokens,
-            completion_tokens: data.usage?.completion_tokens,
-            total_tokens: data.usage?.total_tokens,
-            used_knowledge: Boolean(data.knowledge_sources?.length),
-            used_memory: Boolean(data.memory_context?.retrieved),
+            model: payload.parameterOverrides?.modelId || settings.modelId,
+            backend:
+              payload.parameterOverrides?.backend === 'cloud'
+                ? 'ollama'
+                : payload.parameterOverrides?.backend ?? settings.backend,
           },
         }
-
-        return { content: fullContent, metadata }
+        const result = await consumeTextEventStream({
+          response,
+          initialMetadata: metadata,
+          onChunk: (chunk, fullContent) => {
+            lastContentRef.current.set(runId, fullContent)
+            options.onChunk?.(chunk, fullContent)
+          },
+        })
+        return result
       } catch (error: unknown) {
         if (error instanceof Error && error.name === 'AbortError') {
           options.onStatusChange?.('stopped')
@@ -678,92 +842,21 @@ export function useChatStream(config: StreamConfig = {}) {
           throw new Error(error.detail || 'Cloud chat failed.')
         }
 
-        const reader = response.body?.getReader()
-        if (!reader) {
-          throw new Error('Unable to read the response stream.')
-        }
-
-        const decoder = new TextDecoder()
-        let fullContent = ''
-        let metadata: StreamMetadata | undefined
-
         options.onStatusChange?.('streaming')
-
-        // eslint-disable-next-line no-constant-condition
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) {
-            break
-          }
-
-          const chunk = decoder.decode(value)
-          const lines = chunk.split('\n')
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) {
-              continue
-            }
-
-            const raw = line.slice(6)
-            if (raw === '[DONE]') {
-              continue
-            }
-
-            try {
-              const parsed = JSON.parse(raw)
-              if (parsed.error) {
-                throw new Error(parsed.error)
-              }
-
-              if (parsed.type === 'metadata') {
-                metadata = {
-                  ...metadata,
-                  knowledgeSources: parsed.knowledge_sources ?? metadata?.knowledgeSources,
-                  retrievalInfo: parsed.retrieval_info ?? metadata?.retrievalInfo,
-                  memoryContext: parsed.memory_context ?? metadata?.memoryContext,
-                  unifiedContext: parsed.unified_context ?? metadata?.unifiedContext,
-                  rawResponse: parsed.raw_response ?? metadata?.rawResponse,
-                  runMetrics: {
-                    ...(metadata?.runMetrics || {}),
-                    model: parsed.model || metadata?.runMetrics?.model || cloudConfig.model,
-                    backend: parsed.backend || metadata?.runMetrics?.backend || 'cloud',
-                    duration_ms: parsed.duration_ms ?? metadata?.runMetrics?.duration_ms,
-                    prompt_tokens: parsed.usage?.prompt_tokens ?? metadata?.runMetrics?.prompt_tokens,
-                    completion_tokens:
-                      parsed.usage?.completion_tokens ?? metadata?.runMetrics?.completion_tokens,
-                    total_tokens: parsed.usage?.total_tokens ?? metadata?.runMetrics?.total_tokens,
-                    used_knowledge:
-                      Boolean(parsed.knowledge_sources?.length) || metadata?.runMetrics?.used_knowledge,
-                    used_memory:
-                      Boolean(parsed.memory_context?.retrieved) || metadata?.runMetrics?.used_memory,
-                  },
-                }
-                continue
-              }
-
-              if (parsed.content) {
-                fullContent += parsed.content
-                lastContentRef.current.set(runId, fullContent)
-                options.onChunk?.(parsed.content, fullContent)
-              }
-            } catch (parseError) {
-              if (parseError instanceof SyntaxError) {
-                continue
-              }
-              throw parseError
-            }
-          }
-        }
-
-        if (!metadata) {
-          metadata = {
+        const result = await consumeTextEventStream({
+          response,
+          initialMetadata: {
             runMetrics: {
               model: cloudConfig.model,
               backend: 'cloud',
             },
-          }
-        }
-
-        return { content: fullContent, metadata }
+          },
+          onChunk: (chunk, fullContent) => {
+            lastContentRef.current.set(runId, fullContent)
+            options.onChunk?.(chunk, fullContent)
+          },
+        })
+        return result
       } catch (error: unknown) {
         if (error instanceof Error && error.name === 'AbortError') {
           options.onStatusChange?.('stopped')

@@ -261,8 +261,9 @@ class OllamaBackend(InferenceBackend):
     ) -> AsyncIterator[str]:
         """流式对话生成"""
         if not self._is_loaded:
-            yield "[Error: Model not loaded]"
-            return
+            loaded = await self.load_model(self.model_name)
+            if not loaded:
+                raise RuntimeError(f"Model not loaded: {self.model_name}")
 
         config = config or GenerationConfig()
 
@@ -288,8 +289,7 @@ class OllamaBackend(InferenceBackend):
                     timeout=aiohttp.ClientTimeout(total=self.timeout)
                 ) as response:
                     if response.status != 200:
-                        yield f"[Error: Ollama API returned {response.status}]"
-                        return
+                        raise RuntimeError(f"Ollama API returned {response.status}")
 
                     async for line in response.content:
                         if line:
@@ -304,7 +304,7 @@ class OllamaBackend(InferenceBackend):
 
         except Exception as e:
             logger.error(f"Ollama chat stream failed: {e}")
-            yield f"[Error: {e}]"
+            raise
 
     def get_model_info(self) -> dict[str, Any]:
         """获取模型信息"""

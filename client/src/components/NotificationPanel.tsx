@@ -136,13 +136,14 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
               <div style={{
                 width: 40,
                 height: 40,
-                borderRadius: '12px',
-                background: 'var(--gradient-primary)',
+                borderRadius: '8px',
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--border-color)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: '20px',
-                color: '#fff',
+                fontSize: '18px',
+                color: 'var(--text-primary)',
               }}>
                 <BellOutlined />
               </div>

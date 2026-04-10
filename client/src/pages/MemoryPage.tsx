@@ -2,27 +2,72 @@
  * 记忆管理页面
  */
 import { useState } from 'react'
-import { Button, Space } from 'antd'
+import { Button } from 'antd'
 import { BulbOutlined, PlusOutlined } from '@ant-design/icons'
 
 import MemoryManager from '../components/MemoryManager'
+import { MotionList, MotionItem } from '../components/shared/MotionWrapper'
+import styles from './MemoryPage.module.css'
+
+const tiers = [
+  {
+    icon: '⚡',
+    name: '工作记忆',
+    desc: '当前对话上下文，实时感知用户意图，会话结束后自动清除。',
+  },
+  {
+    icon: '🧠',
+    name: '短期记忆',
+    desc: '近期交互摘要，跨会话保留重要信息，定期压缩归档。',
+  },
+  {
+    icon: '🗄️',
+    name: '长期记忆',
+    desc: '语义化知识图谱，持久存储核心知识，支持 MCP 协议访问。',
+  },
+]
 
 export default function MemoryPage() {
   const [memoryManagerOpen, setMemoryManagerOpen] = useState(false)
 
   return (
-    <div style={{ padding: 24, height: '100%' }}>
-      <div style={{ marginBottom: 24 }}>
-        <h2 style={{ margin: 0, marginBottom: 8 }}>
-          <BulbOutlined style={{ marginRight: 8 }} />
-          智能记忆系统
-        </h2>
-        <p style={{ color: 'var(--text-secondary)', margin: 0 }}>
-          三级记忆架构：工作记忆、短期记忆、长期记忆，支持知识图谱和 MCP 协议
-        </p>
+    <MotionList className={styles.container} stagger={0.1}>
+      <MotionItem>
+      {/* 标题栏 */}
+      <div className={styles.headerCard}>
+        <div className={styles.headerIcon}>
+          <BulbOutlined />
+        </div>
+        <div>
+          <h2 className={styles.headerTitle}>智能记忆系统</h2>
+          <p className={styles.headerSubtitle}>
+            三级记忆架构：工作记忆、短期记忆、长期记忆，支持知识图谱和 MCP 协议
+          </p>
+        </div>
       </div>
 
-      <Space>
+      {/* 三层记忆架构说明 */}
+      <div className={styles.tiersCard}>
+        <div className={styles.sectionTitle}>记忆层级</div>
+        <div className={styles.tiersGrid}>
+          {tiers.map((tier) => (
+            <div key={tier.name} className={styles.tierItem}>
+              <div className={styles.tierIcon}>{tier.icon}</div>
+              <div className={styles.tierName}>{tier.name}</div>
+              <div className={styles.tierDesc}>{tier.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 操作入口 */}
+      <div className={styles.actionCard}>
+        <div className={styles.actionInfo}>
+          <div className={styles.actionTitle}>记忆管理</div>
+          <div className={styles.actionDesc}>
+            查看、编辑、删除各层记忆条目，管理知识图谱节点与关联关系
+          </div>
+        </div>
         <Button
           type="primary"
           icon={<PlusOutlined />}
@@ -30,12 +75,13 @@ export default function MemoryPage() {
         >
           打开记忆管理
         </Button>
-      </Space>
+      </div>
 
       <MemoryManager
         open={memoryManagerOpen}
         onClose={() => setMemoryManagerOpen(false)}
       />
-    </div>
+      </MotionItem>
+    </MotionList>
   )
 }

@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Card, Input, Button, Space, Alert, Select, Typography, Divider, message } from 'antd'
+import { Input, Button, Space, Alert, Select, Divider, message } from 'antd'
 import { SaveOutlined, CloudOutlined, DeleteOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import { API_BASE_URL } from '../services/api'
+import { MotionList, MotionItem } from '../components/shared/MotionWrapper'
 
-const { TextArea } = Input
-const { Title, Text } = Typography
 
 // 云端 AI 配置类型
 interface APIKeyConfig {
@@ -217,279 +216,222 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({
   const currentModels = MODEL_OPTIONS[provider] || []
 
   return (
-    <Card
-      title={
-        <Space>
-          <CloudOutlined />
-          <span>☁️ 云端 AI 配置</span>
-        </Space>
-      }
-      extra={
+    <MotionList style={{ display: 'flex', flexDirection: 'column', gap: 20 }} stagger={0.08}>
+      {/* 标题栏 */}
+      <MotionItem>
+      <div style={{
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border-color)',
+        borderRadius: 12,
+        padding: '20px 24px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 16,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <CloudOutlined style={{ fontSize: 20, color: 'var(--text-secondary)' }} />
+          <span style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>☁️ 云端 AI 配置</span>
+        </div>
         <Space>
           {saved && (
-            <Text type="success" style={{ marginRight: 8 }}>
-              ✓ 已保存
-            </Text>
+            <span style={{ color: 'var(--success)', marginRight: 8, fontWeight: 500 }}>✓ 已保存</span>
           )}
-          <Button onClick={handleClear} size="small">
-            清除配置
-          </Button>
-          <Button 
-            type="primary" 
-            icon={<SaveOutlined />} 
-            onClick={handleSave}
-          >
-            保存配置
-          </Button>
+          <Button onClick={handleClear} size="small">清除配置</Button>
+          <Button type="primary" icon={<SaveOutlined />} onClick={handleSave}>保存配置</Button>
         </Space>
-      }
-      style={{ borderRadius: 12 }}
-    >
-      <Space direction="vertical" style={{ width: '100%' }} size="large">
-        {/* 已保存的 API Keys */}
-        {savedKeys.length > 0 && (
-          <Card size="small" title="已保存的 API Keys" style={{ background: 'var(--bg-secondary)' }}>
-            <Space direction="vertical" style={{ width: '100%' }} size="small">
-              {savedKeys.map(key => (
-                <Space key={key.id} style={{ justifyContent: 'space-between', width: '100%' }}>
-                  <Space>
-                    <CheckCircleOutlined style={{ color: 'var(--success)' }} />
-                    <div>
-                      <Text strong>{key.name || key.provider}</Text>
-                      <br />
-                      <Text type="secondary" style={{ fontSize: 12 }}>{key.provider} · {key.created_at}</Text>
-                    </div>
-                  </Space>
-                  <Button
-                    size="small"
-                    danger
-                    icon={<DeleteOutlined />}
-                    onClick={() => handleDeleteKey(key.id)}
-                  >
-                    删除
-                  </Button>
+      </div>
+      </MotionItem>
+
+      {/* 已保存的 API Keys */}
+      {savedKeys.length > 0 && (
+        <MotionItem>
+        <div style={{
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--border-color)',
+          borderRadius: 12,
+          padding: 20,
+        }}>
+          <div style={{ fontWeight: 600, marginBottom: 12, color: 'var(--text-primary)', fontSize: 15 }}>已保存的 API Keys</div>
+          <Space direction="vertical" style={{ width: '100%' }} size="small">
+            {savedKeys.map(key => (
+              <Space key={key.id} style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Space>
+                  <CheckCircleOutlined style={{ color: 'var(--success)' }} />
+                  <div>
+                    <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{key.name || key.provider}</span>
+                    <br />
+                    <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{key.provider} · {key.created_at}</span>
+                  </div>
                 </Space>
-              ))}
-            </Space>
-          </Card>
-        )}
-
-        <Divider>配置新 API Key</Divider>
-
-        {/* 提示信息 */}
-        <Alert
-          message="Minimax Coding Plan"
-          description={
-            provider === 'minimax-coding' 
-              ? "使用你的 Minimax 编程套餐，享受更强的代码生成和优化能力。格式：group_id:api_key"
-              : "切换到 Minimax Coding 可获得更好的编程体验"
-          }
-          type={provider === 'minimax-coding' ? "success" : "info"}
-          showIcon
-        />
-
-        {/* 服务商选择 */}
-        <div>
-          <Title level={5} style={{ marginBottom: 8 }}>服务商</Title>
-          <Select
-            value={provider}
-            onChange={setProvider}
-            options={PROVIDER_OPTIONS}
-            style={{ width: '100%' }}
-            size="large"
-          />
-          {currentProvider && (
-            <div style={{ marginTop: 8 }}>
-              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
-                {currentProvider.description}
-              </Text>
-              <Space size="small">
-                <a href={currentProvider.officialUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>
-                  🏠 官网
-                </a>
-                <Text type="secondary" style={{ fontSize: 12 }}>|</Text>
-                <a href={currentProvider.apiKeyUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>
-                  🔑 获取 API Key
-                </a>
+                <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDeleteKey(key.id)}>删除</Button>
               </Space>
-            </div>
-          )}
+            ))}
+          </Space>
         </div>
+        </MotionItem>
+      )}
 
-        <Divider style={{ margin: '12px 0' }} />
-
-        {/* 模型选择 */}
-        <div>
-          <Title level={5} style={{ marginBottom: 8 }}>选择模型</Title>
-          <Select
-            value={model}
-            onChange={setModel}
-            options={currentModels}
-            style={{ width: '100%' }}
-            size="large"
+      {/* 配置区 */}
+      <MotionItem>
+      <div style={{
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border-color)',
+        borderRadius: 12,
+        padding: 24,
+      }}>
+        <Space direction="vertical" style={{ width: '100%' }} size="large">
+          <Alert
+            message="Minimax Coding Plan"
+            description={
+              provider === 'minimax-coding'
+                ? "使用你的 Minimax 编程套餐，享受更强的代码生成和优化能力。格式：group_id:api_key"
+                : "切换到 Minimax Coding 可获得更好的编程体验"
+            }
+            type={provider === 'minimax-coding' ? "success" : "info"}
+            showIcon
           />
-        </div>
 
-        <Divider style={{ margin: '12px 0' }} />
-
-        {/* Group ID 输入 */}
-        <div>
-          <Title level={5} style={{ marginBottom: 8 }}>
-            Group ID
-            <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
-              (可选，MiniMax 用户/组织 ID)
-            </Text>
-          </Title>
-          <Input
-            value={groupId}
-            onChange={(e) => setGroupId(e.target.value)}
-            placeholder="请输入 Group ID（可选）"
-            size="large"
-          />
-        </div>
-
-        <Divider style={{ margin: '12px 0' }} />
-
-        {/* Base URL 输入 */}
-        <div>
-          <Title level={5} style={{ marginBottom: 8 }}>
-            Base URL
-            <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
-              (API 请求地址)
-            </Text>
-          </Title>
-          <Space.Compact style={{ width: '100%' }}>
-            <Input
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder={currentProvider?.defaultBaseUrl || '请输入 Base URL'}
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' }}>服务商</div>
+            <Select
+              value={provider}
+              onChange={setProvider}
+              options={PROVIDER_OPTIONS}
+              style={{ width: '100%' }}
               size="large"
-              style={{ flex: 1 }}
             />
-            <Button 
+            {currentProvider && (
+              <div style={{ marginTop: 8 }}>
+                <span style={{ color: 'var(--text-secondary)', fontSize: 12, display: 'block', marginBottom: 4 }}>
+                  {currentProvider.description}
+                </span>
+                <Space size="small">
+                  <a href={currentProvider.officialUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>🏠 官网</a>
+                  <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>|</span>
+                  <a href={currentProvider.apiKeyUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>🔑 获取 API Key</a>
+                </Space>
+              </div>
+            )}
+          </div>
+
+          <Divider style={{ margin: '12px 0' }} />
+
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' }}>选择模型</div>
+            <Select value={model} onChange={setModel} options={currentModels} style={{ width: '100%' }} size="large" />
+          </div>
+
+          <Divider style={{ margin: '12px 0' }} />
+
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' }}>
+              Group ID
+              <span style={{ color: 'var(--text-secondary)', fontSize: 12, marginLeft: 8, fontWeight: 400 }}>(可选，MiniMax 用户/组织 ID)</span>
+            </div>
+            <Input value={groupId} onChange={(e) => setGroupId(e.target.value)} placeholder="请输入 Group ID（可选）" size="large" />
+          </div>
+
+          <Divider style={{ margin: '12px 0' }} />
+
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' }}>
+              Base URL
+              <span style={{ color: 'var(--text-secondary)', fontSize: 12, marginLeft: 8, fontWeight: 400 }}>(API 请求地址)</span>
+            </div>
+            <Space.Compact style={{ width: '100%' }}>
+              <Input
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                placeholder={currentProvider?.defaultBaseUrl || '请输入 Base URL'}
+                size="large"
+                style={{ flex: 1 }}
+              />
+              <Button size="large" onClick={() => setBaseUrl(currentProvider?.defaultBaseUrl || '')} disabled={!currentProvider?.defaultBaseUrl}>
+                使用默认
+              </Button>
+            </Space.Compact>
+            {currentProvider?.defaultBaseUrl && (
+              <span style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 4, display: 'block' }}>
+                默认地址：<code style={{ background: 'var(--bg-elevated)', padding: '2px 6px', borderRadius: 4 }}>{currentProvider.defaultBaseUrl}</code>
+              </span>
+            )}
+          </div>
+
+          <Divider style={{ margin: '12px 0' }} />
+
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8, color: 'var(--text-primary)' }}>
+              API Key
+              <span style={{ color: 'var(--text-secondary)', fontSize: 12, marginLeft: 8, fontWeight: 400 }}>(必填)</span>
+            </div>
+            <Input.TextArea
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="请输入 API Key"
+              rows={3}
               size="large"
-              onClick={() => setBaseUrl(currentProvider?.defaultBaseUrl || '')}
-              disabled={!currentProvider?.defaultBaseUrl}
-            >
-              使用默认
-            </Button>
-          </Space.Compact>
-          {currentProvider?.defaultBaseUrl && (
-            <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
-              默认地址：<code style={{ background: '#f5f5f5', padding: '2px 6px', borderRadius: 4 }}>{currentProvider.defaultBaseUrl}</code>
-            </Text>
-          )}
-        </div>
+            />
+          </div>
 
-        <Divider style={{ margin: '12px 0' }} />
-
-        {/* API Key 输入 */}
-        <div>
-          <Title level={5} style={{ marginBottom: 8 }}>
-            API Key
-            <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
-              (必填)
-            </Text>
-          </Title>
-          <TextArea
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="请输入 API Key"
-            rows={3}
-            size="large"
+          <Alert
+            message="如何获取 API Key？"
+            description={
+              provider.startsWith('minimax') ? (
+                <ol style={{ margin: 0, paddingLeft: 20 }}>
+                  <li>访问 <a href="https://platform.minimaxi.com/" target="_blank" rel="noreferrer">Minimax 开放平台</a></li>
+                  <li>注册/登录账号（支持手机号、微信）</li>
+                  <li>进入「控制台」→「API Key 管理」</li>
+                  <li>点击「创建 API Key」并复制</li>
+                  <li>如有 Group ID（用户/组织ID），一并填入</li>
+                </ol>
+              ) : provider === 'glm' ? (
+                <ol style={{ margin: 0, paddingLeft: 20 }}>
+                  <li>访问 <a href="https://open.bigmodel.cn/" target="_blank" rel="noreferrer">智谱 AI 开放平台</a></li>
+                  <li>注册/登录账号</li>
+                  <li>进入「API Keys」页面</li>
+                  <li>点击「创建 API Key」并复制</li>
+                </ol>
+              ) : (
+                <ol style={{ margin: 0, paddingLeft: 20 }}>
+                  <li>访问对应服务商官网注册账号</li>
+                  <li>在控制台获取 API Key</li>
+                  <li>填入 API Key 和 Base URL</li>
+                </ol>
+              )
+            }
+            type="success"
+            showIcon
+            icon={<CloudOutlined />}
           />
-        </div>
 
-        {/* 获取帮助 */}
-        <Alert
-          message="如何获取 API Key？"
-          description={
-            provider.startsWith('minimax') ? (
-              <ol style={{ margin: 0, paddingLeft: 20 }}>
-                <li>访问 <a href="https://platform.minimaxi.com/" target="_blank" rel="noreferrer">Minimax 开放平台</a></li>
-                <li>注册/登录账号（支持手机号、微信）</li>
-                <li>进入「控制台」→「API Key 管理」</li>
-                <li>点击「创建 API Key」并复制</li>
-                <li>如有 Group ID（用户/组织ID），一并填入</li>
-              </ol>
-            ) : provider === 'glm' ? (
-              <ol style={{ margin: 0, paddingLeft: 20 }}>
-                <li>访问 <a href="https://open.bigmodel.cn/" target="_blank" rel="noreferrer">智谱 AI 开放平台</a></li>
-                <li>注册/登录账号</li>
-                <li>进入「API Keys」页面</li>
-                <li>点击「创建 API Key」并复制</li>
-              </ol>
-            ) : (
-              <ol style={{ margin: 0, paddingLeft: 20 }}>
-                <li>访问对应服务商官网注册账号</li>
-                <li>在控制台获取 API Key</li>
-                <li>填入 API Key 和 Base URL</li>
-              </ol>
-            )
-          }
-          type="success"
-          showIcon
-          icon={<CloudOutlined />}
-        />
-
-        {/* API 配置信息 */}
-        <Card size="small" style={{ background: '#fafafa', marginTop: 8 }}>
-          <Title level={5} style={{ marginBottom: 8 }}>📋 API 配置信息</Title>
-          {provider.startsWith('minimax') ? (
-            <div>
-              <Text style={{ fontSize: 12 }}><strong>请求地址：</strong></Text>
-              <br />
-              <code style={{ background: '#fff', padding: '4px 8px', borderRadius: 4, fontSize: 11 }}>
-                https://api.minimaxi.com/v1/text/chatcompletion_v2
-              </code>
-              <br /><br />
-              <Text style={{ fontSize: 12 }}><strong>认证方式：</strong>Bearer Token (Header)</Text>
-              <br />
-              <Text style={{ fontSize: 12 }}><strong>支持模型：</strong>MiniMax-Text-01, MiniMax-M2.5, abab6.5s-chat</Text>
-            </div>
-          ) : provider === 'glm' ? (
-            <div>
-              <Text style={{ fontSize: 12 }}><strong>请求地址：</strong></Text>
-              <br />
-              <code style={{ background: '#fff', padding: '4px 8px', borderRadius: 4, fontSize: 11 }}>
-                https://open.bigmodel.cn/api/paas/v4/chat/completions
-              </code>
-              <br /><br />
-              <Text style={{ fontSize: 12 }}><strong>认证方式：</strong>Bearer Token (Header)</Text>
-              <br />
-              <Text style={{ fontSize: 12 }}><strong>支持模型：</strong>glm-4, glm-3-turbo, glm-4v</Text>
-            </div>
-          ) : (
-            <Text style={{ fontSize: 12 }}>请查看对应服务商的 API 文档</Text>
-          )}
-        </Card>
-
-        {/* 价格提示 */}
-        <Alert
-          message="💰 费用提示"
-          description={
-            provider.startsWith('minimax') ? (
-              <div>
-                <Text>Minimax Coding Plan 套餐内调用免费，超额后约 ¥0.01-0.03/1k tokens。</Text>
-                <br />
-                <Text type="secondary">建议定期检查剩余额度，设置用量提醒。</Text>
-              </div>
-            ) : provider === 'glm' ? (
-              <div>
-                <Text>智谱 GLM 新用户有免费额度，按量计费约 ¥0.01-0.1/1k tokens。</Text>
-                <br />
-                <Text type="secondary">GLM-4 价格较高，GLM-3-turbo 性价比更好。</Text>
-              </div>
-            ) : (
-              <Text>请查看对应服务商的定价策略。</Text>
-            )
-          }
-          type="warning"
-          showIcon
-          style={{ marginTop: 8 }}
-        />
-      </Space>
-    </Card>
+          <Alert
+            message="💰 费用提示"
+            description={
+              provider.startsWith('minimax') ? (
+                <div>
+                  <span>Minimax Coding Plan 套餐内调用免费，超额后约 ¥0.01-0.03/1k tokens。</span>
+                  <br />
+                  <span style={{ color: 'var(--text-secondary)' }}>建议定期检查剩余额度，设置用量提醒。</span>
+                </div>
+              ) : provider === 'glm' ? (
+                <div>
+                  <span>智谱 GLM 新用户有免费额度，按量计费约 ¥0.01-0.1/1k tokens。</span>
+                  <br />
+                  <span style={{ color: 'var(--text-secondary)' }}>GLM-4 价格较高，GLM-3-turbo 性价比更好。</span>
+                </div>
+              ) : (
+                <span>请查看对应服务商的定价策略。</span>
+              )
+            }
+            type="warning"
+            showIcon
+            style={{ marginTop: 8 }}
+          />
+        </Space>
+      </div>
+      </MotionItem>
+    </MotionList>
   )
 }
 

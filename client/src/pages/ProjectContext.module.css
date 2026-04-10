@@ -1,0 +1,190 @@
+.container {
+  padding: 0 0 24px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.headerCard {
+  composes: glassCard from '../components/shared/GlassCard.module.css';
+  padding: var(--space-5) var(--space-6);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.headerIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, #10b981, #06b6d4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.headerTitle {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.headerSubtitle {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin: 2px 0 0;
+}
+
+.scanCard {
+  composes: glassCard from '../components/shared/GlassCard.module.css';
+  padding: var(--space-5) var(--space-6);
+}
+
+.sectionTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.statusBanner {
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.statusBanner.info {
+  background: rgba(22, 119, 255, 0.08);
+  border: 1px solid rgba(22, 119, 255, 0.2);
+  color: #1677ff;
+}
+
+.statusBanner.success {
+  background: rgba(82, 196, 26, 0.08);
+  border: 1px solid rgba(82, 196, 26, 0.2);
+  color: #52c41a;
+}
+
+.statusBanner.error {
+  background: rgba(255, 77, 79, 0.08);
+  border: 1px solid rgba(255, 77, 79, 0.2);
+  color: #ff4d4f;
+}
+
+.projectsCard {
+  composes: glassCard from '../components/shared/GlassCard.module.css';
+  padding: var(--space-5) var(--space-6);
+}
+
+.cardTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.projectItem {
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.projectItem:last-child {
+  border-bottom: none;
+}
+
+.projectInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.projectName {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: 4px;
+}
+
+.projectPath {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-family: monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 8px;
+}
+
+.projectTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.projectTime {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.emptyState {
+  text-align: center;
+  padding: var(--space-10) 0;
+  color: var(--text-tertiary);
+}
+
+.emptyIcon {
+  font-size: 48px;
+  margin-bottom: var(--space-3);
+  opacity: 0.4;
+}
+
+.helpCard {
+  composes: glassCard from '../components/shared/GlassCard.module.css';
+  padding: var(--space-5) var(--space-6);
+}
+
+.helpList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.helpList li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.helpList li::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent-blue);
+  margin-top: 7px;
+  flex-shrink: 0;
+}

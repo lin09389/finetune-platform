@@ -1,88 +1,42 @@
 .glassCard {
   position: relative;
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--glass-border);
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  box-shadow: var(--shadow-glass);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
   overflow: hidden;
-  transition: all var(--transition-base);
+  transition: border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   width: 100%;
-  /* GPU 加速 */
-  transform: translateZ(0);
-  backface-visibility: hidden;
-  will-change: transform, box-shadow, border-color;
+  will-change: transform, box-shadow;
 }
 
-/* 微质感层 */
-.glassCard::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  opacity: 0.03;
-  pointer-events: none;
-  z-index: 1;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
-}
-
-:global(.dark-theme) .glassCard::after {
-  opacity: 0.05;
-}
-
-.intensity-low {
-  --glass-blur: blur(8px) saturate(120%);
-  --glass-bg: rgba(255, 255, 255, 0.45);
-}
-
-.intensity-medium {
-  --glass-blur: blur(16px) saturate(160%);
-  --glass-bg: rgba(255, 255, 255, 0.65);
-}
-
-.intensity-high {
-  --glass-blur: blur(24px) saturate(200%);
-  --glass-bg: rgba(255, 255, 255, 0.8);
-}
-
-:global(.dark-theme) .intensity-low {
-  --glass-bg: rgba(23, 29, 40, 0.4);
-}
-
-:global(.dark-theme) .intensity-medium {
-  --glass-bg: rgba(23, 29, 40, 0.6);
-}
-
-:global(.dark-theme) .intensity-high {
-  --glass-bg: rgba(23, 29, 40, 0.75);
-}
+/* intensity variants — purely cosmetic now, kept for API compatibility */
+.intensity-low {}
+.intensity-medium {}
+.intensity-high {}
 
 .glassCard:hover {
-  border-color: rgba(255, 255, 255, 0.6);
-  box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.1);
-  transform: translateY(-2px);
+  border-color: var(--border-hover);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04);
+  transform: translateY(-1px);
 }
 
 :global(.dark-theme) .glassCard:hover {
-  border-color: rgba(255, 255, 255, 0.15);
-  box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), 0 1px 4px rgba(0, 0, 0, 0.2);
+}
+
+.glassCard:active {
+  transform: translateY(0);
+  transition-duration: 0.1s;
 }
 
 .reflection {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--glass-reflection);
-  pointer-events: none;
-  z-index: 2;
-  opacity: 0.8;
+  display: none;
 }
 
 .content {
   position: relative;
-  z-index: 3;
   padding: var(--space-6);
   height: 100%;
 }

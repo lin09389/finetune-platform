@@ -1,9 +1,12 @@
 import { useEffect, useState, useRef } from 'react'
 import { Table, Button, Space, Tag, message, Drawer, Alert, Popconfirm } from 'antd'
-import { DeleteOutlined, UploadOutlined, FolderOpenOutlined, EyeOutlined } from '@ant-design/icons'
+import { DeleteOutlined, UploadOutlined, FolderOpenOutlined, EyeOutlined, FileTextOutlined } from '@ant-design/icons'
 import { useAppStore } from '../store/appStore'
 import { getDatasetList, uploadDataset, deleteDataset, previewDataset } from '../services/api'
 import type { DatasetInfo } from '../types'
+import { MotionList, MotionItem } from '../components/shared/MotionWrapper'
+import styles from './DatasetManager.module.css'
+import glassStyles from '../components/shared/GlassCard.module.css'
 
 export default function DatasetManager() {
   const { datasets, setDatasets, removeDataset, addDataset, backendStatus } = useAppStore()
@@ -194,7 +197,7 @@ export default function DatasetManager() {
   ]
 
   return (
-    <div style={{ padding: '0 24px' }}>
+    <MotionList className={styles.container} stagger={0.08}>
       {/* 隐藏的文件上传 input (用于 Web 环境) */}
       <input
         ref={fileInputRef}
@@ -203,26 +206,33 @@ export default function DatasetManager() {
         style={{ display: 'none' }}
         onChange={handleWebFileUpload}
       />
-      <div className="page-container">
-        <div className="page-title">
+      <MotionItem>
+      <div className={`${glassStyles.glassCard} ${styles.headerCard}`}>
+        <h1 className={styles.title}>
+          <FileTextOutlined />
           数据集管理
-          <Button
-            type="primary"
-            icon={<UploadOutlined />}
-            onClick={handleSelectFile}
-            style={{ marginLeft: 16 }}
-            loading={loading}
-          >
-            上传数据集
-          </Button>
-        </div>
+        </h1>
+        <Button
+          type="primary"
+          icon={<UploadOutlined />}
+          onClick={handleSelectFile}
+          loading={loading}
+          size="large"
+          style={{ borderRadius: 8 }}
+        >
+          上传数据集
+        </Button>
+      </div>
+      </MotionItem>
 
+      <MotionItem>
+      <div className={`${glassStyles.glassCard} ${styles.tableCard}`}>
         <Alert
           message="数据集格式说明"
           description={
             <div>
               支持 JSON 和 JSONL 格式。每行一条对话数据，格式如下：
-              <pre style={{ margin: '8px 0', padding: '8px', background: 'var(--bg-elevated)', borderRadius: 4 }}>
+              <pre className={styles.codePreview} style={{ marginTop: 8, marginBottom: 0, padding: 12 }}>
 {`[
   {"role": "user", "content": "你好"},
   {"role": "assistant", "content": "你好！有什么可以帮你的？"}
@@ -232,7 +242,7 @@ export default function DatasetManager() {
           }
           type="info"
           showIcon
-          style={{ marginBottom: 16 }}
+          style={{ marginBottom: 24, borderRadius: 8, background: 'rgba(22, 119, 255, 0.05)', border: '1px solid rgba(22, 119, 255, 0.1)' }}
         />
 
         {backendStatus !== 'connected' ? (
@@ -249,6 +259,7 @@ export default function DatasetManager() {
           />
         )}
       </div>
+      </MotionItem>
 
       <Drawer
         title="数据集预览"
@@ -256,25 +267,29 @@ export default function DatasetManager() {
         width={600}
         open={previewVisible}
         onClose={() => setPreviewVisible(false)}
+        className="glass-drawer"
       >
         {previewData && (
-          <>
-            <p style={{ marginBottom: 16 }}>
-              <strong>总样本数:</strong> {previewData.total_samples}
-            </p>
-            <pre style={{
-              background: 'var(--bg-elevated)',
-              padding: 16,
+          <div style={{ paddingBottom: 24 }}>
+            <div style={{ 
+              marginBottom: 16, 
+              padding: '12px 16px', 
+              background: 'rgba(22, 119, 255, 0.05)', 
               borderRadius: 8,
-              maxHeight: 500,
-              overflow: 'auto',
-              fontSize: 12
+              border: '1px solid rgba(22, 119, 255, 0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8
             }}>
+              <strong style={{ color: 'var(--text-primary)' }}>总样本数:</strong> 
+              <span style={{ color: 'var(--accent-primary)', fontSize: 16, fontWeight: 500 }}>{previewData.total_samples}</span>
+            </div>
+            <pre className={styles.codePreview}>
               {JSON.stringify(previewData.preview, null, 2)}
             </pre>
-          </>
+          </div>
         )}
       </Drawer>
-    </div>
+    </MotionList>
   )
 }

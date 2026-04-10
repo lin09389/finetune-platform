@@ -22,6 +22,7 @@ import { useAppStore } from '../store/appStore'
 import { getDeviceInfo } from '../services/api'
 import GlassCard from '../components/shared/GlassCard'
 import AnimatedLayout from '../components/shared/AnimatedLayout'
+import { CountUp } from '../components/shared/MotionWrapper'
 import styles from './Dashboard.module.css'
 
 interface QuickAction {
@@ -82,20 +83,23 @@ const StatCard: React.FC<StatCardProps> = ({
   return (
     <GlassCard className={styles.statCard}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ 
             fontSize: 'var(--text-xs)', 
             color: 'var(--text-tertiary)', 
-            marginBottom: 'var(--space-2)',
+            marginBottom: 'var(--space-3)',
             fontWeight: 'var(--font-semibold)',
             textTransform: 'uppercase',
-            letterSpacing: 'var(--tracking-widest)'
+            letterSpacing: '0.06em'
           }}>
             {title}
           </div>
           <div className={styles.statValue}>
             {prefix}
-            {value.toFixed(total ? 1 : 0)}
+            <CountUp
+              value={value}
+              decimals={total ? 1 : 0}
+            />
             {total !== undefined && (
               <span className={styles.statTotal}>
                 / {total} {suffix}
@@ -108,7 +112,11 @@ const StatCard: React.FC<StatCardProps> = ({
             )}
           </div>
         </div>
-        <div className={styles.statIcon} style={{ background: color }}>
+        <div className={styles.statIcon} style={{ 
+          background: color,
+          color: '#fff',
+          boxShadow: `0 4px 12px ${color}40`
+        }}>
           {icon}
         </div>
       </div>
@@ -119,7 +127,7 @@ const StatCard: React.FC<StatCardProps> = ({
             percent={progress}
             strokeColor={color}
             trailColor="var(--border-color)"
-            size={{ height: 4 }}
+            size={{ height: 3 }}
             showInfo={false}
             style={{ margin: 0 }}
           />
@@ -168,7 +176,7 @@ export default function Dashboard() {
               borderRadius: 'var(--radius-sm)', 
               fontWeight: 600,
               background: 'var(--success-light)',
-              borderColor: 'var(--success)',
+              borderColor: 'var(--success-border)',
               color: 'var(--success)',
               padding: '2px 8px'
             }}
@@ -184,7 +192,7 @@ export default function Dashboard() {
               borderRadius: 'var(--radius-sm)', 
               fontWeight: 600,
               background: 'var(--error-light)',
-              borderColor: 'var(--error)',
+              borderColor: 'var(--error-border)',
               color: 'var(--error)',
               padding: '2px 8px'
             }}
@@ -200,7 +208,7 @@ export default function Dashboard() {
               borderRadius: 'var(--radius-sm)', 
               fontWeight: 600,
               background: 'var(--warning-light)',
-              borderColor: 'var(--warning)',
+              borderColor: 'var(--warning-border)',
               color: 'var(--warning)',
               padding: '2px 8px'
             }}
@@ -216,7 +224,7 @@ export default function Dashboard() {
               borderRadius: 'var(--radius-sm)', 
               fontWeight: 600,
               background: 'var(--info-light)',
-              borderColor: 'var(--info)',
+              borderColor: 'var(--info-border)',
               color: 'var(--info)',
               padding: '2px 8px'
             }}
@@ -297,7 +305,7 @@ export default function Dashboard() {
     {
       title: '开始训练',
       icon: <RocketOutlined />,
-      color: 'var(--text-primary)',
+      color: 'var(--accent-primary)',
       onClick: () => navigate('/training'),
       description: '创建并部署新的微调任务，支持 LoRA/QLoRA',
       stats: '快速启动'
@@ -305,7 +313,7 @@ export default function Dashboard() {
     {
       title: '模型管理',
       icon: <FolderOutlined />,
-      color: 'var(--accent-secondary)',
+      color: 'var(--success)',
       onClick: () => navigate('/models'),
       description: '高效管理本地模型库，支持多格式导入与导出',
       stats: `${models.length} 个模型`
@@ -313,7 +321,7 @@ export default function Dashboard() {
     {
       title: '数据集管理',
       icon: <DatabaseOutlined />,
-      color: 'var(--accent-primary)',
+      color: 'var(--warning)',
       onClick: () => navigate('/datasets'),
       description: '上传并清洗您的训练数据集，支持 JSONL/CSV',
       stats: `${datasets.length} 个数据集`
@@ -321,7 +329,7 @@ export default function Dashboard() {
     {
       title: 'AI 对话',
       icon: <MessageOutlined />,
-      color: 'var(--text-secondary)',
+      color: 'var(--accent-secondary)',
       onClick: () => navigate('/chat'),
       description: '与您的模型进行实时对话，测试微调后的生成效果',
       stats: '立即体验'
@@ -381,7 +389,7 @@ export default function Dashboard() {
                     value={deviceInfo?.vram_free || 0}
                     total={deviceInfo?.vram_total || 0}
                     suffix="GB"
-                    color="var(--text-primary)"
+                    color="var(--accent-primary)"
                     icon={<ThunderboltOutlined />}
                     progress={Math.round(((deviceInfo?.vram_total || 1) - (deviceInfo?.vram_free || 0)) / (deviceInfo?.vram_total || 1) * 100)}
                   />
@@ -407,7 +415,7 @@ export default function Dashboard() {
                   <StatCard
                     title="模型数量"
                     value={models.length}
-                    color="var(--accent-primary)"
+                    color="var(--success)"
                     icon={<FolderOutlined />}
                   />
                 </motion.div>
@@ -418,7 +426,7 @@ export default function Dashboard() {
                   <StatCard
                     title="数据集数量"
                     value={datasets.length}
-                    color="var(--text-secondary)"
+                    color="var(--warning)"
                     icon={<CloudOutlined />}
                   />
                 </motion.div>
@@ -444,7 +452,11 @@ export default function Dashboard() {
                         onClick={action.onClick}
                         intensity="low"
                       >
-                        <div className={styles.quickActionIcon} style={{ background: action.color }}>
+                        <div className={styles.quickActionIcon} style={{ 
+                          background: `${action.color}18`,
+                          color: action.color,
+                          border: `1px solid ${action.color}30`
+                        }}>
                           {action.icon}
                         </div>
                         <div>

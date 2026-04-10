@@ -384,7 +384,20 @@ async def cloud_chat_stream(request: CloudChatRequest):
                 extra_params=request.extra_params,
                 api_key=api_key
             ):
-                yield f"data: {json.dumps(chunk)}\n\n"
+                if isinstance(chunk, dict):
+                    if "error" in chunk:
+                        yield f"data: {json.dumps({'type': 'error', 'error': chunk.get('error')}, ensure_ascii=False)}\n\n"
+                        continue
+                    if "content" in chunk:
+                        payload = {"type": "delta", "content": chunk.get("content", "")}
+                        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                        continue
+
+                if isinstance(chunk, str):
+                    payload = {"type": "delta", "content": chunk}
+                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                else:
+                    yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
 
             last_user_message = next(
                 (message.get("content", "") for message in reversed(request.messages) if message.get("role") == "user"),
@@ -406,6 +419,7 @@ async def cloud_chat_stream(request: CloudChatRequest):
                     logger.warning(f"cloud chat memory extraction failed: {memory_error}")
 
             yield f"data: {json.dumps({'type': 'metadata', 'model': model, 'backend': 'cloud', 'duration_ms': int((time.time() - start_time) * 1000)}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
 
         except Exception as e:

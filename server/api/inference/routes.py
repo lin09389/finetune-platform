@@ -3,6 +3,7 @@
 """
 import logging
 import time
+import json
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -431,42 +432,56 @@ async def chat_stream(request: ChatRequest):
         backend = await scheduler.get_backend(request.options.backend)
 
         backend_name = request.options.backend or "ollama"
-        if hasattr(backend, 'chat_stream') and backend_name == "ollama":
-            return StreamingResponse(
-                backend.chat_stream(request),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                    "X-Accel-Buffering": "no"
-                }
-            )
-        else:
-            messages = [
-                {
-                    "role": msg.role.value if hasattr(msg.role, "value") else msg.role,
-                    "content": msg.content,
-                }
-                for msg in request.messages
-            ]
-            return StreamingResponse(
-                backend.chat_stream(
-                    messages,
-                    GenerationConfig(
-                        max_tokens=request.options.max_tokens,
-                        temperature=request.options.temperature,
-                        top_p=request.options.top_p,
-                        top_k=request.options.top_k,
-                        repetition_penalty=request.options.repetition_penalty,
-                    ),
-                ),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                    "X-Accel-Buffering": "no"
-                }
-            )
+        model_name = request.model
+        messages = [
+            {
+                "role": msg.role.value if hasattr(msg.role, "value") else msg.role,
+                "content": msg.content,
+            }
+            for msg in request.messages
+        ]
+
+        if hasattr(backend, "model_name") and model_name:
+            backend.model_name = model_name
+
+        generation_config = GenerationConfig(
+            max_tokens=request.options.max_tokens,
+            temperature=request.options.temperature,
+            top_p=request.options.top_p,
+            top_k=request.options.top_k,
+            repetition_penalty=request.options.repetition_penalty,
+            stop_sequences=request.options.stop or [],
+            stream=True,
+        )
+
+        async def generate():
+            started_at = time.time()
+            try:
+                yield f"data: {json.dumps({'type': 'metadata', 'model': model_name, 'backend': backend_name}, ensure_ascii=False)}\n\n"
+
+                async for chunk in backend.chat_stream(messages, generation_config):
+                    if not chunk:
+                        continue
+                    yield f"data: {json.dumps({'type': 'delta', 'content': chunk}, ensure_ascii=False)}\n\n"
+
+                duration_ms = int((time.time() - started_at) * 1000)
+                yield f"data: {json.dumps({'type': 'metadata', 'model': model_name, 'backend': backend_name, 'duration_ms': duration_ms}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+                yield "data: [DONE]\n\n"
+            except Exception as stream_error:
+                logger.error(f"流式聊天输出失败: {stream_error}", exc_info=True)
+                yield f"data: {json.dumps({'type': 'error', 'error': str(stream_error)}, ensure_ascii=False)}\n\n"
+                yield "data: [DONE]\n\n"
+
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
 
     except APIError:
         raise

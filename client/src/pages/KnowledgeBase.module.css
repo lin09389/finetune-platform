@@ -1,0 +1,211 @@
+.container {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.headerCard {
+  padding: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  letter-spacing: -0.01em;
+}
+
+.statusBanner {
+  border-radius: 12px;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.statusBannerSuccess {
+  background: var(--success-light);
+  border: 1px solid var(--success-border);
+  color: var(--success);
+}
+
+.statusBannerWarning {
+  background: var(--warning-light);
+  border: 1px solid var(--warning-border);
+  color: var(--warning);
+}
+
+.card {
+  padding: 24px;
+}
+
+.cardTitle {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 20px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.workspaceInput {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--bg-elevated);
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.workspaceInput input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-color);
+  outline: none;
+  padding: 2px 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+  flex: 1;
+  max-width: 240px;
+  transition: border-color 0.2s;
+}
+
+.workspaceInput input:focus {
+  border-bottom-color: var(--accent-primary);
+}
+
+.draggerWrap :global(.ant-upload-drag) {
+  background: var(--accent-primary-light) !important;
+  border: 1.5px dashed var(--accent-primary) !important;
+  border-radius: 12px !important;
+  opacity: 0.6;
+  transition: all 0.3s ease !important;
+}
+
+.draggerWrap :global(.ant-upload-drag:hover) {
+  border-color: var(--accent-primary) !important;
+  background: var(--accent-primary-light) !important;
+  opacity: 1;
+}
+
+.progressArea {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: var(--info-light);
+  border-radius: 10px;
+  border: 1px solid var(--info-border);
+}
+
+.docItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: transparent;
+  transition: all 0.2s ease;
+}
+
+.docItem:hover {
+  border-color: var(--accent-primary);
+  background: var(--accent-primary-light);
+}
+
+.docItemInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.docItemName {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.docItemMeta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: flex;
+  gap: 16px;
+}
+
+.helpCard {
+  padding: 20px 24px;
+}
+
+.helpList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.helpList li {
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding-left: 20px;
+  position: relative;
+  line-height: 1.6;
+}
+
+.helpList li::before {
+  content: counter(item);
+  counter-increment: item;
+  position: absolute;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  background: var(--accent-primary);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  top: 2px;
+}
+
+.helpList {
+  counter-reset: item;
+}
+
+.emptyState {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+

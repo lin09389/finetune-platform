@@ -1,25 +1,5 @@
 import { useState, useEffect } from 'react'
-import {
-  Alert,
-  Card,
-  Table,
-  Button,
-  Space,
-  Tag,
-  Modal,
-  Form,
-  Input,
-  Select,
-  message,
-  Badge,
-  Switch,
-  Typography,
-  Row,
-  Col,
-  Statistic,
-  Timeline,
-  Tooltip,
-} from 'antd'
+import { Form, Switch, message } from 'antd'
 import {
   HeartOutlined,
   PlusOutlined,
@@ -31,11 +11,12 @@ import {
   CheckCircleOutlined,
   SyncOutlined,
   ScheduleOutlined,
+  WarningOutlined,
+  CloseOutlined,
 } from '@ant-design/icons'
-import type { ColumnsType } from 'antd/es/table'
 import { apiClient } from '../services/api'
-
-const { Title, Text } = Typography
+import { MotionList, MotionItem } from '../components/shared/MotionWrapper'
+import styles from './HeartbeatPage.module.css'
 
 interface Task {
   id: string
@@ -96,7 +77,6 @@ export default function HeartbeatPage() {
         apiClient.get('/heartbeat/tasks').catch(() => ({ data: { tasks: [] } })),
         apiClient.get('/heartbeat/results?limit=20').catch(() => ({ data: { results: [] } })),
       ])
-      
       setStatus(statusRes.data)
       setTasks(tasksRes.data?.tasks || [])
       setResults(resultsRes.data?.results || [])
@@ -117,7 +97,6 @@ export default function HeartbeatPage() {
         enabled: true,
         config: {},
       })
-      
       if (response.data?.success) {
         message.success('任务创建成功')
         setCreateModalVisible(false)
@@ -188,277 +167,266 @@ export default function HeartbeatPage() {
     }
   }
 
-  const getTaskTypeTag = (type: string) => {
-    const typeMap: Record<string, { color: string; text: string }> = {
-      check: { color: 'blue', text: '检查' },
-      report: { color: 'green', text: '汇报' },
-      reminder: { color: 'orange', text: '提醒' },
-      custom: { color: 'purple', text: '自定义' },
+  const getTaskTypeInfo = (type: string) => {
+    const map: Record<string, { cls: string | undefined; text: string }> = {
+      check: { cls: styles.tagBlue, text: '检查' },
+      report: { cls: styles.tagGreen, text: '汇报' },
+      reminder: { cls: styles.tagOrange, text: '提醒' },
+      custom: { cls: styles.tagPurple, text: '自定义' },
     }
-    const config = typeMap[type] || { color: 'default', text: type }
-    return <Tag color={config.color}>{config.text}</Tag>
+    return map[type] || { cls: styles.tagGray, text: type }
   }
 
-  const getStatusBadge = (status: string) => {
-    const statusMap: Record<string, { status: 'success' | 'processing' | 'error' | 'default'; text: string }> = {
-      completed: { status: 'success', text: '已完成' },
-      running: { status: 'processing', text: '运行中' },
-      failed: { status: 'error', text: '失败' },
-      pending: { status: 'default', text: '待执行' },
+  const getStatusInfo = (s: string) => {
+    const map: Record<string, { dotCls: string | undefined; text: string }> = {
+      completed: { dotCls: styles.dotGreen, text: '已完成' },
+      running: { dotCls: styles.dotBlue, text: '运行中' },
+      failed: { dotCls: styles.dotRed, text: '失败' },
+      pending: { dotCls: styles.dotGray, text: '待执行' },
     }
-    const config = statusMap[status] || { status: 'default', text: status }
-    return <Badge status={config.status} text={config.text} />
+    return map[s] || { dotCls: styles.dotGray, text: s }
   }
 
-  const taskColumns: ColumnsType<Task> = [
-    {
-      title: '任务名称',
-      dataIndex: 'name',
-      key: 'name',
-      render: (name: string, record) => (
-        <Space>
-          {name}
-          {!record.enabled && <Tag color="default">已禁用</Tag>}
-        </Space>
-      ),
-    },
-    {
-      title: '类型',
-      dataIndex: 'task_type',
-      key: 'task_type',
-      render: (type: string) => getTaskTypeTag(type),
-    },
-    {
-      title: '调度周期',
-      dataIndex: 'schedule',
-      key: 'schedule',
-      render: (schedule: string) => (
-        <Tooltip title="Cron 表达式或秒数">
-          <Tag icon={<ClockCircleOutlined />}>{schedule}</Tag>
-        </Tooltip>
-      ),
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: string) => status ? getStatusBadge(status) : '-',
-    },
-    {
-      title: '上次执行',
-      dataIndex: 'last_run',
-      key: 'last_run',
-      render: (time: string) => time ? new Date(time).toLocaleString() : '-',
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      width: 150,
-      render: (_, record) => (
-        <Space>
-          <Tooltip title={record.enabled ? '禁用' : '启用'}>
-            <Switch
-              size="small"
-              checked={record.enabled}
-              onChange={(checked) => handleToggleTask(record.id, checked)}
-            />
-          </Tooltip>
-          <Button
-            type="text"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => handleDeleteTask(record.id)}
-          />
-        </Space>
-      ),
-    },
-  ]
-
-  const successRate = status?.executor 
+  const successRate = status?.executor
     ? Math.round((status.executor.success_count / Math.max(status.executor.total_executed, 1)) * 100)
     : 0
 
   return (
-    <div style={{ padding: '0 0 24px' }}>
-      <Alert
-        type="warning"
-        showIcon
-        message="实验功能"
-        description="Heartbeat 当前仍处于实验阶段，任务执行成功与否应以实际调度结果和任务记录为准。"
-        style={{ marginBottom: 16 }}
-      />
-      <Title level={4} style={{ marginBottom: 24 }}>
-        <HeartOutlined style={{ marginRight: 8 }} />
-        Heartbeat 任务调度（实验）
-      </Title>
+    <MotionList className={styles.page} stagger={0.08}>
+      <MotionItem>
+      {/* Experiment banner */}
+      <div className={styles.experimentBanner}>
+        <WarningOutlined />
+        <p>
+          <strong>实验功能</strong> — Heartbeat 当前仍处于实验阶段，任务执行成功与否应以实际调度结果和任务记录为准。
+        </p>
+      </div>
 
-      <Row gutter={16} style={{ marginBottom: 24 }}>
-        <Col span={6}>
-          <Card>
-            <Statistic
-              title="调度器状态"
-              value={status?.scheduler?.running ? '运行中' : '已停止'}
-              prefix={status?.scheduler?.running ? <PlayCircleOutlined /> : <PauseCircleOutlined />}
-              valueStyle={{ color: status?.scheduler?.running ? '#52c41a' : '#ff4d4f' }}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic
-              title="任务总数"
-              value={status?.scheduler?.total_tasks || 0}
-              prefix={<ScheduleOutlined />}
-              suffix={`/ ${status?.scheduler?.enabled_tasks || 0} 启用`}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic
-              title="执行次数"
-              value={status?.executor?.total_executed || 0}
-              prefix={<SyncOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card>
-            <Statistic
-              title="成功率"
-              value={successRate}
-              suffix="%"
-              prefix={<CheckCircleOutlined />}
-              valueStyle={{ color: successRate >= 90 ? '#52c41a' : successRate >= 70 ? '#faad14' : '#ff4d4f' }}
-            />
-          </Card>
-        </Col>
-      </Row>
+      <h2 className={styles.pageTitle}>
+        <HeartOutlined /> Heartbeat 任务调度（实验）
+      </h2>
 
-      <Row gutter={16}>
-        <Col span={16}>
-          <Card
-            title="任务列表"
-            extra={
-              <Space>
-                {status?.scheduler?.running ? (
-                  <Button
-                    danger
-                    icon={<PauseCircleOutlined />}
-                    onClick={handleStopScheduler}
-                  >
-                    停止调度
-                  </Button>
-                ) : (
-                  <Button
-                    type="primary"
-                    icon={<PlayCircleOutlined />}
-                    onClick={handleStartScheduler}
-                  >
-                    启动调度
-                  </Button>
-                )}
-                <Button
-                  icon={<PlusOutlined />}
-                  onClick={() => setCreateModalVisible(true)}
-                >
-                  创建任务
-                </Button>
-                <Button
-                  icon={<ReloadOutlined />}
-                  onClick={fetchHeartbeatData}
-                  loading={loading}
-                >
-                  刷新
-                </Button>
-              </Space>
-            }
-          >
-            <Table
-              columns={taskColumns}
-              dataSource={tasks}
-              rowKey="id"
-              loading={loading}
-              pagination={{ pageSize: 10 }}
-              size="small"
-            />
-          </Card>
-        </Col>
+      {/* Stats */}
+      <div className={styles.statsRow}>
+        <div className={styles.statCard}>
+          <div className={styles.statIcon} style={{ background: status?.scheduler?.running ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)' }}>
+            {status?.scheduler?.running ? <PlayCircleOutlined style={{ color: '#4ade80' }} /> : <PauseCircleOutlined style={{ color: '#f87171' }} />}
+          </div>
+          <div className={styles.statInfo}>
+            <div className={styles.statLabel}>调度器状态</div>
+            <div className={styles.statValue} style={{ color: status?.scheduler?.running ? '#4ade80' : '#f87171', fontSize: 16 }}>
+              {status?.scheduler?.running ? '运行中' : '已停止'}
+            </div>
+          </div>
+        </div>
+        <div className={styles.statCard}>
+          <div className={styles.statIcon}><ScheduleOutlined style={{ color: 'var(--primary)' }} /></div>
+          <div className={styles.statInfo}>
+            <div className={styles.statLabel}>任务总数</div>
+            <div className={styles.statValue}>
+              {status?.scheduler?.total_tasks || 0}
+              <span className={styles.statSuffix}>/ {status?.scheduler?.enabled_tasks || 0} 启用</span>
+            </div>
+          </div>
+        </div>
+        <div className={styles.statCard}>
+          <div className={styles.statIcon}><SyncOutlined style={{ color: 'var(--primary)' }} /></div>
+          <div className={styles.statInfo}>
+            <div className={styles.statLabel}>执行次数</div>
+            <div className={styles.statValue}>{status?.executor?.total_executed || 0}</div>
+          </div>
+        </div>
+        <div className={styles.statCard}>
+          <div className={styles.statIcon}
+            style={{ background: successRate >= 90 ? 'rgba(74,222,128,0.12)' : successRate >= 70 ? 'rgba(250,173,20,0.12)' : 'rgba(248,113,113,0.12)' }}>
+            <CheckCircleOutlined style={{ color: successRate >= 90 ? '#4ade80' : successRate >= 70 ? '#faad14' : '#f87171' }} />
+          </div>
+          <div className={styles.statInfo}>
+            <div className={styles.statLabel}>成功率</div>
+            <div className={styles.statValue} style={{ color: successRate >= 90 ? '#4ade80' : successRate >= 70 ? '#faad14' : '#f87171' }}>
+              {successRate}<span className={styles.statSuffix}>%</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
-        <Col span={8}>
-          <Card title="执行历史">
-            <Timeline
-              items={results.slice(0, 10).map((result) => ({
-                color: result.status === 'completed' ? 'green' : result.status === 'failed' ? 'red' : 'blue',
-                children: (
-                  <div>
-                    <Text strong>{result.task_id}</Text>
-                    <br />
-                    <Text type="secondary" style={{ fontSize: 12 }}>
+      {/* Main layout */}
+      <div className={styles.mainLayout}>
+        {/* Task list */}
+        <div className={styles.glassCard}>
+          <div className={styles.cardHeader}>
+            <span className={styles.cardTitle}><ScheduleOutlined /> 任务列表</span>
+            <div className={styles.cardActions}>
+              {status?.scheduler?.running ? (
+                <button className={`${styles.btn} ${styles.btnDanger}`} onClick={handleStopScheduler}>
+                  <PauseCircleOutlined /> 停止调度
+                </button>
+              ) : (
+                <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={handleStartScheduler}>
+                  <PlayCircleOutlined /> 启动调度
+                </button>
+              )}
+              <button className={`${styles.btn} ${styles.btnDefault}`} onClick={() => setCreateModalVisible(true)}>
+                <PlusOutlined /> 创建任务
+              </button>
+              <button className={`${styles.btn} ${styles.btnDefault}`} onClick={fetchHeartbeatData} disabled={loading}>
+                <ReloadOutlined /> 刷新
+              </button>
+            </div>
+          </div>
+          <div className={styles.tableWrap}>
+            <table className={styles.dataTable}>
+              <thead>
+                <tr>
+                  <th>任务名称</th>
+                  <th>类型</th>
+                  <th>调度周期</th>
+                  <th>状态</th>
+                  <th>上次执行</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tasks.length === 0 ? (
+                  <tr><td colSpan={6} className={styles.emptyCell}>暂无任务</td></tr>
+                ) : tasks.map((task) => {
+                  const typeInfo = getTaskTypeInfo(task.task_type)
+                  const statusInfo = task.status ? getStatusInfo(task.status) : null
+                  return (
+                    <tr key={task.id}>
+                      <td style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+                        {task.name}
+                        {!task.enabled && <span className={`${styles.tag} ${styles.tagGray}`} style={{ marginLeft: 6 }}>已禁用</span>}
+                      </td>
+                      <td><span className={`${styles.tag} ${typeInfo.cls}`}>{typeInfo.text}</span></td>
+                      <td>
+                        <span className={`${styles.tag} ${styles.tagGray}`}>
+                          <ClockCircleOutlined /> {task.schedule}
+                        </span>
+                      </td>
+                      <td>
+                        {statusInfo ? (
+                          <span className={styles.statusDot}>
+                            <span className={`${styles.dot} ${statusInfo.dotCls}`} />
+                            {statusInfo.text}
+                          </span>
+                        ) : '-'}
+                      </td>
+                      <td>{task.last_run ? new Date(task.last_run).toLocaleString() : '-'}</td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <Switch
+                            size="small"
+                            checked={task.enabled}
+                            onChange={(checked) => handleToggleTask(task.id, checked)}
+                          />
+                          <button
+                            className={`${styles.iconBtn} ${styles.iconBtnDanger}`}
+                            onClick={() => handleDeleteTask(task.id)}
+                          >
+                            <DeleteOutlined />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Timeline */}
+        <div className={styles.timelineCard}>
+          <div className={styles.cardHeader}>
+            <span className={styles.cardTitle}>执行历史</span>
+          </div>
+          <div className={styles.timeline}>
+            {results.length === 0 ? (
+              <div className={styles.timelineEmpty}>暂无执行记录</div>
+            ) : results.slice(0, 10).map((result, idx) => {
+              const dotCls = result.status === 'completed'
+                ? styles.timelineDotGreen
+                : result.status === 'failed'
+                  ? styles.timelineDotRed
+                  : styles.timelineDotBlue
+              return (
+                <div key={idx} className={styles.timelineItem}>
+                  <span className={`${styles.timelineDot} ${dotCls}`} />
+                  <div className={styles.timelineContent}>
+                    <div className={styles.timelineTitle}>{result.task_id}</div>
+                    <div className={styles.timelineMeta}>
                       {new Date(result.executed_at).toLocaleString()}
-                    </Text>
-                    <br />
-                    {result.duration_ms && (
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        耗时: {result.duration_ms}ms
-                      </Text>
-                    )}
+                      {result.duration_ms && ` · ${result.duration_ms}ms`}
+                    </div>
                     {result.error && (
-                      <Text type="danger" style={{ fontSize: 12 }}>
-                        {result.error}
-                      </Text>
+                      <div className={styles.timelineError}>{result.error}</div>
                     )}
                   </div>
-                ),
-              }))}
-            />
-          </Card>
-        </Col>
-      </Row>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
 
-      <Modal
-        title="创建任务"
-        open={createModalVisible}
-        onCancel={() => setCreateModalVisible(false)}
-        onOk={() => createForm.submit()}
-      >
-        <Form
-          form={createForm}
-          layout="vertical"
-          onFinish={handleCreateTask}
-        >
-          <Form.Item
-            name="name"
-            label="任务名称"
-            rules={[{ required: true, message: '请输入任务名称' }]}
-          >
-            <Input placeholder="例如: 定期检查 GPU 状态" />
-          </Form.Item>
-          <Form.Item name="description" label="描述">
-            <Input.TextArea rows={2} placeholder="任务描述（可选）" />
-          </Form.Item>
-          <Form.Item
-            name="task_type"
-            label="任务类型"
-            rules={[{ required: true, message: '请选择任务类型' }]}
-          >
-            <Select placeholder="选择任务类型">
-              <Select.Option value="check">检查任务</Select.Option>
-              <Select.Option value="report">汇报任务</Select.Option>
-              <Select.Option value="reminder">提醒任务</Select.Option>
-              <Select.Option value="custom">自定义任务</Select.Option>
-            </Select>
-          </Form.Item>
-          <Form.Item
-            name="schedule"
-            label="调度周期"
-            rules={[{ required: true, message: '请输入调度周期' }]}
-            extra="支持秒数（如 60）或 Cron 表达式（如 '0 * * * *'）"
-          >
-            <Input placeholder="例如: 60 或 '0 * * * *'" />
-          </Form.Item>
-        </Form>
-      </Modal>
-    </div>
+      {/* Create task modal */}
+      {createModalVisible && (
+        <div className={styles.modalOverlay} onClick={() => setCreateModalVisible(false)}>
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <span className={styles.modalTitle}>创建任务</span>
+              <button className={styles.closeBtn} onClick={() => setCreateModalVisible(false)}>
+                <CloseOutlined />
+              </button>
+            </div>
+            <Form form={createForm} layout="vertical" onFinish={handleCreateTask}>
+              <div className={styles.modalBody}>
+                <div className={styles.formField}>
+                  <label className={styles.formLabel}>任务名称 *</label>
+                  <Form.Item name="name" noStyle rules={[{ required: true, message: '请输入任务名称' }]}>
+                    <input className={styles.formInput} placeholder="例如: 定期检查 GPU 状态" />
+                  </Form.Item>
+                </div>
+                <div className={styles.formField}>
+                  <label className={styles.formLabel}>描述</label>
+                  <Form.Item name="description" noStyle>
+                    <input className={styles.formInput} placeholder="任务描述（可选）" />
+                  </Form.Item>
+                </div>
+                <div className={styles.formField}>
+                  <label className={styles.formLabel}>任务类型 *</label>
+                  <Form.Item name="task_type" noStyle rules={[{ required: true, message: '请选择任务类型' }]}>
+                    <select className={styles.formSelect}>
+                      <option value="">请选择</option>
+                      <option value="check">检查任务</option>
+                      <option value="report">汇报任务</option>
+                      <option value="reminder">提醒任务</option>
+                      <option value="custom">自定义任务</option>
+                    </select>
+                  </Form.Item>
+                </div>
+                <div className={styles.formField}>
+                  <label className={styles.formLabel}>调度周期 *</label>
+                  <Form.Item name="schedule" noStyle rules={[{ required: true, message: '请输入调度周期' }]}>
+                    <input className={styles.formInput} placeholder="例如: 60 或 '0 * * * *'" />
+                  </Form.Item>
+                  <span className={styles.formHint}>支持秒数（如 60）或 Cron 表达式（如 '0 * * * *'）</span>
+                </div>
+              </div>
+              <div className={styles.modalFooter}>
+                <button type="button" className={`${styles.btn} ${styles.btnDefault}`} onClick={() => setCreateModalVisible(false)}>
+                  取消
+                </button>
+                <button type="submit" className={`${styles.btn} ${styles.btnPrimary}`} onClick={() => createForm.submit()}>
+                  创建
+                </button>
+              </div>
+            </Form>
+          </div>
+        </div>
+      )}
+      </MotionItem>
+    </MotionList>
   )
 }

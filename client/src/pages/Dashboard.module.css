@@ -19,16 +19,17 @@
 }
 
 .titleIcon {
-  width: clamp(32px, 4vw, 44px);
-  height: clamp(32px, 4vw, 44px);
-  border-radius: var(--radius-lg);
-  background: var(--gradient-primary);
+  width: clamp(36px, 4vw, 44px);
+  height: clamp(36px, 4vw, 44px);
+  border-radius: var(--radius-md);
+  background: var(--gradient-brand);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--text-xl);
-  color: var(--text-inverse);
-  box-shadow: var(--shadow-md);
+  font-size: var(--text-lg);
+  color: #ffffff;
+  flex-shrink: 0;
+  box-shadow: 0 2px 12px rgba(59, 91, 219, 0.3);
 }
 
 .titleText {
@@ -36,34 +37,45 @@
   font-weight: var(--font-bold);
   margin: 0;
   color: var(--text-primary);
-  letter-spacing: var(--tracking-tight);
+  letter-spacing: -0.02em;
 }
 
 .subtitle {
-  margin: 0 0 0 calc(clamp(32px, 4vw, 44px) + var(--space-4));
+  margin: 0 0 0 calc(clamp(36px, 4vw, 44px) + var(--space-4));
   color: var(--text-secondary);
   font-size: var(--text-sm);
   max-width: 68ch;
+  line-height: var(--leading-relaxed);
 }
 
 .sectionTitle {
-  font-size: var(--text-lg);
+  font-size: var(--text-sm);
   font-weight: var(--font-semibold);
   margin-bottom: var(--space-4);
-  color: var(--text-primary);
+  color: var(--text-tertiary);
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 /* Stat Card Customization */
+.statCard {
+  position: relative;
+  overflow: hidden;
+}
+
 .statValue {
-  font-size: var(--text-3xl);
+  font-size: clamp(1.5rem, 3vw, 2rem);
   font-weight: var(--font-bold);
   color: var(--text-primary);
   display: flex;
   align-items: baseline;
   gap: var(--space-1);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  margin-top: var(--space-1);
 }
 
 .statTotal {
@@ -73,15 +85,14 @@
 }
 
 .statIcon {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-lg);
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--text-xl);
-  color: var(--text-inverse);
-  box-shadow: var(--shadow-sm);
+  font-size: var(--text-base);
+  flex-shrink: 0;
 }
 
 /* Quick Action Card */
@@ -93,30 +104,28 @@
 
 .quickActionCard:hover {
   transform: translateY(-3px);
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.1);
 }
 
 .quickActionIcon {
-  width: 56px;
-  height: 56px;
-  border-radius: var(--radius-xl);
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--text-2xl);
-  color: var(--text-inverse);
+  font-size: var(--text-lg);
   margin-bottom: var(--space-4);
-  box-shadow: var(--shadow-md);
-  transition: transform var(--transition-base);
+  transition: transform var(--transition-fast);
 }
 
 .quickActionCard:hover .quickActionIcon {
-  transform: rotate(-4deg) scale(1.04);
+  transform: scale(1.08);
 }
 
 .quickActionTitle {
-  font-weight: var(--font-bold);
-  font-size: var(--text-lg);
+  font-weight: var(--font-semibold);
+  font-size: var(--text-base);
   color: var(--text-primary);
   margin-bottom: var(--space-1);
 }
@@ -130,8 +139,7 @@
 
 /* History Card */
 .historyCard {
-  margin-top: var(--space-8);
-  border: 1px solid color-mix(in srgb, var(--border-color) 84%, transparent);
+  border: 1px solid var(--border-color);
 }
 
 .historyHeader {
@@ -146,17 +154,17 @@
 }
 
 .tableWrapper :global(.ant-table-thead > tr > th) {
-  background: rgba(0, 0, 0, 0.02);
+  background: transparent;
   border-bottom: 1px solid var(--border-color);
-  color: var(--text-secondary);
+  color: var(--text-tertiary);
   font-weight: var(--font-semibold);
   text-transform: uppercase;
   font-size: var(--text-xs);
-  letter-spacing: var(--tracking-wider);
+  letter-spacing: 0.06em;
 }
 
 :global(.dark-theme) .tableWrapper :global(.ant-table-thead > tr > th) {
-  background: rgba(255, 255, 255, 0.02);
+  background: transparent;
 }
 
 .tableWrapper :global(.ant-table-tbody > tr > td) {
@@ -176,3 +184,4 @@
     margin-left: 0;
   }
 }
+

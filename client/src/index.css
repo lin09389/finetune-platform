@@ -67,99 +67,137 @@
 }
 
 /* ============================================
-   浅色主题 - 极简白
+   浅色主题 - 精致白
    ============================================ */
 .light-theme {
   /* 背景色 */
-  --bg-primary: #ffffff;
-  --bg-secondary: #fcfcfc;
-  --bg-elevated: #f5f5f5;
-  --bg-hover: #f0f0f0;
-  --bg-active: #e5e5e5;
+  --bg-primary: #fafaf9;
+  --bg-secondary: #ffffff;
+  --bg-elevated: #f4f4f5;
+  --bg-hover: #eeeeef;
+  --bg-active: #e4e4e7;
 
   /* 文字色 */
-  --text-primary: #000000;
-  --text-secondary: #666666;
-  --text-tertiary: #999999;
-  --text-disabled: #cccccc;
+  --text-primary: #18181b;
+  --text-secondary: #52525b;
+  --text-tertiary: #a1a1aa;
+  --text-disabled: #d4d4d8;
   --text-inverse: #ffffff;
 
   /* 边框色 */
-  --border-color: #ebebeb;
-  --border-hover: #d4d4d4;
-  --border-active: #a3a3a3;
+  --border-color: #e4e4e7;
+  --border-hover: #c4c4c7;
+  --border-active: #71717a;
 
-  /* 强调色 - 纯黑 */
-  --accent-primary: #000000;
-  --accent-secondary: #666666;
+  /* 品牌强调色 — 靛蓝 */
+  --accent-primary: #3b5bdb;
+  --accent-primary-hover: #2f4ecf;
+  --accent-primary-light: #edf2ff;
+  --accent-secondary: #7c3aed;
 
-  /* 功能色 */
-  --success: #000000;
-  --success-light: #f5f5f5;
-  --warning: #333333;
-  --warning-light: #f5f5f5;
-  --error: #111111;
-  --error-light: #f5f5f5;
-  --info: #000000;
-  --info-light: #f5f5f5;
+  /* 功能色 — 语义真实色 */
+  --success: #16a34a;
+  --success-hover: #15803d;
+  --success-light: #f0fdf4;
+  --success-border: #bbf7d0;
+
+  --warning: #d97706;
+  --warning-hover: #b45309;
+  --warning-light: #fffbeb;
+  --warning-border: #fde68a;
+
+  --error: #dc2626;
+  --error-hover: #b91c1c;
+  --error-light: #fef2f2;
+  --error-border: #fecaca;
+
+  --info: #0369a1;
+  --info-hover: #075985;
+  --info-light: #f0f9ff;
+  --info-border: #bae6fd;
 
   /* 主色调映射 */
-  --primary-50: #fafafa;
-  --primary-100: #f5f5f5;
-  --primary-200: #e5e5e5;
-  --primary-300: #d4d4d4;
-  --primary-400: #a3a3a3;
-  --primary-500: #737373;
-  --primary-600: #404040;
-  --primary-700: #000000;
+  --primary-50: #fafaf9;
+  --primary-100: #f4f4f5;
+  --primary-200: #e4e4e7;
+  --primary-300: #c4c4c7;
+  --primary-400: #a1a1aa;
+  --primary-500: #71717a;
+  --primary-600: #52525b;
+  --primary-700: #18181b;
+
+  /* 渐变 */
+  --gradient-brand: linear-gradient(135deg, #3b5bdb 0%, #7c3aed 100%);
+  --gradient-success: linear-gradient(135deg, #16a34a 0%, #059669 100%);
+  --gradient-warm: linear-gradient(135deg, #d97706 0%, #dc2626 100%);
+  --gradient-subtle: linear-gradient(180deg, #ffffff 0%, #fafaf9 100%);
 }
 
 /* ============================================
-   深色主题 - 极简黑
+   深色主题 - 精致黑
    ============================================ */
 .dark-theme {
   /* 背景色 */
-  --bg-primary: #000000;
-  --bg-secondary: #0a0a0a;
-  --bg-elevated: #141414;
-  --bg-hover: #1f1f1f;
-  --bg-active: #292929;
+  --bg-primary: #09090b;
+  --bg-secondary: #111113;
+  --bg-elevated: #1c1c1f;
+  --bg-hover: #27272a;
+  --bg-active: #3f3f46;
 
   /* 文字色 */
-  --text-primary: #ffffff;
+  --text-primary: #fafafa;
   --text-secondary: #a1a1aa;
   --text-tertiary: #71717a;
   --text-disabled: #52525b;
-  --text-inverse: #000000;
+  --text-inverse: #09090b;
 
   /* 边框色 */
   --border-color: #27272a;
   --border-hover: #3f3f46;
-  --border-active: #52525b;
+  --border-active: #71717a;
 
-  /* 强调色 - 纯白 */
-  --accent-primary: #ffffff;
-  --accent-secondary: #a1a1aa;
+  /* 品牌强调色 — 靛蓝 (深色适配亮度) */
+  --accent-primary: #6880e8;
+  --accent-primary-hover: #7c8ff0;
+  --accent-primary-light: #1e2a6e28;
+  --accent-secondary: #a78bfa;
 
-  /* 功能色 */
-  --success: #ffffff;
-  --success-light: #141414;
-  --warning: #d4d4d4;
-  --warning-light: #141414;
-  --error: #a1a1aa;
-  --error-light: #141414;
-  --info: #ffffff;
-  --info-light: #141414;
+  /* 功能色 — 深色适配亮度 */
+  --success: #4ade80;
+  --success-hover: #86efac;
+  --success-light: #0f2e1a;
+  --success-border: #166534;
+
+  --warning: #fbbf24;
+  --warning-hover: #fcd34d;
+  --warning-light: #2d1f06;
+  --warning-border: #78350f;
+
+  --error: #f87171;
+  --error-hover: #fca5a5;
+  --error-light: #2d0a0a;
+  --error-border: #7f1d1d;
+
+  --info: #38bdf8;
+  --info-hover: #7dd3fc;
+  --info-light: #0a2030;
+  --info-border: #0c4a6e;
 
   /* 主色调 */
-  --primary-50: #0a0a0a;
-  --primary-100: #141414;
+  --primary-50: #111113;
+  --primary-100: #1c1c1f;
   --primary-200: #27272a;
   --primary-300: #3f3f46;
   --primary-400: #52525b;
   --primary-500: #71717a;
   --primary-600: #a1a1aa;
-  --primary-700: #ffffff;
+  --primary-700: #fafafa;
+
+  /* 渐变 */
+  --gradient-brand: linear-gradient(135deg, #6880e8 0%, #a78bfa 100%);
+  --gradient-success: linear-gradient(135deg, #4ade80 0%, #34d399 100%);
+  --gradient-warm: linear-gradient(135deg, #fbbf24 0%, #f87171 100%);
+  --gradient-subtle: linear-gradient(180deg, #111113 0%, #09090b 100%);
 }
 
 /* ============================================
@@ -234,8 +272,8 @@ body, #root {
 }
 
 .ant-menu-item-selected {
-  background: var(--primary-100) !important;
-  color: var(--text-primary) !important;
+  background: var(--accent-primary-light) !important;
+  color: var(--accent-primary) !important;
   font-weight: var(--font-medium);
 }
 
@@ -249,6 +287,7 @@ body, #root {
   height: 16px;
   background: var(--accent-primary);
   border-radius: 0 2px 2px 0;
+  box-shadow: 2px 0 6px rgba(59, 91, 219, 0.3);
 }
 
 /* 卡片样式 - 更克制的风格 */
@@ -274,7 +313,7 @@ body, #root {
   background: transparent;
 }
 
-/* 按钮样式 - 实心填充风格 */
+/* 按钮样式 - 品牌色主按钮 */
 .ant-btn {
   border-radius: var(--radius-md);
   font-weight: var(--font-medium);
@@ -282,15 +321,15 @@ body, #root {
 }
 
 .ant-btn-primary {
-  background: var(--text-primary);
-  border-color: var(--text-primary);
-  box-shadow: none;
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  box-shadow: 0 1px 3px rgba(59, 91, 219, 0.25);
 }
 
 .ant-btn-primary:hover {
-  background: var(--bg-hover);
-  border-color: var(--bg-hover);
-  color: var(--text-primary);
+  background: var(--accent-primary-hover) !important;
+  border-color: var(--accent-primary-hover) !important;
+  box-shadow: 0 2px 8px rgba(59, 91, 219, 0.35);
   transform: translateY(-1px);
 }
 
@@ -308,6 +347,84 @@ body, #root {
   background: var(--bg-hover);
   border-color: var(--border-hover);
   color: var(--text-primary);
+}
+
+/* 标签样式 - 语义色彩 */
+.ant-tag {
+  border-radius: var(--radius-sm);
+  font-weight: var(--font-medium);
+  padding: 2px 8px;
+  border: 1px solid var(--border-color);
+}
+
+.ant-tag-success {
+  background: var(--success-light) !important;
+  border-color: var(--success-border) !important;
+  color: var(--success) !important;
+}
+
+.ant-tag-warning {
+  background: var(--warning-light) !important;
+  border-color: var(--warning-border) !important;
+  color: var(--warning) !important;
+}
+
+.ant-tag-error {
+  background: var(--error-light) !important;
+  border-color: var(--error-border) !important;
+  color: var(--error) !important;
+}
+
+.ant-tag-processing {
+  background: var(--info-light) !important;
+  border-color: var(--info-border) !important;
+  color: var(--info) !important;
+}
+
+/* Badge 语义色 */
+.ant-badge-status-success .ant-badge-status-dot { background: var(--success); }
+.ant-badge-status-warning .ant-badge-status-dot { background: var(--warning); }
+.ant-badge-status-error .ant-badge-status-dot   { background: var(--error); }
+.ant-badge-status-processing .ant-badge-status-dot { background: var(--info); }
+
+/* Alert 语义色 */
+.ant-alert-success {
+  background: var(--success-light);
+  border-color: var(--success-border);
+}
+.ant-alert-warning {
+  background: var(--warning-light);
+  border-color: var(--warning-border);
+}
+.ant-alert-error {
+  background: var(--error-light);
+  border-color: var(--error-border);
+}
+.ant-alert-info {
+  background: var(--info-light);
+  border-color: var(--info-border);
+}
+
+/* 进度条样式 - 品牌色 */
+.ant-progress-bg {
+  background: var(--accent-primary);
+  border-radius: var(--radius-full);
+}
+
+.ant-progress-success-bg {
+  background: var(--success);
+}
+
+/* 统计数字样式 */
+.ant-statistic-title {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-2);
+}
+
+.ant-statistic-content {
+  color: var(--text-primary);
+  font-weight: var(--font-bold);
 }
 
 /* 输入框样式 */
@@ -328,8 +445,8 @@ body, #root {
 .ant-input-affix-wrapper:focus,
 .ant-input-focused,
 .ant-input-affix-wrapper-focused {
-  border-color: var(--text-primary);
-  box-shadow: 0 0 0 3px rgba(45, 45, 45, 0.05);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(59, 91, 219, 0.08);
 }
 
 /* 选择器样式 */
@@ -345,8 +462,8 @@ body, #root {
 }
 
 .ant-select-focused .ant-select-selector {
-  border-color: var(--text-primary) !important;
-  box-shadow: 0 0 0 3px rgba(45, 45, 45, 0.05) !important;
+  border-color: var(--accent-primary) !important;
+  box-shadow: 0 0 0 3px rgba(59, 91, 219, 0.08) !important;
 }
 
 /* 表格样式 */
@@ -359,7 +476,10 @@ body, #root {
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border-color);
   font-weight: var(--font-semibold);
-  color: var(--text-primary);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 .ant-table-tbody > tr > td {
@@ -371,19 +491,12 @@ body, #root {
   background: var(--bg-hover);
 }
 
-/* 标签样式 */
-.ant-tag {
-  border-radius: var(--radius-sm);
-  font-weight: var(--font-medium);
-  padding: 2px 8px;
-  border: 1px solid var(--border-color);
-}
-
 /* 模态框样式 */
 .ant-modal-content {
   background: var(--bg-secondary);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-xl);
+  border: 1px solid var(--border-color);
 }
 
 .ant-modal-header {
@@ -408,24 +521,6 @@ body, #root {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-}
-
-/* 进度条样式 */
-.ant-progress-bg {
-  background: var(--accent-primary);
-  border-radius: var(--radius-full);
-}
-
-/* 统计数字样式 */
-.ant-statistic-title {
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-  margin-bottom: var(--space-2);
-}
-
-.ant-statistic-content {
-  color: var(--text-primary);
-  font-weight: var(--font-bold);
 }
 
 /* ============================================
@@ -729,6 +824,13 @@ body, #root {
 .dark-theme .ant-input,
 .dark-theme .ant-input-affix-wrapper {
   background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.dark-theme .ant-input:focus,
+.dark-theme .ant-input-affix-wrapper-focused {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(104, 128, 232, 0.12);
 }
 
 .dark-theme .ant-select-selector {
@@ -736,6 +838,23 @@ body, #root {
 }
 
 .dark-theme .ant-card {
+  background: var(--bg-secondary);
+}
+
+.dark-theme .ant-btn-primary {
+  box-shadow: 0 1px 3px rgba(104, 128, 232, 0.3);
+}
+
+.dark-theme .ant-btn-primary:hover {
+  box-shadow: 0 2px 8px rgba(104, 128, 232, 0.4) !important;
+}
+
+.dark-theme .ant-modal-content {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+}
+
+.dark-theme .ant-drawer-content {
   background: var(--bg-secondary);
 }
 
@@ -902,3 +1021,131 @@ body, #root {
   border-radius: var(--radius-md);
   margin: var(--space-4) 0;
 }
+
+/* ============================================
+   全局微交互增强 — 按钮 / 卡片 / 表格行
+   ============================================ */
+
+/* Ant Design 按钮 press 反馈 */
+.ant-btn:active {
+  transform: scale(0.97) !important;
+  transition-duration: 80ms !important;
+}
+
+/* Ant Design 按钮 hover 上移 */
+.ant-btn:not(:disabled):hover {
+  transform: translateY(-1px);
+  transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.ant-btn:not(:disabled):active {
+  transform: translateY(0) scale(0.97);
+}
+
+/* 表格行悬停微动效 */
+.ant-table-tbody > tr:hover > td {
+  transition: background 0.12s ease;
+}
+
+/* 标签悬停 */
+.ant-tag {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.ant-tag:hover {
+  opacity: 0.85;
+}
+
+/* 侧边栏菜单项悬停 */
+.ant-menu-item {
+  transition: all 0.12s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+/* 统计数字 CountUp 渐变效果 */
+@keyframes countUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.count-up-enter {
+  animation: countUp 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 进度条动画增强 */
+.ant-progress-bg {
+  transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+/* 卡片焦点环 */
+.ant-card:focus-within {
+  border-color: var(--border-active);
+}
+
+/* 毛玻璃卡片 hover 光晕（深色模式）*/
+.dark-theme .glassCard:hover,
+.dark-theme [class*="glassCard"]:hover {
+  box-shadow: 0 8px 32px rgba(255, 255, 255, 0.04), var(--shadow-md);
+}
+
+/* 浅色模式卡片 hover */
+.light-theme .glassCard:hover,
+.light-theme [class*="glassCard"]:hover {
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+/* 模态框入场 */
+.ant-modal {
+  animation: scaleIn 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 抽屉入场 */
+.ant-drawer-content-wrapper {
+  transition: transform 0.36s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+/* Tooltip 入场 */
+.ant-tooltip {
+  animation: fadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Select 下拉入场 */
+.ant-select-dropdown {
+  animation: fadeInDown 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Badge 数字变化 */
+.ant-badge-count {
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 开关切换 */
+.ant-switch {
+  transition: background 0.2s ease, box-shadow 0.2s ease !important;
+}
+.ant-switch-handle {
+  transition: left 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+
+/* 输入框 focus 缩放 */
+.ant-input:focus,
+.ant-input-affix-wrapper-focused {
+  transform: scale(1.002);
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* 列表骨架屏动效 */
+.ant-skeleton-content .ant-skeleton-paragraph > li,
+.ant-skeleton-content .ant-skeleton-title {
+  animation: shimmer 1.8s infinite;
+  background: linear-gradient(
+    90deg,
+    var(--bg-elevated) 25%,
+    var(--bg-hover) 50%,
+    var(--bg-elevated) 75%
+  );
+  background-size: 200% 100%;
+}
+
+/* 页面区块顺序动画（MotionList 子项）*/
+[data-motion-item] {
+  will-change: transform, opacity, filter;
+}
+

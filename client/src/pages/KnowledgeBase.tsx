@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
-import { Card, Button, Upload, Space, Progress, Tag, List, Typography, App, Alert } from 'antd'
-import { InboxOutlined, DeleteOutlined, FileTextOutlined, CheckCircleOutlined, LoadingOutlined } from '@ant-design/icons'
+import { Button, Upload, Progress, Tag, App } from 'antd'
+import { InboxOutlined, DeleteOutlined, FileTextOutlined, CheckCircleOutlined, LoadingOutlined, BookOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons'
 import type { UploadProps } from 'antd/es/upload/interface'
 import { API_BASE_URL } from '../services/api'
+import { MotionList, MotionItem } from '../components/shared/MotionWrapper'
+import styles from './KnowledgeBase.module.css'
+import glassStyles from '../components/shared/GlassCard.module.css'
 
 const { Dragger } = Upload
-const { Text } = Typography
 
 interface DocumentItem {
   doc_id: string
@@ -208,132 +210,118 @@ export default function KnowledgeBase() {
   }
 
   return (
-    <div style={{ padding: '0 24px' }}>
-      <div className="page-container">
-        <div className="page-title">RAG 知识库</div>
-
-        <Space direction="vertical" style={{ width: '100%' }} size="large">
-          {embedderStatus && !embedderStatus.loaded && (
-            <Alert
-              message="嵌入模型未加载"
-              description={
-                <Space direction="vertical">
-                  <span>首次上传文档需要加载嵌入模型（约 400MB），这可能需要几分钟时间。</span>
-                  <span style={{ color: '#999' }}>{embedderStatus.error}</span>
-                </Space>
-              }
-              type="warning"
-              showIcon
-              action={
-                <Button size="small" type="primary" onClick={preloadEmbedder} loading={preloading}>
-                  {preloading ? '加载中...' : '预加载模型'}
-                </Button>
-              }
-            />
-          )}
-
-          {embedderStatus && embedderStatus.loaded && (
-            <Alert
-              message={`嵌入模型已就绪 (${embedderStatus.model_name}, ${embedderStatus.dimension}维)`}
-              type="success"
-              showIcon
-              icon={<CheckCircleOutlined />}
-            />
-          )}
-
-          <Card title="上传文档" variant="borderless">
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <Space>
-                <Text>工作空间 ID:</Text>
-                <input
-                  value={collectionId}
-                  onChange={(e) => setCollectionId(e.target.value)}
-                  style={{ padding: '4px 8px', border: '1px solid #d9d9d9', borderRadius: 4 }}
-                  placeholder="输入工作空间 ID"
-                />
-              </Space>
-              
-              <Dragger {...uploadProps} disabled={uploading}>
-                <p className="ant-upload-drag-icon">
-                  {uploading ? <LoadingOutlined /> : <InboxOutlined />}
-                </p>
-                <p className="ant-upload-text">
-                  {uploading ? '上传处理中...' : '点击或拖拽文件到此区域上传'}
-                </p>
-                <p className="ant-upload-hint">
-                  支持格式：PDF, DOCX, TXT, MD | 最大 50MB
-                </p>
-              </Dragger>
-              
-              {uploading && (
-                <Space direction="vertical" style={{ width: '100%' }}>
-                  <Progress percent={uploadProgress} status="active" />
-                  <Text type="secondary">{uploadStatus}</Text>
-                </Space>
-              )}
-            </Space>
-          </Card>
-
-          <Card 
-            title="文档列表" 
-            variant="borderless"
-            extra={
-              <Button onClick={loadCollectionInfo}>刷新</Button>
-            }
-          >
-            {collectionInfo && collectionInfo.documents.length > 0 ? (
-              <List
-                dataSource={collectionInfo.documents}
-                renderItem={(doc) => (
-                  <List.Item
-                    actions={[
-                      <Button
-                        key="delete"
-                        type="text"
-                        danger
-                        icon={<DeleteOutlined />}
-                        onClick={() => handleDelete(doc.doc_id)}
-                      >
-                        删除
-                      </Button>,
-                    ]}
-                  >
-                    <List.Item.Meta
-                      title={
-                        <Space>
-                          <FileTextOutlined />
-                          <span>{doc.source}</span>
-                          <Tag color="blue">{doc.chunk_count} 块</Tag>
-                        </Space>
-                      }
-                      description={
-                        <div>
-                          <div>ID: {doc.doc_id}</div>
-                          <div>上传时间：{new Date(doc.uploaded_at).toLocaleString('zh-CN')}</div>
-                        </div>
-                      }
-                    />
-                  </List.Item>
-                )}
-              />
+    <MotionList className={styles.container} stagger={0.08}>
+      <MotionItem>
+      {/* 标题栏 */}
+      <div className={`${glassStyles.glassCard} ${styles.headerCard}`}>
+        <h1 className={styles.title}>
+          <BookOutlined />
+          RAG 知识库
+        </h1>
+        {embedderStatus && (
+          <div className={`${styles.statusBanner} ${embedderStatus.loaded ? styles.statusBannerSuccess : styles.statusBannerWarning}`}>
+            {embedderStatus.loaded ? (
+              <>
+                <CheckCircleOutlined />
+                <span>嵌入模型就绪 · {embedderStatus.model_name} · {embedderStatus.dimension}维</span>
+              </>
             ) : (
-              <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
-                暂无文档，请上传
-              </div>
+              <>
+                <WarningOutlined />
+                <span>嵌入模型未加载</span>
+                <Button size="small" type="primary" onClick={preloadEmbedder} loading={preloading} style={{ marginLeft: 8 }}>
+                  {preloading ? '加载中...' : '立即加载'}
+                </Button>
+              </>
             )}
-          </Card>
-
-          <Card title="使用说明" variant="borderless" size="small">
-            <div style={{ color: '#666', fontSize: 13 }}>
-              <p><strong>1. 上传文档:</strong> 选择工作空间 ID，上传 PDF/DOCX/TXT/MD 文件</p>
-              <p><strong>2. 自动处理:</strong> 系统会自动解析文档、分块、向量化并存储</p>
-              <p><strong>3. 语义搜索:</strong> 使用自然语言查询，系统会检索相关文档片段</p>
-              <p><strong>4. RAG 聊天:</strong> 在聊天时使用 RAG 增强，基于知识库内容回答</p>
-              <p><strong>注意:</strong> 首次上传需要下载嵌入模型，请耐心等待</p>
-            </div>
-          </Card>
-        </Space>
+          </div>
+        )}
       </div>
-    </div>
+
+      {/* 上传文档 */}
+      <div className={`${glassStyles.glassCard} ${styles.card}`}>
+        <div className={styles.cardTitle}>上传文档</div>
+
+        <div className={styles.workspaceInput}>
+          <span>工作空间 ID：</span>
+          <input
+            value={collectionId}
+            onChange={(e) => setCollectionId(e.target.value)}
+            placeholder="输入工作空间 ID"
+          />
+        </div>
+
+        <div className={styles.draggerWrap}>
+          <Dragger {...uploadProps} disabled={uploading}>
+            <p className="ant-upload-drag-icon">
+              {uploading ? <LoadingOutlined style={{ fontSize: 40, color: 'var(--accent-primary)' }} /> : <InboxOutlined style={{ fontSize: 40, color: 'var(--accent-primary)' }} />}
+            </p>
+            <p className="ant-upload-text" style={{ color: 'var(--text-primary)', fontSize: 16 }}>
+              {uploading ? '上传处理中...' : '点击或拖拽文件到此区域上传'}
+            </p>
+            <p className="ant-upload-hint" style={{ color: 'var(--text-secondary)' }}>
+              支持格式：PDF, DOCX, TXT, MD | 最大 50MB
+            </p>
+          </Dragger>
+        </div>
+
+        {uploading && (
+          <div className={styles.progressArea}>
+            <Progress percent={uploadProgress} status="active" strokeColor="var(--accent-primary)" />
+            <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 8, textAlign: 'center' }}>{uploadStatus}</div>
+          </div>
+        )}
+      </div>
+
+      {/* 文档列表 */}
+      <div className={`${glassStyles.glassCard} ${styles.card}`}>
+        <div className={styles.cardTitle}>
+          <span>文档列表</span>
+          <Button icon={<ReloadOutlined />} onClick={loadCollectionInfo} size="small">刷新</Button>
+        </div>
+
+        {collectionInfo && collectionInfo.documents.length > 0 ? (
+          collectionInfo.documents.map((doc) => (
+            <div key={doc.doc_id} className={styles.docItem}>
+              <div className={styles.docItemInfo}>
+                <div className={styles.docItemName}>
+                  <FileTextOutlined style={{ color: 'var(--accent-primary)' }} />
+                  <span>{doc.source}</span>
+                  <Tag color="blue" style={{ borderRadius: 4 }}>{doc.chunk_count} 块</Tag>
+                </div>
+                <div className={styles.docItemMeta}>
+                  <span>ID: {doc.doc_id}</span>
+                  <span>上传于 {new Date(doc.uploaded_at).toLocaleString('zh-CN')}</span>
+                </div>
+              </div>
+              <Button
+                type="text"
+                danger
+                icon={<DeleteOutlined />}
+                onClick={() => handleDelete(doc.doc_id)}
+                size="small"
+              >
+                删除
+              </Button>
+            </div>
+          ))
+        ) : (
+          <div className={styles.emptyState}>暂无文档，请上传知识库文件</div>
+        )}
+      </div>
+
+      {/* 使用说明 */}
+      <div className={`${glassStyles.glassCard} ${styles.helpCard}`}>
+        <div className={styles.cardTitle} style={{ marginBottom: 16 }}>使用说明</div>
+        <ol className={styles.helpList}>
+          <li><strong>上传文档：</strong>选择工作空间 ID，上传 PDF / DOCX / TXT / MD 文件</li>
+          <li><strong>自动处理：</strong>系统自动解析文档、分块、向量化并存储</li>
+          <li><strong>语义搜索：</strong>使用自然语言查询，检索相关文档片段</li>
+          <li><strong>RAG 聊天：</strong>在聊天时启用 RAG 增强，基于知识库内容回答</li>
+          <li><strong>注意：</strong>首次上传需要下载嵌入模型（约 400MB），请耐心等待</li>
+        </ol>
+      </div>
+      </MotionItem>
+    </MotionList>
   )
 }

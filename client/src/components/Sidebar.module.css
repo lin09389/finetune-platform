@@ -21,19 +21,21 @@
   width: 32px;
   height: 32px;
   border-radius: var(--radius-md);
-  background: var(--text-primary);
+  background: var(--gradient-brand);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: var(--text-base);
-  color: var(--bg-primary);
+  color: #ffffff;
   flex-shrink: 0;
   cursor: pointer;
-  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s;
+  box-shadow: 0 2px 8px rgba(59, 91, 219, 0.3);
 }
 
 .logoIcon:hover {
   transform: scale(1.05);
+  box-shadow: 0 4px 14px rgba(59, 91, 219, 0.4);
 }
 
 .logoTitle {
@@ -69,6 +71,23 @@
   display: none;
 }
 
+.menuGroupLabel {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  padding: 12px var(--space-3) 4px;
+  white-space: nowrap;
+}
+
+.menuGroupDivider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 8px var(--space-3);
+  opacity: 0.6;
+}
+
 .menuItem {
   display: flex;
   align-items: center;
@@ -88,8 +107,8 @@
 }
 
 .menuItemActive {
-  background: var(--bg-elevated) !important;
-  color: var(--text-primary) !important;
+  background: var(--accent-primary-light) !important;
+  color: var(--accent-primary) !important;
   font-weight: var(--font-medium);
 }
 
@@ -100,8 +119,9 @@
   transform: translateY(-50%);
   width: 3px;
   height: 16px;
-  background: var(--text-primary);
+  background: var(--accent-primary);
   border-radius: 0 4px 4px 0;
+  box-shadow: 2px 0 8px rgba(59, 91, 219, 0.4);
 }
 
 .menuIcon {

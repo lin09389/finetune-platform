@@ -103,22 +103,23 @@ def test_frontend_api_integration():
 
 def test_chat_page_integration():
     """?????????"""
-    chat_page_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "client", "src", "pages", "Chat", "index.tsx",
-    )
-
-    assert os.path.exists(chat_page_path)
-    with open(chat_page_path, encoding="utf-8") as f:
-        content = f.read()
-
-    checks = [
-        "handleSend",
-        "useCloudAI",
-        "sendCloudMessage",
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    candidate_paths = [
+        os.path.join(repo_root, "client", "src", "pages", "ChatNew.tsx"),
+        os.path.join(repo_root, "client", "src", "pages", "Chat", "index.tsx"),
     ]
-    for pattern in checks:
-        assert pattern in content
+
+    existing_paths = [path for path in candidate_paths if os.path.exists(path)]
+    assert existing_paths
+
+    checks = ["handleSend", "useCloudAI", "sendCloudMessage"]
+    for chat_page_path in existing_paths:
+        with open(chat_page_path, encoding="utf-8") as f:
+            content = f.read()
+        if all(pattern in content for pattern in checks):
+            return
+
+    assert False, "chat page integration markers not found"
 
 
 def test_mock_cloud_chat():

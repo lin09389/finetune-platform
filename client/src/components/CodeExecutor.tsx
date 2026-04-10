@@ -463,12 +463,12 @@ const CodeExecutor: React.FC = () => {
       <style>{`
         .code-executor .ant-input:focus,
         .code-executor .ant-input-focused {
-          border-color: var(--primary-color);
-          box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.1);
+          border-color: var(--accent-primary);
+          box-shadow: 0 0 0 2px rgba(59, 91, 219, 0.1);
         }
         
         .code-executor .ant-input:hover {
-          border-color: var(--primary-color);
+          border-color: var(--accent-primary);
         }
       `}</style>
     </div>

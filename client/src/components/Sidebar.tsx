@@ -36,27 +36,56 @@ interface MenuItem {
   description?: string
 }
 
-const menuItems: MenuItem[] = [
-  { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘', description: '系统概览' },
-  { key: '/device', icon: <DesktopOutlined />, label: '设备信息', description: 'GPU / CPU 状态' },
-  { key: '/models', icon: <FolderOutlined />, label: '模型管理', description: '本地模型' },
-  { key: '/modelhub', icon: <CloudOutlined />, label: '模型中心', description: '下载模型' },
-  { key: '/datasets', icon: <DatabaseOutlined />, label: '数据集', description: '训练数据' },
-  { key: '/training', icon: <PlayCircleOutlined />, label: '模型训练', description: '微调任务' },
-  { key: '/chat', icon: <MessageOutlined />, label: 'AI 对话', description: '智能助手' },
-  { key: '/knowledge', icon: <BookOutlined />, label: '知识库', description: 'RAG 检索' },
-  { key: '/memory', icon: <BulbOutlined />, label: '智能记忆', description: '三层记忆系统' },
-  { key: '/workspace', icon: <AppstoreOutlined />, label: '工作空间', description: '项目管理' },
-  { key: '/skills', icon: <ToolOutlined />, label: '技能管理', description: '技能执行' },
-  { key: '/inference', icon: <ThunderboltOutlined />, label: '推理测试', description: '模型测试' },
-  { key: '/history', icon: <HistoryOutlined />, label: '训练历史', description: '任务记录' },
-  { key: '/project-context', icon: <CodeOutlined />, label: '项目上下文', description: '代码理解' },
-  { key: '/cloud-api', icon: <CloudOutlined />, label: '云端 API', description: 'API Key 管理' },
-  { key: '/gateway', icon: <ClusterOutlined />, label: 'Gateway', description: '设备管理' },
-  { key: '/heartbeat', icon: <HeartOutlined />, label: 'Heartbeat', description: '任务调度' },
-  { key: '/design-system', icon: <BgColorsOutlined />, label: '设计系统', description: '视觉与交互规范' },
-  { key: '/feedback', icon: <LikeOutlined />, label: '用户反馈', description: '反馈管理' },
-  { key: '/help', icon: <QuestionCircleOutlined />, label: '帮助中心', description: '使用指南' },
+interface MenuGroup {
+  label?: string
+  items: MenuItem[]
+}
+
+const menuGroups: MenuGroup[] = [
+  {
+    items: [
+      { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘', description: '系统概览' },
+      { key: '/device', icon: <DesktopOutlined />, label: '设备信息', description: 'GPU / CPU 状态' },
+    ]
+  },
+  {
+    label: '模型与数据',
+    items: [
+      { key: '/models', icon: <FolderOutlined />, label: '模型管理', description: '本地模型' },
+      { key: '/modelhub', icon: <CloudOutlined />, label: '模型中心', description: '下载模型' },
+      { key: '/datasets', icon: <DatabaseOutlined />, label: '数据集', description: '训练数据' },
+      { key: '/training', icon: <PlayCircleOutlined />, label: '模型训练', description: '微调任务' },
+      { key: '/history', icon: <HistoryOutlined />, label: '训练历史', description: '任务记录' },
+    ]
+  },
+  {
+    label: 'AI 能力',
+    items: [
+      { key: '/chat', icon: <MessageOutlined />, label: 'AI 对话', description: '智能助手' },
+      { key: '/inference', icon: <ThunderboltOutlined />, label: '推理测试', description: '模型测试' },
+      { key: '/knowledge', icon: <BookOutlined />, label: '知识库', description: 'RAG 检索' },
+      { key: '/memory', icon: <BulbOutlined />, label: '智能记忆', description: '三层记忆系统' },
+      { key: '/skills', icon: <ToolOutlined />, label: '技能管理', description: '技能执行' },
+    ]
+  },
+  {
+    label: '开发与集成',
+    items: [
+      { key: '/workspace', icon: <AppstoreOutlined />, label: '工作空间', description: '项目管理' },
+      { key: '/project-context', icon: <CodeOutlined />, label: '项目上下文', description: '代码理解' },
+      { key: '/cloud-api', icon: <CloudOutlined />, label: '云端 API', description: 'API Key 管理' },
+      { key: '/gateway', icon: <ClusterOutlined />, label: 'Gateway', description: '设备管理' },
+      { key: '/heartbeat', icon: <HeartOutlined />, label: 'Heartbeat', description: '任务调度' },
+    ]
+  },
+  {
+    label: '其他',
+    items: [
+      { key: '/design-system', icon: <BgColorsOutlined />, label: '设计系统', description: '视觉与交互规范' },
+      { key: '/feedback', icon: <LikeOutlined />, label: '用户反馈', description: '反馈管理' },
+      { key: '/help', icon: <QuestionCircleOutlined />, label: '帮助中心', description: '使用指南' },
+    ]
+  },
 ]
 
 const menuItemVariants = {
@@ -186,47 +215,61 @@ export default function Sidebar() {
       </motion.div>
 
       <div className={styles.menuWrapper}>
-        {menuItems.map((item, index) => {
-          const isActive = location.pathname === item.key
+        {menuGroups.map((group, groupIndex) => {
+          const allItems = group.items
           return (
-            <Tooltip
-              key={item.key}
-              title={sidebarCollapsed ? item.label : undefined}
-              placement="right"
-            >
-              <motion.div
-                custom={index}
-                variants={menuItemVariants}
-                initial="hidden"
-                animate="show"
-                className={`${styles.menuItem} ${isActive ? styles.menuItemActive : ''}`}
-                onClick={() => navigate(item.key)}
-                whileHover={{ x: 4 }}
-                whileTap={{ scale: 0.98 }}
-                style={{
-                  justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-                }}
-              >
-                {isActive && <motion.span layoutId="activeIndicator" className={styles.activeIndicator} />}
+            <div key={groupIndex}>
+              {group.label && !sidebarCollapsed && (
+                <div className={styles.menuGroupLabel}>{group.label}</div>
+              )}
+              {group.label && sidebarCollapsed && groupIndex > 0 && (
+                <div className={styles.menuGroupDivider} />
+              )}
+              {allItems.map((item, index) => {
+                const isActive = location.pathname === item.key
+                const globalIndex = menuGroups.slice(0, groupIndex).reduce((acc, g) => acc + g.items.length, 0) + index
+                return (
+                  <Tooltip
+                    key={item.key}
+                    title={sidebarCollapsed ? item.label : undefined}
+                    placement="right"
+                  >
+                    <motion.div
+                      custom={globalIndex}
+                      variants={menuItemVariants}
+                      initial="hidden"
+                      animate="show"
+                      className={`${styles.menuItem} ${isActive ? styles.menuItemActive : ''}`}
+                      onClick={() => navigate(item.key)}
+                      whileHover={{ x: 4 }}
+                      whileTap={{ scale: 0.98 }}
+                      style={{
+                        justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
+                      }}
+                    >
+                      {isActive && <motion.span layoutId="activeIndicator" className={styles.activeIndicator} />}
 
-                <span
-                  className={styles.menuIcon}
-                  style={{
-                    color: isActive ? 'var(--accent-primary)' : 'inherit',
-                    transform: isActive ? 'scale(1.1)' : 'scale(1)',
-                  }}
-                >
-                  {item.icon}
-                </span>
+                      <span
+                        className={styles.menuIcon}
+                        style={{
+                          color: isActive ? 'var(--accent-primary)' : 'inherit',
+                          transform: isActive ? 'scale(1.1)' : 'scale(1)',
+                        }}
+                      >
+                        {item.icon}
+                      </span>
 
-                {!sidebarCollapsed && (
-                  <div style={{ flex: 1, overflow: 'hidden' }}>
-                    <div className={styles.menuLabel}>{item.label}</div>
-                    {item.description && <div className={styles.menuDesc}>{item.description}</div>}
-                  </div>
-                )}
-              </motion.div>
-            </Tooltip>
+                      {!sidebarCollapsed && (
+                        <div style={{ flex: 1, overflow: 'hidden' }}>
+                          <div className={styles.menuLabel}>{item.label}</div>
+                          {item.description && <div className={styles.menuDesc}>{item.description}</div>}
+                        </div>
+                      )}
+                    </motion.div>
+                  </Tooltip>
+                )
+              })}
+            </div>
           )
         })}
       </div>

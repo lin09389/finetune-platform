@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Table, Tag, Button, Descriptions, Space, message, Drawer, List, Spin, Empty } from 'antd'
-import { DeleteOutlined, EyeOutlined, ReloadOutlined, PlayCircleOutlined } from '@ant-design/icons'
+import { Table, Tag, Button, Descriptions, Space, message, Drawer, Spin, Empty } from 'antd'
+import { DeleteOutlined, EyeOutlined, ReloadOutlined, PlayCircleOutlined, HistoryOutlined } from '@ant-design/icons'
 import { useAppStore } from '../store/appStore'
 import { getTrainingHistory, getTrainingCheckpoints, resumeTraining } from '../services/trainingApi'
 import type { TrainingRecord, Checkpoint } from '../types'
+import { MotionList, MotionItem } from '../components/shared/MotionWrapper'
+import styles from './History.module.css'
+import glassStyles from '../components/shared/GlassCard.module.css'
 
 export default function History() {
   const { trainingRecords, setTrainingRecords, removeTrainingRecord, setIsTraining } = useAppStore()
@@ -167,110 +170,112 @@ export default function History() {
   ]
 
   return (
-    <div style={{ padding: '0 24px' }}>
-      <div className="page-container">
-        <div className="page-title">训练历史</div>
+    <MotionList className={styles.container} stagger={0.08}>
+      <MotionItem>
+      <div className={`${glassStyles.glassCard} ${styles.headerCard}`}>
+        <h1 className={styles.title}>
+          <HistoryOutlined />
+          训练历史
+        </h1>
+        <Button icon={<ReloadOutlined />} onClick={() => void loadRecords()} loading={loading} style={{ borderRadius: 8 }}>
+          刷新
+        </Button>
+      </div>
+      </MotionItem>
 
+      <MotionItem>
+      <div className={`${glassStyles.glassCard} ${styles.tableCard}`}>
         <Table
           columns={columns}
           dataSource={trainingRecords}
           rowKey="id"
           loading={loading}
           pagination={{ pageSize: 10 }}
+          locale={{ emptyText: '暂无训练记录' }}
         />
-
-        <Drawer
-          title="训练详情"
-          placement="right"
-          width={600}
-          open={detailOpen}
-          onClose={() => {
-            setDetailOpen(false)
-            setCheckpoints([])
-          }}
-          extra={[
-            selectedRecord ? (
-              <Button
-                key="reload"
-                icon={<ReloadOutlined />}
-                loading={checkpointsLoading}
-                onClick={() => void loadCheckpoints(selectedRecord)}
-              >
-                刷新检查点
-              </Button>
-            ) : null,
-            <Button key="close" onClick={() => setDetailOpen(false)}>
-              关闭
-            </Button>,
-          ]}
-        >
-          {selectedRecord && (
-            <>
-              <Descriptions column={1} size="small">
-                <Descriptions.Item label="训练 ID">{selectedRecord.id}</Descriptions.Item>
-                <Descriptions.Item label="模型">{selectedRecord.modelName}</Descriptions.Item>
-                <Descriptions.Item label="数据集">{selectedRecord.datasetName}</Descriptions.Item>
-                <Descriptions.Item label="训练方法">{getMethodTag(selectedRecord.method)}</Descriptions.Item>
-                <Descriptions.Item label="状态">{getStatusTag(selectedRecord.status)}</Descriptions.Item>
-                <Descriptions.Item label="开始时间">
-                  {new Date(selectedRecord.startTime).toLocaleString('zh-CN')}
-                </Descriptions.Item>
-                {selectedRecord.endTime && (
-                  <Descriptions.Item label="结束时间">
-                    {new Date(selectedRecord.endTime).toLocaleString('zh-CN')}
-                  </Descriptions.Item>
-                )}
-                <Descriptions.Item label="训练耗时">
-                  {calculateDuration(selectedRecord.startTime, selectedRecord.endTime)}
-                </Descriptions.Item>
-                <Descriptions.Item label="输出路径">{selectedRecord.outputPath}</Descriptions.Item>
-                <Descriptions.Item label="训练配置">
-                  <div style={{ fontSize: 12 }}>
-                    <div>Rank: {selectedRecord.config?.rank || '-'}</div>
-                    <div>Alpha: {selectedRecord.config?.alpha || '-'}</div>
-                    <div>Learning Rate: {selectedRecord.config?.learningRate?.toExponential?.(2) || '-'}</div>
-                    <div>Epochs: {selectedRecord.config?.epochs || '-'}</div>
-                    <div>Batch Size: {selectedRecord.config?.batchSize || '-'}</div>
-                  </div>
-                </Descriptions.Item>
-              </Descriptions>
-
-              <div style={{ marginTop: 24 }}>
-                <div style={{ fontWeight: 600, marginBottom: 12 }}>可恢复检查点</div>
-                <Spin spinning={checkpointsLoading}>
-                  {checkpoints.length > 0 ? (
-                    <List
-                      dataSource={checkpoints}
-                      renderItem={(checkpoint) => (
-                        <List.Item
-                          actions={[
-                            <Button
-                              key={`resume-${checkpoint.name}`}
-                              type="link"
-                              icon={<PlayCircleOutlined />}
-                              loading={resumingCheckpoint === checkpoint.name}
-                              onClick={() => void handleResume(checkpoint.name)}
-                            >
-                              恢复训练
-                            </Button>,
-                          ]}
-                        >
-                          <List.Item.Meta
-                            title={`${checkpoint.name} · step ${checkpoint.step}`}
-                            description={`创建时间：${new Date(checkpoint.created).toLocaleString('zh-CN')}`}
-                          />
-                        </List.Item>
-                      )}
-                    />
-                  ) : (
-                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有可用检查点" />
-                  )}
-                </Spin>
-              </div>
-            </>
-          )}
-        </Drawer>
       </div>
-    </div>
+      </MotionItem>
+
+      <Drawer
+        title="训练详情"
+        placement="right"
+        width={600}
+        open={detailOpen}
+        onClose={() => {
+          setDetailOpen(false)
+          setCheckpoints([])
+        }}
+        extra={[
+          selectedRecord ? (
+            <Button
+              key="reload"
+              icon={<ReloadOutlined />}
+              loading={checkpointsLoading}
+              onClick={() => void loadCheckpoints(selectedRecord)}
+              size="small"
+            >
+              刷新检查点
+            </Button>
+          ) : null,
+          <Button key="close" onClick={() => setDetailOpen(false)}>关闭</Button>,
+        ]}
+      >
+        {selectedRecord && (
+          <>
+            <Descriptions column={1} size="small" bordered>
+              <Descriptions.Item label="训练 ID">{selectedRecord.id}</Descriptions.Item>
+              <Descriptions.Item label="模型">{selectedRecord.modelName}</Descriptions.Item>
+              <Descriptions.Item label="数据集">{selectedRecord.datasetName}</Descriptions.Item>
+              <Descriptions.Item label="训练方法">{getMethodTag(selectedRecord.method)}</Descriptions.Item>
+              <Descriptions.Item label="状态">{getStatusTag(selectedRecord.status)}</Descriptions.Item>
+              <Descriptions.Item label="开始时间">{new Date(selectedRecord.startTime).toLocaleString('zh-CN')}</Descriptions.Item>
+              {selectedRecord.endTime && (
+                <Descriptions.Item label="结束时间">{new Date(selectedRecord.endTime).toLocaleString('zh-CN')}</Descriptions.Item>
+              )}
+              <Descriptions.Item label="训练耗时">{calculateDuration(selectedRecord.startTime, selectedRecord.endTime)}</Descriptions.Item>
+              <Descriptions.Item label="输出路径">{selectedRecord.outputPath}</Descriptions.Item>
+              <Descriptions.Item label="训练配置">
+                <div style={{ fontSize: 12, lineHeight: 1.8 }}>
+                  <div>Rank: {selectedRecord.config?.rank || '-'}</div>
+                  <div>Alpha: {selectedRecord.config?.alpha || '-'}</div>
+                  <div>Learning Rate: {selectedRecord.config?.learningRate?.toExponential?.(2) || '-'}</div>
+                  <div>Epochs: {selectedRecord.config?.epochs || '-'}</div>
+                  <div>Batch Size: {selectedRecord.config?.batchSize || '-'}</div>
+                </div>
+              </Descriptions.Item>
+            </Descriptions>
+
+            <div className={styles.detailSection}>
+              <div className={styles.detailSectionTitle}>可恢复检查点</div>
+              <Spin spinning={checkpointsLoading}>
+                {checkpoints.length > 0 ? (
+                  checkpoints.map((checkpoint) => (
+                    <div key={checkpoint.name} className={styles.checkpointItem}>
+                      <div>
+                        <div className={styles.checkpointName}>{checkpoint.name} · step {checkpoint.step}</div>
+                        <div className={styles.checkpointMeta}>创建于 {new Date(checkpoint.created).toLocaleString('zh-CN')}</div>
+                      </div>
+                      <Button
+                        type="primary"
+                        ghost
+                        size="small"
+                        icon={<PlayCircleOutlined />}
+                        loading={resumingCheckpoint === checkpoint.name}
+                        onClick={() => void handleResume(checkpoint.name)}
+                        style={{ borderRadius: 6 }}
+                      >
+                        恢复训练
+                      </Button>
+                    </div>
+                  ))
+                ) : (
+                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有可用检查点" />
+                )}
+              </Spin>
+            </div>
+          </>
+        )}
+      </Drawer>
+    </MotionList>
   )
 }

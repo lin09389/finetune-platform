@@ -2,10 +2,6 @@
    Finetune Platform - 样式入口 (Tailwind 集成)
    ============================================ */
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
 /* 设计令牌 */
 @import './variables.css';
 
@@ -33,6 +29,10 @@
 @import './pages/training.css';
 @import './pages/index.css';
 
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 @layer base {
   html {
     font-family: var(--font-sans);
@@ -45,8 +45,6 @@
 
   body {
     @apply min-h-screen bg-bg-primary text-text-primary;
-    background-image: var(--gradient-mesh);
-    background-attachment: fixed;
     transition: background-color var(--transition-base), color var(--transition-base);
   }
 

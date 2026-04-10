@@ -216,7 +216,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
                     size={24}
                     icon={<RobotOutlined />}
                     style={{
-                      background: 'var(--gradient-secondary)',
+                      background: 'var(--bg-elevated)',
+                      border: '1px solid var(--border-color)',
+                      color: 'var(--text-primary)',
                       width: 24,
                       height: 24,
                     }}

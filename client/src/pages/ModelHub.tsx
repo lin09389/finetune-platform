@@ -1,7 +1,17 @@
 import { useState, useEffect } from 'react'
-import { Card, Button, Space, Input, List, Tag, Modal, App, Progress, Table, Empty, Segmented, Tooltip } from 'antd'
-import { SearchOutlined, DownloadOutlined, DeleteOutlined, CloudDownloadOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { Button, Input, Tag, Modal, App, Progress, Table, Segmented, Tooltip, Space } from 'antd'
+import {
+  SearchOutlined,
+  DownloadOutlined,
+  DeleteOutlined,
+  CloudDownloadOutlined,
+  InfoCircleOutlined,
+  CloudServerOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons'
 import { API_BASE_URL } from '../services/api'
+import { MotionList, MotionItem } from '../components/shared/MotionWrapper'
+import styles from './ModelHub.module.css'
 
 interface ModelSuggestion {
   repo_id: string
@@ -96,19 +106,13 @@ export default function ModelHub() {
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return
-
     setSearching(true)
     try {
       const response = await fetch(`${API_BASE_URL}/model-center/search`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query: searchQuery,
-          limit: 20,
-          source: modelSource
-        })
+        body: JSON.stringify({ query: searchQuery, limit: 20, source: modelSource }),
       })
-
       if (response.ok) {
         const data = await response.json()
         setSearchResults(data)
@@ -128,24 +132,16 @@ export default function ModelHub() {
         body: JSON.stringify({
           repo_id: repoId,
           revision: modelSource === 'modelscope' ? 'master' : 'main',
-          source: modelSource
-        })
+          source: modelSource,
+        }),
       })
-
       if (response.ok) {
         const data = await response.json()
         message.success(`开始下载：${repoId}（${data.source === 'modelscope' ? '魔搭社区' : 'HuggingFace'}）`)
-        
         setDownloadTasks(prev => ({
           ...prev,
-          [data.task_id]: {
-            task_id: data.task_id,
-            status: 'pending',
-            progress: 0,
-            source: data.source
-          }
+          [data.task_id]: { task_id: data.task_id, status: 'pending', progress: 0, source: data.source },
         }))
-
         pollProgress(data.task_id)
       }
     } catch (error) {
@@ -159,17 +155,10 @@ export default function ModelHub() {
         const response = await fetch(`${API_BASE_URL}/model-center/download/${taskId}`)
         if (response.ok) {
           const data = await response.json()
-          
           setDownloadTasks(prev => ({
             ...prev,
-            [taskId]: {
-              task_id: data.task_id,
-              status: data.status,
-              progress: data.progress,
-              error: data.error
-            }
+            [taskId]: { task_id: data.task_id, status: data.status, progress: data.progress, error: data.error },
           }))
-
           if (data.status === 'completed' || data.status === 'failed') {
             if (data.status === 'completed') {
               message.success('下载完成')
@@ -185,7 +174,6 @@ export default function ModelHub() {
         console.error('Failed to poll progress:', error)
       }
     }
-
     setTimeout(poll, 2000)
   }
 
@@ -195,11 +183,7 @@ export default function ModelHub() {
       content: `确定要删除模型 ${modelId} 吗？`,
       onOk: async () => {
         try {
-          const response = await fetch(
-            `${API_BASE_URL}/model-center/local/${modelId}`,
-            { method: 'DELETE' }
-          )
-
+          const response = await fetch(`${API_BASE_URL}/model-center/local/${modelId}`, { method: 'DELETE' })
           if (response.ok) {
             message.success('已删除')
             loadLocalModels()
@@ -209,7 +193,7 @@ export default function ModelHub() {
         } catch (error) {
           message.error('删除失败')
         }
-      }
+      },
     })
   }
 
@@ -219,246 +203,203 @@ export default function ModelHub() {
   }
 
   const localColumns = [
-    {
-      title: '模型名称',
-      dataIndex: 'name',
-      key: 'name',
-    },
-    {
-      title: '路径',
-      dataIndex: 'path',
-      key: 'path',
-      ellipsis: true,
-    },
+    { title: '模型名称', dataIndex: 'name', key: 'name' },
+    { title: '路径', dataIndex: 'path', key: 'path', ellipsis: true },
     {
       title: '大小',
       dataIndex: 'size',
       key: 'size',
       render: (size: number) => `${(size / 1024 / 1024 / 1024).toFixed(2)} GB`,
     },
-    {
-      title: '下载时间',
-      dataIndex: 'created_at',
-      key: 'created_at',
-    },
+    { title: '下载时间', dataIndex: 'created_at', key: 'created_at' },
     {
       title: '操作',
       key: 'action',
       render: (_: unknown, record: LocalModel) => (
-        <Button
-          danger
-          size="small"
-          icon={<DeleteOutlined />}
-          onClick={() => handleDeleteLocal(record.id)}
-        >
+        <Button danger size="small" icon={<DeleteOutlined />} onClick={() => handleDeleteLocal(record.id)}>
           删除
         </Button>
       ),
     },
   ]
 
+  const categoryColor = (cat: string) =>
+    cat === 'chat' ? 'blue' : cat === 'embedding' ? 'purple' : 'orange'
+
   return (
-    <div style={{ padding: '0 24px' }}>
-      <div className="page-container">
-        <div className="page-title">模型中心</div>
-
-        <Space direction="vertical" style={{ width: '100%' }} size="large">
-          <Card title="搜索模型" variant="borderless">
-            <Space direction="vertical" style={{ width: '100%' }} size="middle">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Segmented
-                  value={modelSource}
-                  onChange={(value) => handleSourceChange(value as string)}
-                  options={[
-                    { label: '魔搭社区 (ModelScope)', value: 'modelscope' },
-                    { label: 'HuggingFace', value: 'huggingface' },
-                  ]}
-                />
-                <Tooltip title={modelSource === 'modelscope' ? '国内访问更稳定，下载速度更快' : '国际模型库，模型资源丰富'}>
-                  <InfoCircleOutlined style={{ color: '#999' }} />
-                </Tooltip>
-              </div>
-              <Space.Compact style={{ width: '100%' }}>
-                <Input
-                  placeholder={modelSource === 'modelscope' 
-                    ? "输入模型名称，如：Qwen、ChatGLM、Yi" 
-                    : "输入模型名称，如：llama, qwen, chatglm"}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onPressEnter={handleSearch}
-                  size="large"
-                />
-                <Button
-                  type="primary"
-                  icon={<SearchOutlined />}
-                  onClick={handleSearch}
-                  loading={searching}
-                  size="large"
-                >
-                  搜索
-                </Button>
-              </Space.Compact>
-            </Space>
-          </Card>
-
-          {Object.keys(downloadTasks).length > 0 && (
-            <Card title="下载进度" variant="borderless">
-              <Space direction="vertical" style={{ width: '100%' }}>
-                {Object.values(downloadTasks).map((task) => (
-                  <div key={task.task_id}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <span>任务：{task.task_id}</span>
-                      <Space>
-                        {task.source && (
-                          <Tag color={task.source === 'modelscope' ? 'green' : 'blue'}>
-                            {task.source === 'modelscope' ? '魔搭社区' : 'HuggingFace'}
-                          </Tag>
-                        )}
-                        <Tag color={task.status === 'completed' ? 'green' : task.status === 'failed' ? 'red' : 'blue'}>
-                          {task.status}
-                        </Tag>
-                      </Space>
-                    </div>
-                    <Progress percent={Math.round(task.progress)} status={task.status === 'failed' ? 'exception' : 'active'} />
-                    {task.error && <div style={{ color: 'red', fontSize: 12 }}>{task.error}</div>}
-                  </div>
-                ))}
-              </Space>
-            </Card>
-          )}
-
-          {searchResults.length === 0 && suggestions.length > 0 && (
-            <Card
-              title="推荐模型"
-              variant="borderless"
-              extra={
-                <Button type="link" onClick={loadSuggestions}>
-                  刷新
-                </Button>
-              }
-            >
-              <List
-                grid={{ gutter: 16, column: 2 }}
-                dataSource={suggestions}
-                renderItem={(model) => (
-                  <List.Item>
-                    <Card
-                      size="small"
-                      title={model.name}
-                      extra={
-                        <Space>
-                          <Tag color={model.category === 'chat' ? 'blue' : model.category === 'embedding' ? 'purple' : 'orange'}>
-                            {model.category}
-                          </Tag>
-                          <Tag color="green">魔搭社区</Tag>
-                        </Space>
-                      }
-                      actions={[
-                        <Button
-                          key="download"
-                          type="primary"
-                          icon={<DownloadOutlined />}
-                          onClick={() => handleDownload(model.repo_id)}
-                        >
-                          下载
-                        </Button>,
-                      ]}
-                    >
-                      <Card.Meta
-                        description={
-                          <div>
-                            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
-                              {model.description}
-                            </div>
-                            <div style={{ fontSize: 12, color: '#999' }}>
-                              大小：{model.size}
-                            </div>
-                            <div style={{ fontSize: 12, color: '#999' }}>
-                              {model.repo_id}
-                            </div>
-                          </div>
-                        }
-                      />
-                    </Card>
-                  </List.Item>
-                )}
-              />
-            </Card>
-          )}
-
-          {searchResults.length > 0 && (
-            <Card
-              title={`搜索结果 (${searchResults.length})`}
-              variant="borderless"
-              extra={
-                <Button onClick={() => setSearchResults([])}>
-                  清空
-                </Button>
-              }
-            >
-              <List
-                dataSource={searchResults}
-                renderItem={(model) => (
-                  <List.Item
-                    actions={[
-                      <Button
-                        key="download"
-                        type="primary"
-                        icon={<CloudDownloadOutlined />}
-                        onClick={() => handleDownload(model.modelId)}
-                      >
-                        下载
-                      </Button>,
-                    ]}
-                  >
-                    <List.Item.Meta
-                      title={
-                        <Space>
-                          <span>{model.modelId}</span>
-                          {model.library_name && (
-                            <Tag color="blue">{model.library_name}</Tag>
-                          )}
-                          <Tag color={model.source === 'modelscope' ? 'green' : 'blue'}>
-                            {model.source === 'modelscope' ? '魔搭社区' : 'HuggingFace'}
-                          </Tag>
-                        </Space>
-                      }
-                      description={
-                        <Space size="small">
-                          <Tag>{model.downloads} 下载</Tag>
-                          <Tag>{model.likes} 喜欢</Tag>
-                          {model.tags?.slice(0, 3).map((tag: string) => (
-                            <Tag key={tag}>{tag}</Tag>
-                          ))}
-                        </Space>
-                      }
-                    />
-                  </List.Item>
-                )}
-              />
-            </Card>
-          )}
-
-          <Card
-            title="本地模型"
-            variant="borderless"
-            extra={
-              <Button onClick={loadLocalModels}>刷新</Button>
-            }
-          >
-            {localModels.length > 0 ? (
-              <Table
-                columns={localColumns}
-                dataSource={localModels}
-                rowKey="id"
-                pagination={false}
-              />
-            ) : (
-              <Empty description="暂无本地模型" />
-            )}
-          </Card>
-        </Space>
+    <MotionList className={styles.container} stagger={0.08}>
+      <MotionItem>
+      {/* 标题栏 */}
+      <div className={styles.headerCard}>
+        <div className={styles.headerLeft}>
+          <div className={styles.headerIcon}>
+            <CloudServerOutlined />
+          </div>
+          <div>
+            <h2 className={styles.headerTitle}>模型中心</h2>
+            <p className={styles.headerSubtitle}>搜索、下载并管理本地模型</p>
+          </div>
+        </div>
       </div>
-    </div>
+
+      {/* 搜索区域 */}
+      <div className={styles.searchCard}>
+        <div className={styles.sectionTitle}>
+          <SearchOutlined /> 搜索模型
+        </div>
+        <div className={styles.sourceToggle}>
+          <Segmented
+            value={modelSource}
+            onChange={(value) => handleSourceChange(value as string)}
+            options={[
+              { label: '魔搭社区 (ModelScope)', value: 'modelscope' },
+              { label: 'HuggingFace', value: 'huggingface' },
+            ]}
+          />
+          <Tooltip title={modelSource === 'modelscope' ? '国内访问更稳定，下载速度更快' : '国际模型库，模型资源丰富'}>
+            <InfoCircleOutlined style={{ color: 'var(--text-tertiary)' }} />
+          </Tooltip>
+        </div>
+        <Space.Compact style={{ width: '100%' }}>
+          <Input
+            placeholder={
+              modelSource === 'modelscope'
+                ? '输入模型名称，如：Qwen、ChatGLM、Yi'
+                : '输入模型名称，如：llama, qwen, chatglm'
+            }
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onPressEnter={handleSearch}
+            size="large"
+          />
+          <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} loading={searching} size="large">
+            搜索
+          </Button>
+        </Space.Compact>
+      </div>
+
+      {/* 下载进度 */}
+      {Object.keys(downloadTasks).length > 0 && (
+        <div className={styles.downloadCard}>
+          <div className={styles.sectionTitle}>
+            <DownloadOutlined /> 下载进度
+          </div>
+          {Object.values(downloadTasks).map((task) => (
+            <div key={task.task_id} className={styles.downloadItem}>
+              <div className={styles.downloadMeta}>
+                <span>任务：{task.task_id}</span>
+                <Space>
+                  {task.source && (
+                    <Tag color={task.source === 'modelscope' ? 'green' : 'blue'}>
+                      {task.source === 'modelscope' ? '魔搭社区' : 'HuggingFace'}
+                    </Tag>
+                  )}
+                  <Tag color={task.status === 'completed' ? 'green' : task.status === 'failed' ? 'red' : 'blue'}>
+                    {task.status}
+                  </Tag>
+                </Space>
+              </div>
+              <Progress
+                percent={Math.round(task.progress)}
+                status={task.status === 'failed' ? 'exception' : 'active'}
+              />
+              {task.error && <div style={{ color: '#ff4d4f', fontSize: 12, marginTop: 4 }}>{task.error}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 推荐模型 */}
+      {searchResults.length === 0 && suggestions.length > 0 && (
+        <div className={styles.suggestionsCard}>
+          <div className={styles.cardTitleRow}>
+            <div className={styles.sectionTitle} style={{ marginBottom: 0 }}>推荐模型</div>
+            <Button type="link" icon={<ReloadOutlined />} onClick={loadSuggestions}>
+              刷新
+            </Button>
+          </div>
+          <div className={styles.modelGrid}>
+            {suggestions.map((model) => (
+              <div key={model.repo_id} className={styles.modelCard}>
+                <div className={styles.modelName}>{model.name}</div>
+                <div className={styles.modelTagRow}>
+                  <Tag color={categoryColor(model.category)}>{model.category}</Tag>
+                  <Tag color="green">魔搭社区</Tag>
+                </div>
+                <div className={styles.modelDesc}>{model.description}</div>
+                <div className={styles.modelMeta}>大小：{model.size} · {model.repo_id}</div>
+                <div className={styles.modelCardFooter}>
+                  <Button
+                    type="primary"
+                    size="small"
+                    icon={<DownloadOutlined />}
+                    onClick={() => handleDownload(model.repo_id)}
+                  >
+                    下载
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 搜索结果 */}
+      {searchResults.length > 0 && (
+        <div className={styles.searchResultCard}>
+          <div className={styles.cardTitleRow}>
+            <div className={styles.sectionTitle} style={{ marginBottom: 0 }}>
+              搜索结果（{searchResults.length}）
+            </div>
+            <Button onClick={() => setSearchResults([])}>清空</Button>
+          </div>
+          {searchResults.map((model) => (
+            <div key={model.id} className={styles.resultItem}>
+              <div className={styles.resultInfo}>
+                <div className={styles.resultName}>
+                  <span>{model.modelId}</span>
+                  {model.library_name && <Tag color="blue">{model.library_name}</Tag>}
+                  <Tag color={model.source === 'modelscope' ? 'green' : 'blue'}>
+                    {model.source === 'modelscope' ? '魔搭社区' : 'HuggingFace'}
+                  </Tag>
+                </div>
+                <div className={styles.resultStats}>
+                  <span>{model.downloads} 下载</span>
+                  <span>·</span>
+                  <span>{model.likes} 喜欢</span>
+                  {model.tags?.slice(0, 3).map((tag: string) => (
+                    <Tag key={tag} style={{ fontSize: 11, margin: 0 }}>{tag}</Tag>
+                  ))}
+                </div>
+              </div>
+              <Button
+                type="primary"
+                icon={<CloudDownloadOutlined />}
+                onClick={() => handleDownload(model.modelId)}
+              >
+                下载
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 本地模型 */}
+      <div className={styles.localCard}>
+        <div className={styles.cardTitleRow}>
+          <div className={styles.sectionTitle} style={{ marginBottom: 0 }}>本地模型</div>
+          <Button icon={<ReloadOutlined />} onClick={loadLocalModels}>刷新</Button>
+        </div>
+        {localModels.length > 0 ? (
+          <Table columns={localColumns} dataSource={localModels} rowKey="id" pagination={false} />
+        ) : (
+          <div className={styles.emptyState}>
+            <div className={styles.emptyIcon}>📦</div>
+            <div>暂无本地模型</div>
+          </div>
+        )}
+      </div>
+      </MotionItem>
+    </MotionList>
   )
 }

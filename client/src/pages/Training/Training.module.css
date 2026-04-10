@@ -12,16 +12,16 @@
 }
 
 .titleIcon {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-lg);
-  background: var(--gradient-secondary);
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--text-2xl);
-  color: var(--text-inverse);
-  box-shadow: var(--shadow-md);
+  font-size: var(--text-base);
+  color: var(--text-primary);
 }
 
 .title {

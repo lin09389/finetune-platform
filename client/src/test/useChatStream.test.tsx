@@ -67,15 +67,20 @@ describe('useChatStream', () => {
     global.fetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
 
-      if (url.endsWith('/inference/chat')) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            message: { content: 'assistant reply' },
-            model: 'llama3',
-            backend: 'ollama',
-          }),
-        } as Response)
+      if (url.endsWith('/inference/chat/stream')) {
+        const ssePayload = [
+          'data: {"type":"metadata","model":"llama3","backend":"ollama"}\n\n',
+          'data: {"type":"delta","content":"assistant "}\n\n',
+          'data: {"type":"delta","content":"reply"}\n\n',
+          'data: {"type":"done"}\n\n',
+          'data: [DONE]\n\n',
+        ].join('')
+        return Promise.resolve(
+          new Response(ssePayload, {
+            status: 200,
+            headers: { 'Content-Type': 'text/event-stream' },
+          })
+        )
       }
 
       if (url.endsWith('/chat/sessions/session-1/messages')) {
@@ -106,6 +111,9 @@ describe('useChatStream', () => {
 
     const fetchCalls = vi.mocked(global.fetch).mock.calls
     expect(fetchCalls).toHaveLength(3)
+
+    expect(String(fetchCalls[0]?.[0])).toBe('http://localhost:8000/inference/chat/stream')
+    expect(fetchCalls[0]?.[1]?.method).toBe('POST')
 
     expect(String(fetchCalls[1]?.[0])).toBe('http://localhost:8000/chat/sessions/session-1/messages')
     expect(fetchCalls[1]?.[1]?.method).toBe('POST')
