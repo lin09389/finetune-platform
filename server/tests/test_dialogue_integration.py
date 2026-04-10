@@ -33,7 +33,7 @@ class TestDialogueAPIIntegration:
     def test_chat_session_create(self, client):
         """测试创建聊天会话"""
         response = client.post(
-            "/chat",
+            "/chat/sessions",
             json={
                 "title": "Test Session",
                 "metadata": {"model_id": "test_model"}
@@ -45,37 +45,44 @@ class TestDialogueAPIIntegration:
 
     def test_chat_session_list(self, client):
         """测试获取会话列表"""
-        response = client.get("/chat")
+        response = client.get("/chat/sessions")
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list) or "sessions" in data
 
     def test_chat_session_get(self, client):
         """测试获取单个会话"""
-        response = client.get("/chat/nonexistent_session")
+        response = client.get("/chat/sessions/nonexistent_session")
         assert response.status_code in [200, 404]
 
     def test_chat_session_delete(self, client):
         """测试删除会话"""
-        response = client.delete("/chat/nonexistent_session")
+        response = client.delete("/chat/sessions/nonexistent_session")
         assert response.status_code in [200, 404]
 
     def test_chat_messages_add(self, client):
         """测试添加消息"""
+        session_response = client.post(
+            "/chat/sessions",
+            json={"title": "Message Test Session"},
+        )
+        if session_response.status_code not in [200, 201]:
+            pytest.skip("Session creation unavailable")
+
+        session_data = session_response.json()
+        session_id = session_data.get("id") or session_data.get("session_id")
+        if not session_id:
+            pytest.skip("Session id missing in response")
+
         response = client.post(
-            "/chat/test_session/messages",
+            f"/chat/sessions/{session_id}/messages",
             json={
-                "messages": [
-                    {
-                        "id": "msg_1",
-                        "role": "user",
-                        "content": "Hello",
-                        "timestamp": datetime.now().isoformat()
-                    }
-                ]
+                "role": "user",
+                "content": "Hello",
+                "metadata": {"timestamp": datetime.now().isoformat()},
             }
         )
-        assert response.status_code in [200, 404]
+        assert response.status_code == 200
 
     def test_inference_backends_list(self, client):
         """测试获取推理后端列表"""
@@ -338,7 +345,7 @@ class TestEndToEndFlow:
     def test_chat_flow(self, client):
         """测试完整聊天流程"""
         session_response = client.post(
-            "/chat",
+            "/chat/sessions",
             json={"title": "E2E Test Session"}
         )
         assert session_response.status_code in [200, 201]
@@ -347,10 +354,10 @@ class TestEndToEndFlow:
         session_id = session_data.get("id") or session_data.get("session_id")
 
         if session_id:
-            get_response = client.get(f"/chat/{session_id}")
+            get_response = client.get(f"/chat/sessions/{session_id}")
             assert get_response.status_code == 200
 
-            delete_response = client.delete(f"/chat/{session_id}")
+            delete_response = client.delete(f"/chat/sessions/{session_id}")
             assert delete_response.status_code in [200, 404]
 
     def test_model_management_flow(self, client):

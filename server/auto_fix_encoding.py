@@ -48,7 +48,7 @@ def _fix_unbalanced_quote(line: str, quote: str) -> str:
 
     line = line.rstrip()
     if line.endswith("?"):
-        return line[:-1] + "。"
+        return line[:-1] + f"。{quote}"
     if line.endswith(f"?{quote}"):
         return line[:-2] + f"。{quote}"
     return line + quote
