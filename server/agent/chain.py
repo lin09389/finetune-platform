@@ -232,7 +232,7 @@ class ChainExecutor:
     def _get_execution_order(self, chain: OperationChain) -> list[list[str]]:
         in_degree = defaultdict(int)
         for node in chain.nodes.values():
-            for dep in node.dependencies:
+            for _ in node.dependencies:
                 in_degree[node.id] += 1
 
         levels = []
@@ -303,7 +303,7 @@ class ChainExecutor:
             if tasks:
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 if chain.error_strategy == ErrorStrategy.STOP.value:
-                    for i, result in enumerate(results):
+                    for result in results:
                         if isinstance(result, Exception) or result is False:
                             if chain.rollback_on_failure:
                                 await self._rollback_chain(chain)

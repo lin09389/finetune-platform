@@ -243,7 +243,7 @@ class TestEventBusSingleton:
     def test_reset_event_bus(self):
         """测试重置事件总线"""
         bus1 = get_event_bus()
-        bus1.subscribe(EventType.TRAINING_STARTED, lambda e: None)
+        bus1.subscribe(EventType.TRAINING_STARTED, lambda _e: None)
 
         bus2 = reset_event_bus()
 

@@ -223,7 +223,7 @@ class TableStore:
                 results = []
                 base_name = name or file_path.stem
 
-                for sheet_idx, (sheet_nm, df) in enumerate(all_sheets.items()):
+                for _sheet_idx, (sheet_nm, df) in enumerate(all_sheets.items()):
                     table_id = f"tbl_{uuid.uuid4().hex[:12]}"
                     table_name = f"{base_name}_{sheet_nm}" if len(all_sheets) > 1 else base_name
 
@@ -431,7 +431,7 @@ class TableStore:
 
         results = []
         for row in rows:
-            results.append(dict(zip(col_names, row)))
+            results.append(dict(zip(col_names, row, strict=False)))
 
         return results
 
@@ -465,7 +465,7 @@ class TableStore:
             if actual_sql.strip().upper().startswith("SELECT"):
                 columns = [desc[0] for desc in cursor.description]
                 rows = cursor.fetchall()
-                results = [dict(zip(columns, row)) for row in rows]
+                results = [dict(zip(columns, row, strict=False)) for row in rows]
             else:
                 conn.commit()
                 results = [{"affected_rows": cursor.rowcount}]

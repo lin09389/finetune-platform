@@ -9,6 +9,7 @@ import shutil
 import tempfile
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
@@ -116,10 +117,8 @@ def _process_upload(task_id: str, tmp_path: str, collection_id: str, filename: s
 
     finally:
         if os.path.exists(tmp_path):
-            try:
+            with suppress(Exception):
                 os.unlink(tmp_path)
-            except:
-                pass
 
 
 @router.post("/upload", response_model=UploadResponse)

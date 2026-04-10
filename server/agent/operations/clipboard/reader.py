@@ -43,13 +43,12 @@ class PlatformClipboard:
     @staticmethod
     def get_platform() -> str:
         system = platform.system().lower()
-        if system == "darwin":
-            return "macos"
-        elif system == "windows":
-            return "windows"
-        elif system == "linux":
-            return "linux"
-        return system
+        mapping = {
+            "darwin": "macos",
+            "windows": "windows",
+            "linux": "linux",
+        }
+        return mapping.get(system, system)
 
     @staticmethod
     def is_windows() -> bool:
@@ -344,6 +343,11 @@ class LinuxClipboardBackend:
         self._backend = self._detect_backend()
 
     def _detect_backend(self) -> str:
+        mapping = {
+            "wl-copy": "wayland",
+            "xclip": "xclip",
+            "xsel": "xsel",
+        }
         for cmd in ["wl-copy", "xclip", "xsel"]:
             try:
                 subprocess.run(
@@ -351,24 +355,19 @@ class LinuxClipboardBackend:
                     capture_output=True,
                     check=True,
                 )
-                if cmd == "wl-copy":
-                    return "wayland"
-                elif cmd == "xclip":
-                    return "xclip"
-                elif cmd == "xsel":
-                    return "xsel"
+                return mapping[cmd]
             except subprocess.CalledProcessError:
                 continue
         return "unknown"
 
     def read_text(self) -> str | None:
-        if self._backend == "wayland":
-            return self._read_text_wayland()
-        elif self._backend == "xclip":
-            return self._read_text_xclip()
-        elif self._backend == "xsel":
-            return self._read_text_xsel()
-        return None
+        readers = {
+            "wayland": self._read_text_wayland,
+            "xclip": self._read_text_xclip,
+            "xsel": self._read_text_xsel,
+        }
+        reader = readers.get(self._backend)
+        return reader() if reader else None
 
     def _read_text_wayland(self) -> str | None:
         try:

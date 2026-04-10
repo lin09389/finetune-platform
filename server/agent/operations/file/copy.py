@@ -71,22 +71,21 @@ class FileCopyExecutor:
                     f"开始复制: {source_path.name}",
                 )
 
-            with open(source_path, "rb") as src_file:
-                with open(dest_path, "wb") as dest_file:
-                    while True:
-                        chunk = await asyncio.to_thread(src_file.read, self.chunk_size)
-                        if not chunk:
-                            break
-                        await asyncio.to_thread(dest_file.write, chunk)
-                        bytes_copied += len(chunk)
+            with open(source_path, "rb") as src_file, open(dest_path, "wb") as dest_file:
+                while True:
+                    chunk = await asyncio.to_thread(src_file.read, self.chunk_size)
+                    if not chunk:
+                        break
+                    await asyncio.to_thread(dest_file.write, chunk)
+                    bytes_copied += len(chunk)
 
-                        if self.progress_callback and file_size > 0:
-                            progress = bytes_copied / file_size
-                            await self.progress_callback(
-                                source,
-                                progress,
-                                f"复制中: {bytes_copied}/{file_size} 字节",
-                            )
+                    if self.progress_callback and file_size > 0:
+                        progress = bytes_copied / file_size
+                        await self.progress_callback(
+                            source,
+                            progress,
+                            f"复制中: {bytes_copied}/{file_size} 字节",
+                        )
 
             shutil.copystat(source_path, dest_path)
 

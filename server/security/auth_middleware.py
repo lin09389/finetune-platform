@@ -157,8 +157,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         try:
             payload = self.auth.verify_token(token)
 
-            if self.required_role:
-                if not self.auth.has_role(payload, self.required_role):
+            if self.required_role and not self.auth.has_role(payload, self.required_role):
                     raise HTTPException(
                         status_code=403,
                         detail={'error': 'insufficient_role', 'message': '权限不足'}

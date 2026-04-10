@@ -361,7 +361,7 @@ def scan_and_fix_directory(directory: str) -> list[tuple[str, bool, str]]:
     """扫描并修复目录中的所有 Python 文件"""
     results = []
 
-    for root, dirs, files in os.walk(directory):
+    for root, _dirs, files in os.walk(directory):
         # 跳过虚拟环境
         if 'venv' in root or '.venv' in root or '__pycache__' in root:
             continue
@@ -381,7 +381,7 @@ def scan_and_fix_directory(directory: str) -> list[tuple[str, bool, str]]:
                     pass
                 except UnicodeDecodeError:
                     pass
-                except:
+                except Exception:
                     continue
 
                 # 有问题，尝试修复

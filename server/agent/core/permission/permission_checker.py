@@ -245,23 +245,21 @@ class PermissionChecker(BasePermissionController):
                     "message": f"File size exceeds limit of {role_def.max_file_size_mb}MB",
                 })
 
-        if execution_time is not None:
-            if execution_time > role_def.max_execution_time_seconds:
-                violations.append({
-                    "type": "execution_time",
-                    "requested": execution_time,
-                    "limit": role_def.max_execution_time_seconds,
-                    "message": f"Execution time exceeds limit of {role_def.max_execution_time_seconds}s",
-                })
+        if execution_time is not None and execution_time > role_def.max_execution_time_seconds:
+            violations.append({
+                "type": "execution_time",
+                "requested": execution_time,
+                "limit": role_def.max_execution_time_seconds,
+                "message": f"Execution time exceeds limit of {role_def.max_execution_time_seconds}s",
+            })
 
-        if concurrent_ops is not None:
-            if concurrent_ops > role_def.max_concurrent_operations:
-                violations.append({
-                    "type": "concurrent_operations",
-                    "requested": concurrent_ops,
-                    "limit": role_def.max_concurrent_operations,
-                    "message": f"Concurrent operations exceed limit of {role_def.max_concurrent_operations}",
-                })
+        if concurrent_ops is not None and concurrent_ops > role_def.max_concurrent_operations:
+            violations.append({
+                "type": "concurrent_operations",
+                "requested": concurrent_ops,
+                "limit": role_def.max_concurrent_operations,
+                "message": f"Concurrent operations exceed limit of {role_def.max_concurrent_operations}",
+            })
 
         return {
             "allowed": len(violations) == 0,

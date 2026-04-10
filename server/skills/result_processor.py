@@ -222,9 +222,8 @@ class ResultParser:
                 if len(result.data) > 10:
                     details_parts.append(f"... 还有 {len(result.data) - 10} 项")
 
-        if result.metadata:
-            if "details" in result.metadata:
-                details_parts.append(result.metadata["details"])
+        if result.metadata and "details" in result.metadata:
+            details_parts.append(result.metadata["details"])
 
         return "\n".join(details_parts) if details_parts else "无详细信息"
 

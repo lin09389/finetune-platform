@@ -335,9 +335,8 @@ class ConversationContext:
                 if entity_type in self.mentioned_entities and self.mentioned_entities[entity_type]:
                     return self.mentioned_entities[entity_type][-1]
 
-        if reference in ["继续", "重复", "刚才"]:
-            if self.recent_intents:
-                return self.recent_intents[-1]
+        if reference in ["继续", "重复", "刚才"] and self.recent_intents:
+            return self.recent_intents[-1]
 
         return None
 

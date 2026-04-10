@@ -273,6 +273,11 @@ class LinuxClipboardWriter:
         self._backend = self._detect_backend()
 
     def _detect_backend(self) -> str:
+        mapping = {
+            "wl-copy": "wayland",
+            "xclip": "xclip",
+            "xsel": "xsel",
+        }
         for cmd in ["wl-copy", "xclip", "xsel"]:
             try:
                 subprocess.run(
@@ -280,24 +285,19 @@ class LinuxClipboardWriter:
                     capture_output=True,
                     check=True,
                 )
-                if cmd == "wl-copy":
-                    return "wayland"
-                elif cmd == "xclip":
-                    return "xclip"
-                elif cmd == "xsel":
-                    return "xsel"
+                return mapping[cmd]
             except subprocess.CalledProcessError:
                 continue
         return "unknown"
 
     def write_text(self, text: str) -> bool:
-        if self._backend == "wayland":
-            return self._write_text_wayland(text)
-        elif self._backend == "xclip":
-            return self._write_text_xclip(text)
-        elif self._backend == "xsel":
-            return self._write_text_xsel(text)
-        return False
+        writers = {
+            "wayland": self._write_text_wayland,
+            "xclip": self._write_text_xclip,
+            "xsel": self._write_text_xsel,
+        }
+        writer = writers.get(self._backend)
+        return writer(text) if writer else False
 
     def _write_text_wayland(self, text: str) -> bool:
         try:

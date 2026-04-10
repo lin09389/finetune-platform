@@ -90,6 +90,7 @@ class ResponseBuilder:
         self.start_time = time.time()
 
     def success(self, data: Any) -> StandardResponse:
+        latency_ms = (time.time() - self.start_time) * 1000
         return success_response(
             data=data,
             request_id=self.request_id,

@@ -306,7 +306,7 @@ class UnifiedContextManager:
         if tasks:
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            for name, result in zip(task_names, results):
+            for name, result in zip(task_names, results, strict=False):
                 if isinstance(result, Exception):
                     logger.warning(f"{name} 检索失败: {result}")
                     continue

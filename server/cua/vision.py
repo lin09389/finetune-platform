@@ -55,7 +55,7 @@ class VisionRecognizer:
             coordinates: list[Coordinate] = []
             template_h, template_w = template_cv.shape[:2]
 
-            for pt in zip(*locations[::-1]):
+            for pt in zip(*locations[::-1], strict=False):
                 center_x = int(pt[0] + template_w / 2)
                 center_y = int(pt[1] + template_h / 2)
                 coordinates.append(Coordinate(x=center_x, y=center_y))
@@ -166,7 +166,7 @@ class VisionRecognizer:
             locations = np.where(mask > 0)
 
             coordinates: list[Coordinate] = []
-            for x, y in zip(*locations[::-1]):
+            for x, y in zip(*locations[::-1], strict=False):
                 coordinates.append(Coordinate(x=int(x), y=int(y)))
 
             return coordinates

@@ -148,7 +148,7 @@ class PreferenceConflictResolver:
 
     STRATEGIES = {
         "confidence": lambda old, new: old if old.confidence >= new.confidence else new,
-        "recency": lambda old, new: new,
+        "recency": lambda _old, new: new,
         "frequency": lambda old, new: old if old.access_count >= new.access_count else new,
         "merge": None,
     }

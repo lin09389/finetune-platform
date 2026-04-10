@@ -101,7 +101,7 @@ class MCPToolRegistry:
             async def execute(self, **kwargs) -> SkillResult:
                 try:
                     result = await registry.call_tool(
-                        cls._tool_name,
+                        type(self)._tool_name,
                         kwargs,
                         use_cache=True
                     )
@@ -115,7 +115,7 @@ class MCPToolRegistry:
 
                     return SkillResult(
                         success=True,
-                        message=f"Tool {cls._tool_name} executed successfully",
+                        message=f"Tool {type(self)._tool_name} executed successfully",
                         data=result.content,
                     )
                 except Exception as e:
@@ -237,7 +237,7 @@ class MCPToolRegistry:
     def clear_cache(self, tool_name: str | None = None) -> None:
         if tool_name:
             keys_to_remove = [
-                k for k in self._tool_cache.keys()
+                k for k in self._tool_cache
                 if k.startswith(f"{tool_name}:")
             ]
             for key in keys_to_remove:
@@ -265,9 +265,8 @@ class MCPToolRegistry:
         count = 0
         for tool in tools:
             tool_server = self.server_manager.get_tool_server(tool.name)
-            if tool_server == server_name:
-                if self.register_tool(tool, server_name):
-                    count += 1
+            if tool_server == server_name and self.register_tool(tool, server_name):
+                count += 1
 
         return count
 
@@ -281,9 +280,8 @@ class MCPToolRegistry:
 
         for tool in tools:
             server_name = self.server_manager.get_tool_server(tool.name)
-            if server_name:
-                if self.register_tool(tool, server_name):
-                    results[server_name] = results.get(server_name, 0) + 1
+            if server_name and self.register_tool(tool, server_name):
+                results[server_name] = results.get(server_name, 0) + 1
 
         return results
 

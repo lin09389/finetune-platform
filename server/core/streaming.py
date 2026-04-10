@@ -139,11 +139,10 @@ class BackpressureController:
         """获取发送许可，返回是否需要等待"""
         async with self._lock:
             self._buffer_size += tokens
-            if self._buffer_size >= self.max_buffer_size * self.pause_threshold:
-                if not self._is_paused:
-                    self._is_paused = True
-                    self._pause_event.clear()
-                    logger.debug(f"背压控制：暂停生成，缓冲区大小 {self._buffer_size}")
+            if self._buffer_size >= self.max_buffer_size * self.pause_threshold and not self._is_paused:
+                self._is_paused = True
+                self._pause_event.clear()
+                logger.debug(f"背压控制：暂停生成，缓冲区大小 {self._buffer_size}")
             return self._is_paused
 
     async def release(self, tokens: int = 1):
@@ -227,9 +226,7 @@ class OptimizedStreamingResponse:
         if len(self._token_buffer) >= self.buffer_size:
             return True
         elapsed_ms = (time.time() - self._last_flush_time) * 1000
-        if elapsed_ms >= self.flush_interval_ms and len(self._token_buffer) > 0:
-            return True
-        return False
+        return elapsed_ms >= self.flush_interval_ms and len(self._token_buffer) > 0
 
     async def _flush_buffer(self) -> str:
         """刷新缓冲区，返回 SSE 事件"""

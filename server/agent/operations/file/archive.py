@@ -82,7 +82,7 @@ class ArchiveExecutor:
             def create_zip_sync():
                 nonlocal bytes_processed
                 with zipfile.ZipFile(dest_path, "w", compression) as zf:
-                    for idx, file_path in enumerate(files_to_archive):
+                    for _idx, file_path in enumerate(files_to_archive):
                         if include_root:
                             arcname = file_path.relative_to(base_dir.parent)
                         else:
@@ -162,7 +162,7 @@ class ArchiveExecutor:
                     members = zf.namelist()
                     total = len(members)
 
-                    for idx, member in enumerate(members):
+                    for _idx, member in enumerate(members):
                         if not overwrite:
                             target_path = dest_path / member
                             if target_path.exists():
@@ -343,7 +343,7 @@ class ArchiveExecutor:
                     members = tf.getmembers()
                     total = len(members)
 
-                    for idx, member in enumerate(members):
+                    for _idx, member in enumerate(members):
                         if not overwrite:
                             target_path = dest_path / member.name
                             if target_path.exists():

@@ -137,7 +137,7 @@ class ContextAwareParser:
         resolved = message
 
         for ref_type, patterns in self._compiled_pronouns.items():
-            for pattern, confidence in patterns:
+            for pattern, _confidence in patterns:
                 if pattern.search(resolved):
                     replacement = self._get_context_replacement(ref_type)
                     if replacement:

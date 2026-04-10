@@ -175,10 +175,9 @@ class ErrorHandler(BaseFeedback):
         if category in non_recoverable_categories:
             return False
 
-        if "critical" in str(error).lower() or "fatal" in str(error).lower():
-            return False
-
-        return True
+        return not (
+            "critical" in str(error).lower() or "fatal" in str(error).lower()
+        )
 
     def _generate_suggestions(self, error: Exception, category: ErrorCategory) -> list[str]:
         messages = self._error_messages.get(self.language, self._error_messages["en_US"])

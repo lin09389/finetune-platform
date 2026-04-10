@@ -225,10 +225,7 @@ class VerificationAPI:
         if session.status != VerificationStatus.VERIFIED:
             return False
 
-        if session.operation != operation:
-            return False
-
-        return True
+        return session.operation == operation
 
     def get_router(self) -> APIRouter:
         """获取路由"""

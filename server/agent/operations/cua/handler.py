@@ -6,6 +6,7 @@ import base64
 import io
 import logging
 import time
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
@@ -897,11 +898,9 @@ class CUAOperationHandler(OperationHandler):
         events = self._recording_data.pop(record_id)
 
         listeners = self._recording_listeners.pop(record_id, {})
-        for name, listener in listeners.items():
-            try:
+        for listener in listeners.values():
+            with suppress(Exception):
                 listener.stop()
-            except Exception:
-                pass
 
         return UnifiedResult.ok(
             action="record_stop",

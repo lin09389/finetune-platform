@@ -238,8 +238,9 @@ class DataMasker:
         else:
             return data
 
+    @staticmethod
     @lru_cache(maxsize=100)
-    def is_sensitive_key(self, key: str) -> bool:
+    def is_sensitive_key(key: str) -> bool:
         key_lower = key.lower()
         sensitive_keywords = {
             'api_key', 'apikey', 'token', 'secret', 'password', 'passwd',

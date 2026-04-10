@@ -243,9 +243,8 @@ class RateLimiter:
         current_time = time.time()
         keys_to_delete = []
         for key, entry in self._storage.items():
-            if not entry.timestamps:
-                if not entry.banned_until or entry.banned_until < current_time:
-                    keys_to_delete.append(key)
+            if not entry.timestamps and (not entry.banned_until or entry.banned_until < current_time):
+                keys_to_delete.append(key)
 
         for key in keys_to_delete:
             del self._storage[key]

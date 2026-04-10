@@ -16,6 +16,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -300,10 +301,8 @@ class TrainingQueue:
 
                 if self.state_file.exists():
                     backup_path = self.state_file.with_suffix('.json.bak')
-                    try:
+                    with suppress(Exception):
                         os.replace(str(self.state_file), str(backup_path))
-                    except Exception:
-                        pass
 
                 os.replace(temp_path, str(self.state_file))
 

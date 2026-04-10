@@ -298,7 +298,7 @@ class SkillLearner:
             return optimizations
 
         sample_params = records[0].parameters
-        for param_name in sample_params.keys():
+        for param_name in sample_params:
             analysis = self.analyze_parameter_patterns(skill_name, param_name, min_samples)
 
             if not analysis:
@@ -366,8 +366,7 @@ class SkillLearner:
 
         optimizations = self._optimizations.get(skill_name, [])
         for opt in optimizations:
-            if opt.confidence >= min_confidence:
-                if opt.parameter_name not in current_params:
+            if opt.confidence >= min_confidence and opt.parameter_name not in current_params:
                     suggestion = OperationSuggestion(
                         skill_name=skill_name,
                         suggestion_type="parameter",
@@ -395,8 +394,7 @@ class SkillLearner:
 
             for key, value_counts in common_params.items():
                 most_common = max(value_counts.items(), key=lambda x: x[1])
-                if most_common[1] >= len(recent_records) * 0.7:
-                    if key not in current_params:
+                if most_common[1] >= len(recent_records) * 0.7 and key not in current_params:
                         suggestion = OperationSuggestion(
                             skill_name=skill_name,
                             suggestion_type="parameter",

@@ -744,7 +744,7 @@ class ConversationManager:
         results = []
         query_lower = query.lower()
 
-        for msg_id, msg in self._messages.items():
+        for _msg_id, msg in self._messages.items():
             if query_lower not in msg.content.lower():
                 continue
 

@@ -341,7 +341,7 @@ class TestIntentDetectorEdgeCases:
         result = self.detector.detect('')
 
         assert result is not None
-        assert result.detected == False
+        assert not result.detected
 
     def test_whitespace_message(self):
         """测试纯空白消息"""

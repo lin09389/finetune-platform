@@ -2,6 +2,7 @@ import asyncio
 import os
 import shutil
 import tempfile
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -156,17 +157,13 @@ class SandboxExecutor:
                     proc.terminate()
                     await asyncio.wait_for(proc.wait(), timeout=5.0)
                 except Exception:
-                    try:
+                    with suppress(Exception):
                         proc.kill()
-                    except Exception:
-                        pass
             self._processes.clear()
 
         if self._isolated_dir and os.path.exists(self._isolated_dir):
-            try:
+            with suppress(Exception):
                 shutil.rmtree(self._isolated_dir)
-            except Exception:
-                pass
             self._isolated_dir = None
 
     def check_permission(self, permission: Permission) -> bool:
@@ -268,13 +265,15 @@ class SandboxExecutor:
                 risk_level="critical",
             )
 
-        if self.config.allowed_commands:
-            if cmd_name.lower() not in {c.lower() for c in self.config.allowed_commands}:
-                return SandboxCheckResult(
-                    allowed=False,
-                    reason=f"Command not in allowed list: {cmd_name}",
-                    risk_level="medium",
-                )
+        if (
+            self.config.allowed_commands
+            and cmd_name.lower() not in {c.lower() for c in self.config.allowed_commands}
+        ):
+            return SandboxCheckResult(
+                allowed=False,
+                reason=f"Command not in allowed list: {cmd_name}",
+                risk_level="medium",
+            )
 
         return SandboxCheckResult(allowed=True, risk_level="low")
 
@@ -548,10 +547,8 @@ class SandboxExecutor:
                     process.terminate()
                     await asyncio.wait_for(process.wait(), timeout=5.0)
                 except Exception:
-                    try:
+                    with suppress(Exception):
                         process.kill()
-                    except Exception:
-                        pass
                 self._processes.pop(process_id, None)
                 return True
         return False

@@ -452,6 +452,7 @@ class AppLaunchSkill(SkillBase):
 
     async def execute(self, **kwargs) -> SkillResult:
         import asyncio
+        import contextlib
         import platform
 
         app_name = kwargs.get("app_name")
@@ -484,10 +485,8 @@ class AppLaunchSkill(SkillBase):
                     stderr=asyncio.subprocess.PIPE,
                 )
 
-            try:
+            with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(process.wait(), timeout=5)
-            except asyncio.TimeoutError:
-                pass
 
             return SkillResult(
                 success=True,

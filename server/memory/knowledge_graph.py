@@ -387,9 +387,8 @@ class KnowledgeGraph:
 
         for eid in entity_ids:
             entity = self.entities.get(eid)
-            if entity:
-                if entity_type is None or entity.entity_type == entity_type:
-                    return entity
+            if entity and (entity_type is None or entity.entity_type == entity_type):
+                return entity
 
         return None
 

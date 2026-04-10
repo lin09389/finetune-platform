@@ -5,6 +5,7 @@
 import asyncio
 import logging
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -72,10 +73,8 @@ class MemoryMonitor:
         self._running = False
         if self._task:
             self._task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
         logger.info("内存监控停止")
 
     async def _monitor_loop(self):

@@ -46,10 +46,7 @@ class KeyboardController:
             )
 
     def _is_chinese_text(self, text: str) -> bool:
-        for char in text:
-            if "\u4e00" <= char <= "\u9fff":
-                return True
-        return False
+        return any("\u4e00" <= char <= "\u9fff" for char in text)
 
     def type_text(self, text: str, interval: float | None = None) -> OperationResult:
         interval = interval if interval is not None else self.config.keyboard_delay

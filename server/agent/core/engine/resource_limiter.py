@@ -1,5 +1,6 @@
 import asyncio
 import time
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -104,10 +105,8 @@ class ResourceLimiter:
         self._monitoring = False
         if self._monitor_task:
             self._monitor_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await self._monitor_task
-            except asyncio.CancelledError:
-                pass
             self._monitor_task = None
 
     async def _monitor_loop(self) -> None:
@@ -180,10 +179,8 @@ class ResourceLimiter:
 
         callback = self._callbacks.get(resource_type.value)
         if callback:
-            try:
+            with suppress(Exception):
                 await callback(violation)
-            except Exception:
-                pass
 
     def register_callback(self, resource_type: ResourceType, callback: callable) -> None:
         self._callbacks[resource_type.value] = callback

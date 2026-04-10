@@ -12,6 +12,7 @@ import subprocess
 import threading
 import time
 import weakref
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -101,10 +102,8 @@ class SwiftBackend:
 
         with self._process_lock:
             if self.process and self.process.poll() is None:
-                try:
+                with suppress(Exception):
                     self._terminate_process_tree(self.process.pid)
-                except Exception:
-                    pass
 
     def _terminate_process_tree(self, pid: int):
         """终止进程树（包括所有子进程）"""
@@ -114,18 +113,14 @@ class SwiftBackend:
             children = parent.children(recursive=True)
 
             for child in children:
-                try:
+                with suppress(psutil.NoSuchProcess):
                     child.terminate()
-                except psutil.NoSuchProcess:
-                    pass
 
             gone, alive = psutil.wait_procs(children, timeout=self.GRACEFUL_TIMEOUT)
 
             for p in alive:
-                try:
+                with suppress(psutil.NoSuchProcess):
                     p.kill()
-                except psutil.NoSuchProcess:
-                    pass
 
             parent.terminate()
             parent.wait(timeout=self.GRACEFUL_TIMEOUT)
@@ -173,10 +168,7 @@ class SwiftBackend:
         try:
             import importlib.util
             spec = importlib.util.find_spec("swift")
-            if spec is None:
-                return False
-
-            return True
+            return spec is not None
         except Exception:
             return False
 
@@ -344,10 +336,8 @@ class SwiftBackend:
 
                     self._terminate_process_tree(self.process.pid)
 
-                    try:
+                    with suppress(subprocess.TimeoutExpired):
                         self.process.wait(timeout=self.FORCE_KILL_TIMEOUT)
-                    except subprocess.TimeoutExpired:
-                        pass
 
                     logger.info("SWIFT 训练已停止")
                     return True
@@ -478,10 +468,8 @@ class SwiftBackend:
 
         with self._process_lock:
             if self.process and self.process.poll() is None:
-                try:
+                with suppress(Exception):
                     self._terminate_process_tree(self.process.pid)
-                except Exception:
-                    pass
 
             self.process = None
             self._current_task_id = None

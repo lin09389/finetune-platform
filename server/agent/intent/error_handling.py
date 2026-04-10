@@ -127,10 +127,7 @@ class CircuitBreaker:
                         return True
                 return False
 
-            if self.state == CircuitState.HALF_OPEN:
-                return True
-
-            return False
+            return self.state == CircuitState.HALF_OPEN
 
     def get_state(self) -> dict[str, Any]:
         """获取状态"""

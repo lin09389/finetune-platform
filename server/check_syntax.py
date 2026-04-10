@@ -5,7 +5,7 @@ import os
 
 def check_python_files(directory):
     errors = []
-    for root, dirs, files in os.walk(directory):
+    for root, _dirs, files in os.walk(directory):
         # Skip venv directories
         if 'venv' in root or '.venv' in root or '__pycache__' in root:
             continue

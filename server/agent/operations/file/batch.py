@@ -263,7 +263,9 @@ class BatchFileExecutor:
         failed = 0
         total = len(paths)
 
-        for idx, (old_path, new_name) in enumerate(zip(paths, new_names)):
+        for idx, (old_path, new_name) in enumerate(
+            zip(paths, new_names, strict=False)
+        ):
             source_path = Path(old_path)
 
             try:

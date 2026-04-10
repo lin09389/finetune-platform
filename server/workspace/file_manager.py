@@ -569,7 +569,7 @@ class FileManager:
             parts = file_info.path.split("/")
             current = tree["children"]
 
-            for i, part in enumerate(parts[:-1]):
+            for _i, part in enumerate(parts[:-1]):
                 if part not in current:
                     current[part] = {
                         "name": part,

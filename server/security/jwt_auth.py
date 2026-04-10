@@ -259,9 +259,8 @@ class JWTAuth:
 
             token_payload = TokenPayload.from_dict(payload)
 
-            if check_blacklist and token_payload.jti:
-                if self.blacklist.contains(token_payload.jti):
-                    raise ValueError("Token 已被注销")
+            if check_blacklist and token_payload.jti and self.blacklist.contains(token_payload.jti):
+                raise ValueError("Token 已被注销")
 
             return token_payload
 

@@ -87,7 +87,7 @@ class CPUMonitor:
                     if entry.label and any(keyword in entry.label.lower() for keyword in ["cpu", "core", "package"]):
                         return entry.current
 
-            for name, entries in temps.items():
+            for _name, entries in temps.items():
                 if entries:
                     return entries[0].current
         except Exception:

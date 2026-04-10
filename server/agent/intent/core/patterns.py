@@ -417,7 +417,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"^(你好|您好|hi|hello|hey|嗨|哈喽|早上好|下午好|晚上好)[\s!！.。]*$",
         action="conversation",
-        params_extractor=lambda m: {},
+        params_extractor=lambda _m: {},
         description="问候",
         keywords=["你好", "hello", "hi"],
         priority=0,
@@ -426,7 +426,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"^(谢谢|感谢|多谢|thanks|thank you)[\s!！.。]*$",
         action="conversation",
-        params_extractor=lambda m: {},
+        params_extractor=lambda _m: {},
         description="感谢",
         keywords=["谢谢", "thanks"],
         priority=0,
@@ -435,7 +435,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"^(再见|拜拜|bye|goodbye|下次见)[\s!！.。]*$",
         action="conversation",
-        params_extractor=lambda m: {},
+        params_extractor=lambda _m: {},
         description="告别",
         keywords=["再见", "bye"],
         priority=0,
@@ -444,7 +444,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"^(你是谁|你叫什么|你的名字|自我介绍)",
         action="conversation",
-        params_extractor=lambda m: {},
+        params_extractor=lambda _m: {},
         description="自我介绍询问",
         keywords=["你是谁", "名字"],
         priority=0,
@@ -453,7 +453,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"^(你能做什么|你会什么|你的功能|你能帮我)",
         action="conversation",
-        params_extractor=lambda m: {},
+        params_extractor=lambda _m: {},
         description="能力询问",
         keywords=["功能", "能力"],
         priority=0,
@@ -462,7 +462,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"^(我想问|请问|问一下|请教)",
         action="conversation",
-        params_extractor=lambda m: {},
+        params_extractor=lambda _m: {},
         description="提问",
         keywords=["问", "请问"],
         priority=0,
@@ -471,7 +471,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"^(帮我|帮我看看|帮我查|帮我找)(?!.*(?:文件|目录|应用|软件|程序))",
         action="conversation",
-        params_extractor=lambda m: {},
+        params_extractor=lambda _m: {},
         description="请求帮助",
         keywords=["帮我"],
         priority=0,
@@ -592,7 +592,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"(?:列出|显示|查看)?(?:当前)?目录",
         action="file_list",
-        params_extractor=lambda m: {},
+        params_extractor=lambda _m: {},
         description="列出目录",
         keywords=["目录", "列出"],
         priority=1,
@@ -646,7 +646,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"打开\s*(VS\s*Code|Visual\s*Studio\s*Code)",
         action="app_open",
-        params_extractor=lambda m: {"app_name": "vscode"},
+        params_extractor=lambda _m: {"app_name": "vscode"},
         description="打开 VS Code",
         keywords=["VS Code", "VSCode"],
         priority=1,
@@ -655,7 +655,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"打开\s*(记事本|Notepad)",
         action="app_open",
-        params_extractor=lambda m: {"app_name": "notepad"},
+        params_extractor=lambda _m: {"app_name": "notepad"},
         description="打开记事本",
         keywords=["记事本", "Notepad"],
         priority=1,
@@ -664,7 +664,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"打开\s*(Chrome|谷歌浏览器)",
         action="app_open",
-        params_extractor=lambda m: {"app_name": "chrome"},
+        params_extractor=lambda _m: {"app_name": "chrome"},
         description="打开 Chrome",
         keywords=["Chrome", "谷歌"],
         priority=1,
@@ -673,7 +673,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"打开\s*(Edge|edge)",
         action="app_open",
-        params_extractor=lambda m: {"app_name": "edge"},
+        params_extractor=lambda _m: {"app_name": "edge"},
         description="打开 Edge",
         keywords=["Edge"],
         priority=1,
@@ -682,7 +682,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"打开\s*(微信|WeChat)",
         action="app_open",
-        params_extractor=lambda m: {"app_name": "wechat"},
+        params_extractor=lambda _m: {"app_name": "wechat"},
         description="打开微信",
         keywords=["微信", "WeChat"],
         priority=1,
@@ -691,7 +691,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"打开\s*(钉钉|DingTalk)",
         action="app_open",
-        params_extractor=lambda m: {"app_name": "dingtalk"},
+        params_extractor=lambda _m: {"app_name": "dingtalk"},
         description="打开钉钉",
         keywords=["钉钉", "DingTalk"],
         priority=1,
@@ -700,7 +700,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"打开\s*(QQ|腾讯QQ)",
         action="app_open",
-        params_extractor=lambda m: {"app_name": "qq"},
+        params_extractor=lambda _m: {"app_name": "qq"},
         description="打开 QQ",
         keywords=["QQ", "腾讯QQ"],
         priority=1,
@@ -736,7 +736,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"截图$",
         action="screenshot",
-        params_extractor=lambda m: {"monitor": 0},
+        params_extractor=lambda _m: {"monitor": 0},
         description="截取屏幕截图",
         keywords=["截图", "截屏"],
         priority=0,
@@ -745,7 +745,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"截屏$",
         action="screenshot",
-        params_extractor=lambda m: {"monitor": 0},
+        params_extractor=lambda _m: {"monitor": 0},
         description="截屏",
         keywords=["截屏"],
         priority=0,
@@ -754,7 +754,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"截个屏$",
         action="screenshot",
-        params_extractor=lambda m: {"monitor": 0},
+        params_extractor=lambda _m: {"monitor": 0},
         description="截屏",
         keywords=["截屏"],
         priority=0,
@@ -763,7 +763,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"(?:截取|拍)(?:一张)?(?:屏幕)?截图",
         action="screenshot",
-        params_extractor=lambda m: {"monitor": 0},
+        params_extractor=lambda _m: {"monitor": 0},
         description="截取屏幕截图",
         keywords=["截图", "截屏"],
         priority=0,
@@ -808,7 +808,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"(?:鼠标|光标)(?:现在)?(?:在)?哪里",
         action="mouse_position",
-        params_extractor=lambda m: {},
+        params_extractor=lambda _m: {},
         description="获取鼠标位置",
         keywords=["鼠标", "位置"],
         priority=1,
@@ -853,7 +853,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"(?:列出|显示)(?:所有)?(?:打开的)?窗口",
         action="window_list",
-        params_extractor=lambda m: {},
+        params_extractor=lambda _m: {},
         description="列出所有窗口",
         keywords=["窗口", "列出"],
         priority=1,
@@ -862,7 +862,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"(?:当前|活动)(?:的)?窗口(?:是什么|是啥)",
         action="window_active",
-        params_extractor=lambda m: {},
+        params_extractor=lambda _m: {},
         description="获取活动窗口",
         keywords=["当前窗口", "活动窗口"],
         priority=1,
@@ -916,7 +916,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"(?:识别|OCR)(?:屏幕上的)?文字",
         action="ocr_recognize",
-        params_extractor=lambda m: {},
+        params_extractor=lambda _m: {},
         description="OCR识别文字",
         keywords=["OCR", "识别"],
         priority=1,
@@ -934,7 +934,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"开始录制",
         action="record_start",
-        params_extractor=lambda m: {},
+        params_extractor=lambda _m: {},
         description="开始录制操作",
         keywords=["录制", "开始"],
         priority=1,
@@ -943,7 +943,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"停止录制",
         action="record_stop",
-        params_extractor=lambda m: {},
+        params_extractor=lambda _m: {},
         description="停止录制",
         keywords=["停止", "录制"],
         priority=1,
@@ -952,7 +952,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"(?:回放|播放)(?:录制的)?(?:操作)?",
         action="record_play",
-        params_extractor=lambda m: {},
+        params_extractor=lambda _m: {},
         description="回放录制的操作",
         keywords=["回放", "播放"],
         priority=1,
@@ -961,7 +961,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"(?:系统|电脑)(?:信息|状态|配置)",
         action="system_info",
-        params_extractor=lambda m: {},
+        params_extractor=lambda _m: {},
         description="获取系统信息",
         keywords=["系统", "信息"],
         priority=1,
@@ -979,7 +979,7 @@ RULE_PATTERNS: list[PatternRule] = [
     PatternRule(
         pattern=r"(?:进程|任务)(?:列表|管理)",
         action="process_list",
-        params_extractor=lambda m: {},
+        params_extractor=lambda _m: {},
         description="列出进程",
         keywords=["进程", "任务"],
         priority=1,

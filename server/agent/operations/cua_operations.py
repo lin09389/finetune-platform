@@ -124,8 +124,8 @@ class CUAOperationHandler(OperationHandler):
             "keyboard_type": self._validate_keyboard_type,
             "keyboard_press": self._validate_keyboard_press,
             "keyboard_hotkey": self._validate_keyboard_hotkey,
-            "screenshot": lambda p: None,
-            "screen_info": lambda p: None,
+            "screenshot": lambda _p: None,
+            "screen_info": lambda _p: None,
             "ocr": self._validate_ocr,
             "find_image": self._validate_find_image,
         }

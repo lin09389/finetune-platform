@@ -10,6 +10,7 @@ import json
 import os
 import tempfile
 import threading
+from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 from queue import Empty, Queue
@@ -300,10 +301,8 @@ class TrainingState:
 
                 if self._history_file.exists():
                     backup_path = self._history_file.with_suffix('.json.bak')
-                    try:
+                    with suppress(Exception):
                         os.replace(str(self._history_file), str(backup_path))
-                    except Exception:
-                        pass
 
                 os.replace(temp_path, str(self._history_file))
 

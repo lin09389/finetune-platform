@@ -10,6 +10,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
@@ -119,10 +120,8 @@ class CrossAgentCommunicator:
 
         for task in self._background_tasks:
             task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
 
         for future in self._pending_responses.values():
             if not future.done():
@@ -252,7 +251,7 @@ class CrossAgentCommunicator:
             exclude.append(source_agent)
 
         sent_to = []
-        for agent_id in self._message_queues.keys():
+        for agent_id in self._message_queues:
             if agent_id in exclude:
                 continue
 
@@ -386,7 +385,7 @@ class CrossAgentCommunicator:
 
         if tasks:
             task_results = await asyncio.gather(*tasks, return_exceptions=True)
-            for agent_id, result in zip(agent_ids, task_results):
+            for agent_id, result in zip(agent_ids, task_results, strict=False):
                 if not isinstance(result, Exception):
                     results[agent_id] = result
 
@@ -422,7 +421,7 @@ class CrossAgentCommunicator:
             best_result = None
             best_score = -1
 
-            for agent_id, result in results.items():
+            for result in results.values():
                 if isinstance(result, dict):
                     score = result.get("score", 0)
                     if score > best_score:

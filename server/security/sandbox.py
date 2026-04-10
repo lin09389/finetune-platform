@@ -477,11 +477,7 @@ class IsolatedExecutor:
         if not self.capability.allowed_paths:
             return True
 
-        for allowed in self.capability.allowed_paths:
-            if path.startswith(allowed):
-                return True
-
-        return False
+        return any(path.startswith(allowed) for allowed in self.capability.allowed_paths)
 
     def check_command(self, command: str) -> bool:
         """检查命令是否允许"""
@@ -717,7 +713,7 @@ class SandboxManager:
         """列出所有沙箱"""
         return [
             self.get_sandbox_info(sandbox_id)
-            for sandbox_id in self._executors.keys()
+            for sandbox_id in self._executors
         ]
 
 
@@ -763,11 +759,7 @@ class CommandValidator:
                 return True
 
         all_patterns = self._dangerous_patterns + self._custom_dangerous_patterns
-        for pattern in all_patterns:
-            if pattern.search(command):
-                return True
-
-        return False
+        return any(pattern.search(command) for pattern in all_patterns)
 
     def validate(self, command: str) -> dict[str, Any]:
         """验证命令"""
@@ -835,10 +827,7 @@ class FilesystemIsolation:
 
     def is_read_only(self, path: str) -> bool:
         """检查路径是否只读"""
-        for read_only_path in self._read_only_paths:
-            if path.startswith(read_only_path):
-                return True
-        return False
+        return any(path.startswith(read_only_path) for read_only_path in self._read_only_paths)
 
     def is_isolated_path(self, path: str) -> bool:
         """检查路径是否在隔离区内"""
@@ -977,7 +966,7 @@ class ProcessIsolation:
     async def kill_all_processes(self) -> int:
         """终止所有进程"""
         count = 0
-        for process_id, process in list(self._active_processes.items()):
+        for _process_id, process in list(self._active_processes.items()):
             try:
                 process.kill()
                 await process.wait()
@@ -1038,20 +1027,14 @@ class NetworkIsolation:
         if host in self._denied_hosts:
             return False
 
-        if self._allowed_hosts and host not in self._allowed_hosts:
-            return False
-
-        return True
+        return not (self._allowed_hosts and host not in self._allowed_hosts)
 
     def is_port_allowed(self, port: int) -> bool:
         """检查端口是否允许"""
         if port in self._denied_ports:
             return False
 
-        if self._allowed_ports and port not in self._allowed_ports:
-            return False
-
-        return True
+        return not (self._allowed_ports and port not in self._allowed_ports)
 
     def check_url(self, url: str) -> dict[str, Any]:
         """检查 URL"""

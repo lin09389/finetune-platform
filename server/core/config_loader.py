@@ -234,12 +234,10 @@ class ConfigLoader:
                     if not isinstance(value, expected_type):
                         errors.append(f"配置类型错误: {key}, 期望 {expected_type.__name__}")
 
-                if "min" in rules and isinstance(value, (int, float)):
-                    if value < rules["min"]:
+                if "min" in rules and isinstance(value, (int, float)) and value < rules["min"]:
                         errors.append(f"配置值过小: {key}, 最小值 {rules['min']}")
 
-                if "max" in rules and isinstance(value, (int, float)):
-                    if value > rules["max"]:
+                if "max" in rules and isinstance(value, (int, float)) and value > rules["max"]:
                         errors.append(f"配置值过大: {key}, 最大值 {rules['max']}")
 
                 if "options" in rules and value not in rules["options"]:

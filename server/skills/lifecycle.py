@@ -14,6 +14,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -122,10 +123,8 @@ class SkillLifecycleManager:
         """触发事件"""
         handlers = self._event_handlers.get(event.event_type, [])
         for handler in handlers:
-            try:
+            with suppress(Exception):
                 handler(event)
-            except Exception:
-                pass
 
     def load_skill(
         self,
@@ -283,15 +282,14 @@ class SkillLifecycleManager:
         registration = self.registry.get_registration(skill_name)
         resources_freed = {}
 
-        if registration:
-            if registration.file_path:
-                module_name = f"skills.implemented.{Path(registration.file_path).stem}"
-                if module_name in sys.modules:
-                    try:
-                        del sys.modules[module_name]
-                        resources_freed["module_unloaded"] = module_name
-                    except Exception:
-                        pass
+        if registration and registration.file_path:
+            module_name = f"skills.implemented.{Path(registration.file_path).stem}"
+            if module_name in sys.modules:
+                try:
+                    del sys.modules[module_name]
+                    resources_freed["module_unloaded"] = module_name
+                except Exception:
+                    pass
 
         success = self.registry.unregister(skill_name, force=force)
 

@@ -2,6 +2,7 @@ import asyncio
 import heapq
 import uuid
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -127,10 +128,8 @@ class QueueManager:
         self._running = False
         if self._worker_task:
             self._worker_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await self._worker_task
-            except asyncio.CancelledError:
-                pass
             self._worker_task = None
 
     async def _worker_loop(self) -> None:
@@ -322,11 +321,13 @@ class QueueManager:
         async with self._lock:
             to_remove = []
             for task_id, task_info in self._tasks.items():
-                if task_info.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED):
-                    if task_info.completed_at:
-                        age_hours = (cutoff - task_info.completed_at).total_seconds() / 3600
-                        if age_hours > max_age_hours:
-                            to_remove.append(task_id)
+                if (
+                    task_info.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED)
+                    and task_info.completed_at
+                ):
+                    age_hours = (cutoff - task_info.completed_at).total_seconds() / 3600
+                    if age_hours > max_age_hours:
+                        to_remove.append(task_id)
 
             for task_id in to_remove:
                 del self._tasks[task_id]

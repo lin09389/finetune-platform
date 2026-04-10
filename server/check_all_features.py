@@ -162,7 +162,7 @@ try:
         ("/models/list", False),
         ("/datasets/list", False),
     ]
-    for ep, should_work in endpoints:
+    for ep, _should_work in endpoints:
         try:
             response = client.get(ep)
             if response.status_code == 200:

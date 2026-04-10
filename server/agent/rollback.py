@@ -5,6 +5,7 @@ import json
 import logging
 import shutil
 import uuid
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from enum import Enum
@@ -399,10 +400,8 @@ class RollbackManager:
         snapshot = self._index.get(snapshot_id, {})
         backup_path = snapshot.get("before_state", {}).get("backup_path")
         if backup_path and Path(backup_path).exists():
-            try:
+            with suppress(Exception):
                 Path(backup_path).unlink()
-            except Exception:
-                pass
 
         if snapshot_id in self._index:
             del self._index[snapshot_id]

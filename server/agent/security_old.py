@@ -92,12 +92,11 @@ class SecurityValidator:
                     False,
                     f"不允许创建/写入此类型文件：{ext}"
                 )
-        elif action == ActionType.FILE_READ:
-            if ext and ext not in READABLE_FILE_EXTENSIONS:
-                return ValidationResult(
-                    False,
-                    f"不允许读取此类型文件：{ext}"
-                )
+        elif action == ActionType.FILE_READ and ext and ext not in READABLE_FILE_EXTENSIONS:
+            return ValidationResult(
+                False,
+                f"不允许读取此类型文件：{ext}"
+            )
 
         return ValidationResult(True, sanitized_value=str(full_path))
 
@@ -151,7 +150,7 @@ class SecurityValidator:
         if app_key in USER_ALLOWED_APPS:
             return False, ""
 
-        for key in ALLOWED_APPS.keys():
+        for key in ALLOWED_APPS:
             if app_key in key or key in app_key:
                 return False, ""
 

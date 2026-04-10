@@ -149,7 +149,7 @@ class SkillBase(ABC):
                         try:
                             import json
                             value = json.loads(value)
-                        except:
+                        except Exception:
                             errors.append(f"参数 {name} 必须是数组")
                             continue
                     else:
@@ -162,7 +162,7 @@ class SkillBase(ABC):
                         try:
                             import json
                             value = json.loads(value)
-                        except:
+                        except Exception:
                             errors.append(f"参数 {name} 必须是对象")
                             continue
                     else:

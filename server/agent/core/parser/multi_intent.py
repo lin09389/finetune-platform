@@ -183,7 +183,7 @@ class MultiIntentParser:
 
         for pattern, sep_type in self._compiled_separators:
             matches = pattern.findall(message)
-            for match in matches:
+            for _match in matches:
                 separators.append(sep_type.value)
 
         return separators
@@ -211,7 +211,7 @@ class MultiIntentParser:
         split_positions.sort(key=lambda x: x[0])
 
         prev_end = 0
-        for start, end, sep_type in split_positions:
+        for start, end, _sep_type in split_positions:
             if start > prev_end:
                 segment_text = message[prev_end:start].strip()
                 if segment_text:
@@ -243,11 +243,7 @@ class MultiIntentParser:
             r'先\s*.+[，,]?\s*再',
         ]
 
-        for pattern in sequence_indicators:
-            if re.search(pattern, message):
-                return True
-
-        return False
+        return any(re.search(pattern, message) for pattern in sequence_indicators)
 
     def extract_order_hints(self, message: str) -> list[dict[str, Any]]:
         hints = []

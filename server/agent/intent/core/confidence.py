@@ -201,10 +201,7 @@ class ConfidenceCalculator:
         if confidence < 0.45:
             return True
 
-        if has_ambiguity and confidence < 0.65:
-            return True
-
-        return False
+        return bool(has_ambiguity and confidence < 0.65)
 
     def needs_clarification(
         self,
@@ -214,10 +211,7 @@ class ConfidenceCalculator:
         if confidence < 0.65:
             return True
 
-        if param_completeness < 0.5:
-            return True
-
-        return False
+        return param_completeness < 0.5
 
 
 confidence_calculator = ConfidenceCalculator()

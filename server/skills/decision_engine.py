@@ -132,7 +132,7 @@ class SkillMatcher:
     ) -> list[SkillMatch]:
         """基于关键词匹配"""
         message_lower = message.lower()
-        message_words = set(word for word in message_lower.split() if len(word) > 2)
+        message_words = {word for word in message_lower.split() if len(word) > 2}
 
         matches = []
         for skill_name, keywords in self._keyword_index.items():
@@ -218,7 +218,7 @@ class SkillMatcher:
             return []
 
         message_lower = message.lower()
-        message_words = set(word for word in message_lower.split() if len(word) > 2)
+        message_words = {word for word in message_lower.split() if len(word) > 2}
         category_keywords = self._category_keywords[category]
 
         intersection = message_words & category_keywords
@@ -452,7 +452,7 @@ class DecisionEngine:
             )
 
         skills = []
-        for match, score, priority in matches:
+        for match, _score, priority in matches:
             skill_params = parameters.get(match.skill_name, {}) if parameters else {}
             skills.append((match.skill_name, skill_params, priority))
 

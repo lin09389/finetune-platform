@@ -40,9 +40,7 @@ class MouseController:
         try:
             current_pos = pyautogui.position()
             screen_width, screen_height = self._config.screen_size
-            if current_pos.x == 0 and current_pos.y == screen_height - 1:
-                return True
-            return False
+            return current_pos.x == 0 and current_pos.y == screen_height - 1
         except Exception:
             return False
 

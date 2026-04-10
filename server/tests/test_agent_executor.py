@@ -26,7 +26,10 @@ from agent.operations.file.handler import FileOperationHandler
 from agent.operations.system_operations import SystemOperationHandler
 
 AgentExecutorNew = UnifiedExecutor
-reset_executor = lambda: None
+
+
+def reset_executor():
+    return None
 
 
 class TestOperationResult:

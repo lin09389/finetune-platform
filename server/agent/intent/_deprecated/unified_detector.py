@@ -221,7 +221,13 @@ class ConversationContext:
 
         if len(content) > 50 and ("代码" in content or "函数" in content or "实现" in content or "示例" in content):
             lines = content.split('\n')
-            code_like_lines = [l for l in lines if l.strip().startswith(('def ', 'class ', 'import ', 'function ', 'const ', 'let ', 'var '))]
+            code_like_lines = [
+                line
+                for line in lines
+                if line.strip().startswith(
+                    ('def ', 'class ', 'import ', 'function ', 'const ', 'let ', 'var ')
+                )
+            ]
             if code_like_lines:
                 self.last_generated_content = '\n'.join(code_like_lines)
                 self.last_generated_type = "code"
@@ -270,9 +276,8 @@ class ConversationContext:
                 if entity_type in self.mentioned_entities and self.mentioned_entities[entity_type]:
                     return self.mentioned_entities[entity_type][-1]
 
-        if reference in ["继续", "重复", "刚才"]:
-            if self.recent_intents:
-                return self.recent_intents[-1]
+        if reference in ["继续", "重复", "刚才"] and self.recent_intents:
+            return self.recent_intents[-1]
 
         return None
 
@@ -459,7 +464,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"^(你好|您好|hi|hello|hey|嗨|哈喽|早上好|下午好|晚上好)[\s!！.。]*$",
                 "action": "conversation",
-                "params": lambda m: {},
+                "params": lambda _m: {},
                 "description": "问候",
                 "keywords": ["你好", "hello", "hi"],
                 "priority": 0,
@@ -468,7 +473,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"^(谢谢|感谢|多谢|thanks|thank you)[\s!！.。]*$",
                 "action": "conversation",
-                "params": lambda m: {},
+                "params": lambda _m: {},
                 "description": "感谢",
                 "keywords": ["谢谢", "thanks"],
                 "priority": 0,
@@ -477,7 +482,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"^(再见|拜拜|bye|goodbye|下次见)[\s!！.。]*$",
                 "action": "conversation",
-                "params": lambda m: {},
+                "params": lambda _m: {},
                 "description": "告别",
                 "keywords": ["再见", "bye"],
                 "priority": 0,
@@ -486,7 +491,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"^(你是谁|你叫什么|你的名字|自我介绍)",
                 "action": "conversation",
-                "params": lambda m: {},
+                "params": lambda _m: {},
                 "description": "自我介绍询问",
                 "keywords": ["你是谁", "名字"],
                 "priority": 0,
@@ -495,7 +500,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"^(你能做什么|你会什么|你的功能|你能帮我)",
                 "action": "conversation",
-                "params": lambda m: {},
+                "params": lambda _m: {},
                 "description": "能力询问",
                 "keywords": ["功能", "能力"],
                 "priority": 0,
@@ -504,7 +509,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"^(我想问|请问|问一下|请教)",
                 "action": "conversation",
-                "params": lambda m: {},
+                "params": lambda _m: {},
                 "description": "提问",
                 "keywords": ["问", "请问"],
                 "priority": 0,
@@ -513,7 +518,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"^(帮我|帮我看看|帮我查|帮我找)(?!.*(?:文件|目录|应用|软件|程序))",
                 "action": "conversation",
-                "params": lambda m: {},
+                "params": lambda _m: {},
                 "description": "请求帮助",
                 "keywords": ["帮我"],
                 "priority": 0,
@@ -726,7 +731,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"(?:列出|显示|查看)\s*当前目录",
                 "action": "file_list",
-                "params": lambda m: {"directory": "."},
+                "params": lambda _m: {"directory": "."},
                 "description": "列出当前目录",
                 "keywords": ["当前目录"],
                 "priority": 1,
@@ -762,7 +767,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"打开\s*(VS\s*Code|Visual\s*Studio\s*Code)",
                 "action": "app_open",
-                "params": lambda m: {"app_name": "vscode"},
+                "params": lambda _m: {"app_name": "vscode"},
                 "description": "打开 VS Code",
                 "keywords": ["VS Code", "VSCode"],
                 "priority": 1,
@@ -771,7 +776,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"打开\s*(记事本|Notepad)",
                 "action": "app_open",
-                "params": lambda m: {"app_name": "notepad"},
+                "params": lambda _m: {"app_name": "notepad"},
                 "description": "打开记事本",
                 "keywords": ["记事本", "Notepad"],
                 "priority": 1,
@@ -780,7 +785,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"打开\s*(Chrome|谷歌浏览器)",
                 "action": "app_open",
-                "params": lambda m: {"app_name": "chrome"},
+                "params": lambda _m: {"app_name": "chrome"},
                 "description": "打开 Chrome",
                 "keywords": ["Chrome", "谷歌"],
                 "priority": 1,
@@ -789,7 +794,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"打开\s*(Edge|edge)",
                 "action": "app_open",
-                "params": lambda m: {"app_name": "edge"},
+                "params": lambda _m: {"app_name": "edge"},
                 "description": "打开 Edge",
                 "keywords": ["Edge"],
                 "priority": 1,
@@ -798,7 +803,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"打开\s*(微信|WeChat)",
                 "action": "app_open",
-                "params": lambda m: {"app_name": "wechat"},
+                "params": lambda _m: {"app_name": "wechat"},
                 "description": "打开微信",
                 "keywords": ["微信", "WeChat"],
                 "priority": 1,
@@ -807,7 +812,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"打开\s*(钉钉|DingTalk)",
                 "action": "app_open",
-                "params": lambda m: {"app_name": "dingtalk"},
+                "params": lambda _m: {"app_name": "dingtalk"},
                 "description": "打开钉钉",
                 "keywords": ["钉钉", "DingTalk"],
                 "priority": 1,
@@ -816,7 +821,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"打开\s*(QQ|腾讯QQ)",
                 "action": "app_open",
-                "params": lambda m: {"app_name": "qq"},
+                "params": lambda _m: {"app_name": "qq"},
                 "description": "打开 QQ",
                 "keywords": ["QQ", "腾讯QQ"],
                 "priority": 1,
@@ -843,7 +848,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"关闭\s+(微信|WeChat)",
                 "action": "app_close",
-                "params": lambda m: {"app_name": "wechat"},
+                "params": lambda _m: {"app_name": "wechat"},
                 "description": "关闭微信",
                 "keywords": ["关闭", "微信"],
                 "priority": 1,
@@ -870,7 +875,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"截图$",
                 "action": "screenshot",
-                "params": lambda m: {"monitor": 0},
+                "params": lambda _m: {"monitor": 0},
                 "description": "截取屏幕截图",
                 "keywords": ["截图", "截屏"],
                 "priority": 0,
@@ -879,7 +884,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"截个屏$",
                 "action": "screenshot",
-                "params": lambda m: {"monitor": 0},
+                "params": lambda _m: {"monitor": 0},
                 "description": "截屏",
                 "keywords": ["截屏"],
                 "priority": 0,
@@ -888,7 +893,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"截屏$",
                 "action": "screenshot",
-                "params": lambda m: {"monitor": 0},
+                "params": lambda _m: {"monitor": 0},
                 "description": "截屏",
                 "keywords": ["截屏"],
                 "priority": 0,
@@ -897,7 +902,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"(?:截取|拍)(?:一张)?(?:屏幕)?截图",
                 "action": "screenshot",
-                "params": lambda m: {"monitor": 0},
+                "params": lambda _m: {"monitor": 0},
                 "description": "截取屏幕截图",
                 "keywords": ["截图", "截屏"],
                 "priority": 0,
@@ -942,7 +947,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"(?:鼠标|光标)(?:现在)?(?:在)?哪里",
                 "action": "mouse_position",
-                "params": lambda m: {},
+                "params": lambda _m: {},
                 "description": "获取鼠标位置",
                 "keywords": ["鼠标", "位置"],
                 "priority": 1,
@@ -987,7 +992,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"(?:列出|显示)(?:所有)?(?:打开的)?窗口",
                 "action": "window_list",
-                "params": lambda m: {},
+                "params": lambda _m: {},
                 "description": "列出所有窗口",
                 "keywords": ["窗口", "列出"],
                 "priority": 1,
@@ -996,7 +1001,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"(?:当前|活动)(?:的)?窗口(?:是什么|是啥)",
                 "action": "window_active",
-                "params": lambda m: {},
+                "params": lambda _m: {},
                 "description": "获取活动窗口",
                 "keywords": ["当前窗口", "活动窗口"],
                 "priority": 1,
@@ -1050,7 +1055,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"(?:识别|OCR)(?:屏幕上的)?文字",
                 "action": "ocr_recognize",
-                "params": lambda m: {},
+                "params": lambda _m: {},
                 "description": "OCR识别文字",
                 "keywords": ["OCR", "识别"],
                 "priority": 1,
@@ -1059,7 +1064,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"(?:识别|OCR)(?:屏幕)?(?:上的)?文字",
                 "action": "ocr_recognize",
-                "params": lambda m: {},
+                "params": lambda _m: {},
                 "description": "OCR识别文字",
                 "keywords": ["OCR", "识别"],
                 "priority": 1,
@@ -1077,7 +1082,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"开始录制",
                 "action": "record_start",
-                "params": lambda m: {},
+                "params": lambda _m: {},
                 "description": "开始录制操作",
                 "keywords": ["录制", "开始"],
                 "priority": 1,
@@ -1086,7 +1091,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"停止录制",
                 "action": "record_stop",
-                "params": lambda m: {},
+                "params": lambda _m: {},
                 "description": "停止录制",
                 "keywords": ["停止", "录制"],
                 "priority": 1,
@@ -1095,7 +1100,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"(?:回放|播放)(?:录制的)?(?:操作)?",
                 "action": "record_play",
-                "params": lambda m: {},
+                "params": lambda _m: {},
                 "description": "回放录制的操作",
                 "keywords": ["回放", "播放"],
                 "priority": 1,
@@ -1104,7 +1109,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"(?:系统|电脑)(?:信息|状态|配置)",
                 "action": "system_info",
-                "params": lambda m: {},
+                "params": lambda _m: {},
                 "description": "获取系统信息",
                 "keywords": ["系统", "信息"],
                 "priority": 1,
@@ -1122,7 +1127,7 @@ class UnifiedIntentDetector:
             {
                 "pattern": r"(?:进程|任务)(?:列表|管理)",
                 "action": "process_list",
-                "params": lambda m: {},
+                "params": lambda _m: {},
                 "description": "列出进程",
                 "keywords": ["进程", "任务"],
                 "priority": 1,
@@ -1345,18 +1350,22 @@ class UnifiedIntentDetector:
             boost += 0.2
 
         content_keywords = ["刚才的内容", "刚才生成", "刚才写的", "刚才创建的", "生成的内容", "写的内容", "创建的内容"]
-        if any(kw in message for kw in content_keywords):
-            if context.user_preferences.get("last_generated_content"):
-                if "content" not in resolved_params:
-                    resolved_params["content"] = context.user_preferences["last_generated_content"]
-                    boost += 0.2
+        if (
+            any(kw in message for kw in content_keywords)
+            and context.user_preferences.get("last_generated_content")
+            and "content" not in resolved_params
+        ):
+            resolved_params["content"] = context.user_preferences["last_generated_content"]
+            boost += 0.2
 
         save_patterns = ["保存", "存", "存储"]
-        if any(p in message for p in save_patterns):
-            if not resolved_params.get("content"):
-                if context.user_preferences.get("last_generated_content"):
-                    resolved_params["content"] = context.user_preferences["last_generated_content"]
-                    boost += 0.1
+        if (
+            any(p in message for p in save_patterns)
+            and not resolved_params.get("content")
+            and context.user_preferences.get("last_generated_content")
+        ):
+            resolved_params["content"] = context.user_preferences["last_generated_content"]
+            boost += 0.1
 
         return resolved_params, min(boost, 0.3)
 
@@ -1376,26 +1385,25 @@ class UnifiedIntentDetector:
         }
 
         for keyword, intent in action_keywords.items():
-            if keyword in message:
-                if intent:
-                    params = {}
-                    resolved = context.resolve_reference("它")
-                    if resolved:
-                        params["file_path"] = resolved
+            if keyword in message and intent:
+                params = {}
+                resolved = context.resolve_reference("它")
+                if resolved:
+                    params["file_path"] = resolved
 
-                    intent_def = self._intent_definitions.get(intent, {})
-                    return IntentResult(
-                        detected=True,
-                        intent_type=intent,
-                        action=intent,
-                        params=params,
-                        description=intent_def.get("description", ""),
-                        confidence=0.6,
-                        confidence_level=ConfidenceLevel.MEDIUM,
-                        method=DetectionMethod.CONTEXT,
-                        need_confirm=True,
-                        category=intent_def.get("category", IntentCategory.UNKNOWN)
-                    )
+                intent_def = self._intent_definitions.get(intent, {})
+                return IntentResult(
+                    detected=True,
+                    intent_type=intent,
+                    action=intent,
+                    params=params,
+                    description=intent_def.get("description", ""),
+                    confidence=0.6,
+                    confidence_level=ConfidenceLevel.MEDIUM,
+                    method=DetectionMethod.CONTEXT,
+                    need_confirm=True,
+                    category=intent_def.get("category", IntentCategory.UNKNOWN)
+                )
 
         return None
 
@@ -1614,24 +1622,23 @@ class UnifiedIntentDetector:
 
         candidates = []
 
-        if self.bert_classifier and self.bert_classifier.is_loaded():
-            if len(message) >= 3:
-                try:
-                    bert_result = self.bert_classifier.predict_with_params(message)
-                    if bert_result.intent != "unknown" and bert_result.confidence > 0.7:
-                        bert_intent_result = IntentResult(
-                            detected=True,
-                            intent_type=bert_result.intent,
-                            action=bert_result.intent,
-                            confidence=bert_result.confidence,
-                            confidence_level=self._get_confidence_level(bert_result.confidence),
-                            method=DetectionMethod.SEMANTIC,
-                            params=bert_result.params
-                        )
-                        candidates.append(bert_intent_result)
-                        logger.debug(f"BERT 检测: {bert_result.intent} ({bert_result.confidence:.4f}), 参数: {bert_result.params}")
-                except Exception as e:
-                    logger.warning(f"BERT 检测失败: {e}")
+        if self.bert_classifier and self.bert_classifier.is_loaded() and len(message) >= 3:
+            try:
+                bert_result = self.bert_classifier.predict_with_params(message)
+                if bert_result.intent != "unknown" and bert_result.confidence > 0.7:
+                    bert_intent_result = IntentResult(
+                        detected=True,
+                        intent_type=bert_result.intent,
+                        action=bert_result.intent,
+                        confidence=bert_result.confidence,
+                        confidence_level=self._get_confidence_level(bert_result.confidence),
+                        method=DetectionMethod.SEMANTIC,
+                        params=bert_result.params
+                    )
+                    candidates.append(bert_intent_result)
+                    logger.debug(f"BERT 检测: {bert_result.intent} ({bert_result.confidence:.4f}), 参数: {bert_result.params}")
+            except Exception as e:
+                logger.warning(f"BERT 检测失败: {e}")
 
         rule_results = self._detect_by_rules(message)
         candidates.extend(rule_results)
@@ -1826,9 +1833,10 @@ class UnifiedIntentDetector:
 
         try:
             llm_result = await self._llm_detect(message, context)
-            if llm_result:
-                if not result.detected or llm_result.confidence > result.confidence:
-                    return llm_result
+            if llm_result and (
+                not result.detected or llm_result.confidence > result.confidence
+            ):
+                return llm_result
         except Exception as e:
             logger.warning(f"LLM检测失败: {e}")
 

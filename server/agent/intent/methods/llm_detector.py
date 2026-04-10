@@ -113,7 +113,7 @@ class LLMDetector:
                 response = self._llm_client.generate(prompt)
             elif hasattr(self._llm_client, 'chat'):
                 response = self._llm_client.chat([{"role": "user", "content": prompt}])
-            elif hasattr(self._llm_client, '__call__'):
+            elif callable(self._llm_client):
                 response = self._llm_client(prompt)
             else:
                 logger.warning("LLM客户端不支持已知的调用方式")

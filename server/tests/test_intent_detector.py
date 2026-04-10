@@ -32,35 +32,35 @@ class TestIntentDetector:
         text = "创建一个test.py文件"
         result = self.detector.detect(text)
 
-        assert result.detected == True
+        assert result.detected
         assert result.intent_type == 'file_create'
 
     def test_detect_file_read_intent(self):
         text = "读取config.json文件"
         result = self.detector.detect(text)
 
-        assert result.detected == True
+        assert result.detected
         assert result.intent_type == 'file_read'
 
     def test_detect_app_open_intent(self):
         text = "打开VS Code"
         result = self.detector.detect(text)
 
-        assert result.detected == True
+        assert result.detected
         assert result.intent_type == 'app_open'
 
     def test_detect_screenshot_intent(self):
         text = "截图"
         result = self.detector.detect(text)
 
-        assert result.detected == True
+        assert result.detected
         assert result.intent_type == 'screenshot'
 
     def test_detect_url_open_intent(self):
         text = "打开 https://github.com"
         result = self.detector.detect(text)
 
-        assert result.detected == True
+        assert result.detected
         assert result.intent_type == 'url_open'
 
     def test_confidence_score(self):
@@ -90,7 +90,7 @@ class TestIntentDetector:
         text = ""
         result = self.detector.detect(text)
 
-        assert result.detected == False
+        assert not result.detected
 
     def test_intent_description(self):
         text = "创建test.py文件"
@@ -161,7 +161,7 @@ class TestIntentDetectorEdgeCases:
 
     def test_empty_message(self):
         result = self.detector.detect('')
-        assert result.detected == False
+        assert not result.detected
 
     def test_whitespace_message(self):
         result = self.detector.detect('   \t\n   ')

@@ -22,11 +22,6 @@ def check_python_version():
     print("\n" + "=" * 50)
     print(color("检查 Python 版本...", "BLUE"))
 
-    if sys.version_info < (3, 10):
-        print(color("X Python 3.10+ required", "RED"))
-        print(f"当前版本：{sys.version}")
-        return False
-
     print(color(f"[OK] Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}", "GREEN"))
     return True
 

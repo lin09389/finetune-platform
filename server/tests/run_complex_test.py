@@ -1,11 +1,11 @@
 """
 快速验证脚本 - 复杂测试场景
 """
+import asyncio
 import os
 import sys
 import tempfile
 import time
-import asyncio
 from pathlib import Path
 
 server_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

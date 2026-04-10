@@ -164,9 +164,8 @@ class HuggingFaceEngine(BaseInferenceEngine):
 
     def _get_model_and_tokenizer(self, model_id: str):
         """获取模型和分词器"""
-        if model_id not in self._model_cache_instances:
-            if not self.load_model(model_id):
-                raise RuntimeError(f"无法加载模型: {model_id}")
+        if model_id not in self._model_cache_instances and not self.load_model(model_id):
+            raise RuntimeError(f"无法加载模型: {model_id}")
 
         return (
             self._model_cache_instances[model_id],

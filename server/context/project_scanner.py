@@ -218,9 +218,8 @@ class ProjectScanner:
                         if framework in ["FastAPI", "Flask", "Django"]:
                             if framework not in tech_stack.frameworks:
                                 tech_stack.frameworks.append(framework)
-                        elif framework in ["PyTorch", "TensorFlow", "Transformers", "LangChain"]:
-                            if framework not in tech_stack.libraries:
-                                tech_stack.libraries.append(framework)
+                        elif framework in ["PyTorch", "TensorFlow", "Transformers", "LangChain"] and framework not in tech_stack.libraries:
+                            tech_stack.libraries.append(framework)
             except Exception as e:
                 logger.warning(f"解析 requirements.txt 失败：{e}")
 
@@ -245,9 +244,8 @@ class ProjectScanner:
                     content = f.read().lower()
 
                 for framework, patterns in self.LANGUAGE_CONFIGS["java"]["framework_patterns"].items():
-                    if any(pattern in content for pattern in patterns):
-                        if framework not in tech_stack.frameworks:
-                            tech_stack.frameworks.append(framework)
+                    if any(pattern in content for pattern in patterns) and framework not in tech_stack.frameworks:
+                        tech_stack.frameworks.append(framework)
             except Exception as e:
                 logger.warning(f"解析 pom.xml 失败：{e}")
 
@@ -385,7 +383,7 @@ class ProjectScanner:
         """查找关键文件"""
         key_files = []
 
-        for category, patterns in self.KEY_FILE_PATTERNS.items():
+        for _category, patterns in self.KEY_FILE_PATTERNS.items():
             for pattern in patterns:
                 try:
                     if "*" in pattern:
@@ -506,13 +504,13 @@ class ProjectScanner:
             all_text.append(key_file.name.lower())
 
         deps = self._parse_dependencies()
-        for lang, lang_deps in deps.items():
+        for _lang, lang_deps in deps.items():
             if isinstance(lang_deps, list):
                 all_text.extend([d.lower() for d in lang_deps])
             elif isinstance(lang_deps, dict):
                 for dep_list in lang_deps.values():
                     if isinstance(dep_list, dict):
-                        all_text.extend([k.lower() for k in dep_list.keys()])
+                        all_text.extend([k.lower() for k in dep_list])
 
         all_text_str = " ".join(all_text)
 

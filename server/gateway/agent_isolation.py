@@ -160,10 +160,9 @@ class PathAccessController:
         for denied in workspace.denied_paths:
             if resolved.startswith(denied):
                 return False
-        for allowed in workspace.allowed_paths:
-            if resolved.startswith(allowed):
-                return True
-        return False
+        return any(
+            resolved.startswith(allowed) for allowed in workspace.allowed_paths
+        )
 
 
 class AgentIsolationManager:

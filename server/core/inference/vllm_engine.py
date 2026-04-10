@@ -8,7 +8,7 @@ import logging
 import time
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .engine_base import (
     EngineConfig,
@@ -18,6 +18,9 @@ from .engine_base import (
 )
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from vllm import SamplingParams
 
 
 class VLLMEngine(InferenceEngine):

@@ -111,10 +111,10 @@ class PluginRegistry:
         if plugin_id in self._instances:
             plugin = self._instances[plugin_id]
 
-            for action_name in plugin.get_actions().keys():
+            for action_name in plugin.get_actions():
                 self._action_handlers.pop(action_name, None)
 
-            for parser_name in plugin.get_parsers().keys():
+            for parser_name in plugin.get_parsers():
                 self._parsers.pop(parser_name, None)
 
             del self._instances[plugin_id]

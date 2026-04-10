@@ -793,7 +793,7 @@ def create_keyboard_press_samples() -> list[IntentSample]:
         ("Win+D", "显示桌面"), ("Win+E", "打开资源管理器"),
     ]
 
-    for shortcut, desc in shortcuts:
+    for shortcut, _desc in shortcuts:
         samples.append(IntentSample(f"按{shortcut}", {"key": shortcut}, 0.9, [shortcut]))
         samples.append(IntentSample(f"{shortcut}快捷键", {"key": shortcut}, 0.85, [shortcut]))
         samples.append(IntentSample(f"使用{shortcut}", {"key": shortcut}, 0.85, [shortcut]))

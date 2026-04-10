@@ -235,7 +235,9 @@ class RetrievalEvaluator:
         """
         individual_results = []
 
-        for query, retrieved_ids, relevant_ids in zip(queries, retrieved_ids_list, relevant_ids_list):
+        for query, retrieved_ids, relevant_ids in zip(
+            queries, retrieved_ids_list, relevant_ids_list, strict=False
+        ):
             result = self.evaluate(query, retrieved_ids, relevant_ids)
             individual_results.append(result)
 

@@ -6,6 +6,7 @@ import logging
 import os
 import subprocess
 import webbrowser
+from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -163,18 +164,17 @@ class AgentExecutor:
                     }
                 )
 
-            if safety.level == SafetyLevel.DANGEROUS:
-                if not params.get("confirmed"):
-                    return ExecutionResult(
-                        False,
-                        error=f"危险操作需要确认：{safety.reason}",
-                        data={
-                            "need_confirm": True,
-                            "action": action.value,
-                            "params": params,
-                            "risk": safety.reason,
-                        }
-                    )
+            if safety.level == SafetyLevel.DANGEROUS and not params.get("confirmed"):
+                return ExecutionResult(
+                    False,
+                    error=f"危险操作需要确认：{safety.reason}",
+                    data={
+                        "need_confirm": True,
+                        "action": action.value,
+                        "params": params,
+                        "risk": safety.reason,
+                    }
+                )
 
             # 2. 创建快照（用于回滚）
             if self._enable_rollback and create_snapshot:
@@ -1603,11 +1603,9 @@ class AgentExecutor:
         events = self._recording_data.pop(record_id)
 
         listeners = self._recording_listeners.pop(record_id, {})
-        for name, listener in listeners.items():
-            try:
+        for listener in listeners.values():
+            with suppress(Exception):
                 listener.stop()
-            except Exception:
-                pass
 
         logger.info(f"停止录制：{record_id}，共 {len(events)} 个事件")
 

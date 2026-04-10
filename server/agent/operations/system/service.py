@@ -1,6 +1,7 @@
 import asyncio
 import platform
 import subprocess
+from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -115,10 +116,13 @@ class ServiceOperations:
                     else:
                         current_service["status"] = "unknown"
 
-            if current_service and "name" in current_service:
-                if not filter_name or filter_name.lower() in current_service.get("name", "").lower():
-                    if not filter_status or filter_status.lower() == current_service.get("status", "").lower():
-                        services.append(current_service)
+            if (
+                current_service
+                and "name" in current_service
+                and (not filter_name or filter_name.lower() in current_service.get("name", "").lower())
+                and (not filter_status or filter_status.lower() == current_service.get("status", "").lower())
+            ):
+                services.append(current_service)
 
             return services
 
@@ -208,10 +212,8 @@ class ServiceOperations:
                         info["status"] = "unknown"
                 elif line.startswith("PID:"):
                     pid_str = line.split(":", 1)[1].strip()
-                    try:
+                    with suppress(ValueError):
                         info["pid"] = int(pid_str)
-                    except ValueError:
-                        pass
 
             return info
 
@@ -247,10 +249,8 @@ class ServiceOperations:
                     info["active"] = active
                 elif line.startswith("Main PID:"):
                     pid_str = line.split(":", 1)[1].strip().split()[0]
-                    try:
+                    with suppress(ValueError):
                         info["pid"] = int(pid_str)
-                    except ValueError:
-                        pass
 
             return info
 

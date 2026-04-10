@@ -57,7 +57,7 @@ class SynonymExpander:
     def expand(cls, text: str) -> list[str]:
         """扩展文本中的同义词"""
         expanded = [text]
-        for canonical, synonyms in cls.ACTION_SYNONYMS.items():
+        for _canonical, synonyms in cls.ACTION_SYNONYMS.items():
             for synonym in synonyms:
                 if synonym in text:
                     for other_synonym in synonyms:
@@ -131,7 +131,7 @@ class EnhancedIntentDetector:
             {
                 "pattern": r"截图$",
                 "action": ActionType.SCREENSHOT,
-                "params": lambda m: {},
+                "params": lambda _m: {},
                 "description": "截取屏幕截图",
             },
             {
@@ -149,13 +149,13 @@ class EnhancedIntentDetector:
             {
                 "pattern": r"(?:列出|显示)(?:所有)?窗口",
                 "action": ActionType.WINDOW_LIST,
-                "params": lambda m: {},
+                "params": lambda _m: {},
                 "description": "列出所有窗口",
             },
             {
                 "pattern": r"(?:识别|OCR)(?:屏幕上的)?文字",
                 "action": ActionType.OCR_RECOGNIZE,
-                "params": lambda m: {},
+                "params": lambda _m: {},
                 "description": "OCR识别文字",
             },
         ]

@@ -55,7 +55,7 @@ class IntentDetector:
     _instance = None
     _lock = threading.Lock()
 
-    def __new__(cls, config: DetectorConfig | None = None):
+    def __new__(cls, _config: DetectorConfig | None = None):
         with cls._lock:
             if cls._instance is None:
                 cls._instance = super().__new__(cls)
@@ -116,11 +116,10 @@ class IntentDetector:
 
             results = self._run_detection_methods(text, session_id)
 
-            if not results:
-                if self._config.use_llm_fallback:
-                    llm_results = llm_intent_understanding.understand(text, session_id)
-                    if llm_results:
-                        results.extend(llm_results)
+            if not results and self._config.use_llm_fallback:
+                llm_results = llm_intent_understanding.understand(text, session_id)
+                if llm_results:
+                    results.extend(llm_results)
 
             if not results:
                 return self._create_unknown_result(text, session_id)

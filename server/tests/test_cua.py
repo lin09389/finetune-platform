@@ -15,7 +15,6 @@ from cua.models import (
     WindowInfo,
 )
 from cua.safety import PermissionManager, SafetyController
-from cua.types import MouseButton
 
 
 class TestCoordinate:

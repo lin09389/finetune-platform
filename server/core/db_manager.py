@@ -22,7 +22,7 @@ class DatabaseConnectionPool:
     _instance: Optional['DatabaseConnectionPool'] = None
     _lock = threading.Lock()
 
-    def __new__(cls, db_path: str = None):
+    def __new__(cls, _db_path: str = None):
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:

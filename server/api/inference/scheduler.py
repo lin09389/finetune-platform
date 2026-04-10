@@ -248,10 +248,14 @@ class ModelScheduler:
         lru_time = datetime.now()
 
         for name, info in self._models.items():
-            if name in self._loaded_models and info.last_used:
-                if info.last_used < lru_time and info.ref_count == 0:
-                    lru_time = info.last_used
-                    lru_model = name
+            if (
+                name in self._loaded_models
+                and info.last_used
+                and info.last_used < lru_time
+                and info.ref_count == 0
+            ):
+                lru_time = info.last_used
+                lru_model = name
 
         if lru_model:
             await self.unload_model(lru_model, force=True)

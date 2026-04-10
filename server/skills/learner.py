@@ -272,7 +272,7 @@ class SkillLearner:
                 "learning_progress": {},
             }
 
-        skills_learned = list(set(p.skill_name for p in patterns))
+        skills_learned = list({p.skill_name for p in patterns})
 
         top_patterns = sorted(
             patterns,
@@ -330,9 +330,8 @@ class SkillLearner:
 
         matches = 0
         for key in all_keys:
-            if key in params1 and key in params2:
-                if str(params1[key]) == str(params2[key]):
-                    matches += 1
+            if key in params1 and key in params2 and str(params1[key]) == str(params2[key]):
+                matches += 1
 
         return matches / len(all_keys)
 

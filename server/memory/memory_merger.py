@@ -113,7 +113,7 @@ class MemoryDeduplicator:
 
         to_remove: set[int] = set()
 
-        for i, j, similarity in duplicates:
+        for i, j, _similarity in duplicates:
             if i in to_remove or j in to_remove:
                 continue
 

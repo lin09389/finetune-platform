@@ -187,7 +187,7 @@ class DistributedCache:
 
         import fnmatch
         keys_to_delete = [
-            k for k in self._memory_cache.keys()
+            k for k in self._memory_cache
             if fnmatch.fnmatch(k, pattern)
         ]
         for key in keys_to_delete:

@@ -186,7 +186,7 @@ class DeepTestSuite:
         try:
             deep_data = {}
             current = deep_data
-            for i in range(100):
+            for _i in range(100):
                 current["nested"] = {}
                 current = current["nested"]
 
@@ -296,7 +296,7 @@ class DeepTestSuite:
             def health_check():
                 try:
                     if self.client:
-                        self.client.get("/health")
+                        response = self.client.get("/health")
                         if response.status_code == 200:
                             return True
                 except Exception:

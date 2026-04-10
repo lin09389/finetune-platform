@@ -167,9 +167,8 @@ class ContextAwareDetector:
                 base_intent = last_intent
                 confidence_boost += 0.2
 
-        if base_intent and ctx.expecting_action:
-            if base_intent == ctx.expecting_action:
-                confidence_boost += 0.25
+        if base_intent and ctx.expecting_action and base_intent == ctx.expecting_action:
+            confidence_boost += 0.25
 
         predicted_next = self._predict_next_intent(ctx)
         if predicted_next and base_intent == predicted_next:

@@ -378,8 +378,7 @@ class LLMParamExtractor:
                         value = int(value)
                     elif param_def.type == SkillParameterType.FLOAT:
                         value = float(value)
-                    elif param_def.type == SkillParameterType.BOOLEAN:
-                        if isinstance(value, str):
+                    elif param_def.type == SkillParameterType.BOOLEAN and isinstance(value, str):
                             value = value.lower() in ("true", "yes", "是", "1")
 
                     if param_def.enum and value not in param_def.enum:

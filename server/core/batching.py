@@ -11,6 +11,7 @@ import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -132,10 +133,8 @@ class DynamicBatcher:
 
         if self._worker_task:
             self._worker_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await self._worker_task
-            except asyncio.CancelledError:
-                pass
 
         for future in self._pending.values():
             if not future.done():
@@ -239,7 +238,7 @@ class DynamicBatcher:
             else:
                 results = await self._default_processor(batch)
 
-            for request, result in zip(batch, results):
+            for request, result in zip(batch, results, strict=False):
                 request.status = BatchRequestStatus.COMPLETED
                 request.completed_at = time.time()
                 request.result = result

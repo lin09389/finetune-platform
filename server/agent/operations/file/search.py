@@ -340,13 +340,11 @@ class FileSearchExecutor:
             if item.is_file():
                 stat = item.stat()
 
-                if criteria.min_size is not None:
-                    if stat.st_size < criteria.min_size:
-                        return False
+                if criteria.min_size is not None and stat.st_size < criteria.min_size:
+                    return False
 
-                if criteria.max_size is not None:
-                    if stat.st_size > criteria.max_size:
-                        return False
+                if criteria.max_size is not None and stat.st_size > criteria.max_size:
+                    return False
 
                 if criteria.modified_after or criteria.modified_before:
                     mtime = datetime.fromtimestamp(stat.st_mtime)

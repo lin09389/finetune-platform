@@ -7,6 +7,7 @@ import asyncio
 import os
 import sys
 import tempfile
+from contextlib import suppress
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -259,10 +260,8 @@ async def execute_python_code(
         )
 
     finally:
-        try:
+        with suppress(Exception):
             os.unlink(temp_file)
-        except:
-            pass
 
 
 async def execute_javascript_code(
@@ -342,10 +341,8 @@ async def execute_javascript_code(
         )
 
     finally:
-        try:
+        with suppress(Exception):
             os.unlink(temp_file)
-        except:
-            pass
 
 
 async def execute_typescript_code(

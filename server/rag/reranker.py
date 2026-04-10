@@ -108,7 +108,7 @@ class CrossEncoderReranker:
 
         scores = []
         for doc_emb in doc_embeddings:
-            score = sum(a * b for a, b in zip(query_embedding, doc_emb))
+            score = sum(a * b for a, b in zip(query_embedding, doc_emb, strict=False))
             scores.append(score)
 
         return scores
@@ -156,7 +156,7 @@ class CrossEncoderReranker:
             scores = self._compute_similarity_fallback(query, documents)
 
         ranked = sorted(
-            zip(ids, documents, scores, metadatas),
+            zip(ids, documents, scores, metadatas, strict=False),
             key=lambda x: x[2],
             reverse=True
         )

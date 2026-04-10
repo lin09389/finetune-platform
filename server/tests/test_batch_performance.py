@@ -183,7 +183,7 @@ class TestPerformanceMonitor:
     def test_get_stats_by_model(self):
         monitor = PerformanceMonitor()
 
-        for i in range(3):
+        for _i in range(3):
             monitor.record(PerformanceMetrics(
                 tokens_per_second=50.0,
                 latency_ms=100.0,
@@ -193,7 +193,7 @@ class TestPerformanceMonitor:
                 engine_type="huggingface"
             ))
 
-        for i in range(2):
+        for _i in range(2):
             monitor.record(PerformanceMetrics(
                 tokens_per_second=60.0,
                 latency_ms=80.0,
@@ -252,7 +252,7 @@ class TestPerformanceMonitor:
 
     def test_get_recommendations_low_speed(self):
         monitor = PerformanceMonitor()
-        for i in range(5):
+        for _i in range(5):
             monitor.record(PerformanceMetrics(
                 tokens_per_second=15.0,
                 latency_ms=100.0,
@@ -267,7 +267,7 @@ class TestPerformanceMonitor:
 
     def test_get_recommendations_high_latency(self):
         monitor = PerformanceMonitor()
-        for i in range(5):
+        for _i in range(5):
             monitor.record(PerformanceMetrics(
                 tokens_per_second=50.0,
                 latency_ms=100.0,
@@ -282,7 +282,7 @@ class TestPerformanceMonitor:
 
     def test_get_recommendations_high_vram(self):
         monitor = PerformanceMonitor()
-        for i in range(5):
+        for _i in range(5):
             monitor.record(PerformanceMetrics(
                 tokens_per_second=50.0,
                 latency_ms=100.0,
@@ -297,7 +297,7 @@ class TestPerformanceMonitor:
 
     def test_get_recommendations_good_performance(self):
         monitor = PerformanceMonitor()
-        for i in range(5):
+        for _i in range(5):
             monitor.record(PerformanceMetrics(
                 tokens_per_second=60.0,
                 latency_ms=100.0,
@@ -313,7 +313,7 @@ class TestPerformanceMonitor:
     def test_engine_distribution(self):
         monitor = PerformanceMonitor()
 
-        for i in range(3):
+        for _i in range(3):
             monitor.record(PerformanceMetrics(
                 tokens_per_second=50.0,
                 latency_ms=100.0,
@@ -323,7 +323,7 @@ class TestPerformanceMonitor:
                 engine_type="huggingface"
             ))
 
-        for i in range(2):
+        for _i in range(2):
             monitor.record(PerformanceMetrics(
                 tokens_per_second=60.0,
                 latency_ms=80.0,
@@ -339,7 +339,7 @@ class TestPerformanceMonitor:
 
     def test_max_history_limit(self):
         monitor = PerformanceMonitor(max_history=10)
-        for i in range(20):
+        for _i in range(20):
             monitor.record(PerformanceMetrics(
                 tokens_per_second=50.0,
                 latency_ms=100.0,
@@ -353,7 +353,7 @@ class TestPerformanceMonitor:
 
     def test_clear_history(self):
         monitor = PerformanceMonitor()
-        for i in range(5):
+        for _i in range(5):
             monitor.record(PerformanceMetrics(
                 tokens_per_second=50.0,
                 latency_ms=100.0,
@@ -375,7 +375,7 @@ class TestPerformanceMonitor:
 
         def record_metrics(thread_id):
             try:
-                for i in range(100):
+                for _i in range(100):
                     monitor.record(PerformanceMetrics(
                         tokens_per_second=50.0,
                         latency_ms=100.0,

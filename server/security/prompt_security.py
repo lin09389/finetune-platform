@@ -417,13 +417,12 @@ class PromptSecurityMiddleware:
         if len(self._scan_history) > self._max_history:
             self._scan_history = self._scan_history[-self._max_history:]
 
-        if not result.is_safe:
-            if result.threat_level.value >= self.block_threshold.value:
-                logger.warning(
-                    f"阻止高风险输入: threat_level={result.threat_level.value}, "
-                    f"patterns={[p.id for p, _ in result.detected_patterns]}"
-                )
-                return False, "", result
+        if not result.is_safe and result.threat_level.value >= self.block_threshold.value:
+            logger.warning(
+                f"阻止高风险输入: threat_level={result.threat_level.value}, "
+                f"patterns={[p.id for p, _ in result.detected_patterns]}"
+            )
+            return False, "", result
 
         sanitized, _ = self.sanitizer.sanitize(content)
 

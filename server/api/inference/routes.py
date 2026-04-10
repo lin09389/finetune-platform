@@ -188,6 +188,7 @@ async def generate_stream(request: GenerateRequest):
 async def chat(request: ChatRequest):
     """聊天对话 - 参考 Ollama /api/chat，集成统一上下文管理"""
     import sys
+    start_time = time.time()
     print(f"=== NEW /inference/chat called with model: {request.model}, backend: {request.options.backend if request.options else 'None'} ===", file=sys.stderr, flush=True)
     print(f"=== request.options: {request.options} ===", file=sys.stderr, flush=True)
     logger.info(f"=== NEW /inference/chat called with model: {request.model}, backend: {request.options.backend if request.options else 'None'} ===")

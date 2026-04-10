@@ -16,6 +16,7 @@ from gateway.device_auth import (
 )
 from gateway.models import AgentInfo, BindingRule
 
+
 class TestBindingManager:
     """Binding Manager 测试"""
 

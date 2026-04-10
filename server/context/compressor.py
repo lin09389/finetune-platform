@@ -100,6 +100,7 @@ class DialogCompressor:
         messages: list[ChatMessage],
         target_ratio: float
     ) -> tuple[list[ChatMessage], CompressionResult]:
+        original_tokens = sum(m.token_count for m in messages)
         recent_messages = messages[-self.keep_recent_count:]
         old_messages = messages[:-self.keep_recent_count]
 
@@ -203,7 +204,7 @@ class DialogCompressor:
         selected_indices = set()
         current_tokens = 0
 
-        for score, idx, msg in scored_messages:
+        for _score, idx, msg in scored_messages:
             if current_tokens + msg.token_count <= target_tokens:
                 selected_indices.add(idx)
                 current_tokens += msg.token_count
@@ -241,7 +242,7 @@ class DialogCompressor:
         selected_indices = set()
         current_tokens = 0
 
-        for score, idx, msg in scored_messages:
+        for _score, idx, msg in scored_messages:
             if current_tokens + msg.token_count <= target_tokens:
                 selected_indices.add(idx)
                 current_tokens += msg.token_count
@@ -302,9 +303,8 @@ class DialogCompressor:
                 matches = re.findall(pattern, content)
                 for match in matches:
                     topic = match.strip()
-                    if len(topic) >= 2 and len(topic) <= 20:
-                        if topic not in topics:
-                            topics.append(topic)
+                    if len(topic) >= 2 and len(topic) <= 20 and topic not in topics:
+                        topics.append(topic)
 
         return topics
 
@@ -322,9 +322,8 @@ class DialogCompressor:
                 matches = re.findall(pattern, content)
                 for match in matches:
                     action = match.strip()
-                    if len(action) >= 2 and len(action) <= 30:
-                        if action not in actions:
-                            actions.append(action)
+                    if len(action) >= 2 and len(action) <= 30 and action not in actions:
+                        actions.append(action)
 
         if not actions:
             if any('代码' in m.content or '```' in m.content for m in messages):

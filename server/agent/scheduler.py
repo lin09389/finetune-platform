@@ -6,6 +6,7 @@ import json
 import logging
 import uuid
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -266,10 +267,8 @@ class TaskScheduler:
         self._running = False
         if self._task:
             self._task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
         logger.info("定时任务调度器已停止")
 
     async def _schedule_loop(self):

@@ -195,7 +195,7 @@ class SkillRegistry:
         return self._executions.get(execution_id)
 
     def cancel_execution(self, execution_id: str) -> bool:
-        for name, tasks in self._execution_tasks.items():
+        for _name, tasks in self._execution_tasks.items():
             if execution_id in tasks:
                 tasks[execution_id].cancel()
                 return True
@@ -252,7 +252,7 @@ class SkillRegistry:
                 try:
                     module = importlib.import_module(module_name)
 
-                    for name, obj in inspect.getmembers(module):
+                    for _name, obj in inspect.getmembers(module):
                         if (
                             inspect.isclass(obj)
                             and issubclass(obj, SkillBase)

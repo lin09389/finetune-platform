@@ -1,5 +1,6 @@
 import asyncio
 import json
+from contextlib import suppress
 from datetime import datetime
 from typing import Any, Optional
 
@@ -59,7 +60,7 @@ class SSEConnection:
 class HardwareMonitor:
     _instance: Optional["HardwareMonitor"] = None
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, *_args, **_kwargs):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
@@ -100,10 +101,8 @@ class HardwareMonitor:
         self._is_monitoring = False
         if self._monitoring_task:
             self._monitoring_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await self._monitoring_task
-            except asyncio.CancelledError:
-                pass
             self._monitoring_task = None
         logger.info("硬件监控已停止")
 

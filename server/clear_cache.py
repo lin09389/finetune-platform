@@ -4,7 +4,7 @@ import shutil
 server_dir = r'c:\Users\JHJ\Desktop\finetune-platform\server'
 
 # Clear all __pycache__ directories
-for root, dirs, files in os.walk(server_dir):
+for root, dirs, _files in os.walk(server_dir):
     if '__pycache__' in dirs:
         pycache_path = os.path.join(root, '__pycache__')
         print(f"Removing: {pycache_path}")
@@ -14,7 +14,7 @@ for root, dirs, files in os.walk(server_dir):
             print(f"  Failed: {e}")
 
 # Clear .pyc files
-for root, dirs, files in os.walk(server_dir):
+for root, _dirs, files in os.walk(server_dir):
     for f in files:
         if f.endswith('.pyc'):
             pyc_path = os.path.join(root, f)

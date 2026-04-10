@@ -11,6 +11,7 @@ import traceback as tb
 import uuid
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -67,10 +68,8 @@ class TrainingWebSocketManager:
         """断开指定任务的 WebSocket 连接"""
         async with self._async_lock:
             if task_id in self._connections:
-                try:
+                with suppress(ValueError):
                     self._connections[task_id].remove(websocket)
-                except ValueError:
-                    pass
 
                 if task_id in self._connection_times and websocket in self._connection_times[task_id]:
                     del self._connection_times[task_id][websocket]
@@ -619,7 +618,9 @@ def load_dataset(dataset_path: str, tokenizer, max_length: int = 512):
     def set_labels(examples):
         import copy
         labels = []
-        for input_ids, text in zip(examples["input_ids"], examples["text"]):
+        for input_ids, _text in zip(
+            examples["input_ids"], examples["text"], strict=False
+        ):
             label = copy.deepcopy(input_ids)
 
             # Find User/Instruction prompt end to mask out the prompt
@@ -1166,6 +1167,7 @@ def training_thread(
     from transformers import Trainer, TrainingArguments
 
     settings = get_config()
+    state = get_state()
 
     model = None
     tokenizer = None
@@ -2106,6 +2108,7 @@ async def start_swift_training(
     from backends.swift_backend import SwiftTrainConfig, get_swift_backend
 
     settings = get_config()
+    state = get_state()
 
     swift_backend = get_swift_backend()
     if not swift_backend.is_available():
@@ -2381,6 +2384,7 @@ async def resume_training(task_id: str, checkpoint_name: str):
     """从检查点恢复训练"""
     state = get_state()
     settings = get_config()
+    state = get_state()
 
     if state.is_training():
         raise HTTPException(status_code=400, detail="Training already in progress")
@@ -2741,6 +2745,7 @@ async def start_training(
         priority: 任务优先级(urgent/high/normal/low)
     """
     settings = get_config()
+    state = get_state()
 
     if state.is_training():
         raise HTTPException(status_code=400, detail="Training already in progress")
@@ -2871,4 +2876,3 @@ async def cancel_task(task_id: str):
         return {"message": f"Task {task_id} cancelled"}
 
     raise HTTPException(status_code=400, detail="Task not found or already running")
-

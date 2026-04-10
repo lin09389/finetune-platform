@@ -1,11 +1,13 @@
 """
-推理后端熔断器
-防止级联故障，支持自动降级
+Inference backend circuit breaker.
 """
+
+from __future__ import annotations
+
 import asyncio
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -23,27 +25,26 @@ class CircuitState(Enum):
 class CircuitStats:
     failures: int = 0
     successes: int = 0
-    last_failure_time: float = 0
-    last_success_time: float = 0
+    last_failure_time: float = 0.0
+    last_success_time: float = 0.0
     state: CircuitState = CircuitState.CLOSED
     last_error: str | None = None
 
 
 class InferenceCircuitBreaker:
-    """推理后端熔断器"""
+    """Circuit breaker for model backend fallbacks."""
 
     def __init__(
         self,
         failure_threshold: int = 3,
         success_threshold: int = 2,
         timeout_seconds: float = 60.0,
-        half_open_max_calls: int = 3
-    ):
+        half_open_max_calls: int = 3,
+    ) -> None:
         self.failure_threshold = failure_threshold
         self.success_threshold = success_threshold
         self.timeout_seconds = timeout_seconds
         self.half_open_max_calls = half_open_max_calls
-
         self._circuits: dict[str, CircuitStats] = {}
         self._lock = asyncio.Lock()
 
@@ -64,17 +65,22 @@ class InferenceCircuitBreaker:
                 if elapsed >= self.timeout_seconds:
                     circuit.state = CircuitState.HALF_OPEN
                     circuit.successes = 0
-                    logger.info(f"熔断器 [{backend_name}] 进入半开状态")
+                    logger.info("Circuit [%s] enters half-open", backend_name)
                     return True
-                logger.debug(f"熔断器 [{backend_name}] 处于开启状态，剩余 {self.timeout_seconds - elapsed:.0f} 秒")
+
+                logger.debug(
+                    "Circuit [%s] still open, remaining %.1fs",
+                    backend_name,
+                    self.timeout_seconds - elapsed,
+                )
                 return False
 
             if circuit.state == CircuitState.HALF_OPEN:
                 return circuit.successes < self.half_open_max_calls
 
-        return False
+            return False
 
-    async def record_success(self, backend_name: str):
+    async def record_success(self, backend_name: str) -> None:
         async with self._lock:
             circuit = self._get_circuit(backend_name)
             circuit.successes += 1
@@ -82,12 +88,14 @@ class InferenceCircuitBreaker:
             circuit.last_success_time = time.time()
             circuit.last_error = None
 
-            if circuit.state == CircuitState.HALF_OPEN:
-                if circuit.successes >= self.success_threshold:
-                    circuit.state = CircuitState.CLOSED
-                    logger.info(f"熔断器 [{backend_name}] 恢复正常")
+            if (
+                circuit.state == CircuitState.HALF_OPEN
+                and circuit.successes >= self.success_threshold
+            ):
+                circuit.state = CircuitState.CLOSED
+                logger.info("Circuit [%s] recovered to closed", backend_name)
 
-    async def record_failure(self, backend_name: str, error: Exception):
+    async def record_failure(self, backend_name: str, error: Exception) -> None:
         async with self._lock:
             circuit = self._get_circuit(backend_name)
             circuit.failures += 1
@@ -96,28 +104,33 @@ class InferenceCircuitBreaker:
 
             if circuit.state == CircuitState.HALF_OPEN:
                 circuit.state = CircuitState.OPEN
-                logger.warning(f"熔断器 [{backend_name}] 重新熔断: {error}")
-            elif circuit.failures >= self.failure_threshold:
+                logger.warning("Circuit [%s] re-opened: %s", backend_name, error)
+                return
+
+            if circuit.failures >= self.failure_threshold:
                 circuit.state = CircuitState.OPEN
                 logger.warning(
-                    f"熔断器 [{backend_name}] 触发熔断 "
-                    f"(失败次数: {circuit.failures}/{self.failure_threshold}): {error}"
+                    "Circuit [%s] opened (%s/%s): %s",
+                    backend_name,
+                    circuit.failures,
+                    self.failure_threshold,
+                    error,
                 )
 
     async def execute_with_protection(
         self,
         backend_name: str,
-        func: Callable,
-        fallback: Callable | None = None,
-        *args,
-        **kwargs
+        func: Callable[..., Awaitable[Any]],
+        fallback: Callable[..., Awaitable[Any]] | None = None,
+        *args: Any,
+        **kwargs: Any,
     ) -> Any:
         if not await self.can_execute(backend_name):
-            if fallback:
-                logger.info(f"熔断器 [{backend_name}] 执行降级方案")
+            if fallback is not None:
+                logger.info("Circuit [%s] open, running fallback", backend_name)
                 return await fallback(*args, **kwargs)
             raise CircuitBreakerOpenError(
-                f"熔断器 [{backend_name}] 处于开启状态，服务暂时不可用"
+                f"Circuit [{backend_name}] is open; service temporarily unavailable"
             )
 
         try:
@@ -126,8 +139,12 @@ class InferenceCircuitBreaker:
             return result
         except Exception as e:
             await self.record_failure(backend_name, e)
-            if fallback:
-                logger.info(f"熔断器 [{backend_name}] 执行失败，使用降级方案: {e}")
+            if fallback is not None:
+                logger.info(
+                    "Primary execution failed on [%s], fallback: %s",
+                    backend_name,
+                    e,
+                )
                 return await fallback(*args, **kwargs)
             raise
 
@@ -147,21 +164,17 @@ class InferenceCircuitBreaker:
         }
 
     def get_all_status(self) -> dict[str, dict[str, Any]]:
-        return {
-            name: self.get_status(name)
-            for name in self._circuits.keys()
-        }
+        return {name: self.get_status(name) for name in self._circuits}
 
-    async def reset(self, backend_name: str):
+    async def reset(self, backend_name: str) -> None:
         async with self._lock:
             if backend_name in self._circuits:
                 self._circuits[backend_name] = CircuitStats()
-                logger.info(f"熔断器 [{backend_name}] 已重置")
+                logger.info("Circuit [%s] reset", backend_name)
 
 
 class CircuitBreakerOpenError(Exception):
-    """熔断器开启错误"""
-    pass
+    """Raised when circuit is open and no fallback is available."""
 
 
 _circuit_breaker: InferenceCircuitBreaker | None = None

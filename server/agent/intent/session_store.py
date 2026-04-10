@@ -117,11 +117,10 @@ class MemorySessionStore(SessionStore):
             if session_id not in self._store:
                 return None
 
-            if session_id in self._expiry:
-                if time.time() > self._expiry[session_id]:
-                    del self._store[session_id]
-                    del self._expiry[session_id]
-                    return None
+            if session_id in self._expiry and time.time() > self._expiry[session_id]:
+                del self._store[session_id]
+                del self._expiry[session_id]
+                return None
 
             data = self._store[session_id]
             return SessionData.from_dict(data)

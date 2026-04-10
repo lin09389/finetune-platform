@@ -36,7 +36,7 @@ class ProxyConfig:
             http_proxy=os.getenv("HTTP_PROXY") or os.getenv("http_proxy"),
             https_proxy=os.getenv("HTTPS_PROXY") or os.getenv("https_proxy"),
             no_proxy=os.getenv("NO_PROXY") or os.getenv("no_proxy"),
-            socks_proxy=os.getenv("ALL_PROXY") or os.getenv("all_proxy"),
+            socks_proxy=os.getenv("ALL_PROXY"),
         )
 
     @classmethod
@@ -65,14 +65,20 @@ class ProxyConfig:
 
         if self.socks_proxy:
             os.environ["ALL_PROXY"] = self.socks_proxy
-            os.environ["all_proxy"] = self.socks_proxy
 
         logger.info(f"代理配置已应用: HTTP={self.http_proxy}, HTTPS={self.https_proxy}")
 
     def clear(self) -> None:
         """清除代理环境变量"""
-        for key in ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy",
-                    "NO_PROXY", "no_proxy", "ALL_PROXY", "all_proxy"]:
+        for key in [
+            "HTTP_PROXY",
+            "http_proxy",
+            "HTTPS_PROXY",
+            "https_proxy",
+            "NO_PROXY",
+            "no_proxy",
+            "ALL_PROXY",
+        ]:
             os.environ.pop(key, None)
 
         logger.info("代理配置已清除")

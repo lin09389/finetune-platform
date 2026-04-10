@@ -233,7 +233,11 @@ class MemoryService:
 
                 if all_data['metadatas'] and all_data['documents']:
                     for i, (meta, doc) in enumerate(
-                        zip(all_data['metadatas'], all_data['documents'])
+                        zip(
+                            all_data['metadatas'],
+                            all_data['documents'],
+                            strict=False,
+                        )
                     ):
                         if memory_type and meta.get('type') != memory_type:
                             continue

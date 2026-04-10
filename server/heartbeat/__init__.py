@@ -11,9 +11,11 @@ import asyncio
 import logging
 import re
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from .task_executor import ProactiveTask, TaskExecutor, TaskResult, TaskStatus, TaskType
 
@@ -198,10 +200,8 @@ class HeartbeatScheduler:
 
         if self._scheduler_task:
             self._scheduler_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await self._scheduler_task
-            except asyncio.CancelledError:
-                pass
 
         logger.info("Heartbeat 调度器已停止")
 

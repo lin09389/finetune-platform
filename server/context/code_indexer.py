@@ -244,7 +244,7 @@ class CodeIndexer:
 
         summary_parts = []
 
-        for i, line in enumerate(lines[:20]):
+        for _i, line in enumerate(lines[:20]):
             stripped = line.strip()
             if stripped.startswith("#") or stripped.startswith("//"):
                 summary_parts.append(stripped)

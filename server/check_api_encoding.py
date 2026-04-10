@@ -6,7 +6,7 @@ sys.path.insert(0, server_dir)
 
 api_dir = os.path.join(server_dir, 'api')
 
-for root, dirs, files in os.walk(api_dir):
+for root, _dirs, files in os.walk(api_dir):
     for f in files:
         if f.endswith('.py'):
             filepath = os.path.join(root, f)

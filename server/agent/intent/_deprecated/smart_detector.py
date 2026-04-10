@@ -376,7 +376,7 @@ class IntelligentErrorHandler:
     def _create_clarification(self, candidates: list) -> dict[str, Any]:
         """创建澄清对话"""
         options = []
-        for action, confidence, params, _ in candidates[:3]:
+        for action, confidence, _params, _ in candidates[:3]:
             action_name = action.value if hasattr(action, 'value') else str(action)
             options.append({
                 "label": self.INTENT_DESCRIPTIONS.get(action_name, action_name),
@@ -470,10 +470,13 @@ class SmartIntentDetector:
         best = all_candidates[0]
         action, confidence, params, need_confirm = best
 
-        if context and context.get("content"):
-            if action in (ActionType.FILE_WRITE, ActionType.FILE_CREATE):
-                if not params.get("content"):
-                    params["content"] = context["content"]
+        if (
+            context
+            and context.get("content")
+            and action in (ActionType.FILE_WRITE, ActionType.FILE_CREATE)
+            and not params.get("content")
+        ):
+            params["content"] = context["content"]
 
         if confidence >= self.CONFIDENCE_HIGH:
             return SmartIntentResult(
@@ -537,9 +540,10 @@ class SmartIntentDetector:
 
         if self.llm_client:
             llm_result = await self._llm_detect(message, context)
-            if llm_result and llm_result.detected:
-                if not result.detected or llm_result.confidence > result.confidence:
-                    return llm_result
+            if llm_result and llm_result.detected and (
+                not result.detected or llm_result.confidence > result.confidence
+            ):
+                return llm_result
 
         return result
 

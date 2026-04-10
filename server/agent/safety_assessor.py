@@ -288,11 +288,7 @@ class SafetyAssessor:
             if pattern.lower() in file_path_lower:
                 return True
 
-        for ext in DANGEROUS_FILE_EXTENSIONS:
-            if file_path_lower.endswith(ext):
-                return True
-
-        return False
+        return any(file_path_lower.endswith(ext) for ext in DANGEROUS_FILE_EXTENSIONS)
 
     def _is_dangerous_url(self, url: str) -> bool:
         """检查是否为危险URL"""
@@ -301,11 +297,7 @@ class SafetyAssessor:
 
         url_lower = url.lower()
 
-        for pattern in DANGEROUS_URL_PATTERNS:
-            if pattern.lower() in url_lower:
-                return True
-
-        return False
+        return any(pattern.lower() in url_lower for pattern in DANGEROUS_URL_PATTERNS)
 
     def is_safe_action(self, action: ActionType) -> bool:
         """

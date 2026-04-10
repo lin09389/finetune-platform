@@ -10,7 +10,7 @@ from typing import Any
 
 
 class ParamTag(str, Enum):
-    O = "O"
+    O = "O"  # noqa: E741
     B_FILE_PATH = "B-FILE_PATH"
     I_FILE_PATH = "I-FILE_PATH"
     B_APP_NAME = "B-APP_NAME"
@@ -157,7 +157,7 @@ def generate_bio_labels(
 
     for span_start, span_end, tag_type in spans:
         first_token = True
-        for i, (token, tok_start, tok_end) in enumerate(tokens_with_spans):
+        for i, (_token, tok_start, tok_end) in enumerate(tokens_with_spans):
             if tok_start >= span_start and tok_end <= span_end or tok_start < span_end and tok_end > span_start:
                 if first_token:
                     labels[i] = f"B-{tag_type}"
@@ -304,7 +304,7 @@ def bio_labels_to_spans(tokens: list[str], labels: list[str]) -> list[dict[str, 
     current_tokens = []
     current_start = None
 
-    for i, (token, label) in enumerate(zip(tokens, labels)):
+    for i, (token, label) in enumerate(zip(tokens, labels, strict=False)):
         if label.startswith("B-"):
             if current_entity and current_tokens:
                 spans.append({

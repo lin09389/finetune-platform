@@ -332,15 +332,14 @@ class RuleBasedExtractor:
                 if not sentence or len(sentence) < 10 or len(sentence) > 100:
                     continue
 
-                if any(kw in sentence for kw in self.IMPORTANT_KEYWORDS):
-                    if sentence not in seen:
-                        seen.add(sentence)
-                        facts.append({
-                            'content': sentence,
-                            'type': 'important',
-                            'confidence': 0.9,
-                            'source': 'keyword'
-                        })
+                if any(kw in sentence for kw in self.IMPORTANT_KEYWORDS) and sentence not in seen:
+                    seen.add(sentence)
+                    facts.append({
+                        'content': sentence,
+                        'type': 'important',
+                        'confidence': 0.9,
+                        'source': 'keyword'
+                    })
 
         return facts
 
@@ -514,10 +513,7 @@ class IntelligentMemoryExtractor:
         if any(p in message for p in self.COMPLEX_PATTERNS):
             return True
 
-        if len(message) > 200:
-            return True
-
-        return False
+        return len(message) > 200
 
 
 _memory_extractor: IntelligentMemoryExtractor | None = None

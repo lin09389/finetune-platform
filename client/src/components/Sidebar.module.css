@@ -1,56 +1,39 @@
 .sidebar {
-  background: var(--glass-bg) !important;
-  backdrop-filter: var(--glass-blur);
-  -webkit-backdrop-filter: var(--glass-blur);
-  border-right: 1px solid var(--glass-border) !important;
-  transition: width 0.4s var(--ease-smooth) !important;
-  box-shadow: var(--shadow-glass);
+  background: var(--bg-secondary) !important;
+  border-right: 1px solid var(--border-color) !important;
+  transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1) !important;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  /* GPU 加速 */
   transform: translateZ(0);
-}
-
-/* 微质感噪声 */
-.sidebar::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  opacity: 0.02;
-  pointer-events: none;
-  z-index: -1;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
 }
 
 .logoArea {
   padding: var(--space-6) var(--space-5);
-  border-bottom: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  transition: all 0.3s var(--ease-smooth);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .logoIcon {
-  width: 38px;
-  height: 38px;
-  border-radius: var(--radius-lg);
-  background: var(--gradient-primary);
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: var(--text-primary);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--text-xl);
-  color: var(--text-inverse);
+  font-size: var(--text-base);
+  color: var(--bg-primary);
   flex-shrink: 0;
-  box-shadow: var(--shadow-md);
   cursor: pointer;
-  transition: transform 0.3s var(--ease-bounce);
-  will-change: transform;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .logoIcon:hover {
-  transform: scale(1.1) rotate(5deg);
+  transform: scale(1.05);
 }
 
 .logoTitle {
@@ -58,7 +41,7 @@
   font-size: var(--text-base);
   font-weight: var(--font-bold);
   color: var(--text-primary);
-  letter-spacing: var(--tracking-tight);
+  letter-spacing: -0.02em;
 }
 
 .logoSubtitle {
@@ -66,12 +49,12 @@
   color: var(--text-tertiary);
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0.05em;
 }
 
 .statusIndicator {
   padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .menuWrapper {
@@ -90,34 +73,24 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-3);
-  margin: var(--space-1) 0;
-  border-radius: var(--radius-lg);
+  padding: var(--space-2) var(--space-3);
+  margin: 2px 0;
+  border-radius: var(--radius-md);
   cursor: pointer;
   color: var(--text-secondary);
-  transition: all 0.25s var(--ease-smooth);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
-  will-change: transform, background-color;
 }
 
 .menuItem:hover {
-  background: color-mix(in srgb, var(--bg-hover) 60%, transparent);
+  background: var(--bg-hover);
   color: var(--text-primary);
-  transform: translateX(4px);
-}
-
-:global(.dark-theme) .menuItem:hover {
-  background: rgba(255, 255, 255, 0.08);
 }
 
 .menuItemActive {
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--accent-primary) 12%, transparent) 0%,
-    color-mix(in srgb, var(--bg-hover) 40%, transparent) 100%
-  ) !important;
-  color: var(--accent-primary) !important;
-  box-shadow: var(--shadow-sm);
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  font-weight: var(--font-medium);
 }
 
 .activeIndicator {
@@ -126,58 +99,48 @@
   top: 50%;
   transform: translateY(-50%);
   width: 3px;
-  height: 18px;
-  background: var(--accent-primary);
-  border-radius: 0 var(--radius-full) var(--radius-full) 0;
-  box-shadow: 0 0 12px var(--accent-primary);
-  animation: scaleIn 0.3s var(--ease-smooth);
+  height: 16px;
+  background: var(--text-primary);
+  border-radius: 0 4px 4px 0;
 }
 
 .menuIcon {
-  font-size: 18px;
+  font-size: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.3s var(--ease-bounce);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .menuItem:hover .menuIcon {
-  transform: scale(1.2);
+  transform: scale(1.1);
 }
 
 .menuLabel {
   font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
   white-space: nowrap;
 }
 
 .menuDesc {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-tertiary);
-  margin-top: 1px;
+  margin-top: 2px;
   white-space: nowrap;
-  opacity: 0.8;
 }
 
 .collapseBtn {
   padding: var(--space-4);
-  border-top: 1px solid var(--glass-border);
+  border-top: 1px solid var(--border-color);
   cursor: pointer;
   color: var(--text-secondary);
   display: flex;
   align-items: center;
   gap: var(--space-3);
   font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  transition: all 0.2s var(--ease-smooth);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .collapseBtn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
-}
-
-@keyframes scaleIn {
-  from { transform: translateY(-50%) scaleY(0); opacity: 0; }
-  to { transform: translateY(-50%) scaleY(1); opacity: 1; }
 }

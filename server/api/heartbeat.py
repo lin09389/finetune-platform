@@ -80,7 +80,7 @@ async def list_tasks():
     scheduler = get_heartbeat_scheduler()
 
     tasks = []
-    for task_id, task in scheduler._tasks.items():
+    for task in scheduler._tasks.values():
         tasks.append(_serialize_task(task))
 
     return {"tasks": tasks, "total": len(tasks)}

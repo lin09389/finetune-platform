@@ -12,6 +12,7 @@ import json
 import logging
 import uuid
 from collections.abc import Callable
+from contextlib import suppress
 from datetime import datetime
 from typing import Any
 
@@ -101,16 +102,12 @@ class GatewayServer:
 
         for task in self._background_tasks:
             task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
 
-        for device_id, ws in self._connections.items():
-            try:
+        for ws in self._connections.values():
+            with suppress(Exception):
                 await ws.close(code=1001, reason="Server shutting down")
-            except Exception:
-                pass
 
         self._connections.clear()
         self._devices.clear()

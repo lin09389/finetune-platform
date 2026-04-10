@@ -317,10 +317,7 @@ class NLPParser(BaseParser):
         }
 
         patterns = param_patterns.get(param_name, [])
-        for pattern in patterns:
-            if re.search(pattern, message, re.IGNORECASE):
-                return True
-        return False
+        return any(re.search(pattern, message, re.IGNORECASE) for pattern in patterns)
 
     def _extract_params(
         self,
@@ -430,7 +427,7 @@ class NLPParser(BaseParser):
         return results
 
     def get_supported_intents(self) -> list[str]:
-        return list(set(p['action'] for p in self.INTENT_PATTERNS))
+        return list({p['action'] for p in self.INTENT_PATTERNS})
 
     def get_confidence_threshold(self) -> float:
         return self.confidence_threshold

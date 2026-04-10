@@ -131,9 +131,8 @@ class ActionRecorder:
         if self._filter is not None and action_type not in self._filter:
             return False
 
-        if self._min_interval > 0:
-            if current_time - self._last_record_time < self._min_interval:
-                return False
+        if self._min_interval > 0 and current_time - self._last_record_time < self._min_interval:
+            return False
 
         self._last_record_time = current_time
         return True

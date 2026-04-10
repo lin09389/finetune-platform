@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import threading
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -234,10 +235,8 @@ class ProgressTracker:
         """取消订阅"""
         with self._lock:
             if task_id in self._subscribers:
-                try:
+                with suppress(ValueError):
                     self._subscribers[task_id].remove(queue)
-                except ValueError:
-                    pass
 
     def _notify_subscribers(self, task_id: str, info: ProgressInfo):
         """通知订阅者"""
@@ -253,10 +252,8 @@ class ProgressTracker:
                 dead_queues.append(queue)
 
         for queue in dead_queues:
-            try:
+            with suppress(ValueError):
                 self._subscribers[task_id].remove(queue)
-            except ValueError:
-                pass
 
     def cleanup_completed(self, max_age_seconds: int = 3600):
         """清理已完成的任务"""
@@ -265,9 +262,12 @@ class ProgressTracker:
 
         with self._lock:
             for task_id, info in self._progress.items():
-                if info.status in (ProgressStatus.COMPLETED, ProgressStatus.FAILED, ProgressStatus.CANCELLED):
-                    if info.end_time and (now - info.end_time).total_seconds() > max_age_seconds:
-                        to_remove.append(task_id)
+                if (
+                    info.status in (ProgressStatus.COMPLETED, ProgressStatus.FAILED, ProgressStatus.CANCELLED)
+                    and info.end_time
+                    and (now - info.end_time).total_seconds() > max_age_seconds
+                ):
+                    to_remove.append(task_id)
 
             for task_id in to_remove:
                 del self._progress[task_id]

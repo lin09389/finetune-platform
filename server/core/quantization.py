@@ -262,7 +262,7 @@ class QuantizationLoader:
     @staticmethod
     def estimate_vram_usage(
         model_path: str,
-        quant_config: QuantizationConfig,
+        _quant_config: QuantizationConfig,
     ) -> int:
         """估算显存使用量（字节）"""
 

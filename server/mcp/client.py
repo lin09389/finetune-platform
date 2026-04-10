@@ -1,5 +1,6 @@
 import asyncio
 import json
+from contextlib import suppress
 from typing import Any
 
 from .protocol import MCPProtocol
@@ -29,10 +30,8 @@ class MCPClient:
         self._connected = False
         if self._reader_task:
             self._reader_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await self._reader_task
-            except asyncio.CancelledError:
-                pass
             self._reader_task = None
         if self._process:
             try:

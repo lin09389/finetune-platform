@@ -160,7 +160,7 @@ class NotificationManager:
     def mark_as_read(self, notification_id: str) -> bool:
         """标记通知为已读"""
         with self._lock:
-            for recipient, notifications in self._notifications.items():
+            for _recipient, notifications in self._notifications.items():
                 for notification in notifications:
                     if notification.id == notification_id:
                         notification.read = True

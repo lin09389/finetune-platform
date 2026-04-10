@@ -194,11 +194,7 @@ class SensitiveOperationClassifier:
             if sensitive_path.lower() in path_lower:
                 return True
 
-        for ext in self.SENSITIVE_EXTENSIONS:
-            if path_lower.endswith(ext.lower()):
-                return True
-
-        return False
+        return any(path_lower.endswith(ext.lower()) for ext in self.SENSITIVE_EXTENSIONS)
 
     def register_sensitive_operation(self, operation: SensitiveOperation) -> None:
         """注册自定义敏感操作"""

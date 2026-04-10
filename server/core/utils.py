@@ -8,6 +8,7 @@ import gc
 import hashlib
 import threading
 import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -315,13 +316,11 @@ def safe_cleanup_model(model: Any):
                 pass
 
         if hasattr(model, 'cpu'):
-            try:
+            with suppress(Exception):
                 model.cpu()
-            except Exception:
-                pass
 
         if hasattr(model, 'modules'):
-            for name, module in list(model.named_modules()):
+            for _name, module in list(model.named_modules()):
                 try:
                     if hasattr(module, 'weight'):
                         module.weight = None

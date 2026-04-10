@@ -37,6 +37,14 @@ class WhitelistConfig(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
+@dataclass
+class ValidationResult:
+    is_valid: bool
+    error: str | None = None
+    sanitized_value: str | None = None
+    entry: WhitelistEntry | None = None
+
+
 DEFAULT_WINDOWS_APPS: dict[str, WhitelistEntry] = {
     "vscode": WhitelistEntry(
         name="Visual Studio Code",
@@ -470,21 +478,14 @@ class AppWhitelist:
             return 0
 
     def validate_app(self, app_name: str) -> "ValidationResult":
-        from dataclasses import dataclass
-
-        @dataclass
-        class ValidationResult:
-            is_valid: bool
-            error: str | None = None
-            sanitized_value: str | None = None
-            entry: WhitelistEntry | None = None
-
         if not app_name:
             return ValidationResult(False, "应用名称不能为空")
 
         entry = self._find_entry(app_name)
         if not entry:
-            allowed_list = ", ".join(sorted(set(e.name for e in self._config.entries.values())))
+            allowed_list = ", ".join(
+                sorted({e.name for e in self._config.entries.values()})
+            )
             return ValidationResult(
                 False,
                 f"不允许打开此应用。允许的应用：{allowed_list}"

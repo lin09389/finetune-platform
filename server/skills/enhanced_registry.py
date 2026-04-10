@@ -13,6 +13,7 @@ import asyncio
 import threading
 from collections import defaultdict
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -291,13 +292,12 @@ class EnhancedSkillRegistry:
                 matched = set()
                 for name in results:
                     registration = self._registrations.get(name)
-                    if registration and registration.metadata:
-                        if (
-                            query_lower in name.lower()
-                            or query_lower in registration.metadata.display_name.lower()
-                            or query_lower in registration.metadata.description.lower()
-                        ):
-                            matched.add(name)
+                    if registration and registration.metadata and (
+                        query_lower in name.lower()
+                        or query_lower in registration.metadata.display_name.lower()
+                        or query_lower in registration.metadata.description.lower()
+                    ):
+                        matched.add(name)
                 results = matched
 
             if enabled_only:
@@ -473,10 +473,9 @@ class EnhancedSkillRegistry:
         with self._lock:
             self._executions[execution.execution_id] = execution
 
-            if registration:
-                if execution.status == SkillStatus.FAILED:
-                    registration.error_count += 1
-                    registration.last_error = execution.result.error if execution.result else None
+            if registration and execution.status == SkillStatus.FAILED:
+                registration.error_count += 1
+                registration.last_error = execution.result.error if execution.result else None
 
         self._notify_execution(execution)
 
@@ -614,18 +613,14 @@ class EnhancedSkillRegistry:
     def _notify_status_change(self, skill_name: str, status: SkillRegistrationStatus):
         """通知状态变更"""
         for callback in self._status_callbacks:
-            try:
+            with suppress(Exception):
                 callback(skill_name, status)
-            except Exception:
-                pass
 
     def _notify_execution(self, execution: SkillExecution):
         """通知执行完成"""
         for callback in self._execution_callbacks:
-            try:
+            with suppress(Exception):
                 callback(execution)
-            except Exception:
-                pass
 
     def clear(self):
         """清空注册表"""

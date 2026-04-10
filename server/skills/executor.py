@@ -15,6 +15,7 @@ import traceback
 import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -565,10 +566,8 @@ class SkillExecutor:
             async_task = self._running_tasks[task_id]
             async_task.cancel()
 
-            try:
+            with suppress(asyncio.CancelledError):
                 await async_task
-            except asyncio.CancelledError:
-                pass
 
             return True
 
@@ -659,7 +658,7 @@ class SkillExecutor:
 
     async def shutdown(self, wait: bool = True):
         """关闭执行器"""
-        for task_id, async_task in list(self._running_tasks.items()):
+        for _task_id, async_task in list(self._running_tasks.items()):
             async_task.cancel()
 
         if wait:

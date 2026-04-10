@@ -1,4 +1,5 @@
 import re
+from contextlib import suppress
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
@@ -146,10 +147,8 @@ class ParamExtractor:
                 value = raw_value.strip('"\'')
 
                 if resolve_relative and not self._is_absolute_path(value):
-                    try:
+                    with suppress(Exception):
                         value = str((self.working_dir / value).resolve())
-                    except Exception:
-                        pass
 
                 return ExtractedParam(
                     name="path",

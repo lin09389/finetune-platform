@@ -84,10 +84,9 @@ class RoleManager:
 
     def get_assignment(self, user_id: str) -> UserRoleAssignment | None:
         assignment = self._assignments.get(user_id)
-        if assignment and assignment.expires_at:
-            if datetime.now() > assignment.expires_at:
-                self.remove_role(user_id)
-                return None
+        if assignment and assignment.expires_at and datetime.now() > assignment.expires_at:
+            self.remove_role(user_id)
+            return None
         return assignment
 
     def list_assignments(self, role: Role | None = None) -> list[UserRoleAssignment]:

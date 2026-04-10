@@ -60,7 +60,7 @@ def load_training_data():
 
     entity_count = 0
     for sample in annotated_samples:
-        non_o_count = sum(1 for l in sample.labels if l != "O")
+        non_o_count = sum(1 for label in sample.labels if label != "O")
         entity_count += non_o_count
     print(f"参数实体标注数: {entity_count}")
 
@@ -213,7 +213,9 @@ class BERTTrainer:
 
                 param_label_ids = []
 
-                for i, (token, (start, end)) in enumerate(zip(tokens, offset_mapping)):
+                for _i, (token, (start, _end)) in enumerate(
+                    zip(tokens, offset_mapping, strict=False)
+                ):
                     if token in ['[CLS]', '[SEP]', '[PAD]']:
                         param_label_ids.append(self.param_tag_map['O'])
                     elif start < len(text):
@@ -506,7 +508,7 @@ class BERTTrainer:
         current_start = None
         current_end = None
 
-        for i, (token, tag) in enumerate(zip(tokens, tags)):
+        for i, (token, tag) in enumerate(zip(tokens, tags, strict=False)):
             if token in ['[CLS]', '[SEP]', '[PAD]']:
                 continue
 
@@ -518,12 +520,14 @@ class BERTTrainer:
                     else:
                         entity_value = ""
 
-                    if entity_type in ['file_path', 'app_name', 'url', 'content', 'directory',
-                                     'text', 'number', 'query', 'key', 'process_name',
-                                     'destination', 'new_name', 'position', 'button',
-                                     'direction', 'area', 'type']:
-                        if entity_type not in params:
-                            params[entity_type] = entity_value
+                    if (
+                        entity_type in ['file_path', 'app_name', 'url', 'content', 'directory',
+                                        'text', 'number', 'query', 'key', 'process_name',
+                                        'destination', 'new_name', 'position', 'button',
+                                        'direction', 'area', 'type']
+                        and entity_type not in params
+                    ):
+                        params[entity_type] = entity_value
 
                 current_entity = tag[2:]
                 if offset_mapping is not None:
@@ -545,12 +549,14 @@ class BERTTrainer:
                     else:
                         entity_value = ""
 
-                    if entity_type in ['file_path', 'app_name', 'url', 'content', 'directory',
-                                     'text', 'number', 'query', 'key', 'process_name',
-                                     'destination', 'new_name', 'position', 'button',
-                                     'direction', 'area', 'type']:
-                        if entity_type not in params:
-                            params[entity_type] = entity_value
+                    if (
+                        entity_type in ['file_path', 'app_name', 'url', 'content', 'directory',
+                                        'text', 'number', 'query', 'key', 'process_name',
+                                        'destination', 'new_name', 'position', 'button',
+                                        'direction', 'area', 'type']
+                        and entity_type not in params
+                    ):
+                        params[entity_type] = entity_value
 
                 current_entity = None
                 current_start = None
@@ -566,9 +572,8 @@ class BERTTrainer:
             if entity_type in ['file_path', 'app_name', 'url', 'content', 'directory',
                              'text', 'number', 'query', 'key', 'process_name',
                              'destination', 'new_name', 'position', 'button',
-                             'direction', 'area', 'type']:
-                if entity_type not in params:
-                    params[entity_type] = entity_value
+                             'direction', 'area', 'type'] and entity_type not in params:
+                params[entity_type] = entity_value
 
         return params
 

@@ -116,7 +116,7 @@ class KVCache:
         else:
             try:
                 return len(str(value))
-            except:
+            except Exception:
                 return 64
 
     def _evict(self, required_size: int = 0):

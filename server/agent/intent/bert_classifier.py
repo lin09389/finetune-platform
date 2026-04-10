@@ -21,7 +21,7 @@ BERT_CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'models', '
 
 class ParamTag(str, Enum):
     """参数标签（BIO 标注）"""
-    O = "O"
+    O = "O"  # noqa: E741
     B_FILE_PATH = "B-FILE_PATH"
     I_FILE_PATH = "I-FILE_PATH"
     B_APP_NAME = "B-APP_NAME"
@@ -112,7 +112,7 @@ class BERTIntentClassifier:
     _instance = None
     _initialized = False
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, *_args, **_kwargs):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
@@ -349,7 +349,7 @@ class BERTIntentClassifier:
         current_start = None
         current_confidences = []
 
-        for i, (token, tag) in enumerate(zip(tokens, tags)):
+        for i, (token, tag) in enumerate(zip(tokens, tags, strict=False)):
             if token in ['[CLS]', '[SEP]', '[PAD]']:
                 continue
 
