@@ -32,6 +32,47 @@ type ExecutorPhase = 'idle' | 'running' | 'waiting_confirm'
 const DANGEROUS_ACTIONS = ['file_delete', 'file_write', 'system_command', 'app_close', 'window_close']
 const WAITING_CONFIRM_ERROR = '等待用户确认'
 
+const EXECUTABLE_AGENT_ACTIONS = new Set([
+  'file_create',
+  'file_read',
+  'file_write',
+  'file_delete',
+  'file_list',
+  'file_copy',
+  'file_move',
+  'file_rename',
+  'file_search',
+  'file_batch_delete',
+  'app_open',
+  'app_close',
+  'url_open',
+  'screenshot',
+  'mouse_click',
+  'mouse_move',
+  'mouse_position',
+  'keyboard_type',
+  'keyboard_press',
+  'keyboard_hotkey',
+  'window_list',
+  'window_active',
+  'window_activate',
+  'window_close',
+  'window_minimize',
+  'window_maximize',
+  'ocr_recognize',
+  'ocr_find_text',
+  'record_start',
+  'record_stop',
+  'record_play',
+  'system_info',
+  'hardware_monitor',
+  'process_list',
+  'command_run',
+  'tests_run',
+])
+const MODEL_IDENTITY_QUERY_REGEX = /(你是(哪个|什么)?模型|当前(使用|在用)?(的)?模型(是|叫什么)?|what\s+model\s+are\s+you)/i
+const OCR_COMMAND_REGEX = /(ocr|识别|提取).*(文字|文本|图片|图像|截图|屏幕)|(文字|文本).*(识别|提取)|(屏幕|截图|图片|图像).*(识别|ocr)/i
+
 function sortByPriority(tasks: ExecutionTask[]) {
   const priorityOrder = { high: 0, normal: 1, low: 2 }
   return [...tasks].sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority])
@@ -375,8 +416,31 @@ export function useAgentExecutor(config: AgentExecutorConfig = {}) {
 
         const data = await response.json()
         if (!data.detected) return { executed: false }
+        const executionStatus = typeof data?.execution?.status === 'string' ? data.execution.status : undefined
 
-        if (data.result?.need_confirm) {
+        // Conversation/content intents should continue through normal chat inference.
+        if (
+          data?.result?.need_inference === true ||
+          data?.action === 'conversation' ||
+          data?.intent_type === 'conversation'
+        ) {
+          return { executed: false }
+        }
+
+        const action = typeof data?.action === 'string' ? data.action : ''
+        if (!action || !EXECUTABLE_AGENT_ACTIONS.has(action)) {
+          return { executed: false }
+        }
+
+        if (MODEL_IDENTITY_QUERY_REGEX.test(message)) {
+          return { executed: false }
+        }
+
+        if ((action === 'ocr_recognize' || action === 'ocr_find_text') && !OCR_COMMAND_REGEX.test(message)) {
+          return { executed: false }
+        }
+
+        if (executionStatus === 'needs_confirmation' || data.result?.need_confirm) {
           setPhase('waiting_confirm')
           setAgentExecution({
             id: `exec_${Date.now()}`,
@@ -390,6 +454,10 @@ export function useAgentExecutor(config: AgentExecutorConfig = {}) {
             timestamp: new Date().toISOString(),
           })
           return { executed: true, result: { need_confirm: true } }
+        }
+
+        if (executionStatus !== 'executed') {
+          return { executed: false, result: data.result }
         }
 
         setAgentExecution({

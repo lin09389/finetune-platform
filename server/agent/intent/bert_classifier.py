@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import sys
+from importlib.util import find_spec
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -136,6 +137,10 @@ class BERTIntentClassifier:
     def _load_model(self):
         """加载模型"""
         try:
+            if find_spec("torch") is None or find_spec("transformers") is None:
+                logger.warning("BERT classifier dependencies missing (torch/transformers), running without BERT")
+                return
+
             import torch
             from torch import nn
             from transformers import BertModel, BertTokenizer
@@ -227,9 +232,7 @@ class BERTIntentClassifier:
             logger.info("BERT 意图分类器加载完成（支持参数抽取）")
 
         except Exception as e:
-            logger.error(f"加载 BERT 模型失败: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.warning(f"BERT model unavailable, fallback to non-BERT intent path: {e}")
             self.model = None
             self.tokenizer = None
 

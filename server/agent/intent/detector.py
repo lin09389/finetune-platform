@@ -39,9 +39,10 @@ except Exception:  # pragma: no cover
 
 @dataclass
 class DetectorConfig:
+    use_llm_primary: bool = True
     use_rule_matcher: bool = True
     use_semantic_matcher: bool = True
-    use_bert_classifier: bool = True
+    use_bert_classifier: bool = False
     use_llm_fallback: bool = True
     use_context: bool = True
     parallel_detection: bool = True
@@ -114,7 +115,8 @@ class IntentDetector:
                     self._update_context(session_id, "assistant", str(conversation_result.to_dict()), conversation_result.intent_type)
                 return conversation_result
 
-            results = self._run_detection_methods(text, session_id)
+            runtime_llm_client = (context or {}).get("__intent_llm_client")
+            results = self._run_detection_methods(text, session_id, runtime_llm_client)
 
             if not results and self._config.use_llm_fallback:
                 llm_results = llm_intent_understanding.understand(text, session_id)
@@ -187,6 +189,17 @@ class IntentDetector:
 
     def _detect_fast_action(self, text: str, session_id: str | None) -> IntentResult | None:
         compact = text.strip().lower().replace(" ", "")
+
+        if compact.startswith("create") or compact.startswith("newfile"):
+            return self._build_fast_result("file_create", IntentCategory.FILE_OPERATION, "Create a file", text, session_id)
+        if compact.startswith("read") or compact.startswith("open"):
+            return self._build_fast_result("file_read", IntentCategory.FILE_OPERATION, "Read a file", text, session_id)
+        if compact.startswith("list") or compact == "ls":
+            return self._build_fast_result("file_list", IntentCategory.FILE_OPERATION, "List directory contents", text, session_id)
+        if "screenshot" in compact or "screenhot" in compact:
+            return self._build_fast_result("screenshot", IntentCategory.CUA_OPERATION, "Capture the screen", text, session_id)
+        if "ocr" in compact or "recognizetext" in compact or "extracttext" in compact:
+            return self._build_fast_result("ocr_recognize", IntentCategory.CUA_OPERATION, "Recognize screen text", text, session_id)
 
         if any(token in compact for token in ["天气", "写一首诗", "写首诗"]):
             return self._create_unknown_result(text, session_id)
@@ -263,12 +276,18 @@ class IntentDetector:
     def _run_detection_methods(
         self,
         text: str,
-        session_id: str | None
+        session_id: str | None,
+        runtime_llm_client: Any | None = None,
     ) -> list[IntentResult]:
         results = []
 
         if self._config.parallel_detection:
             futures = []
+
+            if self._config.use_llm_primary:
+                futures.append(
+                    self._executor.submit(llm_detector.detect, text, session_id, runtime_llm_client)
+                )
 
             if self._config.use_rule_matcher:
                 futures.append(
@@ -295,6 +314,11 @@ class IntentDetector:
                 except Exception as e:
                     logger.warning(f"语义匹配失败: {e}")
         else:
+            if self._config.use_llm_primary:
+                result = llm_detector.detect(text, session_id, runtime_llm_client)
+                if result:
+                    results.append(result)
+
             if self._config.use_rule_matcher:
                 result = rule_matcher.match(text, session_id)
                 if result:
@@ -360,10 +384,10 @@ class IntentDetector:
             return results[0]
 
         method_weights = {
-            DetectionMethod.RULE: 0.35,
+            DetectionMethod.RULE: 0.25,
             DetectionMethod.BERT: 0.30,
             DetectionMethod.SEMANTIC: 0.20,
-            DetectionMethod.LLM: 0.15,
+            DetectionMethod.LLM: 0.45,
         }
 
         def score_result(r: IntentResult) -> float:

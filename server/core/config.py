@@ -91,6 +91,12 @@ class Settings(BaseSettings):
     stream_flush_interval_ms: int = Field(default=16, ge=1, le=1000, description="流式输出刷新间隔 (毫秒)")
     enable_backpressure: bool = Field(default=True, description="启用背压控制")
 
+    intent_route_chat_threshold: float = Field(default=0.45, ge=0, le=1, description="意图路由 chat 阈值")
+    intent_route_tool_threshold: float = Field(default=0.75, ge=0, le=1, description="意图路由 tool 阈值")
+    intent_action_execution_threshold: float = Field(default=0.72, ge=0, le=1, description="意图动作执行阈值")
+    intent_llm_timeout_ms: int = Field(default=1500, ge=100, le=15000, description="意图判定 LLM 超时(毫秒)")
+    intent_use_bert_classifier: bool = Field(default=False, description="是否启用 BERT 意图分类")
+
     enable_perf_monitoring: bool = Field(default=True, description="启用性能监控")
     perf_log_interval: int = Field(default=60, ge=10, le=3600, description="性能日志记录间隔 (秒)")
 

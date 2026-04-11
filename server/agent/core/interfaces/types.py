@@ -158,6 +158,9 @@ class UnifiedResult:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        error_code = None
+        if self.error_code:
+            error_code = self.error_code.value if hasattr(self.error_code, "value") else str(self.error_code)
         return {
             "success": self.success,
             "status": self.status.value,
@@ -165,7 +168,7 @@ class UnifiedResult:
             "message": self.message,
             "data": self.data,
             "error": self.error,
-            "error_code": self.error_code.value if self.error_code else None,
+            "error_code": error_code,
             "output": self.output,
             "feedback": self.feedback,
             "operation_id": self.operation_id,

@@ -18,6 +18,12 @@ from pydantic import BaseModel, Field
 from agent.config import ActionType, AgentConfig
 from agent.core import UnifiedExecutor as AgentExecutor
 from agent.intent.detector import get_detector
+from agent.intent.llm_router_client import build_routed_intent_llm_client
+from agent.intent.policy import (
+    choose_execution_policy_with_threshold,
+    choose_route_with_thresholds,
+    validate_action,
+)
 from api.chat.session import get_session_manager
 from core.config import get_settings
 from security.audit_log import get_audit_logger
@@ -40,7 +46,6 @@ HIGH_RISK_ACTIONS = {
     "command_run",
     "tests_run",
 }
-
 
 class DetectIntentRequest(BaseModel):
     message: str
@@ -122,6 +127,11 @@ class ChatExecuteResponse(BaseModel):
     execution: dict[str, Any] | None = None
     result: dict[str, Any] | None = None
     error: str | None = None
+    route: str | None = None
+    route_confidence: float | None = None
+    action_confidence: float | None = None
+    policy_decision: str | None = None
+    policy_reason: str | None = None
 
 
 def get_agent_config() -> AgentConfig:
@@ -144,6 +154,8 @@ def get_unified_detector():
     global _detector
     if _detector is None:
         _detector = get_detector()
+    if hasattr(_detector, "_config"):
+        _detector._config.use_bert_classifier = settings.intent_use_bert_classifier
     return _detector
 
 
@@ -154,6 +166,23 @@ def _execution_payload(
     error_code: str | None = None,
 ) -> dict[str, Any]:
     return {"status": status, "error": error, "error_code": error_code, "result": result}
+
+
+def _policy_payload(
+    *,
+    route: str,
+    route_confidence: float,
+    action_confidence: float | None,
+    policy_decision: str,
+    policy_reason: str,
+) -> dict[str, Any]:
+    return {
+        "route": route,
+        "route_confidence": route_confidence,
+        "action_confidence": action_confidence,
+        "policy_decision": policy_decision,
+        "policy_reason": policy_reason,
+    }
 
 
 def _requires_confirmation(action: str) -> bool:
@@ -413,6 +442,18 @@ def _heuristic_save_intent(message: str, context: dict[str, Any] | None = None) 
         }
 
     return None
+
+
+def _build_intent_context(context: dict[str, Any] | None) -> dict[str, Any]:
+    merged = dict(context or {})
+    client = build_routed_intent_llm_client(
+        merged,
+        settings.ollama_base_url,
+        timeout_ms=settings.intent_llm_timeout_ms,
+    )
+    if client is not None:
+        merged["__intent_llm_client"] = client
+    return merged
 
 
 def _find_resume_event(timeline: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -704,33 +745,67 @@ async def chat_execute(request: ChatExecuteRequest):
                 },
             )
 
+    intent_context = _build_intent_context(request.context)
     _append_state(request.session_id, "detected", {"message": request.message})
-    intent = detector.detect(request.message, session_id=request.session_id, context=request.context)
+    intent = detector.detect(request.message, session_id=request.session_id, context=intent_context)
+    route_decision = choose_route_with_thresholds(
+        request.message,
+        detected=bool(intent.detected),
+        action=intent.action,
+        confidence=float(intent.confidence or 0.0),
+        intent_type=intent.intent_type,
+        route_chat_threshold=settings.intent_route_chat_threshold,
+        route_tool_threshold=settings.intent_route_tool_threshold,
+    )
+
     if not intent.detected:
         _append_state(request.session_id, "planned", {"status": "no_intent"})
+        policy = _policy_payload(
+            route=route_decision.route,
+            route_confidence=route_decision.route_confidence,
+            action_confidence=None,
+            policy_decision="skipped",
+            policy_reason=route_decision.reason,
+        )
         return ChatExecuteResponse(
             detected=False,
             execution=_execution_payload("skipped"),
             result={"reason": "no_intent_detected"},
+            **policy,
         )
 
-    if intent.intent_type == "conversation" or not intent.action:
+    if route_decision.route in {"chat", "unsure"}:
         _append_state(request.session_id, "planned", {"intent_type": intent.intent_type or "conversation"})
+        policy = _policy_payload(
+            route=route_decision.route,
+            route_confidence=route_decision.route_confidence,
+            action_confidence=float(intent.confidence or 0.0),
+            policy_decision="needs_inference",
+            policy_reason=route_decision.reason,
+        )
         return ChatExecuteResponse(
             detected=True,
-            intent_type=intent.intent_type or "conversation",
+            intent_type="conversation",
             action="conversation",
-            params=intent.params or {},
+            params={},
             description=intent.description,
             confidence=float(intent.confidence or 0.0),
             need_confirm=False,
             execution=_execution_payload("planned"),
             result={"type": "conversation", "need_inference": True},
+            **policy,
         )
 
     if intent.intent_type in ("content_generation", "generate_content"):
         _append_state(request.session_id, "planned", {"intent_type": "content_generation"})
         _append_state(request.session_id, "generated", {"source": "inference_required"})
+        policy = _policy_payload(
+            route=route_decision.route,
+            route_confidence=route_decision.route_confidence,
+            action_confidence=float(intent.confidence or 0.0),
+            policy_decision="needs_inference",
+            policy_reason="content_generation",
+        )
         return ChatExecuteResponse(
             detected=True,
             intent_type="content_generation",
@@ -741,25 +816,109 @@ async def chat_execute(request: ChatExecuteRequest):
             need_confirm=False,
             execution=_execution_payload("planned"),
             result={"reason": "content_generation", "need_inference": True},
+            **policy,
         )
 
+    if not intent.action:
+        policy = _policy_payload(
+            route=route_decision.route,
+            route_confidence=route_decision.route_confidence,
+            action_confidence=float(intent.confidence or 0.0),
+            policy_decision="needs_inference",
+            policy_reason="missing_action",
+        )
+        return ChatExecuteResponse(
+            detected=True,
+            intent_type="conversation",
+            action="conversation",
+            params={},
+            description=intent.description,
+            confidence=float(intent.confidence or 0.0),
+            need_confirm=False,
+            execution=_execution_payload("planned"),
+            result={"type": "conversation", "need_inference": True},
+            **policy,
+        )
+
+    supported_actions = set(executor.get_supported_actions())
     params = dict(intent.params or {})
-    need_confirm = bool(intent.need_confirm)
-    if _requires_confirmation(intent.action):
+    is_action_valid, validation_reason = validate_action(
+        intent.action,
+        params,
+        request.message,
+        supported_actions=supported_actions,
+    )
+    if not is_action_valid:
+        _append_state(request.session_id, "planned", {"intent_type": "conversation", "reason": validation_reason})
+        policy = _policy_payload(
+            route=route_decision.route,
+            route_confidence=route_decision.route_confidence,
+            action_confidence=float(intent.confidence or 0.0),
+            policy_decision="needs_inference",
+            policy_reason=validation_reason,
+        )
+        return ChatExecuteResponse(
+            detected=True,
+            intent_type="conversation",
+            action="conversation",
+            params={},
+            description=f"fallback to conversation: {validation_reason}",
+            confidence=float(intent.confidence or 0.0),
+            need_confirm=False,
+            execution=_execution_payload("planned"),
+            result={"type": "conversation", "need_inference": True},
+            **policy,
+        )
+
+    require_confirm = bool(intent.need_confirm) or _requires_confirmation(intent.action)
+    execution_policy = choose_execution_policy_with_threshold(
+        action=intent.action,
+        action_confidence=float(intent.confidence or 0.0),
+        need_confirm=require_confirm,
+        auto_confirm=bool(request.auto_confirm),
+        action_execution_threshold=settings.intent_action_execution_threshold,
+    )
+    policy = _policy_payload(
+        route=route_decision.route,
+        route_confidence=route_decision.route_confidence,
+        action_confidence=execution_policy.action_confidence,
+        policy_decision=execution_policy.decision,
+        policy_reason=execution_policy.reason,
+    )
+
+    if execution_policy.decision == "needs_inference":
+        _append_state(request.session_id, "planned", {"intent_type": "conversation", "reason": execution_policy.reason})
+        return ChatExecuteResponse(
+            detected=True,
+            intent_type="conversation",
+            action="conversation",
+            params={},
+            description="fallback to conversation for low action confidence",
+            confidence=float(intent.confidence or 0.0),
+            need_confirm=False,
+            execution=_execution_payload("planned"),
+            result={"type": "conversation", "need_inference": True},
+            **policy,
+        )
+
+    if execution_policy.decision == "needs_confirmation":
         params["confirmed"] = bool(request.auto_confirm)
-        if (need_confirm or _requires_confirmation(intent.action)) and not request.auto_confirm:
-            _append_state(request.session_id, "planned", {"action": intent.action, "needs_confirmation": True})
-            return ChatExecuteResponse(
-                detected=True,
-                intent_type=intent.intent_type or "",
-                action=intent.action,
-                params=params,
-                description=intent.description,
-                confidence=float(intent.confidence or 0.0),
-                need_confirm=True,
-                execution=_execution_payload("needs_confirmation"),
-                result={"need_confirm": True, "params": params},
-            )
+        _append_state(request.session_id, "planned", {"action": intent.action, "needs_confirmation": True})
+        return ChatExecuteResponse(
+            detected=True,
+            intent_type=intent.intent_type or "",
+            action=intent.action,
+            params=params,
+            description=intent.description,
+            confidence=float(intent.confidence or 0.0),
+            need_confirm=True,
+            execution=_execution_payload("needs_confirmation"),
+            result={"need_confirm": True, "params": params},
+            **policy,
+        )
+
+    if require_confirm:
+        params["confirmed"] = bool(request.auto_confirm)
 
     _append_state(request.session_id, "planned", {"action": intent.action, "params": params})
     result = await executor.execute(intent.action, params)
@@ -783,6 +942,7 @@ async def chat_execute(request: ChatExecuteRequest):
         ),
         result=result.to_dict(),
         error=result.error if not result.success else None,
+        **policy,
     )
 
 

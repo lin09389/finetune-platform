@@ -98,6 +98,10 @@ const ChatPage: React.FC = () => {
     })
   }, [])
 
+  useEffect(() => {
+    localStorage.setItem('chat_use_cloud_ai', useCloudAI ? '1' : '0')
+  }, [useCloudAI])
+
   const loadBackends = async (preferredBackend?: string) => {
     try {
       const data = await getBackends()
@@ -185,7 +189,7 @@ const ChatPage: React.FC = () => {
             base_url: keyData.base_url || '',
           }
           setCloudAIConfig(config)
-          setUseCloudAI(true)
+          setUseCloudAI(localStorage.getItem('chat_use_cloud_ai') === '1')
           setSelectedCloudModel('MiniMax-M2.5')
           return
         }
@@ -199,9 +203,7 @@ const ChatPage: React.FC = () => {
       try {
         const config = JSON.parse(saved)
         setCloudAIConfig(config)
-        if (config.api_key || config.key_id) {
-          setUseCloudAI(true)
-        }
+        setUseCloudAI(localStorage.getItem('chat_use_cloud_ai') === '1')
         if (config.model) {
           setSelectedCloudModel(config.model)
         }
@@ -215,7 +217,14 @@ const ChatPage: React.FC = () => {
     async (content: string) => {
       if (!content.trim()) return
 
-      const agentResult = await executeFromMessage(content)
+      const agentResult = await executeFromMessage(content, {
+        backend: useCloudAI ? 'cloud' : settings.backend,
+        model: useCloudAI ? selectedCloudModel : settings.modelId,
+        provider: useCloudAI ? cloudAIConfig?.provider : undefined,
+        api_key: useCloudAI ? cloudAIConfig?.api_key : undefined,
+        group_id: useCloudAI ? cloudAIConfig?.group_id : undefined,
+        base_url: useCloudAI ? cloudAIConfig?.base_url : undefined,
+      })
 
       if (agentResult.executed) {
         if (agentResult.result && typeof agentResult.result === 'object' && 'need_confirm' in agentResult.result) {
@@ -379,6 +388,8 @@ const ChatPage: React.FC = () => {
         currentBackend={settings.backend}
         backends={backends}
         onBackendChange={async (backend) => {
+          setUseCloudAI(false)
+          localStorage.setItem('chat_use_cloud_ai', '0')
           updateSettings({ backend: backend as 'ollama' | 'huggingface' | 'cloud', modelId: '' })
           await loadBackends(backend)
         }}
@@ -552,9 +563,6 @@ const ChatPage: React.FC = () => {
         <APIKeyManager
           onConfigChange={(config: APIKeyConfig) => {
             setCloudAIConfig(config)
-            if (config.api_key || config.key_id) {
-              setUseCloudAI(true)
-            }
             if (config.model) {
               setSelectedCloudModel(config.model)
             }

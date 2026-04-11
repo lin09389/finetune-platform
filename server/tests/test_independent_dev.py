@@ -66,13 +66,13 @@ def test_intent_detection():
 
     detector = IntentDetector()
     test_cases = [
-        "?? main.py ??",
-        "?? config.json",
-        "????????",
-        "?? temp.txt",
-        "??",
-        "?????",
-        "??????",
+        "create main.py",
+        "read config.json",
+        "list files",
+        "delete temp.txt",
+        "screenshot",
+        "hello",
+        "what's the weather like today",
     ]
 
     detected = 0

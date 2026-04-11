@@ -101,20 +101,22 @@ class LLMDetector:
     def detect(
         self,
         text: str,
-        session_id: str | None = None
+        session_id: str | None = None,
+        llm_client: Any | None = None
     ) -> IntentResult | None:
-        if self._llm_client is None:
+        client = llm_client or self._llm_client
+        if client is None:
             return None
 
         try:
             prompt = self._build_prompt(text)
 
-            if hasattr(self._llm_client, 'generate'):
-                response = self._llm_client.generate(prompt)
-            elif hasattr(self._llm_client, 'chat'):
-                response = self._llm_client.chat([{"role": "user", "content": prompt}])
-            elif callable(self._llm_client):
-                response = self._llm_client(prompt)
+            if hasattr(client, 'generate'):
+                response = client.generate(prompt)
+            elif hasattr(client, 'chat'):
+                response = client.chat([{"role": "user", "content": prompt}])
+            elif callable(client):
+                response = client(prompt)
             else:
                 logger.warning("LLM客户端不支持已知的调用方式")
                 return None
