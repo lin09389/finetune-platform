@@ -310,9 +310,18 @@ class ModelScheduler:
             return self._backends[backend]
 
         elif backend == BackendType.OLLAMA.value:
-            from api.inference.backends.ollama import OllamaBackend
+            from api.inference.backends.ollama_resilient import OllamaResilientBackend
             if backend not in self._backends:
-                self._backends[backend] = OllamaBackend()
+                from core.config import get_settings
+                settings = get_settings()
+                self._backends[backend] = OllamaResilientBackend({
+                    "base_url": settings.ollama_base_url,
+                    "timeout": 60,
+                    "max_connections": 10,
+                    "max_retries": 3,
+                    "retry_delay": 1.0,
+                    "health_check_interval": 30
+                })
             return self._backends[backend]
 
         elif backend == BackendType.CLOUD.value:

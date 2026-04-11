@@ -326,8 +326,15 @@ class TestTrainingReleaseFeatureGuards:
             def get_history(self):
                 return [record]
 
-        monkeypatch.setattr(training_module, "get_state", lambda: FakeState())
-        monkeypatch.setattr(training_module, "get_config", lambda: get_settings())
+        class FakeContext:
+            def __init__(self):
+                self._state = FakeState()
+            @property
+            def state(self):
+                return self._state
+
+        monkeypatch.setattr(training_module, "get_training_context", FakeContext)
+        monkeypatch.setattr(training_module, "get_settings", lambda: get_settings())
 
         checkpoints = await get_checkpoints(task_id)
 
@@ -412,8 +419,8 @@ class TestTrainingReleaseFeatureGuards:
             captured.update(kwargs)
             return {"ok": True}
 
-        monkeypatch.setattr(training_module, "get_state", lambda: FakeState())
-        monkeypatch.setattr(training_module, "get_config", lambda: settings)
+        monkeypatch.setattr(training_module, "get_training_context", lambda: type('FakeCtx', (), {'state': FakeState()}))
+        monkeypatch.setattr(training_module, "get_settings", lambda: settings)
         monkeypatch.setattr(training_module, "_start_training_task", fake_start_training_task)
 
         try:
@@ -480,8 +487,8 @@ class TestTrainingReleaseFeatureGuards:
             captured.update(kwargs)
             return {"ok": True}
 
-        monkeypatch.setattr(training_module, "get_state", lambda: FakeState())
-        monkeypatch.setattr(training_module, "get_config", lambda: settings)
+        monkeypatch.setattr(training_module, "get_training_context", lambda: type('FakeCtx', (), {'state': FakeState()}))
+        monkeypatch.setattr(training_module, "get_settings", lambda: settings)
         monkeypatch.setattr(training_module, "_start_training_task", fake_start_training_task)
 
         try:

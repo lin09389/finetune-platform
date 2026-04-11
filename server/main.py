@@ -173,12 +173,13 @@ async def lifespan(app: FastAPI):
     settings.datasets_dir_resolved.mkdir(parents=True, exist_ok=True)
     settings.outputs_dir_resolved.mkdir(parents=True, exist_ok=True)
 
-    from core.training_queue import get_training_queue
-    get_training_queue(
-        max_concurrent=settings.max_concurrent_training,
+    from core.training_context import init_training_context
+    init_training_context(
+        settings=settings,
+        max_concurrent_training=settings.max_concurrent_training,
         max_queue_size=10,
     )
-    logger.info(f"?????????max_concurrent={settings.max_concurrent_training}")
+    logger.info(f"TrainingContext 初始化完成，max_concurrent={settings.max_concurrent_training}")
 
     try:
         from api.chat.session import get_session_manager
@@ -219,6 +220,13 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("Shutting down application...")
+
+    try:
+        from core.training_context import shutdown_training_context
+        shutdown_training_context()
+        logger.info("TrainingContext 已关闭")
+    except Exception as e:
+        logger.warning(f"TrainingContext shutdown failed: {e}")
 
 
 app = FastAPI(

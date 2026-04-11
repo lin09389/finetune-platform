@@ -10,7 +10,6 @@ import threading
 import traceback as tb
 import uuid
 from collections.abc import Mapping
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
@@ -22,8 +21,9 @@ from pydantic import BaseModel, Field
 
 from core.config import Settings, get_settings
 from core.logging import get_logger
-from core.training_queue import TaskPriority, get_training_queue
-from core.training_state import TrainingRecord, TrainingState, get_training_state
+from core.training_queue import TaskPriority
+from core.training_state import TrainingRecord, TrainingState
+from core.training_context import get_training_context
 from core.utils import (
     cleanup_gpu_memory,
     get_vram_usage,
@@ -190,27 +190,6 @@ class UnrecoverableError(Exception):
     pass
 
 
-_training_state: TrainingState | None = None
-_settings: Settings | None = None
-
-
-def get_state() -> TrainingState:
-    """获取训练状态实例"""
-    global _training_state
-    if _training_state is None:
-        settings = get_settings()
-        _training_state = get_training_state(settings.outputs_dir_resolved)
-    return _training_state
-
-
-def get_config() -> Settings:
-    """获取配置实例"""
-    global _settings
-    if _settings is None:
-        _settings = get_settings()
-    return _settings
-
-
 class TrainingConfigInput(BaseModel):
     """训练配置输入 - 支持高精度微调"""
     model_id: str = Field(..., description="模型 ID")
@@ -355,8 +334,12 @@ def detect_dataset_sample_format(example: Any) -> str:
     raise ValueError(f"Unsupported dataset sample format; expected one of: {supported}")
 
 
-def format_dataset_sample(example: dict[str, Any], tokenizer) -> dict[str, str]:
-    """Normalize a supported dataset sample into the shared text field."""
+def _detect_and_format(example: dict[str, Any], tokenizer) -> dict[str, Any]:
+    """Detect format, normalize text, and carry format metadata for label masking.
+
+    Returns a dict with 'text' (normalized string) and 'sample_format' (one of:
+    'messages', 'instruction', 'content', 'text').
+    """
     sample_format = detect_dataset_sample_format(example)
 
     if sample_format == "messages":
@@ -367,11 +350,11 @@ def format_dataset_sample(example: dict[str, Any], tokenizer) -> dict[str, str]:
                 text = tokenizer.apply_chat_template(
                     messages,
                     tokenize=False,
-                    add_generation_prompt=False
+                    add_generation_prompt=True,
                 )
-                return {"text": text}
+                return {"text": text, "sample_format": "messages"}
             except Exception as e:
-                logger.warning(f"chat_template 搴旂敤澶辫触锛屼娇鐢ㄧ畝鍗曟牸寮忓寲: {e}")
+                logger.warning(f"apply_chat_template failed, using fallback formatting: {e}")
 
         text = ""
         for msg in messages:
@@ -383,7 +366,7 @@ def format_dataset_sample(example: dict[str, Any], tokenizer) -> dict[str, str]:
                 text += f"Assistant: {content}\n"
             elif role == "system":
                 text += f"System: {content}\n"
-        return {"text": text}
+        return {"text": text, "sample_format": "messages"}
 
     if sample_format in {"instruction+output", "instruction+input+output"}:
         instruction = example.get("instruction", "")
@@ -393,12 +376,144 @@ def format_dataset_sample(example: dict[str, Any], tokenizer) -> dict[str, str]:
             text = f"Instruction: {instruction}\nInput: {input_text}\nResponse: {output}"
         else:
             text = f"Instruction: {instruction}\nResponse: {output}"
-        return {"text": text}
+        return {"text": text, "sample_format": "instruction"}
 
     if sample_format == "content":
-        return {"text": example.get("content", "")}
+        return {"text": example.get("content", ""), "sample_format": "content"}
 
-    return {"text": example.get("text", "")}
+    return {"text": example.get("text", ""), "sample_format": "text"}
+
+
+def load_dataset(dataset_path: str, tokenizer, max_length: int = 512):
+    """加载数据集 - 支持多种格式，智能标签掩码"""
+    import json
+
+    from datasets import Dataset
+
+    logger.info(f"加载数据集：{dataset_path}")
+
+    if dataset_path.endswith(".jsonl"):
+        data = []
+        with open(dataset_path, encoding="utf-8") as f:
+            for line in f:
+                data.append(json.loads(line))
+    else:
+        with open(dataset_path, encoding="utf-8") as f:
+            data = json.load(f)
+
+    dataset = Dataset.from_list(data)
+    dataset = dataset.map(lambda ex: _detect_and_format(ex, tokenizer))
+
+    def tokenize_with_labels(examples):
+        """Tokenize text and set labels based on sample format."""
+        input_ids = tokenizer(
+            examples["text"],
+            truncation=True,
+            max_length=max_length,
+            padding="max_length",
+        )
+
+        batch_size = len(examples["text"])
+        labels = []
+
+        for i in range(batch_size):
+            label = list(input_ids["input_ids"][i])
+            fmt = examples.get("sample_format", ["text"] * batch_size)[i]
+            text = examples["text"][i]
+
+            if fmt == "instruction":
+                # Mask everything before "Response:" / "### Response" / "Answer:"
+                _mask_before_response(label, text, tokenizer)
+            elif fmt == "messages":
+                # Mask before the assistant's first response turn
+                _mask_before_assistant(label, text, tokenizer)
+            # For "content" and "text" formats, keep all tokens as labels
+
+            # Mask padding tokens
+            pad_id = tokenizer.pad_token_id
+            if pad_id is not None:
+                for j in range(len(label)):
+                    if label[j] == pad_id:
+                        label[j] = -100
+
+            labels.append(label)
+
+        input_ids["labels"] = labels
+        return input_ids
+
+    original_columns = dataset.column_names
+    dataset = dataset.map(tokenize_with_labels, batched=True, remove_columns=original_columns)
+    dataset = split_train_test_dataset(dataset)
+
+    logger.info(f"数据集大小：训练={len(dataset['train'])}, 测试={len(dataset.get('test', []))}")
+    return dataset
+
+
+def _mask_before_response(label: list[int], text: str, tokenizer):
+    """Mask all tokens before the response section for instruction format."""
+    # Common response start markers - try each
+    markers = [
+        tokenizer.encode("Response:", add_special_tokens=False),
+        tokenizer.encode("### Response", add_special_tokens=False),
+        tokenizer.encode("Answer:", add_special_tokens=False),
+        tokenizer.encode("### Answer", add_special_tokens=False),
+        tokenizer.encode("Output:", add_special_tokens=False),
+    ]
+    # Filter out markers that failed to encode
+    markers = [m for m in markers if m]
+
+    mask_until = -1
+    for marker_ids in markers:
+        if not marker_ids:
+            continue
+        marker_len = len(marker_ids)
+        for start in range(1, len(label) - marker_len + 1):
+            if label[start:start + marker_len] == marker_ids:
+                # Found marker; mask from position 1 (after BOS) up to end of marker
+                mask_until = start + marker_len
+                break
+        if mask_until > 0:
+            break
+
+    if mask_until <= 1:
+        return
+
+    for j in range(1, mask_until):
+        label[j] = -100
+
+
+def _mask_before_assistant(label: list[int], text: str, tokenizer):
+    """Mask all tokens before the assistant's first response for messages format."""
+    # Find the first " Assistant:" or "Assistant:" in the tokenized sequence
+    # We try several patterns that represent the start of assistant output
+    markers = [
+        tokenizer.encode(" Assistant:", add_special_tokens=False),
+        tokenizer.encode("Assistant:", add_special_tokens=False),
+        tokenizer.encode("[/INST]", add_special_tokens=False),
+        tokenizer.encode("[INST]", add_special_tokens=False),
+        tokenizer.encode("> ", add_special_tokens=False),
+        tokenizer.encode("### Response", add_special_tokens=False),
+    ]
+    markers = [m for m in markers if m]
+
+    mask_until = -1
+    for marker_ids in markers:
+        if not marker_ids:
+            continue
+        marker_len = len(marker_ids)
+        for start in range(1, len(label) - marker_len + 1):
+            if label[start:start + marker_len] == marker_ids:
+                # Mask up to and including the marker, but keep BOS
+                mask_until = start + marker_len
+                break
+        if mask_until > 0:
+            break
+
+    if mask_until <= 1:
+        return
+
+    for j in range(1, mask_until):
+        label[j] = -100
 
 
 def _validate_release_supported_features(
@@ -580,90 +695,6 @@ def load_model_and_tokenizer(
         raise
 
 
-def load_dataset(dataset_path: str, tokenizer, max_length: int = 512):
-    """加载数据集 - 支持多种格式"""
-    import json
-
-    from datasets import Dataset
-
-    logger.info(f"加载数据集：{dataset_path}")
-
-    def format_conversation(example):
-        return format_dataset_sample(example, tokenizer)
-
-    if dataset_path.endswith(".jsonl"):
-        data = []
-        with open(dataset_path, encoding="utf-8") as f:
-            for line in f:
-                data.append(json.loads(line))
-    else:
-        with open(dataset_path, encoding="utf-8") as f:
-            data = json.load(f)
-
-    dataset = Dataset.from_list(data)
-    dataset = dataset.map(format_conversation)
-
-    def tokenize_function(examples):
-        return tokenizer(
-            examples["text"],
-            truncation=True,
-            max_length=max_length,
-            padding="max_length",
-        )
-
-    original_columns = dataset.column_names
-    dataset = dataset.map(tokenize_function, batched=True)
-    columns_to_remove = [col for col in original_columns if col not in {"text"}]
-
-    def set_labels(examples):
-        import copy
-        labels = []
-        for input_ids, _text in zip(
-            examples["input_ids"], examples["text"], strict=False
-        ):
-            label = copy.deepcopy(input_ids)
-
-            # Find User/Instruction prompt end to mask out the prompt
-            # For simplicity, if we find "Assistant:" or "Response:", mask everything before it
-            assistant_token_ids = tokenizer.encode("Assistant:", add_special_tokens=False)
-            response_token_ids = tokenizer.encode("Response:", add_special_tokens=False)
-
-            mask_idx = -1
-            # Simple matching for assistant/response tokens
-            for i in range(len(label) - max(len(assistant_token_ids), len(response_token_ids))):
-                if label[i:i+len(assistant_token_ids)] == assistant_token_ids:
-                    mask_idx = i + len(assistant_token_ids)
-                    break
-                elif label[i:i+len(response_token_ids)] == response_token_ids:
-                    mask_idx = i + len(response_token_ids)
-                    break
-
-            if mask_idx != -1:
-                # Mask out user prompt
-                for i in range(mask_idx):
-                    label[i] = -100
-
-            # Mask out padding tokens
-            pad_token_id = tokenizer.pad_token_id
-            if pad_token_id is not None:
-                for i in range(len(label)):
-                    if label[i] == pad_token_id:
-                        label[i] = -100
-
-            labels.append(label)
-
-        examples["labels"] = labels
-        return examples
-
-    dataset = dataset.map(set_labels, batched=True)
-    if columns_to_remove:
-        dataset = dataset.remove_columns(columns_to_remove)
-    dataset = split_train_test_dataset(dataset)
-
-    logger.info(f"数据集大小：训练={len(dataset['train'])}, 测试={len(dataset.get('test', []))}")
-    return dataset
-
-
 def load_multiple_datasets(
     dataset_path: str,
     additional_datasets: list[dict[str, Any]],
@@ -782,15 +813,11 @@ class ProgressCallback:
         self.current_step = 0
         self.current_epoch = 0
         self.current_loss = 0.0
-        self.last_checkpoint_step = 0
         self.model = model
         self.tokenizer = tokenizer
         self.trainer = trainer
         self.train_logger = train_logger
         self._event_loop = event_loop
-
-        self._checkpoint_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="checkpoint_saver")
-        self._pending_checkpoint = None
 
         self.last_update_step = -1
         self.update_interval = max(1, config.logging_steps)
@@ -807,7 +834,7 @@ class ProgressCallback:
                 self._event_loop = None
 
     def set_trainer(self, trainer):
-        """设置 trainer 引用（用于检查点保存）"""
+        """设置 trainer 引用"""
         self.trainer = trainer
 
     def on_train_begin(self, args, state, control, **kwargs):
@@ -872,7 +899,7 @@ class ProgressCallback:
         logger.info("准备推送模型到 Hub")
 
     def on_step_end(self, args, state, control, **kwargs):
-        """每一步结束时的回调 - 优化版：降低更新频率 + 异步检查点 + FIX-2: 停止信号传递"""
+        """每一步结束时的回调 - 优化版：降低更新频率 + FIX-2: 停止信号传递"""
         if not self.state.is_training():
             logger.info(f"检测到停止信号，在第 {state.global_step} 步中断训练")
             control.should_training_stop = True
@@ -887,14 +914,6 @@ class ProgressCallback:
         if (self.current_step - self.last_update_step) >= self.update_interval:
             self._update_progress(state, args, kwargs)
             self.last_update_step = self.current_step
-
-        if (
-            self.config.resume_from_checkpoint is None and
-            self.current_step % self.config.save_steps == 0 and
-            self.current_step > self.last_checkpoint_step
-        ):
-            self._do_save_checkpoint()
-            self.last_checkpoint_step = self.current_step
 
         return control
 
@@ -977,135 +996,8 @@ class ProgressCallback:
         except Exception as e:
             logger.debug(f"WebSocket 推送进度失败：{e}")
 
-    def _do_save_checkpoint(self):
-        """实际执行检查点保存（同步保存以避免数据竞争）"""
-        try:
-            import random
-
-            import numpy as np
-            import torch
-
-            checkpoint_dir = Path(self.record.output_path) / "checkpoints" / f"checkpoint-{self.current_step}"
-
-            try:
-                import shutil
-                disk_usage = shutil.disk_usage(checkpoint_dir)
-                free_gb = disk_usage.free / (1024 ** 3)
-                if free_gb < 1.0:
-                    logger.warning(f"磁盘空间不足 {free_gb:.2f}GB，跳过检查点保存")
-                    return
-            except Exception as e:
-                logger.debug(f"磁盘空间检查失败：{e}")
-
-            checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
-            logger.info(f"保存检查点：{checkpoint_dir}")
-
-            if self.model is not None:
-                model_path = checkpoint_dir / "adapter_model"
-                model_path.mkdir(parents=True, exist_ok=True)
-                self.model.save_pretrained(str(model_path))
-
-            if self.tokenizer is not None:
-                tokenizer_path = checkpoint_dir / "tokenizer"
-                tokenizer_path.mkdir(parents=True, exist_ok=True)
-                self.tokenizer.save_pretrained(str(tokenizer_path))
-
-            training_state = {
-                "global_step": self.current_step,
-                "epoch": float(self.current_epoch),
-                "loss": self.current_loss,
-                "config": self.config.model_dump(),
-            }
-            with open(checkpoint_dir / "training_state.json", "w", encoding="utf-8") as f:
-                json.dump(training_state, f, indent=2, ensure_ascii=False)
-
-            if self.trainer is not None:
-                try:
-                    optimizer_path = checkpoint_dir / "optimizer.pt"
-                    scheduler_path = checkpoint_dir / "scheduler.pt"
-
-                    if self.trainer.optimizer is not None:
-                        torch.save(self.trainer.optimizer.state_dict(), optimizer_path)
-
-                    if self.trainer.lr_scheduler is not None:
-                        torch.save(self.trainer.lr_scheduler.state_dict(), scheduler_path)
-
-                    logger.debug("优化器和 scheduler 状态已保存")
-                except Exception as e:
-                    logger.warning(f"保存优化器状态失败：{e}")
-
-            rng_state = {
-                "python": random.getstate(),
-                "numpy": np.random.get_state(),
-            }
-            try:
-                if torch.cuda.is_available():
-                    rng_state["torch_cuda"] = torch.cuda.get_rng_state().tolist()
-            except Exception as e:
-                logger.debug(f"获取 CUDA RNG 状态失败：{e}")
-
-            with open(checkpoint_dir / "rng_state.json", "w", encoding="utf-8") as f:
-                json.dump(rng_state, f, indent=2)
-
-            if self.model is not None and hasattr(self.model, 'peft_config'):
-                adapter_config = self.model.peft_config.get("default", None)
-                if adapter_config:
-                    adapter_config.save_pretrained(checkpoint_dir)
-
-            logger.info(f"检查点保存完成：{checkpoint_dir}")
-
-            if self.train_logger:
-                self.train_logger.log_checkpoint_saved(
-                    step=self.current_step,
-                    path=str(checkpoint_dir)
-                )
-
-            self._cleanup_old_checkpoints()
-
-        except Exception as e:
-            logger.error(f"保存检查点失败：{e}")
-            logger.error(tb.format_exc())
-
-            if self.train_logger:
-                self.train_logger.log_error(e, {"step": self.current_step})
-
-    def _cleanup_old_checkpoints(self):
-        """自动清理旧检查点，保持最新 save_total_limit 个"""
-        try:
-            checkpoint_base = Path(self.record.output_path) / "checkpoints"
-            if not checkpoint_base.exists():
-                return
-
-            checkpoints = sorted(
-                [d for d in checkpoint_base.iterdir() if d.is_dir() and d.name.startswith("checkpoint-")],
-                key=lambda x: int(x.name.split("-")[1]) if x.name.split("-")[1].isdigit() else 0
-            )
-
-            max_keep = getattr(self.config, 'save_total_limit', 3)
-            if len(checkpoints) > max_keep:
-                for old_cp in checkpoints[:-max_keep]:
-                    try:
-                        import shutil
-                        shutil.rmtree(old_cp)
-                        logger.info(f"已清理旧检查点：{old_cp.name}")
-                    except Exception as e:
-                        logger.warning(f"清理检查点失败：{old_cp.name}, {e}")
-        except Exception as e:
-            logger.debug(f"检查点清理失败：{e}")
-
     def on_train_end(self, args, state, control, **kwargs):
-        """训练结束时的回调 - 等待检查点保存完成"""
-        if self._pending_checkpoint:
-            logger.info("等待检查点保存完成...")
-            try:
-                self._pending_checkpoint.result(timeout=300)
-                logger.info("检查点保存完成")
-            except Exception as e:
-                logger.error(f"等待检查点保存失败：{e}")
-
-        self._checkpoint_executor.shutdown(wait=False)
-
+        """训练结束时的回调"""
         if self.train_logger:
             self.train_logger.log_completion({
                 "loss": self.current_loss,
@@ -1152,23 +1044,24 @@ def training_thread(
     dataset_path: str,
     state: TrainingState,
     record: TrainingRecord,
-    retry_count: int = 0,
-    event_loop = None,
-    task_id: str = None
+    event_loop=None,
+    task_id=None,
 ):
     """
-    训练线程 - 使用队列式状态更新 + 异常恢复机制
+    训练线程 - 使用队列式状态更新 + 循环重试机制
 
     Args:
-        retry_count: 当前重试次数
+        event_loop: asyncio 事件循环（用于 WebSocket 推送）
         task_id: 任务ID（用于线程注销）
     """
+    import gc
+    import time
     import torch
     from transformers import Trainer, TrainingArguments
 
-    settings = get_config()
-    state = get_state()
-
+    MAX_RETRIES = 2
+    retry_count = 0
+    settings = get_settings()
     model = None
     tokenizer = None
     trainer = None
@@ -1178,333 +1071,342 @@ def training_thread(
     train_logger = TrainingLogger(record.id, Path(record.output_path))
     train_logger.log_start(config)
 
-    logger.info(f"开始训练任务：{record.id} (重试次数：{retry_count})")
-
-    try:
-        state.queue_training_state(True)
-        state.queue_progress_update(
-            epoch=0, step=0, total_steps=0, loss=0.0, lr=0.0,
-            vram_used=0.0, elapsed_time=0.0, eta=0.0,
-            status="loading", message="Loading model..."
-        )
-
-        try:
-            model, tokenizer = load_model_and_tokenizer(
-                model_path,
-                config.method,
-                config.quantization,
-                config.resume_from_checkpoint,
-                rank=config.rank,
-                alpha=config.alpha,
-                lora_dropout=config.lora_dropout,
-                target_modules=config.target_modules,
-                use_dora=config.use_dora,
-                use_flash_attn=config.use_flash_attn,
-                use_lora_plus=config.use_lora_plus,
-                lora_plus_lr_ratio=config.lora_plus_lr_ratio
-            )
-        except torch.cuda.OutOfMemoryError as e:
-            raise RecoverableError(f"加载模型时 OOM: {e}")
-        except FileNotFoundError as e:
-            raise UnrecoverableError(f"模型文件丢失：{e}")
-        except Exception as e:
-            if "CUDA" in str(e) or "memory" in str(e).lower():
-                raise RecoverableError(f"GPU 错误：{e}")
-            raise
-
-        state.queue_progress_update(
-            epoch=0, step=0, total_steps=0, loss=0.0, lr=0.0,
-            vram_used=0.0, elapsed_time=0.0, eta=0.0,
-            status="loading", message="Loading dataset..."
-        )
-        try:
-            if config.additional_datasets:
-                logger.info(f"使用多数据集混合训练：{len(config.additional_datasets) + 1} 个数据集")
-                dataset = load_multiple_datasets(
-                    dataset_path,
-                    config.additional_datasets,
-                    tokenizer,
-                    config.max_seq_length,
-                    settings
-                )
-            else:
-                dataset = load_dataset(dataset_path, tokenizer, config.max_seq_length)
-        except FileNotFoundError as e:
-            raise UnrecoverableError(f"数据集文件丢失：{e}")
-        except json.JSONDecodeError as e:
-            raise UnrecoverableError(f"数据集格式错误：{e}")
-
-        total_steps = (len(dataset["train"]) // config.batch_size) * config.epochs
-
-        eval_steps = config.eval_steps if config.eval_steps > 0 else None
-        eval_strategy = "steps" if eval_steps else "no"
-
-        use_best_model = config.load_best_model and eval_strategy == "steps"
-        if config.load_best_model and eval_strategy != "steps":
-            logger.warning("load_best_model 需要 eval_steps > 0，已自动禁用")
-
-        warmup_steps = config.warmup_steps
-        warmup_ratio = None
-        if warmup_steps == 0 and config.warmup_ratio > 0:
-            warmup_ratio = config.warmup_ratio
-        logger.info(f"学习率预热配置：warmup_steps={warmup_steps}, warmup_ratio={warmup_ratio}")
-
-        deepspeed_config = None
-        if config.deepspeed_stage > 0 and config.method != "qlora":
-            deepspeed_config = {
-                "fp16": {"enabled": not config.bf16},
-                "bf16": {"enabled": config.bf16},
-                "zero_optimization": {
-                    "stage": config.deepspeed_stage,
-                    "offload_optimizer": {"device": "cpu"} if config.offload_optimizer else False,
-                    "offload_param": {"device": "cpu"} if config.offload_optimizer and config.deepspeed_stage >= 2 else False,
-                },
-                "gradient_accumulation_steps": config.gradient_accumulation,
-                "gradient_clipping": config.max_grad_norm,
-                "steps_per_print": config.logging_steps,
-                "train_batch_size": config.batch_size,
-                "train_micro_batch_size_per_gpu": config.batch_size,
-            }
-            logger.info(f"已配置 DeepSpeed ZeRO-{config.deepspeed_stage}, offload={config.offload_optimizer}")
-        elif config.deepspeed_stage > 0 and config.method == "qlora":
-            logger.warning("QLoRA 模式下不支持 DeepSpeed，将使用标准训练")
-
-        output_dir = config.output_path if hasattr(config, 'output_path') else record.output_path
-        training_args = TrainingArguments(
-            output_dir=output_dir,
-            num_train_epochs=config.epochs,
-            per_device_train_batch_size=config.batch_size,
-            gradient_accumulation_steps=config.gradient_accumulation,
-            learning_rate=config.learning_rate,
-            max_steps=total_steps,
-            warmup_steps=warmup_steps,
-            warmup_ratio=warmup_ratio,
-            logging_steps=config.logging_steps,
-            save_steps=config.save_steps,
-            save_total_limit=3,
-            load_best_model_at_end=use_best_model,
-            evaluation_strategy=eval_strategy,
-            eval_steps=eval_steps,
-            report_to="none",
-            fp16=not config.bf16,
-            bf16=config.bf16,
-            gradient_checkpointing=config.gradient_checkpointing,
-            dataloader_num_workers=config.dataloader_num_workers,
-            dataloader_pin_memory=config.dataloader_pin_memory,
-            dataloader_persistent_workers=config.dataloader_persistent_workers if config.dataloader_num_workers > 0 else False,
-            remove_unused_columns=False,
-            save_strategy="steps",
-            lr_scheduler_type=config.lr_scheduler,
-            weight_decay=config.weight_decay,
-            max_grad_norm=config.max_grad_norm,
-            label_smoothing_factor=config.label_smoothing if config.label_smoothing > 0 else None,
-            optim="adamw_torch",
-            ddp_find_unused_parameters=False,
-            deepspeed=deepspeed_config,
-            metric_for_best_model=config.metric_for_best_model,
-            greater_is_better=config.greater_is_better,
-        )
-
-        early_stopping_callback = None
-        if config.early_stopping_patience > 0 and use_best_model:
-            from transformers import EarlyStoppingCallback
-            early_stopping_callback = EarlyStoppingCallback(
-                early_stopping_patience=config.early_stopping_patience,
-                early_stopping_threshold=config.early_stopping_threshold
-            )
-            logger.info(f"已启用早停：patience={config.early_stopping_patience}, threshold={config.early_stopping_threshold}")
-
-        callbacks = []
-        if early_stopping_callback:
-            callbacks.append(early_stopping_callback)
-
-        trainer = Trainer(
-            model=model,
-            args=training_args,
-            train_dataset=dataset["train"],
-            eval_dataset=dataset.get("test"),
-            processing_class=tokenizer,
-            callbacks=callbacks,
-        )
-
-        if config.use_lora_plus and config.method not in ["full"] and not config.use_galore:
-            logger.info(f"应用 LoRA+ 不同学习率配置 ratio={config.lora_plus_lr_ratio}")
-            base_lr = config.learning_rate
-
-            lora_a_params = []
-            lora_b_params = []
-            other_params = []
-
-            for name, param in model.named_parameters():
-                if param.requires_grad:
-                    if "lora_A" in name:
-                        lora_a_params.append(param)
-                    elif "lora_B" in name:
-                        lora_b_params.append(param)
-                    else:
-                        other_params.append(param)
-
-            from torch.optim import AdamW
-            param_groups = [
-                {"params": lora_a_params, "lr": base_lr},
-                {"params": lora_b_params, "lr": base_lr * config.lora_plus_lr_ratio},
-                {"params": other_params, "lr": base_lr},
-            ]
-            trainer.optimizer = AdamW(param_groups, weight_decay=config.weight_decay)
-            logger.info(f"LoRA+ 优化器配置：A参数 lr={base_lr}, B参数 lr={base_lr * config.lora_plus_lr_ratio}")
-
-        if config.use_galore:
-            if config.deepspeed_stage > 0:
-                logger.warning("GaLore 与 DeepSpeed 不兼容，已自动禁用 DeepSpeed")
-                config.deepspeed_stage = 0
-
-            if config.use_lora_plus:
-                logger.warning("GaLore 与 LoRA+ 同时启用可能存在冲突，建议关闭 LoRA+")
-
-            try:
-                from galore_torch import GaLoreAdamW
-
-                logger.info(f"配置 GaLore: rank={config.galore_rank}, update_gap={config.galore_update_proj_gap}")
-
-                galore_params = []
-                for name, param in model.named_parameters():
-                    if param.requires_grad and any(x in name for x in ['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj']):
-                        galore_params.append(param)
-
-                if len(galore_params) > 0:
-                    non_galore_params = [p for p in model.parameters() if p.requires_grad and p not in galore_params]
-
-                    param_groups = [
-                        {"params": galore_params, "rank": config.galore_rank, "update_proj_gap": config.galore_update_proj_gap},
-                        {"params": non_galore_params}
-                    ]
-
-                    trainer.optimizer = GaLoreAdamW(
-                        param_groups,
-                        lr=config.learning_rate,
-                        weight_decay=config.weight_decay
-                    )
-
-                    logger.info(f"GaLore 已启用，投影参数: {len(galore_params)} 个")
-                else:
-                    logger.warning("未找到可使用 GaLore 的参数，跳过")
-
-            except ImportError as e:
-                logger.warning("GaLore 未安装，请运行: pip install galore-torch")
-                logger.warning(f"将跳过 GaLore 优化，继续使用标准训练: {e}")
-
-        if config.use_torch_compile and hasattr(model, 'forward'):
-            try:
-                import torch
-                if hasattr(torch, 'compile'):
-                    logger.info(f"使用 torch.compile 编译模型，模式: {config.torch_compile_mode}")
-                    model = torch.compile(model, mode=config.torch_compile_mode)
-                    logger.info("torch.compile 编译成功")
-                else:
-                    logger.warning("PyTorch 版本不支持 torch.compile，需要 PyTorch 2.0+")
-            except Exception as e:
-                logger.warning(f"torch.compile 编译失败，跳过: {e}")
-
-        if config.use_tf32:
-            try:
-                import torch
-                if torch.cuda.is_available() and hasattr(torch.cuda, 'set_float32_matmul_precision'):
-                    device_name = torch.cuda.get_device_name(0).lower()
-                    if any(arch in device_name for arch in ['30', '40', 'a10', 'a100', 'a30', 'l40', 'h100']):
-                        torch.backends.cuda.matmul.allow_tf32 = True
-                        torch.backends.cudnn.allow_tf32 = True
-                        logger.info("已启用 TF32 加速（Ampere+ GPU）")
-                    else:
-                        logger.info(f"GPU {device_name} 不支持 TF32，跳过")
-            except Exception as e:
-                logger.debug(f"TF32 启用失败: {e}")
-
-        callback = ProgressCallback(
-            total_steps, start_time, state, record, config,
-            model=model, tokenizer=tokenizer, trainer=trainer,
-            train_logger=train_logger, event_loop=event_loop
-        )
-        trainer.add_callback(callback)
-
-        state.queue_progress_update(
-            epoch=0, step=0, total_steps=total_steps, loss=0.0, lr=0.0,
-            vram_used=0.0, elapsed_time=0.0, eta=0.0,
-            status="training", message="Starting training..."
-        )
-
-        try:
-            trainer.train(resume_from_checkpoint=config.resume_from_checkpoint if config.resume_from_checkpoint else None)
-        except torch.cuda.OutOfMemoryError as e:
-            raise RecoverableError(f"训练时 OOM: {e}")
-        except KeyboardInterrupt:
-            raise UnrecoverableError("用户中断训练")
-        except Exception as e:
-            if "CUDA" in str(e) or "memory" in str(e).lower() or "NCCL" in str(e):
-                raise RecoverableError(f"GPU 错误：{e}")
-            raise
-
-        output_dir = Path(record.output_path)
-        lora_path = output_dir / "lora_adapter"
-        lora_path.mkdir(parents=True, exist_ok=True)
-        model.save_pretrained(lora_path)
-        tokenizer.save_pretrained(lora_path)
-        logger.info(f"模型已保存到：{lora_path}")
-
-        record.status = "completed"
-        record.end_time = datetime.now().isoformat()
-        record.checkpoint_path = str(lora_path)
-
-        state.add_to_history_sync(record)
-        logger.info(f"训练历史已保存：{record.id}")
-
-    except RecoverableError as e:
-        logger.warning(f"可恢复错误：{e}")
-
-        max_retries = 2
-        if retry_count < max_retries:
+    while True:
+        if retry_count > 0:
+            logger.info(f"第 {retry_count} 次重试训练：{record.id}")
+            # Clean up resources before retry
             cleanup_gpu_memory(aggressive=True)
             if model is not None:
                 safe_cleanup_model(model)
             del model, tokenizer, trainer
-            import gc
             gc.collect()
 
-            degraded_config = _degrade_training_config(config)
-            logger.info(f"应用降级配置：batch_size={degraded_config.batch_size}, "
-                       f"gradient_accumulation={degraded_config.gradient_accumulation}")
+            # Degrade config and retry
+            config = _degrade_training_config(config)
+            logger.info(f"应用降级配置：batch_size={config.batch_size}, "
+                       f"gradient_accumulation={config.gradient_accumulation}")
 
-            cooldown = 30 * (retry_count + 1)
+            cooldown = 30 * retry_count
             logger.info(f"等待 {cooldown} 秒后重试...")
-            import time
             time.sleep(cooldown)
 
-            logger.info(f"第 {retry_count + 1} 次重试...")
-            return training_thread(
-                degraded_config, model_path, dataset_path, state, record,
-                retry_count + 1, event_loop=event_loop, task_id=task_id
+        try:
+            state.queue_training_state(True)
+            state.queue_progress_update(
+                epoch=0, step=0, total_steps=0, loss=0.0, lr=0.0,
+                vram_used=0.0, elapsed_time=0.0, eta=0.0,
+                status="loading", message="Loading model..."
             )
-        else:
-            logger.error(f"重试次数耗尽 ({max_retries}次)，训练失败")
-            _handle_training_failure(state, record, e, train_logger)
 
-    except UnrecoverableError as e:
-        logger.error(f"不可恢复错误：{e}")
-        _handle_training_failure(state, record, e, train_logger)
+            try:
+                model, tokenizer = load_model_and_tokenizer(
+                    model_path,
+                    config.method,
+                    config.quantization,
+                    config.resume_from_checkpoint,
+                    rank=config.rank,
+                    alpha=config.alpha,
+                    lora_dropout=config.lora_dropout,
+                    target_modules=config.target_modules,
+                    use_dora=config.use_dora,
+                    use_flash_attn=config.use_flash_attn,
+                    use_lora_plus=config.use_lora_plus,
+                    lora_plus_lr_ratio=config.lora_plus_lr_ratio
+                )
+            except torch.cuda.OutOfMemoryError as e:
+                raise RecoverableError(f"加载模型时 OOM: {e}")
+            except FileNotFoundError as e:
+                raise UnrecoverableError(f"模型文件丢失：{e}")
+            except Exception as e:
+                if "CUDA" in str(e) or "memory" in str(e).lower():
+                    raise RecoverableError(f"GPU 错误：{e}")
+                raise
 
-    except Exception as e:
-        logger.error(f"训练失败：{e}")
-        logger.error(tb.format_exc())
-        _handle_training_failure(state, record, e, train_logger)
+            state.queue_progress_update(
+                epoch=0, step=0, total_steps=0, loss=0.0, lr=0.0,
+                vram_used=0.0, elapsed_time=0.0, eta=0.0,
+                status="loading", message="Loading dataset..."
+            )
+            try:
+                if config.additional_datasets:
+                    logger.info(f"使用多数据集混合训练：{len(config.additional_datasets) + 1} 个数据集")
+                    dataset = load_multiple_datasets(
+                        dataset_path,
+                        config.additional_datasets,
+                        tokenizer,
+                        config.max_seq_length,
+                        settings
+                    )
+                else:
+                    dataset = load_dataset(dataset_path, tokenizer, config.max_seq_length)
+            except FileNotFoundError as e:
+                raise UnrecoverableError(f"数据集文件丢失：{e}")
+            except json.JSONDecodeError as e:
+                raise UnrecoverableError(f"数据集格式错误：{e}")
 
-    finally:
-        state.queue_training_state(False)
+            total_steps = (len(dataset["train"]) // config.batch_size) * config.epochs
 
-        if task_id:
-            state.unregister_training_task(task_id)
-            logger.debug(f"已注销训练任务线程：{task_id}")
+            eval_steps = config.eval_steps if config.eval_steps > 0 else None
+            eval_strategy = "steps" if eval_steps else "no"
 
-        if retry_count == 0:
+            use_best_model = config.load_best_model and eval_strategy == "steps"
+            if config.load_best_model and eval_strategy != "steps":
+                logger.warning("load_best_model 需要 eval_steps > 0，已自动禁用")
+
+            warmup_steps = config.warmup_steps
+            warmup_ratio = None
+            if warmup_steps == 0 and config.warmup_ratio > 0:
+                warmup_ratio = config.warmup_ratio
+            logger.info(f"学习率预热配置：warmup_steps={warmup_steps}, warmup_ratio={warmup_ratio}")
+
+            deepspeed_config = None
+            if config.deepspeed_stage > 0 and config.method != "qlora":
+                deepspeed_config = {
+                    "fp16": {"enabled": not config.bf16},
+                    "bf16": {"enabled": config.bf16},
+                    "zero_optimization": {
+                        "stage": config.deepspeed_stage,
+                        "offload_optimizer": {"device": "cpu"} if config.offload_optimizer else False,
+                        "offload_param": {"device": "cpu"} if config.offload_optimizer and config.deepspeed_stage >= 2 else False,
+                    },
+                    "gradient_accumulation_steps": config.gradient_accumulation,
+                    "gradient_clipping": config.max_grad_norm,
+                    "steps_per_print": config.logging_steps,
+                    "train_batch_size": config.batch_size,
+                    "train_micro_batch_size_per_gpu": config.batch_size,
+                }
+                logger.info(f"已配置 DeepSpeed ZeRO-{config.deepspeed_stage}, offload={config.offload_optimizer}")
+            elif config.deepspeed_stage > 0 and config.method == "qlora":
+                logger.warning("QLoRA 模式下不支持 DeepSpeed，将使用标准训练")
+
+            output_dir = config.output_path if hasattr(config, 'output_path') else record.output_path
+            training_args = TrainingArguments(
+                output_dir=output_dir,
+                num_train_epochs=config.epochs,
+                per_device_train_batch_size=config.batch_size,
+                gradient_accumulation_steps=config.gradient_accumulation,
+                learning_rate=config.learning_rate,
+                max_steps=total_steps,
+                warmup_steps=warmup_steps,
+                warmup_ratio=warmup_ratio,
+                logging_steps=config.logging_steps,
+                save_steps=config.save_steps,
+                save_total_limit=3,
+                load_best_model_at_end=use_best_model,
+                evaluation_strategy=eval_strategy,
+                eval_steps=eval_steps,
+                report_to="none",
+                fp16=not config.bf16,
+                bf16=config.bf16,
+                gradient_checkpointing=config.gradient_checkpointing,
+                dataloader_num_workers=config.dataloader_num_workers,
+                dataloader_pin_memory=config.dataloader_pin_memory,
+                dataloader_persistent_workers=config.dataloader_persistent_workers if config.dataloader_num_workers > 0 else False,
+                remove_unused_columns=False,
+                save_strategy="steps",
+                lr_scheduler_type=config.lr_scheduler,
+                weight_decay=config.weight_decay,
+                max_grad_norm=config.max_grad_norm,
+                label_smoothing_factor=config.label_smoothing if config.label_smoothing > 0 else None,
+                optim="adamw_torch",
+                ddp_find_unused_parameters=False,
+                deepspeed=deepspeed_config,
+                metric_for_best_model=config.metric_for_best_model,
+                greater_is_better=config.greater_is_better,
+            )
+
+            early_stopping_callback = None
+            if config.early_stopping_patience > 0 and use_best_model:
+                from transformers import EarlyStoppingCallback
+                early_stopping_callback = EarlyStoppingCallback(
+                    early_stopping_patience=config.early_stopping_patience,
+                    early_stopping_threshold=config.early_stopping_threshold
+                )
+                logger.info(f"已启用早停：patience={config.early_stopping_patience}, threshold={config.early_stopping_threshold}")
+
+            callbacks = []
+            if early_stopping_callback:
+                callbacks.append(early_stopping_callback)
+
+            trainer = Trainer(
+                model=model,
+                args=training_args,
+                train_dataset=dataset["train"],
+                eval_dataset=dataset.get("test"),
+                processing_class=tokenizer,
+                callbacks=callbacks,
+            )
+
+            if config.use_lora_plus and config.method not in ["full"] and not config.use_galore:
+                logger.info(f"应用 LoRA+ 不同学习率配置 ratio={config.lora_plus_lr_ratio}")
+                base_lr = config.learning_rate
+
+                lora_a_params = []
+                lora_b_params = []
+                other_params = []
+
+                for name, param in model.named_parameters():
+                    if param.requires_grad:
+                        if "lora_A" in name:
+                            lora_a_params.append(param)
+                        elif "lora_B" in name:
+                            lora_b_params.append(param)
+                        else:
+                            other_params.append(param)
+
+                from torch.optim import AdamW
+                param_groups = [
+                    {"params": lora_a_params, "lr": base_lr},
+                    {"params": lora_b_params, "lr": base_lr * config.lora_plus_lr_ratio},
+                    {"params": other_params, "lr": base_lr},
+                ]
+                trainer.optimizer = AdamW(param_groups, weight_decay=config.weight_decay)
+                logger.info(f"LoRA+ 优化器配置：A参数 lr={base_lr}, B参数 lr={base_lr * config.lora_plus_lr_ratio}")
+
+            if config.use_galore:
+                if config.deepspeed_stage > 0:
+                    logger.warning("GaLore 与 DeepSpeed 不兼容，已自动禁用 DeepSpeed")
+                    config.deepspeed_stage = 0
+
+                if config.use_lora_plus:
+                    logger.warning("GaLore 与 LoRA+ 同时启用可能存在冲突，建议关闭 LoRA+")
+
+                try:
+                    from galore_torch import GaLoreAdamW
+
+                    logger.info(f"配置 GaLore: rank={config.galore_rank}, update_gap={config.galore_update_proj_gap}")
+
+                    galore_params = []
+                    for name, param in model.named_parameters():
+                        if param.requires_grad and any(x in name for x in ['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj']):
+                            galore_params.append(param)
+
+                    if len(galore_params) > 0:
+                        non_galore_params = [p for p in model.parameters() if p.requires_grad and p not in galore_params]
+
+                        param_groups = [
+                            {"params": galore_params, "rank": config.galore_rank, "update_proj_gap": config.galore_update_proj_gap},
+                            {"params": non_galore_params}
+                        ]
+
+                        trainer.optimizer = GaLoreAdamW(
+                            param_groups,
+                            lr=config.learning_rate,
+                            weight_decay=config.weight_decay
+                        )
+
+                        logger.info(f"GaLore 已启用，投影参数: {len(galore_params)} 个")
+                    else:
+                        logger.warning("未找到可使用 GaLore 的参数，跳过")
+
+                except ImportError as e:
+                    logger.warning("GaLore 未安装，请运行: pip install galore-torch")
+                    logger.warning(f"将跳过 GaLore 优化，继续使用标准训练: {e}")
+
+            if config.use_torch_compile and hasattr(model, 'forward'):
+                try:
+                    import torch
+                    if hasattr(torch, 'compile'):
+                        logger.info(f"使用 torch.compile 编译模型，模式: {config.torch_compile_mode}")
+                        model = torch.compile(model, mode=config.torch_compile_mode)
+                        logger.info("torch.compile 编译成功")
+                    else:
+                        logger.warning("PyTorch 版本不支持 torch.compile，需要 PyTorch 2.0+")
+                except Exception as e:
+                    logger.warning(f"torch.compile 编译失败，跳过: {e}")
+
+            if config.use_tf32:
+                try:
+                    import torch
+                    if torch.cuda.is_available() and hasattr(torch.cuda, 'set_float32_matmul_precision'):
+                        device_name = torch.cuda.get_device_name(0).lower()
+                        if any(arch in device_name for arch in ['30', '40', 'a10', 'a100', 'a30', 'l40', 'h100']):
+                            torch.backends.cuda.matmul.allow_tf32 = True
+                            torch.backends.cudnn.allow_tf32 = True
+                            logger.info("已启用 TF32 加速（Ampere+ GPU）")
+                        else:
+                            logger.info(f"GPU {device_name} 不支持 TF32，跳过")
+                except Exception as e:
+                    logger.debug(f"TF32 启用失败: {e}")
+
+            callback = ProgressCallback(
+                total_steps, start_time, state, record, config,
+                model=model, tokenizer=tokenizer, trainer=trainer,
+                train_logger=train_logger, event_loop=event_loop
+            )
+            trainer.add_callback(callback)
+
+            state.queue_progress_update(
+                epoch=0, step=0, total_steps=total_steps, loss=0.0, lr=0.0,
+                vram_used=0.0, elapsed_time=0.0, eta=0.0,
+                status="training", message="Starting training..."
+            )
+
+            try:
+                trainer.train(resume_from_checkpoint=config.resume_from_checkpoint if config.resume_from_checkpoint else None)
+            except torch.cuda.OutOfMemoryError as e:
+                raise RecoverableError(f"训练时 OOM: {e}")
+            except KeyboardInterrupt:
+                raise UnrecoverableError("用户中断训练")
+            except Exception as e:
+                if "CUDA" in str(e) or "memory" in str(e).lower() or "NCCL" in str(e):
+                    raise RecoverableError(f"GPU 错误：{e}")
+                raise
+
+            output_dir = Path(record.output_path)
+            lora_path = output_dir / "lora_adapter"
+            lora_path.mkdir(parents=True, exist_ok=True)
+            model.save_pretrained(lora_path)
+            tokenizer.save_pretrained(lora_path)
+            logger.info(f"模型已保存到：{lora_path}")
+
+            record.status = "completed"
+            record.end_time = datetime.now().isoformat()
+            record.checkpoint_path = str(lora_path)
+
+            state.add_to_history_sync(record)
+            logger.info(f"训练历史已保存：{record.id}")
+
+            # Training succeeded - clean up and exit
+            state.queue_training_state(False)
+            if task_id:
+                state.unregister_training_task(task_id)
+                logger.debug(f"已注销训练任务线程：{task_id}")
             _cleanup_training_resources(model, tokenizer, trainer)
+            return
+
+        except RecoverableError as e:
+            logger.warning(f"可恢复错误：{e}")
+            if retry_count < MAX_RETRIES:
+                retry_count += 1
+                # Loop will handle cleanup and retry
+            else:
+                logger.error(f"重试次数耗尽 ({MAX_RETRIES}次)，训练失败")
+                state.queue_training_state(False)
+                if task_id:
+                    state.unregister_training_task(task_id)
+                _handle_training_failure(state, record, e, train_logger)
+                _cleanup_training_resources(model, tokenizer, trainer)
+                return
+
+        except UnrecoverableError as e:
+            logger.error(f"不可恢复错误：{e}")
+            state.queue_training_state(False)
+            if task_id:
+                state.unregister_training_task(task_id)
+            _handle_training_failure(state, record, e, train_logger)
+            _cleanup_training_resources(model, tokenizer, trainer)
+            return
+
+        except Exception as e:
+            logger.error(f"训练失败：{e}")
+            logger.error(tb.format_exc())
+            state.queue_training_state(False)
+            if task_id:
+                state.unregister_training_task(task_id)
+            _handle_training_failure(state, record, e, train_logger)
+            _cleanup_training_resources(model, tokenizer, trainer)
+            return
 
 
 def _apply_precision_preset(config: TrainingConfigInput) -> TrainingConfigInput:
@@ -1816,7 +1718,7 @@ class TrainingLogger:
 @router.post("/stop")
 async def stop_training():
     """停止训练"""
-    state = get_state()
+    state = get_training_context().state
 
     if not state.is_training():
         raise HTTPException(status_code=400, detail="No training in progress")
@@ -1843,7 +1745,7 @@ async def stop_training():
 @router.get("/progress", response_model=TrainingProgressResponse)
 async def get_progress():
     """获取训练进度"""
-    state = get_state()
+    state = get_training_context().state
     progress = state.get_progress()
     return TrainingProgressResponse(**progress.model_dump())
 
@@ -1865,7 +1767,7 @@ async def progress_stream(
     import asyncio
     import time
 
-    state = get_state()
+    state = get_training_context().state
 
     async def event_generator():
         last_step = -1
@@ -1940,7 +1842,7 @@ async def progress_stream(
 @router.get("/history")
 async def get_history():
     """获取训练历史"""
-    state = get_state()
+    state = get_training_context().state
     records = state.get_history()
     return [TrainingRecordResponse(**r.model_dump()) for r in records]
 
@@ -1972,7 +1874,7 @@ async def training_websocket(websocket: WebSocket, task_id: str):
 @router.get("/metrics/{task_id}")
 async def get_training_metrics(task_id: str):
     """获取训练指标数据（用于图表展示）"""
-    settings = get_config()
+    settings = get_settings()
 
     output_dir = settings.outputs_dir_resolved / f"train_{task_id[:8]}"
     metrics_file = output_dir / "metrics.jsonl"
@@ -2016,7 +1918,7 @@ async def get_training_metrics(task_id: str):
 @router.get("/chart-data/{task_id}")
 async def get_chart_data(task_id: str):
     """获取图表数据（简化版，直接返回绘图数据）"""
-    settings = get_config()
+    settings = get_settings()
 
     output_dir = settings.outputs_dir_resolved / f"train_{task_id[:8]}"
     metrics_file = output_dir / "metrics.jsonl"
@@ -2069,7 +1971,7 @@ async def get_chart_data(task_id: str):
 @router.get("/status")
 async def get_status():
     """获取训练状态"""
-    state = get_state()
+    state = get_training_context().state
     return state.get_status()
 
 
@@ -2107,8 +2009,8 @@ async def start_swift_training(
     """使用 SWIFT 框架启动训练"""
     from backends.swift_backend import SwiftTrainConfig, get_swift_backend
 
-    settings = get_config()
-    state = get_state()
+    settings = get_settings()
+    state = get_training_context().state
 
     swift_backend = get_swift_backend()
     if not swift_backend.is_available():
@@ -2313,7 +2215,7 @@ async def stop_swift_training():
     success = swift_backend.stop_training()
 
     if success:
-        training_state = get_state()
+        training_state = get_training_context().state
         training_state.queue_training_state(False)
         training_state.queue_progress_update(
             status="stopped",
@@ -2357,8 +2259,8 @@ async def get_swift_logs(task_id: str, lines: int = Query(default=50, ge=1, le=2
 @router.get("/checkpoints/{task_id}")
 async def get_checkpoints(task_id: str):
     """获取任务的检查点列表"""
-    state = get_state()
-    settings = get_config()
+    state = get_training_context().state
+    settings = get_settings()
 
     output_dir = _resolve_training_output_dir(state, settings, task_id)
     checkpoint_dir = output_dir / "checkpoints"
@@ -2382,9 +2284,8 @@ async def get_checkpoints(task_id: str):
 @router.post("/resume/{task_id}/{checkpoint_name}")
 async def resume_training(task_id: str, checkpoint_name: str):
     """从检查点恢复训练"""
-    state = get_state()
-    settings = get_config()
-    state = get_state()
+    state = get_training_context().state
+    settings = get_settings()
 
     if state.is_training():
         raise HTTPException(status_code=400, detail="Training already in progress")
@@ -2447,10 +2348,7 @@ async def check_resources(
     model_size: str = Query(default="7B", description="模型大小估计"),
     required_vram: float = Query(default=6.0, description="预计需要显存(GB)")
 ):
-    """检查训练资源
-    state = get_state()
-
-    在开始训练前检查系统资源，并提供智能降级建议
+    """检查训练资源 - 在开始训练前检查系统资源，并提供智能降级建议
     """
     result = pre_training_resource_check(
         required_vram_gb=required_vram,
@@ -2704,7 +2602,7 @@ def _start_training_task(
         }
         task_priority = priority_map.get(priority.lower(), TaskPriority.NORMAL)
 
-        queue = get_training_queue()
+        queue = get_training_context().queue
         success = queue.submit(
             task_id=record_id,
             config=config,
@@ -2744,8 +2642,8 @@ async def start_training(
         use_queue: 是否使用队列模式
         priority: 任务优先级(urgent/high/normal/low)
     """
-    settings = get_config()
-    state = get_state()
+    settings = get_settings()
+    state = get_training_context().state
 
     if state.is_training():
         raise HTTPException(status_code=400, detail="Training already in progress")
@@ -2843,14 +2741,14 @@ async def start_training(
 @router.get("/queue/status")
 async def get_queue_status():
     """获取任务队列状态"""
-    queue = get_training_queue()
+    queue = get_training_context().queue
     return queue.get_queue_status()
 
 
 @router.get("/queue/task/{task_id}")
 async def get_task_status(task_id: str):
     """获取任务状态"""
-    queue = get_training_queue()
+    queue = get_training_context().queue
     status = queue.get_task_status(task_id)
 
     if status is None:
@@ -2862,8 +2760,9 @@ async def get_task_status(task_id: str):
 @router.post("/queue/cancel/{task_id}")
 async def cancel_task(task_id: str):
     """取消队列中的任务"""
-    queue = get_training_queue()
-    state = get_state()
+    ctx = get_training_context()
+    queue = ctx.queue
+    state = ctx.state
 
     if queue.cancel(task_id):
         current_record = state.get_current_record()
