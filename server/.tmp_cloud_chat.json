@@ -1,0 +1,13 @@
+﻿{
+  "provider": "minimax",
+  "model": "MiniMax-M2.5",
+  "messages": [
+    {"role": "user", "content": "请只回复：云端非流式ok"}
+  ],
+  "stream": false,
+  "temperature": 0.2,
+  "max_tokens": 60,
+  "memory": {"enabled": false, "auto_extract": false, "auto_retrieve": false},
+  "knowledge": {"use_knowledge": false, "auto_retrieve": false},
+  "session": {"session_id": "smoke-cloud", "user_id": "smoke"}
+}

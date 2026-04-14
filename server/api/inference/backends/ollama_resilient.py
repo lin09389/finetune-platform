@@ -72,6 +72,8 @@ class OllamaResilientBackend(InferenceBackend):
 
         self.base_url = (config or {}).get("base_url", "http://localhost:11434")
         self.timeout = (config or {}).get("timeout", 60)
+        self.stream_read_timeout = (config or {}).get("stream_read_timeout", 120)
+        self.disable_thinking = bool((config or {}).get("disable_thinking", False))
         self.model_name = (config or {}).get("model_name", "llama2")
         
         # 连接池配置
@@ -114,7 +116,7 @@ class OllamaResilientBackend(InferenceBackend):
                 timeout = ClientTimeout(
                     total=self.timeout,
                     connect=10,
-                    sock_read=30,
+                    sock_read=self.stream_read_timeout,
                     sock_connect=10
                 )
                 
@@ -177,6 +179,32 @@ class OllamaResilientBackend(InferenceBackend):
         
         raise last_exception or Exception("Request failed")
 
+    async def _iter_ndjson_objects(self, response: aiohttp.ClientResponse):
+        """Iterate NDJSON objects from a chunked response safely."""
+        import json
+
+        buffer = b""
+        async for chunk in response.content.iter_any():
+            if not chunk:
+                continue
+            buffer += chunk
+            while b"\n" in buffer:
+                raw_line, buffer = buffer.split(b"\n", 1)
+                line = raw_line.strip()
+                if not line:
+                    continue
+                try:
+                    yield json.loads(line.decode("utf-8", errors="ignore"))
+                except json.JSONDecodeError:
+                    continue
+
+        trailing = buffer.strip()
+        if trailing:
+            try:
+                yield json.loads(trailing.decode("utf-8", errors="ignore"))
+            except json.JSONDecodeError:
+                pass
+
 
     async def load_model(self, model_name: str, **kwargs) -> bool:
         """加载模型"""
@@ -235,6 +263,8 @@ class OllamaResilientBackend(InferenceBackend):
                     "stop": config.stop_sequences
                 }
             }
+            if self.disable_thinking:
+                payload["think"] = False
 
             async with session.post(f"{self.base_url}/api/generate", json=payload) as response:
                 if response.status != 200:
@@ -285,24 +315,20 @@ class OllamaResilientBackend(InferenceBackend):
                 },
                 "keep_alive": "5m"
             }
+            if self.disable_thinking:
+                payload["think"] = False
 
             async with session.post(f"{self.base_url}/api/generate", json=payload) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     raise Exception(f"Ollama API error {response.status}: {error_text}")
 
-                async for line in response.content:
-                    if line:
-                        try:
-                            import json
-                            data = json.loads(line)
-                            if "response" in data:
-                                yield data["response"]
-                        except json.JSONDecodeError:
-                            continue
+                async for data in self._iter_ndjson_objects(response):
+                    if "response" in data:
+                        yield data["response"]
 
         try:
-            async for chunk in self.circuit_breaker.call(_stream)():
+            async for chunk in _stream():
                 yield chunk
         except Exception as e:
             logger.error(f"Ollama stream failed: {e}")
@@ -351,6 +377,8 @@ class OllamaResilientBackend(InferenceBackend):
                 },
                 "keep_alive": "5m"
             }
+            if self.disable_thinking:
+                payload["think"] = False
 
             async with session.post(f"{self.base_url}/api/chat", json=payload) as response:
                 if response.status != 200:
@@ -360,9 +388,10 @@ class OllamaResilientBackend(InferenceBackend):
                 result = await response.json()
                 latency_ms = (time.time() - start_time) * 1000
                 message = result.get("message", {})
+                text = message.get("content", "") or message.get("thinking", "")
 
                 return GenerationResult(
-                    text=message.get("content", ""),
+                    text=text,
                     tokens_generated=result.get("eval_count", 0),
                     finish_reason="stop",
                     model=self.model_name,
@@ -403,25 +432,22 @@ class OllamaResilientBackend(InferenceBackend):
                 },
                 "keep_alive": "5m"
             }
+            if self.disable_thinking:
+                payload["think"] = False
 
             async with session.post(f"{self.base_url}/api/chat", json=payload) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     raise RuntimeError(f"Ollama API error {response.status}: {error_text}")
 
-                async for line in response.content:
-                    if line:
-                        try:
-                            import json
-                            data = json.loads(line)
-                            message = data.get("message", {})
-                            if "content" in message:
-                                yield message["content"]
-                        except json.JSONDecodeError:
-                            continue
+                async for data in self._iter_ndjson_objects(response):
+                    message = data.get("message", {})
+                    content = message.get("content", "") or message.get("thinking", "")
+                    if content:
+                        yield content
 
         try:
-            async for chunk in self.circuit_breaker.call(_stream)():
+            async for chunk in _stream():
                 yield chunk
         except Exception as e:
             logger.error(f"Ollama chat stream failed: {e}")

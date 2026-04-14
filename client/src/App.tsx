@@ -28,11 +28,9 @@ const Inference = lazy(() => import('./pages/Inference'))
 const History = lazy(() => import('./pages/History'))
 const ProjectContext = lazy(() => import('./pages/ProjectContext'))
 const APIKeyManager = lazy(() => import('./pages/APIKeyManager'))
-const Skills = lazy(() => import('./pages/Skills'))
 const MemoryPage = lazy(() => import('./pages/MemoryPage'))
 const CUAControl = lazy(() => import('./pages/CUAControl'))
 const ActionRecorder = lazy(() => import('./pages/ActionRecorder'))
-const SkillMemory = lazy(() => import('./pages/SkillMemory'))
 const MCPTools = lazy(() => import('./pages/MCPTools'))
 const GatewayPage = lazy(() => import('./pages/GatewayPage'))
 const HeartbeatPage = lazy(() => import('./pages/HeartbeatPage'))
@@ -146,7 +144,6 @@ const routes = [
   { path: '/chat', element: <Chat /> },
   { path: '/knowledge', element: <KnowledgeBase /> },
   { path: '/workspace', element: <WorkspaceManager /> },
-  { path: '/skills', element: <Skills /> },
   { path: '/memory', element: <MemoryPage /> },
   { path: '/modelhub', element: <ModelHub /> },
   { path: '/inference', element: <Inference /> },
@@ -155,7 +152,6 @@ const routes = [
   { path: '/cloud-api', element: <APIKeyManager /> },
   { path: '/cua-control', element: <CUAControl /> },
   { path: '/cua-recorder', element: <ActionRecorder /> },
-  { path: '/cua-memory', element: <SkillMemory /> },
   { path: '/mcp', element: <MCPTools /> },
   { path: '/gateway', element: <GatewayPage /> },
   { path: '/heartbeat', element: <HeartbeatPage /> },

@@ -1,16 +1,12 @@
-import { create } from 'zustand'
+﻿import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type {
-  AgentPendingConfirmation,
-  AgentTaskStatus,
-  AgentTimelineEvent,
   ChatMessage,
   PlaygroundAttachment,
   PlaygroundCandidate,
   PlaygroundPreset,
   PlaygroundSnapshot,
 } from '../types'
-import { API_BASE_URL } from '../services/api'
 import {
   createChatSession,
   deleteChatSession,
@@ -18,12 +14,6 @@ import {
   getChatSessionMessages,
   listChatSessions,
 } from '../services/chatSessionApi'
-import {
-  appendAgentTimelineEvent,
-  initialChatAgentState,
-  replaceAgentTimelineEvents,
-  resetAgentRuntimeState,
-} from './chatAgentState'
 import {
   addExperimentSnapshotRecord,
   clearActiveExperimentCandidates,
@@ -33,7 +23,6 @@ import {
   setActiveExperimentCandidates,
   updateExperimentSnapshotRecord,
 } from './chatExperimentState'
-import { mergeLoadedSessionRecord, parseAgentSessionState } from './chatSessionState'
 
 export interface ChatSession {
   id: string
@@ -44,17 +33,6 @@ export interface ChatSession {
   updatedAt: string
   messageCount: number
   metadata?: Record<string, unknown>
-}
-
-export interface AgentExecution {
-  id: string
-  status: 'pending' | 'executing' | 'confirming' | 'completed' | 'failed'
-  action: string
-  description: string
-  params?: Record<string, unknown>
-  result?: unknown
-  error?: string
-  timestamp: string
 }
 
 export interface ChatSettings {
@@ -87,13 +65,6 @@ interface ChatStore {
   messages: ChatMessage[]
   streamingMessageId: string | null
   streamingContent: string
-  agentExecution: AgentExecution | null
-  agentMode: boolean
-  agentTaskStatus: AgentTaskStatus
-  agentTimeline: AgentTimelineEvent[]
-  pendingAgentConfirmation: AgentPendingConfirmation | null
-  agentWorkspaceRoot: string
-  autoApproveSafeTools: boolean
   isStreaming: boolean
   isLoading: boolean
   error: string | null
@@ -131,18 +102,6 @@ interface ChatStore {
   completeStreaming: () => void
   setStreamState: (state: Partial<StreamState>) => void
 
-  setAgentExecution: (execution: AgentExecution | null) => void
-  confirmAgentExecution: () => Promise<void>
-  cancelAgentExecution: () => void
-  setAgentMode: (enabled: boolean) => void
-  setAgentTaskStatus: (status: AgentTaskStatus) => void
-  appendAgentTimeline: (event: AgentTimelineEvent) => void
-  replaceAgentTimeline: (events: AgentTimelineEvent[]) => void
-  clearAgentTimeline: () => void
-  setPendingAgentConfirmation: (confirmation: AgentPendingConfirmation | null) => void
-  setAgentWorkspaceRoot: (workspaceRoot: string) => void
-  setAutoApproveSafeTools: (enabled: boolean) => void
-
   updateSettings: (settings: Partial<ChatSettings>) => void
   setPromptDraft: (prompt: string) => void
   setAttachments: (attachments: PlaygroundAttachment[]) => void
@@ -150,17 +109,11 @@ interface ChatStore {
   removeAttachment: (attachmentId: string) => void
   clearAttachments: () => void
   setActiveCandidates: (candidates: PlaygroundCandidate[]) => void
-  updateActiveCandidate: (
-    candidateId: string,
-    updates: Partial<PlaygroundCandidate>
-  ) => void
+  updateActiveCandidate: (candidateId: string, updates: Partial<PlaygroundCandidate>) => void
   clearActiveCandidates: () => void
   setSelectedCandidateId: (candidateId: string | null) => void
   addExperimentSnapshot: (snapshot: PlaygroundSnapshot) => void
-  updateExperimentSnapshot: (
-    snapshotId: string,
-    updates: Partial<PlaygroundSnapshot>
-  ) => void
+  updateExperimentSnapshot: (snapshotId: string, updates: Partial<PlaygroundSnapshot>) => void
   setSelectedExperimentId: (experimentId: string | null) => void
   setResponseView: (view: ChatStore['responseView']) => void
   setLastRunMetadata: (snapshot: PlaygroundSnapshot | null) => void
@@ -172,6 +125,18 @@ interface ChatStore {
   setIsLoading: (loading: boolean) => void
 }
 
+function mergeLoadedSessionRecord(existingSession: ChatSession, loadedSession: ChatSession): ChatSession {
+  return {
+    ...existingSession,
+    title: loadedSession.title || existingSession.title,
+    modelId: loadedSession.modelId || existingSession.modelId,
+    backend: loadedSession.backend || existingSession.backend,
+    messageCount: loadedSession.messageCount ?? existingSession.messageCount,
+    updatedAt: loadedSession.updatedAt || existingSession.updatedAt,
+    metadata: loadedSession.metadata || existingSession.metadata || {},
+  }
+}
+
 export const useChatStore = create<ChatStore>()(
   persist(
     (set, get) => ({
@@ -180,8 +145,6 @@ export const useChatStore = create<ChatStore>()(
       messages: [],
       streamingMessageId: null,
       streamingContent: '',
-      agentExecution: null,
-      ...initialChatAgentState,
       isStreaming: false,
       isLoading: false,
       error: null,
@@ -210,26 +173,23 @@ export const useChatStore = create<ChatStore>()(
       attachments: [],
       ...initialChatExperimentState,
 
-      createSession: async (title = '新对话', modelId) => {
+      createSession: async (title = 'New Chat', modelId) => {
         try {
           const session = await createChatSession(
             title,
             modelId || get().settings.modelId,
             get().settings.backend
           )
-          
+
           set((state) => ({
-            sessions: [
-              session,
-              ...state.sessions,
-            ],
+            sessions: [session, ...state.sessions],
             currentSessionId: session.id,
             messages: [],
           }))
-          
+
           return session
         } catch (error) {
-          console.error('创建会话失败:', error)
+          console.error('閸掓稑缂撴导姘崇樈婢惰精瑙?', error)
           const localSession: ChatSession = {
             id: `local_${Date.now()}`,
             title,
@@ -239,13 +199,13 @@ export const useChatStore = create<ChatStore>()(
             updatedAt: new Date().toISOString(),
             messageCount: 0,
           }
-          
+
           set((state) => ({
             sessions: [localSession, ...state.sessions],
             currentSessionId: localSession.id,
             messages: [],
           }))
-          
+
           return localSession
         }
       },
@@ -256,28 +216,19 @@ export const useChatStore = create<ChatStore>()(
             getChatSession(sessionId, get().settings.backend),
             getChatSessionMessages(sessionId),
           ])
-          const agentSessionState = parseAgentSessionState(sessionData.metadata)
-          
+
           set({
             currentSessionId: sessionId,
             messages: messagesData.messages || [],
-            promptDraft: agentSessionState.promptDraft ?? get().promptDraft,
-            agentMode: agentSessionState.agentMode,
-            agentTaskStatus: agentSessionState.agentTaskStatus,
-            agentTimeline: agentSessionState.agentTimeline,
-            pendingAgentConfirmation: agentSessionState.pendingAgentConfirmation,
-            agentWorkspaceRoot: agentSessionState.agentWorkspaceRoot,
-            autoApproveSafeTools: agentSessionState.autoApproveSafeTools,
             sessions: get().sessions.map((session) =>
               session.id === sessionId ? mergeLoadedSessionRecord(session, sessionData) : session
             ),
           })
         } catch (error) {
-          console.error('加载会话失败:', error)
+          console.error('閸旂姾娴囨导姘崇樈婢惰精瑙?', error)
           set({
             currentSessionId: sessionId,
             messages: [],
-            ...resetAgentRuntimeState(),
           })
         }
       },
@@ -286,9 +237,9 @@ export const useChatStore = create<ChatStore>()(
         try {
           await deleteChatSession(sessionId)
         } catch (error) {
-          console.error('删除会话失败:', error)
+          console.error('閸掔娀娅庢导姘崇樈婢惰精瑙?', error)
         }
-        
+
         set((state) => ({
           sessions: state.sessions.filter((s) => s.id !== sessionId),
           currentSessionId: state.currentSessionId === sessionId ? null : state.currentSessionId,
@@ -311,11 +262,9 @@ export const useChatStore = create<ChatStore>()(
       loadSessions: async () => {
         try {
           const sessions = await listChatSessions(get().settings.backend)
-          set({
-            sessions,
-          })
+          set({ sessions })
         } catch (error) {
-          console.error('加载会话列表失败:', error)
+          console.error('閸旂姾娴囨导姘崇樈閸掓銆冩径杈Е:', error)
         }
       },
 
@@ -343,19 +292,17 @@ export const useChatStore = create<ChatStore>()(
           id,
           timestamp: new Date().toISOString(),
         }
-        
+
         set((state) => ({
           messages: [...state.messages, newMessage],
         }))
-        
+
         return id
       },
 
       updateMessage: (id, updates) => {
         set((state) => ({
-          messages: state.messages.map((m) =>
-            m.id === id ? { ...m, ...updates } : m
-          ),
+          messages: state.messages.map((m) => (m.id === id ? { ...m, ...updates } : m)),
         }))
       },
 
@@ -367,9 +314,7 @@ export const useChatStore = create<ChatStore>()(
 
       editMessage: (id, content) => {
         set((state) => ({
-          messages: state.messages.map((m) =>
-            m.id === id ? { ...m, content, isEdited: true } : m
-          ),
+          messages: state.messages.map((m) => (m.id === id ? { ...m, content, isEdited: true } : m)),
         }))
       },
 
@@ -407,7 +352,7 @@ export const useChatStore = create<ChatStore>()(
             bytesReceived: state.streamState.bytesReceived + content.length,
           },
         }))
-        
+
         const { streamingMessageId } = get()
         if (streamingMessageId) {
           get().updateMessage(streamingMessageId, { content })
@@ -430,7 +375,7 @@ export const useChatStore = create<ChatStore>()(
         if (streamingMessageId) {
           get().updateMessage(streamingMessageId, { isLoading: false })
         }
-        
+
         set({
           isStreaming: false,
           streamingMessageId: null,
@@ -445,87 +390,6 @@ export const useChatStore = create<ChatStore>()(
         set((state) => ({
           streamState: { ...state.streamState, ...updates },
         }))
-      },
-
-      setAgentExecution: (execution) => {
-        set({ agentExecution: execution })
-      },
-
-      confirmAgentExecution: async () => {
-        const { agentExecution } = get()
-        if (!agentExecution) return
-
-        set({
-          agentExecution: { ...agentExecution, status: 'executing' },
-        })
-
-        try {
-          const response = await fetch(`${API_BASE_URL}/agent/chat-execute`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              message: agentExecution.description,
-              auto_confirm: true,
-              context: agentExecution.params,
-            }),
-          })
-          
-          const result = await response.json()
-          
-          set({
-            agentExecution: {
-              ...agentExecution,
-              status: 'completed',
-              result: result.result,
-            },
-          })
-        } catch (error) {
-          set({
-            agentExecution: {
-              ...agentExecution,
-              status: 'failed',
-              error: String(error),
-            },
-          })
-        }
-      },
-
-      cancelAgentExecution: () => {
-        set({ agentExecution: null })
-      },
-
-      setAgentMode: (agentMode) => {
-        set({ agentMode })
-      },
-
-      setAgentTaskStatus: (agentTaskStatus) => {
-        set({ agentTaskStatus })
-      },
-
-      appendAgentTimeline: (event) => {
-        set((state) => ({
-          agentTimeline: appendAgentTimelineEvent(state.agentTimeline, event),
-        }))
-      },
-
-      replaceAgentTimeline: (agentTimeline) => {
-        set({ agentTimeline: replaceAgentTimelineEvents(agentTimeline) })
-      },
-
-      clearAgentTimeline: () => {
-        set({ agentTimeline: resetAgentRuntimeState().agentTimeline })
-      },
-
-      setPendingAgentConfirmation: (pendingAgentConfirmation) => {
-        set({ pendingAgentConfirmation })
-      },
-
-      setAgentWorkspaceRoot: (agentWorkspaceRoot) => {
-        set({ agentWorkspaceRoot })
-      },
-
-      setAutoApproveSafeTools: (autoApproveSafeTools) => {
-        set({ autoApproveSafeTools })
       },
 
       updateSettings: (newSettings) => {
@@ -610,9 +474,7 @@ export const useChatStore = create<ChatStore>()(
       },
 
       deletePreset: (presetId) => {
-        set((state) =>
-          deleteExperimentPreset(state.presets, presetId, state.selectedPresetId)
-        )
+        set((state) => deleteExperimentPreset(state.presets, presetId, state.selectedPresetId))
       },
 
       setSelectedPresetId: (selectedPresetId) => {
@@ -633,9 +495,6 @@ export const useChatStore = create<ChatStore>()(
         currentSessionId: state.currentSessionId,
         settings: state.settings,
         sessions: state.sessions.slice(0, 50),
-        agentMode: state.agentMode,
-        agentWorkspaceRoot: state.agentWorkspaceRoot,
-        autoApproveSafeTools: state.autoApproveSafeTools,
         promptDraft: state.promptDraft,
         attachments: state.attachments,
         activeCandidates: state.activeCandidates,
@@ -646,8 +505,8 @@ export const useChatStore = create<ChatStore>()(
         experimentSnapshots: state.experimentSnapshots.slice(0, 50),
         presets: state.presets.slice(0, 50),
         selectedPresetId: state.selectedPresetId,
-        pendingAgentConfirmation: state.pendingAgentConfirmation,
       }),
     }
   )
 )
+

@@ -196,6 +196,7 @@ async def take_screenshot(request: ScreenshotRequest):
             "height": result.height,
             "format": result.format,
             "image": result.base64,
+            "image_base64": result.base64,
             "monitor": result.monitor_index,
         }
     except CUAError as e:
@@ -220,7 +221,12 @@ async def get_screen_info():
                 "height": size.y,
             })
 
+        primary_monitor = monitors[0] if monitors else {"width": 0, "height": 0}
+
         return {
+            "width": primary_monitor["width"],
+            "height": primary_monitor["height"],
+            "monitorCount": monitor_count,
             "monitor_count": monitor_count,
             "monitors": monitors,
         }
@@ -816,11 +822,18 @@ async def playback_actions(request: PlaybackRequest):
 async def get_safety_status():
     try:
         safety = get_safety_controller()
+        permission_level = safety.get_permission_level().value
+        failsafe_enabled = safety.is_failsafe_enabled()
+        emergency_stop_triggered = safety.is_emergency_stop_triggered()
 
         return {
-            "permission_level": safety.get_permission_level().value,
-            "failsafe_enabled": safety.is_failsafe_enabled(),
-            "emergency_stop_triggered": safety.is_emergency_stop_triggered(),
+            "enabled": True,
+            "permissionLevel": permission_level,
+            "failsafeEnabled": failsafe_enabled,
+            "auditEnabled": True,
+            "permission_level": permission_level,
+            "failsafe_enabled": failsafe_enabled,
+            "emergency_stop_triggered": emergency_stop_triggered,
         }
     except Exception as e:
         logger.error(f"获取安全状态失败: {e}", exc_info=True)

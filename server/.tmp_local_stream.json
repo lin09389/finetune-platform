@@ -1,0 +1,13 @@
+﻿{
+  "model": "qwen3:4b",
+  "messages": [
+    {"role": "user", "content": "请只回复：本地流式ok"}
+  ],
+  "options": {"backend": "ollama", "temperature": 0.2, "top_p": 0.9, "max_tokens": 60},
+  "stream": true,
+  "format": "text",
+  "response_format": "text",
+  "memory": {"enabled": false, "auto_extract": false, "auto_retrieve": false},
+  "knowledge": {"use_knowledge": false, "auto_retrieve": false, "include_sources": false},
+  "session": {"session_id": "smoke-local", "user_id": "smoke"}
+}

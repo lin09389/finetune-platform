@@ -92,6 +92,9 @@ class OCRResponse(BaseModel):
     language: str = Field(default="", description="Requested language code")
     processing_time: float = Field(default=0.0, description="Processing time in seconds")
     engine: str = Field(default="tesseract", description="OCR engine")
+    available: bool = Field(default=True, description="Whether an OCR engine is currently available")
+    status: str = Field(default="ok", description="Availability status")
+    error_code: str | None = Field(default=None, description="Machine-readable error code when OCR is unavailable")
 
 
 class BatchOCRRequest(BaseModel):
@@ -111,15 +114,22 @@ class LanguageInfo(BaseModel):
     available: bool
 
 
-def _placeholder_response(language: str) -> dict:
+def _unavailable_response(language: str) -> dict:
     return {
-        "text": "Tesseract OCR is not installed or not configured.",
+        "text": "",
         "confidence": 0.0,
         "regions": [],
         "language": language,
         "processing_time": 0.0,
-        "engine": "placeholder",
+        "engine": "unavailable",
+        "available": False,
+        "status": "unavailable",
+        "error_code": "dependency_missing",
     }
+
+
+def _ocr_is_available() -> bool:
+    return RAPIDOCR_AVAILABLE or (TESSERACT_AVAILABLE and pytesseract is not None and Image is not None)
 
 
 def _get_rapidocr_engine():
@@ -234,8 +244,8 @@ def _score_candidate(
 
 
 def _perform_ocr(image_data: bytes, language: str = "ch") -> dict:
-    if (not TESSERACT_AVAILABLE or pytesseract is None or Image is None) and not RAPIDOCR_AVAILABLE:
-        return _placeholder_response(language)
+    if not _ocr_is_available():
+        return _unavailable_response(language)
 
     start_time = datetime.now()
     try:
@@ -282,6 +292,9 @@ def _perform_ocr(image_data: bytes, language: str = "ch") -> dict:
             "language": language,
             "processing_time": round(processing_time, 3),
             "engine": "tesseract",
+            "available": True,
+            "status": "ok",
+            "error_code": None,
         }
     except Exception as exc:
         logger.error("OCR processing failed: %s", exc)
@@ -292,6 +305,9 @@ def _perform_ocr(image_data: bytes, language: str = "ch") -> dict:
             "language": language,
             "processing_time": 0.0,
             "engine": "error",
+            "available": False,
+            "status": "error",
+            "error_code": "processing_failed",
         }
 
 
@@ -347,6 +363,9 @@ def _perform_rapidocr(image_data: bytes, language: str) -> dict | None:
             "language": language,
             "processing_time": 0.0,
             "engine": "rapidocr",
+            "available": True,
+            "status": "ok",
+            "error_code": None,
         }
     except Exception as exc:
         logger.warning("RapidOCR processing failed, falling back to Tesseract: %s", exc)
@@ -356,10 +375,22 @@ def _perform_rapidocr(image_data: bytes, language: str) -> dict | None:
 @router.post("", response_model=OCRResponse)
 async def ocr_image(request: OCRRequest):
     try:
+        if not _ocr_is_available():
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "message": "OCR engine is unavailable",
+                    "error_code": "dependency_missing",
+                    "available": False,
+                    "status": "unavailable",
+                },
+            )
         image_data = base64.b64decode(request.image_base64)
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(_ocr_executor, _perform_ocr, image_data, request.language)
         return OCRResponse(**result)
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error("OCR API failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"OCR processing failed: {exc}")
@@ -381,7 +412,17 @@ async def batch_ocr(request: BatchOCRRequest):
             results.append(OCRResponse(**result))
         except Exception as exc:
             logger.error("Batch OCR item failed: %s", exc)
-            results.append(OCRResponse(text="", confidence=0.0, regions=[], engine="error"))
+            results.append(
+                OCRResponse(
+                    text="",
+                    confidence=0.0,
+                    regions=[],
+                    engine="error",
+                    available=False,
+                    status="error",
+                    error_code="processing_failed",
+                )
+            )
 
     total_time = (datetime.now() - start_time).total_seconds()
     return BatchOCRResponse(results=results, total_processing_time=round(total_time, 3))
@@ -439,12 +480,15 @@ async def get_ocr_status():
 
     return {
         "engine": "rapidocr+tesseract" if RAPIDOCR_AVAILABLE and TESSERACT_AVAILABLE else (
-            "rapidocr" if RAPIDOCR_AVAILABLE else ("tesseract" if TESSERACT_AVAILABLE else "placeholder")
+            "rapidocr" if RAPIDOCR_AVAILABLE else ("tesseract" if TESSERACT_AVAILABLE else "unavailable")
         ),
-        "available": RAPIDOCR_AVAILABLE or TESSERACT_AVAILABLE,
-        "message": "OCR engine ready" if (RAPIDOCR_AVAILABLE or TESSERACT_AVAILABLE) else "OCR engine is not installed or not configured",
+        "available": _ocr_is_available(),
+        "status": "ok" if _ocr_is_available() else "unavailable",
+        "error_code": None if _ocr_is_available() else "dependency_missing",
+        "message": "OCR engine ready" if _ocr_is_available() else "OCR engine is not installed or not configured",
         "tesseract_path": TESSERACT_PATH,
         "error": TESSERACT_ERROR,
         "rapidocr_available": RAPIDOCR_AVAILABLE,
+        "tesseract_available": TESSERACT_AVAILABLE and pytesseract is not None and Image is not None,
         "supported_languages": supported_languages,
     }

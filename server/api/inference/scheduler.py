@@ -316,10 +316,12 @@ class ModelScheduler:
                 settings = get_settings()
                 self._backends[backend] = OllamaResilientBackend({
                     "base_url": settings.ollama_base_url,
-                    "timeout": 60,
-                    "max_connections": 10,
-                    "max_retries": 3,
-                    "retry_delay": 1.0,
+                    "timeout": settings.ollama_timeout_seconds,
+                    "stream_read_timeout": settings.ollama_stream_read_timeout_seconds,
+                    "max_connections": settings.ollama_max_connections,
+                    "max_retries": settings.ollama_max_retries,
+                    "retry_delay": settings.ollama_retry_delay_seconds,
+                    "disable_thinking": settings.ollama_fast_mode,
                     "health_check_interval": 30
                 })
             return self._backends[backend]

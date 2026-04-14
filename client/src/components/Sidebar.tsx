@@ -1,4 +1,4 @@
-import { Layout, Tooltip } from 'antd'
+﻿﻿import { Layout, Tooltip } from 'antd'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
@@ -16,7 +16,6 @@ import {
   MenuUnfoldOutlined,
   ThunderboltOutlined,
   CodeOutlined,
-  ToolOutlined,
   BulbOutlined,
   ClusterOutlined,
   HeartOutlined,
@@ -65,7 +64,6 @@ const menuGroups: MenuGroup[] = [
       { key: '/inference', icon: <ThunderboltOutlined />, label: '推理测试', description: '模型测试' },
       { key: '/knowledge', icon: <BookOutlined />, label: '知识库', description: 'RAG 检索' },
       { key: '/memory', icon: <BulbOutlined />, label: '智能记忆', description: '三层记忆系统' },
-      { key: '/skills', icon: <ToolOutlined />, label: '技能管理', description: '技能执行' },
     ]
   },
   {
@@ -74,8 +72,8 @@ const menuGroups: MenuGroup[] = [
       { key: '/workspace', icon: <AppstoreOutlined />, label: '工作空间', description: '项目管理' },
       { key: '/project-context', icon: <CodeOutlined />, label: '项目上下文', description: '代码理解' },
       { key: '/cloud-api', icon: <CloudOutlined />, label: '云端 API', description: 'API Key 管理' },
-      { key: '/gateway', icon: <ClusterOutlined />, label: 'Gateway', description: '设备管理' },
-      { key: '/heartbeat', icon: <HeartOutlined />, label: 'Heartbeat', description: '任务调度' },
+      { key: '/gateway', icon: <ClusterOutlined />, label: 'Gateway', description: '实验性设备管理' },
+      { key: '/heartbeat', icon: <HeartOutlined />, label: 'Heartbeat', description: '实验性任务调度' },
     ]
   },
   {
@@ -307,3 +305,4 @@ export default function Sidebar() {
     </Sider>
   )
 }
+

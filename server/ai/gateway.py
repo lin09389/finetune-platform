@@ -202,13 +202,37 @@ class MinimaxProvider(AIProvider):
                 )
                 response.raise_for_status()
                 data = response.json()
+                base_resp = data.get("base_resp") if isinstance(data, dict) else None
+                if isinstance(base_resp, dict):
+                    status_code = int(base_resp.get("status_code", 0) or 0)
+                    if status_code != 0:
+                        raise ValueError(base_resp.get("status_msg", "Minimax returned an error"))
 
-                if "choices" not in data or not data["choices"]:
+                content = ""
+                choices = data.get("choices")
+                if isinstance(choices, list) and choices:
+                    first_choice = choices[0] if isinstance(choices[0], dict) else {}
+                    message = first_choice.get("message", {}) if isinstance(first_choice, dict) else {}
+                    if isinstance(message, dict):
+                        content = message.get("content", "") or message.get("reasoning_content", "")
+                    if not content:
+                        delta = first_choice.get("delta", {}) if isinstance(first_choice, dict) else {}
+                        if isinstance(delta, dict):
+                            content = delta.get("content", "") or delta.get("reasoning_content", "")
+
+                if not content:
+                    # Backward/variant response compatibility.
+                    content = (
+                        data.get("content")
+                        or data.get("reply")
+                        or data.get("output_text")
+                        or data.get("text")
+                        or ""
+                    )
+
+                if not content:
                     error_msg = data.get("message", data.get("error", "未知错误"))
                     raise ValueError(f"API 返回格式异常: {error_msg}")
-
-                message = data["choices"][0]["message"]
-                content = message.get("content", "") or message.get("reasoning_content", "")
 
                 return {
                     "content": content,
@@ -274,6 +298,7 @@ class MinimaxProvider(AIProvider):
         params = {**default_params, **kwargs}
 
         try:
+            yielded = 0
             async with client.stream(
                 "POST",
                 f"{self.base_url}/text/chatcompletion_v2",
@@ -291,18 +316,52 @@ class MinimaxProvider(AIProvider):
                 response.raise_for_status()
 
                 async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        data = line[6:]
-                        if data == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data)
-                            delta = chunk["choices"][0]["delta"]
+                    if not line:
+                        continue
+
+                    payload = line
+                    if line.startswith("data:"):
+                        payload = line.split(":", 1)[1].strip()
+
+                    if payload == "[DONE]":
+                        break
+
+                    try:
+                        chunk = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+                    base_resp = chunk.get("base_resp") if isinstance(chunk, dict) else None
+                    if isinstance(base_resp, dict):
+                        status_code = int(base_resp.get("status_code", 0) or 0)
+                        if status_code != 0:
+                            raise ValueError(base_resp.get("status_msg", "Minimax stream returned an error"))
+
+                    content = ""
+                    choices = chunk.get("choices")
+                    if isinstance(choices, list) and choices:
+                        first_choice = choices[0] if isinstance(choices[0], dict) else {}
+                        delta = first_choice.get("delta", {}) if isinstance(first_choice, dict) else {}
+                        if isinstance(delta, dict):
                             content = delta.get("content", "") or delta.get("reasoning_content", "")
-                            if content:
-                                yield {"content": content, "delta": True}
-                        except (json.JSONDecodeError, KeyError, IndexError):
-                            continue
+                        if not content:
+                            message = first_choice.get("message", {}) if isinstance(first_choice, dict) else {}
+                            if isinstance(message, dict):
+                                content = message.get("content", "") or message.get("reasoning_content", "")
+
+                    if not content:
+                        content = (
+                            chunk.get("content")
+                            or chunk.get("text")
+                            or chunk.get("output_text")
+                            or ""
+                        )
+
+                    if content:
+                        yield {"content": content, "delta": True}
+                        yielded += 1
+
+                if yielded == 0:
+                    raise ValueError("云端流式响应为空，请检查 API Key、模型权限或供应商返回格式")
 
         except httpx.HTTPStatusError as e:
             error_detail = self._parse_error_response(e.response)
@@ -314,6 +373,11 @@ class MinimaxProvider(AIProvider):
         """解析错误响应"""
         try:
             error_body = response.json()
+            base_resp = error_body.get("base_resp") if isinstance(error_body, dict) else None
+            if isinstance(base_resp, dict):
+                status_msg = base_resp.get("status_msg")
+                if status_msg:
+                    return str(status_msg)
             return error_body.get("message", error_body.get("error", str(error_body)))
         except Exception:
             return response.text or f"HTTP {response.status_code}"
@@ -446,17 +510,38 @@ class GLMProvider(AIProvider):
                 response.raise_for_status()
 
                 async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        data = line[6:]
-                        if data == "[DONE]":
-                            break
-                        try:
-                            chunk = json.loads(data)
-                            content = chunk["choices"][0]["delta"].get("content", "")
-                            if content:
-                                yield {"content": content, "delta": True}
-                        except (json.JSONDecodeError, KeyError):
-                            continue
+                    if not line:
+                        continue
+
+                    payload = line
+                    if line.startswith("data:"):
+                        payload = line.split(":", 1)[1].strip()
+
+                    if payload == "[DONE]":
+                        break
+
+                    try:
+                        chunk = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+
+                    content = ""
+                    choices = chunk.get("choices")
+                    if isinstance(choices, list) and choices:
+                        first_choice = choices[0] if isinstance(choices[0], dict) else {}
+                        delta = first_choice.get("delta", {}) if isinstance(first_choice, dict) else {}
+                        if isinstance(delta, dict):
+                            content = delta.get("content", "")
+                        if not content:
+                            message = first_choice.get("message", {}) if isinstance(first_choice, dict) else {}
+                            if isinstance(message, dict):
+                                content = message.get("content", "")
+
+                    if not content:
+                        content = chunk.get("content") or chunk.get("text") or ""
+
+                    if content:
+                        yield {"content": content, "delta": True}
 
         except httpx.HTTPStatusError as e:
             error_detail = self._parse_error_response(e.response)

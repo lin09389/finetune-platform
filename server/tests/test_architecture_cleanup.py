@@ -14,6 +14,7 @@ cua_api = importlib.import_module("api.cua")
 heartbeat_api = importlib.import_module("api.heartbeat")
 gateway_routes = importlib.import_module("api.gateway_api.routes")
 main_module = importlib.import_module("main")
+ocr_api = importlib.import_module("api.ocr")
 
 from gateway.cross_agent import CrossAgentCommunicator  # noqa: E402
 from gateway.device_auth import DeviceAuthManager  # noqa: E402
@@ -302,3 +303,64 @@ async def test_gateway_devices_include_canonical_fields_and_permissions(monkeypa
     assert device["type"] == "web"
     assert device["device_type"] == "web"
     assert "chat" in device["permissions"]
+
+
+@pytest.mark.asyncio
+async def test_cua_screen_info_returns_canonical_and_legacy_fields(monkeypatch):
+    class _ScreenSize:
+        def __init__(self, x: int, y: int) -> None:
+            self.x = x
+            self.y = y
+
+    class _ScreenCaptureStub:
+        def get_monitor_count(self) -> int:
+            return 2
+
+        def get_screen_size(self, index: int) -> _ScreenSize:
+            return _ScreenSize(1920 if index == 0 else 1280, 1080 if index == 0 else 720)
+
+    monkeypatch.setattr(cua_api, "get_screen_capture", lambda: _ScreenCaptureStub())
+
+    payload = await cua_api.get_screen_info()
+
+    assert payload["width"] == 1920
+    assert payload["height"] == 1080
+    assert payload["monitorCount"] == 2
+    assert payload["monitor_count"] == 2
+    assert len(payload["monitors"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_cua_screenshot_returns_image_aliases(monkeypatch):
+    class _ScreenCaptureStub:
+        async def capture_screen_async(self, monitor: int):
+            class _Result:
+                width = 1920
+                height = 1080
+                format = "png"
+                base64 = "ZmFrZS1pbWFnZQ=="
+                monitor_index = monitor
+
+            return _Result()
+
+    monkeypatch.setattr(cua_api, "get_screen_capture", lambda: _ScreenCaptureStub())
+
+    payload = await cua_api.take_screenshot(cua_api.ScreenshotRequest(monitor=0))
+
+    assert payload["image"] == "ZmFrZS1pbWFnZQ=="
+    assert payload["image_base64"] == "ZmFrZS1pbWFnZQ=="
+
+
+@pytest.mark.asyncio
+async def test_ocr_unavailable_returns_explicit_dependency_error(monkeypatch):
+    monkeypatch.setattr(ocr_api, "TESSERACT_AVAILABLE", False)
+    monkeypatch.setattr(ocr_api, "RAPIDOCR_AVAILABLE", False)
+    monkeypatch.setattr(ocr_api, "pytesseract", None)
+    monkeypatch.setattr(ocr_api, "Image", None)
+
+    with pytest.raises(HTTPException) as exc:
+        await ocr_api.ocr_image(ocr_api.OCRRequest(image_base64="ZmFrZQ==", language="ch"))
+
+    assert exc.value.status_code == 503
+    assert exc.value.detail["error_code"] == "dependency_missing"
+    assert exc.value.detail["status"] == "unavailable"

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { message } from 'antd'
+import { Alert, Tag, message } from 'antd'
 import {
   AimOutlined,
   CameraOutlined,
@@ -32,6 +32,11 @@ interface SafetyStatus {
   auditEnabled: boolean
 }
 
+interface CapabilityNotice {
+  kind: 'info' | 'warning' | 'error'
+  message: string
+}
+
 const TABS = [
   { key: 'screenshot', label: '屏幕截图', icon: <CameraOutlined /> },
   { key: 'mouse', label: '鼠标控制', icon: <AimOutlined /> },
@@ -46,6 +51,7 @@ export const CUAControl: React.FC = () => {
   const [screenshot, setScreenshot] = useState('')
   const [safetyStatus, setSafetyStatus] = useState<SafetyStatus | null>(null)
   const [loading, setLoading] = useState(false)
+  const [capabilityNotice, setCapabilityNotice] = useState<CapabilityNotice | null>(null)
 
   const [mouseX, setMouseX] = useState(0)
   const [mouseY, setMouseY] = useState(0)
@@ -67,9 +73,21 @@ export const CUAControl: React.FC = () => {
   const fetchScreenInfo = async () => {
     try {
       const response = await apiClient.get('/cua/screen/info')
-      setScreenInfo(response.data)
+      const data = response.data || {}
+      const monitors = Array.isArray(data.monitors) ? data.monitors : []
+      const primaryMonitor = monitors[0] || {}
+      setScreenInfo({
+        width: data.width ?? primaryMonitor.width ?? 0,
+        height: data.height ?? primaryMonitor.height ?? 0,
+        monitorCount: data.monitorCount ?? data.monitor_count ?? monitors.length ?? 0,
+      })
+      setCapabilityNotice(null)
     } catch (error) {
       console.error('Failed to fetch screen info:', error)
+      setCapabilityNotice({
+        kind: 'warning',
+        message: '当前环境无法读取屏幕能力，部分 CUA 功能可能不可用。',
+      })
     }
   }
 
@@ -85,7 +103,13 @@ export const CUAControl: React.FC = () => {
   const fetchSafetyStatus = async () => {
     try {
       const response = await apiClient.get('/cua/safety/status')
-      setSafetyStatus(response.data)
+      const data = response.data || {}
+      setSafetyStatus({
+        enabled: data.enabled ?? true,
+        permissionLevel: data.permissionLevel ?? data.permission_level ?? 'unknown',
+        failsafeEnabled: data.failsafeEnabled ?? data.failsafe_enabled ?? false,
+        auditEnabled: data.auditEnabled ?? false,
+      })
     } catch (error) {
       console.error('Failed to fetch safety status:', error)
     }
@@ -99,7 +123,8 @@ export const CUAControl: React.FC = () => {
         format: 'png',
         quality: screenshotQuality,
       })
-      setScreenshot(`data:image/png;base64,${response.data.image_base64}`)
+      const imageBase64 = response.data.image_base64 || response.data.image
+      setScreenshot(`data:image/png;base64,${imageBase64}`)
       message.success('截图成功')
     } catch {
       message.error('截图失败')
@@ -146,12 +171,31 @@ export const CUAControl: React.FC = () => {
         <DesktopOutlined /> Computer Use Agent 控制面板（实验）
       </h2>
 
+      <div style={{ marginBottom: 12 }}>
+        <Tag color="gold">Experimental</Tag>
+        {safetyStatus?.permissionLevel && (
+          <Tag color={safetyStatus.permissionLevel === 'read_only' ? 'blue' : 'volcano'}>
+            权限: {safetyStatus.permissionLevel}
+          </Tag>
+        )}
+      </div>
+
       <div className={styles.experimentBanner}>
         <WarningOutlined style={{ color: '#faad14', flexShrink: 0, marginTop: 2 }} />
         <p>
           <strong>实验功能与安全提示</strong> — CUA 仍处于实验阶段，并且允许 AI 直接操作本机。请只在可控环境中使用，并对敏感操作保持人工确认。
         </p>
       </div>
+
+      {capabilityNotice && (
+        <Alert
+          style={{ marginBottom: 16 }}
+          type={capabilityNotice.kind}
+          showIcon
+          message="环境能力状态"
+          description={capabilityNotice.message}
+        />
+      )}
 
       {/* Stats */}
       <div className={styles.statsRow}>
@@ -191,22 +235,27 @@ export const CUAControl: React.FC = () => {
 
       {/* Tabs */}
       <div className={styles.tabsWrapper}>
-        <div className={styles.tabList}>
+        <div className={styles.tabList} role="tablist" aria-label="CUA control tabs">
           {TABS.map((tab) => (
-            <div
+            <button
               key={tab.key}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.key}
+              aria-controls={`cua-tabpanel-${tab.key}`}
               className={`${styles.tabItem} ${activeTab === tab.key ? styles.tabItemActive : ''}`}
               onClick={() => setActiveTab(tab.key)}
+              data-testid={`cua-tab-${tab.key}`}
             >
               {tab.icon} {tab.label}
-            </div>
+            </button>
           ))}
         </div>
 
         <div className={styles.tabContent}>
           {/* Screenshot */}
           {activeTab === 'screenshot' && (
-            <div className={styles.formSection}>
+            <div className={styles.formSection} role="tabpanel" id="cua-tabpanel-screenshot">
               <div className={`${styles.formGrid} ${styles.formGrid3}`}>
                 <div className={styles.formField}>
                   <label className={styles.formLabel}>显示器</label>
@@ -243,7 +292,7 @@ export const CUAControl: React.FC = () => {
 
           {/* Mouse */}
           {activeTab === 'mouse' && (
-            <div className={styles.formSection}>
+            <div className={styles.formSection} role="tabpanel" id="cua-tabpanel-mouse">
               <div className={`${styles.formGrid} ${styles.formGrid4}`}>
                 <div className={styles.formField}>
                   <label className={styles.formLabel}>X 坐标</label>
@@ -299,7 +348,7 @@ export const CUAControl: React.FC = () => {
 
           {/* Keyboard */}
           {activeTab === 'keyboard' && (
-            <div className={styles.formSection}>
+            <div className={styles.formSection} role="tabpanel" id="cua-tabpanel-keyboard">
               <div className={styles.formField}>
                 <label className={styles.formLabel}>输入文本</label>
                 <textarea className={styles.formTextarea} value={inputText} rows={3}
@@ -337,7 +386,7 @@ export const CUAControl: React.FC = () => {
 
           {/* Safety */}
           {activeTab === 'safety' && (
-            <div className={styles.formSection}>
+            <div className={styles.formSection} role="tabpanel" id="cua-tabpanel-safety">
               <div className={`${styles.formGrid} ${styles.formGrid2}`}>
                 <div className={styles.formField}>
                   <label className={styles.formLabel}>权限级别</label>

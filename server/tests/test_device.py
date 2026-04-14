@@ -40,3 +40,15 @@ class TestDeviceAPI:
         assert response.status_code == 200
         data = response.json()
         assert data["version"] == "1.0.0"
+
+    def test_api_info_uses_canonical_routes_and_tiers(self):
+        """测试 API 元数据使用真实的规范路由和能力分层"""
+        response = client.get("/api/info")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["version"] == "2.1.0"
+        assert data["endpoints"]["chat"] == "/chat/sessions"
+        assert data["endpoints"]["knowledge"] == "/knowledge"
+        assert data["endpoints"]["memory"] == "/memory"
+        assert "capability_tiers" in data
+        assert "experimental" in data["capability_tiers"]

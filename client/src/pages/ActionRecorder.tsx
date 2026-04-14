@@ -58,6 +58,7 @@ export const ActionRecorder: React.FC = () => {
   const [filename, setFilename] = useState('');
   const [savedFiles, setSavedFiles] = useState<SavedRecording[]>([]);
   const [playbackMode, setPlaybackMode] = useState<'realtime' | 'fast'>('realtime');
+  const [capabilityMessage, setCapabilityMessage] = useState<string | null>(null);
 
   useEffect(() => {
     void fetchActions();
@@ -77,8 +78,12 @@ export const ActionRecorder: React.FC = () => {
     try {
       const response = await apiClient.get('/cua/record/actions');
       setActions(response.data.actions || []);
+      setIsRecording(Boolean(response.data.is_recording));
+      setIsPaused(Boolean(response.data.is_paused));
+      setCapabilityMessage(null);
     } catch (error) {
       console.error('Failed to fetch actions:', error);
+      setCapabilityMessage('当前环境无法读取录制器状态，请确认本机交互能力已启用。');
     }
   };
 
@@ -99,34 +104,38 @@ export const ActionRecorder: React.FC = () => {
   };
 
   const handleStartRecording = async () => {
+    setIsRecording(true);
+    setIsPaused(false);
     try {
       await apiClient.post('/cua/record/action', { action: 'start' });
-      setIsRecording(true);
-      setIsPaused(false);
       message.success('Recording started');
     } catch (error) {
+      setIsRecording(false);
       message.error('Failed to start recording');
     }
   };
 
   const handlePauseRecording = async () => {
+    const nextPaused = !isPaused;
+    setIsPaused(nextPaused);
     try {
       await apiClient.post('/cua/record/action', { action: isPaused ? 'resume' : 'pause' });
-      setIsPaused(!isPaused);
       message.success(isPaused ? 'Recording resumed' : 'Recording paused');
     } catch (error) {
+      setIsPaused(!nextPaused);
       message.error('Recording action failed');
     }
   };
 
   const handleStopRecording = async () => {
+    setIsRecording(false);
+    setIsPaused(false);
     try {
       await apiClient.post('/cua/record/action', { action: 'stop' });
-      setIsRecording(false);
-      setIsPaused(false);
       await fetchActions();
       message.success('Recording stopped');
     } catch (error) {
+      setIsRecording(true);
       message.error('Failed to stop recording');
     }
   };
@@ -285,6 +294,16 @@ export const ActionRecorder: React.FC = () => {
         showIcon
         style={{ marginBottom: 24 }}
       />
+
+      {capabilityMessage && (
+        <Alert
+          message="Recorder capability status"
+          description={capabilityMessage}
+          type="warning"
+          showIcon
+          style={{ marginBottom: 24 }}
+        />
+      )}
 
       <Row gutter={16} style={{ marginBottom: 24 }}>
         <Col span={4}>

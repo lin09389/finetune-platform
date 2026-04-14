@@ -228,20 +228,52 @@ describe('ActionRecorder', () => {
   })
 
   it('should show pause and stop buttons when recording', async () => {
-    render(<ActionRecorder />)
+    mockApiGet.mockImplementation((url: string) => {
+      if (url === '/cua/record/actions') {
+        return Promise.resolve({
+          data: {
+            is_recording: true,
+            is_paused: false,
+            actions: [
+              { action_type: 'mouse_click', timestamp: 1234567890, data: { x: 100, y: 200 } },
+            ],
+          },
+        })
+      }
+      if (url === '/cua/record/files') {
+        return Promise.resolve({ data: { files: [] } })
+      }
+      return Promise.resolve({ data: {} })
+    })
 
-    fireEvent.click(screen.getByRole('button', { name: /Start Recording/i }))
+    render(<ActionRecorder />)
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Pause/i })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /Stop Recording/i })).toBeInTheDocument()
     })
-  })
+  }, 15000)
 
   it('should handle pause recording', async () => {
-    render(<ActionRecorder />)
+    mockApiGet.mockImplementation((url: string) => {
+      if (url === '/cua/record/actions') {
+        return Promise.resolve({
+          data: {
+            is_recording: true,
+            is_paused: false,
+            actions: [
+              { action_type: 'mouse_click', timestamp: 1234567890, data: { x: 100, y: 200 } },
+            ],
+          },
+        })
+      }
+      if (url === '/cua/record/files') {
+        return Promise.resolve({ data: { files: [] } })
+      }
+      return Promise.resolve({ data: {} })
+    })
 
-    fireEvent.click(screen.getByRole('button', { name: /Start Recording/i }))
+    render(<ActionRecorder />)
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Pause/i })).toBeInTheDocument()
@@ -255,9 +287,25 @@ describe('ActionRecorder', () => {
   }, 15000)
 
   it('should handle stop recording', async () => {
-    render(<ActionRecorder />)
+    mockApiGet.mockImplementation((url: string) => {
+      if (url === '/cua/record/actions') {
+        return Promise.resolve({
+          data: {
+            is_recording: true,
+            is_paused: false,
+            actions: [
+              { action_type: 'mouse_click', timestamp: 1234567890, data: { x: 100, y: 200 } },
+            ],
+          },
+        })
+      }
+      if (url === '/cua/record/files') {
+        return Promise.resolve({ data: { files: [] } })
+      }
+      return Promise.resolve({ data: {} })
+    })
 
-    fireEvent.click(screen.getByRole('button', { name: /Start Recording/i }))
+    render(<ActionRecorder />)
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /Stop Recording/i })).toBeInTheDocument()

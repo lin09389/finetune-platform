@@ -60,6 +60,13 @@ class Settings(BaseSettings):
     outputs_dir: Path | None = Field(default=None, description="输出目录")
 
     ollama_base_url: str = Field(default="http://localhost:11434", description="Ollama 基础 URL")
+    ollama_fast_mode: bool = Field(default=False, description="Ollama 快速模式（更短输出、更低延迟）")
+    ollama_fast_max_tokens: int = Field(default=128, ge=16, le=2048, description="快速模式下最大生成 token")
+    ollama_timeout_seconds: int = Field(default=60, ge=10, le=600, description="Ollama 请求超时（秒）")
+    ollama_stream_read_timeout_seconds: int = Field(default=120, ge=10, le=1200, description="Ollama 流式读取超时（秒）")
+    ollama_max_connections: int = Field(default=10, ge=1, le=100, description="Ollama 连接池最大连接数")
+    ollama_max_retries: int = Field(default=3, ge=0, le=10, description="Ollama 请求重试次数")
+    ollama_retry_delay_seconds: float = Field(default=1.0, ge=0.1, le=10.0, description="Ollama 重试基础延迟（秒）")
 
     inference_engine: Literal["huggingface", "vllm", "llamacpp", "ollama"] = Field(
         default="huggingface",

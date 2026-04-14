@@ -1,4 +1,4 @@
-import React, { memo, useState, useCallback } from 'react'
+﻿import React, { memo, useState, useCallback } from 'react'
 import { Drawer, Button, Avatar } from 'antd'
 import { motion } from 'framer-motion'
 import { useNavigate, useLocation } from 'react-router-dom'
@@ -18,7 +18,6 @@ import {
   ThunderboltOutlined,
   BulbOutlined,
   CodeOutlined,
-  ToolOutlined,
   AppstoreOutlined,
 } from '@ant-design/icons'
 import { useAppStore } from '../../store/appStore'
@@ -43,7 +42,6 @@ const navItems: NavItem[] = [
   { key: '/knowledge', icon: <BookOutlined />, label: '知识库', category: 'secondary' },
   { key: '/memory', icon: <BulbOutlined />, label: '智能记忆', category: 'secondary' },
   { key: '/workspace', icon: <AppstoreOutlined />, label: '工作空间', category: 'secondary' },
-  { key: '/skills', icon: <ToolOutlined />, label: '技能管理', category: 'secondary' },
   { key: '/inference', icon: <ThunderboltOutlined />, label: '推理测试', category: 'secondary' },
   { key: '/history', icon: <HistoryOutlined />, label: '训练历史', category: 'secondary' },
   { key: '/project-context', icon: <CodeOutlined />, label: '项目上下文', category: 'secondary' },
@@ -437,3 +435,4 @@ export const MobileBottomNav: React.FC = () => {
 }
 
 export default memo(MobileNav)
+

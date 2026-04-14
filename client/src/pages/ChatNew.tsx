@@ -1,17 +1,10 @@
 import React, { useEffect, useCallback, useState } from 'react'
-import { Modal, Alert, Space, Button, message } from 'antd'
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion'
+import { Modal, message } from 'antd'
+import { motion, useReducedMotion } from 'framer-motion'
 import { Virtuoso } from 'react-virtuoso'
-import {
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  LoadingOutlined,
-  ThunderboltFilled,
-} from '@ant-design/icons'
 
 import { useChatStore } from '../store/chatStore'
 import { useChatStream } from '../hooks/chat/useChatStream'
-import { useAgentExecutor } from '../hooks/chat/useAgentExecutor'
 import { useTheme } from '../theme'
 import { useResponsive } from '../hooks/useResponsive'
 
@@ -46,13 +39,11 @@ const ChatPage: React.FC = () => {
     sessions,
     messages,
     settings,
-    agentExecution,
     isLoading,
     createSession,
     loadSession,
     deleteSession,
     loadSessions,
-    addMessage,
     deleteMessage,
     clearMessages,
     updateSettings,
@@ -80,12 +71,6 @@ const ChatPage: React.FC = () => {
     },
     onError: (error) => {
       message.error(error)
-    },
-  })
-
-  const { executeFromMessage, confirmExecution, cancelExecution } = useAgentExecutor({
-    onConfirmRequired: (task, msg) => {
-      console.log('Need confirmation:', task.action, msg)
     },
   })
 
@@ -217,25 +202,6 @@ const ChatPage: React.FC = () => {
     async (content: string) => {
       if (!content.trim()) return
 
-      const agentResult = await executeFromMessage(content, {
-        backend: useCloudAI ? 'cloud' : settings.backend,
-        model: useCloudAI ? selectedCloudModel : settings.modelId,
-        provider: useCloudAI ? cloudAIConfig?.provider : undefined,
-        api_key: useCloudAI ? cloudAIConfig?.api_key : undefined,
-        group_id: useCloudAI ? cloudAIConfig?.group_id : undefined,
-        base_url: useCloudAI ? cloudAIConfig?.base_url : undefined,
-      })
-
-      if (agentResult.executed) {
-        if (agentResult.result && typeof agentResult.result === 'object' && 'need_confirm' in agentResult.result) {
-          return
-        }
-
-        const formattedResult = formatAgentResult(agentResult.result)
-        addMessage({ role: 'assistant', content: formattedResult })
-        return
-      }
-
       if (useCloudAI && cloudAIConfig) {
         await sendCloudMessage(
           { prompt: content },
@@ -253,8 +219,6 @@ const ChatPage: React.FC = () => {
       }
     },
     [
-      executeFromMessage,
-      addMessage,
       useCloudAI,
       cloudAIConfig,
       selectedCloudModel,
@@ -337,33 +301,6 @@ const ChatPage: React.FC = () => {
     })
   }, [clearMessages])
 
-  const formatAgentResult = (result: unknown): string => {
-    if (!result) return '操作完成'
-
-    if (result && typeof result === 'object' && 'success' in result && result.success === false) {
-      return `操作失败: ${'error' in result ? result.error : '未知错误'}`
-    }
-
-    const resultObj = result as Record<string, unknown>
-    const data = resultObj['data'] as Record<string, unknown> | undefined
-    const action = String(data?.['action'] || resultObj['action'] || '')
-
-    const actionMessages: Record<string, () => string> = {
-      file_create: () => `文件已创建: ${String(data?.['path'] || '完成')}`,
-      file_read: () => `文件内容:\n\n${String(data?.['content'] || '')}`,
-      file_write: () => `文件已更新: ${String(data?.['path'] || '完成')}`,
-      file_delete: () => `文件已删除: ${String(data?.['path'] || '完成')}`,
-      file_list: () => {
-        const files = ((data?.['files'] || []) as Array<{ is_dir?: boolean; name: string }>).slice(0, 20)
-        const list = files.map((f) => `${f.is_dir ? '[目录]' : '[文件]'} ${f.name}`).join('\n')
-        return `找到 ${String(data?.['count'] || files.length)} 项:\n${list}`
-      },
-    }
-
-    const formatter = actionMessages[action]
-    return formatter ? formatter() : `操作完成: ${String(resultObj['message'] || '成功')}`
-  }
-
   const enableVirtualScroll = messages.length > VIRTUAL_SCROLL_THRESHOLD
 
   const modelOptions =
@@ -417,59 +354,6 @@ const ChatPage: React.FC = () => {
         isLoading={isLoading}
         isStreaming={isActivelyStreaming}
       />
-
-      <AnimatePresence>
-        {agentExecution && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={transitions.base}
-            className={styles.agentBanner}
-          >
-            <Alert
-              message={
-                <Space>
-                  {agentExecution.status === 'executing' && <LoadingOutlined spin />}
-                  {agentExecution.status === 'completed' && <CheckCircleOutlined style={{ color: '#52c41a' }} />}
-                  {agentExecution.status === 'failed' && <CloseCircleOutlined style={{ color: '#ff4d4f' }} />}
-                  {agentExecution.status === 'confirming' && <ThunderboltFilled style={{ color: '#faad14' }} />}
-                  <span>
-                    {agentExecution.status === 'executing' && '正在执行操作...'}
-                    {agentExecution.status === 'completed' && `已完成: ${agentExecution.description || '操作完成'}`}
-                    {agentExecution.status === 'failed' && `执行失败: ${agentExecution.error}`}
-                    {agentExecution.status === 'confirming' && `等待确认: ${agentExecution.description}`}
-                  </span>
-                </Space>
-              }
-              type={
-                agentExecution.status === 'failed'
-                  ? 'error'
-                  : agentExecution.status === 'completed'
-                    ? 'success'
-                    : agentExecution.status === 'confirming'
-                      ? 'warning'
-                      : 'info'
-              }
-              showIcon
-              style={{ borderRadius: 8, maxWidth: 860, margin: '0 auto' }}
-              action={
-                agentExecution.status === 'confirming' && (
-                  <Space>
-                    <Button size="small" onClick={cancelExecution}>
-                      取消
-                    </Button>
-                    <Button size="small" type="primary" danger onClick={confirmExecution}>
-                      确认执行
-                    </Button>
-                  </Space>
-                )
-              }
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       <motion.div
         className={styles.chatMessagesArea}
         initial={prefersReducedMotion ? false : { opacity: 0 }}
@@ -575,3 +459,4 @@ const ChatPage: React.FC = () => {
 }
 
 export default ChatPage
+

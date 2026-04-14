@@ -54,6 +54,7 @@ PROMPT_INJECTION_PATTERNS = [
 
 MAX_MESSAGE_LENGTH = 10000
 MAX_MESSAGES_COUNT = 100
+NO_THINK_SYSTEM_PROMPT = "请直接给出最终回答，不要输出思考过程、推理步骤或草稿。"
 
 
 def detect_prompt_injection(text: str) -> bool:
@@ -103,6 +104,32 @@ def build_attachment_context(attachments: list) -> str:
         lines.append(f"[{descriptor}]\n{snippet or 'No readable text content provided.'}")
 
     return "\n\n".join(lines)
+
+
+def enforce_fast_ollama_response(
+    messages: list[dict[str, str]],
+    model_name: str | None,
+    fast_mode: bool,
+) -> list[dict[str, str]]:
+    """For Qwen3-like local models, force concise non-thinking output by default."""
+    if not fast_mode:
+        return messages
+
+    if not model_name:
+        return messages
+
+    lowered = model_name.lower()
+    if "qwen3" not in lowered:
+        return messages
+
+    patched = [dict(message) for message in messages]
+    if patched and patched[0].get("role") == "system":
+        existing = patched[0].get("content", "")
+        if NO_THINK_SYSTEM_PROMPT not in existing:
+            patched[0]["content"] = f"{NO_THINK_SYSTEM_PROMPT}\n\n{existing}".strip()
+    else:
+        patched.insert(0, {"role": "system", "content": NO_THINK_SYSTEM_PROMPT})
+    return patched
 
 
 @router.post("/generate", response_model=GenerateResponse)
@@ -209,6 +236,10 @@ async def chat(request: ChatRequest):
 
         msg.content = sanitize_input(msg.content)
 
+    # Fast mode: cap generated length to reduce latency variance.
+    if settings.ollama_fast_mode:
+        request.options.max_tokens = min(request.options.max_tokens, settings.ollama_fast_max_tokens)
+
     system_prompt = request.system_prompt or ""
     knowledge_sources_response = None
     retrieval_info = None
@@ -303,6 +334,32 @@ async def chat(request: ChatRequest):
 
         backend_name = request.options.backend or "ollama"
         if backend_name == "ollama":
+            as_dict_messages = [
+                {
+                    "role": msg.role.value if hasattr(msg.role, "value") else msg.role,
+                    "content": msg.content,
+                }
+                for msg in request.messages
+            ]
+            patched_messages = enforce_fast_ollama_response(
+                as_dict_messages,
+                request.model,
+                settings.ollama_fast_mode,
+            )
+            if patched_messages != as_dict_messages:
+                from api.types import Message, MessageRole
+
+                def _to_role(raw_role: str):
+                    if raw_role == "system":
+                        return MessageRole.SYSTEM
+                    if raw_role == "assistant":
+                        return MessageRole.ASSISTANT
+                    return MessageRole.USER
+
+                request.messages = [
+                    Message(role=_to_role(str(message.get("role", "user"))), content=str(message.get("content", "")))
+                    for message in patched_messages
+                ]
             result = await backend.chat(request)
         else:
             messages = [
@@ -348,7 +405,7 @@ async def chat(request: ChatRequest):
                     total_tokens=result.total_tokens
                 ),
                 total_duration=result.latency_ms / 1000.0 if result.latency_ms else None,
-                duration_ms=result.latency_ms,
+                duration_ms=int(result.latency_ms) if result.latency_ms is not None else None,
                 raw_response={
                     "model": result.model,
                     "finish_reason": result.finish_reason,
@@ -427,6 +484,9 @@ async def chat_stream(request: ChatRequest):
             raise MaliciousInputError()
         msg.content = sanitize_input(msg.content)
 
+    if settings.ollama_fast_mode:
+        request.options.max_tokens = min(request.options.max_tokens, settings.ollama_fast_max_tokens)
+
     try:
         scheduler = get_scheduler()
         backend = await scheduler.get_backend(request.options.backend)
@@ -440,6 +500,8 @@ async def chat_stream(request: ChatRequest):
             }
             for msg in request.messages
         ]
+        if backend_name == "ollama":
+            messages = enforce_fast_ollama_response(messages, model_name, settings.ollama_fast_mode)
 
         if hasattr(backend, "model_name") and model_name:
             backend.model_name = model_name

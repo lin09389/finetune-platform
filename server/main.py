@@ -29,38 +29,30 @@ if hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
-from api import (  # noqa: E402
-    agent,
-    cloud_chat,
-    context,
-    cua,
-    datasets,
-    device,
-    mcp,
-    model_center,
-    models,
-    skills,
-    training,
-    workspace,
-)
-from api.agent_executor import router as agent_executor
+from api.cloud_chat import router as cloud_chat
+from api.datasets import router as datasets
+from api.device import router as device
 from api.chat.routes import router as chat
 from api.chat_branch import router as chat_branch
 from api.chat_share import router as chat_share
 from api.code_executor import router as code_executor
 from api.compat import router as compat_router
+from api.context import router as context
+from api.cua import router as cua
 from api.entity import router as entity
-from api.feedback import router as feedback
 from api.file_parser import router as file_parser
 from api.gateway_api.routes import router as gateway
 from api.heartbeat import router as heartbeat
-from api.help import router as help_router
 from api.inference import router as inference
 from api.inference_engine import router as inference_engine
 from api.knowledge import router as knowledge
 from api.memory_new import router as memory
+from api.mcp import router as mcp
+from api.model_center import router as model_center
+from api.models import router as models
 from api.ocr import router as ocr
-from api.smart_agent import router as smart_agent
+from api.training import router as training
+from api.workspace import router as workspace
 from core.config import settings
 from core.logging import setup_logging
 from core.tracing import trace_id_var, user_id_var
@@ -384,16 +376,13 @@ app.include_router(knowledge, prefix="/v2/knowledge", tags=["Knowledge v2"])
 app.include_router(workspace, prefix="/workspace", tags=["Workspace"])
 app.include_router(model_center, prefix="/model-center", tags=["Model Center"])
 app.include_router(memory, tags=["Memory"])
-app.include_router(agent, prefix="/agent", tags=["Agent"])
 app.include_router(compat_router, tags=["Compatibility"])
 app.include_router(context, prefix="/context", tags=["Context"])
 app.include_router(file_api_router, prefix="/files", tags=["Files"])
 app.include_router(task_api_router, prefix="/tasks", tags=["Tasks"])
 app.include_router(cloud_chat, prefix="/cloud", tags=["Cloud"])
-app.include_router(skills, tags=["Skills"])
 app.include_router(cua, tags=["CUA"])
 app.include_router(mcp, tags=["MCP"])
-app.include_router(smart_agent, prefix="/smart-agent", tags=["Smart Agent"])
 app.include_router(gateway, tags=["Gateway"])
 app.include_router(heartbeat, tags=["Heartbeat"])
 app.include_router(code_executor, prefix="/code", tags=["Code"])
@@ -402,10 +391,7 @@ app.include_router(chat_branch, tags=["Chat Branch"])
 app.include_router(chat_share, tags=["Chat Share"])
 app.include_router(entity, tags=["Entity"])
 app.include_router(ocr, tags=["OCR"])
-app.include_router(feedback, tags=["Feedback"])
-app.include_router(help_router, tags=["Help"])
 app.include_router(inference_engine, tags=["Inference Engine"])
-app.include_router(agent_executor, tags=["Agent Executor"])
 
 
 @app.get("/")
@@ -425,7 +411,7 @@ async def health_check():
     """Health check endpoint."""
     import torch
 
-    from agent.intent.methods.bert_classifier import bert_classifier
+    intent_backend_status = "disabled"
 
     health = {
         "status": "ok",
@@ -433,7 +419,7 @@ async def health_check():
         "timestamp": datetime.now().isoformat(),
         "version": "2.0.0",
         "cuda_available": torch.cuda.is_available() if hasattr(torch, "cuda") else False,
-        "intent_backend_status": "loaded" if bert_classifier.is_available() else "degraded",
+        "intent_backend_status": intent_backend_status,
     }
 
     if torch.cuda.is_available():
@@ -458,26 +444,60 @@ async def api_info():
     """API metadata."""
     return {
         "name": "Finetune Platform API",
-        "version": "2.0.0",
-        "description": "Finetune Platform backend API",
+        "version": "2.1.0",
+        "description": "Finetune Platform backend API with core, beta, and experimental capability tiers",
         "features": [
             "LoRA/QLoRA fine-tuning",
-            "Model management",
-            "Dataset management",
-            "Training monitor",
-            "Inference service",
-            "Ollama integration"
+            "Model and dataset lifecycle",
+            "Inference service with backend switching",
+            "Chat sessions and knowledge retrieval",
+            "Workspace and local AI tooling",
         ],
+        "capability_tiers": {
+            "ga": [
+                "device",
+                "models",
+                "datasets",
+                "training",
+                "inference",
+                "chat_sessions",
+                "knowledge_base",
+            ],
+            "beta": [
+                "project_context",
+                "memory",
+                "model_center",
+                "workspace",
+            ],
+            "experimental": [
+                "cua",
+                "heartbeat",
+                "mcp",
+                "gateway",
+                "ocr_fallbacks",
+                "action_recorder",
+            ],
+        },
         "endpoints": {
             "device": "/device",
             "models": "/models",
             "datasets": "/datasets",
             "training": "/training",
             "inference": "/inference",
-            "chat": "/v2/chat",
-            "knowledge": "/v2/knowledge",
-            "memory": "/v2/memory"
-        }
+            "chat": "/chat/sessions",
+            "knowledge": "/knowledge",
+            "memory": "/memory",
+            "workspace": "/workspace",
+            "context": "/context",
+            "model_center": "/model-center",
+            "experimental": {
+                "cua": "/cua",
+                "mcp": "/mcp",
+                "gateway": "/gateway",
+                "heartbeat": "/heartbeat",
+                "ocr": "/ocr",
+            },
+        },
     }
 
 
