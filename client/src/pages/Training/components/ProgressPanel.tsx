@@ -23,7 +23,7 @@ interface TrainingProgress {
 }
 
 interface ProgressPanelProps {
-  status: 'idle' | 'loading' | 'training' | 'completed' | 'failed'
+  status: 'idle' | 'loading' | 'training' | 'stopping' | 'completed' | 'failed'
   progress: TrainingProgress | null
   onReset: () => void
 }
@@ -35,7 +35,7 @@ const ProgressPanel: React.FC<ProgressPanelProps> = ({
 }) => {
   const getStepsCurrent = (currentStatus: string): number => {
     if (currentStatus === 'completed' || currentStatus === 'failed') return 2
-    if (currentStatus === 'training' || currentStatus === 'loading') return 1
+    if (currentStatus === 'training' || currentStatus === 'loading' || currentStatus === 'stopping') return 1
     return 0
   }
 
@@ -131,6 +131,20 @@ const ProgressPanel: React.FC<ProgressPanelProps> = ({
                 { title: '完成', icon: <CheckCircleOutlined /> },
               ]}
             />
+          </motion.div>
+        )}
+
+        {status === 'stopping' && (
+          <motion.div
+            key="stopping"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className={styles.loadingState}
+          >
+            <div className={styles.loadingIcon}><LoadingOutlined spin /></div>
+            <h4 className={styles.loadingTitle}>正在安全停止训练...</h4>
+            <p className={styles.loadingDesc}>{progress?.message || '已收到停止请求，等待当前步骤完成。'}</p>
           </motion.div>
         )}
 

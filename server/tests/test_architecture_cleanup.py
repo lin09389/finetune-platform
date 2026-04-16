@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import sys
 
 import pytest
 from fastapi import HTTPException
@@ -15,6 +16,8 @@ heartbeat_api = importlib.import_module("api.heartbeat")
 gateway_routes = importlib.import_module("api.gateway_api.routes")
 main_module = importlib.import_module("main")
 ocr_api = importlib.import_module("api.ocr")
+knowledge_routes = importlib.import_module("api.knowledge.routes")
+inference_routes = importlib.import_module("api.inference.routes")
 
 from gateway.cross_agent import CrossAgentCommunicator  # noqa: E402
 from gateway.device_auth import DeviceAuthManager  # noqa: E402
@@ -364,3 +367,68 @@ async def test_ocr_unavailable_returns_explicit_dependency_error(monkeypatch):
     assert exc.value.status_code == 503
     assert exc.value.detail["error_code"] == "dependency_missing"
     assert exc.value.detail["status"] == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_knowledge_embedder_status_returns_explicit_unavailable_payload(monkeypatch):
+    def _raise_embedder_error():
+        raise RuntimeError("embedder backend unavailable")
+
+    monkeypatch.setitem(sys.modules, "rag.embedder", type("EmbedderModule", (), {"get_embedder": staticmethod(_raise_embedder_error)}))
+
+    payload = await knowledge_routes.get_embedder_status()
+
+    assert payload["loaded"] is False
+    assert "embedder backend unavailable" in payload["error"]
+
+
+@pytest.mark.asyncio
+async def test_knowledge_embedder_preload_raises_explicit_failure(monkeypatch):
+    def _raise_embedder_error():
+        raise RuntimeError("embedder preload unavailable")
+
+    monkeypatch.setitem(sys.modules, "rag.embedder", type("EmbedderModule", (), {"get_embedder": staticmethod(_raise_embedder_error)}))
+
+    with pytest.raises(HTTPException) as exc:
+        await knowledge_routes.preload_embedder()
+
+    assert exc.value.status_code == 500
+    assert "预加载失败" in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_inference_ollama_status_returns_explicit_runtime_flags_when_unavailable(monkeypatch):
+    class _SchedulerStub:
+        async def is_backend_available(self, backend: str) -> bool:
+            assert backend == "ollama"
+            return False
+
+        async def list_models(self, backend: str):
+            raise AssertionError("list_models should not be called when backend is unavailable")
+
+    monkeypatch.setattr(inference_routes, "get_scheduler", lambda: _SchedulerStub())
+    monkeypatch.setattr(inference_routes.settings, "ollama_base_url", "http://ollama.local:11434")
+
+    payload = await inference_routes.get_ollama_status()
+
+    assert payload["running"] is False
+    assert payload["base_url"] == "http://ollama.local:11434"
+    assert payload["models"] == []
+
+
+@pytest.mark.asyncio
+async def test_inference_backends_reports_ollama_unavailable_without_hiding_backend(monkeypatch):
+    class _SchedulerStub:
+        _default_backend = "huggingface"
+
+        async def is_backend_available(self, backend: str) -> bool:
+            return backend == "huggingface"
+
+    monkeypatch.setattr(inference_routes, "get_scheduler", lambda: _SchedulerStub())
+
+    payload = await inference_routes.list_backends()
+    backends = {backend.id: backend for backend in payload.backends}
+
+    assert payload.current == "huggingface"
+    assert backends["huggingface"].available is True
+    assert backends["ollama"].available is False

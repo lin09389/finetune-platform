@@ -67,10 +67,19 @@ async def get_heartbeat_status():
     """获取 Heartbeat 状态"""
     scheduler = get_heartbeat_scheduler()
     executor = get_task_executor()
+    scheduler_stats = scheduler.get_stats()
+    executor_stats = executor.get_stats()
+    runtime_status = "ready" if scheduler_stats.get("running") else "limited"
 
     return {
-        "scheduler": scheduler.get_stats(),
-        "executor": executor.get_stats(),
+        "tier": "experimental",
+        "available": True,
+        "runtime_status": runtime_status,
+        "dependency_status": "local_scheduler_required",
+        "failure_mode": "explicit_status",
+        "message": "Heartbeat 为实验功能；页面可用不代表任务已稳定执行，请以调度器状态和执行记录为准。",
+        "scheduler": scheduler_stats,
+        "executor": executor_stats,
     }
 
 

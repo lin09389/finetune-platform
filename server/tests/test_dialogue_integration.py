@@ -275,6 +275,35 @@ class TestMCPAPIIntegration:
         """测试 MCP 状态"""
         response = client.get("/mcp/status")
         assert response.status_code == 200
+        data = response.json()
+        assert data["tier"] == "experimental"
+        assert data["available"] is True
+        assert data["failure_mode"] == "explicit_status"
+        assert "dependency_status" in data
+        assert "runtime_status" in data
+        assert "message" in data
+
+
+class TestHeartbeatAPIIntegration:
+    """Heartbeat API 集成测试"""
+
+    @pytest.fixture
+    def client(self):
+        return TestClient(app)
+
+    def test_heartbeat_status(self, client):
+        """测试 Heartbeat 状态"""
+        response = client.get("/heartbeat/status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["tier"] == "experimental"
+        assert data["available"] is True
+        assert data["failure_mode"] == "explicit_status"
+        assert "dependency_status" in data
+        assert "runtime_status" in data
+        assert "message" in data
+        assert "scheduler" in data
+        assert "executor" in data
 
 
 class TestWorkspaceAPIIntegration:

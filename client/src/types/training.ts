@@ -2,7 +2,7 @@
  * 训练相关类型定义
  */
 
-export type TrainingStatus = 'idle' | 'loading' | 'training' | 'running' | 'completed' | 'failed' | 'stopped';
+export type TrainingStatus = 'idle' | 'loading' | 'training' | 'running' | 'stopping' | 'completed' | 'failed' | 'stopped';
 
 export interface TrainingProgress {
   epoch: number;

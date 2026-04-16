@@ -51,7 +51,7 @@ const menuGroups: MenuGroup[] = [
     label: '模型与数据',
     items: [
       { key: '/models', icon: <FolderOutlined />, label: '模型管理', description: '本地模型' },
-      { key: '/modelhub', icon: <CloudOutlined />, label: '模型中心', description: '下载模型' },
+      { key: '/modelhub', icon: <CloudOutlined />, label: '模型中心', description: 'Beta · 外部模型下载' },
       { key: '/datasets', icon: <DatabaseOutlined />, label: '数据集', description: '训练数据' },
       { key: '/training', icon: <PlayCircleOutlined />, label: '模型训练', description: '微调任务' },
       { key: '/history', icon: <HistoryOutlined />, label: '训练历史', description: '任务记录' },
@@ -63,17 +63,17 @@ const menuGroups: MenuGroup[] = [
       { key: '/chat', icon: <MessageOutlined />, label: 'AI 对话', description: '智能助手' },
       { key: '/inference', icon: <ThunderboltOutlined />, label: '推理测试', description: '模型测试' },
       { key: '/knowledge', icon: <BookOutlined />, label: '知识库', description: 'RAG 检索' },
-      { key: '/memory', icon: <BulbOutlined />, label: '智能记忆', description: '三层记忆系统' },
+      { key: '/memory', icon: <BulbOutlined />, label: '智能记忆', description: 'Beta · 三层记忆系统' },
     ]
   },
   {
     label: '开发与集成',
     items: [
-      { key: '/workspace', icon: <AppstoreOutlined />, label: '工作空间', description: '项目管理' },
-      { key: '/project-context', icon: <CodeOutlined />, label: '项目上下文', description: '代码理解' },
+      { key: '/workspace', icon: <AppstoreOutlined />, label: '工作空间', description: 'Beta · 项目管理' },
+      { key: '/project-context', icon: <CodeOutlined />, label: '项目上下文', description: 'Beta · 代码理解' },
       { key: '/cloud-api', icon: <CloudOutlined />, label: '云端 API', description: 'API Key 管理' },
-      { key: '/gateway', icon: <ClusterOutlined />, label: 'Gateway', description: '实验性设备管理' },
-      { key: '/heartbeat', icon: <HeartOutlined />, label: 'Heartbeat', description: '实验性任务调度' },
+      { key: '/gateway', icon: <ClusterOutlined />, label: 'Gateway', description: 'Experimental · 设备配对与路由' },
+      { key: '/heartbeat', icon: <HeartOutlined />, label: 'Heartbeat', description: 'Experimental · 任务调度验证' },
     ]
   },
   {

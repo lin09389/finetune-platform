@@ -31,19 +31,35 @@ interface MCPServerItem {
   tool_count?: number
 }
 
+interface MCPStatus {
+  tier?: string
+  available?: boolean
+  runtime_status?: string
+  dependency_status?: string
+  failure_mode?: string
+  message?: string
+  total_servers?: number
+  connected_servers?: number
+  disconnected_servers?: number
+  total_tools?: number
+}
+
 export default function MCPTools() {
   const [tools, setTools] = useState<MCPToolItem[]>([])
   const [servers, setServers] = useState<MCPServerItem[]>([])
+  const [status, setStatus] = useState<MCPStatus | null>(null)
   const [loading, setLoading] = useState(false)
   const [addModalVisible, setAddModalVisible] = useState(false)
   const [callModalVisible, setCallModalVisible] = useState(false)
   const [selectedTool, setSelectedTool] = useState<MCPToolItem | null>(null)
   const [callArgs, setCallArgs] = useState('{}')
   const [addForm, setAddForm] = useState({ name: '', transport: 'stdio' as 'stdio' | 'sse', command: '', args: '', url: '' })
+  const [statusNotice, setStatusNotice] = useState('')
 
   useEffect(() => {
     fetchTools()
     fetchServers()
+    fetchStatus()
   }, [])
 
   const fetchTools = async () => {
@@ -67,6 +83,18 @@ export default function MCPTools() {
     }
   }
 
+  const fetchStatus = async () => {
+    try {
+      const response = await apiClient.get('/mcp/status')
+      setStatus(response.data || null)
+      setStatusNotice('')
+    } catch (error) {
+      console.error('Failed to fetch MCP status:', error)
+      setStatus(null)
+      setStatusNotice('MCP 状态接口当前不可用，服务器列表只能反映页面请求结果，不能证明外部 MCP 服务已可调用。')
+    }
+  }
+
   const handleAddServer = async () => {
     const { name, transport, command, args, url } = addForm
     if (!name || !transport) { message.warning('请填写必填项'); return }
@@ -87,6 +115,7 @@ export default function MCPTools() {
       setAddForm({ name: '', transport: 'stdio', command: '', args: '', url: '' })
       fetchServers()
       fetchTools()
+      fetchStatus()
     } catch (error) {
       message.error('添加服务器失败')
     }
@@ -102,6 +131,7 @@ export default function MCPTools() {
           message.success('服务器已删除')
           fetchServers()
           fetchTools()
+          fetchStatus()
         } catch (error) {
           message.error('删除失败')
         }
@@ -114,6 +144,7 @@ export default function MCPTools() {
       await apiClient.post(`/mcp/servers/${name}/reconnect`)
       message.success('重连成功')
       fetchServers()
+      fetchStatus()
     } catch (error) {
       message.error('重连失败')
     }
@@ -154,6 +185,23 @@ export default function MCPTools() {
         <WarningOutlined style={{ color: '#faad14', flexShrink: 0, marginTop: 2 }} />
         <p>
           <strong>实验功能</strong> — MCP 服务器接入与工具调用当前仍处于实验阶段，配置和调用结果应以实际服务状态为准。
+        </p>
+      </div>
+      <div
+        data-testid="mcp-runtime-status"
+        className={styles.experimentBanner}
+        style={{
+          marginTop: 12,
+          background: status?.runtime_status === 'ready' ? 'rgba(74, 222, 128, 0.12)' : 'rgba(250, 173, 20, 0.14)',
+          borderColor: status?.runtime_status === 'ready' ? 'rgba(74, 222, 128, 0.28)' : 'rgba(250, 173, 20, 0.28)',
+        }}
+      >
+        <WarningOutlined style={{ color: status?.runtime_status === 'ready' ? '#4ade80' : '#faad14', flexShrink: 0, marginTop: 2 }} />
+        <p>
+          <strong>{status?.runtime_status === 'ready' ? '已检测到可用 MCP 连接' : '当前能力受限'}</strong>
+          {' — '}
+          {statusNotice || status?.message || '尚未拿到 MCP 运行状态。'}
+          {status?.dependency_status ? ` 依赖状态：${status.dependency_status}。` : ''}
         </p>
       </div>
 
@@ -205,7 +253,7 @@ export default function MCPTools() {
         <div className={styles.cardHeader}>
           <span className={styles.cardTitle}><ApiOutlined /> MCP 服务器</span>
           <div className={styles.cardActions}>
-            <button className={`${styles.btn} ${styles.btnDefault}`} onClick={() => { fetchServers(); fetchTools() }}>
+            <button className={`${styles.btn} ${styles.btnDefault}`} onClick={() => { fetchServers(); fetchTools(); fetchStatus() }}>
               <ReloadOutlined /> 刷新
             </button>
             <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={() => setAddModalVisible(true)}>
@@ -262,7 +310,7 @@ export default function MCPTools() {
         <div className={styles.cardHeader}>
           <span className={styles.cardTitle}>可用工具</span>
           <div className={styles.cardActions}>
-            <button className={`${styles.btn} ${styles.btnDefault}`} onClick={fetchTools}>
+            <button className={`${styles.btn} ${styles.btnDefault}`} onClick={() => { fetchTools(); fetchStatus() }}>
               <ReloadOutlined /> 刷新
             </button>
           </div>

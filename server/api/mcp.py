@@ -54,6 +54,12 @@ class OverallStatusResponse(BaseModel):
     connected_servers: int
     disconnected_servers: int
     total_tools: int
+    tier: str
+    available: bool
+    runtime_status: str
+    dependency_status: str
+    failure_mode: str
+    message: str
 
 
 @router.get("/tools")
@@ -237,11 +243,22 @@ async def get_server_tools(name: str):
 @router.get("/status")
 async def get_overall_status():
     manager = get_manager()
+    total_servers = manager.get_server_count()
+    connected_servers = len(manager.get_connected_servers())
+    disconnected_servers = len(manager.get_disconnected_servers())
+    total_tools = manager.get_tool_count()
+    runtime_status = "ready" if connected_servers > 0 or total_tools > 0 else "limited"
     return {
-        "total_servers": manager.get_server_count(),
-        "connected_servers": len(manager.get_connected_servers()),
-        "disconnected_servers": len(manager.get_disconnected_servers()),
-        "total_tools": manager.get_tool_count(),
+        "tier": "experimental",
+        "available": True,
+        "runtime_status": runtime_status,
+        "dependency_status": "external_servers_required",
+        "failure_mode": "explicit_status",
+        "message": "MCP 为实验功能；仅当至少一个外部 MCP 服务成功连接后，工具调用能力才可用。",
+        "total_servers": total_servers,
+        "connected_servers": connected_servers,
+        "disconnected_servers": disconnected_servers,
+        "total_tools": total_tools,
         "connected_server_names": manager.get_connected_servers(),
         "disconnected_server_names": manager.get_disconnected_servers()
     }

@@ -96,9 +96,17 @@ async def get_gateway_status():
     isolation_manager = get_isolation_manager()
     auth_manager = get_device_auth_manager()
     communicator = get_cross_agent_communicator()
+    gateway_stats = gateway.get_stats()
+    runtime_status = "ready" if gateway_stats.get("active_connections", 0) > 0 else "limited"
 
     return {
-        "gateway": gateway.get_stats(),
+        "tier": "experimental",
+        "available": True,
+        "runtime_status": runtime_status,
+        "dependency_status": "paired_devices_or_agents_required",
+        "failure_mode": "explicit_status",
+        "message": "Gateway 为实验功能；只有完成设备配对或 Agent 连接后，消息路由与会话能力才具备实际价值。",
+        "gateway": gateway_stats,
         "router": router_instance.get_routing_stats(),
         "sessions": session_manager.get_stats(),
         "bindings": binding_manager.get_stats(),

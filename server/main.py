@@ -51,6 +51,7 @@ from api.mcp import router as mcp
 from api.model_center import router as model_center
 from api.models import router as models
 from api.ocr import router as ocr
+from api.runtime import router as runtime
 from api.training import router as training
 from api.workspace import router as workspace
 from core.config import settings
@@ -392,6 +393,7 @@ app.include_router(chat_share, tags=["Chat Share"])
 app.include_router(entity, tags=["Entity"])
 app.include_router(ocr, tags=["OCR"])
 app.include_router(inference_engine, tags=["Inference Engine"])
+app.include_router(runtime, prefix="/runtime", tags=["Runtime"])
 
 
 @app.get("/")
@@ -486,6 +488,7 @@ async def api_info():
             "inference": "/inference",
             "chat": "/chat/sessions",
             "knowledge": "/knowledge",
+            "runtime": "/runtime/bootstrap",
             "memory": "/memory",
             "workspace": "/workspace",
             "context": "/context",

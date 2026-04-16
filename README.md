@@ -9,6 +9,16 @@
 
 ## 🌟 特性亮点
 
+## Capability Tiers
+
+Finetune Platform does not treat every visible page as equally mature. Current product copy, navigation, and API metadata follow three tiers:
+
+- `GA`：训练、推理、模型管理、数据集、Chat Session、基础知识库。这些是当前的核心可交付能力。
+- `Beta`：项目上下文、智能记忆、模型中心、工作空间。可试用，但仍依赖环境和持续 UX 收口。
+- `Experimental`：CUA、Action Recorder、MCP、Heartbeat、Gateway 扩展链路。仅用于受控验证，页面可打开不代表能力已稳定可用。
+
+Experimental 模块会在页面内显示实时状态、依赖要求和受限原因；如果你要评估平台主能力，请优先以 `GA` 路径为准。
+
 ### 核心功能
 - 🎯 **低显存优化**：支持 4GB 显存微调（INT4 + QLoRA）
 - 🔧 **多种微调方式**：LoRA / QLoRA 主线支持，SWIFT 为实验性后端
@@ -166,6 +176,7 @@ docker compose logs -f api
 | [API 指南](API_GUIDE.md) | API 端点、使用示例、Python SDK |
 | [Docker 部署](DOCKER.md) | 容器化部署、GPU 配置 |
 | [启动说明](启动说明.txt) | Windows 快速启动指南 |
+| [能力真值表](docs/capability-truth-table.md) | 功能成熟度、依赖、失败模式、回归覆盖 |
 
 ## 📁 项目结构
 

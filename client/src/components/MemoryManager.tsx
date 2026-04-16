@@ -1,6 +1,6 @@
 /**
  * 增强版记忆管理组件
- * 支持知识图谱、短期记忆、MCP协议
+ * 支持知识图谱与多层记忆管理；外部集成能力仍按 Beta 收口
  */
 import { useState, useEffect } from 'react'
 import {

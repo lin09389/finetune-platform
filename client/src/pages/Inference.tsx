@@ -1,64 +1,80 @@
 import { useState, useEffect } from 'react'
-import { Select, Input, Button, Space, Divider, Tag, Row, Col, Slider, Alert, message, Badge } from 'antd'
+import { Select, Input, Button, Space, Divider, Tag, Row, Col, Slider, Alert, Badge } from 'antd'
 import { SendOutlined, LoadingOutlined, ClearOutlined, SwapOutlined, CodeOutlined } from '@ant-design/icons'
-import { useAppStore } from '../store/appStore'
-import { streamInference, getBackends, switchBackend, getOllamaStatus, getModelList, listInferenceEngines, streamGenerate, type InferenceEngine } from '../services/api'
-import type { BackendInfo } from '../types'
+import { streamInference, switchBackend, listInferenceEngines, streamGenerate, getPerformanceStats, getPerformanceRecommendations, type InferenceEngine } from '../services/api'
 import { MotionList, MotionItem } from '../components/shared/MotionWrapper'
+import InsightPanel from '../components/shared/InsightPanel'
+import RuntimeContextPanel from '../components/runtime/RuntimeContextPanel'
+import { useRuntimeContext } from '../runtime/RuntimeContext'
+import { notify } from '../utils/notify'
 import styles from './Inference.module.css'
 import glassStyles from '../components/shared/GlassCard.module.css'
 
 const { TextArea } = Input
 
 export default function Inference() {
-  const { models, setModels, backendStatus } = useAppStore()
+  const runtime = useRuntimeContext()
+  const { actions, derived, observed } = runtime
+  const { refreshInference, setInferenceSelection, syncInferenceSelection } = actions
+  const backendStatus = observed.backendStatus
   const [selectedModel, setSelectedModel] = useState<string>()
   const [prompt, setPrompt] = useState('')
   const [response, setResponse] = useState('')
   const [loading, setLoading] = useState(false)
   const [maxTokens, setMaxTokens] = useState(1024)
   const [temperature, setTemperature] = useState(0.7)
-  const [currentBackend, setCurrentBackend] = useState<string>('huggingface')
-  const [backends, setBackends] = useState<BackendInfo[]>([])
+  const [currentBackend, setCurrentBackend] = useState<string>(observed.inference.currentBackend || 'huggingface')
   const [inferenceEngines, setInferenceEngines] = useState<InferenceEngine[]>([])
-  const [ollamaModels, setOllamaModels] = useState<{ id: string; name: string }[]>([])
+  const [performanceStats, setPerformanceStats] = useState<any>(null)
+  const [performanceRecommendations, setPerformanceRecommendations] = useState<string[]>([])
 
   useEffect(() => {
-    loadBackends()
-    loadModels()
-  }, [backendStatus])
+    void refreshInference()
+    loadPerformance()
+  }, [backendStatus, refreshInference])
 
-  const loadModels = async () => {
-    try {
-      const list = await getModelList()
-      setModels(list)
-    } catch (error) {
-      console.error('Failed to load models:', error)
+  useEffect(() => {
+    if (observed.inference.currentBackend) {
+      setCurrentBackend((prev) => prev || derived.activeBackend || observed.inference.currentBackend)
     }
-  }
+  }, [derived.activeBackend, observed.inference.currentBackend])
 
-  const loadBackends = async () => {
-    try {
-      const data = await getBackends()
-      setCurrentBackend(data.current)
-      setBackends(data.backends)
+  useEffect(() => {
+    if (!selectedModel && derived.activeModelId) {
+      setSelectedModel(derived.activeModelId)
+    }
+  }, [derived.activeModelId, selectedModel])
 
-      if (data.current === 'ollama') {
-        const ollamaStatus = await getOllamaStatus()
-        setOllamaModels(ollamaStatus.models.map((m: { name: string; size: number }) => ({
-          id: m.name,
-          name: m.name
-        })))
-      }
-      
+  useEffect(() => {
+    setInferenceSelection({
+      backend: currentBackend,
+      modelId: selectedModel,
+    })
+  }, [currentBackend, selectedModel, setInferenceSelection])
+
+  useEffect(() => {
+    const loadEngines = async () => {
       try {
         const enginesData = await listInferenceEngines()
         setInferenceEngines(enginesData.engines)
       } catch (e) {
         console.warn('Failed to load inference engines:', e)
       }
+    }
+
+    void loadEngines()
+  }, [])
+
+  const loadPerformance = async () => {
+    try {
+      const [stats, recommendations] = await Promise.all([
+        getPerformanceStats().catch(() => null),
+        getPerformanceRecommendations().catch(() => null),
+      ])
+      setPerformanceStats(stats)
+      setPerformanceRecommendations(recommendations?.recommendations || [])
     } catch (error) {
-      console.error('Failed to load backends:', error)
+      console.error('Failed to load performance info:', error)
     }
   }
 
@@ -67,37 +83,22 @@ export default function Inference() {
       await switchBackend(backend)
       setCurrentBackend(backend)
       setSelectedModel(undefined)
-      setModelsForBackend(backend)
-      message.success(`已切换到 ${backend === 'ollama' ? 'Ollama' : 'HuggingFace'} 后端`)
+      syncInferenceSelection({ backend, modelId: undefined })
+      await refreshInference()
+      notify.success(`已切换到 ${backend === 'ollama' ? 'Ollama' : 'HuggingFace'} 后端`)
     } catch (error) {
-      message.error('切换失败')
-    }
-  }
-
-  const setModelsForBackend = async (backend: string) => {
-    if (backend === 'ollama') {
-      try {
-        const ollamaStatus = await getOllamaStatus()
-        setOllamaModels(ollamaStatus.models.map((m: { name: string }) => ({
-          id: m.name,
-          name: m.name
-        })))
-      } catch {
-        setOllamaModels([])
-      }
+      notify.error('切换失败')
     }
   }
 
   const modelOptions = currentBackend === 'ollama' 
-    ? ollamaModels.map(m => ({ value: m.id, label: m.name }))
-    : models
-        .filter(m => m.type === 'base' || m.type === 'merged')
-        .map(m => ({
-          value: m.id,
-          label: `${m.name} ${m.quantized ? `(INT${m.quantized})` : ''}`
-        }))
+    ? observed.inference.ollamaModels.map(m => ({ value: m.id, label: m.name }))
+    : observed.inference.huggingfaceModels.map(m => ({
+        value: m.id,
+        label: m.name
+      }))
 
-  const currentBackendInfo = backends.find(b => b.id === currentBackend)
+  const currentBackendInfo = observed.inference.backends.find(b => b.id === currentBackend)
   const isBackendAvailable = currentBackendInfo?.available ?? true
 
   const handleSend = async () => {
@@ -176,6 +177,9 @@ export default function Inference() {
         <Row gutter={[24, 24]}>
           <Col xs={24} lg={16}>
             <div className={`${glassStyles.glassCard} ${styles.card}`}>
+              <div style={{ marginBottom: 24 }}>
+                <RuntimeContextPanel page="inference" />
+              </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
                 <h3 style={{ margin: 0, fontSize: 18, color: 'var(--text-primary)' }}>对话</h3>
                 <Space>
@@ -184,7 +188,7 @@ export default function Inference() {
                     onChange={handleBackendChange}
                     style={{ width: 160 }}
                     suffixIcon={<SwapOutlined />}
-                    options={backends.map(b => ({
+                    options={observed.inference.backends.map(b => ({
                       value: b.id,
                       label: b.available ? b.name : `${b.name} (不可用)`,
                       disabled: !b.available
@@ -193,7 +197,10 @@ export default function Inference() {
                   <Select
                     placeholder={currentBackend === 'ollama' ? "选择 Ollama 模型" : "选择模型"}
                     value={selectedModel}
-                    onChange={setSelectedModel}
+                    onChange={(model) => {
+                      setSelectedModel(model)
+                      syncInferenceSelection({ backend: currentBackend, modelId: model })
+                    }}
                     style={{ width: 250 }}
                     options={modelOptions}
                     disabled={loading}
@@ -210,7 +217,7 @@ export default function Inference() {
                   showIcon
                   style={{ marginBottom: 16, borderRadius: 8 }}
                   action={
-                    <Button size="small" onClick={loadBackends}>刷新</Button>
+                    <Button size="small" onClick={() => void refreshInference()}>刷新</Button>
                   }
                 />
               )}
@@ -311,7 +318,7 @@ export default function Inference() {
 
               <div className={glassStyles.glassCard}>
                 <h3 style={{ marginTop: 0, marginBottom: 16, fontSize: 18, color: 'var(--text-primary)' }}>推理后端</h3>
-                {backends.map(backend => (
+                {observed.inference.backends.map(backend => (
                   <div 
                     key={backend.id}
                     className={`${styles.backendItem} ${currentBackend === backend.id ? styles.backendItemActive : ''}`}
@@ -329,6 +336,39 @@ export default function Inference() {
                     </div>
                   </div>
                 ))}
+              </div>
+
+              <div className={glassStyles.glassCard}>
+                <InsightPanel
+                  embedded
+                  title="运行观测"
+                  status={{
+                    type: performanceStats?.inference?.total_requests > 0 ? 'info' : 'pending',
+                    text: performanceStats?.inference?.total_requests > 0 ? '已采样' : '等待样本',
+                  }}
+                  summary="这组指标用于判断当前推理链路是否健康，尤其适合在切换后端、模型预热或做性能回归时快速确认变化。"
+                  metrics={[
+                    {
+                      label: '已记录推理次数',
+                      value: performanceStats?.inference?.total_requests ?? 0,
+                    },
+                    {
+                      label: '平均首响应 / 总耗时',
+                      value: `${performanceStats?.streaming?.avg_first_token_ms ?? 0} ms / ${performanceStats?.inference?.avg_latency_ms ?? 0} ms`,
+                    },
+                  ]}
+                  sections={[
+                    {
+                      title: '性能建议',
+                      items: performanceRecommendations.slice(0, 3),
+                    },
+                  ]}
+                  footer={
+                    performanceRecommendations.length > 0
+                      ? undefined
+                      : '暂无性能建议，先运行几次推理即可生成观测数据。'
+                  }
+                />
               </div>
 
               <div className={glassStyles.glassCard}>

@@ -429,8 +429,15 @@ export const getDatasetStatistics = async (datasetId: string) => {
 };
 
 // Training APIs
-export const startTraining = async (config: any) => {
-  const response = await apiClient.post('/training/start', config);
+export const startTraining = async (
+  config: any,
+  options?: { applyRecommendedConfig?: boolean },
+) => {
+  const response = await apiClient.post('/training/start', config, {
+    params: {
+      apply_recommended_config: options?.applyRecommendedConfig ?? false,
+    },
+  });
   return response.data;
 };
 
@@ -442,6 +449,21 @@ export const startSwiftTraining = async (config: any) => {
 
 export const stopTraining = async () => {
   const response = await apiClient.post('/training/stop');
+  return response.data;
+};
+
+export const checkTrainingResources = async (params: {
+  method?: string;
+  modelSize?: string;
+  requiredVram?: number;
+}) => {
+  const response = await apiClient.post('/training/check-resources', null, {
+    params: {
+      method: params.method ?? 'qlora',
+      model_size: params.modelSize ?? '7B',
+      required_vram: params.requiredVram ?? 6.0,
+    },
+  });
   return response.data;
 };
 
@@ -511,6 +533,18 @@ export const getTrainingHistory = async () => {
 
 export const getTrainingCheckpoints = async (trainingId: string) => {
   const response = await apiClient.get(`/training/checkpoints/${trainingId}`);
+  return response.data;
+};
+
+export const getTrainingRecoveryOptions = async (limit: number = 6) => {
+  const response = await apiClient.get('/training/recovery/options', {
+    params: { limit },
+  });
+  return response.data;
+};
+
+export const getTrainingFailureAnalytics = async () => {
+  const response = await apiClient.get('/training/failure/analytics');
   return response.data;
 };
 // Inference APIs
@@ -731,6 +765,64 @@ export const getInferenceModels = async () => {
     return data.models;
   }
   return [];
+};
+
+export interface RuntimeBootstrapPayload {
+  schema_version: 'runtime.bootstrap.v1';
+  generated_at: string;
+  observed: {
+    backend_status: 'connected' | 'disconnected' | 'checking';
+    inference: {
+      backends: Array<{
+        id: string;
+        name: string;
+        available: boolean;
+        description?: string;
+      }>;
+      current_backend: string;
+      huggingface_models: Array<{
+        id: string;
+        name: string;
+        size?: number | null;
+        source?: string | null;
+      }>;
+      ollama: {
+        available: boolean;
+        running: boolean;
+        base_url?: string | null;
+        models: Array<{
+          id: string;
+          name: string;
+          size?: number | null;
+          source?: string | null;
+        }>;
+      };
+    };
+    knowledge: {
+      collections: Array<{
+        id: string;
+        name: string;
+        count: number;
+      }>;
+      embedder_status: {
+        loaded: boolean;
+        model_name?: string;
+        dimension?: number;
+        error?: string;
+      };
+    };
+    training: Record<string, unknown>;
+  };
+  derived: {
+    runtime_status: 'ready' | 'degraded' | 'offline';
+    warnings: string[];
+    available_model_count: number;
+  };
+}
+
+export const getRuntimeBootstrap = async (): Promise<RuntimeBootstrapPayload> => {
+  const response = await apiClient.get('/runtime/bootstrap');
+  return response.data;
 };
 
 export const getPerformanceStats = async (modelId?: string) => {

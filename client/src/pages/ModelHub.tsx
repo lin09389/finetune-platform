@@ -237,7 +237,7 @@ export default function ModelHub() {
           </div>
           <div>
             <h2 className={styles.headerTitle}>模型中心</h2>
-            <p className={styles.headerSubtitle}>搜索、下载并管理本地模型</p>
+            <p className={styles.headerSubtitle}>Beta 能力：搜索、下载并管理本地模型，但可用性仍受外部源和网络状态影响</p>
           </div>
         </div>
       </div>
@@ -246,6 +246,9 @@ export default function ModelHub() {
       <div className={styles.searchCard}>
         <div className={styles.sectionTitle}>
           <SearchOutlined /> 搜索模型
+        </div>
+        <div style={{ marginBottom: 12, color: 'var(--text-secondary)', fontSize: 13 }}>
+          搜索结果、下载速度和可访问性会随 `ModelScope / HuggingFace` 源状态变化，请以实际返回结果为准。
         </div>
         <div className={styles.sourceToggle}>
           <Segmented

@@ -1,9 +1,13 @@
 import { useState, useEffect } from 'react'
-import { Button, Upload, Progress, Tag, App } from 'antd'
+import { Button, Upload, Progress, Tag, Select } from 'antd'
 import { InboxOutlined, DeleteOutlined, FileTextOutlined, CheckCircleOutlined, LoadingOutlined, BookOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons'
 import type { UploadProps } from 'antd/es/upload/interface'
 import { API_BASE_URL } from '../services/api'
 import { MotionList, MotionItem } from '../components/shared/MotionWrapper'
+import InsightPanel from '../components/shared/InsightPanel'
+import RuntimeContextPanel from '../components/runtime/RuntimeContextPanel'
+import { useRuntimeContext } from '../runtime/RuntimeContext'
+import { notify } from '../utils/notify'
 import styles from './KnowledgeBase.module.css'
 import glassStyles from '../components/shared/GlassCard.module.css'
 
@@ -29,33 +33,38 @@ interface EmbedderStatus {
   error?: string
 }
 
+interface UploadTaskStatus {
+  task_id: string
+  status: string
+  progress: number
+  message: string
+  result?: {
+    file_name?: string
+    chunk_count?: number
+  }
+  error?: string
+}
+
 export default function KnowledgeBase() {
-  const { message } = App.useApp()
+  const runtime = useRuntimeContext()
+  const { actions, derived, observed } = runtime
+  const { refreshKnowledge, syncKnowledgeCollection } = actions
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadStatus, setUploadStatus] = useState<string>('')
-  const [collectionId, setCollectionId] = useState('default')
+  const [collectionId, setCollectionId] = useState(derived.activeKnowledgeCollection || 'default')
   const [collectionInfo, setCollectionInfo] = useState<CollectionInfo | null>(null)
-  const [embedderStatus, setEmbedderStatus] = useState<EmbedderStatus | null>(null)
   const [preloading, setPreloading] = useState(false)
+  const [activeUploadTask, setActiveUploadTask] = useState<UploadTaskStatus | null>(null)
+  const embedderStatus = observed.knowledge.embedderStatus as EmbedderStatus | null
 
   useEffect(() => {
-    checkEmbedderStatus()
-  }, [])
+    loadCollectionInfo()
+  }, [collectionId])
 
-  const checkEmbedderStatus = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/knowledge/embedder/status`, {
-        signal: AbortSignal.timeout(5000)
-      })
-      if (response.ok) {
-        const data = await response.json()
-        setEmbedderStatus(data)
-      }
-    } catch (error) {
-      setEmbedderStatus({ loaded: false, error: '无法连接到服务器' })
-    }
-  }
+  useEffect(() => {
+    syncKnowledgeCollection(collectionId)
+  }, [collectionId, syncKnowledgeCollection])
 
   const preloadEmbedder = async () => {
     setPreloading(true)
@@ -66,14 +75,14 @@ export default function KnowledgeBase() {
       })
       if (response.ok) {
         const data = await response.json()
-        message.success(`嵌入模型已加载，维度: ${data.dimension}`)
-        checkEmbedderStatus()
+        notify.success(`嵌入模型已加载，维度: ${data.dimension}`)
+        await refreshKnowledge()
       } else {
         const error = await response.json()
-        message.error(error.detail || '预加载失败')
+        notify.error(error.detail || '预加载失败')
       }
     } catch (error: any) {
-      message.error(error.message || '预加载失败')
+      notify.error(error.message || '预加载失败')
     } finally {
       setPreloading(false)
     }
@@ -88,12 +97,12 @@ export default function KnowledgeBase() {
       const ext = '.' + file.name.split('.').pop()?.toLowerCase()
       
       if (!validTypes.includes(ext)) {
-        message.error(`不支持的文件格式：${ext}`)
+        notify.error(`不支持的文件格式：${ext}`)
         return false
       }
       
       if (file.size > 50 * 1024 * 1024) {
-        message.error('文件大小不能超过 50MB')
+        notify.error('文件大小不能超过 50MB')
         return false
       }
       
@@ -107,7 +116,7 @@ export default function KnowledgeBase() {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => {
         controller.abort()
-        message.error('上传超时，请检查服务器状态或尝试较小的文件')
+        notify.error('上传超时，请检查服务器状态或尝试较小的文件')
         setUploading(false)
         setUploadProgress(0)
         setUploadStatus('')
@@ -127,7 +136,7 @@ export default function KnowledgeBase() {
         
         setUploadStatus('正在上传文件...')
         
-        const response = await fetch(`${API_BASE_URL}/knowledge/upload`, {
+        const response = await fetch(`${API_BASE_URL}/knowledge/upload/async`, {
           method: 'POST',
           body: formData,
           signal: controller.signal,
@@ -147,24 +156,22 @@ export default function KnowledgeBase() {
           throw new Error(errorMessage)
         }
         
-        setUploadProgress(90)
-        setUploadStatus('正在处理文档...')
-        
         const result = await response.json()
-        setUploadProgress(100)
-        setUploadStatus('上传成功!')
-        
-        message.success(`文档上传成功：${result.file_name}, ${result.chunk_count} 个文本块`)
-        
-        loadCollectionInfo()
-        
+        setActiveUploadTask({
+          task_id: result.task_id,
+          status: result.status,
+          progress: 5,
+          message: result.message,
+        })
+        setUploadStatus(result.message || '文档上传中')
+        await pollUploadStatus(result.task_id)
         onSuccess?.(result)
       } catch (error: any) {
         clearTimeout(timeoutId)
         if (error.name === 'AbortError') {
-          message.error('上传超时，请检查服务器状态')
+          notify.error('上传超时，请检查服务器状态')
         } else {
-          message.error(error.message || '上传失败')
+          notify.error(error.message || '上传失败')
         }
         onError?.(error)
       } finally {
@@ -175,6 +182,34 @@ export default function KnowledgeBase() {
         }, 1000)
       }
     },
+  }
+
+  const pollUploadStatus = async (taskId: string) => {
+    let finished = false
+
+    while (!finished) {
+      const response = await fetch(`${API_BASE_URL}/knowledge/upload/status/${taskId}`)
+      if (!response.ok) {
+        throw new Error('无法获取上传任务状态')
+      }
+
+      const task = await response.json() as UploadTaskStatus
+      setActiveUploadTask(task)
+      setUploadProgress(task.progress || 0)
+      setUploadStatus(task.message || '')
+
+      if (task.status === 'completed') {
+        finished = true
+        setUploadProgress(100)
+        notify.success(`文档上传成功：${task.result?.file_name || '文件'}, ${task.result?.chunk_count || 0} 个文本块`)
+        loadCollectionInfo()
+      } else if (task.status === 'failed') {
+        finished = true
+        throw new Error(task.error || task.message || '上传失败')
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 1200))
+      }
+    }
   }
 
   const loadCollectionInfo = async () => {
@@ -199,13 +234,13 @@ export default function KnowledgeBase() {
       )
       
       if (response.ok) {
-        message.success('文档已删除')
+        notify.success('文档已删除')
         loadCollectionInfo()
       } else {
-        message.error('删除失败')
+        notify.error('删除失败')
       }
     } catch (error) {
-      message.error('删除失败')
+      notify.error('删除失败')
     }
   }
 
@@ -240,10 +275,45 @@ export default function KnowledgeBase() {
 
       {/* 上传文档 */}
       <div className={`${glassStyles.glassCard} ${styles.card}`}>
-        <div className={styles.cardTitle}>上传文档</div>
+        <div style={{ marginBottom: 20 }}>
+          <RuntimeContextPanel page="knowledge" />
+        </div>
+        <InsightPanel
+          embedded
+          title="知识库接入状态"
+          status={{
+            type: embedderStatus?.loaded ? 'success' : 'warning',
+            text: embedderStatus?.loaded ? '向量化就绪' : '嵌入模型待加载',
+          }}
+          summary={`当前工作空间为 ${collectionId}。上传链路已经改为异步任务，页面会持续展示集合状态与任务进度，不再只给出一次性提交结果。`}
+          metrics={[
+            {
+              label: '当前集合文档数',
+              value: collectionInfo?.count ?? ((collectionInfo?.documents || []).length || 0),
+              hint: collectionInfo?.name ? `集合：${collectionInfo.name}` : '默认集合',
+                    },
+            {
+              label: '嵌入模型',
+              value: embedderStatus?.loaded ? embedderStatus.model_name || '已加载' : '未加载',
+              hint: embedderStatus?.loaded ? `${embedderStatus.dimension || '-'} 维` : embedderStatus?.error || '需要先预加载模型',
+            },
+          ]}
+        />
 
         <div className={styles.workspaceInput}>
           <span>工作空间 ID：</span>
+          {observed.knowledge.collections.length > 0 && (
+            <Select
+              value={observed.knowledge.collections.some((collection) => collection.id === collectionId) ? collectionId : undefined}
+              onChange={(value) => setCollectionId(value)}
+              placeholder="从已知集合中选择"
+              style={{ minWidth: 220 }}
+              options={observed.knowledge.collections.map((collection) => ({
+                value: collection.id,
+                label: `${collection.name} (${collection.count})`,
+              }))}
+            />
+          )}
           <input
             value={collectionId}
             onChange={(e) => setCollectionId(e.target.value)}
@@ -268,7 +338,37 @@ export default function KnowledgeBase() {
         {uploading && (
           <div className={styles.progressArea}>
             <Progress percent={uploadProgress} status="active" strokeColor="var(--accent-primary)" />
-            <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 8, textAlign: 'center' }}>{uploadStatus}</div>
+            {activeUploadTask && (
+              <div style={{ marginTop: 12, textAlign: 'left' }}>
+                <InsightPanel
+                  embedded
+                  title="上传任务观测"
+                  status={{
+                    type: activeUploadTask.status === 'completed' ? 'success' : activeUploadTask.status === 'failed' ? 'error' : 'processing',
+                    text: activeUploadTask.status,
+                  }}
+                  summary={uploadStatus || activeUploadTask.message}
+                  metrics={[
+                    {
+                      label: '任务进度',
+                      value: `${activeUploadTask.progress || uploadProgress}%`,
+                    },
+                    {
+                      label: '任务 ID',
+                      value: activeUploadTask.task_id,
+                    },
+                  ]}
+                  footer={
+                    activeUploadTask.result
+                      ? `结果：${activeUploadTask.result.file_name || '文件'}，共 ${activeUploadTask.result.chunk_count || 0} 个文本块。`
+                      : undefined
+                  }
+                />
+              </div>
+            )}
+            {!activeUploadTask && (
+              <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 8, textAlign: 'center' }}>{uploadStatus}</div>
+            )}
           </div>
         )}
       </div>
@@ -280,8 +380,8 @@ export default function KnowledgeBase() {
           <Button icon={<ReloadOutlined />} onClick={loadCollectionInfo} size="small">刷新</Button>
         </div>
 
-        {collectionInfo && collectionInfo.documents.length > 0 ? (
-          collectionInfo.documents.map((doc) => (
+        {collectionInfo && (collectionInfo.documents || []).length > 0 ? (
+          (collectionInfo.documents || []).map((doc) => (
             <div key={doc.doc_id} className={styles.docItem}>
               <div className={styles.docItemInfo}>
                 <div className={styles.docItemName}>

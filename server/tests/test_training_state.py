@@ -159,12 +159,19 @@ class TestTrainingState:
     def test_set_training(self, training_state):
         """测试设置训练状态"""
         training_state.set_training(True)
-        time.sleep(0.1)
         assert training_state.is_training() is True
 
         training_state.set_training(False)
-        time.sleep(0.1)
         assert training_state.is_training() is False
+
+    def test_stop_request_lifecycle(self, training_state):
+        """停止请求位应可设置并在训练结束时清除"""
+        training_state.set_training(True)
+        assert training_state.should_stop() is False
+        training_state.request_stop()
+        assert training_state.should_stop() is True
+        training_state.set_training(False)
+        assert training_state.should_stop() is False
 
     def test_queue_progress_update(self, training_state):
         """测试队列式进度更新"""

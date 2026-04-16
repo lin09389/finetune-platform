@@ -1,8 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 const mockApiClientGet = vi.hoisted(() => vi.fn())
+const mockGetTrainingFailureAnalytics = vi.hoisted(() => vi.fn())
 const mockGetTrainingCheckpoints = vi.hoisted(() => vi.fn())
 const mockGetTrainingHistory = vi.hoisted(() => vi.fn())
+const mockGetTrainingRecoveryOptions = vi.hoisted(() => vi.fn())
 const mockResumeTraining = vi.hoisted(() => vi.fn())
 const mockStartSwiftTraining = vi.hoisted(() => vi.fn())
 const mockStartTraining = vi.hoisted(() => vi.fn())
@@ -14,8 +16,10 @@ vi.mock('../services/api', () => ({
   apiClient: {
     get: mockApiClientGet,
   },
+  getTrainingFailureAnalytics: mockGetTrainingFailureAnalytics,
   getTrainingCheckpoints: mockGetTrainingCheckpoints,
   getTrainingHistory: mockGetTrainingHistory,
+  getTrainingRecoveryOptions: mockGetTrainingRecoveryOptions,
   resumeTraining: mockResumeTraining,
   startSwiftTraining: mockStartSwiftTraining,
   startTraining: mockStartTraining,
@@ -25,7 +29,9 @@ vi.mock('../services/api', () => ({
 
 import {
   getTrainingHistory,
+  getTrainingRecoveryOptions,
   getTrainingStatus,
+  getTrainingFailureAnalytics,
   normalizeTrainingProgress,
   normalizeTrainingRecord,
   resumeTraining,
@@ -132,9 +138,10 @@ describe('trainingApi', () => {
       config: {},
     })
 
-    const started = await startTraining({})
+    const started = await startTraining({}, { applyRecommendedConfig: true })
     const resumed = await resumeTraining('task-1', 'checkpoint-10')
 
+    expect(mockStartTraining).toHaveBeenCalledWith({}, { applyRecommendedConfig: true })
     expect(started.modelName).toBe('demo-model')
     expect(resumed.datasetName).toBe('demo-dataset')
   })
@@ -200,5 +207,37 @@ describe('trainingApi', () => {
       }),
     )
     expect(result).toBe(unsubscribe)
+  })
+
+  it('normalizes recovery options and failure analytics payloads', async () => {
+    mockGetTrainingRecoveryOptions.mockResolvedValue({
+      generated_at: '2026-04-16T00:00:00',
+      options: [
+        {
+          task_id: 'task-1',
+          status: 'failed',
+          model_name: 'demo-model',
+          dataset_name: 'demo-dataset',
+          start_time: '2026-04-16T00:00:00',
+          checkpoints: [{ name: 'checkpoint-100', step: 100 }],
+          latest_checkpoint_name: 'checkpoint-100',
+          config: { method: 'qlora', batch_size: 1 },
+        },
+      ],
+    })
+    mockGetTrainingFailureAnalytics.mockResolvedValue({
+      total_runs: 10,
+      failed_runs: 2,
+      failure_rate_7d: 20,
+    })
+
+    const recovery = await getTrainingRecoveryOptions()
+    const analytics = await getTrainingFailureAnalytics()
+
+    expect(recovery.options[0].taskId).toBe('task-1')
+    expect(recovery.options[0].modelName).toBe('demo-model')
+    expect(analytics.totalRuns).toBe(10)
+    expect(analytics.failedRuns).toBe(2)
+    expect(analytics.failureRate7d).toBe(20)
   })
 })

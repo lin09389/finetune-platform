@@ -9,6 +9,8 @@
     "lint": "eslint src --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
+    "test:runtime": "vitest run src/test/RuntimeContext.test.tsx src/test/RuntimeWorkflows.test.tsx --reporter=basic",
+    "test:smoke": "vitest run src/test/Sidebar.test.tsx src/test/betaTierPages.test.tsx src/test/experimentalStatusPages.test.tsx src/test/gaSmokePages.test.tsx --reporter=basic",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\""

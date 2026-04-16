@@ -9,3 +9,6 @@ export type { LoadingType, LoadingStateProps } from './LoadingState'
 
 export { default as PageHeader, PageTitle, SectionHeader } from './PageHeader'
 export type { PageHeaderProps } from './PageHeader'
+
+export { default as InsightPanel } from './InsightPanel'
+export type { InsightPanelProps } from './InsightPanel'

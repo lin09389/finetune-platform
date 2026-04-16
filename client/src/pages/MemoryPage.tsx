@@ -23,7 +23,7 @@ const tiers = [
   {
     icon: '🗄️',
     name: '长期记忆',
-    desc: '语义化知识图谱，持久存储核心知识，支持 MCP 协议访问。',
+    desc: '语义化知识图谱，持久存储核心知识；对外集成能力仍在持续收口。',
   },
 ]
 
@@ -41,7 +41,7 @@ export default function MemoryPage() {
         <div>
           <h2 className={styles.headerTitle}>智能记忆系统</h2>
           <p className={styles.headerSubtitle}>
-            三级记忆架构：工作记忆、短期记忆、长期记忆，支持知识图谱和 MCP 协议
+            Beta 能力：三级记忆架构已可试用，但跨能力集成和外部接入仍在持续收口
           </p>
         </div>
       </div>

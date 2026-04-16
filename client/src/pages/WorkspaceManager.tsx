@@ -135,7 +135,7 @@ export default function WorkspaceManager() {
           </div>
           <div>
             <h2 className={styles.headerTitle}>工作空间管理</h2>
-            <p className={styles.headerSubtitle}>管理 RAG 知识库的独立工作空间</p>
+            <p className={styles.headerSubtitle}>Beta 能力：管理知识库工作空间，具体能力仍取决于本地存储与索引状态</p>
           </div>
         </div>
         <Button
@@ -150,6 +150,9 @@ export default function WorkspaceManager() {
 
       {/* 工作空间列表 */}
       <div className={styles.listCard}>
+        <div style={{ marginBottom: 16, color: 'var(--text-secondary)', fontSize: 13 }}>
+          工作空间结构已经可试用，但文档解析、向量构建和后续检索质量仍会受到本地环境影响。
+        </div>
         {workspaces.length > 0 ? (
           <div className={styles.wsGrid}>
             {workspaces.map((ws) => (

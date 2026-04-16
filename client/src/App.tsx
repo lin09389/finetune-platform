@@ -11,6 +11,7 @@ import { API_BASE_URL, checkBackendHealth } from './services/api'
 import { ThemeProvider, useTheme } from './theme'
 import { useResponsive } from './hooks/useResponsive'
 import PageSkeleton from './components/shared/PageSkeleton'
+import { RuntimeContextProvider } from './runtime/RuntimeContext'
 import zhCN from 'antd/locale/zh_CN'
 
 const { Content } = Layout
@@ -333,7 +334,9 @@ function AppContent() {
 function App() {
   return (
     <ThemeProvider>
-      <AppContent />
+      <RuntimeContextProvider>
+        <AppContent />
+      </RuntimeContextProvider>
     </ThemeProvider>
   )
 }

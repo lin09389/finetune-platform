@@ -9,11 +9,12 @@ import os
 import threading
 import traceback as tb
 import uuid
+from collections import Counter
 from collections.abc import Mapping
 from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
@@ -190,6 +191,42 @@ class UnrecoverableError(Exception):
     pass
 
 
+TrainingProgressStatus = Literal[
+    "idle",
+    "loading",
+    "training",
+    "running",
+    "stopping",
+    "stopped",
+    "completed",
+    "failed",
+]
+
+TRAINING_PROGRESS_STATUS_VALUES: tuple[TrainingProgressStatus, ...] = (
+    "idle",
+    "loading",
+    "training",
+    "running",
+    "stopping",
+    "stopped",
+    "completed",
+    "failed",
+)
+
+
+def _queue_training_progress(
+    state: TrainingState,
+    *,
+    status: TrainingProgressStatus,
+    message: str,
+    **kwargs: Any,
+) -> None:
+    """统一训练进度状态写入，确保 status 枚举可控。"""
+    if status not in TRAINING_PROGRESS_STATUS_VALUES:
+        raise ValueError(f"Unsupported training progress status: {status}")
+    state.queue_progress_update(status=status, message=message, **kwargs)
+
+
 class TrainingConfigInput(BaseModel):
     """训练配置输入 - 支持高精度微调"""
     model_id: str = Field(..., description="模型 ID")
@@ -265,7 +302,7 @@ class TrainingProgressResponse(BaseModel):
     vram_used: float
     elapsed_time: float
     eta: float
-    status: str
+    status: TrainingProgressStatus
     message: str
 
 
@@ -554,6 +591,119 @@ def _resolve_training_output_dir(state: TrainingState, settings: Settings, task_
     return settings.outputs_dir_resolved / f"train_{task_id[:8]}"
 
 
+def _safe_parse_time(value: str | None) -> datetime:
+    if not value:
+        return datetime.min
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except Exception:
+        return datetime.min
+
+
+def _load_checkpoints_for_task(state: TrainingState, settings: Settings, task_id: str) -> list[dict[str, Any]]:
+    output_dir = _resolve_training_output_dir(state, settings, task_id)
+    checkpoint_dir = output_dir / "checkpoints"
+
+    if not checkpoint_dir.exists():
+        return []
+
+    checkpoints: list[dict[str, Any]] = []
+    for cp in checkpoint_dir.iterdir():
+        if not (cp.is_dir() and cp.name.startswith("checkpoint-")):
+            continue
+        try:
+            step = int(cp.name.split("-")[1])
+        except Exception:
+            step = 0
+        checkpoints.append({
+            "name": cp.name,
+            "path": str(cp),
+            "step": step,
+            "created": datetime.fromtimestamp(cp.stat().st_mtime).isoformat(),
+        })
+
+    return sorted(checkpoints, key=lambda x: x["step"])
+
+
+def _build_failure_analytics_payload(records: list[TrainingRecord]) -> dict[str, Any]:
+    now = datetime.now()
+
+    def within_days(record: TrainingRecord, days: int) -> bool:
+        start_time = _safe_parse_time(record.start_time)
+        return (now - start_time).days <= days
+
+    failed = [record for record in records if record.status == "failed"]
+    stopped = [record for record in records if record.status == "stopped"]
+    completed = [record for record in records if record.status == "completed"]
+    runs7d = [record for record in records if within_days(record, 7)]
+    runs14d = [record for record in records if within_days(record, 14)]
+    failed7d = [record for record in runs7d if record.status == "failed"]
+    failed14d = [record for record in runs14d if record.status == "failed"]
+
+    def top_names(values: list[str], top_n: int = 3) -> list[str]:
+        return [name for name, _ in Counter(values).most_common(top_n)]
+
+    def is_vram_pressure(record: TrainingRecord) -> bool:
+        config = record.config or {}
+        batch_size = int(config.get("batch_size", config.get("batchSize", 1)))
+        max_seq_length = int(config.get("max_seq_length", config.get("maxSeqLength", 512)))
+        quantization = int(config.get("quantization", 4))
+        return batch_size >= 2 or max_seq_length > 1024 or quantization == 0
+
+    def is_long_context(record: TrainingRecord) -> bool:
+        config = record.config or {}
+        return int(config.get("max_seq_length", config.get("maxSeqLength", 512))) > 1024
+
+    def is_unquantized(record: TrainingRecord) -> bool:
+        config = record.config or {}
+        return int(config.get("quantization", 4)) == 0
+
+    recent_failures = sorted(failed, key=lambda item: _safe_parse_time(item.start_time), reverse=True)[:5]
+
+    return {
+        "totalRuns": len(records),
+        "failedRuns": len(failed),
+        "stoppedRuns": len(stopped),
+        "completedRuns": len(completed),
+        "failureRate": round((len(failed) / len(records) * 100), 1) if records else 0.0,
+        "failureRate7d": round((len(failed7d) / len(runs7d) * 100), 1) if runs7d else 0.0,
+        "failureRate14d": round((len(failed14d) / len(runs14d) * 100), 1) if runs14d else 0.0,
+        "failedRuns7d": len(failed7d),
+        "failedRuns14d": len(failed14d),
+        "totalRuns7d": len(runs7d),
+        "totalRuns14d": len(runs14d),
+        "suspectedVramPressureCount": sum(1 for record in failed if is_vram_pressure(record)),
+        "longContextFailureCount": sum(1 for record in failed if is_long_context(record)),
+        "unquantizedFailureCount": sum(1 for record in failed if is_unquantized(record)),
+        "topFailedModels": top_names([record.model_name for record in failed]),
+        "topFailedDatasets": top_names([record.dataset_name for record in failed]),
+        "topFailedMethods": top_names([record.method for record in failed]),
+        "recentFailures": [
+            {
+                "id": record.id,
+                "modelName": record.model_name,
+                "datasetName": record.dataset_name,
+                "method": record.method,
+                "startTime": record.start_time,
+            }
+            for record in recent_failures
+        ],
+    }
+
+
+def _estimate_training_total_steps(train_size: int, batch_size: int, epochs: int) -> int:
+    """估算训练总步数，避免小数据集出现 0 步。"""
+    if train_size <= 0:
+        raise ValueError("训练集为空，无法开始训练")
+    if batch_size <= 0:
+        raise ValueError("batch_size 必须大于 0")
+    if epochs <= 0:
+        raise ValueError("epochs 必须大于 0")
+
+    steps_per_epoch = max(1, (train_size + batch_size - 1) // batch_size)
+    return steps_per_epoch * epochs
+
+
 def load_model_and_tokenizer(
     model_path: str,
     method: str,
@@ -840,10 +990,12 @@ class ProgressCallback:
     def on_train_begin(self, args, state, control, **kwargs):
         """训练开始时的回调"""
         logger.info(f"训练开始：总步数={self.total_steps}")
-        self.state.queue_progress_update(
+        _queue_training_progress(
+            self.state,
             epoch=0, step=0, total_steps=self.total_steps, loss=0.0, lr=0.0,
             vram_used=get_vram_usage(), elapsed_time=0.0, eta=0.0,
-            status="training", message="Training started"
+            status="training",
+            message="Training started",
         )
 
     def on_init_end(self, args, state, control, **kwargs):
@@ -900,7 +1052,7 @@ class ProgressCallback:
 
     def on_step_end(self, args, state, control, **kwargs):
         """每一步结束时的回调 - 优化版：降低更新频率 + FIX-2: 停止信号传递"""
-        if not self.state.is_training():
+        if self.state.should_stop():
             logger.info(f"检测到停止信号，在第 {state.global_step} 步中断训练")
             control.should_training_stop = True
             return control
@@ -948,7 +1100,8 @@ class ProgressCallback:
         vram = get_vram_usage()
         lr = getattr(args, "learning_rate", self.config.learning_rate)
 
-        self.state.queue_progress_update(
+        _queue_training_progress(
+            self.state,
             epoch=int(self.current_epoch) + 1,
             step=self.current_step,
             total_steps=self.total_steps,
@@ -1020,7 +1173,8 @@ class ProgressCallback:
         except Exception as e:
             logger.debug(f"WebSocket 推送完成事件失败：{e}")
 
-        self.state.queue_progress_update(
+        _queue_training_progress(
+            self.state,
             epoch=self.config.epochs,
             step=self.total_steps,
             total_steps=self.total_steps,
@@ -1072,6 +1226,18 @@ def training_thread(
     train_logger.log_start(config)
 
     while True:
+        if state.should_stop():
+            _finalize_stop_requested(
+                state=state,
+                record=record,
+                task_id=task_id,
+                model=model,
+                tokenizer=tokenizer,
+                trainer=trainer,
+                message="Training stopped before next retry",
+            )
+            return
+
         if retry_count > 0:
             logger.info(f"第 {retry_count} 次重试训练：{record.id}")
             # Clean up resources before retry
@@ -1088,14 +1254,28 @@ def training_thread(
 
             cooldown = 30 * retry_count
             logger.info(f"等待 {cooldown} 秒后重试...")
-            time.sleep(cooldown)
+            for _ in range(cooldown):
+                if state.should_stop():
+                    _finalize_stop_requested(
+                        state=state,
+                        record=record,
+                        task_id=task_id,
+                        model=model,
+                        tokenizer=tokenizer,
+                        trainer=trainer,
+                        message="Training stopped during retry cooldown",
+                    )
+                    return
+                time.sleep(1)
 
         try:
             state.queue_training_state(True)
-            state.queue_progress_update(
+            _queue_training_progress(
+                state,
                 epoch=0, step=0, total_steps=0, loss=0.0, lr=0.0,
                 vram_used=0.0, elapsed_time=0.0, eta=0.0,
-                status="loading", message="Loading model..."
+                status="loading",
+                message="Loading model...",
             )
 
             try:
@@ -1122,10 +1302,24 @@ def training_thread(
                     raise RecoverableError(f"GPU 错误：{e}")
                 raise
 
-            state.queue_progress_update(
+            if state.should_stop():
+                _finalize_stop_requested(
+                    state=state,
+                    record=record,
+                    task_id=task_id,
+                    model=model,
+                    tokenizer=tokenizer,
+                    trainer=trainer,
+                    message="Training stopped after model load",
+                )
+                return
+
+            _queue_training_progress(
+                state,
                 epoch=0, step=0, total_steps=0, loss=0.0, lr=0.0,
                 vram_used=0.0, elapsed_time=0.0, eta=0.0,
-                status="loading", message="Loading dataset..."
+                status="loading",
+                message="Loading dataset...",
             )
             try:
                 if config.additional_datasets:
@@ -1144,7 +1338,26 @@ def training_thread(
             except json.JSONDecodeError as e:
                 raise UnrecoverableError(f"数据集格式错误：{e}")
 
-            total_steps = (len(dataset["train"]) // config.batch_size) * config.epochs
+            if state.should_stop():
+                _finalize_stop_requested(
+                    state=state,
+                    record=record,
+                    task_id=task_id,
+                    model=model,
+                    tokenizer=tokenizer,
+                    trainer=trainer,
+                    message="Training stopped after dataset load",
+                )
+                return
+
+            try:
+                total_steps = _estimate_training_total_steps(
+                    train_size=len(dataset["train"]),
+                    batch_size=config.batch_size,
+                    epochs=config.epochs,
+                )
+            except ValueError as e:
+                raise UnrecoverableError(str(e))
 
             eval_steps = config.eval_steps if config.eval_steps > 0 else None
             eval_strategy = "steps" if eval_steps else "no"
@@ -1336,10 +1549,12 @@ def training_thread(
             )
             trainer.add_callback(callback)
 
-            state.queue_progress_update(
+            _queue_training_progress(
+                state,
                 epoch=0, step=0, total_steps=total_steps, loss=0.0, lr=0.0,
                 vram_used=0.0, elapsed_time=0.0, eta=0.0,
-                status="training", message="Starting training..."
+                status="training",
+                message="Starting training...",
             )
 
             try:
@@ -1352,6 +1567,17 @@ def training_thread(
                 if "CUDA" in str(e) or "memory" in str(e).lower() or "NCCL" in str(e):
                     raise RecoverableError(f"GPU 错误：{e}")
                 raise
+
+            if state.should_stop():
+                _finalize_stop_requested(
+                    state=state,
+                    record=record,
+                    task_id=task_id,
+                    model=model,
+                    tokenizer=tokenizer,
+                    trainer=trainer,
+                )
+                return
 
             output_dir = Path(record.output_path)
             lora_path = output_dir / "lora_adapter"
@@ -1576,10 +1802,19 @@ def _degrade_training_config(config: TrainingConfigInput) -> TrainingConfigInput
 
 def _handle_training_failure(state: TrainingState, record: TrainingRecord, error: Exception, train_logger: 'TrainingLogger' = None):
     """处理训练失败"""
-    state.queue_progress_update(
-        epoch=0, step=0, total_steps=0, loss=0.0, lr=0.0,
-        vram_used=0.0, elapsed_time=0.0, eta=0.0,
-        status="failed", message=f"Error: {str(error)}"
+    latest_progress = state.get_progress()
+    _queue_training_progress(
+        state,
+        epoch=latest_progress.epoch,
+        step=latest_progress.step,
+        total_steps=latest_progress.total_steps,
+        loss=latest_progress.loss,
+        lr=latest_progress.lr,
+        vram_used=latest_progress.vram_used,
+        elapsed_time=latest_progress.elapsed_time,
+        eta=latest_progress.eta,
+        status="failed",
+        message=f"Error: {str(error)}",
     )
 
     record.status = "failed"
@@ -1590,6 +1825,44 @@ def _handle_training_failure(state: TrainingState, record: TrainingRecord, error
 
     state.add_to_history_sync(record)
     logger.info(f"训练失败记录已保存：{record.id}")
+
+
+def _finalize_stop_requested(
+    state: TrainingState,
+    record: TrainingRecord,
+    task_id: str | None,
+    model=None,
+    tokenizer=None,
+    trainer=None,
+    message: str = "Training stopped by user",
+):
+    """统一处理用户停止请求，保证状态与历史一致。"""
+    latest_progress = state.get_progress()
+    _queue_training_progress(
+        state,
+        epoch=latest_progress.epoch,
+        step=latest_progress.step,
+        total_steps=latest_progress.total_steps,
+        loss=latest_progress.loss,
+        lr=latest_progress.lr,
+        vram_used=latest_progress.vram_used,
+        elapsed_time=latest_progress.elapsed_time,
+        eta=latest_progress.eta,
+        status="stopped",
+        message=message,
+    )
+
+    record.status = "stopped"
+    record.end_time = datetime.now().isoformat()
+    state.add_to_history_sync(record)
+    logger.info(f"训练已停止并保存历史：{record.id}")
+
+    state.queue_training_state(False)
+    if task_id:
+        state.unregister_training_task(task_id)
+        logger.debug(f"已注销训练任务线程：{task_id}")
+
+    _cleanup_training_resources(model, tokenizer, trainer)
 
 
 def _cleanup_training_resources(model, tokenizer, trainer):
@@ -1723,23 +1996,17 @@ async def stop_training():
     if not state.is_training():
         raise HTTPException(status_code=400, detail="No training in progress")
 
-    state.queue_training_state(False)
-    state.queue_progress_update(
-        status="stopped",
-        message="Training stopped by user"
+    if state.should_stop():
+        return {"message": "Stop already requested", "status": "stopping"}
+
+    state.request_stop()
+    _queue_training_progress(
+        state,
+        status="stopping",
+        message="Stop requested, waiting for current step to finish",
     )
-
-    record = state.get_current_record()
-    if record:
-        record.status = "stopped"
-        record.end_time = datetime.now().isoformat()
-        state.add_to_history(record)
-
-    await asyncio.to_thread(cleanup_gpu_memory, aggressive=True)
-    gc.collect()
-
-    logger.info("训练已停止")
-    return {"message": "Training stopped"}
+    logger.info("收到训练停止请求，等待训练线程安全退出")
+    return {"message": "Stop requested", "status": "stopping"}
 
 
 @router.get("/progress", response_model=TrainingProgressResponse)
@@ -2117,7 +2384,10 @@ async def _monitor_swift_training(
             progress = swift_backend.parse_training_progress()
 
             if progress.get("step", 0) > 0:
-                state.queue_progress_update(
+                _queue_training_progress(
+                    state,
+                    status="running",
+                    message=progress.get("message", "SWIFT Training..."),
                     epoch=progress.get("epoch", 0),
                     step=progress.get("step", 0),
                     total_steps=progress.get("total_steps", 0),
@@ -2126,8 +2396,6 @@ async def _monitor_swift_training(
                     vram_used=get_vram_usage(),
                     elapsed_time=progress.get("elapsed_time", 0.0),
                     eta=0.0,
-                    status="running",
-                    message=progress.get("message", "SWIFT Training...")
                 )
 
                 try:
@@ -2143,9 +2411,10 @@ async def _monitor_swift_training(
             logger.info(f"SWIFT 训练完成：{task_id}")
 
             state.queue_training_state(False)
-            state.queue_progress_update(
+            _queue_training_progress(
+                state,
                 status="completed",
-                message="SWIFT Training completed"
+                message="SWIFT Training completed",
             )
 
             record.status = "completed"
@@ -2173,9 +2442,10 @@ async def _monitor_swift_training(
             error_msg = "\n".join(log_tail) if log_tail else "Unknown error"
 
             state.queue_training_state(False)
-            state.queue_progress_update(
+            _queue_training_progress(
+                state,
                 status="failed",
-                message=f"SWIFT Error: {error_msg[:200]}"
+                message=f"SWIFT Error: {error_msg[:200]}",
             )
 
             record.status = "failed"
@@ -2217,9 +2487,10 @@ async def stop_swift_training():
     if success:
         training_state = get_training_context().state
         training_state.queue_training_state(False)
-        training_state.queue_progress_update(
+        _queue_training_progress(
+            training_state,
             status="stopped",
-            message="SWIFT training stopped by user"
+            message="SWIFT training stopped by user",
         )
         return {"message": "SWIFT training stopped"}
     else:
@@ -2261,24 +2532,65 @@ async def get_checkpoints(task_id: str):
     """获取任务的检查点列表"""
     state = get_training_context().state
     settings = get_settings()
+    return _load_checkpoints_for_task(state, settings, task_id)
 
-    output_dir = _resolve_training_output_dir(state, settings, task_id)
-    checkpoint_dir = output_dir / "checkpoints"
 
-    if not checkpoint_dir.exists():
-        return []
+@router.get("/recovery/options")
+async def get_recovery_options(limit: int = Query(default=6, ge=1, le=20)):
+    """聚合可恢复训练任务和检查点，减少前端多次请求拼装。"""
+    state = get_training_context().state
+    settings = get_settings()
 
-    checkpoints = []
-    for cp in checkpoint_dir.iterdir():
-        if cp.is_dir() and cp.name.startswith("checkpoint-"):
-            checkpoints.append({
-                "name": cp.name,
-                "path": str(cp),
-                "step": int(cp.name.split("-")[1]),
-                "created": datetime.fromtimestamp(cp.stat().st_mtime).isoformat()
-            })
+    records = state.get_history()
+    candidates = sorted(
+        [record for record in records if record.status in ("failed", "stopped")],
+        key=lambda item: _safe_parse_time(item.start_time),
+        reverse=True,
+    )
 
-    return sorted(checkpoints, key=lambda x: x["step"])
+    options: list[dict[str, Any]] = []
+    for record in candidates:
+        checkpoints = _load_checkpoints_for_task(state, settings, record.id)
+        if not checkpoints:
+            continue
+
+        latest_checkpoint = checkpoints[-1]
+        config = record.config or {}
+        options.append({
+            "taskId": record.id,
+            "status": record.status,
+            "modelName": record.model_name,
+            "datasetName": record.dataset_name,
+            "startTime": record.start_time,
+            "checkpoints": list(reversed(checkpoints)),
+            "latestCheckpointName": latest_checkpoint["name"],
+            "config": {
+                "method": config.get("method", "qlora"),
+                "batchSize": config.get("batch_size", config.get("batchSize", 1)),
+                "maxSeqLength": config.get("max_seq_length", config.get("maxSeqLength", 512)),
+                "gradientAccumulation": config.get("gradient_accumulation", config.get("gradientAccumulation", 16)),
+                "quantization": config.get("quantization", 4),
+            },
+            "reason": "最近一次失败任务存在可恢复检查点"
+            if record.status == "failed"
+            else "最近一次停止任务存在可恢复检查点",
+        })
+
+        if len(options) >= limit:
+            break
+
+    return {
+        "generatedAt": datetime.now().isoformat(),
+        "options": options,
+    }
+
+
+@router.get("/failure/analytics")
+async def get_failure_analytics():
+    """返回训练失败画像统计，供前端直接展示。"""
+    state = get_training_context().state
+    records = state.get_history()
+    return _build_failure_analytics_payload(records)
 
 
 @router.post("/resume/{task_id}/{checkpoint_name}")
@@ -2337,8 +2649,6 @@ async def resume_training(task_id: str, checkpoint_name: str):
         dataset_file=dataset_file,
         use_queue=False,
         priority="normal",
-        record_id=task_id,
-        output_path=output_dir,
     )
 
 
@@ -2632,7 +2942,8 @@ async def start_training(
     config: TrainingConfigInput,
     skip_resource_check: bool = False,
     use_queue: bool = False,
-    priority: str = "normal"
+    priority: str = "normal",
+    apply_recommended_config: bool = False,
 ):
     """开始训练
 
@@ -2660,7 +2971,7 @@ async def start_training(
 
     dataset_file = None
     for ext in [".json", ".jsonl"]:
-        for pattern in [f"{config.dataset_id}{ext}", "data{ext}", f"*{ext}"]:
+        for pattern in [f"{config.dataset_id}{ext}", f"data{ext}", f"*{ext}"]:
             potential_file = dataset_path / pattern
             if potential_file.exists():
                 dataset_file = potential_file
@@ -2715,6 +3026,16 @@ async def start_training(
             logger.warning(f"资源检查警告：{warning}")
 
         if not resource_check["passed"] and resource_check["recommended_config"]:
+            if not apply_recommended_config:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "resource_check_failed",
+                        "message": "Resource check failed, recommended config available",
+                        "recommended_config": resource_check["recommended_config"],
+                        "warnings": resource_check.get("warnings", []),
+                    },
+                )
             recommended = resource_check["recommended_config"]
             logger.info(f"应用推荐配置：{recommended}")
 
@@ -2767,10 +3088,11 @@ async def cancel_task(task_id: str):
     if queue.cancel(task_id):
         current_record = state.get_current_record()
         if current_record and current_record.id == task_id and state.is_training():
-            state.queue_training_state(False)
-            state.queue_progress_update(
-                status="stopped",
-                message="Training cancelled by user"
+            state.request_stop()
+            _queue_training_progress(
+                state,
+                status="stopping",
+                message="Training cancellation requested by user",
             )
         return {"message": f"Task {task_id} cancelled"}
 

@@ -22,6 +22,12 @@ class TestGatewayAPI:
         assert response.status_code == 200
         data = response.json()
 
+        assert data["tier"] == "experimental"
+        assert data["available"] is True
+        assert data["failure_mode"] == "explicit_status"
+        assert "dependency_status" in data
+        assert "runtime_status" in data
+        assert "message" in data
         assert "gateway" in data
         assert "router" in data
         assert "sessions" in data

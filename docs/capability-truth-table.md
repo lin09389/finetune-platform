@@ -4,6 +4,8 @@ Last updated: `2026-04-14`
 
 This document is the source of truth for feature maturity, delivery expectations, and verification depth across the platform. Product copy, navigation labels, release notes, and regression tests should align with this table.
 
+See also: [PLATFORM_RUNTIME_FOUNDATION.md](/C:/Users/JHJ/Desktop/finetune-platform/docs/PLATFORM_RUNTIME_FOUNDATION.md) for the frontend runtime, notification, and smoke-test integration rules used by GA pages.
+
 ## Maturity Tiers
 
 | Tier | Meaning |
@@ -36,9 +38,11 @@ This document is the source of truth for feature maturity, delivery expectations
 ## Current Guardrails
 
 - Experimental pages must display real runtime status instead of implying guaranteed support.
+- Navigation labels and page subtitles should carry tier cues for `Beta` and `Experimental` capabilities.
 - API metadata must only advertise canonical routes that are currently implemented.
 - Dependency-missing scenarios must fail explicitly rather than returning placeholder-success payloads.
 - Frontend tests should assert the current UI contract, not older interaction patterns that have been removed.
+- Core GA pages should keep lightweight smoke coverage for disconnected, unavailable, or not-yet-loaded states.
 
 ## Near-Term Upgrade Priorities
 

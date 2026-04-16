@@ -155,7 +155,7 @@ export default function ProjectContext() {
         </div>
         <div>
           <h2 className={styles.headerTitle}>项目上下文管理</h2>
-          <p className={styles.headerSubtitle}>扫描并索引本地代码项目，让 AI 了解你的代码库</p>
+          <p className={styles.headerSubtitle}>Beta 能力：扫描并索引本地项目，但理解质量仍受仓库规模、语言和索引状态影响</p>
         </div>
       </div>
 
@@ -163,6 +163,9 @@ export default function ProjectContext() {
       <div className={styles.scanCard}>
         <div className={styles.sectionTitle}>
           <FolderOutlined /> 扫描项目
+        </div>
+        <div style={{ marginBottom: 12, color: 'var(--text-secondary)', fontSize: 13 }}>
+          页面可用不代表索引一定完整；请以扫描结果、索引进度和后续检索效果为准。
         </div>
         <Input.Search
           placeholder="项目路径，例如：C:/Users/JHJ/Desktop/finetune-platform"
@@ -251,9 +254,9 @@ export default function ProjectContext() {
         <ul className={styles.helpList}>
           <li>输入项目根目录路径，点击"扫描项目"开始分析</li>
           <li>系统会自动检测技术栈、分析项目结构、提取代码符号</li>
-          <li>索引完成后，在聊天时启用"项目上下文"开关，AI 将了解你的项目</li>
+          <li>索引完成后，在聊天时启用"项目上下文"开关，AI 会基于已建立的索引理解你的项目</li>
           <li>支持的语言：Python、JavaScript、TypeScript、Java 等</li>
-          <li>AI 会根据你的问题，智能检索相关代码文件和项目信息</li>
+          <li>AI 会根据你的问题检索相关代码文件和项目信息，但结果覆盖度取决于索引质量</li>
         </ul>
       </div>
       </MotionItem>

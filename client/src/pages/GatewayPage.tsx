@@ -10,6 +10,7 @@ import {
   Select,
   message,
   Badge,
+  Alert,
 } from 'antd'
 import {
   ApiOutlined,
@@ -38,6 +39,21 @@ interface Device {
   permissions: string[]
   last_seen: string
   created_at: string
+}
+
+interface GatewayStatus {
+  tier?: string
+  available?: boolean
+  runtime_status?: string
+  dependency_status?: string
+  failure_mode?: string
+  message?: string
+  gateway?: {
+    active_connections?: number
+  }
+  router?: {
+    message_queue_size?: number
+  }
 }
 
 interface Binding {
@@ -71,7 +87,8 @@ export default function GatewayPage() {
   const [bindingModalVisible, setBindingModalVisible] = useState(false)
   const [registerForm] = Form.useForm()
   const [bindingForm] = Form.useForm()
-  const [gatewayStatus, setGatewayStatus] = useState<any>({})
+  const [gatewayStatus, setGatewayStatus] = useState<GatewayStatus>({})
+  const [statusNotice, setStatusNotice] = useState('')
 
   useEffect(() => {
     fetchGatewayData()
@@ -112,10 +129,16 @@ export default function GatewayPage() {
         apiClient.get('/gateway/bindings').catch(() => ({ data: { bindings: [] } })),
       ])
       setGatewayStatus(statusRes.data || {})
+      setStatusNotice(
+        statusRes.data && Object.keys(statusRes.data).length > 0
+          ? ''
+          : 'Gateway 状态接口当前不可用，设备和绑定列表不代表路由、会话与消息能力已经可用。'
+      )
       setDevices((devicesRes.data?.devices || []).map(normalizeDevice))
       setBindings((bindingsRes.data?.bindings || []).map(normalizeBinding))
     } catch (error) {
       console.error('Failed to fetch gateway data:', error)
+      setStatusNotice('Gateway 数据获取失败，当前页面无法确认实验连接与路由能力。')
     } finally {
       setLoading(false)
     }
@@ -289,6 +312,14 @@ export default function GatewayPage() {
           <strong>实验功能</strong> — Gateway 当前仍处于实验阶段，页面展示与操作结果需要以实际后端状态和设备绑定结果为准。
         </span>
       </div>
+      <Alert
+        data-testid="gateway-runtime-status"
+        showIcon
+        type={gatewayStatus.runtime_status === 'ready' ? 'success' : 'warning'}
+        message={gatewayStatus.runtime_status === 'ready' ? '已检测到 Gateway 活跃连接' : 'Gateway 当前能力受限'}
+        description={`${statusNotice || gatewayStatus.message || '尚未拿到 Gateway 运行状态。'}${gatewayStatus.dependency_status ? ` 依赖状态：${gatewayStatus.dependency_status}。` : ''}`}
+        style={{ marginBottom: 20 }}
+      />
 
       {/* 统计卡片 */}
       <div className={styles.statsRow}>

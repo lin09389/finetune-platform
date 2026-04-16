@@ -78,7 +78,7 @@ export interface TrainingProgress {
   vramUsed: number
   elapsedTime: number
   eta: number
-  status?: 'idle' | 'loading' | 'training' | 'running' | 'completed' | 'failed' | 'stopped'
+  status?: 'idle' | 'loading' | 'training' | 'running' | 'stopping' | 'completed' | 'failed' | 'stopped'
   message?: string
 }
 

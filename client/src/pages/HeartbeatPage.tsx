@@ -40,6 +40,12 @@ interface TaskResult {
 }
 
 interface HeartbeatStatus {
+  tier?: string
+  available?: boolean
+  runtime_status?: string
+  dependency_status?: string
+  failure_mode?: string
+  message?: string
   scheduler: {
     running: boolean
     total_tasks: number
@@ -59,6 +65,7 @@ export default function HeartbeatPage() {
   const [status, setStatus] = useState<HeartbeatStatus | null>(null)
   const [createModalVisible, setCreateModalVisible] = useState(false)
   const [createForm] = Form.useForm()
+  const [statusNotice, setStatusNotice] = useState('')
 
   useEffect(() => {
     fetchHeartbeatData()
@@ -78,10 +85,16 @@ export default function HeartbeatPage() {
         apiClient.get('/heartbeat/results?limit=20').catch(() => ({ data: { results: [] } })),
       ])
       setStatus(statusRes.data)
+      setStatusNotice(
+        statusRes.data
+          ? ''
+          : 'Heartbeat 状态接口当前不可用，任务列表仍可显示，但不代表调度器和执行器已经稳定运行。'
+      )
       setTasks(tasksRes.data?.tasks || [])
       setResults(resultsRes.data?.results || [])
     } catch (error) {
       console.error('Failed to fetch heartbeat data:', error)
+      setStatusNotice('Heartbeat 数据获取失败，当前页面无法确认实验调度能力是否可用。')
     } finally {
       setLoading(false)
     }
@@ -199,6 +212,23 @@ export default function HeartbeatPage() {
         <WarningOutlined />
         <p>
           <strong>实验功能</strong> — Heartbeat 当前仍处于实验阶段，任务执行成功与否应以实际调度结果和任务记录为准。
+        </p>
+      </div>
+      <div
+        data-testid="heartbeat-runtime-status"
+        className={styles.experimentBanner}
+        style={{
+          marginTop: 12,
+          background: status?.runtime_status === 'ready' ? 'rgba(74,222,128,0.12)' : 'rgba(250,173,20,0.14)',
+          borderColor: status?.runtime_status === 'ready' ? 'rgba(74,222,128,0.28)' : 'rgba(250,173,20,0.28)',
+        }}
+      >
+        <WarningOutlined />
+        <p>
+          <strong>{status?.runtime_status === 'ready' ? '调度能力已启动' : '调度能力受限'}</strong>
+          {' — '}
+          {statusNotice || status?.message || '尚未拿到 Heartbeat 运行状态。'}
+          {status?.dependency_status ? ` 依赖状态：${status.dependency_status}。` : ''}
         </p>
       </div>
 

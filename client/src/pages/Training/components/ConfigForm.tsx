@@ -12,8 +12,10 @@ import styles from './ConfigForm.module.css'
 interface ConfigFormProps {
   form: any
   onFinish: (values: any) => void
+  onPreflightCheck: () => void
   isTraining: boolean
   starting: boolean
+  preflightChecking: boolean
   onStop: () => void
   models: { id: string; name: string; quantized?: number }[]
   datasets: { id: string; name: string; samples: number }[]
@@ -36,8 +38,10 @@ interface ConfigFormProps {
 const ConfigForm: React.FC<ConfigFormProps> = ({
   form,
   onFinish,
+  onPreflightCheck,
   isTraining,
   starting,
+  preflightChecking,
   onStop,
   models,
   datasets,
@@ -65,7 +69,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
       className={styles.form}
     >
       <Row gutter={24}>
-        <Col span={12}>
+        <Col span={8}>
           <Form.Item label="基础模型" name="modelId" rules={[{ required: true }]}>
             <Select
               placeholder="选择基础模型"
@@ -77,13 +81,21 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
             />
           </Form.Item>
         </Col>
-        <Col span={12}>
+        <Col span={8}>
           <Form.Item label="训练数据集" name="datasetId" rules={[{ required: true }]}>
             <Select
               placeholder="选择数据集"
               options={datasets.map((d) => ({ value: d.id, label: `${d.name} (${d.samples}条)` }))}
               showSearch
             />
+          </Form.Item>
+        </Col>
+        <Col span={8}>
+          <Form.Item label="微调方法" name="method" initialValue="qlora">
+            <Select>
+              <Select.Option value="qlora">QLoRA（推荐）</Select.Option>
+              <Select.Option value="lora">LoRA</Select.Option>
+            </Select>
           </Form.Item>
         </Col>
       </Row>
@@ -217,16 +229,26 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
               停止训练
             </NeumorphicButton>
           ) : (
-            <NeumorphicButton
-              variant="primary"
-              size="lg"
-              htmlType="submit"
-              loading={starting}
-              disabled={!models.length || !datasets.length}
-              icon={<PlayCircleOutlined />}
-            >
-              开始训练
-            </NeumorphicButton>
+            <>
+              <Button
+                size="large"
+                onClick={onPreflightCheck}
+                loading={preflightChecking}
+                disabled={!models.length || !datasets.length || starting}
+              >
+                训练前预检
+              </Button>
+              <NeumorphicButton
+                variant="primary"
+                size="lg"
+                htmlType="submit"
+                loading={starting}
+                disabled={!models.length || !datasets.length}
+                icon={<PlayCircleOutlined />}
+              >
+                开始训练
+              </NeumorphicButton>
+            </>
           )}
         </Space>
       </Form.Item>

@@ -1,5 +1,5 @@
 import React, { useEffect, useCallback, useState } from 'react'
-import { Modal, message } from 'antd'
+import { Modal } from 'antd'
 import { motion, useReducedMotion } from 'framer-motion'
 import { Virtuoso } from 'react-virtuoso'
 
@@ -14,9 +14,12 @@ import ChatInput from '../components/chat/ChatInput'
 import ChatHistoryDrawer from '../components/ChatHistoryDrawer'
 import MemoryManager from '../components/MemoryManager'
 import APIKeyManager from '../pages/APIKeyManager'
+import RuntimeContextPanel from '../components/runtime/RuntimeContextPanel'
 
-import { getBackends, getOllamaStatus, getInferenceModels, API_BASE_URL } from '../services/api'
+import { API_BASE_URL } from '../services/api'
 import { transitions } from '../theme/animations'
+import { useRuntimeContext } from '../runtime/RuntimeContext'
+import { notify } from '../utils/notify'
 import styles from './ChatNew.module.css'
 
 const VIRTUAL_SCROLL_THRESHOLD = 100
@@ -34,6 +37,15 @@ const ChatPage: React.FC = () => {
   const { theme, toggleTheme } = useTheme()
   const { isMobile } = useResponsive()
   const prefersReducedMotion = useReducedMotion()
+  const runtime = useRuntimeContext()
+  const { actions, derived, observed } = runtime
+  const {
+    refreshInference,
+    refreshKnowledge,
+    setInferenceSelection,
+    setKnowledgeSelection,
+    syncKnowledgeCollection,
+  } = actions
 
   const {
     sessions,
@@ -48,11 +60,6 @@ const ChatPage: React.FC = () => {
     clearMessages,
     updateSettings,
   } = useChatStore()
-
-  const [backends, setBackends] = useState<{ id: string; name: string; available: boolean }[]>([])
-  const [ollamaModels, setOllamaModels] = useState<{ id: string; name: string }[]>([])
-  const [hfModels, setHfModels] = useState<{ id: string; name: string }[]>([])
-  const [collections, setCollections] = useState<{ id: string; name: string; count: number }[]>([])
 
   const [historyOpen, setHistoryOpen] = useState(false)
   const [memoryManagerOpen, setMemoryManagerOpen] = useState(false)
@@ -70,89 +77,35 @@ const ChatPage: React.FC = () => {
       // stream completed
     },
     onError: (error) => {
-      message.error(error)
+      notify.error(error)
     },
   })
 
   useEffect(() => {
-    Promise.allSettled([loadBackends(), loadSessions(), loadCloudAIConfig(), loadCollections()]).then((results) => {
+    Promise.allSettled([refreshInference(), loadSessions(), loadCloudAIConfig(), refreshKnowledge()]).then((results) => {
       const failed = results.filter((r) => r.status === 'rejected')
       if (failed.length > 0) {
         console.warn(`${failed.length} init requests failed`)
       }
     })
-  }, [])
+  }, [loadSessions, refreshInference, refreshKnowledge])
 
   useEffect(() => {
     localStorage.setItem('chat_use_cloud_ai', useCloudAI ? '1' : '0')
   }, [useCloudAI])
 
-  const loadBackends = async (preferredBackend?: string) => {
-    try {
-      const data = await getBackends()
-      const activeBackend = preferredBackend || settings.backend || data.current
-      const shouldAutoSelectModel = Boolean(preferredBackend) || !settings.modelId
-
-      if (activeBackend === 'ollama') {
-        const ollamaStatus = await getOllamaStatus()
-        setOllamaModels(
-          ollamaStatus.models.map((m: { name: string }) => ({
-            id: m.name,
-            name: m.name,
-          }))
-        )
-        if (shouldAutoSelectModel && ollamaStatus.models.length > 0) {
-          updateSettings({ modelId: ollamaStatus.models[0].name })
-        }
-      } else {
-        const models = await getInferenceModels()
-        setHfModels(
-          models.map((m: { id: string; name?: string }) => ({
-            id: m.id,
-            name: m.name || m.id,
-          }))
-        )
-        if (shouldAutoSelectModel && models.length > 0) {
-          updateSettings({ modelId: models[0].id })
-        }
-      }
-
-      if (Array.isArray(data.backends) && data.backends.length > 0) {
-        setBackends(
-          data.backends.map((backend: { id: string; name: string; available: boolean }) => ({
-            id: backend.id,
-            name: backend.name,
-            available: backend.available,
-          }))
-        )
-      } else {
-        setBackends([
-          { id: 'ollama', name: 'Ollama', available: data.current === 'ollama' },
-          { id: 'huggingface', name: 'HuggingFace', available: data.current === 'huggingface' },
-        ])
-      }
-    } catch (error) {
-      console.error('Failed to load backends:', error)
+  useEffect(() => {
+    if (settings.knowledgeCollection) {
+      setKnowledgeSelection({ collectionId: settings.knowledgeCollection })
     }
-  }
+  }, [setKnowledgeSelection, settings.knowledgeCollection])
 
-  const loadCollections = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/knowledge/collections`)
-      if (response.ok) {
-        const data = await response.json()
-        setCollections(
-          data.collections.map((c: { name: string; count?: number }) => ({
-            id: c.name,
-            name: c.name,
-            count: c.count || 0,
-          }))
-        )
-      }
-    } catch (error) {
-      console.error('Failed to load knowledge collections:', error)
-    }
-  }
+  useEffect(() => {
+    setInferenceSelection({
+      backend: settings.backend,
+      modelId: settings.modelId || undefined,
+    })
+  }, [setInferenceSelection, settings.backend, settings.modelId])
 
   const loadCloudAIConfig = async () => {
     try {
@@ -246,7 +199,7 @@ const ChatPage: React.FC = () => {
   const handleExportChat = useCallback(
     (format: 'markdown' | 'json') => {
       if (messages.length === 0) {
-        message.warning('暂无对话内容')
+        notify.warning('暂无对话内容')
         return
       }
 
@@ -268,7 +221,7 @@ const ChatPage: React.FC = () => {
         a.download = `${title}_${Date.now()}.md`
         a.click()
         URL.revokeObjectURL(url)
-        message.success('已导出为 Markdown')
+        notify.success('已导出为 Markdown')
       } else {
         const data = {
           title,
@@ -282,7 +235,7 @@ const ChatPage: React.FC = () => {
         a.download = `${title}_${Date.now()}.json`
         a.click()
         URL.revokeObjectURL(url)
-        message.success('已导出为 JSON')
+        notify.success('已导出为 JSON')
       }
     },
     [messages]
@@ -296,17 +249,71 @@ const ChatPage: React.FC = () => {
       okButtonProps: { danger: true },
       onOk: () => {
         clearMessages()
-        message.success('对话已清空')
+        notify.success('对话已清空')
       },
     })
   }, [clearMessages])
+
+  const handleToggleKnowledge = useCallback(() => {
+    const nextUseKnowledge = !settings.useKnowledge
+    const fallbackCollection =
+      settings.knowledgeCollection ||
+      derived.activeKnowledgeCollection ||
+      observed.knowledge.collections[0]?.id
+
+    updateSettings({
+      useKnowledge: nextUseKnowledge,
+      knowledgeCollection: nextUseKnowledge ? fallbackCollection : settings.knowledgeCollection,
+    })
+
+    if (nextUseKnowledge && fallbackCollection) {
+      syncKnowledgeCollection(fallbackCollection)
+    }
+  }, [
+    derived.activeKnowledgeCollection,
+    observed.knowledge.collections,
+    settings.knowledgeCollection,
+    settings.useKnowledge,
+    syncKnowledgeCollection,
+    updateSettings,
+  ])
+
+  const handleKnowledgeCollectionChange = useCallback((collectionId: string) => {
+    updateSettings({ useKnowledge: true })
+    syncKnowledgeCollection(collectionId)
+  }, [syncKnowledgeCollection, updateSettings])
 
   const enableVirtualScroll = messages.length > VIRTUAL_SCROLL_THRESHOLD
 
   const modelOptions =
     settings.backend === 'ollama'
-      ? ollamaModels.map((m) => ({ id: m.id, name: m.name }))
-      : hfModels.map((m) => ({ id: m.id, name: m.name }))
+      ? observed.inference.ollamaModels.map((m) => ({ id: m.id, name: m.name }))
+      : observed.inference.huggingfaceModels.map((m) => ({ id: m.id, name: m.name }))
+
+  useEffect(() => {
+    if (settings.modelId) return
+
+    if (settings.backend === 'ollama' && observed.inference.ollamaModels.length > 0) {
+      const firstOllamaModel = observed.inference.ollamaModels[0]
+      if (firstOllamaModel) {
+        updateSettings({ modelId: firstOllamaModel.id })
+      }
+      return
+    }
+
+    if (settings.backend !== 'ollama' && observed.inference.huggingfaceModels.length > 0) {
+      const firstHfModel = observed.inference.huggingfaceModels[0]
+      if (firstHfModel) {
+        updateSettings({ modelId: firstHfModel.id })
+      }
+    }
+  }, [
+    observed.inference.huggingfaceModels,
+    observed.inference.ollamaModels,
+    settings.backend,
+    settings.modelId,
+    updateSettings,
+  ])
 
   return (
     <motion.div
@@ -323,16 +330,20 @@ const ChatPage: React.FC = () => {
         onClearChat={handleClearChat}
         onExportChat={handleExportChat}
         currentBackend={settings.backend}
-        backends={backends}
+        backends={observed.inference.backends}
         onBackendChange={async (backend) => {
           setUseCloudAI(false)
           localStorage.setItem('chat_use_cloud_ai', '0')
           updateSettings({ backend: backend as 'ollama' | 'huggingface' | 'cloud', modelId: '' })
-          await loadBackends(backend)
+          setInferenceSelection({ backend, modelId: undefined })
+          await refreshInference()
         }}
         currentModel={settings.modelId}
         models={modelOptions}
-        onModelChange={(model) => updateSettings({ modelId: model })}
+        onModelChange={(model) => {
+          updateSettings({ modelId: model })
+          setInferenceSelection({ backend: settings.backend, modelId: model })
+        }}
         useCloudAI={useCloudAI}
         onToggleCloudAI={() => {
           if (!cloudAIConfig?.api_key && !cloudAIConfig?.key_id) {
@@ -344,8 +355,11 @@ const ChatPage: React.FC = () => {
         cloudAIConfigured={!!(cloudAIConfig?.api_key || cloudAIConfig?.key_id)}
         onOpenCloudAIConfig={() => setConfigModalOpen(true)}
         useKnowledge={settings.useKnowledge}
-        onToggleKnowledge={() => updateSettings({ useKnowledge: !settings.useKnowledge })}
-        collectionsCount={collections.length}
+        onToggleKnowledge={handleToggleKnowledge}
+        collectionsCount={observed.knowledge.collections.length}
+        currentKnowledgeCollection={derived.activeKnowledgeCollection}
+        knowledgeCollections={observed.knowledge.collections}
+        onKnowledgeCollectionChange={handleKnowledgeCollectionChange}
         useMemory={settings.useMemory}
         onToggleMemory={() => updateSettings({ useMemory: !settings.useMemory })}
         theme={theme}
@@ -361,6 +375,9 @@ const ChatPage: React.FC = () => {
         transition={prefersReducedMotion ? { duration: 0 } : { delay: 0.16, ...transitions.base }}
       >
         <div className={styles.messagesInner}>
+          <div style={{ marginBottom: 20 }}>
+            <RuntimeContextPanel page="chat" />
+          </div>
           {messages.length === 0 ? (
             <motion.div
               initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.94 }}

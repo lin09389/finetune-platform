@@ -96,6 +96,7 @@ class TrainingState:
     def __init__(self, history_file: Path):
         self._lock = threading.Lock()
         self._is_training: bool = False
+        self._stop_requested: bool = False
         self._current_record: TrainingRecord | None = None
         self._progress: TrainingProgress = TrainingProgress()
         self._training_tasks: dict[str, threading.Thread] = {}
@@ -190,6 +191,10 @@ class TrainingState:
 
     def queue_training_state(self, value: bool):
         """队列式训练状态更新"""
+        with self._lock:
+            self._is_training = value
+            if not value:
+                self._stop_requested = False
         try:
             self._update_queue.put(StateUpdate('training', value=value))
         except Exception as e:
@@ -197,6 +202,8 @@ class TrainingState:
 
     def queue_record_update(self, record: TrainingRecord | None):
         """队列式记录更新"""
+        with self._lock:
+            self._current_record = record
         try:
             self._update_queue.put(StateUpdate('record', record=record))
         except Exception as e:
@@ -224,6 +231,22 @@ class TrainingState:
     def set_training(self, value: bool):
         """设置训练状态"""
         self.queue_training_state(value)
+
+    def request_stop(self):
+        """请求停止当前训练任务。"""
+        with self._lock:
+            if self._is_training:
+                self._stop_requested = True
+
+    def clear_stop_request(self):
+        """清除停止请求标记。"""
+        with self._lock:
+            self._stop_requested = False
+
+    def should_stop(self) -> bool:
+        """是否收到停止请求。"""
+        with self._lock:
+            return self._stop_requested
 
     def get_current_record(self) -> TrainingRecord | None:
         """获取当前训练记录"""
@@ -378,6 +401,7 @@ class TrainingState:
         with self._lock:
             self._training_tasks.clear()
             self._completed_tasks.clear()
+            self._stop_requested = False
             self._history_cache = None
 
         gc.collect()

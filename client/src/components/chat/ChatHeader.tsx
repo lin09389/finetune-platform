@@ -42,6 +42,9 @@ interface ChatHeaderProps {
   useKnowledge: boolean
   onToggleKnowledge: () => void
   collectionsCount: number
+  currentKnowledgeCollection?: string
+  knowledgeCollections: { id: string; name: string; count: number }[]
+  onKnowledgeCollectionChange: (collectionId: string) => void
   useMemory: boolean
   onToggleMemory: () => void
   theme: 'light' | 'dark'
@@ -70,6 +73,9 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
   useKnowledge,
   onToggleKnowledge,
   collectionsCount,
+  currentKnowledgeCollection,
+  knowledgeCollections,
+  onKnowledgeCollectionChange,
   useMemory,
   onToggleMemory,
   theme,
@@ -112,6 +118,11 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
   const modelOptions = models.map((m) => ({
     value: m.id,
     label: m.name,
+  }))
+
+  const knowledgeCollectionOptions = knowledgeCollections.map((collection) => ({
+    value: collection.id,
+    label: `${collection.name} (${collection.count})`,
   }))
 
   return (
@@ -172,6 +183,17 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
             </Button>
           </motion.div>
         </Tooltip>
+
+        {useKnowledge && collectionsCount > 0 && (
+          <Select
+            value={currentKnowledgeCollection}
+            onChange={onKnowledgeCollectionChange}
+            style={{ width: isMobile ? 150 : 180, borderRadius: 8 }}
+            className={styles.compactSelect}
+            options={knowledgeCollectionOptions}
+            placeholder="选择知识集合"
+          />
+        )}
 
         <Tooltip title={useMemory ? '关闭记忆系统' : '开启记忆系统'}>
           <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
