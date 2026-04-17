@@ -73,11 +73,11 @@ class ConnectionPool {
         keysToRemove.push(key);
       }
     });
-    keysToRemove.forEach(key => this.pool.delete(key));
+    keysToRemove.forEach((key) => this.pool.delete(key));
   }
 
   abortAll(): void {
-    this.pool.forEach(entry => {
+    this.pool.forEach((entry) => {
       if (!entry.controller.signal.aborted) {
         entry.controller.abort();
       }
@@ -100,10 +100,10 @@ class ConnectionPool {
       }
     });
 
-    keysToRemove.forEach(key => this.pool.delete(key));
+    keysToRemove.forEach((key) => this.pool.delete(key));
   }
 
-// ==================== Retry Logic ====================
+  // ==================== Retry Logic ====================
 
   private startCleanup(): void {
     this.cleanupTimer = setInterval(() => this.cleanup(), this.cleanupInterval);
@@ -144,7 +144,7 @@ const defaultRetryConfig: RetryConfig = {
 };
 
 async function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function calculateBackoff(attempt: number, baseDelay: number, maxDelay: number): number {
@@ -158,15 +158,15 @@ function isRetryableError(error: any): boolean {
   const errorCode = error?.code?.toLowerCase() || '';
 
   return defaultRetryConfig.retryableErrors.some(
-    retryableError =>
+    (retryableError) =>
       errorMessage.includes(retryableError.toLowerCase()) ||
-      errorCode.includes(retryableError.toLowerCase())
+      errorCode.includes(retryableError.toLowerCase()),
   );
 }
 
 async function fetchWithRetry<T>(
   fetchFn: () => Promise<T>,
-  config: Partial<RetryConfig> = {}
+  config: Partial<RetryConfig> = {},
 ): Promise<T> {
   const retryConfig = { ...defaultRetryConfig, ...config };
   let lastError: Error | null = null;
@@ -187,7 +187,10 @@ async function fetchWithRetry<T>(
 
       if (attempt < retryConfig.maxRetries - 1) {
         const backoffDelay = calculateBackoff(attempt, retryConfig.baseDelay, retryConfig.maxDelay);
-        console.warn(`Request failed, retrying in ${Math.round(backoffDelay)}ms (${attempt + 1}/${retryConfig.maxRetries})`, error.message);
+        console.warn(
+          `Request failed, retrying in ${Math.round(backoffDelay)}ms (${attempt + 1}/${retryConfig.maxRetries})`,
+          error.message,
+        );
         await delay(backoffDelay);
       }
     }
@@ -217,7 +220,7 @@ const createAxiosInstance = (): AxiosInstance => {
     },
     (error) => {
       return Promise.reject(error);
-    }
+    },
   );
 
   instance.interceptors.response.use(
@@ -245,7 +248,7 @@ const createAxiosInstance = (): AxiosInstance => {
         }
       }
       return Promise.reject(error);
-    }
+    },
   );
 
   return instance;
@@ -314,17 +317,21 @@ export const getModelDetail = async (modelId: string) => {
 export const importModelFromModelScope = async (modelName: string, modelscopePath?: string) => {
   const response = await apiClient.post('/model-center/import-modelscope', {
     model_name: modelName,
-    modelscope_path: modelscopePath
+    modelscope_path: modelscopePath,
   });
   return response.data;
 };
 
 // Search models (ModelScope / HuggingFace)
-export const searchModels = async (query: string, limit: number = 20, source: string = 'modelscope') => {
+export const searchModels = async (
+  query: string,
+  limit: number = 20,
+  source: string = 'modelscope',
+) => {
   const response = await apiClient.post('/model-center/search', {
     query,
     limit,
-    source
+    source,
   });
   return response.data;
 };
@@ -334,7 +341,7 @@ export const downloadModelFromModelScope = async (repoId: string, revision: stri
   const response = await apiClient.post('/model-center/download', {
     repo_id: repoId,
     revision,
-    source: 'modelscope'
+    source: 'modelscope',
   });
   return response.data;
 };
@@ -344,7 +351,7 @@ export const downloadModelFromHuggingFace = async (repoId: string, revision: str
   const response = await apiClient.post('/model-center/download', {
     repo_id: repoId,
     revision,
-    source: 'huggingface'
+    source: 'huggingface',
   });
   return response.data;
 };
@@ -403,7 +410,7 @@ export const uploadDataset = async (file: File, name?: string, description?: str
   if (name) formData.append('name', name);
   if (description) formData.append('description', description);
   const response = await apiClient.post('/datasets/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
+    headers: { 'Content-Type': 'multipart/form-data' },
   });
   return response.data;
 };
@@ -475,7 +482,7 @@ export const getTrainingProgress = async () => {
 export const subscribeTrainingProgress = (
   onProgress: (progress: any) => void,
   onError?: (error: Error) => void,
-  retryConfig?: Partial<RetryConfig>
+  retryConfig?: Partial<RetryConfig>,
 ) => {
   let eventSource: EventSource | null = null;
   let retryCount = 0;
@@ -504,7 +511,9 @@ export const subscribeTrainingProgress = (
 
       if (retryCount < config.maxRetries) {
         const backoffDelay = calculateBackoff(retryCount, config.baseDelay, config.maxDelay);
-        console.warn(`SSE disconnected, retrying in ${Math.round(backoffDelay)}ms (${retryCount + 1}/${config.maxRetries})`);
+        console.warn(
+          `SSE disconnected, retrying in ${Math.round(backoffDelay)}ms (${retryCount + 1}/${config.maxRetries})`,
+        );
         retryCount++;
         retryTimer = setTimeout(connect, backoffDelay);
       } else {
@@ -524,6 +533,205 @@ export const subscribeTrainingProgress = (
     }
     eventSource?.close();
   };
+};
+
+export interface TrainingEventV2 {
+  event_id: string;
+  version: 'v2';
+  ts: string;
+  task_id: string;
+  phase: 'queued' | 'loading' | 'running' | 'stopping' | 'stopped' | 'completed' | 'failed';
+  kind: string;
+  payload: Record<string, any>;
+  sequence: number;
+}
+
+export const subscribeTrainingEventsV2 = (
+  options: {
+    taskId?: string;
+    lastEventId?: string;
+    heartbeatTimeoutMs?: number;
+    retryConfig?: Partial<RetryConfig>;
+  },
+  onEvent: (event: TrainingEventV2) => void,
+  onError?: (error: Error) => void,
+) => {
+  let eventSource: EventSource | null = null;
+  let ws: WebSocket | null = null;
+  let wsPingTimer: ReturnType<typeof setInterval> | null = null;
+  let retryCount = 0;
+  let wsRetryCount = 0;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let isManualClose = false;
+  let usingWsFallback = false;
+  let lastEventId = options.lastEventId || '';
+  let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+  const heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? 45000;
+  const config = { ...defaultRetryConfig, ...(options.retryConfig || {}) };
+
+  const closeWs = () => {
+    const current = ws;
+    ws = null;
+    if (wsPingTimer) {
+      clearInterval(wsPingTimer);
+      wsPingTimer = null;
+    }
+    if (current) {
+      current.onclose = null;
+      current.onerror = null;
+      current.onmessage = null;
+      current.onopen = null;
+      current.close();
+    }
+  };
+
+  const refreshHeartbeatTimeout = () => {
+    if (heartbeatTimer) clearTimeout(heartbeatTimer);
+    heartbeatTimer = setTimeout(() => {
+      if (usingWsFallback) {
+        closeWs();
+      } else {
+        eventSource?.close();
+        eventSource = null;
+      }
+      if (isManualClose) return;
+      if (usingWsFallback) {
+        startWsFallback();
+      } else {
+        connect();
+      }
+    }, heartbeatTimeoutMs);
+  };
+
+  const handleParsedEvent = (event: TrainingEventV2) => {
+    onEvent(event);
+    lastEventId = event.event_id;
+    retryCount = 0;
+    wsRetryCount = 0;
+    refreshHeartbeatTimeout();
+  };
+
+  const startWsFallback = () => {
+    if (isManualClose) return;
+    usingWsFallback = true;
+    eventSource?.close();
+    eventSource = null;
+
+    const taskId = options.taskId || 'all';
+    const url = new URL(API_BASE_URL);
+    const wsProtocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    const params = new URLSearchParams();
+    if (lastEventId) params.set('last_event_id', lastEventId);
+    const qs = params.toString();
+    const wsUrl = `${wsProtocol}//${url.host}/training/v2/ws/${encodeURIComponent(taskId)}${qs ? `?${qs}` : ''}`;
+    ws = new WebSocket(wsUrl);
+    refreshHeartbeatTimeout();
+
+    ws.onopen = () => {
+      wsRetryCount = 0;
+      if (wsPingTimer) clearInterval(wsPingTimer);
+      wsPingTimer = setInterval(() => {
+        try {
+          ws?.send('ping');
+        } catch (_e) {
+          // noop
+        }
+      }, 10000);
+    };
+
+    ws.onmessage = (messageEvent) => {
+      try {
+        const parsed = JSON.parse(messageEvent.data);
+        if (parsed?.type === 'pong') {
+          refreshHeartbeatTimeout();
+          return;
+        }
+        handleParsedEvent(parsed as TrainingEventV2);
+      } catch (error) {
+        console.error('Failed to parse WS fallback training event', error);
+      }
+    };
+
+    ws.onclose = () => {
+      closeWs();
+      if (isManualClose) return;
+      if (wsRetryCount < config.maxRetries) {
+        const backoffDelay = calculateBackoff(wsRetryCount, config.baseDelay, config.maxDelay);
+        wsRetryCount += 1;
+        retryTimer = setTimeout(startWsFallback, backoffDelay);
+      } else if (onError) {
+        onError(new Error('V2 WS fallback disconnected: max retries reached'));
+      }
+    };
+
+    ws.onerror = () => {
+      closeWs();
+    };
+  };
+
+  const connect = () => {
+    usingWsFallback = false;
+    closeWs();
+    const params = new URLSearchParams();
+    if (options.taskId) params.set('task_id', options.taskId);
+    if (lastEventId) params.set('last_event_id', lastEventId);
+    const qs = params.toString();
+    eventSource = new EventSource(`${API_BASE_URL}/training/v2/events/stream${qs ? `?${qs}` : ''}`);
+    refreshHeartbeatTimeout();
+
+    eventSource.onmessage = (messageEvent) => {
+      try {
+        const event: TrainingEventV2 = JSON.parse(messageEvent.data);
+        handleParsedEvent(event);
+      } catch (error) {
+        console.error('Failed to parse v2 training event', error);
+      }
+    };
+
+    eventSource.addEventListener('heartbeat', () => {
+      refreshHeartbeatTimeout();
+    });
+
+    eventSource.onerror = () => {
+      if (isManualClose) return;
+      eventSource?.close();
+      eventSource = null;
+
+      if (retryCount < config.maxRetries) {
+        const backoffDelay = calculateBackoff(retryCount, config.baseDelay, config.maxDelay);
+        retryCount += 1;
+        retryTimer = setTimeout(connect, backoffDelay);
+      } else {
+        startWsFallback();
+      }
+    };
+  };
+
+  connect();
+
+  return () => {
+    isManualClose = true;
+    if (retryTimer) clearTimeout(retryTimer);
+    if (heartbeatTimer) clearTimeout(heartbeatTimer);
+    eventSource?.close();
+    closeWs();
+  };
+};
+
+export const getTrainingOverviewV2 = async () => {
+  const response = await apiClient.get('/training/v2/overview');
+  return response.data;
+};
+
+export const getTrainingTaskMetricsV2 = async (
+  taskId: string,
+  cursor: number = 0,
+  limit: number = 200,
+) => {
+  const response = await apiClient.get(`/training/v2/tasks/${taskId}/metrics`, {
+    params: { cursor, limit },
+  });
+  return response.data;
 };
 
 export const getTrainingHistory = async () => {
@@ -576,7 +784,7 @@ export const streamInference = async (
   onChunk: (text: string) => void,
   onStats?: (stats: any) => void,
   signal?: AbortSignal,
-  retryConfig?: Partial<RetryConfig>
+  retryConfig?: Partial<RetryConfig>,
 ) => {
   const retryConf = { ...defaultRetryConfig, ...retryConfig };
   let lastError: Error | null = null;
@@ -585,7 +793,7 @@ export const streamInference = async (
     const lines = eventStr.split('\n');
     let eventType = 'message';
     let dataLine = '';
-    
+
     for (const line of lines) {
       if (line.startsWith('event: ')) {
         eventType = line.slice(7).trim();
@@ -593,7 +801,7 @@ export const streamInference = async (
         dataLine = line.slice(6);
       }
     }
-    
+
     return dataLine ? { eventType, data: dataLine } : null;
   };
 
@@ -646,12 +854,12 @@ export const streamInference = async (
       let done = false;
       const streamStartTime = Date.now();
       const STREAM_READ_TIMEOUT = 60000;
-      
+
       while (!done) {
         if (Date.now() - streamStartTime > STREAM_READ_TIMEOUT) {
           throw new Error('Stream read timed out');
         }
-        
+
         const readResult = await reader.read();
         done = readResult.done;
         if (done) break;
@@ -664,7 +872,7 @@ export const streamInference = async (
 
         for (const event of events) {
           if (!event.trim()) continue;
-          
+
           const parsed = parseSSEEvent(event);
           if (!parsed) continue;
 
@@ -718,7 +926,10 @@ export const streamInference = async (
 
       if (attempt < retryConf.maxRetries - 1) {
         const backoffDelay = calculateBackoff(attempt, retryConf.baseDelay, retryConf.maxDelay);
-        console.warn(`Streaming inference failed, retrying in ${Math.round(backoffDelay)}ms (${attempt + 1}/${retryConf.maxRetries})`, error.message);
+        console.warn(
+          `Streaming inference failed, retrying in ${Math.round(backoffDelay)}ms (${attempt + 1}/${retryConf.maxRetries})`,
+          error.message,
+        );
         await delay(backoffDelay);
       }
     }
@@ -730,7 +941,7 @@ export const streamInference = async (
 export const chatInference = async (
   modelId: string,
   messages: Array<{ role: string; content: string }>,
-  options?: { maxTokens?: number; temperature?: number }
+  options?: { maxTokens?: number; temperature?: number },
 ) => {
   const response = await apiClient.post('/inference/chat', {
     model_id: modelId,
@@ -811,7 +1022,21 @@ export interface RuntimeBootstrapPayload {
         error?: string;
       };
     };
-    training: Record<string, unknown>;
+    training: {
+      is_training?: boolean;
+      progress?: {
+        status?:
+          | 'idle'
+          | 'loading'
+          | 'training'
+          | 'running'
+          | 'stopping'
+          | 'stopped'
+          | 'completed'
+          | 'failed';
+        message?: string;
+      } | null;
+    };
   };
   derived: {
     runtime_status: 'ready' | 'degraded' | 'offline';
@@ -851,12 +1076,16 @@ export const getChatHistory = async (retryConfig?: Partial<RetryConfig>) => {
   }, retryConfig);
 };
 
-export const createChatSession = async (title: string, modelId: string, retryConfig?: Partial<RetryConfig>) => {
+export const createChatSession = async (
+  title: string,
+  modelId: string,
+  retryConfig?: Partial<RetryConfig>,
+) => {
   return fetchWithRetry(async () => {
     const response = await fetch(`${API_BASE_URL}/chat/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, metadata: { model_id: modelId } })
+      body: JSON.stringify({ title, metadata: { model_id: modelId } }),
     });
     if (!response.ok) throw new Error('Failed to create session');
     return response.json();
@@ -874,7 +1103,7 @@ export const getChatSession = async (sessionId: string, retryConfig?: Partial<Re
 export const deleteChatSession = async (sessionId: string, retryConfig?: Partial<RetryConfig>) => {
   return fetchWithRetry(async () => {
     const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}`, {
-      method: 'DELETE'
+      method: 'DELETE',
     });
     if (!response.ok) throw new Error('Failed to delete session');
     return response.json();
@@ -884,10 +1113,10 @@ export const deleteChatSession = async (sessionId: string, retryConfig?: Partial
 export const addChatMessages = async (
   sessionId: string,
   messages: Array<{ id: string; role: string; content: string; timestamp: string }>,
-  retryConfig?: Partial<RetryConfig>
+  retryConfig?: Partial<RetryConfig>,
 ) => {
   return fetchWithRetry(async () => {
-    const createdMessages = []
+    const createdMessages = [];
     for (const item of messages) {
       const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/messages`, {
         method: 'POST',
@@ -895,18 +1124,19 @@ export const addChatMessages = async (
         body: JSON.stringify({
           role: item.role,
           content: item.content,
-          metadata: item.id || item.timestamp
-            ? {
-                legacy_message_id: item.id,
-                legacy_timestamp: item.timestamp,
-              }
-            : {},
-        })
-      })
-      if (!response.ok) throw new Error('Failed to add messages')
-      createdMessages.push(await response.json())
+          metadata:
+            item.id || item.timestamp
+              ? {
+                  legacy_message_id: item.id,
+                  legacy_timestamp: item.timestamp,
+                }
+              : {},
+        }),
+      });
+      if (!response.ok) throw new Error('Failed to add messages');
+      createdMessages.push(await response.json());
     }
-    return { messages: createdMessages, count: createdMessages.length }
+    return { messages: createdMessages, count: createdMessages.length };
   }, retryConfig);
 };
 
@@ -929,26 +1159,35 @@ export const checkBackendHealth = async () => {
 
 export const cua = {
   getScreenInfo: () => apiClient.get('/cua/screen/info'),
-  takeScreenshot: (params: { monitor?: number; region?: { x: number; y: number; width: number; height: number }; format?: string; quality?: number }) =>
-    apiClient.post('/cua/screenshot', params),
+  takeScreenshot: (params: {
+    monitor?: number;
+    region?: { x: number; y: number; width: number; height: number };
+    format?: string;
+    quality?: number;
+  }) => apiClient.post('/cua/screenshot', params),
   getMousePosition: () => apiClient.get('/cua/mouse/position'),
   mouseClick: (params: { x: number; y: number; button?: string; clicks?: number }) =>
     apiClient.post('/cua/mouse/click', params),
   mouseMove: (params: { x: number; y: number; duration?: number }) =>
     apiClient.post('/cua/mouse/move', params),
-  mouseDrag: (params: { start_x: number; start_y: number; end_x: number; end_y: number; duration?: number; button?: string }) =>
-    apiClient.post('/cua/mouse/drag', params),
+  mouseDrag: (params: {
+    start_x: number;
+    start_y: number;
+    end_x: number;
+    end_y: number;
+    duration?: number;
+    button?: string;
+  }) => apiClient.post('/cua/mouse/drag', params),
   mouseScroll: (params: { clicks: number; x?: number; y?: number }) =>
     apiClient.post('/cua/mouse/scroll', params),
   keyboardType: (params: { text: string; interval?: number }) =>
     apiClient.post('/cua/keyboard/type', params),
-  keyboardPress: (params: { key: string }) =>
-    apiClient.post('/cua/keyboard/press', params),
-  keyboardHotkey: (params: { keys: string[] }) =>
-    apiClient.post('/cua/keyboard/hotkey', params),
+  keyboardPress: (params: { key: string }) => apiClient.post('/cua/keyboard/press', params),
+  keyboardHotkey: (params: { keys: string[] }) => apiClient.post('/cua/keyboard/hotkey', params),
   listWindows: () => apiClient.get('/cua/window/list'),
   getActiveWindow: () => apiClient.get('/cua/window/active'),
-  activateWindow: (windowId: string) => apiClient.post('/cua/window/activate', { window_id: windowId }),
+  activateWindow: (windowId: string) =>
+    apiClient.post('/cua/window/activate', { window_id: windowId }),
   closeWindow: (windowId: string) => apiClient.post('/cua/window/close', { window_id: windowId }),
   ocrRecognize: (params: { image_base64?: string; region?: object; lang?: string }) =>
     apiClient.post('/cua/ocr', params),
@@ -960,7 +1199,8 @@ export const cua = {
   playbackActions: (params: { actions?: object[]; filepath?: string; speed?: number }) =>
     apiClient.post('/cua/record/play', params),
   getSafetyStatus: () => apiClient.get('/cua/safety/status'),
-  setPermissionLevel: (level: string) => apiClient.post('/cua/safety/permission', null, { params: { level } }),
+  setPermissionLevel: (level: string) =>
+    apiClient.post('/cua/safety/permission', null, { params: { level } }),
   getAuditLogs: (limit?: number) => apiClient.get('/cua/safety/logs', { params: { limit } }),
 };
 
@@ -971,8 +1211,13 @@ export const mcp = {
   callTool: (params: { tool_name: string; arguments: object }) =>
     apiClient.post('/mcp/call', params),
   listServers: () => apiClient.get('/mcp/servers'),
-  addServer: (params: { name: string; transport: string; command?: string; args?: string[]; url?: string }) =>
-    apiClient.post('/mcp/servers', params),
+  addServer: (params: {
+    name: string;
+    transport: string;
+    command?: string;
+    args?: string[];
+    url?: string;
+  }) => apiClient.post('/mcp/servers', params),
   removeServer: (name: string) => apiClient.delete(`/mcp/servers/${name}`),
   getServerStatus: (name: string) => apiClient.get(`/mcp/servers/${name}/status`),
   reconnectServer: (name: string) => apiClient.post(`/mcp/servers/${name}/reconnect`),
@@ -1022,7 +1267,10 @@ export interface InferenceResponse {
   finish_reason: string;
 }
 
-export const listInferenceEngines = async (): Promise<{ engines: InferenceEngine[]; default_engine: string }> => {
+export const listInferenceEngines = async (): Promise<{
+  engines: InferenceEngine[];
+  default_engine: string;
+}> => {
   const response = await apiClient.get('/inference-engine/engines');
   return response.data;
 };
@@ -1045,7 +1293,7 @@ export const generateChat = async (request: ChatGenerateRequest): Promise<Infere
 export const streamGenerate = async (
   request: GenerateRequest,
   onChunk: (content: string) => void,
-  onComplete?: () => void
+  onComplete?: () => void,
 ) => {
   const response = await fetch(`${API_BASE_URL}/inference-engine/stream`, {
     method: 'POST',
@@ -1057,7 +1305,7 @@ export const streamGenerate = async (
   if (!reader) throw new Error('No reader available');
 
   const decoder = new TextDecoder();
-  
+
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const { done, value } = await reader.read();
@@ -1108,4 +1356,3 @@ export const getInferenceEngineStats = async () => {
 };
 
 export default apiClient;
-

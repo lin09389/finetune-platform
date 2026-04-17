@@ -1,12 +1,39 @@
-import { useEffect, useState, useMemo } from 'react'
-import { Table, Button, Space, Tag, Modal, Form, Select, Input, message, Popconfirm, Empty, Progress, Tabs } from 'antd'
-import { DeleteOutlined, DownloadOutlined, FolderOpenOutlined, SearchOutlined, ReloadOutlined, ImportOutlined, DatabaseOutlined } from '@ant-design/icons'
-import { useAppStore } from '../store/appStore'
-import { getModelList, downloadModel, deleteModel, importModelFromModelScope } from '../services/api'
-import type { ModelInfo } from '../types'
-import { MotionList, MotionItem } from '../components/shared/MotionWrapper'
-import styles from './ModelManager.module.css'
-import glassStyles from '../components/shared/GlassCard.module.css'
+import {
+  DatabaseOutlined,
+  DeleteOutlined,
+  DownloadOutlined,
+  FolderOpenOutlined,
+  ImportOutlined,
+  ReloadOutlined,
+  SearchOutlined,
+} from '@ant-design/icons';
+import {
+  Button,
+  Empty,
+  Form,
+  Input,
+  message,
+  Modal,
+  Popconfirm,
+  Progress,
+  Select,
+  Space,
+  Table,
+  Tabs,
+  Tag,
+} from 'antd';
+import { useEffect, useMemo, useState } from 'react';
+import glassStyles from '../components/shared/GlassCard.module.css';
+import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
+import {
+  deleteModel,
+  downloadModel,
+  getModelList,
+  importModelFromModelScope,
+} from '../services/api';
+import { useAppStore } from '../store/appStore';
+import type { ModelInfo } from '../types';
+import styles from './ModelManager.module.css';
 
 const popularModels = [
   { value: 'Qwen/Qwen2.5-0.5B-Instruct', label: 'Qwen2.5-0.5B (推荐4GB)' },
@@ -15,113 +42,115 @@ const popularModels = [
   { value: 'THUDM/chatglm3-6b', label: 'ChatGLM3-6B (推荐13GB)' },
   { value: '01ai/Yi-1.5-6B-Chat', label: 'Yi-1.5-6B (推荐13GB)' },
   { value: 'damo/nlp_corom_sentence-embedding_chinese-base', label: '中文嵌入模型 (RAG用)' },
-]
+];
 
 const quantizeOptions = [
   { value: 4, label: 'INT4 (最低显存)' },
   { value: 8, label: 'INT8 (均衡)' },
   { value: 16, label: 'FP16 (高精度)' },
-]
+];
 
 export default function ModelManager() {
-  const { models, setModels, removeModel, addModel, backendStatus } = useAppStore()
-  const [loading, setLoading] = useState(false)
-  const [downloadModalVisible, setDownloadModalVisible] = useState(false)
-  const [importModelScopeModalVisible, setImportModelScopeModalVisible] = useState(false)
-  const [downloading, setDownloading] = useState(false)
-  const [importingModelModelScope, setImportingModelScope] = useState(false)
-  const [downloadProgress, setDownloadProgress] = useState(0)
-  const [searchText, setSearchText] = useState('')
-  const [downloadForm] = Form.useForm()
-  const [importModelScopeForm] = Form.useForm()
+  const { models, setModels, removeModel, addModel, backendStatus } = useAppStore();
+  const [loading, setLoading] = useState(false);
+  const [downloadModalVisible, setDownloadModalVisible] = useState(false);
+  const [importModelScopeModalVisible, setImportModelScopeModalVisible] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [importingModelModelScope, setImportingModelScope] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [searchText, setSearchText] = useState('');
+  const [downloadForm] = Form.useForm();
+  const [importModelScopeForm] = Form.useForm();
 
   const fetchModels = async () => {
-    if (backendStatus !== 'connected') return
-    setLoading(true)
+    if (backendStatus !== 'connected') return;
+    setLoading(true);
     try {
-      const list = await getModelList()
-      setModels(list)
+      const list = await getModelList();
+      setModels(list);
     } catch (error) {
-      message.error('获取模型列表失败')
+      message.error('获取模型列表失败');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   useEffect(() => {
-    fetchModels()
-  }, [backendStatus])
+    fetchModels();
+  }, [backendStatus]);
 
   const filteredModels = useMemo(() => {
-    if (!searchText) return models
-    const search = searchText.toLowerCase()
-    return models.filter(m => 
-      m.name.toLowerCase().includes(search) ||
-      m.id.toLowerCase().includes(search)
-    )
-  }, [models, searchText])
+    if (!searchText) return models;
+    const search = searchText.toLowerCase();
+    return models.filter(
+      (m) => m.name.toLowerCase().includes(search) || m.id.toLowerCase().includes(search),
+    );
+  }, [models, searchText]);
 
   const handleDownload = async (values: { model: string; quantize: number }) => {
-    setDownloading(true)
-    setDownloadProgress(0)
+    setDownloading(true);
+    setDownloadProgress(0);
 
     const progressInterval = setInterval(() => {
-      setDownloadProgress(p => Math.min(p + 10, 90))
-    }, 1000)
+      setDownloadProgress((p) => Math.min(p + 10, 90));
+    }, 1000);
 
     try {
-      const result = await downloadModel(values.model, { quantize: values.quantize })
-      clearInterval(progressInterval)
-      setDownloadProgress(100)
+      const result = await downloadModel(values.model, { quantize: values.quantize });
+      clearInterval(progressInterval);
+      setDownloadProgress(100);
 
-      message.success('模型下载成功')
-      addModel(result)
-      setDownloadModalVisible(false)
-      downloadForm.resetFields()
-      setTimeout(() => setDownloadProgress(0), 500)
+      message.success('模型下载成功');
+      addModel(result);
+      setDownloadModalVisible(false);
+      downloadForm.resetFields();
+      setTimeout(() => setDownloadProgress(0), 500);
     } catch (error: unknown) {
-      clearInterval(progressInterval)
-      setDownloadProgress(0)
-      const errorMsg = error instanceof Error ? error.message : '模型下载失败'
-      message.error(errorMsg)
+      clearInterval(progressInterval);
+      setDownloadProgress(0);
+      const errorMsg = error instanceof Error ? error.message : '模型下载失败';
+      message.error(errorMsg);
     } finally {
-      setDownloading(false)
+      setDownloading(false);
     }
-  }
+  };
 
-  const handleImportModelScope = async (values: { model_name: string; modelscope_path?: string }) => {
-    setImportingModelScope(true)
+  const handleImportModelScope = async (values: {
+    model_name: string;
+    modelscope_path?: string;
+  }) => {
+    setImportingModelScope(true);
     try {
-      const result = await importModelFromModelScope(values.model_name, values.modelscope_path)
-      message.success('ModelScope 模型导入成功')
-      addModel(result)
-      setImportModelScopeModalVisible(false)
-      importModelScopeForm.resetFields()
+      const result = await importModelFromModelScope(values.model_name, values.modelscope_path);
+      message.success('ModelScope 模型导入成功');
+      addModel(result);
+      setImportModelScopeModalVisible(false);
+      importModelScopeForm.resetFields();
     } catch (error: unknown) {
-      const errorMsg = error instanceof Error ? error.message : '导入失败'
-      message.error(errorMsg)
+      const errorMsg = error instanceof Error ? error.message : '导入失败';
+      message.error(errorMsg);
     } finally {
-      setImportingModelScope(false)
+      setImportingModelScope(false);
     }
-  }
+  };
 
   const handleDelete = async (modelId: string) => {
     try {
-      await deleteModel(modelId)
-      removeModel(modelId)
-      message.success('模型删除成功')
+      await deleteModel(modelId);
+      removeModel(modelId);
+      message.success('模型删除成功');
     } catch (error) {
-      message.error('删除失败')
-      fetchModels()
+      message.error('删除失败');
+      fetchModels();
     }
-  }
+  };
 
   const formatSize = (bytes: number) => {
     if (bytes < 1024 * 1024 * 1024) {
-      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     }
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
-  }
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  };
 
   const columns = [
     {
@@ -133,7 +162,7 @@ export default function ModelManager() {
           {text}
           {record.quantized && <Tag color="blue">INT{record.quantized}</Tag>}
         </Space>
-      )
+      ),
     },
     {
       title: '路径',
@@ -153,8 +182,24 @@ export default function ModelManager() {
       dataIndex: 'type',
       key: 'type',
       render: (type: string) => (
-        <Tag color={type === 'base' ? 'default' : type === 'lora' ? 'green' : type === 'merged' ? 'orange' : 'default'}>
-          {type === 'base' ? '基础模型' : type === 'lora' ? 'LoRA' : type === 'merged' ? '已合并' : type}
+        <Tag
+          color={
+            type === 'base'
+              ? 'default'
+              : type === 'lora'
+                ? 'green'
+                : type === 'merged'
+                  ? 'orange'
+                  : 'default'
+          }
+        >
+          {type === 'base'
+            ? '基础模型'
+            : type === 'lora'
+              ? 'LoRA'
+              : type === 'merged'
+                ? '已合并'
+                : type}
         </Tag>
       ),
       width: 100,
@@ -194,96 +239,93 @@ export default function ModelManager() {
         </Space>
       ),
       width: 150,
-    }
-  ]
+    },
+  ];
 
   return (
     <MotionList className={styles.container} stagger={0.08}>
       <MotionItem>
-      <div className={`${glassStyles.glassCard} ${styles.headerCard}`}>
-        <h1 className={styles.title}>
-          <DatabaseOutlined />
-          模型管理
-        </h1>
-        <Space>
-          <Input
-            placeholder="搜索模型..."
-            prefix={<SearchOutlined />}
-            value={searchText}
-            onChange={e => setSearchText(e.target.value)}
-            style={{ width: 240 }}
-            className="glass-input"
-            allowClear
-          />
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={fetchModels}
-            loading={loading}
-          >
-            刷新
-          </Button>
-          <Button
-            type="primary"
-            icon={<DownloadOutlined />}
-            onClick={() => setDownloadModalVisible(true)}
-          >
-            下载模型
-          </Button>
-          <Button
-            icon={<ImportOutlined />}
-            onClick={() => setImportModelScopeModalVisible(true)}
-          >
-            导入 ModelScope
-          </Button>
-        </Space>
-      </div>
+        <div className={`${glassStyles.glassCard} ${styles.headerCard}`}>
+          <h1 className={styles.title}>
+            <DatabaseOutlined />
+            模型管理
+          </h1>
+          <Space>
+            <Input
+              placeholder="搜索模型..."
+              prefix={<SearchOutlined />}
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              style={{ width: 240 }}
+              className="glass-input"
+              allowClear
+            />
+            <Button icon={<ReloadOutlined />} onClick={fetchModels} loading={loading}>
+              刷新
+            </Button>
+            <Button
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={() => setDownloadModalVisible(true)}
+            >
+              下载模型
+            </Button>
+            <Button icon={<ImportOutlined />} onClick={() => setImportModelScopeModalVisible(true)}>
+              导入 ModelScope
+            </Button>
+          </Space>
+        </div>
       </MotionItem>
 
       <MotionItem>
-      <div className={`${glassStyles.glassCard} ${styles.tableCard}`}>
-        {backendStatus !== 'connected' ? (
-          <Empty 
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="后端服务未连接，请先启动应用" 
-            style={{ margin: 'auto' }}
-          />
-        ) : (
-          <Table
-            columns={columns}
-            dataSource={filteredModels}
-            rowKey="id"
-            loading={loading}
-            locale={{ 
-              emptyText: (
-                <Empty 
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description={
-                    <div>
-                      <div>暂无模型</div>
-                      <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>
-                        点击下载模型开始使用
+        <div className={`${glassStyles.glassCard} ${styles.tableCard}`}>
+          {backendStatus !== 'connected' ? (
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description="后端服务未连接，请先启动应用"
+              style={{ margin: 'auto' }}
+            />
+          ) : (
+            <Table
+              columns={columns}
+              dataSource={filteredModels}
+              rowKey="id"
+              loading={loading}
+              locale={{
+                emptyText: (
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description={
+                      <div>
+                        <div>暂无模型</div>
+                        <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>
+                          点击下载模型开始使用
+                        </div>
                       </div>
-                    </div>
-                  }
-                >
-                  <Button type="primary" icon={<DownloadOutlined />} onClick={() => setDownloadModalVisible(true)}>
-                    下载模型
-                  </Button>
-                </Empty>
-              )
-            }}
-          />
-        )}
-      </div>
+                    }
+                  >
+                    <Button
+                      type="primary"
+                      icon={<DownloadOutlined />}
+                      onClick={() => setDownloadModalVisible(true)}
+                    >
+                      下载模型
+                    </Button>
+                  </Empty>
+                ),
+              }}
+            />
+          )}
+        </div>
       </MotionItem>
 
       <Modal
         title="下载模型（魔搭社区）"
         open={downloadModalVisible}
         onCancel={() => {
-          setDownloadModalVisible(false)
-          downloadForm.resetFields()
-          setDownloadProgress(0)
+          setDownloadModalVisible(false);
+          downloadForm.resetFields();
+          setDownloadProgress(0);
         }}
         footer={null}
         width={500}
@@ -314,18 +356,25 @@ export default function ModelManager() {
             />
           </Form.Item>
 
-          <Form.Item
-            label="量化级别"
-            name="quantize"
-            rules={[{ required: true }]}
-          >
+          <Form.Item label="量化级别" name="quantize" rules={[{ required: true }]}>
             <Select options={quantizeOptions} disabled={downloading} />
           </Form.Item>
 
           {downloading && (
             <div style={{ marginBottom: 24 }}>
-              <Progress percent={downloadProgress} status="active" strokeColor="var(--accent-primary)" />
-              <div style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13, marginTop: 8 }}>
+              <Progress
+                percent={downloadProgress}
+                status="active"
+                strokeColor="var(--accent-primary)"
+              />
+              <div
+                style={{
+                  textAlign: 'center',
+                  color: 'var(--text-secondary)',
+                  fontSize: 13,
+                  marginTop: 8,
+                }}
+              >
                 正在下载模型，请稍候...
               </div>
             </div>
@@ -357,8 +406,8 @@ export default function ModelManager() {
         title="导入 ModelScope 模型"
         open={importModelScopeModalVisible}
         onCancel={() => {
-          setImportModelScopeModalVisible(false)
-          importModelScopeForm.resetFields()
+          setImportModelScopeModalVisible(false);
+          importModelScopeForm.resetFields();
         }}
         footer={null}
         width={550}
@@ -374,16 +423,26 @@ export default function ModelManager() {
               children: (
                 <div style={{ paddingTop: 16 }}>
                   <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
-                    从魔搭社区（ModelScope）导入已下载的 <b style={{ color: 'var(--text-primary)' }}>Qwen3.5 2B</b> 模型。
+                    从魔搭社区（ModelScope）导入已下载的{' '}
+                    <b style={{ color: 'var(--text-primary)' }}>Qwen3.5 2B</b> 模型。
                   </p>
                   <div className={styles.modalDescription}>
-                    <b style={{ color: 'var(--text-primary)' }}>默认路径：</b><br />
-                    <code style={{ fontSize: 12, color: 'var(--accent-primary)', marginTop: 8, display: 'block', wordBreak: 'break-all' }}>
+                    <b style={{ color: 'var(--text-primary)' }}>默认路径：</b>
+                    <br />
+                    <code
+                      style={{
+                        fontSize: 12,
+                        color: 'var(--accent-primary)',
+                        marginTop: 8,
+                        display: 'block',
+                        wordBreak: 'break-all',
+                      }}
+                    >
                       C:\Users\{'<用户名>'}\.cache\modelscope\hub\models\Qwen\Qwen3.5-2B
                     </code>
                   </div>
                 </div>
-              )
+              ),
             },
             {
               key: 'custom',
@@ -394,8 +453,8 @@ export default function ModelManager() {
                     指定 ModelScope 模型目录的自定义路径。
                   </p>
                 </div>
-              )
-            }
+              ),
+            },
           ]}
         />
 
@@ -427,7 +486,10 @@ export default function ModelManager() {
 
           <Form.Item style={{ marginBottom: 0 }}>
             <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-              <Button onClick={() => setImportModelScopeModalVisible(false)} disabled={importingModelModelScope}>
+              <Button
+                onClick={() => setImportModelScopeModalVisible(false)}
+                disabled={importingModelModelScope}
+              >
                 取消
               </Button>
               <Button type="primary" htmlType="submit" loading={importingModelModelScope}>
@@ -439,7 +501,14 @@ export default function ModelManager() {
 
         <div className={styles.modalDescription} style={{ marginTop: 24 }}>
           <b style={{ color: 'var(--text-primary)' }}>导入说明：</b>
-          <ul style={{ margin: '8px 0 0', paddingLeft: 20, fontSize: 13, color: 'var(--text-secondary)' }}>
+          <ul
+            style={{
+              margin: '8px 0 0',
+              paddingLeft: 20,
+              fontSize: 13,
+              color: 'var(--text-secondary)',
+            }}
+          >
             <li>确保模型已从魔搭社区下载完成</li>
             <li>导入过程会复制模型文件到项目目录</li>
             <li>导入完成后可在模型列表中查看</li>
@@ -448,5 +517,5 @@ export default function ModelManager() {
         </div>
       </Modal>
     </MotionList>
-  )
+  );
 }

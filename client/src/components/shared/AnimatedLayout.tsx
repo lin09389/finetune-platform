@@ -1,5 +1,5 @@
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import React from 'react';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 
 interface AnimatedLayoutProps {
   children: React.ReactNode;
@@ -7,13 +7,13 @@ interface AnimatedLayoutProps {
 }
 
 const pageVariants = {
-  initial: { opacity: 0, y: 12, filter: 'blur(4px)' },
-  animate: { opacity: 1, y: 0, filter: 'blur(0px)' },
-  exit: { opacity: 0, y: -12, filter: 'blur(4px)' },
+  initial: { opacity: 0, y: 16 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -16 },
 };
 
 const pageTransition = {
-  duration: 0.4,
+  duration: 0.3,
   ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
 };
 
@@ -33,7 +33,13 @@ const AnimatedLayout: React.FC<AnimatedLayoutProps> = ({ children, animationKey 
         exit="exit"
         variants={pageVariants}
         transition={pageTransition}
-        style={{ width: '100%', height: '100%', willChange: 'transform, opacity, filter' }}
+        style={{
+          width: '100%',
+          height: '100%',
+          willChange: 'transform, opacity',
+          maxWidth: '1600px', // Phase 2: Add max-width constraint for ultrawide screens
+          margin: '0 auto', // Center content
+        }}
       >
         {children}
       </motion.div>

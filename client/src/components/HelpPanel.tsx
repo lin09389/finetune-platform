@@ -1,6 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { Card, Input, List, Tabs, Tag, Empty, Collapse, Typography, Space, Tooltip } from 'antd';
-import { SearchOutlined, QuestionCircleOutlined, BookOutlined, ToolOutlined, BugOutlined, RocketOutlined } from '@ant-design/icons';
+import {
+  BookOutlined,
+  BugOutlined,
+  QuestionCircleOutlined,
+  RocketOutlined,
+  SearchOutlined,
+  ToolOutlined,
+} from '@ant-design/icons';
+import { Card, Collapse, Empty, Input, List, Space, Tabs, Tag, Tooltip, Typography } from 'antd';
+import React, { useEffect, useState } from 'react';
 import { apiClient } from '../services/api';
 
 const { Search } = Input;
@@ -27,19 +34,19 @@ interface SearchResult {
 }
 
 const categoryIcons: Record<string, React.ReactNode> = {
-  '文件操作': <ToolOutlined />,
-  '屏幕操作': <RocketOutlined />,
-  '应用操作': <ToolOutlined />,
-  '快速入门': <BookOutlined />,
-  '故障排除': <BugOutlined />,
+  文件操作: <ToolOutlined />,
+  屏幕操作: <RocketOutlined />,
+  应用操作: <ToolOutlined />,
+  快速入门: <BookOutlined />,
+  故障排除: <BugOutlined />,
 };
 
 const categoryColors: Record<string, string> = {
-  '文件操作': 'blue',
-  '屏幕操作': 'green',
-  '应用操作': 'purple',
-  '快速入门': 'orange',
-  '故障排除': 'red',
+  文件操作: 'blue',
+  屏幕操作: 'green',
+  应用操作: 'purple',
+  快速入门: 'orange',
+  故障排除: 'red',
 };
 
 const HelpPanel: React.FC = () => {
@@ -84,7 +91,9 @@ const HelpPanel: React.FC = () => {
 
   const loadCommandHelp = async (command: string) => {
     try {
-      const response = await apiClient.get<CommandHelp>(`/help/command/${encodeURIComponent(command)}`);
+      const response = await apiClient.get<CommandHelp>(
+        `/help/command/${encodeURIComponent(command)}`,
+      );
       setSelectedCommand(response.data);
       setActiveTab('detail');
     } catch (error) {
@@ -103,10 +112,14 @@ const HelpPanel: React.FC = () => {
         <Search
           placeholder="搜索命令或关键词..."
           allowClear
-          enterButton={<><SearchOutlined /> 搜索</>}
+          enterButton={
+            <>
+              <SearchOutlined /> 搜索
+            </>
+          }
           size="large"
           value={searchKeyword}
-          onChange={e => setSearchKeyword(e.target.value)}
+          onChange={(e) => setSearchKeyword(e.target.value)}
           onSearch={handleSearch}
           loading={loading}
         />
@@ -114,13 +127,17 @@ const HelpPanel: React.FC = () => {
           <List
             style={{ marginTop: '16px' }}
             dataSource={searchResults}
-            renderItem={item => (
+            renderItem={(item) => (
               <List.Item
                 style={{ cursor: 'pointer' }}
                 onClick={() => loadCommandHelp(item.command)}
               >
                 <List.Item.Meta
-                  title={<><Tag color="blue">{item.command}</Tag></>}
+                  title={
+                    <>
+                      <Tag color="blue">{item.command}</Tag>
+                    </>
+                  }
                   description={item.description}
                 />
               </List.Item>
@@ -147,7 +164,10 @@ const HelpPanel: React.FC = () => {
                           <span>
                             {categoryIcons[name] || <ToolOutlined />}
                             <span style={{ marginLeft: '8px' }}>{name}</span>
-                            <Tag color={categoryColors[name] || 'default'} style={{ marginLeft: '8px' }}>
+                            <Tag
+                              color={categoryColors[name] || 'default'}
+                              style={{ marginLeft: '8px' }}
+                            >
                               {commands.length} 个命令
                             </Tag>
                           </span>
@@ -156,7 +176,7 @@ const HelpPanel: React.FC = () => {
                       >
                         <List
                           dataSource={commands}
-                          renderItem={cmd => (
+                          renderItem={(cmd) => (
                             <List.Item
                               style={{ cursor: 'pointer', padding: '8px 0' }}
                               onClick={() => loadCommandHelp(cmd)}
@@ -193,9 +213,11 @@ const HelpPanel: React.FC = () => {
                 <Card title="使用示例" size="small" style={{ marginBottom: '16px' }}>
                   <List
                     dataSource={selectedCommand.examples}
-                    renderItem={example => (
+                    renderItem={(example) => (
                       <List.Item>
-                        <Text code style={{ fontSize: '14px' }}>{example}</Text>
+                        <Text code style={{ fontSize: '14px' }}>
+                          {example}
+                        </Text>
                       </List.Item>
                     )}
                   />
@@ -208,7 +230,9 @@ const HelpPanel: React.FC = () => {
                       renderItem={([param, desc]) => (
                         <List.Item>
                           <Text strong>{param}:</Text>
-                          <Text type="secondary" style={{ marginLeft: '8px' }}>{desc}</Text>
+                          <Text type="secondary" style={{ marginLeft: '8px' }}>
+                            {desc}
+                          </Text>
                         </List.Item>
                       )}
                     />
@@ -219,7 +243,7 @@ const HelpPanel: React.FC = () => {
                   <Card title="使用提示" size="small" style={{ marginBottom: '16px' }}>
                     <List
                       dataSource={selectedCommand.tips}
-                      renderItem={tip => (
+                      renderItem={(tip) => (
                         <List.Item>
                           <Text type="success">💡 {tip}</Text>
                         </List.Item>
@@ -231,7 +255,7 @@ const HelpPanel: React.FC = () => {
                 {selectedCommand.related_commands.length > 0 && (
                   <Card title="相关命令" size="small">
                     <Space wrap>
-                      {selectedCommand.related_commands.map(cmd => (
+                      {selectedCommand.related_commands.map((cmd) => (
                         <Tooltip key={cmd} title="点击查看详情">
                           <Tag
                             color="blue"
@@ -260,9 +284,7 @@ const HelpPanel: React.FC = () => {
               <Card>
                 <Typography>
                   <h3>欢迎使用本地电脑操作助手！</h3>
-                  <Paragraph>
-                    这个助手可以帮助您通过自然语言控制电脑，执行各种操作。
-                  </Paragraph>
+                  <Paragraph>这个助手可以帮助您通过自然语言控制电脑，执行各种操作。</Paragraph>
 
                   <h4>基本使用</h4>
                   <ol>
@@ -284,9 +306,7 @@ const HelpPanel: React.FC = () => {
                   </ol>
 
                   <h4>安全说明</h4>
-                  <Paragraph>
-                    为了保护您的数据安全，系统有以下限制：
-                  </Paragraph>
+                  <Paragraph>为了保护您的数据安全，系统有以下限制：</Paragraph>
                   <ul>
                     <li>只能访问安全路径（桌面、文档、下载、工作目录）</li>
                     <li>敏感文件（如 .env, .key）需要额外确认</li>
@@ -316,7 +336,8 @@ const HelpPanel: React.FC = () => {
                   <Collapse accordion>
                     <Panel header="文件不存在" key="file_not_found">
                       <Paragraph>
-                        <strong>问题：</strong>提示"文件不存在"<br />
+                        <strong>问题：</strong>提示"文件不存在"
+                        <br />
                         <strong>解决：</strong>
                       </Paragraph>
                       <ul>
@@ -327,7 +348,8 @@ const HelpPanel: React.FC = () => {
                     </Panel>
                     <Panel header="权限不足" key="permission_denied">
                       <Paragraph>
-                        <strong>问题：</strong>提示"无法访问文件"<br />
+                        <strong>问题：</strong>提示"无法访问文件"
+                        <br />
                         <strong>解决：</strong>
                       </Paragraph>
                       <ul>
@@ -338,7 +360,8 @@ const HelpPanel: React.FC = () => {
                     </Panel>
                     <Panel header="路径不安全" key="unsafe_path">
                       <Paragraph>
-                        <strong>问题：</strong>提示"安全限制"<br />
+                        <strong>问题：</strong>提示"安全限制"
+                        <br />
                         <strong>解决：</strong>
                       </Paragraph>
                       <ul>
@@ -352,7 +375,8 @@ const HelpPanel: React.FC = () => {
                   <Collapse accordion>
                     <Panel header="意图识别错误" key="intent_error">
                       <Paragraph>
-                        <strong>问题：</strong>系统误解了我的意思<br />
+                        <strong>问题：</strong>系统误解了我的意思
+                        <br />
                         <strong>解决：</strong>
                       </Paragraph>
                       <ul>

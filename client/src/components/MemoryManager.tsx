@@ -2,184 +2,211 @@
  * 增强版记忆管理组件
  * 支持知识图谱与多层记忆管理；外部集成能力仍按 Beta 收口
  */
-import { useState, useEffect } from 'react'
 import {
-  Modal, List, Button, Tag, Empty, Spin, message,
-  Tabs, Typography, Popconfirm, Input, Space, Card,
-  Statistic, Row, Col, Progress, Divider, Drawer,
-  Select, Badge, Tooltip
-} from 'antd'
+  ApiOutlined,
+  BookOutlined,
+  ClearOutlined,
+  ClockCircleOutlined,
+  DashboardOutlined,
+  DeleteOutlined,
+  ExportOutlined,
+  HistoryOutlined,
+  ImportOutlined,
+  NodeIndexOutlined,
+  SearchOutlined,
+} from '@ant-design/icons';
 import {
-  DeleteOutlined, ClockCircleOutlined,
-  HistoryOutlined, BookOutlined,
-  SearchOutlined, ClearOutlined,
-  NodeIndexOutlined, ExportOutlined,
-  ImportOutlined, DashboardOutlined, ApiOutlined
-} from '@ant-design/icons'
+  Badge,
+  Button,
+  Card,
+  Col,
+  Divider,
+  Drawer,
+  Empty,
+  Input,
+  List,
+  message,
+  Modal,
+  Popconfirm,
+  Progress,
+  Row,
+  Select,
+  Space,
+  Spin,
+  Statistic,
+  Tabs,
+  Tag,
+  Tooltip,
+  Typography,
+} from 'antd';
+import { useEffect, useState } from 'react';
 
 import {
+  ENTITY_TYPES,
+  GraphStats,
+  Memory,
+  MEMORY_TYPES,
   memoryApi,
-  Memory, GraphStats, SessionSummary,
-  MEMORY_TYPES, ENTITY_TYPES
-} from '../services/memoryApi'
-import KnowledgeGraph from './KnowledgeGraph'
+  SessionSummary,
+} from '../services/memoryApi';
+import KnowledgeGraph from './KnowledgeGraph';
 
-const { Search } = Input
-const { Text } = Typography
-const { Option } = Select
+const { Search } = Input;
+const { Text } = Typography;
+const { Option } = Select;
 
 interface MemoryManagerProps {
-  open: boolean
-  onClose: () => void
+  open: boolean;
+  onClose: () => void;
 }
 
 export default function MemoryManager({ open, onClose }: MemoryManagerProps) {
-  const [memories, setMemories] = useState<Memory[]>([])
-  const [loading, setLoading] = useState(false)
-  const [activeType, setActiveType] = useState<string>('all')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [totalCount, setTotalCount] = useState(0)
+  const [memories, setMemories] = useState<Memory[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [activeType, setActiveType] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [totalCount, setTotalCount] = useState(0);
   const [stats, setStats] = useState<{
-    total_memories: number
-    knowledge_graph: GraphStats
-    short_term_memory: SessionSummary
-  } | null>(null)
-  const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null)
-  const [detailDrawerOpen, setDetailDrawerOpen] = useState(false)
+    total_memories: number;
+    knowledge_graph: GraphStats;
+    short_term_memory: SessionSummary;
+  } | null>(null);
+  const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null);
+  const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
 
   useEffect(() => {
     if (open) {
-      loadData()
+      loadData();
     }
-  }, [open, activeType])
+  }, [open, activeType]);
 
   const loadData = async () => {
-    setLoading(true)
+    setLoading(true);
     try {
       const [memoriesData, statsData] = await Promise.all([
         memoryApi.listMemories('default', activeType === 'all' ? undefined : activeType, 100),
-        memoryApi.getStats()
-      ])
-      setMemories(memoriesData.memories)
-      setTotalCount(memoriesData.count)
-      setStats(statsData)
+        memoryApi.getStats(),
+      ]);
+      setMemories(memoriesData.memories);
+      setTotalCount(memoriesData.count);
+      setStats(statsData);
     } catch (error) {
-      console.error('加载记忆失败:', error)
-      message.error('加载记忆失败')
+      console.error('加载记忆失败:', error);
+      message.error('加载记忆失败');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const searchMemories = async () => {
     if (!searchQuery.trim()) {
-      loadData()
-      return
+      loadData();
+      return;
     }
 
-    setLoading(true)
+    setLoading(true);
     try {
-      const results = await memoryApi.recall(searchQuery, 'default', 20)
-      setMemories(results)
-      setTotalCount(results.length)
+      const results = await memoryApi.recall(searchQuery, 'default', 20);
+      setMemories(results);
+      setTotalCount(results.length);
     } catch (error) {
-      console.error('搜索失败:', error)
-      message.error('搜索失败')
+      console.error('搜索失败:', error);
+      message.error('搜索失败');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const deleteMemory = async (memoryId: string) => {
     try {
-      await memoryApi.deleteMemory(memoryId)
-      message.success('已删除')
-      loadData()
+      await memoryApi.deleteMemory(memoryId);
+      message.success('已删除');
+      loadData();
     } catch (error) {
-      console.error('删除失败:', error)
-      message.error('删除失败')
+      console.error('删除失败:', error);
+      message.error('删除失败');
     }
-  }
+  };
 
   const clearAllMemories = async () => {
     try {
-      await memoryApi.clearAll()
-      message.success('所有记忆已清除')
-      setMemories([])
-      setTotalCount(0)
-      loadData()
+      await memoryApi.clearAll();
+      message.success('所有记忆已清除');
+      setMemories([]);
+      setTotalCount(0);
+      loadData();
     } catch (error) {
-      console.error('清除失败:', error)
-      message.error('清除失败')
+      console.error('清除失败:', error);
+      message.error('清除失败');
     }
-  }
+  };
 
   const exportState = async () => {
     try {
-      const state = await memoryApi.exportState()
-      const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `memory-export-${new Date().toISOString().slice(0, 10)}.json`
-      a.click()
-      URL.revokeObjectURL(url)
-      message.success('导出成功')
+      const state = await memoryApi.exportState();
+      const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `memory-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      message.success('导出成功');
     } catch (error) {
-      message.error('导出失败')
+      message.error('导出失败');
     }
-  }
+  };
 
   const importState = () => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.json'
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
     input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0]
-      if (!file) return
-      
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
       try {
-        const text = await file.text()
-        const state = JSON.parse(text)
-        await memoryApi.importState(state)
-        message.success('导入成功')
-        loadData()
+        const text = await file.text();
+        const state = JSON.parse(text);
+        await memoryApi.importState(state);
+        message.success('导入成功');
+        loadData();
       } catch (error) {
-        message.error('导入失败')
+        message.error('导入失败');
       }
-    }
-    input.click()
-  }
+    };
+    input.click();
+  };
 
   const getTypeConfig = (type: string) => {
-    return MEMORY_TYPES[type] || { label: type, color: 'default', icon: '📄' }
-  }
+    return MEMORY_TYPES[type] || { label: type, color: 'default', icon: '📄' };
+  };
 
   const formatDate = (dateStr: string) => {
-    if (!dateStr) return '-'
+    if (!dateStr) return '-';
     try {
-      return new Date(dateStr).toLocaleString('zh-CN')
+      return new Date(dateStr).toLocaleString('zh-CN');
     } catch {
-      return dateStr
+      return dateStr;
     }
-  }
+  };
 
   const renderImportance = (importance: number) => {
-    const percent = Math.round(importance * 100)
+    const percent = Math.round(importance * 100);
     return (
-      <Progress 
-        percent={percent} 
-        size="small" 
+      <Progress
+        percent={percent}
+        size="small"
         showInfo={false}
         strokeColor={{
           '0%': '#ff4d4f',
           '50%': '#faad14',
-          '100%': '#52c41a'
+          '100%': '#52c41a',
         }}
         style={{ width: 60 }}
       />
-    )
-  }
+    );
+  };
 
   const tabItems = [
     {
@@ -197,16 +224,12 @@ export default function MemoryManager({ open, onClose }: MemoryManagerProps) {
             <Search
               placeholder="搜索记忆..."
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={(e) => setSearchQuery(e.target.value)}
               onSearch={searchMemories}
               style={{ width: 300 }}
               enterButton={<SearchOutlined />}
             />
-            <Select
-              value={activeType}
-              onChange={setActiveType}
-              style={{ width: 150 }}
-            >
+            <Select value={activeType} onChange={setActiveType} style={{ width: 150 }}>
               <Option value="all">全部类型</Option>
               {Object.entries(MEMORY_TYPES).map(([key, config]) => (
                 <Option key={key} value={key}>
@@ -228,20 +251,15 @@ export default function MemoryManager({ open, onClose }: MemoryManagerProps) {
           {loading ? (
             <Spin style={{ display: 'block', margin: '40px auto' }} />
           ) : memories.length === 0 ? (
-            <Empty
-              description="暂无记忆"
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-            >
-              <Text type="secondary">
-                对话中提到的重要信息会自动保存为记忆
-              </Text>
+            <Empty description="暂无记忆" image={Empty.PRESENTED_IMAGE_SIMPLE}>
+              <Text type="secondary">对话中提到的重要信息会自动保存为记忆</Text>
             </Empty>
           ) : (
             <List
               dataSource={memories}
               style={{ maxHeight: 400, overflow: 'auto' }}
               renderItem={(memory) => {
-                const config = getTypeConfig(memory.type)
+                const config = getTypeConfig(memory.type);
 
                 return (
                   <List.Item
@@ -252,8 +270,8 @@ export default function MemoryManager({ open, onClose }: MemoryManagerProps) {
                           size="small"
                           icon={<DashboardOutlined />}
                           onClick={() => {
-                            setSelectedMemory(memory)
-                            setDetailDrawerOpen(true)
+                            setSelectedMemory(memory);
+                            setDetailDrawerOpen(true);
                           }}
                         />
                       </Tooltip>,
@@ -262,13 +280,8 @@ export default function MemoryManager({ open, onClose }: MemoryManagerProps) {
                         title="确定删除这条记忆？"
                         onConfirm={() => deleteMemory(memory.id)}
                       >
-                        <Button
-                          type="text"
-                          danger
-                          size="small"
-                          icon={<DeleteOutlined />}
-                        />
-                      </Popconfirm>
+                        <Button type="text" danger size="small" icon={<DeleteOutlined />} />
+                      </Popconfirm>,
                     ]}
                   >
                     <List.Item.Meta
@@ -279,31 +292,28 @@ export default function MemoryManager({ open, onClose }: MemoryManagerProps) {
                       }
                       title={<Text style={{ fontSize: 14 }}>{memory.content}</Text>}
                       description={
-                        <Space split={<span style={{ color: '#d9d9d9' }}>|</span>} style={{ fontSize: 12 }}>
+                        <Space
+                          split={<span style={{ color: '#d9d9d9' }}>|</span>}
+                          style={{ fontSize: 12 }}
+                        >
                           <span>
                             <ClockCircleOutlined /> {formatDate(memory.created_at)}
                           </span>
-                          <span>
-                            重要度: {renderImportance(memory.importance)}
-                          </span>
-                          <span>
-                            访问: {memory.access_count}次
-                          </span>
+                          <span>重要度: {renderImportance(memory.importance)}</span>
+                          <span>访问: {memory.access_count}次</span>
                           {memory.relevance !== undefined && memory.relevance > 0 && (
-                            <span>
-                              相关度: {(memory.relevance * 100).toFixed(0)}%
-                            </span>
+                            <span>相关度: {(memory.relevance * 100).toFixed(0)}%</span>
                           )}
                         </Space>
                       }
                     />
                   </List.Item>
-                )
+                );
               }}
             />
           )}
         </>
-      )
+      ),
     },
     {
       key: 'graph',
@@ -312,14 +322,14 @@ export default function MemoryManager({ open, onClose }: MemoryManagerProps) {
           <NodeIndexOutlined />
           知识图谱
           {stats?.knowledge_graph && (
-            <Badge 
-              count={stats.knowledge_graph.total_entities} 
-              style={{ marginLeft: 8, backgroundColor: '#52c41a' }} 
+            <Badge
+              count={stats.knowledge_graph.total_entities}
+              style={{ marginLeft: 8, backgroundColor: '#52c41a' }}
             />
           )}
         </span>
       ),
-      children: <KnowledgeGraph />
+      children: <KnowledgeGraph />,
     },
     {
       key: 'stats',
@@ -378,10 +388,11 @@ export default function MemoryManager({ open, onClose }: MemoryManagerProps) {
                     {Object.entries(stats.knowledge_graph.entity_types).map(([type, count]) => (
                       <div key={type} style={{ marginBottom: 8 }}>
                         <Text>
-                          {ENTITY_TYPES[type]?.icon || '📄'} {ENTITY_TYPES[type]?.label || type}: {count}
+                          {ENTITY_TYPES[type]?.icon || '📄'} {ENTITY_TYPES[type]?.label || type}:{' '}
+                          {count}
                         </Text>
-                        <Progress 
-                          percent={(count / stats.knowledge_graph.total_entities) * 100} 
+                        <Progress
+                          percent={(count / stats.knowledge_graph.total_entities) * 100}
                           size="small"
                           showInfo={false}
                         />
@@ -393,9 +404,13 @@ export default function MemoryManager({ open, onClose }: MemoryManagerProps) {
                   <Card title="关系类型分布" size="small">
                     {Object.entries(stats.knowledge_graph.relation_types).map(([type, count]) => (
                       <div key={type} style={{ marginBottom: 8 }}>
-                        <Text>{type}: {count}</Text>
-                        <Progress 
-                          percent={(count / Math.max(1, stats.knowledge_graph.total_relations)) * 100} 
+                        <Text>
+                          {type}: {count}
+                        </Text>
+                        <Progress
+                          percent={
+                            (count / Math.max(1, stats.knowledge_graph.total_relations)) * 100
+                          }
                           size="small"
                           showInfo={false}
                         />
@@ -435,9 +450,9 @@ export default function MemoryManager({ open, onClose }: MemoryManagerProps) {
             </>
           )}
         </>
-      )
-    }
-  ]
+      ),
+    },
+  ];
 
   return (
     <Modal
@@ -473,17 +488,31 @@ export default function MemoryManager({ open, onClose }: MemoryManagerProps) {
       >
         {selectedMemory && (
           <>
-            <div><strong>ID:</strong> {selectedMemory.id}</div>
-            <div><strong>类型:</strong> {getTypeConfig(selectedMemory.type).label}</div>
-            <div><strong>内容:</strong></div>
+            <div>
+              <strong>ID:</strong> {selectedMemory.id}
+            </div>
+            <div>
+              <strong>类型:</strong> {getTypeConfig(selectedMemory.type).label}
+            </div>
+            <div>
+              <strong>内容:</strong>
+            </div>
             <Card size="small">{selectedMemory.content}</Card>
-            <div><strong>重要度:</strong> {renderImportance(selectedMemory.importance)}</div>
-            <div><strong>创建时间:</strong> {formatDate(selectedMemory.created_at)}</div>
-            <div><strong>最后访问:</strong> {formatDate(selectedMemory.last_accessed)}</div>
-            <div><strong>访问次数:</strong> {selectedMemory.access_count}</div>
+            <div>
+              <strong>重要度:</strong> {renderImportance(selectedMemory.importance)}
+            </div>
+            <div>
+              <strong>创建时间:</strong> {formatDate(selectedMemory.created_at)}
+            </div>
+            <div>
+              <strong>最后访问:</strong> {formatDate(selectedMemory.last_accessed)}
+            </div>
+            <div>
+              <strong>访问次数:</strong> {selectedMemory.access_count}
+            </div>
           </>
         )}
       </Drawer>
     </Modal>
-  )
+  );
 }

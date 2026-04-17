@@ -1,26 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  Modal,
-  Tree,
-  Button,
-  Space,
-  Tag,
-  Typography,
-  message,
-  Input,
-  Dropdown,
-  Card,
-} from 'antd'
 import {
   BranchesOutlined,
-  PlusOutlined,
   DeleteOutlined,
-  SwapOutlined,
+  EditOutlined,
   MergeOutlined,
   MoreOutlined,
-  EditOutlined,
-} from '@ant-design/icons'
-import type { DataNode } from 'antd/es/tree'
+  PlusOutlined,
+  SwapOutlined,
+} from '@ant-design/icons';
+import { Button, Card, Dropdown, Input, Modal, Space, Tag, Tree, Typography, message } from 'antd';
+import type { DataNode } from 'antd/es/tree';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   createConversationBranch,
   deleteConversationBranch,
@@ -29,16 +18,16 @@ import {
   switchConversationBranch,
   type ConversationBranchSummary,
   type ConversationTreeNode,
-} from '../services/conversationTreeApi'
+} from '../services/conversationTreeApi';
 
-const { Text } = Typography
+const { Text } = Typography;
 
 interface ChatBranchManagerProps {
-  visible: boolean
-  sessionId: string
-  onClose: () => void
-  onBranchSwitch?: (branchId: string) => void
-  onBranchCreate?: (branchId: string) => void
+  visible: boolean;
+  sessionId: string;
+  onClose: () => void;
+  onBranchSwitch?: (branchId: string) => void;
+  onBranchCreate?: (branchId: string) => void;
 }
 
 const ChatBranchManager: React.FC<ChatBranchManagerProps> = ({
@@ -48,58 +37,62 @@ const ChatBranchManager: React.FC<ChatBranchManagerProps> = ({
   onBranchSwitch,
   onBranchCreate,
 }) => {
-  const [loading, setLoading] = useState(false)
-  const [nodes, setNodes] = useState<Record<string, ConversationTreeNode>>({})
-  const [rootId, setRootId] = useState<string | null>(null)
-  const [branches, setBranches] = useState<ConversationBranchSummary[]>([])
-  const [currentBranchId, setCurrentBranchId] = useState<string | null>(null)
-  const [selectedNode, setSelectedNode] = useState<string | null>(null)
-  const [newBranchName, setNewBranchName] = useState('')
-  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [loading, setLoading] = useState(false);
+  const [nodes, setNodes] = useState<Record<string, ConversationTreeNode>>({});
+  const [rootId, setRootId] = useState<string | null>(null);
+  const [branches, setBranches] = useState<ConversationBranchSummary[]>([]);
+  const [currentBranchId, setCurrentBranchId] = useState<string | null>(null);
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [newBranchName, setNewBranchName] = useState('');
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   const loadBranchState = useCallback(async () => {
     if (!sessionId) {
-      return
+      return;
     }
 
-    setLoading(true)
+    setLoading(true);
     try {
-      const state = await fetchConversationTreeState(sessionId)
-      setNodes(state.tree.nodes || {})
-      setRootId(state.tree.root_id || null)
-      setCurrentBranchId(state.tree.current_branch_id || null)
-      setBranches(state.branches || [])
+      const state = await fetchConversationTreeState(sessionId);
+      setNodes(state.tree.nodes || {});
+      setRootId(state.tree.root_id || null);
+      setCurrentBranchId(state.tree.current_branch_id || null);
+      setBranches(state.branches || []);
     } catch (error) {
-      console.error('Failed to fetch branch data:', error)
-      message.error('加载分支数据失败')
+      console.error('Failed to fetch branch data:', error);
+      message.error('加载分支数据失败');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [sessionId])
+  }, [sessionId]);
 
   useEffect(() => {
     if (visible) {
-      void loadBranchState()
+      void loadBranchState();
     }
-  }, [loadBranchState, visible])
+  }, [loadBranchState, visible]);
 
   const treeData = useMemo<DataNode[]>(() => {
     if (!rootId || !nodes[rootId]) {
-      return []
+      return [];
     }
 
     const buildNode = (nodeId: string): DataNode => {
-      const node = nodes[nodeId]
+      const node = nodes[nodeId];
       if (!node) {
-        return { key: nodeId, title: 'Unknown node' }
+        return { key: nodeId, title: 'Unknown node' };
       }
 
-      const roleIcon = node.role === 'user' ? 'U' : node.role === 'assistant' ? 'A' : 'S'
+      const roleIcon = node.role === 'user' ? 'U' : node.role === 'assistant' ? 'A' : 'S';
       return {
         key: nodeId,
         title: (
           <Space size={8}>
-            <Tag color={node.role === 'user' ? 'cyan' : node.role === 'assistant' ? 'purple' : 'default'}>
+            <Tag
+              color={
+                node.role === 'user' ? 'cyan' : node.role === 'assistant' ? 'purple' : 'default'
+              }
+            >
               {roleIcon}
             </Tag>
             <Text ellipsis style={{ maxWidth: 240 }}>
@@ -110,88 +103,86 @@ const ChatBranchManager: React.FC<ChatBranchManagerProps> = ({
           </Space>
         ),
         children: node.children_ids.map((childId) => buildNode(childId)),
-      }
-    }
+      };
+    };
 
-    return [buildNode(rootId)]
-  }, [nodes, rootId])
+    return [buildNode(rootId)];
+  }, [nodes, rootId]);
 
   const handleCreateBranch = useCallback(async () => {
     if (!selectedNode) {
-      message.warning('请先选择一条消息作为分支起点')
-      return
+      message.warning('请先选择一条消息作为分支起点');
+      return;
     }
 
     try {
       const data = await createConversationBranch(
         sessionId,
         selectedNode,
-        newBranchName.trim() || undefined
-      )
+        newBranchName.trim() || undefined,
+      );
 
       if (!data.branch?.id) {
-        throw new Error('未返回新分支 ID')
+        throw new Error('未返回新分支 ID');
       }
 
-      message.success('分支创建成功')
-      setShowCreateModal(false)
-      setNewBranchName('')
-      await loadBranchState()
-      onBranchCreate?.(data.branch.id)
+      message.success('分支创建成功');
+      setShowCreateModal(false);
+      setNewBranchName('');
+      await loadBranchState();
+      onBranchCreate?.(data.branch.id);
     } catch (error) {
-      console.error('Failed to create branch:', error)
-      message.error(error instanceof Error ? error.message : '创建分支失败')
+      console.error('Failed to create branch:', error);
+      message.error(error instanceof Error ? error.message : '创建分支失败');
     }
-  }, [loadBranchState, newBranchName, onBranchCreate, selectedNode, sessionId])
+  }, [loadBranchState, newBranchName, onBranchCreate, selectedNode, sessionId]);
 
   const handleSwitchBranch = useCallback(
     async (branchId: string) => {
       try {
-        await switchConversationBranch(sessionId, branchId)
-        message.success('已切换分支')
-        setCurrentBranchId(branchId)
-        await loadBranchState()
-        onBranchSwitch?.(branchId)
+        await switchConversationBranch(sessionId, branchId);
+        message.success('已切换分支');
+        setCurrentBranchId(branchId);
+        await loadBranchState();
+        onBranchSwitch?.(branchId);
       } catch (error) {
-        console.error('Failed to switch branch:', error)
-        message.error(error instanceof Error ? error.message : '切换分支失败')
+        console.error('Failed to switch branch:', error);
+        message.error(error instanceof Error ? error.message : '切换分支失败');
       }
     },
-    [loadBranchState, onBranchSwitch, sessionId]
-  )
+    [loadBranchState, onBranchSwitch, sessionId],
+  );
 
   const handleDeleteBranch = useCallback(
     async (branchId: string) => {
       try {
-        await deleteConversationBranch(sessionId, branchId)
-        message.success('分支已删除')
-        await loadBranchState()
+        await deleteConversationBranch(sessionId, branchId);
+        message.success('分支已删除');
+        await loadBranchState();
       } catch (error) {
-        console.error('Failed to delete branch:', error)
-        message.error(error instanceof Error ? error.message : '删除分支失败')
+        console.error('Failed to delete branch:', error);
+        message.error(error instanceof Error ? error.message : '删除分支失败');
       }
     },
-    [loadBranchState, sessionId]
-  )
+    [loadBranchState, sessionId],
+  );
 
   const handleMergeBranch = useCallback(
     async (branchId: string) => {
       try {
-        const data = await mergeConversationBranch(sessionId, branchId)
-        const mergedCount = typeof data.merged_count === 'number' ? data.merged_count : null
+        const data = await mergeConversationBranch(sessionId, branchId);
+        const mergedCount = typeof data.merged_count === 'number' ? data.merged_count : null;
         message.success(
-          mergedCount !== null
-            ? `分支已合并，共整理 ${mergedCount} 条消息`
-            : '分支已合并'
-        )
-        await loadBranchState()
+          mergedCount !== null ? `分支已合并，共整理 ${mergedCount} 条消息` : '分支已合并',
+        );
+        await loadBranchState();
       } catch (error) {
-        console.error('Failed to merge branch:', error)
-        message.warning(error instanceof Error ? error.message : '合并分支失败')
+        console.error('Failed to merge branch:', error);
+        message.warning(error instanceof Error ? error.message : '合并分支失败');
       }
     },
-    [loadBranchState, sessionId]
-  )
+    [loadBranchState, sessionId],
+  );
 
   return (
     <>
@@ -221,9 +212,7 @@ const ChatBranchManager: React.FC<ChatBranchManagerProps> = ({
         ]}
       >
         <div style={{ marginBottom: 16 }}>
-          <Text type="secondary">
-            选择一条消息作为分叉点，然后创建、切换、合并或删除分支。
-          </Text>
+          <Text type="secondary">选择一条消息作为分叉点，然后创建、切换、合并或删除分支。</Text>
         </div>
 
         <Card title="对话树" size="small" style={{ marginBottom: 16 }} loading={loading}>
@@ -271,7 +260,7 @@ const ChatBranchManager: React.FC<ChatBranchManagerProps> = ({
                         size="small"
                         icon={<SwapOutlined />}
                         onClick={() => {
-                          void handleSwitchBranch(branch.id)
+                          void handleSwitchBranch(branch.id);
                         }}
                       >
                         切换
@@ -285,7 +274,7 @@ const ChatBranchManager: React.FC<ChatBranchManagerProps> = ({
                             icon: <MergeOutlined />,
                             label: '合并到当前分支',
                             onClick: () => {
-                              void handleMergeBranch(branch.id)
+                              void handleMergeBranch(branch.id);
                             },
                             disabled: currentBranchId === branch.id,
                           },
@@ -300,9 +289,9 @@ const ChatBranchManager: React.FC<ChatBranchManagerProps> = ({
                                 content: '确定要删除这个分支吗？',
                                 okButtonProps: { danger: true },
                                 onOk: async () => {
-                                  await handleDeleteBranch(branch.id)
+                                  await handleDeleteBranch(branch.id);
                                 },
-                              })
+                              });
                             },
                           },
                         ],
@@ -322,11 +311,11 @@ const ChatBranchManager: React.FC<ChatBranchManagerProps> = ({
         title="创建新分支"
         open={showCreateModal}
         onCancel={() => {
-          setShowCreateModal(false)
-          setNewBranchName('')
+          setShowCreateModal(false);
+          setNewBranchName('');
         }}
         onOk={() => {
-          void handleCreateBranch()
+          void handleCreateBranch();
         }}
         okText="创建"
         cancelText="取消"
@@ -342,7 +331,7 @@ const ChatBranchManager: React.FC<ChatBranchManagerProps> = ({
         />
       </Modal>
     </>
-  )
-}
+  );
+};
 
-export default ChatBranchManager
+export default ChatBranchManager;

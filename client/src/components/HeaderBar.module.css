@@ -1,7 +1,9 @@
 .header {
   padding: 0 var(--space-4) !important;
-  background: var(--bg-secondary) !important;
-  border-bottom: 1px solid var(--border-color) !important;
+  background: rgba(255, 255, 255, 0.7) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.03) !important;
   display: flex !important;
   align-items: center;
   justify-content: space-between;
@@ -12,15 +14,22 @@
   transform: translateZ(0);
 }
 
+:global(.dark-theme) .header {
+  background: rgba(10, 10, 10, 0.7) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03) !important;
+}
+
 .statusCard {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 4px 10px;
+  padding: 2px 8px;
   background: var(--bg-elevated);
   border-radius: var(--radius-full);
   border: 1px solid var(--border-color);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: left center;
+  transform: scale(0.9);
 }
 
 .statusCard:hover {
@@ -120,4 +129,3 @@
     display: none;
   }
 }
-

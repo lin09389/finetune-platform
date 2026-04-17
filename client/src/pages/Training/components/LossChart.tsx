@@ -1,20 +1,29 @@
-import React from 'react'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
-import { LineChartOutlined } from '@ant-design/icons'
-import styles from './LossChart.module.css'
+import { LineChartOutlined } from '@ant-design/icons';
+import React from 'react';
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import styles from './LossChart.module.css';
 
 interface ChartDataPoint {
-  step: number
-  loss: number
-  lr: number
+  step: number;
+  loss: number;
+  lr: number;
 }
 
 interface LossChartProps {
-  data: ChartDataPoint[]
+  data: ChartDataPoint[];
 }
 
 const LossChart: React.FC<LossChartProps> = ({ data }) => {
-  if (data.length === 0) return null
+  if (data.length === 0) return null;
 
   return (
     <div className={styles.container}>
@@ -22,7 +31,7 @@ const LossChart: React.FC<LossChartProps> = ({ data }) => {
         <LineChartOutlined className={styles.icon} />
         <h4 className={styles.title}>Loss 实时收敛曲线</h4>
       </div>
-      
+
       <div className={styles.chartWrapper}>
         <ResponsiveContainer width="100%" height={280}>
           <LineChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 10 }}>
@@ -34,12 +43,7 @@ const LossChart: React.FC<LossChartProps> = ({ data }) => {
               tickLine={false}
               axisLine={false}
             />
-            <YAxis
-              stroke="var(--text-tertiary)"
-              fontSize={10}
-              tickLine={false}
-              axisLine={false}
-            />
+            <YAxis stroke="var(--text-tertiary)" fontSize={10} tickLine={false} axisLine={false} />
             <Tooltip
               contentStyle={{
                 background: 'var(--bg-elevated)',
@@ -47,7 +51,7 @@ const LossChart: React.FC<LossChartProps> = ({ data }) => {
                 borderRadius: 'var(--radius-lg)',
                 boxShadow: 'var(--shadow-lg)',
                 fontSize: '12px',
-                color: 'var(--text-primary)'
+                color: 'var(--text-primary)',
               }}
               labelStyle={{ fontWeight: 700, marginBottom: 4 }}
               cursor={{ stroke: 'var(--accent-primary)', strokeWidth: 1, strokeDasharray: '4 4' }}
@@ -66,7 +70,7 @@ const LossChart: React.FC<LossChartProps> = ({ data }) => {
         </ResponsiveContainer>
       </div>
     </div>
-  )
-}
+  );
+};
 
-export default LossChart
+export default LossChart;

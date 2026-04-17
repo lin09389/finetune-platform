@@ -1,60 +1,60 @@
-import React from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mockUseAppStore = vi.hoisted(() => vi.fn())
-const mockUseRuntimeContext = vi.hoisted(() => vi.fn())
-const mockGetTrainingStatus = vi.hoisted(() => vi.fn())
-const mockCheckTrainingResources = vi.hoisted(() => vi.fn())
-const mockGetTrainingFailureAnalytics = vi.hoisted(() => vi.fn())
-const mockGetTrainingHistory = vi.hoisted(() => vi.fn())
-const mockGetTrainingCheckpoints = vi.hoisted(() => vi.fn())
-const mockGetTrainingRecoveryOptions = vi.hoisted(() => vi.fn())
-const mockResumeTraining = vi.hoisted(() => vi.fn())
-const mockSubscribeTrainingProgress = vi.hoisted(() => vi.fn(() => vi.fn()))
-const mockGetBackends = vi.hoisted(() => vi.fn())
-const mockGetModelList = vi.hoisted(() => vi.fn())
-const mockGetOllamaStatus = vi.hoisted(() => vi.fn())
-const mockListInferenceEngines = vi.hoisted(() => vi.fn())
-const mockGetPerformanceStats = vi.hoisted(() => vi.fn())
-const mockGetPerformanceRecommendations = vi.hoisted(() => vi.fn())
-const mockFetch = vi.hoisted(() => vi.fn())
-const mockLoadSessions = vi.hoisted(() => vi.fn())
-const mockCreateSession = vi.hoisted(() => vi.fn())
-const mockDeleteSession = vi.hoisted(() => vi.fn())
-const mockDeleteMessage = vi.hoisted(() => vi.fn())
-const mockClearMessages = vi.hoisted(() => vi.fn())
-const mockUpdateSettings = vi.hoisted(() => vi.fn())
-const mockSendMessage = vi.hoisted(() => vi.fn())
-const mockSendCloudMessage = vi.hoisted(() => vi.fn())
-const mockStopStream = vi.hoisted(() => vi.fn())
-const mockSyncInferenceSelection = vi.hoisted(() => vi.fn())
-const mockSetInferenceSelection = vi.hoisted(() => vi.fn())
-const mockSyncKnowledgeCollection = vi.hoisted(() => vi.fn())
-const mockRefreshInference = vi.hoisted(() => vi.fn())
-const mockRefreshKnowledge = vi.hoisted(() => vi.fn())
-const mockRefreshBootstrap = vi.hoisted(() => vi.fn())
+const mockUseAppStore = vi.hoisted(() => vi.fn());
+const mockUseRuntimeContext = vi.hoisted(() => vi.fn());
+const mockGetTrainingStatus = vi.hoisted(() => vi.fn());
+const mockCheckTrainingResources = vi.hoisted(() => vi.fn());
+const mockGetTrainingFailureAnalytics = vi.hoisted(() => vi.fn());
+const mockGetTrainingHistory = vi.hoisted(() => vi.fn());
+const mockGetTrainingCheckpoints = vi.hoisted(() => vi.fn());
+const mockGetTrainingRecoveryOptions = vi.hoisted(() => vi.fn());
+const mockResumeTraining = vi.hoisted(() => vi.fn());
+const mockSubscribeTrainingProgress = vi.hoisted(() => vi.fn(() => vi.fn()));
+const mockGetBackends = vi.hoisted(() => vi.fn());
+const mockGetModelList = vi.hoisted(() => vi.fn());
+const mockGetOllamaStatus = vi.hoisted(() => vi.fn());
+const mockListInferenceEngines = vi.hoisted(() => vi.fn());
+const mockGetPerformanceStats = vi.hoisted(() => vi.fn());
+const mockGetPerformanceRecommendations = vi.hoisted(() => vi.fn());
+const mockFetch = vi.hoisted(() => vi.fn());
+const mockLoadSessions = vi.hoisted(() => vi.fn());
+const mockCreateSession = vi.hoisted(() => vi.fn());
+const mockDeleteSession = vi.hoisted(() => vi.fn());
+const mockDeleteMessage = vi.hoisted(() => vi.fn());
+const mockClearMessages = vi.hoisted(() => vi.fn());
+const mockUpdateSettings = vi.hoisted(() => vi.fn());
+const mockSendMessage = vi.hoisted(() => vi.fn());
+const mockSendCloudMessage = vi.hoisted(() => vi.fn());
+const mockStopStream = vi.hoisted(() => vi.fn());
+const mockSyncInferenceSelection = vi.hoisted(() => vi.fn());
+const mockSetInferenceSelection = vi.hoisted(() => vi.fn());
+const mockSyncKnowledgeCollection = vi.hoisted(() => vi.fn());
+const mockRefreshInference = vi.hoisted(() => vi.fn());
+const mockRefreshKnowledge = vi.hoisted(() => vi.fn());
+const mockRefreshBootstrap = vi.hoisted(() => vi.fn());
 const mockNotify = vi.hoisted(() => ({
   success: vi.fn(),
   warning: vi.fn(),
   error: vi.fn(),
   info: vi.fn(),
   emit: vi.fn(),
-}))
+}));
 
-vi.stubGlobal('fetch', mockFetch)
+vi.stubGlobal('fetch', mockFetch);
 
 vi.mock('../store/appStore', () => ({
   useAppStore: mockUseAppStore,
-}))
+}));
 
 vi.mock('../runtime/RuntimeContext', () => ({
   useRuntimeContext: mockUseRuntimeContext,
-}))
+}));
 
 vi.mock('../utils/notify', () => ({
   notify: mockNotify,
-}))
+}));
 
 vi.mock('../services/trainingApi', () => ({
   checkTrainingResources: mockCheckTrainingResources,
@@ -68,7 +68,7 @@ vi.mock('../services/trainingApi', () => ({
   stopTraining: vi.fn(),
   subscribeTrainingProgress: mockSubscribeTrainingProgress,
   startSwiftTraining: vi.fn(),
-}))
+}));
 
 vi.mock('../services/api', () => ({
   API_BASE_URL: 'http://localhost:8000',
@@ -82,7 +82,7 @@ vi.mock('../services/api', () => ({
   streamGenerate: vi.fn(),
   switchBackend: vi.fn(),
   getInferenceModels: vi.fn(() => Promise.resolve([{ id: 'hf-model', name: 'HF Model' }])),
-}))
+}));
 
 vi.mock('../store/chatStore', () => ({
   useChatStore: () => ({
@@ -103,7 +103,7 @@ vi.mock('../store/chatStore', () => ({
     clearMessages: mockClearMessages,
     updateSettings: mockUpdateSettings,
   }),
-}))
+}));
 
 vi.mock('../hooks/chat/useChatStream', () => ({
   useChatStream: () => ({
@@ -112,55 +112,62 @@ vi.mock('../hooks/chat/useChatStream', () => ({
     stop: mockStopStream,
     isStreaming: false,
   }),
-}))
+}));
 
 vi.mock('../theme', () => ({
   useTheme: () => ({
     theme: 'light',
     toggleTheme: vi.fn(),
   }),
-}))
+}));
 
 vi.mock('../hooks/useResponsive', () => ({
   useResponsive: () => ({
     isMobile: false,
   }),
-}))
+}));
 
 vi.mock('../components/chat/ChatHeader', () => ({
   default: () => <div>Mock Chat Header</div>,
-}))
+}));
 
 vi.mock('../components/ChatMessage', () => ({
   default: () => <div>Mock Chat Message</div>,
-}))
+}));
 
 vi.mock('../components/chat/ChatInput', () => ({
   default: () => <div>Mock Chat Input</div>,
-}))
+}));
 
 vi.mock('../components/ChatHistoryDrawer', () => ({
   default: () => <div>Mock Chat History Drawer</div>,
-}))
+}));
 
 vi.mock('../components/MemoryManager', () => ({
   default: () => <div>Mock Memory Manager</div>,
-}))
+}));
 
 vi.mock('../pages/APIKeyManager', () => ({
   default: () => <div>Mock API Key Manager</div>,
-}))
+}));
 
 vi.mock('../components/shared/GlassCard', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-}))
+}));
 
 vi.mock('../components/shared/AnimatedLayout', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-}))
+}));
 
 vi.mock('../pages/Training/components/ConfigForm', () => ({
-  default: ({ form }: { form: { setFieldsValue: (values: Record<string, unknown>) => void; getFieldValue: (name: string) => unknown } }) => (
+  default: ({
+    form,
+  }: {
+    form: {
+      setFieldsValue: (values: Record<string, unknown>) => void;
+      getFieldValue: (name: string) => unknown;
+    };
+  }) => (
     <div>
       <button type="button" onClick={() => form.setFieldsValue({ modelId: 'train-model-1' })}>
         Mock Select Training Model
@@ -169,43 +176,47 @@ vi.mock('../pages/Training/components/ConfigForm', () => ({
       <div data-testid="mock-training-model">{String(form.getFieldValue('modelId') || '')}</div>
     </div>
   ),
-}))
+}));
 
 vi.mock('../pages/Training/components/ProgressPanel', () => ({
   default: () => <div>Mock Progress Panel</div>,
-}))
+}));
 
 vi.mock('../pages/Training/components/LossChart', () => ({
   default: () => <div>Mock Loss Chart</div>,
-}))
+}));
 
 vi.mock('../components/SwiftChecker', () => ({
   default: ({ onStatusChange }: { onStatusChange: (status: { available: boolean }) => void }) => {
     React.useEffect(() => {
-      onStatusChange({ available: false })
-    }, [onStatusChange])
-    return <div>Mock Swift Checker</div>
+      onStatusChange({ available: false });
+    }, [onStatusChange]);
+    return <div>Mock Swift Checker</div>;
   },
-}))
+}));
 
 vi.mock('../components/TrainingChart', () => ({
   default: () => <div>Mock Training Chart</div>,
-}))
+}));
 
 vi.mock('react-virtuoso', () => ({
-  Virtuoso: ({ itemContent, totalCount }: { itemContent?: (index: number) => React.ReactNode; totalCount?: number }) => (
-    <div>{Array.from({ length: totalCount || 0 }, (_, index) => itemContent?.(index))}</div>
-  ),
-}))
+  Virtuoso: ({
+    itemContent,
+    totalCount,
+  }: {
+    itemContent?: (index: number) => React.ReactNode;
+    totalCount?: number;
+  }) => <div>{Array.from({ length: totalCount || 0 }, (_, index) => itemContent?.(index))}</div>,
+}));
 
-import TrainingPage from '../pages/Training'
-import Inference from '../pages/Inference'
-import KnowledgeBase from '../pages/KnowledgeBase'
-import ChatPage from '../pages/ChatNew'
+import ChatPage from '../pages/ChatNew';
+import Inference from '../pages/Inference';
+import KnowledgeBase from '../pages/KnowledgeBase';
+import TrainingPage from '../pages/Training';
 
 describe('GA smoke pages', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.clearAllMocks();
 
     mockUseAppStore.mockReturnValue({
       models: [],
@@ -215,7 +226,7 @@ describe('GA smoke pages', () => {
       setIsTraining: vi.fn(),
       addTrainingRecord: vi.fn(),
       setModels: vi.fn(),
-    })
+    });
 
     mockUseRuntimeContext.mockReturnValue({
       observed: {
@@ -303,12 +314,12 @@ describe('GA smoke pages', () => {
       setKnowledgeSelection: vi.fn(),
       syncInferenceSelection: mockSyncInferenceSelection,
       syncKnowledgeCollection: mockSyncKnowledgeCollection,
-    })
+    });
 
     mockGetTrainingStatus.mockResolvedValue({
       is_training: false,
       progress: null,
-    })
+    });
     mockCheckTrainingResources.mockResolvedValue({
       passed: true,
       available_vram: 8,
@@ -317,7 +328,7 @@ describe('GA smoke pages', () => {
       warnings: [],
       recommended_config: {},
       device_name: 'Mock GPU',
-    })
+    });
     mockGetTrainingFailureAnalytics.mockResolvedValue({
       totalRuns: 0,
       failedRuns: 0,
@@ -337,13 +348,13 @@ describe('GA smoke pages', () => {
       topFailedDatasets: [],
       topFailedMethods: [],
       recentFailures: [],
-    })
-    mockGetTrainingHistory.mockResolvedValue([])
-    mockGetTrainingCheckpoints.mockResolvedValue([])
+    });
+    mockGetTrainingHistory.mockResolvedValue([]);
+    mockGetTrainingCheckpoints.mockResolvedValue([]);
     mockGetTrainingRecoveryOptions.mockResolvedValue({
       generatedAt: new Date().toISOString(),
       options: [],
-    })
+    });
     mockResumeTraining.mockResolvedValue({
       id: 'resume-task-1',
       modelName: 'mock-model',
@@ -353,7 +364,7 @@ describe('GA smoke pages', () => {
       startTime: new Date().toISOString(),
       outputPath: '/tmp/output',
       config: {},
-    })
+    });
 
     mockGetBackends.mockResolvedValue({
       current: 'ollama',
@@ -361,47 +372,47 @@ describe('GA smoke pages', () => {
         { id: 'ollama', name: 'Ollama', available: false },
         { id: 'huggingface', name: 'HuggingFace', available: true },
       ],
-    })
-    mockGetModelList.mockResolvedValue([])
-    mockGetOllamaStatus.mockResolvedValue({ models: [] })
-    mockListInferenceEngines.mockResolvedValue({ engines: [] })
+    });
+    mockGetModelList.mockResolvedValue([]);
+    mockGetOllamaStatus.mockResolvedValue({ models: [] });
+    mockListInferenceEngines.mockResolvedValue({ engines: [] });
     mockGetPerformanceStats.mockResolvedValue({
       inference: { total_requests: 0, avg_latency_ms: 0 },
       streaming: { avg_first_token_ms: 0 },
-    })
-    mockGetPerformanceRecommendations.mockResolvedValue({ recommendations: [] })
+    });
+    mockGetPerformanceRecommendations.mockResolvedValue({ recommendations: [] });
 
     mockFetch.mockImplementation((url: string) => {
       if (url.includes('/knowledge/embedder/status')) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ loaded: false, error: 'unavailable' }),
-        })
+        });
       }
       if (url.includes('/knowledge/collections')) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ collections: [] }),
-        })
+        });
       }
       if (url.includes('/knowledge/collections/default')) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ name: 'default', count: 0, documents: [] }),
-        })
+        });
       }
       if (url.includes('/cloud/api-keys')) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ keys: [] }),
-        })
+        });
       }
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve({}),
-      })
-    })
-  })
+      });
+    });
+  });
 
   it('renders disconnected training empty state', async () => {
     mockUseAppStore.mockReturnValue({
@@ -412,62 +423,62 @@ describe('GA smoke pages', () => {
       setIsTraining: vi.fn(),
       addTrainingRecord: vi.fn(),
       setModels: vi.fn(),
-    })
+    });
 
-    render(<TrainingPage />)
+    render(<TrainingPage />);
 
-    expect(screen.getByText('模型训练')).toBeInTheDocument()
+    expect(screen.getByText('模型训练')).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText('后端服务未连接，请先启动应用。')).toBeInTheDocument()
-    })
-  })
+      expect(screen.getByText('后端服务未连接，请先启动应用。')).toBeInTheDocument();
+    });
+  });
 
   it('bridges training model selection with runtime context', async () => {
-    render(<TrainingPage />)
+    render(<TrainingPage />);
 
-    fireEvent.click(screen.getByRole('button', { name: '使用当前活跃模型' }))
-    fireEvent.click(screen.getByRole('button', { name: '设为活跃推理模型' }))
+    fireEvent.click(screen.getByRole('button', { name: '使用当前活跃模型' }));
+    fireEvent.click(screen.getByRole('button', { name: '设为活跃推理模型' }));
     expect(mockSyncInferenceSelection).toHaveBeenCalledWith({
       backend: 'ollama',
       modelId: 'runtime-active-model',
-    })
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Mock Select Training Model' }))
-    fireEvent.click(screen.getByRole('button', { name: '设为活跃推理模型' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mock Select Training Model' }));
+    fireEvent.click(screen.getByRole('button', { name: '设为活跃推理模型' }));
     expect(mockSyncInferenceSelection).toHaveBeenCalledWith({
       backend: 'ollama',
       modelId: 'train-model-1',
-    })
-  })
+    });
+  });
 
   it('renders inference backend warning when ollama is unavailable', async () => {
-    render(<Inference />)
+    render(<Inference />);
 
-    expect(screen.getByText('推理测试')).toBeInTheDocument()
+    expect(screen.getByText('推理测试')).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getAllByText('Ollama 未运行').length).toBeGreaterThan(0)
-      expect(screen.getByText('请确保 Ollama 已启动，然后刷新页面')).toBeInTheDocument()
-    })
-  })
+      expect(screen.getAllByText('Ollama 未运行').length).toBeGreaterThan(0);
+      expect(screen.getByText('请确保 Ollama 已启动，然后刷新页面')).toBeInTheDocument();
+    });
+  });
 
   it('renders knowledge embedder warning state', async () => {
-    render(<KnowledgeBase />)
+    render(<KnowledgeBase />);
 
-    expect(screen.getByText('RAG 知识库')).toBeInTheDocument()
+    expect(screen.getByText('RAG 知识库')).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText('嵌入模型未加载')).toBeInTheDocument()
-      expect(screen.getAllByText('立即加载').length).toBeGreaterThan(0)
-    })
-  })
+      expect(screen.getByText('嵌入模型未加载')).toBeInTheDocument();
+      expect(screen.getAllByText('立即加载').length).toBeGreaterThan(0);
+    });
+  });
 
   it('renders chat shell and loads primary init resources', async () => {
-    render(<ChatPage />)
+    render(<ChatPage />);
 
-    expect(screen.getByText('Mock Chat Header')).toBeInTheDocument()
+    expect(screen.getByText('Mock Chat Header')).toBeInTheDocument();
     await waitFor(() => {
-      expect(mockLoadSessions).toHaveBeenCalled()
-      expect(screen.getByTestId('runtime-context-chat')).toBeInTheDocument()
-      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8000/cloud/api-keys')
-    })
-  })
-})
+      expect(mockLoadSessions).toHaveBeenCalled();
+      expect(screen.getByTestId('runtime-context-chat')).toBeInTheDocument();
+      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8000/cloud/api-keys');
+    });
+  });
+});

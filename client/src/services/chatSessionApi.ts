@@ -1,37 +1,40 @@
-import type { ChatMessage } from '../types'
-import { API_BASE_URL } from './api'
+import type { ChatMessage } from '../types';
+import { API_BASE_URL } from './api';
 
 export interface ChatSessionRecord {
-  id: string
-  title: string
-  modelId: string
-  backend: string
-  createdAt: string
-  updatedAt: string
-  messageCount: number
-  metadata: Record<string, unknown>
+  id: string;
+  title: string;
+  modelId: string;
+  backend: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+  metadata: Record<string, unknown>;
 }
 
 export interface ChatSessionMessagesPayload {
-  messages: ChatMessage[]
+  messages: ChatMessage[];
 }
 
 export interface ChatSessionMessageCreatePayload {
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  metadata?: Record<string, unknown>
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  metadata?: Record<string, unknown>;
 }
 
 async function requestJson<T>(input: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init)
+  const response = await fetch(input, init);
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}))
-    throw new Error(
-      (errorData as { detail?: string }).detail || `Chat session request failed: ${response.status}`
-    )
+    const errorData = await response.json().catch(() => ({}));
+    const error = new Error(
+      (errorData as { detail?: string }).detail ||
+        `Chat session request failed: ${response.status}`,
+    ) as Error & { status?: number };
+    error.status = response.status;
+    throw error;
   }
 
-  return (await response.json()) as T
+  return (await response.json()) as T;
 }
 
 function normalizeChatMessage(message: Record<string, unknown>): ChatMessage {
@@ -59,12 +62,12 @@ function normalizeChatMessage(message: Record<string, unknown>): ChatMessage {
     experiment_config: message.experiment_config as ChatMessage['experiment_config'],
     run_metrics: message.run_metrics as ChatMessage['run_metrics'],
     isEdited: Boolean(message.isEdited),
-  }
+  };
 }
 
 export function normalizeChatSession(
   session: Record<string, unknown>,
-  fallbackBackend = 'ollama'
+  fallbackBackend = 'ollama',
 ): ChatSessionRecord {
   return {
     id: String(session.id || ''),
@@ -78,21 +81,21 @@ export function normalizeChatSession(
       session.metadata && typeof session.metadata === 'object'
         ? (session.metadata as Record<string, unknown>)
         : {},
-  }
+  };
 }
 
 export async function listChatSessions(fallbackBackend?: string): Promise<ChatSessionRecord[]> {
   const data = await requestJson<{ sessions?: Record<string, unknown>[] }>(
-    `${API_BASE_URL}/chat/sessions`
-  )
+    `${API_BASE_URL}/chat/sessions`,
+  );
 
-  return (data.sessions || []).map((session) => normalizeChatSession(session, fallbackBackend))
+  return (data.sessions || []).map((session) => normalizeChatSession(session, fallbackBackend));
 }
 
 export async function createChatSession(
   title: string,
   modelId?: string,
-  fallbackBackend?: string
+  fallbackBackend?: string,
 ): Promise<ChatSessionRecord> {
   const session = await requestJson<Record<string, unknown>>(`${API_BASE_URL}/chat/sessions`, {
     method: 'POST',
@@ -101,37 +104,37 @@ export async function createChatSession(
       title,
       model_id: modelId,
     }),
-  })
+  });
 
-  return normalizeChatSession(session, fallbackBackend)
+  return normalizeChatSession(session, fallbackBackend);
 }
 
 export async function getChatSession(
   sessionId: string,
-  fallbackBackend?: string
+  fallbackBackend?: string,
 ): Promise<ChatSessionRecord> {
   const session = await requestJson<Record<string, unknown>>(
-    `${API_BASE_URL}/chat/sessions/${sessionId}`
-  )
+    `${API_BASE_URL}/chat/sessions/${sessionId}`,
+  );
 
-  return normalizeChatSession(session, fallbackBackend)
+  return normalizeChatSession(session, fallbackBackend);
 }
 
 export async function getChatSessionMessages(
-  sessionId: string
+  sessionId: string,
 ): Promise<ChatSessionMessagesPayload> {
   const payload = await requestJson<{ messages?: Record<string, unknown>[] }>(
-    `${API_BASE_URL}/chat/sessions/${sessionId}/messages`
-  )
+    `${API_BASE_URL}/chat/sessions/${sessionId}/messages`,
+  );
 
   return {
     messages: (payload.messages || []).map((message) => normalizeChatMessage(message)),
-  }
+  };
 }
 
 export async function saveChatSessionMessage(
   sessionId: string,
-  payload: ChatSessionMessageCreatePayload
+  payload: ChatSessionMessageCreatePayload,
 ): Promise<ChatMessage> {
   const message = await requestJson<Record<string, unknown>>(
     `${API_BASE_URL}/chat/sessions/${sessionId}/messages`,
@@ -139,10 +142,10 @@ export async function saveChatSessionMessage(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-    }
-  )
+    },
+  );
 
-  return normalizeChatMessage(message)
+  return normalizeChatMessage(message);
 }
 
 export async function persistChatRunToSession(
@@ -150,37 +153,45 @@ export async function persistChatRunToSession(
   userPrompt: string,
   assistantContent: string,
   options?: {
-    userMetadata?: Record<string, unknown>
-    assistantMetadata?: Record<string, unknown>
-  }
+    userMetadata?: Record<string, unknown>;
+    assistantMetadata?: Record<string, unknown>;
+  },
 ) {
   const userMessage = await saveChatSessionMessage(sessionId, {
     role: 'user',
     content: userPrompt,
     metadata: options?.userMetadata,
-  })
+  });
 
   const assistantMessage = await saveChatSessionMessage(sessionId, {
     role: 'assistant',
     content: assistantContent,
     metadata: options?.assistantMetadata,
-  })
+  });
 
   return {
     userMessage,
     assistantMessage,
-  }
+  };
 }
 
 export async function deleteChatSession(sessionId: string): Promise<{ success: boolean }> {
-  return requestJson<{ success: boolean }>(`${API_BASE_URL}/chat/sessions/${sessionId}`, {
-    method: 'DELETE',
-  })
+  try {
+    return await requestJson<{ success: boolean }>(`${API_BASE_URL}/chat/sessions/${sessionId}`, {
+      method: 'DELETE',
+    });
+  } catch (error) {
+    // Deleting an already-removed session should be treated as success on the client.
+    if ((error as { status?: number })?.status === 404) {
+      return { success: true };
+    }
+    throw error;
+  }
 }
 
 export async function updateChatSessionMetadata(
   sessionId: string,
-  metadata: Record<string, unknown>
+  metadata: Record<string, unknown>,
 ): Promise<{ success: boolean; session_id: string; metadata: Record<string, unknown> }> {
   return requestJson<{ success: boolean; session_id: string; metadata: Record<string, unknown> }>(
     `${API_BASE_URL}/chat/sessions/${sessionId}/metadata`,
@@ -190,6 +201,6 @@ export async function updateChatSessionMetadata(
       body: JSON.stringify({
         metadata,
       }),
-    }
-  )
+    },
+  );
 }

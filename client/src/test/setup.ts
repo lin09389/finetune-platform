@@ -1,5 +1,5 @@
-import '@testing-library/jest-dom'
-import { vi } from 'vitest'
+import '@testing-library/jest-dom';
+import { vi } from 'vitest';
 
 // Mock matchMedia for Ant Design
 Object.defineProperty(window, 'matchMedia', {
@@ -14,20 +14,20 @@ Object.defineProperty(window, 'matchMedia', {
     removeEventListener: vi.fn(),
     dispatchEvent: vi.fn(),
   })),
-})
+});
 
 // Mock ResizeObserver
 global.ResizeObserver = vi.fn().mockImplementation(() => ({
   observe: vi.fn(),
   unobserve: vi.fn(),
   disconnect: vi.fn(),
-}))
+}));
 
 // Mock scrollTo
-window.scrollTo = vi.fn() as unknown as typeof window.scrollTo
+window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
 
 // rc-table / antd may request computed styles with pseudo elements in jsdom.
-const originalGetComputedStyle = window.getComputedStyle.bind(window)
+const originalGetComputedStyle = window.getComputedStyle.bind(window);
 window.getComputedStyle = ((element: Element, pseudoElt?: string | null) => {
   if (pseudoElt) {
     return {
@@ -37,10 +37,10 @@ window.getComputedStyle = ((element: Element, pseudoElt?: string | null) => {
       overflowY: 'auto',
       width: '0px',
       height: '0px',
-    } as unknown as CSSStyleDeclaration
+    } as unknown as CSSStyleDeclaration;
   }
-  return originalGetComputedStyle(element)
-}) as typeof window.getComputedStyle
+  return originalGetComputedStyle(element);
+}) as typeof window.getComputedStyle;
 
 // Mock localStorage
 const localStorageMock = {
@@ -48,9 +48,9 @@ const localStorageMock = {
   setItem: vi.fn(),
   removeItem: vi.fn(),
   clear: vi.fn(),
-}
-Object.defineProperty(window, 'localStorage', { value: localStorageMock })
+};
+Object.defineProperty(window, 'localStorage', { value: localStorageMock });
 
 // Mock URL.createObjectURL
-global.URL.createObjectURL = vi.fn(() => 'blob:mock-url')
-global.URL.revokeObjectURL = vi.fn()
+global.URL.createObjectURL = vi.fn(() => 'blob:mock-url');
+global.URL.revokeObjectURL = vi.fn();

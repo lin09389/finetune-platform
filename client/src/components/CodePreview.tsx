@@ -1,61 +1,61 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { Card, Button, Space, Tooltip, Select, message, Modal, Spin } from 'antd'
 import {
-  CopyOutlined,
-  SaveOutlined,
-  FullscreenOutlined,
-  FullscreenExitOutlined,
   CheckOutlined,
-  UnorderedListOutlined,
-  CompressOutlined,
   CodeOutlined,
-} from '@ant-design/icons'
-import hljs from 'highlight.js/lib/core'
-import 'highlight.js/styles/atom-one-dark.css'
+  CompressOutlined,
+  CopyOutlined,
+  FullscreenExitOutlined,
+  FullscreenOutlined,
+  SaveOutlined,
+  UnorderedListOutlined,
+} from '@ant-design/icons';
+import { Button, Card, message, Modal, Select, Space, Spin, Tooltip } from 'antd';
+import hljs from 'highlight.js/lib/core';
+import 'highlight.js/styles/atom-one-dark.css';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 // 注册常用语言
-import javascript from 'highlight.js/lib/languages/javascript'
-import python from 'highlight.js/lib/languages/python'
-import typescript from 'highlight.js/lib/languages/typescript'
-import json from 'highlight.js/lib/languages/json'
-import xml from 'highlight.js/lib/languages/xml'
-import bash from 'highlight.js/lib/languages/bash'
-import yaml from 'highlight.js/lib/languages/yaml'
-import markdown from 'highlight.js/lib/languages/markdown'
-import plaintext from 'highlight.js/lib/languages/plaintext'
+import bash from 'highlight.js/lib/languages/bash';
+import javascript from 'highlight.js/lib/languages/javascript';
+import json from 'highlight.js/lib/languages/json';
+import markdown from 'highlight.js/lib/languages/markdown';
+import plaintext from 'highlight.js/lib/languages/plaintext';
+import python from 'highlight.js/lib/languages/python';
+import typescript from 'highlight.js/lib/languages/typescript';
+import xml from 'highlight.js/lib/languages/xml';
+import yaml from 'highlight.js/lib/languages/yaml';
 
-hljs.registerLanguage('javascript', javascript)
-hljs.registerLanguage('python', python)
-hljs.registerLanguage('typescript', typescript)
-hljs.registerLanguage('json', json)
-hljs.registerLanguage('xml', xml)
-hljs.registerLanguage('bash', bash)
-hljs.registerLanguage('yaml', yaml)
-hljs.registerLanguage('markdown', markdown)
-hljs.registerLanguage('plaintext', plaintext)
-hljs.registerLanguage('text', plaintext)
+hljs.registerLanguage('javascript', javascript);
+hljs.registerLanguage('python', python);
+hljs.registerLanguage('typescript', typescript);
+hljs.registerLanguage('json', json);
+hljs.registerLanguage('xml', xml);
+hljs.registerLanguage('bash', bash);
+hljs.registerLanguage('yaml', yaml);
+hljs.registerLanguage('markdown', markdown);
+hljs.registerLanguage('plaintext', plaintext);
+hljs.registerLanguage('text', plaintext);
 
 export interface CodePreviewProps {
   /** 代码内容 */
-  code: string
+  code: string;
   /** 编程语言，可自动检测 */
-  language?: string
+  language?: string;
   /** 是否显示行号 */
-  showLineNumbers?: boolean
+  showLineNumbers?: boolean;
   /** 是否可折叠 */
-  collapsible?: boolean
+  collapsible?: boolean;
   /** 是否显示全屏按钮 */
-  showFullscreen?: boolean
+  showFullscreen?: boolean;
   /** 是否显示保存按钮 */
-  showSave?: boolean
+  showSave?: boolean;
   /** 默认文件名（保存时使用） */
-  defaultFilename?: string
+  defaultFilename?: string;
   /** 最大高度（px） */
-  maxHeight?: number
+  maxHeight?: number;
   /** 自定义类名 */
-  className?: string
+  className?: string;
   /** 代码块标题 */
-  title?: string
+  title?: string;
 }
 
 const LANGUAGE_OPTIONS = [
@@ -69,7 +69,7 @@ const LANGUAGE_OPTIONS = [
   { value: 'yaml', label: 'YAML' },
   { value: 'markdown', label: 'Markdown' },
   { value: 'text', label: '纯文本' },
-]
+];
 
 const FILE_EXTENSIONS: Record<string, string> = {
   python: '.py',
@@ -81,66 +81,66 @@ const FILE_EXTENSIONS: Record<string, string> = {
   yaml: '.yaml',
   markdown: '.md',
   text: '.txt',
-}
+};
 
 /**
  * 自动检测代码语言
  */
 const detectLanguage = (code: string): string => {
-  const trimmed = code.trim()
-  
+  const trimmed = code.trim();
+
   // 通过特征检测
   if (trimmed.startsWith('<?xml') || trimmed.startsWith('<!DOCTYPE')) {
-    return 'xml'
+    return 'xml';
   }
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
     try {
-      JSON.parse(trimmed)
-      return 'json'
+      JSON.parse(trimmed);
+      return 'json';
     } catch {
       // 不是有效 JSON，继续检测
     }
   }
   if (/^import\s+[\w\s{},*]+\s+from\s+['"]/.test(trimmed)) {
-    return 'typescript'
+    return 'typescript';
   }
   if (/^(import|export|function|const|let|var)\s+/.test(trimmed)) {
-    return 'javascript'
+    return 'javascript';
   }
   if (/^(import|from|def|class|if|elif|else|for|while|with|try|except)\s+/.test(trimmed)) {
-    return 'python'
+    return 'python';
   }
   if (/^(echo|cd|ls|mkdir|rm|cp|mv|pip|npm|yarn)\s+/.test(trimmed)) {
-    return 'bash'
+    return 'bash';
   }
   if (/^[\w-]+:\s*[\w-]/.test(trimmed)) {
-    return 'yaml'
+    return 'yaml';
   }
   if (/^#+\s+/.test(trimmed) || /^\*\*.*\*\*/.test(trimmed)) {
-    return 'markdown'
+    return 'markdown';
   }
-  
-  return 'text'
-}
+
+  return 'text';
+};
 
 /**
  * 获取文件扩展名
  */
 const getFileExtension = (language: string): string => {
-  return FILE_EXTENSIONS[language] || '.txt'
-}
+  return FILE_EXTENSIONS[language] || '.txt';
+};
 
 /**
  * 生成行号
  */
 const generateLineNumbers = (code: string): string => {
-  const lines = code.split('\n').length
-  return Array.from({ length: lines }, (_, i) => i + 1).join('\n')
-}
+  const lines = code.split('\n').length;
+  return Array.from({ length: lines }, (_, i) => i + 1).join('\n');
+};
 
 /**
  * 代码预览组件
- * 
+ *
  * 功能：
  * - 语法高亮（highlight.js）
  * - 一键复制
@@ -162,102 +162,102 @@ const CodePreview: React.FC<CodePreviewProps> = ({
   className = '',
   title,
 }) => {
-  const [selectedLanguage, setSelectedLanguage] = useState<string>('auto')
-  const [detectedLanguage, setDetectedLanguage] = useState<string>('text')
-  const [copied, setCopied] = useState(false)
-  const [collapsed, setCollapsed] = useState(false)
-  const [fullscreenOpen, setFullscreenOpen] = useState(false)
-  const [highlightedCode, setHighlightedCode] = useState('')
-  const [isVisible, setIsVisible] = useState(false)
-  const codeRef = useRef<HTMLPreElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const [selectedLanguage, setSelectedLanguage] = useState<string>('auto');
+  const [detectedLanguage, setDetectedLanguage] = useState<string>('text');
+  const [copied, setCopied] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [fullscreenOpen, setFullscreenOpen] = useState(false);
+  const [highlightedCode, setHighlightedCode] = useState('');
+  const [isVisible, setIsVisible] = useState(false);
+  const codeRef = useRef<HTMLPreElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
+    const container = containerRef.current;
+    if (!container) return;
 
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry?.isIntersecting) {
-          setIsVisible(true)
-          observer.disconnect()
+          setIsVisible(true);
+          observer.disconnect();
         }
       },
       {
         rootMargin: '100px',
         threshold: 0.01,
-      }
-    )
+      },
+    );
 
-    observer.observe(container)
-    return () => observer.disconnect()
-  }, [])
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (propLanguage && propLanguage !== 'auto') {
-      setDetectedLanguage(propLanguage)
+      setDetectedLanguage(propLanguage);
     } else {
-      setDetectedLanguage(detectLanguage(code))
+      setDetectedLanguage(detectLanguage(code));
     }
-  }, [code, propLanguage])
+  }, [code, propLanguage]);
 
   useEffect(() => {
-    if (!isVisible) return
+    if (!isVisible) return;
 
-    const lang = selectedLanguage === 'auto' ? detectedLanguage : selectedLanguage
+    const lang = selectedLanguage === 'auto' ? detectedLanguage : selectedLanguage;
     try {
       const result = hljs.highlight(code, {
         language: lang,
         ignoreIllegals: true,
-      })
-      setHighlightedCode(result.value)
+      });
+      setHighlightedCode(result.value);
     } catch {
-      setHighlightedCode(code)
+      setHighlightedCode(code);
     }
-  }, [code, selectedLanguage, detectedLanguage, isVisible])
+  }, [code, selectedLanguage, detectedLanguage, isVisible]);
 
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(code)
-      setCopied(true)
-      message.success('代码已复制')
-      setTimeout(() => setCopied(false), 2000)
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      message.success('代码已复制');
+      setTimeout(() => setCopied(false), 2000);
     } catch {
-      message.error('复制失败')
+      message.error('复制失败');
     }
-  }, [code])
+  }, [code]);
 
   const handleSave = useCallback(() => {
     try {
-      const lang = selectedLanguage === 'auto' ? detectedLanguage : selectedLanguage
-      const ext = getFileExtension(lang)
-      const filename = defaultFilename + ext
-      
-      const blob = new Blob([code], { type: 'text/plain;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = filename
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
-      URL.revokeObjectURL(url)
-      
-      message.success(`已保存为 ${filename}`)
+      const lang = selectedLanguage === 'auto' ? detectedLanguage : selectedLanguage;
+      const ext = getFileExtension(lang);
+      const filename = defaultFilename + ext;
+
+      const blob = new Blob([code], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      message.success(`已保存为 ${filename}`);
     } catch {
-      message.error('保存失败')
+      message.error('保存失败');
     }
-  }, [code, selectedLanguage, detectedLanguage, defaultFilename])
+  }, [code, selectedLanguage, detectedLanguage, defaultFilename]);
 
   const handleToggleCollapse = useCallback(() => {
-    setCollapsed(!collapsed)
-  }, [collapsed])
+    setCollapsed(!collapsed);
+  }, [collapsed]);
 
-  const currentLanguage = selectedLanguage === 'auto' ? detectedLanguage : selectedLanguage
+  const currentLanguage = selectedLanguage === 'auto' ? detectedLanguage : selectedLanguage;
 
-  const lineCount = code.split('\n').length
+  const lineCount = code.split('\n').length;
 
-  const lineNumbers = useMemo(() => generateLineNumbers(code), [code])
+  const lineNumbers = useMemo(() => generateLineNumbers(code), [code]);
 
   const renderPlaceholder = () => (
     <div
@@ -276,7 +276,7 @@ const CodePreview: React.FC<CodePreviewProps> = ({
         {lineCount} 行代码 · {currentLanguage}
       </span>
     </div>
-  )
+  );
 
   const renderLoading = () => (
     <div
@@ -291,7 +291,7 @@ const CodePreview: React.FC<CodePreviewProps> = ({
     >
       <Spin size="small" />
     </div>
-  )
+  );
 
   return (
     <>
@@ -317,27 +317,24 @@ const CodePreview: React.FC<CodePreviewProps> = ({
               style={{ width: 110 }}
               placeholder="选择语言"
             />
-            
+
             <Tooltip title={copied ? '已复制' : '复制代码'}>
               <Button
                 type="text"
                 size="small"
-                icon={copied ? <CheckOutlined style={{ color: 'var(--success)' }} /> : <CopyOutlined />}
+                icon={
+                  copied ? <CheckOutlined style={{ color: 'var(--success)' }} /> : <CopyOutlined />
+                }
                 onClick={handleCopy}
               />
             </Tooltip>
-            
+
             {showSave && (
               <Tooltip title="保存为文件">
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<SaveOutlined />}
-                  onClick={handleSave}
-                />
+                <Button type="text" size="small" icon={<SaveOutlined />} onClick={handleSave} />
               </Tooltip>
             )}
-            
+
             {collapsible && (
               <Tooltip title={collapsed ? '展开' : '折叠'}>
                 <Button
@@ -348,7 +345,7 @@ const CodePreview: React.FC<CodePreviewProps> = ({
                 />
               </Tooltip>
             )}
-            
+
             {showFullscreen && (
               <Tooltip title="全屏预览">
                 <Button
@@ -362,8 +359,8 @@ const CodePreview: React.FC<CodePreviewProps> = ({
           </Space>
         }
       >
-        {!collapsed && (
-          !isVisible ? (
+        {!collapsed &&
+          (!isVisible ? (
             renderPlaceholder()
           ) : highlightedCode ? (
             <div
@@ -398,7 +395,7 @@ const CodePreview: React.FC<CodePreviewProps> = ({
                   <pre style={{ margin: 0 }}>{lineNumbers}</pre>
                 </div>
               )}
-              
+
               <div
                 style={{
                   flex: 1,
@@ -423,9 +420,8 @@ const CodePreview: React.FC<CodePreviewProps> = ({
             </div>
           ) : (
             renderLoading()
-          )
-        )}
-        
+          ))}
+
         {!collapsed && (
           <div
             style={{
@@ -559,7 +555,7 @@ const CodePreview: React.FC<CodePreviewProps> = ({
         }
       `}</style>
     </>
-  )
-}
+  );
+};
 
-export default CodePreview
+export default CodePreview;

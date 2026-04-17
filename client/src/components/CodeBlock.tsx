@@ -1,82 +1,80 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback, memo } from 'react'
-import { Button, Tooltip, message, Space } from 'antd'
-import { CopyOutlined, CheckOutlined, CodeOutlined, FileTextOutlined } from '@ant-design/icons'
-import hljs from 'highlight.js/lib/core'
-import 'highlight.js/styles/atom-one-dark.css'
+import { CheckOutlined, CodeOutlined, CopyOutlined, FileTextOutlined } from '@ant-design/icons';
+import { Button, message, Space, Tooltip } from 'antd';
+import hljs from 'highlight.js/lib/core';
+import 'highlight.js/styles/atom-one-dark.css';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import javascript from 'highlight.js/lib/languages/javascript'
-import typescript from 'highlight.js/lib/languages/typescript'
-import python from 'highlight.js/lib/languages/python'
-import java from 'highlight.js/lib/languages/java'
-import cpp from 'highlight.js/lib/languages/cpp'
-import csharp from 'highlight.js/lib/languages/csharp'
-import go from 'highlight.js/lib/languages/go'
-import rust from 'highlight.js/lib/languages/rust'
-import php from 'highlight.js/lib/languages/php'
-import ruby from 'highlight.js/lib/languages/ruby'
-import swift from 'highlight.js/lib/languages/swift'
-import kotlin from 'highlight.js/lib/languages/kotlin'
-import scala from 'highlight.js/lib/languages/scala'
-import sql from 'highlight.js/lib/languages/sql'
-import bash from 'highlight.js/lib/languages/bash'
-import powershell from 'highlight.js/lib/languages/powershell'
-import yaml from 'highlight.js/lib/languages/yaml'
-import json from 'highlight.js/lib/languages/json'
-import xml from 'highlight.js/lib/languages/xml'
-import html from 'highlight.js/lib/languages/xml'
-import css from 'highlight.js/lib/languages/css'
-import scss from 'highlight.js/lib/languages/scss'
-import less from 'highlight.js/lib/languages/less'
-import markdown from 'highlight.js/lib/languages/markdown'
-import dockerfile from 'highlight.js/lib/languages/dockerfile'
-import nginx from 'highlight.js/lib/languages/nginx'
-import ini from 'highlight.js/lib/languages/ini'
-import toml from 'highlight.js/lib/languages/ini'
-import plaintext from 'highlight.js/lib/languages/plaintext'
+import bash from 'highlight.js/lib/languages/bash';
+import cpp from 'highlight.js/lib/languages/cpp';
+import csharp from 'highlight.js/lib/languages/csharp';
+import css from 'highlight.js/lib/languages/css';
+import dockerfile from 'highlight.js/lib/languages/dockerfile';
+import go from 'highlight.js/lib/languages/go';
+import { default as ini, default as toml } from 'highlight.js/lib/languages/ini';
+import java from 'highlight.js/lib/languages/java';
+import javascript from 'highlight.js/lib/languages/javascript';
+import json from 'highlight.js/lib/languages/json';
+import kotlin from 'highlight.js/lib/languages/kotlin';
+import less from 'highlight.js/lib/languages/less';
+import markdown from 'highlight.js/lib/languages/markdown';
+import nginx from 'highlight.js/lib/languages/nginx';
+import php from 'highlight.js/lib/languages/php';
+import plaintext from 'highlight.js/lib/languages/plaintext';
+import powershell from 'highlight.js/lib/languages/powershell';
+import python from 'highlight.js/lib/languages/python';
+import ruby from 'highlight.js/lib/languages/ruby';
+import rust from 'highlight.js/lib/languages/rust';
+import scala from 'highlight.js/lib/languages/scala';
+import scss from 'highlight.js/lib/languages/scss';
+import sql from 'highlight.js/lib/languages/sql';
+import swift from 'highlight.js/lib/languages/swift';
+import typescript from 'highlight.js/lib/languages/typescript';
+import { default as html, default as xml } from 'highlight.js/lib/languages/xml';
+import yaml from 'highlight.js/lib/languages/yaml';
 
-hljs.registerLanguage('javascript', javascript)
-hljs.registerLanguage('typescript', typescript)
-hljs.registerLanguage('python', python)
-hljs.registerLanguage('java', java)
-hljs.registerLanguage('cpp', cpp)
-hljs.registerLanguage('csharp', csharp)
-hljs.registerLanguage('go', go)
-hljs.registerLanguage('rust', rust)
-hljs.registerLanguage('php', php)
-hljs.registerLanguage('ruby', ruby)
-hljs.registerLanguage('swift', swift)
-hljs.registerLanguage('kotlin', kotlin)
-hljs.registerLanguage('scala', scala)
-hljs.registerLanguage('sql', sql)
-hljs.registerLanguage('bash', bash)
-hljs.registerLanguage('shell', bash)
-hljs.registerLanguage('powershell', powershell)
-hljs.registerLanguage('yaml', yaml)
-hljs.registerLanguage('yml', yaml)
-hljs.registerLanguage('json', json)
-hljs.registerLanguage('xml', xml)
-hljs.registerLanguage('html', html)
-hljs.registerLanguage('css', css)
-hljs.registerLanguage('scss', scss)
-hljs.registerLanguage('less', less)
-hljs.registerLanguage('markdown', markdown)
-hljs.registerLanguage('md', markdown)
-hljs.registerLanguage('dockerfile', dockerfile)
-hljs.registerLanguage('nginx', nginx)
-hljs.registerLanguage('ini', ini)
-hljs.registerLanguage('toml', toml)
-hljs.registerLanguage('text', plaintext)
-hljs.registerLanguage('plaintext', plaintext)
+hljs.registerLanguage('javascript', javascript);
+hljs.registerLanguage('typescript', typescript);
+hljs.registerLanguage('python', python);
+hljs.registerLanguage('java', java);
+hljs.registerLanguage('cpp', cpp);
+hljs.registerLanguage('csharp', csharp);
+hljs.registerLanguage('go', go);
+hljs.registerLanguage('rust', rust);
+hljs.registerLanguage('php', php);
+hljs.registerLanguage('ruby', ruby);
+hljs.registerLanguage('swift', swift);
+hljs.registerLanguage('kotlin', kotlin);
+hljs.registerLanguage('scala', scala);
+hljs.registerLanguage('sql', sql);
+hljs.registerLanguage('bash', bash);
+hljs.registerLanguage('shell', bash);
+hljs.registerLanguage('powershell', powershell);
+hljs.registerLanguage('yaml', yaml);
+hljs.registerLanguage('yml', yaml);
+hljs.registerLanguage('json', json);
+hljs.registerLanguage('xml', xml);
+hljs.registerLanguage('html', html);
+hljs.registerLanguage('css', css);
+hljs.registerLanguage('scss', scss);
+hljs.registerLanguage('less', less);
+hljs.registerLanguage('markdown', markdown);
+hljs.registerLanguage('md', markdown);
+hljs.registerLanguage('dockerfile', dockerfile);
+hljs.registerLanguage('nginx', nginx);
+hljs.registerLanguage('ini', ini);
+hljs.registerLanguage('toml', toml);
+hljs.registerLanguage('text', plaintext);
+hljs.registerLanguage('plaintext', plaintext);
 
 export interface CodeBlockProps {
-  code: string
-  language?: string
-  showLineNumbers?: boolean
-  showCopyButton?: boolean
-  showLanguage?: boolean
-  maxHeight?: number | string
-  className?: string
-  theme?: 'light' | 'dark'
+  code: string;
+  language?: string;
+  showLineNumbers?: boolean;
+  showCopyButton?: boolean;
+  showLanguage?: boolean;
+  maxHeight?: number | string;
+  className?: string;
+  theme?: 'light' | 'dark';
 }
 
 const LANGUAGE_DISPLAY_NAMES: Record<string, string> = {
@@ -113,7 +111,7 @@ const LANGUAGE_DISPLAY_NAMES: Record<string, string> = {
   toml: 'TOML',
   text: 'Text',
   plaintext: 'Plain Text',
-}
+};
 
 const LANGUAGE_ALIASES: Record<string, string> = {
   js: 'javascript',
@@ -123,327 +121,357 @@ const LANGUAGE_ALIASES: Record<string, string> = {
   yml: 'yaml',
   md: 'markdown',
   docker: 'dockerfile',
-}
+};
 
 const detectLanguage = (code: string): string => {
-  const trimmed = code.trim()
-  
-  if (trimmed.startsWith('<?xml') || trimmed.startsWith('<!DOCTYPE') || /^<[a-zA-Z][^>]*>/.test(trimmed)) {
+  const trimmed = code.trim();
+
+  if (
+    trimmed.startsWith('<?xml') ||
+    trimmed.startsWith('<!DOCTYPE') ||
+    /^<[a-zA-Z][^>]*>/.test(trimmed)
+  ) {
     if (/<\/?[a-zA-Z][^>]*>/g.test(trimmed) && !trimmed.includes('<?php')) {
-      return 'html'
+      return 'html';
     }
-    return 'xml'
+    return 'xml';
   }
-  
+
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
     try {
-      JSON.parse(trimmed)
-      return 'json'
+      JSON.parse(trimmed);
+      return 'json';
     } catch {
       // Ignore error
     }
   }
-  
+
   if (/^(import|export|function|const|let|var|async|class)\s+/.test(trimmed)) {
-    if (/:\s*(string|number|boolean|any|void|interface|type)\b/.test(trimmed) || /<[A-Z]/.test(trimmed)) {
-      return 'typescript'
+    if (
+      /:\s*(string|number|boolean|any|void|interface|type)\b/.test(trimmed) ||
+      /<[A-Z]/.test(trimmed)
+    ) {
+      return 'typescript';
     }
-    return 'javascript'
+    return 'javascript';
   }
-  
-  if (/^(import|from|def |class |if __name__|print\(|@)/.test(trimmed) || /^\s*(def|class|if|elif|else|for|while|with|try|except|finally)\s*[:(]/.test(trimmed)) {
-    return 'python'
+
+  if (
+    /^(import|from|def |class |if __name__|print\(|@)/.test(trimmed) ||
+    /^\s*(def|class|if|elif|else|for|while|with|try|except|finally)\s*[:(]/.test(trimmed)
+  ) {
+    return 'python';
   }
-  
-  if (/^(package|import|public|private|protected)\s+/.test(trimmed) || /class\s+\w+\s*(extends|implements|\{)/.test(trimmed)) {
+
+  if (
+    /^(package|import|public|private|protected)\s+/.test(trimmed) ||
+    /class\s+\w+\s*(extends|implements|\{)/.test(trimmed)
+  ) {
     if (/\b(func|var|let|:?\s*\[\]|\bmap\[|\bchan\s)/.test(trimmed)) {
-      return 'go'
+      return 'go';
     }
     if (/\bfn\s+\w+/.test(trimmed) || /\blet\s+mut\s+/.test(trimmed)) {
-      return 'rust'
+      return 'rust';
     }
     if (/\bval\s+\w+/.test(trimmed) || /\bfun\s+\w+/.test(trimmed)) {
-      return 'kotlin'
+      return 'kotlin';
     }
     if (/\bdef\s+\w+/.test(trimmed) || /\bclass\s+\w+\s*\(/.test(trimmed)) {
-      return 'python'
+      return 'python';
     }
-    return 'java'
+    return 'java';
   }
-  
+
   if (/^(func\s+|package\s+main|import\s*\(|fmt\.|go\s)/.test(trimmed)) {
-    return 'go'
+    return 'go';
   }
-  
+
   if (/^(fn\s+|let\s+mut|impl\s+|pub\s+fn|use\s+std::)/.test(trimmed)) {
-    return 'rust'
+    return 'rust';
   }
-  
+
   if (/^(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|WITH)\s+/i.test(trimmed)) {
-    return 'sql'
+    return 'sql';
   }
-  
-  if (/^(#!\/bin\/|#!\/usr\/bin\/|echo\s|cd\s|ls\s|mkdir\s|rm\s|cp\s|mv\s|chmod\s|export\s)/.test(trimmed)) {
-    return 'bash'
+
+  if (
+    /^(#!\/bin\/|#!\/usr\/bin\/|echo\s|cd\s|ls\s|mkdir\s|rm\s|cp\s|mv\s|chmod\s|export\s)/.test(
+      trimmed,
+    )
+  ) {
+    return 'bash';
   }
-  
+
   if (/^\s*[\w-]+:\s*[\w-]+/.test(trimmed) && !trimmed.includes('{')) {
-    return 'yaml'
+    return 'yaml';
   }
-  
+
   if (/^FROM\s+\w+|^RUN\s+|^COPY\s+|^WORKDIR\s+|^EXPOSE\s+/im.test(trimmed)) {
-    return 'dockerfile'
+    return 'dockerfile';
   }
-  
+
   if (/^#+\s+/.test(trimmed) || /^\*\*.*\*\*/.test(trimmed) || /^\s*[-*+]\s+/.test(trimmed)) {
-    return 'markdown'
+    return 'markdown';
   }
-  
+
   if (/^\s*\.[\w-]+\s*\{|^\s*#[\w-]+\s*\{|^\s*@[\w-]+\s*\(/.test(trimmed)) {
-    return 'scss'
+    return 'scss';
   }
-  
+
   if (/^\s*[\w-]+\s*\{[\s\S]*\}/.test(trimmed) && /:\s*[\w-]+\s*;/.test(trimmed)) {
-    return 'css'
+    return 'css';
   }
-  
-  return 'text'
-}
+
+  return 'text';
+};
 
 const normalizeLanguage = (lang: string): string => {
-  const normalized = lang.toLowerCase().trim()
-  return LANGUAGE_ALIASES[normalized] || normalized
-}
+  const normalized = lang.toLowerCase().trim();
+  return LANGUAGE_ALIASES[normalized] || normalized;
+};
 
 const getLanguageDisplayName = (lang: string): string => {
-  return LANGUAGE_DISPLAY_NAMES[lang] || lang.toUpperCase()
-}
+  return LANGUAGE_DISPLAY_NAMES[lang] || lang.toUpperCase();
+};
 
 const generateLineNumbers = (code: string): number[] => {
-  const lines = code.split('\n')
-  return Array.from({ length: lines.length }, (_, i) => i + 1)
-}
+  const lines = code.split('\n');
+  return Array.from({ length: lines.length }, (_, i) => i + 1);
+};
 
-const CodeBlock: React.FC<CodeBlockProps> = memo(({
-  code,
-  language,
-  showLineNumbers = true,
-  showCopyButton = true,
-  showLanguage = true,
-  maxHeight = 500,
-  className = '',
-  theme = 'dark',
-}) => {
-  const [copied, setCopied] = useState(false)
-  const [highlightedCode, setHighlightedCode] = useState('')
-  const [detectedLanguage, setDetectedLanguage] = useState<string>('text')
-  const codeRef = useRef<HTMLElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [isVisible, setIsVisible] = useState(false)
+const CodeBlock: React.FC<CodeBlockProps> = memo(
+  ({
+    code,
+    language,
+    showLineNumbers = true,
+    showCopyButton = true,
+    showLanguage = true,
+    maxHeight = 500,
+    className = '',
+    theme = 'dark',
+  }) => {
+    const [copied, setCopied] = useState(false);
+    const [highlightedCode, setHighlightedCode] = useState('');
+    const [detectedLanguage, setDetectedLanguage] = useState<string>('text');
+    const codeRef = useRef<HTMLElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [isVisible, setIsVisible] = useState(false);
 
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
+    useEffect(() => {
+      const container = containerRef.current;
+      if (!container) return;
 
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) {
-          setIsVisible(true)
-          observer.disconnect()
-        }
-      },
-      { rootMargin: '200px', threshold: 0.01 }
-    )
+      const observer = new IntersectionObserver(
+        ([entry]) => {
+          if (entry?.isIntersecting) {
+            setIsVisible(true);
+            observer.disconnect();
+          }
+        },
+        { rootMargin: '200px', threshold: 0.01 },
+      );
 
-    observer.observe(container)
-    return () => observer.disconnect()
-  }, [])
+      observer.observe(container);
+      return () => observer.disconnect();
+    }, []);
 
-  useEffect(() => {
-    if (language && language !== 'auto') {
-      setDetectedLanguage(normalizeLanguage(language))
-    } else {
-      setDetectedLanguage(detectLanguage(code))
-    }
-  }, [code, language])
-
-  useEffect(() => {
-    if (!isVisible) return
-
-    const lang = detectedLanguage
-    try {
-      if (hljs.getLanguage(lang)) {
-        const result = hljs.highlight(code, {
-          language: lang,
-          ignoreIllegals: true,
-        })
-        setHighlightedCode(result.value)
+    useEffect(() => {
+      if (language && language !== 'auto') {
+        setDetectedLanguage(normalizeLanguage(language));
       } else {
-        const result = hljs.highlightAuto(code)
-        setHighlightedCode(result.value)
-        if (!language || language === 'auto') {
-          setDetectedLanguage(result.language || 'text')
-        }
+        setDetectedLanguage(detectLanguage(code));
       }
-    } catch {
-      setHighlightedCode(code.replace(/</g, '&lt;').replace(/>/g, '&gt;'))
-    }
-  }, [code, detectedLanguage, language, isVisible])
+    }, [code, language]);
 
-  const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(code)
-      setCopied(true)
-      message.success('代码已复制到剪贴板', 1.5)
-      setTimeout(() => setCopied(false), 2000)
-    } catch {
-      message.error('复制失败，请手动复制')
-    }
-  }, [code])
+    useEffect(() => {
+      if (!isVisible) return;
 
-  const lineNumbers = useMemo(() => generateLineNumbers(code), [code])
-  const lineCount = lineNumbers.length
+      const lang = detectedLanguage;
+      try {
+        if (hljs.getLanguage(lang)) {
+          const result = hljs.highlight(code, {
+            language: lang,
+            ignoreIllegals: true,
+          });
+          setHighlightedCode(result.value);
+        } else {
+          const result = hljs.highlightAuto(code);
+          setHighlightedCode(result.value);
+          if (!language || language === 'auto') {
+            setDetectedLanguage(result.language || 'text');
+          }
+        }
+      } catch {
+        setHighlightedCode(code.replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+      }
+    }, [code, detectedLanguage, language, isVisible]);
 
-  const containerStyle: React.CSSProperties = {
-    position: 'relative',
-    borderRadius: 12,
-    overflow: 'hidden',
-    background: theme === 'dark' ? '#1e293b' : '#f8fafc',
-    border: `1px solid ${theme === 'dark' ? '#334155' : '#e2e8f0'}`,
-    fontFamily: 'var(--font-mono)',
-    fontSize: 13,
-    lineHeight: 1.6,
-    margin: '12px 0',
-  }
+    const handleCopy = useCallback(async () => {
+      try {
+        await navigator.clipboard.writeText(code);
+        setCopied(true);
+        message.success('代码已复制到剪贴板', 1.5);
+        setTimeout(() => setCopied(false), 2000);
+      } catch {
+        message.error('复制失败，请手动复制');
+      }
+    }, [code]);
 
-  const headerStyle: React.CSSProperties = {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '8px 16px',
-    background: theme === 'dark' ? '#0f172a' : '#f1f5f9',
-    borderBottom: `1px solid ${theme === 'dark' ? '#334155' : '#e2e8f0'}`,
-    fontSize: 12,
-  }
+    const lineNumbers = useMemo(() => generateLineNumbers(code), [code]);
+    const lineCount = lineNumbers.length;
 
-  const codeContainerStyle: React.CSSProperties = {
-    display: 'flex',
-    maxHeight: maxHeight,
-    overflow: 'auto',
-  }
-
-  const lineNumbersStyle: React.CSSProperties = {
-    padding: '16px 12px',
-    textAlign: 'right',
-    background: theme === 'dark' ? '#0f172a' : '#f1f5f9',
-    color: theme === 'dark' ? '#64748b' : '#94a3b8',
-    userSelect: 'none',
-    borderRight: `1px solid ${theme === 'dark' ? '#334155' : '#e2e8f0'}`,
-    minWidth: 50,
-    flexShrink: 0,
-  }
-
-  const codeStyle: React.CSSProperties = {
-    flex: 1,
-    overflow: 'auto',
-    padding: '16px 16px 16px 20px',
-    margin: 0,
-    background: 'transparent',
-    color: theme === 'dark' ? '#e2e8f0' : '#1e293b',
-  }
-
-  const footerStyle: React.CSSProperties = {
-    display: 'flex',
-    justifyContent: 'space-between',
-    padding: '6px 16px',
-    background: theme === 'dark' ? '#0f172a' : '#f1f5f9',
-    borderTop: `1px solid ${theme === 'dark' ? '#334155' : '#e2e8f0'}`,
-    fontSize: 11,
-    color: theme === 'dark' ? '#64748b' : '#94a3b8',
-  }
-
-  const renderPlaceholder = () => (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: 60,
+    const containerStyle: React.CSSProperties = {
+      position: 'relative',
+      borderRadius: 12,
+      overflow: 'hidden',
       background: theme === 'dark' ? '#1e293b' : '#f8fafc',
-      gap: 8,
-    }}>
-      <CodeOutlined style={{ fontSize: 16, color: theme === 'dark' ? '#64748b' : '#94a3b8' }} />
-      <span style={{ color: theme === 'dark' ? '#64748b' : '#94a3b8', fontSize: 13 }}>
-        {lineCount} 行代码 · {getLanguageDisplayName(detectedLanguage)}
-      </span>
-    </div>
-  )
+      border: `1px solid ${theme === 'dark' ? '#334155' : '#e2e8f0'}`,
+      fontFamily: 'var(--font-mono)',
+      fontSize: 13,
+      lineHeight: 1.6,
+      margin: '12px 0',
+    };
 
-  return (
-    <div ref={containerRef} className={`code-block ${className}`} style={containerStyle}>
-      {(showLanguage || showCopyButton) && (
-        <div style={headerStyle}>
-          <Space size={8}>
-            {showLanguage && (
-              <span style={{
-                color: theme === 'dark' ? '#94a3b8' : '#64748b',
-                fontWeight: 500,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-              }}>
-                <FileTextOutlined style={{ fontSize: 14 }} />
-                {getLanguageDisplayName(detectedLanguage)}
-              </span>
-            )}
-          </Space>
-          
-          {showCopyButton && (
-            <Tooltip title={copied ? '已复制' : '复制代码'}>
-              <Button
-                type="text"
-                size="small"
-                icon={copied ? <CheckOutlined style={{ color: 'var(--success)' }} /> : <CopyOutlined />}
-                onClick={handleCopy}
-                style={{
-                  color: copied ? 'var(--success)' : (theme === 'dark' ? '#94a3b8' : '#64748b'),
-                  padding: '2px 8px',
-                  height: 28,
-                  fontSize: 12,
-                }}
-              >
-                {copied ? '已复制' : '复制'}
-              </Button>
-            </Tooltip>
-          )}
-        </div>
-      )}
+    const headerStyle: React.CSSProperties = {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      padding: '8px 16px',
+      background: theme === 'dark' ? '#0f172a' : '#f1f5f9',
+      borderBottom: `1px solid ${theme === 'dark' ? '#334155' : '#e2e8f0'}`,
+      fontSize: 12,
+    };
 
-      {!isVisible ? (
-        renderPlaceholder()
-      ) : (
-        <div style={codeContainerStyle} className="code-block-content">
-          {showLineNumbers && (
-            <div style={lineNumbersStyle} className="code-line-numbers" aria-hidden="true">
-              {lineNumbers.map(num => (
-                <div key={num} style={{ lineHeight: '1.6' }}>{num}</div>
-              ))}
-            </div>
-          )}
-          
-          <code
-            ref={codeRef}
-            style={codeStyle}
-            dangerouslySetInnerHTML={{ __html: highlightedCode }}
-          />
-        </div>
-      )}
+    const codeContainerStyle: React.CSSProperties = {
+      display: 'flex',
+      maxHeight: maxHeight,
+      overflow: 'auto',
+    };
 
-      <div style={footerStyle}>
-        <span>{lineCount} 行</span>
-        <span>{getLanguageDisplayName(detectedLanguage)}</span>
+    const lineNumbersStyle: React.CSSProperties = {
+      padding: '16px 12px',
+      textAlign: 'right',
+      background: theme === 'dark' ? '#0f172a' : '#f1f5f9',
+      color: theme === 'dark' ? '#64748b' : '#94a3b8',
+      userSelect: 'none',
+      borderRight: `1px solid ${theme === 'dark' ? '#334155' : '#e2e8f0'}`,
+      minWidth: 50,
+      flexShrink: 0,
+    };
+
+    const codeStyle: React.CSSProperties = {
+      flex: 1,
+      overflow: 'auto',
+      padding: '16px 16px 16px 20px',
+      margin: 0,
+      background: 'transparent',
+      color: theme === 'dark' ? '#e2e8f0' : '#1e293b',
+    };
+
+    const footerStyle: React.CSSProperties = {
+      display: 'flex',
+      justifyContent: 'space-between',
+      padding: '6px 16px',
+      background: theme === 'dark' ? '#0f172a' : '#f1f5f9',
+      borderTop: `1px solid ${theme === 'dark' ? '#334155' : '#e2e8f0'}`,
+      fontSize: 11,
+      color: theme === 'dark' ? '#64748b' : '#94a3b8',
+    };
+
+    const renderPlaceholder = () => (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: 60,
+          background: theme === 'dark' ? '#1e293b' : '#f8fafc',
+          gap: 8,
+        }}
+      >
+        <CodeOutlined style={{ fontSize: 16, color: theme === 'dark' ? '#64748b' : '#94a3b8' }} />
+        <span style={{ color: theme === 'dark' ? '#64748b' : '#94a3b8', fontSize: 13 }}>
+          {lineCount} 行代码 · {getLanguageDisplayName(detectedLanguage)}
+        </span>
       </div>
+    );
 
-      <style>{`
+    return (
+      <div ref={containerRef} className={`code-block ${className}`} style={containerStyle}>
+        {(showLanguage || showCopyButton) && (
+          <div style={headerStyle}>
+            <Space size={8}>
+              {showLanguage && (
+                <span
+                  style={{
+                    color: theme === 'dark' ? '#94a3b8' : '#64748b',
+                    fontWeight: 500,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <FileTextOutlined style={{ fontSize: 14 }} />
+                  {getLanguageDisplayName(detectedLanguage)}
+                </span>
+              )}
+            </Space>
+
+            {showCopyButton && (
+              <Tooltip title={copied ? '已复制' : '复制代码'}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={
+                    copied ? (
+                      <CheckOutlined style={{ color: 'var(--success)' }} />
+                    ) : (
+                      <CopyOutlined />
+                    )
+                  }
+                  onClick={handleCopy}
+                  style={{
+                    color: copied ? 'var(--success)' : theme === 'dark' ? '#94a3b8' : '#64748b',
+                    padding: '2px 8px',
+                    height: 28,
+                    fontSize: 12,
+                  }}
+                >
+                  {copied ? '已复制' : '复制'}
+                </Button>
+              </Tooltip>
+            )}
+          </div>
+        )}
+
+        {!isVisible ? (
+          renderPlaceholder()
+        ) : (
+          <div style={codeContainerStyle} className="code-block-content">
+            {showLineNumbers && (
+              <div style={lineNumbersStyle} className="code-line-numbers" aria-hidden="true">
+                {lineNumbers.map((num) => (
+                  <div key={num} style={{ lineHeight: '1.6' }}>
+                    {num}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <code
+              ref={codeRef}
+              style={codeStyle}
+              dangerouslySetInnerHTML={{ __html: highlightedCode }}
+            />
+          </div>
+        )}
+
+        <div style={footerStyle}>
+          <span>{lineCount} 行</span>
+          <span>{getLanguageDisplayName(detectedLanguage)}</span>
+        </div>
+
+        <style>{`
         .code-block-content::-webkit-scrollbar {
           width: 8px;
           height: 8px;
@@ -540,10 +568,11 @@ const CodeBlock: React.FC<CodeBlockProps> = memo(({
           font-weight: bold;
         }
       `}</style>
-    </div>
-  )
-})
+      </div>
+    );
+  },
+);
 
-CodeBlock.displayName = 'CodeBlock'
+CodeBlock.displayName = 'CodeBlock';
 
-export default CodeBlock
+export default CodeBlock;

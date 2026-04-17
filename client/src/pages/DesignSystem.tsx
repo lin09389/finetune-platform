@@ -1,17 +1,17 @@
+import {
+  BgColorsOutlined,
+  LayoutOutlined,
+  MailOutlined,
+  PlayCircleOutlined,
+  RocketOutlined,
+  ThunderboltOutlined,
+  UserOutlined,
+} from '@ant-design/icons';
 import React from 'react';
+import AnimatedLayout from '../components/shared/AnimatedLayout';
 import GlassCard from '../components/shared/GlassCard';
 import NeumorphicButton from '../components/shared/NeumorphicButton';
 import PremiumInput from '../components/shared/PremiumInput';
-import AnimatedLayout from '../components/shared/AnimatedLayout';
-import { 
-  RocketOutlined, 
-  ThunderboltOutlined, 
-  LayoutOutlined, 
-  BgColorsOutlined,
-  PlayCircleOutlined,
-  UserOutlined,
-  MailOutlined
-} from '@ant-design/icons';
 
 const DesignSystem: React.FC = () => {
   return (
@@ -26,8 +26,8 @@ const DesignSystem: React.FC = () => {
             视觉语言与交互规范
           </h1>
           <p className="text-lg text-text-secondary max-w-2xl">
-            基于玻璃拟态 (Glassmorphism)、微质感 (Micro-textures) 与编辑主义 (Editorial) 的全面升级，
-            旨在为 AI 微调平台提供极致的视觉高级感与交互性能。
+            基于玻璃拟态 (Glassmorphism)、微质感 (Micro-textures) 与编辑主义 (Editorial)
+            的全面升级， 旨在为 AI 微调平台提供极致的视觉高级感与交互性能。
           </p>
         </section>
 
@@ -37,9 +37,11 @@ const DesignSystem: React.FC = () => {
             <div className="w-8 h-8 rounded-lg bg-bg-elevated flex items-center justify-center border border-glass-border">
               <LayoutOutlined className="text-accent-primary" />
             </div>
-            <h2 className="text-2xl font-bold text-text-primary">玻璃拟态 & 材质 (Glassmorphism)</h2>
+            <h2 className="text-2xl font-bold text-text-primary">
+              玻璃拟态 & 材质 (Glassmorphism)
+            </h2>
           </div>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <GlassCard intensity="low">
               <div className="space-y-3">
@@ -90,7 +92,9 @@ const DesignSystem: React.FC = () => {
           <GlassCard>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
               <div className="space-y-6">
-                <h4 className="text-sm font-bold uppercase tracking-widest text-text-tertiary">物理按压按钮</h4>
+                <h4 className="text-sm font-bold uppercase tracking-widest text-text-tertiary">
+                  物理按压按钮
+                </h4>
                 <div className="flex flex-wrap gap-4">
                   <NeumorphicButton variant="primary">
                     <RocketOutlined /> 启动训练
@@ -107,23 +111,25 @@ const DesignSystem: React.FC = () => {
               </div>
 
               <div className="space-y-6">
-                <h4 className="text-sm font-bold uppercase tracking-widest text-text-tertiary">精致表单输入</h4>
+                <h4 className="text-sm font-bold uppercase tracking-widest text-text-tertiary">
+                  精致表单输入
+                </h4>
                 <div className="space-y-4">
-                  <PremiumInput 
-                    label="用户名" 
-                    placeholder="请输入您的姓名" 
-                    icon={<UserOutlined />} 
+                  <PremiumInput
+                    label="用户名"
+                    placeholder="请输入您的姓名"
+                    icon={<UserOutlined />}
                   />
-                  <PremiumInput 
-                    label="电子邮箱" 
-                    placeholder="name@example.com" 
+                  <PremiumInput
+                    label="电子邮箱"
+                    placeholder="name@example.com"
                     icon={<MailOutlined />}
                     suffix={<span className="text-[10px] font-bold opacity-50">VERIFIED</span>}
                   />
-                  <PremiumInput 
-                    label="带有错误的输入" 
-                    placeholder="错误的输入状态..." 
-                    error="格式不正确，请重新输入" 
+                  <PremiumInput
+                    label="带有错误的输入"
+                    placeholder="错误的输入状态..."
+                    error="格式不正确，请重新输入"
                   />
                 </div>
               </div>
@@ -150,8 +156,11 @@ const DesignSystem: React.FC = () => {
               { label: 'Error', color: 'bg-error' },
               { label: 'Info', color: 'bg-info' },
               { label: 'Surface Elevated', color: 'bg-bg-elevated' },
-            ].map(item => (
-              <div key={item.label} className="p-4 rounded-xl bg-bg-secondary border border-glass-border space-y-3">
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="p-4 rounded-xl bg-bg-secondary border border-glass-border space-y-3"
+              >
                 <div className={`w-full h-12 rounded-lg ${item.color} shadow-sm`} />
                 <span className="text-xs font-bold text-text-secondary">{item.label}</span>
               </div>
@@ -166,7 +175,8 @@ const DesignSystem: React.FC = () => {
               <div className="flex-1 space-y-4">
                 <h2 className="text-2xl font-bold text-text-primary">准备好开始升级了吗？</h2>
                 <p className="text-text-secondary">
-                  我们已经为您准备好了完整的迁移指南，包括 Tailwind 配置映射、新组件的 API 变更以及动效优化建议。
+                  我们已经为您准备好了完整的迁移指南，包括 Tailwind 配置映射、新组件的 API
+                  变更以及动效优化建议。
                 </p>
                 <div className="flex gap-4">
                   <NeumorphicButton variant="primary">查看迁移指南</NeumorphicButton>

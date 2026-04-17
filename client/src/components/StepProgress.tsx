@@ -1,16 +1,21 @@
-import React, { memo, useMemo } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { CheckCircleOutlined, LoadingOutlined, CloseCircleOutlined, ClockCircleOutlined } from '@ant-design/icons'
+import {
+  CheckCircleOutlined,
+  ClockCircleOutlined,
+  CloseCircleOutlined,
+  LoadingOutlined,
+} from '@ant-design/icons';
+import { AnimatePresence, motion } from 'framer-motion';
+import React, { memo, useMemo } from 'react';
 
 interface Step {
-  name: string
-  status: 'pending' | 'running' | 'completed' | 'error'
-  description?: string
+  name: string;
+  status: 'pending' | 'running' | 'completed' | 'error';
+  description?: string;
 }
 
 interface StepProgressProps {
-  steps: Step[]
-  currentStep: number
+  steps: Step[];
+  currentStep: number;
 }
 
 const statusConfig = {
@@ -38,64 +43,71 @@ const statusConfig = {
     bgColor: 'var(--error)',
     borderColor: 'var(--error)',
   },
-}
+};
 
-const StepProgress: React.FC<StepProgressProps> = memo(({
-  steps,
-  currentStep,
-}) => {
+const StepProgress: React.FC<StepProgressProps> = memo(({ steps, currentStep }) => {
   const progress = useMemo(() => {
-    const completedSteps = steps.filter(s => s.status === 'completed').length
-    const runningStep = steps.findIndex(s => s.status === 'running')
-    const partialProgress = runningStep >= 0 ? 0.5 : 0
-    return ((completedSteps + partialProgress) / steps.length) * 100
-  }, [steps])
+    const completedSteps = steps.filter((s) => s.status === 'completed').length;
+    const runningStep = steps.findIndex((s) => s.status === 'running');
+    const partialProgress = runningStep >= 0 ? 0.5 : 0;
+    return ((completedSteps + partialProgress) / steps.length) * 100;
+  }, [steps]);
 
   const overallStatus = useMemo(() => {
-    if (steps.some(s => s.status === 'error')) return 'error'
-    if (steps.every(s => s.status === 'completed')) return 'completed'
-    if (steps.some(s => s.status === 'running')) return 'running'
-    return 'pending'
-  }, [steps])
+    if (steps.some((s) => s.status === 'error')) return 'error';
+    if (steps.every((s) => s.status === 'completed')) return 'completed';
+    if (steps.some((s) => s.status === 'running')) return 'running';
+    return 'pending';
+  }, [steps]);
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 16,
-      padding: '16px 20px',
-      background: 'var(--bg-secondary)',
-      borderRadius: 12,
-      border: '1px solid var(--border-color)',
-    }}>
-      <div style={{
+    <div
+      style={{
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-      }}>
-        <span style={{
-          fontSize: 14,
-          fontWeight: 600,
-          color: 'var(--text-primary)',
-        }}>
+        flexDirection: 'column',
+        gap: 16,
+        padding: '16px 20px',
+        background: 'var(--bg-secondary)',
+        borderRadius: 12,
+        border: '1px solid var(--border-color)',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}
+      >
+        <span
+          style={{
+            fontSize: 14,
+            fontWeight: 600,
+            color: 'var(--text-primary)',
+          }}
+        >
           执行进度
         </span>
-        <span style={{
-          fontSize: 13,
-          color: statusConfig[overallStatus].color,
-          fontWeight: 500,
-        }}>
+        <span
+          style={{
+            fontSize: 13,
+            color: statusConfig[overallStatus].color,
+            fontWeight: 500,
+          }}
+        >
           {Math.round(progress)}%
         </span>
       </div>
 
-      <div style={{
-        position: 'relative',
-        height: 6,
-        background: 'var(--bg-color)',
-        borderRadius: 3,
-        overflow: 'hidden',
-      }}>
+      <div
+        style={{
+          position: 'relative',
+          height: 6,
+          background: 'var(--bg-color)',
+          borderRadius: 3,
+          overflow: 'hidden',
+        }}
+      >
         <motion.div
           initial={{ width: 0 }}
           animate={{ width: `${progress}%` }}
@@ -105,9 +117,10 @@ const StepProgress: React.FC<StepProgressProps> = memo(({
             left: 0,
             top: 0,
             height: '100%',
-            background: overallStatus === 'error'
-              ? 'var(--error)'
-              : 'linear-gradient(90deg, var(--primary-500) 0%, var(--accent-primary) 100%)',
+            background:
+              overallStatus === 'error'
+                ? 'var(--error)'
+                : 'linear-gradient(90deg, var(--primary-500) 0%, var(--accent-primary) 100%)',
             borderRadius: 3,
           }}
         />
@@ -133,15 +146,17 @@ const StepProgress: React.FC<StepProgressProps> = memo(({
         )}
       </div>
 
-      <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
-      }}>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+        }}
+      >
         {steps.map((step, index) => {
-          const config = statusConfig[step.status]
-          const isLast = index === steps.length - 1
-          
+          const config = statusConfig[step.status];
+          const isLast = index === steps.length - 1;
+
           return (
             <motion.div
               key={index}
@@ -154,15 +169,21 @@ const StepProgress: React.FC<StepProgressProps> = memo(({
                 gap: 12,
               }}
             >
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-              }}>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                }}
+              >
                 <motion.div
-                  animate={step.status === 'running' ? {
-                    scale: [1, 1.1, 1],
-                  } : {}}
+                  animate={
+                    step.status === 'running'
+                      ? {
+                          scale: [1, 1.1, 1],
+                        }
+                      : {}
+                  }
                   transition={{
                     duration: 1,
                     repeat: Infinity,
@@ -192,7 +213,7 @@ const StepProgress: React.FC<StepProgressProps> = memo(({
                     config.icon
                   )}
                 </motion.div>
-                
+
                 {!isLast && (
                   <motion.div
                     initial={{ height: 0 }}
@@ -200,34 +221,37 @@ const StepProgress: React.FC<StepProgressProps> = memo(({
                     transition={{ duration: 0.3, delay: index * 0.05 }}
                     style={{
                       width: 2,
-                      background: index < currentStep
-                        ? 'var(--success)'
-                        : 'var(--border-color)',
+                      background: index < currentStep ? 'var(--success)' : 'var(--border-color)',
                       marginTop: 4,
                     }}
                   />
                 )}
               </div>
 
-              <div style={{
-                flex: 1,
-                paddingTop: 4,
-              }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                }}>
-                  <span style={{
-                    fontSize: 13,
-                    fontWeight: 500,
-                    color: step.status === 'pending'
-                      ? 'var(--text-tertiary)'
-                      : 'var(--text-primary)',
-                  }}>
+              <div
+                style={{
+                  flex: 1,
+                  paddingTop: 4,
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 500,
+                      color:
+                        step.status === 'pending' ? 'var(--text-tertiary)' : 'var(--text-primary)',
+                    }}
+                  >
                     {step.name}
                   </span>
-                  
+
                   <AnimatePresence>
                     {step.status === 'running' && (
                       <motion.span
@@ -248,7 +272,7 @@ const StepProgress: React.FC<StepProgressProps> = memo(({
                     )}
                   </AnimatePresence>
                 </div>
-                
+
                 <AnimatePresence>
                   {step.description && step.status !== 'pending' && (
                     <motion.p
@@ -268,7 +292,7 @@ const StepProgress: React.FC<StepProgressProps> = memo(({
                 </AnimatePresence>
               </div>
             </motion.div>
-          )
+          );
         })}
       </div>
 
@@ -288,11 +312,13 @@ const StepProgress: React.FC<StepProgressProps> = memo(({
           }}
         >
           <LoadingOutlined style={{ fontSize: 12, color: 'var(--primary-500)' }} />
-          <span style={{
-            fontSize: 12,
-            color: 'var(--primary-500)',
-            fontWeight: 500,
-          }}>
+          <span
+            style={{
+              fontSize: 12,
+              color: 'var(--primary-500)',
+              fontWeight: 500,
+            }}
+          >
             正在处理，请稍候...
           </span>
         </motion.div>
@@ -314,11 +340,13 @@ const StepProgress: React.FC<StepProgressProps> = memo(({
           }}
         >
           <CheckCircleOutlined style={{ fontSize: 14, color: 'var(--success)' }} />
-          <span style={{
-            fontSize: 12,
-            color: 'var(--success)',
-            fontWeight: 500,
-          }}>
+          <span
+            style={{
+              fontSize: 12,
+              color: 'var(--success)',
+              fontWeight: 500,
+            }}
+          >
             所有步骤已完成
           </span>
         </motion.div>
@@ -340,19 +368,21 @@ const StepProgress: React.FC<StepProgressProps> = memo(({
           }}
         >
           <CloseCircleOutlined style={{ fontSize: 14, color: 'var(--error)' }} />
-          <span style={{
-            fontSize: 12,
-            color: 'var(--error)',
-            fontWeight: 500,
-          }}>
+          <span
+            style={{
+              fontSize: 12,
+              color: 'var(--error)',
+              fontWeight: 500,
+            }}
+          >
             执行过程中出现错误
           </span>
         </motion.div>
       )}
     </div>
-  )
-})
+  );
+});
 
-StepProgress.displayName = 'StepProgress'
+StepProgress.displayName = 'StepProgress';
 
-export default StepProgress
+export default StepProgress;

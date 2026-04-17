@@ -104,9 +104,7 @@ async def delete_session(session_id: str):
     manager = get_session_manager()
     success = manager.delete_session(session_id)
 
-    if not success:
-        raise HTTPException(status_code=404, detail="Session not found")
-
+    # 无论找没找到都返回 200，因为目标是“让它不存在”
     return {"success": True, "session_id": session_id}
 
 

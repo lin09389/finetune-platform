@@ -1,31 +1,34 @@
-import React from 'react'
-import { Badge, Tooltip, Space, Typography, Progress } from 'antd'
-import { 
-  LoadingOutlined, 
-  CheckCircleOutlined, 
-  CloseCircleOutlined, 
-  SyncOutlined, 
+import {
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  LoadingOutlined,
   PauseCircleOutlined,
-  WifiOutlined,
+  SyncOutlined,
   ThunderboltOutlined,
-} from '@ant-design/icons'
-import { motion, AnimatePresence } from 'framer-motion'
-import { ConnectionState, StreamState } from '../services/StreamManager'
+  WifiOutlined,
+} from '@ant-design/icons';
+import { Badge, Progress, Space, Tooltip, Typography } from 'antd';
+import { AnimatePresence, motion } from 'framer-motion';
+import React from 'react';
+import { ConnectionState, StreamState } from '../services/StreamManager';
 
-const { Text } = Typography
+const { Text } = Typography;
 
 interface ConnectionStatusProps {
-  state: StreamState
-  showStats?: boolean
-  compact?: boolean
+  state: StreamState;
+  showStats?: boolean;
+  compact?: boolean;
 }
 
-const stateConfig: Record<ConnectionState, {
-  color: string
-  status: 'success' | 'processing' | 'error' | 'warning' | 'default'
-  icon: React.ReactNode
-  text: string
-}> = {
+const stateConfig: Record<
+  ConnectionState,
+  {
+    color: string;
+    status: 'success' | 'processing' | 'error' | 'warning' | 'default';
+    icon: React.ReactNode;
+    text: string;
+  }
+> = {
   [ConnectionState.IDLE]: {
     color: '#8c8c8c',
     status: 'default',
@@ -68,29 +71,29 @@ const stateConfig: Record<ConnectionState, {
     icon: <CloseCircleOutlined />,
     text: '错误',
   },
-}
+};
 
 export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
   state,
   showStats = false,
   compact = false,
 }) => {
-  const config = stateConfig[state.connectionState]
+  const config = stateConfig[state.connectionState];
 
   const formatBytes = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
-  }
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
 
   const formatDuration = (startTime: number | null): string => {
-    if (!startTime) return '0s'
-    const seconds = Math.floor((Date.now() - startTime) / 1000)
-    if (seconds < 60) return `${seconds}s`
-    const minutes = Math.floor(seconds / 60)
-    const remainingSeconds = seconds % 60
-    return `${minutes}m ${remainingSeconds}s`
-  }
+    if (!startTime) return '0s';
+    const seconds = Math.floor((Date.now() - startTime) / 1000);
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}m ${remainingSeconds}s`;
+  };
 
   if (compact) {
     return (
@@ -103,18 +106,14 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
                 <Text style={{ color: '#fff', fontSize: 12 }}>
                   已接收: {formatBytes(state.receivedBytes)}
                 </Text>
-                <Text style={{ color: '#fff', fontSize: 12 }}>
-                  分块数: {state.chunksReceived}
-                </Text>
+                <Text style={{ color: '#fff', fontSize: 12 }}>分块数: {state.chunksReceived}</Text>
                 <Text style={{ color: '#fff', fontSize: 12 }}>
                   时长: {formatDuration(state.startTime)}
                 </Text>
               </>
             )}
             {state.error && (
-              <Text style={{ color: '#ff7875', fontSize: 12 }}>
-                错误: {state.error}
-              </Text>
+              <Text style={{ color: '#ff7875', fontSize: 12 }}>错误: {state.error}</Text>
             )}
           </Space>
         }
@@ -125,12 +124,10 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
           style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
         >
           <Badge status={config.status} />
-          <span style={{ color: config.color, fontSize: 12 }}>
-            {config.icon}
-          </span>
+          <span style={{ color: config.color, fontSize: 12 }}>{config.icon}</span>
         </motion.div>
       </Tooltip>
-    )
+    );
   }
 
   return (
@@ -157,12 +154,8 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
           transition={{ duration: 0.2 }}
           style={{ display: 'flex', alignItems: 'center', gap: 8 }}
         >
-          <span style={{ color: config.color, fontSize: 16 }}>
-            {config.icon}
-          </span>
-          <Text style={{ color: config.color, fontWeight: 500 }}>
-            {config.text}
-          </Text>
+          <span style={{ color: config.color, fontSize: 16 }}>{config.icon}</span>
+          <Text style={{ color: config.color, fontWeight: 500 }}>{config.text}</Text>
         </motion.div>
       </AnimatePresence>
 
@@ -180,7 +173,7 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
                 {formatBytes(state.receivedBytes)}
               </Text>
             </Tooltip>
-            
+
             <Tooltip title="已接收分块数">
               <Text type="secondary" style={{ fontSize: 12 }}>
                 分块: {state.chunksReceived}
@@ -210,25 +203,22 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
         </Text>
       )}
     </motion.div>
-  )
-}
+  );
+};
 
 interface StreamingProgressProps {
-  state: StreamState
-  estimatedTotal?: number
+  state: StreamState;
+  estimatedTotal?: number;
 }
 
-export const StreamingProgress: React.FC<StreamingProgressProps> = ({
-  state,
-  estimatedTotal,
-}) => {
+export const StreamingProgress: React.FC<StreamingProgressProps> = ({ state, estimatedTotal }) => {
   if (state.connectionState !== ConnectionState.STREAMING) {
-    return null
+    return null;
   }
 
-  const progress = estimatedTotal 
-    ? Math.min((state.receivedBytes / estimatedTotal) * 100, 100) 
-    : undefined
+  const progress = estimatedTotal
+    ? Math.min((state.receivedBytes / estimatedTotal) * 100, 100)
+    : undefined;
 
   return (
     <motion.div
@@ -238,15 +228,15 @@ export const StreamingProgress: React.FC<StreamingProgressProps> = ({
       style={{ marginTop: 8 }}
     >
       {progress !== undefined ? (
-        <Progress 
-          percent={Math.round(progress)} 
+        <Progress
+          percent={Math.round(progress)}
           size="small"
           status="active"
           format={() => `${Math.round(progress)}%`}
         />
       ) : (
-        <Progress 
-          percent={100} 
+        <Progress
+          percent={100}
           size="small"
           status="active"
           showInfo={false}
@@ -257,13 +247,13 @@ export const StreamingProgress: React.FC<StreamingProgressProps> = ({
         />
       )}
     </motion.div>
-  )
-}
+  );
+};
 
 interface PartialSaveIndicatorProps {
-  saved: boolean
-  content: string
-  timestamp: number
+  saved: boolean;
+  content: string;
+  timestamp: number;
 }
 
 export const PartialSaveIndicator: React.FC<PartialSaveIndicatorProps> = ({
@@ -271,7 +261,7 @@ export const PartialSaveIndicator: React.FC<PartialSaveIndicatorProps> = ({
   content,
   timestamp,
 }) => {
-  if (!saved || !content) return null
+  if (!saved || !content) return null;
 
   return (
     <AnimatePresence>
@@ -302,7 +292,7 @@ export const PartialSaveIndicator: React.FC<PartialSaveIndicatorProps> = ({
         </Text>
       </motion.div>
     </AnimatePresence>
-  )
-}
+  );
+};
 
-export default ConnectionStatus
+export default ConnectionStatus;

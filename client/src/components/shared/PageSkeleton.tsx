@@ -1,9 +1,9 @@
-import React from 'react'
-import styles from './PageSkeleton.module.css'
+import React from 'react';
+import styles from './PageSkeleton.module.css';
 
 interface PageSkeletonProps {
-  cards?: number
-  rows?: number
+  cards?: number;
+  rows?: number;
 }
 
 const PageSkeleton: React.FC<PageSkeletonProps> = ({ cards = 4, rows = 4 }) => {
@@ -47,7 +47,7 @@ const PageSkeleton: React.FC<PageSkeletonProps> = ({ cards = 4, rows = 4 }) => {
         ))}
       </div>
     </div>
-  )
-}
+  );
+};
 
-export default PageSkeleton
+export default PageSkeleton;

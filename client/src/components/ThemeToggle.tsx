@@ -1,46 +1,46 @@
-import { Dropdown } from 'antd'
-import { MoonOutlined, SunOutlined, LaptopOutlined } from '@ant-design/icons'
-import { motion, AnimatePresence } from 'framer-motion'
-import { useAppStore, type ThemeMode } from '../store/appStore'
+import { LaptopOutlined, MoonOutlined, SunOutlined } from '@ant-design/icons';
+import { Dropdown } from 'antd';
+import { AnimatePresence, motion } from 'framer-motion';
+import { useAppStore, type ThemeMode } from '../store/appStore';
 
 export default function ThemeToggle() {
-  const { themeMode, setThemeMode } = useAppStore()
+  const { themeMode, setThemeMode } = useAppStore();
 
   const getIcon = () => {
     switch (themeMode) {
       case 'dark':
-        return <MoonOutlined key="dark" />
+        return <MoonOutlined key="dark" />;
       case 'light':
-        return <SunOutlined key="light" />
+        return <SunOutlined key="light" />;
       default:
-        return <LaptopOutlined key="system" />
+        return <LaptopOutlined key="system" />;
     }
-  }
+  };
 
   const items = [
     {
       key: 'light',
       label: '浅色模式',
-      icon: <SunOutlined />
+      icon: <SunOutlined />,
     },
     {
       key: 'dark',
       label: '深色模式',
-      icon: <MoonOutlined />
+      icon: <MoonOutlined />,
     },
     {
       key: 'system',
       label: '跟随系统',
-      icon: <LaptopOutlined />
-    }
-  ]
+      icon: <LaptopOutlined />,
+    },
+  ];
 
   return (
     <Dropdown
       menu={{
         items,
         onClick: ({ key }) => setThemeMode(key as ThemeMode),
-        selectedKeys: [themeMode]
+        selectedKeys: [themeMode],
       }}
       trigger={['click']}
       overlayClassName="theme-dropdown"
@@ -65,5 +65,5 @@ export default function ThemeToggle() {
         </span>
       </div>
     </Dropdown>
-  )
+  );
 }

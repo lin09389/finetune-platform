@@ -6,7 +6,10 @@
   align-items: center;
 }
 
-.emptyState, .loadingState, .trainingState, .resultState {
+.emptyState,
+.loadingState,
+.trainingState,
+.resultState {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -14,7 +17,9 @@
   width: 100%;
 }
 
-.emptyIcon, .loadingIcon, .successIcon {
+.emptyIcon,
+.loadingIcon,
+.successIcon {
   width: 80px;
   height: 80px;
   border-radius: var(--radius-3xl);
@@ -41,16 +46,31 @@
   color: var(--success);
 }
 
-.emptyTitle, .loadingTitle, .resultTitle {
+.emptyTitle,
+.loadingTitle,
+.resultTitle {
   font-size: var(--text-xl);
   font-weight: 700;
   color: var(--text-primary);
   margin-bottom: var(--space-2);
 }
 
-.emptyDesc, .loadingDesc {
+.emptyDesc,
+.loadingDesc {
   font-size: var(--text-sm);
   color: var(--text-secondary);
+}
+
+.queueInfo {
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  width: 100%;
+  max-width: 320px;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
 }
 
 .progressCircle {
@@ -136,4 +156,19 @@
 .summaryItem strong {
   color: var(--text-primary);
   font-weight: 700;
+}
+
+.suggestionBox {
+  width: 100%;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  padding: var(--space-4);
+  margin-bottom: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  text-align: left;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
 }

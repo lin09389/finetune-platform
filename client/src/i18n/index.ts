@@ -1,11 +1,11 @@
-import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
-export type Locale = 'zh-CN' | 'en-US'
+export type Locale = 'zh-CN' | 'en-US';
 
 interface I18nState {
-  locale: Locale
-  setLocale: (locale: Locale) => void
+  locale: Locale;
+  setLocale: (locale: Locale) => void;
 }
 
 const translations = {
@@ -97,7 +97,7 @@ const translations = {
       free: 'Free',
     },
   },
-}
+};
 
 export const useI18n = create<I18nState>()(
   persist(
@@ -107,27 +107,27 @@ export const useI18n = create<I18nState>()(
     }),
     {
       name: 'finetune-i18n',
-    }
-  )
-)
+    },
+  ),
+);
 
 export function t(key: string): string {
-  const { locale } = useI18n.getState()
-  const keys = key.split('.')
-  let value: unknown = translations[locale]
-  
+  const { locale } = useI18n.getState();
+  const keys = key.split('.');
+  let value: unknown = translations[locale];
+
   for (const k of keys) {
     if (value && typeof value === 'object' && k in value) {
-      value = (value as Record<string, unknown>)[k]
+      value = (value as Record<string, unknown>)[k];
     } else {
-      return key
+      return key;
     }
   }
-  
-  return typeof value === 'string' ? value : key
+
+  return typeof value === 'string' ? value : key;
 }
 
 export function useTranslation() {
-  const { locale, setLocale } = useI18n()
-  return { t, locale, setLocale }
+  const { locale, setLocale } = useI18n();
+  return { t, locale, setLocale };
 }

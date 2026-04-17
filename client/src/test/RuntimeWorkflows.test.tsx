@@ -1,25 +1,25 @@
-import React from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mockUseAppStore = vi.hoisted(() => vi.fn())
-const mockUseChatStore = vi.hoisted(() => vi.fn())
-const mockGetBackends = vi.hoisted(() => vi.fn())
-const mockGetInferenceModels = vi.hoisted(() => vi.fn())
-const mockGetOllamaStatus = vi.hoisted(() => vi.fn())
-const mockGetRuntimeBootstrap = vi.hoisted(() => vi.fn())
-const mockFetch = vi.hoisted(() => vi.fn())
-const mockUpdateChatSettings = vi.hoisted(() => vi.fn())
+const mockUseAppStore = vi.hoisted(() => vi.fn());
+const mockUseChatStore = vi.hoisted(() => vi.fn());
+const mockGetBackends = vi.hoisted(() => vi.fn());
+const mockGetInferenceModels = vi.hoisted(() => vi.fn());
+const mockGetOllamaStatus = vi.hoisted(() => vi.fn());
+const mockGetRuntimeBootstrap = vi.hoisted(() => vi.fn());
+const mockFetch = vi.hoisted(() => vi.fn());
+const mockUpdateChatSettings = vi.hoisted(() => vi.fn());
 
-vi.stubGlobal('fetch', mockFetch)
+vi.stubGlobal('fetch', mockFetch);
 
 vi.mock('../store/appStore', () => ({
   useAppStore: mockUseAppStore,
-}))
+}));
 
 vi.mock('../store/chatStore', () => ({
   useChatStore: mockUseChatStore,
-}))
+}));
 
 vi.mock('../services/api', () => ({
   API_BASE_URL: 'http://localhost:8000',
@@ -27,26 +27,26 @@ vi.mock('../services/api', () => ({
   getInferenceModels: mockGetInferenceModels,
   getOllamaStatus: mockGetOllamaStatus,
   getRuntimeBootstrap: mockGetRuntimeBootstrap,
-}))
+}));
 
-import { RuntimeContextProvider, useRuntimeContext } from '../runtime/RuntimeContext'
+import { RuntimeContextProvider, useRuntimeContext } from '../runtime/RuntimeContext';
 
 type MockChatState = {
   settings: {
-    modelId: string
-    backend: 'ollama' | 'huggingface' | 'cloud'
-    useKnowledge: boolean
-    knowledgeCollection?: string
-    useMemory: boolean
-  }
-  updateSettings: typeof mockUpdateChatSettings
-}
+    modelId: string;
+    backend: 'ollama' | 'huggingface' | 'cloud';
+    useKnowledge: boolean;
+    knowledgeCollection?: string;
+    useMemory: boolean;
+  };
+  updateSettings: typeof mockUpdateChatSettings;
+};
 
-let chatState: MockChatState
+let chatState: MockChatState;
 
 const WorkflowActors: React.FC = () => {
-  const runtime = useRuntimeContext()
-  const [, rerenderActor] = React.useState(0)
+  const runtime = useRuntimeContext();
+  const [, rerenderActor] = React.useState(0);
 
   return (
     <div>
@@ -54,10 +54,16 @@ const WorkflowActors: React.FC = () => {
       <div data-testid="active-model">{runtime.derived.activeModelId || 'none'}</div>
       <div data-testid="active-collection">{runtime.derived.activeKnowledgeCollection}</div>
       <div data-testid="selected-training-model">{runtime.selected.training.modelId || 'none'}</div>
-      <div data-testid="selected-inference-model">{runtime.selected.inference.modelId || 'none'}</div>
-      <div data-testid="selected-collection">{runtime.selected.knowledge.collectionId || 'none'}</div>
+      <div data-testid="selected-inference-model">
+        {runtime.selected.inference.modelId || 'none'}
+      </div>
+      <div data-testid="selected-collection">
+        {runtime.selected.knowledge.collectionId || 'none'}
+      </div>
 
-      <button onClick={() => runtime.actions.setTrainingSelection({ modelId: 'training-base-model' })}>
+      <button
+        onClick={() => runtime.actions.setTrainingSelection({ modelId: 'training-base-model' })}
+      >
         training-select-model
       </button>
       <button
@@ -80,30 +86,30 @@ const WorkflowActors: React.FC = () => {
             backend: 'ollama',
             modelId: 'chat-picked-ollama',
             knowledgeCollection: 'chat-picked-docs',
-          }
-          rerenderActor((value) => value + 1)
+          };
+          rerenderActor((value) => value + 1);
         }}
       >
         chat-pick-runtime
       </button>
     </div>
-  )
-}
+  );
+};
 
 const renderWorkflow = () =>
   render(
     <RuntimeContextProvider>
       <WorkflowActors />
-    </RuntimeContextProvider>
-  )
+    </RuntimeContextProvider>,
+  );
 
 describe('Runtime cross-page workflows', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.clearAllMocks();
 
     mockUseAppStore.mockReturnValue({
       backendStatus: 'connected',
-    })
+    });
 
     chatState = {
       settings: {
@@ -114,11 +120,11 @@ describe('Runtime cross-page workflows', () => {
         useMemory: false,
       },
       updateSettings: mockUpdateChatSettings,
-    }
+    };
 
     mockUseChatStore.mockImplementation((selector?: (state: MockChatState) => unknown) =>
-      selector ? selector(chatState) : chatState
-    )
+      selector ? selector(chatState) : chatState,
+    );
 
     mockGetBackends.mockResolvedValue({
       current: 'huggingface',
@@ -126,18 +132,18 @@ describe('Runtime cross-page workflows', () => {
         { id: 'huggingface', name: 'HuggingFace', available: true, description: '本地模型' },
         { id: 'ollama', name: 'Ollama', available: true, description: '外部服务' },
       ],
-    })
+    });
 
     mockGetInferenceModels.mockResolvedValue([
       { id: 'hf-default', name: 'HF Default' },
       { id: 'training-base-model', name: 'Training Base Model' },
-    ])
+    ]);
 
     mockGetOllamaStatus.mockResolvedValue({
       available: true,
       models: [{ name: 'chat-picked-ollama' }],
-    })
-    mockGetRuntimeBootstrap.mockRejectedValue(new Error('bootstrap disabled in workflow tests'))
+    });
+    mockGetRuntimeBootstrap.mockRejectedValue(new Error('bootstrap disabled in workflow tests'));
 
     mockFetch.mockImplementation((url: string) => {
       if (url.includes('/knowledge/collections')) {
@@ -151,7 +157,7 @@ describe('Runtime cross-page workflows', () => {
                 { name: 'chat-picked-docs', count: 7 },
               ],
             }),
-        })
+        });
       }
 
       if (url.includes('/knowledge/embedder/status')) {
@@ -163,59 +169,63 @@ describe('Runtime cross-page workflows', () => {
               model_name: 'text2vec-base-chinese',
               dimension: 768,
             }),
-        })
+        });
       }
 
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve({}),
-      })
-    })
-  })
+      });
+    });
+  });
 
   it('propagates a training-selected model into the active inference context', async () => {
-    renderWorkflow()
+    renderWorkflow();
 
-    fireEvent.click(screen.getByText('training-select-model'))
+    fireEvent.click(screen.getByText('training-select-model'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('selected-training-model')).toHaveTextContent('training-base-model')
-      expect(screen.getByTestId('active-model')).toHaveTextContent('training-base-model')
-    })
+      expect(screen.getByTestId('selected-training-model')).toHaveTextContent(
+        'training-base-model',
+      );
+      expect(screen.getByTestId('active-model')).toHaveTextContent('training-base-model');
+    });
 
-    fireEvent.click(screen.getByText('training-promote-model'))
+    fireEvent.click(screen.getByText('training-promote-model'));
 
     await waitFor(() => {
       expect(mockUpdateChatSettings).toHaveBeenCalledWith({
         backend: 'huggingface',
         modelId: 'training-base-model',
-      })
-      expect(screen.getByTestId('selected-inference-model')).toHaveTextContent('training-base-model')
-      expect(screen.getByTestId('active-backend')).toHaveTextContent('huggingface')
-    })
-  })
+      });
+      expect(screen.getByTestId('selected-inference-model')).toHaveTextContent(
+        'training-base-model',
+      );
+      expect(screen.getByTestId('active-backend')).toHaveTextContent('huggingface');
+    });
+  });
 
   it('propagates knowledge collection changes into chat runtime settings', async () => {
-    renderWorkflow()
+    renderWorkflow();
 
-    fireEvent.click(screen.getByText('knowledge-select-project-docs'))
+    fireEvent.click(screen.getByText('knowledge-select-project-docs'));
 
     await waitFor(() => {
-      expect(mockUpdateChatSettings).toHaveBeenCalledWith({ knowledgeCollection: 'project-docs' })
-      expect(screen.getByTestId('selected-collection')).toHaveTextContent('project-docs')
-      expect(screen.getByTestId('active-collection')).toHaveTextContent('project-docs')
-    })
-  })
+      expect(mockUpdateChatSettings).toHaveBeenCalledWith({ knowledgeCollection: 'project-docs' });
+      expect(screen.getByTestId('selected-collection')).toHaveTextContent('project-docs');
+      expect(screen.getByTestId('active-collection')).toHaveTextContent('project-docs');
+    });
+  });
 
   it('reflects chat-selected backend, model, and collection in the runtime summary', async () => {
-    renderWorkflow()
+    renderWorkflow();
 
-    fireEvent.click(screen.getByText('chat-pick-runtime'))
+    fireEvent.click(screen.getByText('chat-pick-runtime'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('active-backend')).toHaveTextContent('ollama')
-      expect(screen.getByTestId('active-model')).toHaveTextContent('chat-picked-ollama')
-      expect(screen.getByTestId('active-collection')).toHaveTextContent('chat-picked-docs')
-    })
-  })
-})
+      expect(screen.getByTestId('active-backend')).toHaveTextContent('ollama');
+      expect(screen.getByTestId('active-model')).toHaveTextContent('chat-picked-ollama');
+      expect(screen.getByTestId('active-collection')).toHaveTextContent('chat-picked-docs');
+    });
+  });
+});

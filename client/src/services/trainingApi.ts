@@ -2,16 +2,20 @@ import {
   API_BASE_URL,
   apiClient,
   checkTrainingResources as checkRawTrainingResources,
-  getTrainingFailureAnalytics as getRawTrainingFailureAnalytics,
   getTrainingCheckpoints as getRawTrainingCheckpoints,
+  getTrainingFailureAnalytics as getRawTrainingFailureAnalytics,
   getTrainingHistory as getRawTrainingHistory,
+  getTrainingOverviewV2 as getRawTrainingOverviewV2,
   getTrainingRecoveryOptions as getRawTrainingRecoveryOptions,
+  getTrainingTaskMetricsV2 as getRawTrainingTaskMetricsV2,
   resumeTraining as resumeRawTraining,
   startSwiftTraining as startRawSwiftTraining,
   startTraining as startRawTraining,
   stopTraining,
+  subscribeTrainingEventsV2 as subscribeRawTrainingEventsV2,
   subscribeTrainingProgress as subscribeRawTrainingProgress,
-} from './api'
+  type TrainingEventV2,
+} from './api';
 
 const normalizeTrainingConfig = (config: any = {}) => ({
   modelId: config.modelId ?? config.model_id ?? '',
@@ -46,7 +50,7 @@ const normalizeTrainingConfig = (config: any = {}) => ({
   offloadOptimizer: config.offloadOptimizer ?? config.offload_optimizer,
   quantization: config.quantization ?? 4,
   resume_from_checkpoint: config.resume_from_checkpoint,
-})
+});
 
 export const normalizeTrainingRecord = (record: any) => ({
   id: record.id,
@@ -59,7 +63,7 @@ export const normalizeTrainingRecord = (record: any) => ({
   config: normalizeTrainingConfig(record.config),
   outputPath: record.outputPath ?? record.output_path ?? '',
   checkpointPath: record.checkpointPath ?? record.checkpoint_path,
-})
+});
 
 export const normalizeTrainingProgress = (progress: any) => ({
   epoch: progress.epoch ?? 0,
@@ -72,46 +76,51 @@ export const normalizeTrainingProgress = (progress: any) => ({
   eta: progress.eta ?? 0,
   status: progress.status,
   message: progress.message,
-})
+  queuePosition: progress.queuePosition ?? progress.queue_position,
+  estimatedWaitSeconds: progress.estimatedWaitSeconds ?? progress.estimated_wait_seconds,
+  errorCode: progress.errorCode ?? progress.error_code,
+  errorCategory: progress.errorCategory ?? progress.error_category,
+  actionableSuggestions: progress.actionableSuggestions ?? progress.actionable_suggestions,
+});
 
-export const startTraining = async (
-  config: any,
-  options?: { applyRecommendedConfig?: boolean },
-) => normalizeTrainingRecord(await startRawTraining(config, options))
+export const startTraining = async (config: any, options?: { applyRecommendedConfig?: boolean }) =>
+  normalizeTrainingRecord(await startRawTraining(config, options));
 
-export const startSwiftTraining = async (config: any) => normalizeTrainingRecord(await startRawSwiftTraining(config))
+export const startSwiftTraining = async (config: any) =>
+  normalizeTrainingRecord(await startRawSwiftTraining(config));
 
 export const getTrainingHistory = async () => {
-  const records = await getRawTrainingHistory()
-  return Array.isArray(records) ? records.map(normalizeTrainingRecord) : []
-}
+  const records = await getRawTrainingHistory();
+  return Array.isArray(records) ? records.map(normalizeTrainingRecord) : [];
+};
 
-export const getTrainingCheckpoints = async (trainingId: string) => getRawTrainingCheckpoints(trainingId)
+export const getTrainingCheckpoints = async (trainingId: string) =>
+  getRawTrainingCheckpoints(trainingId);
 
 export const getTrainingRecoveryOptions = async (limit: number = 6) => {
-  const data = await getRawTrainingRecoveryOptions(limit)
+  const data = await getRawTrainingRecoveryOptions(limit);
   const options = Array.isArray(data?.options)
     ? data.options.map((option: any) => ({
-      taskId: option.taskId ?? option.task_id ?? '',
-      status: option.status,
-      modelName: option.modelName ?? option.model_name ?? '',
-      datasetName: option.datasetName ?? option.dataset_name ?? '',
-      startTime: option.startTime ?? option.start_time ?? '',
-      checkpoints: Array.isArray(option.checkpoints) ? option.checkpoints : [],
-      latestCheckpointName: option.latestCheckpointName ?? option.latest_checkpoint_name ?? '',
-      config: option.config ?? {},
-      reason: option.reason,
-    }))
-    : []
+        taskId: option.taskId ?? option.task_id ?? '',
+        status: option.status,
+        modelName: option.modelName ?? option.model_name ?? '',
+        datasetName: option.datasetName ?? option.dataset_name ?? '',
+        startTime: option.startTime ?? option.start_time ?? '',
+        checkpoints: Array.isArray(option.checkpoints) ? option.checkpoints : [],
+        latestCheckpointName: option.latestCheckpointName ?? option.latest_checkpoint_name ?? '',
+        config: option.config ?? {},
+        reason: option.reason,
+      }))
+    : [];
 
   return {
     generatedAt: data?.generatedAt ?? data?.generated_at ?? '',
     options,
-  }
-}
+  };
+};
 
 export const getTrainingFailureAnalytics = async () => {
-  const data = await getRawTrainingFailureAnalytics()
+  const data = await getRawTrainingFailureAnalytics();
   return {
     totalRuns: data?.totalRuns ?? data?.total_runs ?? 0,
     failedRuns: data?.failedRuns ?? data?.failed_runs ?? 0,
@@ -124,38 +133,57 @@ export const getTrainingFailureAnalytics = async () => {
     failedRuns14d: data?.failedRuns14d ?? data?.failed_runs_14d ?? 0,
     totalRuns7d: data?.totalRuns7d ?? data?.total_runs_7d ?? 0,
     totalRuns14d: data?.totalRuns14d ?? data?.total_runs_14d ?? 0,
-    suspectedVramPressureCount: data?.suspectedVramPressureCount ?? data?.suspected_vram_pressure_count ?? 0,
+    suspectedVramPressureCount:
+      data?.suspectedVramPressureCount ?? data?.suspected_vram_pressure_count ?? 0,
     longContextFailureCount: data?.longContextFailureCount ?? data?.long_context_failure_count ?? 0,
     unquantizedFailureCount: data?.unquantizedFailureCount ?? data?.unquantized_failure_count ?? 0,
     topFailedModels: data?.topFailedModels ?? data?.top_failed_models ?? [],
     topFailedDatasets: data?.topFailedDatasets ?? data?.top_failed_datasets ?? [],
     topFailedMethods: data?.topFailedMethods ?? data?.top_failed_methods ?? [],
     recentFailures: data?.recentFailures ?? data?.recent_failures ?? [],
-  }
-}
+  };
+};
 
 export const resumeTraining = async (trainingId: string, checkpoint: string) =>
-  normalizeTrainingRecord(await resumeRawTraining(trainingId, checkpoint))
+  normalizeTrainingRecord(await resumeRawTraining(trainingId, checkpoint));
 
 export const subscribeTrainingProgress = (
   onProgress: (progress: any) => void,
   onError?: (error: Error) => void,
-) => subscribeRawTrainingProgress((progress) => onProgress(normalizeTrainingProgress(progress)), onError)
+) =>
+  subscribeRawTrainingProgress(
+    (progress) => onProgress(normalizeTrainingProgress(progress)),
+    onError,
+  );
+
+export const subscribeTrainingEventsV2 = (
+  options: { taskId?: string; lastEventId?: string; heartbeatTimeoutMs?: number },
+  onEvent: (event: TrainingEventV2) => void,
+  onError?: (error: Error) => void,
+) => subscribeRawTrainingEventsV2(options, onEvent, onError);
+
+export const getTrainingOverviewV2 = async () => getRawTrainingOverviewV2();
+
+export const getTrainingTaskMetricsV2 = async (
+  taskId: string,
+  cursor: number = 0,
+  limit: number = 200,
+) => getRawTrainingTaskMetricsV2(taskId, cursor, limit);
 
 export const getTrainingStatus = async () => {
-  const response = await apiClient.get('/training/status')
-  const data = response.data
+  const response = await apiClient.get('/training/status');
+  const data = response.data;
   return {
     ...data,
     record: data.record ? normalizeTrainingRecord(data.record) : null,
     progress: data.progress ? normalizeTrainingProgress(data.progress) : null,
-  }
-}
+  };
+};
 
 export const checkTrainingResources = async (params: {
-  method?: string
-  modelSize?: string
-  requiredVram?: number
-}) => checkRawTrainingResources(params)
+  method?: string;
+  modelSize?: string;
+  requiredVram?: number;
+}) => checkRawTrainingResources(params);
 
-export { API_BASE_URL, stopTraining }
+export { API_BASE_URL, stopTraining };

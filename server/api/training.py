@@ -3,6 +3,7 @@
 """
 import asyncio
 import gc
+import inspect
 import json
 import logging
 import os
@@ -16,12 +17,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Header, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from core.config import Settings, get_settings
 from core.logging import get_logger
+from core.training_events_v2 import (
+    get_training_event_hub_v2,
+    normalize_phase_v2,
+)
 from core.training_queue import TaskPriority
 from core.training_state import TrainingRecord, TrainingState
 from core.training_context import get_training_context
@@ -226,6 +231,107 @@ def _queue_training_progress(
         raise ValueError(f"Unsupported training progress status: {status}")
     state.queue_progress_update(status=status, message=message, **kwargs)
 
+    get_record = getattr(state, "get_current_record", None)
+    if not callable(get_record):
+        return
+
+    record = get_record()
+    if record is None:
+        return
+
+    phase = normalize_phase_v2(status)
+    if not phase:
+        return
+
+    payload = {
+        "status": status,
+        "message": message,
+        **kwargs,
+    }
+    get_training_event_hub_v2().publish(
+        task_id=record.id,
+        phase=phase,
+        kind="progress_updated",
+        payload=payload,
+    )
+
+
+def _build_failure_feedback(error_message: str) -> dict[str, Any]:
+    normalized = (error_message or "").lower()
+
+    if any(token in normalized for token in ("out of memory", "cuda oom", "显存", "oom")):
+        return {
+            "error_code": "OOM",
+            "error_category": "oom",
+            "actionable_suggestions": [
+                "将 batch size 调整为 1，并提高梯度累积步数。",
+                "降低 max_seq_length 后重新执行训练。",
+                "优先使用 QLoRA + 4bit 量化。",
+            ],
+        }
+
+    if any(token in normalized for token in ("dataset", "json", "unsupported dataset", "样本")):
+        return {
+            "error_code": "DATASET_INVALID",
+            "error_category": "dataset",
+            "actionable_suggestions": [
+                "检查数据集 JSON/JSONL 格式和字段。",
+                "确保样本包含支持的训练字段。",
+                "修复后重新上传并执行预检。",
+            ],
+        }
+
+    if any(token in normalized for token in ("checkpoint", "resume", "检查点")):
+        return {
+            "error_code": "CHECKPOINT_INVALID",
+            "error_category": "checkpoint",
+            "actionable_suggestions": [
+                "切换到最近可用 checkpoint 后重试。",
+                "确认 checkpoint 与当前模型、数据集一致。",
+                "必要时重新启动完整训练任务。",
+            ],
+        }
+
+    return {
+        "error_code": "TRAINING_FAILED",
+        "error_category": "runtime",
+        "actionable_suggestions": [
+            "查看 outputs 中训练日志定位首个错误栈。",
+            "重启后端并确认 GPU 资源占用。",
+            "使用保守参数重新预检后再训练。",
+        ],
+    }
+
+
+def _legacy_progress_from_v2_event(event: Any, fallback: Any) -> dict[str, Any]:
+    payload = (event.payload if event else {}) or {}
+    fb = fallback.model_dump() if hasattr(fallback, "model_dump") else dict(fallback or {})
+    status = payload.get("status") or event.phase
+    if status == "queued":
+        status = "loading"
+    elif status == "running":
+        status = "training"
+    return {
+        "epoch": payload.get("epoch", fb.get("epoch", 0)),
+        "step": payload.get("step", fb.get("step", 0)),
+        "total_steps": payload.get("total_steps", payload.get("totalSteps", fb.get("total_steps", 0))),
+        "loss": payload.get("loss", payload.get("final_loss", fb.get("loss", 0.0))),
+        "lr": payload.get("lr", payload.get("final_lr", fb.get("lr", 0.0))),
+        "vram_used": payload.get("vram_used", payload.get("vramUsed", fb.get("vram_used", 0.0))),
+        "elapsed_time": payload.get(
+            "elapsed_time",
+            payload.get("elapsedTime", payload.get("final_elapsed_time", fb.get("elapsed_time", 0.0))),
+        ),
+        "eta": payload.get("eta", fb.get("eta", 0.0)),
+        "status": status,
+        "message": payload.get("message", fb.get("message", "")),
+        "queue_position": payload.get("queue_position"),
+        "estimated_wait_seconds": payload.get("estimated_wait_seconds"),
+        "error_code": payload.get("error_code"),
+        "error_category": payload.get("error_category"),
+        "actionable_suggestions": payload.get("actionable_suggestions"),
+    }
+
 
 class TrainingConfigInput(BaseModel):
     """训练配置输入 - 支持高精度微调"""
@@ -426,6 +532,13 @@ def load_dataset(dataset_path: str, tokenizer, max_length: int = 512):
     import json
 
     from datasets import Dataset
+    try:
+        from datasets.utils.logging import disable_progress_bar
+
+        disable_progress_bar()
+    except Exception:
+        os.environ["HF_DATASETS_DISABLE_PROGRESS_BAR"] = "1"
+        os.environ["TQDM_DISABLE"] = "1"
 
     logger.info(f"加载数据集：{dataset_path}")
 
@@ -715,6 +828,7 @@ def load_model_and_tokenizer(
     target_modules: str = "all",
     use_dora: bool = False,
     use_flash_attn: bool = False,
+    gradient_checkpointing: bool = True,
     deepspeed_config: dict[str, Any] | None = None,
     use_lora_plus: bool = False,
     lora_plus_lr_ratio: float = 16.0
@@ -783,19 +897,40 @@ def load_model_and_tokenizer(
                 logger.warning("量化模式下无法使用 Flash Attention 2，回退到标准 attention")
             model = AutoModelForCausalLM.from_pretrained(**load_kwargs)
 
+        if gradient_checkpointing and hasattr(model, "config"):
+            model.config.use_cache = False
+
         tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
 
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
         if target_modules == "all":
-            target_modules_list = "all-linear"
+            # Use explicit module list for broader PEFT compatibility.
+            # Some environments may not fully support the "all-linear" shortcut.
+            target_modules_list = [
+                "q_proj",
+                "k_proj",
+                "v_proj",
+                "o_proj",
+                "gate_proj",
+                "up_proj",
+                "down_proj",
+            ]
         elif target_modules == "attn":
             target_modules_list = ["q_proj", "v_proj", "k_proj", "o_proj"]
         elif target_modules == "mlp":
             target_modules_list = ["gate_proj", "up_proj", "down_proj"]
         else:
             target_modules_list = [m.strip() for m in target_modules.split(",")]
+
+        if method == "qlora" and quantization_config is not None:
+            try:
+                from peft import prepare_model_for_kbit_training
+                model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+                logger.info("QLoRA: 已完成 k-bit 训练准备（启用输入梯度与梯度检查点兼容）")
+            except Exception as prep_error:
+                logger.warning(f"QLoRA: prepare_model_for_kbit_training 失败，继续尝试训练: {prep_error}")
 
         if use_dora:
             lora_config = LoraConfig(
@@ -826,6 +961,17 @@ def load_model_and_tokenizer(
             model = PeftModel.from_pretrained(model, resume_from, is_trainable=True)
         else:
             model = get_peft_model(model, lora_config)
+
+        if gradient_checkpointing:
+            if hasattr(model, "enable_input_require_grads"):
+                model.enable_input_require_grads()
+            if hasattr(model, "gradient_checkpointing_enable"):
+                model.gradient_checkpointing_enable()
+
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        if trainable_params == 0:
+            raise RuntimeError("LoRA 配置后可训练参数为 0，请检查 target_modules 与模型结构是否匹配")
+        logger.info(f"可训练参数量：{trainable_params:,}")
 
         if use_lora_plus and method not in ["full"]:
             logger.info(f"应用 LoRA+ 配置: lr_ratio={lora_plus_lr_ratio}")
@@ -1151,18 +1297,22 @@ class ProgressCallback:
 
     def on_train_end(self, args, state, control, **kwargs):
         """训练结束时的回调"""
+        final_elapsed = (datetime.now() - self.start_time).total_seconds()
+        final_lr = float(getattr(args, "learning_rate", self.config.learning_rate))
         if self.train_logger:
             self.train_logger.log_completion({
                 "loss": self.current_loss,
-                "elapsed_time": (datetime.now() - self.start_time).total_seconds(),
-                "total_steps": self.total_steps
+                "lr": final_lr,
+                "elapsed_time": final_elapsed,
+                "total_steps": self.total_steps,
             })
 
         try:
             ws_manager = get_ws_manager()
             completion_data = {
                 "loss": self.current_loss,
-                "elapsed_time": (datetime.now() - self.start_time).total_seconds(),
+                "lr": final_lr,
+                "elapsed_time": final_elapsed,
                 "total_steps": self.total_steps
             }
             if self._event_loop and not self._event_loop.is_closed():
@@ -1178,13 +1328,17 @@ class ProgressCallback:
             epoch=self.config.epochs,
             step=self.total_steps,
             total_steps=self.total_steps,
-            loss=0.0,
-            lr=0.0,
+            loss=self.current_loss,
+            lr=final_lr,
             vram_used=get_vram_usage(),
-            elapsed_time=(datetime.now() - self.start_time).total_seconds(),
+            elapsed_time=final_elapsed,
             eta=0.0,
             status="completed",
             message="Training completed!",
+            final_loss=self.current_loss,
+            final_lr=final_lr,
+            final_elapsed_time=final_elapsed,
+            final_steps=self.total_steps,
         )
 
         # Break circular references to avoid memory leaks
@@ -1290,6 +1444,7 @@ def training_thread(
                     target_modules=config.target_modules,
                     use_dora=config.use_dora,
                     use_flash_attn=config.use_flash_attn,
+                    gradient_checkpointing=config.gradient_checkpointing,
                     use_lora_plus=config.use_lora_plus,
                     lora_plus_lr_ratio=config.lora_plus_lr_ratio
                 )
@@ -1393,40 +1548,63 @@ def training_thread(
                 logger.warning("QLoRA 模式下不支持 DeepSpeed，将使用标准训练")
 
             output_dir = config.output_path if hasattr(config, 'output_path') else record.output_path
-            training_args = TrainingArguments(
-                output_dir=output_dir,
-                num_train_epochs=config.epochs,
-                per_device_train_batch_size=config.batch_size,
-                gradient_accumulation_steps=config.gradient_accumulation,
-                learning_rate=config.learning_rate,
-                max_steps=total_steps,
-                warmup_steps=warmup_steps,
-                warmup_ratio=warmup_ratio,
-                logging_steps=config.logging_steps,
-                save_steps=config.save_steps,
-                save_total_limit=3,
-                load_best_model_at_end=use_best_model,
-                evaluation_strategy=eval_strategy,
-                eval_steps=eval_steps,
-                report_to="none",
-                fp16=not config.bf16,
-                bf16=config.bf16,
-                gradient_checkpointing=config.gradient_checkpointing,
-                dataloader_num_workers=config.dataloader_num_workers,
-                dataloader_pin_memory=config.dataloader_pin_memory,
-                dataloader_persistent_workers=config.dataloader_persistent_workers if config.dataloader_num_workers > 0 else False,
-                remove_unused_columns=False,
-                save_strategy="steps",
-                lr_scheduler_type=config.lr_scheduler,
-                weight_decay=config.weight_decay,
-                max_grad_norm=config.max_grad_norm,
-                label_smoothing_factor=config.label_smoothing if config.label_smoothing > 0 else None,
-                optim="adamw_torch",
-                ddp_find_unused_parameters=False,
-                deepspeed=deepspeed_config,
-                metric_for_best_model=config.metric_for_best_model,
-                greater_is_better=config.greater_is_better,
-            )
+            base_training_args_kwargs = {
+                "output_dir": output_dir,
+                "num_train_epochs": config.epochs,
+                "per_device_train_batch_size": config.batch_size,
+                "gradient_accumulation_steps": config.gradient_accumulation,
+                "learning_rate": config.learning_rate,
+                "max_steps": total_steps,
+                "warmup_steps": warmup_steps,
+                "warmup_ratio": warmup_ratio,
+                "logging_steps": config.logging_steps,
+                "save_steps": config.save_steps,
+                "save_total_limit": 3,
+                "load_best_model_at_end": use_best_model,
+                "eval_steps": eval_steps,
+                "report_to": "none",
+                "fp16": not config.bf16,
+                "bf16": config.bf16,
+                "gradient_checkpointing": config.gradient_checkpointing,
+                "dataloader_num_workers": config.dataloader_num_workers,
+                "dataloader_pin_memory": config.dataloader_pin_memory,
+                "dataloader_persistent_workers": config.dataloader_persistent_workers if config.dataloader_num_workers > 0 else False,
+                "remove_unused_columns": False,
+                "save_strategy": "steps",
+                "lr_scheduler_type": config.lr_scheduler,
+                "weight_decay": config.weight_decay,
+                "max_grad_norm": config.max_grad_norm,
+                "label_smoothing_factor": config.label_smoothing if config.label_smoothing > 0 else None,
+                "optim": "adamw_torch",
+                "ddp_find_unused_parameters": False,
+                "deepspeed": deepspeed_config,
+                "metric_for_best_model": config.metric_for_best_model,
+                "greater_is_better": config.greater_is_better,
+                # Windows/redirected stderr environments may raise OSError([Errno 22])
+                # when tqdm tries to render terminal progress bars. We already expose
+                # training progress via V2 events, so disable trainer tqdm safely.
+                "disable_tqdm": True,
+            }
+            training_args_signature = inspect.signature(TrainingArguments.__init__)
+            supported_args = set(training_args_signature.parameters.keys())
+
+            training_args_kwargs = dict(base_training_args_kwargs)
+            if "eval_strategy" in supported_args:
+                training_args_kwargs["eval_strategy"] = eval_strategy
+            elif "evaluation_strategy" in supported_args:
+                training_args_kwargs["evaluation_strategy"] = eval_strategy
+            else:
+                training_args_kwargs["load_best_model_at_end"] = False
+                training_args_kwargs.pop("metric_for_best_model", None)
+                training_args_kwargs.pop("greater_is_better", None)
+                logger.warning("当前 TrainingArguments 不支持 eval strategy 参数，已禁用 load_best_model_at_end")
+
+            filtered_training_args_kwargs = {
+                key: value
+                for key, value in training_args_kwargs.items()
+                if key in supported_args and value is not None
+            }
+            training_args = TrainingArguments(**filtered_training_args_kwargs)
 
             early_stopping_callback = None
             if config.early_stopping_patience > 0 and use_best_model:
@@ -1802,6 +1980,7 @@ def _degrade_training_config(config: TrainingConfigInput) -> TrainingConfigInput
 
 def _handle_training_failure(state: TrainingState, record: TrainingRecord, error: Exception, train_logger: 'TrainingLogger' = None):
     """处理训练失败"""
+    feedback = _build_failure_feedback(str(error))
     latest_progress = state.get_progress()
     _queue_training_progress(
         state,
@@ -1815,6 +1994,7 @@ def _handle_training_failure(state: TrainingState, record: TrainingRecord, error
         eta=latest_progress.eta,
         status="failed",
         message=f"Error: {str(error)}",
+        **feedback,
     )
 
     record.status = "failed"
@@ -1850,6 +2030,7 @@ def _finalize_stop_requested(
         eta=latest_progress.eta,
         status="stopped",
         message=message,
+        stop_reason="user_requested",
     )
 
     record.status = "stopped"
@@ -2014,6 +2195,10 @@ async def get_progress():
     """获取训练进度"""
     state = get_training_context().state
     progress = state.get_progress()
+    latest_event = get_training_event_hub_v2().get_latest()
+    if latest_event:
+        merged = _legacy_progress_from_v2_event(latest_event, progress)
+        return TrainingProgressResponse(**merged)
     return TrainingProgressResponse(**progress.model_dump())
 
 
@@ -2035,10 +2220,12 @@ async def progress_stream(
     import time
 
     state = get_training_context().state
+    hub = get_training_event_hub_v2()
 
     async def event_generator():
         last_step = -1
         last_status = ""
+        last_seq = 0
         idle_count = 0
         last_heartbeat = time.time()
         connection_start = time.time()
@@ -2058,7 +2245,13 @@ async def progress_stream(
                     yield "event: timeout\ndata: {\"message\": \"Idle timeout\"}\n\n"
                     break
 
-                progress = state.get_progress()
+                latest_event = hub.get_latest()
+                if latest_event and latest_event.sequence > last_seq:
+                    merged = _legacy_progress_from_v2_event(latest_event, state.get_progress())
+                    progress = TrainingProgressResponse(**merged)
+                    last_seq = latest_event.sequence
+                else:
+                    progress = state.get_progress()
 
                 should_send = (
                     progress.step != last_step or
@@ -2104,6 +2297,191 @@ async def progress_stream(
             "X-Accel-Buffering": "no",
         }
     )
+
+
+@router.get("/v2/events/stream")
+async def stream_training_events_v2(
+    task_id: str | None = Query(default=None, description="仅订阅指定任务"),
+    last_event_id: str | None = Query(default=None, description="断线重连的 last_event_id"),
+    sse_last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+    timeout: int = Query(default=300, ge=30, le=3600, description="连接超时（秒）"),
+    heartbeat: int = Query(default=15, ge=5, le=120, description="心跳间隔（秒）"),
+):
+    """训练事件流 V2（SSE）。"""
+    import time
+
+    hub = get_training_event_hub_v2()
+    start_seq = hub.parse_last_event_id(last_event_id or sse_last_event_id)
+
+    async def event_generator():
+        connection_start = time.time()
+        last_heartbeat = time.time()
+        cursor = start_seq
+
+        while True:
+            now = time.time()
+            if now - connection_start > timeout:
+                break
+
+            events = hub.list_since(cursor, task_id=task_id)
+            if events:
+                for event in events:
+                    cursor = max(cursor, event.sequence)
+                    payload = json.dumps(event.model_dump(), ensure_ascii=False)
+                    yield f"id: {event.event_id}\nevent: {event.kind}\ndata: {payload}\n\n"
+
+            if now - last_heartbeat >= heartbeat:
+                heartbeat_payload = json.dumps(
+                    {
+                        "version": "v2",
+                        "kind": "heartbeat",
+                        "sequence": hub.current_sequence(),
+                        "ts": datetime.now().isoformat(),
+                    },
+                    ensure_ascii=False,
+                )
+                yield f"event: heartbeat\ndata: {heartbeat_payload}\n\n"
+                last_heartbeat = now
+
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.websocket("/v2/ws/{task_id}")
+async def training_events_websocket_v2(websocket: WebSocket, task_id: str):
+    """训练事件流 V2（WebSocket）。"""
+    await websocket.accept()
+    hub = get_training_event_hub_v2()
+    cursor = hub.parse_last_event_id(websocket.query_params.get("last_event_id"))
+    task_filter = None if task_id == "all" else task_id
+
+    try:
+        while True:
+            for event in hub.list_since(cursor, task_id=task_filter):
+                cursor = max(cursor, event.sequence)
+                await websocket.send_text(json.dumps(event.model_dump(), ensure_ascii=False))
+
+            try:
+                message = await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
+                if message == "ping":
+                    await websocket.send_text(json.dumps({"type": "pong"}))
+            except asyncio.TimeoutError:
+                pass
+    except WebSocketDisconnect:
+        return
+
+
+@router.get("/v2/overview")
+async def get_training_overview_v2():
+    """训练概览（队列 + 运行中 + 失败摘要 + 资源风险信号）。"""
+    ctx = get_training_context()
+    state = ctx.state
+    queue = ctx.queue
+    history = state.get_history()
+
+    failed_records = [record for record in history if record.status == "failed"]
+    recent_failed = sorted(
+        failed_records,
+        key=lambda record: record.start_time,
+        reverse=True,
+    )[:5]
+
+    suspected_vram_pressure_count = 0
+    long_context_failure_count = 0
+    unquantized_failure_count = 0
+    for record in failed_records:
+        cfg = record.config or {}
+        batch_size = int(cfg.get("batch_size", cfg.get("batchSize", 1)) or 1)
+        max_seq_length = int(cfg.get("max_seq_length", cfg.get("maxSeqLength", 512)) or 512)
+        quantization = int(cfg.get("quantization", 4) or 0)
+        if batch_size >= 2 or max_seq_length > 1024 or quantization == 0:
+            suspected_vram_pressure_count += 1
+        if max_seq_length > 1024:
+            long_context_failure_count += 1
+        if quantization == 0:
+            unquantized_failure_count += 1
+
+    return {
+        "version": "v2",
+        "queue": queue.get_queue_status(),
+        "running": {
+            "is_training": state.is_training(),
+            "record": state.get_current_record().model_dump() if state.get_current_record() else None,
+            "progress": state.get_progress().model_dump(),
+        },
+        "recent_failures": [
+            {
+                "task_id": record.id,
+                "model_name": record.model_name,
+                "dataset_name": record.dataset_name,
+                "method": record.method,
+                "start_time": record.start_time,
+            }
+            for record in recent_failed
+        ],
+        "resource_signals": {
+            "suspected_vram_pressure_count": suspected_vram_pressure_count,
+            "long_context_failure_count": long_context_failure_count,
+            "unquantized_failure_count": unquantized_failure_count,
+        },
+    }
+
+
+@router.get("/v2/tasks/{task_id}/metrics")
+async def get_training_metrics_v2(
+    task_id: str,
+    cursor: int = Query(default=0, ge=0, description="读取偏移"),
+    limit: int = Query(default=200, ge=1, le=1000, description="本次最多返回条数"),
+):
+    """按游标分页读取训练指标，支持断线后回填。"""
+    settings = get_settings()
+    output_dir = settings.outputs_dir_resolved / f"train_{task_id[:8]}"
+    metrics_file = output_dir / "metrics.jsonl"
+
+    if not metrics_file.exists():
+        return {
+            "task_id": task_id,
+            "cursor": cursor,
+            "next_cursor": cursor,
+            "has_more": False,
+            "items": [],
+        }
+
+    items: list[dict[str, Any]] = []
+    with open(metrics_file, encoding="utf-8") as f:
+        for idx, line in enumerate(f):
+            if idx < cursor:
+                continue
+            if len(items) >= limit:
+                break
+            try:
+                items.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+
+    next_cursor = cursor + len(items)
+    has_more = False
+    if items:
+        with open(metrics_file, encoding="utf-8") as f:
+            total = sum(1 for _ in f)
+        has_more = next_cursor < total
+
+    return {
+        "task_id": task_id,
+        "cursor": cursor,
+        "next_cursor": next_cursor,
+        "has_more": has_more,
+        "items": items,
+    }
 
 
 @router.get("/history")
@@ -2239,7 +2617,13 @@ async def get_chart_data(task_id: str):
 async def get_status():
     """获取训练状态"""
     state = get_training_context().state
-    return state.get_status()
+    status = state.get_status()
+    latest_event = get_training_event_hub_v2().get_latest()
+    if latest_event and isinstance(status, dict):
+        progress = status.get("progress")
+        if progress is not None:
+            status["progress"] = _legacy_progress_from_v2_event(latest_event, progress)
+    return status
 
 
 class SwiftCheckResponse(BaseModel):
@@ -2886,6 +3270,7 @@ def _start_training_task(
 
     state.set_current_record(record)
     config.output_path = str(output_path)
+    hub_v2 = get_training_event_hub_v2()
 
     try:
         event_loop = asyncio.get_running_loop()
@@ -2923,6 +3308,21 @@ def _start_training_task(
         if not success:
             raise HTTPException(status_code=503, detail="Task queue is full")
 
+        queue_status = queue.get_queue_status()
+        queue_position = max(1, int(queue_status.get("queue_size", 1)))
+        estimated_wait_seconds = max(0, queue_position - 1) * 60
+        hub_v2.publish(
+            task_id=record_id,
+            phase="queued",
+            kind="task_queued",
+            payload={
+                "priority": task_priority.name.lower(),
+                "queue_position": queue_position,
+                "estimated_wait_seconds": estimated_wait_seconds,
+                "status": "queued",
+                "message": f"Task queued at position {queue_position}",
+            },
+        )
         logger.info(f"训练任务已加入队列：{record_id}")
         return TrainingRecordResponse(**record.model_dump())
 
@@ -2932,6 +3332,15 @@ def _start_training_task(
     )
     state.register_training_task(record_id, thread)
     thread.start()
+    hub_v2.publish(
+        task_id=record_id,
+        phase="loading",
+        kind="task_started",
+        payload={
+            "status": "loading",
+            "message": "Training task started and preparing runtime",
+        },
+    )
 
     logger.info(f"训练任务已启动：{record_id}")
     return TrainingRecordResponse(**record.model_dump())
@@ -3086,6 +3495,7 @@ async def cancel_task(task_id: str):
     state = ctx.state
 
     if queue.cancel(task_id):
+        hub = get_training_event_hub_v2()
         current_record = state.get_current_record()
         if current_record and current_record.id == task_id and state.is_training():
             state.request_stop()
@@ -3093,6 +3503,26 @@ async def cancel_task(task_id: str):
                 state,
                 status="stopping",
                 message="Training cancellation requested by user",
+            )
+            hub.publish(
+                task_id=task_id,
+                phase="stopping",
+                kind="task_cancellation_requested",
+                payload={
+                    "status": "stopping",
+                    "message": "Training cancellation requested by user",
+                },
+            )
+        else:
+            hub.publish(
+                task_id=task_id,
+                phase="stopped",
+                kind="task_cancelled",
+                payload={
+                    "status": "stopped",
+                    "message": "Queued task cancelled by user",
+                    "stop_reason": "user_cancelled_before_start",
+                },
             )
         return {"message": f"Task {task_id} cancelled"}
 

@@ -169,7 +169,16 @@ class SessionManager:
 
     def delete_session(self, session_id: str) -> bool:
         if session_id not in self._sessions:
+            # 即便内存里没有，也尝试去删文件（应对不同步的情况）
+            file_path = self.storage_path / f"{session_id}.json"
+            if file_path.exists():
+                try:
+                    file_path.unlink()
+                    return True
+                except Exception as e:
+                    logger.warning("Failed to delete session file %s: %s", file_path, e)
             return False
+            
         del self._sessions[session_id]
         self._memory_cache.pop(session_id, None)
 

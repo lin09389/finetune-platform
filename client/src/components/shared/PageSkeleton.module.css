@@ -3,8 +3,11 @@
   min-height: clamp(420px, 62vh, 760px);
   border-radius: var(--radius-2xl);
   border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
-  background:
-    linear-gradient(140deg, color-mix(in srgb, var(--bg-secondary) 90%, transparent) 0%, color-mix(in srgb, var(--bg-elevated) 78%, transparent) 100%);
+  background: linear-gradient(
+    140deg,
+    color-mix(in srgb, var(--bg-secondary) 90%, transparent) 0%,
+    color-mix(in srgb, var(--bg-elevated) 78%, transparent) 100%
+  );
   box-shadow: var(--shadow-md);
   padding: clamp(16px, 2vw, 28px);
   display: flex;
@@ -36,7 +39,12 @@
 
 .bar {
   border-radius: 999px;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--bg-hover) 75%, transparent), color-mix(in srgb, var(--bg-secondary) 75%, transparent), color-mix(in srgb, var(--bg-hover) 75%, transparent));
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--bg-hover) 75%, transparent),
+    color-mix(in srgb, var(--bg-secondary) 75%, transparent),
+    color-mix(in srgb, var(--bg-hover) 75%, transparent)
+  );
   background-size: 200% 100%;
   animation: shimmer-skeleton 1.7s linear infinite;
 }

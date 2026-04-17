@@ -1,72 +1,72 @@
-import { Row, Col, Progress, Tag, Spin, Alert, Button } from 'antd'
-import { 
-  ThunderboltOutlined, 
-  AppleOutlined, 
+import {
+  AppleOutlined,
+  DesktopOutlined,
   QuestionCircleOutlined,
   ReloadOutlined,
-  DesktopOutlined
-} from '@ant-design/icons'
-import { useAppStore } from '../store/appStore'
-import { useEffect, useState } from 'react'
-import { getDeviceInfo } from '../services/api'
-import styles from './DeviceInfo.module.css'
-import glassStyles from '../components/shared/GlassCard.module.css'
+  ThunderboltOutlined,
+} from '@ant-design/icons';
+import { Alert, Button, Col, Progress, Row, Spin, Tag } from 'antd';
+import { useEffect, useState } from 'react';
+import glassStyles from '../components/shared/GlassCard.module.css';
+import { getDeviceInfo } from '../services/api';
+import { useAppStore } from '../store/appStore';
+import styles from './DeviceInfo.module.css';
 
 export default function DeviceInfo() {
-  const { backendStatus, deviceInfo, setDeviceInfo } = useAppStore()
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { backendStatus, deviceInfo, setDeviceInfo } = useAppStore();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchInfo = async () => {
     if (backendStatus !== 'connected') {
-      setError('后端服务未连接')
-      return
+      setError('后端服务未连接');
+      return;
     }
-    
-    setLoading(true)
-    setError(null)
+
+    setLoading(true);
+    setError(null);
     try {
-      const info = await getDeviceInfo()
-      setDeviceInfo(info)
+      const info = await getDeviceInfo();
+      setDeviceInfo(info);
     } catch (err: any) {
-      setError(err.message || '获取设备信息失败')
+      setError(err.message || '获取设备信息失败');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   useEffect(() => {
-    fetchInfo()
-  }, [backendStatus])
+    fetchInfo();
+  }, [backendStatus]);
 
   const getPlatformIcon = (platform: string) => {
     switch (platform) {
       case 'cuda':
-        return <ThunderboltOutlined style={{ color: '#76b900' }} />
+        return <ThunderboltOutlined style={{ color: '#76b900' }} />;
       case 'mac':
-        return <AppleOutlined style={{ color: '#555' }} />
+        return <AppleOutlined style={{ color: '#555' }} />;
       default:
-        return <QuestionCircleOutlined />
+        return <QuestionCircleOutlined />;
     }
-  }
+  };
 
   const getPlatformName = (platform: string) => {
     switch (platform) {
       case 'cuda':
-        return 'NVIDIA CUDA'
+        return 'NVIDIA CUDA';
       case 'mac':
-        return 'Apple Silicon (MLX)'
+        return 'Apple Silicon (MLX)';
       default:
-        return '未知平台'
+        return '未知平台';
     }
-  }
+  };
 
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', padding: 100 }}>
         <Spin size="large" />
       </div>
-    )
+    );
   }
 
   return (
@@ -76,8 +76,8 @@ export default function DeviceInfo() {
           <DesktopOutlined />
           设备信息
         </h1>
-        <Button 
-          icon={<ReloadOutlined />} 
+        <Button
+          icon={<ReloadOutlined />}
           onClick={fetchInfo}
           loading={loading}
           style={{ borderRadius: 8 }}
@@ -87,11 +87,11 @@ export default function DeviceInfo() {
       </div>
 
       {error && (
-        <Alert 
-          message="错误" 
-          description={error} 
-          type="error" 
-          showIcon 
+        <Alert
+          message="错误"
+          description={error}
+          type="error"
+          showIcon
           style={{ borderRadius: 12 }}
         />
       )}
@@ -103,10 +103,11 @@ export default function DeviceInfo() {
               <div className={`${glassStyles.glassCard} ${styles.card}`}>
                 <div className={styles.cardTitle}>计算平台</div>
                 <div className={styles.platformCenter}>
-                  <div className={styles.platformIcon}>
-                    {getPlatformIcon(deviceInfo.platform)}
-                  </div>
-                  <Tag color={deviceInfo.platform === 'cuda' ? 'success' : 'purple'} style={{ fontSize: 14, padding: '4px 16px', borderRadius: 6 }}>
+                  <div className={styles.platformIcon}>{getPlatformIcon(deviceInfo.platform)}</div>
+                  <Tag
+                    color={deviceInfo.platform === 'cuda' ? 'success' : 'purple'}
+                    style={{ fontSize: 14, padding: '4px 16px', borderRadius: 6 }}
+                  >
                     {getPlatformName(deviceInfo.platform)}
                   </Tag>
                   <div style={{ color: 'var(--text-secondary)', fontSize: 14 }}>
@@ -138,23 +139,35 @@ export default function DeviceInfo() {
                 <div className={styles.progressWrapper}>
                   <Progress
                     type="circle"
-                    percent={deviceInfo.vram_total ? Math.round((deviceInfo.vram_used / deviceInfo.vram_total) * 100) : 0}
-                    format={() => `${(deviceInfo.vram_used || 0).toFixed(1)}/${(deviceInfo.vram_total || 0).toFixed(1)}GB`}
+                    percent={
+                      deviceInfo.vram_total
+                        ? Math.round((deviceInfo.vram_used / deviceInfo.vram_total) * 100)
+                        : 0
+                    }
+                    format={() =>
+                      `${(deviceInfo.vram_used || 0).toFixed(1)}/${(deviceInfo.vram_total || 0).toFixed(1)}GB`
+                    }
                     strokeColor={{ '0%': 'var(--accent-primary)', '100%': 'var(--success)' }}
                     size={140}
                   />
                   <div className={styles.metricsRow}>
                     <div className={styles.metricItem}>
                       <span className={styles.metricLabel}>总容量</span>
-                      <span className={styles.metricValue}>{(deviceInfo.vram_total || 0).toFixed(1)} GB</span>
+                      <span className={styles.metricValue}>
+                        {(deviceInfo.vram_total || 0).toFixed(1)} GB
+                      </span>
                     </div>
                     <div className={styles.metricItem}>
                       <span className={styles.metricLabel}>已使用</span>
-                      <span className={styles.metricValue}>{(deviceInfo.vram_used || 0).toFixed(1)} GB</span>
+                      <span className={styles.metricValue}>
+                        {(deviceInfo.vram_used || 0).toFixed(1)} GB
+                      </span>
                     </div>
                     <div className={styles.metricItem}>
                       <span className={styles.metricLabel}>剩余可用</span>
-                      <span className={styles.metricValue}>{(deviceInfo.vram_free || 0).toFixed(1)} GB</span>
+                      <span className={styles.metricValue}>
+                        {(deviceInfo.vram_free || 0).toFixed(1)} GB
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -169,23 +182,33 @@ export default function DeviceInfo() {
                 <div className={styles.progressWrapper}>
                   <Progress
                     type="circle"
-                    percent={Math.round(((deviceInfo.memory_used || 0) / (deviceInfo.memory_total || 1)) * 100)}
-                    format={() => `${(deviceInfo.memory_used || 0).toFixed(1)}/${(deviceInfo.memory_total || 0).toFixed(1)}GB`}
+                    percent={Math.round(
+                      ((deviceInfo.memory_used || 0) / (deviceInfo.memory_total || 1)) * 100,
+                    )}
+                    format={() =>
+                      `${(deviceInfo.memory_used || 0).toFixed(1)}/${(deviceInfo.memory_total || 0).toFixed(1)}GB`
+                    }
                     strokeColor={{ '0%': 'var(--accent-primary)', '100%': 'var(--success)' }}
                     size={140}
                   />
                   <div className={styles.metricsRow}>
                     <div className={styles.metricItem}>
                       <span className={styles.metricLabel}>总容量</span>
-                      <span className={styles.metricValue}>{(deviceInfo.memory_total || 0).toFixed(1)} GB</span>
+                      <span className={styles.metricValue}>
+                        {(deviceInfo.memory_total || 0).toFixed(1)} GB
+                      </span>
                     </div>
                     <div className={styles.metricItem}>
                       <span className={styles.metricLabel}>已使用</span>
-                      <span className={styles.metricValue}>{(deviceInfo.memory_used || 0).toFixed(1)} GB</span>
+                      <span className={styles.metricValue}>
+                        {(deviceInfo.memory_used || 0).toFixed(1)} GB
+                      </span>
                     </div>
                     <div className={styles.metricItem}>
                       <span className={styles.metricLabel}>剩余可用</span>
-                      <span className={styles.metricValue}>{(deviceInfo.memory_free || 0).toFixed(1)} GB</span>
+                      <span className={styles.metricValue}>
+                        {(deviceInfo.memory_free || 0).toFixed(1)} GB
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -197,16 +220,40 @@ export default function DeviceInfo() {
                 <div className={styles.cardTitle}>显存建议</div>
                 <div style={{ paddingTop: 8 }}>
                   {(deviceInfo.vram_free || 0) < 6 && (
-                    <Alert message="显存不足" description="当前显存小于 6GB，建议使用 INT4 量化 + QLoRA。推荐：Qwen2.5-0.5B, Phi-3-mini" type="warning" showIcon style={{ borderRadius: 10 }} />
+                    <Alert
+                      message="显存不足"
+                      description="当前显存小于 6GB，建议使用 INT4 量化 + QLoRA。推荐：Qwen2.5-0.5B, Phi-3-mini"
+                      type="warning"
+                      showIcon
+                      style={{ borderRadius: 10 }}
+                    />
                   )}
                   {(deviceInfo.vram_free || 0) >= 6 && (deviceInfo.vram_free || 0) < 10 && (
-                    <Alert message="显存适中" description="6-10GB 可用 INT4 微调 7B 模型，如 Qwen2.5-1.8B, Llama3-8B, ChatGLM3-6B" type="success" showIcon style={{ borderRadius: 10 }} />
+                    <Alert
+                      message="显存适中"
+                      description="6-10GB 可用 INT4 微调 7B 模型，如 Qwen2.5-1.8B, Llama3-8B, ChatGLM3-6B"
+                      type="success"
+                      showIcon
+                      style={{ borderRadius: 10 }}
+                    />
                   )}
                   {(deviceInfo.vram_free || 0) >= 10 && (deviceInfo.vram_free || 0) < 16 && (
-                    <Alert message="显存充裕" description="10-16GB 可微调 7B 模型（INT4/INT8），或用 QLoRA 微调 13B 模型" type="success" showIcon style={{ borderRadius: 10 }} />
+                    <Alert
+                      message="显存充裕"
+                      description="10-16GB 可微调 7B 模型（INT4/INT8），或用 QLoRA 微调 13B 模型"
+                      type="success"
+                      showIcon
+                      style={{ borderRadius: 10 }}
+                    />
                   )}
                   {deviceInfo.vram_free >= 16 && (
-                    <Alert message="显存充足" description="16GB+ 可微调 13B 模型，或用 LoRA 微调 30B+ 模型" type="success" showIcon style={{ borderRadius: 10 }} />
+                    <Alert
+                      message="显存充足"
+                      description="16GB+ 可微调 13B 模型，或用 LoRA 微调 30B+ 模型"
+                      type="success"
+                      showIcon
+                      style={{ borderRadius: 10 }}
+                    />
                   )}
                 </div>
               </div>
@@ -215,5 +262,5 @@ export default function DeviceInfo() {
         </>
       )}
     </div>
-  )
+  );
 }

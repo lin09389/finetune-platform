@@ -1,6 +1,12 @@
-import { useState, useEffect } from 'react';
-import { Card, Tag, Space, Alert, Button } from 'antd';
-import { ThunderboltOutlined, CheckCircleOutlined, CloseCircleOutlined, ReloadOutlined } from '@ant-design/icons';
+import {
+  CheckCircleOutlined,
+  CloseCircleOutlined,
+  ReloadOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons';
+import { Alert, Button, Card, Space, Tag } from 'antd';
+import { useEffect, useState } from 'react';
+import { API_BASE_URL } from '../services/api';
 
 interface SwiftStatus {
   available: boolean;
@@ -22,7 +28,10 @@ export const SwiftChecker: React.FC<SwiftCheckerProps> = ({ onStatusChange }) =>
   const checkSwift = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/training/check-swift');
+      const response = await fetch(`${API_BASE_URL}/training/check-swift`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
       const data = await response.json();
       setStatus(data);
       onStatusChange?.(data);
@@ -31,7 +40,7 @@ export const SwiftChecker: React.FC<SwiftCheckerProps> = ({ onStatusChange }) =>
       setStatus({
         available: false,
         version: '',
-        message: '检查失败'
+        message: '检查失败',
       });
     } finally {
       setLoading(false);
@@ -54,8 +63,8 @@ export const SwiftChecker: React.FC<SwiftCheckerProps> = ({ onStatusChange }) =>
   }
 
   return (
-    <Card 
-      size="small" 
+    <Card
+      size="small"
       style={{ marginBottom: 16 }}
       title={
         <Space>
@@ -64,36 +73,31 @@ export const SwiftChecker: React.FC<SwiftCheckerProps> = ({ onStatusChange }) =>
         </Space>
       }
       extra={
-        <Button 
-          type="text" 
-          icon={<ReloadOutlined />} 
-          onClick={checkSwift}
-          disabled={loading}
-        />
+        <Button type="text" icon={<ReloadOutlined />} onClick={checkSwift} disabled={loading} />
       }
     >
       <Space direction="vertical" style={{ width: '100%' }} size="small">
         <div>
           <strong>状态:</strong>{' '}
           {status?.available ? (
-            <Tag icon={<CheckCircleOutlined />} color="success">已安装</Tag>
+            <Tag icon={<CheckCircleOutlined />} color="success">
+              已安装
+            </Tag>
           ) : (
-            <Tag icon={<CloseCircleOutlined />} color="error">未安装</Tag>
+            <Tag icon={<CloseCircleOutlined />} color="error">
+              未安装
+            </Tag>
           )}
         </div>
-        
+
         {status?.version && (
           <div>
             <strong>版本:</strong> <Tag>{status.version}</Tag>
           </div>
         )}
-        
-        {status?.message && (
-          <div style={{ fontSize: 12, color: '#888' }}>
-            {status.message}
-          </div>
-        )}
-        
+
+        {status?.message && <div style={{ fontSize: 12, color: '#888' }}>{status.message}</div>}
+
         {!status?.available && (
           <Alert
             type="warning"

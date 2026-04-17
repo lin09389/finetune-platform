@@ -1,84 +1,95 @@
-import { useEffect, useState } from 'react'
-import { Table, Tag, Button, Descriptions, Space, message, Drawer, Spin, Empty } from 'antd'
-import { DeleteOutlined, EyeOutlined, ReloadOutlined, PlayCircleOutlined, HistoryOutlined } from '@ant-design/icons'
-import { useAppStore } from '../store/appStore'
-import { getTrainingHistory, getTrainingCheckpoints, resumeTraining } from '../services/trainingApi'
-import type { TrainingRecord, Checkpoint } from '../types'
-import { MotionList, MotionItem } from '../components/shared/MotionWrapper'
-import styles from './History.module.css'
-import glassStyles from '../components/shared/GlassCard.module.css'
+import {
+  DeleteOutlined,
+  EyeOutlined,
+  HistoryOutlined,
+  PlayCircleOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
+import { Button, Descriptions, Drawer, Empty, Space, Spin, Table, Tag, message } from 'antd';
+import { useEffect, useState } from 'react';
+import glassStyles from '../components/shared/GlassCard.module.css';
+import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
+import {
+  getTrainingCheckpoints,
+  getTrainingHistory,
+  resumeTraining,
+} from '../services/trainingApi';
+import { useAppStore } from '../store/appStore';
+import type { Checkpoint, TrainingRecord } from '../types';
+import styles from './History.module.css';
 
 export default function History() {
-  const { trainingRecords, setTrainingRecords, removeTrainingRecord, setIsTraining } = useAppStore()
-  const [loading, setLoading] = useState(false)
-  const [selectedRecord, setSelectedRecord] = useState<TrainingRecord | null>(null)
-  const [detailOpen, setDetailOpen] = useState(false)
-  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
-  const [checkpointsLoading, setCheckpointsLoading] = useState(false)
-  const [resumingCheckpoint, setResumingCheckpoint] = useState<string | null>(null)
+  const { trainingRecords, setTrainingRecords, removeTrainingRecord, setIsTraining } =
+    useAppStore();
+  const [loading, setLoading] = useState(false);
+  const [selectedRecord, setSelectedRecord] = useState<TrainingRecord | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
+  const [checkpointsLoading, setCheckpointsLoading] = useState(false);
+  const [resumingCheckpoint, setResumingCheckpoint] = useState<string | null>(null);
 
   useEffect(() => {
-    void loadRecords()
-  }, [])
+    void loadRecords();
+  }, []);
 
   const loadRecords = async () => {
-    setLoading(true)
+    setLoading(true);
     try {
-      const records = await getTrainingHistory()
-      setTrainingRecords(records)
+      const records = await getTrainingHistory();
+      setTrainingRecords(records);
     } catch (error) {
-      console.error('Failed to load records:', error)
-      message.error(getErrorMessage(error, '加载训练历史失败'))
+      console.error('Failed to load records:', error);
+      message.error(getErrorMessage(error, '加载训练历史失败'));
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const getErrorMessage = (error: any, fallback: string) => {
-    return error?.response?.data?.detail || error?.message || fallback
-  }
+    return error?.response?.data?.detail || error?.message || fallback;
+  };
 
   const handleDelete = async (id: string) => {
-    removeTrainingRecord(id)
-    message.success('记录已删除')
-  }
+    removeTrainingRecord(id);
+    message.success('记录已删除');
+  };
 
   const loadCheckpoints = async (record: TrainingRecord) => {
-    setCheckpointsLoading(true)
+    setCheckpointsLoading(true);
     try {
-      const items = await getTrainingCheckpoints(record.id)
-      setCheckpoints(items)
+      const items = await getTrainingCheckpoints(record.id);
+      setCheckpoints(items);
     } catch (error) {
-      console.error('Failed to load checkpoints:', error)
-      setCheckpoints([])
-      message.error(getErrorMessage(error, '加载检查点失败'))
+      console.error('Failed to load checkpoints:', error);
+      setCheckpoints([]);
+      message.error(getErrorMessage(error, '加载检查点失败'));
     } finally {
-      setCheckpointsLoading(false)
+      setCheckpointsLoading(false);
     }
-  }
+  };
 
   const openDetail = async (record: TrainingRecord) => {
-    setSelectedRecord(record)
-    setDetailOpen(true)
-    await loadCheckpoints(record)
-  }
+    setSelectedRecord(record);
+    setDetailOpen(true);
+    await loadCheckpoints(record);
+  };
 
   const handleResume = async (checkpointName: string) => {
-    if (!selectedRecord) return
+    if (!selectedRecord) return;
 
-    setResumingCheckpoint(checkpointName)
+    setResumingCheckpoint(checkpointName);
     try {
-      await resumeTraining(selectedRecord.id, checkpointName)
-      setIsTraining(true)
-      message.success(`已从 ${checkpointName} 恢复训练`)
-      await loadRecords()
+      await resumeTraining(selectedRecord.id, checkpointName);
+      setIsTraining(true);
+      message.success(`已从 ${checkpointName} 恢复训练`);
+      await loadRecords();
     } catch (error) {
-      console.error('Failed to resume training:', error)
-      message.error(getErrorMessage(error, '恢复训练失败'))
+      console.error('Failed to resume training:', error);
+      message.error(getErrorMessage(error, '恢复训练失败'));
     } finally {
-      setResumingCheckpoint(null)
+      setResumingCheckpoint(null);
     }
-  }
+  };
 
   const getStatusTag = (status: string) => {
     const statusMap: Record<string, { color: string; text: string }> = {
@@ -86,28 +97,28 @@ export default function History() {
       completed: { color: 'green', text: '已完成' },
       failed: { color: 'red', text: '失败' },
       stopped: { color: 'default', text: '已停止' },
-    }
-    const config = statusMap[status] || { color: 'default', text: status }
-    return <Tag color={config.color}>{config.text}</Tag>
-  }
+    };
+    const config = statusMap[status] || { color: 'default', text: status };
+    return <Tag color={config.color}>{config.text}</Tag>;
+  };
 
   const getMethodTag = (method: string) => {
     const methodMap: Record<string, { color: string; text: string }> = {
       lora: { color: 'blue', text: 'LoRA' },
       qlora: { color: 'purple', text: 'QLoRA' },
       full: { color: 'orange', text: '全量' },
-    }
-    const config = methodMap[method] || { color: 'default', text: method }
-    return <Tag color={config.color}>{config.text}</Tag>
-  }
+    };
+    const config = methodMap[method] || { color: 'default', text: method };
+    return <Tag color={config.color}>{config.text}</Tag>;
+  };
 
   const calculateDuration = (start: string, end?: string) => {
-    if (!end) return '-'
-    const duration = new Date(end).getTime() - new Date(start).getTime()
-    const minutes = Math.floor(duration / 60000)
-    const seconds = Math.floor((duration % 60000) / 1000)
-    return `${minutes}分 ${seconds}秒`
-  }
+    if (!end) return '-';
+    const duration = new Date(end).getTime() - new Date(start).getTime();
+    const minutes = Math.floor(duration / 60000);
+    const seconds = Math.floor((duration % 60000) / 1000);
+    return `${minutes}分 ${seconds}秒`;
+  };
 
   const columns = [
     {
@@ -149,11 +160,7 @@ export default function History() {
       key: 'action',
       render: (_: unknown, record: TrainingRecord) => (
         <Space>
-          <Button
-            icon={<EyeOutlined />}
-            size="small"
-            onClick={() => void openDetail(record)}
-          >
+          <Button icon={<EyeOutlined />} size="small" onClick={() => void openDetail(record)}>
             详情
           </Button>
           <Button
@@ -167,33 +174,38 @@ export default function History() {
         </Space>
       ),
     },
-  ]
+  ];
 
   return (
     <MotionList className={styles.container} stagger={0.08}>
       <MotionItem>
-      <div className={`${glassStyles.glassCard} ${styles.headerCard}`}>
-        <h1 className={styles.title}>
-          <HistoryOutlined />
-          训练历史
-        </h1>
-        <Button icon={<ReloadOutlined />} onClick={() => void loadRecords()} loading={loading} style={{ borderRadius: 8 }}>
-          刷新
-        </Button>
-      </div>
+        <div className={`${glassStyles.glassCard} ${styles.headerCard}`}>
+          <h1 className={styles.title}>
+            <HistoryOutlined />
+            训练历史
+          </h1>
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={() => void loadRecords()}
+            loading={loading}
+            style={{ borderRadius: 8 }}
+          >
+            刷新
+          </Button>
+        </div>
       </MotionItem>
 
       <MotionItem>
-      <div className={`${glassStyles.glassCard} ${styles.tableCard}`}>
-        <Table
-          columns={columns}
-          dataSource={trainingRecords}
-          rowKey="id"
-          loading={loading}
-          pagination={{ pageSize: 10 }}
-          locale={{ emptyText: '暂无训练记录' }}
-        />
-      </div>
+        <div className={`${glassStyles.glassCard} ${styles.tableCard}`}>
+          <Table
+            columns={columns}
+            dataSource={trainingRecords}
+            rowKey="id"
+            loading={loading}
+            pagination={{ pageSize: 10 }}
+            locale={{ emptyText: '暂无训练记录' }}
+          />
+        </div>
       </MotionItem>
 
       <Drawer
@@ -202,8 +214,8 @@ export default function History() {
         width={600}
         open={detailOpen}
         onClose={() => {
-          setDetailOpen(false)
-          setCheckpoints([])
+          setDetailOpen(false);
+          setCheckpoints([]);
         }}
         extra={[
           selectedRecord ? (
@@ -217,7 +229,9 @@ export default function History() {
               刷新检查点
             </Button>
           ) : null,
-          <Button key="close" onClick={() => setDetailOpen(false)}>关闭</Button>,
+          <Button key="close" onClick={() => setDetailOpen(false)}>
+            关闭
+          </Button>,
         ]}
       >
         {selectedRecord && (
@@ -226,19 +240,31 @@ export default function History() {
               <Descriptions.Item label="训练 ID">{selectedRecord.id}</Descriptions.Item>
               <Descriptions.Item label="模型">{selectedRecord.modelName}</Descriptions.Item>
               <Descriptions.Item label="数据集">{selectedRecord.datasetName}</Descriptions.Item>
-              <Descriptions.Item label="训练方法">{getMethodTag(selectedRecord.method)}</Descriptions.Item>
-              <Descriptions.Item label="状态">{getStatusTag(selectedRecord.status)}</Descriptions.Item>
-              <Descriptions.Item label="开始时间">{new Date(selectedRecord.startTime).toLocaleString('zh-CN')}</Descriptions.Item>
+              <Descriptions.Item label="训练方法">
+                {getMethodTag(selectedRecord.method)}
+              </Descriptions.Item>
+              <Descriptions.Item label="状态">
+                {getStatusTag(selectedRecord.status)}
+              </Descriptions.Item>
+              <Descriptions.Item label="开始时间">
+                {new Date(selectedRecord.startTime).toLocaleString('zh-CN')}
+              </Descriptions.Item>
               {selectedRecord.endTime && (
-                <Descriptions.Item label="结束时间">{new Date(selectedRecord.endTime).toLocaleString('zh-CN')}</Descriptions.Item>
+                <Descriptions.Item label="结束时间">
+                  {new Date(selectedRecord.endTime).toLocaleString('zh-CN')}
+                </Descriptions.Item>
               )}
-              <Descriptions.Item label="训练耗时">{calculateDuration(selectedRecord.startTime, selectedRecord.endTime)}</Descriptions.Item>
+              <Descriptions.Item label="训练耗时">
+                {calculateDuration(selectedRecord.startTime, selectedRecord.endTime)}
+              </Descriptions.Item>
               <Descriptions.Item label="输出路径">{selectedRecord.outputPath}</Descriptions.Item>
               <Descriptions.Item label="训练配置">
                 <div style={{ fontSize: 12, lineHeight: 1.8 }}>
                   <div>Rank: {selectedRecord.config?.rank || '-'}</div>
                   <div>Alpha: {selectedRecord.config?.alpha || '-'}</div>
-                  <div>Learning Rate: {selectedRecord.config?.learningRate?.toExponential?.(2) || '-'}</div>
+                  <div>
+                    Learning Rate: {selectedRecord.config?.learningRate?.toExponential?.(2) || '-'}
+                  </div>
                   <div>Epochs: {selectedRecord.config?.epochs || '-'}</div>
                   <div>Batch Size: {selectedRecord.config?.batchSize || '-'}</div>
                 </div>
@@ -252,8 +278,12 @@ export default function History() {
                   checkpoints.map((checkpoint) => (
                     <div key={checkpoint.name} className={styles.checkpointItem}>
                       <div>
-                        <div className={styles.checkpointName}>{checkpoint.name} · step {checkpoint.step}</div>
-                        <div className={styles.checkpointMeta}>创建于 {new Date(checkpoint.created).toLocaleString('zh-CN')}</div>
+                        <div className={styles.checkpointName}>
+                          {checkpoint.name} · step {checkpoint.step}
+                        </div>
+                        <div className={styles.checkpointMeta}>
+                          创建于 {new Date(checkpoint.created).toLocaleString('zh-CN')}
+                        </div>
                       </div>
                       <Button
                         type="primary"
@@ -277,5 +307,5 @@ export default function History() {
         )}
       </Drawer>
     </MotionList>
-  )
+  );
 }

@@ -1,21 +1,21 @@
-import { useState, useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 
 export interface TypewriterTextProps {
-  text: string
-  speed?: number
-  onComplete?: () => void
-  showCursor?: boolean
-  paused?: boolean
-  className?: string
-  cursorChar?: string
+  text: string;
+  speed?: number;
+  onComplete?: () => void;
+  showCursor?: boolean;
+  paused?: boolean;
+  className?: string;
+  cursorChar?: string;
 }
 
 export interface TypewriterTextRef {
-  pause: () => void
-  resume: () => void
-  reset: () => void
-  isComplete: boolean
-  displayedLength: number
+  pause: () => void;
+  resume: () => void;
+  reset: () => void;
+  isComplete: boolean;
+  displayedLength: number;
 }
 
 const TypewriterText = forwardRef<TypewriterTextRef, TypewriterTextProps>(
@@ -29,37 +29,37 @@ const TypewriterText = forwardRef<TypewriterTextRef, TypewriterTextProps>(
       className = '',
       cursorChar = '▋',
     },
-    ref
+    ref,
   ) => {
-    const [displayedText, setDisplayedText] = useState('')
-    const [isComplete, setIsComplete] = useState(false)
-    const [isPaused, setIsPaused] = useState(paused)
+    const [displayedText, setDisplayedText] = useState('');
+    const [isComplete, setIsComplete] = useState(false);
+    const [isPaused, setIsPaused] = useState(paused);
 
-    const charIndexRef = useRef(0)
-    const lastTimeRef = useRef(0)
-    const animationRef = useRef<number>(0)
-    const onCompleteRef = useRef(onComplete)
+    const charIndexRef = useRef(0);
+    const lastTimeRef = useRef(0);
+    const animationRef = useRef<number>(0);
+    const onCompleteRef = useRef(onComplete);
 
     useEffect(() => {
-      onCompleteRef.current = onComplete
-    }, [onComplete])
+      onCompleteRef.current = onComplete;
+    }, [onComplete]);
 
-    const interval = 1000 / speed
+    const interval = 1000 / speed;
 
     const reset = useCallback(() => {
-      charIndexRef.current = 0
-      lastTimeRef.current = 0
-      setDisplayedText('')
-      setIsComplete(false)
-    }, [])
+      charIndexRef.current = 0;
+      lastTimeRef.current = 0;
+      setDisplayedText('');
+      setIsComplete(false);
+    }, []);
 
     const pause = useCallback(() => {
-      setIsPaused(true)
-    }, [])
+      setIsPaused(true);
+    }, []);
 
     const resume = useCallback(() => {
-      setIsPaused(false)
-    }, [])
+      setIsPaused(false);
+    }, []);
 
     useImperativeHandle(
       ref,
@@ -70,67 +70,65 @@ const TypewriterText = forwardRef<TypewriterTextRef, TypewriterTextProps>(
         isComplete,
         displayedLength: displayedText.length,
       }),
-      [pause, resume, reset, isComplete, displayedText.length]
-    )
+      [pause, resume, reset, isComplete, displayedText.length],
+    );
 
     useEffect(() => {
       if (paused !== isPaused) {
-        setIsPaused(paused)
+        setIsPaused(paused);
       }
-    }, [paused])
+    }, [paused]);
 
     useEffect(() => {
-      reset()
-    }, [text, reset])
+      reset();
+    }, [text, reset]);
 
     useEffect(() => {
       if (isPaused || isComplete) {
         if (animationRef.current) {
-          cancelAnimationFrame(animationRef.current)
-          animationRef.current = 0
+          cancelAnimationFrame(animationRef.current);
+          animationRef.current = 0;
         }
-        return
+        return;
       }
 
       const animate = (time: number) => {
         if (isPaused || isComplete) {
-          return
+          return;
         }
 
         if (time - lastTimeRef.current >= interval) {
-          const currentLength = charIndexRef.current
+          const currentLength = charIndexRef.current;
 
           if (currentLength < text.length) {
-            const nextLength = currentLength + 1
-            charIndexRef.current = nextLength
-            setDisplayedText(text.slice(0, nextLength))
-            lastTimeRef.current = time
+            const nextLength = currentLength + 1;
+            charIndexRef.current = nextLength;
+            setDisplayedText(text.slice(0, nextLength));
+            lastTimeRef.current = time;
           } else {
-            setIsComplete(true)
-            onCompleteRef.current?.()
-            return
+            setIsComplete(true);
+            onCompleteRef.current?.();
+            return;
           }
         }
 
-        animationRef.current = requestAnimationFrame(animate)
-      }
+        animationRef.current = requestAnimationFrame(animate);
+      };
 
-      animationRef.current = requestAnimationFrame(animate)
+      animationRef.current = requestAnimationFrame(animate);
 
       return () => {
         if (animationRef.current) {
-          cancelAnimationFrame(animationRef.current)
-          animationRef.current = 0
+          cancelAnimationFrame(animationRef.current);
+          animationRef.current = 0;
         }
-      }
-    }, [text, interval, isPaused, isComplete])
+      };
+    }, [text, interval, isPaused, isComplete]);
 
     return (
       <span className={`typewriter-text ${className}`}>
         <span className="typewriter-content">{displayedText}</span>
-        {showCursor && !isComplete && (
-          <span className="typewriter-cursor">{cursorChar}</span>
-        )}
+        {showCursor && !isComplete && <span className="typewriter-cursor">{cursorChar}</span>}
 
         <style>{`
           .typewriter-text {
@@ -161,10 +159,10 @@ const TypewriterText = forwardRef<TypewriterTextRef, TypewriterTextProps>(
           }
         `}</style>
       </span>
-    )
-  }
-)
+    );
+  },
+);
 
-TypewriterText.displayName = 'TypewriterText'
+TypewriterText.displayName = 'TypewriterText';
 
-export default TypewriterText
+export default TypewriterText;

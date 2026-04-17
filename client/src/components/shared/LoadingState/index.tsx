@@ -1,17 +1,17 @@
-import React, { memo } from 'react'
-import { Spin, Skeleton, Card } from 'antd'
+import { Card, Skeleton, Spin } from 'antd';
+import React, { memo } from 'react';
 
-export type LoadingType = 'spinner' | 'skeleton' | 'dots' | 'card' | 'page'
+export type LoadingType = 'spinner' | 'skeleton' | 'dots' | 'card' | 'page';
 
 export interface LoadingStateProps {
-  type?: LoadingType
-  loading?: boolean
-  children?: React.ReactNode
-  tip?: string
-  size?: 'small' | 'default' | 'large'
-  delay?: number
-  className?: string
-  style?: React.CSSProperties
+  type?: LoadingType;
+  loading?: boolean;
+  children?: React.ReactNode;
+  tip?: string;
+  size?: 'small' | 'default' | 'large';
+  delay?: number;
+  className?: string;
+  style?: React.CSSProperties;
 }
 
 const LoadingState: React.FC<LoadingStateProps> = memo(
@@ -26,16 +26,16 @@ const LoadingState: React.FC<LoadingStateProps> = memo(
     style,
   }) => {
     if (!loading && children) {
-      return <>{children}</>
+      return <>{children}</>;
     }
 
     const sizeMap = {
       small: 16,
       default: 24,
       large: 32,
-    }
+    };
 
-    const spinnerSize = sizeMap[size]
+    const spinnerSize = sizeMap[size];
 
     if (type === 'spinner') {
       return (
@@ -52,7 +52,7 @@ const LoadingState: React.FC<LoadingStateProps> = memo(
         >
           <Spin size={size} tip={tip} delay={delay} />
         </div>
-      )
+      );
     }
 
     if (type === 'dots') {
@@ -73,13 +73,9 @@ const LoadingState: React.FC<LoadingStateProps> = memo(
             <span />
             <span />
           </div>
-          {tip && (
-            <span style={{ marginLeft: 8, color: 'var(--text-secondary)' }}>
-              {tip}
-            </span>
-          )}
+          {tip && <span style={{ marginLeft: 8, color: 'var(--text-secondary)' }}>{tip}</span>}
         </div>
-      )
+      );
     }
 
     if (type === 'skeleton') {
@@ -87,7 +83,7 @@ const LoadingState: React.FC<LoadingStateProps> = memo(
         <div className={className} style={style}>
           <Skeleton active paragraph={{ rows: 4 }} />
         </div>
-      )
+      );
     }
 
     if (type === 'card') {
@@ -95,7 +91,7 @@ const LoadingState: React.FC<LoadingStateProps> = memo(
         <Card className={className} style={style}>
           <Skeleton active avatar paragraph={{ rows: 3 }} />
         </Card>
-      )
+      );
     }
 
     if (type === 'page') {
@@ -153,33 +149,29 @@ const LoadingState: React.FC<LoadingStateProps> = memo(
             >
               {tip || '正在加载...'}
             </div>
-            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-              请稍候
-            </div>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>请稍候</div>
           </div>
         </div>
-      )
+      );
     }
 
-    return null
-  }
-)
+    return null;
+  },
+);
 
-LoadingState.displayName = 'LoadingState'
+LoadingState.displayName = 'LoadingState';
 
-export default LoadingState
+export default LoadingState;
 
 export const Spinner: React.FC<{
-  size?: 'small' | 'default' | 'large'
-  tip?: string
-}> = memo(({ size = 'default', tip }) => (
-  <LoadingState type="spinner" size={size} tip={tip} />
-))
+  size?: 'small' | 'default' | 'large';
+  tip?: string;
+}> = memo(({ size = 'default', tip }) => <LoadingState type="spinner" size={size} tip={tip} />);
 
-Spinner.displayName = 'Spinner'
+Spinner.displayName = 'Spinner';
 
 export const SkeletonCard: React.FC<{
-  count?: number
+  count?: number;
 }> = memo(({ count = 1 }) => (
   <>
     {Array.from({ length: count }).map((_, i) => (
@@ -188,13 +180,13 @@ export const SkeletonCard: React.FC<{
       </Card>
     ))}
   </>
-))
+));
 
-SkeletonCard.displayName = 'SkeletonCard'
+SkeletonCard.displayName = 'SkeletonCard';
 
 export const SkeletonTable: React.FC<{
-  rows?: number
-  columns?: number
+  rows?: number;
+  columns?: number;
 }> = memo(({ rows = 5, columns = 4 }) => (
   <div>
     <div
@@ -224,22 +216,17 @@ export const SkeletonTable: React.FC<{
         }}
       >
         {Array.from({ length: columns }).map((_, colIndex) => (
-          <Skeleton.Input
-            key={colIndex}
-            active
-            size="small"
-            style={{ width: '100%' }}
-          />
+          <Skeleton.Input key={colIndex} active size="small" style={{ width: '100%' }} />
         ))}
       </div>
     ))}
   </div>
-))
+));
 
-SkeletonTable.displayName = 'SkeletonTable'
+SkeletonTable.displayName = 'SkeletonTable';
 
 export const SkeletonList: React.FC<{
-  count?: number
+  count?: number;
 }> = memo(({ count = 3 }) => (
   <div>
     {Array.from({ length: count }).map((_, i) => (
@@ -260,17 +247,17 @@ export const SkeletonList: React.FC<{
       </div>
     ))}
   </div>
-))
+));
 
-SkeletonList.displayName = 'SkeletonList'
+SkeletonList.displayName = 'SkeletonList';
 
 export const InlineLoading: React.FC<{
-  loading?: boolean
-  children: React.ReactNode
+  loading?: boolean;
+  children: React.ReactNode;
 }> = memo(({ loading, children }) => (
   <Spin spinning={loading} size="small">
     {children}
   </Spin>
-))
+));
 
-InlineLoading.displayName = 'InlineLoading'
+InlineLoading.displayName = 'InlineLoading';

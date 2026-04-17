@@ -39,7 +39,10 @@
   border-radius: var(--radius-xl);
   padding: var(--space-5) var(--space-6);
   box-shadow: var(--shadow-glass);
-  transition: border-color var(--transition-base), box-shadow var(--transition-base), transform var(--transition-base);
+  transition:
+    border-color var(--transition-base),
+    box-shadow var(--transition-base),
+    transform var(--transition-base);
 }
 
 .assistantBubble:hover {
@@ -49,8 +52,8 @@
 }
 
 .markdownContent {
-  font-size: var(--text-base);
-  line-height: var(--leading-relaxed);
+  font-size: 14px;
+  line-height: 1.6;
   color: var(--text-primary);
 }
 
@@ -78,11 +81,43 @@
   display: flex;
   gap: var(--space-1);
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transform: translateY(2px);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
 }
 
 .messageContainer:hover .actions {
   opacity: 1;
+  transform: translateY(0);
+}
+
+.editMode {
+  width: 100%;
+  min-width: 300px;
+}
+
+.editInput {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: white !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border-radius: var(--radius-md) !important;
+  padding: 8px 12px !important;
+  font-size: 14px !important;
+  resize: none;
+}
+
+.editInput:focus {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border-color: rgba(255, 255, 255, 0.4) !important;
+  box-shadow: none !important;
+}
+
+.editActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 /* Thinking Process Styling */
@@ -104,7 +139,7 @@
   .bubble {
     max-width: 92%;
   }
-  
+
   .assistantBubble {
     padding: var(--space-4);
   }

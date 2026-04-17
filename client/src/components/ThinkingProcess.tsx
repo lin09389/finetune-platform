@@ -1,5 +1,5 @@
-import React, { useState, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
+import React, { useCallback, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -17,7 +17,7 @@ const ThinkingProcess: React.FC<ThinkingProcessProps> = ({
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
   const toggleExpanded = useCallback(() => {
-    setIsExpanded(prev => !prev);
+    setIsExpanded((prev) => !prev);
   }, []);
 
   if (!content) return null;
@@ -31,9 +31,7 @@ const ThinkingProcess: React.FC<ThinkingProcessProps> = ({
         aria-controls="thinking-content"
       >
         <span className="toggle-icon">{isExpanded ? '▲' : '▼'}</span>
-        <span className="toggle-text">
-          {isExpanded ? '收起思考过程' : '思考过程'}
-        </span>
+        <span className="toggle-text">{isExpanded ? '收起思考过程' : '思考过程'}</span>
         {isStreaming && <span className="streaming-indicator">●</span>}
       </button>
 
@@ -56,12 +54,14 @@ const ThinkingProcess: React.FC<ThinkingProcessProps> = ({
                     const isInline = !className;
                     if (isInline) {
                       return (
-                        <code style={{
-                          backgroundColor: 'rgba(0,0,0,0.1)',
-                          padding: '1px 4px',
-                          borderRadius: '3px',
-                          fontSize: '11px',
-                        }}>
+                        <code
+                          style={{
+                            backgroundColor: 'rgba(0,0,0,0.1)',
+                            padding: '1px 4px',
+                            borderRadius: '3px',
+                            fontSize: '11px',
+                          }}
+                        >
                           {children}
                         </code>
                       );
@@ -72,9 +72,7 @@ const ThinkingProcess: React.FC<ThinkingProcessProps> = ({
               >
                 {content}
               </ReactMarkdown>
-              {isStreaming && (
-                <span className="typing-cursor">▋</span>
-              )}
+              {isStreaming && <span className="typing-cursor">▋</span>}
             </div>
           </motion.div>
         )}

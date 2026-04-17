@@ -1,38 +1,38 @@
-import React from 'react'
-import { Alert, Form, Select, InputNumber, Button, Space, Divider, Switch, Row, Col } from 'antd'
 import {
-  ThunderboltOutlined,
+  CheckCircleOutlined,
   PlayCircleOutlined,
   StopOutlined,
-  CheckCircleOutlined
-} from '@ant-design/icons'
-import NeumorphicButton from '../../../components/shared/NeumorphicButton'
-import styles from './ConfigForm.module.css'
+  ThunderboltOutlined,
+} from '@ant-design/icons';
+import { Alert, Button, Col, Divider, Form, InputNumber, Row, Select, Space, Switch } from 'antd';
+import React from 'react';
+import NeumorphicButton from '../../../components/shared/NeumorphicButton';
+import styles from './ConfigForm.module.css';
 
 interface ConfigFormProps {
-  form: any
-  onFinish: (values: any) => void
-  onPreflightCheck: () => void
-  isTraining: boolean
-  starting: boolean
-  preflightChecking: boolean
-  onStop: () => void
-  models: { id: string; name: string; quantized?: number }[]
-  datasets: { id: string; name: string; samples: number }[]
-  swiftAvailable: boolean
-  useSwift: boolean
-  onSwiftChange: (checked: boolean) => void
-  precisionPreset: 'max' | 'balanced' | 'fast'
-  onPrecisionChange: (preset: any) => void
-  memoryPreset: 'auto' | '6gb' | '8gb' | '12gb'
-  onMemoryChange: (preset: any) => void
-  useFlashAttn: boolean
-  onFlashAttnChange: (checked: boolean) => void
-  quantizationBit: 0 | 4 | 8
-  onQuantizationChange: (bit: any) => void
-  gradientAccumulation: number
-  onGradAccChange: (val: number) => void
-  onApplyPreset: (preset: 'low' | 'medium' | 'high') => void
+  form: any;
+  onFinish: (values: any) => void;
+  onPreflightCheck: () => void;
+  isTraining: boolean;
+  starting: boolean;
+  preflightChecking: boolean;
+  onStop: () => void;
+  models: { id: string; name: string; quantized?: number }[];
+  datasets: { id: string; name: string; samples: number }[];
+  swiftAvailable: boolean;
+  useSwift: boolean;
+  onSwiftChange: (checked: boolean) => void;
+  precisionPreset: 'max' | 'balanced' | 'fast';
+  onPrecisionChange: (preset: any) => void;
+  memoryPreset: 'auto' | '6gb' | '8gb' | '12gb';
+  onMemoryChange: (preset: any) => void;
+  useFlashAttn: boolean;
+  onFlashAttnChange: (checked: boolean) => void;
+  quantizationBit: 0 | 4 | 8;
+  onQuantizationChange: (bit: any) => void;
+  gradientAccumulation: number;
+  onGradAccChange: (val: number) => void;
+  onApplyPreset: (preset: 'low' | 'medium' | 'high') => void;
 }
 
 const ConfigForm: React.FC<ConfigFormProps> = ({
@@ -105,14 +105,24 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
       <Row gutter={24}>
         <Col span={8}>
           <Form.Item
-            label={<span className={styles.labelWithIcon}><ThunderboltOutlined /> SWIFT 框架（实验）</span>}
+            label={
+              <span className={styles.labelWithIcon}>
+                <ThunderboltOutlined /> SWIFT 框架（实验）
+              </span>
+            }
             tooltip="SWIFT 作为可选实验后端保留，发布版主推 LoRA / QLoRA"
           >
             <Switch checked={useSwift} onChange={onSwiftChange} disabled={!swiftAvailable} />
           </Form.Item>
         </Col>
         <Col span={8}>
-          <Form.Item label={<span className={styles.labelWithIcon}><CheckCircleOutlined /> 精度预设</span>}>
+          <Form.Item
+            label={
+              <span className={styles.labelWithIcon}>
+                <CheckCircleOutlined /> 精度预设
+              </span>
+            }
+          >
             <Select value={precisionPreset} onChange={onPrecisionChange}>
               <Select.Option value="max">最高 (Max)</Select.Option>
               <Select.Option value="balanced">平衡 (Balanced)</Select.Option>
@@ -124,8 +134,8 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
           <Alert
             type="info"
             showIcon
-            message="发布版已关闭 DoRA / LoRA+ / GaLore"
-            description="当前仅开放 LoRA / QLoRA 主线训练，避免将实验性能力误当成稳定能力使用。"
+            message={<span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>发布版已关闭 DoRA / LoRA+ / GaLore</span>}
+            description={<span style={{ color: 'var(--text-secondary)' }}>当前仅开放 LoRA / QLoRA 主线训练，避免将实验性能力误当成稳定能力使用。</span>}
           />
         </Col>
       </Row>
@@ -145,7 +155,11 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
         </Col>
         <Col span={12}>
           <Form.Item label="量化策略">
-            <Select value={quantizationBit} onChange={onQuantizationChange} disabled={memoryPreset !== 'auto'}>
+            <Select
+              value={quantizationBit}
+              onChange={onQuantizationChange}
+              disabled={memoryPreset !== 'auto'}
+            >
               <Select.Option value={4}>4bit (省显存)</Select.Option>
               <Select.Option value={8}>8bit (平衡)</Select.Option>
               <Select.Option value={0}>不量化 (高精度)</Select.Option>
@@ -176,9 +190,15 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
           <div className={styles.presetGroup}>
             <label className={styles.smallLabel}>快捷预设</label>
             <Space>
-              <Button size="small" onClick={() => onApplyPreset('low')}>6GB</Button>
-              <Button size="small" onClick={() => onApplyPreset('medium')}>8GB</Button>
-              <Button size="small" onClick={() => onApplyPreset('high')}>12G+</Button>
+              <Button size="small" onClick={() => onApplyPreset('low')}>
+                6GB
+              </Button>
+              <Button size="small" onClick={() => onApplyPreset('medium')}>
+                8GB
+              </Button>
+              <Button size="small" onClick={() => onApplyPreset('high')}>
+                12G+
+              </Button>
             </Space>
           </div>
         </Col>
@@ -220,12 +240,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
       <Form.Item style={{ marginTop: 'var(--space-6)', textAlign: 'right' }}>
         <Space size="large">
           {isTraining ? (
-            <NeumorphicButton
-              variant="danger"
-              size="lg"
-              onClick={onStop}
-              icon={<StopOutlined />}
-            >
+            <NeumorphicButton variant="danger" size="lg" onClick={onStop} icon={<StopOutlined />}>
               停止训练
             </NeumorphicButton>
           ) : (
@@ -253,7 +268,7 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
         </Space>
       </Form.Item>
     </Form>
-  )
-}
+  );
+};
 
-export default ConfigForm
+export default ConfigForm;

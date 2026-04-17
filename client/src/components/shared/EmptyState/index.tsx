@@ -1,22 +1,22 @@
-import React, { memo } from 'react'
-import { Empty, Button } from 'antd'
-import { PlusOutlined, InboxOutlined, FileSearchOutlined } from '@ant-design/icons'
+import { FileSearchOutlined, InboxOutlined, PlusOutlined } from '@ant-design/icons';
+import { Button, Empty } from 'antd';
+import React, { memo } from 'react';
 
-export type EmptyType = 'default' | 'data' | 'search' | 'error' | 'network'
+export type EmptyType = 'default' | 'data' | 'search' | 'error' | 'network';
 
 export interface EmptyStateProps {
-  type?: EmptyType
-  title?: string
-  description?: string
-  icon?: React.ReactNode
-  image?: React.ReactNode
+  type?: EmptyType;
+  title?: string;
+  description?: string;
+  icon?: React.ReactNode;
+  image?: React.ReactNode;
   action?: {
-    text: string
-    onClick: () => void
-    icon?: React.ReactNode
-  }
-  className?: string
-  style?: React.CSSProperties
+    text: string;
+    onClick: () => void;
+    icon?: React.ReactNode;
+  };
+  className?: string;
+  style?: React.CSSProperties;
 }
 
 const emptyConfigs: Record<
@@ -48,20 +48,11 @@ const emptyConfigs: Record<
     title: '网络错误',
     description: '请检查网络连接后重试',
   },
-}
+};
 
 const EmptyState: React.FC<EmptyStateProps> = memo(
-  ({
-    type = 'default',
-    title,
-    description,
-    icon,
-    image,
-    action,
-    className,
-    style,
-  }) => {
-    const config = emptyConfigs[type]
+  ({ type = 'default', title, description, icon, image, action, className, style }) => {
+    const config = emptyConfigs[type];
 
     return (
       <div
@@ -130,19 +121,19 @@ const EmptyState: React.FC<EmptyStateProps> = memo(
           </Button>
         )}
       </div>
-    )
-  }
-)
+    );
+  },
+);
 
-EmptyState.displayName = 'EmptyState'
+EmptyState.displayName = 'EmptyState';
 
-export default EmptyState
+export default EmptyState;
 
 export const DataEmpty: React.FC<{
-  title?: string
-  description?: string
-  actionText?: string
-  onAction?: () => void
+  title?: string;
+  description?: string;
+  actionText?: string;
+  onAction?: () => void;
 }> = memo(({ title, description, actionText, onAction }) => (
   <EmptyState
     type="data"
@@ -150,47 +141,45 @@ export const DataEmpty: React.FC<{
     description={description}
     action={actionText && onAction ? { text: actionText, onClick: onAction } : undefined}
   />
-))
+));
 
-DataEmpty.displayName = 'DataEmpty'
+DataEmpty.displayName = 'DataEmpty';
 
 export const SearchEmpty: React.FC<{
-  keyword?: string
-  onClear?: () => void
+  keyword?: string;
+  onClear?: () => void;
 }> = memo(({ keyword, onClear }) => (
   <EmptyState
     type="search"
     description={keyword ? `未找到与"${keyword}"相关的结果` : undefined}
     action={onClear ? { text: '清除搜索', onClick: onClear } : undefined}
   />
-))
+));
 
-SearchEmpty.displayName = 'SearchEmpty'
+SearchEmpty.displayName = 'SearchEmpty';
 
 export const ErrorEmpty: React.FC<{
-  message?: string
-  onRetry?: () => void
+  message?: string;
+  onRetry?: () => void;
 }> = memo(({ message, onRetry }) => (
   <EmptyState
     type="error"
     description={message}
     action={onRetry ? { text: '重试', onClick: onRetry } : undefined}
   />
-))
+));
 
-ErrorEmpty.displayName = 'ErrorEmpty'
+ErrorEmpty.displayName = 'ErrorEmpty';
 
 export const SimpleEmpty: React.FC<{
-  description?: string
+  description?: string;
 }> = memo(({ description }) => (
   <Empty
     image={Empty.PRESENTED_IMAGE_SIMPLE}
     description={
-      <span style={{ color: 'var(--text-secondary)' }}>
-        {description || '暂无数据'}
-      </span>
+      <span style={{ color: 'var(--text-secondary)' }}>{description || '暂无数据'}</span>
     }
   />
-))
+));
 
-SimpleEmpty.displayName = 'SimpleEmpty'
+SimpleEmpty.displayName = 'SimpleEmpty';

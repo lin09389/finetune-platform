@@ -1,6 +1,28 @@
-import React, { useState, useEffect } from 'react';
-import { Card, Button, Rate, Input, Select, message, Tabs, List, Tag, Empty, Statistic, Row, Col } from 'antd';
-import { LikeOutlined, DislikeOutlined, BugOutlined, BulbOutlined, SendOutlined, BarChartOutlined, CommentOutlined } from '@ant-design/icons';
+import {
+  BarChartOutlined,
+  BugOutlined,
+  BulbOutlined,
+  CommentOutlined,
+  DislikeOutlined,
+  LikeOutlined,
+  SendOutlined,
+} from '@ant-design/icons';
+import {
+  Button,
+  Card,
+  Col,
+  Empty,
+  Input,
+  List,
+  message,
+  Rate,
+  Row,
+  Select,
+  Statistic,
+  Tabs,
+  Tag,
+} from 'antd';
+import React, { useEffect, useState } from 'react';
 import { apiClient } from '../services/api';
 
 const { TextArea } = Input;
@@ -79,7 +101,9 @@ const FeedbackPanel: React.FC = () => {
 
   const loadRecentFeedbacks = async () => {
     try {
-      const response = await apiClient.get<{ feedbacks: FeedbackItem[] }>('/feedback/recent?limit=20');
+      const response = await apiClient.get<{ feedbacks: FeedbackItem[] }>(
+        '/feedback/recent?limit=20',
+      );
       setRecentFeedbacks(response.data.feedbacks || []);
     } catch (error) {
       console.error('加载反馈列表失败:', error);
@@ -123,9 +147,9 @@ const FeedbackPanel: React.FC = () => {
         suggested_intent: suggestedIntent,
         suggested_improvement: suggestedImprovement,
       });
-      
+
       message.success('感谢您的反馈！');
-      
+
       setComment('');
       setAction('');
       setIntentDetected('');
@@ -133,7 +157,7 @@ const FeedbackPanel: React.FC = () => {
       setSuggestedIntent('');
       setSuggestedImprovement('');
       setRating(5);
-      
+
       loadStats();
       loadRecentFeedbacks();
     } catch (error) {
@@ -145,11 +169,23 @@ const FeedbackPanel: React.FC = () => {
 
   const feedbackTypeOptions = [
     { value: 'positive', label: '正面反馈', icon: <LikeOutlined style={{ color: '#52c41a' }} /> },
-    { value: 'negative', label: '负面反馈', icon: <DislikeOutlined style={{ color: '#ff4d4f' }} /> },
+    {
+      value: 'negative',
+      label: '负面反馈',
+      icon: <DislikeOutlined style={{ color: '#ff4d4f' }} />,
+    },
     { value: 'neutral', label: '中性反馈', icon: <CommentOutlined /> },
     { value: 'bug_report', label: '错误报告', icon: <BugOutlined style={{ color: '#faad14' }} /> },
-    { value: 'feature_request', label: '功能请求', icon: <BulbOutlined style={{ color: '#1890ff' }} /> },
-    { value: 'improvement', label: '改进建议', icon: <BulbOutlined style={{ color: '#722ed1' }} /> },
+    {
+      value: 'feature_request',
+      label: '功能请求',
+      icon: <BulbOutlined style={{ color: '#1890ff' }} />,
+    },
+    {
+      value: 'improvement',
+      label: '改进建议',
+      icon: <BulbOutlined style={{ color: '#722ed1' }} />,
+    },
   ];
 
   const categoryOptions = [
@@ -171,13 +207,17 @@ const FeedbackPanel: React.FC = () => {
       feature_request: 'processing',
       improvement: 'purple',
     };
-    return <Tag color={colors[type] || 'default'}>{feedbackTypeOptions.find(o => o.value === type)?.label || type}</Tag>;
+    return (
+      <Tag color={colors[type] || 'default'}>
+        {feedbackTypeOptions.find((o) => o.value === type)?.label || type}
+      </Tag>
+    );
   };
 
   return (
     <div style={{ padding: '24px' }}>
       <h2 style={{ marginBottom: '24px' }}>用户反馈</h2>
-      
+
       {stats && (
         <Card style={{ marginBottom: '24px' }}>
           <Row gutter={16}>
@@ -185,10 +225,18 @@ const FeedbackPanel: React.FC = () => {
               <Statistic title="总反馈数" value={stats.total_feedback} />
             </Col>
             <Col span={4}>
-              <Statistic title="正面反馈" value={stats.positive_count} valueStyle={{ color: '#52c41a' }} />
+              <Statistic
+                title="正面反馈"
+                value={stats.positive_count}
+                valueStyle={{ color: '#52c41a' }}
+              />
             </Col>
             <Col span={4}>
-              <Statistic title="负面反馈" value={stats.negative_count} valueStyle={{ color: '#ff4d4f' }} />
+              <Statistic
+                title="负面反馈"
+                value={stats.negative_count}
+                valueStyle={{ color: '#ff4d4f' }}
+              />
             </Col>
             <Col span={4}>
               <Statistic title="平均评分" value={stats.avg_rating} suffix="/ 5" />
@@ -221,7 +269,7 @@ const FeedbackPanel: React.FC = () => {
                       onChange={setFeedbackType}
                       style={{ width: '100%' }}
                     >
-                      {feedbackTypeOptions.map(opt => (
+                      {feedbackTypeOptions.map((opt) => (
                         <Option key={opt.value} value={opt.value}>
                           {opt.icon} {opt.label}
                         </Option>
@@ -231,13 +279,11 @@ const FeedbackPanel: React.FC = () => {
 
                   <div style={{ marginBottom: '16px' }}>
                     <label style={{ display: 'block', marginBottom: '8px' }}>反馈类别</label>
-                    <Select
-                      value={category}
-                      onChange={setCategory}
-                      style={{ width: '100%' }}
-                    >
-                      {categoryOptions.map(opt => (
-                        <Option key={opt.value} value={opt.value}>{opt.label}</Option>
+                    <Select value={category} onChange={setCategory} style={{ width: '100%' }}>
+                      {categoryOptions.map((opt) => (
+                        <Option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </Option>
                       ))}
                     </Select>
                   </div>
@@ -248,11 +294,13 @@ const FeedbackPanel: React.FC = () => {
                   </div>
 
                   <div style={{ marginBottom: '16px' }}>
-                    <label style={{ display: 'block', marginBottom: '8px' }}>相关操作（可选）</label>
+                    <label style={{ display: 'block', marginBottom: '8px' }}>
+                      相关操作（可选）
+                    </label>
                     <Input
                       placeholder="例如：读取文件、截图等"
                       value={action}
-                      onChange={e => setAction(e.target.value)}
+                      onChange={(e) => setAction(e.target.value)}
                     />
                   </div>
 
@@ -262,22 +310,26 @@ const FeedbackPanel: React.FC = () => {
                       rows={4}
                       placeholder="请详细描述您的反馈..."
                       value={comment}
-                      onChange={e => setComment(e.target.value)}
+                      onChange={(e) => setComment(e.target.value)}
                     />
                   </div>
 
                   {category === 'intent_detection' && (
                     <>
                       <div style={{ marginBottom: '16px' }}>
-                        <label style={{ display: 'block', marginBottom: '8px' }}>检测到的意图</label>
+                        <label style={{ display: 'block', marginBottom: '8px' }}>
+                          检测到的意图
+                        </label>
                         <Input
                           placeholder="系统检测到的意图"
                           value={intentDetected}
-                          onChange={e => setIntentDetected(e.target.value)}
+                          onChange={(e) => setIntentDetected(e.target.value)}
                         />
                       </div>
                       <div style={{ marginBottom: '16px' }}>
-                        <label style={{ display: 'block', marginBottom: '8px' }}>意图是否正确？</label>
+                        <label style={{ display: 'block', marginBottom: '8px' }}>
+                          意图是否正确？
+                        </label>
                         <Select
                           value={intentCorrect}
                           onChange={setIntentCorrect}
@@ -290,11 +342,13 @@ const FeedbackPanel: React.FC = () => {
                       </div>
                       {intentCorrect === false && (
                         <div style={{ marginBottom: '16px' }}>
-                          <label style={{ display: 'block', marginBottom: '8px' }}>正确的意图应该是</label>
+                          <label style={{ display: 'block', marginBottom: '8px' }}>
+                            正确的意图应该是
+                          </label>
                           <Input
                             placeholder="请输入正确的意图"
                             value={suggestedIntent}
-                            onChange={e => setSuggestedIntent(e.target.value)}
+                            onChange={(e) => setSuggestedIntent(e.target.value)}
                           />
                         </div>
                       )}
@@ -302,12 +356,14 @@ const FeedbackPanel: React.FC = () => {
                   )}
 
                   <div style={{ marginBottom: '16px' }}>
-                    <label style={{ display: 'block', marginBottom: '8px' }}>改进建议（可选）</label>
+                    <label style={{ display: 'block', marginBottom: '8px' }}>
+                      改进建议（可选）
+                    </label>
                     <TextArea
                       rows={2}
                       placeholder="您有什么改进建议？"
                       value={suggestedImprovement}
-                      onChange={e => setSuggestedImprovement(e.target.value)}
+                      onChange={(e) => setSuggestedImprovement(e.target.value)}
                     />
                   </div>
 
@@ -332,7 +388,7 @@ const FeedbackPanel: React.FC = () => {
                 <List
                   dataSource={recentFeedbacks}
                   locale={{ emptyText: <Empty description="暂无反馈记录" /> }}
-                  renderItem={item => (
+                  renderItem={(item) => (
                     <List.Item>
                       <List.Item.Meta
                         avatar={getFeedbackTypeTag(item.feedback_type)}
@@ -357,13 +413,12 @@ const FeedbackPanel: React.FC = () => {
                 <List
                   dataSource={corrections}
                   locale={{ emptyText: <Empty description="暂无纠正记录" /> }}
-                  renderItem={item => (
+                  renderItem={(item) => (
                     <List.Item>
                       <List.Item.Meta
                         title={
                           <span>
-                            <Tag color="error">{item.detected_intent}</Tag>
-                            →
+                            <Tag color="error">{item.detected_intent}</Tag>→
                             <Tag color="success">{item.correct_intent}</Tag>
                           </span>
                         }
@@ -387,7 +442,7 @@ const FeedbackPanel: React.FC = () => {
                 <List
                   dataSource={suggestions}
                   locale={{ emptyText: <Empty description="暂无改进建议" /> }}
-                  renderItem={item => (
+                  renderItem={(item) => (
                     <List.Item>
                       <List.Item.Meta
                         title={item.suggestion}

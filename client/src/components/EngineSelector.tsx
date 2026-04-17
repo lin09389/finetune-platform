@@ -1,27 +1,20 @@
 /**
  * 推理引擎选择组件
- * 
+ *
  * 功能：
  * - 引擎选择（HuggingFace/vLLM/Ollama）
  * - 引擎状态显示
  * - 引擎切换
  */
-import React from 'react';
 import {
-  Card,
-  Select,
-  Tag,
-  Badge,
-  Space,
-  Descriptions,
-} from 'antd';
-import {
-  ThunderboltOutlined,
+  CheckCircleOutlined,
   CloudOutlined,
   DesktopOutlined,
-  CheckCircleOutlined,
+  ThunderboltOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
+import { Badge, Card, Descriptions, Select, Space, Tag } from 'antd';
+import React from 'react';
 
 interface EngineInfo {
   id: string;
@@ -60,7 +53,7 @@ const EngineSelector: React.FC<EngineSelectorProps> = ({
   onEngineChange,
   loading = false,
 }) => {
-  const currentEngineInfo = engines.find(e => e.id === currentEngine);
+  const currentEngineInfo = engines.find((e) => e.id === currentEngine);
 
   return (
     <Card
@@ -85,7 +78,7 @@ const EngineSelector: React.FC<EngineSelectorProps> = ({
         loading={loading}
         optionLabelProp="label"
       >
-        {engines.map(engine => (
+        {engines.map((engine) => (
           <Select.Option
             key={engine.id}
             value={engine.id}
@@ -105,11 +98,9 @@ const EngineSelector: React.FC<EngineSelectorProps> = ({
                   {engine.name}
                 </Space>
               </div>
-              <div style={{ fontSize: 12, color: '#999' }}>
-                {engine.description}
-              </div>
+              <div style={{ fontSize: 12, color: '#999' }}>{engine.description}</div>
               <div style={{ marginTop: 8 }}>
-                {engine.features.map(feature => (
+                {engine.features.map((feature) => (
                   <Tag key={feature} style={{ marginBottom: 4 }}>
                     {feature}
                   </Tag>
@@ -157,15 +148,21 @@ const EngineSelector: React.FC<EngineSelectorProps> = ({
         </div>
         <ul style={{ paddingLeft: 16, margin: 0 }}>
           <li>
-            <Tag color="#1890ff" style={{ marginRight: 4 }}>HuggingFace</Tag>
+            <Tag color="#1890ff" style={{ marginRight: 4 }}>
+              HuggingFace
+            </Tag>
             默认引擎，兼容性好，支持所有模型
           </li>
           <li>
-            <Tag color="#722ed1" style={{ marginRight: 4 }}>vLLM</Tag>
+            <Tag color="#722ed1" style={{ marginRight: 4 }}>
+              vLLM
+            </Tag>
             高性能引擎，推荐用于生产环境
           </li>
           <li>
-            <Tag color="#13c2c2" style={{ marginRight: 4 }}>Ollama</Tag>
+            <Tag color="#13c2c2" style={{ marginRight: 4 }}>
+              Ollama
+            </Tag>
             本地部署，支持多种开源模型
           </li>
         </ul>

@@ -1,31 +1,21 @@
 /**
  * 用户引导组件
- * 
+ *
  * 功能：
  * - 新手引导流程
  * - 功能提示
  * - 步骤指引
  */
-import React, { useState, useEffect } from 'react';
 import {
-  Modal,
-  Steps,
-  Button,
-  Card,
-  Typography,
-  Space,
-  Tag,
-  Progress,
-  Tooltip,
-} from 'antd';
-import {
-  QuestionCircleOutlined,
-  CheckCircleOutlined,
-  RightOutlined,
-  LeftOutlined,
-  CloseOutlined,
   BulbOutlined,
+  CheckCircleOutlined,
+  CloseOutlined,
+  LeftOutlined,
+  QuestionCircleOutlined,
+  RightOutlined,
 } from '@ant-design/icons';
+import { Button, Card, Modal, Progress, Space, Steps, Tag, Tooltip, Typography } from 'antd';
+import React, { useEffect, useState } from 'react';
 
 const { Title, Paragraph, Text } = Typography;
 
@@ -89,10 +79,7 @@ const UserGuide: React.FC<UserGuideProps> = ({
       newCompleted.add(currentStepKey);
     }
     setCompletedSteps(newCompleted);
-    localStorage.setItem(
-      STORAGE_KEY_PREFIX + guideKey,
-      JSON.stringify([...newCompleted])
-    );
+    localStorage.setItem(STORAGE_KEY_PREFIX + guideKey, JSON.stringify([...newCompleted]));
 
     if (currentStep === steps.length - 1) {
       setVisible(false);
@@ -113,11 +100,7 @@ const UserGuide: React.FC<UserGuideProps> = ({
   return (
     <>
       <Tooltip title="显示引导">
-        <Button
-          type="text"
-          icon={<QuestionCircleOutlined />}
-          onClick={() => setVisible(true)}
-        />
+        <Button type="text" icon={<QuestionCircleOutlined />} onClick={() => setVisible(true)} />
       </Tooltip>
 
       <Modal
@@ -129,28 +112,16 @@ const UserGuide: React.FC<UserGuideProps> = ({
         maskClosable={false}
       >
         <div style={{ marginBottom: 24 }}>
-          <Progress
-            percent={progress}
-            showInfo={false}
-            strokeColor="#1890ff"
-          />
+          <Progress percent={progress} showInfo={false} strokeColor="#1890ff" />
         </div>
 
-        <Steps
-          current={currentStep}
-          size="small"
-          style={{ marginBottom: 24 }}
-        >
+        <Steps current={currentStep} size="small" style={{ marginBottom: 24 }}>
           {steps.map((step, index) => (
             <Steps.Step
               key={step.key}
               title={step.title}
               status={
-                completedSteps.has(step.key)
-                  ? 'finish'
-                  : index === currentStep
-                  ? 'process'
-                  : 'wait'
+                completedSteps.has(step.key) ? 'finish' : index === currentStep ? 'process' : 'wait'
               }
             />
           ))}
@@ -178,13 +149,7 @@ const UserGuide: React.FC<UserGuideProps> = ({
             <Button
               type="primary"
               onClick={handleComplete}
-              icon={
-                currentStep === steps.length - 1 ? (
-                  <CheckCircleOutlined />
-                ) : (
-                  <RightOutlined />
-                )
-              }
+              icon={currentStep === steps.length - 1 ? <CheckCircleOutlined /> : <RightOutlined />}
             >
               {currentStep === steps.length - 1 ? '完成' : '下一步'}
             </Button>
@@ -235,12 +200,7 @@ export const QuickTip: React.FC<QuickTipProps> = ({
       }}
       extra={
         dismissible && (
-          <Button
-            type="text"
-            size="small"
-            icon={<CloseOutlined />}
-            onClick={handleDismiss}
-          />
+          <Button type="text" size="small" icon={<CloseOutlined />} onClick={handleDismiss} />
         )
       }
     >
@@ -277,9 +237,7 @@ export const FeatureHighlight: React.FC<FeatureHighlightProps> = ({
         {features.map((feature) => (
           <Card key={feature.key} size="small" hoverable>
             <Space>
-              {feature.icon && (
-                <div style={{ fontSize: 24 }}>{feature.icon}</div>
-              )}
+              {feature.icon && <div style={{ fontSize: 24 }}>{feature.icon}</div>}
               <div>
                 <Space>
                   <Text strong>{feature.title}</Text>
@@ -300,8 +258,7 @@ export const GETTING_STARTED_STEPS: GuideStep[] = [
   {
     key: 'welcome',
     title: '欢迎使用微调平台',
-    description:
-      '这是一个企业级大模型微调平台，支持 LoRA/QLoRA 微调、模型管理、推理服务等功能。',
+    description: '这是一个企业级大模型微调平台，支持 LoRA/QLoRA 微调、模型管理、推理服务等功能。',
   },
   {
     key: 'device',
@@ -330,8 +287,7 @@ export const GETTING_STARTED_STEPS: GuideStep[] = [
   {
     key: 'inference',
     title: '测试推理',
-    description:
-      '训练完成后，前往"推理"页面测试微调后的模型效果。支持对话和文本生成两种模式。',
+    description: '训练完成后，前往"推理"页面测试微调后的模型效果。支持对话和文本生成两种模式。',
   },
 ];
 

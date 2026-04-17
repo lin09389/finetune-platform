@@ -1,25 +1,25 @@
-import { motion } from 'framer-motion'
-import { Card } from 'antd'
+import { Card } from 'antd';
+import { motion } from 'framer-motion';
 
 interface SkeletonCardProps {
-  rows?: number
-  avatar?: boolean
-  actions?: boolean
-  style?: React.CSSProperties
+  rows?: number;
+  avatar?: boolean;
+  actions?: boolean;
+  style?: React.CSSProperties;
 }
 
-export default function SkeletonCard({ 
-  rows = 3, 
-  avatar = true, 
+export default function SkeletonCard({
+  rows = 3,
+  avatar = true,
   actions = false,
-  style 
+  style,
 }: SkeletonCardProps) {
   return (
     <Card
       style={{
         borderRadius: '8px',
         border: '1px solid var(--border-color)',
-        ...style
+        ...style,
       }}
       styles={{ body: { padding: '20px' } }}
     >
@@ -31,7 +31,7 @@ export default function SkeletonCard({
             transition={{
               duration: 1.5,
               repeat: Infinity,
-              ease: "easeInOut",
+              ease: 'easeInOut',
             }}
             style={{
               width: 44,
@@ -52,7 +52,7 @@ export default function SkeletonCard({
                 duration: 1.5,
                 repeat: Infinity,
                 delay: i * 0.1,
-                ease: "easeInOut",
+                ease: 'easeInOut',
               }}
               style={{
                 height: i === 0 ? 20 : 14,
@@ -64,16 +64,18 @@ export default function SkeletonCard({
           ))}
         </div>
       </div>
-      
+
       {actions && (
-        <div style={{ 
-          marginTop: 16, 
-          paddingTop: 16, 
-          borderTop: '1px solid var(--border-color)',
-          display: 'flex',
-          gap: 8,
-          justifyContent: 'flex-end'
-        }}>
+        <div
+          style={{
+            marginTop: 16,
+            paddingTop: 16,
+            borderTop: '1px solid var(--border-color)',
+            display: 'flex',
+            gap: 8,
+            justifyContent: 'flex-end',
+          }}
+        >
           {Array.from({ length: 2 }).map((_, i) => (
             <motion.div
               key={i}
@@ -83,7 +85,7 @@ export default function SkeletonCard({
                 duration: 1.5,
                 repeat: Infinity,
                 delay: 0.3 + i * 0.1,
-                ease: "easeInOut",
+                ease: 'easeInOut',
               }}
               style={{
                 width: 80,
@@ -96,7 +98,7 @@ export default function SkeletonCard({
         </div>
       )}
     </Card>
-  )
+  );
 }
 
 // 统计卡片骨架屏
@@ -117,7 +119,7 @@ export function SkeletonStatCard() {
             transition={{
               duration: 1.5,
               repeat: Infinity,
-              ease: "easeInOut",
+              ease: 'easeInOut',
             }}
             style={{
               width: 80,
@@ -133,7 +135,7 @@ export function SkeletonStatCard() {
               duration: 1.5,
               repeat: Infinity,
               delay: 0.1,
-              ease: "easeInOut",
+              ease: 'easeInOut',
             }}
             style={{
               width: 100,
@@ -150,7 +152,7 @@ export function SkeletonStatCard() {
             duration: 1.5,
             repeat: Infinity,
             delay: 0.2,
-            ease: "easeInOut",
+            ease: 'easeInOut',
           }}
           style={{
             width: 44,
@@ -167,7 +169,7 @@ export function SkeletonStatCard() {
           duration: 1.5,
           repeat: Infinity,
           delay: 0.3,
-          ease: "easeInOut",
+          ease: 'easeInOut',
         }}
         style={{
           marginTop: 16,
@@ -177,7 +179,7 @@ export function SkeletonStatCard() {
         }}
       />
     </Card>
-  )
+  );
 }
 
 // 列表骨架屏
@@ -193,7 +195,7 @@ export function SkeletonList({ count = 5 }: { count?: number }) {
             duration: 1.5,
             repeat: Infinity,
             delay: i * 0.05,
-            ease: "easeInOut",
+            ease: 'easeInOut',
           }}
           style={{
             padding: '16px 20px',
@@ -204,45 +206,55 @@ export function SkeletonList({ count = 5 }: { count?: number }) {
             gap: 12,
           }}
         >
-          <div style={{
-            width: 32,
-            height: 32,
-            borderRadius: '6px',
-            background: 'var(--bg-elevated)',
-          }} />
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: '6px',
+              background: 'var(--bg-elevated)',
+            }}
+          />
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div style={{
-              width: '30%',
-              height: 14,
-              background: 'var(--bg-elevated)',
-              borderRadius: '4px',
-            }} />
-            <div style={{
-              width: '50%',
-              height: 12,
-              background: 'var(--bg-elevated)',
-              borderRadius: '4px',
-            }} />
+            <div
+              style={{
+                width: '30%',
+                height: 14,
+                background: 'var(--bg-elevated)',
+                borderRadius: '4px',
+              }}
+            />
+            <div
+              style={{
+                width: '50%',
+                height: 12,
+                background: 'var(--bg-elevated)',
+                borderRadius: '4px',
+              }}
+            />
           </div>
         </motion.div>
       ))}
     </div>
-  )
+  );
 }
 
 // 表格骨架屏
-export function SkeletonTable({ rows = 5, cols = 4 }: { rows?: number, cols?: number }) {
+export function SkeletonTable({ rows = 5, cols = 4 }: { rows?: number; cols?: number }) {
   return (
-    <div style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
+    <div
+      style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}
+    >
       {/* 表头 */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: `repeat(${cols}, 1fr)`,
-        gap: 16,
-        padding: '16px 20px',
-        background: 'var(--bg-elevated)',
-        borderBottom: '1px solid var(--border-color)',
-      }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: `repeat(${cols}, 1fr)`,
+          gap: 16,
+          padding: '16px 20px',
+          background: 'var(--bg-elevated)',
+          borderBottom: '1px solid var(--border-color)',
+        }}
+      >
         {Array.from({ length: cols }).map((_, i) => (
           <motion.div
             key={i}
@@ -252,7 +264,7 @@ export function SkeletonTable({ rows = 5, cols = 4 }: { rows?: number, cols?: nu
               duration: 1.5,
               repeat: Infinity,
               delay: i * 0.05,
-              ease: "easeInOut",
+              ease: 'easeInOut',
             }}
             style={{
               height: 14,
@@ -284,7 +296,7 @@ export function SkeletonTable({ rows = 5, cols = 4 }: { rows?: number, cols?: nu
                 duration: 1.5,
                 repeat: Infinity,
                 delay: (rowIndex * cols + colIndex) * 0.02,
-                ease: "easeInOut",
+                ease: 'easeInOut',
               }}
               style={{
                 height: 14,
@@ -297,5 +309,5 @@ export function SkeletonTable({ rows = 5, cols = 4 }: { rows?: number, cols?: nu
         </div>
       ))}
     </div>
-  )
+  );
 }

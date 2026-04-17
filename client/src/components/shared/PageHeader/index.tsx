@@ -1,18 +1,18 @@
-import React, { memo } from 'react'
-import { motion } from 'framer-motion'
+import { motion } from 'framer-motion';
+import React, { memo } from 'react';
 
 export interface PageHeaderProps {
-  title: string
-  subtitle?: string
-  icon?: React.ReactNode
-  iconBgColor?: string
-  actions?: React.ReactNode
+  title: string;
+  subtitle?: string;
+  icon?: React.ReactNode;
+  iconBgColor?: string;
+  actions?: React.ReactNode;
   breadcrumbs?: Array<{
-    title: string
-    href?: string
-  }>
-  className?: string
-  style?: React.CSSProperties
+    title: string;
+    href?: string;
+  }>;
+  className?: string;
+  style?: React.CSSProperties;
 }
 
 const PageHeader: React.FC<PageHeaderProps> = memo(
@@ -151,27 +151,25 @@ const PageHeader: React.FC<PageHeaderProps> = memo(
           )}
         </div>
       </motion.div>
-    )
-  }
-)
+    );
+  },
+);
 
-PageHeader.displayName = 'PageHeader'
+PageHeader.displayName = 'PageHeader';
 
-export default PageHeader
+export default PageHeader;
 
 export const PageTitle: React.FC<{
-  title: string
-  subtitle?: string
-}> = memo(({ title, subtitle }) => (
-  <PageHeader title={title} subtitle={subtitle} />
-))
+  title: string;
+  subtitle?: string;
+}> = memo(({ title, subtitle }) => <PageHeader title={title} subtitle={subtitle} />);
 
-PageTitle.displayName = 'PageTitle'
+PageTitle.displayName = 'PageTitle';
 
 export const SectionHeader: React.FC<{
-  title: string
-  icon?: React.ReactNode
-  action?: React.ReactNode
+  title: string;
+  icon?: React.ReactNode;
+  action?: React.ReactNode;
 }> = memo(({ title, icon, action }) => (
   <div
     style={{
@@ -192,13 +190,11 @@ export const SectionHeader: React.FC<{
         gap: 8,
       }}
     >
-      {icon && (
-        <span style={{ color: 'var(--accent-primary)' }}>{icon}</span>
-      )}
+      {icon && <span style={{ color: 'var(--accent-primary)' }}>{icon}</span>}
       {title}
     </h3>
     {action}
   </div>
-))
+));
 
-SectionHeader.displayName = 'SectionHeader'
+SectionHeader.displayName = 'SectionHeader';

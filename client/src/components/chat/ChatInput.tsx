@@ -1,37 +1,42 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react'
-import { Input, Button, Tooltip, message, Avatar, Typography } from 'antd'
 import {
-  SendOutlined,
   AudioOutlined,
-  StopOutlined,
-  RobotOutlined,
-  ThunderboltOutlined,
   ClearOutlined,
-} from '@ant-design/icons'
-import { motion, AnimatePresence } from 'framer-motion'
-import { transitions } from '../../theme/animations'
-import { useResponsive } from '../../hooks/useResponsive'
-import styles from './ChatInput.module.css'
+  RobotOutlined,
+  SendOutlined,
+  StopOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons';
+import { Avatar, Button, Input, Tooltip, Typography, message } from 'antd';
+import { AnimatePresence, motion } from 'framer-motion';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useResponsive } from '../../hooks/useResponsive';
+import { transitions } from '../../theme/animations';
+import styles from './ChatInput.module.css';
 
-const { TextArea } = Input
-const { Text } = Typography
+const { TextArea } = Input;
+const { Text } = Typography;
 
 interface ChatInputProps {
-  onSend: (content: string) => void
-  onStop?: () => void
-  onClear?: () => void
-  disabled?: boolean
-  loading?: boolean
-  isStreaming?: boolean
-  placeholder?: string
-  modelId?: string
-  maxLength?: number
-  showModelInfo?: boolean
-  suggestions?: string[]
-  onSuggestionClick?: (suggestion: string) => void
+  onSend: (content: string) => void;
+  onStop?: () => void;
+  onClear?: () => void;
+  disabled?: boolean;
+  loading?: boolean;
+  isStreaming?: boolean;
+  placeholder?: string;
+  modelId?: string;
+  maxLength?: number;
+  showModelInfo?: boolean;
+  suggestions?: string[];
+  onSuggestionClick?: (suggestion: string) => void;
 }
 
-const DEFAULT_SUGGESTIONS = ['帮我解释一下这个概念', '写一段代码实现...', '分析这个问题', '总结一下要点']
+const DEFAULT_SUGGESTIONS = [
+  '帮我解释一下这个概念',
+  '写一段代码实现...',
+  '分析这个问题',
+  '总结一下要点',
+];
 
 const ChatInput: React.FC<ChatInputProps> = ({
   onSend,
@@ -47,97 +52,98 @@ const ChatInput: React.FC<ChatInputProps> = ({
   suggestions = DEFAULT_SUGGESTIONS,
   onSuggestionClick,
 }) => {
-  const { isMobile } = useResponsive()
-  const [value, setValue] = useState('')
-  const [isFocused, setIsFocused] = useState(false)
-  const [showSuggestions, setShowSuggestions] = useState(false)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const [isRecording, setIsRecording] = useState(false)
+  const { isMobile } = useResponsive();
+  const [value, setValue] = useState('');
+  const [isFocused, setIsFocused] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [isRecording, setIsRecording] = useState(false);
 
-  const canSend = value.trim().length > 0 && !disabled && !loading
+  const canSend = value.trim().length > 0 && !disabled && !loading;
 
   const handleSend = useCallback(() => {
-    if (!canSend) return
-    onSend(value.trim())
-    setValue('')
-    setShowSuggestions(false)
-  }, [canSend, onSend, value])
+    if (!canSend) return;
+    onSend(value.trim());
+    setValue('');
+    setShowSuggestions(false);
+  }, [canSend, onSend, value]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault()
+        e.preventDefault();
         if (isStreaming) {
-          onStop?.()
+          onStop?.();
         } else {
-          handleSend()
+          handleSend();
         }
       }
     },
-    [handleSend, isStreaming, onStop]
-  )
+    [handleSend, isStreaming, onStop],
+  );
 
   const handleSuggestionClick = useCallback(
     (suggestion: string) => {
-      setValue(suggestion)
-      setShowSuggestions(false)
-      textareaRef.current?.focus()
-      onSuggestionClick?.(suggestion)
+      setValue(suggestion);
+      setShowSuggestions(false);
+      textareaRef.current?.focus();
+      onSuggestionClick?.(suggestion);
     },
-    [onSuggestionClick]
-  )
+    [onSuggestionClick],
+  );
 
   const handleVoiceInput = useCallback(() => {
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      message.warning('当前浏览器不支持语音输入')
-      return
+      message.warning('当前浏览器不支持语音输入');
+      return;
     }
 
-    const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition
-    const recognition = new SpeechRecognition()
+    const SpeechRecognition =
+      (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+    const recognition = new SpeechRecognition();
 
-    recognition.lang = 'zh-CN'
-    recognition.continuous = false
-    recognition.interimResults = true
+    recognition.lang = 'zh-CN';
+    recognition.continuous = false;
+    recognition.interimResults = true;
 
     recognition.onstart = () => {
-      setIsRecording(true)
-      message.info('开始录音...')
-    }
+      setIsRecording(true);
+      message.info('开始录音...');
+    };
 
     recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript
-      setValue((prev) => prev + transcript)
-    }
+      const transcript = event.results[0][0].transcript;
+      setValue((prev) => prev + transcript);
+    };
 
     recognition.onerror = (event: any) => {
-      console.error('Voice input error:', event.error)
-      message.error('语音识别失败')
-      setIsRecording(false)
-    }
+      console.error('Voice input error:', event.error);
+      message.error('语音识别失败');
+      setIsRecording(false);
+    };
 
     recognition.onend = () => {
-      setIsRecording(false)
-    }
+      setIsRecording(false);
+    };
 
-    recognition.start()
-  }, [])
+    recognition.start();
+  }, []);
 
   const focusInput = useCallback(() => {
-    textareaRef.current?.focus()
-  }, [])
+    textareaRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     const handleGlobalShortcut = (e: KeyboardEvent) => {
       if (e.key === '/' && document.activeElement !== textareaRef.current) {
-        e.preventDefault()
-        focusInput()
+        e.preventDefault();
+        focusInput();
       }
-    }
+    };
 
-    window.addEventListener('keydown', handleGlobalShortcut)
-    return () => window.removeEventListener('keydown', handleGlobalShortcut)
-  }, [focusInput])
+    window.addEventListener('keydown', handleGlobalShortcut);
+    return () => window.removeEventListener('keydown', handleGlobalShortcut);
+  }, [focusInput]);
 
   return (
     <motion.div
@@ -163,7 +169,11 @@ const ChatInput: React.FC<ChatInputProps> = ({
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ delay: index * 0.04 }}
                 >
-                  <Button size="small" onClick={() => handleSuggestionClick(suggestion)} className={styles.suggestionBtn}>
+                  <Button
+                    size="small"
+                    onClick={() => handleSuggestionClick(suggestion)}
+                    className={styles.suggestionBtn}
+                  >
                     {suggestion}
                   </Button>
                 </motion.div>
@@ -175,8 +185,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
         <motion.div
           animate={{
             boxShadow: isFocused
-              ? '0 0 0 2px color-mix(in srgb, var(--accent-primary) 55%, transparent), 0 8px 18px -12px color-mix(in srgb, var(--accent-primary) 45%, transparent)'
-              : '0 8px 18px -14px rgba(0, 0, 0, 0.28)',
+              ? '0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.06), inset 0 0 0 1px var(--text-tertiary)'
+              : '0 8px 32px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.02)',
           }}
           transition={transitions.base}
           className={`${styles.editorCard} ${isMobile ? styles.editorCardMobile : styles.editorCardDesktop}`}
@@ -186,21 +196,21 @@ const ChatInput: React.FC<ChatInputProps> = ({
             placeholder={disabled ? '请先选择模型' : placeholder}
             value={value}
             onChange={(e) => {
-              setValue(e.target.value)
+              setValue(e.target.value);
               if (e.target.value.length === 0) {
-                setShowSuggestions(true)
+                setShowSuggestions(true);
               } else {
-                setShowSuggestions(false)
+                setShowSuggestions(false);
               }
             }}
             onKeyDown={handleKeyDown}
             onFocus={() => {
-              setIsFocused(true)
-              if (!value) setShowSuggestions(true)
+              setIsFocused(true);
+              if (!value) setShowSuggestions(true);
             }}
             onBlur={() => {
-              setIsFocused(false)
-              setTimeout(() => setShowSuggestions(false), 200)
+              setIsFocused(false);
+              setTimeout(() => setShowSuggestions(false), 200);
             }}
             autoSize={{ minRows: 1, maxRows: 6 }}
             disabled={disabled || loading}
@@ -263,19 +273,40 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
               {onClear && (
                 <Tooltip title="清空对话">
-                  <Button type="text" size="small" icon={<ClearOutlined />} onClick={onClear} className={styles.ghostIcon} />
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<ClearOutlined />}
+                    onClick={onClear}
+                    className={styles.ghostIcon}
+                  />
                 </Tooltip>
               )}
 
               {isStreaming ? (
                 <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                  <Button type="primary" danger icon={<StopOutlined />} onClick={onStop} className={styles.stopBtn}>
+                  <Button
+                    type="primary"
+                    danger
+                    icon={<StopOutlined />}
+                    onClick={onStop}
+                    className={styles.stopBtn}
+                  >
                     停止
                   </Button>
                 </motion.div>
               ) : (
-                <motion.div whileHover={{ scale: canSend ? 1.02 : 1 }} whileTap={{ scale: canSend ? 0.98 : 1 }}>
-                  <Button type="primary" icon={<SendOutlined />} onClick={handleSend} disabled={!canSend} className={styles.sendBtn}>
+                <motion.div
+                  whileHover={{ scale: canSend ? 1.02 : 1 }}
+                  whileTap={{ scale: canSend ? 0.98 : 1 }}
+                >
+                  <Button
+                    type="primary"
+                    icon={<SendOutlined />}
+                    onClick={handleSend}
+                    disabled={!canSend}
+                    className={styles.sendBtn}
+                  >
                     发送
                   </Button>
                 </motion.div>
@@ -291,7 +322,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
         </div>
       </div>
     </motion.div>
-  )
-}
+  );
+};
 
-export default ChatInput
+export default ChatInput;

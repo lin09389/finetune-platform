@@ -99,7 +99,10 @@
 .quickActionCard {
   cursor: pointer;
   height: 100%;
-  transition: transform var(--transition-base), box-shadow var(--transition-base), border-color var(--transition-base);
+  transition:
+    transform var(--transition-base),
+    box-shadow var(--transition-base),
+    border-color var(--transition-base);
 }
 
 .quickActionCard:hover {
@@ -184,4 +187,3 @@
     margin-left: 0;
   }
 }
-

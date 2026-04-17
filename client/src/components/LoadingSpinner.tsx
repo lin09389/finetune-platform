@@ -1,37 +1,39 @@
-import { motion } from 'framer-motion'
+import { motion } from 'framer-motion';
 
 interface LoadingSpinnerProps {
-  size?: 'small' | 'medium' | 'large'
-  text?: string
-  fullScreen?: boolean
+  size?: 'small' | 'medium' | 'large';
+  text?: string;
+  fullScreen?: boolean;
 }
 
 const sizeMap = {
   small: { spinner: 16, border: 2 },
   medium: { spinner: 24, border: 2 },
   large: { spinner: 32, border: 3 },
-}
+};
 
-export default function LoadingSpinner({ 
-  size = 'medium', 
+export default function LoadingSpinner({
+  size = 'medium',
   text,
-  fullScreen = false 
+  fullScreen = false,
 }: LoadingSpinnerProps) {
-  const { spinner, border } = sizeMap[size]
+  const { spinner, border } = sizeMap[size];
 
   const spinnerContent = (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      gap: 12,
-    }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 12,
+      }}
+    >
       <motion.div
         animate={{ rotate: 360 }}
-        transition={{ 
-          duration: 1, 
-          repeat: Infinity, 
-          ease: "linear" 
+        transition={{
+          duration: 1,
+          repeat: Infinity,
+          ease: 'linear',
         }}
         style={{
           width: spinner,
@@ -42,44 +44,50 @@ export default function LoadingSpinner({
         }}
       />
       {text && (
-        <span style={{
-          fontSize: size === 'small' ? '12px' : '14px',
-          color: 'var(--text-secondary)',
-          fontWeight: 500,
-        }}>
+        <span
+          style={{
+            fontSize: size === 'small' ? '12px' : '14px',
+            color: 'var(--text-secondary)',
+            fontWeight: 500,
+          }}
+        >
           {text}
         </span>
       )}
     </div>
-  )
+  );
 
   if (fullScreen) {
     return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '100vh',
-        background: 'var(--bg-primary)',
-      }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          height: '100vh',
+          background: 'var(--bg-primary)',
+        }}
+      >
         {spinnerContent}
       </div>
-    )
+    );
   }
 
-  return spinnerContent
+  return spinnerContent;
 }
 
 // 点状加载动画
 export function LoadingDots({ size = 'medium' }: { size?: 'small' | 'medium' | 'large' }) {
-  const dotSize = size === 'small' ? 6 : size === 'medium' ? 8 : 10
-  
+  const dotSize = size === 'small' ? 6 : size === 'medium' ? 8 : 10;
+
   return (
-    <div style={{
-      display: 'flex',
-      gap: 4,
-      alignItems: 'center',
-    }}>
+    <div
+      style={{
+        display: 'flex',
+        gap: 4,
+        alignItems: 'center',
+      }}
+    >
       {[0, 1, 2].map((i) => (
         <motion.div
           key={i}
@@ -91,7 +99,7 @@ export function LoadingDots({ size = 'medium' }: { size?: 'small' | 'medium' | '
             duration: 1,
             repeat: Infinity,
             delay: i * 0.15,
-            ease: "easeInOut",
+            ease: 'easeInOut',
           }}
           style={{
             width: dotSize,
@@ -102,19 +110,21 @@ export function LoadingDots({ size = 'medium' }: { size?: 'small' | 'medium' | '
         />
       ))}
     </div>
-  )
+  );
 }
 
 // 脉冲加载动画
 export function LoadingPulse({ size = 'medium' }: { size?: 'small' | 'medium' | 'large' }) {
-  const pulseSize = size === 'small' ? 32 : size === 'medium' ? 48 : 64
-  
+  const pulseSize = size === 'small' ? 32 : size === 'medium' ? 48 : 64;
+
   return (
-    <div style={{
-      position: 'relative',
-      width: pulseSize,
-      height: pulseSize,
-    }}>
+    <div
+      style={{
+        position: 'relative',
+        width: pulseSize,
+        height: pulseSize,
+      }}
+    >
       <motion.div
         animate={{
           scale: [1, 1.2, 1],
@@ -123,7 +133,7 @@ export function LoadingPulse({ size = 'medium' }: { size?: 'small' | 'medium' | 
         transition={{
           duration: 2,
           repeat: Infinity,
-          ease: "easeInOut",
+          ease: 'easeInOut',
         }}
         style={{
           position: 'absolute',
@@ -140,7 +150,7 @@ export function LoadingPulse({ size = 'medium' }: { size?: 'small' | 'medium' | 
         transition={{
           duration: 2,
           repeat: Infinity,
-          ease: "easeInOut",
+          ease: 'easeInOut',
           delay: 0.5,
         }}
         style={{
@@ -151,16 +161,16 @@ export function LoadingPulse({ size = 'medium' }: { size?: 'small' | 'medium' | 
         }}
       />
     </div>
-  )
+  );
 }
 
 // 骨架屏加载
-export function SkeletonLoader({ 
-  lines = 3, 
-  width = '100%' 
-}: { 
-  lines?: number
-  width?: string | number 
+export function SkeletonLoader({
+  lines = 3,
+  width = '100%',
+}: {
+  lines?: number;
+  width?: string | number;
 }) {
   return (
     <div style={{ width, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -173,7 +183,7 @@ export function SkeletonLoader({
             duration: 1.5,
             repeat: Infinity,
             delay: i * 0.1,
-            ease: "easeInOut",
+            ease: 'easeInOut',
           }}
           style={{
             height: i === 0 ? 20 : 14,
@@ -184,5 +194,5 @@ export function SkeletonLoader({
         />
       ))}
     </div>
-  )
+  );
 }

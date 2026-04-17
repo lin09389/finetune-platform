@@ -1,53 +1,53 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react'
 import {
-  Card,
+  CheckCircleOutlined,
+  ClearOutlined,
+  ClockCircleOutlined,
+  CloseCircleOutlined,
+  CodeOutlined,
+  PlayCircleOutlined,
+  SettingOutlined,
+  StopOutlined,
+} from '@ant-design/icons';
+import {
+  Alert,
   Button,
-  Space,
-  Select,
+  Card,
+  Input,
   InputNumber,
   message,
+  Select,
+  Space,
   Spin,
-  Alert,
-  Tooltip,
   Tag,
+  Tooltip,
   Typography,
-  Input,
-} from 'antd'
-import {
-  PlayCircleOutlined,
-  StopOutlined,
-  ClearOutlined,
-  SettingOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  ClockCircleOutlined,
-  CodeOutlined,
-} from '@ant-design/icons'
-import CodeBlock from './CodeBlock'
-import { apiClient, API_BASE_URL } from '../services/api'
+} from 'antd';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { API_BASE_URL, apiClient } from '../services/api';
+import CodeBlock from './CodeBlock';
 
-const { Text } = Typography
-const { TextArea } = Input
+const { Text } = Typography;
+const { TextArea } = Input;
 
 interface Language {
-  id: string
-  name: string
-  extension: string
-  description: string
-  available: boolean
-  version: string | null
+  id: string;
+  name: string;
+  extension: string;
+  description: string;
+  available: boolean;
+  version: string | null;
 }
 
 interface ExecuteResult {
-  success: boolean
-  stdout: string
-  stderr: string
-  exit_code: number
-  execution_time: number
-  memory_used_mb: number
-  error: string | null
-  language: string
-  timestamp: string
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  exit_code: number;
+  execution_time: number;
+  memory_used_mb: number;
+  error: string | null;
+  language: string;
+  timestamp: string;
 }
 
 const DEFAULT_CODE: Record<string, string> = {
@@ -97,56 +97,56 @@ for (let i = 0; i < 10; i++) {
   console.log(\`F(\${i}) = \${fibonacci(i)}\`);
 }
 `,
-}
+};
 
 const CodeExecutor: React.FC = () => {
-  const [code, setCode] = useState<string>(DEFAULT_CODE['python'] || '')
-  const [language, setLanguage] = useState<string>('python')
-  const [timeout, setTimeout] = useState<number>(30)
-  const [memoryLimit, setMemoryLimit] = useState<number>(256)
-  const [loading, setLoading] = useState<boolean>(false)
-  const [result, setResult] = useState<ExecuteResult | null>(null)
-  const [languages, setLanguages] = useState<Language[]>([])
-  const [showSettings, setShowSettings] = useState<boolean>(false)
-  const [stdin, setStdin] = useState<string>('')
-  const abortControllerRef = useRef<AbortController | null>(null)
+  const [code, setCode] = useState<string>(DEFAULT_CODE['python'] || '');
+  const [language, setLanguage] = useState<string>('python');
+  const [timeout, setTimeout] = useState<number>(30);
+  const [memoryLimit, setMemoryLimit] = useState<number>(256);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [result, setResult] = useState<ExecuteResult | null>(null);
+  const [languages, setLanguages] = useState<Language[]>([]);
+  const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [stdin, setStdin] = useState<string>('');
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    fetchLanguages()
-  }, [])
+    fetchLanguages();
+  }, []);
 
   const fetchLanguages = async () => {
     try {
-      const response = await apiClient.get('/code/languages')
-      setLanguages(response.data.languages || [])
+      const response = await apiClient.get('/code/languages');
+      setLanguages(response.data.languages || []);
     } catch (error) {
-      console.error('获取语言列表失败:', error)
+      console.error('获取语言列表失败:', error);
     }
-  }
+  };
 
   const handleLanguageChange = (newLanguage: string) => {
-    setLanguage(newLanguage)
+    setLanguage(newLanguage);
     if (!code || code === DEFAULT_CODE[language]) {
-      setCode(DEFAULT_CODE[newLanguage] || '')
+      setCode(DEFAULT_CODE[newLanguage] || '');
     }
-    setResult(null)
-  }
+    setResult(null);
+  };
 
   const handleExecute = useCallback(async () => {
     if (!code.trim()) {
-      message.warning('请输入要执行的代码')
-      return
+      message.warning('请输入要执行的代码');
+      return;
     }
 
-    const selectedLang = languages.find(l => l.id === language)
+    const selectedLang = languages.find((l) => l.id === language);
     if (selectedLang && !selectedLang.available) {
-      message.error(`${selectedLang.name} 环境不可用`)
-      return
+      message.error(`${selectedLang.name} 环境不可用`);
+      return;
     }
 
-    setLoading(true)
-    setResult(null)
-    abortControllerRef.current = new AbortController()
+    setLoading(true);
+    setResult(null);
+    abortControllerRef.current = new AbortController();
 
     try {
       const response = await fetch(`${API_BASE_URL}/code/execute`, {
@@ -162,55 +162,58 @@ const CodeExecutor: React.FC = () => {
           stdin: stdin || null,
         }),
         signal: abortControllerRef.current.signal,
-      })
+      });
 
-      const data = await response.json()
-      setResult(data)
+      const data = await response.json();
+      setResult(data);
 
       if (data.success) {
-        message.success('代码执行成功')
+        message.success('代码执行成功');
       } else {
-        message.warning('代码执行完成，但有错误')
+        message.warning('代码执行完成，但有错误');
       }
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        message.info('执行已取消')
+        message.info('执行已取消');
       } else {
-        message.error('执行失败: ' + (error.message || '未知错误'))
+        message.error('执行失败: ' + (error.message || '未知错误'));
       }
     } finally {
-      setLoading(false)
-      abortControllerRef.current = null
+      setLoading(false);
+      abortControllerRef.current = null;
     }
-  }, [code, language, timeout, memoryLimit, stdin, languages])
+  }, [code, language, timeout, memoryLimit, stdin, languages]);
 
   const handleStop = useCallback(() => {
     if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
+      abortControllerRef.current.abort();
     }
-  }, [])
+  }, []);
 
   const handleClear = useCallback(() => {
-    setCode('')
-    setResult(null)
-    setStdin('')
-  }, [])
+    setCode('');
+    setResult(null);
+    setStdin('');
+  }, []);
 
   const handleClearResult = useCallback(() => {
-    setResult(null)
-  }, [])
+    setResult(null);
+  }, []);
 
   const formatExecutionTime = (seconds: number): string => {
     if (seconds < 1) {
-      return `${(seconds * 1000).toFixed(0)}ms`
+      return `${(seconds * 1000).toFixed(0)}ms`;
     }
-    return `${seconds.toFixed(2)}s`
-  }
+    return `${seconds.toFixed(2)}s`;
+  };
 
-  const currentLanguageInfo = languages.find(l => l.id === language)
+  const currentLanguageInfo = languages.find((l) => l.id === language);
 
   return (
-    <div className="code-executor" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div
+      className="code-executor"
+      style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
+    >
       <Card
         title={
           <Space>
@@ -224,7 +227,7 @@ const CodeExecutor: React.FC = () => {
               value={language}
               onChange={handleLanguageChange}
               style={{ width: 150 }}
-              options={languages.map(l => ({
+              options={languages.map((l) => ({
                 value: l.id,
                 label: (
                   <Space>
@@ -246,10 +249,12 @@ const CodeExecutor: React.FC = () => {
         }
         style={{ height: '100%', display: 'flex', flexDirection: 'column' }}
         styles={{
-          body: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }
+          body: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' },
         }}
       >
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, overflow: 'hidden' }}>
+        <div
+          style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, overflow: 'hidden' }}
+        >
           {showSettings && (
             <Card size="small" style={{ background: 'var(--bg-secondary)' }}>
               <Space wrap>
@@ -284,26 +289,23 @@ const CodeExecutor: React.FC = () => {
             </Card>
           )}
 
-          <div style={{ flex: '1 1 50%', display: 'flex', flexDirection: 'column', minHeight: 200 }}>
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: 8
-            }}>
+          <div
+            style={{ flex: '1 1 50%', display: 'flex', flexDirection: 'column', minHeight: 200 }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 8,
+              }}
+            >
               <Text strong>代码编辑器</Text>
               <Space>
-                <Button
-                  size="small"
-                  onClick={() => setCode(DEFAULT_CODE[language] || '')}
-                >
+                <Button size="small" onClick={() => setCode(DEFAULT_CODE[language] || '')}>
                   重置示例
                 </Button>
-                <Button
-                  size="small"
-                  icon={<ClearOutlined />}
-                  onClick={handleClear}
-                >
+                <Button size="small" icon={<ClearOutlined />} onClick={handleClear}>
                   清空
                 </Button>
               </Space>
@@ -327,7 +329,9 @@ const CodeExecutor: React.FC = () => {
 
           <div style={{ display: 'flex', gap: 12 }}>
             <div style={{ flex: 1 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>标准输入 (可选)</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                标准输入 (可选)
+              </Text>
               <TextArea
                 value={stdin}
                 onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setStdin(e.target.value)}
@@ -356,12 +360,7 @@ const CodeExecutor: React.FC = () => {
               执行代码
             </Button>
             {loading && (
-              <Button
-                icon={<StopOutlined />}
-                onClick={handleStop}
-                danger
-                size="large"
-              >
+              <Button icon={<StopOutlined />} onClick={handleStop} danger size="large">
                 停止
               </Button>
             )}
@@ -370,20 +369,22 @@ const CodeExecutor: React.FC = () => {
           {loading && (
             <div style={{ textAlign: 'center', padding: 20 }}>
               <Spin size="large" />
-              <div style={{ marginTop: 12, color: 'var(--text-secondary)' }}>
-                正在执行代码...
-              </div>
+              <div style={{ marginTop: 12, color: 'var(--text-secondary)' }}>正在执行代码...</div>
             </div>
           )}
 
           {result && !loading && (
-            <div style={{ flex: '1 1 50%', display: 'flex', flexDirection: 'column', minHeight: 200 }}>
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: 8
-              }}>
+            <div
+              style={{ flex: '1 1 50%', display: 'flex', flexDirection: 'column', minHeight: 200 }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: 8,
+                }}
+              >
                 <Space>
                   {result.success ? (
                     <Tag icon={<CheckCircleOutlined />} color="success">
@@ -397,15 +398,9 @@ const CodeExecutor: React.FC = () => {
                   <Tag icon={<ClockCircleOutlined />}>
                     {formatExecutionTime(result.execution_time)}
                   </Tag>
-                  {result.exit_code !== 0 && (
-                    <Tag color="warning">退出码: {result.exit_code}</Tag>
-                  )}
+                  {result.exit_code !== 0 && <Tag color="warning">退出码: {result.exit_code}</Tag>}
                 </Space>
-                <Button
-                  size="small"
-                  icon={<ClearOutlined />}
-                  onClick={handleClearResult}
-                >
+                <Button size="small" icon={<ClearOutlined />} onClick={handleClearResult}>
                   清除结果
                 </Button>
               </div>
@@ -449,11 +444,7 @@ const CodeExecutor: React.FC = () => {
               )}
 
               {!result.stdout && !result.stderr && !result.error && result.success && (
-                <Alert
-                  message="代码执行成功，但没有输出"
-                  type="info"
-                  showIcon
-                />
+                <Alert message="代码执行成功，但没有输出" type="info" showIcon />
               )}
             </div>
           )}
@@ -472,7 +463,7 @@ const CodeExecutor: React.FC = () => {
         }
       `}</style>
     </div>
-  )
-}
+  );
+};
 
-export default CodeExecutor
+export default CodeExecutor;

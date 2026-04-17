@@ -1,20 +1,20 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../services/api', () => ({
   API_BASE_URL: 'http://localhost:8000',
-}))
+}));
 
 import {
   createConversationBranch,
   fetchConversationTreeState,
   saveConversationMessage,
   switchConversationToMainTimeline,
-} from '../services/conversationTreeApi'
+} from '../services/conversationTreeApi';
 
 describe('conversationTreeApi', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
-  })
+    vi.clearAllMocks();
+  });
 
   it('loads tree and branches through the canonical endpoints', async () => {
     global.fetch = vi
@@ -50,19 +50,19 @@ describe('conversationTreeApi', () => {
             },
           ],
         }),
-      } as Response) as typeof fetch
+      } as Response) as typeof fetch;
 
-    const state = await fetchConversationTreeState('session-1')
+    const state = await fetchConversationTreeState('session-1');
 
     expect(String(vi.mocked(global.fetch).mock.calls[0]?.[0])).toBe(
-      'http://localhost:8000/chat/session-1/tree'
-    )
+      'http://localhost:8000/chat/session-1/tree',
+    );
     expect(String(vi.mocked(global.fetch).mock.calls[1]?.[0])).toBe(
-      'http://localhost:8000/chat/session-1/branches'
-    )
-    expect(state.tree.root_id).toBe('msg-1')
-    expect(state.branches[0]?.id).toBe('branch-1')
-  })
+      'http://localhost:8000/chat/session-1/branches',
+    );
+    expect(state.tree.root_id).toBe('msg-1');
+    expect(state.branches[0]?.id).toBe('branch-1');
+  });
 
   it('creates branches, switches to main line, and saves messages with canonical payloads', async () => {
     global.fetch = vi
@@ -90,34 +90,34 @@ describe('conversationTreeApi', () => {
           role: 'assistant',
           content: 'saved reply',
         }),
-      } as Response) as typeof fetch
+      } as Response) as typeof fetch;
 
-    const branch = await createConversationBranch('session-1', 'msg-1', 'Reply 10:00')
-    const switched = await switchConversationToMainTimeline('session-1')
+    const branch = await createConversationBranch('session-1', 'msg-1', 'Reply 10:00');
+    const switched = await switchConversationToMainTimeline('session-1');
     const saved = await saveConversationMessage('session-1', 'assistant', 'saved reply', {
       source: 'playground',
-    })
+    });
 
-    expect(branch.branch?.id).toBe('branch-2')
-    expect(switched.metadata.current_branch_id).toBeNull()
-    expect(saved.id).toBe('msg-2')
+    expect(branch.branch?.id).toBe('branch-2');
+    expect(switched.metadata.current_branch_id).toBeNull();
+    expect(saved.id).toBe('msg-2');
 
     expect(vi.mocked(global.fetch).mock.calls[0]?.[1]).toMatchObject({
       method: 'POST',
-    })
+    });
     expect(JSON.parse(String(vi.mocked(global.fetch).mock.calls[0]?.[1]?.body))).toEqual({
       session_id: 'session-1',
       from_message_id: 'msg-1',
       branch_name: 'Reply 10:00',
-    })
+    });
 
     expect(vi.mocked(global.fetch).mock.calls[1]?.[1]).toMatchObject({
       method: 'PUT',
-    })
+    });
     expect(JSON.parse(String(vi.mocked(global.fetch).mock.calls[2]?.[1]?.body))).toEqual({
       role: 'assistant',
       content: 'saved reply',
       metadata: { source: 'playground' },
-    })
-  })
-})
+    });
+  });
+});

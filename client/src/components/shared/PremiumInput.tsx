@@ -1,5 +1,5 @@
+import { AnimatePresence, motion } from 'framer-motion';
 import React, { forwardRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import styles from './PremiumInput.module.css';
 
 interface PremiumInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
@@ -40,7 +40,7 @@ const PremiumInput = forwardRef<HTMLInputElement, PremiumInputProps>(
         </AnimatePresence>
       </div>
     );
-  }
+  },
 );
 
 PremiumInput.displayName = 'PremiumInput';

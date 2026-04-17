@@ -45,7 +45,9 @@
 
   body {
     @apply min-h-screen bg-bg-primary text-text-primary;
-    transition: background-color var(--transition-base), color var(--transition-base);
+    transition:
+      background-color var(--transition-base),
+      color var(--transition-base);
   }
 
   /* 焦点环优化 */
@@ -136,7 +138,9 @@
 
 /* 减少动画偏好支持 */
 @media (prefers-reduced-motion: reduce) {
-  *, ::before, ::after {
+  *,
+  ::before,
+  ::after {
     @apply !animate-none !transition-none !transform-none;
   }
 }

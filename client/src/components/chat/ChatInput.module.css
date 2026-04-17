@@ -1,20 +1,38 @@
 .inputShell {
-  border-top: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--bg-primary) 82%, transparent);
-  backdrop-filter: blur(8px);
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    var(--bg-primary) 30%,
+    var(--bg-primary) 100%
+  );
+  pointer-events: none; /* 让上方的渐变区域不阻挡点击 */
+  padding-top: 40px;
+  z-index: 10;
 }
 
 .inputShellDesktop {
-  padding: 16px 24px 24px;
+  padding-bottom: 24px;
 }
 
 .inputShellMobile {
-  padding: 12px 10px 14px;
+  padding-bottom: 16px;
 }
 
 .container {
   max-width: 860px;
   margin: 0 auto;
+  pointer-events: auto; /* 恢复输入框容器的点击事件 */
+  padding: 0 24px;
+}
+
+@media (max-width: 992px) {
+  .container {
+    padding: 0 16px;
+  }
 }
 
 .suggestions {
@@ -23,28 +41,57 @@
   gap: 8px;
   flex-wrap: wrap;
   overflow: hidden;
+  justify-content: center;
 }
 
 .suggestionBtn {
   border-radius: 16px !important;
-  background: var(--bg-secondary) !important;
-  border: 1px solid var(--border-color) !important;
+  background: var(--bg-elevated) !important;
+  border: 1px solid rgba(0, 0, 0, 0.05) !important;
   color: var(--text-secondary) !important;
   font-size: 13px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02) !important;
+  transition: all 0.2s ease !important;
+}
+
+:global(.dark-theme) .suggestionBtn {
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+.suggestionBtn:hover {
+  background: var(--bg-hover) !important;
+  color: var(--text-primary) !important;
+  transform: translateY(-1px);
 }
 
 .editorCard {
-  background: var(--bg-secondary);
-  border-radius: 16px;
-  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-radius: 24px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.06),
+    0 2px 8px rgba(0, 0, 0, 0.04);
+  transition:
+    box-shadow 0.3s ease,
+    border-color 0.3s ease;
+}
+
+:global(.dark-theme) .editorCard {
+  background: rgba(30, 30, 30, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .editorCardDesktop {
-  padding: 12px 16px;
+  padding: 14px 20px 14px;
 }
 
 .editorCardMobile {
-  padding: 10px 12px;
+  padding: 12px 16px;
 }
 
 .textarea {
@@ -55,15 +102,18 @@
   line-height: 1.6 !important;
   box-shadow: none !important;
   padding: 0 !important;
+  color: var(--text-primary) !important;
+}
+
+.textarea::placeholder {
+  color: var(--text-tertiary);
 }
 
 .toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border-color);
+  margin-top: 10px;
   flex-wrap: wrap;
   gap: 8px;
 }
@@ -77,23 +127,47 @@
 
 .ghostIcon {
   color: var(--text-tertiary) !important;
+  transition: color 0.2s ease !important;
+}
+
+.ghostIcon:hover {
+  color: var(--text-primary) !important;
+  background: var(--bg-hover) !important;
 }
 
 .hint {
   display: flex;
   justify-content: center;
-  margin-top: 8px;
+  margin-top: 12px;
+  opacity: 0.7;
 }
 
 .sendBtn {
-  border-radius: 8px !important;
+  border-radius: 12px !important;
   height: 36px !important;
   padding: 0 20px !important;
-  font-weight: 500 !important;
+  font-weight: 600 !important;
+  background: var(--text-primary) !important;
+  color: var(--bg-primary) !important;
+  border: none !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+}
+
+.sendBtn:hover:not([disabled]) {
+  opacity: 0.85;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15) !important;
+}
+
+.sendBtn[disabled] {
+  background: var(--bg-hover) !important;
+  color: var(--text-tertiary) !important;
+  box-shadow: none !important;
 }
 
 .stopBtn {
-  border-radius: 8px !important;
+  border-radius: 12px !important;
   height: 36px !important;
   padding: 0 16px !important;
+  font-weight: 600 !important;
 }

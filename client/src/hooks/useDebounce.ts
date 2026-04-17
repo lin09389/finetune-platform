@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
  * useDebounce - 防抖 Hook
  * @param value 需要防抖的值
  * @param delay 延迟时间（毫秒）
  * @returns 防抖后的值
- * 
+ *
  * 使用场景：
  * - 搜索输入框
  * - 表单验证
@@ -13,19 +13,19 @@ import { useState, useEffect, useRef, useCallback } from 'react'
  * - 滚动事件
  */
 export function useDebounce<T>(value: T, delay: number = 300): T {
-  const [debouncedValue, setDebouncedValue] = useState<T>(value)
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedValue(value)
-    }, delay)
+      setDebouncedValue(value);
+    }, delay);
 
     return () => {
-      clearTimeout(timer)
-    }
-  }, [value, delay])
+      clearTimeout(timer);
+    };
+  }, [value, delay]);
 
-  return debouncedValue
+  return debouncedValue;
 }
 
 /**
@@ -33,7 +33,7 @@ export function useDebounce<T>(value: T, delay: number = 300): T {
  * @param callback 需要防抖的回调函数
  * @param delay 延迟时间（毫秒）
  * @returns 防抖后的回调函数
- * 
+ *
  * 使用场景：
  * - 按钮点击
  * - API 请求
@@ -41,33 +41,33 @@ export function useDebounce<T>(value: T, delay: number = 300): T {
  */
 export function useDebounceCallback<T extends (...args: unknown[]) => unknown>(
   callback: T,
-  delay: number = 300
+  delay: number = 300,
 ): (...args: Parameters<T>) => void {
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const debouncedCallback = useCallback(
     (...args: Parameters<T>) => {
       if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current)
+        clearTimeout(timeoutRef.current);
       }
 
       timeoutRef.current = setTimeout(() => {
-        callback(...args)
-      }, delay)
+        callback(...args);
+      }, delay);
     },
-    [callback, delay]
-  )
+    [callback, delay],
+  );
 
   // 清理函数
   useEffect(() => {
     return () => {
       if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current)
+        clearTimeout(timeoutRef.current);
       }
-    }
-  }, [])
+    };
+  }, []);
 
-  return debouncedCallback
+  return debouncedCallback;
 }
 
 /**
@@ -75,30 +75,33 @@ export function useDebounceCallback<T extends (...args: unknown[]) => unknown>(
  * @param value 需要节流的值
  * @param limit 限制时间（毫秒）
  * @returns 节流后的值
- * 
+ *
  * 使用场景：
  * - 滚动监听
  * - 鼠标移动
  * - 拖拽操作
  */
 export function useThrottle<T>(value: T, limit: number = 100): T {
-  const [throttledValue, setThrottledValue] = useState<T>(value)
-  const lastRan = useRef<number>(Date.now())
+  const [throttledValue, setThrottledValue] = useState<T>(value);
+  const lastRan = useRef<number>(Date.now());
 
   useEffect(() => {
-    const handler = setTimeout(() => {
-      if (Date.now() - lastRan.current >= limit) {
-        setThrottledValue(value)
-        lastRan.current = Date.now()
-      }
-    }, limit - (Date.now() - lastRan.current))
+    const handler = setTimeout(
+      () => {
+        if (Date.now() - lastRan.current >= limit) {
+          setThrottledValue(value);
+          lastRan.current = Date.now();
+        }
+      },
+      limit - (Date.now() - lastRan.current),
+    );
 
     return () => {
-      clearTimeout(handler)
-    }
-  }, [value, limit])
+      clearTimeout(handler);
+    };
+  }, [value, limit]);
 
-  return throttledValue
+  return throttledValue;
 }
 
 /**
@@ -109,41 +112,44 @@ export function useThrottle<T>(value: T, limit: number = 100): T {
  */
 export function useThrottleCallback<T extends (...args: unknown[]) => unknown>(
   callback: T,
-  limit: number = 100
+  limit: number = 100,
 ): (...args: Parameters<T>) => void {
-  const lastRan = useRef<number>(0)
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const lastRan = useRef<number>(0);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const throttledCallback = useCallback(
     (...args: Parameters<T>) => {
-      const now = Date.now()
+      const now = Date.now();
 
       if (now - lastRan.current >= limit) {
-        callback(...args)
-        lastRan.current = now
+        callback(...args);
+        lastRan.current = now;
       } else {
         if (timeoutRef.current) {
-          clearTimeout(timeoutRef.current)
+          clearTimeout(timeoutRef.current);
         }
 
-        timeoutRef.current = setTimeout(() => {
-          callback(...args)
-          lastRan.current = Date.now()
-        }, limit - (now - lastRan.current))
+        timeoutRef.current = setTimeout(
+          () => {
+            callback(...args);
+            lastRan.current = Date.now();
+          },
+          limit - (now - lastRan.current),
+        );
       }
     },
-    [callback, limit]
-  )
+    [callback, limit],
+  );
 
   useEffect(() => {
     return () => {
       if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current)
+        clearTimeout(timeoutRef.current);
       }
-    }
-  }, [])
+    };
+  }, []);
 
-  return throttledCallback
+  return throttledCallback;
 }
 
 /**
@@ -151,18 +157,18 @@ export function useThrottleCallback<T extends (...args: unknown[]) => unknown>(
  * @param initialValue 初始值
  * @param delay 延迟时间（毫秒）
  * @returns [value, setValue, debouncedValue]
- * 
+ *
  * 使用场景：
  * - 需要同时获取实时值和防抖值的场景
  */
 export function useDebounceState<T>(
   initialValue: T,
-  delay: number = 300
+  delay: number = 300,
 ): [T, (value: T | ((prev: T) => T)) => void, T] {
-  const [value, setValue] = useState<T>(initialValue)
-  const debouncedValue = useDebounce(value, delay)
+  const [value, setValue] = useState<T>(initialValue);
+  const debouncedValue = useDebounce(value, delay);
 
-  return [value, setValue, debouncedValue]
+  return [value, setValue, debouncedValue];
 }
 
-export default useDebounce
+export default useDebounce;

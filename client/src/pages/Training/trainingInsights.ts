@@ -1,48 +1,65 @@
-import type { TrainingRecord } from '../../types'
+import type { TrainingRecord } from '../../types';
 
 export interface TrainingFailureDiagnosis {
-  category: 'oom' | 'dataset' | 'model' | 'checkpoint' | 'runtime' | 'unknown'
-  title: string
-  summary: string
-  suggestions: string[]
+  category: 'oom' | 'dataset' | 'model' | 'checkpoint' | 'runtime' | 'unknown';
+  title: string;
+  summary: string;
+  suggestions: string[];
 }
 
 export interface TrainingFailureSnapshot {
-  id: string
-  modelName: string
-  datasetName: string
-  method: string
-  startTime: string
+  id: string;
+  modelName: string;
+  datasetName: string;
+  method: string;
+  startTime: string;
 }
 
 export interface TrainingFailureAnalytics {
-  totalRuns: number
-  failedRuns: number
-  stoppedRuns: number
-  completedRuns: number
-  failureRate: number
-  failureRate7d: number
-  failureRate14d: number
-  failedRuns7d: number
-  failedRuns14d: number
-  totalRuns7d: number
-  totalRuns14d: number
-  suspectedVramPressureCount: number
-  longContextFailureCount: number
-  unquantizedFailureCount: number
-  topFailedModels: string[]
-  topFailedDatasets: string[]
-  topFailedMethods: string[]
-  recentFailures: TrainingFailureSnapshot[]
+  totalRuns: number;
+  failedRuns: number;
+  stoppedRuns: number;
+  completedRuns: number;
+  failureRate: number;
+  failureRate7d: number;
+  failureRate14d: number;
+  failedRuns7d: number;
+  failedRuns14d: number;
+  totalRuns7d: number;
+  totalRuns14d: number;
+  suspectedVramPressureCount: number;
+  longContextFailureCount: number;
+  unquantizedFailureCount: number;
+  topFailedModels: string[];
+  topFailedDatasets: string[];
+  topFailedMethods: string[];
+  recentFailures: TrainingFailureSnapshot[];
+}
+
+export type RuntimeTrainingPhase =
+  | 'idle'
+  | 'loading'
+  | 'training'
+  | 'running'
+  | 'stopping'
+  | 'stopped'
+  | 'completed'
+  | 'failed';
+
+export interface RuntimeTrainingGuardrail {
+  statusType: 'success' | 'warning' | 'error' | 'info';
+  statusText: string;
+  summary: string;
+  actions: string[];
 }
 
 const containsAny = (text: string, keywords: string[]) =>
-  keywords.some((keyword) => text.includes(keyword))
+  keywords.some((keyword) => text.includes(keyword));
 
 export const diagnoseTrainingFailure = (message?: string): TrainingFailureDiagnosis => {
-  const raw = (message || '').trim()
-  const normalized = raw.toLowerCase()
-  const detail = raw || '未返回详细错误信息'
+  const raw = (message || '').trim();
+  const normalized = raw.toLowerCase();
+  const detail = raw || '未返回详细错误信息';
 
   if (containsAny(normalized, ['outofmemory', 'out of memory', 'cuda oom', '显存', 'oom'])) {
     return {
@@ -54,7 +71,7 @@ export const diagnoseTrainingFailure = (message?: string): TrainingFailureDiagno
         '将最大序列长度降到 512 或更低，再执行训练前预检。',
         '优先使用 QLoRA + 4bit 量化，避免在低显存环境启用高吞吐预设。',
       ],
-    }
+    };
   }
 
   if (containsAny(normalized, ['dataset', 'json', '样本', '格式', 'unsupported dataset'])) {
@@ -67,7 +84,7 @@ export const diagnoseTrainingFailure = (message?: string): TrainingFailureDiagno
         '确认样本字段符合支持格式（messages/text/content/instruction+output）。',
         '重新上传修复后的数据集，再执行预检并启动训练。',
       ],
-    }
+    };
   }
 
   if (containsAny(normalized, ['model not found', 'tokenizer', 'config.json', '模型不存在'])) {
@@ -80,7 +97,7 @@ export const diagnoseTrainingFailure = (message?: string): TrainingFailureDiagno
         '尝试在模型管理页重新下载或重新导入模型。',
         '先用其它可用模型完成一次小规模训练验证链路。',
       ],
-    }
+    };
   }
 
   if (containsAny(normalized, ['checkpoint', 'resume', '检查点'])) {
@@ -93,7 +110,7 @@ export const diagnoseTrainingFailure = (message?: string): TrainingFailureDiagno
         '优先选择最近一次成功保存的 checkpoint 继续训练。',
         '若检查点损坏，建议基于相同配置重新启动训练任务。',
       ],
-    }
+    };
   }
 
   if (containsAny(normalized, ['cuda', 'nccl', 'runtime', 'device-side assert'])) {
@@ -106,7 +123,7 @@ export const diagnoseTrainingFailure = (message?: string): TrainingFailureDiagno
         '检查 CUDA / 驱动环境与当前依赖版本兼容性。',
         '降低并发负载后再做一次训练前预检。',
       ],
-    }
+    };
   }
 
   return {
@@ -118,18 +135,98 @@ export const diagnoseTrainingFailure = (message?: string): TrainingFailureDiagno
       '查看 outputs 下对应任务日志，定位首个异常栈。',
       '优先使用保守配置（QLoRA + 小 batch + 短序列）验证链路。',
     ],
+  };
+};
+
+export const buildRuntimeTrainingGuardrail = (
+  phase: RuntimeTrainingPhase,
+  message?: string,
+): RuntimeTrainingGuardrail => {
+  const detail = (message || '').trim();
+
+  if (phase === 'failed') {
+    return {
+      statusType: 'error',
+      statusText: '训练失败',
+      summary: detail
+        ? `最近一次训练失败：${detail}`
+        : '最近一次训练以失败结束，建议先完成诊断后再继续关键链路操作。',
+      actions: [
+        '先查看失败诊断与恢复面板，确认根因（显存/数据集/模型/检查点）。',
+        '执行训练前预检并应用保守参数，再决定是否重启训练。',
+        '若存在可恢复检查点，优先走恢复训练而不是直接新开任务。',
+      ],
+    };
   }
-}
+
+  if (phase === 'stopping') {
+    return {
+      statusType: 'warning',
+      statusText: '训练停止中',
+      summary: detail || '停止请求已发出，训练线程正在等待安全收敛。',
+      actions: [
+        '等待状态变为“已停止/失败/完成”后再发起新训练。',
+        '停止收敛期间避免切换关键后端或重载模型，减少状态漂移。',
+      ],
+    };
+  }
+
+  if (phase === 'training' || phase === 'running' || phase === 'loading') {
+    return {
+      statusType: 'info',
+      statusText: phase === 'loading' ? '训练准备中' : '训练进行中',
+      summary: detail || '训练链路处于活跃阶段，建议优先观察进度与失败信号。',
+      actions: [
+        '保持当前配置稳定，避免中途频繁改参数导致排障困难。',
+        '关注显存、loss 与 ETA 走势，异常时优先保存检查点后处理。',
+      ],
+    };
+  }
+
+  if (phase === 'completed') {
+    return {
+      statusType: 'success',
+      statusText: '训练已完成',
+      summary: '当前训练态已完成，可以进入推理验证和会话上下文切换阶段。',
+      actions: [
+        '先做一次推理冒烟验证（响应质量、延迟、错误率）。',
+        '确认通过后再将训练模型提升为活跃推理模型。',
+      ],
+    };
+  }
+
+  if (phase === 'stopped') {
+    return {
+      statusType: 'warning',
+      statusText: '训练已停止',
+      summary: '训练任务已被中断，是否恢复或重启应基于检查点和失败风险共同判断。',
+      actions: [
+        '若有检查点，优先从最近稳定检查点恢复。',
+        '若无检查点，建议先预检并使用保守参数重新启动。',
+      ],
+    };
+  }
+
+  return {
+    statusType: 'info',
+    statusText: '训练空闲',
+    summary: '当前没有活跃训练任务，可先完成预检并确认运行上下文。',
+    actions: [
+      '先执行训练前预检，确保模型、数据集与资源预算一致。',
+      '确认活跃后端与模型上下文后再启动训练。',
+    ],
+  };
+};
 
 export const buildTrainingPreflightFingerprint = (
   values: Record<string, any>,
   runtimeConfig: {
-    gradientAccumulation: number
-    precisionPreset: 'max' | 'balanced' | 'fast'
-    memoryPreset: 'auto' | '6gb' | '8gb' | '12gb'
-    useFlashAttn: boolean
-    quantizationBit: 0 | 4 | 8
-    useSwift: boolean
+    gradientAccumulation: number;
+    precisionPreset: 'max' | 'balanced' | 'fast';
+    memoryPreset: 'auto' | '6gb' | '8gb' | '12gb';
+    useFlashAttn: boolean;
+    quantizationBit: 0 | 4 | 8;
+    useSwift: boolean;
   },
 ) =>
   JSON.stringify({
@@ -147,58 +244,58 @@ export const buildTrainingPreflightFingerprint = (
     memoryPreset: runtimeConfig.memoryPreset,
     useFlashAttn: runtimeConfig.useFlashAttn,
     quantization: runtimeConfig.quantizationBit,
-  useSwift: runtimeConfig.useSwift,
-  })
+    useSwift: runtimeConfig.useSwift,
+  });
 
 const topKeys = (values: string[], topN: number = 3) =>
   Object.entries(
     values.reduce<Record<string, number>>((acc, key) => {
-      if (!key) return acc
-      acc[key] = (acc[key] || 0) + 1
-      return acc
+      if (!key) return acc;
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
     }, {}),
   )
     .sort((a, b) => b[1] - a[1])
     .slice(0, topN)
-    .map(([key]) => key)
+    .map(([key]) => key);
 
 export const buildTrainingFailureAnalytics = (
   records: TrainingRecord[],
 ): TrainingFailureAnalytics => {
-  const now = Date.now()
+  const now = Date.now();
   const withinDays = (isoTime: string, days: number) => {
-    const time = new Date(isoTime).getTime()
-    if (Number.isNaN(time)) return false
-    const windowMs = days * 24 * 60 * 60 * 1000
-    return now - time <= windowMs
-  }
+    const time = new Date(isoTime).getTime();
+    if (Number.isNaN(time)) return false;
+    const windowMs = days * 24 * 60 * 60 * 1000;
+    return now - time <= windowMs;
+  };
 
-  const totalRuns = records.length
-  const failedRuns = records.filter((record) => record.status === 'failed')
-  const stoppedRuns = records.filter((record) => record.status === 'stopped')
-  const completedRuns = records.filter((record) => record.status === 'completed')
-  const runs7d = records.filter((record) => withinDays(record.startTime, 7))
-  const runs14d = records.filter((record) => withinDays(record.startTime, 14))
-  const failedRuns7d = runs7d.filter((record) => record.status === 'failed').length
-  const failedRuns14d = runs14d.filter((record) => record.status === 'failed').length
+  const totalRuns = records.length;
+  const failedRuns = records.filter((record) => record.status === 'failed');
+  const stoppedRuns = records.filter((record) => record.status === 'stopped');
+  const completedRuns = records.filter((record) => record.status === 'completed');
+  const runs7d = records.filter((record) => withinDays(record.startTime, 7));
+  const runs14d = records.filter((record) => withinDays(record.startTime, 14));
+  const failedRuns7d = runs7d.filter((record) => record.status === 'failed').length;
+  const failedRuns14d = runs14d.filter((record) => record.status === 'failed').length;
 
   const suspectedVramPressureCount = failedRuns.filter((record) => {
-    const config = record.config || {}
-    const batchSize = Number(config.batchSize || 1)
-    const maxSeqLength = Number(config.maxSeqLength || 512)
-    const quantization = Number(config.quantization ?? 4)
-    return batchSize >= 2 || maxSeqLength > 1024 || quantization === 0
-  }).length
+    const config = record.config || {};
+    const batchSize = Number(config.batchSize || 1);
+    const maxSeqLength = Number(config.maxSeqLength || 512);
+    const quantization = Number(config.quantization ?? 4);
+    return batchSize >= 2 || maxSeqLength > 1024 || quantization === 0;
+  }).length;
 
   const longContextFailureCount = failedRuns.filter((record) => {
-    const config = record.config || {}
-    return Number(config.maxSeqLength || 512) > 1024
-  }).length
+    const config = record.config || {};
+    return Number(config.maxSeqLength || 512) > 1024;
+  }).length;
 
   const unquantizedFailureCount = failedRuns.filter((record) => {
-    const config = record.config || {}
-    return Number(config.quantization ?? 4) === 0
-  }).length
+    const config = record.config || {};
+    return Number(config.quantization ?? 4) === 0;
+  }).length;
 
   return {
     totalRuns,
@@ -206,8 +303,10 @@ export const buildTrainingFailureAnalytics = (
     stoppedRuns: stoppedRuns.length,
     completedRuns: completedRuns.length,
     failureRate: totalRuns > 0 ? Number(((failedRuns.length / totalRuns) * 100).toFixed(1)) : 0,
-    failureRate7d: runs7d.length > 0 ? Number(((failedRuns7d / runs7d.length) * 100).toFixed(1)) : 0,
-    failureRate14d: runs14d.length > 0 ? Number(((failedRuns14d / runs14d.length) * 100).toFixed(1)) : 0,
+    failureRate7d:
+      runs7d.length > 0 ? Number(((failedRuns7d / runs7d.length) * 100).toFixed(1)) : 0,
+    failureRate14d:
+      runs14d.length > 0 ? Number(((failedRuns14d / runs14d.length) * 100).toFixed(1)) : 0,
     failedRuns7d,
     failedRuns14d,
     totalRuns7d: runs7d.length,
@@ -229,24 +328,44 @@ export const buildTrainingFailureAnalytics = (
         method: record.method,
         startTime: record.startTime,
       })),
-  }
-}
+  };
+};
 
 export const buildResumeConfigDiff = (
   currentValues: Record<string, any>,
   targetConfig: Record<string, any> | undefined,
 ) => {
-  if (!targetConfig) return []
+  if (!targetConfig) return [];
 
   const fields: Array<{ label: string; current: any; target: any }> = [
-    { label: '微调方法', current: currentValues.method || 'qlora', target: targetConfig.method || 'qlora' },
-    { label: 'Batch Size', current: currentValues.batchSize || 1, target: targetConfig.batchSize || 1 },
-    { label: '最大序列长度', current: currentValues.maxSeqLength || 512, target: targetConfig.maxSeqLength || 512 },
-    { label: '梯度累积', current: currentValues.gradientAccumulation || 16, target: targetConfig.gradientAccumulation || 16 },
-    { label: '量化位数', current: currentValues.quantization ?? 4, target: targetConfig.quantization ?? 4 },
-  ]
+    {
+      label: '微调方法',
+      current: currentValues.method || 'qlora',
+      target: targetConfig.method || 'qlora',
+    },
+    {
+      label: 'Batch Size',
+      current: currentValues.batchSize || 1,
+      target: targetConfig.batchSize || 1,
+    },
+    {
+      label: '最大序列长度',
+      current: currentValues.maxSeqLength || 512,
+      target: targetConfig.maxSeqLength || 512,
+    },
+    {
+      label: '梯度累积',
+      current: currentValues.gradientAccumulation || 16,
+      target: targetConfig.gradientAccumulation || 16,
+    },
+    {
+      label: '量化位数',
+      current: currentValues.quantization ?? 4,
+      target: targetConfig.quantization ?? 4,
+    },
+  ];
 
   return fields
     .filter((field) => String(field.current) !== String(field.target))
-    .map((field) => `${field.label}: 当前 ${field.current} -> 恢复配置 ${field.target}`)
-}
+    .map((field) => `${field.label}: 当前 ${field.current} -> 恢复配置 ${field.target}`);
+};

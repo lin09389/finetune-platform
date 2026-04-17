@@ -1,11 +1,25 @@
 .sidebar {
   background: var(--bg-secondary) !important;
-  border-right: 1px solid var(--border-color) !important;
+  /* Phase 2: Removed solid right border, added glassmorphism */
+  border: 1px solid var(--border-color) !important;
   transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1) !important;
   overflow: hidden;
+  transform: translateZ(0);
+  /* Glass effect */
+  background: rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.sidebar :global(.ant-layout-sider-children) {
   display: flex;
   flex-direction: column;
-  transform: translateZ(0);
+  height: 100%;
+  width: 100%;
+}
+
+:global(.dark-theme) .sidebar {
+  background: rgba(10, 10, 10, 0.8) !important;
 }
 
 .logoArea {
@@ -21,21 +35,18 @@
   width: 32px;
   height: 32px;
   border-radius: var(--radius-md);
-  background: var(--gradient-brand);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--text-base);
-  color: #ffffff;
   flex-shrink: 0;
   cursor: pointer;
-  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s;
-  box-shadow: 0 2px 8px rgba(59, 91, 219, 0.3);
+  transition:
+    transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.3s;
 }
 
 .logoIcon:hover {
   transform: scale(1.05);
-  box-shadow: 0 4px 14px rgba(59, 91, 219, 0.4);
 }
 
 .logoTitle {
@@ -64,11 +75,31 @@
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  scrollbar-width: none;
 }
 
 .menuWrapper::-webkit-scrollbar {
-  display: none;
+  width: 4px;
+}
+
+.menuWrapper::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.menuWrapper::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+}
+
+:global(.dark-theme) .menuWrapper::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.menuWrapper::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+:global(.dark-theme) .menuWrapper::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .menuGroupLabel {

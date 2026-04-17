@@ -95,7 +95,8 @@
   box-shadow: var(--shadow-md), var(--shadow-neumorph-out);
 }
 
-.button:active, .active {
+.button:active,
+.active {
   box-shadow: var(--shadow-neumorph-in);
   transform: translateY(1px) scale(0.98);
 }
@@ -123,6 +124,10 @@
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }

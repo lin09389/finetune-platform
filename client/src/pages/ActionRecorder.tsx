@@ -1,4 +1,15 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import {
+  AimOutlined,
+  ClockCircleOutlined,
+  DeleteOutlined,
+  EyeOutlined,
+  FolderOpenOutlined,
+  KeyOutlined,
+  PauseCircleOutlined,
+  PlayCircleOutlined,
+  SaveOutlined,
+  StopOutlined,
+} from '@ant-design/icons';
 import {
   Alert,
   Button,
@@ -18,18 +29,7 @@ import {
   Typography,
   message,
 } from 'antd';
-import {
-  AimOutlined,
-  ClockCircleOutlined,
-  DeleteOutlined,
-  EyeOutlined,
-  FolderOpenOutlined,
-  KeyOutlined,
-  PauseCircleOutlined,
-  PlayCircleOutlined,
-  SaveOutlined,
-  StopOutlined,
-} from '@ant-design/icons';
+import React, { useEffect, useMemo, useState } from 'react';
 import { apiClient } from '../services/api';
 import type { RecordedAction } from '../types';
 
@@ -71,7 +71,7 @@ export const ActionRecorder: React.FC = () => {
         ...action,
         _rowKey: `${action.action_type}-${action.timestamp}-${index}`,
       })),
-    [actions]
+    [actions],
   );
 
   const fetchActions = async () => {
@@ -94,9 +94,9 @@ export const ActionRecorder: React.FC = () => {
       setSavedFiles(
         files
           .map((file: string | SavedRecording) =>
-            typeof file === 'string' ? { filename: file, filepath: file } : file
+            typeof file === 'string' ? { filename: file, filepath: file } : file,
           )
-          .filter((file: SavedRecording) => Boolean(file.filename))
+          .filter((file: SavedRecording) => Boolean(file.filename)),
       );
     } catch (error) {
       console.error('Failed to fetch saved files:', error);
@@ -337,7 +337,12 @@ export const ActionRecorder: React.FC = () => {
       <Card style={{ marginBottom: 24 }}>
         <Space size="middle">
           {!isRecording ? (
-            <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleStartRecording} size="large">
+            <Button
+              type="primary"
+              icon={<PlayCircleOutlined />}
+              onClick={handleStartRecording}
+              size="large"
+            >
               Start Recording
             </Button>
           ) : (
@@ -412,7 +417,12 @@ export const ActionRecorder: React.FC = () => {
         />
       </Card>
 
-      <Modal title="Save Recording" open={saveModalVisible} onOk={handleSave} onCancel={() => setSaveModalVisible(false)}>
+      <Modal
+        title="Save Recording"
+        open={saveModalVisible}
+        onOk={handleSave}
+        onCancel={() => setSaveModalVisible(false)}
+      >
         <Input
           placeholder="Enter filename"
           value={filename}
@@ -421,12 +431,21 @@ export const ActionRecorder: React.FC = () => {
         />
       </Modal>
 
-      <Modal title="Load Recording" open={loadModalVisible} onCancel={() => setLoadModalVisible(false)} footer={null}>
+      <Modal
+        title="Load Recording"
+        open={loadModalVisible}
+        onCancel={() => setLoadModalVisible(false)}
+        footer={null}
+      >
         <List
           dataSource={savedFiles}
           renderItem={(file) => (
             <List.Item
-              actions={[<Button key={file.filepath || file.filename} onClick={() => handleLoad(file)}>Load</Button>]}
+              actions={[
+                <Button key={file.filepath || file.filename} onClick={() => handleLoad(file)}>
+                  Load
+                </Button>,
+              ]}
             >
               {file.filename}
             </List.Item>

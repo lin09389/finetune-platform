@@ -1,57 +1,57 @@
-import React, { useCallback } from 'react'
-import { Button, Space, Select, Dropdown, Tooltip, Modal, message } from 'antd'
 import {
-  PlusOutlined,
-  HistoryOutlined,
-  ExportOutlined,
-  MoreOutlined,
-  ClearOutlined,
-  CloudOutlined,
   BookOutlined,
   BulbOutlined,
-  SunOutlined,
+  ClearOutlined,
+  CloudOutlined,
+  ExportOutlined,
+  HistoryOutlined,
   MoonOutlined,
-} from '@ant-design/icons'
-import { motion } from 'framer-motion'
-import { transitions } from '../../theme/animations'
-import { useResponsive } from '../../hooks/useResponsive'
-import styles from './ChatHeader.module.css'
+  MoreOutlined,
+  PlusOutlined,
+  SunOutlined,
+} from '@ant-design/icons';
+import { Button, Dropdown, Modal, Select, Space, Tooltip, message } from 'antd';
+import { motion } from 'framer-motion';
+import React, { useCallback } from 'react';
+import { useResponsive } from '../../hooks/useResponsive';
+import { transitions } from '../../theme/animations';
+import styles from './ChatHeader.module.css';
 
 interface BackendInfo {
-  id: string
-  name: string
-  available: boolean
+  id: string;
+  name: string;
+  available: boolean;
 }
 
 interface ChatHeaderProps {
-  onNewChat: () => void
-  onOpenHistory: () => void
-  onOpenMemory: () => void
-  onClearChat: () => void
-  onExportChat: (format: 'markdown' | 'json') => void
-  currentBackend: string
-  backends: BackendInfo[]
-  onBackendChange: (backend: string) => void
-  currentModel: string | undefined
-  models: { id: string; name: string }[]
-  onModelChange: (model: string) => void
-  useCloudAI: boolean
-  onToggleCloudAI: () => void
-  cloudAIConfigured: boolean
-  onOpenCloudAIConfig: () => void
-  useKnowledge: boolean
-  onToggleKnowledge: () => void
-  collectionsCount: number
-  currentKnowledgeCollection?: string
-  knowledgeCollections: { id: string; name: string; count: number }[]
-  onKnowledgeCollectionChange: (collectionId: string) => void
-  useMemory: boolean
-  onToggleMemory: () => void
-  theme: 'light' | 'dark'
-  onToggleTheme: () => void
-  messageCount: number
-  isLoading: boolean
-  isStreaming: boolean
+  onNewChat: () => void;
+  onOpenHistory: () => void;
+  onOpenMemory: () => void;
+  onClearChat: () => void;
+  onExportChat: (format: 'markdown' | 'json') => void;
+  currentBackend: string;
+  backends: BackendInfo[];
+  onBackendChange: (backend: string) => void;
+  currentModel: string | undefined;
+  models: { id: string; name: string }[];
+  onModelChange: (model: string) => void;
+  useCloudAI: boolean;
+  onToggleCloudAI: () => void;
+  cloudAIConfigured: boolean;
+  onOpenCloudAIConfig: () => void;
+  useKnowledge: boolean;
+  onToggleKnowledge: () => void;
+  collectionsCount: number;
+  currentKnowledgeCollection?: string;
+  knowledgeCollections: { id: string; name: string; count: number }[];
+  onKnowledgeCollectionChange: (collectionId: string) => void;
+  useMemory: boolean;
+  onToggleMemory: () => void;
+  theme: 'light' | 'dark';
+  onToggleTheme: () => void;
+  messageCount: number;
+  isLoading: boolean;
+  isStreaming: boolean;
 }
 
 const ChatHeader: React.FC<ChatHeaderProps> = ({
@@ -84,21 +84,21 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
   isLoading,
   isStreaming,
 }) => {
-  const { isMobile } = useResponsive()
+  const { isMobile } = useResponsive();
 
   const handleExport = useCallback(
     (format: 'markdown' | 'json') => {
       if (messageCount === 0) {
-        message.warning('暂无对话内容')
-        return
+        message.warning('暂无对话内容');
+        return;
       }
-      onExportChat(format)
+      onExportChat(format);
     },
-    [messageCount, onExportChat]
-  )
+    [messageCount, onExportChat],
+  );
 
   const handleClear = useCallback(() => {
-    if (messageCount === 0) return
+    if (messageCount === 0) return;
 
     Modal.confirm({
       title: '确认清空',
@@ -106,24 +106,24 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
       okText: '清空',
       okButtonProps: { danger: true },
       onOk: onClearChat,
-    })
-  }, [messageCount, onClearChat])
+    });
+  }, [messageCount, onClearChat]);
 
   const backendOptions = backends.map((b) => ({
     value: b.id,
     label: b.available ? b.name : `${b.name} (不可用)`,
     disabled: !b.available,
-  }))
+  }));
 
   const modelOptions = models.map((m) => ({
     value: m.id,
     label: m.name,
-  }))
+  }));
 
   const knowledgeCollectionOptions = knowledgeCollections.map((collection) => ({
     value: collection.id,
     label: `${collection.name} (${collection.count})`,
-  }))
+  }));
 
   return (
     <motion.div
@@ -134,32 +134,43 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
     >
       <Space wrap>
         <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-          <Button type="primary" icon={<PlusOutlined />} onClick={onNewChat} className={styles.actionButton}>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={onNewChat}
+            className={styles.actionButton}
+          >
             新对话
           </Button>
         </motion.div>
 
         <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-          <Button icon={<HistoryOutlined />} onClick={onOpenHistory} className={styles.actionButton}>
+          <Button
+            icon={<HistoryOutlined />}
+            onClick={onOpenHistory}
+            className={styles.actionButton}
+          >
             历史
           </Button>
         </motion.div>
 
-        <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-          <Button icon={<BulbOutlined />} onClick={onOpenMemory} className={styles.actionButton}>
-            记忆
-          </Button>
-        </motion.div>
-
-        <Tooltip title={!cloudAIConfigured ? '点击配置云端 AI' : useCloudAI ? '当前使用云端 AI' : '切换到云端 AI'}>
+        <Tooltip
+          title={
+            !cloudAIConfigured
+              ? '点击配置云端 AI'
+              : useCloudAI
+                ? '当前使用云端 AI'
+                : '切换到云端 AI'
+          }
+        >
           <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
             <Button
               icon={<CloudOutlined />}
               onClick={() => {
                 if (!cloudAIConfigured) {
-                  onOpenCloudAIConfig()
+                  onOpenCloudAIConfig();
                 } else {
-                  onToggleCloudAI()
+                  onToggleCloudAI();
                 }
               }}
               type={useCloudAI ? 'primary' : 'default'}
@@ -170,7 +181,15 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
           </motion.div>
         </Tooltip>
 
-        <Tooltip title={collectionsCount === 0 ? '请先在知识库页面上传文档' : useKnowledge ? '关闭知识检索' : '开启知识检索'}>
+        <Tooltip
+          title={
+            collectionsCount === 0
+              ? '请先在知识库页面上传文档'
+              : useKnowledge
+                ? '关闭知识检索'
+                : '开启知识检索'
+          }
+        >
           <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
             <Button
               icon={<BookOutlined />}
@@ -212,7 +231,11 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
       <Space wrap>
         <Tooltip title={theme === 'light' ? '切换到深色模式' : '切换到浅色模式'}>
           <motion.div whileHover={{ scale: 1.05, rotate: 12 }} whileTap={{ scale: 0.95 }}>
-            <Button icon={theme === 'light' ? <MoonOutlined /> : <SunOutlined />} onClick={onToggleTheme} className={styles.actionButton} />
+            <Button
+              icon={theme === 'light' ? <MoonOutlined /> : <SunOutlined />}
+              onClick={onToggleTheme}
+              className={styles.actionButton}
+            />
           </motion.div>
         </Tooltip>
 
@@ -274,7 +297,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
         </Dropdown>
       </Space>
     </motion.div>
-  )
-}
+  );
+};
 
-export default ChatHeader
+export default ChatHeader;

@@ -1,24 +1,24 @@
-import React, { useState, useEffect } from 'react'
-import { Button, Tooltip, Space, Typography, Popconfirm } from 'antd'
-import { 
-  StopOutlined, 
-  SaveOutlined, 
+import {
   LoadingOutlined,
-  ThunderboltOutlined,
   PauseCircleOutlined,
-} from '@ant-design/icons'
-import { motion, AnimatePresence } from 'framer-motion'
-import { transitions } from '../theme/animations'
+  SaveOutlined,
+  StopOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons';
+import { Button, Popconfirm, Space, Tooltip, Typography } from 'antd';
+import { AnimatePresence, motion } from 'framer-motion';
+import React, { useEffect, useState } from 'react';
+import { transitions } from '../theme/animations';
 
-const { Text } = Typography
+const { Text } = Typography;
 
 interface StopButtonProps {
-  onStop: () => void
-  onSavePartial?: () => void
-  hasPartialContent?: boolean
-  partialContentLength?: number
-  size?: 'small' | 'middle' | 'large'
-  variant?: 'default' | 'compact' | 'extended'
+  onStop: () => void;
+  onSavePartial?: () => void;
+  hasPartialContent?: boolean;
+  partialContentLength?: number;
+  size?: 'small' | 'middle' | 'large';
+  variant?: 'default' | 'compact' | 'extended';
 }
 
 export const StopButton: React.FC<StopButtonProps> = ({
@@ -29,37 +29,34 @@ export const StopButton: React.FC<StopButtonProps> = ({
   size = 'middle',
   variant = 'default',
 }) => {
-  const [isStopping, setIsStopping] = useState(false)
-  const [showSaveOption, setShowSaveOption] = useState(false)
-  const [pulseAnimation, setPulseAnimation] = useState(false)
+  const [isStopping, setIsStopping] = useState(false);
+  const [showSaveOption, setShowSaveOption] = useState(false);
+  const [pulseAnimation, setPulseAnimation] = useState(false);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setPulseAnimation(prev => !prev)
-    }, 1500)
-    return () => clearInterval(interval)
-  }, [])
+      setPulseAnimation((prev) => !prev);
+    }, 1500);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleStop = () => {
-    setIsStopping(true)
-    onStop()
-    setTimeout(() => setIsStopping(false), 500)
-  }
+    setIsStopping(true);
+    onStop();
+    setTimeout(() => setIsStopping(false), 500);
+  };
 
   const handleSaveAndStop = () => {
     if (onSavePartial) {
-      onSavePartial()
+      onSavePartial();
     }
-    handleStop()
-  }
+    handleStop();
+  };
 
   if (variant === 'compact') {
     return (
       <Tooltip title="停止生成">
-        <motion.div
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-        >
+        <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
           <Button
             danger
             type="primary"
@@ -72,7 +69,7 @@ export const StopButton: React.FC<StopButtonProps> = ({
           />
         </motion.div>
       </Tooltip>
-    )
+    );
   }
 
   if (variant === 'extended') {
@@ -101,10 +98,7 @@ export const StopButton: React.FC<StopButtonProps> = ({
           cancelText={hasPartialContent ? '直接停止' : '取消'}
           okButtonProps={{ danger: true }}
         >
-          <motion.div
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-          >
+          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
             <Button
               danger
               type="primary"
@@ -123,7 +117,7 @@ export const StopButton: React.FC<StopButtonProps> = ({
           </motion.div>
         </Popconfirm>
       </motion.div>
-    )
+    );
   }
 
   return (
@@ -139,8 +133,8 @@ export const StopButton: React.FC<StopButtonProps> = ({
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
         animate={{
-          boxShadow: pulseAnimation 
-            ? '0 0 0 0 rgba(255, 77, 79, 0.4)' 
+          boxShadow: pulseAnimation
+            ? '0 0 0 0 rgba(255, 77, 79, 0.4)'
             : '0 0 0 8px rgba(255, 77, 79, 0)',
         }}
         transition={{ duration: 1.5 }}
@@ -188,13 +182,13 @@ export const StopButton: React.FC<StopButtonProps> = ({
         )}
       </AnimatePresence>
     </motion.div>
-  )
-}
+  );
+};
 
 interface StreamingIndicatorProps {
-  isActive: boolean
-  contentLength: number
-  speed?: number
+  isActive: boolean;
+  contentLength: number;
+  speed?: number;
 }
 
 export const StreamingIndicator: React.FC<StreamingIndicatorProps> = ({
@@ -202,7 +196,7 @@ export const StreamingIndicator: React.FC<StreamingIndicatorProps> = ({
   contentLength,
   speed,
 }) => {
-  if (!isActive) return null
+  if (!isActive) return null;
 
   return (
     <motion.div
@@ -232,10 +226,8 @@ export const StreamingIndicator: React.FC<StreamingIndicatorProps> = ({
       >
         <ThunderboltOutlined style={{ color: '#1890ff', fontSize: 14 }} />
       </motion.div>
-      
-      <Text style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-        {contentLength} 字符
-      </Text>
+
+      <Text style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{contentLength} 字符</Text>
 
       {speed && speed > 0 && (
         <Text style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
@@ -243,14 +235,14 @@ export const StreamingIndicator: React.FC<StreamingIndicatorProps> = ({
         </Text>
       )}
     </motion.div>
-  )
-}
+  );
+};
 
 interface InterruptedContentBannerProps {
-  content: string
-  onContinue?: () => void
-  onSave?: () => void
-  onDiscard?: () => void
+  content: string;
+  onContinue?: () => void;
+  onSave?: () => void;
+  onDiscard?: () => void;
 }
 
 export const InterruptedContentBanner: React.FC<InterruptedContentBannerProps> = ({
@@ -259,7 +251,7 @@ export const InterruptedContentBanner: React.FC<InterruptedContentBannerProps> =
   onSave,
   onDiscard,
 }) => {
-  if (!content) return null
+  if (!content) return null;
 
   return (
     <motion.div
@@ -330,19 +322,14 @@ export const InterruptedContentBanner: React.FC<InterruptedContentBannerProps> =
             </Button>
           )}
           {onDiscard && (
-            <Button
-              size="small"
-              danger
-              onClick={onDiscard}
-              style={{ borderRadius: 6 }}
-            >
+            <Button size="small" danger onClick={onDiscard} style={{ borderRadius: 6 }}>
               丢弃
             </Button>
           )}
         </Space>
       </Space>
     </motion.div>
-  )
-}
+  );
+};
 
-export default StopButton
+export default StopButton;

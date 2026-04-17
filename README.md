@@ -169,6 +169,31 @@ docker compose logs -f api
 
 详细 Docker 配置见 [DOCKER.md](DOCKER.md)
 
+### 训练监测 V2 联调验收（API 直连）
+
+用于验证训练监测链路（`SSE 主通道 + WS 备通道 + V2 事件协议`）是否可用。
+
+```bash
+# 1) 启动后端（若尚未启动）
+cd server
+python -m uvicorn main:app --host 127.0.0.1 --port 8000
+
+# 2) 在仓库根目录执行联调脚本
+cd ..
+python scripts/validate_training_v2_flow.py --base-url http://127.0.0.1:8000 --auto-stop-after 45
+```
+
+脚本行为：
+- 自动解析或发现模型/数据集，调用 `/training/start` 启动训练
+- 订阅 `/training/v2/events/stream` 收集事件序列
+- 可选自动停止训练（`--auto-stop-after`）
+- 拉取 `/training/v2/overview` 与 `/training/v2/tasks/{task_id}/metrics`
+- 生成验收报告到 `outputs/validation/training_v2_report_<task8>.json`
+
+通过标准：
+- `overall_passed = true`
+- 且关键验收项为 true：`received_events`、`sequence_monotonic`、`sequence_no_gaps`、`saw_terminal`
+
 ## 📚 文档
 
 | 文档 | 说明 |

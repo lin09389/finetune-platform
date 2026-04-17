@@ -1,19 +1,19 @@
-import React from 'react'
-import { Badge, Button, Popover, Space, Typography } from 'antd'
 import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   LoadingOutlined,
-  WarningOutlined,
   ReloadOutlined,
-} from '@ant-design/icons'
-import { useOllamaConnection } from '../hooks/chat/useOllamaConnection'
+  WarningOutlined,
+} from '@ant-design/icons';
+import { Badge, Button, Popover, Space, Typography } from 'antd';
+import React from 'react';
+import { useOllamaConnection } from '../hooks/chat/useOllamaConnection';
 
-const { Text } = Typography
+const { Text } = Typography;
 
 interface OllamaConnectionStatusProps {
-  showDetails?: boolean
-  onStatusChange?: (status: 'connected' | 'disconnected' | 'connecting' | 'error') => void
+  showDetails?: boolean;
+  onStatusChange?: (status: 'connected' | 'disconnected' | 'connecting' | 'error') => void;
 }
 
 export const OllamaConnectionStatus: React.FC<OllamaConnectionStatusProps> = ({
@@ -21,49 +21,49 @@ export const OllamaConnectionStatus: React.FC<OllamaConnectionStatusProps> = ({
   onStatusChange,
 }) => {
   const { status, isConnected, isCircuitOpen, failureCount, lastCheck, reconnect, checkHealth } =
-    useOllamaConnection({ onStatusChange })
+    useOllamaConnection({ onStatusChange });
 
   const getStatusIcon = () => {
     switch (status) {
       case 'connected':
-        return <CheckCircleOutlined style={{ color: '#52c41a' }} />
+        return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
       case 'connecting':
-        return <LoadingOutlined style={{ color: '#1890ff' }} />
+        return <LoadingOutlined style={{ color: '#1890ff' }} />;
       case 'error':
-        return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />
+        return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
       case 'disconnected':
       default:
-        return <WarningOutlined style={{ color: '#faad14' }} />
+        return <WarningOutlined style={{ color: '#faad14' }} />;
     }
-  }
+  };
 
   const getStatusText = () => {
     switch (status) {
       case 'connected':
-        return 'Ollama 已连接'
+        return 'Ollama 已连接';
       case 'connecting':
-        return 'Ollama 连接中...'
+        return 'Ollama 连接中...';
       case 'error':
-        return 'Ollama 连接失败'
+        return 'Ollama 连接失败';
       case 'disconnected':
       default:
-        return 'Ollama 未连接'
+        return 'Ollama 未连接';
     }
-  }
+  };
 
   const getStatusColor = () => {
     switch (status) {
       case 'connected':
-        return 'success'
+        return 'success';
       case 'connecting':
-        return 'processing'
+        return 'processing';
       case 'error':
-        return 'error'
+        return 'error';
       case 'disconnected':
       default:
-        return 'warning'
+        return 'warning';
     }
-  }
+  };
 
   const content = (
     <Space direction="vertical" size="small" style={{ minWidth: 200 }}>
@@ -71,27 +71,25 @@ export const OllamaConnectionStatus: React.FC<OllamaConnectionStatusProps> = ({
         <Text strong>状态: </Text>
         <Text>{getStatusText()}</Text>
       </div>
-      
+
       {isCircuitOpen && (
         <div>
           <Text type="danger">断路器已打开</Text>
         </div>
       )}
-      
+
       {failureCount > 0 && (
         <div>
           <Text type="warning">失败次数: {failureCount}</Text>
         </div>
       )}
-      
+
       {lastCheck > 0 && (
         <div>
-          <Text type="secondary">
-            上次检查: {new Date(lastCheck).toLocaleTimeString()}
-          </Text>
+          <Text type="secondary">上次检查: {new Date(lastCheck).toLocaleTimeString()}</Text>
         </div>
       )}
-      
+
       <Space>
         <Button
           size="small"
@@ -101,7 +99,7 @@ export const OllamaConnectionStatus: React.FC<OllamaConnectionStatusProps> = ({
         >
           刷新
         </Button>
-        
+
         {!isConnected && (
           <Button
             size="small"
@@ -114,10 +112,10 @@ export const OllamaConnectionStatus: React.FC<OllamaConnectionStatusProps> = ({
         )}
       </Space>
     </Space>
-  )
+  );
 
   if (!showDetails) {
-    return <Badge status={getStatusColor()} text={getStatusText()} />
+    return <Badge status={getStatusColor()} text={getStatusText()} />;
   }
 
   return (
@@ -127,5 +125,5 @@ export const OllamaConnectionStatus: React.FC<OllamaConnectionStatusProps> = ({
         <Text>{getStatusText()}</Text>
       </Space>
     </Popover>
-  )
-}
+  );
+};

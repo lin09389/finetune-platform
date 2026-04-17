@@ -1,5 +1,5 @@
+import { HTMLMotionProps, motion } from 'framer-motion';
 import React from 'react';
-import { motion, HTMLMotionProps } from 'framer-motion';
 import styles from './NeumorphicButton.module.css';
 
 interface NeumorphicButtonProps extends HTMLMotionProps<'button'> {
@@ -39,7 +39,11 @@ const NeumorphicButton: React.FC<NeumorphicButtonProps> = ({
       {...props}
     >
       <div className={styles.inner}>
-        {loading ? <span className={styles.loadingIcon}>⏳</span> : icon && <span className={styles.icon}>{icon}</span>}
+        {loading ? (
+          <span className={styles.loadingIcon}>⏳</span>
+        ) : (
+          icon && <span className={styles.icon}>{icon}</span>
+        )}
         {children}
       </div>
     </motion.button>

@@ -1,29 +1,20 @@
 /**
  * 配置优化建议组件
- * 
+ *
  * 功能：
  * - 显示优化建议列表
  * - 一键应用建议
  * - 建议影响评估
  */
-import React from 'react';
-import {
-  Card,
-  Tag,
-  Button,
-  Space,
-  Progress,
-  Empty,
-  Collapse,
-  Descriptions,
-} from 'antd';
 import {
   BulbOutlined,
-  ThunderboltOutlined,
+  CheckOutlined,
   DashboardOutlined,
   SafetyOutlined,
-  CheckOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
+import { Button, Card, Collapse, Descriptions, Empty, Progress, Space, Tag } from 'antd';
+import React from 'react';
 
 interface OptimizationSuggestion {
   id: string;
@@ -89,8 +80,8 @@ const OptimizationSuggestions: React.FC<OptimizationSuggestionsProps> = ({
   onApplyAll,
   loading = false,
 }) => {
-  const highImpactSuggestions = suggestions.filter(s => s.impact === 'high' && !s.applied);
-  const appliedCount = suggestions.filter(s => s.applied).length;
+  const highImpactSuggestions = suggestions.filter((s) => s.impact === 'high' && !s.applied);
+  const appliedCount = suggestions.filter((s) => s.applied).length;
 
   if (suggestions.length === 0) {
     return (
@@ -103,10 +94,7 @@ const OptimizationSuggestions: React.FC<OptimizationSuggestionsProps> = ({
         }
         size="small"
       >
-        <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="暂无优化建议"
-        />
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无优化建议" />
       </Card>
     );
   }
@@ -122,13 +110,9 @@ const OptimizationSuggestions: React.FC<OptimizationSuggestionsProps> = ({
       }
       size="small"
       extra={
-        highImpactSuggestions.length > 0 && onApplyAll && (
-          <Button
-            type="primary"
-            size="small"
-            onClick={onApplyAll}
-            loading={loading}
-          >
+        highImpactSuggestions.length > 0 &&
+        onApplyAll && (
+          <Button type="primary" size="small" onClick={onApplyAll} loading={loading}>
             应用全部高影响建议
           </Button>
         )
@@ -138,7 +122,9 @@ const OptimizationSuggestions: React.FC<OptimizationSuggestionsProps> = ({
         <div style={{ marginBottom: 16 }}>
           <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
             <span>已应用建议</span>
-            <span>{appliedCount}/{suggestions.length}</span>
+            <span>
+              {appliedCount}/{suggestions.length}
+            </span>
           </div>
           <Progress
             percent={Math.round((appliedCount / suggestions.length) * 100)}
@@ -150,7 +136,7 @@ const OptimizationSuggestions: React.FC<OptimizationSuggestionsProps> = ({
 
       <Collapse
         accordion
-        items={suggestions.map(suggestion => ({
+        items={suggestions.map((suggestion) => ({
           key: suggestion.id,
           label: (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -173,7 +159,7 @@ const OptimizationSuggestions: React.FC<OptimizationSuggestionsProps> = ({
           children: (
             <div>
               <p style={{ marginBottom: 16 }}>{suggestion.description}</p>
-              
+
               <Descriptions column={1} size="small">
                 {suggestion.currentValue !== undefined && (
                   <Descriptions.Item label="当前值">

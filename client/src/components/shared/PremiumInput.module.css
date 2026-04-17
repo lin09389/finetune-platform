@@ -49,7 +49,9 @@
 .input:focus {
   border-color: var(--accent-primary);
   background: var(--bg-primary);
-  box-shadow: 0 0 0 1px var(--accent-primary), 0 8px 16px -4px rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 0 0 1px var(--accent-primary),
+    0 8px 16px -4px rgba(0, 0, 0, 0.08);
 }
 
 /* 焦点环特效 */
@@ -124,7 +126,9 @@
 
 :global(.dark-theme) .input:focus {
   background: var(--bg-secondary);
-  box-shadow: 0 0 0 1px var(--accent-primary), 0 8px 24px -4px rgba(0, 0, 0, 0.4);
+  box-shadow:
+    0 0 0 1px var(--accent-primary),
+    0 8px 24px -4px rgba(0, 0, 0, 0.4);
 }
 
 @keyframes fadeInDown {

@@ -1,5 +1,5 @@
+import { HTMLMotionProps, motion, useReducedMotion } from 'framer-motion';
 import React from 'react';
-import { motion, HTMLMotionProps, useReducedMotion } from 'framer-motion';
 import styles from './GlassCard.module.css';
 
 interface GlassCardProps extends HTMLMotionProps<'div'> {
@@ -18,7 +18,7 @@ const GlassCard: React.FC<GlassCardProps> = ({
 }) => {
   const intensityClass = styles[`intensity-${intensity}`];
   const reduceMotion = useReducedMotion();
-  
+
   return (
     <motion.div
       className={`${styles.glassCard} ${intensityClass} ${className}`}
@@ -33,9 +33,7 @@ const GlassCard: React.FC<GlassCardProps> = ({
       {...props}
     >
       <div className={styles.reflection} />
-      <div className={styles.content}>
-        {children}
-      </div>
+      <div className={styles.content}>{children}</div>
     </motion.div>
   );
 };

@@ -1,4 +1,4 @@
-import { Variants, Transition } from 'framer-motion'
+import { Transition, Variants } from 'framer-motion';
 
 export const transitions = {
   fast: { duration: 0.15, ease: [0.16, 1, 0.3, 1] } as Transition,
@@ -8,7 +8,7 @@ export const transitions = {
   spring: { type: 'spring', stiffness: 400, damping: 30 } as Transition,
   springGentle: { type: 'spring', stiffness: 200, damping: 25 } as Transition,
   springBouncy: { type: 'spring', stiffness: 500, damping: 20 } as Transition,
-}
+};
 
 export const messageVariants: Variants = {
   initial: {
@@ -28,7 +28,7 @@ export const messageVariants: Variants = {
     scale: 0.98,
     transition: transitions.fast,
   },
-}
+};
 
 export const buttonVariants: Variants = {
   initial: { scale: 1 },
@@ -40,7 +40,7 @@ export const buttonVariants: Variants = {
     scale: 0.98,
     transition: transitions.fast,
   },
-}
+};
 
 export const cardVariants: Variants = {
   initial: {
@@ -57,7 +57,7 @@ export const cardVariants: Variants = {
     boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12)',
     transition: transitions.fast,
   },
-}
+};
 
 export const fadeVariants: Variants = {
   initial: { opacity: 0 },
@@ -69,7 +69,7 @@ export const fadeVariants: Variants = {
     opacity: 0,
     transition: transitions.fast,
   },
-}
+};
 
 export const slideVariants: Variants = {
   initial: { opacity: 0, x: -20 },
@@ -83,7 +83,7 @@ export const slideVariants: Variants = {
     x: 20,
     transition: transitions.fast,
   },
-}
+};
 
 export const scaleVariants: Variants = {
   initial: { opacity: 0, scale: 0.9 },
@@ -97,7 +97,7 @@ export const scaleVariants: Variants = {
     scale: 0.9,
     transition: transitions.fast,
   },
-}
+};
 
 export const staggerContainer: Variants = {
   initial: {},
@@ -107,7 +107,7 @@ export const staggerContainer: Variants = {
       delayChildren: 0.1,
     },
   },
-}
+};
 
 export const staggerItem: Variants = {
   initial: { opacity: 0, y: 10 },
@@ -116,7 +116,7 @@ export const staggerItem: Variants = {
     y: 0,
     transition: transitions.base,
   },
-}
+};
 
 export const loadingDotsVariants: Variants = {
   initial: { opacity: 0.3 },
@@ -129,7 +129,7 @@ export const loadingDotsVariants: Variants = {
       ease: 'easeInOut',
     },
   },
-}
+};
 
 export const pulseVariants: Variants = {
   initial: { scale: 1, opacity: 1 },
@@ -142,7 +142,7 @@ export const pulseVariants: Variants = {
       ease: 'easeInOut',
     },
   },
-}
+};
 
 export const typingIndicatorVariants: Variants = {
   initial: { y: 0 },
@@ -154,7 +154,7 @@ export const typingIndicatorVariants: Variants = {
       ease: 'easeInOut',
     },
   },
-}
+};
 
 export const shimmerVariants: Variants = {
   initial: { backgroundPosition: '-200% 0' },
@@ -166,7 +166,7 @@ export const shimmerVariants: Variants = {
       ease: 'linear',
     },
   },
-}
+};
 
 export const floatVariants: Variants = {
   initial: { y: 0 },
@@ -178,7 +178,7 @@ export const floatVariants: Variants = {
       ease: 'easeInOut',
     },
   },
-}
+};
 
 export const rotateVariants: Variants = {
   initial: { rotate: 0 },
@@ -190,7 +190,7 @@ export const rotateVariants: Variants = {
       ease: 'linear',
     },
   },
-}
+};
 
 export const bounceInVariants: Variants = {
   initial: { opacity: 0, scale: 0.3, y: 50 },
@@ -210,11 +210,11 @@ export const bounceInVariants: Variants = {
     y: 50,
     transition: transitions.fast,
   },
-}
+};
 
 export const getStaggerDelay = (index: number, baseDelay: number = 0.05): number => {
-  return index * baseDelay
-}
+  return index * baseDelay;
+};
 
 export const createStaggerVariants = (delay: number = 0.05): Variants => ({
   initial: { opacity: 0, y: 10 },
@@ -226,4 +226,4 @@ export const createStaggerVariants = (delay: number = 0.05): Variants => ({
       delay: i * delay,
     },
   }),
-})
+});

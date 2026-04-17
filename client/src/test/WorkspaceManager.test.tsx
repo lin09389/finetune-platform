@@ -1,19 +1,19 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import WorkspaceManager from '../pages/WorkspaceManager'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import WorkspaceManager from '../pages/WorkspaceManager';
 
-const mockFetch = vi.fn()
-vi.stubGlobal('fetch', mockFetch)
+const mockFetch = vi.fn();
+vi.stubGlobal('fetch', mockFetch);
 
 vi.mock('../services/api', () => ({
   API_BASE_URL: 'http://localhost:8000',
-}))
+}));
 
 vi.mock('antd', async () => {
-  const actual = await vi.importActual('antd') as Record<string, any>
+  const actual = (await vi.importActual('antd')) as Record<string, any>;
   const Modal = Object.assign(actual.Modal, {
     confirm: vi.fn(({ onOk }: { onOk?: () => void }) => onOk?.()),
-  })
+  });
   return {
     ...actual,
     App: {
@@ -26,14 +26,17 @@ vi.mock('antd', async () => {
       }),
     },
     Modal,
-  }
-})
+  };
+});
 
 describe('WorkspaceManager', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.clearAllMocks();
     mockFetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url.includes('/workspace/workspaces') && (!init || !init.method || init.method === 'GET')) {
+      if (
+        url.includes('/workspace/workspaces') &&
+        (!init || !init.method || init.method === 'GET')
+      ) {
         return Promise.resolve({
           ok: true,
           json: () =>
@@ -48,53 +51,55 @@ describe('WorkspaceManager', () => {
                 vector_count: 100,
               },
             ]),
-        })
+        });
       }
-      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) })
-    })
-  })
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+  });
 
   it('fetches workspace list on mount', async () => {
-    render(<WorkspaceManager />)
+    render(<WorkspaceManager />);
     await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8000/workspace/workspaces')
-    })
-  })
+      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8000/workspace/workspaces');
+    });
+  });
 
   it('renders workspace name', async () => {
-    render(<WorkspaceManager />)
+    render(<WorkspaceManager />);
     await waitFor(() => {
-      expect(screen.getByText('Test Workspace')).toBeInTheDocument()
-    })
-  })
+      expect(screen.getByText('Test Workspace')).toBeInTheDocument();
+    });
+  });
 
   it('shows create button', async () => {
-    render(<WorkspaceManager />)
+    render(<WorkspaceManager />);
     await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8000/workspace/workspaces')
-    })
-    expect(screen.getByTestId('workspace-create-primary')).toBeInTheDocument()
-  })
+      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8000/workspace/workspaces');
+    });
+    expect(screen.getByTestId('workspace-create-primary')).toBeInTheDocument();
+  });
 
   it('opens modal when clicking create button', async () => {
-    render(<WorkspaceManager />)
-    fireEvent.click(screen.getByTestId('workspace-create-primary'))
+    render(<WorkspaceManager />);
+    fireEvent.click(screen.getByTestId('workspace-create-primary'));
     await waitFor(() => {
-      expect(screen.getByRole('dialog')).toBeInTheDocument()
-    })
-  })
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
+  });
 
   it('triggers delete flow', async () => {
-    render(<WorkspaceManager />)
+    render(<WorkspaceManager />);
     await waitFor(() => {
-      expect(screen.getByText('Test Workspace')).toBeInTheDocument()
-    })
+      expect(screen.getByText('Test Workspace')).toBeInTheDocument();
+    });
 
-    const deleteButton = screen.getByRole('button', { name: /删除/i })
-    fireEvent.click(deleteButton)
+    const deleteButton = screen.getByRole('button', { name: /删除/i });
+    fireEvent.click(deleteButton);
 
     await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8000/workspace/workspaces/ws-1', { method: 'DELETE' })
-    })
-  })
-})
+      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8000/workspace/workspaces/ws-1', {
+        method: 'DELETE',
+      });
+    });
+  });
+});

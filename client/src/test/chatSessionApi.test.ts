@@ -1,22 +1,23 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../services/api', () => ({
   API_BASE_URL: 'http://localhost:8000',
-}))
+}));
 
 import {
   createChatSession,
+  deleteChatSession,
   getChatSession,
   getChatSessionMessages,
   listChatSessions,
   persistChatRunToSession,
   updateChatSessionMetadata,
-} from '../services/chatSessionApi'
+} from '../services/chatSessionApi';
 
 describe('chatSessionApi', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
-  })
+    vi.clearAllMocks();
+  });
 
   it('normalizes session list and session detail through canonical endpoints', async () => {
     global.fetch = vi
@@ -50,20 +51,20 @@ describe('chatSessionApi', () => {
           message_count: 3,
           metadata: { current_branch_id: 'branch-1' },
         }),
-      } as Response) as typeof fetch
+      } as Response) as typeof fetch;
 
-    const sessions = await listChatSessions()
-    const session = await getChatSession('session-1')
+    const sessions = await listChatSessions();
+    const session = await getChatSession('session-1');
 
     expect(String(vi.mocked(global.fetch).mock.calls[0]?.[0])).toBe(
-      'http://localhost:8000/chat/sessions'
-    )
+      'http://localhost:8000/chat/sessions',
+    );
     expect(String(vi.mocked(global.fetch).mock.calls[1]?.[0])).toBe(
-      'http://localhost:8000/chat/sessions/session-1'
-    )
-    expect(sessions[0]?.messageCount).toBe(3)
-    expect(session.metadata.current_branch_id).toBe('branch-1')
-  })
+      'http://localhost:8000/chat/sessions/session-1',
+    );
+    expect(sessions[0]?.messageCount).toBe(3);
+    expect(session.metadata.current_branch_id).toBe('branch-1');
+  });
 
   it('creates sessions, updates metadata, and loads messages with normalized payloads', async () => {
     global.fetch = vi
@@ -101,35 +102,35 @@ describe('chatSessionApi', () => {
             },
           ],
         }),
-      } as Response) as typeof fetch
+      } as Response) as typeof fetch;
 
-    const created = await createChatSession('Follow-up', 'llama3', 'cloud')
+    const created = await createChatSession('Follow-up', 'llama3', 'cloud');
     const updated = await updateChatSessionMetadata('session-2', {
       agent_mode: true,
-    })
-    const messages = await getChatSessionMessages('session-2')
+    });
+    const messages = await getChatSessionMessages('session-2');
 
-    expect(created.backend).toBe('cloud')
-    expect(updated.metadata.agent_mode).toBe(true)
-    expect(messages.messages[0]?.timestamp).toBe('2026-04-09T02:05:00.000Z')
+    expect(created.backend).toBe('cloud');
+    expect(updated.metadata.agent_mode).toBe(true);
+    expect(messages.messages[0]?.timestamp).toBe('2026-04-09T02:05:00.000Z');
 
     expect(vi.mocked(global.fetch).mock.calls[0]?.[1]).toMatchObject({
       method: 'POST',
-    })
+    });
     expect(JSON.parse(String(vi.mocked(global.fetch).mock.calls[0]?.[1]?.body))).toEqual({
       title: 'Follow-up',
       model_id: 'llama3',
-    })
+    });
     expect(vi.mocked(global.fetch).mock.calls[1]?.[1]).toMatchObject({
       method: 'PUT',
-    })
+    });
     expect(JSON.parse(String(vi.mocked(global.fetch).mock.calls[1]?.[1]?.body))).toEqual({
       metadata: { agent_mode: true },
-    })
+    });
     expect(String(vi.mocked(global.fetch).mock.calls[2]?.[0])).toBe(
-      'http://localhost:8000/chat/sessions/session-2/messages'
-    )
-  })
+      'http://localhost:8000/chat/sessions/session-2/messages',
+    );
+  });
 
   it('persists canonical user and assistant messages through the session adapter', async () => {
     global.fetch = vi
@@ -151,25 +152,36 @@ describe('chatSessionApi', () => {
           content: 'world',
           created_at: '2026-04-09T03:00:02.000Z',
         }),
-      } as Response) as typeof fetch
+      } as Response) as typeof fetch;
 
     const result = await persistChatRunToSession('session-3', 'hello', 'world', {
       userMetadata: { source: 'playground' },
-    })
+    });
 
-    expect(result.userMessage.id).toBe('msg-user')
-    expect(result.assistantMessage.id).toBe('msg-assistant')
+    expect(result.userMessage.id).toBe('msg-user');
+    expect(result.assistantMessage.id).toBe('msg-assistant');
     expect(String(vi.mocked(global.fetch).mock.calls[0]?.[0])).toBe(
-      'http://localhost:8000/chat/sessions/session-3/messages'
-    )
+      'http://localhost:8000/chat/sessions/session-3/messages',
+    );
     expect(JSON.parse(String(vi.mocked(global.fetch).mock.calls[0]?.[1]?.body))).toEqual({
       role: 'user',
       content: 'hello',
       metadata: { source: 'playground' },
-    })
+    });
     expect(JSON.parse(String(vi.mocked(global.fetch).mock.calls[1]?.[1]?.body))).toEqual({
       role: 'assistant',
       content: 'world',
-    })
-  })
-})
+    });
+  });
+
+  it('treats delete 404 as idempotent success', async () => {
+    global.fetch = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 404,
+      json: async () => ({ detail: 'Session not found' }),
+    } as Response) as typeof fetch;
+
+    const result = await deleteChatSession('missing-session');
+    expect(result.success).toBe(true);
+  });
+});

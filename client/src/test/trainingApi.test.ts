@@ -1,15 +1,15 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mockApiClientGet = vi.hoisted(() => vi.fn())
-const mockGetTrainingFailureAnalytics = vi.hoisted(() => vi.fn())
-const mockGetTrainingCheckpoints = vi.hoisted(() => vi.fn())
-const mockGetTrainingHistory = vi.hoisted(() => vi.fn())
-const mockGetTrainingRecoveryOptions = vi.hoisted(() => vi.fn())
-const mockResumeTraining = vi.hoisted(() => vi.fn())
-const mockStartSwiftTraining = vi.hoisted(() => vi.fn())
-const mockStartTraining = vi.hoisted(() => vi.fn())
-const mockStopTraining = vi.hoisted(() => vi.fn())
-const mockSubscribeTrainingProgress = vi.hoisted(() => vi.fn())
+const mockApiClientGet = vi.hoisted(() => vi.fn());
+const mockGetTrainingFailureAnalytics = vi.hoisted(() => vi.fn());
+const mockGetTrainingCheckpoints = vi.hoisted(() => vi.fn());
+const mockGetTrainingHistory = vi.hoisted(() => vi.fn());
+const mockGetTrainingRecoveryOptions = vi.hoisted(() => vi.fn());
+const mockResumeTraining = vi.hoisted(() => vi.fn());
+const mockStartSwiftTraining = vi.hoisted(() => vi.fn());
+const mockStartTraining = vi.hoisted(() => vi.fn());
+const mockStopTraining = vi.hoisted(() => vi.fn());
+const mockSubscribeTrainingProgress = vi.hoisted(() => vi.fn());
 
 vi.mock('../services/api', () => ({
   API_BASE_URL: 'http://localhost:8000',
@@ -25,24 +25,24 @@ vi.mock('../services/api', () => ({
   startTraining: mockStartTraining,
   stopTraining: mockStopTraining,
   subscribeTrainingProgress: mockSubscribeTrainingProgress,
-}))
+}));
 
 import {
+  getTrainingFailureAnalytics,
   getTrainingHistory,
   getTrainingRecoveryOptions,
   getTrainingStatus,
-  getTrainingFailureAnalytics,
   normalizeTrainingProgress,
   normalizeTrainingRecord,
   resumeTraining,
   startTraining,
   subscribeTrainingProgress,
-} from '../services/trainingApi'
+} from '../services/trainingApi';
 
 describe('trainingApi', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
-  })
+    vi.clearAllMocks();
+  });
 
   it('normalizes snake_case training records', () => {
     const record = normalizeTrainingRecord({
@@ -61,18 +61,18 @@ describe('trainingApi', () => {
         learning_rate: 0.0002,
         batch_size: 2,
       },
-    })
+    });
 
-    expect(record.modelName).toBe('demo-model')
-    expect(record.datasetName).toBe('demo-dataset')
-    expect(record.startTime).toBe('2026-04-02T00:00:00')
-    expect(record.outputPath).toBe('/tmp/output')
-    expect(record.checkpointPath).toBe('/tmp/output/adapter_model')
-    expect(record.config.modelId).toBe('demo-model')
-    expect(record.config.datasetId).toBe('demo-dataset')
-    expect(record.config.learningRate).toBe(0.0002)
-    expect(record.config.batchSize).toBe(2)
-  })
+    expect(record.modelName).toBe('demo-model');
+    expect(record.datasetName).toBe('demo-dataset');
+    expect(record.startTime).toBe('2026-04-02T00:00:00');
+    expect(record.outputPath).toBe('/tmp/output');
+    expect(record.checkpointPath).toBe('/tmp/output/adapter_model');
+    expect(record.config.modelId).toBe('demo-model');
+    expect(record.config.datasetId).toBe('demo-dataset');
+    expect(record.config.learningRate).toBe(0.0002);
+    expect(record.config.batchSize).toBe(2);
+  });
 
   it('normalizes snake_case training progress', () => {
     const progress = normalizeTrainingProgress({
@@ -86,12 +86,12 @@ describe('trainingApi', () => {
       eta: 30,
       status: 'training',
       message: 'running',
-    })
+    });
 
-    expect(progress.totalSteps).toBe(100)
-    expect(progress.vramUsed).toBe(5.5)
-    expect(progress.elapsedTime).toBe(120)
-  })
+    expect(progress.totalSteps).toBe(100);
+    expect(progress.vramUsed).toBe(5.5);
+    expect(progress.elapsedTime).toBe(120);
+  });
 
   it('normalizes history responses', async () => {
     mockGetTrainingHistory.mockResolvedValue([
@@ -105,16 +105,16 @@ describe('trainingApi', () => {
         output_path: '/tmp/output',
         config: {},
       },
-    ])
+    ]);
 
-    const records = await getTrainingHistory()
-    const firstRecord = records[0]
+    const records = await getTrainingHistory();
+    const firstRecord = records[0];
 
-    expect(firstRecord).toBeDefined()
-    expect(firstRecord?.modelName).toBe('demo-model')
-    expect(firstRecord?.datasetName).toBe('demo-dataset')
-    expect(firstRecord?.outputPath).toBe('/tmp/output')
-  })
+    expect(firstRecord).toBeDefined();
+    expect(firstRecord?.modelName).toBe('demo-model');
+    expect(firstRecord?.datasetName).toBe('demo-dataset');
+    expect(firstRecord?.outputPath).toBe('/tmp/output');
+  });
 
   it('normalizes start and resume responses', async () => {
     mockStartTraining.mockResolvedValue({
@@ -126,7 +126,7 @@ describe('trainingApi', () => {
       start_time: '2026-04-02T00:00:00',
       output_path: '/tmp/output',
       config: {},
-    })
+    });
     mockResumeTraining.mockResolvedValue({
       id: 'task-1',
       model_name: 'demo-model',
@@ -136,15 +136,15 @@ describe('trainingApi', () => {
       start_time: '2026-04-02T00:00:00',
       output_path: '/tmp/output',
       config: {},
-    })
+    });
 
-    const started = await startTraining({}, { applyRecommendedConfig: true })
-    const resumed = await resumeTraining('task-1', 'checkpoint-10')
+    const started = await startTraining({}, { applyRecommendedConfig: true });
+    const resumed = await resumeTraining('task-1', 'checkpoint-10');
 
-    expect(mockStartTraining).toHaveBeenCalledWith({}, { applyRecommendedConfig: true })
-    expect(started.modelName).toBe('demo-model')
-    expect(resumed.datasetName).toBe('demo-dataset')
-  })
+    expect(mockStartTraining).toHaveBeenCalledWith({}, { applyRecommendedConfig: true });
+    expect(started.modelName).toBe('demo-model');
+    expect(resumed.datasetName).toBe('demo-dataset');
+  });
 
   it('normalizes training status responses', async () => {
     mockApiClientGet.mockResolvedValue({
@@ -173,17 +173,17 @@ describe('trainingApi', () => {
           message: 'running',
         },
       },
-    })
+    });
 
-    const status = await getTrainingStatus()
+    const status = await getTrainingStatus();
 
-    expect(status.record.modelName).toBe('demo-model')
-    expect(status.progress.totalSteps).toBe(20)
-    expect(status.progress.vramUsed).toBe(4.2)
-  })
+    expect(status.record.modelName).toBe('demo-model');
+    expect(status.progress.totalSteps).toBe(20);
+    expect(status.progress.vramUsed).toBe(4.2);
+  });
 
   it('normalizes streamed progress events', () => {
-    const unsubscribe = vi.fn()
+    const unsubscribe = vi.fn();
     mockSubscribeTrainingProgress.mockImplementation((handler) => {
       handler({
         epoch: 1,
@@ -192,12 +192,12 @@ describe('trainingApi', () => {
         vram_used: 3.3,
         elapsed_time: 12,
         status: 'training',
-      })
-      return unsubscribe
-    })
+      });
+      return unsubscribe;
+    });
 
-    const onProgress = vi.fn()
-    const result = subscribeTrainingProgress(onProgress)
+    const onProgress = vi.fn();
+    const result = subscribeTrainingProgress(onProgress);
 
     expect(onProgress).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -205,9 +205,9 @@ describe('trainingApi', () => {
         vramUsed: 3.3,
         elapsedTime: 12,
       }),
-    )
-    expect(result).toBe(unsubscribe)
-  })
+    );
+    expect(result).toBe(unsubscribe);
+  });
 
   it('normalizes recovery options and failure analytics payloads', async () => {
     mockGetTrainingRecoveryOptions.mockResolvedValue({
@@ -224,20 +224,20 @@ describe('trainingApi', () => {
           config: { method: 'qlora', batch_size: 1 },
         },
       ],
-    })
+    });
     mockGetTrainingFailureAnalytics.mockResolvedValue({
       total_runs: 10,
       failed_runs: 2,
       failure_rate_7d: 20,
-    })
+    });
 
-    const recovery = await getTrainingRecoveryOptions()
-    const analytics = await getTrainingFailureAnalytics()
+    const recovery = await getTrainingRecoveryOptions();
+    const analytics = await getTrainingFailureAnalytics();
 
-    expect(recovery.options[0].taskId).toBe('task-1')
-    expect(recovery.options[0].modelName).toBe('demo-model')
-    expect(analytics.totalRuns).toBe(10)
-    expect(analytics.failedRuns).toBe(2)
-    expect(analytics.failureRate7d).toBe(20)
-  })
-})
+    expect(recovery.options[0].taskId).toBe('task-1');
+    expect(recovery.options[0].modelName).toBe('demo-model');
+    expect(analytics.totalRuns).toBe(10);
+    expect(analytics.failedRuns).toBe(2);
+    expect(analytics.failureRate7d).toBe(20);
+  });
+});

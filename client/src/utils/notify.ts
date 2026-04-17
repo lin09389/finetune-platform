@@ -1,30 +1,30 @@
-import { message } from 'antd'
+import { message } from 'antd';
 
-type NotifyLevel = 'success' | 'warning' | 'error' | 'info'
+type NotifyLevel = 'success' | 'warning' | 'error' | 'info';
 
 interface NotifyAdapter {
-  success: (content: string) => void
-  warning: (content: string) => void
-  error: (content: string) => void
-  info: (content: string) => void
+  success: (content: string) => void;
+  warning: (content: string) => void;
+  error: (content: string) => void;
+  info: (content: string) => void;
 }
 
 const defaultAdapter: NotifyAdapter = {
   success: (content) => {
-    message.success(content)
+    message.success(content);
   },
   warning: (content) => {
-    message.warning(content)
+    message.warning(content);
   },
   error: (content) => {
-    message.error(content)
+    message.error(content);
   },
   info: (content) => {
-    message.info(content)
+    message.info(content);
   },
-}
+};
 
-let activeAdapter: NotifyAdapter = defaultAdapter
+let activeAdapter: NotifyAdapter = defaultAdapter;
 
 export const notify = {
   success: (content: string) => activeAdapter.success(content),
@@ -32,16 +32,16 @@ export const notify = {
   error: (content: string) => activeAdapter.error(content),
   info: (content: string) => activeAdapter.info(content),
   emit: (level: NotifyLevel, content: string) => activeAdapter[level](content),
-}
+};
 
 export const setNotifyAdapter = (adapter: Partial<NotifyAdapter> | null) => {
   if (!adapter) {
-    activeAdapter = defaultAdapter
-    return
+    activeAdapter = defaultAdapter;
+    return;
   }
 
   activeAdapter = {
     ...defaultAdapter,
     ...adapter,
-  }
-}
+  };
+};

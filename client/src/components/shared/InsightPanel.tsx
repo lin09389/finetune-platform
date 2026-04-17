@@ -1,33 +1,33 @@
-import React, { memo } from 'react'
-import { Alert } from 'antd'
-import GlassCard from './GlassCard'
-import StatusBadge, { type StatusType } from './StatusBadge'
+import { Alert } from 'antd';
+import React, { memo } from 'react';
+import GlassCard from './GlassCard';
+import StatusBadge, { type StatusType } from './StatusBadge';
 
 interface InsightMetric {
-  label: string
-  value: React.ReactNode
-  hint?: React.ReactNode
+  label: string;
+  value: React.ReactNode;
+  hint?: React.ReactNode;
 }
 
 interface InsightSection {
-  title: string
-  items: string[]
-  tone?: 'default' | 'warning'
+  title: string;
+  items: string[];
+  tone?: 'default' | 'warning';
 }
 
 export interface InsightPanelProps {
-  title: string
+  title: string;
   status?: {
-    type: StatusType
-    text: string
-  }
-  summary?: React.ReactNode
-  metrics?: InsightMetric[]
-  sections?: InsightSection[]
-  footer?: React.ReactNode
-  actions?: React.ReactNode
-  embedded?: boolean
-  testId?: string
+    type: StatusType;
+    text: string;
+  };
+  summary?: React.ReactNode;
+  metrics?: InsightMetric[];
+  sections?: InsightSection[];
+  footer?: React.ReactNode;
+  actions?: React.ReactNode;
+  embedded?: boolean;
+  testId?: string;
 }
 
 const panelStyles = {
@@ -97,10 +97,20 @@ const panelStyles = {
     color: 'var(--text-secondary)',
     lineHeight: 1.6,
   } as React.CSSProperties,
-}
+};
 
 const InsightPanel: React.FC<InsightPanelProps> = memo(
-  ({ title, status, summary, metrics = [], sections = [], footer, actions, embedded = false, testId }) => {
+  ({
+    title,
+    status,
+    summary,
+    metrics = [],
+    sections = [],
+    footer,
+    actions,
+    embedded = false,
+    testId,
+  }) => {
     const content = (
       <div style={panelStyles.shell} data-testid={testId}>
         <div style={panelStyles.header}>
@@ -126,7 +136,7 @@ const InsightPanel: React.FC<InsightPanelProps> = memo(
           </div>
         )}
 
-        {sections.map((section) => (
+        {sections.map((section) =>
           section.items.length > 0 ? (
             <div key={section.title}>
               <div style={panelStyles.sectionTitle}>{section.title}</div>
@@ -150,25 +160,25 @@ const InsightPanel: React.FC<InsightPanelProps> = memo(
                 </ul>
               )}
             </div>
-          ) : null
-        ))}
+          ) : null,
+        )}
 
         {footer && <div style={panelStyles.footer}>{footer}</div>}
       </div>
-    )
+    );
 
     if (embedded) {
-      return content
+      return content;
     }
 
     return (
       <GlassCard intensity="medium" noHover>
         {content}
       </GlassCard>
-    )
-  }
-)
+    );
+  },
+);
 
-InsightPanel.displayName = 'InsightPanel'
+InsightPanel.displayName = 'InsightPanel';
 
-export default InsightPanel
+export default InsightPanel;

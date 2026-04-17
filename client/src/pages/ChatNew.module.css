@@ -3,24 +3,29 @@
   height: calc(100vh - 72px);
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
-  border-radius: var(--radius-lg);
+  background: transparent;
+  border-radius: var(--radius-xl);
   overflow: hidden;
 }
 
 .agentBanner {
   padding: 8px 24px;
   background: color-mix(in srgb, var(--bg-secondary) 75%, transparent);
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.03);
   overflow: hidden;
+}
+
+:global(.dark-theme) .agentBanner {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
 }
 
 .chatMessagesArea {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 24px 0;
+  padding: 24px 24px 0;
   display: flex;
   flex-direction: column;
+  scroll-behavior: smooth;
 }
 
 .messagesInner {
@@ -28,6 +33,7 @@
   width: 100%;
   margin: 0 auto;
   flex: 1;
+  padding-bottom: 180px; /* 为底部的悬浮输入框预留空间 */
 }
 
 .emptyState {
@@ -38,29 +44,64 @@
   justify-content: center;
   color: var(--text-tertiary);
   padding: 40px 20px;
+  transform: translateY(-40px); /* 视觉居中稍微偏上 */
 }
 
 .emptyOrb {
-  width: 72px;
-  height: 72px;
-  border-radius: var(--radius-lg);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-color);
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--bg-elevated) 0%, var(--bg-secondary) 100%);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.06),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 700;
   color: var(--text-primary);
-  margin-bottom: 22px;
+  margin-bottom: 28px;
+  position: relative;
+}
+
+.emptyOrb::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0%,
+    var(--accent-primary-light) 50%,
+    transparent 100%
+  );
+  animation: spin 4s linear infinite;
+  z-index: -1;
+  opacity: 0.5;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+:global(.dark-theme) .emptyOrb {
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
 }
 
 .emptyTitle {
-  margin: 0 0 10px;
+  margin: 0 0 12px;
   color: var(--text-primary);
-  font-size: var(--text-xl);
-  font-weight: var(--font-semibold);
-  letter-spacing: var(--tracking-tight);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 .emptyDesc {
@@ -68,6 +109,8 @@
   text-align: center;
   max-width: 42ch;
   margin: 0;
+  font-size: 15px;
+  line-height: 1.6;
 }
 
 .chatMessagesArea::-webkit-scrollbar {
@@ -89,20 +132,20 @@
 
 @media (max-width: 992px) {
   .chatContainer {
-    border-radius: var(--radius-xl);
+    border-radius: var(--radius-lg);
   }
 
   .chatMessagesArea {
-    padding: 14px 14px 0;
+    padding: 16px 16px 0;
   }
 
-  .agentBanner {
-    padding: 8px 12px;
+  .messagesInner {
+    padding-bottom: 140px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .emptyOrb {
+  .emptyOrb::after {
     animation: none !important;
   }
 }

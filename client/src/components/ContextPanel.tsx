@@ -6,141 +6,163 @@
  * - 对话摘要生成
  * - 上下文窗口管理
  */
-import { useState, useEffect } from 'react'
 import {
-  Card, Tabs, Typography, Space, Button, Input, List, Tag,
-  Spin, message, Progress, Statistic, Row, Col, Badge,
-  Tooltip, Switch, Select, Alert, Collapse, Descriptions
-} from 'antd'
-import {
-  BulbOutlined, ExpandOutlined,
-  SwapOutlined, FileTextOutlined, DashboardOutlined,
+  BulbOutlined,
+  CopyOutlined,
+  DashboardOutlined,
+  ExpandOutlined,
+  FileTextOutlined,
   QuestionCircleOutlined,
-  ThunderboltOutlined, CopyOutlined
-} from '@ant-design/icons'
-import axios from 'axios'
-import { API_BASE_URL } from '../services/api'
+  SwapOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Col,
+  Collapse,
+  Descriptions,
+  Input,
+  List,
+  message,
+  Progress,
+  Row,
+  Select,
+  Space,
+  Spin,
+  Statistic,
+  Switch,
+  Tabs,
+  Tag,
+  Tooltip,
+  Typography,
+} from 'antd';
+import axios from 'axios';
+import { useEffect, useState } from 'react';
+import { API_BASE_URL } from '../services/api';
 
-const { Text, Paragraph } = Typography
-const { TextArea } = Input
-const { Panel } = Collapse
-const { Option } = Select
+const { Text, Paragraph } = Typography;
+const { TextArea } = Input;
+const { Panel } = Collapse;
+const { Option } = Select;
 
 interface PronounResolution {
-  pronoun: string
-  type: string
-  resolved_to: string | null
-  confidence: number
-  position: [number, number]
+  pronoun: string;
+  type: string;
+  resolved_to: string | null;
+  confidence: number;
+  position: [number, number];
 }
 
 interface OmissionCompletion {
-  original: string
-  completed: string
-  confidence: number
+  original: string;
+  completed: string;
+  confidence: number;
 }
 
 interface Entity {
-  text: string
-  type: string
-  importance: number
+  text: string;
+  type: string;
+  importance: number;
 }
 
 interface WindowStats {
-  total_tokens: number
-  max_tokens: number
-  utilization: number
-  overflow_count: number
+  total_tokens: number;
+  max_tokens: number;
+  utilization: number;
+  overflow_count: number;
 }
 
 interface ContextMessage {
-  role: string
-  content: string
-  importance: number
+  role: string;
+  content: string;
+  importance: number;
 }
 
 interface ProcessResult {
-  success: boolean
-  original_text: string
-  resolved_text: string
-  pronoun_resolutions: PronounResolution[]
-  omission_completion: OmissionCompletion
-  entities: Entity[]
+  success: boolean;
+  original_text: string;
+  resolved_text: string;
+  pronoun_resolutions: PronounResolution[];
+  omission_completion: OmissionCompletion;
+  entities: Entity[];
 }
 
 interface EnhanceResult {
-  success: boolean
-  enhanced_query: string
-  context_messages: ContextMessage[]
-  summary: string | null
-  entities: Entity[]
-  pronoun_resolutions: PronounResolution[]
-  window_stats: WindowStats
+  success: boolean;
+  enhanced_query: string;
+  context_messages: ContextMessage[];
+  summary: string | null;
+  entities: Entity[];
+  pronoun_resolutions: PronounResolution[];
+  window_stats: WindowStats;
 }
 
 interface SummaryResult {
-  success: boolean
-  summary_text: string
-  key_points: string[]
-  entities_mentioned: string[]
-  topics: string[]
-  token_count: number
+  success: boolean;
+  summary_text: string;
+  key_points: string[];
+  entities_mentioned: string[];
+  topics: string[];
+  token_count: number;
 }
 
 interface WindowResult {
-  success: boolean
-  window_messages: ContextMessage[]
-  total_tokens: number
-  max_tokens: number
-  utilization: number
-  overflow_count: number
-  summary: string | null
+  success: boolean;
+  window_messages: ContextMessage[];
+  total_tokens: number;
+  max_tokens: number;
+  utilization: number;
+  overflow_count: number;
+  summary: string | null;
 }
 
 interface ContextPanelProps {
-  messages?: Array<{ role: string; content: string }>
-  onContextEnhanced?: (result: EnhanceResult) => void
+  messages?: Array<{ role: string; content: string }>;
+  onContextEnhanced?: (result: EnhanceResult) => void;
 }
 
 export default function ContextPanel({ messages = [], onContextEnhanced }: ContextPanelProps) {
-  const [activeTab, setActiveTab] = useState('process')
-  const [loading, setLoading] = useState(false)
-  
-  const [inputText, setInputText] = useState('')
-  const [processResult, setProcessResult] = useState<ProcessResult | null>(null)
-  
-  const [enhanceQuery, setEnhanceQuery] = useState('')
-  const [enhanceResult, setEnhanceResult] = useState<EnhanceResult | null>(null)
-  
-  const [summaryResult, setSummaryResult] = useState<SummaryResult | null>(null)
-  const [useLlm, setUseLlm] = useState(false)
-  
-  const [windowResult, setWindowResult] = useState<WindowResult | null>(null)
-  const [maxTokens, setMaxTokens] = useState(4096)
-  const [keepRecent, setKeepRecent] = useState(3)
-  
-  const [engineStatus, setEngineStatus] = useState<any>(null)
+  const [activeTab, setActiveTab] = useState('process');
+  const [loading, setLoading] = useState(false);
+
+  const [inputText, setInputText] = useState('');
+  const [processResult, setProcessResult] = useState<ProcessResult | null>(null);
+
+  const [enhanceQuery, setEnhanceQuery] = useState('');
+  const [enhanceResult, setEnhanceResult] = useState<EnhanceResult | null>(null);
+
+  const [summaryResult, setSummaryResult] = useState<SummaryResult | null>(null);
+  const [useLlm, setUseLlm] = useState(false);
+
+  const [windowResult, setWindowResult] = useState<WindowResult | null>(null);
+  const [maxTokens, setMaxTokens] = useState(4096);
+  const [keepRecent, setKeepRecent] = useState(3);
+
+  const [engineStatus, setEngineStatus] = useState<any>(null);
 
   useEffect(() => {
-    fetchEngineStatus()
-  }, [])
+    fetchEngineStatus();
+  }, []);
 
   const fetchEngineStatus = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/context/understanding/status`)
-      setEngineStatus(response.data.status)
+      const response = await axios.get(`${API_BASE_URL}/context/understanding/status`);
+      setEngineStatus(response.data.status);
     } catch (error) {
-      console.error('获取引擎状态失败:', error)
+      console.error('获取引擎状态失败:', error);
     }
-  }
+  };
 
   const processMessage = async () => {
     if (!inputText.trim()) {
-      message.warning('请输入要处理的文本')
-      return
+      message.warning('请输入要处理的文本');
+      return;
     }
 
-    setLoading(true)
+    setLoading(true);
     try {
       const response = await axios.post(`${API_BASE_URL}/context/understanding/process`, {
         message: inputText,
@@ -148,100 +170,100 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
         history: messages.map((m, i) => ({
           id: `msg_${i}`,
           role: m.role,
-          content: m.content
-        }))
-      })
-      setProcessResult(response.data)
+          content: m.content,
+        })),
+      });
+      setProcessResult(response.data);
     } catch (error) {
-      console.error('处理消息失败:', error)
-      message.error('处理消息失败')
+      console.error('处理消息失败:', error);
+      message.error('处理消息失败');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const enhanceContext = async () => {
     if (!enhanceQuery.trim()) {
-      message.warning('请输入查询内容')
-      return
+      message.warning('请输入查询内容');
+      return;
     }
 
-    setLoading(true)
+    setLoading(true);
     try {
       const response = await axios.post(`${API_BASE_URL}/context/understanding/enhance`, {
         query: enhanceQuery,
         messages: messages.map((m, i) => ({
           id: `msg_${i}`,
           role: m.role,
-          content: m.content
+          content: m.content,
         })),
-        max_context_tokens: maxTokens
-      })
-      setEnhanceResult(response.data)
-      onContextEnhanced?.(response.data)
+        max_context_tokens: maxTokens,
+      });
+      setEnhanceResult(response.data);
+      onContextEnhanced?.(response.data);
     } catch (error) {
-      console.error('增强上下文失败:', error)
-      message.error('增强上下文失败')
+      console.error('增强上下文失败:', error);
+      message.error('增强上下文失败');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const generateSummary = async () => {
     if (messages.length === 0) {
-      message.warning('没有对话消息可摘要')
-      return
+      message.warning('没有对话消息可摘要');
+      return;
     }
 
-    setLoading(true)
+    setLoading(true);
     try {
       const response = await axios.post(`${API_BASE_URL}/context/understanding/summarize`, {
         messages: messages.map((m, i) => ({
           id: `msg_${i}`,
           role: m.role,
-          content: m.content
+          content: m.content,
         })),
-        use_llm: useLlm
-      })
-      setSummaryResult(response.data)
+        use_llm: useLlm,
+      });
+      setSummaryResult(response.data);
     } catch (error) {
-      console.error('生成摘要失败:', error)
-      message.error('生成摘要失败')
+      console.error('生成摘要失败:', error);
+      message.error('生成摘要失败');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const manageWindow = async () => {
     if (messages.length === 0) {
-      message.warning('没有消息可管理')
-      return
+      message.warning('没有消息可管理');
+      return;
     }
 
-    setLoading(true)
+    setLoading(true);
     try {
       const response = await axios.post(`${API_BASE_URL}/context/understanding/window`, {
         messages: messages.map((m, i) => ({
           id: `msg_${i}`,
           role: m.role,
-          content: m.content
+          content: m.content,
         })),
         max_tokens: maxTokens,
-        keep_recent: keepRecent
-      })
-      setWindowResult(response.data)
+        keep_recent: keepRecent,
+      });
+      setWindowResult(response.data);
     } catch (error) {
-      console.error('管理窗口失败:', error)
-      message.error('管理窗口失败')
+      console.error('管理窗口失败:', error);
+      message.error('管理窗口失败');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
-    message.success('已复制到剪贴板')
-  }
+    navigator.clipboard.writeText(text);
+    message.success('已复制到剪贴板');
+  };
 
   const renderProcessTab = () => (
     <Space direction="vertical" style={{ width: '100%' }} size="large">
@@ -344,7 +366,7 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
         </Card>
       )}
     </Space>
-  )
+  );
 
   const renderEnhanceTab = () => (
     <Space direction="vertical" style={{ width: '100%' }} size="large">
@@ -411,16 +433,10 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
                 />
               </Col>
               <Col span={6}>
-                <Statistic
-                  title="溢出消息"
-                  value={enhanceResult.window_stats.overflow_count}
-                />
+                <Statistic title="溢出消息" value={enhanceResult.window_stats.overflow_count} />
               </Col>
               <Col span={6}>
-                <Statistic
-                  title="上下文消息"
-                  value={enhanceResult.context_messages.length}
-                />
+                <Statistic title="上下文消息" value={enhanceResult.context_messages.length} />
               </Col>
             </Row>
 
@@ -429,7 +445,9 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
                 <Text strong>识别实体：</Text>
                 <Space wrap>
                   {enhanceResult.entities.map((entity, idx) => (
-                    <Tag key={idx} color="purple">{entity.text}</Tag>
+                    <Tag key={idx} color="purple">
+                      {entity.text}
+                    </Tag>
                   ))}
                 </Space>
               </div>
@@ -438,7 +456,7 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
         </Card>
       )}
     </Space>
-  )
+  );
 
   const renderSummaryTab = () => (
     <Space direction="vertical" style={{ width: '100%' }} size="large">
@@ -460,9 +478,7 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
           >
             生成摘要
           </Button>
-          {messages.length === 0 && (
-            <Alert type="info" message="当前没有对话消息" />
-          )}
+          {messages.length === 0 && <Alert type="info" message="当前没有对话消息" />}
         </Space>
       </Card>
 
@@ -502,7 +518,9 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
                 <Text strong>讨论主题：</Text>
                 <Space wrap>
                   {summaryResult.topics.map((topic, idx) => (
-                    <Tag key={idx} color="blue">{topic}</Tag>
+                    <Tag key={idx} color="blue">
+                      {topic}
+                    </Tag>
                   ))}
                 </Space>
               </div>
@@ -513,7 +531,9 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
                 <Text strong>涉及实体：</Text>
                 <Space wrap>
                   {summaryResult.entities_mentioned.map((entity, idx) => (
-                    <Tag key={idx} color="green">{entity}</Tag>
+                    <Tag key={idx} color="green">
+                      {entity}
+                    </Tag>
                   ))}
                 </Space>
               </div>
@@ -522,7 +542,7 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
         </Card>
       )}
     </Space>
-  )
+  );
 
   const renderWindowTab = () => (
     <Space direction="vertical" style={{ width: '100%' }} size="large">
@@ -570,16 +590,10 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
           <Space direction="vertical" style={{ width: '100%' }} size="middle">
             <Row gutter={16}>
               <Col span={6}>
-                <Statistic
-                  title="当前Token"
-                  value={windowResult.total_tokens}
-                />
+                <Statistic title="当前Token" value={windowResult.total_tokens} />
               </Col>
               <Col span={6}>
-                <Statistic
-                  title="最大Token"
-                  value={windowResult.max_tokens}
-                />
+                <Statistic title="最大Token" value={windowResult.max_tokens} />
               </Col>
               <Col span={6}>
                 <Statistic
@@ -587,7 +601,7 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
                   value={Math.round(windowResult.utilization * 100)}
                   suffix="%"
                   valueStyle={{
-                    color: windowResult.utilization > 0.9 ? '#cf1322' : '#3f8600'
+                    color: windowResult.utilization > 0.9 ? '#cf1322' : '#3f8600',
                   }}
                 />
               </Col>
@@ -596,7 +610,7 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
                   title="溢出消息"
                   value={windowResult.overflow_count}
                   valueStyle={{
-                    color: windowResult.overflow_count > 0 ? '#fa8c16' : '#52c41a'
+                    color: windowResult.overflow_count > 0 ? '#fa8c16' : '#52c41a',
                   }}
                 />
               </Col>
@@ -647,7 +661,7 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
         </Card>
       )}
     </Space>
-  )
+  );
 
   const renderStatusTab = () => (
     <Space direction="vertical" style={{ width: '100%' }} size="large">
@@ -655,21 +669,21 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
         <Card title="引擎状态" size="small">
           <Descriptions column={1} size="small">
             <Descriptions.Item label="窗口管理器">
-              最大Token: {engineStatus.window_manager?.max_tokens}, 
-              预留Token: {engineStatus.window_manager?.reserved_tokens}
+              最大Token: {engineStatus.window_manager?.max_tokens}, 预留Token:{' '}
+              {engineStatus.window_manager?.reserved_tokens}
             </Descriptions.Item>
             <Descriptions.Item label="代词消解器">
-              人称代词: {engineStatus.pronoun_resolver?.personal_pronouns}个, 
-              指示代词: {engineStatus.pronoun_resolver?.demonstrative_pronouns}个,
-              实体模式: {engineStatus.pronoun_resolver?.entity_patterns}个
+              人称代词: {engineStatus.pronoun_resolver?.personal_pronouns}个, 指示代词:{' '}
+              {engineStatus.pronoun_resolver?.demonstrative_pronouns}个, 实体模式:{' '}
+              {engineStatus.pronoun_resolver?.entity_patterns}个
             </Descriptions.Item>
             <Descriptions.Item label="省略补全器">
-              省略模式: {engineStatus.omission_completer?.patterns}个,
-              问题模式: {engineStatus.omission_completer?.question_patterns}个
+              省略模式: {engineStatus.omission_completer?.patterns}个, 问题模式:{' '}
+              {engineStatus.omission_completer?.question_patterns}个
             </Descriptions.Item>
             <Descriptions.Item label="摘要生成器">
-              关键词权重: {engineStatus.summarizer?.keyword_weights}个,
-              LLM启用: {engineStatus.summarizer?.llm_enabled ? '是' : '否'}
+              关键词权重: {engineStatus.summarizer?.keyword_weights}个, LLM启用:{' '}
+              {engineStatus.summarizer?.llm_enabled ? '是' : '否'}
             </Descriptions.Item>
           </Descriptions>
         </Card>
@@ -681,32 +695,28 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
         <Collapse ghost>
           <Panel header="代词消解" key="1">
             <Paragraph>
-              自动识别文本中的代词（他、她、它、这、那等），
-              并根据上下文解析其指向的实体。
+              自动识别文本中的代词（他、她、它、这、那等）， 并根据上下文解析其指向的实体。
             </Paragraph>
           </Panel>
           <Panel header="省略补全" key="2">
             <Paragraph>
-              检测省略句（如"是"、"对"、"好"等单字回答），
-              根据对话历史补全省略的内容。
+              检测省略句（如"是"、"对"、"好"等单字回答）， 根据对话历史补全省略的内容。
             </Paragraph>
           </Panel>
           <Panel header="对话摘要" key="3">
             <Paragraph>
-              对长对话自动生成摘要，提取关键点、主题和实体，
-              支持基于规则和LLM两种方式。
+              对长对话自动生成摘要，提取关键点、主题和实体， 支持基于规则和LLM两种方式。
             </Paragraph>
           </Panel>
           <Panel header="窗口管理" key="4">
             <Paragraph>
-              管理上下文窗口的Token预算，采用滑动窗口策略，
-              重要信息优先保留，溢出内容自动摘要。
+              管理上下文窗口的Token预算，采用滑动窗口策略， 重要信息优先保留，溢出内容自动摘要。
             </Paragraph>
           </Panel>
         </Collapse>
       </Card>
     </Space>
-  )
+  );
 
   return (
     <Card
@@ -714,9 +724,7 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
         <Space>
           <BulbOutlined />
           <span>上下文理解</span>
-          {engineStatus && (
-            <Badge status="success" text="引擎就绪" />
-          )}
+          {engineStatus && <Badge status="success" text="引擎就绪" />}
         </Space>
       }
       extra={
@@ -743,5 +751,5 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
         </Tabs.TabPane>
       </Tabs>
     </Card>
-  )
+  );
 }

@@ -1,47 +1,47 @@
-import React, { useState, useCallback, useMemo } from 'react'
-import { Upload, Progress, Button, message, Tooltip } from 'antd'
 import {
-  InboxOutlined,
-  FileTextOutlined,
-  FilePdfOutlined,
-  FileWordOutlined,
-  FileExcelOutlined,
-  FileImageOutlined,
-  FileZipOutlined,
-  FileOutlined,
-  DeleteOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
-} from '@ant-design/icons'
-import type { UploadProps } from 'antd/es/upload/interface'
+  DeleteOutlined,
+  FileExcelOutlined,
+  FileImageOutlined,
+  FileOutlined,
+  FilePdfOutlined,
+  FileTextOutlined,
+  FileWordOutlined,
+  FileZipOutlined,
+  InboxOutlined,
+} from '@ant-design/icons';
+import { Button, message, Progress, Tooltip, Upload } from 'antd';
+import type { UploadProps } from 'antd/es/upload/interface';
+import React, { useCallback, useMemo, useState } from 'react';
 
-const { Dragger } = Upload
+const { Dragger } = Upload;
 
 export interface FileUploadProps {
-  onUpload: (files: File[]) => void
-  accept?: string
-  maxSize?: number
-  multiple?: boolean
-  disabled?: boolean
-  maxCount?: number
-  className?: string
-  style?: React.CSSProperties
+  onUpload: (files: File[]) => void;
+  accept?: string;
+  maxSize?: number;
+  multiple?: boolean;
+  disabled?: boolean;
+  maxCount?: number;
+  className?: string;
+  style?: React.CSSProperties;
 }
 
 interface FileItem {
-  id: string
-  file: File
-  name: string
-  size: number
-  type: string
-  progress: number
-  status: 'pending' | 'uploading' | 'done' | 'error'
-  error?: string
+  id: string;
+  file: File;
+  name: string;
+  size: number;
+  type: string;
+  progress: number;
+  status: 'pending' | 'uploading' | 'done' | 'error';
+  error?: string;
 }
 
 const getFileIcon = (fileName: string): React.ReactNode => {
-  const ext = fileName.split('.').pop()?.toLowerCase() || ''
-  
+  const ext = fileName.split('.').pop()?.toLowerCase() || '';
+
   const iconMap: Record<string, React.ReactNode> = {
     pdf: <FilePdfOutlined style={{ color: '#f5222d' }} />,
     doc: <FileWordOutlined style={{ color: '#1890ff' }} />,
@@ -57,18 +57,18 @@ const getFileIcon = (fileName: string): React.ReactNode => {
     zip: <FileZipOutlined style={{ color: '#fa8c16' }} />,
     rar: <FileZipOutlined style={{ color: '#fa8c16' }} />,
     '7z': <FileZipOutlined style={{ color: '#fa8c16' }} />,
-  }
-  
-  return iconMap[ext] || <FileOutlined style={{ color: '#8c8c8c' }} />
-}
+  };
+
+  return iconMap[ext] || <FileOutlined style={{ color: '#8c8c8c' }} />;
+};
 
 const formatFileSize = (bytes: number): string => {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-}
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+};
 
 const FileUpload: React.FC<FileUploadProps> = ({
   onUpload,
@@ -80,164 +80,168 @@ const FileUpload: React.FC<FileUploadProps> = ({
   className,
   style,
 }) => {
-  const [fileList, setFileList] = useState<FileItem[]>([])
-  const [isDragging, setIsDragging] = useState(false)
+  const [fileList, setFileList] = useState<FileItem[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
 
   const acceptArray = useMemo(() => {
-    if (!accept) return []
-    return accept.split(',').map(ext => ext.trim().toLowerCase())
-  }, [accept])
+    if (!accept) return [];
+    return accept.split(',').map((ext) => ext.trim().toLowerCase());
+  }, [accept]);
 
-  const validateFile = useCallback((file: File): string | null => {
-    if (maxSize && file.size > maxSize * 1024 * 1024) {
-      return `文件大小超过限制 (${maxSize}MB)`
-    }
-    
-    if (acceptArray.length > 0) {
-      const ext = '.' + file.name.split('.').pop()?.toLowerCase()
-      const mimeType = file.type.toLowerCase()
-      
-      const isAccepted = acceptArray.some(acceptType => {
-        if (acceptType.startsWith('.')) {
-          return ext === acceptType.toLowerCase()
-        }
-        if (acceptType.includes('/')) {
-          if (acceptType.endsWith('/*')) {
-            return mimeType.startsWith(acceptType.replace('/*', ''))
+  const validateFile = useCallback(
+    (file: File): string | null => {
+      if (maxSize && file.size > maxSize * 1024 * 1024) {
+        return `文件大小超过限制 (${maxSize}MB)`;
+      }
+
+      if (acceptArray.length > 0) {
+        const ext = '.' + file.name.split('.').pop()?.toLowerCase();
+        const mimeType = file.type.toLowerCase();
+
+        const isAccepted = acceptArray.some((acceptType) => {
+          if (acceptType.startsWith('.')) {
+            return ext === acceptType.toLowerCase();
           }
-          return mimeType === acceptType.toLowerCase()
-        }
-        return false
-      })
-      
-      if (!isAccepted) {
-        return `不支持的文件类型: ${ext}`
-      }
-    }
-    
-    return null
-  }, [acceptArray, maxSize])
+          if (acceptType.includes('/')) {
+            if (acceptType.endsWith('/*')) {
+              return mimeType.startsWith(acceptType.replace('/*', ''));
+            }
+            return mimeType === acceptType.toLowerCase();
+          }
+          return false;
+        });
 
-  const addFiles = useCallback((files: File[]) => {
-    const newFiles: FileItem[] = []
-    
-    for (const file of files) {
-      const error = validateFile(file)
-      
-      if (error) {
-        message.error(`${file.name}: ${error}`)
-        continue
+        if (!isAccepted) {
+          return `不支持的文件类型: ${ext}`;
+        }
       }
-      
-      if (maxCount && fileList.length + newFiles.length >= maxCount) {
-        message.warning(`最多上传 ${maxCount} 个文件`)
-        break
+
+      return null;
+    },
+    [acceptArray, maxSize],
+  );
+
+  const addFiles = useCallback(
+    (files: File[]) => {
+      const newFiles: FileItem[] = [];
+
+      for (const file of files) {
+        const error = validateFile(file);
+
+        if (error) {
+          message.error(`${file.name}: ${error}`);
+          continue;
+        }
+
+        if (maxCount && fileList.length + newFiles.length >= maxCount) {
+          message.warning(`最多上传 ${maxCount} 个文件`);
+          break;
+        }
+
+        const fileItem: FileItem = {
+          id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          file,
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          progress: 0,
+          status: 'pending',
+        };
+
+        newFiles.push(fileItem);
       }
-      
-      const fileItem: FileItem = {
-        id: `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        file,
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        progress: 0,
-        status: 'pending',
+
+      if (newFiles.length > 0) {
+        setFileList((prev) => [...prev, ...newFiles]);
+        simulateUpload(newFiles);
       }
-      
-      newFiles.push(fileItem)
-    }
-    
-    if (newFiles.length > 0) {
-      setFileList(prev => [...prev, ...newFiles])
-      simulateUpload(newFiles)
-    }
-  }, [fileList.length, maxCount, validateFile])
+    },
+    [fileList.length, maxCount, validateFile],
+  );
 
   const simulateUpload = useCallback((files: FileItem[]) => {
-    files.forEach(fileItem => {
-      setFileList(prev => 
-        prev.map(f => 
-          f.id === fileItem.id ? { ...f, status: 'uploading' as const } : f
-        )
-      )
-      
-      const totalSteps = 10
-      let currentStep = 0
-      
+    files.forEach((fileItem) => {
+      setFileList((prev) =>
+        prev.map((f) => (f.id === fileItem.id ? { ...f, status: 'uploading' as const } : f)),
+      );
+
+      const totalSteps = 10;
+      let currentStep = 0;
+
       const interval = setInterval(() => {
-        currentStep++
-        const progress = Math.min((currentStep / totalSteps) * 100, 100)
-        
-        setFileList(prev => 
-          prev.map(f => 
-            f.id === fileItem.id ? { ...f, progress } : f
-          )
-        )
-        
+        currentStep++;
+        const progress = Math.min((currentStep / totalSteps) * 100, 100);
+
+        setFileList((prev) => prev.map((f) => (f.id === fileItem.id ? { ...f, progress } : f)));
+
         if (currentStep >= totalSteps) {
-          clearInterval(interval)
-          setFileList(prev => 
-            prev.map(f => 
-              f.id === fileItem.id ? { ...f, status: 'done' as const, progress: 100 } : f
-            )
-          )
+          clearInterval(interval);
+          setFileList((prev) =>
+            prev.map((f) =>
+              f.id === fileItem.id ? { ...f, status: 'done' as const, progress: 100 } : f,
+            ),
+          );
         }
-      }, 100)
-    })
-  }, [])
+      }, 100);
+    });
+  }, []);
 
   const removeFile = useCallback((id: string) => {
-    setFileList(prev => prev.filter(f => f.id !== id))
-  }, [])
+    setFileList((prev) => prev.filter((f) => f.id !== id));
+  }, []);
 
   const clearAll = useCallback(() => {
-    setFileList([])
-  }, [])
+    setFileList([]);
+  }, []);
 
   const handleUpload = useCallback(() => {
-    const validFiles = fileList
-      .filter(f => f.status === 'done')
-      .map(f => f.file)
-    
-    if (validFiles.length === 0) {
-      message.warning('请先选择文件')
-      return
-    }
-    
-    onUpload(validFiles)
-  }, [fileList, onUpload])
+    const validFiles = fileList.filter((f) => f.status === 'done').map((f) => f.file);
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    if (!disabled) {
-      setIsDragging(true)
+    if (validFiles.length === 0) {
+      message.warning('请先选择文件');
+      return;
     }
-  }, [disabled])
+
+    onUpload(validFiles);
+  }, [fileList, onUpload]);
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!disabled) {
+        setIsDragging(true);
+      }
+    },
+    [disabled],
+  );
 
   const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setIsDragging(false)
-  }, [])
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setIsDragging(false)
-    
-    if (disabled) return
-    
-    const files = Array.from(e.dataTransfer.files)
-    if (files.length > 0) {
-      if (!multiple && files.length > 1) {
-        message.warning('只能上传一个文件')
-        addFiles([files[0]!])
-      } else {
-        addFiles(files)
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+
+      if (disabled) return;
+
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length > 0) {
+        if (!multiple && files.length > 1) {
+          message.warning('只能上传一个文件');
+          addFiles([files[0]!]);
+        } else {
+          addFiles(files);
+        }
       }
-    }
-  }, [disabled, multiple, addFiles])
+    },
+    [disabled, multiple, addFiles],
+  );
 
   const uploadProps: UploadProps = {
     multiple,
@@ -245,17 +249,17 @@ const FileUpload: React.FC<FileUploadProps> = ({
     disabled,
     showUploadList: false,
     beforeUpload: (file) => {
-      addFiles([file])
-      return false
+      addFiles([file]);
+      return false;
     },
-  }
+  };
 
-  const doneCount = fileList.filter(f => f.status === 'done').length
-  const uploadingCount = fileList.filter(f => f.status === 'uploading').length
+  const doneCount = fileList.filter((f) => f.status === 'done').length;
+  const uploadingCount = fileList.filter((f) => f.status === 'uploading').length;
 
   return (
-    <div 
-      className={className} 
+    <div
+      className={className}
       style={style}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -264,30 +268,26 @@ const FileUpload: React.FC<FileUploadProps> = ({
       <Dragger
         {...uploadProps}
         style={{
-          background: isDragging 
-            ? 'var(--primary-50)' 
-            : 'var(--bg-color)',
-          border: isDragging 
-            ? '2px dashed var(--primary-500)' 
-            : '2px dashed var(--border-color)',
+          background: isDragging ? 'var(--primary-50)' : 'var(--bg-color)',
+          border: isDragging ? '2px dashed var(--primary-500)' : '2px dashed var(--border-color)',
           borderRadius: '12px',
           padding: '24px',
           transition: 'all 0.3s ease',
         }}
       >
         <p className="ant-upload-drag-icon">
-          <InboxOutlined 
-            style={{ 
-              fontSize: '48px', 
+          <InboxOutlined
+            style={{
+              fontSize: '48px',
               color: isDragging ? 'var(--primary-500)' : 'var(--text-tertiary)',
               transition: 'color 0.3s ease',
-            }} 
+            }}
           />
         </p>
-        <p 
-          className="ant-upload-text" 
-          style={{ 
-            fontSize: '16px', 
+        <p
+          className="ant-upload-text"
+          style={{
+            fontSize: '16px',
             fontWeight: 500,
             color: 'var(--text-primary)',
             marginBottom: '8px',
@@ -295,37 +295,27 @@ const FileUpload: React.FC<FileUploadProps> = ({
         >
           点击或拖拽文件到此区域上传
         </p>
-        <p 
-          className="ant-upload-hint" 
-          style={{ 
-            fontSize: '14px', 
+        <p
+          className="ant-upload-hint"
+          style={{
+            fontSize: '14px',
             color: 'var(--text-tertiary)',
           }}
         >
           {accept && (
-            <span style={{ display: 'block', marginBottom: '4px' }}>
-              支持的文件类型: {accept}
-            </span>
+            <span style={{ display: 'block', marginBottom: '4px' }}>支持的文件类型: {accept}</span>
           )}
           {maxSize && (
-            <span style={{ display: 'block', marginBottom: '4px' }}>
-              单个文件最大: {maxSize}MB
-            </span>
+            <span style={{ display: 'block', marginBottom: '4px' }}>单个文件最大: {maxSize}MB</span>
           )}
-          {maxCount && (
-            <span style={{ display: 'block' }}>
-              最多上传: {maxCount} 个文件
-            </span>
-          )}
-          {!accept && !maxSize && !maxCount && multiple && (
-            <span>支持单个或批量上传</span>
-          )}
+          {maxCount && <span style={{ display: 'block' }}>最多上传: {maxCount} 个文件</span>}
+          {!accept && !maxSize && !maxCount && multiple && <span>支持单个或批量上传</span>}
         </p>
       </Dragger>
 
       {fileList.length > 0 && (
-        <div 
-          style={{ 
+        <div
+          style={{
             marginTop: '16px',
             background: 'var(--bg-secondary)',
             borderRadius: '12px',
@@ -333,8 +323,8 @@ const FileUpload: React.FC<FileUploadProps> = ({
             overflow: 'hidden',
           }}
         >
-          <div 
-            style={{ 
+          <div
+            style={{
               padding: '12px 16px',
               borderBottom: '1px solid var(--border-color)',
               display: 'flex',
@@ -351,8 +341,8 @@ const FileUpload: React.FC<FileUploadProps> = ({
                 </span>
               )}
             </span>
-            <Button 
-              type="text" 
+            <Button
+              type="text"
               size="small"
               icon={<DeleteOutlined />}
               onClick={clearAll}
@@ -361,9 +351,9 @@ const FileUpload: React.FC<FileUploadProps> = ({
               清空
             </Button>
           </div>
-          
+
           <div style={{ maxHeight: '240px', overflowY: 'auto' }}>
-            {fileList.map(fileItem => (
+            {fileList.map((fileItem) => (
               <div
                 key={fileItem.id}
                 style={{
@@ -375,28 +365,26 @@ const FileUpload: React.FC<FileUploadProps> = ({
                   transition: 'background 0.2s ease',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'var(--bg-elevated)'
+                  e.currentTarget.style.background = 'var(--bg-elevated)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'transparent'
+                  e.currentTarget.style.background = 'transparent';
                 }}
               >
-                <div style={{ fontSize: '24px', flexShrink: 0 }}>
-                  {getFileIcon(fileItem.name)}
-                </div>
-                
+                <div style={{ fontSize: '24px', flexShrink: 0 }}>{getFileIcon(fileItem.name)}</div>
+
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div 
-                    style={{ 
-                      display: 'flex', 
+                  <div
+                    style={{
+                      display: 'flex',
                       alignItems: 'center',
                       gap: '8px',
                       marginBottom: '4px',
                     }}
                   >
                     <Tooltip title={fileItem.name}>
-                      <span 
-                        style={{ 
+                      <span
+                        style={{
                           fontWeight: 500,
                           color: 'var(--text-primary)',
                           overflow: 'hidden',
@@ -408,8 +396,8 @@ const FileUpload: React.FC<FileUploadProps> = ({
                         {fileItem.name}
                       </span>
                     </Tooltip>
-                    <span 
-                      style={{ 
+                    <span
+                      style={{
                         fontSize: '12px',
                         color: 'var(--text-tertiary)',
                         flexShrink: 0,
@@ -418,24 +406,24 @@ const FileUpload: React.FC<FileUploadProps> = ({
                       {formatFileSize(fileItem.size)}
                     </span>
                   </div>
-                  
+
                   {fileItem.status === 'uploading' && (
-                    <Progress 
-                      percent={Math.round(fileItem.progress)} 
+                    <Progress
+                      percent={Math.round(fileItem.progress)}
                       size="small"
                       showInfo={false}
                       strokeColor="var(--primary-500)"
                       style={{ margin: 0 }}
                     />
                   )}
-                  
+
                   {fileItem.status === 'error' && (
                     <span style={{ fontSize: '12px', color: 'var(--error)' }}>
                       {fileItem.error || '上传失败'}
                     </span>
                   )}
                 </div>
-                
+
                 <div style={{ flexShrink: 0 }}>
                   {fileItem.status === 'done' && (
                     <CheckCircleOutlined style={{ color: 'var(--success)', fontSize: '18px' }} />
@@ -454,7 +442,7 @@ const FileUpload: React.FC<FileUploadProps> = ({
                       size="small"
                       icon={<DeleteOutlined />}
                       onClick={() => removeFile(fileItem.id)}
-                      style={{ 
+                      style={{
                         color: 'var(--text-tertiary)',
                         marginLeft: '8px',
                       }}
@@ -468,18 +456,16 @@ const FileUpload: React.FC<FileUploadProps> = ({
       )}
 
       {fileList.length > 0 && (
-        <div 
-          style={{ 
+        <div
+          style={{
             marginTop: '16px',
             display: 'flex',
             justifyContent: 'flex-end',
             gap: '12px',
           }}
         >
-          <Button onClick={clearAll}>
-            取消
-          </Button>
-          <Button 
+          <Button onClick={clearAll}>取消</Button>
+          <Button
             type="primary"
             onClick={handleUpload}
             disabled={uploadingCount > 0 || doneCount === 0}
@@ -507,7 +493,7 @@ const FileUpload: React.FC<FileUploadProps> = ({
         }
       `}</style>
     </div>
-  )
-}
+  );
+};
 
-export default FileUpload
+export default FileUpload;

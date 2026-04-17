@@ -1,14 +1,14 @@
 /**
  * 虚拟化消息列表组件
- * 
+ *
  * 功能：
  * - 虚拟滚动优化大量消息渲染
  * - 消息分页加载
  * - 平滑滚动
  */
-import React, { useRef, useEffect, useState, useCallback, memo } from 'react';
-import { Spin, Empty } from 'antd';
 import { LoadingOutlined } from '@ant-design/icons';
+import { Empty, Spin } from 'antd';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 
 interface Message {
   id: string;
@@ -49,7 +49,7 @@ const VirtualizedMessageList: React.FC<VirtualizedMessageListProps> = ({
     const container = containerRef.current;
     if (!container) return;
 
-    const observer = new ResizeObserver(entries => {
+    const observer = new ResizeObserver((entries) => {
       if (entries[0]) {
         setContainerHeight(entries[0].contentRect.height);
       }
@@ -65,29 +65,32 @@ const VirtualizedMessageList: React.FC<VirtualizedMessageListProps> = ({
     }
   }, [messages.length]);
 
-  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    const target = e.currentTarget;
-    setScrollTop(target.scrollTop);
-    setIsScrolling(true);
+  const handleScroll = useCallback(
+    (e: React.UIEvent<HTMLDivElement>) => {
+      const target = e.currentTarget;
+      setScrollTop(target.scrollTop);
+      setIsScrolling(true);
 
-    if (scrollTimeoutRef.current) {
-      clearTimeout(scrollTimeoutRef.current);
-    }
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
 
-    scrollTimeoutRef.current = setTimeout(() => {
-      setIsScrolling(false);
-    }, 150);
+      scrollTimeoutRef.current = setTimeout(() => {
+        setIsScrolling(false);
+      }, 150);
 
-    if (hasMore && onLoadMore && target.scrollTop < 100) {
-      onLoadMore();
-    }
-  }, [hasMore, onLoadMore]);
+      if (hasMore && onLoadMore && target.scrollTop < 100) {
+        onLoadMore();
+      }
+    },
+    [hasMore, onLoadMore],
+  );
 
   const totalHeight = messages.length * estimatedItemHeight;
   const startIndex = Math.max(0, Math.floor(scrollTop / estimatedItemHeight) - overscan);
   const endIndex = Math.min(
     messages.length - 1,
-    Math.floor((scrollTop + containerHeight) / estimatedItemHeight) + overscan
+    Math.floor((scrollTop + containerHeight) / estimatedItemHeight) + overscan,
   );
 
   const visibleMessages = messages.slice(startIndex, endIndex + 1);
@@ -136,7 +139,7 @@ const VirtualizedMessageList: React.FC<VirtualizedMessageListProps> = ({
             {visibleMessages.map((message, index) => {
               const actualIndex = startIndex + index;
               const isLast = actualIndex === messages.length - 1;
-              
+
               return (
                 <div
                   key={message.id}

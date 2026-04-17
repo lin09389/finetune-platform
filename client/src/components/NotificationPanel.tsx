@@ -1,29 +1,29 @@
-import { useState } from 'react'
-import { Drawer, List, Button, Space, Tag, Empty, Tooltip, Badge, Avatar } from 'antd'
-import { 
-  BellOutlined, 
-  DeleteOutlined, 
-  CheckOutlined, 
-  InfoCircleOutlined,
+import {
+  BellOutlined,
   CheckCircleOutlined,
+  CheckOutlined,
+  CloseCircleOutlined,
+  DeleteOutlined,
   ExclamationCircleOutlined,
-  CloseCircleOutlined
-} from '@ant-design/icons'
+  InfoCircleOutlined,
+} from '@ant-design/icons';
+import { Avatar, Badge, Button, Drawer, Empty, List, Space, Tag, Tooltip } from 'antd';
+import { useState } from 'react';
 
 export interface Notification {
-  id: string
-  type: 'info' | 'success' | 'warning' | 'error'
-  title: string
-  message: string
-  timestamp: number
-  read: boolean
+  id: string;
+  type: 'info' | 'success' | 'warning' | 'error';
+  title: string;
+  message: string;
+  timestamp: number;
+  read: boolean;
 }
 
 interface NotificationPanelProps {
-  notifications: Notification[]
-  onClear: () => void
-  onMarkAsRead: (id: string) => void
-  onDelete: (id: string) => void
+  notifications: Notification[];
+  onClear: () => void;
+  onMarkAsRead: (id: string) => void;
+  onDelete: (id: string) => void;
 }
 
 const getTypeConfig = (type: string) => {
@@ -33,56 +33,56 @@ const getTypeConfig = (type: string) => {
         color: '#10b981',
         bgColor: '#d1fae5',
         icon: <CheckCircleOutlined />,
-        label: '成功'
-      }
+        label: '成功',
+      };
     case 'warning':
       return {
         color: '#f59e0b',
         bgColor: '#fef3c7',
         icon: <ExclamationCircleOutlined />,
-        label: '警告'
-      }
+        label: '警告',
+      };
     case 'error':
       return {
         color: '#ef4444',
         bgColor: '#fee2e2',
         icon: <CloseCircleOutlined />,
-        label: '错误'
-      }
+        label: '错误',
+      };
     default:
       return {
         color: '#3b82f6',
         bgColor: '#dbeafe',
         icon: <InfoCircleOutlined />,
-        label: '通知'
-      }
+        label: '通知',
+      };
   }
-}
+};
 
 export const NotificationPanel: React.FC<NotificationPanelProps> = ({
   notifications,
   onClear,
   onMarkAsRead,
-  onDelete
+  onDelete,
 }) => {
-  const [visible, setVisible] = useState(false)
+  const [visible, setVisible] = useState(false);
 
-  const unreadCount = notifications.filter(n => !n.read).length
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   const formatTime = (timestamp: number) => {
-    const date = new Date(timestamp)
-    const now = new Date()
-    const diff = now.getTime() - date.getTime()
-    const minutes = Math.floor(diff / 60000)
-    const hours = Math.floor(diff / 3600000)
-    const days = Math.floor(diff / 86400000)
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
 
-    if (minutes < 1) return '刚刚'
-    if (minutes < 60) return `${minutes}分钟前`
-    if (hours < 24) return `${hours}小时前`
-    if (days < 7) return `${days}天前`
-    return date.toLocaleDateString('zh-CN')
-  }
+    if (minutes < 1) return '刚刚';
+    if (minutes < 60) return `${minutes}分钟前`;
+    if (hours < 24) return `${hours}小时前`;
+    if (days < 7) return `${days}天前`;
+    return date.toLocaleDateString('zh-CN');
+  };
 
   return (
     <>
@@ -101,50 +101,56 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
             background: 'transparent',
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'var(--bg-hover)'
+            e.currentTarget.style.background = 'var(--bg-hover)';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'transparent'
+            e.currentTarget.style.background = 'transparent';
           }}
         >
-          <Badge 
-            count={unreadCount} 
+          <Badge
+            count={unreadCount}
             overflowCount={99}
-            style={{ 
+            style={{
               background: unreadCount > 0 ? 'var(--error)' : 'transparent',
               boxShadow: '0 2px 8px rgba(239, 68, 68, 0.4)',
             }}
           >
-            <BellOutlined style={{ 
-              fontSize: 18, 
-              color: unreadCount > 0 ? 'var(--error)' : 'var(--text-secondary)',
-              transition: 'color 0.3s ease',
-            }} />
+            <BellOutlined
+              style={{
+                fontSize: 18,
+                color: unreadCount > 0 ? 'var(--error)' : 'var(--text-secondary)',
+                transition: 'color 0.3s ease',
+              }}
+            />
           </Badge>
         </div>
       </Tooltip>
 
       <Drawer
         title={
-          <div style={{ 
-            display: 'flex', 
-            justifyContent: 'space-between', 
-            alignItems: 'center',
-            padding: '8px 0',
-          }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '8px 0',
+            }}
+          >
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{
-                width: 40,
-                height: 40,
-                borderRadius: '8px',
-                background: 'var(--bg-elevated)',
-                border: '1px solid var(--border-color)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '18px',
-                color: 'var(--text-primary)',
-              }}>
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: '8px',
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border-color)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '18px',
+                  color: 'var(--text-primary)',
+                }}
+              >
                 <BellOutlined />
               </div>
               <div>
@@ -157,21 +163,21 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
             <Space>
               {notifications.length > 0 && (
                 <>
-                  <Button 
-                    size="small" 
+                  <Button
+                    size="small"
                     onClick={onClear}
                     icon={<CheckOutlined />}
                     style={{ borderRadius: '8px' }}
                   >
                     全部已读
                   </Button>
-                  <Button 
-                    size="small" 
-                    danger 
-                    icon={<DeleteOutlined />} 
+                  <Button
+                    size="small"
+                    danger
+                    icon={<DeleteOutlined />}
                     onClick={() => {
-                      onClear()
-                      setVisible(false)
+                      onClear();
+                      setVisible(false);
                     }}
                     style={{ borderRadius: '8px' }}
                   >
@@ -188,11 +194,11 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
         onClose={() => setVisible(false)}
         styles={{
           body: { padding: '16px' },
-          header: { borderBottom: '1px solid var(--border-color)' }
+          header: { borderBottom: '1px solid var(--border-color)' },
         }}
       >
         {notifications.length === 0 ? (
-          <Empty 
+          <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
             description={
               <div>
@@ -208,7 +214,7 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
           <List
             dataSource={notifications}
             renderItem={(item, index) => {
-              const config = getTypeConfig(item.type)
+              const config = getTypeConfig(item.type);
               return (
                 <List.Item
                   className="notification-item"
@@ -226,14 +232,14 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
                   onClick={() => onMarkAsRead(item.id)}
                   onMouseEnter={(e) => {
                     if (!item.read) {
-                      e.currentTarget.style.background = config.bgColor
-                      e.currentTarget.style.transform = 'translateX(4px)'
+                      e.currentTarget.style.background = config.bgColor;
+                      e.currentTarget.style.transform = 'translateX(4px)';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (!item.read) {
-                      e.currentTarget.style.background = config.bgColor
-                      e.currentTarget.style.transform = 'translateX(0)'
+                      e.currentTarget.style.background = config.bgColor;
+                      e.currentTarget.style.transform = 'translateX(0)';
                     }
                   }}
                   actions={[
@@ -244,12 +250,12 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
                         danger
                         icon={<DeleteOutlined />}
                         onClick={(e) => {
-                          e.stopPropagation()
-                          onDelete(item.id)
+                          e.stopPropagation();
+                          onDelete(item.id);
                         }}
                         style={{ borderRadius: '6px' }}
                       />
-                    </Tooltip>
+                    </Tooltip>,
                   ]}
                 >
                   <List.Item.Meta
@@ -264,34 +270,40 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
                       />
                     }
                     title={
-                      <div style={{ 
-                        display: 'flex', 
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        marginBottom: 4,
-                      }}>
-                        <span style={{ 
-                          fontWeight: 600, 
-                          fontSize: '14px',
-                          color: 'var(--text-primary)'
-                        }}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          marginBottom: 4,
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontWeight: 600,
+                            fontSize: '14px',
+                            color: 'var(--text-primary)',
+                          }}
+                        >
                           {item.title}
                         </span>
-                        <span style={{ 
-                          fontSize: '11px', 
-                          color: 'var(--text-tertiary)',
-                          fontWeight: 500,
-                        }}>
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            color: 'var(--text-tertiary)',
+                            fontWeight: 500,
+                          }}
+                        >
                           {formatTime(item.timestamp)}
                         </span>
                       </div>
                     }
                     description={
                       <div>
-                        <Tag 
+                        <Tag
                           color={config.color}
-                          style={{ 
-                            fontSize: '10px', 
+                          style={{
+                            fontSize: '10px',
                             padding: '0 6px',
                             borderRadius: '4px',
                             marginBottom: 6,
@@ -299,18 +311,20 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
                         >
                           {config.label}
                         </Tag>
-                        <div style={{ 
-                          color: 'var(--text-secondary)', 
-                          fontSize: '13px',
-                          lineHeight: 1.5,
-                        }}>
+                        <div
+                          style={{
+                            color: 'var(--text-secondary)',
+                            fontSize: '13px',
+                            lineHeight: 1.5,
+                          }}
+                        >
                           {item.message}
                         </div>
                       </div>
                     }
                   />
                 </List.Item>
-              )
+              );
             }}
           />
         )}
@@ -337,41 +351,39 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
         }
       `}</style>
     </>
-  )
-}
+  );
+};
 
 // 简单的通知管理 Hook
 export const useNotifications = () => {
-  const [notifications, setNotifications] = useState<Notification[]>([])
+  const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const addNotification = (notification: Omit<Notification, 'id' | 'timestamp' | 'read'>) => {
     const newNotification: Notification = {
       ...notification,
       id: Date.now().toString(),
       timestamp: Date.now(),
-      read: false
-    }
-    setNotifications(prev => [newNotification, ...prev].slice(0, 100))
-    return newNotification.id
-  }
+      read: false,
+    };
+    setNotifications((prev) => [newNotification, ...prev].slice(0, 100));
+    return newNotification.id;
+  };
 
   const markAsRead = (id: string) => {
-    setNotifications(prev =>
-      prev.map(n => n.id === id ? { ...n, read: true } : n)
-    )
-  }
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+  };
 
   const markAllAsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })))
-  }
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  };
 
   const deleteNotification = (id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id))
-  }
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+  };
 
   const clearAll = () => {
-    setNotifications([])
-  }
+    setNotifications([]);
+  };
 
   return {
     notifications,
@@ -379,6 +391,6 @@ export const useNotifications = () => {
     markAsRead,
     markAllAsRead,
     deleteNotification,
-    clearAll
-  }
-}
+    clearAll,
+  };
+};

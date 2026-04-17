@@ -1,34 +1,34 @@
-﻿import React, { memo, useState, useCallback } from 'react'
-import { Drawer, Button, Avatar } from 'antd'
-import { motion } from 'framer-motion'
-import { useNavigate, useLocation } from 'react-router-dom'
-import {
-  MenuOutlined,
+﻿import {
+  AppstoreOutlined,
+  BookOutlined,
+  BulbOutlined,
   CloseOutlined,
+  CloudOutlined,
+  CodeOutlined,
   DashboardOutlined,
-  PlayCircleOutlined,
-  MessageOutlined,
+  DatabaseOutlined,
   DesktopOutlined,
   FolderOutlined,
-  DatabaseOutlined,
-  BookOutlined,
   HistoryOutlined,
-  CloudOutlined,
+  MenuOutlined,
+  MessageOutlined,
+  PlayCircleOutlined,
   SettingOutlined,
   ThunderboltOutlined,
-  BulbOutlined,
-  CodeOutlined,
-  AppstoreOutlined,
-} from '@ant-design/icons'
-import { useAppStore } from '../../store/appStore'
-import { useResponsive } from '../../hooks/useResponsive'
+} from '@ant-design/icons';
+import { Avatar, Button, Drawer } from 'antd';
+import { motion } from 'framer-motion';
+import React, { memo, useCallback, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useResponsive } from '../../hooks/useResponsive';
+import { useAppStore } from '../../store/appStore';
 
 interface NavItem {
-  key: string
-  icon: React.ReactNode
-  label: string
-  description?: string
-  category?: 'main' | 'secondary'
+  key: string;
+  icon: React.ReactNode;
+  label: string;
+  description?: string;
+  category?: 'main' | 'secondary';
 }
 
 const navItems: NavItem[] = [
@@ -46,32 +46,32 @@ const navItems: NavItem[] = [
   { key: '/history', icon: <HistoryOutlined />, label: '训练历史', category: 'secondary' },
   { key: '/project-context', icon: <CodeOutlined />, label: '项目上下文', category: 'secondary' },
   { key: '/cloud-api', icon: <CloudOutlined />, label: '云端 API', category: 'secondary' },
-]
+];
 
 const bottomNavItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '首页' },
   { key: '/training', icon: <PlayCircleOutlined />, label: '训练' },
   { key: '/chat', icon: <MessageOutlined />, label: '对话' },
   { key: '/settings', icon: <SettingOutlined />, label: '设置' },
-]
+];
 
 const MobileNav: React.FC = () => {
-  const navigate = useNavigate()
-  const location = useLocation()
-  const { isMobile, isTablet } = useResponsive()
-  const { backendStatus } = useAppStore()
-  const [drawerOpen, setDrawerOpen] = useState(false)
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { isMobile, isTablet } = useResponsive();
+  const { backendStatus } = useAppStore();
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const handleNavigate = useCallback(
     (key: string) => {
-      navigate(key)
-      setDrawerOpen(false)
+      navigate(key);
+      setDrawerOpen(false);
     },
-    [navigate]
-  )
+    [navigate],
+  );
 
   if (!isMobile && !isTablet) {
-    return null
+    return null;
   }
 
   return (
@@ -185,14 +185,9 @@ const MobileNav: React.FC = () => {
                 padding: '6px 10px',
                 borderRadius: 'var(--radius-md)',
                 background:
-                  backendStatus === 'connected'
-                    ? 'var(--success-light)'
-                    : 'var(--error-light)',
+                  backendStatus === 'connected' ? 'var(--success-light)' : 'var(--error-light)',
                 fontSize: 'var(--text-sm)',
-                color:
-                  backendStatus === 'connected'
-                    ? 'var(--success)'
-                    : 'var(--error)',
+                color: backendStatus === 'connected' ? 'var(--success)' : 'var(--error)',
               }}
             >
               <span
@@ -200,10 +195,7 @@ const MobileNav: React.FC = () => {
                   width: 8,
                   height: 8,
                   borderRadius: '50%',
-                  background:
-                    backendStatus === 'connected'
-                      ? 'var(--success)'
-                      : 'var(--error)',
+                  background: backendStatus === 'connected' ? 'var(--success)' : 'var(--error)',
                 }}
               />
               {backendStatus === 'connected' ? '服务正常' : '未连接'}
@@ -305,13 +297,13 @@ const MobileNav: React.FC = () => {
         </div>
       </Drawer>
     </>
-  )
-}
+  );
+};
 
 const NavItem: React.FC<{
-  item: NavItem
-  isActive: boolean
-  onClick: () => void
+  item: NavItem;
+  isActive: boolean;
+  onClick: () => void;
 }> = memo(({ item, isActive, onClick }) => (
   <motion.div
     whileTap={{ scale: 0.98 }}
@@ -361,17 +353,17 @@ const NavItem: React.FC<{
       {item.label}
     </span>
   </motion.div>
-))
+));
 
-NavItem.displayName = 'NavItem'
+NavItem.displayName = 'NavItem';
 
 export const MobileBottomNav: React.FC = () => {
-  const navigate = useNavigate()
-  const location = useLocation()
-  const { isMobile } = useResponsive()
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { isMobile } = useResponsive();
 
   if (!isMobile) {
-    return null
+    return null;
   }
 
   return (
@@ -392,7 +384,7 @@ export const MobileBottomNav: React.FC = () => {
       }}
     >
       {bottomNavItems.map((item) => {
-        const isActive = location.pathname === item.key
+        const isActive = location.pathname === item.key;
         return (
           <motion.div
             key={item.key}
@@ -428,11 +420,10 @@ export const MobileBottomNav: React.FC = () => {
               {item.label}
             </span>
           </motion.div>
-        )
+        );
       })}
     </div>
-  )
-}
+  );
+};
 
-export default memo(MobileNav)
-
+export default memo(MobileNav);

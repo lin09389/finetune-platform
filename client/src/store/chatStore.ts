@@ -1,19 +1,19 @@
-﻿import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
-import type {
-  ChatMessage,
-  PlaygroundAttachment,
-  PlaygroundCandidate,
-  PlaygroundPreset,
-  PlaygroundSnapshot,
-} from '../types'
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import {
   createChatSession,
   deleteChatSession,
   getChatSession,
   getChatSessionMessages,
   listChatSessions,
-} from '../services/chatSessionApi'
+} from '../services/chatSessionApi';
+import type {
+  ChatMessage,
+  PlaygroundAttachment,
+  PlaygroundCandidate,
+  PlaygroundPreset,
+  PlaygroundSnapshot,
+} from '../types';
 import {
   addExperimentSnapshotRecord,
   clearActiveExperimentCandidates,
@@ -22,110 +22,113 @@ import {
   saveExperimentPreset,
   setActiveExperimentCandidates,
   updateExperimentSnapshotRecord,
-} from './chatExperimentState'
+} from './chatExperimentState';
 
 export interface ChatSession {
-  id: string
-  title: string
-  modelId: string
-  backend: string
-  createdAt: string
-  updatedAt: string
-  messageCount: number
-  metadata?: Record<string, unknown>
+  id: string;
+  title: string;
+  modelId: string;
+  backend: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+  metadata?: Record<string, unknown>;
 }
 
 export interface ChatSettings {
-  modelId: string
-  backend: 'ollama' | 'huggingface' | 'cloud'
-  useKnowledge: boolean
-  knowledgeCollection?: string
-  useMemory: boolean
-  systemPrompt: string
-  temperature: number
-  topP: number
-  maxTokens: number
-  autoRetrieve: boolean
-  responseFormat: 'text' | 'json'
-  candidateCount: number
+  modelId: string;
+  backend: 'ollama' | 'huggingface' | 'cloud';
+  useKnowledge: boolean;
+  knowledgeCollection?: string;
+  useMemory: boolean;
+  systemPrompt: string;
+  temperature: number;
+  topP: number;
+  maxTokens: number;
+  autoRetrieve: boolean;
+  responseFormat: 'text' | 'json';
+  candidateCount: number;
 }
 
 export interface StreamState {
-  status: 'idle' | 'connecting' | 'streaming' | 'completed' | 'error' | 'stopped'
-  content: string
-  error: string | null
-  chunksReceived: number
-  startTime: number | null
-  bytesReceived: number
+  status: 'idle' | 'connecting' | 'streaming' | 'completed' | 'error' | 'stopped';
+  content: string;
+  error: string | null;
+  chunksReceived: number;
+  startTime: number | null;
+  bytesReceived: number;
 }
 
 interface ChatStore {
-  sessions: ChatSession[]
-  currentSessionId: string | null
-  messages: ChatMessage[]
-  streamingMessageId: string | null
-  streamingContent: string
-  isStreaming: boolean
-  isLoading: boolean
-  error: string | null
-  settings: ChatSettings
-  streamState: StreamState
-  promptDraft: string
-  attachments: PlaygroundAttachment[]
-  activeCandidates: PlaygroundCandidate[]
-  selectedCandidateId: string | null
-  selectedExperimentId: string | null
-  responseView: 'response' | 'patch' | 'sources' | 'metadata' | 'raw'
-  lastRunMetadata: PlaygroundSnapshot | null
-  experimentSnapshots: PlaygroundSnapshot[]
-  presets: PlaygroundPreset[]
-  selectedPresetId: string | null
+  sessions: ChatSession[];
+  currentSessionId: string | null;
+  messages: ChatMessage[];
+  streamingMessageId: string | null;
+  streamingContent: string;
+  isStreaming: boolean;
+  isLoading: boolean;
+  error: string | null;
+  settings: ChatSettings;
+  streamState: StreamState;
+  promptDraft: string;
+  attachments: PlaygroundAttachment[];
+  activeCandidates: PlaygroundCandidate[];
+  selectedCandidateId: string | null;
+  selectedExperimentId: string | null;
+  responseView: 'response' | 'patch' | 'sources' | 'metadata' | 'raw';
+  lastRunMetadata: PlaygroundSnapshot | null;
+  experimentSnapshots: PlaygroundSnapshot[];
+  presets: PlaygroundPreset[];
+  selectedPresetId: string | null;
 
-  createSession: (title?: string, modelId?: string) => Promise<ChatSession>
-  loadSession: (sessionId: string) => Promise<void>
-  deleteSession: (sessionId: string) => Promise<void>
-  updateSessionTitle: (sessionId: string, title: string) => void
-  setCurrentSessionId: (sessionId: string | null) => void
-  loadSessions: () => Promise<void>
-  updateSessionMetadata: (sessionId: string, metadata: Record<string, unknown>) => void
+  createSession: (title?: string, modelId?: string) => Promise<ChatSession>;
+  loadSession: (sessionId: string) => Promise<void>;
+  deleteSession: (sessionId: string) => Promise<void>;
+  updateSessionTitle: (sessionId: string, title: string) => void;
+  setCurrentSessionId: (sessionId: string | null) => void;
+  loadSessions: () => Promise<void>;
+  updateSessionMetadata: (sessionId: string, metadata: Record<string, unknown>) => void;
 
-  addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => string
-  updateMessage: (id: string, updates: Partial<ChatMessage>) => void
-  deleteMessage: (id: string) => void
-  editMessage: (id: string, content: string) => void
-  clearMessages: () => void
-  setMessages: (messages: ChatMessage[]) => void
+  addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => string;
+  updateMessage: (id: string, updates: Partial<ChatMessage>) => void;
+  deleteMessage: (id: string) => void;
+  editMessage: (id: string, content: string) => void;
+  clearMessages: () => void;
+  setMessages: (messages: ChatMessage[]) => void;
 
-  startStreaming: (messageId: string) => void
-  updateStreamingContent: (content: string) => void
-  stopStreaming: () => void
-  completeStreaming: () => void
-  setStreamState: (state: Partial<StreamState>) => void
+  startStreaming: (messageId: string) => void;
+  updateStreamingContent: (content: string) => void;
+  stopStreaming: () => void;
+  completeStreaming: () => void;
+  setStreamState: (state: Partial<StreamState>) => void;
 
-  updateSettings: (settings: Partial<ChatSettings>) => void
-  setPromptDraft: (prompt: string) => void
-  setAttachments: (attachments: PlaygroundAttachment[]) => void
-  addAttachment: (attachment: PlaygroundAttachment) => void
-  removeAttachment: (attachmentId: string) => void
-  clearAttachments: () => void
-  setActiveCandidates: (candidates: PlaygroundCandidate[]) => void
-  updateActiveCandidate: (candidateId: string, updates: Partial<PlaygroundCandidate>) => void
-  clearActiveCandidates: () => void
-  setSelectedCandidateId: (candidateId: string | null) => void
-  addExperimentSnapshot: (snapshot: PlaygroundSnapshot) => void
-  updateExperimentSnapshot: (snapshotId: string, updates: Partial<PlaygroundSnapshot>) => void
-  setSelectedExperimentId: (experimentId: string | null) => void
-  setResponseView: (view: ChatStore['responseView']) => void
-  setLastRunMetadata: (snapshot: PlaygroundSnapshot | null) => void
-  savePreset: (preset: PlaygroundPreset) => void
-  deletePreset: (presetId: string) => void
-  setSelectedPresetId: (presetId: string | null) => void
+  updateSettings: (settings: Partial<ChatSettings>) => void;
+  setPromptDraft: (prompt: string) => void;
+  setAttachments: (attachments: PlaygroundAttachment[]) => void;
+  addAttachment: (attachment: PlaygroundAttachment) => void;
+  removeAttachment: (attachmentId: string) => void;
+  clearAttachments: () => void;
+  setActiveCandidates: (candidates: PlaygroundCandidate[]) => void;
+  updateActiveCandidate: (candidateId: string, updates: Partial<PlaygroundCandidate>) => void;
+  clearActiveCandidates: () => void;
+  setSelectedCandidateId: (candidateId: string | null) => void;
+  addExperimentSnapshot: (snapshot: PlaygroundSnapshot) => void;
+  updateExperimentSnapshot: (snapshotId: string, updates: Partial<PlaygroundSnapshot>) => void;
+  setSelectedExperimentId: (experimentId: string | null) => void;
+  setResponseView: (view: ChatStore['responseView']) => void;
+  setLastRunMetadata: (snapshot: PlaygroundSnapshot | null) => void;
+  savePreset: (preset: PlaygroundPreset) => void;
+  deletePreset: (presetId: string) => void;
+  setSelectedPresetId: (presetId: string | null) => void;
 
-  setError: (error: string | null) => void
-  setIsLoading: (loading: boolean) => void
+  setError: (error: string | null) => void;
+  setIsLoading: (loading: boolean) => void;
 }
 
-function mergeLoadedSessionRecord(existingSession: ChatSession, loadedSession: ChatSession): ChatSession {
+function mergeLoadedSessionRecord(
+  existingSession: ChatSession,
+  loadedSession: ChatSession,
+): ChatSession {
   return {
     ...existingSession,
     title: loadedSession.title || existingSession.title,
@@ -134,7 +137,7 @@ function mergeLoadedSessionRecord(existingSession: ChatSession, loadedSession: C
     messageCount: loadedSession.messageCount ?? existingSession.messageCount,
     updatedAt: loadedSession.updatedAt || existingSession.updatedAt,
     metadata: loadedSession.metadata || existingSession.metadata || {},
-  }
+  };
 }
 
 export const useChatStore = create<ChatStore>()(
@@ -178,18 +181,18 @@ export const useChatStore = create<ChatStore>()(
           const session = await createChatSession(
             title,
             modelId || get().settings.modelId,
-            get().settings.backend
-          )
+            get().settings.backend,
+          );
 
           set((state) => ({
             sessions: [session, ...state.sessions],
             currentSessionId: session.id,
             messages: [],
-          }))
+          }));
 
-          return session
+          return session;
         } catch (error) {
-          console.error('閸掓稑缂撴导姘崇樈婢惰精瑙?', error)
+          console.error('创建会话失败：', error);
           const localSession: ChatSession = {
             id: `local_${Date.now()}`,
             title,
@@ -198,15 +201,15 @@ export const useChatStore = create<ChatStore>()(
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             messageCount: 0,
-          }
+          };
 
           set((state) => ({
             sessions: [localSession, ...state.sessions],
             currentSessionId: localSession.id,
             messages: [],
-          }))
+          }));
 
-          return localSession
+          return localSession;
         }
       },
 
@@ -215,56 +218,62 @@ export const useChatStore = create<ChatStore>()(
           const [sessionData, messagesData] = await Promise.all([
             getChatSession(sessionId, get().settings.backend),
             getChatSessionMessages(sessionId),
-          ])
+          ]);
 
           set({
             currentSessionId: sessionId,
             messages: messagesData.messages || [],
             sessions: get().sessions.map((session) =>
-              session.id === sessionId ? mergeLoadedSessionRecord(session, sessionData) : session
+              session.id === sessionId ? mergeLoadedSessionRecord(session, sessionData) : session,
             ),
-          })
+          });
         } catch (error) {
-          console.error('閸旂姾娴囨导姘崇樈婢惰精瑙?', error)
+          console.error('加载会话失败：', error);
           set({
             currentSessionId: sessionId,
             messages: [],
-          })
+          });
         }
       },
 
       deleteSession: async (sessionId) => {
-        try {
-          await deleteChatSession(sessionId)
-        } catch (error) {
-          console.error('閸掔娀娅庢导姘崇樈婢惰精瑙?', error)
-        }
-
+        // 先乐观更新 UI，提升响应速度
         set((state) => ({
           sessions: state.sessions.filter((s) => s.id !== sessionId),
           currentSessionId: state.currentSessionId === sessionId ? null : state.currentSessionId,
           messages: state.currentSessionId === sessionId ? [] : state.messages,
-        }))
+        }));
+
+        try {
+          // 如果是本地临时生成的会话（id 以 local_ 开头），不需要调接口
+          if (!sessionId.startsWith('local_')) {
+            await deleteChatSession(sessionId);
+          }
+        } catch (error) {
+          console.error('删除会话失败：', error);
+          // 可以选择如果失败是否把会话加回来（通常没必要，直接重载一次列表即可）
+          get().loadSessions();
+        }
       },
 
       updateSessionTitle: (sessionId, title) => {
         set((state) => ({
           sessions: state.sessions.map((s) =>
-            s.id === sessionId ? { ...s, title, updatedAt: new Date().toISOString() } : s
+            s.id === sessionId ? { ...s, title, updatedAt: new Date().toISOString() } : s,
           ),
-        }))
+        }));
       },
 
       setCurrentSessionId: (sessionId) => {
-        set({ currentSessionId: sessionId })
+        set({ currentSessionId: sessionId });
       },
 
       loadSessions: async () => {
         try {
-          const sessions = await listChatSessions(get().settings.backend)
-          set({ sessions })
+          const sessions = await listChatSessions(get().settings.backend);
+          set({ sessions });
         } catch (error) {
-          console.error('閸旂姾娴囨导姘崇樈閸掓銆冩径杈Е:', error)
+          console.error('加载会话列表失败：', error);
         }
       },
 
@@ -280,50 +289,52 @@ export const useChatStore = create<ChatStore>()(
                   },
                   updatedAt: new Date().toISOString(),
                 }
-              : session
+              : session,
           ),
-        }))
+        }));
       },
 
       addMessage: (message) => {
-        const id = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        const id = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         const newMessage: ChatMessage = {
           ...message,
           id,
           timestamp: new Date().toISOString(),
-        }
+        };
 
         set((state) => ({
           messages: [...state.messages, newMessage],
-        }))
+        }));
 
-        return id
+        return id;
       },
 
       updateMessage: (id, updates) => {
         set((state) => ({
           messages: state.messages.map((m) => (m.id === id ? { ...m, ...updates } : m)),
-        }))
+        }));
       },
 
       deleteMessage: (id) => {
         set((state) => ({
           messages: state.messages.filter((m) => m.id !== id),
-        }))
+        }));
       },
 
       editMessage: (id, content) => {
         set((state) => ({
-          messages: state.messages.map((m) => (m.id === id ? { ...m, content, isEdited: true } : m)),
-        }))
+          messages: state.messages.map((m) =>
+            m.id === id ? { ...m, content, isEdited: true } : m,
+          ),
+        }));
       },
 
       clearMessages: () => {
-        set({ messages: [] })
+        set({ messages: [] });
       },
 
       setMessages: (messages) => {
-        set({ messages })
+        set({ messages });
       },
 
       startStreaming: (messageId) => {
@@ -339,7 +350,7 @@ export const useChatStore = create<ChatStore>()(
             startTime: Date.now(),
             bytesReceived: 0,
           },
-        })
+        });
       },
 
       updateStreamingContent: (content) => {
@@ -351,11 +362,11 @@ export const useChatStore = create<ChatStore>()(
             chunksReceived: state.streamState.chunksReceived + 1,
             bytesReceived: state.streamState.bytesReceived + content.length,
           },
-        }))
+        }));
 
-        const { streamingMessageId } = get()
+        const { streamingMessageId } = get();
         if (streamingMessageId) {
-          get().updateMessage(streamingMessageId, { content })
+          get().updateMessage(streamingMessageId, { content });
         }
       },
 
@@ -367,13 +378,13 @@ export const useChatStore = create<ChatStore>()(
             ...get().streamState,
             status: 'stopped',
           },
-        })
+        });
       },
 
       completeStreaming: () => {
-        const { streamingMessageId } = get()
+        const { streamingMessageId } = get();
         if (streamingMessageId) {
-          get().updateMessage(streamingMessageId, { isLoading: false })
+          get().updateMessage(streamingMessageId, { isLoading: false });
         }
 
         set({
@@ -383,67 +394,67 @@ export const useChatStore = create<ChatStore>()(
             ...get().streamState,
             status: 'completed',
           },
-        })
+        });
       },
 
       setStreamState: (updates) => {
         set((state) => ({
           streamState: { ...state.streamState, ...updates },
-        }))
+        }));
       },
 
       updateSettings: (newSettings) => {
         set((state) => ({
           settings: { ...state.settings, ...newSettings },
-        }))
+        }));
       },
 
       setPromptDraft: (promptDraft) => {
-        set({ promptDraft })
+        set({ promptDraft });
       },
 
       setAttachments: (attachments) => {
-        set({ attachments })
+        set({ attachments });
       },
 
       addAttachment: (attachment) => {
         set((state) => ({
           attachments: [...state.attachments, attachment],
-        }))
+        }));
       },
 
       removeAttachment: (attachmentId) => {
         set((state) => ({
           attachments: state.attachments.filter((attachment) => attachment.id !== attachmentId),
-        }))
+        }));
       },
 
       clearAttachments: () => {
-        set({ attachments: [] })
+        set({ attachments: [] });
       },
 
       setActiveCandidates: (activeCandidates) => {
-        set(setActiveExperimentCandidates(activeCandidates))
+        set(setActiveExperimentCandidates(activeCandidates));
       },
 
       updateActiveCandidate: (candidateId, updates) => {
         set((state) => ({
           activeCandidates: state.activeCandidates.map((candidate) =>
-            candidate.id === candidateId ? { ...candidate, ...updates } : candidate
+            candidate.id === candidateId ? { ...candidate, ...updates } : candidate,
           ),
-        }))
+        }));
       },
 
       clearActiveCandidates: () => {
-        set(clearActiveExperimentCandidates())
+        set(clearActiveExperimentCandidates());
       },
 
       setSelectedCandidateId: (selectedCandidateId) => {
-        set({ selectedCandidateId })
+        set({ selectedCandidateId });
       },
 
       addExperimentSnapshot: (snapshot) => {
-        set((state) => addExperimentSnapshotRecord(state.experimentSnapshots, snapshot))
+        set((state) => addExperimentSnapshotRecord(state.experimentSnapshots, snapshot));
       },
 
       updateExperimentSnapshot: (snapshotId, updates) => {
@@ -452,41 +463,41 @@ export const useChatStore = create<ChatStore>()(
             state.experimentSnapshots,
             snapshotId,
             updates,
-            state.lastRunMetadata
-          )
-        )
+            state.lastRunMetadata,
+          ),
+        );
       },
 
       setSelectedExperimentId: (selectedExperimentId) => {
-        set({ selectedExperimentId })
+        set({ selectedExperimentId });
       },
 
       setResponseView: (responseView) => {
-        set({ responseView })
+        set({ responseView });
       },
 
       setLastRunMetadata: (lastRunMetadata) => {
-        set({ lastRunMetadata })
+        set({ lastRunMetadata });
       },
 
       savePreset: (preset) => {
-        set((state) => saveExperimentPreset(state.presets, preset))
+        set((state) => saveExperimentPreset(state.presets, preset));
       },
 
       deletePreset: (presetId) => {
-        set((state) => deleteExperimentPreset(state.presets, presetId, state.selectedPresetId))
+        set((state) => deleteExperimentPreset(state.presets, presetId, state.selectedPresetId));
       },
 
       setSelectedPresetId: (selectedPresetId) => {
-        set({ selectedPresetId })
+        set({ selectedPresetId });
       },
 
       setError: (error) => {
-        set({ error })
+        set({ error });
       },
 
       setIsLoading: (loading) => {
-        set({ isLoading: loading })
+        set({ isLoading: loading });
       },
     }),
     {
@@ -506,7 +517,6 @@ export const useChatStore = create<ChatStore>()(
         presets: state.presets.slice(0, 50),
         selectedPresetId: state.selectedPresetId,
       }),
-    }
-  )
-)
-
+    },
+  ),
+);

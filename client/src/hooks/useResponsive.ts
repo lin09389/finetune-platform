@@ -1,20 +1,20 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react';
 
-export type Breakpoint = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl'
+export type Breakpoint = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
 
 export interface ResponsiveInfo {
-  isXs: boolean
-  isSm: boolean
-  isMd: boolean
-  isLg: boolean
-  isXl: boolean
-  is2xl: boolean
-  isMobile: boolean
-  isTablet: boolean
-  isDesktop: boolean
-  width: number
-  height: number
-  breakpoint: Breakpoint
+  isXs: boolean;
+  isSm: boolean;
+  isMd: boolean;
+  isLg: boolean;
+  isXl: boolean;
+  is2xl: boolean;
+  isMobile: boolean;
+  isTablet: boolean;
+  isDesktop: boolean;
+  width: number;
+  height: number;
+  breakpoint: Breakpoint;
 }
 
 const breakpoints = {
@@ -24,50 +24,50 @@ const breakpoints = {
   lg: 992,
   xl: 1200,
   '2xl': 1600,
-} as const
+} as const;
 
 function getBreakpoint(width: number): Breakpoint {
-  if (width < breakpoints.sm) return 'xs'
-  if (width < breakpoints.md) return 'sm'
-  if (width < breakpoints.lg) return 'md'
-  if (width < breakpoints.xl) return 'lg'
-  if (width < breakpoints['2xl']) return 'xl'
-  return '2xl'
+  if (width < breakpoints.sm) return 'xs';
+  if (width < breakpoints.md) return 'sm';
+  if (width < breakpoints.lg) return 'md';
+  if (width < breakpoints.xl) return 'lg';
+  if (width < breakpoints['2xl']) return 'xl';
+  return '2xl';
 }
 
 export function useResponsive(): ResponsiveInfo {
   const [dimensions, setDimensions] = useState<{
-    width: number
-    height: number
+    width: number;
+    height: number;
   }>({
     width: typeof window !== 'undefined' ? window.innerWidth : 1200,
     height: typeof window !== 'undefined' ? window.innerHeight : 800,
-  })
+  });
 
   const handleResize = useCallback(() => {
     setDimensions({
       width: window.innerWidth,
       height: window.innerHeight,
-    })
-  }, [])
+    });
+  }, []);
 
   useEffect(() => {
-    let timeoutId: ReturnType<typeof setTimeout>
+    let timeoutId: ReturnType<typeof setTimeout>;
 
     const debouncedResize = () => {
-      clearTimeout(timeoutId)
-      timeoutId = setTimeout(handleResize, 100)
-    }
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(handleResize, 100);
+    };
 
-    window.addEventListener('resize', debouncedResize)
+    window.addEventListener('resize', debouncedResize);
     return () => {
-      window.removeEventListener('resize', debouncedResize)
-      clearTimeout(timeoutId)
-    }
-  }, [handleResize])
+      window.removeEventListener('resize', debouncedResize);
+      clearTimeout(timeoutId);
+    };
+  }, [handleResize]);
 
-  const { width, height } = dimensions
-  const breakpoint = getBreakpoint(width)
+  const { width, height } = dimensions;
+  const breakpoint = getBreakpoint(width);
 
   return {
     isXs: breakpoint === 'xs',
@@ -82,38 +82,38 @@ export function useResponsive(): ResponsiveInfo {
     width,
     height,
     breakpoint,
-  }
+  };
 }
 
 export function useBreakpoint(breakpoint: Breakpoint): boolean {
-  const responsive = useResponsive()
-  const targetWidth = breakpoints[breakpoint]
-  return responsive.width >= targetWidth
+  const responsive = useResponsive();
+  const targetWidth = breakpoints[breakpoint];
+  return responsive.width >= targetWidth;
 }
 
 export function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState(() => {
     if (typeof window !== 'undefined') {
-      return window.matchMedia(query).matches
+      return window.matchMedia(query).matches;
     }
-    return false
-  })
+    return false;
+  });
 
   useEffect(() => {
-    const mediaQuery = window.matchMedia(query)
+    const mediaQuery = window.matchMedia(query);
     const handler = (event: MediaQueryListEvent) => {
-      setMatches(event.matches)
-    }
+      setMatches(event.matches);
+    };
 
-    mediaQuery.addEventListener('change', handler)
-    setMatches(mediaQuery.matches)
+    mediaQuery.addEventListener('change', handler);
+    setMatches(mediaQuery.matches);
 
     return () => {
-      mediaQuery.removeEventListener('change', handler)
-    }
-  }, [query])
+      mediaQuery.removeEventListener('change', handler);
+    };
+  }, [query]);
 
-  return matches
+  return matches;
 }
 
 export const mediaQueries = {
@@ -134,4 +134,4 @@ export const mediaQueries = {
   landscape: '(orientation: landscape)',
   hover: '(hover: hover)',
   touch: '(hover: none) and (pointer: coarse)',
-} as const
+} as const;

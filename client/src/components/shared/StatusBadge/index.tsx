@@ -1,15 +1,15 @@
-import React, { memo } from 'react'
-import { Tag } from 'antd'
 import {
   CheckCircleOutlined,
+  ClockCircleOutlined,
   CloseCircleOutlined,
   ExclamationCircleOutlined,
-  ClockCircleOutlined,
   LoadingOutlined,
-  SyncOutlined,
   PauseCircleOutlined,
   StopOutlined,
-} from '@ant-design/icons'
+  SyncOutlined,
+} from '@ant-design/icons';
+import { Tag } from 'antd';
+import React, { memo } from 'react';
 
 export type StatusType =
   | 'success'
@@ -23,25 +23,25 @@ export type StatusType =
   | 'completed'
   | 'failed'
   | 'running'
-  | 'cancelled'
+  | 'cancelled';
 
 export interface StatusBadgeProps {
-  status: StatusType
-  text?: string
-  size?: 'small' | 'default'
-  showIcon?: boolean
-  className?: string
-  style?: React.CSSProperties
+  status: StatusType;
+  text?: string;
+  size?: 'small' | 'default';
+  showIcon?: boolean;
+  className?: string;
+  style?: React.CSSProperties;
 }
 
 const statusConfig: Record<
   StatusType,
   {
-    icon: React.ReactNode
-    label: string
-    color: string
-    bgColor: string
-    borderColor: string
+    icon: React.ReactNode;
+    label: string;
+    color: string;
+    bgColor: string;
+    borderColor: string;
   }
 > = {
   success: {
@@ -128,12 +128,12 @@ const statusConfig: Record<
     bgColor: 'var(--bg-elevated)',
     borderColor: 'var(--border-color)',
   },
-}
+};
 
 const StatusBadge: React.FC<StatusBadgeProps> = memo(
   ({ status, text, size = 'default', showIcon = true, className, style }) => {
-    const config = statusConfig[status] || statusConfig.info
-    const displayText = text || config.label
+    const config = statusConfig[status] || statusConfig.info;
+    const displayText = text || config.label;
 
     return (
       <Tag
@@ -156,22 +156,22 @@ const StatusBadge: React.FC<StatusBadgeProps> = memo(
       >
         {displayText}
       </Tag>
-    )
-  }
-)
+    );
+  },
+);
 
-StatusBadge.displayName = 'StatusBadge'
+StatusBadge.displayName = 'StatusBadge';
 
-export default StatusBadge
+export default StatusBadge;
 
 export function getStatusBadge(status: string, text?: string): React.ReactNode {
-  const normalizedStatus = status.toLowerCase() as StatusType
-  return <StatusBadge status={normalizedStatus} text={text} />
+  const normalizedStatus = status.toLowerCase() as StatusType;
+  return <StatusBadge status={normalizedStatus} text={text} />;
 }
 
 export const TrainingStatusBadge: React.FC<{
-  status: 'completed' | 'failed' | 'stopped' | 'running' | 'pending'
-  text?: string
+  status: 'completed' | 'failed' | 'stopped' | 'running' | 'pending';
+  text?: string;
 }> = memo(({ status, text }) => {
   const statusMap: Record<string, StatusType> = {
     completed: 'completed',
@@ -179,26 +179,26 @@ export const TrainingStatusBadge: React.FC<{
     stopped: 'stopped',
     running: 'running',
     pending: 'pending',
-  }
-  return <StatusBadge status={statusMap[status] || 'info'} text={text} />
-})
+  };
+  return <StatusBadge status={statusMap[status] || 'info'} text={text} />;
+});
 
-TrainingStatusBadge.displayName = 'TrainingStatusBadge'
+TrainingStatusBadge.displayName = 'TrainingStatusBadge';
 
 export const ConnectionStatusBadge: React.FC<{
-  status: 'connected' | 'disconnected' | 'connecting'
+  status: 'connected' | 'disconnected' | 'connecting';
 }> = memo(({ status }) => {
   const statusMap: Record<string, StatusType> = {
     connected: 'success',
     disconnected: 'error',
     connecting: 'processing',
-  }
+  };
   const labelMap: Record<string, string> = {
     connected: '已连接',
     disconnected: '未连接',
     connecting: '连接中',
-  }
-  return <StatusBadge status={statusMap[status] || 'info'} text={labelMap[status]} />
-})
+  };
+  return <StatusBadge status={statusMap[status] || 'info'} text={labelMap[status]} />;
+});
 
-ConnectionStatusBadge.displayName = 'ConnectionStatusBadge'
+ConnectionStatusBadge.displayName = 'ConnectionStatusBadge';

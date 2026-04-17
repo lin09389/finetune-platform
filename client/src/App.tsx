@@ -1,61 +1,61 @@
-import { useState, useEffect, useRef, Suspense, lazy } from 'react'
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { Layout, App as AntApp, ConfigProvider, theme as antdTheme } from 'antd'
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
+import { App as AntApp, ConfigProvider, Layout, theme as antdTheme } from 'antd';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
-import Sidebar from './components/Sidebar'
-import HeaderBar from './components/HeaderBar'
-import ErrorBoundary from './components/ErrorBoundary'
-import { useAppStore } from './store/appStore'
-import { API_BASE_URL, checkBackendHealth } from './services/api'
-import { ThemeProvider, useTheme } from './theme'
-import { useResponsive } from './hooks/useResponsive'
-import PageSkeleton from './components/shared/PageSkeleton'
-import { RuntimeContextProvider } from './runtime/RuntimeContext'
-import zhCN from 'antd/locale/zh_CN'
+import zhCN from 'antd/locale/zh_CN';
+import ErrorBoundary from './components/ErrorBoundary';
+import HeaderBar from './components/HeaderBar';
+import PageSkeleton from './components/shared/PageSkeleton';
+import Sidebar from './components/Sidebar';
+import { useResponsive } from './hooks/useResponsive';
+import { RuntimeContextProvider } from './runtime/RuntimeContext';
+import { API_BASE_URL, checkBackendHealth } from './services/api';
+import { useAppStore } from './store/appStore';
+import { ThemeProvider, useTheme } from './theme';
 
-const { Content } = Layout
+const { Content } = Layout;
 
-const Dashboard = lazy(() => import('./pages/Dashboard'))
-const DeviceInfo = lazy(() => import('./pages/DeviceInfo'))
-const ModelManager = lazy(() => import('./pages/ModelManager'))
-const DatasetManager = lazy(() => import('./pages/DatasetManager'))
-const Training = lazy(() => import('./pages/Training'))
-const Chat = lazy(() => import('./pages/ChatNew'))
-const KnowledgeBase = lazy(() => import('./pages/KnowledgeBase'))
-const WorkspaceManager = lazy(() => import('./pages/WorkspaceManager'))
-const ModelHub = lazy(() => import('./pages/ModelHub'))
-const Inference = lazy(() => import('./pages/Inference'))
-const History = lazy(() => import('./pages/History'))
-const ProjectContext = lazy(() => import('./pages/ProjectContext'))
-const APIKeyManager = lazy(() => import('./pages/APIKeyManager'))
-const MemoryPage = lazy(() => import('./pages/MemoryPage'))
-const CUAControl = lazy(() => import('./pages/CUAControl'))
-const ActionRecorder = lazy(() => import('./pages/ActionRecorder'))
-const MCPTools = lazy(() => import('./pages/MCPTools'))
-const GatewayPage = lazy(() => import('./pages/GatewayPage'))
-const HeartbeatPage = lazy(() => import('./pages/HeartbeatPage'))
-const DesignSystem = lazy(() => import('./pages/DesignSystem'))
-const SharedChat = lazy(() => import('./pages/SharedChat'))
-const FeedbackPanel = lazy(() => import('./components/FeedbackPanel'))
-const HelpPanel = lazy(() => import('./components/HelpPanel'))
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const DeviceInfo = lazy(() => import('./pages/DeviceInfo'));
+const ModelManager = lazy(() => import('./pages/ModelManager'));
+const DatasetManager = lazy(() => import('./pages/DatasetManager'));
+const Training = lazy(() => import('./pages/Training'));
+const Chat = lazy(() => import('./pages/ChatNew'));
+const KnowledgeBase = lazy(() => import('./pages/KnowledgeBase'));
+const WorkspaceManager = lazy(() => import('./pages/WorkspaceManager'));
+const ModelHub = lazy(() => import('./pages/ModelHub'));
+const Inference = lazy(() => import('./pages/Inference'));
+const History = lazy(() => import('./pages/History'));
+const ProjectContext = lazy(() => import('./pages/ProjectContext'));
+const APIKeyManager = lazy(() => import('./pages/APIKeyManager'));
+const MemoryPage = lazy(() => import('./pages/MemoryPage'));
+const CUAControl = lazy(() => import('./pages/CUAControl'));
+const ActionRecorder = lazy(() => import('./pages/ActionRecorder'));
+const MCPTools = lazy(() => import('./pages/MCPTools'));
+const GatewayPage = lazy(() => import('./pages/GatewayPage'));
+const HeartbeatPage = lazy(() => import('./pages/HeartbeatPage'));
+const DesignSystem = lazy(() => import('./pages/DesignSystem'));
+const SharedChat = lazy(() => import('./pages/SharedChat'));
+const FeedbackPanel = lazy(() => import('./components/FeedbackPanel'));
+const HelpPanel = lazy(() => import('./components/HelpPanel'));
 
 const pageVariants = {
-  initial: { opacity: 0, y: 16, scale: 0.995, filter: 'blur(3px)' },
-  animate: { opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' },
-  exit: { opacity: 0, y: -12, scale: 0.996, filter: 'blur(2px)' },
-}
+  initial: { opacity: 0, y: 16 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -12 },
+};
 
 const pageTransition = {
-  duration: 0.38,
+  duration: 0.3,
   ease: [0.16, 1, 0.3, 1] as const,
-}
+};
 
 function PageWrapper({ children }: { children: React.ReactNode }) {
-  const shouldReduceMotion = useReducedMotion()
+  const shouldReduceMotion = useReducedMotion();
 
   if (shouldReduceMotion) {
-    return <div style={{ height: '100%' }}>{children}</div>
+    return <div style={{ height: '100%' }}>{children}</div>;
   }
 
   return (
@@ -69,7 +69,7 @@ function PageWrapper({ children }: { children: React.ReactNode }) {
     >
       {children}
     </motion.div>
-  )
+  );
 }
 
 const LoadingScreen = () => (
@@ -128,13 +128,13 @@ const LoadingScreen = () => (
       </div>
     </div>
   </motion.div>
-)
+);
 
 const PageLoader = () => (
   <div style={{ minHeight: '400px' }}>
     <PageSkeleton />
   </div>
-)
+);
 
 const routes = [
   { path: '/dashboard', element: <Dashboard /> },
@@ -160,67 +160,67 @@ const routes = [
   { path: '/share/:shareId', element: <SharedChat /> },
   { path: '/feedback', element: <FeedbackPanel /> },
   { path: '/help', element: <HelpPanel /> },
-]
+];
 
 function AppContent() {
-  const { message } = AntApp.useApp()
-  const location = useLocation()
-  const { setBackendUrl, setBackendStatus, sidebarCollapsed } = useAppStore()
-  const { theme } = useTheme()
-  const { isMobile } = useResponsive()
-  const [loading, setLoading] = useState(true)
-  const disconnectWarnedRef = useRef(false)
+  const { message } = AntApp.useApp();
+  const location = useLocation();
+  const { setBackendUrl, setBackendStatus, sidebarCollapsed } = useAppStore();
+  const { theme } = useTheme();
+  const { isMobile } = useResponsive();
+  const [loading, setLoading] = useState(true);
+  const disconnectWarnedRef = useRef(false);
 
   useEffect(() => {
     const applyBackendStatus = (isHealthy: boolean) => {
-      setBackendStatus(isHealthy ? 'connected' : 'disconnected')
+      setBackendStatus(isHealthy ? 'connected' : 'disconnected');
 
       if (isHealthy) {
-        disconnectWarnedRef.current = false
-        return
+        disconnectWarnedRef.current = false;
+        return;
       }
 
       if (!disconnectWarnedRef.current) {
-        message.warning('后端服务未连接，请先启动后端')
-        disconnectWarnedRef.current = true
+        message.warning('后端服务未连接，请先启动后端');
+        disconnectWarnedRef.current = true;
       }
-    }
+    };
 
     const initApp = async () => {
       try {
         if (window.electronAPI) {
-          const url = await window.electronAPI.getBackendUrl()
-          setBackendUrl(url)
+          const url = await window.electronAPI.getBackendUrl();
+          setBackendUrl(url);
         } else {
-          setBackendUrl(API_BASE_URL)
+          setBackendUrl(API_BASE_URL);
         }
 
-        const isHealthy = await checkBackendHealth()
-        applyBackendStatus(isHealthy)
+        const isHealthy = await checkBackendHealth();
+        applyBackendStatus(isHealthy);
       } catch (error) {
-        console.error('Init error:', error)
-        applyBackendStatus(false)
+        console.error('Init error:', error);
+        applyBackendStatus(false);
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
+    };
 
-    void initApp()
+    void initApp();
 
     const checkInterval = setInterval(async () => {
       try {
-        const isHealthy = await checkBackendHealth()
-        applyBackendStatus(isHealthy)
+        const isHealthy = await checkBackendHealth();
+        applyBackendStatus(isHealthy);
       } catch {
-        applyBackendStatus(false)
+        applyBackendStatus(false);
       }
-    }, 5000)
+    }, 5000);
 
-    return () => clearInterval(checkInterval)
-  }, [message, setBackendStatus, setBackendUrl])
+    return () => clearInterval(checkInterval);
+  }, [message, setBackendStatus, setBackendUrl]);
 
   if (loading) {
-    return <LoadingScreen />
+    return <LoadingScreen />;
   }
 
   return (
@@ -244,7 +244,8 @@ function AppContent() {
             borderRadius: 6,
             borderRadiusLG: 12,
             borderRadiusSM: 4,
-            fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+            fontFamily:
+              "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
             fontSize: 14,
             fontSizeLG: 16,
             fontSizeSM: 12,
@@ -256,7 +257,7 @@ function AppContent() {
           components: {
             Button: {
               borderRadius: 6,
-              controlHeight: 36,
+              controlHeight: 40,
               fontWeight: 500,
             },
             Card: {
@@ -265,11 +266,12 @@ function AppContent() {
             },
             Input: {
               borderRadius: 6,
-              controlHeight: 36,
+              controlHeight: 40,
+              paddingInline: 16,
             },
             Select: {
               borderRadius: 6,
-              controlHeight: 36,
+              controlHeight: 40,
             },
             Modal: {
               borderRadius: 16,
@@ -292,7 +294,7 @@ function AppContent() {
           <Layout
             className="app-main"
             style={{
-              marginLeft: isMobile ? 0 : sidebarCollapsed ? 72 : 240,
+              marginLeft: isMobile ? 0 : sidebarCollapsed ? 104 : 272,
               transition: 'margin-left 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
               minHeight: '100vh',
               background: 'transparent',
@@ -302,7 +304,9 @@ function AppContent() {
             <Content
               className="app-content"
               style={{
-                margin: isMobile ? '12px 10px 20px' : 'clamp(16px, 2vw, 32px) clamp(12px, 2vw, 24px)',
+                margin: isMobile
+                  ? '12px 10px 20px'
+                  : 'clamp(16px, 2vw, 32px) clamp(12px, 2vw, 24px)',
                 padding: 0,
                 minHeight: 'calc(100vh - 56px - 32px)',
               }}
@@ -328,7 +332,7 @@ function AppContent() {
         </Layout>
       </ConfigProvider>
     </ErrorBoundary>
-  )
+  );
 }
 
 function App() {
@@ -338,7 +342,7 @@ function App() {
         <AppContent />
       </RuntimeContextProvider>
     </ThemeProvider>
-  )
+  );
 }
 
-export default App
+export default App;

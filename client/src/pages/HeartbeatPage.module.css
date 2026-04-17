@@ -62,7 +62,9 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
 }
 
 .statCard:hover {
@@ -245,11 +247,31 @@ table.dataTable tbody td {
   font-weight: 500;
 }
 
-.tagBlue { background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3); }
-.tagGreen { background: rgba(34, 197, 94, 0.12); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.25); }
-.tagOrange { background: rgba(250, 173, 20, 0.12); color: #faad14; border: 1px solid rgba(250, 173, 20, 0.25); }
-.tagPurple { background: rgba(168, 85, 247, 0.12); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.25); }
-.tagGray { background: rgba(255,255,255,0.06); color: var(--text-muted); border: 1px solid var(--glass-border); }
+.tagBlue {
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+.tagGreen {
+  background: rgba(34, 197, 94, 0.12);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+.tagOrange {
+  background: rgba(250, 173, 20, 0.12);
+  color: #faad14;
+  border: 1px solid rgba(250, 173, 20, 0.25);
+}
+.tagPurple {
+  background: rgba(168, 85, 247, 0.12);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.25);
+}
+.tagGray {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+  border: 1px solid var(--glass-border);
+}
 
 /* Status dot */
 .statusDot {
@@ -266,10 +288,21 @@ table.dataTable tbody td {
   flex-shrink: 0;
 }
 
-.dotGreen { background: #4ade80; box-shadow: 0 0 6px rgba(74, 222, 128, 0.5); }
-.dotRed { background: #f87171; box-shadow: 0 0 6px rgba(248, 113, 113, 0.5); }
-.dotBlue { background: #60a5fa; box-shadow: 0 0 6px rgba(96, 165, 250, 0.5); }
-.dotGray { background: #6b7280; }
+.dotGreen {
+  background: #4ade80;
+  box-shadow: 0 0 6px rgba(74, 222, 128, 0.5);
+}
+.dotRed {
+  background: #f87171;
+  box-shadow: 0 0 6px rgba(248, 113, 113, 0.5);
+}
+.dotBlue {
+  background: #60a5fa;
+  box-shadow: 0 0 6px rgba(96, 165, 250, 0.5);
+}
+.dotGray {
+  background: #6b7280;
+}
 
 /* Switch */
 .switch {
@@ -279,13 +312,17 @@ table.dataTable tbody td {
   height: 20px;
 }
 
-.switch input { opacity: 0; width: 0; height: 0; }
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
 
 .switchSlider {
   position: absolute;
   inset: 0;
   border-radius: 10px;
-  background: rgba(255,255,255,0.12);
+  background: rgba(255, 255, 255, 0.12);
   transition: background 0.2s;
   cursor: pointer;
 }
@@ -327,7 +364,7 @@ table.dataTable tbody td {
 }
 
 .iconBtn:hover {
-  background: rgba(255,255,255,0.08);
+  background: rgba(255, 255, 255, 0.08);
   color: var(--text-primary);
 }
 
@@ -379,9 +416,18 @@ table.dataTable tbody td {
   margin-top: 2px;
 }
 
-.timelineDotGreen { background: rgba(74, 222, 128, 0.3); border: 2px solid #4ade80; }
-.timelineDotRed { background: rgba(248, 113, 113, 0.3); border: 2px solid #f87171; }
-.timelineDotBlue { background: rgba(96, 165, 250, 0.3); border: 2px solid #60a5fa; }
+.timelineDotGreen {
+  background: rgba(74, 222, 128, 0.3);
+  border: 2px solid #4ade80;
+}
+.timelineDotRed {
+  background: rgba(248, 113, 113, 0.3);
+  border: 2px solid #f87171;
+}
+.timelineDotBlue {
+  background: rgba(96, 165, 250, 0.3);
+  border: 2px solid #60a5fa;
+}
 
 .timelineContent {
   flex: 1;
@@ -420,7 +466,7 @@ table.dataTable tbody td {
 .modalOverlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.5);
+  background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(4px);
   z-index: 1000;
   display: flex;
@@ -481,7 +527,7 @@ table.dataTable tbody td {
 .formInput,
 .formSelect,
 .formTextarea {
-  background: rgba(255,255,255,0.06);
+  background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--glass-border);
   border-radius: 8px;
   padding: 8px 12px;
