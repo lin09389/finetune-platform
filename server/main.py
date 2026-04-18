@@ -213,6 +213,13 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("Shutting down application...")
+    
+    try:
+        from api.inference.routes import get_scheduler
+        await get_scheduler().shutdown()
+        logger.info("Inference scheduler shutdown complete")
+    except Exception as e:
+        logger.warning(f"Inference scheduler shutdown failed: {e}")
 
     try:
         from core.training_context import shutdown_training_context

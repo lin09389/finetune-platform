@@ -1,6 +1,6 @@
 import { Modal } from 'antd';
 import { motion, useReducedMotion } from 'framer-motion';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { Virtuoso } from 'react-virtuoso';
 
 import { useChatStream } from '../hooks/chat/useChatStream';
@@ -10,6 +10,7 @@ import { useTheme } from '../theme';
 
 import ChatHeader from '../components/chat/ChatHeader';
 import ChatInput from '../components/chat/ChatInput';
+import FollowUpSuggestions from '../components/chat/FollowUpSuggestions';
 import ChatHistoryDrawer from '../components/ChatHistoryDrawer';
 import ChatMessage from '../components/ChatMessage';
 import MemoryManager from '../components/MemoryManager';
@@ -33,47 +34,78 @@ interface APIKeyConfig {
   base_url?: string;
 }
 
-const DEFAULT_SUGGESTIONS = ['帮我解释一下这个概念', '写一段代码实现...', '分析这个问题', '总结一下要点'];
+const DEFAULT_SUGGESTIONS = [
+  '帮我制定一个学习计划',
+  '如何进行大模型微调？',
+  '写一段 Python 代码实现数据清洗',
+  '分析一下当前的 AI 行业趋势'
+];
 
 const extractDynamicSuggestions = (content: string): string[] => {
   if (!content) return [];
-  const lines = content.split('\n').map((l) => l.trim()).filter(Boolean);
+  
+  // 预处理：移除思考块 (thought blocks)
+  const cleanContent = content.replace(/<thought>[\s\S]*?<\/thought>/g, '').trim();
+  const lines = cleanContent.split('\n').map((l) => l.trim()).filter(Boolean);
   const suggestions: string[] = [];
 
-  // 策略1：寻找引号包裹的列表项 (例如: - “帮我解释一下量子力学”)
-  for (const line of lines) {
-    const match = line.match(/^[*-]\s*["“]([^"”]+)["”]/);
-    if (match && match[1]) {
-      suggestions.push(match[1].trim());
+  // 1. 寻找明确的建议引导语
+  const suggestionMarkers = [
+    '您可以尝试这样问',
+    '您可以说',
+    '例如',
+    '可以问',
+    '试着问',
+    '你可以问',
+    '后续建议',
+    '猜你想问',
+    'Next steps',
+    'Follow-up'
+  ];
+
+  let markerFoundIndex = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line && suggestionMarkers.some(marker => line.includes(marker))) {
+      markerFoundIndex = i;
+      break;
     }
   }
-  if (suggestions.length > 0) return suggestions.slice(0, 4);
 
-  // 策略2：寻找特定关键字后面的列表
-  let isSuggesting = false;
-  for (const line of lines) {
-    if (
-      line.includes('你可以说') ||
-      line.includes('例如') ||
-      line.includes('可以问') ||
-      line.includes('试着问') ||
-      line.includes('您可以说')
-    ) {
-      isSuggesting = true;
-      continue;
-    }
-
-    if (isSuggesting) {
-      const match = line.match(/^[*-]\s+(.+)$/);
-      if (match && match[1]) {
-        let s = match[1].replace(/^["“]|["”]$/g, '').trim();
-        if (s) suggestions.push(s);
+  // 如果找到了标记，尝试抓取其后的列表项
+  if (markerFoundIndex !== -1) {
+    for (let i = markerFoundIndex + 1; i < Math.min(markerFoundIndex + 6, lines.length); i++) {
+      const line = lines[i];
+      if (!line) continue;
+      // 匹配列表项：- 项, * 项, 1. 项
+      const listMatch = line.match(/^[*-]\s+(.+)$/) || line.match(/^\d+\.\s+(.+)$/);
+      if (listMatch && listMatch[1]) {
+        let s = listMatch[1].replace(/^["“]|["”]$/g, '').trim();
+        if (s && s.length < 50) suggestions.push(s);
       }
     }
   }
 
-  if (suggestions.length > 0) return suggestions.slice(0, 4);
-  return [];
+  // 2. 如果没找到标记，尝试寻找末尾带有引号的列表项（常见的大模型输出习惯）
+  if (suggestions.length === 0) {
+    const lastLines = lines.slice(-8);
+    for (const line of lastLines) {
+      const quoteMatch = line.match(/^[*-]\s*["“]([^"”]+)["”]/) || line.match(/^\d+\.\s*["“]([^"”]+)["”]/);
+      if (quoteMatch && quoteMatch[1]) {
+        suggestions.push(quoteMatch[1].trim());
+      }
+    }
+  }
+
+  // 3. 兜底策略：如果内容末尾有问号，可能是一个建议
+  if (suggestions.length === 0) {
+    const lastLine = lines[lines.length - 1];
+    if (lastLine && (lastLine.endsWith('?') || lastLine.endsWith('？')) && lastLine.length < 40) {
+      suggestions.push(lastLine.replace(/^[*-]\s*/, '').trim());
+    }
+  }
+
+  return Array.from(new Set(suggestions)).slice(0, 4);
 };
 
 const ChatPage: React.FC = () => {
@@ -111,6 +143,13 @@ const ChatPage: React.FC = () => {
   const [useCloudAI, setUseCloudAI] = useState(false);
   const [cloudAIConfig, setCloudAIConfig] = useState<APIKeyConfig | null>(null);
   const [selectedCloudModel, setSelectedCloudModel] = useState<string>('MiniMax-M2.5');
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollToBottom = useCallback(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, []);
 
   const {
     sendMessage,
@@ -159,6 +198,10 @@ const ChatPage: React.FC = () => {
       modelId: settings.modelId || undefined,
     });
   }, [setInferenceSelection, settings.backend, settings.modelId]);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isActivelyStreaming, scrollToBottom]);
 
   const loadCloudAIConfig = async () => {
     try {
@@ -352,17 +395,19 @@ const ChatPage: React.FC = () => {
   const currentSuggestions = React.useMemo(() => {
     if (messages.length === 0) return DEFAULT_SUGGESTIONS;
     
-    // 从后往前找最后一个 assistant 消息
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
-      if (msg && msg.role === 'assistant') {
-        const extracted = extractDynamicSuggestions(msg.content);
-        if (extracted.length > 0) return extracted;
-        break;
+    // 只有当最后一条消息是助手发出的，且没有正在加载时，才显示建议
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage && lastMessage.role === 'assistant') {
+      const extracted = extractDynamicSuggestions(lastMessage.content);
+      if (extracted.length > 0) return extracted;
+      
+      // 兜底：根据上下文生成一些通用的后续问题
+      if (lastMessage.content.length > 100) {
+        return ['总结一下核心观点', '还有其他需要注意的吗？', '帮我深入解释一下', '举个实际的例子'];
       }
     }
     
-    return DEFAULT_SUGGESTIONS;
+    return [];
   }, [messages]);
 
   const modelOptions =
@@ -468,6 +513,21 @@ const ChatPage: React.FC = () => {
               <div className={styles.emptyOrb}>AI</div>
               <h3 className={styles.emptyTitle}>开始新的对话</h3>
               <p className={styles.emptyDesc}>选择模型后，输入你的问题并开始探索。</p>
+              
+              <div className={styles.starterSuggestions}>
+                {DEFAULT_SUGGESTIONS.map((s, i) => (
+                  <motion.button
+                    key={s}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 + i * 0.1 }}
+                    className={styles.starterBtn}
+                    onClick={() => handleSend(s)}
+                  >
+                    {s}
+                  </motion.button>
+                ))}
+              </div>
             </motion.div>
           ) : enableVirtualScroll ? (
             <Virtuoso
@@ -522,6 +582,14 @@ const ChatPage: React.FC = () => {
                   retrieval_info={msg.retrieval_info}
                 />
               ))}
+              
+              <FollowUpSuggestions
+                suggestions={currentSuggestions}
+                isVisible={!isLoading && !isActivelyStreaming && currentSuggestions.length > 0}
+                onSuggestionClick={handleSend}
+              />
+
+              <div ref={messagesEndRef} style={{ height: 1 }} />
             </>
           )}
         </div>
@@ -535,7 +603,6 @@ const ChatPage: React.FC = () => {
         loading={isLoading}
         isStreaming={isActivelyStreaming}
         modelId={useCloudAI ? selectedCloudModel : settings.modelId}
-        suggestions={currentSuggestions}
       />
 
       <ChatHistoryDrawer

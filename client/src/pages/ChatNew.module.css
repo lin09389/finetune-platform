@@ -107,10 +107,45 @@
 .emptyDesc {
   color: var(--text-secondary);
   text-align: center;
-  max-width: 42ch;
-  margin: 0;
+  max-width: 320px;
+  margin-bottom: 40px;
   font-size: 15px;
   line-height: 1.6;
+}
+
+.starterSuggestions {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  width: 100%;
+  max-width: 560px;
+}
+
+.starterBtn {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  box-shadow: var(--shadow-sm);
+}
+
+.starterBtn:hover {
+  background: var(--bg-secondary);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+@media (max-width: 640px) {
+  .starterSuggestions {
+    grid-template-columns: 1fr;
+  }
 }
 
 .chatMessagesArea::-webkit-scrollbar {

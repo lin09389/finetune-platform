@@ -5,6 +5,7 @@ from .base import BackendType, GenerationConfig, GenerationResult, InferenceBack
 from .cloud import CloudBackend
 from .huggingface import HuggingFaceBackend
 from .ollama import OllamaBackend
+from .ollama_resilient import OllamaResilientBackend
 
 __all__ = [
     "InferenceBackend",
@@ -13,5 +14,6 @@ __all__ = [
     "GenerationResult",
     "HuggingFaceBackend",
     "OllamaBackend",
+    "OllamaResilientBackend",
     "CloudBackend",
 ]

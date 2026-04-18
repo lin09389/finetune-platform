@@ -11,6 +11,7 @@ import aiohttp
 from aiohttp import ClientTimeout, TCPConnector
 
 from .base import BackendType, GenerationConfig, GenerationResult, InferenceBackend
+from .ollama_schemas import OllamaPullRequest, OllamaGenerateRequest, OllamaChatRequest, OllamaOptions, OllamaMessage
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,12 @@ class OllamaResilientBackend(InferenceBackend):
         self.stream_read_timeout = (config or {}).get("stream_read_timeout", 120)
         self.disable_thinking = bool((config or {}).get("disable_thinking", False))
         self.model_name = (config or {}).get("model_name", "llama2")
+        
+        # 高级性能参数
+        self.num_ctx = (config or {}).get("num_ctx")
+        self.num_batch = (config or {}).get("num_batch")
+        self.num_thread = (config or {}).get("num_thread")
+        self.num_gpu = (config or {}).get("num_gpu")
         
         # 连接池配置
         self.max_connections = (config or {}).get("max_connections", 10)
@@ -213,10 +220,11 @@ class OllamaResilientBackend(InferenceBackend):
             logger.warning("Ollama service is not healthy, attempting to load model anyway")
 
         async def _load():
+            payload = OllamaPullRequest(name=self.model_name, stream=False)
             session = await self._get_session()
             async with session.post(
                 f"{self.base_url}/api/pull",
-                json={"name": self.model_name},
+                json=payload.model_dump(exclude_none=True),
                 timeout=ClientTimeout(total=self.timeout)
             ) as response:
                 if response.status == 200:
@@ -239,6 +247,20 @@ class OllamaResilientBackend(InferenceBackend):
         self._is_loaded = False
         return True
 
+    def _get_ollama_options(self, config: GenerationConfig) -> OllamaOptions:
+        return OllamaOptions(
+            num_predict=config.max_tokens,
+            temperature=config.temperature,
+            top_p=config.top_p,
+            top_k=config.top_k,
+            repeat_penalty=config.repetition_penalty,
+            stop=config.stop_sequences,
+            num_ctx=self.num_ctx,
+            num_batch=self.num_batch,
+            num_thread=self.num_thread,
+            num_gpu=self.num_gpu
+        )
+
     async def generate(self, prompt: str, config: GenerationConfig = None) -> GenerationResult:
         """生成文本"""
         if not self._is_loaded:
@@ -252,21 +274,16 @@ class OllamaResilientBackend(InferenceBackend):
 
         async def _generate():
             session = await self._get_session()
-            payload = {
-                "model": self.model_name, "prompt": prompt, "stream": False,
-                "options": {
-                    "num_predict": config.max_tokens,
-                    "temperature": config.temperature,
-                    "top_p": config.top_p,
-                    "top_k": config.top_k,
-                    "repeat_penalty": config.repetition_penalty,
-                    "stop": config.stop_sequences
-                }
-            }
+            payload = OllamaGenerateRequest(
+                model=self.model_name,
+                prompt=prompt,
+                stream=False,
+                options=self._get_ollama_options(config)
+            )
             if self.disable_thinking:
-                payload["think"] = False
+                payload.think = False
 
-            async with session.post(f"{self.base_url}/api/generate", json=payload) as response:
+            async with session.post(f"{self.base_url}/api/generate", json=payload.model_dump(exclude_none=True)) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     raise Exception(f"Ollama API error {response.status}: {error_text}")
@@ -303,22 +320,17 @@ class OllamaResilientBackend(InferenceBackend):
 
         async def _stream():
             session = await self._get_session()
-            payload = {
-                "model": self.model_name, "prompt": prompt, "stream": True,
-                "options": {
-                    "num_predict": config.max_tokens,
-                    "temperature": config.temperature,
-                    "top_p": config.top_p,
-                    "top_k": config.top_k,
-                    "repeat_penalty": config.repetition_penalty,
-                    "stop": config.stop_sequences
-                },
-                "keep_alive": "5m"
-            }
+            payload = OllamaGenerateRequest(
+                model=self.model_name,
+                prompt=prompt,
+                stream=True,
+                keep_alive="5m",
+                options=self._get_ollama_options(config)
+            )
             if self.disable_thinking:
-                payload["think"] = False
+                payload.think = False
 
-            async with session.post(f"{self.base_url}/api/generate", json=payload) as response:
+            async with session.post(f"{self.base_url}/api/generate", json=payload.model_dump(exclude_none=True)) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     raise Exception(f"Ollama API error {response.status}: {error_text}")
@@ -365,22 +377,17 @@ class OllamaResilientBackend(InferenceBackend):
 
         async def _chat():
             session = await self._get_session()
-            payload = {
-                "model": self.model_name, "messages": messages, "stream": False,
-                "options": {
-                    "num_predict": config.max_tokens,
-                    "temperature": config.temperature,
-                    "top_p": config.top_p,
-                    "top_k": config.top_k,
-                    "repeat_penalty": config.repetition_penalty,
-                    "stop": config.stop_sequences
-                },
-                "keep_alive": "5m"
-            }
+            payload = OllamaChatRequest(
+                model=self.model_name,
+                messages=[OllamaMessage(role=m["role"], content=m["content"]) for m in messages],
+                stream=False,
+                keep_alive="5m",
+                options=self._get_ollama_options(config)
+            )
             if self.disable_thinking:
-                payload["think"] = False
+                payload.think = False
 
-            async with session.post(f"{self.base_url}/api/chat", json=payload) as response:
+            async with session.post(f"{self.base_url}/api/chat", json=payload.model_dump(exclude_none=True)) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     raise Exception(f"Ollama API error {response.status}: {error_text}")
@@ -420,22 +427,17 @@ class OllamaResilientBackend(InferenceBackend):
 
         async def _stream():
             session = await self._get_session()
-            payload = {
-                "model": self.model_name, "messages": messages, "stream": True,
-                "options": {
-                    "num_predict": config.max_tokens,
-                    "temperature": config.temperature,
-                    "top_p": config.top_p,
-                    "top_k": config.top_k,
-                    "repeat_penalty": config.repetition_penalty,
-                    "stop": config.stop_sequences
-                },
-                "keep_alive": "5m"
-            }
+            payload = OllamaChatRequest(
+                model=self.model_name,
+                messages=[OllamaMessage(role=m["role"], content=m["content"]) for m in messages],
+                stream=True,
+                keep_alive="5m",
+                options=self._get_ollama_options(config)
+            )
             if self.disable_thinking:
-                payload["think"] = False
+                payload.think = False
 
-            async with session.post(f"{self.base_url}/api/chat", json=payload) as response:
+            async with session.post(f"{self.base_url}/api/chat", json=payload.model_dump(exclude_none=True)) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     raise RuntimeError(f"Ollama API error {response.status}: {error_text}")

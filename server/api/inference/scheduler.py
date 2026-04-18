@@ -261,6 +261,21 @@ class ModelScheduler:
             await self.unload_model(lru_model, force=True)
             logger.info(f"LRU 淘汰模型: {lru_model}")
 
+    async def shutdown(self):
+        """关闭调度器并清理所有后端资源"""
+        logger.info("Shutting down ModelScheduler and cleaning up backends...")
+        for name, backend in self._backends.items():
+            try:
+                if hasattr(backend, "cleanup"):
+                    if asyncio.iscoroutinefunction(backend.cleanup):
+                        await backend.cleanup()
+                    else:
+                        backend.cleanup()
+                logger.info(f"Cleaned up backend: {name}")
+            except Exception as e:
+                logger.error(f"Error cleaning up backend {name}: {e}")
+        self._backends.clear()
+
     async def cleanup_idle_models(self):
         """清理空闲模型"""
         now = datetime.now()
@@ -322,7 +337,11 @@ class ModelScheduler:
                     "max_retries": settings.ollama_max_retries,
                     "retry_delay": settings.ollama_retry_delay_seconds,
                     "disable_thinking": settings.ollama_fast_mode,
-                    "health_check_interval": 30
+                    "health_check_interval": 30,
+                    "num_ctx": settings.ollama_num_ctx,
+                    "num_batch": settings.ollama_num_batch,
+                    "num_thread": settings.ollama_num_thread,
+                    "num_gpu": settings.ollama_num_gpu
                 })
             return self._backends[backend]
 

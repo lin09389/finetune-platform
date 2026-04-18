@@ -120,6 +120,15 @@ export default function History() {
     return `${minutes}分 ${seconds}秒`;
   };
 
+  const formatElapsed = (seconds?: number) => {
+    if (seconds === undefined || seconds === null || Number.isNaN(seconds) || seconds < 0) {
+      return '-';
+    }
+    const minutes = Math.floor(seconds / 60);
+    const remainSeconds = Math.floor(seconds % 60);
+    return `${minutes}分 ${remainSeconds}秒`;
+  };
+
   const columns = [
     {
       title: '训练 ID',
@@ -255,7 +264,19 @@ export default function History() {
                 </Descriptions.Item>
               )}
               <Descriptions.Item label="训练耗时">
-                {calculateDuration(selectedRecord.startTime, selectedRecord.endTime)}
+                {selectedRecord.elapsedTime !== undefined && selectedRecord.elapsedTime !== null
+                  ? formatElapsed(selectedRecord.elapsedTime)
+                  : calculateDuration(selectedRecord.startTime, selectedRecord.endTime)}
+              </Descriptions.Item>
+              <Descriptions.Item label="最终 Loss">
+                {selectedRecord.finalLoss !== undefined && selectedRecord.finalLoss !== null
+                  ? selectedRecord.finalLoss.toFixed(6)
+                  : '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="最终步数">
+                {selectedRecord.totalSteps !== undefined && selectedRecord.totalSteps !== null
+                  ? selectedRecord.totalSteps
+                  : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="输出路径">{selectedRecord.outputPath}</Descriptions.Item>
               <Descriptions.Item label="训练配置">

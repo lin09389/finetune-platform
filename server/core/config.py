@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     ollama_max_connections: int = Field(default=10, ge=1, le=100, description="Ollama 连接池最大连接数")
     ollama_max_retries: int = Field(default=3, ge=0, le=10, description="Ollama 请求重试次数")
     ollama_retry_delay_seconds: float = Field(default=1.0, ge=0.1, le=10.0, description="Ollama 重试基础延迟（秒）")
+    
+    # Ollama 高级性能参数 (为单用户优化)
+    ollama_num_ctx: int = Field(default=4096, ge=1024, description="Ollama 上下文窗口大小")
+    ollama_num_batch: int = Field(default=512, ge=1, description="Ollama 处理 prompt 的批次大小")
+    ollama_num_thread: int | None = Field(default=None, description="Ollama 使用的 CPU 线程数 (默认自动)")
+    ollama_num_gpu: int | None = Field(default=None, description="Ollama 强制使用 GPU 的层数 (默认自动)")
 
     inference_engine: Literal["huggingface", "vllm", "llamacpp", "ollama"] = Field(
         default="huggingface",

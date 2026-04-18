@@ -29,9 +29,10 @@ class StreamingMetrics:
     """流式输出指标"""
     total_tokens: int
     total_time_ms: float
-    avg_chunk_latency_ms: float
-    max_chunk_latency_ms: float
-    min_chunk_latency_ms: float
+    first_token_latency_ms: float = 0.0
+    avg_chunk_latency_ms: float = 0.0
+    max_chunk_latency_ms: float = 0.0
+    min_chunk_latency_ms: float = 0.0
     backpressure_events: int = 0
 
 

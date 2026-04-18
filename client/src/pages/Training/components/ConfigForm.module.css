@@ -34,6 +34,11 @@
   justify-content: center;
 }
 
+.stepHint {
+  margin-top: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
 :global(.ant-form-item-label > label) {
   font-size: var(--text-sm) !important;
   font-weight: 600 !important;

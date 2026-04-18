@@ -3,12 +3,11 @@ import {
   MoonOutlined,
   ReloadOutlined,
   SunOutlined,
-  ThunderboltOutlined,
   UserOutlined,
 } from '@ant-design/icons';
-import { Avatar, Badge, Button, Layout, Select, Space, Tag, Tooltip } from 'antd';
+import { Avatar, Button, Layout, Select, Space, Tooltip } from 'antd';
 import { motion } from 'framer-motion';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getDeviceInfo } from '../services/api';
 import { useAppStore } from '../store/appStore';
 import styles from './HeaderBar.module.css';
@@ -17,7 +16,7 @@ import { NotificationPanel, useNotifications } from './NotificationPanel';
 const { Header } = Layout;
 
 export default function HeaderBar() {
-  const { backendStatus, deviceInfo, setDeviceInfo, themeMode, setThemeMode } = useAppStore();
+  const { backendStatus, setDeviceInfo, themeMode, setThemeMode } = useAppStore();
   const [loading, setLoading] = useState(false);
   const { notifications, addNotification, markAsRead, markAllAsRead, deleteNotification } =
     useNotifications();
@@ -56,40 +55,6 @@ export default function HeaderBar() {
     }
   }, [backendStatus]);
 
-  const getStatusBadge = () => {
-    switch (backendStatus) {
-      case 'connected':
-        return (
-          <Badge
-            status="success"
-            text={
-              <span style={{ color: 'var(--success)', fontWeight: 600, fontSize: 11 }}>ONLINE</span>
-            }
-          />
-        );
-      case 'disconnected':
-        return (
-          <Badge
-            status="error"
-            text={
-              <span style={{ color: 'var(--error)', fontWeight: 600, fontSize: 11 }}>OFFLINE</span>
-            }
-          />
-        );
-      default:
-        return (
-          <Badge
-            status="default"
-            text={
-              <span style={{ color: 'var(--text-tertiary)', fontWeight: 600, fontSize: 11 }}>
-                CHECKING
-              </span>
-            }
-          />
-        );
-    }
-  };
-
   const getThemeIcon = () => {
     switch (themeMode) {
       case 'dark':
@@ -100,47 +65,6 @@ export default function HeaderBar() {
         return <LaptopOutlined />;
     }
   };
-
-  const getPlatformTag = () => {
-    if (!deviceInfo) return null;
-
-    if (deviceInfo.platform === 'cuda') {
-      return (
-        <Tag
-          color="blue"
-          style={{ borderRadius: 'var(--radius-sm)', fontWeight: 700, fontSize: 10, margin: 0 }}
-        >
-          <ThunderboltOutlined style={{ marginRight: 4 }} />
-          CUDA
-        </Tag>
-      );
-    }
-
-    if (deviceInfo.platform === 'mac') {
-      return (
-        <Tag
-          color="geekblue"
-          style={{ borderRadius: 'var(--radius-sm)', fontWeight: 700, fontSize: 10, margin: 0 }}
-        >
-          MPS
-        </Tag>
-      );
-    }
-
-    return (
-      <Tag
-        color="default"
-        style={{ borderRadius: 'var(--radius-sm)', fontWeight: 700, fontSize: 10, margin: 0 }}
-      >
-        CPU
-      </Tag>
-    );
-  };
-
-  const resourceSummary = useMemo(() => {
-    if (!deviceInfo) return '设备信息加载中';
-    return `VRAM ${(deviceInfo.vram_free ?? 0).toFixed(1)}GB / ${(deviceInfo.vram_total ?? 0).toFixed(1)}GB，RAM ${(deviceInfo.memory_free ?? 0).toFixed(1)}GB / ${(deviceInfo.memory_total ?? 0).toFixed(1)}GB`;
-  }, [deviceInfo]);
 
   const themeItems = [
     { key: 'light', label: '浅色模式', icon: <SunOutlined /> },

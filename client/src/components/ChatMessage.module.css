@@ -42,7 +42,21 @@
   transition:
     border-color var(--transition-base),
     box-shadow var(--transition-base),
-    transform var(--transition-base);
+    transform var(--transition-base),
+    background-color 0.3s ease;
+}
+
+.assistantBubble.loadingBubble {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  padding: var(--space-3) var(--space-4);
+}
+
+.assistantBubble.loadingBubble:hover {
+  border-color: transparent;
+  box-shadow: none;
+  transform: none;
 }
 
 .assistantBubble:hover {

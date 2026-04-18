@@ -70,6 +70,10 @@ class TrainingRecord(BaseModel):
     config: dict
     output_path: str
     checkpoint_path: str | None = None
+    final_loss: float | None = None
+    final_lr: float | None = None
+    elapsed_time: float | None = None
+    total_steps: int | None = None
 
 
 class StateUpdate:

@@ -69,6 +69,9 @@ interface CloudConfig {
   baseUrl?: string;
 }
 
+const STREAM_IDLE_TIMEOUT_MS = 45000;
+const OLLAMA_PREFLIGHT_TIMEOUT_MS = 4000;
+
 function toRequestAttachments(attachments: PlaygroundAttachment[] = []) {
   return attachments.map((attachment) => ({
     name: attachment.name,
@@ -215,6 +218,24 @@ async function streamSse(
   return { content, metadata: Object.keys(metadata).length ? metadata : undefined };
 }
 
+async function checkOllamaAvailability(): Promise<boolean> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), OLLAMA_PREFLIGHT_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${API_BASE_URL}/inference/ollama/status`, {
+      signal: controller.signal,
+      headers: { 'Cache-Control': 'no-cache' },
+    });
+    if (!response.ok) return false;
+    const data = (await response.json()) as { available?: boolean; running?: boolean };
+    return Boolean(data.available || data.running);
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export function useChatStream(config: StreamConfig = {}) {
   const isStreaming = useChatStore((state) => state.isStreaming);
   const abortRef = useRef<AbortController | null>(null);
@@ -231,6 +252,19 @@ export function useChatStream(config: StreamConfig = {}) {
       const store = useChatStore.getState();
       const prompt = payload.prompt.trim();
       if (!prompt) return undefined;
+
+      const requestedBackend = payload.parameterOverrides?.backend || store.settings.backend;
+      if (requestedBackend === 'ollama') {
+        const ollamaReady = await checkOllamaAvailability();
+        if (!ollamaReady) {
+          const errorMessage =
+            'Ollama 当前不可用，请先启动 Ollama 服务并确认模型可用，或切换后端后重试。';
+          store.setError(errorMessage);
+          config.onStatusChange?.('error');
+          config.onError?.(errorMessage);
+          return undefined;
+        }
+      }
 
       let sessionId = store.currentSessionId;
       if (!sessionId) {
@@ -290,12 +324,30 @@ export function useChatStream(config: StreamConfig = {}) {
 
       const controller = new AbortController();
       abortRef.current = controller;
+      let timeoutTriggered = false;
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+      const clearStreamTimeout = () => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+      };
+
+      const refreshStreamTimeout = () => {
+        clearStreamTimeout();
+        timeoutId = setTimeout(() => {
+          timeoutTriggered = true;
+          controller.abort();
+        }, STREAM_IDLE_TIMEOUT_MS);
+      };
 
       store.setError(null);
       store.setIsLoading(true);
       store.startStreaming(assistantMessageId);
       store.setStreamState({ status: 'connecting', content: '' });
       config.onStatusChange?.('connecting');
+      refreshStreamTimeout();
 
       let fullContent = '';
 
@@ -306,6 +358,7 @@ export function useChatStream(config: StreamConfig = {}) {
           controller.signal,
           (delta) => {
             fullContent += delta;
+            refreshStreamTimeout();
             const activeStore = useChatStore.getState();
             activeStore.setStreamState({ status: 'streaming' });
             activeStore.updateStreamingContent(fullContent);
@@ -349,17 +402,19 @@ export function useChatStream(config: StreamConfig = {}) {
       } catch (error) {
         const failedStore = useChatStore.getState();
         const aborted = controller.signal.aborted;
-        const errorMessage = aborted
-          ? '已停止生成。'
-          : error instanceof Error
-            ? error.message
-            : '请求失败';
+        const errorMessage = timeoutTriggered
+          ? '模型响应超时，请检查 Ollama 服务状态或切换后端后重试。'
+          : aborted
+            ? '已停止生成。'
+            : error instanceof Error
+              ? error.message
+              : '请求失败';
 
         failedStore.updateMessage(assistantMessageId, {
           content: fullContent || errorMessage,
           isLoading: false,
         });
-        if (aborted) {
+        if (aborted && !timeoutTriggered) {
           failedStore.stopStreaming();
           failedStore.setStreamState({ status: 'stopped' });
           config.onStatusChange?.('stopped');
@@ -373,6 +428,7 @@ export function useChatStream(config: StreamConfig = {}) {
         failedStore.setIsLoading(false);
         return undefined;
       } finally {
+        clearStreamTimeout();
         if (abortRef.current === controller) {
           abortRef.current = null;
         }
@@ -447,12 +503,30 @@ export function useChatStream(config: StreamConfig = {}) {
 
       const controller = new AbortController();
       abortRef.current = controller;
+      let timeoutTriggered = false;
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+      const clearStreamTimeout = () => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+      };
+
+      const refreshStreamTimeout = () => {
+        clearStreamTimeout();
+        timeoutId = setTimeout(() => {
+          timeoutTriggered = true;
+          controller.abort();
+        }, STREAM_IDLE_TIMEOUT_MS);
+      };
 
       store.setError(null);
       store.setIsLoading(true);
       store.startStreaming(assistantMessageId);
       store.setStreamState({ status: 'connecting', content: '' });
       config.onStatusChange?.('connecting');
+      refreshStreamTimeout();
 
       let fullContent = '';
 
@@ -463,6 +537,7 @@ export function useChatStream(config: StreamConfig = {}) {
           controller.signal,
           (delta) => {
             fullContent += delta;
+            refreshStreamTimeout();
             const activeStore = useChatStore.getState();
             activeStore.setStreamState({ status: 'streaming' });
             activeStore.updateStreamingContent(fullContent);
@@ -506,17 +581,19 @@ export function useChatStream(config: StreamConfig = {}) {
       } catch (error) {
         const failedStore = useChatStore.getState();
         const aborted = controller.signal.aborted;
-        const errorMessage = aborted
-          ? '已停止生成。'
-          : error instanceof Error
-            ? error.message
-            : '请求失败';
+        const errorMessage = timeoutTriggered
+          ? '云端响应超时，请检查网络或稍后重试。'
+          : aborted
+            ? '已停止生成。'
+            : error instanceof Error
+              ? error.message
+              : '请求失败';
 
         failedStore.updateMessage(assistantMessageId, {
           content: fullContent || errorMessage,
           isLoading: false,
         });
-        if (aborted) {
+        if (aborted && !timeoutTriggered) {
           failedStore.stopStreaming();
           failedStore.setStreamState({ status: 'stopped' });
           config.onStatusChange?.('stopped');
@@ -530,6 +607,7 @@ export function useChatStream(config: StreamConfig = {}) {
         failedStore.setIsLoading(false);
         return undefined;
       } finally {
+        clearStreamTimeout();
         if (abortRef.current === controller) {
           abortRef.current = null;
         }

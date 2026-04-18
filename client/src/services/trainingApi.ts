@@ -63,6 +63,10 @@ export const normalizeTrainingRecord = (record: any) => ({
   config: normalizeTrainingConfig(record.config),
   outputPath: record.outputPath ?? record.output_path ?? '',
   checkpointPath: record.checkpointPath ?? record.checkpoint_path,
+  finalLoss: record.finalLoss ?? record.final_loss,
+  finalLr: record.finalLr ?? record.final_lr,
+  elapsedTime: record.elapsedTime ?? record.elapsed_time,
+  totalSteps: record.totalSteps ?? record.total_steps,
 });
 
 export const normalizeTrainingProgress = (progress: any) => ({

@@ -177,11 +177,43 @@ class HuggingFaceBackend(InferenceBackend):
         config: GenerationConfig = None
     ) -> AsyncIterator[str]:
         """流式生成文本"""
-        result = await self.generate(prompt, config)
+        if not self._is_loaded:
+            yield "[Error: Model not loaded]"
+            return
 
-        for word in result.text.split():
-            yield word + " "
-            await asyncio.sleep(0.01)
+        config = config or GenerationConfig()
+        
+        from transformers import TextIteratorStreamer
+        from threading import Thread
+
+        input_ids = self._tokenizer.encode(prompt, return_tensors="pt").to(self._model.device)
+        streamer = TextIteratorStreamer(self._tokenizer, skip_prompt=True, skip_special_tokens=True)
+        
+        generation_kwargs = dict(
+            inputs=input_ids,
+            max_new_tokens=config.max_tokens,
+            temperature=config.temperature,
+            top_p=config.top_p,
+            top_k=config.top_k,
+            repetition_penalty=config.repetition_penalty,
+            do_sample=config.temperature > 0,
+            streamer=streamer,
+            pad_token_id=self._tokenizer.eos_token_id
+        )
+
+        thread = Thread(target=self._model.generate, kwargs=generation_kwargs)
+        thread.start()
+
+        import queue
+        while True:
+            try:
+                new_text = await asyncio.to_thread(streamer.text_queue.get, True, 1.0)
+                if new_text == streamer.stop_signal:
+                    break
+                yield new_text
+            except queue.Empty:
+                if not thread.is_alive():
+                    break
 
     async def chat(
         self,
@@ -207,11 +239,14 @@ class HuggingFaceBackend(InferenceBackend):
         config: GenerationConfig = None
     ) -> AsyncIterator[str]:
         """流式对话生成"""
-        result = await self.chat(messages, config)
+        if not self._is_loaded:
+            yield "[Error: Model not loaded]"
+            return
 
-        for word in result.text.split():
-            yield word + " "
-            await asyncio.sleep(0.01)
+        prompt = self._format_chat_prompt(messages)
+        
+        async for new_text in self.generate_stream(prompt, config):
+            yield new_text
 
     def get_model_info(self) -> dict[str, Any]:
         """获取模型信息"""

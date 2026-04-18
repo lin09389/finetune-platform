@@ -1,6 +1,8 @@
 import json
 import os
 import sys
+import time
+import asyncio
 
 import pytest
 from fastapi.testclient import TestClient
@@ -25,6 +27,17 @@ class _FakeBackend:
         yield "hello"
         yield " world"
 
+class _FakeSlowBackend:
+    def __init__(self):
+        self.model_name = "slow-model"
+
+    async def chat_stream(self, messages, config):
+        # 模拟生成第一个字的极速返回
+        await asyncio.sleep(0.1)
+        yield "hello"
+        # 模拟后续生成的缓慢（如果真流式，首字不受这里影响）
+        await asyncio.sleep(1.0)
+        yield " world"
 
 class _FakeScheduler:
     def __init__(self, backend):
@@ -63,6 +76,45 @@ def test_chat_stream_returns_sse_events(monkeypatch):
     assert messages[0]["role"] == "user"
     assert backend.model_name == "qwen-test"
 
+@pytest.mark.asyncio
+async def test_chat_stream_ttft_latency(monkeypatch):
+    backend = _FakeSlowBackend()
+    scheduler = _FakeScheduler(backend)
+    monkeypatch.setattr(inference_routes, "get_scheduler", lambda: scheduler)
+
+    from api.inference.routes import chat_stream
+    from api.types import ChatRequest, Message, InferenceOptions
+    from core.config import get_settings
+
+    # 直接调用路由函数，绕过 httpx.ASGITransport 的缓冲问题
+    request = ChatRequest(
+        model="qwen-test",
+        messages=[Message(role="user", content="hi")],
+        options=InferenceOptions(backend="huggingface", max_tokens=32)
+    )
+    
+    # 模拟环境依赖
+    monkeypatch.setattr(inference_routes.settings, "ollama_fast_mode", False)
+    
+    response = await chat_stream(request)
+    # response 此时是一个 StreamingResponse
+    
+    first_token_time = None
+    start_time = time.time()
+    
+    # 提取内部的 generator
+    async for chunk in response.body_iterator:
+        if "delta" in chunk:
+            if first_token_time is None:
+                first_token_time = time.time()
+                break # 拿到首字就可以退出了，没必要等完全生成
+                
+    assert first_token_time is not None
+    ttft = first_token_time - start_time
+    
+    # 断言首字延迟在合理范围内，证明是真正的流式
+    # fake backend 需要 0.1s 产出首字，再加上微小的系统开销，0.5s 是合理的上限
+    assert ttft < 0.5, f"TTFT was too slow: {ttft}s, possible fake streaming"
 
 @pytest.mark.asyncio
 async def test_ollama_chat_stream_auto_load(monkeypatch):

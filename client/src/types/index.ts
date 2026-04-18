@@ -106,6 +106,10 @@ export interface TrainingRecord {
   config: TrainingConfig;
   outputPath: string;
   checkpointPath?: string;
+  finalLoss?: number;
+  finalLr?: number;
+  elapsedTime?: number;
+  totalSteps?: number;
 }
 
 export interface Checkpoint {

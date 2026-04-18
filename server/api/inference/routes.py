@@ -518,12 +518,21 @@ async def chat_stream(request: ChatRequest):
 
         async def generate():
             started_at = time.time()
+            first_token_time = None
             try:
                 yield f"data: {json.dumps({'type': 'metadata', 'model': model_name, 'backend': backend_name}, ensure_ascii=False)}\n\n"
 
                 async for chunk in backend.chat_stream(messages, generation_config):
                     if not chunk:
                         continue
+                    if first_token_time is None:
+                        first_token_time = time.time()
+                        ttft_ms = int((first_token_time - started_at) * 1000)
+                        if ttft_ms > 3000:
+                            logger.warning(f"[WARNING] High TTFT detected: {ttft_ms}ms, possible blocking operation or fake streaming.")
+                        else:
+                            logger.info(f"TTFT (Time To First Token): {ttft_ms}ms")
+                            
                     yield f"data: {json.dumps({'type': 'delta', 'content': chunk}, ensure_ascii=False)}\n\n"
 
                 duration_ms = int((time.time() - started_at) * 1000)

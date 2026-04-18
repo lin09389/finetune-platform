@@ -281,6 +281,12 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
               },
               { type: 'divider' },
               {
+                key: 'memory',
+                label: '管理记忆',
+                icon: <BulbOutlined />,
+                onClick: onOpenMemory,
+              },
+              {
                 key: 'clear',
                 label: '清空对话',
                 icon: <ClearOutlined />,

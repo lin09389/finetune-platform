@@ -424,6 +424,10 @@ class TrainingRecordResponse(BaseModel):
     config: dict
     output_path: str
     checkpoint_path: str | None
+    final_loss: float | None = None
+    final_lr: float | None = None
+    elapsed_time: float | None = None
+    total_steps: int | None = None
 
 
 class ResourceCheckResponse(BaseModel):
@@ -435,6 +439,63 @@ class ResourceCheckResponse(BaseModel):
     warnings: list[str]
     recommended_config: dict[str, Any]
     device_name: str | None = None
+
+
+def _read_latest_metric_point(record: TrainingRecord) -> dict[str, Any] | None:
+    """Read the latest metric sample for a training record from metrics.jsonl."""
+    metrics_file = Path(record.output_path) / "metrics.jsonl"
+    if not metrics_file.exists():
+        return None
+
+    latest: dict[str, Any] | None = None
+    try:
+        with open(metrics_file, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    latest = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+    except Exception as exc:
+        logger.debug(f"读取训练指标失败（task={record.id}）：{exc}")
+        return None
+
+    return latest
+
+
+def _enrich_record_metrics(record: TrainingRecord) -> TrainingRecord:
+    """Backfill final metrics for old history records when fields are missing."""
+    if (
+        record.final_loss is not None
+        and record.final_lr is not None
+        and record.elapsed_time is not None
+        and record.total_steps is not None
+    ):
+        return record
+
+    latest = _read_latest_metric_point(record)
+    if latest:
+        if record.final_loss is None:
+            record.final_loss = float(latest.get("loss", 0.0))
+        if record.final_lr is None:
+            record.final_lr = float(latest.get("lr", 0.0))
+        if record.elapsed_time is None:
+            record.elapsed_time = float(latest.get("elapsed_time", 0.0))
+        if record.total_steps is None:
+            record.total_steps = int(latest.get("step", 0))
+
+    if record.elapsed_time is None and record.end_time:
+        try:
+            start_ts = datetime.fromisoformat(record.start_time).timestamp()
+            end_ts = datetime.fromisoformat(record.end_time).timestamp()
+            if end_ts >= start_ts:
+                record.elapsed_time = float(end_ts - start_ts)
+        except Exception:
+            pass
+
+    return record
 
 
 SUPPORTED_DATASET_FORMATS = (
@@ -1117,6 +1178,9 @@ class ProgressCallback:
 
         self.last_update_step = -1
         self.update_interval = max(1, config.logging_steps)
+        # For short runs, keep UI responsive instead of waiting for sparse logging_steps.
+        if self.total_steps > 0:
+            self.update_interval = min(self.update_interval, max(1, self.total_steps // 10))
 
         self._eta_window_size = 10
         self._eta_history = []
@@ -1207,9 +1271,21 @@ class ProgressCallback:
         self.current_epoch = state.epoch
 
         loss = kwargs.get("loss", 0.0)
-        self.current_loss = float(loss) if loss > 0 else 0.0
+        if loss and float(loss) > 0:
+            self.current_loss = float(loss)
+        else:
+            # Trainer may not pass loss every step when logging_steps is large.
+            log_history = getattr(state, "log_history", None) or []
+            for log_item in reversed(log_history):
+                if isinstance(log_item, dict) and "loss" in log_item:
+                    try:
+                        self.current_loss = float(log_item["loss"])
+                    except (TypeError, ValueError):
+                        pass
+                    break
 
-        if (self.current_step - self.last_update_step) >= self.update_interval:
+        should_force_update = self.current_step <= 5 or self.current_step >= self.total_steps
+        if should_force_update or (self.current_step - self.last_update_step) >= self.update_interval:
             self._update_progress(state, args, kwargs)
             self.last_update_step = self.current_step
 
@@ -1365,7 +1441,14 @@ def training_thread(
     import gc
     import time
     import torch
-    from transformers import Trainer, TrainingArguments
+    from transformers import TrainingArguments
+
+    try:
+        from transformers import Trainer
+    except ImportError:
+        # Some Windows environments with partially-loaded lazy modules may fail
+        # to export Trainer at package root; fall back to explicit module import.
+        from transformers.trainer import Trainer
 
     MAX_RETRIES = 2
     retry_count = 0
@@ -1521,6 +1604,21 @@ def training_thread(
             if config.load_best_model and eval_strategy != "steps":
                 logger.warning("load_best_model 需要 eval_steps > 0，已自动禁用")
 
+            # HuggingFace Trainer constraint:
+            # when load_best_model_at_end=True and strategies are "steps",
+            # save_steps must be an integer multiple of eval_steps.
+            normalized_save_steps = config.save_steps
+            if use_best_model and eval_steps:
+                if normalized_save_steps % eval_steps != 0:
+                    normalized_save_steps = max(
+                        eval_steps,
+                        ((normalized_save_steps + eval_steps - 1) // eval_steps) * eval_steps,
+                    )
+                    logger.warning(
+                        "检测到 load_best_model_at_end 步长约束，自动调整 save_steps："
+                        f"{config.save_steps} -> {normalized_save_steps}（eval_steps={eval_steps}）"
+                    )
+
             warmup_steps = config.warmup_steps
             warmup_ratio = None
             if warmup_steps == 0 and config.warmup_ratio > 0:
@@ -1548,6 +1646,21 @@ def training_thread(
                 logger.warning("QLoRA 模式下不支持 DeepSpeed，将使用标准训练")
 
             output_dir = config.output_path if hasattr(config, 'output_path') else record.output_path
+            dataloader_num_workers = config.dataloader_num_workers
+            dataloader_pin_memory = config.dataloader_pin_memory
+            dataloader_persistent_workers = (
+                config.dataloader_persistent_workers if config.dataloader_num_workers > 0 else False
+            )
+            if os.name == "nt" and dataloader_num_workers > 0:
+                # Windows + background training thread + multiprocessing DataLoader
+                # can hang before first step. Force single-process loading.
+                logger.warning(
+                    "Windows 环境检测到 dataloader_num_workers>0，已自动调整为 0 以避免训练卡住"
+                )
+                dataloader_num_workers = 0
+                dataloader_persistent_workers = False
+                dataloader_pin_memory = False
+
             base_training_args_kwargs = {
                 "output_dir": output_dir,
                 "num_train_epochs": config.epochs,
@@ -1558,7 +1671,7 @@ def training_thread(
                 "warmup_steps": warmup_steps,
                 "warmup_ratio": warmup_ratio,
                 "logging_steps": config.logging_steps,
-                "save_steps": config.save_steps,
+                "save_steps": normalized_save_steps,
                 "save_total_limit": 3,
                 "load_best_model_at_end": use_best_model,
                 "eval_steps": eval_steps,
@@ -1566,9 +1679,9 @@ def training_thread(
                 "fp16": not config.bf16,
                 "bf16": config.bf16,
                 "gradient_checkpointing": config.gradient_checkpointing,
-                "dataloader_num_workers": config.dataloader_num_workers,
-                "dataloader_pin_memory": config.dataloader_pin_memory,
-                "dataloader_persistent_workers": config.dataloader_persistent_workers if config.dataloader_num_workers > 0 else False,
+                "dataloader_num_workers": dataloader_num_workers,
+                "dataloader_pin_memory": dataloader_pin_memory,
+                "dataloader_persistent_workers": dataloader_persistent_workers,
                 "remove_unused_columns": False,
                 "save_strategy": "steps",
                 "lr_scheduler_type": config.lr_scheduler,
@@ -1608,7 +1721,10 @@ def training_thread(
 
             early_stopping_callback = None
             if config.early_stopping_patience > 0 and use_best_model:
-                from transformers import EarlyStoppingCallback
+                try:
+                    from transformers import EarlyStoppingCallback
+                except ImportError:
+                    from transformers.trainer_callback import EarlyStoppingCallback
                 early_stopping_callback = EarlyStoppingCallback(
                     early_stopping_patience=config.early_stopping_patience,
                     early_stopping_threshold=config.early_stopping_threshold
@@ -1767,6 +1883,12 @@ def training_thread(
             record.status = "completed"
             record.end_time = datetime.now().isoformat()
             record.checkpoint_path = str(lora_path)
+            progress_snapshot = state.get_progress()
+            record.final_loss = float(progress_snapshot.loss)
+            record.final_lr = float(progress_snapshot.lr)
+            record.elapsed_time = float(progress_snapshot.elapsed_time)
+            record.total_steps = int(progress_snapshot.step or total_steps)
+            _enrich_record_metrics(record)
 
             state.add_to_history_sync(record)
             logger.info(f"训练历史已保存：{record.id}")
@@ -1999,6 +2121,11 @@ def _handle_training_failure(state: TrainingState, record: TrainingRecord, error
 
     record.status = "failed"
     record.end_time = datetime.now().isoformat()
+    record.final_loss = float(latest_progress.loss)
+    record.final_lr = float(latest_progress.lr)
+    record.elapsed_time = float(latest_progress.elapsed_time)
+    record.total_steps = int(latest_progress.step)
+    _enrich_record_metrics(record)
 
     if train_logger:
         train_logger.log_error(error)
@@ -2035,6 +2162,11 @@ def _finalize_stop_requested(
 
     record.status = "stopped"
     record.end_time = datetime.now().isoformat()
+    record.final_loss = float(latest_progress.loss)
+    record.final_lr = float(latest_progress.lr)
+    record.elapsed_time = float(latest_progress.elapsed_time)
+    record.total_steps = int(latest_progress.step)
+    _enrich_record_metrics(record)
     state.add_to_history_sync(record)
     logger.info(f"训练已停止并保存历史：{record.id}")
 
@@ -2489,7 +2621,8 @@ async def get_history():
     """获取训练历史"""
     state = get_training_context().state
     records = state.get_history()
-    return [TrainingRecordResponse(**r.model_dump()) for r in records]
+    enriched = [_enrich_record_metrics(r) for r in records]
+    return [TrainingRecordResponse(**r.model_dump()) for r in enriched]
 
 
 @router.websocket("/ws/{task_id}")
@@ -2754,6 +2887,7 @@ async def _monitor_swift_training(
     logger.info(f"开始监控 SWIFT 训练：{task_id}")
 
     state.queue_training_state(True)
+    last_progress: dict[str, Any] = {}
     while True:
         await asyncio.sleep(3)
 
@@ -2766,6 +2900,8 @@ async def _monitor_swift_training(
 
         if current_status == "running":
             progress = swift_backend.parse_training_progress()
+            if isinstance(progress, dict) and progress:
+                last_progress = progress
 
             if progress.get("step", 0) > 0:
                 _queue_training_progress(
@@ -2804,6 +2940,11 @@ async def _monitor_swift_training(
             record.status = "completed"
             record.end_time = datetime.now().isoformat()
             record.checkpoint_path = str(Path(record.output_path) / "adapter_model")
+            record.final_loss = float(last_progress.get("loss", 0.0))
+            record.final_lr = float(last_progress.get("lr", 0.0))
+            record.elapsed_time = float(last_progress.get("elapsed_time", 0.0))
+            record.total_steps = int(last_progress.get("step", 0))
+            _enrich_record_metrics(record)
 
             try:
                 ws_manager = get_ws_manager()
@@ -2834,6 +2975,11 @@ async def _monitor_swift_training(
 
             record.status = "failed"
             record.end_time = datetime.now().isoformat()
+            record.final_loss = float(last_progress.get("loss", 0.0))
+            record.final_lr = float(last_progress.get("lr", 0.0))
+            record.elapsed_time = float(last_progress.get("elapsed_time", 0.0))
+            record.total_steps = int(last_progress.get("step", 0))
+            _enrich_record_metrics(record)
 
             try:
                 ws_manager = get_ws_manager()

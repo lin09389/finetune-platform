@@ -9,6 +9,7 @@ from typing import Any
 import aiohttp
 
 from .base import BackendType, GenerationConfig, GenerationResult, InferenceBackend
+from .ollama_schemas import OllamaPullRequest, OllamaGenerateRequest, OllamaChatRequest, OllamaOptions, OllamaMessage
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +31,11 @@ class OllamaBackend(InferenceBackend):
         self.model_name = model_name or self.model_name
 
         try:
+            payload = OllamaPullRequest(name=self.model_name, stream=False)
+
             async with aiohttp.ClientSession() as session, session.post(
                 f"{self.base_url}/api/pull",
-                json={"name": self.model_name},
+                json=payload.model_dump(exclude_none=True),
                 timeout=aiohttp.ClientTimeout(total=self.timeout)
             ) as response:
                 if response.status == 200:
@@ -72,24 +75,24 @@ class OllamaBackend(InferenceBackend):
         start_time = time.time()
 
         try:
-            async with aiohttp.ClientSession() as session:
-                payload = {
-                    "model": self.model_name,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {
-                        "num_predict": config.max_tokens,
-                        "temperature": config.temperature,
-                        "top_p": config.top_p,
-                        "top_k": config.top_k,
-                        "repeat_penalty": config.repetition_penalty,
-                        "stop": config.stop_sequences
-                    }
-                }
+            payload = OllamaGenerateRequest(
+                model=self.model_name,
+                prompt=prompt,
+                stream=False,
+                options=OllamaOptions(
+                    num_predict=config.max_tokens,
+                    temperature=config.temperature,
+                    top_p=config.top_p,
+                    top_k=config.top_k,
+                    repeat_penalty=config.repetition_penalty,
+                    stop=config.stop_sequences
+                )
+            )
 
+            async with aiohttp.ClientSession() as session:
                 async with session.post(
                     f"{self.base_url}/api/generate",
-                    json=payload,
+                    json=payload.model_dump(exclude_none=True),
                     timeout=aiohttp.ClientTimeout(total=self.timeout)
                 ) as response:
                     if response.status != 200:
@@ -132,24 +135,24 @@ class OllamaBackend(InferenceBackend):
         config = config or GenerationConfig()
 
         try:
-            async with aiohttp.ClientSession() as session:
-                payload = {
-                    "model": self.model_name,
-                    "prompt": prompt,
-                    "stream": True,
-                    "options": {
-                        "num_predict": config.max_tokens,
-                        "temperature": config.temperature,
-                        "top_p": config.top_p,
-                        "top_k": config.top_k,
-                        "repeat_penalty": config.repetition_penalty,
-                        "stop": config.stop_sequences
-                    }
-                }
+            payload = OllamaGenerateRequest(
+                model=self.model_name,
+                prompt=prompt,
+                stream=True,
+                options=OllamaOptions(
+                    num_predict=config.max_tokens,
+                    temperature=config.temperature,
+                    top_p=config.top_p,
+                    top_k=config.top_k,
+                    repeat_penalty=config.repetition_penalty,
+                    stop=config.stop_sequences
+                )
+            )
 
+            async with aiohttp.ClientSession() as session:
                 async with session.post(
                     f"{self.base_url}/api/generate",
-                    json=payload,
+                    json=payload.model_dump(exclude_none=True),
                     timeout=aiohttp.ClientTimeout(total=self.timeout)
                 ) as response:
                     if response.status != 200:
@@ -205,24 +208,24 @@ class OllamaBackend(InferenceBackend):
         start_time = time.time()
 
         try:
-            async with aiohttp.ClientSession() as session:
-                payload = {
-                    "model": self.model_name,
-                    "messages": messages,
-                    "stream": False,
-                    "options": {
-                        "num_predict": config.max_tokens,
-                        "temperature": config.temperature,
-                        "top_p": config.top_p,
-                        "top_k": config.top_k,
-                        "repeat_penalty": config.repetition_penalty,
-                        "stop": config.stop_sequences
-                    }
-                }
+            payload = OllamaChatRequest(
+                model=self.model_name,
+                messages=[OllamaMessage(role=m["role"], content=m["content"]) for m in messages],
+                stream=False,
+                options=OllamaOptions(
+                    num_predict=config.max_tokens,
+                    temperature=config.temperature,
+                    top_p=config.top_p,
+                    top_k=config.top_k,
+                    repeat_penalty=config.repetition_penalty,
+                    stop=config.stop_sequences
+                )
+            )
 
+            async with aiohttp.ClientSession() as session:
                 async with session.post(
                     f"{self.base_url}/api/chat",
-                    json=payload,
+                    json=payload.model_dump(exclude_none=True),
                     timeout=aiohttp.ClientTimeout(total=self.timeout)
                 ) as response:
                     if response.status != 200:
@@ -268,24 +271,24 @@ class OllamaBackend(InferenceBackend):
         config = config or GenerationConfig()
 
         try:
-            async with aiohttp.ClientSession() as session:
-                payload = {
-                    "model": self.model_name,
-                    "messages": messages,
-                    "stream": True,
-                    "options": {
-                        "num_predict": config.max_tokens,
-                        "temperature": config.temperature,
-                        "top_p": config.top_p,
-                        "top_k": config.top_k,
-                        "repeat_penalty": config.repetition_penalty,
-                        "stop": config.stop_sequences
-                    }
-                }
+            payload = OllamaChatRequest(
+                model=self.model_name,
+                messages=[OllamaMessage(role=m["role"], content=m["content"]) for m in messages],
+                stream=True,
+                options=OllamaOptions(
+                    num_predict=config.max_tokens,
+                    temperature=config.temperature,
+                    top_p=config.top_p,
+                    top_k=config.top_k,
+                    repeat_penalty=config.repetition_penalty,
+                    stop=config.stop_sequences
+                )
+            )
 
+            async with aiohttp.ClientSession() as session:
                 async with session.post(
                     f"{self.base_url}/api/chat",
-                    json=payload,
+                    json=payload.model_dump(exclude_none=True),
                     timeout=aiohttp.ClientTimeout(total=self.timeout)
                 ) as response:
                     if response.status != 200:

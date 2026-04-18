@@ -439,6 +439,9 @@ export const RuntimeContextProvider: React.FC<{ children: React.ReactNode }> = (
       selections.knowledge.collectionId || chatSettings.knowledgeCollection || 'default';
     const activeModelCount =
       activeBackend === 'ollama' ? ollamaModels.length : huggingfaceModels.length;
+    const knowledgeEnabled = Boolean(
+      chatSettings.useKnowledge || selections.knowledge.collectionId,
+    );
 
     const warnings: string[] = [];
     warnings.push(...bootstrapWarnings);
@@ -448,7 +451,7 @@ export const RuntimeContextProvider: React.FC<{ children: React.ReactNode }> = (
     if (activeBackend === 'ollama' && !ollamaAvailable) {
       warnings.push('当前选择了 Ollama 后端，但运行时未检测到可用 Ollama 服务。');
     }
-    if (!embedderStatus?.loaded) {
+    if (knowledgeEnabled && !embedderStatus?.loaded) {
       warnings.push('知识库嵌入模型尚未就绪，检索和上传后的向量化能力会受限。');
     }
     if (trainingObserved.progressStatus === 'failed') {

@@ -60,6 +60,17 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
   onGradAccChange,
   onApplyPreset,
 }) => {
+  const evalSteps = Form.useWatch('evalSteps', form) ?? 100;
+  const saveSteps = Form.useWatch('saveSteps', form) ?? 500;
+  const loadBestModel = Form.useWatch('loadBestModel', form) ?? true;
+
+  const normalizedEvalSteps = Math.max(1, Number(evalSteps || 1));
+  const normalizedSaveSteps = Math.max(1, Number(saveSteps || 1));
+  const suggestedSaveSteps =
+    Math.ceil(normalizedSaveSteps / normalizedEvalSteps) * normalizedEvalSteps;
+  const needsSaveStepAlignment =
+    loadBestModel && normalizedSaveSteps % normalizedEvalSteps !== 0;
+
   return (
     <Form
       form={form}
@@ -236,6 +247,43 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
           </Form.Item>
         </Col>
       </Row>
+
+      <Row gutter={16}>
+        <Col span={8}>
+          <Form.Item label="评估间隔步数" name="evalSteps" initialValue={100}>
+            <InputNumber min={10} max={5000} step={10} style={{ width: '100%' }} />
+          </Form.Item>
+        </Col>
+        <Col span={8}>
+          <Form.Item label="保存间隔步数" name="saveSteps" initialValue={500}>
+            <InputNumber min={10} max={10000} step={10} style={{ width: '100%' }} />
+          </Form.Item>
+        </Col>
+        <Col span={8}>
+          <Form.Item
+            label="结束时加载最佳模型"
+            name="loadBestModel"
+            valuePropName="checked"
+            initialValue
+          >
+            <Switch />
+          </Form.Item>
+        </Col>
+      </Row>
+
+      {loadBestModel && (
+        <Alert
+          className={styles.stepHint}
+          type={needsSaveStepAlignment ? 'warning' : 'info'}
+          showIcon
+          message={
+            needsSaveStepAlignment
+              ? `将自动调整 save_steps: ${normalizedSaveSteps} -> ${suggestedSaveSteps}`
+              : `当前步长合法：save_steps(${normalizedSaveSteps}) 是 eval_steps(${normalizedEvalSteps}) 的整数倍`
+          }
+          description="开启“结束时加载最佳模型”时，后端会确保 save_steps 是 eval_steps 的整数倍。"
+        />
+      )}
 
       <Form.Item style={{ marginTop: 'var(--space-6)', textAlign: 'right' }}>
         <Space size="large">

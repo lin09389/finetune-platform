@@ -10,7 +10,7 @@ import {
 import { Button, Input, message, Space, Tag, Tooltip } from 'antd';
 import { AnimatePresence, motion } from 'framer-motion';
 import 'highlight.js/styles/atom-one-dark.css';
-import React, { memo, useCallback, useMemo, useState } from 'react';
+import React, { memo, useCallback, useMemo, useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
@@ -56,13 +56,22 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
     const [showKnowledgeSources, setShowKnowledgeSources] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const [editContent, setEditContent] = useState(content);
+    const [isDoneTyping, setIsDoneTyping] = useState(false);
 
     const isUser = role === 'user';
     const isAssistant = role === 'assistant';
 
     const shouldUseStreaming = useMemo(() => {
-      return isAssistant && enableTypewriter && isStreaming;
-    }, [isAssistant, enableTypewriter, isStreaming]);
+      // Keep using StreamingMessage until both stream is over AND typing is done
+      return isAssistant && enableTypewriter && (isStreaming || !isDoneTyping);
+    }, [isAssistant, enableTypewriter, isStreaming, isDoneTyping]);
+
+    // Reset isDoneTyping when a new streaming session starts
+    useEffect(() => {
+      if (isStreaming) {
+        setIsDoneTyping(false);
+      }
+    }, [isStreaming]);
 
     const handleCopy = useCallback(async () => {
       try {
@@ -101,7 +110,9 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
         exit="exit"
       >
         <motion.div
-          className={`${styles.bubble} ${isUser ? styles.userBubble : styles.assistantBubble}`}
+          className={`${styles.bubble} ${isUser ? styles.userBubble : styles.assistantBubble} ${
+            isLoading && isAssistant ? styles.loadingBubble : ''
+          }`}
           role="region"
           aria-live={isUser ? 'off' : 'polite'}
           initial={{ scale: 0.98, opacity: 0 }}
@@ -196,6 +207,7 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
                       content={content}
                       isStreaming={isStreaming}
                       speed={typewriterSpeed}
+                      onTypingComplete={() => setIsDoneTyping(true)}
                     />
                   ) : (
                     <ReactMarkdown

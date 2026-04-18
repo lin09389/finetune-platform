@@ -4,10 +4,9 @@ import {
   RobotOutlined,
   SendOutlined,
   StopOutlined,
-  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { Avatar, Button, Input, Tooltip, Typography, message } from 'antd';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useResponsive } from '../../hooks/useResponsive';
 import { transitions } from '../../theme/animations';
@@ -27,16 +26,7 @@ interface ChatInputProps {
   modelId?: string;
   maxLength?: number;
   showModelInfo?: boolean;
-  suggestions?: string[];
-  onSuggestionClick?: (suggestion: string) => void;
 }
-
-const DEFAULT_SUGGESTIONS = [
-  '帮我解释一下这个概念',
-  '写一段代码实现...',
-  '分析这个问题',
-  '总结一下要点',
-];
 
 const ChatInput: React.FC<ChatInputProps> = ({
   onSend,
@@ -49,13 +39,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
   modelId,
   maxLength = 4000,
   showModelInfo = true,
-  suggestions = DEFAULT_SUGGESTIONS,
-  onSuggestionClick,
 }) => {
   const { isMobile } = useResponsive();
   const [value, setValue] = useState('');
   const [isFocused, setIsFocused] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isRecording, setIsRecording] = useState(false);
 
@@ -65,7 +52,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
     if (!canSend) return;
     onSend(value.trim());
     setValue('');
-    setShowSuggestions(false);
   }, [canSend, onSend, value]);
 
   const handleKeyDown = useCallback(
@@ -80,16 +66,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
       }
     },
     [handleSend, isStreaming, onStop],
-  );
-
-  const handleSuggestionClick = useCallback(
-    (suggestion: string) => {
-      setValue(suggestion);
-      setShowSuggestions(false);
-      textareaRef.current?.focus();
-      onSuggestionClick?.(suggestion);
-    },
-    [onSuggestionClick],
   );
 
   const handleVoiceInput = useCallback(() => {
@@ -153,35 +129,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
       className={`${styles.inputShell} ${isMobile ? styles.inputShellMobile : styles.inputShellDesktop}`}
     >
       <div className={styles.container}>
-        <AnimatePresence>
-          {showSuggestions && suggestions.length > 0 && !value && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={transitions.base}
-              className={styles.suggestions}
-            >
-              {suggestions.map((suggestion, index) => (
-                <motion.div
-                  key={index}
-                  initial={{ opacity: 0, scale: 0.92 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: index * 0.04 }}
-                >
-                  <Button
-                    size="small"
-                    onClick={() => handleSuggestionClick(suggestion)}
-                    className={styles.suggestionBtn}
-                  >
-                    {suggestion}
-                  </Button>
-                </motion.div>
-              ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
         <motion.div
           animate={{
             boxShadow: isFocused
@@ -195,23 +142,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
             ref={textareaRef}
             placeholder={disabled ? '请先选择模型' : placeholder}
             value={value}
-            onChange={(e) => {
-              setValue(e.target.value);
-              if (e.target.value.length === 0) {
-                setShowSuggestions(true);
-              } else {
-                setShowSuggestions(false);
-              }
-            }}
+            onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
-            onFocus={() => {
-              setIsFocused(true);
-              if (!value) setShowSuggestions(true);
-            }}
-            onBlur={() => {
-              setIsFocused(false);
-              setTimeout(() => setShowSuggestions(false), 200);
-            }}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
             autoSize={{ minRows: 1, maxRows: 6 }}
             disabled={disabled || loading}
             maxLength={maxLength}
@@ -249,17 +183,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
             </div>
 
             <div className={styles.toolbarRight}>
-              <Tooltip title="快捷建议">
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<ThunderboltOutlined />}
-                  onClick={() => setShowSuggestions(!showSuggestions)}
-                  style={{ color: showSuggestions ? 'var(--accent-primary)' : undefined }}
-                  className={styles.ghostIcon}
-                />
-              </Tooltip>
-
               <Tooltip title="语音输入">
                 <Button
                   type="text"
