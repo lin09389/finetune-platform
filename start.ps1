@@ -2,6 +2,9 @@
 
 $ErrorActionPreference = "Continue"
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $env:SystemRoot) { $env:SystemRoot = "C:\Windows" }
+if (-not $env:WINDIR) { $env:WINDIR = "C:\Windows" }
+if (-not $env:SystemDrive) { $env:SystemDrive = "C:" }
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  Finetune Platform 启动器" -ForegroundColor Cyan
@@ -67,6 +70,9 @@ Write-Host ""
 Write-Host "[后端] 启动中..." -ForegroundColor Yellow
 $backendJob = Start-Job -ScriptBlock {
     param($dir)
+    if (-not $env:SystemRoot) { $env:SystemRoot = "C:\Windows" }
+    if (-not $env:WINDIR) { $env:WINDIR = "C:\Windows" }
+    if (-not $env:SystemDrive) { $env:SystemDrive = "C:" }
     Set-Location $dir
     python -m uvicorn main:app --host 127.0.0.1 --port 8000
 } -ArgumentList $serverDir

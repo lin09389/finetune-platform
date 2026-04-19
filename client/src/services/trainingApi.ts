@@ -2,6 +2,7 @@ import {
   API_BASE_URL,
   apiClient,
   checkTrainingResources as checkRawTrainingResources,
+  checkTrainingPreflight as checkRawTrainingPreflight,
   getTrainingCheckpoints as getRawTrainingCheckpoints,
   getTrainingFailureAnalytics as getRawTrainingFailureAnalytics,
   getTrainingHistory as getRawTrainingHistory,
@@ -189,5 +190,7 @@ export const checkTrainingResources = async (params: {
   modelSize?: string;
   requiredVram?: number;
 }) => checkRawTrainingResources(params);
+
+export const checkTrainingPreflight = async (config: any) => checkRawTrainingPreflight(config);
 
 export { API_BASE_URL, stopTraining };

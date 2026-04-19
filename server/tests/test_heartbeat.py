@@ -136,6 +136,31 @@ class TestHeartbeatScheduler:
 
         assert scheduler._is_running is False
 
+    @pytest.mark.asyncio
+    async def test_execute_typed_task_with_executor(self, scheduler):
+        """测试调度器将任务类型和配置传递给执行器"""
+        executor = TaskExecutor()
+        scheduler.set_task_executor(executor)
+
+        task = HeartbeatTask(
+            id="resource_check",
+            name="Resource Check",
+            description="Check local resource usage",
+            schedule="60",
+            enabled=True,
+            metadata={
+                "type": "check",
+                "config": {"check_type": "resource_usage", "target": "local"},
+            },
+        )
+        scheduler.add_task(task)
+
+        result = await scheduler.execute_task("resource_check")
+
+        assert result["status"] == "ok"
+        assert result["metrics"]["cpu_percent"] >= 0
+        assert executor.get_result("resource_check") is not None
+
 
 class TestTaskExecutor:
     """任务执行器测试"""
@@ -329,6 +354,13 @@ class TestTaskTypes:
 
         assert result.status == TaskStatus.COMPLETED
         assert "metrics" in result.result
+        metrics = result.result["metrics"]
+        assert 0 <= metrics["cpu_percent"] <= 100
+        assert 0 <= metrics["memory_percent"] <= 100
+        assert 0 <= metrics["disk_percent"] <= 100
+        assert metrics["memory_available_gb"] >= 0
+        assert metrics["disk_free_gb"] >= 0
+        assert metrics["source"] in {"psutil", "fallback"}
 
     @pytest.mark.asyncio
     async def test_generate_daily_report(self):

@@ -9,6 +9,7 @@ import { Button, Descriptions, Drawer, Empty, Space, Spin, Table, Tag, message }
 import { useEffect, useState } from 'react';
 import glassStyles from '../components/shared/GlassCard.module.css';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
+import PageHeader from '../components/shared/PageHeader';
 import {
   getTrainingCheckpoints,
   getTrainingHistory,
@@ -188,20 +189,22 @@ export default function History() {
   return (
     <MotionList className={styles.container} stagger={0.08}>
       <MotionItem>
-        <div className={`${glassStyles.glassCard} ${styles.headerCard}`}>
-          <h1 className={styles.title}>
-            <HistoryOutlined />
-            训练历史
-          </h1>
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={() => void loadRecords()}
-            loading={loading}
-            style={{ borderRadius: 8 }}
-          >
-            刷新
-          </Button>
-        </div>
+        <PageHeader
+          title="训练历史"
+          icon={<HistoryOutlined />}
+          helpTooltip="查看历史训练记录，并从失败或停止的任务检查点恢复训练。"
+          primaryAction={
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={() => void loadRecords()}
+              loading={loading}
+              style={{ borderRadius: 8 }}
+            >
+              刷新
+            </Button>
+          }
+          style={{ marginBottom: 0 }}
+        />
       </MotionItem>
 
       <MotionItem>

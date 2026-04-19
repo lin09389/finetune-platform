@@ -13,6 +13,7 @@ from heartbeat import (
     get_heartbeat_scheduler,
 )
 from heartbeat.task_executor import (
+    TaskType,
     get_task_executor,
 )
 from pydantic import BaseModel, Field
@@ -25,6 +26,7 @@ router = APIRouter(prefix="/heartbeat", tags=["Heartbeat"])
 def _serialize_task(task: HeartbeatTask) -> dict[str, Any]:
     task_config = dict(task.metadata or {})
     task_type = task_config.pop("type", "check")
+    config = task_config.pop("config", task_config)
     return {
         "id": task.id,
         "name": task.name,
@@ -32,7 +34,7 @@ def _serialize_task(task: HeartbeatTask) -> dict[str, Any]:
         "schedule": task.schedule,
         "task_type": task_type,
         "enabled": task.enabled,
-        "config": task_config,
+        "config": config,
         "status": task.last_result or "pending",
         "last_run": task.last_run,
         "next_run": task.next_run,
@@ -69,6 +71,10 @@ async def get_heartbeat_status():
     executor = get_task_executor()
     scheduler_stats = scheduler.get_stats()
     executor_stats = executor.get_stats()
+    scheduler_stats.setdefault("running", scheduler_stats.get("is_running", False))
+    executor_stats.setdefault("total_executed", executor_stats.get("results_count", 0))
+    executor_stats.setdefault("success_count", executor_stats.get("completed_tasks", 0))
+    executor_stats.setdefault("failure_count", executor_stats.get("failed_tasks", 0))
     runtime_status = "ready" if scheduler_stats.get("running") else "limited"
 
     return {
@@ -99,14 +105,24 @@ async def list_tasks():
 async def create_task(request: TaskCreateRequest):
     """创建新任务"""
     scheduler = get_heartbeat_scheduler()
+    allowed_task_types = {task_type.value for task_type in TaskType}
+    if request.task_type not in allowed_task_types:
+        expected = ", ".join(sorted(allowed_task_types))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported task_type: {request.task_type}. Expected one of: {expected}",
+        )
 
     task = HeartbeatTask(
-        id=f"task_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+        id=f"task_{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
         name=request.name,
         description=request.description,
         schedule=request.schedule,
         enabled=request.enabled,
-        metadata=request.config,
+        metadata={
+            "type": request.task_type,
+            "config": request.config,
+        },
     )
 
     scheduler.add_task(task)

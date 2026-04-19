@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockApiClientGet = vi.hoisted(() => vi.fn());
+const mockApiClientPost = vi.hoisted(() => vi.fn());
 const mockGetTrainingFailureAnalytics = vi.hoisted(() => vi.fn());
 const mockGetTrainingCheckpoints = vi.hoisted(() => vi.fn());
 const mockGetTrainingHistory = vi.hoisted(() => vi.fn());
@@ -15,7 +16,11 @@ vi.mock('../services/api', () => ({
   API_BASE_URL: 'http://localhost:8000',
   apiClient: {
     get: mockApiClientGet,
+    post: mockApiClientPost,
   },
+  checkTrainingPreflight: vi.fn((config) =>
+    mockApiClientPost('/training/preflight', config).then((r: any) => r.data),
+  ),
   getTrainingFailureAnalytics: mockGetTrainingFailureAnalytics,
   getTrainingCheckpoints: mockGetTrainingCheckpoints,
   getTrainingHistory: mockGetTrainingHistory,
@@ -32,6 +37,7 @@ import {
   getTrainingHistory,
   getTrainingRecoveryOptions,
   getTrainingStatus,
+  checkTrainingPreflight,
   normalizeTrainingProgress,
   normalizeTrainingRecord,
   resumeTraining,
@@ -207,6 +213,29 @@ describe('trainingApi', () => {
       }),
     );
     expect(result).toBe(unsubscribe);
+  });
+
+  it('requests training preflight with the full config payload', async () => {
+    mockApiClientPost.mockResolvedValue({
+      data: {
+        passed: true,
+        status: 'ready',
+        summary: 'ok',
+        checks: [{ key: 'model', label: '基础模型', status: 'passed', message: 'ok' }],
+      },
+    });
+
+    const result = await checkTrainingPreflight({
+      model_id: 'demo-model',
+      dataset_id: 'demo-dataset',
+    });
+
+    expect(mockApiClientPost).toHaveBeenCalledWith('/training/preflight', {
+      model_id: 'demo-model',
+      dataset_id: 'demo-dataset',
+    });
+    expect(result.status).toBe('ready');
+    expect(result.checks[0].key).toBe('model');
   });
 
   it('normalizes recovery options and failure analytics payloads', async () => {

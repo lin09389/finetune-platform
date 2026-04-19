@@ -455,6 +455,35 @@ table.dataTable tbody td {
   margin-top: 2px;
 }
 
+.resultMetricsRow {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.resultMetricTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--glass-border);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.resultMetricTag svg {
+  color: var(--text-muted);
+}
+
+.resultMetricValue {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-left: 2px;
+}
+
 .timelineEmpty {
   text-align: center;
   padding: 32px 0;

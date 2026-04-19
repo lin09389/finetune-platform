@@ -9,6 +9,7 @@ import { Alert, Button, Drawer, Popconfirm, Space, Table, Tag, message } from 'a
 import { useEffect, useRef, useState } from 'react';
 import glassStyles from '../components/shared/GlassCard.module.css';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
+import PageHeader from '../components/shared/PageHeader';
 import { deleteDataset, getDatasetList, previewDataset, uploadDataset } from '../services/api';
 import { useAppStore } from '../store/appStore';
 import type { DatasetInfo } from '../types';
@@ -214,22 +215,24 @@ export default function DatasetManager() {
         onChange={handleWebFileUpload}
       />
       <MotionItem>
-        <div className={`${glassStyles.glassCard} ${styles.headerCard}`}>
-          <h1 className={styles.title}>
-            <FileTextOutlined />
-            数据集管理
-          </h1>
-          <Button
-            type="primary"
-            icon={<UploadOutlined />}
-            onClick={handleSelectFile}
-            loading={loading}
-            size="large"
-            style={{ borderRadius: 8 }}
-          >
-            上传数据集
-          </Button>
-        </div>
+        <PageHeader
+          title="数据集管理"
+          icon={<FileTextOutlined />}
+          helpTooltip="支持上传 JSON/JSONL 格式的数据集进行微调。"
+          primaryAction={
+            <Button
+              type="primary"
+              icon={<UploadOutlined />}
+              onClick={handleSelectFile}
+              loading={loading}
+              size="large"
+              style={{ borderRadius: 8 }}
+            >
+              上传数据集
+            </Button>
+          }
+          style={{ marginBottom: 0 }}
+        />
       </MotionItem>
 
       <MotionItem>

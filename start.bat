@@ -1,6 +1,9 @@
 @echo off
 chcp 65001 >nul
 title Finetune Platform
+if not defined SystemRoot set "SystemRoot=C:\Windows"
+if not defined WINDIR set "WINDIR=C:\Windows"
+if not defined SystemDrive set "SystemDrive=C:"
 
 echo ========================================
 echo   Finetune Platform 启动器

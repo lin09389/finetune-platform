@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import RuntimeContextPanel from '../components/runtime/RuntimeContextPanel';
 import glassStyles from '../components/shared/GlassCard.module.css';
 import InsightPanel from '../components/shared/InsightPanel';
+import PageHeader from '../components/shared/PageHeader';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import { useRuntimeContext } from '../runtime/RuntimeContext';
 import {
@@ -182,12 +183,12 @@ export default function Inference() {
   return (
     <MotionList className={styles.container} stagger={0.08}>
       <MotionItem>
-        <div className={`${glassStyles.glassCard} ${styles.headerCard}`}>
-          <h1 className={styles.title}>
-            <CodeOutlined />
-            推理测试
-          </h1>
-        </div>
+        <PageHeader
+          title="推理测试"
+          icon={<CodeOutlined />}
+          helpTooltip="与本地或 Ollama 模型进行对话测试，调整推理参数以获得最佳效果。"
+          style={{ marginBottom: 0 }}
+        />
       </MotionItem>
 
       {backendStatus !== 'connected' ? (

@@ -3,6 +3,13 @@
 import sys
 import os
 
+if not os.environ.get("SystemRoot"):
+    os.environ["SystemRoot"] = r"C:\Windows"
+if not os.environ.get("WINDIR"):
+    os.environ["WINDIR"] = r"C:\Windows"
+if not os.environ.get("SystemDrive"):
+    os.environ["SystemDrive"] = "C:"
+
 # 添加服务器路径
 server_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'server')
 sys.path.insert(0, server_path)

@@ -441,6 +441,30 @@ class ResourceCheckResponse(BaseModel):
     device_name: str | None = None
 
 
+class TrainingPreflightCheck(BaseModel):
+    """单项训练预检结果"""
+    key: str
+    label: str
+    status: str = Field(description="passed/warning/blocked")
+    message: str
+    detail: str | None = None
+
+
+class TrainingPreflightResponse(BaseModel):
+    """训练启动前预检响应"""
+    passed: bool
+    status: str = Field(description="ready/warning/blocked")
+    summary: str
+    checks: list[TrainingPreflightCheck] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    suggestions: list[str] = Field(default_factory=list)
+    recommended_config: dict[str, Any] = Field(default_factory=dict)
+    available_vram: float | None = None
+    required_vram: float | None = None
+    device_name: str | None = None
+
+
 def _read_latest_metric_point(record: TrainingRecord) -> dict[str, Any] | None:
     """Read the latest metric sample for a training record from metrics.jsonl."""
     metrics_file = Path(record.output_path) / "metrics.jsonl"
@@ -3384,6 +3408,267 @@ class TrainingValidator:
             result.warnings.append(
                 f"训练轮数 {config.epochs} 较多，注意过拟合风险"
             )
+
+
+def _preflight_check(
+    checks: list[TrainingPreflightCheck],
+    key: str,
+    label: str,
+    status: str,
+    message: str,
+    detail: str | None = None,
+) -> None:
+    checks.append(
+        TrainingPreflightCheck(
+            key=key,
+            label=label,
+            status=status,
+            message=message,
+            detail=detail,
+        )
+    )
+
+
+def _estimate_preflight_required_vram(config: TrainingConfigInput) -> float:
+    estimated = TrainingValidator._estimate_vram(
+        config.model_id,
+        config.method,
+        config.batch_size,
+        config.max_seq_length,
+    )
+    if config.quantization == 4 and config.method == "qlora":
+        estimated *= 0.85
+    if config.gradient_checkpointing:
+        estimated *= 0.9
+    return max(0.5, round(estimated, 1))
+
+
+@router.post("/preflight", response_model=TrainingPreflightResponse)
+async def preflight_training(config: TrainingConfigInput):
+    """训练启动前预检，返回可展示的分项结论。"""
+    settings = get_settings()
+    state = get_training_context().state
+    checks: list[TrainingPreflightCheck] = []
+    blockers: list[str] = []
+    warnings: list[str] = []
+    suggestions: list[str] = []
+    recommended_config: dict[str, Any] = {}
+    available_vram: float | None = None
+    required_vram: float | None = None
+    device_name: str | None = None
+
+    if state.is_training():
+        blockers.append("当前已有训练任务在运行，需等待结束或停止后再启动新任务")
+        _preflight_check(
+            checks,
+            "runtime_state",
+            "训练运行状态",
+            "blocked",
+            "已有训练任务正在运行",
+            "当前版本默认只允许一个训练任务活跃运行。",
+        )
+    else:
+        _preflight_check(
+            checks,
+            "runtime_state",
+            "训练运行状态",
+            "passed",
+            "当前没有活跃训练任务",
+        )
+
+    try:
+        _validate_release_supported_features(config)
+        _preflight_check(
+            checks,
+            "release_features",
+            "发布版能力边界",
+            "passed",
+            "当前配置只使用发布版开放的 LoRA / QLoRA 能力",
+        )
+    except HTTPException as exc:
+        message = str(exc.detail)
+        blockers.append(message)
+        _preflight_check(
+            checks,
+            "release_features",
+            "发布版能力边界",
+            "blocked",
+            "配置包含未开放的实验训练能力",
+            message,
+        )
+
+    model_path = settings.models_dir_resolved / config.model_id
+    if model_path.exists():
+        detail = str(model_path)
+        config_file = model_path / "config.json"
+        if config_file.exists():
+            detail = f"{detail}，config.json 已找到"
+        else:
+            warnings.append("模型目录存在，但未找到 config.json，加载时可能失败")
+        _preflight_check(
+            checks,
+            "model",
+            "基础模型",
+            "warning" if not config_file.exists() else "passed",
+            "模型目录可访问" if config_file.exists() else "模型目录可访问，但配置文件不完整",
+            detail,
+        )
+    else:
+        message = f"模型不存在：{config.model_id}"
+        blockers.append(message)
+        _preflight_check(checks, "model", "基础模型", "blocked", message)
+
+    dataset_path = settings.datasets_dir_resolved / config.dataset_id
+    dataset_file: Path | None = None
+    if dataset_path.exists():
+        for ext in [".json", ".jsonl"]:
+            for pattern in [f"{config.dataset_id}{ext}", f"data{ext}", f"*{ext}"]:
+                potential_file = dataset_path / pattern
+                if potential_file.exists():
+                    dataset_file = potential_file
+                    break
+                for file_path in dataset_path.glob(pattern):
+                    dataset_file = file_path
+                    break
+                if dataset_file:
+                    break
+            if dataset_file:
+                break
+
+        if dataset_file:
+            _preflight_check(
+                checks,
+                "dataset",
+                "训练数据集",
+                "passed",
+                "数据集文件可访问",
+                str(dataset_file),
+            )
+        else:
+            message = "数据集目录存在，但未找到 .json 或 .jsonl 数据文件"
+            blockers.append(message)
+            _preflight_check(checks, "dataset", "训练数据集", "blocked", message, str(dataset_path))
+    else:
+        message = f"数据集不存在：{config.dataset_id}"
+        blockers.append(message)
+        _preflight_check(checks, "dataset", "训练数据集", "blocked", message)
+
+    validation_result = await TrainingValidator.validate_config(config, settings)
+    for error in validation_result.errors:
+        if error not in blockers:
+            blockers.append(error)
+    for warning in validation_result.warnings:
+        if warning not in warnings:
+            warnings.append(warning)
+
+    if validation_result.errors:
+        _preflight_check(
+            checks,
+            "validator",
+            "配置完整性",
+            "blocked",
+            "配置验证存在阻塞问题",
+            "；".join(validation_result.errors),
+        )
+    elif validation_result.warnings:
+        _preflight_check(
+            checks,
+            "validator",
+            "配置完整性",
+            "warning",
+            "配置可启动，但存在训练质量或稳定性风险",
+            "；".join(validation_result.warnings),
+        )
+    else:
+        _preflight_check(checks, "validator", "配置完整性", "passed", "配置结构与参数范围通过")
+
+    required_vram = _estimate_preflight_required_vram(config)
+    resource_check = pre_training_resource_check(
+        required_vram_gb=required_vram,
+        method=config.method,
+        model_size=config.model_id,
+    )
+    available_vram = resource_check.get("available_vram")
+    device_name = resource_check.get("device_name")
+    recommended_config = resource_check.get("recommended_config") or {}
+    for warning in resource_check.get("warnings", []):
+        if warning not in warnings:
+            warnings.append(warning)
+    for suggestion in resource_check.get("suggestions", []):
+        if suggestion not in suggestions:
+            suggestions.append(suggestion)
+
+    if resource_check.get("passed"):
+        _preflight_check(
+            checks,
+            "resources",
+            "显存与设备",
+            "passed",
+            "资源预算通过",
+            f"可用 {available_vram}GB，预计需要 {required_vram}GB",
+        )
+    else:
+        resource_message = f"预计需要 {required_vram}GB VRAM，可用 {available_vram}GB"
+        if available_vram is not None and available_vram <= 0:
+            blockers.append("未检测到可用于训练的 GPU/CUDA 环境")
+            _preflight_check(checks, "resources", "显存与设备", "blocked", resource_message)
+        else:
+            warnings.append(resource_message)
+            _preflight_check(
+                checks,
+                "resources",
+                "显存与设备",
+                "warning",
+                "显存预算偏紧，建议应用保守配置",
+                resource_message,
+            )
+
+    try:
+        output_root = settings.outputs_dir_resolved
+        output_root.mkdir(parents=True, exist_ok=True)
+        probe_file = output_root / ".preflight_write_probe"
+        probe_file.write_text("ok", encoding="utf-8")
+        probe_file.unlink(missing_ok=True)
+        _preflight_check(
+            checks,
+            "output",
+            "输出目录",
+            "passed",
+            "训练输出目录可写",
+            str(output_root),
+        )
+    except Exception as exc:
+        message = f"训练输出目录不可写：{exc}"
+        blockers.append(message)
+        _preflight_check(checks, "output", "输出目录", "blocked", message)
+
+    if config.method == "lora" and config.quantization == 0 and required_vram and required_vram >= 6:
+        suggestion = "低显存环境建议切换到 QLoRA + 4bit 量化"
+        if suggestion not in suggestions:
+            suggestions.append(suggestion)
+
+    status = "blocked" if blockers else "warning" if warnings else "ready"
+    summary = (
+        "预检发现阻塞项，需修复后再启动训练。"
+        if status == "blocked"
+        else "预检通过但存在风险项，可调整配置后再启动。"
+        if status == "warning"
+        else "预检通过，当前配置可以启动训练。"
+    )
+
+    return TrainingPreflightResponse(
+        passed=status != "blocked",
+        status=status,
+        summary=summary,
+        checks=checks,
+        blockers=blockers,
+        warnings=warnings,
+        suggestions=suggestions,
+        recommended_config=recommended_config,
+        available_vram=available_vram,
+        required_vram=required_vram,
+        device_name=device_name,
+    )
 
 
 def _start_training_task(

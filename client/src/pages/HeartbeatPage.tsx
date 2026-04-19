@@ -2,7 +2,10 @@ import {
   CheckCircleOutlined,
   ClockCircleOutlined,
   CloseOutlined,
+  DashboardOutlined,
   DeleteOutlined,
+  DesktopOutlined,
+  HddOutlined,
   HeartOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
@@ -474,6 +477,28 @@ export default function HeartbeatPage() {
                           {result.duration_ms && ` · ${result.duration_ms}ms`}
                         </div>
                         {result.error && <div className={styles.timelineError}>{result.error}</div>}
+                        {result.result?.metrics && (
+                          <div className={styles.resultMetricsRow}>
+                            <div className={styles.resultMetricTag}>
+                              <DashboardOutlined /> CPU
+                              <span className={styles.resultMetricValue}>
+                                {result.result.metrics.cpu_percent?.toFixed(1)}%
+                              </span>
+                            </div>
+                            <div className={styles.resultMetricTag}>
+                              <DesktopOutlined /> 内存
+                              <span className={styles.resultMetricValue}>
+                                {result.result.metrics.memory_percent?.toFixed(1)}%
+                              </span>
+                            </div>
+                            <div className={styles.resultMetricTag}>
+                              <HddOutlined /> 磁盘
+                              <span className={styles.resultMetricValue}>
+                                {result.result.metrics.disk_percent?.toFixed(1)}%
+                              </span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );

@@ -6,11 +6,13 @@ import TrainingChart from '../../components/TrainingChart';
 import RuntimeContextPanel from '../../components/runtime/RuntimeContextPanel';
 import AnimatedLayout from '../../components/shared/AnimatedLayout';
 import GlassCard from '../../components/shared/GlassCard';
+import PageHeader from '../../components/shared/PageHeader';
 import InsightPanel from '../../components/shared/InsightPanel';
 import { useRuntimeContext } from '../../runtime/RuntimeContext';
 import type { TrainingEventV2 } from '../../services/api';
 import {
   checkTrainingResources,
+  checkTrainingPreflight,
   getTrainingCheckpoints,
   getTrainingFailureAnalytics,
   getTrainingHistory,
@@ -54,8 +56,18 @@ interface ChartDataPoint {
 
 interface PreflightResult {
   passed: boolean;
-  available_vram: number;
-  required_vram: number;
+  status?: 'ready' | 'warning' | 'blocked';
+  summary?: string;
+  checks?: Array<{
+    key: string;
+    label: string;
+    status: 'passed' | 'warning' | 'blocked';
+    message: string;
+    detail?: string;
+  }>;
+  blockers?: string[];
+  available_vram: number | null;
+  required_vram: number | null;
   suggestions: string[];
   warnings: string[];
   recommended_config: Record<string, any>;
@@ -500,6 +512,29 @@ const TrainingPage: React.FC = () => {
     [],
   );
 
+  const buildTrainingConfig = useCallback(
+    (values: any) => ({
+      model_id: values.modelId,
+      dataset_id: values.datasetId,
+      method: values.method || 'qlora',
+      rank: values.rank || 8,
+      alpha: values.alpha || 16,
+      learning_rate: values.learningRate || 5e-5,
+      epochs: values.epochs || 3,
+      batch_size: values.batchSize || 1,
+      gradient_accumulation: gradientAccumulation,
+      max_seq_length: values.maxSeqLength || 512,
+      warmup_steps: values.warmupSteps || 100,
+      save_steps: values.saveSteps || 500,
+      logging_steps: values.loggingSteps || 10,
+      precision_preset: precisionPreset,
+      memory_preset: memoryPreset,
+      use_flash_attn: useFlashAttn,
+      quantization: quantizationBit,
+    }),
+    [gradientAccumulation, memoryPreset, precisionPreset, quantizationBit, useFlashAttn],
+  );
+
   const handleStart = async (values: any) => {
     if (starting || isTraining) return;
 
@@ -509,10 +544,20 @@ const TrainingPage: React.FC = () => {
       return;
     }
 
-    const shouldApplyRecommendedConfig = !preflightResult.passed
-      ? await confirmRiskStart(preflightResult.warnings || [])
+    if (preflightResult.status === 'blocked' || !preflightResult.passed) {
+      notify.error(preflightResult.summary || '预检存在阻塞项，请修复后再启动训练。');
+      return;
+    }
+
+    const riskMessages = [
+      ...(preflightResult.warnings || []),
+      ...(preflightResult.suggestions || []),
+    ];
+    const hasRisk = preflightResult.status === 'warning' || riskMessages.length > 0;
+    const shouldApplyRecommendedConfig = hasRisk
+      ? await confirmRiskStart(riskMessages.length ? riskMessages : ['当前配置存在预检风险'])
       : false;
-    if (!preflightResult.passed && !shouldApplyRecommendedConfig) return;
+    if (hasRisk && !shouldApplyRecommendedConfig) return;
 
     setStarting(true);
     setTrainingStatus('loading');
@@ -520,25 +565,7 @@ const TrainingPage: React.FC = () => {
     setFailureDiagnosis(null);
 
     try {
-      const config = {
-        model_id: values.modelId,
-        dataset_id: values.datasetId,
-        method: values.method || 'qlora',
-        rank: values.rank || 8,
-        alpha: values.alpha || 16,
-        learning_rate: values.learningRate || 5e-5,
-        epochs: values.epochs || 3,
-        batch_size: values.batchSize || 1,
-        gradient_accumulation: gradientAccumulation,
-        max_seq_length: values.maxSeqLength || 512,
-        warmup_steps: values.warmupSteps || 100,
-        save_steps: values.saveSteps || 500,
-        logging_steps: values.loggingSteps || 10,
-        precision_preset: precisionPreset,
-        memory_preset: memoryPreset,
-        use_flash_attn: useFlashAttn,
-        quantization: quantizationBit,
-      };
+      const config = buildTrainingConfig(values);
 
       const result =
         useSwift && swiftAvailable
@@ -599,39 +626,126 @@ const TrainingPage: React.FC = () => {
 
     setPreflightChecking(true);
     try {
-      const result = await checkTrainingResources({
-        method: values.method || 'qlora',
-        modelSize: estimateModelSize(values.modelId),
-        requiredVram: estimateRequiredVram(values),
-      });
+      const result = await checkTrainingPreflight(buildTrainingConfig(values));
       setPreflightResult(result);
-
-      const mappedValues: Record<string, any> = {};
-      if (result.recommended_config?.batch_size !== undefined) {
-        mappedValues.batchSize = result.recommended_config.batch_size;
-      }
-      if (result.recommended_config?.max_seq_length !== undefined) {
-        mappedValues.maxSeqLength = result.recommended_config.max_seq_length;
-      }
-      if (result.recommended_config?.method !== undefined) {
-        mappedValues.method = result.recommended_config.method;
-      }
-      if (Object.keys(mappedValues).length > 0) {
-        form.setFieldsValue(mappedValues);
-      }
 
       setPreflightFingerprint(getCurrentPreflightFingerprint());
 
-      notify.emit(
-        result.passed ? 'success' : 'warning',
-        result.passed ? '训练前预检通过' : '训练前预检发现风险，已返回建议配置',
-      );
+      if (result.status === 'blocked') {
+        notify.error('训练前预检发现阻塞项，请先查看预检面板');
+      } else if (result.status === 'warning') {
+        notify.warning('训练前预检通过但存在风险，请确认后再启动');
+      } else {
+        notify.success('训练前预检通过');
+      }
     } catch (error: any) {
-      notify.error(getErrorMessage(error, '训练前预检失败'));
+      try {
+        const fallback = await checkTrainingResources({
+          method: values.method || 'qlora',
+          modelSize: estimateModelSize(values.modelId),
+          requiredVram: estimateRequiredVram(values),
+        });
+        setPreflightResult({
+          ...fallback,
+          status: fallback.passed ? 'ready' : 'warning',
+          summary: fallback.passed ? '资源预检通过。' : '资源预检存在风险。',
+          checks: [
+            {
+              key: 'resources',
+              label: '显存与设备',
+              status: fallback.passed ? 'passed' : 'warning',
+              message: fallback.passed ? '资源预算通过' : '显存预算偏紧',
+            },
+          ],
+          blockers: [],
+        });
+        setPreflightFingerprint(getCurrentPreflightFingerprint());
+        notify.warning('完整预检不可用，已回退到资源预检');
+      } catch {
+        notify.error(getErrorMessage(error, '训练前预检失败'));
+      }
     } finally {
       setPreflightChecking(false);
     }
   };
+
+  const handleApplyPreflightRecommendation = () => {
+    if (!preflightResult?.recommended_config) return;
+
+    const recommended = preflightResult.recommended_config;
+    const mappedValues: Record<string, any> = {};
+
+    if (recommended.method !== undefined) {
+      mappedValues.method = recommended.method;
+    }
+    if (recommended.batch_size !== undefined) {
+      mappedValues.batchSize = recommended.batch_size;
+    }
+    if (recommended.max_seq_length !== undefined) {
+      mappedValues.maxSeqLength = recommended.max_seq_length;
+    }
+    if (recommended.rank !== undefined) {
+      mappedValues.rank = recommended.rank;
+    }
+    if (recommended.alpha !== undefined) {
+      mappedValues.alpha = recommended.alpha;
+    }
+    if (recommended.learning_rate !== undefined) {
+      mappedValues.learningRate = recommended.learning_rate;
+    }
+    if (recommended.epochs !== undefined) {
+      mappedValues.epochs = recommended.epochs;
+    }
+    if (recommended.gradient_accumulation !== undefined) {
+      setGradientAccumulation(Number(recommended.gradient_accumulation) || gradientAccumulation);
+    }
+    if (recommended.quantization !== undefined) {
+      const nextQuantization = Number(recommended.quantization);
+      if (nextQuantization === 0 || nextQuantization === 4 || nextQuantization === 8) {
+        setQuantizationBit(nextQuantization);
+      }
+    }
+
+    if (Object.keys(mappedValues).length > 0) {
+      form.setFieldsValue(mappedValues);
+    }
+
+    setPreflightResult(null);
+    setPreflightFingerprint(null);
+    notify.info('已应用预检推荐配置，请重新执行训练前预检。');
+  };
+
+  const buildPreflightRecommendationDiff = () => {
+    if (!preflightResult?.recommended_config) return [];
+
+    const values = form.getFieldsValue();
+    const recommended = preflightResult.recommended_config;
+    const candidates = [
+      { key: 'method', label: '微调方法', current: values.method || 'qlora' },
+      { key: 'batch_size', label: 'Batch Size', current: values.batchSize ?? 1 },
+      { key: 'max_seq_length', label: '最大序列长度', current: values.maxSeqLength ?? 512 },
+      { key: 'rank', label: 'LoRA Rank', current: values.rank ?? 8 },
+      { key: 'alpha', label: 'LoRA Alpha', current: values.alpha ?? 16 },
+      { key: 'learning_rate', label: '学习率', current: values.learningRate ?? 5e-5 },
+      { key: 'epochs', label: '训练轮数', current: values.epochs ?? 3 },
+      { key: 'gradient_accumulation', label: '梯度累积', current: gradientAccumulation },
+      { key: 'quantization', label: '量化策略', current: quantizationBit },
+    ];
+
+    return candidates
+      .filter((item) => recommended[item.key] !== undefined)
+      .map((item) => {
+        const nextValue = recommended[item.key];
+        return {
+          label: item.label,
+          current: item.current,
+          next: nextValue,
+          changed: String(item.current) !== String(nextValue),
+        };
+      });
+  };
+
+  const preflightRecommendationDiff = buildPreflightRecommendationDiff();
 
   const handleApplyConservativePreset = () => {
     form.setFieldsValue({
@@ -714,15 +828,11 @@ const TrainingPage: React.FC = () => {
   return (
     <AnimatedLayout animationKey="training">
       <div className={styles.container}>
-        <div className={styles.header}>
-          <div className={styles.titleIcon}>
-            <ThunderboltOutlined />
-          </div>
-          <div>
-            <h1 className={styles.title}>模型训练</h1>
-            <p className={styles.subtitle}>配置参数并开始微调你的模型。</p>
-          </div>
-        </div>
+        <PageHeader
+          title="模型训练"
+          icon={<ThunderboltOutlined />}
+          helpTooltip="配置参数并开始微调你的模型。"
+        />
 
         {backendStatus !== 'connected' ? (
           <GlassCard intensity="high" style={{ padding: 'var(--space-12) 0', textAlign: 'center' }}>
@@ -816,21 +926,55 @@ const TrainingPage: React.FC = () => {
                       embedded
                       title="训练前预检"
                       status={{
-                        type: preflightResult.passed ? 'success' : 'warning',
-                        text: preflightResult.passed ? '可启动' : '存在风险',
+                        type:
+                          preflightResult.status === 'blocked'
+                            ? 'error'
+                            : preflightResult.status === 'warning'
+                              ? 'warning'
+                              : 'success',
+                        text:
+                          preflightResult.status === 'blocked'
+                            ? '需修复'
+                            : preflightResult.status === 'warning'
+                              ? '可启动但有风险'
+                              : '可启动',
                       }}
-                      summary={`设备：${preflightResult.device_name || '未知'}。当前配置会被映射到实际资源预算，便于在启动前先发现显存和方法选择风险。`}
+                      summary={
+                        preflightResult.summary ||
+                        `设备：${preflightResult.device_name || '未知'}。当前配置会被映射到实际资源预算，便于在启动前先发现显存和方法选择风险。`
+                      }
                       metrics={[
                         {
                           label: '可用显存',
-                          value: `${preflightResult.available_vram?.toFixed?.(1) ?? preflightResult.available_vram} GB`,
+                          value:
+                            preflightResult.available_vram === null ||
+                            preflightResult.available_vram === undefined
+                              ? '未知'
+                              : `${preflightResult.available_vram?.toFixed?.(1) ?? preflightResult.available_vram} GB`,
                         },
                         {
                           label: '预计需求',
-                          value: `${preflightResult.required_vram?.toFixed?.(1) ?? preflightResult.required_vram} GB`,
+                          value:
+                            preflightResult.required_vram === null ||
+                            preflightResult.required_vram === undefined
+                              ? '未知'
+                              : `${preflightResult.required_vram?.toFixed?.(1) ?? preflightResult.required_vram} GB`,
                         },
                       ]}
                       sections={[
+                        {
+                          title: '分项检查',
+                          items:
+                            preflightResult.checks?.map(
+                              (item) =>
+                                `${item.status === 'passed' ? '通过' : item.status === 'warning' ? '风险' : '阻塞'}｜${item.label}：${item.message}${item.detail ? `（${item.detail}）` : ''}`,
+                            ) || [],
+                        },
+                        {
+                          title: '阻塞项',
+                          items: preflightResult.blockers || [],
+                          tone: 'warning',
+                        },
                         {
                           title: '风险提示',
                           items: preflightResult.warnings || [],
@@ -841,6 +985,73 @@ const TrainingPage: React.FC = () => {
                           items: preflightResult.suggestions || [],
                         },
                       ]}
+                      footer={
+                        preflightRecommendationDiff.length > 0 ? (
+                          <div>
+                            <div
+                              style={{
+                                marginBottom: 8,
+                                fontWeight: 600,
+                                color: 'var(--text-primary)',
+                              }}
+                            >
+                              应用后参数变化
+                            </div>
+                            <div
+                              style={{
+                                display: 'grid',
+                                gap: 8,
+                              }}
+                            >
+                              {preflightRecommendationDiff.map((item) => (
+                                <div
+                                  key={item.label}
+                                  style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'minmax(96px, 1fr) minmax(72px, 1fr) 24px minmax(72px, 1fr)',
+                                    alignItems: 'center',
+                                    gap: 8,
+                                    padding: '8px 10px',
+                                    borderRadius: 'var(--radius-md)',
+                                    border: '1px solid var(--border-color)',
+                                    background: item.changed
+                                      ? 'var(--warning-light)'
+                                      : 'var(--bg-elevated)',
+                                  }}
+                                >
+                                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+                                    {item.label}
+                                  </span>
+                                  <code style={{ color: 'var(--text-secondary)' }}>
+                                    {String(item.current)}
+                                  </code>
+                                  <span style={{ color: 'var(--text-tertiary)', textAlign: 'center' }}>
+                                    →
+                                  </span>
+                                  <code
+                                    style={{
+                                      color: item.changed
+                                        ? 'var(--warning)'
+                                        : 'var(--text-secondary)',
+                                      fontWeight: item.changed ? 700 : 500,
+                                    }}
+                                  >
+                                    {String(item.next)}
+                                    {!item.changed ? '（已匹配）' : ''}
+                                  </code>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : undefined
+                      }
+                      actions={
+                        Object.keys(preflightResult.recommended_config || {}).length > 0 ? (
+                          <Button onClick={handleApplyPreflightRecommendation}>
+                            应用推荐配置
+                          </Button>
+                        ) : undefined
+                      }
                     />
                   </div>
                 )}

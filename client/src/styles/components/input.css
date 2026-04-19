@@ -3,35 +3,68 @@
    ============================================ */
 
 .ant-input,
-.ant-input-affix-wrapper {
+.ant-input-affix-wrapper,
+.ant-input-number,
+.ant-select-selector {
+  min-height: 40px !important;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   transition: all var(--transition-fast);
   color: var(--text-primary);
+  display: flex;
+  align-items: center;
 }
 
 .ant-input:hover,
-.ant-input-affix-wrapper:hover {
+.ant-input-affix-wrapper:hover,
+.ant-input-number:hover,
+.ant-select-selector:hover {
   border-color: var(--border-hover);
 }
 
 .ant-input:focus,
 .ant-input-affix-wrapper:focus,
 .ant-input-focused,
-.ant-input-affix-wrapper-focused {
-  border-color: var(--text-primary);
-  box-shadow: 0 0 0 3px rgba(45, 45, 45, 0.05);
+.ant-input-affix-wrapper-focused,
+.ant-input-number-focused,
+.ant-select-focused .ant-select-selector {
+  border-color: var(--accent-primary) !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
+  outline: none;
 }
 
-.ant-input::placeholder {
+.ant-input::placeholder,
+.ant-select-selection-placeholder {
   color: var(--text-tertiary);
 }
 
-.ant-input:disabled {
-  background: var(--bg-disabled);
-  color: var(--text-disabled);
-  cursor: not-allowed;
+.ant-input:disabled,
+.ant-input-affix-wrapper-disabled,
+.ant-input-number-disabled,
+.ant-select-disabled .ant-select-selector {
+  background: var(--bg-disabled) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-disabled) !important;
+  cursor: not-allowed !important;
+  opacity: 0.7;
+}
+
+.ant-input-status-error,
+.ant-input-affix-wrapper-status-error,
+.ant-input-number-status-error,
+.ant-select-status-error .ant-select-selector {
+  border-color: var(--error) !important;
+}
+
+.ant-input-status-error:focus,
+.ant-input-affix-wrapper-status-error:focus,
+.ant-input-status-error-focused,
+.ant-input-affix-wrapper-status-error-focused,
+.ant-input-number-status-error-focused,
+.ant-select-status-error.ant-select-focused .ant-select-selector {
+  border-color: var(--error) !important;
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.15) !important;
 }
 
 .ant-input-lg {
@@ -115,19 +148,7 @@
 
 /* 数字输入框 */
 .ant-input-number {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  transition: all var(--transition-fast);
-}
-
-.ant-input-number:hover {
-  border-color: var(--border-hover);
-}
-
-.ant-input-number-focused {
-  border-color: var(--text-primary);
-  box-shadow: 0 0 0 3px rgba(45, 45, 45, 0.05);
+  /* 已统一由全局控制 */
 }
 
 .ant-input-number-handler {

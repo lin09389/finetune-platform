@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import os
+import shutil
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -197,8 +199,54 @@ class TaskExecutor:
         check_type = task.config.get("check_type", "general")
         result = {"check_type": check_type, "target": target, "checked_at": datetime.now().isoformat(), "status": "ok", "findings": []}
         if check_type == "resource_usage":
-            result["metrics"] = {"cpu_percent": 0, "memory_percent": 0}
+            result["metrics"] = self._collect_resource_usage(task)
         return result
+
+    def _collect_resource_usage(self, task: ProactiveTask) -> dict[str, Any]:
+        path = Path(task.config.get("path") or self._workspace_path or Path.cwd())
+        if not path.exists():
+            path = Path.cwd()
+        try:
+            import psutil
+
+            memory = psutil.virtual_memory()
+            disk = psutil.disk_usage(str(path))
+            return {
+                "source": "psutil",
+                "path": str(path),
+                "cpu_percent": round(float(psutil.cpu_percent(interval=None)), 2),
+                "cpu_count": psutil.cpu_count(),
+                "memory_percent": round(float(memory.percent), 2),
+                "memory_total_gb": round(memory.total / (1024**3), 2),
+                "memory_available_gb": round(memory.available / (1024**3), 2),
+                "disk_percent": round(float(disk.percent), 2),
+                "disk_total_gb": round(disk.total / (1024**3), 2),
+                "disk_free_gb": round(disk.free / (1024**3), 2),
+            }
+        except Exception as exc:
+            logger.warning("psutil resource usage collection failed: %s", exc)
+            disk = shutil.disk_usage(path)
+            cpu_percent = 0.0
+            if hasattr(os, "getloadavg"):
+                try:
+                    load_1m = os.getloadavg()[0]
+                    cpu_count = os.cpu_count() or 1
+                    cpu_percent = min(100.0, max(0.0, (load_1m / cpu_count) * 100))
+                except OSError:
+                    cpu_percent = 0.0
+            disk_percent = 0.0 if disk.total == 0 else ((disk.used / disk.total) * 100)
+            return {
+                "source": "fallback",
+                "path": str(path),
+                "cpu_percent": round(cpu_percent, 2),
+                "cpu_count": os.cpu_count(),
+                "memory_percent": 0.0,
+                "memory_total_gb": 0.0,
+                "memory_available_gb": 0.0,
+                "disk_percent": round(disk_percent, 2),
+                "disk_total_gb": round(disk.total / (1024**3), 2),
+                "disk_free_gb": round(disk.free / (1024**3), 2),
+            }
 
     async def _execute_report_task(self, task: ProactiveTask) -> dict[str, Any]:
         report_type = task.config.get("report_type", "daily")

@@ -49,6 +49,18 @@ vi.mock('../utils/notify', () => ({
 }));
 
 vi.mock('../services/trainingApi', () => ({
+  checkTrainingPreflight: vi.fn().mockResolvedValue({
+    passed: true,
+    status: 'ready',
+    summary: '预检通过',
+    checks: [],
+    blockers: [],
+    available_vram: 8,
+    required_vram: 4,
+    suggestions: [],
+    warnings: [],
+    recommended_config: {},
+  }),
   checkTrainingResources: vi.fn().mockResolvedValue({
     passed: true,
     available_vram: 8,

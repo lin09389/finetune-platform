@@ -7,7 +7,13 @@ FROM python:3.10-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    MODELS_DIR=/app/models \
+    DATASETS_DIR=/app/datasets \
+    OUTPUTS_DIR=/app/outputs \
+    HF_HOME=/app/models/huggingface \
+    SENTENCE_TRANSFORMERS_HOME=/app/models/sentence-transformers \
+    MODELSCOPE_CACHE_DIR=/app/models/modelscope_cache
 
 # 设置工作目录
 WORKDIR /app
@@ -30,7 +36,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY server/ ./server/
 
 # 创建必要的目录
-RUN mkdir -p /app/models /app/datasets /app/outputs /app/logs
+RUN mkdir -p /app/models /app/datasets /app/outputs /app/logs /app/data
 
 # 设置环境变量
 ENV PYTHONPATH=/app/server

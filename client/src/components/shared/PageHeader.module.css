@@ -1,0 +1,50 @@
+.headerCard {
+  padding: 24px;
+  border-radius: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.title {
+  margin: 0 !important;
+  font-size: var(--text-xl);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  letter-spacing: -0.01em;
+}
+
+.status {
+  margin: 0;
+  border-radius: var(--radius-sm);
+  font-weight: var(--font-medium);
+}
+
+.helpIcon {
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: var(--text-base);
+  transition: color var(--transition-fast);
+  display: flex;
+  align-items: center;
+}
+
+.helpIcon:hover {
+  color: var(--text-secondary);
+}
+
+.right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}

@@ -474,6 +474,11 @@ export const checkTrainingResources = async (params: {
   return response.data;
 };
 
+export const checkTrainingPreflight = async (config: any) => {
+  const response = await apiClient.post('/training/preflight', config);
+  return response.data;
+};
+
 export const getTrainingProgress = async () => {
   const response = await apiClient.get('/training/progress');
   return response.data;

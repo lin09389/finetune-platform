@@ -102,6 +102,23 @@ class TestTrainingAPI:
         })
         assert response.status_code in [400, 404]
 
+    def test_training_preflight_reports_blockers_without_starting(self):
+        """预检应返回分项阻塞结果，而不是直接启动训练或抛 4xx。"""
+        response = client.post("/training/preflight", json={
+            "model_id": "nonexistent-model",
+            "dataset_id": "nonexistent-dataset",
+            "method": "qlora",
+            "batch_size": 1,
+            "max_seq_length": 512,
+        })
+        assert response.status_code == 200
+        data = response.json()
+        assert data["passed"] is False
+        assert data["status"] == "blocked"
+        assert any(check["key"] == "model" for check in data["checks"])
+        assert any(check["key"] == "dataset" for check in data["checks"])
+        assert data["blockers"]
+
     def test_stop_training_when_idle(self):
         """测试停止训练（空闲状态）"""
         response = client.post("/training/stop")

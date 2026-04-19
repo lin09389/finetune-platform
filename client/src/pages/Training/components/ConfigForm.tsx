@@ -3,8 +3,10 @@ import {
   PlayCircleOutlined,
   StopOutlined,
   ThunderboltOutlined,
+  InfoCircleOutlined,
+  ExclamationCircleOutlined,
 } from '@ant-design/icons';
-import { Alert, Button, Col, Divider, Form, InputNumber, Row, Select, Space, Switch } from 'antd';
+import { Button, Col, Divider, Form, InputNumber, Row, Select, Space, Switch } from 'antd';
 import React from 'react';
 import NeumorphicButton from '../../../components/shared/NeumorphicButton';
 import styles from './ConfigForm.module.css';
@@ -142,12 +144,27 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
           </Form.Item>
         </Col>
         <Col span={8}>
-          <Alert
-            type="info"
-            showIcon
-            message={<span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>发布版已关闭 DoRA / LoRA+ / GaLore</span>}
-            description={<span style={{ color: 'var(--text-secondary)' }}>当前仅开放 LoRA / QLoRA 主线训练，避免将实验性能力误当成稳定能力使用。</span>}
-          />
+          <div
+            style={{
+              padding: '12px 16px',
+              background: 'var(--bg-secondary)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--info)',
+              height: '100%',
+            }}
+          >
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <InfoCircleOutlined style={{ color: 'var(--info)', marginTop: 2 }} />
+              <div>
+                <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4, fontSize: 'var(--text-sm)' }}>
+                  发布版已关闭 DoRA / LoRA+ / GaLore
+                </div>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.5 }}>
+                  当前仅开放 LoRA / QLoRA 主线训练，避免将实验性能力误当成稳定能力使用。
+                </div>
+              </div>
+            </div>
+          </div>
         </Col>
       </Row>
 
@@ -272,17 +289,41 @@ const ConfigForm: React.FC<ConfigFormProps> = ({
       </Row>
 
       {loadBestModel && (
-        <Alert
+        <div
           className={styles.stepHint}
-          type={needsSaveStepAlignment ? 'warning' : 'info'}
-          showIcon
-          message={
-            needsSaveStepAlignment
-              ? `将自动调整 save_steps: ${normalizedSaveSteps} -> ${suggestedSaveSteps}`
-              : `当前步长合法：save_steps(${normalizedSaveSteps}) 是 eval_steps(${normalizedEvalSteps}) 的整数倍`
-          }
-          description="开启“结束时加载最佳模型”时，后端会确保 save_steps 是 eval_steps 的整数倍。"
-        />
+          style={{
+            marginTop: 'var(--space-6)',
+            padding: '12px 16px',
+            background: 'var(--bg-secondary)',
+            borderRadius: 'var(--radius-md)',
+            border: `1px solid ${needsSaveStepAlignment ? 'var(--warning)' : 'var(--info)'}`,
+          }}
+        >
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            {needsSaveStepAlignment ? (
+              <ExclamationCircleOutlined style={{ color: 'var(--warning)', marginTop: 2 }} />
+            ) : (
+              <CheckCircleOutlined style={{ color: 'var(--info)', marginTop: 2 }} />
+            )}
+            <div>
+              <div
+                style={{
+                  fontWeight: 600,
+                  color: 'var(--text-primary)',
+                  marginBottom: 4,
+                  fontSize: 'var(--text-sm)',
+                }}
+              >
+                {needsSaveStepAlignment
+                  ? `将自动调整 save_steps: ${normalizedSaveSteps} -> ${suggestedSaveSteps}`
+                  : `当前步长合法：save_steps(${normalizedSaveSteps}) 是 eval_steps(${normalizedEvalSteps}) 的整数倍`}
+              </div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.5 }}>
+                开启“结束时加载最佳模型”时，后端会确保 save_steps 是 eval_steps 的整数倍。
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       <Form.Item style={{ marginTop: 'var(--space-6)', textAlign: 'right' }}>

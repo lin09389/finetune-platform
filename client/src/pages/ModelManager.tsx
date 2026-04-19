@@ -25,6 +25,7 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 import glassStyles from '../components/shared/GlassCard.module.css';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
+import PageHeader from '../components/shared/PageHeader';
 import {
   deleteModel,
   downloadModel,
@@ -245,12 +246,11 @@ export default function ModelManager() {
   return (
     <MotionList className={styles.container} stagger={0.08}>
       <MotionItem>
-        <div className={`${glassStyles.glassCard} ${styles.headerCard}`}>
-          <h1 className={styles.title}>
-            <DatabaseOutlined />
-            模型管理
-          </h1>
-          <Space>
+        <PageHeader
+          title="模型管理"
+          icon={<DatabaseOutlined />}
+          helpTooltip="在这里管理和下载本地模型，以供微调或推理使用。"
+          extraActions={
             <Input
               placeholder="搜索模型..."
               prefix={<SearchOutlined />}
@@ -260,9 +260,18 @@ export default function ModelManager() {
               className="glass-input"
               allowClear
             />
-            <Button icon={<ReloadOutlined />} onClick={fetchModels} loading={loading}>
-              刷新
-            </Button>
+          }
+          secondaryAction={
+            <Space>
+              <Button icon={<ReloadOutlined />} onClick={fetchModels} loading={loading}>
+                刷新
+              </Button>
+              <Button icon={<ImportOutlined />} onClick={() => setImportModelScopeModalVisible(true)}>
+                导入 ModelScope
+              </Button>
+            </Space>
+          }
+          primaryAction={
             <Button
               type="primary"
               icon={<DownloadOutlined />}
@@ -270,11 +279,9 @@ export default function ModelManager() {
             >
               下载模型
             </Button>
-            <Button icon={<ImportOutlined />} onClick={() => setImportModelScopeModalVisible(true)}>
-              导入 ModelScope
-            </Button>
-          </Space>
-        </div>
+          }
+          style={{ marginBottom: 0 }}
+        />
       </MotionItem>
 
       <MotionItem>

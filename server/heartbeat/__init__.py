@@ -17,7 +17,14 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from .task_executor import ProactiveTask, TaskExecutor, TaskResult, TaskStatus, TaskType
+from .task_executor import (
+    ProactiveTask,
+    TaskExecutor,
+    TaskResult,
+    TaskStatus,
+    TaskType,
+    get_task_executor,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -257,15 +264,29 @@ class HeartbeatScheduler:
     async def _execute_task(self, task: HeartbeatTask) -> dict[str, Any]:
         """执行单个任务"""
         if self._task_executor:
+            task_type = task.metadata.get("type", "check")
+            try:
+                task_type_enum = TaskType(task_type)
+            except ValueError:
+                logger.warning(f"不支持的 Heartbeat 任务类型: {task_type}")
+                return {"error": f"Unsupported task type: {task_type}"}
+            task_config = task.metadata.get("config")
+            if task_config is None:
+                task_config = {
+                    key: value
+                    for key, value in task.metadata.items()
+                    if key not in {"type", "source", "task_func"}
+                }
             proactive_task = ProactiveTask(
                 id=task.id,
                 name=task.name,
-                task_type=TaskType(task.metadata.get("type", "check")),
+                task_type=task_type_enum,
                 description=task.description,
                 schedule=task.schedule,
                 enabled=task.enabled,
-                config=task.metadata.get("config", {}),
+                config=task_config,
             )
+            self._task_executor.add_task(proactive_task)
             result = await self._task_executor.execute_task(proactive_task.id)
 
             task.last_run = datetime.now()
@@ -391,6 +412,7 @@ def get_heartbeat_scheduler() -> HeartbeatScheduler:
     global _scheduler
     if _scheduler is None:
         _scheduler = HeartbeatScheduler()
+        _scheduler.set_task_executor(get_task_executor())
     return _scheduler
 
 

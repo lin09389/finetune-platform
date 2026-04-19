@@ -154,20 +154,32 @@ npm run dev
 - 前端：http://localhost:5173
 - API 文档：http://localhost:8000/docs
 
-### 方法二：Docker 部署
+### 方法二：Docker 体验版（推荐预览路径）
 
 ```bash
-# 启动 API 服务
-docker compose up -d api
+# 启动后端 API + 生产版前端
+docker compose up -d --build
 
-# 启动完整栈（包含前端）
-docker compose --profile dev up -d
+# 验证核心入口和 GA API
+python scripts/verify_docker_release.py
 
 # 查看日志
-docker compose logs -f api
+docker compose logs -f api frontend
 ```
 
-详细 Docker 配置见 [DOCKER.md](DOCKER.md)
+默认 Docker 体验版不强制要求 GPU，适合先验证平台是否能打开、后端是否连接、核心 GA 页面是否能显示明确状态。
+
+可选能力：
+
+```bash
+# 启动 Ollama 模式
+docker compose --profile ollama up -d --build
+
+# 启动 GPU 模式（需要 NVIDIA Docker 环境）
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+```
+
+详细 Docker 启动、清理、GPU/Ollama 和验收说明见 [DOCKER.md](DOCKER.md)。
 
 ### 训练监测 V2 联调验收（API 直连）
 

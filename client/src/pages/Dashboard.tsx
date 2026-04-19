@@ -7,12 +7,14 @@ import {
   DatabaseOutlined,
   ExclamationCircleOutlined,
   FolderOutlined,
-  MessageOutlined,
   PlayCircleOutlined,
   PlusOutlined,
   RocketOutlined,
   SettingOutlined,
   ThunderboltOutlined,
+  DesktopOutlined,
+  ApiOutlined,
+  InfoCircleOutlined,
 } from '@ant-design/icons';
 import { Button, Col, Empty, Progress, Row, Table, Tag } from 'antd';
 import { motion } from 'framer-motion';
@@ -20,19 +22,12 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AnimatedLayout from '../components/shared/AnimatedLayout';
 import GlassCard from '../components/shared/GlassCard';
+import PageHeader from '../components/shared/PageHeader';
 import { CountUp } from '../components/shared/MotionWrapper';
 import { getDeviceInfo } from '../services/api';
 import { useAppStore } from '../store/appStore';
+import { useRuntimeContext } from '../runtime/RuntimeContext';
 import styles from './Dashboard.module.css';
-
-interface QuickAction {
-  title: string;
-  icon: React.ReactNode;
-  color: string;
-  onClick: () => void;
-  description: string;
-  stats?: string;
-}
 
 interface StatCardProps {
   title: string;
@@ -150,6 +145,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { backendStatus, deviceInfo, setDeviceInfo, models, datasets, trainingRecords } =
     useAppStore();
+  const { inference, knowledge } = useRuntimeContext();
 
   const fetchDeviceInfo = async () => {
     if (backendStatus !== 'connected') return;
@@ -166,6 +162,48 @@ export default function Dashboard() {
   }, [backendStatus]);
 
   const recentTrainings = trainingRecords.slice(-5).reverse();
+
+  // 构建下一步建议
+  const suggestions = [];
+  if (models.length === 0) {
+    suggestions.push({
+      title: '没有模型',
+      desc: '去模型管理下载/导入模型',
+      action: () => navigate('/models'),
+      buttonText: '前往模型管理',
+      type: 'warning',
+    });
+  }
+  if (datasets.length === 0) {
+    suggestions.push({
+      title: '没有数据集',
+      desc: '去数据集上传，准备微调数据',
+      action: () => navigate('/datasets'),
+      buttonText: '前往数据集管理',
+      type: 'warning',
+    });
+  }
+  if (deviceInfo && !deviceInfo.cuda_available && !deviceInfo.mps_available) {
+    suggestions.push({
+      title: '无 GPU',
+      desc: '训练不可用，但聊天/知识库可继续体验',
+      type: 'info',
+    });
+  }
+  if (!inference.ollamaAvailable) {
+    suggestions.push({
+      title: 'Ollama 未启动',
+      desc: '本地推理不可用，可切换 HuggingFace 或查看 Docker Ollama 说明',
+      type: 'info',
+    });
+  }
+  if (suggestions.length === 0) {
+    suggestions.push({
+      title: '环境就绪',
+      desc: '所有基础环境均已就绪，您可以开始训练新模型或进行 AI 对话',
+      type: 'success',
+    });
+  }
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -306,38 +344,27 @@ export default function Dashboard() {
     },
   ];
 
-  const quickActions: QuickAction[] = [
+  const mainActions = [
     {
-      title: '开始训练',
-      icon: <RocketOutlined />,
-      color: 'var(--accent-primary)',
-      onClick: () => navigate('/training'),
-      description: '创建并部署新的微调任务，支持 LoRA/QLoRA',
-      stats: '快速启动',
-    },
-    {
-      title: '模型管理',
+      title: '准备模型',
       icon: <FolderOutlined />,
       color: 'var(--success)',
       onClick: () => navigate('/models'),
-      description: '高效管理本地模型库，支持多格式导入与导出',
-      stats: `${models.length} 个模型`,
+      description: '下载或导入大语言模型，支持 GGUF / Safetensors / PyTorch 等格式。',
     },
     {
-      title: '数据集管理',
+      title: '上传数据集',
       icon: <DatabaseOutlined />,
       color: 'var(--warning)',
       onClick: () => navigate('/datasets'),
-      description: '上传并清洗您的训练数据集，支持 JSONL/CSV',
-      stats: `${datasets.length} 个数据集`,
+      description: '上传并清洗您的训练数据集，支持 JSONL/CSV 格式文件。',
     },
     {
-      title: 'AI 对话',
-      icon: <MessageOutlined />,
-      color: 'var(--accent-secondary)',
-      onClick: () => navigate('/chat'),
-      description: '与您的模型进行实时对话，测试微调后的生成效果',
-      stats: '立即体验',
+      title: '开始训练 / 进入聊天',
+      icon: <RocketOutlined />,
+      color: 'var(--accent-primary)',
+      onClick: () => navigate('/training'),
+      description: '创建并部署微调任务，或直接与已有模型进行实时对话体验。',
     },
   ];
 
@@ -345,15 +372,11 @@ export default function Dashboard() {
     <AnimatedLayout animationKey="dashboard">
       <div className={styles.dashboardContainer}>
         {/* 页面标题 */}
-        <div className={styles.pageHeader}>
-          <div className={styles.titleWrapper}>
-            <div className={styles.titleIcon}>
-              <ThunderboltOutlined />
-            </div>
-            <h1 className={styles.titleText}>仪表盘</h1>
-          </div>
-          <p className={styles.subtitle}>欢迎回来，这里是您的 AI 微调工作台概览。</p>
-        </div>
+        <PageHeader
+          title="运行中控台"
+          icon={<DesktopOutlined />}
+          helpTooltip="环境状态监控与微调工作台入口，指引您完成 AI 应用部署。"
+        />
 
         {backendStatus !== 'connected' ? (
           <GlassCard
@@ -388,9 +411,9 @@ export default function Dashboard() {
           </GlassCard>
         ) : (
           <motion.div variants={containerVariants} initial="hidden" animate="show">
-            {/* 资源统计卡片 */}
-            <Row gutter={[24, 24]} style={{ marginBottom: 'var(--space-8)' }}>
-              <Col xs={24} sm={12} lg={6}>
+            {/* 环境监控概览 */}
+            <Row gutter={[16, 16]} style={{ marginBottom: 'var(--space-8)' }}>
+              <Col xs={24} sm={12} lg={4}>
                 <motion.div variants={itemVariants}>
                   <StatCard
                     title="GPU 显存"
@@ -408,7 +431,7 @@ export default function Dashboard() {
                 </motion.div>
               </Col>
 
-              <Col xs={24} sm={12} lg={6}>
+              <Col xs={24} sm={12} lg={4}>
                 <motion.div variants={itemVariants}>
                   <StatCard
                     title="系统内存"
@@ -426,38 +449,136 @@ export default function Dashboard() {
                 </motion.div>
               </Col>
 
-              <Col xs={24} sm={12} lg={6}>
+              <Col xs={24} sm={12} lg={4}>
                 <motion.div variants={itemVariants}>
                   <StatCard
-                    title="模型数量"
-                    value={models.length}
+                    title="可用模型"
+                    value={inference.availableModelCount}
                     color="var(--success)"
                     icon={<FolderOutlined />}
                   />
                 </motion.div>
               </Col>
 
-              <Col xs={24} sm={12} lg={6}>
+              <Col xs={24} sm={12} lg={4}>
                 <motion.div variants={itemVariants}>
                   <StatCard
-                    title="数据集数量"
+                    title="数据集"
                     value={datasets.length}
                     color="var(--warning)"
                     icon={<CloudOutlined />}
                   />
                 </motion.div>
               </Col>
+              
+              <Col xs={24} sm={12} lg={4}>
+                <motion.div variants={itemVariants}>
+                  <StatCard
+                    title="Ollama"
+                    value={inference.ollamaAvailable ? 1 : 0}
+                    suffix={inference.ollamaAvailable ? '已启动' : '未启动'}
+                    color={inference.ollamaAvailable ? "var(--success)" : "var(--text-tertiary)"}
+                    icon={<ApiOutlined />}
+                  />
+                </motion.div>
+              </Col>
+
+              <Col xs={24} sm={12} lg={4}>
+                <motion.div variants={itemVariants}>
+                  <StatCard
+                    title="知识库 Embedding"
+                    value={knowledge.embedderStatus?.loaded ? 1 : 0}
+                    suffix={knowledge.embedderStatus?.loaded ? '已加载' : '未加载'}
+                    color={knowledge.embedderStatus?.loaded ? "var(--info)" : "var(--text-tertiary)"}
+                    icon={<DatabaseOutlined />}
+                  />
+                </motion.div>
+              </Col>
             </Row>
 
-            {/* 快捷操作 */}
+            {/* 下一步建议 */}
+            <div style={{ marginBottom: 'var(--space-8)' }}>
+              <h3 className={styles.sectionTitle}>
+                <InfoCircleOutlined style={{ color: 'var(--info)' }} />
+                下一步建议
+              </h3>
+              <Row gutter={[16, 16]}>
+                {suggestions.map((suggestion, index) => {
+                  const getIcon = () => {
+                    if (suggestion.type === 'warning') return <ExclamationCircleOutlined />;
+                    if (suggestion.type === 'success') return <CheckCircleOutlined />;
+                    return <InfoCircleOutlined />;
+                  };
+
+                  const getColor = () => {
+                    if (suggestion.type === 'warning') return 'var(--warning)';
+                    if (suggestion.type === 'success') return 'var(--success)';
+                    return 'var(--info)';
+                  };
+
+                  return (
+                  <Col xs={24} md={12} lg={8} key={index}>
+                    <motion.div variants={itemVariants} style={{ height: '100%' }}>
+                      <GlassCard
+                        intensity="low"
+                        style={{
+                          height: '100%',
+                          borderTop: `3px solid ${getColor()}`,
+                          padding: '16px',
+                        }}
+                      >
+                        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                          <div style={{ fontSize: 18, color: getColor(), marginTop: 2 }}>
+                            {getIcon()}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div
+                              style={{
+                                fontWeight: 600,
+                                color: 'var(--text-primary)',
+                                marginBottom: 4,
+                                fontSize: 'var(--text-sm)',
+                              }}
+                            >
+                              {suggestion.title}
+                            </div>
+                            <div
+                              style={{
+                                color: 'var(--text-secondary)',
+                                fontSize: '13px',
+                                lineHeight: 1.5,
+                                marginBottom: suggestion.action ? 12 : 0,
+                              }}
+                            >
+                              {suggestion.desc}
+                            </div>
+                            {suggestion.action && (
+                              <Button
+                                size="small"
+                                onClick={suggestion.action}
+                                style={{ borderRadius: 'var(--radius-sm)' }}
+                              >
+                                {suggestion.buttonText}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </GlassCard>
+                    </motion.div>
+                  </Col>
+                )})}
+              </Row>
+            </div>
+
+            {/* 主要操作入口 */}
             <div style={{ marginBottom: 'var(--space-8)' }}>
               <h3 className={styles.sectionTitle}>
                 <PlayCircleOutlined style={{ color: 'var(--accent-primary)' }} />
-                快捷操作
+                主要操作入口
               </h3>
               <Row gutter={[24, 24]}>
-                {quickActions.map((action, index) => (
-                  <Col xs={24} sm={12} lg={6} key={index}>
+                {mainActions.map((action, index) => (
+                  <Col xs={24} lg={8} key={index}>
                     <motion.div
                       variants={itemVariants}
                       whileTap={{ scale: 0.98 }}
@@ -481,21 +602,6 @@ export default function Dashboard() {
                         <div>
                           <div className={styles.quickActionTitle}>{action.title}</div>
                           <div className={styles.quickActionDesc}>{action.description}</div>
-                          {action.stats && (
-                            <Tag
-                              style={{
-                                background: 'rgba(0, 0, 0, 0.05)',
-                                color: 'var(--text-secondary)',
-                                border: '1px solid var(--border-color)',
-                                borderRadius: 'var(--radius-sm)',
-                                fontSize: 'var(--text-xs)',
-                                fontWeight: 600,
-                                padding: '2px 8px',
-                              }}
-                            >
-                              {action.stats}
-                            </Tag>
-                          )}
                         </div>
                       </GlassCard>
                     </motion.div>
