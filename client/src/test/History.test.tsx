@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import History from '../pages/History';
 
@@ -187,6 +187,112 @@ describe('History page', () => {
     });
   });
 
+  it('preselects comparable recent records when rendered as the training comparison module', async () => {
+    const records = [
+      {
+        id: 'task-running',
+        modelName: 'running-model',
+        datasetName: 'running-dataset',
+        method: 'qlora',
+        status: 'running',
+        startTime: '2026-04-05T00:00:00',
+        outputPath: '/tmp/running-output',
+        finalLoss: 0.11,
+        config: { modelId: 'running-model' },
+      },
+      {
+        id: 'task-failed',
+        modelName: 'failed-model',
+        datasetName: 'failed-dataset',
+        method: 'qlora',
+        status: 'failed',
+        startTime: '2026-04-04T00:00:00',
+        outputPath: '/tmp/failed-output',
+        finalLoss: 0.2,
+        config: { modelId: 'failed-model' },
+      },
+      {
+        id: 'task-plain',
+        modelName: 'plain-model',
+        datasetName: 'plain-dataset',
+        method: 'lora',
+        status: 'completed',
+        startTime: '2026-04-03T00:00:00',
+        endTime: '2026-04-03T00:04:00',
+        outputPath: '',
+        config: { modelId: 'plain-model' },
+      },
+      {
+        id: 'task-stopped',
+        modelName: 'stopped-model',
+        datasetName: 'stopped-dataset',
+        method: 'lora',
+        status: 'stopped',
+        startTime: '2026-04-02T00:00:00',
+        endTime: '2026-04-02T00:03:00',
+        outputPath: '/tmp/stopped-output',
+        totalSteps: 30,
+        config: { modelId: 'stopped-model' },
+      },
+      {
+        id: 'task-completed',
+        modelName: 'completed-model',
+        datasetName: 'completed-dataset',
+        method: 'qlora',
+        status: 'completed',
+        startTime: '2026-04-01T00:00:00',
+        endTime: '2026-04-01T00:05:00',
+        outputPath: '/tmp/completed-output',
+        finalLoss: 0.18,
+        config: { modelId: 'completed-model' },
+      },
+    ];
+
+    mockUseAppStore.mockReturnValue({
+      trainingRecords: records,
+      setTrainingRecords: mockSetTrainingRecords,
+      removeTrainingRecord: mockRemoveTrainingRecord,
+      setIsTraining: mockSetIsTraining,
+    });
+    mockGetTrainingHistory.mockResolvedValue(records);
+
+    render(<History mode="compare" />);
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /移出对比/ })).toHaveLength(2);
+    });
+
+    expect(screen.getByRole('button', { name: /对比训练/ })).toBeEnabled();
+    expect(
+      within(screen.getByText('stopped-dataset').closest('tr') as HTMLElement).getByRole(
+        'button',
+        { name: /移出对比/ },
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByText('completed-dataset').closest('tr') as HTMLElement).getByRole(
+        'button',
+        { name: /移出对比/ },
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByText('running-dataset').closest('tr') as HTMLElement).getByRole(
+        'button',
+        { name: /加入对比/ },
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByText('failed-dataset').closest('tr') as HTMLElement).getByRole('button', {
+        name: /加入对比/,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByText('plain-dataset').closest('tr') as HTMLElement).getByRole('button', {
+        name: /加入对比/,
+      }),
+    ).toBeInTheDocument();
+  });
+
   it('loads checkpoints when opening record detail', async () => {
     render(<History />);
 
@@ -275,6 +381,44 @@ describe('History page', () => {
     expect(screen.getByText('Loss 曲线')).toBeInTheDocument();
     expect(screen.getByText('关键配置差异')).toBeInTheDocument();
     expect(screen.getAllByText('demo-dataset-v2').length).toBeGreaterThan(0);
+  }, 15000);
+
+  it('loads all metric pages before rendering comparison curves', async () => {
+    mockGetTrainingTaskMetricsV2.mockImplementation((taskId: string, cursor: number) =>
+      Promise.resolve(
+        taskId === 'task-1' && cursor === 0
+          ? {
+              task_id: taskId,
+              cursor,
+              next_cursor: 1,
+              has_more: true,
+              items: [{ step: 1, loss: 0.42 }],
+            }
+          : {
+              task_id: taskId,
+              cursor,
+              next_cursor: cursor + 1,
+              has_more: false,
+              items: [{ step: cursor + 2, loss: taskId === 'task-1' ? 0.18 : 0.22 }],
+            },
+      ),
+    );
+
+    render(<History />);
+
+    const addButtons = screen.getAllByRole('button', { name: /加入对比/ });
+    fireEvent.click(addButtons[0]!);
+    fireEvent.click(addButtons[1]!);
+    fireEvent.click(screen.getByRole('button', { name: /对比训练/ }));
+
+    await waitFor(
+      () => {
+        expect(mockGetTrainingTaskMetricsV2).toHaveBeenCalledWith('task-1', 0, 1000);
+        expect(mockGetTrainingTaskMetricsV2).toHaveBeenCalledWith('task-1', 1, 1000);
+        expect(mockGetTrainingTaskMetricsV2).toHaveBeenCalledWith('task-2', 0, 1000);
+      },
+      { timeout: 10000 },
+    );
   }, 15000);
 
   it('exports the selected comparison as a markdown report', async () => {

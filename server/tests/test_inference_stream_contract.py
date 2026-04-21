@@ -59,6 +59,7 @@ def test_chat_stream_returns_sse_events(monkeypatch):
             "model": "qwen-test",
             "messages": [{"role": "user", "content": "hi"}],
             "options": {"backend": "ollama", "max_tokens": 32},
+            "memory": {"enabled": False, "auto_retrieve": False},
         },
     )
 
@@ -90,7 +91,8 @@ async def test_chat_stream_ttft_latency(monkeypatch):
     request = ChatRequest(
         model="qwen-test",
         messages=[Message(role="user", content="hi")],
-        options=InferenceOptions(backend="huggingface", max_tokens=32)
+        options=InferenceOptions(backend="huggingface", max_tokens=32),
+        memory={"enabled": False, "auto_retrieve": False},
     )
     
     # 模拟环境依赖
@@ -115,6 +117,74 @@ async def test_chat_stream_ttft_latency(monkeypatch):
     # 断言首字延迟在合理范围内，证明是真正的流式
     # fake backend 需要 0.1s 产出首字，再加上微小的系统开销，0.5s 是合理的上限
     assert ttft < 0.5, f"TTFT was too slow: {ttft}s, possible fake streaming"
+
+
+def test_chat_stream_injects_rag_context_and_emits_sources(monkeypatch):
+    import importlib
+
+    backend = _FakeBackend()
+    scheduler = _FakeScheduler(backend)
+    monkeypatch.setattr(inference_routes, "get_scheduler", lambda: scheduler)
+
+    unified_manager_module = importlib.import_module("context.unified_manager")
+
+    class FakeKnowledgeSource:
+        id = "chunk-1"
+        source = "guide.md"
+        score = 0.91
+        content = "RAG context from the knowledge base."
+
+    class FakeUnifiedContext:
+        total_sources = 1
+        memory_count = 0
+        knowledge_count = 1
+        project_count = 0
+        retrieval_time = 0.02
+        knowledge_retrieval_time = 0.01
+        context_text = "RAG context from the knowledge base."
+        knowledge_sources = [FakeKnowledgeSource()]
+
+        def build_system_prompt(self, base_prompt):
+            return f"{base_prompt}\n\n【参考资料】\nRAG context from the knowledge base."
+
+    class FakeContextManager:
+        async def build_context(self, query, user_id, session_id, options):
+            assert query == "use docs"
+            assert options.use_knowledge is True
+            assert options.knowledge_collection_id == "project-docs"
+            return FakeUnifiedContext()
+
+    monkeypatch.setattr(
+        unified_manager_module,
+        "get_unified_context_manager",
+        lambda: FakeContextManager(),
+    )
+
+    client = TestClient(app)
+    response = client.post(
+        "/inference/chat/stream",
+        json={
+            "model": "qwen-test",
+            "messages": [{"role": "user", "content": "use docs"}],
+            "options": {"backend": "ollama", "max_tokens": 32},
+            "memory": {"enabled": False, "auto_retrieve": False},
+            "knowledge": {
+                "use_knowledge": True,
+                "collection_id": "project-docs",
+                "auto_retrieve": True,
+                "include_sources": True,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.text
+    assert '"knowledge_sources"' in body
+    assert '"source": "guide.md"' in body
+    assert backend.calls, "backend.chat_stream should be called"
+    messages, _ = backend.calls[0]
+    assert messages[0]["role"] == "system"
+    assert "RAG context from the knowledge base." in messages[0]["content"]
 
 @pytest.mark.asyncio
 async def test_ollama_chat_stream_auto_load(monkeypatch):

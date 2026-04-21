@@ -99,6 +99,22 @@ describe('chatSessionApi', () => {
               role: 'assistant',
               content: 'hello',
               created_at: '2026-04-09T02:05:00.000Z',
+              metadata: {
+                knowledge_sources: [
+                  {
+                    id: 'chunk-1',
+                    source: 'guide.md',
+                    score: 0.88,
+                    content_preview: 'context',
+                  },
+                ],
+                retrieval_info: {
+                  query: 'hello',
+                  method: 'unified',
+                  total_results: 1,
+                  retrieval_time: 0.01,
+                },
+              },
             },
           ],
         }),
@@ -113,6 +129,8 @@ describe('chatSessionApi', () => {
     expect(created.backend).toBe('cloud');
     expect(updated.metadata.agent_mode).toBe(true);
     expect(messages.messages[0]?.timestamp).toBe('2026-04-09T02:05:00.000Z');
+    expect(messages.messages[0]?.knowledge_sources?.[0]?.source).toBe('guide.md');
+    expect(messages.messages[0]?.retrieval_info?.method).toBe('unified');
 
     expect(vi.mocked(global.fetch).mock.calls[0]?.[1]).toMatchObject({
       method: 'POST',

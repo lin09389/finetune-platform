@@ -38,6 +38,11 @@ async function requestJson<T>(input: string, init?: RequestInit): Promise<T> {
 }
 
 function normalizeChatMessage(message: Record<string, unknown>): ChatMessage {
+  const metadata =
+    message.metadata && typeof message.metadata === 'object'
+      ? (message.metadata as Record<string, unknown>)
+      : {};
+
   return {
     id: String(message.id || ''),
     role: (message.role as ChatMessage['role']) || 'assistant',
@@ -51,16 +56,30 @@ function normalizeChatMessage(message: Record<string, unknown>): ChatMessage {
     isLoading: Boolean(message.isLoading),
     knowledge_sources: Array.isArray(message.knowledge_sources)
       ? (message.knowledge_sources as ChatMessage['knowledge_sources'])
+      : Array.isArray(metadata.knowledge_sources)
+        ? (metadata.knowledge_sources as ChatMessage['knowledge_sources'])
       : undefined,
-    retrieval_info: message.retrieval_info as ChatMessage['retrieval_info'],
-    memory_context: message.memory_context as ChatMessage['memory_context'],
-    unified_context: message.unified_context as ChatMessage['unified_context'],
-    raw_response: message.raw_response,
+    retrieval_info:
+      (message.retrieval_info as ChatMessage['retrieval_info']) ||
+      (metadata.retrieval_info as ChatMessage['retrieval_info']),
+    memory_context:
+      (message.memory_context as ChatMessage['memory_context']) ||
+      (metadata.memory_context as ChatMessage['memory_context']),
+    unified_context:
+      (message.unified_context as ChatMessage['unified_context']) ||
+      (metadata.unified_context as ChatMessage['unified_context']),
+    raw_response: message.raw_response ?? metadata.raw_response,
     attachments: Array.isArray(message.attachments)
       ? (message.attachments as ChatMessage['attachments'])
+      : Array.isArray(metadata.attachments)
+        ? (metadata.attachments as ChatMessage['attachments'])
       : undefined,
-    experiment_config: message.experiment_config as ChatMessage['experiment_config'],
-    run_metrics: message.run_metrics as ChatMessage['run_metrics'],
+    experiment_config:
+      (message.experiment_config as ChatMessage['experiment_config']) ||
+      (metadata.experiment_config as ChatMessage['experiment_config']),
+    run_metrics:
+      (message.run_metrics as ChatMessage['run_metrics']) ||
+      (metadata.run_metrics as ChatMessage['run_metrics']),
     isEdited: Boolean(message.isEdited),
   };
 }

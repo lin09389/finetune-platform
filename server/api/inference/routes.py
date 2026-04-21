@@ -4,6 +4,7 @@
 import logging
 import time
 import json
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -132,6 +133,138 @@ def enforce_fast_ollama_response(
     return patched
 
 
+def _message_role_value(message) -> str:
+    role = getattr(message, "role", "user")
+    return role.value if hasattr(role, "value") else str(role)
+
+
+def _model_to_dict(model: Any) -> dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump()
+    if hasattr(model, "dict"):
+        return model.dict()
+    return dict(model)
+
+
+def _inject_system_prompt_message(request: ChatRequest, system_prompt: str) -> None:
+    if not system_prompt:
+        return
+
+    from api.types import Message, MessageRole
+
+    if request.messages and _message_role_value(request.messages[0]) == "system":
+        existing = request.messages[0].content or ""
+        if system_prompt not in existing:
+            request.messages[0].content = f"{system_prompt}\n\n{existing}".strip()
+        return
+
+    request.messages.insert(
+        0,
+        Message(role=MessageRole.SYSTEM, content=system_prompt),
+    )
+
+
+def _inject_system_prompt_dict(messages: list[dict[str, str]], system_prompt: str) -> list[dict[str, str]]:
+    if not system_prompt:
+        return messages
+
+    if messages and messages[0].get("role") == "system":
+        existing = messages[0].get("content", "")
+        if system_prompt not in existing:
+            messages[0]["content"] = f"{system_prompt}\n\n{existing}".strip()
+        return messages
+
+    return [{"role": "system", "content": system_prompt}, *messages]
+
+
+async def _build_unified_context_payload(
+    request: ChatRequest,
+    last_user_message: str | None,
+    base_system_prompt: str,
+) -> tuple[
+    str,
+    list[KnowledgeSource] | None,
+    dict[str, Any] | None,
+    Any | None,
+    Any | None,
+]:
+    from api.types import MemoryContextInfo, UnifiedContextInfo
+    from context.unified_manager import ContextOptions, get_unified_context_manager
+
+    context_manager = get_unified_context_manager()
+    context_options = ContextOptions(
+        use_memory=request.memory.enabled and request.memory.auto_retrieve,
+        use_knowledge=request.knowledge.use_knowledge,
+        use_project_context=request.context.use_context,
+        memory_top_k=request.memory.top_k,
+        memory_include_types=request.memory.include_types,
+        knowledge_collection_id=request.knowledge.collection_id,
+        knowledge_top_k=request.knowledge.top_k,
+        knowledge_auto_retrieve=request.knowledge.auto_retrieve,
+        project_path=request.context.project_path,
+        project_max_length=request.context.max_context_length,
+    )
+
+    unified_context = await context_manager.build_context(
+        query=last_user_message or "",
+        user_id=request.session.user_id,
+        session_id=request.session.session_id,
+        options=context_options,
+    )
+
+    system_prompt = base_system_prompt
+    knowledge_sources_response = None
+    retrieval_info = None
+    memory_context_info = None
+    unified_context_info = None
+
+    if unified_context.total_sources > 0:
+        system_prompt = unified_context.build_system_prompt(
+            base_prompt=system_prompt or "你是一个有帮助的 AI 助手。"
+        )
+
+        if unified_context.knowledge_sources:
+            knowledge_sources_response = [
+                KnowledgeSource(
+                    id=k.id,
+                    source=k.source,
+                    score=k.score,
+                    content_preview=k.content[:100] + "..." if len(k.content) > 100 else k.content,
+                )
+                for k in unified_context.knowledge_sources
+            ]
+
+            retrieval_info = {
+                "query": last_user_message,
+                "method": "unified",
+                "total_results": unified_context.knowledge_count,
+                "retrieval_time": unified_context.knowledge_retrieval_time,
+            }
+
+        if unified_context.memory_count > 0:
+            memory_context_info = MemoryContextInfo(
+                retrieved=True,
+                sources_count=unified_context.memory_count,
+                context_preview=unified_context.context_text[:200] if unified_context.context_text else "",
+            )
+
+        unified_context_info = UnifiedContextInfo(
+            total_sources=unified_context.total_sources,
+            memory_count=unified_context.memory_count,
+            knowledge_count=unified_context.knowledge_count,
+            project_count=unified_context.project_count,
+            retrieval_time=unified_context.retrieval_time,
+        )
+
+    return (
+        system_prompt,
+        knowledge_sources_response,
+        retrieval_info,
+        memory_context_info,
+        unified_context_info,
+    )
+
+
 @router.post("/generate", response_model=GenerateResponse)
 async def generate(request: GenerateRequest):
     """生成文本 - 参考 Ollama /api/generate"""
@@ -252,81 +385,19 @@ async def chat(request: ChatRequest):
         request.messages[-1].content = f"{request.messages[-1].content}\n\n{attachment_context}".strip()
         last_user_message = request.get_last_user_message()
 
-    from context.unified_manager import ContextOptions, get_unified_context_manager
-
-    context_manager = get_unified_context_manager()
-
-    context_options = ContextOptions(
-        use_memory=request.memory.enabled and request.memory.auto_retrieve,
-        use_knowledge=request.knowledge.use_knowledge,
-        use_project_context=request.context.use_context,
-        memory_top_k=request.memory.top_k,
-        memory_include_types=request.memory.include_types,
-        knowledge_collection_id=request.knowledge.collection_id,
-        knowledge_top_k=request.knowledge.top_k,
-        knowledge_auto_retrieve=request.knowledge.auto_retrieve,
-        project_path=request.context.project_path,
-        project_max_length=request.context.max_context_length
+    (
+        system_prompt,
+        knowledge_sources_response,
+        retrieval_info,
+        memory_context_info,
+        unified_context_info,
+    ) = await _build_unified_context_payload(
+        request=request,
+        last_user_message=last_user_message,
+        base_system_prompt=system_prompt,
     )
 
-    unified_context = await context_manager.build_context(
-        query=last_user_message or "",
-        user_id=request.session.user_id,
-        session_id=request.session.session_id,
-        options=context_options
-    )
-
-    if unified_context.total_sources > 0:
-        system_prompt = unified_context.build_system_prompt(
-            base_prompt=system_prompt or "你是一个有帮助的 AI 助手。"
-        )
-
-        if unified_context.knowledge_sources:
-            knowledge_sources_response = [
-                KnowledgeSource(
-                    id=k.id,
-                    source=k.source,
-                    score=k.score,
-                    content_preview=k.content[:100] + "..." if len(k.content) > 100 else k.content
-                )
-                for k in unified_context.knowledge_sources
-            ]
-
-            retrieval_info = {
-                "query": last_user_message,
-                "method": "unified",
-                "total_results": unified_context.knowledge_count,
-                "retrieval_time": unified_context.knowledge_retrieval_time
-            }
-
-        if unified_context.memory_count > 0:
-            from api.types import MemoryContextInfo
-            memory_context_info = MemoryContextInfo(
-                retrieved=True,
-                sources_count=unified_context.memory_count,
-                context_preview=unified_context.context_text[:200] if unified_context.context_text else ""
-            )
-
-        from api.types import UnifiedContextInfo
-        unified_context_info = UnifiedContextInfo(
-            total_sources=unified_context.total_sources,
-            memory_count=unified_context.memory_count,
-            knowledge_count=unified_context.knowledge_count,
-            project_count=unified_context.project_count,
-            retrieval_time=unified_context.retrieval_time
-        )
-
-    if system_prompt and (
-        not request.messages
-        or (request.messages[0].role.value if hasattr(request.messages[0].role, "value") else request.messages[0].role)
-        != "system"
-    ):
-        from api.types import Message, MessageRole
-
-        request.messages.insert(
-            0,
-            Message(role=MessageRole.SYSTEM, content=system_prompt),
-        )
+    _inject_system_prompt_message(request, system_prompt)
 
     try:
         scheduler = get_scheduler()
@@ -455,6 +526,9 @@ async def chat(request: ChatRequest):
 
         if request.memory.enabled and request.memory.auto_extract and last_user_message:
             try:
+                from context.unified_manager import get_unified_context_manager
+
+                context_manager = get_unified_context_manager()
                 await context_manager.extract_and_store_memory(
                     message=last_user_message,
                     role="user",
@@ -487,6 +561,30 @@ async def chat_stream(request: ChatRequest):
     if settings.ollama_fast_mode:
         request.options.max_tokens = min(request.options.max_tokens, settings.ollama_fast_max_tokens)
 
+    system_prompt = request.system_prompt or ""
+    knowledge_sources_response = None
+    retrieval_info = None
+    memory_context_info = None
+    unified_context_info = None
+
+    last_user_message = request.get_last_user_message()
+    attachment_context = build_attachment_context(request.attachments)
+    if attachment_context and request.messages:
+        request.messages[-1].content = f"{request.messages[-1].content}\n\n{attachment_context}".strip()
+        last_user_message = request.get_last_user_message()
+
+    (
+        system_prompt,
+        knowledge_sources_response,
+        retrieval_info,
+        memory_context_info,
+        unified_context_info,
+    ) = await _build_unified_context_payload(
+        request=request,
+        last_user_message=last_user_message,
+        base_system_prompt=system_prompt,
+    )
+
     try:
         scheduler = get_scheduler()
         backend = await scheduler.get_backend(request.options.backend)
@@ -500,6 +598,7 @@ async def chat_stream(request: ChatRequest):
             }
             for msg in request.messages
         ]
+        messages = _inject_system_prompt_dict(messages, system_prompt)
         if backend_name == "ollama":
             messages = enforce_fast_ollama_response(messages, model_name, settings.ollama_fast_mode)
 
@@ -520,7 +619,22 @@ async def chat_stream(request: ChatRequest):
             started_at = time.time()
             first_token_time = None
             try:
-                yield f"data: {json.dumps({'type': 'metadata', 'model': model_name, 'backend': backend_name}, ensure_ascii=False)}\n\n"
+                metadata_payload = {
+                    "type": "metadata",
+                    "model": model_name,
+                    "backend": backend_name,
+                }
+                if knowledge_sources_response:
+                    metadata_payload["knowledge_sources"] = [
+                        _model_to_dict(source) for source in knowledge_sources_response
+                    ]
+                    metadata_payload["retrieval_info"] = retrieval_info
+                if memory_context_info:
+                    metadata_payload["memory_context"] = _model_to_dict(memory_context_info)
+                if unified_context_info:
+                    metadata_payload["unified_context"] = _model_to_dict(unified_context_info)
+
+                yield f"data: {json.dumps(metadata_payload, ensure_ascii=False)}\n\n"
 
                 async for chunk in backend.chat_stream(messages, generation_config):
                     if not chunk:
@@ -536,6 +650,20 @@ async def chat_stream(request: ChatRequest):
                     yield f"data: {json.dumps({'type': 'delta', 'content': chunk}, ensure_ascii=False)}\n\n"
 
                 duration_ms = int((time.time() - started_at) * 1000)
+                if request.memory.enabled and request.memory.auto_extract and last_user_message:
+                    try:
+                        from context.unified_manager import get_unified_context_manager
+
+                        manager = get_unified_context_manager()
+                        await manager.extract_and_store_memory(
+                            message=last_user_message,
+                            role="user",
+                            user_id=request.session.user_id,
+                            session_id=request.session.session_id,
+                        )
+                    except Exception as memory_error:
+                        logger.warning(f"流式聊天记忆提取失败: {memory_error}")
+
                 yield f"data: {json.dumps({'type': 'metadata', 'model': model_name, 'backend': backend_name, 'duration_ms': duration_ms}, ensure_ascii=False)}\n\n"
                 yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
                 yield "data: [DONE]\n\n"

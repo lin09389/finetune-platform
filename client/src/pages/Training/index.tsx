@@ -1,6 +1,7 @@
-import { ThunderboltOutlined } from '@ant-design/icons';
+import { BarChartOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { Button, Col, Empty, Form, Modal, Row, Select, Space } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useInRouterContext, useNavigate } from 'react-router-dom';
 import SwiftChecker from '../../components/SwiftChecker';
 import TrainingChart from '../../components/TrainingChart';
 import RuntimeContextPanel from '../../components/runtime/RuntimeContextPanel';
@@ -104,6 +105,35 @@ const getErrorMessage = (error: any, fallback: string) =>
   error?.response?.data?.detail ||
   error?.message ||
   fallback;
+
+const TrainingCompareActionButton: React.FC<{ onClick?: () => void }> = ({ onClick }) => (
+  <Button
+    type="primary"
+    icon={<BarChartOutlined />}
+    onClick={onClick}
+    href={onClick ? undefined : '/training-compare'}
+  >
+    去训练对比
+  </Button>
+);
+
+const RoutedTrainingCompareAction: React.FC = () => {
+  const navigate = useNavigate();
+  const handleOpenTrainingCompare = useCallback(() => {
+    navigate('/training-compare');
+  }, [navigate]);
+
+  return <TrainingCompareActionButton onClick={handleOpenTrainingCompare} />;
+};
+
+const TrainingCompareAction: React.FC = () => {
+  const isInRouter = useInRouterContext();
+  return isInRouter ? (
+    <RoutedTrainingCompareAction />
+  ) : (
+    <TrainingCompareActionButton />
+  );
+};
 
 const TrainingPage: React.FC = () => {
   const {
@@ -1208,6 +1238,17 @@ const TrainingPage: React.FC = () => {
                       setChartData([]);
                     }}
                   />
+                  {trainingStatus === 'completed' && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'flex-end',
+                        marginTop: 'var(--space-4)',
+                      }}
+                    >
+                      <TrainingCompareAction />
+                    </div>
+                  )}
                 </GlassCard>
 
                 {trainingStatus === 'failed' && failureDiagnosis && (

@@ -83,13 +83,19 @@ const MobileNav: React.FC = () => {
         icon={<MenuOutlined style={{ fontSize: 20 }} />}
         onClick={() => setDrawerOpen(true)}
         style={{
+          position: 'fixed',
+          top: 8,
+          left: 8,
+          zIndex: 120,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           width: 44,
           height: 44,
           borderRadius: 'var(--radius-md)',
+          background: 'var(--bg-secondary)',
           color: 'var(--text-primary)',
+          boxShadow: 'var(--shadow-sm)',
         }}
         aria-label="打开菜单"
       />

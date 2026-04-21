@@ -6,6 +6,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import zhCN from 'antd/locale/zh_CN';
 import ErrorBoundary from './components/ErrorBoundary';
 import HeaderBar from './components/HeaderBar';
+import MobileNav, { MobileBottomNav } from './components/MobileNav';
 import PageSkeleton from './components/shared/PageSkeleton';
 import Sidebar from './components/Sidebar';
 import { useResponsive } from './hooks/useResponsive';
@@ -168,7 +169,8 @@ function AppContent() {
   const location = useLocation();
   const { setBackendUrl, setBackendStatus, sidebarCollapsed } = useAppStore();
   const { theme } = useTheme();
-  const { isMobile } = useResponsive();
+  const { isMobile, isTablet } = useResponsive();
+  const useCompactNav = isMobile || isTablet;
   const [loading, setLoading] = useState(true);
   const disconnectWarnedRef = useRef(false);
 
@@ -291,11 +293,12 @@ function AppContent() {
             background: 'transparent',
           }}
         >
-          <Sidebar />
+          {!useCompactNav && <Sidebar />}
+          <MobileNav />
           <Layout
             className="app-main"
             style={{
-              marginLeft: isMobile ? 0 : sidebarCollapsed ? 104 : 272,
+              marginLeft: useCompactNav ? 0 : sidebarCollapsed ? 104 : 272,
               transition: 'margin-left 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
               minHeight: '100vh',
               background: 'transparent',
@@ -306,8 +309,10 @@ function AppContent() {
               className="app-content"
               style={{
                 margin: isMobile
-                  ? '12px 10px 20px'
-                  : 'clamp(16px, 2vw, 32px) clamp(12px, 2vw, 24px)',
+                  ? '12px 10px 76px'
+                  : useCompactNav
+                    ? '16px 14px 84px'
+                    : 'clamp(16px, 2vw, 32px) clamp(12px, 2vw, 24px)',
                 padding: 0,
                 minHeight: 'calc(100vh - 56px - 32px)',
               }}
@@ -329,6 +334,7 @@ function AppContent() {
                 </Routes>
               </AnimatePresence>
             </Content>
+            <MobileBottomNav />
           </Layout>
         </Layout>
       </ConfigProvider>

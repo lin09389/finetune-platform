@@ -30,6 +30,7 @@ class MessageResponse(BaseModel):
     role: str
     content: str
     created_at: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class SessionResponse(BaseModel):
@@ -139,6 +140,7 @@ async def send_message(session_id: str, request: SendMessageRequest):
         "role": message.role,
         "content": message.content,
         "created_at": message.created_at.isoformat(),
+        "metadata": message.metadata,
     }
 
 
@@ -162,6 +164,7 @@ async def get_messages(
                 "role": m.role,
                 "content": m.content,
                 "created_at": m.created_at.isoformat(),
+                "metadata": m.metadata,
             }
             for m in messages
         ],

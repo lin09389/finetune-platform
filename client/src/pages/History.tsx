@@ -21,7 +21,7 @@ import {
   Tag,
   message,
 } from 'antd';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   CartesianGrid,
   Legend,
@@ -57,6 +57,14 @@ type TrainingMetricPoint = {
   vramUsed?: number;
 };
 
+type TrainingMetricsPage = {
+  items?: TrainingMetricPoint[];
+  has_more?: boolean;
+  hasMore?: boolean;
+  next_cursor?: number;
+  nextCursor?: number;
+};
+
 type CompareChartRow = { step: number } & Record<string, number | null>;
 
 interface HistoryProps {
@@ -78,6 +86,57 @@ const escapeCsvCell = (value: unknown) => {
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 };
 
+const minCompareRecords = 2;
+const maxCompareRecords = 4;
+const compareMetricsPageSize = 1000;
+const maxCompareMetricPages = 20;
+
+const isFiniteMetric = (value: unknown) => {
+  if (value === undefined || value === null || value === '') return false;
+  const numeric = Number(value);
+  return Number.isFinite(numeric);
+};
+
+const isComparableRecord = (record: TrainingRecord) =>
+  record.status === 'completed' || record.status === 'stopped';
+
+const hasCompareSignal = (record: TrainingRecord) =>
+  isFiniteMetric(record.finalLoss) ||
+  isFiniteMetric(record.finalLr) ||
+  isFiniteMetric(record.elapsedTime) ||
+  isFiniteMetric(record.totalSteps) ||
+  Boolean(record.outputPath || record.checkpointPath);
+
+const getComparableRecordTime = (record: TrainingRecord) => {
+  const timestamp = new Date(record.endTime || record.startTime).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const sortRecentFirst = (records: TrainingRecord[]) =>
+  [...records].sort(
+    (left, right) => getComparableRecordTime(right) - getComparableRecordTime(left),
+  );
+
+const buildDefaultCompareIds = (records: TrainingRecord[]) => {
+  const comparableRecords = records.filter(isComparableRecord);
+  const richRecords = sortRecentFirst(comparableRecords.filter(hasCompareSignal));
+  const plainRecords = sortRecentFirst(
+    comparableRecords.filter((record) => !hasCompareSignal(record)),
+  );
+  const selected = richRecords.slice(0, maxCompareRecords);
+
+  if (selected.length < minCompareRecords) {
+    selected.push(...plainRecords.slice(0, maxCompareRecords - selected.length));
+  }
+
+  return selected.length >= minCompareRecords
+    ? selected.slice(0, maxCompareRecords).map((record) => record.id)
+    : [];
+};
+
+const areSameIds = (left: string[], right: string[]) =>
+  left.length === right.length && left.every((id, index) => id === right[index]);
+
 export default function History({ mode = 'history' }: HistoryProps) {
   const { trainingRecords, setTrainingRecords, removeTrainingRecord, setIsTraining } =
     useAppStore();
@@ -94,10 +153,27 @@ export default function History({ mode = 'history' }: HistoryProps) {
   const [compareOpen, setCompareOpen] = useState(false);
   const [compareLoading, setCompareLoading] = useState(false);
   const [compareMetrics, setCompareMetrics] = useState<Record<string, TrainingMetricPoint[]>>({});
+  const autoCompareIdsRef = useRef<string[]>([]);
+  const compareSelectionTouchedRef = useRef(false);
 
   useEffect(() => {
     void loadRecords();
   }, []);
+
+  useEffect(() => {
+    if (mode !== 'compare' || compareSelectionTouchedRef.current) return;
+
+    const defaultCompareIds = buildDefaultCompareIds(trainingRecords);
+    if (defaultCompareIds.length < minCompareRecords) return;
+
+    const canReplaceSelection =
+      compareIds.length === 0 || areSameIds(compareIds, autoCompareIdsRef.current);
+
+    if (!canReplaceSelection || areSameIds(compareIds, defaultCompareIds)) return;
+
+    autoCompareIdsRef.current = defaultCompareIds;
+    setCompareIds(defaultCompareIds);
+  }, [compareIds, mode, trainingRecords]);
 
   const loadRecords = async () => {
     setLoading(true);
@@ -256,6 +332,7 @@ export default function History({ mode = 'history' }: HistoryProps) {
     loss !== undefined && Number.isFinite(loss) ? loss.toFixed(6) : '-';
 
   const toggleCompareRecord = (record: TrainingRecord) => {
+    compareSelectionTouchedRef.current = true;
     setCompareIds((current) => {
       if (current.includes(record.id)) {
         return current.filter((id) => id !== record.id);
@@ -266,6 +343,29 @@ export default function History({ mode = 'history' }: HistoryProps) {
       }
       return [...current, record.id];
     });
+  };
+
+  const loadAllCompareMetrics = async (taskId: string) => {
+    const allItems: TrainingMetricPoint[] = [];
+    let cursor = 0;
+
+    for (let page = 0; page < maxCompareMetricPages; page += 1) {
+      const data = (await getTrainingTaskMetricsV2(
+        taskId,
+        cursor,
+        compareMetricsPageSize,
+      )) as TrainingMetricsPage;
+      const items = Array.isArray(data?.items) ? data.items : [];
+      allItems.push(...items);
+
+      const nextCursor = Number(data?.next_cursor ?? data?.nextCursor);
+      const hasMore = Boolean(data?.has_more ?? data?.hasMore);
+      if (!hasMore || !Number.isFinite(nextCursor) || nextCursor <= cursor) break;
+
+      cursor = nextCursor;
+    }
+
+    return allItems;
   };
 
   const openCompareDrawer = async () => {
@@ -280,8 +380,7 @@ export default function History({ mode = 'history' }: HistoryProps) {
     try {
       const metricEntries = await Promise.all(
         records.map(async (record) => {
-          const data = await getTrainingTaskMetricsV2(record.id, 0, 1000);
-          const items = Array.isArray(data?.items) ? data.items : [];
+          const items = await loadAllCompareMetrics(record.id);
           return [record.id, items] as const;
         }),
       );
@@ -743,9 +842,13 @@ export default function History({ mode = 'history' }: HistoryProps) {
             rowKey="id"
             rowSelection={{
               selectedRowKeys: compareIds,
-              onChange: (keys) => setCompareIds(keys.map(String).slice(0, 4)),
+              onChange: (keys) => {
+                compareSelectionTouchedRef.current = true;
+                setCompareIds(keys.map(String).slice(0, maxCompareRecords));
+              },
               getCheckboxProps: (record: TrainingRecord) => ({
-                disabled: compareIds.length >= 4 && !compareIds.includes(record.id),
+                disabled:
+                  compareIds.length >= maxCompareRecords && !compareIds.includes(record.id),
               }),
             }}
             loading={loading}

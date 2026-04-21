@@ -1,7 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const mockNavigate = vi.hoisted(() => vi.fn());
 const mockSetIsTraining = vi.hoisted(() => vi.fn());
 const mockAddTrainingRecord = vi.hoisted(() => vi.fn());
 const mockSetModels = vi.hoisted(() => vi.fn());
@@ -13,6 +15,14 @@ const mockNotifyError = vi.hoisted(() => vi.fn());
 const mockNotifyWarning = vi.hoisted(() => vi.fn());
 const mockNotifyInfo = vi.hoisted(() => vi.fn());
 const mockNotifyEmit = vi.hoisted(() => vi.fn());
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  };
+});
 
 vi.mock('../store/appStore', () => ({
   useAppStore: () => ({
@@ -265,7 +275,11 @@ describe('TrainingPage V2 event flow', () => {
   });
 
   it('applies queued -> running -> completed transitions from V2 events', async () => {
-    render(<TrainingPage />);
+    render(
+      <MemoryRouter>
+        <TrainingPage />
+      </MemoryRouter>,
+    );
 
     await waitFor(() => {
       expect(screen.getByTestId('progress-status').textContent).toBe('completed');
@@ -281,5 +295,8 @@ describe('TrainingPage V2 event flow', () => {
 
     expect(mockSetIsTraining).toHaveBeenCalledWith(false);
     expect(mockNotifySuccess).toHaveBeenCalledWith('训练完成');
+
+    fireEvent.click(screen.getByRole('button', { name: /去训练对比/ }));
+    expect(mockNavigate).toHaveBeenCalledWith('/training-compare');
   });
 });

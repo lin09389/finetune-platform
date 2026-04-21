@@ -12,7 +12,7 @@ describe('Sidebar capability labels', () => {
     });
   });
 
-  it('shows beta and experimental tier descriptions in navigation', async () => {
+  it('shows capability labels and descriptions in navigation', async () => {
     render(
       <MemoryRouter
         initialEntries={['/dashboard']}
@@ -25,12 +25,18 @@ describe('Sidebar capability labels', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Beta · 外部模型下载')).toBeInTheDocument();
-    expect(screen.getByText('Beta · 三层记忆系统')).toBeInTheDocument();
-    expect(screen.getByText('Beta · 项目管理')).toBeInTheDocument();
-    expect(screen.getByText('Beta · 代码理解')).toBeInTheDocument();
-    expect(screen.getByText('Experimental · 设备配对与路由')).toBeInTheDocument();
-    expect(screen.getByText('Experimental · 任务调度验证')).toBeInTheDocument();
+    expect(screen.getByText('模型中心')).toBeInTheDocument();
+    expect(screen.getByText('外部模型下载')).toBeInTheDocument();
+    expect(screen.getByText('智能记忆')).toBeInTheDocument();
+    expect(screen.getByText('三层记忆系统')).toBeInTheDocument();
+    expect(screen.getByText('工作空间')).toBeInTheDocument();
+    expect(screen.getByText('项目管理')).toBeInTheDocument();
+    expect(screen.getByText('项目上下文')).toBeInTheDocument();
+    expect(screen.getByText('代码理解')).toBeInTheDocument();
+    expect(screen.getByText('Gateway')).toBeInTheDocument();
+    expect(screen.getByText('设备配对与路由')).toBeInTheDocument();
+    expect(screen.getByText('Heartbeat')).toBeInTheDocument();
+    expect(screen.getByText('任务调度验证')).toBeInTheDocument();
     expect(screen.getByText('训练对比')).toBeInTheDocument();
     expect(screen.getByText('指标横评')).toBeInTheDocument();
   });
