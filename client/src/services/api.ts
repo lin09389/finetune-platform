@@ -1145,8 +1145,32 @@ export const addChatMessages = async (
   }, retryConfig);
 };
 
-export const mergeLora = async (modelId: string, outputName: string) => {
-  const response = await apiClient.post(`/models/${modelId}/merge`, { output_name: outputName });
+export interface MergeLoraParams {
+  adapter_path?: string;
+  adapterPath?: string;
+  training_id?: string;
+  trainingId?: string;
+  output_name?: string;
+  outputName?: string;
+  [key: string]: any;
+}
+
+export const mergeLora = async (
+  modelId: string,
+  outputNameOrParams: string | MergeLoraParams,
+  maybeParams: MergeLoraParams = {},
+) => {
+  const rawPayload =
+    typeof outputNameOrParams === 'string'
+      ? { ...maybeParams, output_name: outputNameOrParams }
+      : outputNameOrParams;
+  const payload = {
+    ...rawPayload,
+    adapter_path: rawPayload.adapter_path ?? rawPayload.adapterPath,
+    training_id: rawPayload.training_id ?? rawPayload.trainingId,
+    output_name: rawPayload.output_name ?? rawPayload.outputName,
+  };
+  const response = await apiClient.post(`/models/${modelId}/merge`, payload);
   return response.data;
 };
 

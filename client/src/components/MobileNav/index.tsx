@@ -10,6 +10,7 @@
   DesktopOutlined,
   FolderOutlined,
   HistoryOutlined,
+  LineChartOutlined,
   MenuOutlined,
   MessageOutlined,
   PlayCircleOutlined,
@@ -44,6 +45,7 @@ const navItems: NavItem[] = [
   { key: '/workspace', icon: <AppstoreOutlined />, label: '工作空间', category: 'secondary' },
   { key: '/inference', icon: <ThunderboltOutlined />, label: '推理测试', category: 'secondary' },
   { key: '/history', icon: <HistoryOutlined />, label: '训练历史', category: 'secondary' },
+  { key: '/training-compare', icon: <LineChartOutlined />, label: '训练对比', category: 'secondary' },
   { key: '/project-context', icon: <CodeOutlined />, label: '项目上下文', category: 'secondary' },
   { key: '/cloud-api', icon: <CloudOutlined />, label: '云端 API', category: 'secondary' },
 ];

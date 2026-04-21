@@ -9,7 +9,7 @@ import GlassCard from '../../components/shared/GlassCard';
 import PageHeader from '../../components/shared/PageHeader';
 import InsightPanel from '../../components/shared/InsightPanel';
 import { useRuntimeContext } from '../../runtime/RuntimeContext';
-import type { TrainingEventV2 } from '../../services/api';
+import { getDatasetList, getModelList, type TrainingEventV2 } from '../../services/api';
 import {
   checkTrainingResources,
   checkTrainingPreflight,
@@ -106,8 +106,16 @@ const getErrorMessage = (error: any, fallback: string) =>
   fallback;
 
 const TrainingPage: React.FC = () => {
-  const { models, datasets, backendStatus, isTraining, setIsTraining, addTrainingRecord } =
-    useAppStore();
+  const {
+    models,
+    datasets,
+    backendStatus,
+    isTraining,
+    setIsTraining,
+    addTrainingRecord,
+    setModels,
+    setDatasets,
+  } = useAppStore();
   const { actions, derived, observed } = useRuntimeContext();
   const { setTrainingSelection, syncInferenceSelection } = actions;
   const [form] = Form.useForm();
@@ -154,6 +162,18 @@ const TrainingPage: React.FC = () => {
       datasetId: watchedDatasetId,
     });
   }, [setTrainingSelection, watchedDatasetId, watchedModelId]);
+
+  const syncTrainingCatalog = useCallback(async () => {
+    if (backendStatus !== 'connected') return;
+
+    try {
+      const [modelList, datasetList] = await Promise.all([getModelList(), getDatasetList()]);
+      setModels(Array.isArray(modelList) ? modelList : []);
+      setDatasets(Array.isArray(datasetList) ? datasetList : []);
+    } catch (error) {
+      console.error('Failed to sync training catalog:', error);
+    }
+  }, [backendStatus, setDatasets, setModels]);
 
   const getCurrentPreflightFingerprint = useCallback(() => {
     const values = form.getFieldsValue();
@@ -333,6 +353,10 @@ const TrainingPage: React.FC = () => {
     void checkTrainingStatus();
     return () => clearInterval(interval);
   }, [checkTrainingStatus]);
+
+  useEffect(() => {
+    void syncTrainingCatalog();
+  }, [syncTrainingCatalog]);
 
   useEffect(() => {
     if (backendStatus !== 'connected') {

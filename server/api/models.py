@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from core.config import get_settings
 from core.logging import get_logger
+from core.training_context import get_training_context
 from core.utils import format_bytes, safe_filename
 
 logger = get_logger(__name__)
@@ -72,6 +73,13 @@ class ModelConvertRequest(BaseModel):
     output_name: str | None = None
 
 
+class ModelMergeRequest(BaseModel):
+    """LoRA 合并导出请求"""
+    output_name: str = Field(..., description="导出名称")
+    adapter_path: str | None = Field(default=None, description="LoRA adapter 路径")
+    training_id: str | None = Field(default=None, description="训练任务 ID")
+
+
 class ExportProgress(BaseModel):
     """导出进度"""
     progress: int
@@ -115,6 +123,97 @@ def _write_export_manifest(
     with open(output_dir / "export_config.json", "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)
     return manifest
+
+
+def _safe_parse_time(value: str | None) -> datetime:
+    if not value:
+        return datetime.min
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone().replace(tzinfo=None)
+        return parsed
+    except Exception:
+        return datetime.min
+
+
+def _adapter_exists(candidate: Path) -> bool:
+    if not candidate.exists() or not candidate.is_dir():
+        return False
+    return any(
+        (candidate / filename).exists()
+        for filename in ("adapter_config.json", "adapter_model.safetensors", "adapter_model.bin")
+    )
+
+
+def _resolve_adapter_candidate(candidate: str | Path | None) -> Path | None:
+    if not candidate:
+        return None
+
+    path = Path(candidate)
+    if _adapter_exists(path):
+        return path
+
+    nested = path / "lora_adapter"
+    if _adapter_exists(nested):
+        return nested
+
+    return None
+
+
+def _find_training_history_adapter(model_id: str, training_id: str | None = None) -> tuple[Path | None, str | None]:
+    state = get_training_context().state
+    records = list(state.get_history())
+
+    if training_id:
+        for record in records:
+            if record.id != training_id:
+                continue
+            if getattr(record, "model_name", None) != model_id:
+                continue
+            candidate = _resolve_adapter_candidate(getattr(record, "checkpoint_path", None))
+            if candidate:
+                return candidate, record.id
+            raise HTTPException(status_code=404, detail="指定训练记录未找到可用的 LoRA adapter")
+        raise HTTPException(status_code=404, detail="未找到指定训练记录")
+
+    candidates: list[tuple[Path, str, datetime]] = []
+    for record in records:
+        if getattr(record, "model_name", None) != model_id:
+            continue
+        if getattr(record, "status", None) not in {"completed", "stopped"}:
+            continue
+        adapter_path = _resolve_adapter_candidate(getattr(record, "checkpoint_path", None))
+        if not adapter_path:
+            continue
+        candidates.append((adapter_path, record.id, _safe_parse_time(getattr(record, "end_time", None) or getattr(record, "start_time", None))))
+
+    if not candidates:
+        return None, None
+
+    adapter_path, record_id, _ = max(candidates, key=lambda item: (item[2], item[1]))
+    return adapter_path, record_id
+
+
+def _export_merged_lora_model(model_path: Path, adapter_path: Path, output_dir: Path) -> None:
+    try:
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        from peft import PeftModel
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=f"缺少 LoRA 合并依赖: {e}") from e
+
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(str(model_path), trust_remote_code=True)
+        base_model = AutoModelForCausalLM.from_pretrained(str(model_path), trust_remote_code=True)
+        peft_model = PeftModel.from_pretrained(base_model, str(adapter_path))
+        merged_model = peft_model.merge_and_unload()
+        merged_model.save_pretrained(output_dir, safe_serialization=True)
+        tokenizer.save_pretrained(output_dir)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"LoRA 合并导出失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"LoRA 合并导出失败: {e}") from e
 
 
 def _copy_tokenizer(model_path: Path, output_dir: Path) -> None:
@@ -567,6 +666,46 @@ async def convert_model(request: ModelConvertRequest):
         "path": str(output_dir),
         "manifest": manifest,
         "message": "Conversion completed",
+    }
+
+
+@router.post("/{model_id}/merge")
+async def merge_lora_model(model_id: str, request: ModelMergeRequest):
+    """合并 LoRA adapter 并导出基座模型"""
+    model_path = _model_path_or_404(model_id)
+    output_dir = _artifact_output_dir("exports", request.output_name)
+
+    adapter_path = _resolve_adapter_candidate(request.adapter_path)
+    training_id = request.training_id
+
+    if adapter_path is None:
+        adapter_path, training_id = _find_training_history_adapter(model_id, training_id=training_id)
+
+    if adapter_path is None:
+        raise HTTPException(status_code=404, detail="未找到可用的 LoRA adapter")
+
+    _export_merged_lora_model(model_path, adapter_path, output_dir)
+
+    manifest = _write_export_manifest(
+        output_dir=output_dir,
+        model_id=model_id,
+        source_path=model_path,
+        target_format="lora-merged",
+        extra={
+            "implementation": "transformers.AutoModelForCausalLM + peft.PeftModel.merge_and_unload",
+            "adapter_path": str(adapter_path),
+            "training_id": training_id,
+        },
+    )
+
+    logger.info(f"LoRA 合并导出完成: {model_id} ({output_dir})")
+    return {
+        "status": "success",
+        "model_id": model_id,
+        "format": "lora-merged",
+        "path": str(output_dir),
+        "manifest": manifest,
+        "message": "LoRA merge completed",
     }
 
 

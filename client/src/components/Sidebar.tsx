@@ -12,6 +12,7 @@
   HeartOutlined,
   HistoryOutlined,
   LikeOutlined,
+  LineChartOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   MessageOutlined,
@@ -59,6 +60,12 @@ const menuGroups: MenuGroup[] = [
         description: '微调任务',
       },
       { key: '/history', icon: <HistoryOutlined />, label: '训练历史', description: '任务记录' },
+      {
+        key: '/training-compare',
+        icon: <LineChartOutlined />,
+        label: '训练对比',
+        description: '指标横评',
+      },
       { key: '/chat', icon: <MessageOutlined />, label: 'AI 对话', description: '智能助手' },
       {
         key: '/inference',

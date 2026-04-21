@@ -31,5 +31,7 @@ describe('Sidebar capability labels', () => {
     expect(screen.getByText('Beta · 代码理解')).toBeInTheDocument();
     expect(screen.getByText('Experimental · 设备配对与路由')).toBeInTheDocument();
     expect(screen.getByText('Experimental · 任务调度验证')).toBeInTheDocument();
+    expect(screen.getByText('训练对比')).toBeInTheDocument();
+    expect(screen.getByText('指标横评')).toBeInTheDocument();
   });
 });

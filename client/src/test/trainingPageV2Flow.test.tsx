@@ -4,6 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockSetIsTraining = vi.hoisted(() => vi.fn());
 const mockAddTrainingRecord = vi.hoisted(() => vi.fn());
+const mockSetModels = vi.hoisted(() => vi.fn());
+const mockSetDatasets = vi.hoisted(() => vi.fn());
+const mockGetModelList = vi.hoisted(() => vi.fn());
+const mockGetDatasetList = vi.hoisted(() => vi.fn());
 const mockNotifySuccess = vi.hoisted(() => vi.fn());
 const mockNotifyError = vi.hoisted(() => vi.fn());
 const mockNotifyWarning = vi.hoisted(() => vi.fn());
@@ -18,7 +22,14 @@ vi.mock('../store/appStore', () => ({
     isTraining: true,
     setIsTraining: mockSetIsTraining,
     addTrainingRecord: mockAddTrainingRecord,
+    setModels: mockSetModels,
+    setDatasets: mockSetDatasets,
   }),
+}));
+
+vi.mock('../services/api', () => ({
+  getModelList: mockGetModelList,
+  getDatasetList: mockGetDatasetList,
 }));
 
 vi.mock('../runtime/RuntimeContext', () => ({
@@ -249,6 +260,8 @@ import TrainingPage from '../pages/Training';
 describe('TrainingPage V2 event flow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetModelList.mockResolvedValue([{ id: 'model-1', name: 'model-1' }]);
+    mockGetDatasetList.mockResolvedValue([{ id: 'dataset-1', name: 'dataset-1' }]);
   });
 
   it('applies queued -> running -> completed transitions from V2 events', async () => {
@@ -257,6 +270,13 @@ describe('TrainingPage V2 event flow', () => {
     await waitFor(() => {
       expect(screen.getByTestId('progress-status').textContent).toBe('completed');
       expect(screen.getByTestId('progress-message').textContent).toContain('Training completed');
+    });
+
+    await waitFor(() => {
+      expect(mockGetModelList).toHaveBeenCalled();
+      expect(mockGetDatasetList).toHaveBeenCalled();
+      expect(mockSetModels).toHaveBeenCalledWith([{ id: 'model-1', name: 'model-1' }]);
+      expect(mockSetDatasets).toHaveBeenCalledWith([{ id: 'dataset-1', name: 'dataset-1' }]);
     });
 
     expect(mockSetIsTraining).toHaveBeenCalledWith(false);

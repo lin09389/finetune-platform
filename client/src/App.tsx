@@ -149,6 +149,7 @@ const routes = [
   { path: '/modelhub', element: <ModelHub /> },
   { path: '/inference', element: <Inference /> },
   { path: '/history', element: <History /> },
+  { path: '/training-compare', element: <History mode="compare" /> },
   { path: '/project-context', element: <ProjectContext /> },
   { path: '/cloud-api', element: <APIKeyManager /> },
   { path: '/cua-control', element: <CUAControl /> },

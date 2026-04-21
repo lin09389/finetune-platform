@@ -69,6 +69,63 @@
   border-bottom: 1px solid var(--border-color);
 }
 
+.compareSummaryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.compareSummaryItem {
+  min-height: 148px;
+  padding: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+}
+
+.compareColor {
+  width: 32px;
+  height: 4px;
+  border-radius: 999px;
+  margin-bottom: 12px;
+}
+
+.compareTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compareMeta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.compareStats {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.compareChart {
+  height: 300px;
+  min-height: 300px;
+}
+
+.configDifferent {
+  font-weight: 600;
+  color: var(--accent-primary);
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;
