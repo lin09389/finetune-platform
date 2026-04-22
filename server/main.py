@@ -140,23 +140,10 @@ async def lifespan(app: FastAPI):
     """?????????"""
     logger.info("Initializing application...")
 
-    # ?????????
-    from core.db_manager import get_db_pool
-    db_pool = get_db_pool()
-    db_pool.execute_update("""
-        CREATE TABLE IF NOT EXISTS audit_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            trace_id TEXT,
-            user_id TEXT,
-            action TEXT,
-            params TEXT,
-            status TEXT,
-            latency REAL,
-            error TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    logger.info("??????????")
+    from core.storage import init_storage, migrate_json_state
+    init_storage()
+    migrated = migrate_json_state()
+    logger.info("SQLite storage initialized, migrated=%s", migrated)
 
     logger.info(f"Models directory: {settings.models_dir_resolved}")
     logger.info(f"Datasets directory: {settings.datasets_dir_resolved}")
@@ -227,6 +214,13 @@ async def lifespan(app: FastAPI):
         logger.info("TrainingContext 已关闭")
     except Exception as e:
         logger.warning(f"TrainingContext shutdown failed: {e}")
+
+    try:
+        from core.db_manager import close_all_pools
+        close_all_pools()
+        logger.info("SQLite connection pools closed")
+    except Exception as e:
+        logger.warning(f"SQLite pool shutdown failed: {e}")
 
 
 app = FastAPI(

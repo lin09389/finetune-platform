@@ -46,6 +46,8 @@ def _map_memory_dict(memory: dict[str, Any]) -> MemoryItem:
         updated_at=updated_at or created_at or datetime.now(),
         access_count=int(memory.get("access_count", 0) or 0),
         metadata=memory.get("metadata", {}) or {},
+        vector_state=memory.get("vector_state", "pending"),
+        storage_mode=memory.get("storage_mode", "text_only"),
     )
 
 
@@ -56,7 +58,6 @@ class MemoryAPIService:
         self._memory_service = get_memory_service()
         self._knowledge_graph = get_knowledge_graph()
         self._stm_manager = get_stm_manager()
-        self._overrides: dict[str, dict[str, Any]] = {}
 
     def _list_raw_memories(
         self,
@@ -65,12 +66,7 @@ class MemoryAPIService:
         limit: int = 50,
     ) -> list[dict[str, Any]]:
         raw_type = _coerce_memory_type(memory_type)
-        memories = self._memory_service.list_memories(user_id=user_id, memory_type=raw_type, limit=limit)
-        for memory in memories:
-            override = self._overrides.get(memory.get("id", ""))
-            if override:
-                memory.update(override)
-        return memories
+        return self._memory_service.list_memories(user_id=user_id, memory_type=raw_type, limit=limit)
 
     def create_memory(
         self,
@@ -87,9 +83,10 @@ class MemoryAPIService:
                 "type": memory_type.value,
                 "importance": importance,
                 "source": "api",
+                "metadata": metadata or {},
             },
         )
-        created = {
+        created = self._memory_service.get_memory(memory_id, user_id=user_id, increment_access=False) or {
             "id": memory_id,
             "user_id": user_id,
             "content": content,
@@ -101,15 +98,11 @@ class MemoryAPIService:
             "access_count": 0,
             "metadata": metadata or {},
         }
-        self._overrides[memory_id] = created
         return _map_memory_dict(created)
 
     def get_memory(self, memory_id: str, user_id: str = "default") -> MemoryItem | None:
-        for memory in self._list_raw_memories(user_id=user_id, limit=1000):
-            if memory.get("id") == memory_id:
-                memory["access_count"] = int(memory.get("access_count", 0) or 0) + 1
-                return _map_memory_dict(memory)
-        return None
+        memory = self._memory_service.get_memory(memory_id, user_id=user_id)
+        return _map_memory_dict(memory) if memory else None
 
     def list_memories(
         self,
@@ -127,25 +120,16 @@ class MemoryAPIService:
         metadata: dict[str, Any] | None = None,
         user_id: str = "default",
     ) -> MemoryItem | None:
-        memory = self.get_memory(memory_id, user_id=user_id)
-        if not memory:
-            return None
-
-        override = self._overrides.get(memory_id, {})
-        if content is not None:
-            override["content"] = content
-        if importance is not None:
-            override["importance"] = importance
-        if metadata is not None:
-            current_metadata = memory.metadata.copy()
-            current_metadata.update(metadata)
-            override["metadata"] = current_metadata
-        override["updated_at"] = datetime.now().isoformat()
-        self._overrides[memory_id] = {**memory.model_dump(), **override}
-        return _map_memory_dict(self._overrides[memory_id])
+        memory = self._memory_service.update_memory(
+            memory_id=memory_id,
+            user_id=user_id,
+            content=content,
+            importance=importance,
+            metadata=metadata,
+        )
+        return _map_memory_dict(memory) if memory else None
 
     def delete_memory(self, memory_id: str, user_id: str = "default") -> bool:
-        self._overrides.pop(memory_id, None)
         return self._memory_service.forget(user_id=user_id, memory_id=memory_id)
 
     def search_memories(
@@ -173,6 +157,8 @@ class MemoryAPIService:
                     importance=mapped.importance,
                     relevance=float(memory.get("relevance", 0.0) or 0.0),
                     created_at=mapped.created_at,
+                    vector_state=mapped.vector_state,
+                    storage_mode=mapped.storage_mode,
                 )
             )
         return results
@@ -187,7 +173,6 @@ class MemoryAPIService:
     def clear_memories(self, user_id: str) -> int:
         count = len(self._list_raw_memories(user_id, limit=100000))
         self._memory_service.clear_all(user_id)
-        self._overrides = {k: v for k, v in self._overrides.items() if v.get("user_id") != user_id}
         return count
 
     def export_state(self, user_id: str) -> dict[str, Any]:

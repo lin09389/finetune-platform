@@ -16,6 +16,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from core.storage import AuditRepository
+
 logger = logging.getLogger(__name__)
 
 
@@ -104,10 +106,12 @@ class AuditLogger:
 
     def __init__(self, storage_path: Path | None = None):
         self.storage_path = storage_path or Path("data/audit_logs")
+        self.log_dir = self.storage_path
         self.storage_path.mkdir(parents=True, exist_ok=True)
 
         self._events: list[AuditEvent] = []
         self._max_events = 10000
+        self._repository = AuditRepository()
         self._sensitive_resources: set[str] = {
             "password", "token", "api_key", "secret", "credential",
             "private_key", "ssh_key", "certificate",
@@ -153,6 +157,11 @@ class AuditLogger:
         if len(self._events) > self._max_events:
             self._events = self._events[-self._max_events:]
 
+        try:
+            self._repository.save_event(event)
+        except Exception as e:
+            logger.error(f"写入 SQLite 审计日志失败: {e}")
+
         self._persist_event(event)
 
         if severity in [AuditSeverity.ERROR, AuditSeverity.CRITICAL]:
@@ -162,6 +171,41 @@ class AuditLogger:
             )
 
         return event
+
+    def log(
+        self,
+        action: str,
+        params: dict[str, Any] | None = None,
+        result: str | None = None,
+        status: str | None = None,
+        latency: float | None = None,
+        error: str | None = None,
+        user_id: str | None = None,
+        trace_id: str | None = None,
+        **kwargs: Any,
+    ) -> AuditEvent:
+        """兼容旧调用：audit_logger.log(action=..., params=..., result=...)."""
+        severity = AuditSeverity.ERROR if error else AuditSeverity.INFO
+        details = params or kwargs.pop("details", {}) or {}
+        if trace_id:
+            details["trace_id"] = trace_id
+        result_value = result or status
+        if result_value is not None and not isinstance(result_value, str):
+            result_value = json.dumps(result_value, ensure_ascii=False)
+        return self.log_event(
+            event_type=AuditEventType.API_CALL,
+            severity=severity,
+            user_id=user_id,
+            action=action,
+            details=details,
+            result=result_value,
+            error_message=error,
+            duration_ms=latency,
+            metadata=kwargs,
+        )
+
+    def log_action(self, action: str, **kwargs: Any) -> AuditEvent:
+        return self.log(action=action, **kwargs)
 
     def log_authentication(
         self,
@@ -363,6 +407,20 @@ class AuditLogger:
         limit: int = 100,
     ) -> list[AuditEvent]:
         """查询审计事件"""
+        try:
+            rows = self._repository.query_events(
+                user_id=user_id,
+                event_type=event_type,
+                severity=severity,
+                resource_type=resource_type,
+                start_time=start_time,
+                end_time=end_time,
+                limit=limit,
+            )
+            return [self._event_from_dict(row) for row in rows]
+        except Exception as e:
+            logger.warning(f"SQLite 审计查询失败，回退内存缓存: {e}")
+
         events = self._events
 
         if user_id:
@@ -382,7 +440,7 @@ class AuditLogger:
 
     def get_recent_events(self, limit: int = 50) -> list[AuditEvent]:
         """获取最近的事件"""
-        return self._events[-limit:]
+        return self.query_events(limit=limit)
 
     def generate_report(
         self,
@@ -439,6 +497,11 @@ class AuditLogger:
 
     def get_stats(self) -> dict[str, Any]:
         """获取统计信息"""
+        try:
+            return self._repository.stats()
+        except Exception as e:
+            logger.warning(f"SQLite 审计统计失败，回退内存缓存: {e}")
+
         severity_counts: dict[str, int] = {}
         for event in self._events:
             sev = event.severity.value
@@ -450,6 +513,46 @@ class AuditLogger:
             "oldest_event": self._events[0].timestamp.isoformat() if self._events else None,
             "newest_event": self._events[-1].timestamp.isoformat() if self._events else None,
         }
+
+    def get_logs(self, limit: int = 100, **filters: Any) -> list[dict[str, Any]]:
+        return [
+            event.to_dict()
+            for event in self.query_events(limit=limit, **filters)
+        ]
+
+    def _event_from_dict(self, payload: dict[str, Any]) -> AuditEvent:
+        try:
+            event_type = AuditEventType(payload.get("event_type") or AuditEventType.API_CALL.value)
+        except ValueError:
+            event_type = AuditEventType.API_CALL
+        try:
+            severity = AuditSeverity(payload.get("severity") or AuditSeverity.INFO.value)
+        except ValueError:
+            severity = AuditSeverity.INFO
+        timestamp = payload.get("timestamp")
+        if isinstance(timestamp, str):
+            try:
+                timestamp = datetime.fromisoformat(timestamp)
+            except ValueError:
+                timestamp = datetime.now()
+        return AuditEvent(
+            id=payload.get("id") or str(uuid.uuid4()),
+            event_type=event_type,
+            severity=severity,
+            timestamp=timestamp or datetime.now(),
+            user_id=payload.get("user_id"),
+            session_id=payload.get("session_id"),
+            agent_id=payload.get("agent_id"),
+            source_ip=payload.get("source_ip"),
+            resource_type=payload.get("resource_type"),
+            resource_id=payload.get("resource_id"),
+            action=payload.get("action"),
+            details=payload.get("details") or {},
+            result=payload.get("result"),
+            error_message=payload.get("error_message"),
+            duration_ms=payload.get("duration_ms"),
+            metadata=payload.get("metadata") or {},
+        )
 
 
 _audit_logger: AuditLogger | None = None

@@ -14,6 +14,7 @@ import { RuntimeContextProvider } from './runtime/RuntimeContext';
 import { API_BASE_URL, checkBackendHealth } from './services/api';
 import { useAppStore } from './store/appStore';
 import { ThemeProvider, useTheme } from './theme';
+import ContextualToolbar from './components/shared/ContextualToolbar';
 
 const { Content } = Layout;
 
@@ -286,6 +287,7 @@ function AppContent() {
           },
         }}
       >
+        <ContextualToolbar />
         <Layout
           className="app-shell"
           style={{

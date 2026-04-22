@@ -1,14 +1,7 @@
-import { BarChartOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import { Button, Col, Empty, Form, Modal, Row, Select, Space } from 'antd';
+import { Form, Modal } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useInRouterContext, useNavigate } from 'react-router-dom';
-import SwiftChecker from '../../components/SwiftChecker';
-import TrainingChart from '../../components/TrainingChart';
-import RuntimeContextPanel from '../../components/runtime/RuntimeContextPanel';
+import { ThunderboltOutlined, MenuFoldOutlined, MenuUnfoldOutlined, DisconnectOutlined } from '@ant-design/icons';
 import AnimatedLayout from '../../components/shared/AnimatedLayout';
-import GlassCard from '../../components/shared/GlassCard';
-import PageHeader from '../../components/shared/PageHeader';
-import InsightPanel from '../../components/shared/InsightPanel';
 import { useRuntimeContext } from '../../runtime/RuntimeContext';
 import { getDatasetList, getModelList, type TrainingEventV2 } from '../../services/api';
 import {
@@ -34,10 +27,8 @@ import type {
   TrainingRecord,
 } from '../../types';
 import { notify } from '../../utils/notify';
-import styles from './Training.module.css';
-import ConfigForm from './components/ConfigForm';
-import LossChart from './components/LossChart';
-import ProgressPanel from './components/ProgressPanel';
+import HyperparameterPanel from './components/HyperparameterPanel';
+import TrainingDashboard from './components/TrainingDashboard';
 import {
   buildResumeConfigDiff,
   buildRuntimeTrainingGuardrail,
@@ -48,6 +39,7 @@ import {
   type TrainingFailureDiagnosis,
 } from './trainingInsights';
 import { useTrainingEventStreamV2 } from './useTrainingEventStreamV2';
+import layoutStyles from './Training.module.css';
 
 interface ChartDataPoint {
   step: number;
@@ -106,34 +98,9 @@ const getErrorMessage = (error: any, fallback: string) =>
   error?.message ||
   fallback;
 
-const TrainingCompareActionButton: React.FC<{ onClick?: () => void }> = ({ onClick }) => (
-  <Button
-    type="primary"
-    icon={<BarChartOutlined />}
-    onClick={onClick}
-    href={onClick ? undefined : '/training-compare'}
-  >
-    去训练对比
-  </Button>
-);
+// Unused Button removed to resolve warning
 
-const RoutedTrainingCompareAction: React.FC = () => {
-  const navigate = useNavigate();
-  const handleOpenTrainingCompare = useCallback(() => {
-    navigate('/training-compare');
-  }, [navigate]);
-
-  return <TrainingCompareActionButton onClick={handleOpenTrainingCompare} />;
-};
-
-const TrainingCompareAction: React.FC = () => {
-  const isInRouter = useInRouterContext();
-  return isInRouter ? (
-    <RoutedTrainingCompareAction />
-  ) : (
-    <TrainingCompareActionButton />
-  );
-};
+// TrainingCompareAction removed as it was unused
 
 const TrainingPage: React.FC = () => {
   const {
@@ -156,7 +123,7 @@ const TrainingPage: React.FC = () => {
   >('idle');
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const [lastV2EventAt, setLastV2EventAt] = useState<number>(0);
-  const [trainingOverview, setTrainingOverview] = useState<TrainingOverviewV2 | null>(null);
+  const [_trainingOverview, setTrainingOverview] = useState<TrainingOverviewV2 | null>(null);
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
   const [backendTraining, setBackendTraining] = useState(false);
@@ -168,17 +135,18 @@ const TrainingPage: React.FC = () => {
   const [selectedResumeCheckpointName, setSelectedResumeCheckpointName] = useState<string | null>(
     null,
   );
-  const [resumeLoading, setResumeLoading] = useState(false);
+  const [_resumeLoading, setResumeLoading] = useState(false);
   const [resumeStarting, setResumeStarting] = useState(false);
-  const [failureDiagnosis, setFailureDiagnosis] = useState<TrainingFailureDiagnosis | null>(null);
-  const [failureAnalytics, setFailureAnalytics] = useState<TrainingFailureAnalytics | null>(null);
+  const [_failureDiagnosis, setFailureDiagnosis] = useState<TrainingFailureDiagnosis | null>(null);
+  const [_failureAnalytics, setFailureAnalytics] = useState<TrainingFailureAnalytics | null>(null);
 
   const [useSwift, setUseSwift] = useState(false);
-  const [swiftAvailable, setSwiftAvailable] = useState(false);
+  const [swiftAvailable, _setSwiftAvailable] = useState(false);
   const [precisionPreset, setPrecisionPreset] = useState<'max' | 'balanced' | 'fast'>('balanced');
   const [memoryPreset, setMemoryPreset] = useState<'auto' | '6gb' | '8gb' | '12gb'>('auto');
-  const [useFlashAttn, setUseFlashAttn] = useState(false);
+  const [useFlashAttn, _setUseFlashAttn] = useState(false);
   const [quantizationBit, setQuantizationBit] = useState<4 | 8 | 0>(4);
+  const [configCollapsed, setConfigCollapsed] = useState(false);
   const [gradientAccumulation, setGradientAccumulation] = useState<number>(16);
   const watchedModelId = Form.useWatch('modelId', form);
   const watchedDatasetId = Form.useWatch('datasetId', form);
@@ -519,7 +487,8 @@ const TrainingPage: React.FC = () => {
     }
   }, [currentTaskId]);
 
-  const v2Stream = useTrainingEventStreamV2({
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _v2Stream = useTrainingEventStreamV2({
     taskId: currentTaskId || undefined,
     enabled: backendStatus === 'connected',
     onEvent: handleV2Event,
@@ -723,7 +692,8 @@ const TrainingPage: React.FC = () => {
     }
   };
 
-  const handleApplyPreflightRecommendation = () => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _handleApplyPreflightRecommendation = () => {
     if (!preflightResult?.recommended_config) return;
 
     const recommended = preflightResult.recommended_config;
@@ -799,9 +769,11 @@ const TrainingPage: React.FC = () => {
       });
   };
 
-  const preflightRecommendationDiff = buildPreflightRecommendationDiff();
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _preflightRecommendationDiff = buildPreflightRecommendationDiff();
 
-  const handleApplyConservativePreset = () => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _handleApplyConservativePreset = () => {
     form.setFieldsValue({
       method: 'qlora',
       batchSize: 1,
@@ -821,7 +793,8 @@ const TrainingPage: React.FC = () => {
     selectedResumeOption?.checkpoints.find(
       (checkpoint) => checkpoint.name === selectedResumeCheckpointName,
     ) || null;
-  const resumeConfigDiff = buildResumeConfigDiff(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _resumeConfigDiff = buildResumeConfigDiff(
     {
       ...form.getFieldsValue(),
       gradientAccumulation,
@@ -829,12 +802,14 @@ const TrainingPage: React.FC = () => {
     },
     selectedResumeOption?.config,
   );
-  const runtimeTrainingGuardrail = buildRuntimeTrainingGuardrail(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _runtimeTrainingGuardrail = buildRuntimeTrainingGuardrail(
     derived.trainingSignal?.phase || 'idle',
     observed.training?.progressMessage,
   );
 
-  const handleResumeFromSelectedCheckpoint = async () => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _handleResumeFromSelectedCheckpoint = async () => {
     if (!selectedResumeOption || !selectedResumeCheckpoint || resumeStarting || isTraining) return;
 
     setResumeStarting(true);
@@ -855,7 +830,8 @@ const TrainingPage: React.FC = () => {
     }
   };
 
-  const handleUseActiveModel = () => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _handleUseActiveModel = () => {
     if (!derived.activeModelId) {
       notify.warning('当前运行上下文里还没有可复用的活跃模型');
       return;
@@ -865,7 +841,8 @@ const TrainingPage: React.FC = () => {
     notify.success('已将当前活跃模型带入训练配置');
   };
 
-  const handlePromoteTrainingModel = () => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _handlePromoteTrainingModel = () => {
     const selectedModelId = form.getFieldValue('modelId');
     if (!selectedModelId) {
       notify.warning('请先在训练配置里选择一个基座模型');
@@ -879,479 +856,119 @@ const TrainingPage: React.FC = () => {
     notify.success('当前训练基座模型已同步到平台活跃推理上下文');
   };
 
+  const statusLabels: Record<typeof trainingStatus, string> = {
+    idle: '待命 (STANDBY)',
+    queued: '队列中 (QUEUED)',
+    loading: '加载中 (LOADING)',
+    training: '训练中 (TRAINING)',
+    stopping: '停止中 (STOPPING)',
+    completed: '已完成 (COMPLETED)',
+    failed: '已失败 (FAILED)',
+  };
+
+  const handleResetTraining = () => {
+    setTrainingStatus('idle');
+    setProgress(null);
+    setChartData([]);
+    setCurrentTaskId(null);
+  };
+
+  const formatElapsed = (seconds?: number) => {
+    if (!seconds) return '--:--';
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
   return (
     <AnimatedLayout animationKey="training">
-      <div className={styles.container}>
-        <PageHeader
-          title="模型训练"
-          icon={<ThunderboltOutlined />}
-          helpTooltip="配置参数并开始微调你的模型。"
-        />
+      {backendStatus !== 'connected' ? (
+        <div className={layoutStyles.workspace}>
+          <div className={layoutStyles.disconnectedContainer}>
+            <DisconnectOutlined className={layoutStyles.disconnectedIcon} />
+            <div className={layoutStyles.disconnectedText}>
+              后端服务未连接，请先启动应用。
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className={layoutStyles.workspace}>
+          {/* ── Header Bar ── */}
+          <div className={layoutStyles.headerBar}>
+            <button
+              className={layoutStyles.collapseToggle}
+              onClick={() => setConfigCollapsed(!configCollapsed)}
+              title={configCollapsed ? '显示配置' : '隐藏配置'}
+            >
+              {configCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            </button>
 
-        {backendStatus !== 'connected' ? (
-          <GlassCard intensity="high" style={{ padding: 'var(--space-12) 0', textAlign: 'center' }}>
-            <Empty description="后端服务未连接，请先启动应用。" />
-          </GlassCard>
-        ) : (
-          <Row gutter={[24, 24]}>
-            <Col xs={24} xl={14}>
-              <SwiftChecker onStatusChange={(status) => setSwiftAvailable(status.available)} />
-              <GlassCard intensity="medium" noHover>
-                <div style={{ marginBottom: 'var(--space-6)' }}>
-                  <RuntimeContextPanel page="training" />
-                </div>
-                <div style={{ marginBottom: 'var(--space-6)' }}>
-                  <InsightPanel
-                    embedded
-                    title="运行桥接"
-                    status={{
-                      type: 'info',
-                      text: '共享运行链',
-                    }}
-                    summary="训练页现在可以直接复用平台当前活跃模型，也可以把当前训练基座模型同步为后续推理和会话默认上下文。"
-                    actions={
-                      <Space wrap>
-                        <Button onClick={handleUseActiveModel} disabled={!derived.activeModelId}>
-                          使用当前活跃模型
-                        </Button>
-                        <Button type="primary" onClick={handlePromoteTrainingModel}>
-                          设为活跃推理模型
-                        </Button>
-                      </Space>
-                    }
-                  />
-                </div>
-                <div style={{ marginBottom: 'var(--space-6)' }}>
-                  <InsightPanel
-                    embedded
-                    title="训练状态守护"
-                    status={{
-                      type: runtimeTrainingGuardrail.statusType,
-                      text: runtimeTrainingGuardrail.statusText,
-                    }}
-                    summary={runtimeTrainingGuardrail.summary}
-                    sections={[
-                      {
-                        title: '建议动作',
-                        items: runtimeTrainingGuardrail.actions,
-                      },
-                    ]}
-                  />
-                </div>
-                <div style={{ marginBottom: 'var(--space-6)' }}>
-                  <InsightPanel
-                    embedded
-                    title="训练监测 V2"
-                    status={{
-                      type:
-                        v2Stream.connectionState === 'connected'
-                          ? 'success'
-                          : v2Stream.connectionState === 'degraded'
-                            ? 'warning'
-                            : 'info',
-                      text:
-                        v2Stream.connectionState === 'connected'
-                          ? '事件流在线'
-                          : v2Stream.connectionState === 'degraded'
-                            ? '降级模式'
-                            : '连接中',
-                    }}
-                    summary="SSE 主通道事件流已接入；当链路不稳定时会回退到旧版监测通道并自动恢复。"
-                    metrics={[
-                      {
-                        label: '队列任务数',
-                        value: trainingOverview?.queue?.queue_size ?? 0,
-                      },
-                      {
-                        label: '运行中任务',
-                        value: trainingOverview?.queue?.running_count ?? 0,
-                      },
-                      {
-                        label: '显存风险失败样本',
-                        value:
-                          trainingOverview?.resource_signals?.suspected_vram_pressure_count ?? 0,
-                      },
-                    ]}
-                  />
-                </div>
-                {preflightResult && (
-                  <div style={{ marginBottom: 'var(--space-6)' }}>
-                    <InsightPanel
-                      embedded
-                      title="训练前预检"
-                      status={{
-                        type:
-                          preflightResult.status === 'blocked'
-                            ? 'error'
-                            : preflightResult.status === 'warning'
-                              ? 'warning'
-                              : 'success',
-                        text:
-                          preflightResult.status === 'blocked'
-                            ? '需修复'
-                            : preflightResult.status === 'warning'
-                              ? '可启动但有风险'
-                              : '可启动',
-                      }}
-                      summary={
-                        preflightResult.summary ||
-                        `设备：${preflightResult.device_name || '未知'}。当前配置会被映射到实际资源预算，便于在启动前先发现显存和方法选择风险。`
-                      }
-                      metrics={[
-                        {
-                          label: '可用显存',
-                          value:
-                            preflightResult.available_vram === null ||
-                            preflightResult.available_vram === undefined
-                              ? '未知'
-                              : `${preflightResult.available_vram?.toFixed?.(1) ?? preflightResult.available_vram} GB`,
-                        },
-                        {
-                          label: '预计需求',
-                          value:
-                            preflightResult.required_vram === null ||
-                            preflightResult.required_vram === undefined
-                              ? '未知'
-                              : `${preflightResult.required_vram?.toFixed?.(1) ?? preflightResult.required_vram} GB`,
-                        },
-                      ]}
-                      sections={[
-                        {
-                          title: '分项检查',
-                          items:
-                            preflightResult.checks?.map(
-                              (item) =>
-                                `${item.status === 'passed' ? '通过' : item.status === 'warning' ? '风险' : '阻塞'}｜${item.label}：${item.message}${item.detail ? `（${item.detail}）` : ''}`,
-                            ) || [],
-                        },
-                        {
-                          title: '阻塞项',
-                          items: preflightResult.blockers || [],
-                          tone: 'warning',
-                        },
-                        {
-                          title: '风险提示',
-                          items: preflightResult.warnings || [],
-                          tone: 'warning',
-                        },
-                        {
-                          title: '建议配置',
-                          items: preflightResult.suggestions || [],
-                        },
-                      ]}
-                      footer={
-                        preflightRecommendationDiff.length > 0 ? (
-                          <div>
-                            <div
-                              style={{
-                                marginBottom: 8,
-                                fontWeight: 600,
-                                color: 'var(--text-primary)',
-                              }}
-                            >
-                              应用后参数变化
-                            </div>
-                            <div
-                              style={{
-                                display: 'grid',
-                                gap: 8,
-                              }}
-                            >
-                              {preflightRecommendationDiff.map((item) => (
-                                <div
-                                  key={item.label}
-                                  style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: 'minmax(96px, 1fr) minmax(72px, 1fr) 24px minmax(72px, 1fr)',
-                                    alignItems: 'center',
-                                    gap: 8,
-                                    padding: '8px 10px',
-                                    borderRadius: 'var(--radius-md)',
-                                    border: '1px solid var(--border-color)',
-                                    background: item.changed
-                                      ? 'var(--warning-light)'
-                                      : 'var(--bg-elevated)',
-                                  }}
-                                >
-                                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
-                                    {item.label}
-                                  </span>
-                                  <code style={{ color: 'var(--text-secondary)' }}>
-                                    {String(item.current)}
-                                  </code>
-                                  <span style={{ color: 'var(--text-tertiary)', textAlign: 'center' }}>
-                                    →
-                                  </span>
-                                  <code
-                                    style={{
-                                      color: item.changed
-                                        ? 'var(--warning)'
-                                        : 'var(--text-secondary)',
-                                      fontWeight: item.changed ? 700 : 500,
-                                    }}
-                                  >
-                                    {String(item.next)}
-                                    {!item.changed ? '（已匹配）' : ''}
-                                  </code>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ) : undefined
-                      }
-                      actions={
-                        Object.keys(preflightResult.recommended_config || {}).length > 0 ? (
-                          <Button onClick={handleApplyPreflightRecommendation}>
-                            应用推荐配置
-                          </Button>
-                        ) : undefined
-                      }
-                    />
-                  </div>
-                )}
-                {failureAnalytics && (
-                  <div style={{ marginBottom: 'var(--space-6)' }}>
-                    <InsightPanel
-                      embedded
-                      title="失败画像（最近训练）"
-                      status={{
-                        type: failureAnalytics.failedRuns > 0 ? 'warning' : 'success',
-                        text: failureAnalytics.failedRuns > 0 ? '存在失败样本' : '暂无失败样本',
-                      }}
-                      summary={`最近共 ${failureAnalytics.totalRuns} 次训练，失败 ${failureAnalytics.failedRuns} 次，停止 ${failureAnalytics.stoppedRuns} 次，失败率 ${failureAnalytics.failureRate}%。`}
-                      metrics={[
-                        {
-                          label: '高显存风险样本',
-                          value: failureAnalytics.suspectedVramPressureCount,
-                        },
-                        {
-                          label: '长序列失败样本',
-                          value: failureAnalytics.longContextFailureCount,
-                        },
-                        {
-                          label: '未量化失败样本',
-                          value: failureAnalytics.unquantizedFailureCount,
-                        },
-                        {
-                          label: '7天失败率',
-                          value: `${failureAnalytics.failureRate7d}%`,
-                          hint: `${failureAnalytics.failedRuns7d}/${failureAnalytics.totalRuns7d || 0}`,
-                        },
-                        {
-                          label: '14天失败率',
-                          value: `${failureAnalytics.failureRate14d}%`,
-                          hint: `${failureAnalytics.failedRuns14d}/${failureAnalytics.totalRuns14d || 0}`,
-                        },
-                      ]}
-                      sections={[
-                        {
-                          title: '高风险维度',
-                          items: [
-                            `失败模型 Top: ${failureAnalytics.topFailedModels.join(' / ') || '暂无'}`,
-                            `失败数据集 Top: ${failureAnalytics.topFailedDatasets.join(' / ') || '暂无'}`,
-                            `失败方法 Top: ${failureAnalytics.topFailedMethods.join(' / ') || '暂无'}`,
-                          ],
-                          tone: 'default',
-                        },
-                        {
-                          title: '最近失败样本',
-                          items:
-                            failureAnalytics.recentFailures.length > 0
-                              ? failureAnalytics.recentFailures.map(
-                                  (item) =>
-                                    `${new Date(item.startTime).toLocaleString('zh-CN')}｜${item.modelName}｜${item.datasetName}｜${item.method}`,
-                                )
-                              : ['暂无失败样本'],
-                        },
-                      ]}
-                    />
-                  </div>
-                )}
-                <ConfigForm
-                  form={form}
-                  onFinish={handleStart}
-                  onPreflightCheck={handlePreflightCheck}
-                  isTraining={isTraining || backendTraining}
-                  starting={starting}
-                  preflightChecking={preflightChecking}
-                  onStop={handleStop}
-                  models={models}
-                  datasets={datasets}
-                  swiftAvailable={swiftAvailable}
-                  useSwift={useSwift}
-                  onSwiftChange={setUseSwift}
-                  precisionPreset={precisionPreset}
-                  onPrecisionChange={setPrecisionPreset}
-                  memoryPreset={memoryPreset}
-                  onMemoryChange={setMemoryPreset}
-                  useFlashAttn={useFlashAttn}
-                  onFlashAttnChange={setUseFlashAttn}
-                  quantizationBit={quantizationBit}
-                  onQuantizationChange={setQuantizationBit}
-                  gradientAccumulation={gradientAccumulation}
-                  onGradAccChange={setGradientAccumulation}
-                  onApplyPreset={(preset) => {
-                    const configs = {
-                      low: {
-                        rank: 8,
-                        alpha: 16,
-                        batchSize: 1,
-                        gradientAccumulation: 16,
-                        maxSeqLength: 512,
-                      },
-                      medium: {
-                        rank: 16,
-                        alpha: 32,
-                        batchSize: 2,
-                        gradientAccumulation: 8,
-                        maxSeqLength: 1024,
-                      },
-                      high: {
-                        rank: 32,
-                        alpha: 64,
-                        batchSize: 4,
-                        gradientAccumulation: 4,
-                        maxSeqLength: 2048,
-                      },
-                    };
-                    form.setFieldsValue(configs[preset]);
-                  }}
-                />
-              </GlassCard>
-            </Col>
-            <Col xs={24} xl={10}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
-                <GlassCard intensity="medium" noHover>
-                  <ProgressPanel
-                    status={trainingStatus}
-                    progress={progress}
-                    connectionState={
-                      v2Stream.connectionState === 'connected'
-                        ? 'connected'
-                        : v2Stream.connectionState === 'degraded'
-                          ? 'degraded'
-                          : 'disconnected'
-                    }
-                    onReset={() => {
-                      setTrainingStatus('idle');
-                      setProgress(null);
-                      setChartData([]);
-                    }}
-                  />
-                  {trainingStatus === 'completed' && (
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'flex-end',
-                        marginTop: 'var(--space-4)',
-                      }}
-                    >
-                      <TrainingCompareAction />
-                    </div>
-                  )}
-                </GlassCard>
-
-                {trainingStatus === 'failed' && failureDiagnosis && (
-                  <GlassCard intensity="low" noHover>
-                    <InsightPanel
-                      embedded
-                      title="失败诊断与一键恢复"
-                      status={{
-                        type: 'error',
-                        text: failureDiagnosis.title,
-                      }}
-                      summary={failureDiagnosis.summary}
-                      sections={[
-                        {
-                          title: '建议处理',
-                          items: failureDiagnosis.suggestions,
-                        },
-                        {
-                          title: '恢复入口',
-                          items:
-                            selectedResumeOption && selectedResumeCheckpoint
-                              ? [
-                                  `${selectedResumeOption.reason || '检测到可恢复检查点'}：${selectedResumeCheckpoint.name}（step ${selectedResumeCheckpoint.step}）`,
-                                  `模型：${selectedResumeOption.modelName}，数据集：${selectedResumeOption.datasetName}`,
-                                ]
-                              : [
-                                  '当前没有检测到可直接恢复的检查点，可前往训练历史页查看更多记录。',
-                                ],
-                        },
-                        {
-                          title: '恢复前配置差异',
-                          items: selectedResumeOption
-                            ? resumeConfigDiff.length > 0
-                              ? resumeConfigDiff
-                              : ['当前配置与所选恢复任务配置一致，可直接恢复。']
-                            : ['请选择可恢复任务后查看配置差异。'],
-                        },
-                      ]}
-                      actions={
-                        <Space wrap>
-                          <Button onClick={handleApplyConservativePreset}>应用保守参数</Button>
-                          <Button onClick={handlePreflightCheck} loading={preflightChecking}>
-                            重新预检
-                          </Button>
-                          <Select
-                            size="small"
-                            style={{ minWidth: 240 }}
-                            placeholder="选择可恢复任务"
-                            value={selectedResumeTaskId || undefined}
-                            onChange={(taskId) => setSelectedResumeTaskId(taskId)}
-                            options={resumeOptions.map((option) => ({
-                              value: option.taskId,
-                              label: `${option.modelName} · ${option.datasetName} · ${option.status === 'failed' ? '失败' : '已停止'}`,
-                            }))}
-                            loading={resumeLoading}
-                            disabled={!resumeOptions.length || resumeStarting}
-                          />
-                          <Select
-                            size="small"
-                            style={{ minWidth: 220 }}
-                            placeholder="选择检查点"
-                            value={selectedResumeCheckpointName || undefined}
-                            onChange={(checkpointName) =>
-                              setSelectedResumeCheckpointName(checkpointName)
-                            }
-                            options={(selectedResumeOption?.checkpoints || []).map(
-                              (checkpoint) => ({
-                                value: checkpoint.name,
-                                label: `${checkpoint.name} · step ${checkpoint.step}`,
-                              }),
-                            )}
-                            disabled={!selectedResumeOption || resumeStarting}
-                          />
-                          <Button
-                            type="primary"
-                            onClick={handleResumeFromSelectedCheckpoint}
-                            loading={resumeStarting || resumeLoading}
-                            disabled={!selectedResumeOption || !selectedResumeCheckpoint}
-                          >
-                            恢复训练
-                          </Button>
-                        </Space>
-                      }
-                    />
-                  </GlassCard>
-                )}
-
-                {chartData.length > 0 && (
-                  <GlassCard intensity="low" noHover>
-                    <LossChart data={chartData} />
-                  </GlassCard>
-                )}
-
-                {isTraining && currentTaskId && (
-                  <GlassCard intensity="low" noHover>
-                    <TrainingChart taskId={currentTaskId} autoConnect />
-                  </GlassCard>
-                )}
+            <div className={layoutStyles.headerTitle}>
+              <div className={layoutStyles.headerIcon}>
+                <ThunderboltOutlined />
               </div>
-            </Col>
-          </Row>
-        )}
-      </div>
+              <span className={layoutStyles.headerLabel}>模型训练</span>
+            </div>
+
+            <div
+              className={layoutStyles.statusIndicator}
+              data-status={trainingStatus}
+            >
+              <span className={layoutStyles.statusDot} />
+              {statusLabels[trainingStatus]}
+            </div>
+
+            <div className={layoutStyles.headerSpacer} />
+
+            {(trainingStatus === 'training' || trainingStatus === 'loading') && (
+              <div className={layoutStyles.headerTimer}>
+                已耗时 <span className={layoutStyles.timerValue}>{formatElapsed(progress?.elapsedTime)}</span>
+              </div>
+            )}
+          </div>
+
+          {/* ── Two-pane Layout ── */}
+          <div className={layoutStyles.paneContainer}>
+            <div className={`${layoutStyles.configPane} ${configCollapsed ? layoutStyles.collapsed : ''}`}>
+              <HyperparameterPanel
+                form={form}
+                onFinish={handleStart}
+                onPreflightCheck={handlePreflightCheck}
+                isTraining={isTraining || backendTraining}
+                starting={starting}
+                preflightChecking={preflightChecking}
+                onStop={handleStop}
+                models={models}
+                datasets={datasets}
+                useSwift={useSwift}
+                onSwiftChange={setUseSwift}
+                precisionPreset={precisionPreset}
+                onPrecisionChange={setPrecisionPreset}
+                memoryPreset={memoryPreset}
+                onMemoryChange={setMemoryPreset}
+                quantizationBit={quantizationBit}
+                onQuantizationChange={setQuantizationBit}
+                gradientAccumulation={gradientAccumulation}
+                onGradAccChange={setGradientAccumulation}
+                preflightResult={preflightResult}
+                onApplyConservativePreset={_handleApplyConservativePreset}
+              />
+            </div>
+
+            <div className={layoutStyles.dashboardPane}>
+              <TrainingDashboard
+                progress={progress}
+                chartData={chartData}
+                status={trainingStatus}
+                selectedModel={watchedModelId}
+                selectedDataset={watchedDatasetId}
+                selectedMethod={watchedMethod}
+                onReset={handleResetTraining}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </AnimatedLayout>
   );
 };

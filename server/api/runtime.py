@@ -17,6 +17,8 @@ from fastapi import APIRouter
 
 from api.inference import routes as inference_routes
 from api.knowledge import routes as knowledge_routes
+from core.storage import get_storage_status
+from memory.memory_service import get_memory_service
 
 training_routes = importlib.import_module("api.training")
 
@@ -183,4 +185,25 @@ async def get_runtime_bootstrap():
             if current_backend != "ollama"
             else len(ollama_models),
         },
+    }
+
+
+@router.get("/storage/status")
+async def get_runtime_storage_status():
+    """Return storage convergence status for SQLite/JSON/vector transition."""
+    return {
+        "schema_version": "runtime.storage.status.v1",
+        "generated_at": datetime.now().isoformat(),
+        "storage": get_storage_status(),
+    }
+
+
+@router.post("/storage/reconcile")
+async def reconcile_runtime_storage(limit: int = 100):
+    """Trigger one memory vector reconciliation pass."""
+    result = get_memory_service().reconcile_vectors(limit=limit)
+    return {
+        "schema_version": "runtime.storage.reconcile.v1",
+        "generated_at": datetime.now().isoformat(),
+        "result": result,
     }

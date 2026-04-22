@@ -11,11 +11,13 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from api.chat.session import Session, get_session_manager
+from core.storage import ChatShareRepository, dual_write_enabled, json_fallback_enabled
 
 router = APIRouter(prefix="/chat/share", tags=["chat-share"])
 
 SHARE_DIR = Path("data/share")
 SHARE_DIR.mkdir(parents=True, exist_ok=True)
+share_repository = ChatShareRepository()
 
 
 class SharedChat(BaseModel):
@@ -47,17 +49,34 @@ def get_share_file(share_id: str) -> Path:
 
 
 def save_share(share: SharedChat) -> None:
+    payload = share.model_dump()
+    share_repository.save_share(payload)
+    if not dual_write_enabled():
+        return
+
     file_path = get_share_file(share.share_id)
-    with open(file_path, "w", encoding="utf-8") as handle:
-        json.dump(share.model_dump(), handle, ensure_ascii=False, indent=2)
+    tmp_path = file_path.with_suffix(f".json.tmp.{share.share_id}")
+    with open(tmp_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+        handle.flush()
+    tmp_path.replace(file_path)
 
 
 def load_share(share_id: str) -> SharedChat | None:
+    payload = share_repository.get_share(share_id)
+    if payload:
+        return SharedChat(**payload)
+
+    if not json_fallback_enabled():
+        return None
+
     file_path = get_share_file(share_id)
     if not file_path.exists():
         return None
     with open(file_path, encoding="utf-8") as handle:
-        return SharedChat(**json.load(handle))
+        share = SharedChat(**json.load(handle))
+    share_repository.save_share(share.model_dump())
+    return share
 
 
 def _normalize_message(message: Any) -> dict[str, Any]:
@@ -137,8 +156,9 @@ async def get_share(share_id: str):
         raise HTTPException(status_code=404, detail="Share not found")
 
     _ensure_not_expired(share)
-    share.view_count += 1
-    save_share(share)
+    share.view_count = share_repository.increment_view_count(share.share_id)
+    if dual_write_enabled():
+        save_share(share)
     return share
 
 
@@ -266,8 +286,10 @@ async def export_markdown(share_id: str):
 @router.delete("/{share_id}")
 async def delete_share(share_id: str):
     file_path = get_share_file(share_id)
-    if not file_path.exists():
+    deleted = share_repository.delete_share(share_id)
+    if not deleted and not file_path.exists():
         raise HTTPException(status_code=404, detail="Share not found")
 
-    file_path.unlink()
+    if file_path.exists():
+        file_path.unlink()
     return {"success": True, "message": "Share deleted"}

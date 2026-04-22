@@ -164,9 +164,63 @@ class SafetyController:
                 error_message=result.error,
             )
             self._audit_logs.append(log_entry)
+            try:
+                from security.audit_log import AuditEventType, AuditSeverity, audit_logger
+
+                audit_logger.log_event(
+                    event_type=AuditEventType.AGENT_ACTION,
+                    severity=AuditSeverity.INFO if result.success else AuditSeverity.WARNING,
+                    resource_type="cua_operation",
+                    resource_id=operation.value,
+                    action=operation.value,
+                    details={
+                        "parameters": params,
+                        "permission_level": self._permission_manager.get_permission_level().value,
+                    },
+                    result="success" if result.success else "failed",
+                    error_message=result.error,
+                    duration_ms=result.duration_ms,
+                )
+            except Exception:
+                # CUA 操作不能因为审计归档失败而中断主流程。
+                pass
 
     async def get_audit_logs(self, limit: int = 100) -> list[AuditLog]:
         async with self._audit_lock:
+            try:
+                from security.audit_log import AuditEventType, audit_logger
+
+                events = audit_logger.query_events(
+                    event_type=AuditEventType.AGENT_ACTION,
+                    limit=limit,
+                )
+                logs: list[AuditLog] = []
+                for event in events:
+                    operation_value = event.action or event.resource_id or OperationType.SCREENSHOT.value
+                    try:
+                        operation_type = OperationType(operation_value)
+                    except ValueError:
+                        operation_type = OperationType.SCREENSHOT
+                    permission_value = (event.details or {}).get("permission_level", PermissionLevel.INTERACTIVE.value)
+                    try:
+                        permission_level = PermissionLevel(permission_value)
+                    except ValueError:
+                        permission_level = PermissionLevel.INTERACTIVE
+                    logs.append(
+                        AuditLog(
+                            operation_type=operation_type,
+                            permission_level=permission_level,
+                            parameters=(event.details or {}).get("parameters", {}),
+                            result=event.result == "success",
+                            timestamp=event.timestamp,
+                            duration_ms=event.duration_ms,
+                            error_message=event.error_message,
+                        )
+                    )
+                if logs:
+                    return logs
+            except Exception:
+                pass
             return self._audit_logs[-limit:]
 
     async def clear_audit_logs(self) -> None:

@@ -30,6 +30,8 @@ class MemoryItem(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.now, description="更新时间")
     access_count: int = Field(default=0, description="访问次数")
     metadata: dict[str, Any] = Field(default_factory=dict, description="元数据")
+    vector_state: str = Field(default="pending", description="向量索引状态")
+    storage_mode: str = Field(default="text_only", description="检索存储模式")
 
 
 class MemoryCreateRequest(BaseModel):
@@ -62,3 +64,5 @@ class MemorySearchResult(BaseModel):
     importance: float
     relevance: float = Field(default=0.0, description="相关性分数")
     created_at: datetime
+    vector_state: str = Field(default="pending", description="向量索引状态")
+    storage_mode: str = Field(default="text_only", description="检索存储模式")

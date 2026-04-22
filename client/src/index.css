@@ -201,6 +201,59 @@
   --gradient-success: linear-gradient(135deg, #4ade80 0%, #34d399 100%);
   --gradient-warm: linear-gradient(135deg, #fbbf24 0%, #f87171 100%);
   --gradient-subtle: linear-gradient(180deg, #111113 0%, #09090b 100%);
+
+  /* Deep Tech Additions */
+  --accent-neon-cyan: #00FFC2;
+  --accent-neon-red: #FF4D4D;
+  --accent-neon-purple: #9D00FF;
+  --border-glow: 0 0 10px rgba(0, 255, 194, 0.5);
+  --bg-pure-black: #000000;
+  --bg-slate: #0F1115;
+  --glass-bg: rgba(15, 17, 21, 0.6);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* ============================================
+   Deep Tech Layout Utilities
+   ============================================ */
+.deep-tech-panel {
+  background: transparent;
+  position: relative;
+}
+
+.split-pane-container {
+  display: flex;
+  height: calc(100vh - 64px);
+  overflow: hidden;
+  background: #020304;
+}
+
+.split-pane-left {
+  width: 320px;
+  min-width: 280px;
+  max-width: 360px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.split-pane-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  border-left: 1px solid rgba(255, 255, 255, 0.03);
+  border-right: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.split-pane-right {
+  width: 340px;
+  min-width: 300px;
+  max-width: 380px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ============================================

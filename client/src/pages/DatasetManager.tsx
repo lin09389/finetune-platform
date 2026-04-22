@@ -3,13 +3,13 @@ import {
   EyeOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
-  UploadOutlined,
+  InboxOutlined,
 } from '@ant-design/icons';
-import { Alert, Button, Drawer, Popconfirm, Space, Table, Tag, message } from 'antd';
+import { Drawer, Popconfirm, message } from 'antd';
 import { useEffect, useRef, useState } from 'react';
-import glassStyles from '../components/shared/GlassCard.module.css';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import PageHeader from '../components/shared/PageHeader';
+import JSONDataEditor from '../components/shared/JSONDataEditor';
 import { deleteDataset, getDatasetList, previewDataset, uploadDataset } from '../services/api';
 import { useAppStore } from '../store/appStore';
 import type { DatasetInfo } from '../types';
@@ -17,14 +17,14 @@ import styles from './DatasetManager.module.css';
 
 export default function DatasetManager() {
   const { datasets, setDatasets, removeDataset, addDataset, backendStatus } = useAppStore();
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [previewData, setPreviewData] = useState<{
     total_samples: number;
     preview: unknown[];
   } | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
+  const [, setPreviewLoading] = useState(false);
 
   const fetchDatasets = async () => {
     if (backendStatus !== 'connected') return;
@@ -45,19 +45,16 @@ export default function DatasetManager() {
 
   const handleSelectFile = async () => {
     if (window.electronAPI) {
-      // Electron 环境
       const filePath = await window.electronAPI.selectFile([
         { name: 'JSON/JSONL', extensions: ['json', 'jsonl'] },
       ]);
       if (filePath) {
         try {
           setLoading(true);
-          // 读取文件内容
           const fileData = await window.electronAPI.readFile(filePath);
           if (!fileData) {
             throw new Error('无法读取文件');
           }
-          // 将 base64 转换为 Blob
           const byteCharacters = atob(fileData.data);
           const byteNumbers = new Array(byteCharacters.length);
           for (let i = 0; i < byteCharacters.length; i++) {
@@ -65,9 +62,7 @@ export default function DatasetManager() {
           }
           const byteArray = new Uint8Array(byteNumbers);
           const blob = new Blob([byteArray]);
-          // 创建 File 对象
           const file = new File([blob], fileData.name, { type: 'application/json' });
-          // 上传数据集
           const result = await uploadDataset(file);
           message.success('数据集上传成功');
           addDataset(result);
@@ -79,7 +74,6 @@ export default function DatasetManager() {
         }
       }
     } else {
-      // Web 环境 - 使用 file input
       fileInputRef.current?.click();
     }
   };
@@ -97,7 +91,6 @@ export default function DatasetManager() {
       message.error(error.message || '数据集上传失败');
     } finally {
       setLoading(false);
-      // 清空 input 以便再次选择同一文件
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -138,75 +131,63 @@ export default function DatasetManager() {
     }
   };
 
-  const columns = [
-    {
-      title: '数据集名称',
-      dataIndex: 'name',
-      key: 'name',
-    },
-    {
-      title: '格式',
-      dataIndex: 'format',
-      key: 'format',
-      render: (format: string) => (
-        <Tag color={format === 'json' ? 'blue' : 'green'}>{format.toUpperCase()}</Tag>
-      ),
-    },
-    {
-      title: '样本数',
-      dataIndex: 'samples',
-      key: 'samples',
-    },
-    {
-      title: '大小',
-      dataIndex: 'size',
-      key: 'size',
-      render: (size: number) => formatSize(size),
-    },
-    {
-      title: '上传时间',
-      dataIndex: 'createdAt',
-      key: 'createdAt',
-      render: (date: string) => new Date(date).toLocaleString('zh-CN'),
-    },
-    {
-      title: '操作',
-      key: 'action',
-      render: (_: unknown, record: DatasetInfo) => (
-        <Space>
-          <Button
-            type="link"
-            icon={<EyeOutlined />}
-            onClick={() => handlePreview(record.id)}
-            loading={previewLoading}
-          >
-            预览
-          </Button>
-          <Button
-            type="link"
-            icon={<FolderOpenOutlined />}
-            onClick={() => window.electronAPI?.openFolder(record.path)}
-          >
-            打开
-          </Button>
-          <Popconfirm
-            title="确认删除?"
-            onConfirm={() => handleDelete(record.id)}
-            okText="确定"
-            cancelText="取消"
-          >
-            <Button type="link" danger icon={<DeleteOutlined />}>
-              删除
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ];
+  const renderDatasetCard = (record: DatasetInfo) => {
+    // Generate a pseudo-health score based on samples count (just for visual representation)
+    const healthPercentage = Math.min(100, Math.max(10, (record.samples / 5000) * 100));
+
+    return (
+      <MotionItem key={record.id}>
+        <div className={styles.bentoCard}>
+          <div className={styles.cardHeader}>
+            <h3 className={styles.cardTitle}>{record.name}</h3>
+            <span className={`${styles.cardFormat} ${styles[record.format] || ''}`}>
+              {record.format}
+            </span>
+          </div>
+          
+          <div className={styles.metricsRow}>
+            <div className={styles.metric}>
+              <div className={styles.metricLabel}>Samples</div>
+              <div className={styles.metricValue}>{record.samples.toLocaleString()}</div>
+            </div>
+            <div className={styles.metric}>
+              <div className={styles.metricLabel}>Size</div>
+              <div className={styles.metricValue}>{formatSize(record.size)}</div>
+            </div>
+          </div>
+
+          <div className={styles.healthScore}>
+            <div className={styles.metricLabel}>Data Health Score</div>
+            <div className={styles.healthBar}>
+              <div className={styles.healthFill} style={{ width: `${healthPercentage}%` }} />
+            </div>
+          </div>
+
+          <div className={styles.cardActions}>
+            <button className={styles.actionBtn} onClick={() => handlePreview(record.id)}>
+              <EyeOutlined /> Preview
+            </button>
+            <button className={styles.actionBtn} onClick={() => window.electronAPI?.openFolder(record.path)}>
+              <FolderOpenOutlined /> Open
+            </button>
+            <Popconfirm
+              title="Confirm Delete?"
+              onConfirm={() => handleDelete(record.id)}
+              okText="Yes"
+              cancelText="No"
+            >
+              <button className={`${styles.actionBtn} ${styles.danger}`}>
+                <DeleteOutlined />
+              </button>
+            </Popconfirm>
+          </div>
+        </div>
+      </MotionItem>
+    );
+  };
 
   return (
-    <MotionList className={styles.container} stagger={0.08}>
-      {/* 隐藏的文件上传 input (用于 Web 环境) */}
+    <div className={styles.container}>
       <input
         ref={fileInputRef}
         type="file"
@@ -214,102 +195,63 @@ export default function DatasetManager() {
         style={{ display: 'none' }}
         onChange={handleWebFileUpload}
       />
-      <MotionItem>
-        <PageHeader
-          title="数据集管理"
-          icon={<FileTextOutlined />}
-          helpTooltip="支持上传 JSON/JSONL 格式的数据集进行微调。"
-          primaryAction={
-            <Button
-              type="primary"
-              icon={<UploadOutlined />}
-              onClick={handleSelectFile}
-              loading={loading}
-              size="large"
-              style={{ borderRadius: 8 }}
-            >
-              上传数据集
-            </Button>
-          }
-          style={{ marginBottom: 0 }}
-        />
-      </MotionItem>
+      <PageHeader
+        title="Data Logistics Hub"
+        icon={<FileTextOutlined />}
+        helpTooltip="Manage datasets for fine-tuning using Bento Grid architecture."
+        style={{ marginBottom: 0 }}
+      />
 
-      <MotionItem>
-        <div className={`${glassStyles.glassCard} ${styles.tableCard}`}>
-          <Alert
-            message="数据集格式说明"
-            description={
-              <div>
-                支持 JSON 和 JSONL 格式。每行一条对话数据，格式如下：
-                <pre
-                  className={styles.codePreview}
-                  style={{ marginTop: 8, marginBottom: 0, padding: 12 }}
-                >
-                  {`[
-  {"role": "user", "content": "你好"},
-  {"role": "assistant", "content": "你好！有什么可以帮你的？"}
-]`}
-                </pre>
-              </div>
-            }
-            type="info"
-            showIcon
-            style={{
-              marginBottom: 24,
-              borderRadius: 8,
-              background: 'rgba(22, 119, 255, 0.05)',
-              border: '1px solid rgba(22, 119, 255, 0.1)',
-            }}
-          />
+      <div className={styles.dropzone} onClick={handleSelectFile}>
+        <InboxOutlined className={styles.dropIcon} />
+        <div className={styles.dropText}>Click or drag to upload JSON/JSONL dataset</div>
+        <div className={styles.dropSubtext}>Structured files will be validated and hashed upon upload.</div>
+      </div>
 
-          {backendStatus !== 'connected' ? (
-            <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>
-              后端服务未连接，请先启动应用
-            </div>
-          ) : (
-            <Table
-              columns={columns}
-              dataSource={datasets}
-              rowKey="id"
-              locale={{ emptyText: '暂无数据集，请上传后使用' }}
-              loading={loading}
-            />
-          )}
+      {backendStatus !== 'connected' ? (
+        <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>
+          Backend offline. Please start the service.
         </div>
-      </MotionItem>
+      ) : (
+        <MotionList className={styles.bentoGrid} stagger={0.08}>
+          {datasets.map(renderDatasetCard)}
+        </MotionList>
+      )}
 
       <Drawer
-        title="数据集预览"
+        title="Deep Data Inspection"
         placement="right"
-        width={600}
+        width={800}
         open={previewVisible}
         onClose={() => setPreviewVisible(false)}
-        className="glass-drawer"
+        className="deep-tech-drawer"
+        style={{ background: 'var(--bg-pure-black)' }}
       >
         {previewData && (
-          <div style={{ paddingBottom: 24 }}>
+          <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
             <div
               style={{
                 marginBottom: 16,
                 padding: '12px 16px',
-                background: 'rgba(22, 119, 255, 0.05)',
+                background: 'rgba(0, 255, 194, 0.05)',
                 borderRadius: 8,
-                border: '1px solid rgba(22, 119, 255, 0.1)',
+                border: '1px solid rgba(0, 255, 194, 0.2)',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 8,
               }}
             >
-              <strong style={{ color: 'var(--text-primary)' }}>总样本数:</strong>
-              <span style={{ color: 'var(--accent-primary)', fontSize: 16, fontWeight: 500 }}>
+              <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>TOTAL SAMPLES:</strong>
+              <span style={{ color: 'var(--accent-neon-cyan)', fontSize: 16, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
                 {previewData.total_samples}
               </span>
             </div>
-            <pre className={styles.codePreview}>{JSON.stringify(previewData.preview, null, 2)}</pre>
+            <div className={styles.editorWrapper}>
+              <JSONDataEditor data={previewData.preview} />
+            </div>
           </div>
         )}
       </Drawer>
-    </MotionList>
+    </div>
   );
 }

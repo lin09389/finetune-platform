@@ -126,6 +126,8 @@ def _serialize_fact(memory: Any, fallback: dict[str, Any] | None = None) -> dict
         ),
         "access_count": int(payload.get("access_count", 0) or 0),
         "relevance": float(payload.get("relevance", 0.0) or 0.0),
+        "vector_state": str(payload.get("vector_state", "pending")),
+        "storage_mode": str(payload.get("storage_mode", "text_only")),
     }
 
 
@@ -148,6 +150,8 @@ async def list_memories(
                 "created_at": memory.created_at.isoformat(),
                 "last_accessed": memory.updated_at.isoformat(),
                 "access_count": memory.access_count,
+                "vector_state": memory.vector_state,
+                "storage_mode": memory.storage_mode,
             }
             for memory in memories
         ],
@@ -172,6 +176,8 @@ async def create_memory(request: MemoryCreateRequest, user_id: str = "default"):
         "type": memory.type.value,
         "importance": memory.importance,
         "created_at": memory.created_at.isoformat(),
+        "vector_state": memory.vector_state,
+        "storage_mode": memory.storage_mode,
     }
 
 
@@ -196,6 +202,8 @@ async def recall_memories(request: MemorySearchRequest, user_id: str = "default"
                 "created_at": result.created_at.isoformat(),
                 "last_accessed": result.created_at.isoformat(),
                 "access_count": 0,
+                "vector_state": result.vector_state,
+                "storage_mode": result.storage_mode,
             }
             for result in results
         ],
@@ -478,6 +486,8 @@ async def get_memory(memory_id: str, user_id: str = "default"):
         "updated_at": memory.updated_at.isoformat(),
         "access_count": memory.access_count,
         "metadata": memory.metadata,
+        "vector_state": memory.vector_state,
+        "storage_mode": memory.storage_mode,
     }
 
 
@@ -500,6 +510,8 @@ async def update_memory(memory_id: str, request: MemoryUpdateRequest, user_id: s
         "content": memory.content,
         "importance": memory.importance,
         "updated_at": memory.updated_at.isoformat(),
+        "vector_state": memory.vector_state,
+        "storage_mode": memory.storage_mode,
     }
 
 

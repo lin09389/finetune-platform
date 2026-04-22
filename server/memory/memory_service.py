@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from core.storage import MemoryRepository, vector_reconcile_enabled
+
 from .memory_extractor import MemoryExtractor
 from .models import MEMORY_TYPE_LABELS, MemoryType
 
@@ -40,6 +42,7 @@ class MemoryService:
             logger.warning("记忆提取功能可用，但向量检索功能不可用")
 
         self.extractor = MemoryExtractor()
+        self.repository = MemoryRepository()
         self.simple_memories: dict[str, list[dict]] = {}
 
         self.data_dir = Path(vector_db_path).parent
@@ -88,42 +91,59 @@ class MemoryService:
 
     def _store_memory(self, user_id: str, memory: dict) -> str:
         """存储单条记忆"""
-        memory_id = f"mem_{uuid.uuid4().hex[:8]}"
-
-        metadata = {
-            'user_id': user_id,
-            'type': memory['type'],
-            'importance': memory['importance'],
-            'source': memory.get('source', 'unknown'),
-            'created_at': datetime.now().isoformat(),
-            'access_count': 0
-        }
-
-        if self._embedding_available and self.embedder and self.vector_store:
-            try:
-                embedding = self.embedder.embed_single(memory['content'])
-
-                self.vector_store.add_documents(
-                    collection_name=f"memories_{user_id}",
-                    documents=[memory['content']],
-                    embeddings=[embedding],
-                    metadatas=[metadata],
-                    ids=[memory_id]
-                )
-                return memory_id
-            except Exception as e:
-                logger.warning(f"向量存储失败，使用简化存储: {e}")
-
-        if user_id not in self.simple_memories:
-            self.simple_memories[user_id] = []
-
-        self.simple_memories[user_id].append({
-            'id': memory_id,
-            'content': memory['content'],
-            **metadata
+        memory_id = memory.get("id") or f"mem_{uuid.uuid4().hex[:8]}"
+        now = datetime.now().isoformat()
+        item = self.repository.create({
+            "id": memory_id,
+            "user_id": user_id,
+            "content": memory.get("content", ""),
+            "type": memory.get("type", "knowledge"),
+            "importance": memory.get("importance", 0.5),
+            "source": memory.get("source", "unknown"),
+            "metadata": memory.get("metadata", {}) or {},
+            "vector_state": "pending",
+            "created_at": memory.get("created_at") or now,
+            "updated_at": memory.get("updated_at") or now,
         })
 
+        if self._upsert_vector(item):
+            self.repository.update_vector_state(memory_id, "ready")
+        else:
+            self.repository.update_vector_state(memory_id, "failed")
+
         return memory_id
+
+    def _upsert_vector(self, memory: dict[str, Any]) -> bool:
+        if not (self._embedding_available and self.embedder and self.vector_store):
+            return False
+
+        try:
+            collection_name = f"memories_{memory['user_id']}"
+            try:
+                self.vector_store.delete_documents(collection_name=collection_name, ids=[memory["id"]])
+            except Exception:
+                pass
+            embedding = self.embedder.embed_single(memory["content"])
+            metadata = {
+                "id": memory["id"],
+                "user_id": memory["user_id"],
+                "type": memory.get("type", "knowledge"),
+                "importance": memory.get("importance", 0.5),
+                "source": memory.get("source", "unknown"),
+                "created_at": memory.get("created_at", datetime.now().isoformat()),
+                "access_count": memory.get("access_count", 0),
+            }
+            self.vector_store.add_documents(
+                collection_name=collection_name,
+                documents=[memory["content"]],
+                embeddings=[embedding],
+                metadatas=[metadata],
+                ids=[memory["id"]],
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"向量写入失败，标记为 failed: {e}")
+            return False
 
     def recall(
         self,
@@ -143,8 +163,6 @@ class MemoryService:
         Returns:
             相关记忆列表
         """
-        memories = []
-
         if self._embedding_available and self.embedder and self.vector_store:
             try:
                 query_embedding = self.embedder.embed_single(query)
@@ -160,50 +178,35 @@ class MemoryService:
                     filter_metadata=filter_metadata
                 )
 
+                ids: list[str] = []
+                scores: dict[str, float] = {}
                 for result in results:
                     meta = result.get('metadata', {})
-                    memories.append({
-                        'id': meta.get('id', ''),
-                        'content': result['content'],
-                        'type': meta.get('type', 'knowledge'),
-                        'importance': meta.get('importance', 0.5),
-                        'created_at': meta.get('created_at', ''),
-                        'access_count': meta.get('access_count', 0),
-                        'relevance': result.get('score', 0)
-                    })
+                    memory_id = meta.get("id")
+                    if memory_id:
+                        ids.append(memory_id)
+                        scores[memory_id] = float(result.get("score", 0) or 0)
+
+                memories = self.repository.get_many(ids, user_id=user_id)
+                for memory in memories:
+                    memory["relevance"] = scores.get(memory["id"], 0.0)
+                    memory["storage_mode"] = "vector"
 
                 logger.info(f"向量检索到 {len(memories)} 条相关记忆")
-                return memories
+                if memories:
+                    return memories
             except Exception as e:
                 logger.warning(f"向量检索失败，使用简化检索: {e}")
 
-        if user_id in self.simple_memories:
-            for mem in self.simple_memories[user_id]:
-                if memory_type and mem.get('type') != memory_type:
-                    continue
-
-                relevance = 0.5
-                query_lower = query.lower()
-                content_lower = mem['content'].lower()
-
-                query_words = set(query_lower.split())
-                content_words = set(content_lower.split())
-                common_words = query_words & content_words
-                if query_words:
-                    relevance = len(common_words) / len(query_words)
-
-                memories.append({
-                    'id': mem['id'],
-                    'content': mem['content'],
-                    'type': mem.get('type', 'knowledge'),
-                    'importance': mem.get('importance', 0.5),
-                    'created_at': mem.get('created_at', ''),
-                    'access_count': mem.get('access_count', 0),
-                    'relevance': relevance
-                })
-
-        memories.sort(key=lambda x: x.get('relevance', 0), reverse=True)
-        return memories[:top_k]
+        memories = self.repository.search_text(
+            query=query,
+            user_id=user_id,
+            top_k=top_k,
+            memory_type=memory_type,
+        )
+        for memory in memories:
+            memory["storage_mode"] = "text_only"
+        return memories
 
     def list_memories(
         self,
@@ -221,47 +224,7 @@ class MemoryService:
         Returns:
             记忆列表
         """
-        memories = []
-
-        if self._embedding_available and self.vector_store:
-            try:
-                collection = self.vector_store.get_or_create_collection(
-                    f"memories_{user_id}"
-                )
-
-                all_data = collection.get(include=["metadatas", "documents"])
-
-                if all_data['metadatas'] and all_data['documents']:
-                    for i, (meta, doc) in enumerate(
-                        zip(
-                            all_data['metadatas'],
-                            all_data['documents'],
-                            strict=False,
-                        )
-                    ):
-                        if memory_type and meta.get('type') != memory_type:
-                            continue
-
-                        memories.append({
-                            'id': all_data['ids'][i],
-                            'content': doc,
-                            'type': meta.get('type', 'knowledge'),
-                            'importance': meta.get('importance', 0.5),
-                            'created_at': meta.get('created_at', ''),
-                            'access_count': meta.get('access_count', 0)
-                        })
-            except Exception as e:
-                logger.warning(f"向量存储读取失败: {e}")
-
-        if user_id in self.simple_memories:
-            for mem in self.simple_memories[user_id]:
-                if memory_type and mem.get('type') != memory_type:
-                    continue
-                memories.append(mem)
-
-        memories.sort(key=lambda x: x['importance'], reverse=True)
-
-        return memories[:limit]
+        return self.repository.list(user_id=user_id, memory_type=memory_type, limit=limit)
 
     def forget(self, user_id: str, memory_id: str) -> bool:
         """
@@ -274,7 +237,7 @@ class MemoryService:
         Returns:
             是否成功
         """
-        success = False
+        success = self.repository.delete(memory_id=memory_id, user_id=user_id)
 
         if self._embedding_available and self.vector_store:
             try:
@@ -282,16 +245,8 @@ class MemoryService:
                     collection_name=f"memories_{user_id}",
                     ids=[memory_id]
                 )
-                success = True
             except Exception as e:
                 logger.warning(f"向量存储删除失败: {e}")
-
-        if user_id in self.simple_memories:
-            self.simple_memories[user_id] = [
-                m for m in self.simple_memories[user_id]
-                if m['id'] != memory_id
-            ]
-            success = True
 
         if success:
             logger.info(f"记忆已删除: {memory_id}")
@@ -308,9 +263,14 @@ class MemoryService:
             是否成功
         """
         try:
-            self.vector_store.delete_collection(f"memories_{user_id}")
+            cleared = self.repository.clear_user(user_id)
+            if self.vector_store:
+                try:
+                    self.vector_store.delete_collection(f"memories_{user_id}")
+                except Exception as e:
+                    logger.warning(f"向量集合清除失败: {e}")
             logger.info(f"已清除用户 {user_id} 的所有记忆")
-            return True
+            return cleared >= 0
         except Exception as e:
             logger.error(f"清除记忆失败: {e}")
             return False
@@ -383,13 +343,73 @@ class MemoryService:
             统计信息
         """
         try:
-            stats = self.vector_store.get_collection_stats(f"memories_{user_id}")
-            return {
-                'total_memories': stats.get('count', 0),
-                'collection_name': stats.get('name', '')
-            }
+            stats = self.repository.stats(user_id)
+            if self.vector_store:
+                try:
+                    vector_stats = self.vector_store.get_collection_stats(f"memories_{user_id}")
+                    stats["vector_collection_count"] = vector_stats.get("count", 0)
+                    stats["collection_name"] = vector_stats.get("name", "")
+                except Exception:
+                    stats["vector_collection_count"] = 0
+            return stats
         except Exception:
             return {'total_memories': 0}
+
+    def update_memory(
+        self,
+        memory_id: str,
+        user_id: str = "default",
+        content: str | None = None,
+        importance: float | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        current = self.repository.get(memory_id, user_id=user_id, increment_access=False)
+        if not current:
+            return None
+        updates: dict[str, Any] = {}
+        if content is not None:
+            updates["content"] = content
+            updates["vector_state"] = "pending"
+        if importance is not None:
+            updates["importance"] = importance
+        if metadata is not None:
+            merged = current.get("metadata", {}).copy()
+            merged.update(metadata)
+            updates["metadata"] = merged
+        updated = self.repository.update(memory_id=memory_id, user_id=user_id, **updates)
+        if updated and content is not None:
+            if self._upsert_vector(updated):
+                self.repository.update_vector_state(memory_id, "ready")
+                updated["vector_state"] = "ready"
+                updated["storage_mode"] = "vector"
+            else:
+                self.repository.update_vector_state(memory_id, "failed")
+                updated["vector_state"] = "failed"
+                updated["storage_mode"] = "text_only"
+        return updated
+
+    def get_memory(
+        self,
+        memory_id: str,
+        user_id: str = "default",
+        increment_access: bool = True,
+    ) -> dict[str, Any] | None:
+        return self.repository.get(memory_id, user_id=user_id, increment_access=increment_access)
+
+    def reconcile_vectors(self, limit: int = 100) -> dict[str, Any]:
+        if not vector_reconcile_enabled():
+            return {"enabled": False, "attempted": 0, "ready": 0, "failed": 0}
+
+        pending = self.repository.pending_vectors(limit=limit)
+        result = {"enabled": True, "attempted": len(pending), "ready": 0, "failed": 0}
+        for memory in pending:
+            if self._upsert_vector(memory):
+                self.repository.update_vector_state(memory["id"], "ready")
+                result["ready"] += 1
+            else:
+                self.repository.update_vector_state(memory["id"], "failed")
+                result["failed"] += 1
+        return result
 
 
 _memory_service: MemoryService | None = None

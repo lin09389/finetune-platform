@@ -1,89 +1,187 @@
 .container {
   padding: 24px;
-  height: 100%;
+  height: calc(100vh - 64px);
+  overflow-y: auto;
+  background: var(--bg-pure-black);
+  color: #fff;
   display: flex;
   flex-direction: column;
   gap: 24px;
 }
 
-.headerCard {
+.bentoGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 24px;
+}
+
+.bentoCard {
+  background: var(--glass-bg);
+  border: var(--glass-border);
+  border-radius: 12px;
   padding: 24px;
-  border-radius: 16px;
+  backdrop-filter: blur(20px);
+  position: relative;
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.bentoCard:hover {
+  border-color: rgba(0, 255, 194, 0.4);
+  box-shadow: 0 0 20px rgba(0, 255, 194, 0.1);
+  transform: translateY(-2px);
+}
+
+.cardHeader {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0;
+  align-items: flex-start;
+  margin-bottom: 16px;
 }
 
-.title {
+.cardTitle {
+  font-size: 16px;
+  font-weight: 600;
   margin: 0;
-  font-size: var(--text-xl);
-  font-weight: var(--font-bold);
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  letter-spacing: -0.01em;
+  color: #fff;
 }
 
-.tableCard {
-  padding: 24px;
-  border-radius: 16px;
-  flex: 1;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.tableCard :global(.ant-table-wrapper) {
-  flex: 1;
-  overflow: auto;
-}
-
-.tableCard :global(.ant-table) {
-  background: transparent;
-}
-
-.tableCard :global(.ant-table-thead > tr > th) {
-  background: transparent;
-  border-bottom: 1px solid var(--border-color);
-  color: var(--text-tertiary);
-  font-weight: var(--font-semibold);
-  font-size: var(--text-xs);
+.cardFormat {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-family: var(--font-mono);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  transition: background 0.3s;
 }
 
-.tableCard :global(.ant-table-tbody > tr > td) {
-  border-bottom: 1px solid var(--border-color);
-  transition: background 0.3s;
+.cardFormat.jsonl {
+  color: var(--accent-neon-cyan);
+  background: rgba(0, 255, 194, 0.1);
+  border: 1px solid rgba(0, 255, 194, 0.3);
 }
 
-.tableCard :global(.ant-table-tbody > tr:hover > td) {
-  background: var(--bg-hover);
+.cardFormat.json {
+  color: var(--accent-neon-purple);
+  background: rgba(157, 0, 255, 0.1);
+  border: 1px solid rgba(157, 0, 255, 0.3);
 }
 
-.codePreview {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 16px;
-  max-height: 500px;
-  overflow: auto;
-  font-size: 13px;
-  font-family: 'Fira Code', Consolas, monospace;
+.metricsRow {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.metric {
+  flex: 1;
+}
+
+.metricLabel {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin-bottom: 4px;
+}
+
+.metricValue {
+  font-size: 18px;
+  font-weight: 600;
+  font-family: var(--font-mono);
   color: var(--text-primary);
+}
+
+.healthScore {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.healthBar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.healthFill {
+  height: 100%;
+  background: var(--gradient-success);
+  border-radius: 2px;
+  transition: width 1s ease;
+}
+
+.cardActions {
+  display: flex;
+  gap: 8px;
   margin-top: 16px;
 }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.actionBtn {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  padding: 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.actionBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.actionBtn.danger:hover {
+  background: rgba(255, 77, 77, 0.1);
+  border-color: rgba(255, 77, 77, 0.4);
+  color: var(--accent-neon-red);
+}
+
+/* Dropzone */
+.dropzone {
+  border: 2px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  padding: 40px;
+  text-align: center;
+  transition: all 0.3s ease;
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+}
+
+.dropzone:hover {
+  border-color: var(--accent-neon-cyan);
+  background: rgba(0, 255, 194, 0.05);
+}
+
+.dropIcon {
+  font-size: 32px;
+  color: var(--accent-neon-cyan);
+  margin-bottom: 16px;
+}
+
+.dropText {
+  font-size: 16px;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.dropSubtext {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* Editor Preview */
+.editorWrapper {
+  height: 500px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }

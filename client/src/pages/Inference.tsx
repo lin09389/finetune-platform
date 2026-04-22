@@ -5,13 +5,14 @@ import {
   SendOutlined,
   SwapOutlined,
 } from '@ant-design/icons';
-import { Alert, Badge, Button, Col, Divider, Input, Row, Select, Slider, Space, Tag } from 'antd';
+import { Alert, Badge, Button, Col, Divider, Input, Row, Select, Slider, Space, Tag, Switch } from 'antd';
 import { useEffect, useState } from 'react';
 import RuntimeContextPanel from '../components/runtime/RuntimeContextPanel';
 import glassStyles from '../components/shared/GlassCard.module.css';
 import InsightPanel from '../components/shared/InsightPanel';
 import PageHeader from '../components/shared/PageHeader';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
+import VersionComparisonChat from '../components/shared/VersionComparisonChat';
 import { useRuntimeContext } from '../runtime/RuntimeContext';
 import {
   getPerformanceRecommendations,
@@ -44,6 +45,7 @@ export default function Inference() {
   const [inferenceEngines, setInferenceEngines] = useState<InferenceEngine[]>([]);
   const [performanceStats, setPerformanceStats] = useState<any>(null);
   const [performanceRecommendations, setPerformanceRecommendations] = useState<string[]>([]);
+  const [comparisonMode, setComparisonMode] = useState(false);
 
   useEffect(() => {
     void refreshInference();
@@ -213,8 +215,8 @@ export default function Inference() {
                     marginBottom: 24,
                   }}
                 >
-                  <h3 style={{ margin: 0, fontSize: 18, color: 'var(--text-primary)' }}>对话</h3>
                   <Space>
+                    <h3 style={{ margin: 0, fontSize: 18, color: 'var(--text-primary)' }}>对话测试</h3>
                     <Select
                       value={currentBackend}
                       onChange={handleBackendChange}
@@ -226,17 +228,13 @@ export default function Inference() {
                         disabled: !b.available,
                       }))}
                     />
-                    <Select
-                      placeholder={currentBackend === 'ollama' ? '选择 Ollama 模型' : '选择模型'}
-                      value={selectedModel}
-                      onChange={(model) => {
-                        setSelectedModel(model);
-                        syncInferenceSelection({ backend: currentBackend, modelId: model });
-                      }}
-                      style={{ width: 250 }}
-                      options={modelOptions}
-                      disabled={loading}
-                      loading={modelOptions.length === 0}
+                  </Space>
+                  <Space>
+                    <span style={{color: 'var(--text-secondary)'}}>A/B Comparison Mode</span>
+                    <Switch 
+                      checked={comparisonMode} 
+                      onChange={setComparisonMode} 
+                      style={{ background: comparisonMode ? 'var(--accent-neon-cyan)' : undefined }}
                     />
                   </Space>
                 </div>
@@ -256,51 +254,74 @@ export default function Inference() {
                   />
                 )}
 
-                <div className={`${styles.chatBox} ${loading ? styles.generatingGlow : ''}`}>
-                  {response || '模型输出将显示在这里...'}
-                  {loading && <LoadingOutlined style={{ marginLeft: 8 }} spin />}
-                </div>
+                {comparisonMode ? (
+                  <VersionComparisonChat 
+                    modelOptions={modelOptions} 
+                    currentBackend={currentBackend}
+                  />
+                ) : (
+                  <>
+                    <div style={{ marginBottom: 16 }}>
+                      <Select
+                        placeholder={currentBackend === 'ollama' ? '选择 Ollama 模型' : '选择模型'}
+                        value={selectedModel}
+                        onChange={(model) => {
+                          setSelectedModel(model);
+                          syncInferenceSelection({ backend: currentBackend, modelId: model });
+                        }}
+                        style={{ width: 250 }}
+                        options={modelOptions}
+                        disabled={loading}
+                        loading={modelOptions.length === 0}
+                      />
+                    </div>
+                    <div className={`${styles.chatBox} ${loading ? styles.generatingGlow : ''}`}>
+                      {response || '模型输出将显示在这里...'}
+                      {loading && <LoadingOutlined style={{ marginLeft: 8 }} spin />}
+                    </div>
 
-                <TextArea
-                  placeholder="输入你的问题..."
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  onPressEnter={(e) => {
-                    if (!e.shiftKey) {
-                      e.preventDefault();
-                      handleSend();
-                    }
-                  }}
-                  rows={4}
-                  disabled={loading || !selectedModel}
-                  style={{ marginBottom: 16, borderRadius: 8 }}
-                  className="glass-input"
-                />
+                    <TextArea
+                      placeholder="输入你的问题..."
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      onPressEnter={(e) => {
+                        if (!e.shiftKey) {
+                          e.preventDefault();
+                          handleSend();
+                        }
+                      }}
+                      rows={4}
+                      disabled={loading || !selectedModel}
+                      style={{ marginBottom: 16, borderRadius: 8 }}
+                      className="glass-input"
+                    />
 
-                <Space>
-                  <Button
-                    type="primary"
-                    icon={<SendOutlined />}
-                    onClick={handleSend}
-                    loading={loading}
-                    disabled={!selectedModel || !prompt.trim()}
-                    style={{ borderRadius: 8 }}
-                  >
-                    发送
-                  </Button>
-                  <Button
-                    icon={<ClearOutlined />}
-                    onClick={handleClear}
-                    disabled={loading}
-                    style={{ borderRadius: 8 }}
-                  >
-                    清空
-                  </Button>
-                  <Tag color="blue" style={{ borderRadius: 4 }}>
-                    Shift+Enter 换行
-                  </Tag>
-                  {getBackendBadge()}
-                </Space>
+                    <Space>
+                      <Button
+                        type="primary"
+                        icon={<SendOutlined />}
+                        onClick={handleSend}
+                        loading={loading}
+                        disabled={!selectedModel || !prompt.trim()}
+                        style={{ borderRadius: 8 }}
+                      >
+                        发送
+                      </Button>
+                      <Button
+                        icon={<ClearOutlined />}
+                        onClick={handleClear}
+                        disabled={loading}
+                        style={{ borderRadius: 8 }}
+                      >
+                        清空
+                      </Button>
+                      <Tag color="blue" style={{ borderRadius: 4 }}>
+                        Shift+Enter 换行
+                      </Tag>
+                      {getBackendBadge()}
+                    </Space>
+                  </>
+                )}
               </div>
             </Col>
 
