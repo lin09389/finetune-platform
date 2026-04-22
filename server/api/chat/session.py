@@ -12,9 +12,11 @@ from typing import Any
 from core.storage import (
     APP_DB_PATH,
     ChatRepository,
+    StorageOutboxRepository,
     dual_write_enabled,
     json_fallback_enabled,
     migrate_json_state,
+    process_json_outbox,
     storage_read_primary,
 )
 
@@ -123,6 +125,7 @@ class SessionManager:
         self.storage_path.mkdir(parents=True, exist_ok=True)
         self.db_path = db_path
         self.repository = ChatRepository(db_path)
+        self.outbox = StorageOutboxRepository(db_path)
         self.max_sessions = max_sessions
         self.auto_save = auto_save
         self.max_retries = max_retries
@@ -177,9 +180,9 @@ class SessionManager:
             except Exception as e:
                 logger.warning("Failed to load session %s: %s", file_path, e)
 
-    def _atomic_shadow_write(self, session: Session, retry: bool = True) -> None:
+    def _atomic_shadow_write(self, session: Session, retry: bool = True) -> bool:
         if not self.auto_save:
-            return
+            return True
 
         attempts = self.max_retries if retry else 1
         for attempt in range(attempts):
@@ -191,12 +194,29 @@ class SessionManager:
                     f.flush()
                 tmp_path.replace(file_path)
                 self._write_errors = 0
-                return
+                return True
             except Exception as e:
                 self._write_errors += 1
                 logger.warning("Failed to save session %s (%s/%s): %s", session.id, attempt + 1, attempts, e)
 
         self._pending_writes.append({"session_id": session.id, "session": session.to_dict(), "ts": datetime.now().isoformat()})
+        return False
+
+    def _enqueue_shadow_write(self, session: Session) -> str:
+        file_path = self.storage_path / f"{session.id}.json"
+        return self.outbox.enqueue(
+            task_type="json_shadow_write",
+            target=str(file_path),
+            payload=session.to_dict(),
+            task_id=f"json_session_{session.id}",
+        )
+
+    def _shadow_write_with_outbox(self, session: Session, retry: bool = True) -> None:
+        task_id = self._enqueue_shadow_write(session)
+        if self._atomic_shadow_write(session, retry=retry):
+            self.outbox.mark_done(task_id)
+        else:
+            self.outbox.mark_failed(task_id, f"Failed to shadow-write session {session.id}")
 
     def replay_pending_writes(self) -> int:
         replayed = 0
@@ -204,8 +224,10 @@ class SessionManager:
         self._pending_writes.clear()
         for item in pending:
             try:
-                self._atomic_shadow_write(Session.from_dict(item["session"]), retry=True)
-                replayed += 1
+                if self._atomic_shadow_write(Session.from_dict(item["session"]), retry=True):
+                    replayed += 1
+                else:
+                    self._pending_writes.append(item)
             except Exception:
                 self._pending_writes.append(item)
         return replayed
@@ -214,7 +236,41 @@ class SessionManager:
         self.repository.save_session(session)
         self._memory_cache[session.id] = session
         if dual_write_enabled():
-            self._atomic_shadow_write(session, retry=retry)
+            self._shadow_write_with_outbox(session, retry=retry)
+
+    def append_message(self, session_id: str, message: Message) -> bool:
+        with self._lock:
+            session = self.get_session(session_id)
+            if not session:
+                return False
+            if not any(existing.id == message.id for existing in session.messages):
+                session.messages.append(message)
+            session.message_count = len(session.messages)
+            session.updated_at = datetime.now()
+            self.repository.append_message(session_id, message)
+            self.repository.update_session_header(session, message_count=session.message_count)
+            self._memory_cache[session_id] = session
+            self._sessions[session_id] = session
+            if dual_write_enabled():
+                self._shadow_write_with_outbox(session)
+            return True
+
+    def clear_session_messages(self, session_id: str) -> bool:
+        with self._lock:
+            session = self.get_session(session_id)
+            if not session:
+                return False
+            session.clear_messages()
+            cleared = self.repository.clear_messages(session_id)
+            self.repository.update_session_header(session, message_count=0)
+            self._memory_cache[session_id] = session
+            self._sessions[session_id] = session
+            if dual_write_enabled():
+                self._shadow_write_with_outbox(session)
+            return cleared
+
+    def process_shadow_outbox(self, limit: int = 100) -> dict[str, int]:
+        return process_json_outbox(self.db_path, limit=limit)
 
     def create_session(self, title: str = "New Chat", metadata: dict[str, Any] | None = None) -> Session:
         with self._lock:

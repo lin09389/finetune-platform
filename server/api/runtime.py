@@ -17,7 +17,7 @@ from fastapi import APIRouter
 
 from api.inference import routes as inference_routes
 from api.knowledge import routes as knowledge_routes
-from core.storage import get_storage_status
+from core.storage import checkpoint_storage, get_storage_status, process_json_outbox
 from memory.memory_service import get_memory_service
 
 training_routes = importlib.import_module("api.training")
@@ -206,4 +206,29 @@ async def reconcile_runtime_storage(limit: int = 100):
         "schema_version": "runtime.storage.reconcile.v1",
         "generated_at": datetime.now().isoformat(),
         "result": result,
+    }
+
+
+@router.post("/storage/outbox/process")
+async def process_runtime_storage_outbox(limit: int = 100):
+    """Process pending JSON shadow-write and vector outbox tasks once."""
+    json_result = process_json_outbox(limit=limit)
+    vector_result = get_memory_service().process_vector_outbox(limit=limit)
+    return {
+        "schema_version": "runtime.storage.outbox.process.v1",
+        "generated_at": datetime.now().isoformat(),
+        "result": {
+            "json": json_result,
+            "vector": vector_result,
+        },
+    }
+
+
+@router.post("/storage/checkpoint")
+async def checkpoint_runtime_storage():
+    """Run a WAL checkpoint for the SQLite application database."""
+    return {
+        "schema_version": "runtime.storage.checkpoint.v1",
+        "generated_at": datetime.now().isoformat(),
+        "result": checkpoint_storage(),
     }

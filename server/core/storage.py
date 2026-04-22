@@ -6,6 +6,9 @@ import hashlib
 import json
 import logging
 import os
+import sqlite3
+import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -15,6 +18,7 @@ from core.db_manager import get_db_pool
 logger = logging.getLogger(__name__)
 
 APP_DB_PATH = "data/app.db"
+MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 
 def _json_dumps(value: Any) -> str:
@@ -46,10 +50,115 @@ def _file_checksum(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _has_table(conn: sqlite3.Connection, table: str) -> bool:
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type IN ('table', 'virtual table') AND name = ?",
+        (table,),
+    ).fetchone()
+    return row is not None
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    if column not in _table_columns(conn, table):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def _ensure_migration_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS migration_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            version TEXT NOT NULL,
+            source_path TEXT NOT NULL DEFAULT '',
+            checksum TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL,
+            migrated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(version, source_path, checksum)
+        )
+        """
+    )
+    for column, definition in {
+        "name": "TEXT",
+        "error": "TEXT",
+        "duration_ms": "REAL",
+        "applied_at": "TEXT",
+    }.items():
+        _ensure_column(conn, "migration_runs", column, definition)
+
+
+def run_schema_migrations(db_path: str = APP_DB_PATH) -> dict[str, Any]:
+    """Run versioned schema migrations from core/migrations."""
+    MIGRATIONS_DIR.mkdir(parents=True, exist_ok=True)
+    migration_files = sorted(MIGRATIONS_DIR.glob("*.sql"))
+    applied = 0
+    skipped = 0
+    failed: list[dict[str, Any]] = []
+
+    with get_db_pool(db_path).get_connection() as conn:
+        _ensure_migration_table(conn)
+        for file_path in migration_files:
+            version = file_path.stem.split("_", 1)[0]
+            name = file_path.stem
+            sql = file_path.read_text(encoding="utf-8")
+            checksum = _sha256_text(sql)
+            existing = conn.execute(
+                """
+                SELECT checksum, status FROM migration_runs
+                WHERE version = ? AND source_path = ? AND status = 'ok'
+                ORDER BY id DESC LIMIT 1
+                """,
+                (version, str(file_path)),
+            ).fetchone()
+            if existing:
+                if existing["checksum"] != checksum:
+                    message = f"Migration checksum mismatch for {file_path}"
+                    failed.append({"version": version, "name": name, "error": message})
+                    raise RuntimeError(message)
+                skipped += 1
+                continue
+
+            started = time.perf_counter()
+            try:
+                conn.executescript(sql)
+                duration_ms = round((time.perf_counter() - started) * 1000, 3)
+                conn.execute(
+                    """
+                    INSERT INTO migration_runs
+                        (version, name, source_path, checksum, status, error, duration_ms, migrated_at, applied_at)
+                    VALUES (?, ?, ?, ?, 'ok', NULL, ?, ?, ?)
+                    """,
+                    (version, name, str(file_path), checksum, duration_ms, _utcnow(), _utcnow()),
+                )
+                applied += 1
+            except Exception as exc:
+                duration_ms = round((time.perf_counter() - started) * 1000, 3)
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO migration_runs
+                        (version, name, source_path, checksum, status, error, duration_ms, migrated_at, applied_at)
+                    VALUES (?, ?, ?, ?, 'failed', ?, ?, ?, ?)
+                    """,
+                    (version, name, str(file_path), checksum, str(exc), duration_ms, _utcnow(), _utcnow()),
+                )
+                failed.append({"version": version, "name": name, "error": str(exc)})
+                raise
+
+    return {"applied": applied, "skipped": skipped, "failed": failed}
+
+
 def init_storage(db_path: str = APP_DB_PATH) -> None:
     """Create the canonical SQLite schema and lightweight compatibility columns."""
     pool = get_db_pool(db_path)
     with pool.get_connection() as conn:
+        _ensure_migration_table(conn)
         cursor = conn.cursor()
         cursor.executescript(
             """
@@ -159,6 +268,29 @@ def init_storage(db_path: str = APP_DB_PATH) -> None:
                 migrated_at TEXT NOT NULL,
                 UNIQUE(version, source_path, checksum)
             );
+
+            CREATE TABLE IF NOT EXISTS storage_outbox (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                target TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                max_retries INTEGER NOT NULL DEFAULT 5,
+                next_retry_at TEXT,
+                error TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_storage_outbox_status_next
+            ON storage_outbox(status, next_retry_at, updated_at);
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_messages_session_id
+            ON chat_messages(session_id, id);
+
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_messages_session_ordinal_unique
+            ON chat_messages(session_id, ordinal);
             """
         )
 
@@ -184,6 +316,31 @@ def init_storage(db_path: str = APP_DB_PATH) -> None:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_event_type ON audit_logs(event_type)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated ON chat_sessions(updated_at DESC)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_memory_vector_state ON memory_items(vector_state, updated_at)")
+        _ensure_memory_fts(conn)
+
+    run_schema_migrations(db_path)
+
+
+def _ensure_memory_fts(conn: sqlite3.Connection) -> bool:
+    try:
+        conn.execute(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS memory_items_fts
+            USING fts5(id UNINDEXED, user_id UNINDEXED, content, type, source)
+            """
+        )
+        return True
+    except Exception as exc:
+        logger.warning("SQLite FTS5 unavailable, memory text search will use LIKE fallback: %s", exc)
+        return False
+
+
+def _memory_fts_available(conn: sqlite3.Connection) -> bool:
+    if not _has_table(conn, "memory_items_fts"):
+        return _ensure_memory_fts(conn)
+    return True
 
 
 class ChatRepository:
@@ -196,46 +353,139 @@ class ChatRepository:
         messages = payload.get("messages", [])
         now = _utcnow()
         with get_db_pool(self.db_path).get_connection() as conn:
+            self._upsert_session_header(conn, payload, message_count=len(messages), now=now)
+            self._replace_messages(conn, payload["id"], messages, now=now)
+
+    def update_session_header(self, session: Any, message_count: int | None = None) -> None:
+        payload = session.to_dict() if hasattr(session, "to_dict") else dict(session)
+        with get_db_pool(self.db_path).get_connection() as conn:
+            self._upsert_session_header(conn, payload, message_count=message_count, now=_utcnow())
+
+    def append_message(self, session_id: str, message: Any) -> int:
+        payload = message.to_dict() if hasattr(message, "to_dict") else dict(message)
+        now = _utcnow()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            row = conn.execute(
+                "SELECT id FROM chat_sessions WHERE id = ? AND deleted_at IS NULL",
+                (session_id,),
+            ).fetchone()
+            if not row:
+                raise KeyError(f"Session not found: {session_id}")
+
+            ordinal_row = conn.execute(
+                "SELECT COALESCE(MAX(ordinal), -1) + 1 AS next_ordinal FROM chat_messages WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            ordinal = int(ordinal_row["next_ordinal"] if ordinal_row else 0)
             conn.execute(
-                """
-                INSERT INTO chat_sessions (id, title, message_count, metadata, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    title=excluded.title,
-                    message_count=excluded.message_count,
-                    metadata=excluded.metadata,
-                    updated_at=excluded.updated_at,
-                    deleted_at=NULL
-                """,
-                (
-                    payload["id"],
-                    payload.get("title") or "New Chat",
-                    len(messages),
-                    _json_dumps(payload.get("metadata", {})),
-                    payload.get("created_at") or now,
-                    payload.get("updated_at") or now,
-                ),
-            )
-            conn.execute("DELETE FROM chat_messages WHERE session_id = ?", (payload["id"],))
-            conn.executemany(
                 """
                 INSERT INTO chat_messages
                     (id, session_id, role, content, metadata, created_at, ordinal)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                [
-                    (
-                        msg.get("id"),
-                        payload["id"],
-                        msg.get("role", ""),
-                        msg.get("content", ""),
-                        _json_dumps(msg.get("metadata", {})),
-                        msg.get("created_at") or now,
-                        index,
-                    )
-                    for index, msg in enumerate(messages)
-                ],
+                (
+                    payload.get("id"),
+                    session_id,
+                    payload.get("role", ""),
+                    payload.get("content", ""),
+                    _json_dumps(payload.get("metadata", {})),
+                    payload.get("created_at") or now,
+                    ordinal,
+                ),
             )
+            conn.execute(
+                """
+                UPDATE chat_sessions
+                SET message_count = (SELECT COUNT(*) FROM chat_messages WHERE session_id = ?),
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (session_id, now, session_id),
+            )
+        return ordinal
+
+    def replace_messages(self, session_id: str, messages: list[dict[str, Any]]) -> None:
+        with get_db_pool(self.db_path).get_connection() as conn:
+            self._replace_messages(conn, session_id, messages, now=_utcnow())
+
+    def clear_messages(self, session_id: str) -> bool:
+        now = _utcnow()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            exists = conn.execute(
+                "SELECT id FROM chat_sessions WHERE id = ? AND deleted_at IS NULL",
+                (session_id,),
+            ).fetchone()
+            if not exists:
+                return False
+            conn.execute("DELETE FROM chat_messages WHERE session_id = ?", (session_id,))
+            conn.execute(
+                "UPDATE chat_sessions SET message_count = 0, updated_at = ? WHERE id = ?",
+                (now, session_id),
+            )
+        return True
+
+    def _upsert_session_header(
+        self,
+        conn: sqlite3.Connection,
+        payload: dict[str, Any],
+        message_count: int | None = None,
+        now: str | None = None,
+    ) -> None:
+        now = now or _utcnow()
+        resolved_count = int(message_count if message_count is not None else payload.get("message_count", 0) or 0)
+        conn.execute(
+            """
+            INSERT INTO chat_sessions (id, title, message_count, metadata, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                title=excluded.title,
+                message_count=excluded.message_count,
+                metadata=excluded.metadata,
+                updated_at=excluded.updated_at,
+                deleted_at=NULL
+            """,
+            (
+                payload["id"],
+                payload.get("title") or "New Chat",
+                resolved_count,
+                _json_dumps(payload.get("metadata", {})),
+                payload.get("created_at") or now,
+                payload.get("updated_at") or now,
+            ),
+        )
+
+    def _replace_messages(
+        self,
+        conn: sqlite3.Connection,
+        session_id: str,
+        messages: list[dict[str, Any]],
+        now: str | None = None,
+    ) -> None:
+        now = now or _utcnow()
+        conn.execute("DELETE FROM chat_messages WHERE session_id = ?", (session_id,))
+        conn.executemany(
+            """
+            INSERT INTO chat_messages
+                (id, session_id, role, content, metadata, created_at, ordinal)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    msg.get("id") or str(uuid.uuid4()),
+                    session_id,
+                    msg.get("role", ""),
+                    msg.get("content", ""),
+                    _json_dumps(msg.get("metadata", {})),
+                    msg.get("created_at") or now,
+                    index,
+                )
+                for index, msg in enumerate(messages)
+            ],
+        )
+        conn.execute(
+            "UPDATE chat_sessions SET message_count = ?, updated_at = ? WHERE id = ?",
+            (len(messages), now, session_id),
+        )
 
     def get_session(self, session_id: str) -> dict[str, Any] | None:
         with get_db_pool(self.db_path).get_connection() as conn:
@@ -395,6 +645,134 @@ class ShareRepository:
         return int(row["count"] if row else 0)
 
 
+class StorageOutboxRepository:
+    def __init__(self, db_path: str = APP_DB_PATH):
+        self.db_path = db_path
+        init_storage(db_path)
+
+    def enqueue(
+        self,
+        task_type: str,
+        target: str,
+        payload: dict[str, Any],
+        *,
+        task_id: str | None = None,
+        max_retries: int = 5,
+    ) -> str:
+        task_id = task_id or f"outbox_{uuid.uuid4().hex}"
+        now = _utcnow()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO storage_outbox
+                    (id, type, target, payload, status, retry_count, max_retries, next_retry_at, error, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 'pending', 0, ?, NULL, NULL, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    payload=excluded.payload,
+                    status='pending',
+                    error=NULL,
+                    updated_at=excluded.updated_at
+                """,
+                (task_id, task_type, target, _json_dumps(payload), max_retries, now, now),
+            )
+        return task_id
+
+    def list_ready(self, task_type: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+        now = _utcnow()
+        params: list[Any] = []
+        where = "status IN ('pending', 'retry') AND (next_retry_at IS NULL OR next_retry_at <= ?)"
+        params.append(now)
+        if task_type:
+            where += " AND type = ?"
+            params.append(task_type)
+        params.append(limit)
+        with get_db_pool(self.db_path).get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT * FROM storage_outbox
+                WHERE {where}
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                tuple(params),
+            ).fetchall()
+        return [self._row_to_task(row) for row in rows]
+
+    def mark_done(self, task_id: str) -> None:
+        with get_db_pool(self.db_path).get_connection() as conn:
+            conn.execute(
+                "UPDATE storage_outbox SET status = 'done', error = NULL, updated_at = ? WHERE id = ?",
+                (_utcnow(), task_id),
+            )
+
+    def mark_failed(self, task_id: str, error: str, retry_delay_seconds: int | None = None) -> None:
+        now = _utcnow()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            row = conn.execute(
+                "SELECT retry_count, max_retries FROM storage_outbox WHERE id = ?",
+                (task_id,),
+            ).fetchone()
+            if not row:
+                return
+            retry_count = int(row["retry_count"] or 0) + 1
+            max_retries = int(row["max_retries"] or 5)
+            status = "failed" if retry_count >= max_retries else "retry"
+            if retry_delay_seconds is None:
+                retry_delay_seconds = min(3600, 2 ** min(retry_count, 10))
+            next_retry_at = None
+            if status == "retry":
+                next_retry_at = datetime.fromtimestamp(time.time() + retry_delay_seconds).isoformat()
+            conn.execute(
+                """
+                UPDATE storage_outbox
+                SET status = ?, retry_count = ?, next_retry_at = ?, error = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (status, retry_count, next_retry_at, error[:1000], now, task_id),
+            )
+
+    def counts(self) -> dict[str, int]:
+        with get_db_pool(self.db_path).get_connection() as conn:
+            rows = conn.execute(
+                "SELECT status, COUNT(*) AS count FROM storage_outbox GROUP BY status"
+            ).fetchall()
+        return {row["status"]: int(row["count"]) for row in rows}
+
+    def _row_to_task(self, row: Any) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "type": row["type"],
+            "target": row["target"],
+            "payload": _json_loads(row["payload"]),
+            "status": row["status"],
+            "retry_count": row["retry_count"],
+            "max_retries": row["max_retries"],
+            "next_retry_at": row["next_retry_at"],
+            "error": row["error"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+
+def process_json_outbox(db_path: str = APP_DB_PATH, limit: int = 100) -> dict[str, int]:
+    outbox = StorageOutboxRepository(db_path)
+    tasks = outbox.list_ready(task_type="json_shadow_write", limit=limit)
+    result = {"attempted": len(tasks), "done": 0, "failed": 0}
+    for task in tasks:
+        try:
+            target = Path(task["target"])
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = target.with_suffix(f"{target.suffix}.tmp.{uuid.uuid4().hex}")
+            tmp_path.write_text(json.dumps(task["payload"], ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp_path.replace(target)
+            outbox.mark_done(task["id"])
+            result["done"] += 1
+        except Exception as exc:
+            outbox.mark_failed(task["id"], str(exc))
+            result["failed"] += 1
+    return result
+
+
 class MemoryRepository:
     def __init__(self, db_path: str = APP_DB_PATH):
         self.db_path = db_path
@@ -447,6 +825,7 @@ class MemoryRepository:
                     payload["updated_at"],
                 ),
             )
+            self._sync_fts(conn, payload)
         return payload
 
     def update(self, memory_id: str, user_id: str, **updates: Any) -> dict[str, Any] | None:
@@ -515,20 +894,84 @@ class MemoryRepository:
         return [self._row_to_memory(row) for row in rows]
 
     def search_text(self, query: str, user_id: str = "default", top_k: int = 5, memory_type: str | None = None) -> list[dict[str, Any]]:
-        query_lower = query.lower()
-        memories = self.list(user_id=user_id, memory_type=memory_type, limit=1000)
-        query_words = set(query_lower.split())
+        query = (query or "").strip()
+        if not query:
+            return self.list(user_id=user_id, memory_type=memory_type, limit=top_k)
+
+        with get_db_pool(self.db_path).get_connection() as conn:
+            if _memory_fts_available(conn):
+                try:
+                    rows = self._search_text_fts(conn, query, user_id, top_k, memory_type)
+                    if rows:
+                        return rows
+                except Exception as exc:
+                    logger.warning("FTS memory search failed, falling back to LIKE: %s", exc)
+            return self._search_text_like(conn, query, user_id, top_k, memory_type)
+
+    def _search_text_fts(
+        self,
+        conn: sqlite3.Connection,
+        query: str,
+        user_id: str,
+        top_k: int,
+        memory_type: str | None,
+    ) -> list[dict[str, Any]]:
+        fts_query = " OR ".join(part.replace('"', '""') for part in query.split()) or query.replace('"', '""')
+        params: list[Any] = [fts_query, user_id]
+        type_clause = ""
+        if memory_type:
+            type_clause = "AND m.type = ?"
+            params.append(memory_type)
+        params.append(top_k)
+        rows = conn.execute(
+            f"""
+            SELECT m.*, bm25(memory_items_fts) AS score
+            FROM memory_items_fts
+            JOIN memory_items m ON m.id = memory_items_fts.id
+            WHERE memory_items_fts MATCH ?
+              AND m.user_id = ?
+              AND m.deleted_at IS NULL
+              {type_clause}
+            ORDER BY score ASC, m.importance DESC, m.updated_at DESC
+            LIMIT ?
+            """,
+            tuple(params),
+        ).fetchall()
+        memories = [self._row_to_memory(row) for row in rows]
+        for index, memory in enumerate(memories):
+            memory["relevance"] = max(0.0, 1.0 - (index * 0.05))
+        return memories
+
+    def _search_text_like(
+        self,
+        conn: sqlite3.Connection,
+        query: str,
+        user_id: str,
+        top_k: int,
+        memory_type: str | None,
+    ) -> list[dict[str, Any]]:
+        params: list[Any] = [user_id, f"%{query}%"]
+        type_clause = ""
+        if memory_type:
+            type_clause = "AND type = ?"
+            params.append(memory_type)
+        params.append(top_k)
+        rows = conn.execute(
+            f"""
+            SELECT * FROM memory_items
+            WHERE user_id = ?
+              AND deleted_at IS NULL
+              AND content LIKE ?
+              {type_clause}
+            ORDER BY importance DESC, updated_at DESC
+            LIMIT ?
+            """,
+            tuple(params),
+        ).fetchall()
+        memories = [self._row_to_memory(row) for row in rows]
         for memory in memories:
-            content_lower = memory["content"].lower()
-            content_words = set(content_lower.split())
-            if query_lower and query_lower in content_lower:
-                memory["relevance"] = 1.0
-            elif query_words:
-                memory["relevance"] = len(query_words & content_words) / len(query_words)
-            else:
-                memory["relevance"] = 0.0
-        memories.sort(key=lambda item: (item.get("relevance", 0), item.get("importance", 0)), reverse=True)
-        return memories[:top_k]
+            memory["relevance"] = 1.0 if query.lower() in memory["content"].lower() else 0.5
+        return memories
 
     def delete(self, memory_id: str, user_id: str = "default") -> bool:
         with get_db_pool(self.db_path).get_connection() as conn:
@@ -536,6 +979,7 @@ class MemoryRepository:
                 "UPDATE memory_items SET deleted_at = ?, updated_at = ? WHERE id = ? AND user_id = ? AND deleted_at IS NULL",
                 (_utcnow(), _utcnow(), memory_id, user_id),
             )
+            self._delete_fts(conn, memory_id)
         return cursor.rowcount > 0
 
     def clear_user(self, user_id: str = "default") -> int:
@@ -544,6 +988,8 @@ class MemoryRepository:
                 "UPDATE memory_items SET deleted_at = ?, updated_at = ? WHERE user_id = ? AND deleted_at IS NULL",
                 (_utcnow(), _utcnow(), user_id),
             )
+            if _memory_fts_available(conn):
+                conn.execute("DELETE FROM memory_items_fts WHERE user_id = ?", (user_id,))
         return cursor.rowcount
 
     def pending_vectors(self, limit: int = 100) -> list[dict[str, Any]]:
@@ -602,6 +1048,28 @@ class MemoryRepository:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+
+    def _sync_fts(self, conn: sqlite3.Connection, payload: dict[str, Any]) -> None:
+        if not _memory_fts_available(conn):
+            return
+        self._delete_fts(conn, payload["id"])
+        conn.execute(
+            """
+            INSERT INTO memory_items_fts (id, user_id, content, type, source)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                payload["id"],
+                payload["user_id"],
+                payload["content"],
+                payload["type"],
+                payload["source"],
+            ),
+        )
+
+    def _delete_fts(self, conn: sqlite3.Connection, memory_id: str) -> None:
+        if _memory_fts_available(conn):
+            conn.execute("DELETE FROM memory_items_fts WHERE id = ?", (memory_id,))
 
 
 class AuditRepository:
@@ -763,12 +1231,33 @@ def storage_status(db_path: str = APP_DB_PATH) -> dict[str, Any]:
         migrations = conn.execute(
             "SELECT status, COUNT(*) AS count FROM migration_runs GROUP BY status"
         ).fetchall()
+        schema_migrations = conn.execute(
+            """
+            SELECT version, name, checksum, status, error, duration_ms, applied_at
+            FROM migration_runs
+            WHERE source_path LIKE '%.sql'
+            ORDER BY version ASC, id ASC
+            """
+        ).fetchall()
         pending = conn.execute(
             """
             SELECT COUNT(*) AS count FROM memory_items
             WHERE deleted_at IS NULL AND vector_state IN ('pending', 'failed')
             """
         ).fetchone()
+        table_counts = {}
+        for table in ["chat_sessions", "chat_messages", "chat_shares", "memory_items", "audit_logs", "storage_outbox"]:
+            try:
+                row = conn.execute(f"SELECT COUNT(*) AS count FROM {table}").fetchone()
+                table_counts[table] = int(row["count"] if row else 0)
+            except Exception:
+                table_counts[table] = 0
+        fts_available = _memory_fts_available(conn)
+        journal_mode = conn.execute("PRAGMA journal_mode").fetchone()
+        foreign_keys = conn.execute("PRAGMA foreign_keys").fetchone()
+    db_file = Path(db_path)
+    wal_file = Path(f"{db_path}-wal")
+    outbox_counts = StorageOutboxRepository(db_path).counts()
     return {
         "db_path": db_path,
         "dual_write_enabled": dual_write_enabled(),
@@ -776,8 +1265,39 @@ def storage_status(db_path: str = APP_DB_PATH) -> dict[str, Any]:
         "json_fallback_enabled": json_fallback_enabled(),
         "vector_reconcile_enabled": vector_reconcile_enabled(),
         "migration_runs": {row["status"]: row["count"] for row in migrations},
+        "schema_migrations": [
+            {
+                "version": row["version"],
+                "name": row["name"],
+                "checksum": row["checksum"],
+                "status": row["status"],
+                "error": row["error"],
+                "duration_ms": row["duration_ms"],
+                "applied_at": row["applied_at"],
+            }
+            for row in schema_migrations
+        ],
+        "outbox": outbox_counts,
+        "tables": table_counts,
+        "sqlite": {
+            "db_size_bytes": db_file.stat().st_size if db_file.exists() else 0,
+            "wal_size_bytes": wal_file.stat().st_size if wal_file.exists() else 0,
+            "journal_mode": journal_mode[0] if journal_mode else None,
+            "foreign_keys": bool(foreign_keys[0]) if foreign_keys else None,
+            "fts5_available": fts_available,
+        },
         "pending_vector_items": int(pending["count"] if pending else 0),
     }
+
+
+def checkpoint_storage(db_path: str = APP_DB_PATH) -> dict[str, Any]:
+    init_storage(db_path)
+    conn = sqlite3.connect(db_path, timeout=5.0, isolation_level=None)
+    try:
+        rows = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
+    finally:
+        conn.close()
+    return {"checkpoint": [tuple(row) for row in rows]}
 
 
 def dual_write_enabled() -> bool:

@@ -11,13 +11,14 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from api.chat.session import Session, get_session_manager
-from core.storage import ChatShareRepository, dual_write_enabled, json_fallback_enabled
+from core.storage import ChatShareRepository, StorageOutboxRepository, dual_write_enabled, json_fallback_enabled
 
 router = APIRouter(prefix="/chat/share", tags=["chat-share"])
 
 SHARE_DIR = Path("data/share")
 SHARE_DIR.mkdir(parents=True, exist_ok=True)
 share_repository = ChatShareRepository()
+share_outbox = StorageOutboxRepository()
 
 
 class SharedChat(BaseModel):
@@ -55,11 +56,21 @@ def save_share(share: SharedChat) -> None:
         return
 
     file_path = get_share_file(share.share_id)
+    task_id = share_outbox.enqueue(
+        task_type="json_shadow_write",
+        target=str(file_path),
+        payload=payload,
+        task_id=f"json_share_{share.share_id}",
+    )
     tmp_path = file_path.with_suffix(f".json.tmp.{share.share_id}")
-    with open(tmp_path, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, ensure_ascii=False, indent=2)
-        handle.flush()
-    tmp_path.replace(file_path)
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.flush()
+        tmp_path.replace(file_path)
+        share_outbox.mark_done(task_id)
+    except Exception as exc:
+        share_outbox.mark_failed(task_id, str(exc))
 
 
 def load_share(share_id: str) -> SharedChat | None:

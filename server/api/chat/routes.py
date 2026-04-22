@@ -125,7 +125,7 @@ async def send_message(session_id: str, request: SendMessageRequest):
         metadata=message_metadata,
     )
     register_branch_message(session, current_branch_id, message.id)
-    session_manager.save_session(session_id)
+    session_manager.append_message(session_id, message)
 
     context_manager.add_message(
         session_id=session_id,
@@ -181,8 +181,7 @@ async def clear_messages(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    session.clear_messages()
-    session_manager.save_session(session_id)
+    session_manager.clear_session_messages(session_id)
     context_manager.clear_context(session_id)
 
     return {"success": True, "session_id": session_id}
