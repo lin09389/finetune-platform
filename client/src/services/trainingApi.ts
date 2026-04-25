@@ -20,7 +20,9 @@ import {
 
 const normalizeTrainingConfig = (config: any = {}) => ({
   modelId: config.modelId ?? config.model_id ?? '',
+  model_id: config.model_id ?? config.modelId ?? '',
   datasetId: config.datasetId ?? config.dataset_id ?? '',
+  dataset_id: config.dataset_id ?? config.datasetId ?? '',
   method: config.method ?? 'qlora',
   rank: config.rank ?? 8,
   alpha: config.alpha ?? 16,
@@ -50,25 +52,60 @@ const normalizeTrainingConfig = (config: any = {}) => ({
   deepspeedStage: config.deepspeedStage ?? config.deepspeed_stage,
   offloadOptimizer: config.offloadOptimizer ?? config.offload_optimizer,
   quantization: config.quantization ?? 4,
+  taskGoal: config.taskGoal ?? config.task_goal ?? 'qa_assistant',
+  task_goal: config.task_goal ?? config.taskGoal ?? 'qa_assistant',
+  testDatasetId: config.testDatasetId ?? config.test_dataset_id ?? '',
+  test_dataset_id: config.test_dataset_id ?? config.testDatasetId ?? '',
+  validationDatasetId: config.validationDatasetId ?? config.validation_dataset_id ?? '',
+  validation_dataset_id: config.validation_dataset_id ?? config.validationDatasetId ?? '',
   resume_from_checkpoint: config.resume_from_checkpoint,
 });
 
-export const normalizeTrainingRecord = (record: any) => ({
-  id: record.id,
-  modelName: record.modelName ?? record.model_name ?? '',
-  datasetName: record.datasetName ?? record.dataset_name ?? '',
-  method: record.method,
-  status: record.status,
-  startTime: record.startTime ?? record.start_time,
-  endTime: record.endTime ?? record.end_time,
-  config: normalizeTrainingConfig(record.config),
-  outputPath: record.outputPath ?? record.output_path ?? '',
-  checkpointPath: record.checkpointPath ?? record.checkpoint_path,
-  finalLoss: record.finalLoss ?? record.final_loss,
-  finalLr: record.finalLr ?? record.final_lr,
-  elapsedTime: record.elapsedTime ?? record.elapsed_time,
-  totalSteps: record.totalSteps ?? record.total_steps,
-});
+export const normalizeTrainingRecord = (record: any) => {
+  const config = normalizeTrainingConfig(record.config);
+  const outputPath = record.outputPath ?? record.output_path ?? '';
+  const checkpointPath = record.checkpointPath ?? record.checkpoint_path;
+
+  return {
+    id: record.id,
+    modelName: record.modelName ?? record.model_name ?? '',
+    datasetName: record.datasetName ?? record.dataset_name ?? '',
+    baseModelId:
+      record.baseModelId ??
+      record.base_model_id ??
+      config.modelId ??
+      record.modelName ??
+      record.model_name ??
+      '',
+    datasetId:
+      record.datasetId ??
+      record.dataset_id ??
+      config.testDatasetId ??
+      config.validationDatasetId ??
+      config.datasetId ??
+      record.datasetName ??
+      record.dataset_name ??
+      '',
+    taskGoal:
+      record.taskGoal ??
+      record.task_goal ??
+      config.taskGoal ??
+      config.task_goal ??
+      'qa_assistant',
+    adapterPath: record.adapterPath ?? record.adapter_path ?? checkpointPath ?? undefined,
+    method: record.method,
+    status: record.status,
+    startTime: record.startTime ?? record.start_time,
+    endTime: record.endTime ?? record.end_time,
+    config,
+    outputPath,
+    checkpointPath,
+    finalLoss: record.finalLoss ?? record.final_loss,
+    finalLr: record.finalLr ?? record.final_lr,
+    elapsedTime: record.elapsedTime ?? record.elapsed_time,
+    totalSteps: record.totalSteps ?? record.total_steps,
+  };
+};
 
 export const normalizeTrainingProgress = (progress: any) => ({
   epoch: progress.epoch ?? 0,

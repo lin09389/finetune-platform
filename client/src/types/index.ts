@@ -33,9 +33,42 @@ export interface DatasetInfo {
   createdAt: string;
 }
 
+export type AppTaskGoal = 'qa_assistant' | 'structured_extraction';
+
+export interface DatasetAnalysisResult {
+  detected_format: string;
+  field_candidates: Record<string, string[]>;
+  sample_count: number;
+  valid_count: number;
+  errors: Array<{ line: number; message: string; severity: string }>;
+  warnings: Array<{ line: number; message: string; severity: string }>;
+  length_stats: {
+    min_chars: number;
+    max_chars: number;
+    avg_chars: number;
+    overlong_ratio: number;
+  };
+  recommended_target_format: string;
+  health: {
+    json_valid_ratio: number;
+    field_completeness: number;
+    overlong_sample_ratio: number;
+    duplicate_sample_ratio: number;
+    trainable_sample_count: number;
+  };
+}
+
 export interface TrainingConfig {
   modelId: string;
+  model_id?: string;
   datasetId: string;
+  dataset_id?: string;
+  taskGoal?: AppTaskGoal;
+  task_goal?: AppTaskGoal;
+  testDatasetId?: string;
+  test_dataset_id?: string;
+  validationDatasetId?: string;
+  validation_dataset_id?: string;
   method: 'lora' | 'qlora' | 'full' | 'dora';
   rank: number;
   alpha: number;
@@ -69,6 +102,49 @@ export interface TrainingConfig {
   quantization?: 0 | 4 | 8;
 }
 
+export interface EvaluationRun {
+  run_id: string;
+  scenario: AppTaskGoal;
+  status: string;
+  created_at: string;
+  base_model: string;
+  finetuned_model?: string;
+  adapter_path?: string;
+  adapter_merge?: {
+    merged_model_path?: string;
+    adapter_path?: string;
+    backend?: string;
+  } | null;
+  test_dataset_id?: string;
+  base_outputs: unknown[];
+  finetuned_outputs: unknown[];
+  cases: Array<Record<string, unknown>>;
+  metrics: Record<string, number>;
+  failed_cases: Array<Record<string, unknown>>;
+  human_scores: Array<Record<string, unknown>>;
+  backend?: string;
+  run_inference?: boolean;
+  warnings?: string[];
+  inference_options?: {
+    max_tokens?: number;
+    temperature?: number;
+    max_cases?: number;
+    auto_merge_adapter?: boolean;
+  };
+}
+
+export interface DeploymentPackage {
+  package_id: string;
+  training_task_id: string;
+  created_at: string;
+  base_model: string;
+  adapter_path: string;
+  merged_model_path?: string;
+  ollama_modelfile?: string;
+  openai_compatible_examples: Record<string, string>;
+  env_template: Record<string, string>;
+}
+
 export interface TrainingProgress {
   epoch: number;
   step: number;
@@ -99,6 +175,10 @@ export interface TrainingRecord {
   id: string;
   modelName: string;
   datasetName: string;
+  baseModelId: string;
+  datasetId: string;
+  taskGoal?: AppTaskGoal;
+  adapterPath?: string;
   method: string;
   status: 'running' | 'completed' | 'failed' | 'stopped';
   startTime: string;

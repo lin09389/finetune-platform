@@ -1,5 +1,6 @@
 ﻿import {
   AppstoreOutlined,
+  ApiOutlined,
   BookOutlined,
   BulbOutlined,
   CloseOutlined,
@@ -8,6 +9,7 @@
   DashboardOutlined,
   DatabaseOutlined,
   DesktopOutlined,
+  FileSearchOutlined,
   FolderOutlined,
   HistoryOutlined,
   LineChartOutlined,
@@ -40,6 +42,8 @@ const navItems: NavItem[] = [
   { key: '/models', icon: <FolderOutlined />, label: '模型管理', category: 'secondary' },
   { key: '/modelhub', icon: <CloudOutlined />, label: '模型中心', category: 'secondary' },
   { key: '/datasets', icon: <DatabaseOutlined />, label: '数据集', category: 'secondary' },
+  { key: '/evaluation', icon: <FileSearchOutlined />, label: '评估对比', category: 'secondary' },
+  { key: '/deployment', icon: <ApiOutlined />, label: '部署接入', category: 'secondary' },
   { key: '/knowledge', icon: <BookOutlined />, label: '知识库', category: 'secondary' },
   { key: '/memory', icon: <BulbOutlined />, label: '智能记忆', category: 'secondary' },
   { key: '/workspace', icon: <AppstoreOutlined />, label: '工作空间', category: 'secondary' },

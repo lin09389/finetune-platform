@@ -124,6 +124,7 @@ const ChatPage: React.FC = () => {
 
   const {
     sessions,
+    currentSessionId,
     messages,
     settings,
     isLoading,
@@ -133,6 +134,7 @@ const ChatPage: React.FC = () => {
     loadSessions,
     deleteMessage,
     clearMessages,
+    replaceCurrentSessionMessages,
     updateSettings,
   } = useChatStore();
 
@@ -145,6 +147,7 @@ const ChatPage: React.FC = () => {
   const [selectedCloudModel, setSelectedCloudModel] = useState<string>('MiniMax-M2.5');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const restoredSessionRef = useRef<string | null>(null);
   const scrollToBottom = useCallback(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -181,6 +184,20 @@ const ChatPage: React.FC = () => {
       }
     });
   }, [loadSessions, refreshInference, refreshKnowledge]);
+
+  useEffect(() => {
+    if (!currentSessionId || currentSessionId.startsWith('local_')) return;
+    if (messages.length > 0) {
+      restoredSessionRef.current = currentSessionId;
+      return;
+    }
+    if (restoredSessionRef.current === currentSessionId) return;
+    restoredSessionRef.current = currentSessionId;
+    loadSession(currentSessionId).catch((error) => {
+      const message = error instanceof Error ? error.message : '历史会话恢复失败';
+      notify.error(`历史会话恢复失败：${message}`);
+    });
+  }, [currentSessionId, loadSession, messages.length]);
 
   useEffect(() => {
     localStorage.setItem('chat_use_cloud_ai', useCloudAI ? '1' : '0');
@@ -287,17 +304,21 @@ const ChatPage: React.FC = () => {
   );
 
   const handleEditMessage = useCallback(
-    (messageId: string, newContent: string) => {
+    async (messageId: string, newContent: string) => {
       const msgIndex = messages.findIndex((m) => m.id === messageId);
       if (msgIndex === -1) return;
 
       // 将对话截断到这根线，并用新内容重新发送
       const newMessages = messages.slice(0, msgIndex);
-      useChatStore.setState({ messages: newMessages });
-
-      handleSend(newContent);
+      try {
+        await replaceCurrentSessionMessages(newMessages);
+        await handleSend(newContent);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '编辑消息失败';
+        notify.error(message);
+      }
     },
-    [messages, handleSend],
+    [handleSend, messages, replaceCurrentSessionMessages],
   );
 
   const handleExportChat = useCallback(
@@ -351,9 +372,15 @@ const ChatPage: React.FC = () => {
       content: '确定要清空当前对话吗？',
       okText: '清空',
       okButtonProps: { danger: true },
-      onOk: () => {
-        clearMessages();
-        notify.success('对话已清空');
+      onOk: async () => {
+        try {
+          await clearMessages();
+          notify.success('对话已清空');
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '清空会话失败';
+          notify.error(message);
+          throw error;
+        }
       },
     });
   }, [clearMessages]);
@@ -548,7 +575,12 @@ const ChatPage: React.FC = () => {
                       ? (newContent) => handleEditMessage(msg.id, newContent)
                       : undefined
                   }
-                  onDelete={() => deleteMessage(msg.id)}
+                  onDelete={() => {
+                    deleteMessage(msg.id).catch((error) => {
+                      const message = error instanceof Error ? error.message : '删除消息失败';
+                      notify.error(message);
+                    });
+                  }}
                   knowledge_sources={msg.knowledge_sources}
                   retrieval_info={msg.retrieval_info}
                 />
@@ -577,7 +609,12 @@ const ChatPage: React.FC = () => {
                       ? (newContent) => handleEditMessage(msg.id, newContent)
                       : undefined
                   }
-                  onDelete={() => deleteMessage(msg.id)}
+                  onDelete={() => {
+                    deleteMessage(msg.id).catch((error) => {
+                      const message = error instanceof Error ? error.message : '删除消息失败';
+                      notify.error(message);
+                    });
+                  }}
                   knowledge_sources={msg.knowledge_sources}
                   retrieval_info={msg.retrieval_info}
                 />
@@ -614,9 +651,23 @@ const ChatPage: React.FC = () => {
           created_at: s.createdAt,
           updated_at: s.updatedAt,
           message_count: s.messageCount,
+          metadata: s.metadata,
+          model_id: s.modelId,
         }))}
-        onLoadSession={(id) => loadSession(id)}
-        onDeleteSession={(id) => deleteSession(id)}
+        onLoadSession={(id) => {
+          loadSession(id)
+            .then(() => setHistoryOpen(false))
+            .catch((error) => {
+              const message = error instanceof Error ? error.message : '加载历史会话失败';
+              notify.error(message);
+            });
+        }}
+        onDeleteSession={(id) => {
+          deleteSession(id).catch((error) => {
+            const message = error instanceof Error ? error.message : '删除会话失败';
+            notify.error(message);
+          });
+        }}
       />
 
       <MemoryManager open={memoryManagerOpen} onClose={() => setMemoryManagerOpen(false)} />

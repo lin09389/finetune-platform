@@ -390,12 +390,30 @@ export function useChatStream(config: StreamConfig = {}) {
         config.onComplete?.(result.content, result.metadata);
 
         if (sessionId) {
-          await persistChatRunToSession(sessionId, prompt, result.content, {
-            userMetadata: {
-              message_id: userMessageId,
-            },
-            assistantMetadata,
-          }).catch(() => undefined);
+          try {
+            const persisted = await persistChatRunToSession(sessionId, prompt, result.content, {
+              userMetadata: {
+                message_id: userMessageId,
+              },
+              assistantMetadata,
+            });
+            const persistedStore = useChatStore.getState();
+            persistedStore.updateMessage(userMessageId, {
+              id: persisted.userMessage.id,
+              timestamp: persisted.userMessage.timestamp,
+            });
+            persistedStore.updateMessage(assistantMessageId, {
+              id: persisted.assistantMessage.id,
+              timestamp: persisted.assistantMessage.timestamp,
+            });
+            await persistedStore.loadSessions().catch(() => undefined);
+          } catch (persistError) {
+            const message =
+              persistError instanceof Error ? persistError.message : '历史记录保存失败';
+            const persistStore = useChatStore.getState();
+            persistStore.setError(`对话已生成，但历史记录保存失败：${message}`);
+            config.onError?.(`对话已生成，但历史记录保存失败：${message}`);
+          }
         }
 
         return result;
@@ -569,12 +587,30 @@ export function useChatStream(config: StreamConfig = {}) {
         config.onComplete?.(result.content, result.metadata);
 
         if (sessionId) {
-          await persistChatRunToSession(sessionId, prompt, result.content, {
-            userMetadata: {
-              message_id: userMessageId,
-            },
-            assistantMetadata,
-          }).catch(() => undefined);
+          try {
+            const persisted = await persistChatRunToSession(sessionId, prompt, result.content, {
+              userMetadata: {
+                message_id: userMessageId,
+              },
+              assistantMetadata,
+            });
+            const persistedStore = useChatStore.getState();
+            persistedStore.updateMessage(userMessageId, {
+              id: persisted.userMessage.id,
+              timestamp: persisted.userMessage.timestamp,
+            });
+            persistedStore.updateMessage(assistantMessageId, {
+              id: persisted.assistantMessage.id,
+              timestamp: persisted.assistantMessage.timestamp,
+            });
+            await persistedStore.loadSessions().catch(() => undefined);
+          } catch (persistError) {
+            const message =
+              persistError instanceof Error ? persistError.message : '历史记录保存失败';
+            const persistStore = useChatStore.getState();
+            persistStore.setError(`对话已生成，但历史记录保存失败：${message}`);
+            config.onError?.(`对话已生成，但历史记录保存失败：${message}`);
+          }
         }
 
         return result;

@@ -435,6 +435,35 @@ export const getDatasetStatistics = async (datasetId: string) => {
   return response.data;
 };
 
+export const analyzeDataset = async (datasetId: string, targetGoal?: string) => {
+  const response = await apiClient.post('/datasets/analyze', {
+    dataset_id: datasetId,
+    target_goal: targetGoal,
+  });
+  return response.data;
+};
+
+export const transformDataset = async (
+  datasetId: string,
+  payload: { target_format?: string; task_goal?: string; output_name?: string },
+) => {
+  const response = await apiClient.post(`/datasets/${datasetId}/transform`, payload);
+  return response.data;
+};
+
+export const splitDataset = async (
+  datasetId: string,
+  payload: {
+    train_ratio?: number;
+    validation_ratio?: number;
+    test_ratio?: number;
+    seed?: number;
+  } = {},
+) => {
+  const response = await apiClient.post(`/datasets/${datasetId}/split`, payload);
+  return response.data;
+};
+
 // Training APIs
 export const startTraining = async (
   config: any,
@@ -971,6 +1000,41 @@ export const getOllamaStatus = async () => {
   return response.data;
 };
 
+export const createEvaluationRun = async (payload: any) => {
+  const response = await apiClient.post('/evaluation/runs', payload);
+  return response.data;
+};
+
+export const getEvaluationRun = async (runId: string) => {
+  const response = await apiClient.get(`/evaluation/runs/${runId}`);
+  return response.data;
+};
+
+export const scoreEvaluationCase = async (runId: string, payload: any) => {
+  const response = await apiClient.post(`/evaluation/runs/${runId}/score`, payload);
+  return response.data;
+};
+
+export const createDeploymentPackage = async (payload: any) => {
+  const response = await apiClient.post('/deployment/packages', payload);
+  return response.data;
+};
+
+export const listDeploymentPackages = async (limit: number = 20) => {
+  const response = await apiClient.get('/deployment/packages', { params: { limit } });
+  return response.data;
+};
+
+export const getDeploymentPackage = async (packageId: string) => {
+  const response = await apiClient.get(`/deployment/packages/${packageId}`);
+  return response.data;
+};
+
+export const deleteDeploymentPackage = async (packageId: string) => {
+  const response = await apiClient.delete(`/deployment/packages/${packageId}`);
+  return response.data;
+};
+
 export const getInferenceModels = async () => {
   const response = await apiClient.get('/inference/models');
   const data = response.data;
@@ -1042,11 +1106,13 @@ export interface RuntimeBootstrapPayload {
         message?: string;
       } | null;
     };
+    storage?: Record<string, any>;
   };
   derived: {
     runtime_status: 'ready' | 'degraded' | 'offline';
     warnings: string[];
     available_model_count: number;
+    storage_status?: string;
   };
 }
 

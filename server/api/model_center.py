@@ -14,7 +14,7 @@ from typing import Any
 
 import urllib3
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from core.config import get_settings
 
@@ -628,11 +628,15 @@ async def get_model_suggestions():
 
 
 class ImportModelRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     model_name: str = Field(..., description="妯″瀷鍚嶇О")
     source_path: str = Field(..., description="源路径（本地目录）")
 
 
 class ImportModelScopeRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     model_name: str = Field(default="Qwen2.5-0.5B-Instruct", description="妯″瀷鍚嶇О")
     modelscope_path: str | None = Field(
         default=None,

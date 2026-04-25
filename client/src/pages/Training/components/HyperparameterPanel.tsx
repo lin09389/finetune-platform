@@ -74,7 +74,7 @@ const LrDecayVisualizer = () => (
         transition={{ delay: 1.2 }}
       />
     </svg>
-    <div className={styles.visLabel}>LR Decay</div>
+    <div className={styles.visLabel}>学习率衰减</div>
   </div>
 );
 
@@ -160,6 +160,12 @@ const HyperparameterPanel: React.FC<HyperparameterPanelProps> = ({
               }
             />
           </Form.Item>
+          <Form.Item label="应用目标" name="taskGoal" initialValue="qa_assistant">
+            <Select className={styles.deepSelect}>
+              <Select.Option value="qa_assistant">客服/知识问答助手</Select.Option>
+              <Select.Option value="structured_extraction">结构化输出/信息抽取</Select.Option>
+            </Select>
+          </Form.Item>
           <Form.Item label="微调方法" name="method" initialValue="qlora">
             <Select className={styles.deepSelect}>
               <Select.Option value="qlora">QLoRA</Select.Option>
@@ -170,25 +176,25 @@ const HyperparameterPanel: React.FC<HyperparameterPanelProps> = ({
 
         {/* Section: Architecture */}
         <CollapsibleSection title="架构参数">
-          <Form.Item label="LoRA Rank" name="rank" initialValue={8}>
+          <Form.Item label="LoRA 秩" name="rank" initialValue={8}>
             <Slider min={4} max={128} marks={{ 4: '4', 32: '32', 64: '64', 128: '128' }} className={styles.deepSlider} />
           </Form.Item>
-          <Form.Item label="LoRA Alpha" name="alpha" initialValue={16}>
+          <Form.Item label="LoRA 缩放系数" name="alpha" initialValue={16}>
             <Slider min={8} max={256} marks={{ 8: '8', 64: '64', 128: '128', 256: '256' }} className={styles.deepSlider} />
           </Form.Item>
         </CollapsibleSection>
 
         {/* Section: Optimization */}
         <CollapsibleSection title="优化设置">
-          <Form.Item label="学习率 (Learning Rate)" name="learningRate" initialValue={5e-5}>
+          <Form.Item label="学习率" name="learningRate" initialValue={5e-5}>
             <InputNumber min={1e-6} max={1e-3} step={1e-5} style={{ width: '100%' }} />
           </Form.Item>
           <LrDecayVisualizer />
           <div className={styles.inlineRow}>
-            <Form.Item label="训练轮数 (Epochs)" name="epochs" initialValue={3}>
+            <Form.Item label="训练轮数" name="epochs" initialValue={3}>
               <InputNumber min={1} max={100} style={{ width: '100%' }} />
             </Form.Item>
-            <Form.Item label="批大小 (Batch Size)" name="batchSize" initialValue={1}>
+            <Form.Item label="批大小" name="batchSize" initialValue={1}>
               <InputNumber min={1} max={64} style={{ width: '100%' }} />
             </Form.Item>
           </div>
@@ -215,7 +221,7 @@ const HyperparameterPanel: React.FC<HyperparameterPanelProps> = ({
               <Select.Option value={0}>FP16 (无量化)</Select.Option>
             </Select>
           </Form.Item>
-          <Form.Item label="梯度累积 (Gradient Accumulation)">
+          <Form.Item label="梯度累积">
             <InputNumber
               min={1}
               max={128}

@@ -22,6 +22,12 @@ export interface ChatSessionMessageCreatePayload {
   metadata?: Record<string, unknown>;
 }
 
+export interface ChatSessionMessageReplacePayload extends ChatSessionMessageCreatePayload {
+  id?: string;
+  created_at?: string;
+  timestamp?: string;
+}
+
 async function requestJson<T>(input: string, init?: RequestInit): Promise<T> {
   const response = await fetch(input, init);
   if (!response.ok) {
@@ -104,8 +110,9 @@ export function normalizeChatSession(
 }
 
 export async function listChatSessions(fallbackBackend?: string): Promise<ChatSessionRecord[]> {
+  const limit = 100;
   const data = await requestJson<{ sessions?: Record<string, unknown>[] }>(
-    `${API_BASE_URL}/chat/sessions`,
+    `${API_BASE_URL}/chat/sessions?limit=${encodeURIComponent(limit)}`,
   );
 
   return (data.sessions || []).map((session) => normalizeChatSession(session, fallbackBackend));
@@ -122,6 +129,7 @@ export async function createChatSession(
     body: JSON.stringify({
       title,
       model_id: modelId,
+      backend: fallbackBackend,
     }),
   });
 
@@ -141,9 +149,10 @@ export async function getChatSession(
 
 export async function getChatSessionMessages(
   sessionId: string,
+  limit = 200,
 ): Promise<ChatSessionMessagesPayload> {
   const payload = await requestJson<{ messages?: Record<string, unknown>[] }>(
-    `${API_BASE_URL}/chat/sessions/${sessionId}/messages`,
+    `${API_BASE_URL}/chat/sessions/${sessionId}/messages?limit=${encodeURIComponent(limit)}`,
   );
 
   return {
@@ -165,6 +174,64 @@ export async function saveChatSessionMessage(
   );
 
   return normalizeChatMessage(message);
+}
+
+export async function replaceChatSessionMessages(
+  sessionId: string,
+  messages: ChatSessionMessageReplacePayload[],
+): Promise<ChatSessionMessagesPayload> {
+  const payload = await requestJson<{ messages?: Record<string, unknown>[] }>(
+    `${API_BASE_URL}/chat/sessions/${sessionId}/messages`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages }),
+    },
+  );
+
+  return {
+    messages: (payload.messages || []).map((message) => normalizeChatMessage(message)),
+  };
+}
+
+export async function updateChatSessionMessage(
+  sessionId: string,
+  messageId: string,
+  payload: Partial<ChatSessionMessageCreatePayload>,
+): Promise<ChatMessage> {
+  const message = await requestJson<Record<string, unknown>>(
+    `${API_BASE_URL}/chat/sessions/${sessionId}/messages/${messageId}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
+  );
+
+  return normalizeChatMessage(message);
+}
+
+export async function deleteChatSessionMessage(
+  sessionId: string,
+  messageId: string,
+): Promise<{ success: boolean; session_id: string; message_id: string }> {
+  return requestJson<{ success: boolean; session_id: string; message_id: string }>(
+    `${API_BASE_URL}/chat/sessions/${sessionId}/messages/${messageId}`,
+    {
+      method: 'DELETE',
+    },
+  );
+}
+
+export async function clearChatSessionMessages(
+  sessionId: string,
+): Promise<{ success: boolean; session_id: string }> {
+  return requestJson<{ success: boolean; session_id: string }>(
+    `${API_BASE_URL}/chat/sessions/${sessionId}/messages`,
+    {
+      method: 'DELETE',
+    },
+  );
 }
 
 export async function persistChatRunToSession(

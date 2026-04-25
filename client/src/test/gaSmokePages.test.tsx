@@ -1,5 +1,8 @@
+// @vitest-environment jsdom
+
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockUseAppStore = vi.hoisted(() => vi.fn());
@@ -10,14 +13,30 @@ const mockGetTrainingFailureAnalytics = vi.hoisted(() => vi.fn());
 const mockGetTrainingHistory = vi.hoisted(() => vi.fn());
 const mockGetTrainingCheckpoints = vi.hoisted(() => vi.fn());
 const mockGetTrainingRecoveryOptions = vi.hoisted(() => vi.fn());
+const mockGetTrainingOverviewV2 = vi.hoisted(() => vi.fn());
 const mockResumeTraining = vi.hoisted(() => vi.fn());
 const mockSubscribeTrainingProgress = vi.hoisted(() => vi.fn(() => vi.fn()));
+const mockSubscribeTrainingEventsV2 = vi.hoisted(() => vi.fn(() => vi.fn()));
+const mockGetDatasetList = vi.hoisted(() => vi.fn());
+const mockAnalyzeDataset = vi.hoisted(() => vi.fn());
+const mockPreviewDataset = vi.hoisted(() => vi.fn());
+const mockTransformDataset = vi.hoisted(() => vi.fn());
+const mockSplitDataset = vi.hoisted(() => vi.fn());
+const mockDeleteDataset = vi.hoisted(() => vi.fn());
+const mockUploadDataset = vi.hoisted(() => vi.fn());
 const mockGetBackends = vi.hoisted(() => vi.fn());
 const mockGetModelList = vi.hoisted(() => vi.fn());
+const mockGetInferenceModels = vi.hoisted(() => vi.fn());
 const mockGetOllamaStatus = vi.hoisted(() => vi.fn());
 const mockListInferenceEngines = vi.hoisted(() => vi.fn());
 const mockGetPerformanceStats = vi.hoisted(() => vi.fn());
 const mockGetPerformanceRecommendations = vi.hoisted(() => vi.fn());
+const mockCreateEvaluationRun = vi.hoisted(() => vi.fn());
+const mockScoreEvaluationCase = vi.hoisted(() => vi.fn());
+const mockCreateDeploymentPackage = vi.hoisted(() => vi.fn());
+const mockListDeploymentPackages = vi.hoisted(() => vi.fn());
+const mockGetDeploymentPackage = vi.hoisted(() => vi.fn());
+const mockDeleteDeploymentPackage = vi.hoisted(() => vi.fn());
 const mockFetch = vi.hoisted(() => vi.fn());
 const mockLoadSessions = vi.hoisted(() => vi.fn());
 const mockCreateSession = vi.hoisted(() => vi.fn());
@@ -30,10 +49,12 @@ const mockSendCloudMessage = vi.hoisted(() => vi.fn());
 const mockStopStream = vi.hoisted(() => vi.fn());
 const mockSyncInferenceSelection = vi.hoisted(() => vi.fn());
 const mockSetInferenceSelection = vi.hoisted(() => vi.fn());
+const mockSetTrainingSelection = vi.hoisted(() => vi.fn());
 const mockSyncKnowledgeCollection = vi.hoisted(() => vi.fn());
 const mockRefreshInference = vi.hoisted(() => vi.fn());
 const mockRefreshKnowledge = vi.hoisted(() => vi.fn());
 const mockRefreshBootstrap = vi.hoisted(() => vi.fn());
+const mockGetDeviceInfo = vi.hoisted(() => vi.fn());
 const mockNotify = vi.hoisted(() => ({
   success: vi.fn(),
   warning: vi.fn(),
@@ -63,25 +84,41 @@ vi.mock('../services/trainingApi', () => ({
   getTrainingHistory: mockGetTrainingHistory,
   getTrainingCheckpoints: mockGetTrainingCheckpoints,
   getTrainingRecoveryOptions: mockGetTrainingRecoveryOptions,
+  getTrainingOverviewV2: mockGetTrainingOverviewV2,
   resumeTraining: mockResumeTraining,
   startTraining: vi.fn(),
   stopTraining: vi.fn(),
   subscribeTrainingProgress: mockSubscribeTrainingProgress,
+  subscribeTrainingEventsV2: mockSubscribeTrainingEventsV2,
   startSwiftTraining: vi.fn(),
 }));
 
 vi.mock('../services/api', () => ({
   API_BASE_URL: 'http://localhost:8000',
+  analyzeDataset: mockAnalyzeDataset,
+  createDeploymentPackage: mockCreateDeploymentPackage,
+  createEvaluationRun: mockCreateEvaluationRun,
+  deleteDataset: mockDeleteDataset,
+  deleteDeploymentPackage: mockDeleteDeploymentPackage,
+  getDatasetList: mockGetDatasetList,
   getBackends: mockGetBackends,
+  getDeploymentPackage: mockGetDeploymentPackage,
+  getDeviceInfo: mockGetDeviceInfo,
+  getInferenceModels: mockGetInferenceModels,
   getModelList: mockGetModelList,
   getOllamaStatus: mockGetOllamaStatus,
+  listDeploymentPackages: mockListDeploymentPackages,
   listInferenceEngines: mockListInferenceEngines,
+  previewDataset: mockPreviewDataset,
+  scoreEvaluationCase: mockScoreEvaluationCase,
+  splitDataset: mockSplitDataset,
+  transformDataset: mockTransformDataset,
+  uploadDataset: mockUploadDataset,
   getPerformanceStats: mockGetPerformanceStats,
   getPerformanceRecommendations: mockGetPerformanceRecommendations,
   streamInference: vi.fn(),
   streamGenerate: vi.fn(),
   switchBackend: vi.fn(),
-  getInferenceModels: vi.fn(() => Promise.resolve([{ id: 'hf-model', name: 'HF Model' }])),
 }));
 
 vi.mock('../store/chatStore', () => ({
@@ -210,22 +247,57 @@ vi.mock('react-virtuoso', () => ({
 }));
 
 import ChatPage from '../pages/ChatNew';
+import Dashboard from '../pages/Dashboard';
+import DatasetManager from '../pages/DatasetManager';
+import Deployment from '../pages/Deployment';
+import Evaluation from '../pages/Evaluation';
 import Inference from '../pages/Inference';
 import KnowledgeBase from '../pages/KnowledgeBase';
 import TrainingPage from '../pages/Training';
+
+const renderWithRouter = (ui: React.ReactElement, initialEntries = ['/']) =>
+  render(<MemoryRouter initialEntries={initialEntries}>{ui}</MemoryRouter>);
 
 describe('GA smoke pages', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
     mockUseAppStore.mockReturnValue({
-      models: [],
-      datasets: [],
+      models: [{ id: 'base-model', name: '基础模型' }],
+      datasets: [{ id: 'dataset-1', name: '客服问答集', samples: 12, size: 1024, format: 'jsonl', path: 'datasets/dataset-1' }],
       backendStatus: 'connected',
       isTraining: false,
       setIsTraining: vi.fn(),
       addTrainingRecord: vi.fn(),
       setModels: vi.fn(),
+      setDatasets: vi.fn(),
+      setTrainingRecords: vi.fn(),
+      removeDataset: vi.fn(),
+      addDataset: vi.fn(),
+      trainingRecords: [
+        {
+          id: 'train-1',
+          status: 'completed',
+          modelName: '基础模型',
+          datasetName: '客服问答集',
+          method: 'qlora',
+          startTime: new Date().toISOString(),
+          outputPath: 'outputs/train-1',
+          checkpointPath: 'outputs/train-1/adapter',
+          adapterPath: 'outputs/train-1/adapter',
+          baseModelId: 'base-model',
+          datasetId: 'dataset-1',
+          taskGoal: 'qa_assistant',
+          config: { modelId: 'base-model', datasetId: 'dataset-1', method: 'qlora' },
+        },
+      ],
+      deviceInfo: {
+        vram_free: 6,
+        vram_total: 8,
+        memory_free: 12,
+        memory_total: 16,
+      },
+      setDeviceInfo: vi.fn(),
     });
 
     mockUseRuntimeContext.mockReturnValue({
@@ -266,7 +338,7 @@ describe('GA smoke pages', () => {
         refreshBootstrap: mockRefreshBootstrap,
         refreshInference: mockRefreshInference,
         refreshKnowledge: mockRefreshKnowledge,
-        setTrainingSelection: vi.fn(),
+        setTrainingSelection: mockSetTrainingSelection,
         setInferenceSelection: mockSetInferenceSelection,
         setKnowledgeSelection: vi.fn(),
         syncInferenceSelection: mockSyncInferenceSelection,
@@ -306,15 +378,46 @@ describe('GA smoke pages', () => {
         activeBackend: 'ollama',
         activeModelId: 'runtime-active-model',
         activeKnowledgeCollection: 'default',
-        runtimeStatus: 'degraded',
+        runtimeStatus: 'ready',
+        storageStatus: 'ready',
         warnings: [],
       },
-      setTrainingSelection: vi.fn(),
+      setTrainingSelection: mockSetTrainingSelection,
       setInferenceSelection: mockSetInferenceSelection,
       setKnowledgeSelection: vi.fn(),
       syncInferenceSelection: mockSyncInferenceSelection,
       syncKnowledgeCollection: mockSyncKnowledgeCollection,
     });
+    mockGetDeviceInfo.mockResolvedValue({
+      vram_free: 6,
+      vram_total: 8,
+      memory_free: 12,
+      memory_total: 16,
+    });
+    mockGetDatasetList.mockResolvedValue([
+      { id: 'dataset-1', name: '客服问答集', samples: 12, size: 1024, format: 'jsonl', path: 'datasets/dataset-1' },
+    ]);
+    mockAnalyzeDataset.mockResolvedValue({
+      detected_format: 'faq_qa',
+      field_candidates: { input: ['question'], output: ['answer'] },
+      sample_count: 12,
+      valid_count: 12,
+      errors: [],
+      warnings: [],
+      length_stats: { min_chars: 8, max_chars: 120, avg_chars: 42 },
+      recommended_target_format: 'openai_messages',
+      health: {
+        json_valid_ratio: 1,
+        field_completeness: 1,
+        overlong_sample_ratio: 0,
+        duplicate_sample_ratio: 0,
+      },
+    });
+    mockPreviewDataset.mockResolvedValue({ total_samples: 12, preview: [{ question: '你好', answer: '你好' }] });
+    mockTransformDataset.mockResolvedValue({ dataset_id: 'dataset-1', sample_count: 12 });
+    mockSplitDataset.mockResolvedValue({ dataset_id: 'dataset-1' });
+    mockDeleteDataset.mockResolvedValue({ message: 'ok' });
+    mockUploadDataset.mockResolvedValue({ id: 'dataset-2', name: '新数据集' });
 
     mockGetTrainingStatus.mockResolvedValue({
       is_training: false,
@@ -355,6 +458,14 @@ describe('GA smoke pages', () => {
       generatedAt: new Date().toISOString(),
       options: [],
     });
+    mockGetTrainingOverviewV2.mockResolvedValue({
+      queue: { queue_size: 0, running_count: 0, max_queue_size: 4 },
+      resource_signals: {
+        suspected_vram_pressure_count: 0,
+        long_context_failure_count: 0,
+        unquantized_failure_count: 0,
+      },
+    });
     mockResumeTraining.mockResolvedValue({
       id: 'resume-task-1',
       modelName: 'mock-model',
@@ -373,7 +484,58 @@ describe('GA smoke pages', () => {
         { id: 'huggingface', name: 'HuggingFace', available: true },
       ],
     });
-    mockGetModelList.mockResolvedValue([]);
+    mockGetModelList.mockResolvedValue([{ id: 'base-model', name: '基础模型' }]);
+    mockGetInferenceModels.mockResolvedValue([{ id: 'hf-model', name: 'HF Model' }]);
+    mockCreateEvaluationRun.mockResolvedValue({
+      run_id: 'eval-1',
+      scenario: 'qa_assistant',
+      base_model: 'base-model',
+      finetuned_model: 'outputs/train-1/merged',
+      adapter_path: 'outputs/train-1/adapter',
+      base_outputs: ['基础回答'],
+      finetuned_outputs: ['微调回答'],
+      cases: [{ prompt: '你好', base_output: '基础回答', finetuned_output: '微调回答' }],
+      metrics: { human_score_count: 0, good_rate: 0 },
+      failed_cases: [],
+      human_scores: {},
+    });
+    mockScoreEvaluationCase.mockResolvedValue({ ok: true });
+    mockListDeploymentPackages.mockResolvedValue([
+      {
+        package_id: 'deploy-1',
+        training_task_id: 'train-1',
+        created_at: new Date().toISOString(),
+        base_model: 'base-model',
+        adapter_path: 'outputs/train-1/adapter',
+        model_name: 'qa-assistant',
+      },
+    ]);
+    mockCreateDeploymentPackage.mockResolvedValue({
+      package_id: 'deploy-1',
+      training_task_id: 'train-1',
+      base_model: 'base-model',
+      adapter_path: 'outputs/train-1/adapter',
+      merged_model_path: 'outputs/train-1/merged',
+      ollama_modelfile: 'FROM base-model',
+      openai_compatible_examples: {
+        curl: 'curl http://127.0.0.1:8000/v1/chat/completions',
+        Python: 'print("ok")',
+        TypeScript: 'console.log("ok")',
+      },
+      env_template: {
+        OPENAI_BASE_URL: 'http://127.0.0.1:8000/v1',
+        MODEL_NAME: 'qa-assistant',
+      },
+    });
+    mockGetDeploymentPackage.mockResolvedValue({
+      package_id: 'deploy-1',
+      training_task_id: 'train-1',
+      base_model: 'base-model',
+      adapter_path: 'outputs/train-1/adapter',
+      openai_compatible_examples: {},
+      env_template: {},
+    });
+    mockDeleteDeploymentPackage.mockResolvedValue({ ok: true });
     mockGetOllamaStatus.mockResolvedValue({ models: [] });
     mockListInferenceEngines.mockResolvedValue({ engines: [] });
     mockGetPerformanceStats.mockResolvedValue({
@@ -425,34 +587,31 @@ describe('GA smoke pages', () => {
       setModels: vi.fn(),
     });
 
-    render(<TrainingPage />);
+    renderWithRouter(<TrainingPage />);
 
-    expect(screen.getByText('模型训练')).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByText('后端服务未连接，请先启动应用。')).toBeInTheDocument();
     });
   });
 
-  it('bridges training model selection with runtime context', async () => {
-    render(<TrainingPage />);
+  it('prefills training configuration from product-chain query params', async () => {
+    renderWithRouter(
+      <TrainingPage />,
+      ['/training?model_id=base-model&dataset_id=dataset-1&task_goal=structured_extraction'],
+    );
 
-    fireEvent.click(screen.getByRole('button', { name: '使用当前活跃模型' }));
-    fireEvent.click(screen.getByRole('button', { name: '设为活跃推理模型' }));
-    expect(mockSyncInferenceSelection).toHaveBeenCalledWith({
-      backend: 'ollama',
-      modelId: 'runtime-active-model',
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Mock Select Training Model' }));
-    fireEvent.click(screen.getByRole('button', { name: '设为活跃推理模型' }));
-    expect(mockSyncInferenceSelection).toHaveBeenCalledWith({
-      backend: 'ollama',
-      modelId: 'train-model-1',
+    expect(screen.getByText('模型训练')).toBeInTheDocument();
+    expect(screen.getByText('控制台')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockSetTrainingSelection).toHaveBeenLastCalledWith({
+        modelId: 'base-model',
+        datasetId: 'dataset-1',
+      });
     });
   });
 
   it('renders inference backend warning when ollama is unavailable', async () => {
-    render(<Inference />);
+    renderWithRouter(<Inference />);
 
     expect(screen.getByText('推理测试')).toBeInTheDocument();
     await waitFor(() => {
@@ -462,7 +621,7 @@ describe('GA smoke pages', () => {
   });
 
   it('renders knowledge embedder warning state', async () => {
-    render(<KnowledgeBase />);
+    renderWithRouter(<KnowledgeBase />);
 
     expect(screen.getByText('RAG 知识库')).toBeInTheDocument();
     await waitFor(() => {
@@ -472,13 +631,76 @@ describe('GA smoke pages', () => {
   });
 
   it('renders chat shell and loads primary init resources', async () => {
-    render(<ChatPage />);
+    renderWithRouter(<ChatPage />);
 
     expect(screen.getByText('Mock Chat Header')).toBeInTheDocument();
     await waitFor(() => {
       expect(mockLoadSessions).toHaveBeenCalled();
-      expect(screen.getByTestId('runtime-context-chat')).toBeInTheDocument();
+      expect(screen.getByText('会话运行上下文')).toBeInTheDocument();
       expect(mockFetch).toHaveBeenCalledWith('http://localhost:8000/cloud/api-keys');
+    });
+  });
+
+  it('renders dashboard product chain health and primary routes', async () => {
+    renderWithRouter(<Dashboard />);
+
+    expect(screen.getByText('运行中控台')).toBeInTheDocument();
+    expect(screen.getByText('工程闭环健康')).toBeInTheDocument();
+    expect(screen.getByText('主要操作入口')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('存储健康')).toBeInTheDocument();
+      expect(screen.getByText('正常')).toBeInTheDocument();
+      expect(screen.getByText('评估与部署')).toBeInTheDocument();
+    });
+  });
+
+  it('renders dataset workbench and opens analysis actions', async () => {
+    renderWithRouter(<DatasetManager />);
+
+    expect(screen.getByText('数据准备中心')).toBeInTheDocument();
+    expect(screen.getByText('点击或拖拽上传 JSON / JSONL 数据集')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText('客服问答集')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /分析/ }));
+    await waitFor(() => {
+      expect(mockAnalyzeDataset).toHaveBeenCalledWith('dataset-1');
+      expect(screen.getByText('导出训练 JSONL')).toBeInTheDocument();
+      expect(screen.getByText('进入训练配置')).toBeInTheDocument();
+    });
+  });
+
+  it('renders evaluation page from training query params', async () => {
+    renderWithRouter(
+      <Evaluation />,
+      ['/evaluation?scenario=qa_assistant&base_model=base-model&test_dataset_id=dataset-1&training_task_id=train-1&run_inference=true'],
+    );
+
+    expect(screen.getByText('创建评估任务')).toBeInTheDocument();
+    expect(screen.getByText('当前评估对象')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('base-model')).toBeInTheDocument();
+      expect(screen.getByText('真实推理')).toBeInTheDocument();
+      expect(screen.getAllByText('客服/知识问答助手').length).toBeGreaterThan(0);
+    });
+  });
+
+  it('renders deployment page with package history and query param prefill', async () => {
+    renderWithRouter(
+      <Deployment />,
+      ['/deployment?training_task_id=train-1&base_model=base-model&adapter_path=outputs/train-1/adapter&model_alias=qa-assistant'],
+    );
+
+    expect(screen.getByText('部署接入台')).toBeInTheDocument();
+    expect(screen.getAllByText('生成部署包').length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('train-1')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('base-model')).toBeInTheDocument();
+    });
+    await waitFor(() => {
+      expect(screen.getByText('最近部署包')).toBeInTheDocument();
+      expect(screen.getByText('qa-assistant')).toBeInTheDocument();
     });
   });
 });

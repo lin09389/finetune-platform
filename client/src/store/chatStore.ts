@@ -1,11 +1,15 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import {
+  clearChatSessionMessages,
   createChatSession,
+  deleteChatSessionMessage,
   deleteChatSession,
   getChatSession,
   getChatSessionMessages,
   listChatSessions,
+  replaceChatSessionMessages,
+  updateChatSessionMessage,
 } from '../services/chatSessionApi';
 import type {
   ChatMessage,
@@ -91,9 +95,10 @@ interface ChatStore {
 
   addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => string;
   updateMessage: (id: string, updates: Partial<ChatMessage>) => void;
-  deleteMessage: (id: string) => void;
-  editMessage: (id: string, content: string) => void;
-  clearMessages: () => void;
+  deleteMessage: (id: string) => Promise<void>;
+  editMessage: (id: string, content: string) => Promise<void>;
+  clearMessages: () => Promise<void>;
+  replaceCurrentSessionMessages: (messages: ChatMessage[]) => Promise<ChatMessage[]>;
   setMessages: (messages: ChatMessage[]) => void;
 
   startStreaming: (messageId: string) => void;
@@ -138,6 +143,36 @@ function mergeLoadedSessionRecord(
     updatedAt: loadedSession.updatedAt || existingSession.updatedAt,
     metadata: loadedSession.metadata || existingSession.metadata || {},
   };
+}
+
+function messageMetadata(message: ChatMessage): Record<string, unknown> {
+  return {
+    ...(message.knowledge_sources ? { knowledge_sources: message.knowledge_sources } : {}),
+    ...(message.retrieval_info ? { retrieval_info: message.retrieval_info } : {}),
+    ...(message.memory_context ? { memory_context: message.memory_context } : {}),
+    ...(message.unified_context ? { unified_context: message.unified_context } : {}),
+    ...(message.raw_response !== undefined ? { raw_response: message.raw_response } : {}),
+    ...(message.attachments ? { attachments: message.attachments } : {}),
+    ...(message.experiment_config ? { experiment_config: message.experiment_config } : {}),
+    ...(message.run_metrics ? { run_metrics: message.run_metrics } : {}),
+    ...(message.isEdited ? { isEdited: message.isEdited } : {}),
+  };
+}
+
+function updateSessionSummary(
+  sessions: ChatSession[],
+  sessionId: string,
+  updates: Partial<ChatSession>,
+): ChatSession[] {
+  return sessions.map((session) =>
+    session.id === sessionId
+      ? {
+          ...session,
+          ...updates,
+          updatedAt: updates.updatedAt || new Date().toISOString(),
+        }
+      : session,
+  );
 }
 
 export const useChatStore = create<ChatStore>()(
@@ -217,7 +252,7 @@ export const useChatStore = create<ChatStore>()(
         try {
           const [sessionData, messagesData] = await Promise.all([
             getChatSession(sessionId, get().settings.backend),
-            getChatSessionMessages(sessionId),
+            getChatSessionMessages(sessionId, 500),
           ]);
 
           set({
@@ -230,9 +265,9 @@ export const useChatStore = create<ChatStore>()(
         } catch (error) {
           console.error('加载会话失败：', error);
           set({
-            currentSessionId: sessionId,
-            messages: [],
+            error: error instanceof Error ? error.message : '加载会话失败',
           });
+          throw error;
         }
       },
 
@@ -271,7 +306,14 @@ export const useChatStore = create<ChatStore>()(
       loadSessions: async () => {
         try {
           const sessions = await listChatSessions(get().settings.backend);
-          set({ sessions });
+          const currentSessionId = get().currentSessionId;
+          const hasCurrentSession =
+            currentSessionId && sessions.some((session) => session.id === currentSessionId);
+          set({
+            sessions,
+            currentSessionId: hasCurrentSession ? currentSessionId : null,
+            messages: hasCurrentSession ? get().messages : [],
+          });
         } catch (error) {
           console.error('加载会话列表失败：', error);
         }
@@ -315,22 +357,100 @@ export const useChatStore = create<ChatStore>()(
         }));
       },
 
-      deleteMessage: (id) => {
+      deleteMessage: async (id) => {
+        const { currentSessionId, messages } = get();
+        const previousMessages = messages;
         set((state) => ({
           messages: state.messages.filter((m) => m.id !== id),
+          sessions: state.currentSessionId
+            ? updateSessionSummary(state.sessions, state.currentSessionId, {
+                messageCount: Math.max(0, state.messages.length - 1),
+              })
+            : state.sessions,
         }));
+        if (!currentSessionId || currentSessionId.startsWith('local_')) {
+          return;
+        }
+        try {
+          await deleteChatSessionMessage(currentSessionId, id);
+        } catch (error) {
+          set({
+            messages: previousMessages,
+            error: error instanceof Error ? error.message : '删除消息失败',
+          });
+          throw error;
+        }
       },
 
-      editMessage: (id, content) => {
+      editMessage: async (id, content) => {
+        const { currentSessionId, messages } = get();
+        const previousMessages = messages;
         set((state) => ({
           messages: state.messages.map((m) =>
             m.id === id ? { ...m, content, isEdited: true } : m,
           ),
         }));
+        if (!currentSessionId || currentSessionId.startsWith('local_')) {
+          return;
+        }
+        try {
+          const current = previousMessages.find((message) => message.id === id);
+          await updateChatSessionMessage(currentSessionId, id, {
+            role: current?.role,
+            content,
+            metadata: current ? { ...messageMetadata(current), isEdited: true } : { isEdited: true },
+          });
+        } catch (error) {
+          set({
+            messages: previousMessages,
+            error: error instanceof Error ? error.message : '编辑消息失败',
+          });
+          throw error;
+        }
       },
 
-      clearMessages: () => {
-        set({ messages: [] });
+      clearMessages: async () => {
+        const { currentSessionId, messages } = get();
+        if (!currentSessionId || currentSessionId.startsWith('local_')) {
+          set({ messages: [] });
+          return;
+        }
+        try {
+          await clearChatSessionMessages(currentSessionId);
+          set((state) => ({
+            messages: [],
+            sessions: updateSessionSummary(state.sessions, currentSessionId, { messageCount: 0 }),
+          }));
+        } catch (error) {
+          set({
+            messages,
+            error: error instanceof Error ? error.message : '清空会话失败',
+          });
+          throw error;
+        }
+      },
+
+      replaceCurrentSessionMessages: async (messages) => {
+        const { currentSessionId } = get();
+        if (!currentSessionId || currentSessionId.startsWith('local_')) {
+          set({ messages });
+          return messages;
+        }
+        const payload = messages.map((message) => ({
+          id: message.id,
+          role: message.role,
+          content: message.content,
+          created_at: message.timestamp,
+          metadata: messageMetadata(message),
+        }));
+        const result = await replaceChatSessionMessages(currentSessionId, payload);
+        set((state) => ({
+          messages: result.messages,
+          sessions: updateSessionSummary(state.sessions, currentSessionId, {
+            messageCount: result.messages.length,
+          }),
+        }));
+        return result.messages;
       },
 
       setMessages: (messages) => {
@@ -505,7 +625,6 @@ export const useChatStore = create<ChatStore>()(
       partialize: (state) => ({
         currentSessionId: state.currentSessionId,
         settings: state.settings,
-        sessions: state.sessions.slice(0, 50),
         promptDraft: state.promptDraft,
         attachments: state.attachments,
         activeCandidates: state.activeCandidates,

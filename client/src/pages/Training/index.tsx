@@ -1,6 +1,13 @@
-import { Form, Modal } from 'antd';
+import { Button, Form, Modal } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ThunderboltOutlined, MenuFoldOutlined, MenuUnfoldOutlined, DisconnectOutlined } from '@ant-design/icons';
+import {
+  DisconnectOutlined,
+  FileSearchOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import AnimatedLayout from '../../components/shared/AnimatedLayout';
 import { useRuntimeContext } from '../../runtime/RuntimeContext';
 import { getDatasetList, getModelList, type TrainingEventV2 } from '../../services/api';
@@ -103,6 +110,8 @@ const getErrorMessage = (error: any, fallback: string) =>
 // TrainingCompareAction removed as it was unused
 
 const TrainingPage: React.FC = () => {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const {
     models,
     datasets,
@@ -116,6 +125,7 @@ const TrainingPage: React.FC = () => {
   const { actions, derived, observed } = useRuntimeContext();
   const { setTrainingSelection, syncInferenceSelection } = actions;
   const [form] = Form.useForm();
+  const searchParamString = searchParams.toString();
   const [progress, setProgress] = useState<TrainingProgressType | null>(null);
   const [starting, setStarting] = useState(false);
   const [trainingStatus, setTrainingStatus] = useState<
@@ -153,6 +163,24 @@ const TrainingPage: React.FC = () => {
   const watchedMethod = Form.useWatch('method', form);
   const watchedBatchSize = Form.useWatch('batchSize', form);
   const watchedMaxSeqLength = Form.useWatch('maxSeqLength', form);
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParamString);
+    const nextValues: Record<string, string> = {};
+    const modelId = params.get('model_id') || params.get('modelId') || params.get('base_model');
+    const datasetId = params.get('dataset_id') || params.get('datasetId') || params.get('test_dataset_id');
+    const taskGoal = params.get('task_goal') || params.get('taskGoal') || params.get('scenario');
+
+    if (modelId) nextValues.modelId = modelId;
+    if (datasetId) nextValues.datasetId = datasetId;
+    if (taskGoal === 'qa_assistant' || taskGoal === 'structured_extraction') {
+      nextValues.taskGoal = taskGoal;
+    }
+
+    if (Object.keys(nextValues).length > 0) {
+      form.setFieldsValue(nextValues);
+    }
+  }, [form, searchParamString]);
 
   useEffect(() => {
     setTrainingSelection({
@@ -494,6 +522,7 @@ const TrainingPage: React.FC = () => {
     onEvent: handleV2Event,
     onSequenceGap: handleV2SequenceGap,
   });
+  void _v2Stream;
 
   useEffect(() => {
     if (!preflightResult) return;
@@ -539,6 +568,7 @@ const TrainingPage: React.FC = () => {
     (values: any) => ({
       model_id: values.modelId,
       dataset_id: values.datasetId,
+      task_goal: values.taskGoal || 'qa_assistant',
       method: values.method || 'qlora',
       rank: values.rank || 8,
       alpha: values.alpha || 16,
@@ -746,10 +776,10 @@ const TrainingPage: React.FC = () => {
     const recommended = preflightResult.recommended_config;
     const candidates = [
       { key: 'method', label: '微调方法', current: values.method || 'qlora' },
-      { key: 'batch_size', label: 'Batch Size', current: values.batchSize ?? 1 },
+      { key: 'batch_size', label: '批大小', current: values.batchSize ?? 1 },
       { key: 'max_seq_length', label: '最大序列长度', current: values.maxSeqLength ?? 512 },
-      { key: 'rank', label: 'LoRA Rank', current: values.rank ?? 8 },
-      { key: 'alpha', label: 'LoRA Alpha', current: values.alpha ?? 16 },
+      { key: 'rank', label: 'LoRA 秩', current: values.rank ?? 8 },
+      { key: 'alpha', label: 'LoRA 缩放系数', current: values.alpha ?? 16 },
       { key: 'learning_rate', label: '学习率', current: values.learningRate ?? 5e-5 },
       { key: 'epochs', label: '训练轮数', current: values.epochs ?? 3 },
       { key: 'gradient_accumulation', label: '梯度累积', current: gradientAccumulation },
@@ -855,15 +885,22 @@ const TrainingPage: React.FC = () => {
     });
     notify.success('当前训练基座模型已同步到平台活跃推理上下文');
   };
+  void _handleApplyPreflightRecommendation;
+  void _preflightRecommendationDiff;
+  void _resumeConfigDiff;
+  void _runtimeTrainingGuardrail;
+  void _handleResumeFromSelectedCheckpoint;
+  void _handleUseActiveModel;
+  void _handlePromoteTrainingModel;
 
   const statusLabels: Record<typeof trainingStatus, string> = {
-    idle: '待命 (STANDBY)',
-    queued: '队列中 (QUEUED)',
-    loading: '加载中 (LOADING)',
-    training: '训练中 (TRAINING)',
-    stopping: '停止中 (STOPPING)',
-    completed: '已完成 (COMPLETED)',
-    failed: '已失败 (FAILED)',
+    idle: '待命',
+    queued: '队列中',
+    loading: '加载中',
+    training: '训练中',
+    stopping: '停止中',
+    completed: '已完成',
+    failed: '已失败',
   };
 
   const handleResetTraining = () => {
@@ -878,6 +915,23 @@ const TrainingPage: React.FC = () => {
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const openCurrentEvaluation = () => {
+    const values = form.getFieldsValue();
+    const params = new URLSearchParams();
+    const scenario =
+      values.taskGoal === 'structured_extraction' ? 'structured_extraction' : 'qa_assistant';
+
+    params.set('scenario', scenario);
+    params.set('backend', 'ollama');
+    params.set('run_inference', 'true');
+    params.set('auto_merge_adapter', 'true');
+    if (currentTaskId) params.set('training_task_id', currentTaskId);
+    if (values.modelId) params.set('base_model', values.modelId);
+    if (values.datasetId) params.set('test_dataset_id', values.datasetId);
+
+    navigate(`/evaluation?${params.toString()}`);
   };
 
   return (
@@ -924,6 +978,17 @@ const TrainingPage: React.FC = () => {
               <div className={layoutStyles.headerTimer}>
                 已耗时 <span className={layoutStyles.timerValue}>{formatElapsed(progress?.elapsedTime)}</span>
               </div>
+            )}
+
+            {trainingStatus === 'completed' && (
+              <Button
+                type="primary"
+                icon={<FileSearchOutlined />}
+                onClick={openCurrentEvaluation}
+                style={{ borderRadius: 8 }}
+              >
+                进入评估
+              </Button>
             )}
           </div>
 

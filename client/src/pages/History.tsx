@@ -2,6 +2,7 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   EyeOutlined,
+  FileSearchOutlined,
   HistoryOutlined,
   LineChartOutlined,
   PlayCircleOutlined,
@@ -22,6 +23,7 @@ import {
   message,
 } from 'antd';
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   CartesianGrid,
   Legend,
@@ -137,7 +139,15 @@ const buildDefaultCompareIds = (records: TrainingRecord[]) => {
 const areSameIds = (left: string[], right: string[]) =>
   left.length === right.length && left.every((id, index) => id === right[index]);
 
+const appendPathSegment = (basePath: string, segment: string) => {
+  if (!basePath) return '';
+  const normalizedBase = basePath.replace(/[\\/]+$/, '');
+  const separator = normalizedBase.includes('\\') ? '\\' : '/';
+  return `${normalizedBase}${separator}${segment}`;
+};
+
 export default function History({ mode = 'history' }: HistoryProps) {
+  const navigate = useNavigate();
   const { trainingRecords, setTrainingRecords, removeTrainingRecord, setIsTraining } =
     useAppStore();
   const [mergeForm] = Form.useForm();
@@ -197,12 +207,70 @@ export default function History({ mode = 'history' }: HistoryProps) {
       record &&
         (record.status === 'completed' || record.status === 'stopped') &&
         record.method !== 'full' &&
-        record.checkpointPath &&
-        (record.config?.modelId || (record.config as any)?.model_id),
+        getAdapterPath(record) &&
+        getBaseModelId(record),
     );
 
   const getBaseModelId = (record: TrainingRecord | null) =>
-    record?.config?.modelId || (record?.config as any)?.model_id || '';
+    record?.baseModelId || record?.config?.modelId || record?.config?.model_id || '';
+
+  const getTaskGoal = (record: TrainingRecord | null) => {
+    const value = record?.taskGoal || record?.config?.taskGoal || record?.config?.task_goal;
+    return value === 'structured_extraction' ? 'structured_extraction' : 'qa_assistant';
+  };
+
+  const getEvaluationDatasetId = (record: TrainingRecord | null) => {
+    if (!record) return '';
+    return (
+      record.datasetId ||
+      record.config?.testDatasetId ||
+      record.config?.test_dataset_id ||
+      record.config?.validationDatasetId ||
+      record.config?.validation_dataset_id ||
+      record.config?.datasetId ||
+      record.config?.dataset_id ||
+      ''
+    );
+  };
+
+  const getAdapterPath = (record: TrainingRecord | null) => {
+    if (!record) return '';
+    if (record.adapterPath) return record.adapterPath;
+    if (record.checkpointPath) return record.checkpointPath;
+    if (record.method !== 'full' && record.outputPath) {
+      return appendPathSegment(record.outputPath, 'lora_adapter');
+    }
+    return '';
+  };
+
+  const canOpenEvaluation = (record: TrainingRecord | null) =>
+    Boolean(record && (record.status === 'completed' || record.status === 'stopped'));
+
+  const openEvaluation = (record: TrainingRecord | null) => {
+    if (!canOpenEvaluation(record)) {
+      message.warning('只有已完成或已停止的训练记录可以进入评估');
+      return;
+    }
+
+    const params = new URLSearchParams();
+    const baseModel = getBaseModelId(record);
+    const datasetId = getEvaluationDatasetId(record);
+    const adapterPath = getAdapterPath(record);
+
+    params.set('scenario', getTaskGoal(record));
+    params.set('backend', 'ollama');
+    params.set('run_inference', 'true');
+    params.set('auto_merge_adapter', 'true');
+    if (record?.id) params.set('training_task_id', record.id);
+    if (baseModel) params.set('base_model', baseModel);
+    if (datasetId) params.set('test_dataset_id', datasetId);
+    if (adapterPath) params.set('adapter_path', adapterPath);
+    if (record?.method === 'full' && record.outputPath) {
+      params.set('finetuned_model', record.outputPath);
+    }
+
+    navigate(`/evaluation?${params.toString()}`);
+  };
 
   const getRecordLabel = (record: TrainingRecord) =>
     record.modelName ? `${record.modelName} · ${record.id}` : record.id;
@@ -258,6 +326,11 @@ export default function History({ mode = 'history' }: HistoryProps) {
       message.warning('当前记录不满足合并导出条件');
       return;
     }
+    const record = selectedRecord;
+    if (!record) {
+      message.warning('当前记录不存在');
+      return;
+    }
 
     const outputName = String(values?.outputName || mergeForm.getFieldValue('outputName') || '')
       .trim();
@@ -275,8 +348,8 @@ export default function History({ mode = 'history' }: HistoryProps) {
     setMerging(true);
     try {
       await mergeLora(modelId, {
-        adapter_path: selectedRecord.checkpointPath,
-        training_id: selectedRecord.id,
+        adapter_path: getAdapterPath(record),
+        training_id: record.id,
         output_name: outputName,
       });
       message.success('合并导出已提交');
@@ -753,6 +826,14 @@ export default function History({ mode = 'history' }: HistoryProps) {
             详情
           </Button>
           <Button
+            icon={<FileSearchOutlined />}
+            size="small"
+            disabled={!canOpenEvaluation(record)}
+            onClick={() => openEvaluation(record)}
+          >
+            评估
+          </Button>
+          <Button
             icon={<LineChartOutlined />}
             size="small"
             onClick={() => toggleCompareRecord(record)}
@@ -887,6 +968,17 @@ export default function History({ mode = 'history' }: HistoryProps) {
               合并导出
             </Button>
           ) : null,
+          selectedRecord && canOpenEvaluation(selectedRecord) ? (
+            <Button
+              key="evaluation"
+              icon={<FileSearchOutlined />}
+              size="small"
+              onClick={() => openEvaluation(selectedRecord)}
+              style={{ borderRadius: 8 }}
+            >
+              进入评估
+            </Button>
+          ) : null,
           <Button key="close" onClick={closeDetail}>
             关闭
           </Button>,
@@ -900,6 +992,11 @@ export default function History({ mode = 'history' }: HistoryProps) {
               <Descriptions.Item label="数据集">{selectedRecord.datasetName}</Descriptions.Item>
               <Descriptions.Item label="训练方法">
                 {getMethodTag(selectedRecord.method)}
+              </Descriptions.Item>
+              <Descriptions.Item label="应用目标">
+                {getTaskGoal(selectedRecord) === 'structured_extraction'
+                  ? '结构化抽取'
+                  : '问答助手'}
               </Descriptions.Item>
               <Descriptions.Item label="状态">
                 {getStatusTag(selectedRecord.status)}
@@ -926,6 +1023,15 @@ export default function History({ mode = 'history' }: HistoryProps) {
                 {selectedRecord.totalSteps !== undefined && selectedRecord.totalSteps !== null
                   ? selectedRecord.totalSteps
                   : '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="基础模型 ID">
+                {getBaseModelId(selectedRecord) || '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="评估数据集 ID">
+                {getEvaluationDatasetId(selectedRecord) || '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Adapter 路径">
+                {getAdapterPath(selectedRecord) || '-'}
               </Descriptions.Item>
               <Descriptions.Item label="输出路径">{selectedRecord.outputPath}</Descriptions.Item>
               <Descriptions.Item label="训练配置">
@@ -1002,7 +1108,7 @@ export default function History({ mode = 'history' }: HistoryProps) {
               {getBaseModelId(selectedRecord) || '-'}
             </Descriptions.Item>
             <Descriptions.Item label="Adapter 路径">
-              {selectedRecord?.checkpointPath || '-'}
+              {getAdapterPath(selectedRecord) || '-'}
             </Descriptions.Item>
           </Descriptions>
           <Form.Item

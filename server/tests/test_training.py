@@ -36,6 +36,7 @@ validate_release_supported_features = training_module._validate_release_supporte
 get_checkpoints = training_module.get_checkpoints
 handle_training_failure = training_module._handle_training_failure
 finalize_stop_requested = training_module._finalize_stop_requested
+sync_training_record_metadata = training_module._sync_training_record_metadata
 
 try:
     from fastapi.testclient import TestClient
@@ -428,6 +429,32 @@ class TestTrainingReleaseFeatureGuards:
         assert callback._event_loop is None
         state.cleanup()
 
+    def test_sync_training_record_metadata_populates_evaluation_fields(self, tmp_path):
+        adapter_path = tmp_path / "outputs" / "train_demo" / "lora_adapter"
+        record = TrainingRecord(
+            id="task-metadata",
+            model_name="display-model",
+            dataset_name="display-dataset",
+            method="qlora",
+            status="completed",
+            start_time="2026-04-02T00:00:00",
+            config={
+                "model_id": "local-base-model",
+                "dataset_id": "train-dataset",
+                "validation_dataset_id": "validation-dataset",
+                "task_goal": "structured_extraction",
+            },
+            output_path=str(tmp_path / "outputs" / "train_demo"),
+            checkpoint_path=str(adapter_path),
+        )
+
+        synced = sync_training_record_metadata(record)
+
+        assert synced.base_model_id == "local-base-model"
+        assert synced.dataset_id == "validation-dataset"
+        assert synced.task_goal == "structured_extraction"
+        assert synced.adapter_path == str(adapter_path)
+
     @pytest.mark.asyncio
     async def test_resume_training_creates_new_task_id_and_output_path(self, tmp_path, monkeypatch):
         task_id = "12345678-abcd-efgh"
@@ -615,7 +642,11 @@ class TestTrainingReleaseFeatureGuards:
             method="qlora",
             status="running",
             start_time="2026-04-02T00:00:00",
-            config={},
+            config={
+                "model_id": "base-model",
+                "dataset_id": "train-dataset",
+                "task_goal": "qa_assistant",
+            },
             output_path=str(tmp_path),
         )
         state.queue_progress_update(
@@ -636,14 +667,20 @@ class TestTrainingReleaseFeatureGuards:
         handle_training_failure(state, record, RuntimeError("boom"))
         time.sleep(0.1)
         progress = state.get_progress()
+        history = state.get_history()
         state.cleanup()
 
         assert progress.status == "failed"
         assert progress.step == 150
         assert progress.loss == pytest.approx(1.23)
+        assert len(history) == 1
+        assert history[0].base_model_id == "base-model"
+        assert history[0].dataset_id == "train-dataset"
+        assert history[0].task_goal == "qa_assistant"
 
     def test_finalize_stop_requested_persists_stop_status_and_history(self, tmp_path):
         state = TrainingState(tmp_path / "history.json")
+        adapter_path = tmp_path / "lora_adapter"
         record = TrainingRecord(
             id="task-stop-finalize",
             model_name="model",
@@ -651,8 +688,13 @@ class TestTrainingReleaseFeatureGuards:
             method="qlora",
             status="running",
             start_time="2026-04-02T00:00:00",
-            config={},
+            config={
+                "model_id": "base-model",
+                "dataset_id": "train-dataset",
+                "task_goal": "structured_extraction",
+            },
             output_path=str(tmp_path),
+            checkpoint_path=str(adapter_path),
         )
         state.set_training(True)
         state.queue_progress_update(
@@ -682,6 +724,10 @@ class TestTrainingReleaseFeatureGuards:
         assert progress.message == "stopped in test"
         assert len(history) == 1
         assert history[0].status == "stopped"
+        assert history[0].base_model_id == "base-model"
+        assert history[0].dataset_id == "train-dataset"
+        assert history[0].task_goal == "structured_extraction"
+        assert history[0].adapter_path == str(adapter_path)
 
     @pytest.mark.asyncio
     async def test_stop_training_marks_stop_requested_instead_of_force_stopped(self, monkeypatch):

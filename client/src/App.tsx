@@ -28,6 +28,8 @@ const KnowledgeBase = lazy(() => import('./pages/KnowledgeBase'));
 const WorkspaceManager = lazy(() => import('./pages/WorkspaceManager'));
 const ModelHub = lazy(() => import('./pages/ModelHub'));
 const Inference = lazy(() => import('./pages/Inference'));
+const Evaluation = lazy(() => import('./pages/Evaluation'));
+const Deployment = lazy(() => import('./pages/Deployment'));
 const History = lazy(() => import('./pages/History'));
 const ProjectContext = lazy(() => import('./pages/ProjectContext'));
 const APIKeyManager = lazy(() => import('./pages/APIKeyManager'));
@@ -150,6 +152,8 @@ const routes = [
   { path: '/memory', element: <MemoryPage /> },
   { path: '/modelhub', element: <ModelHub /> },
   { path: '/inference', element: <Inference /> },
+  { path: '/evaluation', element: <Evaluation /> },
+  { path: '/deployment', element: <Deployment /> },
   { path: '/history', element: <History /> },
   { path: '/training-compare', element: <History mode="compare" /> },
   { path: '/project-context', element: <ProjectContext /> },
@@ -234,29 +238,29 @@ function AppContent() {
         theme={{
           algorithm: theme === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
           token: {
-            colorPrimary: theme === 'dark' ? '#ffffff' : '#000000',
-            colorSuccess: theme === 'dark' ? '#ededed' : '#111111',
-            colorWarning: theme === 'dark' ? '#cccccc' : '#333333',
-            colorError: theme === 'dark' ? '#a1a1aa' : '#111111',
-            colorInfo: theme === 'dark' ? '#ffffff' : '#000000',
-            colorBgBase: theme === 'dark' ? '#000000' : '#ffffff',
-            colorBgContainer: theme === 'dark' ? '#0a0a0a' : '#fcfcfc',
-            colorBgElevated: theme === 'dark' ? '#141414' : '#f5f5f5',
-            colorBorder: theme === 'dark' ? '#27272a' : '#ebebeb',
-            colorText: theme === 'dark' ? '#ffffff' : '#000000',
-            colorTextSecondary: theme === 'dark' ? '#a1a1aa' : '#666666',
-            borderRadius: 6,
-            borderRadiusLG: 12,
+            colorPrimary: theme === 'dark' ? '#818cf8' : '#6366f1',
+            colorSuccess: theme === 'dark' ? '#34d399' : '#10b981',
+            colorWarning: theme === 'dark' ? '#fbbf24' : '#f59e0b',
+            colorError: theme === 'dark' ? '#f87171' : '#ef4444',
+            colorInfo: theme === 'dark' ? '#60a5fa' : '#3b82f6',
+            colorBgBase: theme === 'dark' ? '#020304' : '#fcfcfc',
+            colorBgContainer: theme === 'dark' ? '#09090b' : '#ffffff',
+            colorBgElevated: theme === 'dark' ? '#18181b' : '#ffffff',
+            colorBorder: theme === 'dark' ? '#27272a' : '#e5e7eb',
+            colorText: theme === 'dark' ? '#ffffff' : '#09090b',
+            colorTextSecondary: theme === 'dark' ? '#a1a1aa' : '#52525b',
+            borderRadius: 8,
+            borderRadiusLG: 16,
             borderRadiusSM: 4,
             fontFamily:
-              "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
+              "'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
             fontSize: 14,
             fontSizeLG: 16,
             fontSizeSM: 12,
-            controlHeight: 36,
-            controlHeightLG: 44,
-            controlHeightSM: 28,
-            boxShadow: 'var(--shadow-md)',
+            controlHeight: 38,
+            controlHeightLG: 46,
+            controlHeightSM: 30,
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
           },
           components: {
             Button: {

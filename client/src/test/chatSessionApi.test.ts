@@ -5,12 +5,16 @@ vi.mock('../services/api', () => ({
 }));
 
 import {
+  clearChatSessionMessages,
   createChatSession,
+  deleteChatSessionMessage,
   deleteChatSession,
   getChatSession,
   getChatSessionMessages,
   listChatSessions,
   persistChatRunToSession,
+  replaceChatSessionMessages,
+  updateChatSessionMessage,
   updateChatSessionMetadata,
 } from '../services/chatSessionApi';
 
@@ -57,7 +61,7 @@ describe('chatSessionApi', () => {
     const session = await getChatSession('session-1');
 
     expect(String(vi.mocked(global.fetch).mock.calls[0]?.[0])).toBe(
-      'http://localhost:8000/chat/sessions',
+      'http://localhost:8000/chat/sessions?limit=100',
     );
     expect(String(vi.mocked(global.fetch).mock.calls[1]?.[0])).toBe(
       'http://localhost:8000/chat/sessions/session-1',
@@ -138,6 +142,7 @@ describe('chatSessionApi', () => {
     expect(JSON.parse(String(vi.mocked(global.fetch).mock.calls[0]?.[1]?.body))).toEqual({
       title: 'Follow-up',
       model_id: 'llama3',
+      backend: 'cloud',
     });
     expect(vi.mocked(global.fetch).mock.calls[1]?.[1]).toMatchObject({
       method: 'PUT',
@@ -146,7 +151,7 @@ describe('chatSessionApi', () => {
       metadata: { agent_mode: true },
     });
     expect(String(vi.mocked(global.fetch).mock.calls[2]?.[0])).toBe(
-      'http://localhost:8000/chat/sessions/session-2/messages',
+      'http://localhost:8000/chat/sessions/session-2/messages?limit=200',
     );
   });
 
@@ -201,5 +206,84 @@ describe('chatSessionApi', () => {
 
     const result = await deleteChatSession('missing-session');
     expect(result.success).toBe(true);
+  });
+
+  it('replaces, updates, deletes, and clears persisted session messages', async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          messages: [
+            {
+              id: 'msg-1',
+              role: 'user',
+              content: 'kept',
+              created_at: '2026-04-09T03:10:00.000Z',
+              metadata: {},
+            },
+          ],
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 'msg-1',
+          role: 'user',
+          content: 'edited',
+          created_at: '2026-04-09T03:10:00.000Z',
+          metadata: { isEdited: true },
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ success: true, session_id: 'session-4', message_id: 'msg-1' }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ success: true, session_id: 'session-4' }),
+      } as Response) as typeof fetch;
+
+    const replaced = await replaceChatSessionMessages('session-4', [
+      {
+        id: 'msg-1',
+        role: 'user',
+        content: 'kept',
+        created_at: '2026-04-09T03:10:00.000Z',
+        metadata: {},
+      },
+    ]);
+    const updated = await updateChatSessionMessage('session-4', 'msg-1', {
+      content: 'edited',
+      metadata: { isEdited: true },
+    });
+    const deleted = await deleteChatSessionMessage('session-4', 'msg-1');
+    const cleared = await clearChatSessionMessages('session-4');
+
+    expect(replaced.messages[0]?.id).toBe('msg-1');
+    expect(updated.content).toBe('edited');
+    expect(deleted.success).toBe(true);
+    expect(cleared.success).toBe(true);
+    expect(String(vi.mocked(global.fetch).mock.calls[0]?.[0])).toBe(
+      'http://localhost:8000/chat/sessions/session-4/messages',
+    );
+    expect(vi.mocked(global.fetch).mock.calls[0]?.[1]).toMatchObject({ method: 'PUT' });
+    expect(JSON.parse(String(vi.mocked(global.fetch).mock.calls[0]?.[1]?.body))).toEqual({
+      messages: [
+        {
+          id: 'msg-1',
+          role: 'user',
+          content: 'kept',
+          created_at: '2026-04-09T03:10:00.000Z',
+          metadata: {},
+        },
+      ],
+    });
+    expect(String(vi.mocked(global.fetch).mock.calls[1]?.[0])).toBe(
+      'http://localhost:8000/chat/sessions/session-4/messages/msg-1',
+    );
+    expect(vi.mocked(global.fetch).mock.calls[1]?.[1]).toMatchObject({ method: 'PUT' });
+    expect(vi.mocked(global.fetch).mock.calls[2]?.[1]).toMatchObject({ method: 'DELETE' });
+    expect(vi.mocked(global.fetch).mock.calls[3]?.[1]).toMatchObject({ method: 'DELETE' });
   });
 });

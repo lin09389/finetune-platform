@@ -16,16 +16,18 @@ import {
   ApiOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons';
-import { Button, Col, Empty, Progress, Row, Table, Tag } from 'antd';
+import { Button, Empty, Progress, Space, Table, Tag } from 'antd';
 import { motion } from 'framer-motion';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AnimatedLayout from '../components/shared/AnimatedLayout';
 import GlassCard from '../components/shared/GlassCard';
 import PageHeader from '../components/shared/PageHeader';
 import { CountUp } from '../components/shared/MotionWrapper';
-import { getDeviceInfo } from '../services/api';
+import { getDatasetList, getDeviceInfo, getModelList, listDeploymentPackages } from '../services/api';
+import { getTrainingHistory } from '../services/trainingApi';
 import { useAppStore } from '../store/appStore';
+import type { TrainingRecord } from '../types';
 import { useRuntimeContext } from '../runtime/RuntimeContext';
 import styles from './Dashboard.module.css';
 
@@ -143,9 +145,20 @@ const StatCard: React.FC<StatCardProps> = ({
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { backendStatus, deviceInfo, setDeviceInfo, models, datasets, trainingRecords } =
+  const {
+    backendStatus,
+    deviceInfo,
+    setDeviceInfo,
+    models,
+    datasets,
+    trainingRecords,
+    setModels,
+    setDatasets,
+    setTrainingRecords,
+  } =
     useAppStore();
-  const { inference, knowledge } = useRuntimeContext();
+  const { inference, summary } = useRuntimeContext();
+  const [deploymentPackageCount, setDeploymentPackageCount] = useState(0);
 
   const fetchDeviceInfo = async () => {
     if (backendStatus !== 'connected') return;
@@ -161,7 +174,94 @@ export default function Dashboard() {
     fetchDeviceInfo();
   }, [backendStatus]);
 
+  useEffect(() => {
+    if (backendStatus !== 'connected') return;
+
+    const loadChainHealth = async () => {
+      try {
+        const [modelResult, datasetResult, trainingResult, deploymentResult] =
+          await Promise.allSettled([
+            getModelList(),
+            getDatasetList(),
+            getTrainingHistory(),
+            listDeploymentPackages(20),
+          ]);
+
+        if (modelResult.status === 'fulfilled' && Array.isArray(modelResult.value)) {
+          setModels(modelResult.value);
+        }
+        if (datasetResult.status === 'fulfilled' && Array.isArray(datasetResult.value)) {
+          setDatasets(datasetResult.value);
+        }
+        if (trainingResult.status === 'fulfilled' && Array.isArray(trainingResult.value)) {
+          setTrainingRecords(trainingResult.value);
+        }
+        if (deploymentResult.status === 'fulfilled' && Array.isArray(deploymentResult.value)) {
+          setDeploymentPackageCount(deploymentResult.value.length);
+        }
+      } catch (error) {
+        console.error('Failed to load chain health:', error);
+      }
+    };
+
+    void loadChainHealth();
+  }, [backendStatus, setDatasets, setModels, setTrainingRecords]);
+
   const recentTrainings = trainingRecords.slice(-5).reverse();
+  const completedTrainings = trainingRecords.filter((record) => record.status === 'completed');
+  const evaluationReadyTrainings = completedTrainings.filter(
+    (record) => record.adapterPath || record.checkpointPath || record.outputPath,
+  );
+  const storageReady = summary.storageStatus === 'ready' || summary.storageStatus === 'healthy';
+  const storageStatusLabel =
+    summary.storageStatus === 'ready' || summary.storageStatus === 'healthy'
+      ? '正常'
+      : summary.storageStatus === 'degraded'
+        ? '降级'
+        : summary.storageStatus === 'error'
+          ? '异常'
+          : '未知';
+
+  const chainSteps = [
+    {
+      title: '后端连接',
+      value: backendStatus === 'connected' ? '已连接' : '未连接',
+      ready: backendStatus === 'connected',
+      action: () => navigate('/device'),
+    },
+    {
+      title: '模型',
+      value: `${Math.max(models.length, inference.availableModelCount)} 个`,
+      ready: models.length > 0 || inference.availableModelCount > 0,
+      action: () => navigate('/models'),
+    },
+    {
+      title: '数据集',
+      value: `${datasets.length} 个`,
+      ready: datasets.length > 0,
+      action: () => navigate('/datasets'),
+    },
+    {
+      title: '训练结果',
+      value: `${completedTrainings.length} 个完成`,
+      ready: completedTrainings.length > 0,
+      action: () => navigate('/history'),
+    },
+    {
+      title: '可评估产物',
+      value: `${evaluationReadyTrainings.length} 个`,
+      ready: evaluationReadyTrainings.length > 0,
+      action: () => navigate('/evaluation'),
+    },
+    {
+      title: '部署包',
+      value: `${deploymentPackageCount} 个`,
+      ready: deploymentPackageCount > 0,
+      action: () => navigate('/deployment'),
+    },
+  ];
+  const readyStepCount = chainSteps.filter((step) => step.ready).length;
+  const chainHealthPercent = Math.round((readyStepCount / chainSteps.length) * 100);
 
   // 构建下一步建议
   const suggestions = [];
@@ -277,9 +377,9 @@ export default function Dashboard() {
   const trainingColumns = [
     {
       title: '模型',
-      dataIndex: 'modelId',
-      key: 'modelId',
-      render: (id: string) => {
+      key: 'model',
+      render: (_: unknown, record: TrainingRecord) => {
+        const id = record.baseModelId || record.config?.modelId || record.modelName;
         const model = models.find((m) => m.id === id);
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -293,9 +393,9 @@ export default function Dashboard() {
     },
     {
       title: '数据集',
-      dataIndex: 'datasetId',
-      key: 'datasetId',
-      render: (id: string) => {
+      key: 'dataset',
+      render: (_: unknown, record: TrainingRecord) => {
+        const id = record.datasetId || record.config?.datasetId || record.datasetName;
         const dataset = datasets.find((d) => d.id === id);
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -307,22 +407,24 @@ export default function Dashboard() {
     },
     {
       title: '方法',
-      dataIndex: ['config', 'method'],
       key: 'method',
-      render: (method: string) => (
-        <Tag
-          style={{
-            borderRadius: 'var(--radius-sm)',
-            fontWeight: 600,
-            background: method === 'qlora' ? 'var(--success-light)' : 'var(--info-light)',
-            borderColor: method === 'qlora' ? 'var(--success)' : 'var(--info)',
-            color: method === 'qlora' ? 'var(--success)' : 'var(--info)',
-            padding: '2px 8px',
-          }}
-        >
-          {method?.toUpperCase() || 'QLoRA'}
-        </Tag>
-      ),
+      render: (_: unknown, record: TrainingRecord) => {
+        const method = record.method || record.config?.method || 'qlora';
+        return (
+          <Tag
+            style={{
+              borderRadius: 'var(--radius-sm)',
+              fontWeight: 600,
+              background: method === 'qlora' ? 'var(--success-light)' : 'var(--info-light)',
+              borderColor: method === 'qlora' ? 'var(--success)' : 'var(--info)',
+              color: method === 'qlora' ? 'var(--success)' : 'var(--info)',
+              padding: '2px 8px',
+            }}
+          >
+            {method.toUpperCase()}
+          </Tag>
+        );
+      },
     },
     {
       title: '状态',
@@ -350,21 +452,28 @@ export default function Dashboard() {
       icon: <FolderOutlined />,
       color: 'var(--success)',
       onClick: () => navigate('/models'),
-      description: '下载或导入大语言模型，支持 GGUF / Safetensors / PyTorch 等格式。',
+      description: '下载或导入大语言模型，支持 GGUF、Safetensors、PyTorch 等格式。',
     },
     {
       title: '上传数据集',
       icon: <DatabaseOutlined />,
       color: 'var(--warning)',
       onClick: () => navigate('/datasets'),
-      description: '上传并清洗您的训练数据集，支持 JSONL/CSV 格式文件。',
+      description: '上传并分析训练数据集，支持 JSON / JSONL 格式文件。',
     },
     {
-      title: '开始训练 / 进入聊天',
+      title: '开始训练',
       icon: <RocketOutlined />,
       color: 'var(--accent-primary)',
       onClick: () => navigate('/training'),
-      description: '创建并部署微调任务，或直接与已有模型进行实时对话体验。',
+      description: '按问答或结构化输出目标创建微调任务。',
+    },
+    {
+      title: '评估与部署',
+      icon: <ApiOutlined />,
+      color: 'var(--info)',
+      onClick: () => navigate('/evaluation'),
+      description: '对比 base 与微调模型输出，再生成应用接入示例。',
     },
   ];
 
@@ -412,8 +521,8 @@ export default function Dashboard() {
         ) : (
           <motion.div variants={containerVariants} initial="hidden" animate="show">
             {/* 环境监控概览 */}
-            <Row gutter={[16, 16]} style={{ marginBottom: 'var(--space-8)' }}>
-              <Col xs={24} sm={12} lg={4}>
+            <div className={styles.bentoGrid}>
+              <div className={styles['span-2']}>
                 <motion.div variants={itemVariants}>
                   <StatCard
                     title="GPU 显存"
@@ -429,9 +538,9 @@ export default function Dashboard() {
                     )}
                   />
                 </motion.div>
-              </Col>
+              </div>
 
-              <Col xs={24} sm={12} lg={4}>
+              <div className={styles['span-2']}>
                 <motion.div variants={itemVariants}>
                   <StatCard
                     title="系统内存"
@@ -447,9 +556,9 @@ export default function Dashboard() {
                     )}
                   />
                 </motion.div>
-              </Col>
+              </div>
 
-              <Col xs={24} sm={12} lg={4}>
+              <div className={styles['span-2']}>
                 <motion.div variants={itemVariants}>
                   <StatCard
                     title="可用模型"
@@ -458,9 +567,9 @@ export default function Dashboard() {
                     icon={<FolderOutlined />}
                   />
                 </motion.div>
-              </Col>
+              </div>
 
-              <Col xs={24} sm={12} lg={4}>
+              <div className={styles['span-2']}>
                 <motion.div variants={itemVariants}>
                   <StatCard
                     title="数据集"
@@ -469,9 +578,9 @@ export default function Dashboard() {
                     icon={<CloudOutlined />}
                   />
                 </motion.div>
-              </Col>
+              </div>
               
-              <Col xs={24} sm={12} lg={4}>
+              <div className={styles['span-2']}>
                 <motion.div variants={itemVariants}>
                   <StatCard
                     title="Ollama"
@@ -481,20 +590,79 @@ export default function Dashboard() {
                     icon={<ApiOutlined />}
                   />
                 </motion.div>
-              </Col>
+              </div>
 
-              <Col xs={24} sm={12} lg={4}>
+              <div className={styles['span-2']}>
                 <motion.div variants={itemVariants}>
                   <StatCard
-                    title="知识库 Embedding"
-                    value={knowledge.embedderStatus?.loaded ? 1 : 0}
-                    suffix={knowledge.embedderStatus?.loaded ? '已加载' : '未加载'}
-                    color={knowledge.embedderStatus?.loaded ? "var(--info)" : "var(--text-tertiary)"}
+                    title="存储健康"
+                    value={storageReady ? 1 : 0}
+                    suffix={storageStatusLabel}
+                    color={storageReady ? "var(--info)" : "var(--text-tertiary)"}
                     icon={<DatabaseOutlined />}
                   />
                 </motion.div>
-              </Col>
-            </Row>
+              </div>
+            </div>
+
+            {/* 工程闭环健康 */}
+            <motion.div variants={itemVariants} style={{ marginBottom: 'var(--space-8)' }}>
+              <GlassCard intensity="medium" noHover>
+                <div className={styles.historyHeader}>
+                  <span className={styles.sectionTitle} style={{ marginBottom: 0 }}>
+                    <CheckCircleOutlined style={{ color: 'var(--success)' }} />
+                    工程闭环健康
+                  </span>
+                  <Tag
+                    color={chainHealthPercent >= 80 ? 'success' : chainHealthPercent >= 50 ? 'warning' : 'default'}
+                    style={{ borderRadius: 'var(--radius-sm)', fontWeight: 700 }}
+                  >
+                    {readyStepCount}/{chainSteps.length} 就绪
+                  </Tag>
+                </div>
+                <Progress
+                  percent={chainHealthPercent}
+                  strokeColor={chainHealthPercent >= 80 ? 'var(--success)' : 'var(--warning)'}
+                  trailColor="var(--border-color)"
+                  style={{ marginTop: 'var(--space-4)', marginBottom: 'var(--space-5)' }}
+                />
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                    gap: 12,
+                  }}
+                >
+                  {chainSteps.map((step) => (
+                    <button
+                      key={step.title}
+                      type="button"
+                      onClick={step.action}
+                      style={{
+                        textAlign: 'left',
+                        border: '1px solid var(--border-color)',
+                        background: 'var(--bg-secondary)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '12px 14px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <Space direction="vertical" size={4}>
+                        <Tag color={step.ready ? 'success' : 'default'} style={{ margin: 0 }}>
+                          {step.ready ? '就绪' : '待补齐'}
+                        </Tag>
+                        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+                          {step.title}
+                        </span>
+                        <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
+                          {step.value}
+                        </span>
+                      </Space>
+                    </button>
+                  ))}
+                </div>
+              </GlassCard>
+            </motion.div>
 
             {/* 下一步建议 */}
             <div style={{ marginBottom: 'var(--space-8)' }}>
@@ -502,7 +670,7 @@ export default function Dashboard() {
                 <InfoCircleOutlined style={{ color: 'var(--info)' }} />
                 下一步建议
               </h3>
-              <Row gutter={[16, 16]}>
+              <div className={styles.suggestionsGrid}>
                 {suggestions.map((suggestion, index) => {
                   const getIcon = () => {
                     if (suggestion.type === 'warning') return <ExclamationCircleOutlined />;
@@ -517,27 +685,26 @@ export default function Dashboard() {
                   };
 
                   return (
-                  <Col xs={24} md={12} lg={8} key={index}>
-                    <motion.div variants={itemVariants} style={{ height: '100%' }}>
+                    <motion.div variants={itemVariants} key={index} style={{ height: '100%' }}>
                       <GlassCard
                         intensity="low"
                         style={{
                           height: '100%',
                           borderTop: `3px solid ${getColor()}`,
-                          padding: '16px',
+                          padding: '20px',
                         }}
                       >
-                        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                          <div style={{ fontSize: 18, color: getColor(), marginTop: 2 }}>
+                        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+                          <div style={{ fontSize: 22, color: getColor(), marginTop: 2 }}>
                             {getIcon()}
                           </div>
                           <div style={{ flex: 1 }}>
                             <div
                               style={{
-                                fontWeight: 600,
+                                fontWeight: 700,
                                 color: 'var(--text-primary)',
-                                marginBottom: 4,
-                                fontSize: 'var(--text-sm)',
+                                marginBottom: 6,
+                                fontSize: 'var(--text-base)',
                               }}
                             >
                               {suggestion.title}
@@ -545,18 +712,20 @@ export default function Dashboard() {
                             <div
                               style={{
                                 color: 'var(--text-secondary)',
-                                fontSize: '13px',
-                                lineHeight: 1.5,
-                                marginBottom: suggestion.action ? 12 : 0,
+                                fontSize: '14px',
+                                lineHeight: 1.6,
+                                marginBottom: suggestion.action ? 16 : 0,
                               }}
                             >
                               {suggestion.desc}
                             </div>
                             {suggestion.action && (
                               <Button
+                                type="primary"
+                                ghost
                                 size="small"
                                 onClick={suggestion.action}
-                                style={{ borderRadius: 'var(--radius-sm)' }}
+                                style={{ borderRadius: '6px', fontWeight: 600 }}
                               >
                                 {suggestion.buttonText}
                               </Button>
@@ -565,9 +734,8 @@ export default function Dashboard() {
                         </div>
                       </GlassCard>
                     </motion.div>
-                  </Col>
                 )})}
-              </Row>
+              </div>
             </div>
 
             {/* 主要操作入口 */}
@@ -576,9 +744,9 @@ export default function Dashboard() {
                 <PlayCircleOutlined style={{ color: 'var(--accent-primary)' }} />
                 主要操作入口
               </h3>
-              <Row gutter={[24, 24]}>
+              <div className={styles.bentoGrid}>
                 {mainActions.map((action, index) => (
-                  <Col xs={24} lg={8} key={index}>
+                  <div key={index} className={styles['span-3']}>
                     <motion.div
                       variants={itemVariants}
                       whileTap={{ scale: 0.98 }}
@@ -592,9 +760,9 @@ export default function Dashboard() {
                         <div
                           className={styles.quickActionIcon}
                           style={{
-                            background: `${action.color}18`,
+                            background: `${action.color}15`,
                             color: action.color,
-                            border: `1px solid ${action.color}30`,
+                            border: `1px solid ${action.color}25`,
                           }}
                         >
                           {action.icon}
@@ -605,9 +773,9 @@ export default function Dashboard() {
                         </div>
                       </GlassCard>
                     </motion.div>
-                  </Col>
+                  </div>
                 ))}
-              </Row>
+              </div>
             </div>
 
             {/* 最近训练记录 */}

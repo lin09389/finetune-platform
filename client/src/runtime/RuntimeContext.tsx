@@ -93,6 +93,7 @@ export interface RuntimeDerivedState {
   activeKnowledgeCollection: string;
   availableModelCount: number;
   runtimeStatus: 'ready' | 'degraded' | 'offline';
+  storageStatus?: string;
   warnings: string[];
   trainingSignal: RuntimeTrainingSignal;
 }
@@ -146,6 +147,7 @@ export interface RuntimeContextValue {
     activeModelId?: string;
     activeKnowledgeCollection: string;
     runtimeStatus: 'ready' | 'degraded' | 'offline';
+    storageStatus?: string;
     warnings: string[];
   };
   setTrainingSelection: (updates: Partial<RuntimeSelectionState['training']>) => void;
@@ -211,12 +213,14 @@ export const RuntimeContextProvider: React.FC<{ children: React.ReactNode }> = (
     progressStatus: 'idle',
   });
   const [bootstrapWarnings, setBootstrapWarnings] = useState<string[]>([]);
+  const [storageStatus, setStorageStatus] = useState<string>('unknown');
 
   const applyBootstrapPayload = useCallback((payload: RuntimeBootstrapPayload) => {
     const inference = payload.observed.inference;
     const knowledge = payload.observed.knowledge;
 
     setBootstrapWarnings(payload.derived?.warnings || []);
+    setStorageStatus(payload.derived?.storage_status || 'unknown');
     setCurrentBackend(inference.current_backend || 'huggingface');
     setBackends(
       (inference.backends || []).map((backend) => ({
@@ -361,6 +365,7 @@ export const RuntimeContextProvider: React.FC<{ children: React.ReactNode }> = (
   useEffect(() => {
     if (backendStatus !== 'connected') {
       setBootstrapWarnings([]);
+      setStorageStatus('unknown');
     }
   }, [backendStatus]);
 
@@ -488,6 +493,7 @@ export const RuntimeContextProvider: React.FC<{ children: React.ReactNode }> = (
       availableModelCount: activeModelCount,
       runtimeStatus:
         backendStatus !== 'connected' ? 'offline' : warnings.length > 0 ? 'degraded' : 'ready',
+      storageStatus,
       warnings,
       trainingSignal: toTrainingSignal(trainingObserved.progressStatus),
     };
@@ -540,6 +546,7 @@ export const RuntimeContextProvider: React.FC<{ children: React.ReactNode }> = (
         activeModelId: derived.activeModelId,
         activeKnowledgeCollection: derived.activeKnowledgeCollection,
         runtimeStatus: derived.runtimeStatus,
+        storageStatus: derived.storageStatus,
         warnings: derived.warnings,
       },
       setTrainingSelection,
@@ -568,6 +575,7 @@ export const RuntimeContextProvider: React.FC<{ children: React.ReactNode }> = (
     setInferenceSelection,
     setKnowledgeSelection,
     setTrainingSelection,
+    storageStatus,
     syncInferenceSelection,
     syncKnowledgeCollection,
     trainingObserved,

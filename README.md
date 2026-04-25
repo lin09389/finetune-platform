@@ -7,6 +7,17 @@
 [![React](https://img.shields.io/badge/React-18+-61dafb.svg)](https://reactjs.org)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+## 产品化试用路径
+
+Finetune Platform 当前主线正在收口为面向 AI 应用开发者的本地模型适配工作台，核心闭环是：
+
+1. 在 `Datasets` 上传业务数据，运行数据集分析，确认格式、字段完整率和可训练样本数。
+2. 在 `Training` 选择应用目标：客服/知识问答助手，或结构化输出/信息抽取。
+3. 训练完成后进入 `Evaluation`，对比 base model 与 fine-tuned model 的输出质量。
+4. 在 `Deployment` 生成 LoRA adapter、Ollama Modelfile、OpenAI-compatible API 示例和 `.env` 模板。
+
+推荐第一次试用时先使用小模型和 5-20 条样例数据，确认数据准备、评估和部署接入流程跑通后，再扩大训练规模。
+
 ## 🌟 特性亮点
 
 ## Capability Tiers

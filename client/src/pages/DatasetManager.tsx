@@ -1,21 +1,33 @@
 import {
+  BarChartOutlined,
   DeleteOutlined,
   EyeOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
   InboxOutlined,
+  PlayCircleOutlined,
 } from '@ant-design/icons';
-import { Drawer, Popconfirm, message } from 'antd';
+import { Drawer, Popconfirm, Progress, Space, Tag, message } from 'antd';
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import PageHeader from '../components/shared/PageHeader';
 import JSONDataEditor from '../components/shared/JSONDataEditor';
-import { deleteDataset, getDatasetList, previewDataset, uploadDataset } from '../services/api';
+import {
+  analyzeDataset,
+  deleteDataset,
+  getDatasetList,
+  previewDataset,
+  splitDataset,
+  transformDataset,
+  uploadDataset,
+} from '../services/api';
 import { useAppStore } from '../store/appStore';
-import type { DatasetInfo } from '../types';
+import type { DatasetAnalysisResult, DatasetInfo } from '../types';
 import styles from './DatasetManager.module.css';
 
 export default function DatasetManager() {
+  const navigate = useNavigate();
   const { datasets, setDatasets, removeDataset, addDataset, backendStatus } = useAppStore();
   const [, setLoading] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(false);
@@ -25,6 +37,10 @@ export default function DatasetManager() {
     preview: unknown[];
   } | null>(null);
   const [, setPreviewLoading] = useState(false);
+  const [analysisVisible, setAnalysisVisible] = useState(false);
+  const [analysisData, setAnalysisData] = useState<DatasetAnalysisResult | null>(null);
+  const [analysisDatasetName, setAnalysisDatasetName] = useState('');
+  const [analysisDatasetId, setAnalysisDatasetId] = useState('');
 
   const fetchDatasets = async () => {
     if (backendStatus !== 'connected') return;
@@ -122,7 +138,10 @@ export default function DatasetManager() {
     setPreviewLoading(true);
     try {
       const data = await previewDataset(datasetId, 10);
-      setPreviewData(data);
+      setPreviewData({
+        total_samples: data.total_samples ?? data.total_shown ?? data.samples?.length ?? 0,
+        preview: data.preview ?? data.samples ?? [],
+      });
       setPreviewVisible(true);
     } catch (error) {
       message.error('预览失败');
@@ -131,8 +150,74 @@ export default function DatasetManager() {
     }
   };
 
+  const handleAnalyze = async (record: DatasetInfo) => {
+    try {
+      const data = await analyzeDataset(record.id);
+      setAnalysisData(data);
+      setAnalysisDatasetName(record.name);
+      setAnalysisDatasetId(record.id);
+      setAnalysisVisible(true);
+    } catch (error: any) {
+      message.error(error?.response?.data?.detail || error.message || '分析失败');
+    }
+  };
+
+  const getRecommendedTaskGoal = () =>
+    analysisData?.recommended_target_format === 'input_schema_output_jsonl'
+      ? 'structured_extraction'
+      : 'qa_assistant';
+
+  const openTrainingWithDataset = (datasetId = analysisDatasetId) => {
+    if (!datasetId) {
+      message.warning('请先选择一个数据集');
+      return;
+    }
+
+    const params = new URLSearchParams();
+    params.set('dataset_id', datasetId);
+    params.set('task_goal', getRecommendedTaskGoal());
+    navigate(`/training?${params.toString()}`);
+  };
+
+  const handleTransform = async () => {
+    if (!analysisDatasetId || !analysisData) return;
+    try {
+      const taskGoal = getRecommendedTaskGoal();
+      const result = await transformDataset(analysisDatasetId, {
+        target_format: analysisData.recommended_target_format,
+        task_goal: taskGoal,
+      });
+      message.success(`已导出 ${result.sample_count} 条标准训练样本`);
+      void fetchDatasets();
+    } catch (error: any) {
+      message.error(error?.response?.data?.detail || error.message || '转换失败');
+    }
+  };
+
+  const handleSplit = async () => {
+    if (!analysisDatasetId) return;
+    try {
+      await splitDataset(analysisDatasetId, {
+        train_ratio: 0.8,
+        validation_ratio: 0.1,
+        test_ratio: 0.1,
+        seed: 42,
+      });
+      message.success('已生成 train / validation / test 切分');
+    } catch (error: any) {
+      message.error(error?.response?.data?.detail || error.message || '切分失败');
+    }
+  };
+
+  const handleOpenFolder = (path: string) => {
+    if (window.electronAPI?.openFolder) {
+      window.electronAPI.openFolder(path);
+      return;
+    }
+    message.info('浏览器模式无法直接打开本地目录，请在桌面端使用此操作。');
+  };
+
   const renderDatasetCard = (record: DatasetInfo) => {
-    // Generate a pseudo-health score based on samples count (just for visual representation)
     const healthPercentage = Math.min(100, Math.max(10, (record.samples / 5000) * 100));
 
     return (
@@ -147,34 +232,37 @@ export default function DatasetManager() {
           
           <div className={styles.metricsRow}>
             <div className={styles.metric}>
-              <div className={styles.metricLabel}>Samples</div>
+              <div className={styles.metricLabel}>样本数</div>
               <div className={styles.metricValue}>{record.samples.toLocaleString()}</div>
             </div>
             <div className={styles.metric}>
-              <div className={styles.metricLabel}>Size</div>
+              <div className={styles.metricLabel}>大小</div>
               <div className={styles.metricValue}>{formatSize(record.size)}</div>
             </div>
           </div>
 
           <div className={styles.healthScore}>
-            <div className={styles.metricLabel}>Data Health Score</div>
+            <div className={styles.metricLabel}>数据健康参考</div>
             <div className={styles.healthBar}>
               <div className={styles.healthFill} style={{ width: `${healthPercentage}%` }} />
             </div>
           </div>
 
           <div className={styles.cardActions}>
-            <button className={styles.actionBtn} onClick={() => handlePreview(record.id)}>
-              <EyeOutlined /> Preview
+            <button className={styles.actionBtn} onClick={() => handleAnalyze(record)}>
+              <BarChartOutlined /> 分析
             </button>
-            <button className={styles.actionBtn} onClick={() => window.electronAPI?.openFolder(record.path)}>
-              <FolderOpenOutlined /> Open
+            <button className={styles.actionBtn} onClick={() => handlePreview(record.id)}>
+              <EyeOutlined /> 预览
+            </button>
+            <button className={styles.actionBtn} onClick={() => handleOpenFolder(record.path)}>
+              <FolderOpenOutlined /> 打开
             </button>
             <Popconfirm
-              title="Confirm Delete?"
+              title="确认删除？"
               onConfirm={() => handleDelete(record.id)}
-              okText="Yes"
-              cancelText="No"
+              okText="删除"
+              cancelText="取消"
             >
               <button className={`${styles.actionBtn} ${styles.danger}`}>
                 <DeleteOutlined />
@@ -196,21 +284,21 @@ export default function DatasetManager() {
         onChange={handleWebFileUpload}
       />
       <PageHeader
-        title="Data Logistics Hub"
+        title="数据准备中心"
         icon={<FileTextOutlined />}
-        helpTooltip="Manage datasets for fine-tuning using Bento Grid architecture."
+        helpTooltip="上传、分析、转换和切分微调数据集。"
         style={{ marginBottom: 0 }}
       />
 
       <div className={styles.dropzone} onClick={handleSelectFile}>
         <InboxOutlined className={styles.dropIcon} />
-        <div className={styles.dropText}>Click or drag to upload JSON/JSONL dataset</div>
-        <div className={styles.dropSubtext}>Structured files will be validated and hashed upon upload.</div>
+        <div className={styles.dropText}>点击或拖拽上传 JSON / JSONL 数据集</div>
+        <div className={styles.dropSubtext}>上传后会自动校验结构、统计样本并计算文件哈希。</div>
       </div>
 
       {backendStatus !== 'connected' ? (
         <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>
-          Backend offline. Please start the service.
+          后端服务未连接，请先启动服务。
         </div>
       ) : (
         <MotionList className={styles.bentoGrid} stagger={0.08}>
@@ -219,7 +307,7 @@ export default function DatasetManager() {
       )}
 
       <Drawer
-        title="Deep Data Inspection"
+        title="数据预览"
         placement="right"
         width={800}
         open={previewVisible}
@@ -241,7 +329,7 @@ export default function DatasetManager() {
                 gap: 8,
               }}
             >
-              <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>TOTAL SAMPLES:</strong>
+              <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>样本总数：</strong>
               <span style={{ color: 'var(--accent-neon-cyan)', fontSize: 16, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
                 {previewData.total_samples}
               </span>
@@ -250,6 +338,73 @@ export default function DatasetManager() {
               <JSONDataEditor data={previewData.preview} />
             </div>
           </div>
+        )}
+      </Drawer>
+
+      <Drawer
+        title={`数据健康分析 - ${analysisDatasetName}`}
+        placement="right"
+        width={720}
+        open={analysisVisible}
+        onClose={() => setAnalysisVisible(false)}
+      >
+        {analysisData && (
+          <Space direction="vertical" size={18} style={{ width: '100%' }}>
+            <Space wrap>
+              <Tag color="blue">格式：{analysisData.detected_format}</Tag>
+              <Tag color="green">目标格式：{analysisData.recommended_target_format}</Tag>
+              <Tag>样本数：{analysisData.sample_count}</Tag>
+              <Tag>可训练：{analysisData.valid_count}</Tag>
+            </Space>
+            <Space wrap>
+              <button className={styles.actionBtn} onClick={handleTransform}>
+                导出训练 JSONL
+              </button>
+              <button className={styles.actionBtn} onClick={handleSplit}>
+                按 80/10/10 切分
+              </button>
+              <button className={styles.actionBtn} onClick={() => openTrainingWithDataset()}>
+                <PlayCircleOutlined /> 进入训练配置
+              </button>
+            </Space>
+
+            <div>
+              <strong>JSON 合法率</strong>
+              <Progress percent={Math.round(analysisData.health.json_valid_ratio * 100)} />
+              <strong>字段完整率</strong>
+              <Progress percent={Math.round(analysisData.health.field_completeness * 100)} />
+              <strong>过长样本比例</strong>
+              <Progress percent={Math.round(analysisData.health.overlong_sample_ratio * 100)} status="exception" />
+            </div>
+
+            <div>
+              <h3>长度统计</h3>
+              <p>
+                平均 {analysisData.length_stats.avg_chars} 字符 · 最大{' '}
+                {analysisData.length_stats.max_chars} 字符 · 重复率{' '}
+                {Math.round(analysisData.health.duplicate_sample_ratio * 100)}%
+              </p>
+            </div>
+
+            <div>
+              <h3>字段候选</h3>
+              {Object.entries(analysisData.field_candidates).map(([group, fields]) => (
+                <p key={group}>
+                  <strong>{group}:</strong> {fields.length ? fields.join(', ') : '-'}
+                </p>
+              ))}
+            </div>
+
+            <div>
+              <h3>问题列表</h3>
+              {[...analysisData.errors, ...analysisData.warnings].slice(0, 12).map((issue, index) => (
+                <p key={`${issue.line}-${index}`} style={{ color: issue.severity === 'error' ? 'var(--error)' : 'var(--warning)' }}>
+                  第 {issue.line} 行：{issue.message}
+                </p>
+              ))}
+              {!analysisData.errors.length && !analysisData.warnings.length && <p>未发现阻塞问题。</p>}
+            </div>
+          </Space>
         )}
       </Drawer>
     </div>

@@ -1,13 +1,9 @@
-/* ═══════════════════════════════════════════════
-   Training Page — Command Center Workspace
-   ═══════════════════════════════════════════════ */
-
 /* ── Page Root ── */
 .workspace {
   display: flex;
   flex-direction: column;
   height: calc(100vh - 64px);
-  background: #f8fafc;
+  background: var(--bg-primary);
   overflow: hidden;
   position: relative;
 }
@@ -18,8 +14,8 @@
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 60% 50% at 20% 80%, rgba(59, 130, 246, 0.02) 0%, transparent 70%),
-    radial-gradient(ellipse 50% 40% at 80% 20%, rgba(99, 102, 241, 0.02) 0%, transparent 70%);
+    radial-gradient(ellipse 60% 50% at 20% 80%, var(--accent-primary-light) 0%, transparent 70%),
+    radial-gradient(ellipse 50% 40% at 80% 20%, rgba(139, 92, 246, 0.03) 0%, transparent 70%);
   pointer-events: none;
   z-index: 0;
 }
@@ -28,14 +24,14 @@
 .headerBar {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 14px 24px;
-  background: #ffffff;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-6);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
   position: relative;
   z-index: 10;
   flex-shrink: 0;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.01);
+  backdrop-filter: blur(12px);
 }
 
 .headerBar::after {
@@ -45,34 +41,35 @@
   left: 24px;
   right: 24px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.1), transparent);
+  background: linear-gradient(90deg, transparent, var(--accent-primary-light), transparent);
 }
 
 .headerTitle {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .headerIcon {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #3b82f6;
-  font-size: 15px;
+  color: var(--accent-primary);
+  font-size: 16px;
   flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .headerLabel {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  color: #1e293b;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
   font-family: var(--font-sans);
 }
 
@@ -80,127 +77,95 @@
 .statusIndicator {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 14px;
-  border-radius: 6px;
-  font-size: 11px;
+  gap: 10px;
+  padding: 6px 16px;
+  border-radius: 8px;
+  font-size: 12px;
   font-weight: 600;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  color: #64748b;
-  transition: all 0.4s ease;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  transition: all var(--transition-base);
 }
 
 .statusDot {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: #cbd5e1;
-  transition: all 0.4s ease;
+  background: var(--text-disabled);
+  transition: all var(--transition-base);
 }
 
 .statusIndicator[data-status="training"] {
-  color: #10b981;
-  border-color: #a7f3d0;
-  background: #ecfdf5;
+  color: var(--success);
+  border-color: var(--success-border);
+  background: var(--success-light);
 }
 
 .statusIndicator[data-status="training"] .statusDot {
-  background: #10b981;
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+  background: var(--success);
+  box-shadow: 0 0 10px var(--success);
   animation: dotPulse 2s ease-in-out infinite;
 }
 
 .statusIndicator[data-status="loading"],
 .statusIndicator[data-status="queued"] {
-  color: #fbbf24;
-  border-color: rgba(251, 191, 36, 0.2);
-  background: rgba(251, 191, 36, 0.05);
+  color: var(--warning);
+  border-color: var(--warning-border);
+  background: var(--warning-light);
 }
 
 .statusIndicator[data-status="loading"] .statusDot,
 .statusIndicator[data-status="queued"] .statusDot {
-  background: #fbbf24;
-  box-shadow: 0 0 6px rgba(251, 191, 36, 0.5);
+  background: var(--warning);
+  box-shadow: 0 0 8px var(--warning);
   animation: dotPulse 1.5s ease-in-out infinite;
 }
 
 .statusIndicator[data-status="completed"] {
-  color: #4ade80;
-  border-color: rgba(74, 222, 128, 0.2);
-  background: rgba(74, 222, 128, 0.05);
-}
-
-.statusIndicator[data-status="completed"] .statusDot {
-  background: #4ade80;
-  box-shadow: 0 0 6px rgba(74, 222, 128, 0.5);
+  color: var(--success);
+  border-color: var(--success-border);
+  background: var(--success-light);
 }
 
 .statusIndicator[data-status="failed"] {
-  color: #FF6B6B;
-  border-color: rgba(255, 107, 107, 0.2);
-  background: rgba(255, 77, 77, 0.05);
-}
-
-.statusIndicator[data-status="failed"] .statusDot {
-  background: #FF6B6B;
-  box-shadow: 0 0 6px rgba(255, 107, 107, 0.5);
+  color: var(--error);
+  border-color: var(--error-border);
+  background: var(--error-light);
 }
 
 .statusIndicator[data-status="stopping"] {
-  color: #fb923c;
-  border-color: rgba(251, 146, 60, 0.2);
-  background: rgba(251, 146, 60, 0.05);
-}
-
-.statusIndicator[data-status="stopping"] .statusDot {
-  background: #fb923c;
-  animation: dotPulse 1s ease-in-out infinite;
+  color: var(--warning);
+  border-color: var(--warning-border);
+  background: var(--warning-light);
 }
 
 @keyframes dotPulse {
   0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.7); }
-}
-
-/* ── Header Spacer & Timer ── */
-.headerSpacer {
-  flex: 1;
-}
-
-.headerTimer {
-  font-size: 12px;
-  color: #94a3b8;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.headerTimer .timerValue {
-  color: #1e293b;
-  font-weight: 600;
+  50% { opacity: 0.5; transform: scale(0.8); }
 }
 
 /* ── Collapse Toggle ── */
 .collapseToggle {
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
-  color: #64748b;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 13px;
+  transition: all var(--transition-fast);
+  font-size: 14px;
   flex-shrink: 0;
 }
 
 .collapseToggle:hover {
-  background: #e2e8f0;
-  color: #0f172a;
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
 }
 
 /* ── Two-pane Layout ── */
@@ -213,17 +178,16 @@
 }
 
 .configPane {
-  width: 360px;
-  min-width: 360px;
-  max-width: 360px;
+  width: 380px;
+  min-width: 380px;
+  max-width: 380px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-right: 1px solid rgba(0, 0, 0, 0.06);
-  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1),
-              min-width 0.4s cubic-bezier(0.4, 0, 0.2, 1),
-              max-width 0.4s cubic-bezier(0.4, 0, 0.2, 1),
-              opacity 0.3s ease;
+  border-right: 1px solid var(--border-color);
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .configPane.collapsed {
@@ -241,9 +205,17 @@
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
+  background: transparent;
 }
 
 /* ── Responsive ── */
+@media (max-width: 1200px) {
+  .configPane {
+    width: 320px;
+    min-width: 320px;
+  }
+}
+
 @media (max-width: 1024px) {
   .paneContainer {
     flex-direction: column;
@@ -255,16 +227,12 @@
     max-width: 100% !important;
     max-height: 50vh;
     border-right: none;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    border-bottom: 1px solid var(--border-color);
   }
 
   .configPane.collapsed {
     max-height: 0;
     opacity: 0;
-  }
-
-  .dashboardPane {
-    flex: 1;
   }
 }
 
@@ -275,18 +243,20 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: var(--space-4);
   padding: 60px 40px;
-  color: #94a3b8;
+  color: var(--text-tertiary);
 }
 
 .disconnectedIcon {
-  font-size: 48px;
-  color: #cbd5e1;
+  font-size: 56px;
+  color: var(--text-disabled);
+  margin-bottom: var(--space-2);
 }
 
 .disconnectedText {
-  font-size: 14px;
-  color: #64748b;
+  font-size: 15px;
+  color: var(--text-secondary);
   text-align: center;
+  max-width: 300px;
 }

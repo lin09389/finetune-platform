@@ -16,7 +16,7 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from core.logging import get_logger
 
@@ -60,15 +60,21 @@ class AwaitableBool:
 
 class TrainingRecord(BaseModel):
     """训练记录"""
+    model_config = ConfigDict(protected_namespaces=())
+
     id: str
     model_name: str
     dataset_name: str
+    base_model_id: str | None = None
+    dataset_id: str | None = None
+    task_goal: str | None = None
     method: str
     status: str
     start_time: str
     end_time: str | None = None
     config: dict
     output_path: str
+    adapter_path: str | None = None
     checkpoint_path: str | None = None
     final_loss: float | None = None
     final_lr: float | None = None

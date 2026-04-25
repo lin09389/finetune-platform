@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from core.config import get_settings
 from core.logging import get_logger
@@ -46,6 +46,8 @@ def get_models_dir() -> Path:
 
 class ModelDownloadRequest(BaseModel):
     """模型下载请求"""
+    model_config = ConfigDict(protected_namespaces=())
+
     model_name: str = Field(..., description="模型名称，如：Qwen/Qwen2.5-0.5B-Instruct")
     revision: str | None = Field(default="main", description="模型版本")
     quantize: int | None = Field(default=4, description="量化位数 (4/8/None)")
@@ -68,6 +70,8 @@ class ModelInfo(BaseModel):
 
 class ModelConvertRequest(BaseModel):
     """模型转换请求"""
+    model_config = ConfigDict(protected_namespaces=())
+
     model_id: str
     target_format: str = Field(..., description="目标格式：onnx/gguf/fp16/int8")
     output_name: str | None = None

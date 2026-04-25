@@ -15,7 +15,6 @@ from core.storage import (
     StorageOutboxRepository,
     dual_write_enabled,
     json_fallback_enabled,
-    migrate_json_state,
     process_json_outbox,
     storage_read_primary,
 )
@@ -140,12 +139,6 @@ class SessionManager:
         self._bootstrap_sessions()
 
     def _bootstrap_sessions(self) -> None:
-        if json_fallback_enabled():
-            try:
-                migrate_json_state(db_path=self.db_path, base_dir=self.storage_path.parent)
-            except Exception as e:
-                logger.warning("Failed to migrate JSON sessions into SQLite: %s", e)
-
         loaded_from_sqlite = self._load_sessions_from_sqlite()
         if loaded_from_sqlite:
             return
@@ -268,6 +261,82 @@ class SessionManager:
             if dual_write_enabled():
                 self._shadow_write_with_outbox(session)
             return cleared
+
+    def replace_session_messages(self, session_id: str, messages: list[dict[str, Any]]) -> bool:
+        with self._lock:
+            session = self.get_session(session_id)
+            if not session:
+                return False
+            session.messages = [Message.from_dict(message) for message in messages]
+            session.message_count = len(session.messages)
+            session.updated_at = datetime.now()
+            self.repository.replace_messages(session_id, [message.to_dict() for message in session.messages])
+            self.repository.update_session_header(session, message_count=session.message_count)
+            self._memory_cache[session_id] = session
+            self._sessions[session_id] = session
+            if dual_write_enabled():
+                self._shadow_write_with_outbox(session)
+            return True
+
+    def update_message(
+        self,
+        session_id: str,
+        message_id: str,
+        *,
+        content: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        role: str | None = None,
+    ) -> Message | None:
+        with self._lock:
+            session = self.get_session(session_id)
+            if not session:
+                return None
+            target = next((message for message in session.messages if message.id == message_id), None)
+            if not target:
+                return None
+            if role is not None:
+                target.role = role
+            if content is not None:
+                target.content = content
+            if metadata is not None:
+                target.metadata = metadata
+            session.updated_at = datetime.now()
+            updated = self.repository.update_message(
+                session_id,
+                message_id,
+                content=content,
+                metadata=metadata,
+                role=role,
+            )
+            if not updated:
+                return None
+            self.repository.update_session_header(session, message_count=session.message_count)
+            self._memory_cache[session_id] = session
+            self._sessions[session_id] = session
+            if dual_write_enabled():
+                self._shadow_write_with_outbox(session)
+            return target
+
+    def delete_message(self, session_id: str, message_id: str) -> bool:
+        with self._lock:
+            session = self.get_session(session_id)
+            if not session:
+                return False
+            original_count = len(session.messages)
+            session.messages = [message for message in session.messages if message.id != message_id]
+            if len(session.messages) == original_count:
+                return False
+            session.message_count = len(session.messages)
+            session.updated_at = datetime.now()
+            deleted = self.repository.delete_message(session_id, message_id)
+            if not deleted:
+                return False
+            self.repository.update_session_header(session, message_count=session.message_count)
+            self._memory_cache[session_id] = session
+            self._sessions[session_id] = session
+            if dual_write_enabled():
+                self._shadow_write_with_outbox(session)
+            return True
 
     def process_shadow_outbox(self, limit: int = 100) -> dict[str, int]:
         return process_json_outbox(self.db_path, limit=limit)

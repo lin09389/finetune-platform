@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import sqlite3
 import time
 import uuid
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 APP_DB_PATH = "data/app.db"
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
+BACKUP_DIR = Path("data/backups")
 
 
 def _json_dumps(value: Any) -> str:
@@ -408,6 +410,68 @@ class ChatRepository:
         with get_db_pool(self.db_path).get_connection() as conn:
             self._replace_messages(conn, session_id, messages, now=_utcnow())
 
+    def update_message(
+        self,
+        session_id: str,
+        message_id: str,
+        *,
+        content: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        role: str | None = None,
+    ) -> bool:
+        assignments: list[str] = []
+        values: list[Any] = []
+        if role is not None:
+            assignments.append("role = ?")
+            values.append(role)
+        if content is not None:
+            assignments.append("content = ?")
+            values.append(content)
+        if metadata is not None:
+            assignments.append("metadata = ?")
+            values.append(_json_dumps(metadata))
+        if not assignments:
+            return False
+
+        now = _utcnow()
+        values.extend([session_id, message_id])
+        with get_db_pool(self.db_path).get_connection() as conn:
+            cursor = conn.execute(
+                f"""
+                UPDATE chat_messages
+                SET {", ".join(assignments)}
+                WHERE session_id = ? AND id = ?
+                """,
+                tuple(values),
+            )
+            if cursor.rowcount <= 0:
+                return False
+            conn.execute(
+                "UPDATE chat_sessions SET updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+                (now, session_id),
+            )
+        return True
+
+    def delete_message(self, session_id: str, message_id: str) -> bool:
+        now = _utcnow()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            cursor = conn.execute(
+                "DELETE FROM chat_messages WHERE session_id = ? AND id = ?",
+                (session_id, message_id),
+            )
+            if cursor.rowcount <= 0:
+                return False
+            conn.execute(
+                """
+                UPDATE chat_sessions
+                SET message_count = (SELECT COUNT(*) FROM chat_messages WHERE session_id = ?),
+                    updated_at = ?
+                WHERE id = ? AND deleted_at IS NULL
+                """,
+                (session_id, now, session_id),
+            )
+        return True
+
     def clear_messages(self, session_id: str) -> bool:
         now = _utcnow()
         with get_db_pool(self.db_path).get_connection() as conn:
@@ -559,6 +623,15 @@ class ChatRepository:
                 "SELECT COUNT(*) AS count FROM chat_sessions WHERE deleted_at IS NULL"
             ).fetchone()
         return int(row["count"] if row else 0)
+
+    def session_exists(self, session_id: str, include_deleted: bool = False) -> bool:
+        query = "SELECT 1 FROM chat_sessions WHERE id = ?"
+        if not include_deleted:
+            query += " AND deleted_at IS NULL"
+        query += " LIMIT 1"
+        with get_db_pool(self.db_path).get_connection() as conn:
+            row = conn.execute(query, (session_id,)).fetchone()
+        return row is not None
 
     def delete_session(self, session_id: str) -> bool:
         with get_db_pool(self.db_path).get_connection() as conn:
@@ -771,6 +844,27 @@ def process_json_outbox(db_path: str = APP_DB_PATH, limit: int = 100) -> dict[st
             outbox.mark_failed(task["id"], str(exc))
             result["failed"] += 1
     return result
+
+
+def process_storage_outbox(db_path: str = APP_DB_PATH, limit: int = 100) -> dict[str, Any]:
+    """Process all storage outbox task types once."""
+    json_result = process_json_outbox(db_path=db_path, limit=limit)
+    vector_result = {"enabled": False, "attempted": 0, "ready": 0, "failed": 0, "deleted": 0}
+    try:
+        from memory.memory_service import get_memory_service
+
+        vector_result = get_memory_service().process_vector_outbox(limit=limit)
+    except Exception as exc:
+        logger.warning("Vector outbox processing failed: %s", exc)
+        vector_result = {
+            "enabled": False,
+            "attempted": 0,
+            "ready": 0,
+            "failed": 1,
+            "deleted": 0,
+            "error": str(exc),
+        }
+    return {"json": json_result, "vector": vector_result}
 
 
 class MemoryRepository:
@@ -1202,6 +1296,10 @@ def migrate_json_state(db_path: str = APP_DB_PATH, base_dir: str | Path = "data"
             continue
         try:
             payload = json.loads(file_path.read_text(encoding="utf-8"))
+            session_id = str(payload.get("id", "")).strip()
+            if session_id and chat_repo.session_exists(session_id, include_deleted=True):
+                _record_migration("json_sessions_v1", file_path, checksum, "ok", db_path)
+                continue
             chat_repo.save_session(_DictSession(payload))
             _record_migration("json_sessions_v1", file_path, checksum, "ok", db_path)
             migrated["sessions"] += 1
@@ -1226,7 +1324,12 @@ def migrate_json_state(db_path: str = APP_DB_PATH, base_dir: str | Path = "data"
 
 
 def storage_status(db_path: str = APP_DB_PATH) -> dict[str, Any]:
-    init_storage(db_path)
+    schema_error: str | None = None
+    try:
+        init_storage(db_path)
+    except Exception as exc:
+        schema_error = str(exc)
+        logger.warning("Storage init failed while collecting status: %s", exc)
     with get_db_pool(db_path).get_connection() as conn:
         migrations = conn.execute(
             "SELECT status, COUNT(*) AS count FROM migration_runs GROUP BY status"
@@ -1255,16 +1358,68 @@ def storage_status(db_path: str = APP_DB_PATH) -> dict[str, Any]:
         fts_available = _memory_fts_available(conn)
         journal_mode = conn.execute("PRAGMA journal_mode").fetchone()
         foreign_keys = conn.execute("PRAGMA foreign_keys").fetchone()
+        failed_schema_rows = conn.execute(
+            """
+            SELECT version, name, source_path, error
+            FROM migration_runs
+            WHERE source_path LIKE '%.sql' AND status = 'failed'
+            ORDER BY id DESC
+            LIMIT 5
+            """
+        ).fetchall()
+        recent_data_migrations = conn.execute(
+            """
+            SELECT version, source_path, checksum, status, error, migrated_at
+            FROM migration_runs
+            WHERE source_path NOT LIKE '%.sql'
+            ORDER BY id DESC
+            LIMIT 10
+            """
+        ).fetchall()
+        outbox_rows = conn.execute(
+            "SELECT status, COUNT(*) AS count FROM storage_outbox GROUP BY status"
+        ).fetchall()
     db_file = Path(db_path)
     wal_file = Path(f"{db_path}-wal")
-    outbox_counts = StorageOutboxRepository(db_path).counts()
+    outbox_counts = {row["status"]: int(row["count"]) for row in outbox_rows}
+    failed_schema = [
+        {
+            "version": row["version"],
+            "name": row["name"],
+            "source_path": row["source_path"],
+            "error": row["error"],
+        }
+        for row in failed_schema_rows
+    ]
+    schema_health = "ok" if not schema_error and not failed_schema else "failed"
+    outbox_failed = int(outbox_counts.get("failed", 0))
+    outbox_pending = int(outbox_counts.get("pending", 0)) + int(outbox_counts.get("retry", 0))
+    backup_dir = BACKUP_DIR
+    backups = sorted(backup_dir.glob("app-*.db")) if backup_dir.exists() else []
+    last_backup = str(backups[-1]) if backups else None
     return {
         "db_path": db_path,
         "dual_write_enabled": dual_write_enabled(),
         "read_primary": storage_read_primary(),
         "json_fallback_enabled": json_fallback_enabled(),
         "vector_reconcile_enabled": vector_reconcile_enabled(),
+        "json_migrate_on_startup": storage_json_migrate_on_startup(),
+        "schema_health": schema_health,
+        "schema_error": schema_error,
+        "schema_failures": failed_schema,
+        "outbox_health": "failed" if outbox_failed else ("pending" if outbox_pending else "ok"),
         "migration_runs": {row["status"]: row["count"] for row in migrations},
+        "data_migrations": [
+            {
+                "version": row["version"],
+                "source_path": row["source_path"],
+                "checksum": row["checksum"],
+                "status": row["status"],
+                "error": row["error"],
+                "migrated_at": row["migrated_at"],
+            }
+            for row in recent_data_migrations
+        ],
         "schema_migrations": [
             {
                 "version": row["version"],
@@ -1286,18 +1441,59 @@ def storage_status(db_path: str = APP_DB_PATH) -> dict[str, Any]:
             "foreign_keys": bool(foreign_keys[0]) if foreign_keys else None,
             "fts5_available": fts_available,
         },
+        "last_backup": last_backup,
         "pending_vector_items": int(pending["count"] if pending else 0),
     }
 
 
 def checkpoint_storage(db_path: str = APP_DB_PATH) -> dict[str, Any]:
     init_storage(db_path)
+    wal_file = Path(f"{db_path}-wal")
+    before_size = wal_file.stat().st_size if wal_file.exists() else 0
     conn = sqlite3.connect(db_path, timeout=5.0, isolation_level=None)
     try:
         rows = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchall()
     finally:
         conn.close()
-    return {"checkpoint": [tuple(row) for row in rows]}
+    after_size = wal_file.stat().st_size if wal_file.exists() else 0
+    return {
+        "checkpoint": [tuple(row) for row in rows],
+        "wal_size_before_bytes": before_size,
+        "wal_size_after_bytes": after_size,
+    }
+
+
+def check_storage(db_path: str = APP_DB_PATH, initialize: bool = True) -> dict[str, Any]:
+    if initialize:
+        init_storage(db_path)
+    with get_db_pool(db_path).get_connection() as conn:
+        integrity_rows = conn.execute("PRAGMA integrity_check").fetchall()
+        foreign_key_rows = conn.execute("PRAGMA foreign_key_check").fetchall()
+    integrity = [row[0] for row in integrity_rows]
+    foreign_key_errors = [tuple(row) for row in foreign_key_rows]
+    ok = integrity == ["ok"] and not foreign_key_errors
+    return {
+        "status": "ok" if ok else "failed",
+        "integrity_check": integrity,
+        "foreign_key_check": foreign_key_errors,
+    }
+
+
+def backup_storage(db_path: str = APP_DB_PATH, backup_dir: str | Path = BACKUP_DIR) -> dict[str, Any]:
+    init_storage(db_path)
+    checkpoint = checkpoint_storage(db_path)
+    source = Path(db_path)
+    backup_root = Path(backup_dir)
+    backup_root.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    destination = backup_root / f"app-{timestamp}.db"
+    shutil.copy2(source, destination)
+    return {
+        "backup_path": str(destination),
+        "size_bytes": destination.stat().st_size,
+        "checkpoint": checkpoint,
+        "integrity": check_storage(str(destination), initialize=False),
+    }
 
 
 def dual_write_enabled() -> bool:
@@ -1314,6 +1510,28 @@ def json_fallback_enabled() -> bool:
 
 def vector_reconcile_enabled() -> bool:
     return _env_bool("VECTOR_RECONCILE_ENABLED", True)
+
+
+def storage_json_migrate_on_startup() -> bool:
+    return _env_bool("STORAGE_JSON_MIGRATE_ON_STARTUP", False)
+
+
+def storage_outbox_worker_enabled() -> bool:
+    return _env_bool("STORAGE_OUTBOX_WORKER_ENABLED", True)
+
+
+def storage_outbox_worker_interval() -> float:
+    try:
+        return float(_env_str("STORAGE_OUTBOX_WORKER_INTERVAL", "30"))
+    except ValueError:
+        return 30.0
+
+
+def storage_outbox_worker_batch_size() -> int:
+    try:
+        return int(_env_str("STORAGE_OUTBOX_WORKER_BATCH_SIZE", "100"))
+    except ValueError:
+        return 100
 
 
 def get_storage_status(db_path: str = APP_DB_PATH) -> dict[str, Any]:
@@ -1339,10 +1557,10 @@ def _record_migration(version: str, path: Path, checksum: str, status: str, db_p
     with get_db_pool(db_path).get_connection() as conn:
         conn.execute(
             """
-            INSERT OR IGNORE INTO migration_runs (version, source_path, checksum, status, migrated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT OR IGNORE INTO migration_runs (version, name, source_path, checksum, status, error, migrated_at, applied_at)
+            VALUES (?, ?, ?, ?, ?, NULL, ?, ?)
             """,
-            (version, str(path), checksum, status, _utcnow()),
+            (version, version, str(path), checksum, status, _utcnow(), _utcnow()),
         )
 
 

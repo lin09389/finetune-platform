@@ -17,7 +17,14 @@ from fastapi import APIRouter
 
 from api.inference import routes as inference_routes
 from api.knowledge import routes as knowledge_routes
-from core.storage import checkpoint_storage, get_storage_status, process_json_outbox
+from core.storage import (
+    backup_storage,
+    check_storage,
+    checkpoint_storage,
+    get_storage_status,
+    migrate_json_state,
+    process_storage_outbox,
+)
 from memory.memory_service import get_memory_service
 
 training_routes = importlib.import_module("api.training")
@@ -106,6 +113,17 @@ def _derive_runtime_status(observed: dict[str, Any], warnings: list[str]) -> str
     return "ready"
 
 
+def _derive_storage_status(storage: Any) -> str:
+    if not isinstance(storage, dict):
+        return "unknown"
+    if storage.get("schema_health") == "failed":
+        return "failed"
+    outbox = storage.get("outbox") if isinstance(storage.get("outbox"), dict) else {}
+    if int(outbox.get("failed", 0) or 0) > 0:
+        return "degraded"
+    return "ready"
+
+
 @router.get("/bootstrap")
 async def get_runtime_bootstrap():
     """Return an aggregated runtime bootstrap payload for the frontend shell."""
@@ -170,6 +188,7 @@ async def get_runtime_bootstrap():
             "embedder_status": embedder_payload,
         },
         "training": training_payload,
+        "storage": get_storage_status(),
     }
 
     runtime_status = _derive_runtime_status(observed, warnings)
@@ -184,6 +203,7 @@ async def get_runtime_bootstrap():
             "available_model_count": len(observed["inference"]["huggingface_models"])
             if current_backend != "ollama"
             else len(ollama_models),
+            "storage_status": _derive_storage_status(observed["storage"]),
         },
     }
 
@@ -212,15 +232,11 @@ async def reconcile_runtime_storage(limit: int = 100):
 @router.post("/storage/outbox/process")
 async def process_runtime_storage_outbox(limit: int = 100):
     """Process pending JSON shadow-write and vector outbox tasks once."""
-    json_result = process_json_outbox(limit=limit)
-    vector_result = get_memory_service().process_vector_outbox(limit=limit)
+    result = process_storage_outbox(limit=limit)
     return {
         "schema_version": "runtime.storage.outbox.process.v1",
         "generated_at": datetime.now().isoformat(),
-        "result": {
-            "json": json_result,
-            "vector": vector_result,
-        },
+        "result": result,
     }
 
 
@@ -231,4 +247,34 @@ async def checkpoint_runtime_storage():
         "schema_version": "runtime.storage.checkpoint.v1",
         "generated_at": datetime.now().isoformat(),
         "result": checkpoint_storage(),
+    }
+
+
+@router.post("/storage/migrate-json")
+async def migrate_runtime_storage_json():
+    """Import legacy JSON sessions and shares into SQLite once."""
+    return {
+        "schema_version": "runtime.storage.migrate_json.v1",
+        "generated_at": datetime.now().isoformat(),
+        "result": migrate_json_state(),
+    }
+
+
+@router.post("/storage/check")
+async def check_runtime_storage():
+    """Run SQLite integrity and foreign key checks."""
+    return {
+        "schema_version": "runtime.storage.check.v1",
+        "generated_at": datetime.now().isoformat(),
+        "result": check_storage(),
+    }
+
+
+@router.post("/storage/backup")
+async def backup_runtime_storage():
+    """Checkpoint and copy the SQLite application database to data/backups."""
+    return {
+        "schema_version": "runtime.storage.backup.v1",
+        "generated_at": datetime.now().isoformat(),
+        "result": backup_storage(),
     }

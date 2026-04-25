@@ -5,7 +5,7 @@ import logging
 import sys
 from pathlib import Path
 
-from pythonjsonlogger.json import JsonFormatter
+from pythonjsonlogger.jsonlogger import JsonFormatter
 
 
 class CustomJsonFormatter(JsonFormatter):

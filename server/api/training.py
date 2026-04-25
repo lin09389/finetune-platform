@@ -19,7 +19,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Header, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from core.config import Settings, get_settings
 from core.logging import get_logger
@@ -335,8 +335,14 @@ def _legacy_progress_from_v2_event(event: Any, fallback: Any) -> dict[str, Any]:
 
 class TrainingConfigInput(BaseModel):
     """训练配置输入 - 支持高精度微调"""
+    model_config = ConfigDict(protected_namespaces=())
+
     model_id: str = Field(..., description="模型 ID")
     dataset_id: str = Field(..., description="数据集 ID")
+    task_goal: Literal["qa_assistant", "structured_extraction"] = Field(
+        default="qa_assistant",
+        description="应用目标：qa_assistant/structured_extraction",
+    )
     method: str = Field(default="qlora", description="微调方法：qlora/lora/full/dora")
     rank: int = Field(default=8, ge=1, le=256, description="LoRA rank")
     alpha: int = Field(default=16, ge=1, description="LoRA alpha")
@@ -414,20 +420,55 @@ class TrainingProgressResponse(BaseModel):
 
 class TrainingRecordResponse(BaseModel):
     """训练记录响应"""
+    model_config = ConfigDict(protected_namespaces=())
+
     id: str
     model_name: str
     dataset_name: str
+    base_model_id: str | None = None
+    dataset_id: str | None = None
+    task_goal: str | None = None
     method: str
     status: str
     start_time: str
     end_time: str | None
     config: dict
     output_path: str
+    adapter_path: str | None = None
     checkpoint_path: str | None
     final_loss: float | None = None
     final_lr: float | None = None
     elapsed_time: float | None = None
     total_steps: int | None = None
+
+
+def _sync_training_record_metadata(record: TrainingRecord) -> TrainingRecord:
+    """Fill stable evaluation metadata from record/config so history stays self-describing."""
+    config = record.config or {}
+    record.base_model_id = (
+        record.base_model_id
+        or config.get("model_id")
+        or config.get("modelId")
+        or record.model_name
+    )
+    record.dataset_id = (
+        record.dataset_id
+        or config.get("test_dataset_id")
+        or config.get("testDatasetId")
+        or config.get("validation_dataset_id")
+        or config.get("validationDatasetId")
+        or config.get("dataset_id")
+        or config.get("datasetId")
+        or record.dataset_name
+    )
+    record.task_goal = (
+        record.task_goal
+        or config.get("task_goal")
+        or config.get("taskGoal")
+        or "qa_assistant"
+    )
+    record.adapter_path = record.adapter_path or record.checkpoint_path
+    return record
 
 
 class ResourceCheckResponse(BaseModel):
@@ -1907,11 +1948,13 @@ def training_thread(
             record.status = "completed"
             record.end_time = datetime.now().isoformat()
             record.checkpoint_path = str(lora_path)
+            record.adapter_path = str(lora_path)
             progress_snapshot = state.get_progress()
             record.final_loss = float(progress_snapshot.loss)
             record.final_lr = float(progress_snapshot.lr)
             record.elapsed_time = float(progress_snapshot.elapsed_time)
             record.total_steps = int(progress_snapshot.step or total_steps)
+            _sync_training_record_metadata(record)
             _enrich_record_metrics(record)
 
             state.add_to_history_sync(record)
@@ -2149,6 +2192,7 @@ def _handle_training_failure(state: TrainingState, record: TrainingRecord, error
     record.final_lr = float(latest_progress.lr)
     record.elapsed_time = float(latest_progress.elapsed_time)
     record.total_steps = int(latest_progress.step)
+    _sync_training_record_metadata(record)
     _enrich_record_metrics(record)
 
     if train_logger:
@@ -2190,6 +2234,7 @@ def _finalize_stop_requested(
     record.final_lr = float(latest_progress.lr)
     record.elapsed_time = float(latest_progress.elapsed_time)
     record.total_steps = int(latest_progress.step)
+    _sync_training_record_metadata(record)
     _enrich_record_metrics(record)
     state.add_to_history_sync(record)
     logger.info(f"训练已停止并保存历史：{record.id}")
@@ -2856,13 +2901,18 @@ async def start_swift_training(
         id=record_id,
         model_name=config.model_id,
         dataset_name=config.dataset_id,
+        base_model_id=config.model_id,
+        dataset_id=config.dataset_id,
+        task_goal=config.task_goal,
         method=f"swift_{config.method}",
         status="running",
         start_time=datetime.now().isoformat(),
         config=config.model_dump(),
         output_path=str(output_path),
+        adapter_path=None,
         checkpoint_path=None,
     )
+    _sync_training_record_metadata(record)
 
     swift_config = SwiftTrainConfig(
         model_id=str(model_path),
@@ -2964,10 +3014,12 @@ async def _monitor_swift_training(
             record.status = "completed"
             record.end_time = datetime.now().isoformat()
             record.checkpoint_path = str(Path(record.output_path) / "adapter_model")
+            record.adapter_path = record.checkpoint_path
             record.final_loss = float(last_progress.get("loss", 0.0))
             record.final_lr = float(last_progress.get("lr", 0.0))
             record.elapsed_time = float(last_progress.get("elapsed_time", 0.0))
             record.total_steps = int(last_progress.get("step", 0))
+            _sync_training_record_metadata(record)
             _enrich_record_metrics(record)
 
             try:
@@ -3003,6 +3055,7 @@ async def _monitor_swift_training(
             record.final_lr = float(last_progress.get("lr", 0.0))
             record.elapsed_time = float(last_progress.get("elapsed_time", 0.0))
             record.total_steps = int(last_progress.get("step", 0))
+            _sync_training_record_metadata(record)
             _enrich_record_metrics(record)
 
             try:
@@ -3691,13 +3744,18 @@ def _start_training_task(
         id=record_id,
         model_name=config.model_id,
         dataset_name=config.dataset_id,
+        base_model_id=config.model_id,
+        dataset_id=config.dataset_id,
+        task_goal=config.task_goal,
         method=config.method,
         status="queued" if use_queue else "running",
         start_time=datetime.now().isoformat(),
         config=config.model_dump(),
         output_path=str(output_path),
+        adapter_path=None,
         checkpoint_path=None,
     )
+    _sync_training_record_metadata(record)
 
     state.set_current_record(record)
     config.output_path = str(output_path)

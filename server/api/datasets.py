@@ -2,6 +2,7 @@
 数据集管理 API - 增强安全校验和统计功能
 """
 import json
+import random
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -80,6 +81,65 @@ class DatasetUploadResponse(BaseModel):
     message: str
 
 
+class DatasetAnalyzeRequest(BaseModel):
+    """Analyze an existing dataset by id."""
+    dataset_id: str | None = None
+    target_goal: str | None = None
+
+
+class DatasetIssue(BaseModel):
+    line: int
+    message: str
+    severity: str = "error"
+
+
+class DatasetLengthStats(BaseModel):
+    min_chars: int
+    max_chars: int
+    avg_chars: float
+    overlong_ratio: float
+
+
+class DatasetAnalysisResponse(BaseModel):
+    detected_format: str
+    field_candidates: dict[str, list[str]]
+    sample_count: int
+    valid_count: int
+    errors: list[DatasetIssue]
+    warnings: list[DatasetIssue]
+    length_stats: DatasetLengthStats
+    recommended_target_format: str
+    health: dict[str, Any]
+
+
+class DatasetTransformRequest(BaseModel):
+    target_format: str = "openai_messages"
+    task_goal: str = "qa_assistant"
+    output_name: str | None = None
+
+
+class DatasetTransformResponse(BaseModel):
+    message: str
+    dataset_id: str
+    target_format: str
+    output_path: str
+    sample_count: int
+
+
+class DatasetSplitRequest(BaseModel):
+    train_ratio: float = 0.8
+    validation_ratio: float = 0.1
+    test_ratio: float = 0.1
+    seed: int = 42
+
+
+class DatasetSplitResponse(BaseModel):
+    message: str
+    dataset_id: str
+    output_dir: str
+    splits: dict[str, dict[str, Any]]
+
+
 def validate_path_security(base_dir: Path, target_path: Path) -> bool:
     """
     验证路径安全性，防止路径遍历攻击
@@ -128,6 +188,194 @@ def validate_file_content(file_path: Path) -> tuple[bool, str]:
     except Exception as e:
         logger.warning(f"文件内容验证失败：{e}")
         return True, ""
+
+
+def _find_dataset_file(dataset_path: Path) -> Path | None:
+    for ext in [".jsonl", ".json"]:
+        for data_file in dataset_path.glob(f"*{ext}"):
+            if data_file.name != "info.json":
+                return data_file
+    return None
+
+
+def _load_dataset_samples(file_path: Path, limit: int | None = None) -> tuple[list[dict[str, Any]], list[DatasetIssue]]:
+    samples: list[dict[str, Any]] = []
+    errors: list[DatasetIssue] = []
+
+    try:
+        with open(file_path, encoding="utf-8") as f:
+            if file_path.suffix.lower() == ".jsonl":
+                for line_number, line in enumerate(f, start=1):
+                    if limit is not None and len(samples) >= limit:
+                        break
+                    if not line.strip():
+                        continue
+                    try:
+                        value = json.loads(line)
+                    except json.JSONDecodeError as exc:
+                        errors.append(DatasetIssue(line=line_number, message=f"Invalid JSON: {exc}"))
+                        continue
+                    if isinstance(value, dict):
+                        samples.append(value)
+                    else:
+                        errors.append(DatasetIssue(line=line_number, message="Sample must be an object"))
+            else:
+                value = json.load(f)
+                raw_samples = value if isinstance(value, list) else [value]
+                for index, item in enumerate(raw_samples, start=1):
+                    if limit is not None and len(samples) >= limit:
+                        break
+                    if isinstance(item, dict):
+                        samples.append(item)
+                    else:
+                        errors.append(DatasetIssue(line=index, message="Sample must be an object"))
+    except json.JSONDecodeError as exc:
+        errors.append(DatasetIssue(line=1, message=f"Invalid JSON: {exc}"))
+    except Exception as exc:
+        errors.append(DatasetIssue(line=1, message=f"Read failed: {exc}"))
+
+    return samples, errors
+
+
+def _sample_text(sample: dict[str, Any]) -> str:
+    if isinstance(sample.get("messages"), list):
+        return "\n".join(str(message.get("content", "")) for message in sample["messages"] if isinstance(message, dict))
+    values = []
+    for key in ["question", "context", "answer", "instruction", "input", "output", "text", "content"]:
+        if key in sample:
+            values.append(str(sample.get(key) or ""))
+    return "\n".join(values)
+
+
+def _detect_dataset_format(samples: list[dict[str, Any]]) -> str:
+    if not samples:
+        return "unknown"
+
+    keys = set().union(*(sample.keys() for sample in samples[:100]))
+    if {"question", "answer"}.issubset(keys):
+        return "faq_qa" if "context" not in keys else "qa_with_context"
+    if "messages" in keys:
+        first_messages = next((sample.get("messages") for sample in samples if isinstance(sample.get("messages"), list)), [])
+        roles = {
+            message.get("role")
+            for message in first_messages
+            if isinstance(message, dict)
+        }
+        return "sharegpt" if {"human", "gpt"} & roles else "openai_messages"
+    if {"instruction", "output"}.issubset(keys):
+        return "alpaca"
+    if {"input", "schema", "output"}.issubset(keys):
+        return "structured_extraction"
+    if {"text"} & keys:
+        return "plain_text"
+    return "unknown"
+
+
+def _field_candidates(samples: list[dict[str, Any]]) -> dict[str, list[str]]:
+    keys = sorted(set().union(*(sample.keys() for sample in samples[:100]))) if samples else []
+    return {
+        "prompt": [key for key in keys if key in {"question", "instruction", "input", "text", "content"}],
+        "context": [key for key in keys if key in {"context", "document", "knowledge"}],
+        "response": [key for key in keys if key in {"answer", "output", "response", "completion"}],
+        "schema": [key for key in keys if key in {"schema", "json_schema", "fields"}],
+        "messages": [key for key in keys if key == "messages"],
+    }
+
+
+def _is_valid_for_training(sample: dict[str, Any]) -> bool:
+    if isinstance(sample.get("messages"), list) and sample["messages"]:
+        return True
+    keys = sample.keys()
+    return bool(
+        {"question", "answer"}.issubset(keys)
+        or {"instruction", "output"}.issubset(keys)
+        or {"input", "output"}.issubset(keys)
+        or "text" in keys
+        or "content" in keys
+    )
+
+
+def _analyze_samples(samples: list[dict[str, Any]], parse_errors: list[DatasetIssue], target_goal: str | None = None) -> DatasetAnalysisResponse:
+    warnings: list[DatasetIssue] = []
+    valid_count = 0
+    lengths: list[int] = []
+    fingerprints: set[str] = set()
+    duplicate_count = 0
+
+    for index, sample in enumerate(samples, start=1):
+        text = _sample_text(sample)
+        lengths.append(len(text))
+        fingerprint = json.dumps(sample, ensure_ascii=False, sort_keys=True)
+        if fingerprint in fingerprints:
+            duplicate_count += 1
+        fingerprints.add(fingerprint)
+
+        if _is_valid_for_training(sample):
+            valid_count += 1
+        else:
+            warnings.append(DatasetIssue(line=index, message="Missing trainable fields", severity="warning"))
+
+        if len(text) > 8000:
+            warnings.append(DatasetIssue(line=index, message="Sample is longer than 8000 characters", severity="warning"))
+
+    sample_count = len(samples)
+    detected_format = _detect_dataset_format(samples)
+    overlong_count = sum(1 for length in lengths if length > 8000)
+    recommended = "input_schema_output_jsonl" if target_goal == "structured_extraction" or detected_format == "structured_extraction" else "openai_messages"
+    json_valid_ratio = sample_count / (sample_count + len(parse_errors)) if sample_count or parse_errors else 1.0
+    field_completeness = valid_count / sample_count if sample_count else 0.0
+
+    return DatasetAnalysisResponse(
+        detected_format=detected_format,
+        field_candidates=_field_candidates(samples),
+        sample_count=sample_count + len(parse_errors),
+        valid_count=valid_count,
+        errors=parse_errors[:100],
+        warnings=warnings[:100],
+        length_stats=DatasetLengthStats(
+            min_chars=min(lengths) if lengths else 0,
+            max_chars=max(lengths) if lengths else 0,
+            avg_chars=round(sum(lengths) / len(lengths), 2) if lengths else 0.0,
+            overlong_ratio=round(overlong_count / sample_count, 4) if sample_count else 0.0,
+        ),
+        recommended_target_format=recommended,
+        health={
+            "json_valid_ratio": round(json_valid_ratio, 4),
+            "field_completeness": round(field_completeness, 4),
+            "overlong_sample_ratio": round(overlong_count / sample_count, 4) if sample_count else 0.0,
+            "duplicate_sample_ratio": round(duplicate_count / sample_count, 4) if sample_count else 0.0,
+            "trainable_sample_count": valid_count,
+        },
+    )
+
+
+def _to_openai_messages(sample: dict[str, Any], task_goal: str) -> dict[str, Any]:
+    if isinstance(sample.get("messages"), list):
+        return {"messages": sample["messages"]}
+
+    if task_goal == "structured_extraction":
+        schema = sample.get("schema") or sample.get("json_schema") or sample.get("fields") or {}
+        user_content = sample.get("input") or sample.get("instruction") or sample.get("text") or sample.get("content") or ""
+        if schema:
+            user_content = f"请从输入中抽取字段并严格输出 JSON。\nSchema: {json.dumps(schema, ensure_ascii=False)}\nInput: {user_content}"
+        return {
+            "messages": [
+                {"role": "user", "content": str(user_content)},
+                {"role": "assistant", "content": json.dumps(sample.get("output", {}), ensure_ascii=False) if not isinstance(sample.get("output"), str) else sample.get("output", "")},
+            ]
+        }
+
+    question = sample.get("question") or sample.get("instruction") or sample.get("input") or sample.get("text") or sample.get("content") or ""
+    context = sample.get("context")
+    if context:
+        question = f"参考资料：\n{context}\n\n问题：{question}"
+    answer = sample.get("answer") or sample.get("output") or sample.get("response") or ""
+    return {
+        "messages": [
+            {"role": "user", "content": str(question)},
+            {"role": "assistant", "content": str(answer)},
+        ]
+    }
 
 
 def validate_dataset_format(file_path: Path) -> tuple[bool, str, int]:
@@ -330,6 +578,27 @@ async def list_datasets_compat():
     return get_datasets_list()
 
 
+@router.post("/analyze", response_model=DatasetAnalysisResponse)
+async def analyze_dataset(request: DatasetAnalyzeRequest):
+    """Analyze an existing dataset for training readiness."""
+    request = request or DatasetAnalyzeRequest()
+    if not request.dataset_id:
+        raise HTTPException(status_code=400, detail="dataset_id 是必填项")
+
+    dataset_path = get_datasets_dir() / request.dataset_id
+    if not dataset_path.exists():
+        raise HTTPException(status_code=404, detail="数据集不存在")
+    if not validate_path_security(get_datasets_dir(), dataset_path):
+        raise HTTPException(status_code=400, detail="无效的数据集路径")
+
+    data_file = _find_dataset_file(dataset_path)
+    if not data_file:
+        raise HTTPException(status_code=404, detail="数据文件不存在")
+
+    samples, errors = _load_dataset_samples(data_file)
+    return _analyze_samples(samples, errors, request.target_goal)
+
+
 @router.post("/upload", response_model=DatasetUploadResponse)
 async def upload_dataset(
     file: UploadFile = File(..., description="数据集文件"),
@@ -437,6 +706,113 @@ async def upload_dataset(
         samples=sample_count,
         created_at=created_at,
         message="数据集上传成功"
+    )
+
+
+@router.post("/{dataset_id}/transform", response_model=DatasetTransformResponse)
+async def transform_dataset(dataset_id: str, request: DatasetTransformRequest):
+    """Transform a dataset into a standard training JSONL file."""
+    datasets_dir = get_datasets_dir()
+    dataset_path = datasets_dir / dataset_id
+    if not dataset_path.exists():
+        raise HTTPException(status_code=404, detail="数据集不存在")
+    if not validate_path_security(datasets_dir, dataset_path):
+        raise HTTPException(status_code=400, detail="无效的数据集路径")
+
+    data_file = _find_dataset_file(dataset_path)
+    if not data_file:
+        raise HTTPException(status_code=404, detail="数据文件不存在")
+
+    samples, errors = _load_dataset_samples(data_file)
+    if errors and not samples:
+        raise HTTPException(status_code=400, detail=f"数据集无法解析：{errors[0].message}")
+
+    target_format = request.target_format
+    output_name = safe_filename(request.output_name or f"{dataset_id}-{target_format}.jsonl")
+    if not output_name.endswith(".jsonl"):
+        output_name += ".jsonl"
+    output_path = dataset_path / output_name
+
+    transformed: list[dict[str, Any]] = []
+    for sample in samples:
+        if not _is_valid_for_training(sample):
+            continue
+        if target_format in {"openai_messages", "messages"}:
+            transformed.append(_to_openai_messages(sample, request.task_goal))
+        elif target_format in {"input_schema_output_jsonl", "structured_extraction"}:
+            transformed.append({
+                "input": sample.get("input") or sample.get("question") or sample.get("instruction") or sample.get("text") or "",
+                "schema": sample.get("schema") or sample.get("json_schema") or sample.get("fields") or {},
+                "output": sample.get("output") or sample.get("answer") or sample.get("response") or "",
+            })
+        else:
+            raise HTTPException(status_code=400, detail=f"不支持的目标格式：{target_format}")
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        for item in transformed:
+            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+
+    return DatasetTransformResponse(
+        message="数据集转换完成",
+        dataset_id=dataset_id,
+        target_format=target_format,
+        output_path=str(output_path),
+        sample_count=len(transformed),
+    )
+
+
+@router.post("/{dataset_id}/split", response_model=DatasetSplitResponse)
+async def split_dataset(dataset_id: str, request: DatasetSplitRequest):
+    """Create train/validation/test JSONL splits for a dataset."""
+    total_ratio = request.train_ratio + request.validation_ratio + request.test_ratio
+    if abs(total_ratio - 1.0) > 0.001:
+        raise HTTPException(status_code=400, detail="train/validation/test 比例之和必须等于 1")
+
+    datasets_dir = get_datasets_dir()
+    dataset_path = datasets_dir / dataset_id
+    if not dataset_path.exists():
+        raise HTTPException(status_code=404, detail="数据集不存在")
+    if not validate_path_security(datasets_dir, dataset_path):
+        raise HTTPException(status_code=400, detail="无效的数据集路径")
+
+    data_file = _find_dataset_file(dataset_path)
+    if not data_file:
+        raise HTTPException(status_code=404, detail="数据文件不存在")
+
+    samples, errors = _load_dataset_samples(data_file)
+    if errors and not samples:
+        raise HTTPException(status_code=400, detail=f"数据集无法解析：{errors[0].message}")
+
+    rng = random.Random(request.seed)
+    shuffled = list(samples)
+    rng.shuffle(shuffled)
+
+    train_end = int(len(shuffled) * request.train_ratio)
+    validation_end = train_end + int(len(shuffled) * request.validation_ratio)
+    split_payloads = {
+        "train": shuffled[:train_end],
+        "validation": shuffled[train_end:validation_end],
+        "test": shuffled[validation_end:],
+    }
+
+    output_dir = dataset_path / "splits"
+    output_dir.mkdir(exist_ok=True)
+    splits: dict[str, dict[str, Any]] = {}
+    for split_name, split_samples in split_payloads.items():
+        output_path = output_dir / f"{split_name}.jsonl"
+        with open(output_path, "w", encoding="utf-8") as f:
+            for item in split_samples:
+                f.write(json.dumps(item, ensure_ascii=False) + "\n")
+        splits[split_name] = {
+            "path": str(output_path),
+            "sample_count": len(split_samples),
+        }
+
+    return DatasetSplitResponse(
+        message="数据集切分完成",
+        dataset_id=dataset_id,
+        output_dir=str(output_dir),
+        splits=splits,
     )
 
 

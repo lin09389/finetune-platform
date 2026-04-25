@@ -31,7 +31,9 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from api.cloud_chat import router as cloud_chat
 from api.datasets import router as datasets
+from api.deployment import router as deployment
 from api.device import router as device
+from api.evaluation import router as evaluation
 from api.chat.routes import router as chat
 from api.chat_branch import router as chat_branch
 from api.chat_share import router as chat_share
@@ -140,10 +142,13 @@ async def lifespan(app: FastAPI):
     """?????????"""
     logger.info("Initializing application...")
 
-    from core.storage import init_storage, migrate_json_state
+    from core.storage import init_storage, migrate_json_state, storage_json_migrate_on_startup
     init_storage()
-    migrated = migrate_json_state()
-    logger.info("SQLite storage initialized, migrated=%s", migrated)
+    if storage_json_migrate_on_startup():
+        migrated = migrate_json_state()
+        logger.info("SQLite storage initialized, migrated=%s", migrated)
+    else:
+        logger.info("SQLite storage initialized, JSON data migration skipped on startup")
 
     logger.info(f"Models directory: {settings.models_dir_resolved}")
     logger.info(f"Datasets directory: {settings.datasets_dir_resolved}")
@@ -197,9 +202,23 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Memory service init failed: {e}")
 
+    storage_worker = None
+    try:
+        from core.storage_worker import get_storage_outbox_worker
+        storage_worker = get_storage_outbox_worker()
+        await storage_worker.start()
+    except Exception as e:
+        logger.warning(f"Storage outbox worker start failed: {e}")
+
     yield
 
     logger.info("Shutting down application...")
+
+    if storage_worker:
+        try:
+            await storage_worker.stop()
+        except Exception as e:
+            logger.warning(f"Storage outbox worker shutdown failed: {e}")
     
     try:
         from api.inference.routes import get_scheduler
@@ -279,7 +298,7 @@ async def security_middleware(request: Request, call_next):
     - ????
     - ????
     """
-    client_ip = request.client.host
+    client_ip = request.client.host if request.client else "unknown"
     path = request.url.path
 
     # IP ??????
@@ -370,6 +389,8 @@ app.include_router(device, prefix="/device", tags=["Device"])
 app.include_router(models, prefix="/models", tags=["Models"])
 app.include_router(datasets, prefix="/datasets", tags=["Datasets"])
 app.include_router(training, prefix="/training", tags=["Training"])
+app.include_router(evaluation, prefix="/evaluation", tags=["Evaluation"])
+app.include_router(deployment, prefix="/deployment", tags=["Deployment"])
 app.include_router(inference, prefix="/inference", tags=["Inference"])
 app.include_router(chat, tags=["Chat"])
 app.include_router(knowledge, prefix="/knowledge", tags=["Knowledge"])
