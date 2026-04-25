@@ -276,6 +276,200 @@ export const requestManager = {
   },
 };
 
+// Digital Team APIs
+export interface DigitalTeamProjectCreate {
+  title: string;
+  goal: string;
+  template_id?: string;
+  project_path?: string;
+  provider?: string;
+  model?: string;
+  approval_mode?: string;
+}
+
+export const getDigitalTeamTemplates = async () => {
+  const response = await apiClient.get('/digital-team/templates');
+  return response.data;
+};
+
+export const createDigitalTeamProject = async (payload: DigitalTeamProjectCreate) => {
+  const response = await apiClient.post('/digital-team/projects', payload);
+  return response.data;
+};
+
+export const getDigitalTeamProjects = async () => {
+  const response = await apiClient.get('/digital-team/projects');
+  return response.data;
+};
+
+export const getDigitalTeamProject = async (projectId: string) => {
+  const response = await apiClient.get(`/digital-team/projects/${projectId}`);
+  return response.data;
+};
+
+export const runDigitalTeamProject = async (projectId: string) => {
+  const response = await apiClient.post(`/digital-team/projects/${projectId}/run`);
+  return response.data;
+};
+
+export const approveDigitalTeamTask = async (
+  taskId: string,
+  payload: { approved?: boolean; comment?: string } = {},
+) => {
+  const response = await apiClient.post(`/digital-team/tasks/${taskId}/approve`, {
+    approved: payload.approved ?? true,
+    comment: payload.comment,
+  });
+  return response.data;
+};
+
+export const retryDigitalTeamTask = async (taskId: string) => {
+  const response = await apiClient.post(`/digital-team/tasks/${taskId}/retry`);
+  return response.data;
+};
+
+export const getDigitalTeamTimeline = async (projectId: string) => {
+  const response = await apiClient.get(`/digital-team/projects/${projectId}/timeline`);
+  return response.data;
+};
+
+export const getDigitalTeamArtifacts = async (projectId: string) => {
+  const response = await apiClient.get(`/digital-team/projects/${projectId}/artifacts`);
+  return response.data;
+};
+
+// Workflow APIs
+export interface WorkflowCreate {
+  title: string;
+  goal: string;
+  template_id?: string;
+  project_path?: string;
+  provider?: string;
+  model?: string;
+  approval_mode?: string;
+}
+
+export interface WorkflowStep {
+  id: string;
+  step_id: string;
+  workflow_id: string;
+  step_key: string;
+  agent_id: string;
+  legacy_role: string;
+  title: string;
+  description: string;
+  status: string;
+  requires_approval: boolean;
+  input_data?: Record<string, any>;
+  output_data?: Record<string, any>;
+  output?: Record<string, any>;
+  error?: string;
+}
+
+export interface Workflow {
+  id: string;
+  workflow_id: string;
+  title: string;
+  goal: string;
+  template_id: string;
+  legacy_template_id: string;
+  project_path?: string;
+  provider: string;
+  model?: string;
+  approval_mode: string;
+  status: string;
+  current_stage?: string;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string;
+  metadata?: Record<string, any>;
+  steps: WorkflowStep[];
+}
+
+export interface WorkflowTemplate {
+  id: string;
+  name: string;
+  description: string;
+  legacy_template_id: string;
+  agents: Array<{ id: string; name: string; description?: string }>;
+  steps: Array<{
+    key: string;
+    agent_id: string;
+    legacy_role: string;
+    title: string;
+    description: string;
+    artifact_type: string;
+    requires_approval: boolean;
+  }>;
+}
+
+export const getWorkflowTemplates = async () => {
+  const response = await apiClient.get('/workflows/templates');
+  return response.data;
+};
+
+export const createWorkflow = async (payload: WorkflowCreate) => {
+  const response = await apiClient.post('/workflows', payload);
+  return response.data;
+};
+
+export const getWorkflows = async () => {
+  const response = await apiClient.get('/workflows');
+  return response.data;
+};
+
+export const getWorkflow = async (workflowId: string) => {
+  const response = await apiClient.get(`/workflows/${workflowId}`);
+  return response.data;
+};
+
+export const runWorkflow = async (workflowId: string) => {
+  const response = await apiClient.post(`/workflows/${workflowId}/run`);
+  return response.data;
+};
+
+export const approveWorkflowStep = async (
+  stepId: string,
+  payload: { approved?: boolean; comment?: string } = {},
+) => {
+  const response = await apiClient.post(`/workflow-steps/${stepId}/approve`, {
+    approved: payload.approved ?? true,
+    comment: payload.comment,
+  });
+  return response.data;
+};
+
+export const retryWorkflowStep = async (stepId: string) => {
+  const response = await apiClient.post(`/workflow-steps/${stepId}/retry`);
+  return response.data;
+};
+
+export const getWorkflowTimeline = async (workflowId: string) => {
+  const response = await apiClient.get(`/workflows/${workflowId}/timeline`);
+  return response.data;
+};
+
+export const getWorkflowArtifacts = async (workflowId: string) => {
+  const response = await apiClient.get(`/workflows/${workflowId}/artifacts`);
+  return response.data;
+};
+
+export interface SavedCloudProvider {
+  id: string;
+  provider: string;
+  name: string;
+  masked_key?: string;
+  interface_format?: string;
+  base_url?: string;
+  default_model?: string;
+  models?: string[];
+}
+
+export const getSavedCloudProviders = async () => {
+  const response = await apiClient.get('/cloud/api-keys');
+  return response.data;
+};
+
 // Device APIs
 export const getDeviceInfo = async () => {
   const response = await apiClient.get('/device/info');

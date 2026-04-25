@@ -33,7 +33,9 @@ from api.cloud_chat import router as cloud_chat
 from api.datasets import router as datasets
 from api.deployment import router as deployment
 from api.device import router as device
+from api.digital_team import router as digital_team
 from api.evaluation import router as evaluation
+from api.workflows import router as workflows
 from api.chat.routes import router as chat
 from api.chat_branch import router as chat_branch
 from api.chat_share import router as chat_share
@@ -235,6 +237,13 @@ async def lifespan(app: FastAPI):
         logger.warning(f"TrainingContext shutdown failed: {e}")
 
     try:
+        from ai.gateway import close_http_clients
+        await close_http_clients()
+        logger.info("AI gateway HTTP clients closed")
+    except Exception as e:
+        logger.warning(f"AI gateway HTTP client shutdown failed: {e}")
+
+    try:
         from core.db_manager import close_all_pools
         close_all_pools()
         logger.info("SQLite connection pools closed")
@@ -287,6 +296,15 @@ WAF_RULES = [
     re.compile(r"(\.\./){3,}", re.I),
 ]
 
+WAF_BODY_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+WAF_BODY_CONTENT_TYPES = (
+    "application/json",
+    "application/x-www-form-urlencoded",
+    "text/plain",
+    "application/xml",
+    "text/xml",
+)
+
 
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
@@ -308,8 +326,16 @@ async def security_middleware(request: Request, call_next):
 
     # WAF ?????
     query_params = str(request.query_params)
-    body = await request.body()
-    payload = query_params + body.decode("utf-8", errors="ignore")
+    payload = query_params
+    content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    should_scan_body = (
+        request.method.upper() in WAF_BODY_METHODS
+        and content_type in WAF_BODY_CONTENT_TYPES
+    )
+    if should_scan_body:
+        body = await request.body()
+        if body:
+            payload += body.decode("utf-8", errors="ignore")
     for rule in WAF_RULES:
         if rule.search(payload):
             logger.warning(f"Blocked malicious payload from IP: {client_ip}")
@@ -397,6 +423,8 @@ app.include_router(knowledge, prefix="/knowledge", tags=["Knowledge"])
 # Backward compatibility for legacy frontend paths.
 app.include_router(knowledge, prefix="/v2/knowledge", tags=["Knowledge v2"])
 app.include_router(workspace, prefix="/workspace", tags=["Workspace"])
+app.include_router(digital_team, tags=["Digital Team"])
+app.include_router(workflows, tags=["Workflows"])
 app.include_router(model_center, prefix="/model-center", tags=["Model Center"])
 app.include_router(memory, tags=["Memory"])
 app.include_router(compat_router, tags=["Compatibility"])
@@ -476,6 +504,8 @@ async def api_info():
             "Inference service with backend switching",
             "Chat sessions and knowledge retrieval",
             "Workspace and local AI tooling",
+            "Digital team workflow orchestration",
+            "Multi-agent workflow orchestration",
         ],
         "capability_tiers": {
             "ga": [
@@ -492,6 +522,8 @@ async def api_info():
                 "memory",
                 "model_center",
                 "workspace",
+                "workflows",
+                "digital_team",
             ],
             "experimental": [
                 "cua",
@@ -513,6 +545,8 @@ async def api_info():
             "runtime": "/runtime/bootstrap",
             "memory": "/memory",
             "workspace": "/workspace",
+            "workflows": "/workflows",
+            "digital_team": "/digital-team",
             "context": "/context",
             "model_center": "/model-center",
             "experimental": {

@@ -2,21 +2,35 @@ import {
   CheckCircleOutlined,
   CloudOutlined,
   DeleteOutlined,
+  ExperimentOutlined,
+  ReloadOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
-import { Alert, Button, Divider, Input, message, Select, Space } from 'antd';
-import { useEffect, useState } from 'react';
+import {
+  Alert,
+  Button,
+  Col,
+  Form,
+  Input,
+  Row,
+  Select,
+  Space,
+  Tag,
+  Typography,
+  message,
+} from 'antd';
+import { useEffect, useMemo, useState } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import { API_BASE_URL } from '../services/api';
 
-// 云端 AI 配置类型
+const { Text } = Typography;
+
 interface APIKeyConfig {
   provider: string;
-  api_key?: string; // 可选，因为可以使用 key_id
+  api_key?: string;
   model?: string;
-  key_id?: string; // 后端加密存储的 Key ID
-  group_id?: string; // Group ID（用于 Minimax）
-  base_url?: string; // 自定义 Base URL
+  group_id?: string;
+  base_url?: string;
 }
 
 interface APIKeyInfo {
@@ -24,6 +38,27 @@ interface APIKeyInfo {
   provider: string;
   name: string;
   created_at: string;
+  masked_key?: string;
+  has_group_id?: boolean;
+  note?: string;
+  official_url?: string;
+  interface_format?: string;
+  base_url?: string;
+  default_model?: string;
+  models?: string[];
+}
+
+interface ProviderFormValues {
+  provider: string;
+  name?: string;
+  note?: string;
+  official_url?: string;
+  interface_format: string;
+  api_key: string;
+  base_url?: string;
+  default_model?: string;
+  models_text?: string;
+  group_id?: string;
 }
 
 interface APIKeyManagerProps {
@@ -31,200 +66,228 @@ interface APIKeyManagerProps {
   initialConfig?: APIKeyConfig | null;
 }
 
-// 服务商选项（含官网链接和 API 地址）
-const PROVIDER_OPTIONS = [
-  {
-    value: 'minimax-coding',
-    label: '💻 Minimax Coding (编程专用)',
-    description: '使用 Coding Plan 套餐，代码生成/优化专用',
-    officialUrl: 'https://platform.minimaxi.com/',
-    apiKeyUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key',
-    defaultBaseUrl: 'https://api.minimaxi.com/v1',
-  },
-  {
-    value: 'minimax',
-    label: '🔵 Minimax (通用)',
-    description: '通用场景，中文优化好',
-    officialUrl: 'https://platform.minimaxi.com/',
-    apiKeyUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key',
-    defaultBaseUrl: 'https://api.minimaxi.com/v1',
-  },
-  {
-    value: 'glm',
-    label: '🟠 智谱 GLM',
-    description: '智谱 AI，中文能力强',
-    officialUrl: 'https://open.bigmodel.cn/',
-    apiKeyUrl: 'https://open.bigmodel.cn/api-keys',
-    defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-  },
+const interfaceOptions = [
+  { value: 'openai-chat-completions', label: 'OpenAI Chat Completions' },
+  { value: 'anthropic-messages', label: 'Anthropic Messages' },
+  { value: 'minimax-native', label: 'Minimax Native' },
+  { value: 'glm-native', label: 'GLM Native' },
 ];
 
-// 模型选项
-const MODEL_OPTIONS: Record<string, { value: string; label: string }[]> = {
-  'minimax-coding': [
-    { value: 'MiniMax-M2.5', label: 'MiniMax-M2.5 (Coding Plan 推荐)' },
-    { value: 'MiniMax-Text-01', label: 'MiniMax-Text-01' },
-    { value: 'abab6.5s-chat', label: 'abab6.5s-chat' },
-  ],
-  minimax: [
-    { value: 'MiniMax-M2.5', label: 'MiniMax-M2.5 (推荐)' },
-    { value: 'MiniMax-M2.5-highspeed', label: 'MiniMax-M2.5-highspeed (高速)' },
-    { value: 'MiniMax-Text-01', label: 'MiniMax-Text-01' },
-    { value: 'abab6.5s-chat', label: 'abab6.5s-chat (快速)' },
-    { value: 'abab6.5g-chat', label: 'abab6.5g-chat (通用)' },
-  ],
-  glm: [
-    { value: 'glm-4', label: 'glm-4 (最强)' },
-    { value: 'glm-3-turbo', label: 'glm-3-turbo (快速)' },
-    { value: 'glm-4v', label: 'glm-4v (多模态)' },
-  ],
+const defaultValues: ProviderFormValues = {
+  provider: '',
+  name: '',
+  note: '',
+  official_url: '',
+  interface_format: 'openai-chat-completions',
+  api_key: '',
+  base_url: '',
+  default_model: '',
+  models_text: '',
+  group_id: '',
 };
 
-/**
- * API Key 管理组件
- *
- * 用于配置和管理云端 AI 的 API Key
- */
-export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, initialConfig }) => {
-  const [provider, setProvider] = useState(initialConfig?.provider || 'minimax-coding');
-  const [apiKey, setApiKey] = useState(initialConfig?.api_key || '');
-  const [groupId, setGroupId] = useState(initialConfig?.group_id || '');
-  const [baseUrl, setBaseUrl] = useState(initialConfig?.base_url || '');
-  const [model, setModel] = useState(initialConfig?.model || 'MiniMax-M2.5');
-  const [_keyId, setKeyId] = useState(initialConfig?.key_id);
-  const [savedKeys, setSavedKeys] = useState<APIKeyInfo[]>([]);
-  const [saved, setSaved] = useState(false);
+const splitModels = (value?: string) =>
+  (value || '')
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 
-  // 加载保存的 API Keys
+const modelsToText = (models?: string[]) => (models || []).join('\n');
+
+const builtinFormatByProvider: Record<string, string> = {
+  minimax: 'minimax-native',
+  'minimax-coding': 'minimax-native',
+  glm: 'glm-native',
+};
+
+const loadLocalConfig = (): APIKeyConfig | null => {
+  const savedConfig = localStorage.getItem('cloud_ai_config');
+  if (!savedConfig) return null;
+  try {
+    return JSON.parse(savedConfig);
+  } catch {
+    return null;
+  }
+};
+
+export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, initialConfig }) => {
+  const [form] = Form.useForm<ProviderFormValues>();
+  const [savedKeys, setSavedKeys] = useState<APIKeyInfo[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [selectedProvider, setSelectedProvider] = useState<string>('');
+  const localConfig = useMemo(() => (initialConfig ? null : loadLocalConfig()), [initialConfig]);
+
   const loadSavedKeys = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/cloud/api-keys`);
       const data = await response.json();
-      if (data.keys) {
-        setSavedKeys(data.keys);
-      }
+      setSavedKeys(data.keys || []);
     } catch (error) {
       console.error('加载 API Keys 失败:', error);
     }
   };
 
-  // 加载保存的配置
   useEffect(() => {
-    loadSavedKeys();
-
-    const savedConfig = localStorage.getItem('cloud_ai_config');
-    if (savedConfig && !initialConfig) {
-      try {
-        const config = JSON.parse(savedConfig);
-        setProvider(config.provider);
-        setApiKey(config.api_key);
-        setGroupId(config.group_id || '');
-        setBaseUrl(config.base_url || '');
-        setModel(config.model || 'mini max2.5');
-        setKeyId(config.key_id);
-      } catch (e) {
-        console.error('加载配置失败:', e);
-      }
+    void loadSavedKeys();
+    const provider = initialConfig?.provider || localConfig?.provider || '';
+    if (provider) {
+      setSelectedProvider(provider);
+      form.setFieldsValue({
+        ...defaultValues,
+        provider,
+        base_url: initialConfig?.base_url || localConfig?.base_url || '',
+        default_model: initialConfig?.model || localConfig?.model || '',
+        group_id: initialConfig?.group_id || localConfig?.group_id || '',
+        interface_format: builtinFormatByProvider[provider] || 'openai-chat-completions',
+      });
+    } else {
+      form.setFieldsValue(defaultValues);
     }
-  }, [initialConfig]);
+  }, [form, initialConfig, localConfig]);
 
-  // 切换服务商时重置模型
-  useEffect(() => {
-    const models = MODEL_OPTIONS[provider];
-    if (models?.length && !model) {
-      const firstModel = models[0]?.value;
-      if (firstModel) {
-        setModel(firstModel);
-      }
-    }
-  }, [provider]);
-
-  // 保存到后端加密存储
   const handleSave = async () => {
-    if (!apiKey.trim()) {
-      message.error('请输入 API Key');
+    let values: ProviderFormValues;
+    try {
+      values = await form.validateFields();
+    } catch {
+      message.warning('请先补齐表单中的必填项');
       return;
     }
 
+    setLoading(true);
     try {
-      // 保存到后端加密存储
+      const models = splitModels(values.models_text);
+      const provider = values.provider.trim().toLowerCase();
       const response = await fetch(`${API_BASE_URL}/cloud/api-keys`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           provider,
-          api_key: apiKey,
-          group_id: groupId || undefined,
-          base_url: baseUrl || undefined,
-          name: `${provider}-${new Date().toLocaleDateString()}`,
+          api_key: values.api_key?.trim() || '',
+          group_id: values.group_id || undefined,
+          base_url: values.base_url || undefined,
+          name: values.name || provider,
+          note: values.note || undefined,
+          official_url: values.official_url || undefined,
+          interface_format: values.interface_format,
+          default_model: values.default_model || models[0] || undefined,
+          models,
         }),
       });
 
-      if (response.ok) {
-        const data = await response.json();
-
-        // 保存配置到本地（只存 key_id，不存明文 key）
-        const config: APIKeyConfig = {
-          provider,
-          api_key: '', // 不存明文
-          model,
-          key_id: data.key_id,
-          group_id: groupId || undefined,
-          base_url: baseUrl || undefined,
-        };
-        localStorage.setItem('cloud_ai_config', JSON.stringify(config));
-
-        setKeyId(data.key_id);
-        setSaved(true);
-        message.success('API Key 已加密保存');
-        onConfigChange?.(config);
-        loadSavedKeys();
-
-        setTimeout(() => setSaved(false), 2000);
-      } else {
-        const error = await response.json();
-        message.error(`保存失败：${error.detail}`);
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        message.error(`保存失败：${error.detail || response.statusText}`);
+        return;
       }
+
+      const config: APIKeyConfig = {
+        provider,
+        api_key: '',
+        model: values.default_model || models[0] || '',
+        group_id: values.group_id || undefined,
+        base_url: values.base_url || undefined,
+      };
+      localStorage.setItem('cloud_ai_config', JSON.stringify(config));
+      onConfigChange?.(config);
+      setSelectedProvider(provider);
+      form.setFieldsValue({ provider, api_key: '' });
+      message.success('供应商配置已保存');
+      await loadSavedKeys();
     } catch (error) {
+      console.error('保存供应商配置失败:', error);
       message.error('保存失败');
+    } finally {
+      setLoading(false);
     }
   };
 
-  // 清除配置
-  const handleClear = () => {
-    localStorage.removeItem('cloud_ai_config');
-    setApiKey('');
-    setKeyId(undefined);
-    setSaved(false);
-    onConfigChange?.({ provider: '', api_key: '', model: '' });
+  const handleTest = async () => {
+    const provider = form.getFieldValue('provider');
+    const baseUrl = form.getFieldValue('base_url');
+    const groupId = form.getFieldValue('group_id');
+    if (!provider) {
+      message.error('请先填写供应商标识');
+      return;
+    }
+
+    setTesting(true);
+    try {
+      const params = new URLSearchParams();
+      if (baseUrl) params.set('base_url', baseUrl);
+      if (groupId) params.set('group_id', groupId);
+      const response = await fetch(`${API_BASE_URL}/cloud/test/${provider}?${params.toString()}`, {
+        method: 'POST',
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        message.success(data.message || '连接测试成功');
+      } else {
+        message.warning(data.detail || data.message || '连接测试未通过，请先保存 API Key');
+      }
+    } catch (error) {
+      console.error('连接测试失败:', error);
+      message.error('连接测试失败');
+    } finally {
+      setTesting(false);
+    }
   };
 
-  // 删除已保存的 Key
-  const handleDeleteKey = async (keyId: string) => {
+  const handleDeleteKey = async (provider: string) => {
     try {
-      await fetch(`${API_BASE_URL}/cloud/api-keys/${keyId}`, {
-        method: 'DELETE',
-      });
+      await fetch(`${API_BASE_URL}/cloud/api-keys/${provider}`, { method: 'DELETE' });
       message.success('已删除');
-      loadSavedKeys();
+      if (selectedProvider === provider) {
+        setSelectedProvider('');
+        form.setFieldsValue(defaultValues);
+      }
+      await loadSavedKeys();
     } catch (error) {
+      console.error('删除供应商配置失败:', error);
       message.error('删除失败');
     }
   };
 
-  // 获取当前服务商描述
-  const currentProvider = PROVIDER_OPTIONS.find((p) => p.value === provider);
-  const currentModels = MODEL_OPTIONS[provider] || [];
+  const handleSelectSaved = async (key: APIKeyInfo) => {
+    setSelectedProvider(key.provider);
+    try {
+      const response = await fetch(`${API_BASE_URL}/cloud/api-keys/${key.provider}/data`);
+      const data = await response.json();
+      form.setFieldsValue({
+        provider: key.provider,
+        name: data.name || key.name || key.provider,
+        note: data.note || key.note || '',
+        official_url: data.official_url || key.official_url || '',
+        interface_format:
+          data.interface_format || key.interface_format || builtinFormatByProvider[key.provider] || 'openai-chat-completions',
+        api_key: '',
+        base_url: data.base_url || key.base_url || '',
+        default_model: data.default_model || key.default_model || '',
+        models_text: modelsToText(data.models || key.models),
+        group_id: data.group_id || '',
+      });
+    } catch (error) {
+      console.error('加载供应商配置失败:', error);
+      message.error('加载配置失败');
+    }
+  };
+
+  const handleClear = () => {
+    setSelectedProvider('');
+    localStorage.removeItem('cloud_ai_config');
+    form.setFieldsValue(defaultValues);
+    onConfigChange?.({ provider: '', api_key: '', model: '' });
+  };
 
   return (
     <MotionList style={{ display: 'flex', flexDirection: 'column', gap: 20 }} stagger={0.08}>
-      {/* 标题栏 */}
       <MotionItem>
         <div
           style={{
             background: 'var(--bg-secondary)',
             border: '1px solid var(--border-color)',
-            borderRadius: 12,
+            borderRadius: 8,
             padding: '20px 24px',
             display: 'flex',
             alignItems: 'center',
@@ -232,371 +295,239 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
             gap: 16,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <CloudOutlined style={{ fontSize: 20, color: 'var(--text-secondary)' }} />
-            <span style={{ fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>
-              ☁️ 云端 AI 配置
-            </span>
-          </div>
           <Space>
-            {saved && (
-              <span style={{ color: 'var(--success)', marginRight: 8, fontWeight: 500 }}>
-                ✓ 已保存
-              </span>
-            )}
-            <Button onClick={handleClear} size="small">
-              清除配置
+            <CloudOutlined style={{ fontSize: 20, color: 'var(--text-secondary)' }} />
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>
+                云端供应商配置
+              </div>
+              <Text type="secondary">自由添加 OpenAI Compatible 或内置云端模型供应商。</Text>
+            </div>
+          </Space>
+          <Space wrap>
+            <Button icon={<ReloadOutlined />} onClick={() => void loadSavedKeys()}>
+              刷新
             </Button>
-            <Button type="primary" icon={<SaveOutlined />} onClick={handleSave}>
+            <Button icon={<ExperimentOutlined />} loading={testing} onClick={handleTest}>
+              测试连接
+            </Button>
+            <Button onClick={handleClear}>清空表单</Button>
+            <Button type="primary" icon={<SaveOutlined />} loading={loading} onClick={handleSave}>
               保存配置
             </Button>
           </Space>
         </div>
       </MotionItem>
 
-      {/* 已保存的 API Keys */}
-      {savedKeys.length > 0 && (
-        <MotionItem>
-          <div
-            style={{
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border-color)',
-              borderRadius: 12,
-              padding: 20,
-            }}
-          >
+      <MotionItem>
+        <Row gutter={[20, 20]} align="top">
+          <Col xs={24} xl={7}>
             <div
               style={{
-                fontWeight: 600,
-                marginBottom: 12,
-                color: 'var(--text-primary)',
-                fontSize: 15,
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: 8,
+                padding: 16,
               }}
             >
-              已保存的 API Keys
-            </div>
-            <Space direction="vertical" style={{ width: '100%' }} size="small">
-              {savedKeys.map((key) => (
-                <Space key={key.id} style={{ justifyContent: 'space-between', width: '100%' }}>
-                  <Space>
-                    <CheckCircleOutlined style={{ color: 'var(--success)' }} />
-                    <div>
-                      <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                        {key.name || key.provider}
-                      </span>
-                      <br />
-                      <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-                        {key.provider} · {key.created_at}
-                      </span>
+              <div style={{ fontWeight: 700, marginBottom: 12, color: 'var(--text-primary)' }}>
+                已保存供应商
+              </div>
+              <Space direction="vertical" style={{ width: '100%' }} size="small">
+                {savedKeys.length === 0 && <Text type="secondary">暂无配置，先在右侧添加一个供应商。</Text>}
+                {savedKeys.map((key) => (
+                  <div
+                    key={key.id}
+                    style={{
+                      border: selectedProvider === key.provider ? '1px solid var(--accent-primary)' : '1px solid var(--border-color)',
+                      borderRadius: 8,
+                      padding: 12,
+                      cursor: 'pointer',
+                      background: 'var(--bg-primary)',
+                    }}
+                    onClick={() => void handleSelectSaved(key)}
+                  >
+                    <Space style={{ justifyContent: 'space-between', width: '100%' }} align="start">
+                      <div>
+                        <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+                          {key.name || key.provider}
+                        </div>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {key.provider}
+                        </Text>
+                      </div>
+                      <Button
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleDeleteKey(key.provider);
+                        }}
+                      />
+                    </Space>
+                    <div style={{ marginTop: 8 }}>
+                      <Tag>{key.interface_format || 'native'}</Tag>
+                      {key.masked_key && <Tag color="success">{key.masked_key}</Tag>}
                     </div>
-                  </Space>
-                  <Button
-                    size="small"
-                    danger
-                    icon={<DeleteOutlined />}
-                    onClick={() => handleDeleteKey(key.id)}
-                  >
-                    删除
-                  </Button>
-                </Space>
-              ))}
-            </Space>
-          </div>
-        </MotionItem>
-      )}
+                  </div>
+                ))}
+              </Space>
+            </div>
+          </Col>
 
-      {/* 配置区 */}
-      <MotionItem>
-        <div
-          style={{
-            background: 'var(--bg-secondary)',
-            border: '1px solid var(--border-color)',
-            borderRadius: 12,
-            padding: 24,
-          }}
-        >
-          <Space direction="vertical" style={{ width: '100%' }} size="large">
-            <Alert
-              message="Minimax Coding Plan"
-              description={
-                provider === 'minimax-coding'
-                  ? '使用你的 Minimax 编程套餐，享受更强的代码生成和优化能力。格式：group_id:api_key'
-                  : '切换到 Minimax Coding 可获得更好的编程体验'
-              }
-              type={provider === 'minimax-coding' ? 'success' : 'info'}
-              showIcon
-            />
-
-            <div>
-              <div
-                style={{
-                  fontSize: 15,
-                  fontWeight: 600,
-                  marginBottom: 8,
-                  color: 'var(--text-primary)',
-                }}
-              >
-                服务商
-              </div>
-              <Select
-                value={provider}
-                onChange={setProvider}
-                options={PROVIDER_OPTIONS}
-                style={{ width: '100%' }}
-                size="large"
+          <Col xs={24} xl={17}>
+            <div
+              style={{
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: 8,
+                padding: 24,
+              }}
+            >
+              <Alert
+                message="自定义供应商"
+                description="供应商标识会作为配置中的唯一 ID。OpenAI Chat Completions 会调用 Base URL + /chat/completions；Anthropic Messages 会调用 Base URL + /messages。"
+                type="info"
+                showIcon
+                style={{ marginBottom: 20 }}
               />
-              {currentProvider && (
-                <div style={{ marginTop: 8 }}>
-                  <span
-                    style={{
-                      color: 'var(--text-secondary)',
-                      fontSize: 12,
-                      display: 'block',
-                      marginBottom: 4,
+
+              <Form form={form} layout="vertical" initialValues={defaultValues}>
+                <Form.Item
+                  name="provider"
+                  label="供应商标识"
+                  rules={[
+                    { required: true, message: '请输入供应商标识' },
+                    {
+                      transform: (value) => (typeof value === 'string' ? value.trim().toLowerCase() : value),
+                      pattern: /^[a-z0-9-]+$/,
+                      message: '只能使用小写字母、数字和连字符',
+                    },
+                  ]}
+                  extra="配置文件中的唯一标识符，只能使用小写字母、数字和连字符"
+                >
+                  <Input
+                    placeholder="my-provider"
+                    size="large"
+                    onBlur={() => {
+                      const provider = form.getFieldValue('provider');
+                      if (provider) {
+                        form.setFieldValue('provider', provider.trim().toLowerCase());
+                      }
                     }}
-                  >
-                    {currentProvider.description}
-                  </span>
-                  <Space size="small">
-                    <a
-                      href={currentProvider.officialUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ fontSize: 12 }}
-                    >
-                      🏠 官网
-                    </a>
-                    <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>|</span>
-                    <a
-                      href={currentProvider.apiKeyUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ fontSize: 12 }}
-                    >
-                      🔑 获取 API Key
-                    </a>
-                  </Space>
-                </div>
-              )}
-            </div>
+                  />
+                </Form.Item>
 
-            <Divider style={{ margin: '12px 0' }} />
+                <Row gutter={20}>
+                  <Col xs={24} md={12}>
+                    <Form.Item name="name" label="供应商名称">
+                      <Input placeholder="例如：Claude 官方" size="large" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <Form.Item name="note" label="备注">
+                      <Input placeholder="例如：公司专用账号" size="large" />
+                    </Form.Item>
+                  </Col>
+                </Row>
 
-            <div>
-              <div
-                style={{
-                  fontSize: 15,
-                  fontWeight: 600,
-                  marginBottom: 8,
-                  color: 'var(--text-primary)',
-                }}
-              >
-                选择模型
-              </div>
-              <Select
-                value={model}
-                onChange={setModel}
-                options={currentModels}
-                style={{ width: '100%' }}
-                size="large"
-              />
-            </div>
+                <Form.Item name="official_url" label="官网链接">
+                  <Input placeholder="https://example.com（可选）" size="large" />
+                </Form.Item>
 
-            <Divider style={{ margin: '12px 0' }} />
-
-            <div>
-              <div
-                style={{
-                  fontSize: 15,
-                  fontWeight: 600,
-                  marginBottom: 8,
-                  color: 'var(--text-primary)',
-                }}
-              >
-                Group ID
-                <span
-                  style={{
-                    color: 'var(--text-secondary)',
-                    fontSize: 12,
-                    marginLeft: 8,
-                    fontWeight: 400,
-                  }}
+                <Form.Item
+                  name="interface_format"
+                  label="接口格式"
+                  rules={[{ required: true, message: '请选择接口格式' }]}
+                  extra="选择 AI 服务的 API 接口格式"
                 >
-                  (可选，MiniMax 用户/组织 ID)
-                </span>
-              </div>
-              <Input
-                value={groupId}
-                onChange={(e) => setGroupId(e.target.value)}
-                placeholder="请输入 Group ID（可选）"
-                size="large"
-              />
-            </div>
+                  <Select options={interfaceOptions} size="large" />
+                </Form.Item>
 
-            <Divider style={{ margin: '12px 0' }} />
-
-            <div>
-              <div
-                style={{
-                  fontSize: 15,
-                  fontWeight: 600,
-                  marginBottom: 8,
-                  color: 'var(--text-primary)',
-                }}
-              >
-                Base URL
-                <span
-                  style={{
-                    color: 'var(--text-secondary)',
-                    fontSize: 12,
-                    marginLeft: 8,
-                    fontWeight: 400,
-                  }}
+                <Form.Item
+                  name="api_key"
+                  label="API Key"
+                  rules={[
+                    ({ getFieldValue }) => ({
+                      validator(_, value) {
+                        const provider = getFieldValue('provider')?.trim().toLowerCase();
+                        const hasSavedKey =
+                          selectedProvider === provider || savedKeys.some((key) => key.provider === provider);
+                        if (hasSavedKey || value?.trim()) {
+                          return Promise.resolve();
+                        }
+                        return Promise.reject(new Error('新增供应商时必须填写 API Key'));
+                      },
+                    }),
+                  ]}
+                  extra="新增供应商必填；编辑已有供应商时留空会保留原 API Key"
                 >
-                  (API 请求地址)
-                </span>
-              </div>
-              <Space.Compact style={{ width: '100%' }}>
-                <Input
-                  value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
-                  placeholder={currentProvider?.defaultBaseUrl || '请输入 Base URL'}
-                  size="large"
-                  style={{ flex: 1 }}
+                  <Input.Password
+                    placeholder="新增时填写；编辑已有配置可留空"
+                    size="large"
+                    autoComplete="off"
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="base_url"
+                  label="Base URL"
+                  rules={[
+                    ({ getFieldValue }) => ({
+                      validator(_, value) {
+                        if (
+                          !['openai-chat-completions', 'openai-compatible', 'anthropic-messages'].includes(
+                            getFieldValue('interface_format'),
+                          ) ||
+                          value
+                        ) {
+                          return Promise.resolve();
+                        }
+                        return Promise.reject(new Error('该接口格式需要填写 Base URL'));
+                      },
+                    }),
+                  ]}
+                  extra="自定义 API 端点地址"
+                >
+                  <Input placeholder="https://api.example.com/v1" size="large" />
+                </Form.Item>
+
+                <Row gutter={20}>
+                  <Col xs={24} md={12}>
+                    <Form.Item name="default_model" label="默认模型">
+                      <Input placeholder="例如：gpt-4o-mini / claude-3-5-sonnet-latest" size="large" />
+                    </Form.Item>
+                  </Col>
+                  <Col xs={24} md={12}>
+                    <Form.Item name="group_id" label="组织 / 项目 ID">
+                      <Input placeholder="可选，例如 group_id / project_id" size="large" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+
+                <Form.Item
+                  name="models_text"
+                  label="可选模型列表"
+                  extra="一行一个模型，或用英文逗号分隔；用于页面选择和默认模型提示"
+                >
+                  <Input.TextArea
+                    rows={4}
+                    placeholder={'gpt-4o-mini\ngpt-4.1\nclaude-3-5-sonnet-latest'}
+                  />
+                </Form.Item>
+
+                <Alert
+                  message="保存后如何使用"
+                  description="保存后，聊天、数字团队等模块可以使用这个供应商标识作为 provider。API Key 会进入后端加密存储，localStorage 只保存 provider 和默认模型等非密钥信息。"
+                  type="success"
+                  showIcon
+                  icon={<CheckCircleOutlined />}
                 />
-                <Button
-                  size="large"
-                  onClick={() => setBaseUrl(currentProvider?.defaultBaseUrl || '')}
-                  disabled={!currentProvider?.defaultBaseUrl}
-                >
-                  使用默认
-                </Button>
-              </Space.Compact>
-              {currentProvider?.defaultBaseUrl && (
-                <span
-                  style={{
-                    color: 'var(--text-secondary)',
-                    fontSize: 12,
-                    marginTop: 4,
-                    display: 'block',
-                  }}
-                >
-                  默认地址：
-                  <code
-                    style={{
-                      background: 'var(--bg-elevated)',
-                      padding: '2px 6px',
-                      borderRadius: 4,
-                    }}
-                  >
-                    {currentProvider.defaultBaseUrl}
-                  </code>
-                </span>
-              )}
+              </Form>
             </div>
-
-            <Divider style={{ margin: '12px 0' }} />
-
-            <div>
-              <div
-                style={{
-                  fontSize: 15,
-                  fontWeight: 600,
-                  marginBottom: 8,
-                  color: 'var(--text-primary)',
-                }}
-              >
-                API Key
-                <span
-                  style={{
-                    color: 'var(--text-secondary)',
-                    fontSize: 12,
-                    marginLeft: 8,
-                    fontWeight: 400,
-                  }}
-                >
-                  (必填)
-                </span>
-              </div>
-              <Input.TextArea
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="请输入 API Key"
-                rows={3}
-                size="large"
-              />
-            </div>
-
-            <Alert
-              message="如何获取 API Key？"
-              description={
-                provider.startsWith('minimax') ? (
-                  <ol style={{ margin: 0, paddingLeft: 20 }}>
-                    <li>
-                      访问{' '}
-                      <a href="https://platform.minimaxi.com/" target="_blank" rel="noreferrer">
-                        Minimax 开放平台
-                      </a>
-                    </li>
-                    <li>注册/登录账号（支持手机号、微信）</li>
-                    <li>进入「控制台」→「API Key 管理」</li>
-                    <li>点击「创建 API Key」并复制</li>
-                    <li>如有 Group ID（用户/组织ID），一并填入</li>
-                  </ol>
-                ) : provider === 'glm' ? (
-                  <ol style={{ margin: 0, paddingLeft: 20 }}>
-                    <li>
-                      访问{' '}
-                      <a href="https://open.bigmodel.cn/" target="_blank" rel="noreferrer">
-                        智谱 AI 开放平台
-                      </a>
-                    </li>
-                    <li>注册/登录账号</li>
-                    <li>进入「API Keys」页面</li>
-                    <li>点击「创建 API Key」并复制</li>
-                  </ol>
-                ) : (
-                  <ol style={{ margin: 0, paddingLeft: 20 }}>
-                    <li>访问对应服务商官网注册账号</li>
-                    <li>在控制台获取 API Key</li>
-                    <li>填入 API Key 和 Base URL</li>
-                  </ol>
-                )
-              }
-              type="success"
-              showIcon
-              icon={<CloudOutlined />}
-            />
-
-            <Alert
-              message="💰 费用提示"
-              description={
-                provider.startsWith('minimax') ? (
-                  <div>
-                    <span>Minimax Coding Plan 套餐内调用免费，超额后约 ¥0.01-0.03/1k tokens。</span>
-                    <br />
-                    <span style={{ color: 'var(--text-secondary)' }}>
-                      建议定期检查剩余额度，设置用量提醒。
-                    </span>
-                  </div>
-                ) : provider === 'glm' ? (
-                  <div>
-                    <span>智谱 GLM 新用户有免费额度，按量计费约 ¥0.01-0.1/1k tokens。</span>
-                    <br />
-                    <span style={{ color: 'var(--text-secondary)' }}>
-                      GLM-4 价格较高，GLM-3-turbo 性价比更好。
-                    </span>
-                  </div>
-                ) : (
-                  <span>请查看对应服务商的定价策略。</span>
-                )
-              }
-              type="warning"
-              showIcon
-              style={{ marginTop: 8 }}
-            />
-          </Space>
-        </div>
+          </Col>
+        </Row>
       </MotionItem>
     </MotionList>
   );

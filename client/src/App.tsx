@@ -34,6 +34,8 @@ const History = lazy(() => import('./pages/History'));
 const ProjectContext = lazy(() => import('./pages/ProjectContext'));
 const APIKeyManager = lazy(() => import('./pages/APIKeyManager'));
 const MemoryPage = lazy(() => import('./pages/MemoryPage'));
+const DigitalTeam = lazy(() => import('./pages/DigitalTeam'));
+const Workflows = lazy(() => import('./pages/Workflows'));
 const CUAControl = lazy(() => import('./pages/CUAControl'));
 const ActionRecorder = lazy(() => import('./pages/ActionRecorder'));
 const MCPTools = lazy(() => import('./pages/MCPTools'));
@@ -150,6 +152,8 @@ const routes = [
   { path: '/knowledge', element: <KnowledgeBase /> },
   { path: '/workspace', element: <WorkspaceManager /> },
   { path: '/memory', element: <MemoryPage /> },
+  { path: '/workflows', element: <Workflows /> },
+  { path: '/digital-team', element: <DigitalTeam /> },
   { path: '/modelhub', element: <ModelHub /> },
   { path: '/inference', element: <Inference /> },
   { path: '/evaluation', element: <Evaluation /> },

@@ -1,6 +1,7 @@
 import {
   AudioOutlined,
   ClearOutlined,
+  PartitionOutlined,
   RobotOutlined,
   SendOutlined,
   StopOutlined,
@@ -26,6 +27,8 @@ interface ChatInputProps {
   modelId?: string;
   maxLength?: number;
   showModelInfo?: boolean;
+  onCreateWorkflow?: (content: string) => void | Promise<void>;
+  creatingWorkflow?: boolean;
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({
@@ -39,6 +42,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
   modelId,
   maxLength = 4000,
   showModelInfo = true,
+  onCreateWorkflow,
+  creatingWorkflow = false,
 }) => {
   const { isMobile } = useResponsive();
   const [value, setValue] = useState('');
@@ -53,6 +58,15 @@ const ChatInput: React.FC<ChatInputProps> = ({
     onSend(value.trim());
     setValue('');
   }, [canSend, onSend, value]);
+
+  const handleCreateWorkflow = useCallback(async () => {
+    const content = value.trim();
+    if (!content) {
+      message.warning('请先输入工作流目标');
+      return;
+    }
+    await onCreateWorkflow?.(content);
+  }, [onCreateWorkflow, value]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -201,6 +215,20 @@ const ChatInput: React.FC<ChatInputProps> = ({
                     size="small"
                     icon={<ClearOutlined />}
                     onClick={onClear}
+                    className={styles.ghostIcon}
+                  />
+                </Tooltip>
+              )}
+
+              {onCreateWorkflow && (
+                <Tooltip title="发起工作流">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<PartitionOutlined />}
+                    onClick={handleCreateWorkflow}
+                    loading={creatingWorkflow}
+                    disabled={loading || isStreaming}
                     className={styles.ghostIcon}
                   />
                 </Tooltip>

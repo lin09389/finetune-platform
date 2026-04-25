@@ -1,6 +1,7 @@
 import { Modal } from 'antd';
 import { motion, useReducedMotion } from 'framer-motion';
-import React, { useCallback, useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Virtuoso } from 'react-virtuoso';
 
 import { useChatStream } from '../hooks/chat/useChatStream';
@@ -18,7 +19,8 @@ import RuntimeContextPanel from '../components/runtime/RuntimeContextPanel';
 import APIKeyManager from '../pages/APIKeyManager';
 
 import { useRuntimeContext } from '../runtime/RuntimeContext';
-import { API_BASE_URL } from '../services/api';
+import { API_BASE_URL, createWorkflow, getSavedCloudProviders } from '../services/api';
+import type { SavedCloudProvider } from '../services/api';
 import { transitions } from '../theme/animations';
 import { notify } from '../utils/notify';
 import styles from './ChatNew.module.css';
@@ -144,7 +146,10 @@ const ChatPage: React.FC = () => {
 
   const [useCloudAI, setUseCloudAI] = useState(false);
   const [cloudAIConfig, setCloudAIConfig] = useState<APIKeyConfig | null>(null);
-  const [selectedCloudModel, setSelectedCloudModel] = useState<string>('MiniMax-M2.5');
+  const [cloudProviders, setCloudProviders] = useState<SavedCloudProvider[]>([]);
+  const [selectedCloudModel, setSelectedCloudModel] = useState<string>('');
+  const [creatingWorkflow, setCreatingWorkflow] = useState(false);
+  const navigate = useNavigate();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const restoredSessionRef = useRef<string | null>(null);
@@ -222,26 +227,49 @@ const ChatPage: React.FC = () => {
 
   const loadCloudAIConfig = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/cloud/api-keys`);
-      if (response.ok) {
-        const data = await response.json();
-        if (data.keys && data.keys.length > 0) {
-          const firstKey = data.keys[0];
+      const data = await getSavedCloudProviders();
+      const keys: SavedCloudProvider[] = data.keys || [];
+      setCloudProviders(keys);
+
+      if (keys.length > 0) {
+        const saved = localStorage.getItem('cloud_ai_config');
+        let preferredProvider = '';
+        let preferredModel = '';
+        if (saved) {
+          try {
+            const savedConfig = JSON.parse(saved);
+            preferredProvider = savedConfig.provider || '';
+            preferredModel = savedConfig.model || '';
+          } catch {
+            preferredProvider = '';
+          }
+        }
+
+        const firstKey = keys.find((key) => key.provider === preferredProvider) || keys[0];
+        if (firstKey) {
           const keyData = await fetch(`${API_BASE_URL}/cloud/api-keys/${firstKey.id}/data`)
             .then((r) => r.json())
             .catch(() => ({}));
+          const models = keyData.models || firstKey.models || [];
+          const selectedModel =
+            preferredModel ||
+            keyData.default_model ||
+            firstKey.default_model ||
+            models[0] ||
+            '';
 
           const config: APIKeyConfig = {
             provider: firstKey.provider,
             api_key: '',
             key_id: firstKey.id,
-            model: 'MiniMax-M2.5',
+            model: selectedModel,
             group_id: keyData.group_id || '',
             base_url: keyData.base_url || '',
           };
           setCloudAIConfig(config);
           setUseCloudAI(localStorage.getItem('chat_use_cloud_ai') === '1');
-          setSelectedCloudModel('MiniMax-M2.5');
+          setSelectedCloudModel(selectedModel);
+          localStorage.setItem('cloud_ai_config', JSON.stringify(config));
           return;
         }
       }
@@ -285,6 +313,96 @@ const ChatPage: React.FC = () => {
       }
     },
     [useCloudAI, cloudAIConfig, selectedCloudModel, sendCloudMessage, sendMessage],
+  );
+
+  const handleCreateWorkflow = useCallback(
+    async (content: string) => {
+      const goal = content.trim();
+      if (!goal) {
+        notify.warning('请先输入工作流目标');
+        return;
+      }
+
+      setCreatingWorkflow(true);
+      try {
+        const workflow = await createWorkflow({
+          title: goal.slice(0, 30),
+          goal,
+          template_id: 'software_delivery',
+          provider: cloudAIConfig?.provider || undefined,
+          model: selectedCloudModel || cloudAIConfig?.model || undefined,
+          approval_mode: 'manual',
+        });
+        notify.success('工作流已创建');
+        navigate(`/workflows?workflow=${workflow.workflow_id || workflow.id}`);
+      } catch (error: any) {
+        notify.error(error?.response?.data?.detail || '创建工作流失败');
+      } finally {
+        setCreatingWorkflow(false);
+      }
+    },
+    [cloudAIConfig?.model, cloudAIConfig?.provider, navigate, selectedCloudModel],
+  );
+
+  const selectedCloudProvider = useMemo(
+    () => cloudProviders.find((provider) => provider.provider === cloudAIConfig?.provider),
+    [cloudAIConfig?.provider, cloudProviders],
+  );
+
+  const cloudProviderOptions = useMemo(
+    () =>
+      cloudProviders.map((provider) => ({
+        id: provider.provider,
+        name: `${provider.name || provider.provider} (${provider.provider})`,
+      })),
+    [cloudProviders],
+  );
+
+  const cloudModelOptions = useMemo(() => {
+    const models = selectedCloudProvider?.models?.length
+      ? selectedCloudProvider.models
+      : selectedCloudProvider?.default_model
+        ? [selectedCloudProvider.default_model]
+        : [];
+    return models.map((model) => ({ id: model, name: model }));
+  }, [selectedCloudProvider]);
+
+  const handleCloudProviderChange = useCallback(
+    async (provider: string) => {
+      const selectedProvider = cloudProviders.find((item) => item.provider === provider);
+      if (!selectedProvider) return;
+
+      const keyData = await fetch(`${API_BASE_URL}/cloud/api-keys/${selectedProvider.id}/data`)
+        .then((r) => r.json())
+        .catch(() => ({}));
+      const models = keyData.models || selectedProvider.models || [];
+      const nextModel = keyData.default_model || selectedProvider.default_model || models[0] || '';
+      const config: APIKeyConfig = {
+        provider: selectedProvider.provider,
+        api_key: '',
+        key_id: selectedProvider.id,
+        model: nextModel,
+        group_id: keyData.group_id || '',
+        base_url: keyData.base_url || '',
+      };
+      setCloudAIConfig(config);
+      setSelectedCloudModel(nextModel);
+      localStorage.setItem('cloud_ai_config', JSON.stringify(config));
+    },
+    [cloudProviders],
+  );
+
+  const handleCloudModelChange = useCallback(
+    (model: string) => {
+      setSelectedCloudModel(model);
+      setCloudAIConfig((config) => {
+        if (!config) return config;
+        const nextConfig = { ...config, model };
+        localStorage.setItem('cloud_ai_config', JSON.stringify(nextConfig));
+        return nextConfig;
+      });
+    },
+    [],
   );
 
   const handleRetry = useCallback(
@@ -506,6 +624,12 @@ const ChatPage: React.FC = () => {
         }}
         cloudAIConfigured={!!(cloudAIConfig?.api_key || cloudAIConfig?.key_id)}
         onOpenCloudAIConfig={() => setConfigModalOpen(true)}
+        currentCloudProvider={cloudAIConfig?.provider}
+        cloudProviders={cloudProviderOptions}
+        onCloudProviderChange={handleCloudProviderChange}
+        currentCloudModel={selectedCloudModel}
+        cloudModels={cloudModelOptions}
+        onCloudModelChange={handleCloudModelChange}
         useKnowledge={settings.useKnowledge}
         onToggleKnowledge={handleToggleKnowledge}
         collectionsCount={observed.knowledge.collections.length}
@@ -640,6 +764,8 @@ const ChatPage: React.FC = () => {
         loading={isLoading}
         isStreaming={isActivelyStreaming}
         modelId={useCloudAI ? selectedCloudModel : settings.modelId}
+        onCreateWorkflow={handleCreateWorkflow}
+        creatingWorkflow={creatingWorkflow}
       />
 
       <ChatHistoryDrawer
@@ -681,9 +807,8 @@ const ChatPage: React.FC = () => {
         <APIKeyManager
           onConfigChange={(config: APIKeyConfig) => {
             setCloudAIConfig(config);
-            if (config.model) {
-              setSelectedCloudModel(config.model);
-            }
+            setSelectedCloudModel(config.model || '');
+            void loadCloudAIConfig();
           }}
           initialConfig={cloudAIConfig}
         />
