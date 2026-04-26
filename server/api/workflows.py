@@ -6,7 +6,11 @@ from fastapi import APIRouter, Depends
 
 from agent_runtime.models import (
     WorkflowApprovalRequest,
+    WorkflowContextProfile,
+    WorkflowContextProfileUpdate,
+    WorkflowContextSnapshotResponse,
     WorkflowCreate,
+    WorkflowMemoryEntryResponse,
     WorkflowResponse,
     WorkflowTemplateCreate,
     WorkflowTemplateResponse,
@@ -124,3 +128,44 @@ async def get_workflow_artifacts(
     service: AgentRuntimeService = Depends(get_agent_runtime_service),
 ):
     return {"artifacts": service.list_artifacts(workflow_id)}
+
+
+@router.get("/workflows/{workflow_id}/context", response_model=WorkflowContextProfile)
+async def get_workflow_context(
+    workflow_id: str,
+    service: AgentRuntimeService = Depends(get_agent_runtime_service),
+):
+    return service.get_context_profile(workflow_id)
+
+
+@router.put("/workflows/{workflow_id}/context", response_model=WorkflowContextProfile)
+async def update_workflow_context(
+    workflow_id: str,
+    request: WorkflowContextProfileUpdate,
+    service: AgentRuntimeService = Depends(get_agent_runtime_service),
+):
+    return service.update_context_profile(workflow_id, request)
+
+
+@router.get("/workflows/{workflow_id}/context/snapshots", response_model=list[WorkflowContextSnapshotResponse])
+async def get_workflow_context_snapshots(
+    workflow_id: str,
+    service: AgentRuntimeService = Depends(get_agent_runtime_service),
+):
+    return service.list_context_snapshots(workflow_id)
+
+
+@router.get("/workflows/{workflow_id}/memory", response_model=list[WorkflowMemoryEntryResponse])
+async def get_workflow_memory(
+    workflow_id: str,
+    service: AgentRuntimeService = Depends(get_agent_runtime_service),
+):
+    return service.list_memory_entries(workflow_id)
+
+
+@router.post("/workflow-memory/{memory_id}/revert", response_model=WorkflowMemoryEntryResponse)
+async def revert_workflow_memory(
+    memory_id: str,
+    service: AgentRuntimeService = Depends(get_agent_runtime_service),
+):
+    return service.revert_memory_entry(memory_id)

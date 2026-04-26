@@ -7,13 +7,15 @@ import axios, { AxiosInstance } from 'axios';
 // Resolve backend API base URL.
 const getApiBaseUrl = () => {
   if (typeof window !== 'undefined' && (window as any).electronAPI) {
-    return (window as any).electronAPI.getBackendUrlSync?.() || 'http://127.0.0.1:8000';
+    return (window as any).electronAPI.getBackendUrlSync?.() || `http://${window.location.hostname}:8000`;
   }
-  return ((import.meta as any).env?.VITE_API_URL || 'http://127.0.0.1:8000') as string;
+  const host = typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1';
+  return ((import.meta as any).env?.VITE_API_URL || `http://${host}:8000`) as string;
 };
 
 // Export base URL for other modules.
 export const API_BASE_URL = getApiBaseUrl();
+console.log('[API] Base URL:', API_BASE_URL);
 
 // ==================== Connection Pool ====================
 
@@ -344,6 +346,11 @@ export interface WorkflowCreate {
   goal: string;
   template_id?: string;
   project_path?: string;
+  chat_session_id?: string;
+  include_project_context?: boolean;
+  include_chat_context?: boolean;
+  include_memory?: boolean;
+  max_context_chars?: number;
   provider?: string;
   model?: string;
   approval_mode?: string;
@@ -414,6 +421,47 @@ export interface Workflow {
   completed_at?: string;
   metadata?: Record<string, any>;
   steps: WorkflowStep[];
+}
+
+export interface WorkflowContextProfile {
+  workflow_id: string;
+  project_path?: string;
+  chat_session_id?: string;
+  include_project_context: boolean;
+  include_chat_context: boolean;
+  include_memory: boolean;
+  max_context_chars: number;
+  metadata?: Record<string, any>;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface WorkflowContextSnapshot {
+  id: string;
+  workflow_id: string;
+  step_id?: string;
+  step_key?: string;
+  context_type: string;
+  content: string;
+  sources: Array<Record<string, any>>;
+  char_count: number;
+  created_at: string;
+}
+
+export interface WorkflowMemoryEntry {
+  id: string;
+  workflow_id: string;
+  source_step_id?: string;
+  memory_type: string;
+  memory_key: string;
+  memory_value: Record<string, any>;
+  content: string;
+  confidence: number;
+  status: string;
+  external_memory_id?: string;
+  created_at: string;
+  updated_at: string;
+  reverted_at?: string;
 }
 
 export interface WorkflowTemplate {
@@ -509,6 +557,36 @@ export const getWorkflowArtifacts = async (workflowId: string) => {
   return response.data;
 };
 
+export const getWorkflowContext = async (workflowId: string): Promise<WorkflowContextProfile> => {
+  const response = await apiClient.get(`/workflows/${workflowId}/context`);
+  return response.data;
+};
+
+export const updateWorkflowContext = async (
+  workflowId: string,
+  payload: Omit<WorkflowContextProfile, 'workflow_id' | 'created_at' | 'updated_at'>,
+): Promise<WorkflowContextProfile> => {
+  const response = await apiClient.put(`/workflows/${workflowId}/context`, payload);
+  return response.data;
+};
+
+export const getWorkflowContextSnapshots = async (
+  workflowId: string,
+): Promise<WorkflowContextSnapshot[]> => {
+  const response = await apiClient.get(`/workflows/${workflowId}/context/snapshots`);
+  return response.data;
+};
+
+export const getWorkflowMemory = async (workflowId: string): Promise<WorkflowMemoryEntry[]> => {
+  const response = await apiClient.get(`/workflows/${workflowId}/memory`);
+  return response.data;
+};
+
+export const revertWorkflowMemory = async (memoryId: string): Promise<WorkflowMemoryEntry> => {
+  const response = await apiClient.post(`/workflow-memory/${memoryId}/revert`);
+  return response.data;
+};
+
 export interface SavedCloudProvider {
   id: string;
   provider: string;
@@ -522,6 +600,11 @@ export interface SavedCloudProvider {
 
 export const getSavedCloudProviders = async () => {
   const response = await apiClient.get('/cloud/api-keys');
+  return response.data;
+};
+
+export const getSavedCloudProviderData = async (provider: string) => {
+  const response = await apiClient.get(`/cloud/api-keys/${provider}/data`);
   return response.data;
 };
 
@@ -1105,6 +1188,7 @@ export const streamInference = async (
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'omit', // Standard for cross-origin stream if not needed
       body: JSON.stringify({
         model: config.modelId,
         prompt: config.prompt,
@@ -1387,77 +1471,49 @@ export const clearPerformanceHistory = async () => {
 };
 
 // Chat history APIs.
-export const getChatHistory = async (retryConfig?: Partial<RetryConfig>) => {
-  return fetchWithRetry(async () => {
-    const response = await fetch(`${API_BASE_URL}/chat/sessions`);
-    if (!response.ok) throw new Error('Failed to fetch chat history');
-    const data = await response.json();
-    return data.sessions || [];
-  }, retryConfig);
+export const getChatHistory = async () => {
+  const response = await apiClient.get('/chat/sessions');
+  return response.data.sessions || [];
 };
 
-export const createChatSession = async (
-  title: string,
-  modelId: string,
-  retryConfig?: Partial<RetryConfig>,
-) => {
-  return fetchWithRetry(async () => {
-    const response = await fetch(`${API_BASE_URL}/chat/sessions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, metadata: { model_id: modelId } }),
-    });
-    if (!response.ok) throw new Error('Failed to create session');
-    return response.json();
-  }, retryConfig);
+export const createChatSession = async (title: string, modelId: string) => {
+  const response = await apiClient.post('/chat/sessions', {
+    title,
+    metadata: { model_id: modelId },
+  });
+  return response.data;
 };
 
-export const getChatSession = async (sessionId: string, retryConfig?: Partial<RetryConfig>) => {
-  return fetchWithRetry(async () => {
-    const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}`);
-    if (!response.ok) throw new Error('Failed to fetch session');
-    return response.json();
-  }, retryConfig);
+export const getChatSession = async (sessionId: string) => {
+  const response = await apiClient.get(`/chat/sessions/${sessionId}`);
+  return response.data;
 };
 
-export const deleteChatSession = async (sessionId: string, retryConfig?: Partial<RetryConfig>) => {
-  return fetchWithRetry(async () => {
-    const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}`, {
-      method: 'DELETE',
-    });
-    if (!response.ok) throw new Error('Failed to delete session');
-    return response.json();
-  }, retryConfig);
+export const deleteChatSession = async (sessionId: string) => {
+  const response = await apiClient.delete(`/chat/sessions/${sessionId}`);
+  return response.data;
 };
 
 export const addChatMessages = async (
   sessionId: string,
   messages: Array<{ id: string; role: string; content: string; timestamp: string }>,
-  retryConfig?: Partial<RetryConfig>,
 ) => {
-  return fetchWithRetry(async () => {
-    const createdMessages = [];
-    for (const item of messages) {
-      const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          role: item.role,
-          content: item.content,
-          metadata:
-            item.id || item.timestamp
-              ? {
-                  legacy_message_id: item.id,
-                  legacy_timestamp: item.timestamp,
-                }
-              : {},
-        }),
-      });
-      if (!response.ok) throw new Error('Failed to add messages');
-      createdMessages.push(await response.json());
-    }
-    return { messages: createdMessages, count: createdMessages.length };
-  }, retryConfig);
+  const createdMessages = [];
+  for (const item of messages) {
+    const response = await apiClient.post(`/chat/sessions/${sessionId}/messages`, {
+      role: item.role,
+      content: item.content,
+      metadata:
+        item.id || item.timestamp
+          ? {
+              legacy_message_id: item.id,
+              legacy_timestamp: item.timestamp,
+            }
+          : {},
+    });
+    createdMessages.push(response.data);
+  }
+  return { messages: createdMessages, count: createdMessages.length };
 };
 
 export interface MergeLoraParams {

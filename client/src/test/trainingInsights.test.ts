@@ -80,6 +80,12 @@ describe('trainingInsights', () => {
   });
 
   it('builds failure analytics from training history records', () => {
+    const isoDaysAgo = (days: number, hour: number, minute = 0) => {
+      const date = new Date();
+      date.setDate(date.getDate() - days);
+      date.setHours(hour, minute, 0, 0);
+      return date.toISOString();
+    };
     const baseConfig = {
       modelId: 'qwen-7b',
       datasetId: 'dataset-a',
@@ -99,23 +105,27 @@ describe('trainingInsights', () => {
     const analytics = buildTrainingFailureAnalytics([
       {
         id: 'run-1',
+        baseModelId: 'qwen-7b',
+        datasetId: 'dataset-a',
         modelName: 'qwen-7b',
         datasetName: 'dataset-a',
         method: 'qlora',
         status: 'failed',
-        startTime: '2026-04-16T10:00:00',
-        endTime: '2026-04-16T10:10:00',
+        startTime: isoDaysAgo(2, 10),
+        endTime: isoDaysAgo(2, 10, 10),
         outputPath: '/tmp/run-1',
         config: { ...baseConfig, batchSize: 2, maxSeqLength: 2048, quantization: 0 },
       },
       {
         id: 'run-2',
+        baseModelId: 'qwen-7b',
+        datasetId: 'dataset-b',
         modelName: 'qwen-7b',
         datasetName: 'dataset-b',
         method: 'qlora',
         status: 'failed',
-        startTime: '2026-04-16T11:00:00',
-        endTime: '2026-04-16T11:05:00',
+        startTime: isoDaysAgo(2, 11),
+        endTime: isoDaysAgo(2, 11, 5),
         outputPath: '/tmp/run-2',
         config: {
           ...baseConfig,
@@ -127,12 +137,14 @@ describe('trainingInsights', () => {
       },
       {
         id: 'run-3',
+        baseModelId: 'qwen-3b',
+        datasetId: 'dataset-c',
         modelName: 'qwen-3b',
         datasetName: 'dataset-c',
         method: 'lora',
         status: 'completed',
-        startTime: '2026-04-16T12:00:00',
-        endTime: '2026-04-16T12:20:00',
+        startTime: isoDaysAgo(1, 12),
+        endTime: isoDaysAgo(1, 12, 20),
         outputPath: '/tmp/run-3',
         config: {
           ...baseConfig,

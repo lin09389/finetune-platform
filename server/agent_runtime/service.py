@@ -12,9 +12,15 @@ from fastapi import HTTPException
 from core.config import settings
 
 from .adapters import workflow_from_project
+from .context_builder import WorkflowContextBuilder
 from .definitions import WorkflowDefinition, WorkflowView
 from .engine import AgentRuntimeEngine
+from .memory_curator import WorkflowMemoryCurator
 from .models import (
+    WorkflowContextProfile,
+    WorkflowContextProfileUpdate,
+    WorkflowContextSnapshotResponse,
+    WorkflowMemoryEntryResponse,
     WorkflowAgentResponse,
     WorkflowCreate,
     WorkflowResponse,
@@ -40,7 +46,9 @@ class AgentRuntimeService:
     ):
         self.repository = repository or WorkflowRuntimeRepository()
         self.runner = runner or AgentRuntimeRunner()
-        self.engine = AgentRuntimeEngine(self.repository, self.runner)
+        self.context_builder = WorkflowContextBuilder(self.repository)
+        self.memory_curator = WorkflowMemoryCurator(self.repository)
+        self.engine = AgentRuntimeEngine(self.repository, self.runner, self.context_builder, self.memory_curator)
 
     def list_templates(self) -> list[WorkflowTemplateResponse]:
         return [self._template_response(template) for template in self.repository.list_templates()]
@@ -93,8 +101,7 @@ class AgentRuntimeService:
 
     async def run_workflow(self, workflow_id: str) -> WorkflowResponse:
         project = self._get_project(workflow_id)
-        context = self._project_context(project.get("project_path"), project["goal"])
-        updated = await self.engine.start(project, context)
+        updated = await self.engine.start(project)
         return self._project_response(updated)
 
     async def approve_step(
@@ -111,8 +118,7 @@ class AgentRuntimeService:
             updated = await self.engine.reject(project, task, comment)
             return self._project_response(updated)
 
-        context = self._project_context(project.get("project_path"), project["goal"])
-        updated = await self.engine.approve(project, task, context, comment)
+        updated = await self.engine.approve(project, task, "", comment)
         return self._project_response(updated)
 
     async def retry_step(self, step_id: str) -> WorkflowResponse:
@@ -120,8 +126,7 @@ class AgentRuntimeService:
         if not task:
             raise HTTPException(status_code=404, detail="Workflow step not found")
         project = self._get_project(task["project_id"])
-        context = self._project_context(project.get("project_path"), project["goal"])
-        updated = await self.engine.retry(project, task, context)
+        updated = await self.engine.retry(project, task, "")
         return self._project_response(updated)
 
     def list_timeline(self, workflow_id: str) -> list[dict[str, Any]]:
@@ -131,6 +136,43 @@ class AgentRuntimeService:
     def list_artifacts(self, workflow_id: str) -> list[dict[str, Any]]:
         self._get_project(workflow_id)
         return self.repository.list_artifacts(workflow_id)
+
+    def get_context_profile(self, workflow_id: str) -> WorkflowContextProfile:
+        self._get_project(workflow_id)
+        return WorkflowContextProfile(**self.repository.get_context_profile(workflow_id))
+
+    def update_context_profile(self, workflow_id: str, request: WorkflowContextProfileUpdate) -> WorkflowContextProfile:
+        project = self._get_project(workflow_id)
+        data = request.model_dump()
+        data["project_path"] = self._validate_project_path(data.get("project_path")) if data.get("project_path") else None
+        profile = self.repository.upsert_context_profile(workflow_id, data)
+        if data.get("project_path") != project.get("project_path"):
+            self.repository.update_project(workflow_id, project_path=data.get("project_path"))
+        self.repository.add_event(workflow_id, None, "context_profile_updated", "user", "工作流上下文配置已更新", data)
+        return WorkflowContextProfile(**profile)
+
+    def list_context_snapshots(self, workflow_id: str) -> list[WorkflowContextSnapshotResponse]:
+        self._get_project(workflow_id)
+        return [WorkflowContextSnapshotResponse(**item) for item in self.repository.list_context_snapshots(workflow_id)]
+
+    def list_memory_entries(self, workflow_id: str) -> list[WorkflowMemoryEntryResponse]:
+        self._get_project(workflow_id)
+        return [WorkflowMemoryEntryResponse(**item) for item in self.repository.list_memory_entries(workflow_id)]
+
+    def revert_memory_entry(self, memory_id: str) -> WorkflowMemoryEntryResponse:
+        try:
+            memory = self.repository.revert_memory_entry(memory_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Workflow memory not found") from exc
+        external_key = memory.get("external_memory_id")
+        if external_key:
+            try:
+                from memory.preference_learner import get_preference_learner
+
+                get_preference_learner().delete_preference("default", external_key)
+            except Exception as exc:
+                logger.info("Failed to delete external preference %s: %s", external_key, exc)
+        return WorkflowMemoryEntryResponse(**memory)
 
     def _get_project(self, workflow_id: str) -> dict[str, Any]:
         project = self.repository.get_project(workflow_id)

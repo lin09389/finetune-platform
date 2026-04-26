@@ -558,6 +558,164 @@ class GLMProvider(AIProvider):
             return response.text or f"HTTP {response.status_code}"
 
 
+class OpenAICompatibleProvider(AIProvider):
+    """OpenAI Chat Completions compatible adapter."""
+
+    def __init__(self, base_url: str, default_model: str = ""):
+        self.base_url = (base_url or "").rstrip("/")
+        self.default_model = default_model or "gpt-4o-mini"
+
+    async def chat(self, messages: list[dict], model: str, api_key: str, **kwargs) -> dict[str, Any]:
+        if not self.base_url:
+            raise ValueError("OpenAI-compatible Base URL is required")
+        client = get_http_client(timeout=float(kwargs.get("timeout", 120.0)))
+        payload = {
+            "model": model or self.get_default_model(),
+            "messages": messages,
+            "temperature": kwargs.get("temperature", 0.7),
+            "max_tokens": kwargs.get("max_tokens", 2000),
+            "stream": False,
+        }
+        response = await client.post(
+            f"{self.base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=payload,
+        )
+        response.raise_for_status()
+        data = response.json()
+        choices = data.get("choices") or []
+        message = choices[0].get("message", {}) if choices else {}
+        return {"content": message.get("content", ""), "raw": data}
+
+    async def chat_stream(self, messages: list[dict], model: str, api_key: str, **kwargs) -> AsyncGenerator[dict[str, Any], None]:
+        if not self.base_url:
+            raise ValueError("OpenAI-compatible Base URL is required")
+        client = get_http_client(timeout=float(kwargs.get("timeout", 120.0)))
+        payload = {
+            "model": model or self.get_default_model(),
+            "messages": messages,
+            "temperature": kwargs.get("temperature", 0.7),
+            "max_tokens": kwargs.get("max_tokens", 2000),
+            "stream": True,
+        }
+        async with client.stream(
+            "POST",
+            f"{self.base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=payload,
+        ) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                payload_text = line[6:].strip()
+                if payload_text == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(payload_text)
+                except json.JSONDecodeError:
+                    continue
+                choices = chunk.get("choices") or []
+                delta = choices[0].get("delta", {}) if choices else {}
+                content = delta.get("content") or ""
+                if content:
+                    yield {"content": content, "delta": True}
+
+    def get_default_model(self) -> str:
+        return self.default_model
+
+    def list_models(self) -> list[str]:
+        return [self.default_model] if self.default_model else []
+
+
+class AnthropicMessagesProvider(AIProvider):
+    """Anthropic Messages API adapter."""
+
+    def __init__(self, base_url: str = "", default_model: str = ""):
+        self.base_url = (base_url or "https://api.anthropic.com/v1").rstrip("/")
+        self.default_model = default_model or "claude-3-5-sonnet-latest"
+
+    async def chat(self, messages: list[dict], model: str, api_key: str, **kwargs) -> dict[str, Any]:
+        client = get_http_client(timeout=float(kwargs.get("timeout", 120.0)))
+        system, anthropic_messages = self._convert_messages(messages)
+        payload: dict[str, Any] = {
+            "model": model or self.get_default_model(),
+            "messages": anthropic_messages,
+            "max_tokens": kwargs.get("max_tokens", 2000),
+            "temperature": kwargs.get("temperature", 0.7),
+        }
+        if system:
+            payload["system"] = system
+        response = await client.post(
+            f"{self.base_url}/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
+        response.raise_for_status()
+        data = response.json()
+        content = "".join(part.get("text", "") for part in data.get("content", []) if isinstance(part, dict))
+        return {"content": content, "raw": data}
+
+    async def chat_stream(self, messages: list[dict], model: str, api_key: str, **kwargs) -> AsyncGenerator[dict[str, Any], None]:
+        client = get_http_client(timeout=float(kwargs.get("timeout", 120.0)))
+        system, anthropic_messages = self._convert_messages(messages)
+        payload: dict[str, Any] = {
+            "model": model or self.get_default_model(),
+            "messages": anthropic_messages,
+            "max_tokens": kwargs.get("max_tokens", 2000),
+            "temperature": kwargs.get("temperature", 0.7),
+            "stream": True,
+        }
+        if system:
+            payload["system"] = system
+        async with client.stream(
+            "POST",
+            f"{self.base_url}/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        ) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                try:
+                    chunk = json.loads(line[6:].strip())
+                except json.JSONDecodeError:
+                    continue
+                if chunk.get("type") == "content_block_delta":
+                    text = (chunk.get("delta") or {}).get("text", "")
+                    if text:
+                        yield {"content": text, "delta": True}
+
+    def get_default_model(self) -> str:
+        return self.default_model
+
+    def list_models(self) -> list[str]:
+        return [self.default_model]
+
+    def _convert_messages(self, messages: list[dict]) -> tuple[str, list[dict]]:
+        system_parts: list[str] = []
+        converted: list[dict] = []
+        for message in messages:
+            role = message.get("role", "user")
+            content = message.get("content", "")
+            if role == "system":
+                system_parts.append(content)
+                continue
+            converted.append({"role": "assistant" if role == "assistant" else "user", "content": content})
+        if not converted:
+            converted.append({"role": "user", "content": ""})
+        return "\n\n".join(system_parts), converted
+
+
 PROVIDERS: dict[str, AIProvider] = {
     "minimax": MinimaxProvider(coding_mode=False),
     "minimax-coding": MinimaxProvider(coding_mode=True),

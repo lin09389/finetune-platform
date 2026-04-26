@@ -64,6 +64,11 @@ class RuntimeExecutionContext(BaseModel):
     goal: str
     project_path: str | None = None
     project_context: str = ""
+    chat_context: str = ""
+    memory_context: str = ""
+    artifact_context: str = ""
+    context_pack: dict[str, Any] = Field(default_factory=dict)
+    context_sources: list[dict[str, Any]] = Field(default_factory=list)
     provider: str
     model: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)

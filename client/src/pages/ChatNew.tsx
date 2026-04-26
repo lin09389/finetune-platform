@@ -19,7 +19,12 @@ import RuntimeContextPanel from '../components/runtime/RuntimeContextPanel';
 import APIKeyManager from '../pages/APIKeyManager';
 
 import { useRuntimeContext } from '../runtime/RuntimeContext';
-import { API_BASE_URL, createWorkflow, getSavedCloudProviders, getWorkflowTemplates } from '../services/api';
+import {
+  createWorkflow,
+  getSavedCloudProviderData,
+  getSavedCloudProviders,
+  getWorkflowTemplates,
+} from '../services/api';
 import type { SavedCloudProvider, WorkflowTemplate } from '../services/api';
 import { transitions } from '../theme/animations';
 import { notify } from '../utils/notify';
@@ -250,9 +255,7 @@ const ChatPage: React.FC = () => {
 
         const firstKey = keys.find((key) => key.provider === preferredProvider) || keys[0];
         if (firstKey) {
-          const keyData = await fetch(`${API_BASE_URL}/cloud/api-keys/${firstKey.id}/data`)
-            .then((r) => r.json())
-            .catch(() => ({}));
+          const keyData = await getSavedCloudProviderData(firstKey.id).catch(() => ({}));
           const models = keyData.models || firstKey.models || [];
           const selectedModel =
             preferredModel ||
@@ -344,6 +347,11 @@ const ChatPage: React.FC = () => {
           title: goal.slice(0, 30),
           goal,
           template_id: selectedWorkflowTemplate || 'software_delivery',
+          chat_session_id: currentSessionId && !currentSessionId.startsWith('local_') ? currentSessionId : undefined,
+          include_chat_context: Boolean(currentSessionId && !currentSessionId.startsWith('local_')),
+          include_project_context: true,
+          include_memory: true,
+          max_context_chars: 6000,
           provider: cloudAIConfig?.provider || undefined,
           model: selectedCloudModel || cloudAIConfig?.model || undefined,
           approval_mode: 'manual',
@@ -356,7 +364,7 @@ const ChatPage: React.FC = () => {
         setCreatingWorkflow(false);
       }
     },
-    [cloudAIConfig?.model, cloudAIConfig?.provider, navigate, selectedCloudModel, selectedWorkflowTemplate],
+    [cloudAIConfig?.model, cloudAIConfig?.provider, currentSessionId, navigate, selectedCloudModel, selectedWorkflowTemplate],
   );
 
   const workflowTemplateOptions = useMemo(
@@ -396,9 +404,7 @@ const ChatPage: React.FC = () => {
       const selectedProvider = cloudProviders.find((item) => item.provider === provider);
       if (!selectedProvider) return;
 
-      const keyData = await fetch(`${API_BASE_URL}/cloud/api-keys/${selectedProvider.id}/data`)
-        .then((r) => r.json())
-        .catch(() => ({}));
+      const keyData = await getSavedCloudProviderData(selectedProvider.id).catch(() => ({}));
       const models = keyData.models || selectedProvider.models || [];
       const nextModel = keyData.default_model || selectedProvider.default_model || models[0] || '';
       const config: APIKeyConfig = {

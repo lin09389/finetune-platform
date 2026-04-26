@@ -19,14 +19,26 @@ import {
   getSavedCloudProviders,
   getWorkflow,
   getWorkflowArtifacts,
+  getWorkflowContext,
+  getWorkflowContextSnapshots,
+  getWorkflowMemory,
   getWorkflowTemplates,
   getWorkflowTimeline,
   getWorkflows,
+  revertWorkflowMemory,
   retryWorkflowStep,
   runWorkflow,
+  updateWorkflowContext,
   updateWorkflowTemplate,
 } from '../services/api';
-import type { SavedCloudProvider, Workflow, WorkflowTemplate } from '../services/api';
+import type {
+  SavedCloudProvider,
+  Workflow,
+  WorkflowContextProfile,
+  WorkflowContextSnapshot,
+  WorkflowMemoryEntry,
+  WorkflowTemplate,
+} from '../services/api';
 import styles from './DigitalTeam.module.css';
 
 const stepMeta: Record<string, { label: string; icon: ReactNode }> = {
@@ -65,6 +77,9 @@ export default function Workflows() {
   const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
   const [timeline, setTimeline] = useState<any[]>([]);
   const [artifacts, setArtifacts] = useState<any[]>([]);
+  const [contextProfile, setContextProfile] = useState<WorkflowContextProfile | null>(null);
+  const [contextSnapshots, setContextSnapshots] = useState<WorkflowContextSnapshot[]>([]);
+  const [workflowMemory, setWorkflowMemory] = useState<WorkflowMemoryEntry[]>([]);
   const [cloudProviders, setCloudProviders] = useState<SavedCloudProvider[]>([]);
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -73,6 +88,7 @@ export default function Workflows() {
   const [editingTemplate, setEditingTemplate] = useState<WorkflowTemplate | null>(null);
   const [form] = Form.useForm();
   const [templateForm] = Form.useForm();
+  const [contextForm] = Form.useForm();
   const selectedFormProvider = Form.useWatch('provider', form);
 
   const selectedId = selectedWorkflow?.workflow_id || selectedWorkflow?.id;
@@ -115,9 +131,20 @@ export default function Workflows() {
         getWorkflowTimeline(workflowId),
         getWorkflowArtifacts(workflowId),
       ]);
+      const [profileData, snapshotData, memoryData] = await Promise.all([
+        getWorkflowContext(workflowId).catch(() => null),
+        getWorkflowContextSnapshots(workflowId).catch(() => []),
+        getWorkflowMemory(workflowId).catch(() => []),
+      ]);
       setSelectedWorkflow(workflow);
       setTimeline(timelineData?.events || []);
       setArtifacts(artifactData?.artifacts || []);
+      setContextProfile(profileData);
+      setContextSnapshots(snapshotData || []);
+      setWorkflowMemory(memoryData || []);
+      if (profileData) {
+        contextForm.setFieldsValue(profileData);
+      }
       setWorkflows((items) => items.map((item) => (item.id === workflow.id ? workflow : item)));
       if (searchParams.get('workflow') !== workflow.workflow_id) {
         setSearchParams({ workflow: workflow.workflow_id });
@@ -134,6 +161,10 @@ export default function Workflows() {
         goal: values.goal,
         template_id: values.template_id || 'software_delivery',
         project_path: values.project_path,
+        include_project_context: values.include_project_context ?? true,
+        include_chat_context: values.include_chat_context ?? false,
+        include_memory: values.include_memory ?? true,
+        max_context_chars: values.max_context_chars || 6000,
         provider: values.provider || 'minimax',
         model: values.model,
         approval_mode: 'manual',
@@ -289,6 +320,38 @@ export default function Workflows() {
     }
   };
 
+  const handleContextSubmit = async (values: any) => {
+    if (!selectedWorkflow) return;
+    try {
+      const profile = await updateWorkflowContext(selectedWorkflow.workflow_id, {
+        project_path: values.project_path || undefined,
+        chat_session_id: values.chat_session_id || undefined,
+        include_project_context: values.include_project_context ?? true,
+        include_chat_context: values.include_chat_context ?? false,
+        include_memory: values.include_memory ?? true,
+        max_context_chars: values.max_context_chars || 6000,
+        metadata: values.metadata || {},
+      });
+      setContextProfile(profile);
+      message.success('上下文配置已保存');
+      await loadWorkflowDetails(selectedWorkflow.workflow_id);
+    } catch (error: any) {
+      message.error(error?.response?.data?.detail || '上下文配置保存失败');
+    }
+  };
+
+  const handleRevertMemory = async (memoryId: string) => {
+    try {
+      await revertWorkflowMemory(memoryId);
+      message.success('记忆已撤销');
+      if (selectedWorkflow) {
+        await loadWorkflowDetails(selectedWorkflow.workflow_id);
+      }
+    } catch (error: any) {
+      message.error(error?.response?.data?.detail || '记忆撤销失败');
+    }
+  };
+
   const actionableSteps = useMemo(
     () =>
       (selectedWorkflow?.steps || []).filter((step) =>
@@ -362,6 +425,10 @@ export default function Workflows() {
       provider: defaultProvider,
       model: defaultModel,
       template_id: 'software_delivery',
+      include_project_context: true,
+      include_chat_context: false,
+      include_memory: true,
+      max_context_chars: 6000,
     });
     setCreateOpen(true);
   };
@@ -561,6 +628,71 @@ export default function Workflows() {
           </Space>
 
           <h3 className={styles.panelTitle} style={{ marginTop: 18 }}>
+            上下文
+          </h3>
+          {selectedWorkflow ? (
+            <Form
+              form={contextForm}
+              layout="vertical"
+              size="small"
+              initialValues={{
+                include_project_context: true,
+                include_chat_context: false,
+                include_memory: true,
+                max_context_chars: 6000,
+              }}
+              onFinish={handleContextSubmit}
+            >
+              <Form.Item name="project_path" label="项目路径">
+                <Input placeholder="留空则不注入项目上下文" />
+              </Form.Item>
+              <Form.Item name="chat_session_id" label="聊天会话 ID">
+                <Input placeholder="从聊天页发起时自动携带" />
+              </Form.Item>
+              <Space wrap>
+                <Form.Item name="include_project_context" valuePropName="checked">
+                  <Switch checkedChildren="项目" unCheckedChildren="项目" />
+                </Form.Item>
+                <Form.Item name="include_chat_context" valuePropName="checked">
+                  <Switch checkedChildren="对话" unCheckedChildren="对话" />
+                </Form.Item>
+                <Form.Item name="include_memory" valuePropName="checked">
+                  <Switch checkedChildren="记忆" unCheckedChildren="记忆" />
+                </Form.Item>
+              </Space>
+              <Form.Item name="max_context_chars" label="上下文上限">
+                <Input type="number" min={500} max={30000} />
+              </Form.Item>
+              <Button size="small" onClick={() => contextForm.submit()}>
+                保存上下文
+              </Button>
+              {contextProfile?.updated_at && (
+                <div className={styles.projectMeta} style={{ marginTop: 8 }}>
+                  更新于 {new Date(contextProfile.updated_at).toLocaleString()}
+                </div>
+              )}
+            </Form>
+          ) : (
+            <div className={styles.emptyState}>选择工作流后可配置上下文</div>
+          )}
+
+          <h3 className={styles.panelTitle} style={{ marginTop: 18 }}>
+            上下文快照
+          </h3>
+          <div className={styles.artifactList}>
+            {contextSnapshots.slice(-3).map((snapshot) => (
+              <div key={snapshot.id} className={styles.artifactItem}>
+                <div className={styles.artifactTitle}>
+                  {snapshot.step_key || 'workflow'} · {snapshot.char_count} 字
+                </div>
+                <div className={styles.projectMeta}>{new Date(snapshot.created_at).toLocaleString()}</div>
+                <div className={styles.artifactContent}>{snapshot.content || '空上下文'}</div>
+              </div>
+            ))}
+            {!contextSnapshots.length && <div className={styles.emptyState}>运行步骤后会生成快照</div>}
+          </div>
+
+          <h3 className={styles.panelTitle} style={{ marginTop: 18 }}>
             时间线
           </h3>
           <div className={styles.timeline}>
@@ -588,6 +720,30 @@ export default function Workflows() {
             ))}
             {!artifacts.length && <div className={styles.emptyState}>暂无产物</div>}
           </div>
+
+          <h3 className={styles.panelTitle} style={{ marginTop: 18 }}>
+            自动记忆
+          </h3>
+          <div className={styles.artifactList}>
+            {workflowMemory.map((memory) => (
+              <div key={memory.id} className={styles.artifactItem}>
+                <div className={styles.artifactTitle}>
+                  {memory.memory_type} · {memory.memory_key}
+                </div>
+                <div className={styles.projectMeta}>
+                  <Tag color={memory.status === 'active' ? 'success' : 'default'}>{memory.status}</Tag>
+                  置信度 {Math.round(memory.confidence * 100)}%
+                </div>
+                <div className={styles.artifactContent}>{memory.content}</div>
+                {memory.status === 'active' && (
+                  <Button size="small" danger onClick={() => handleRevertMemory(memory.id)}>
+                    撤销
+                  </Button>
+                )}
+              </div>
+            ))}
+            {!workflowMemory.length && <div className={styles.emptyState}>工作流完成后自动沉淀记忆</div>}
+          </div>
         </aside>
       </div>
       )}
@@ -610,6 +766,20 @@ export default function Workflows() {
           <Form.Item name="project_path" label="项目路径">
             <Input placeholder="默认可留空；例如 C:\\Users\\JHJ\\Desktop\\finetune-platform" />
           </Form.Item>
+          <Space style={{ width: '100%' }} align="start" wrap>
+            <Form.Item name="include_project_context" label="项目上下文" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+            <Form.Item name="include_chat_context" label="聊天上下文" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+            <Form.Item name="include_memory" label="历史记忆" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+            <Form.Item name="max_context_chars" label="上下文上限">
+              <Input type="number" min={500} max={30000} style={{ width: 140 }} />
+            </Form.Item>
+          </Space>
           <Form.Item name="template_id" label="工作流模板" initialValue="software_delivery">
             <Select
               options={displayTemplates.map(

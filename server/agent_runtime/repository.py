@@ -40,9 +40,10 @@ class WorkflowRuntimeRepository:
         self.import_legacy_digital_team()
 
     def ensure_schema(self) -> None:
-        migration = Path(__file__).resolve().parents[1] / "core" / "migrations" / "003_workflow_runtime.sql"
+        migrations_dir = Path(__file__).resolve().parents[1] / "core" / "migrations"
         with get_db_pool(self.db_path).get_connection() as conn:
-            conn.executescript(migration.read_text(encoding="utf-8"))
+            conn.executescript((migrations_dir / "003_workflow_runtime.sql").read_text(encoding="utf-8"))
+            conn.executescript((migrations_dir / "004_workflow_context_memory.sql").read_text(encoding="utf-8"))
 
     def seed_builtin_templates(self) -> None:
         if self.get_template(SOFTWARE_DELIVERY_TEMPLATE.id):
@@ -301,6 +302,18 @@ class WorkflowRuntimeRepository:
                     now,
                 ),
             )
+        self.upsert_context_profile(
+            workflow_id,
+            {
+                "project_path": data.get("project_path"),
+                "chat_session_id": data.get("chat_session_id"),
+                "include_project_context": data.get("include_project_context", True),
+                "include_chat_context": data.get("include_chat_context", bool(data.get("chat_session_id"))),
+                "include_memory": data.get("include_memory", True),
+                "max_context_chars": data.get("max_context_chars", 6000),
+                "metadata": data.get("context_metadata", {}),
+            },
+        )
         self.add_event(workflow_id, None, "workflow_created", "user", "工作流已创建", data)
         return self.get_project(workflow_id) or {}
 
@@ -441,6 +454,182 @@ class WorkflowRuntimeRepository:
             ).fetchall()
         return [{**dict(row), "project_id": row["workflow_id"], "task_id": row["step_id"], "content": _load(row["content"])} for row in rows]
 
+    def get_context_profile(self, workflow_id: str) -> dict[str, Any]:
+        with get_db_pool(self.db_path).get_connection() as conn:
+            row = conn.execute("SELECT * FROM workflow_context_profiles WHERE workflow_id = ?", (workflow_id,)).fetchone()
+        if row:
+            return self._context_profile_from_row(row)
+        project = self.get_project(workflow_id)
+        profile = {
+            "project_path": project.get("project_path") if project else None,
+            "chat_session_id": None,
+            "include_project_context": True,
+            "include_chat_context": False,
+            "include_memory": True,
+            "max_context_chars": 6000,
+            "metadata": {},
+        }
+        self.upsert_context_profile(workflow_id, profile)
+        return self.get_context_profile(workflow_id)
+
+    def upsert_context_profile(self, workflow_id: str, data: dict[str, Any]) -> dict[str, Any]:
+        now = _now()
+        existing = None
+        with get_db_pool(self.db_path).get_connection() as conn:
+            existing = conn.execute(
+                "SELECT created_at FROM workflow_context_profiles WHERE workflow_id = ?",
+                (workflow_id,),
+            ).fetchone()
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO workflow_context_profiles
+                    (workflow_id, project_path, chat_session_id, include_project_context,
+                     include_chat_context, include_memory, max_context_chars, metadata,
+                     created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    workflow_id,
+                    data.get("project_path"),
+                    data.get("chat_session_id"),
+                    1 if data.get("include_project_context", True) else 0,
+                    1 if data.get("include_chat_context", False) else 0,
+                    1 if data.get("include_memory", True) else 0,
+                    int(data.get("max_context_chars") or 6000),
+                    _json(data.get("metadata", {})),
+                    existing["created_at"] if existing else now,
+                    now,
+                ),
+            )
+        return self.get_context_profile(workflow_id)
+
+    def add_context_snapshot(
+        self,
+        workflow_id: str,
+        step_id: str | None,
+        step_key: str | None,
+        content: str,
+        sources: list[dict[str, Any]] | None = None,
+        context_type: str = "runtime",
+    ) -> dict[str, Any]:
+        snapshot_id = f"wfc_{uuid.uuid4().hex[:8]}"
+        now = _now()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO workflow_context_snapshots
+                    (id, workflow_id, step_id, step_key, context_type, content, sources, char_count, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (snapshot_id, workflow_id, step_id, step_key, context_type, content, _json(sources or []), len(content or ""), now),
+            )
+        return {
+            "id": snapshot_id,
+            "workflow_id": workflow_id,
+            "step_id": step_id,
+            "step_key": step_key,
+            "context_type": context_type,
+            "content": content,
+            "sources": sources or [],
+            "char_count": len(content or ""),
+            "created_at": now,
+        }
+
+    def list_context_snapshots(self, workflow_id: str) -> list[dict[str, Any]]:
+        with get_db_pool(self.db_path).get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM workflow_context_snapshots WHERE workflow_id = ? ORDER BY created_at ASC",
+                (workflow_id,),
+            ).fetchall()
+        return [self._context_snapshot_from_row(row) for row in rows]
+
+    def add_memory_entry(
+        self,
+        workflow_id: str,
+        memory_type: str,
+        memory_key: str,
+        memory_value: dict[str, Any] | None,
+        content: str,
+        confidence: float = 0.6,
+        source_step_id: str | None = None,
+        external_memory_id: str | None = None,
+    ) -> dict[str, Any]:
+        memory_id = f"wfm_{uuid.uuid4().hex[:8]}"
+        now = _now()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO workflow_memory_entries
+                    (id, workflow_id, source_step_id, memory_type, memory_key, memory_value,
+                     content, confidence, status, external_memory_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+                """,
+                (
+                    memory_id,
+                    workflow_id,
+                    source_step_id,
+                    memory_type,
+                    memory_key,
+                    _json(memory_value or {}),
+                    content,
+                    confidence,
+                    external_memory_id,
+                    now,
+                    now,
+                ),
+            )
+        self.add_memory_event(workflow_id, memory_id, "memory_created", "system", "工作流记忆已自动写入")
+        return self.get_memory_entry(memory_id) or {}
+
+    def get_memory_entry(self, memory_id: str) -> dict[str, Any] | None:
+        with get_db_pool(self.db_path).get_connection() as conn:
+            row = conn.execute("SELECT * FROM workflow_memory_entries WHERE id = ?", (memory_id,)).fetchone()
+        return self._memory_entry_from_row(row) if row else None
+
+    def list_memory_entries(self, workflow_id: str) -> list[dict[str, Any]]:
+        with get_db_pool(self.db_path).get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM workflow_memory_entries WHERE workflow_id = ? ORDER BY created_at ASC",
+                (workflow_id,),
+            ).fetchall()
+        return [self._memory_entry_from_row(row) for row in rows]
+
+    def revert_memory_entry(self, memory_id: str) -> dict[str, Any]:
+        memory = self.get_memory_entry(memory_id)
+        if not memory:
+            raise KeyError("Workflow memory not found")
+        now = _now()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            conn.execute(
+                "UPDATE workflow_memory_entries SET status = 'reverted', updated_at = ?, reverted_at = ? WHERE id = ?",
+                (now, now, memory_id),
+            )
+        self.add_memory_event(memory["workflow_id"], memory_id, "memory_reverted", "user", "工作流记忆已撤销")
+        return self.get_memory_entry(memory_id) or memory
+
+    def add_memory_event(
+        self,
+        workflow_id: str,
+        memory_id: str | None,
+        event_type: str,
+        actor: str,
+        message: str,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        event_id = f"wfme_{uuid.uuid4().hex[:8]}"
+        now = _now()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO workflow_memory_events
+                    (id, workflow_id, memory_id, event_type, actor, message, payload, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (event_id, workflow_id, memory_id, event_type, actor, message, _json(payload), now),
+            )
+        self.add_event(workflow_id, None, event_type, actor, message, payload)
+        return {"id": event_id, "workflow_id": workflow_id, "memory_id": memory_id, "created_at": now}
+
     def _definition_from_template_payload(self, template_id: str, payload: dict[str, Any], is_builtin: bool) -> WorkflowDefinition:
         legacy_role_map = self._legacy_role_map(template_id)
         return WorkflowDefinition(
@@ -540,6 +729,24 @@ class WorkflowRuntimeRepository:
         data["requires_approval"] = bool(data.get("requires_approval"))
         data["input"] = _load(data.get("input"))
         data["output"] = _load(data.get("output"))
+        return data
+
+    def _context_profile_from_row(self, row: Any) -> dict[str, Any]:
+        data = dict(row)
+        data["include_project_context"] = bool(data.get("include_project_context"))
+        data["include_chat_context"] = bool(data.get("include_chat_context"))
+        data["include_memory"] = bool(data.get("include_memory"))
+        data["metadata"] = _load(data.get("metadata"))
+        return data
+
+    def _context_snapshot_from_row(self, row: Any) -> dict[str, Any]:
+        data = dict(row)
+        data["sources"] = _load(data.get("sources"), [])
+        return data
+
+    def _memory_entry_from_row(self, row: Any) -> dict[str, Any]:
+        data = dict(row)
+        data["memory_value"] = _load(data.get("memory_value"))
         return data
 
     def _legacy_role_map(self, template_id: str) -> dict[str, str]:

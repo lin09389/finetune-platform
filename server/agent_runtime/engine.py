@@ -18,9 +18,11 @@ logger = logging.getLogger(__name__)
 
 
 class AgentRuntimeEngine:
-    def __init__(self, repository: DigitalTeamRepository, runner: Any):
+    def __init__(self, repository: DigitalTeamRepository, runner: Any, context_builder: Any | None = None, memory_curator: Any | None = None):
         self.repository = repository
         self.runner = runner
+        self.context_builder = context_builder
+        self.memory_curator = memory_curator
 
     def get_workflow(self, template_id: str) -> WorkflowDefinition:
         if hasattr(self.repository, "get_template"):
@@ -32,7 +34,7 @@ class AgentRuntimeEngine:
             raise HTTPException(status_code=400, detail="Unknown digital team template")
         return workflow
 
-    async def start(self, project: dict[str, Any], project_context: str) -> dict[str, Any]:
+    async def start(self, project: dict[str, Any], project_context: str = "") -> dict[str, Any]:
         workflow = self.get_workflow(project["template_id"])
         step = self._ordered_steps(workflow)[0]
         self.repository.update_project(
@@ -41,8 +43,7 @@ class AgentRuntimeEngine:
             current_stage=step.key,
         )
         self.repository.add_event(project["id"], None, "workflow_started", "system", f"{step.title} 开始执行")
-        context = self._context_from_project(project, project_context)
-        await self._run_until_pause(project, workflow, context, start_index=0, previous_outputs=[])
+        await self._run_until_pause(project, workflow, project_context, start_index=0, previous_outputs=[])
         return self.repository.get_project(project["id"]) or project
 
     async def approve(
@@ -56,11 +57,10 @@ class AgentRuntimeEngine:
         self.repository.update_task(task["id"], status=TaskStatus.APPROVED.value)
         self.repository.add_event(project["id"], task["id"], "approval_granted", "user", comment or "审批通过")
 
-        context = self._context_from_project(project, project_context)
         steps = self._ordered_steps(workflow)
         current_index = self._step_index(steps, task)
         previous_outputs = [item.get("output", {}) for item in project.get("tasks", []) if item.get("output")]
-        await self._run_until_pause(project, workflow, context, current_index + 1, previous_outputs)
+        await self._run_until_pause(project, workflow, project_context, current_index + 1, previous_outputs)
         return self.repository.get_project(project["id"]) or project
 
     async def reject(
@@ -76,7 +76,6 @@ class AgentRuntimeEngine:
 
     async def retry(self, project: dict[str, Any], task: dict[str, Any], project_context: str) -> dict[str, Any]:
         workflow = self.get_workflow(project["template_id"])
-        context = self._context_from_project(project, project_context)
         steps = self._ordered_steps(workflow)
         current_index = self._step_index(steps, task)
         previous_outputs = [
@@ -84,14 +83,14 @@ class AgentRuntimeEngine:
             for item in project.get("tasks", [])
             if item.get("sort_order", 0) < task.get("sort_order", current_index) and item.get("output")
         ]
-        await self._run_until_pause(project, workflow, context, current_index, previous_outputs)
+        await self._run_until_pause(project, workflow, project_context, current_index, previous_outputs)
         return self.repository.get_project(project["id"]) or project
 
     async def _run_until_pause(
         self,
         project: dict[str, Any],
         workflow: WorkflowDefinition,
-        context: RuntimeExecutionContext,
+        project_context: str,
         start_index: int,
         previous_outputs: list[dict[str, Any]],
     ) -> None:
@@ -104,11 +103,12 @@ class AgentRuntimeEngine:
                 completed_at=datetime.now().isoformat(),
             )
             self.repository.add_event(project["id"], None, "workflow_completed", "system", "工作流已完成")
+            await self._curate_memory(project["id"])
             return
 
         for index in range(start_index, len(steps)):
             step = steps[index]
-            output = await self._run_step(project, workflow, step, context, previous_outputs, index)
+            output = await self._run_step(project, workflow, step, project_context, previous_outputs, index)
             if output is None:
                 return
             previous_outputs.append(output.model_dump())
@@ -129,13 +129,14 @@ class AgentRuntimeEngine:
             completed_at=datetime.now().isoformat(),
         )
         self.repository.add_event(project["id"], None, "workflow_completed", "system", "工作流已完成")
+        await self._curate_memory(project["id"])
 
     async def _run_step(
         self,
         project: dict[str, Any],
         workflow: WorkflowDefinition,
         step: StepDefinition,
-        context: RuntimeExecutionContext,
+        project_context: str,
         previous_outputs: list[dict[str, Any]],
         index: int,
     ) -> AgentOutput | None:
@@ -175,12 +176,15 @@ class AgentRuntimeEngine:
         self.repository.update_project(project["id"], status="running", current_stage=step.key)
         try:
             agent = workflow.agent_by_id(step.agent_id)
+            context = self._context_for_step(project, workflow, step, task, previous_outputs, project_context)
             output = await self._run_agent(
                 step.agent_id,
                 context,
                 {
                     "goal": project["goal"],
                     "previous_outputs": previous_outputs,
+                    "context_pack": context.context_pack,
+                    "context_sources": context.context_sources,
                     "agent": agent.model_dump(),
                     "step": step.model_dump(),
                 },
@@ -439,6 +443,28 @@ class AgentRuntimeEngine:
             provider=project["provider"],
             model=project.get("model"),
         )
+
+    def _context_for_step(
+        self,
+        project: dict[str, Any],
+        workflow: WorkflowDefinition,
+        step: StepDefinition,
+        task: dict[str, Any],
+        previous_outputs: list[dict[str, Any]],
+        project_context: str,
+    ) -> RuntimeExecutionContext:
+        if self.context_builder:
+            return self.context_builder.build_for_step(project, workflow, step, task, previous_outputs, project_context)
+        return self._context_from_project(project, project_context)
+
+    async def _curate_memory(self, workflow_id: str) -> None:
+        if not self.memory_curator:
+            return
+        try:
+            await self.memory_curator.curate_completed_workflow(workflow_id)
+        except Exception as exc:
+            logger.info("Workflow memory curation failed: %s", exc)
+            self.repository.add_event(workflow_id, None, "memory_warning", "system", f"工作流记忆沉淀失败：{exc}")
 
     def _mark_step_failed(
         self,

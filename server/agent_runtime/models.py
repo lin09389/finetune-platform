@@ -14,6 +14,11 @@ class WorkflowCreate(BaseModel):
     goal: str = Field(..., min_length=1)
     template_id: str = "software_delivery"
     project_path: str | None = None
+    chat_session_id: str | None = None
+    include_project_context: bool = True
+    include_chat_context: bool = False
+    include_memory: bool = True
+    max_context_chars: int = Field(default=6000, ge=500, le=30000)
     provider: str = "minimax"
     model: str | None = None
     approval_mode: str = "manual"
@@ -114,6 +119,57 @@ class WorkflowTemplateResponse(BaseModel):
     default_provider: str = "minimax"
     default_model: str | None = None
     default_approval_mode: str = "manual"
+
+
+class WorkflowContextProfile(BaseModel):
+    workflow_id: str
+    project_path: str | None = None
+    chat_session_id: str | None = None
+    include_project_context: bool = True
+    include_chat_context: bool = False
+    include_memory: bool = True
+    max_context_chars: int = 6000
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class WorkflowContextProfileUpdate(BaseModel):
+    project_path: str | None = None
+    chat_session_id: str | None = None
+    include_project_context: bool = True
+    include_chat_context: bool = False
+    include_memory: bool = True
+    max_context_chars: int = Field(default=6000, ge=500, le=30000)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowContextSnapshotResponse(BaseModel):
+    id: str
+    workflow_id: str
+    step_id: str | None = None
+    step_key: str | None = None
+    context_type: str
+    content: str
+    sources: list[dict[str, Any]] = Field(default_factory=list)
+    char_count: int
+    created_at: str
+
+
+class WorkflowMemoryEntryResponse(BaseModel):
+    id: str
+    workflow_id: str
+    source_step_id: str | None = None
+    memory_type: str
+    memory_key: str
+    memory_value: dict[str, Any] = Field(default_factory=dict)
+    content: str
+    confidence: float
+    status: str
+    external_memory_id: str | None = None
+    created_at: str
+    updated_at: str
+    reverted_at: str | None = None
 
 
 class WorkflowStepResponse(BaseModel):

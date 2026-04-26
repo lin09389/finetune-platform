@@ -39,6 +39,12 @@ interface ChatHeaderProps {
   onToggleCloudAI: () => void;
   cloudAIConfigured: boolean;
   onOpenCloudAIConfig: () => void;
+  currentCloudProvider?: string;
+  cloudProviders?: { id: string; name: string }[];
+  onCloudProviderChange?: (provider: string) => void;
+  currentCloudModel?: string;
+  cloudModels?: { id: string; name: string }[];
+  onCloudModelChange?: (model: string) => void;
   useKnowledge: boolean;
   onToggleKnowledge: () => void;
   collectionsCount: number;
