@@ -130,6 +130,8 @@ class KnowledgeGraph:
         self.relation_source_index: dict[str, set[str]] = defaultdict(set)
         self.relation_target_index: dict[str, set[str]] = defaultdict(set)
         self.relation_type_index: dict[str, set[str]] = defaultdict(set)
+        self._max_entities = 10000
+        self._max_relations = 50000
 
         logger.info(f"知识图谱初始化完成，存储后端: {storage_backend}")
 
@@ -175,6 +177,7 @@ class KnowledgeGraph:
 
         self.entities[entity_id] = entity
         self._index_entity(entity)
+        self._evict_entities_if_needed(protected_ids={entity_id})
 
         logger.info(f"添加实体: {name} ({entity_type})")
         return entity_id, True
@@ -236,6 +239,7 @@ class KnowledgeGraph:
 
         self.relations[relation_id] = relation
         self._index_relation(relation)
+        self._evict_relations_if_needed(protected_ids={relation_id})
 
         logger.info(f"添加关系: {source_name} -[{relation_type}]-> {target_name}")
         return relation_id
@@ -542,6 +546,51 @@ class KnowledgeGraph:
         """索引实体"""
         self.entity_name_index[entity.name.lower()].add(entity.id)
         self.entity_type_index[entity.entity_type].add(entity.id)
+
+    def _evict_entities_if_needed(self, protected_ids: set[str] | None = None):
+        """淘汰访问次数最少的实体"""
+        protected_ids = protected_ids or set()
+        if len(self.entities) <= self._max_entities:
+            return
+        sorted_entities = sorted(
+            (
+                entity
+                for entity in self.entities.values()
+                if entity.id not in protected_ids
+            ),
+            key=lambda e: (e.access_count, e.confidence),
+        )
+        to_remove = len(self.entities) - self._max_entities
+        for entity in sorted_entities[:to_remove]:
+            self._delete_entity(entity.id)
+
+    def _evict_relations_if_needed(self, protected_ids: set[str] | None = None):
+        """淘汰置信度最低的关系"""
+        protected_ids = protected_ids or set()
+        if len(self.relations) <= self._max_relations:
+            return
+        sorted_relations = sorted(
+            (
+                relation
+                for relation in self.relations.values()
+                if relation.id not in protected_ids
+            ),
+            key=lambda r: r.confidence,
+        )
+        to_remove = len(self.relations) - self._max_relations
+        for rel in sorted_relations[:to_remove]:
+            self._delete_relation(rel.id)
+
+    def _delete_entity(self, entity_id: str):
+        """删除实体及其关联关系"""
+        if entity_id not in self.entities:
+            return
+        entity = self.entities[entity_id]
+        self.entity_name_index[entity.name.lower()].discard(entity_id)
+        self.entity_type_index[entity.entity_type].discard(entity_id)
+        for rel_id in list(self.relation_source_index.get(entity_id, set()) | self.relation_target_index.get(entity_id, set())):
+            self._delete_relation(rel_id)
+        del self.entities[entity_id]
 
     def _index_relation(self, relation: Relation):
         """索引关系"""

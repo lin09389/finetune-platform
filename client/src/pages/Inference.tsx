@@ -6,7 +6,7 @@ import {
   SwapOutlined,
 } from '@ant-design/icons';
 import { Alert, Badge, Button, Col, Divider, Input, Row, Select, Slider, Space, Tag, Switch } from 'antd';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import RuntimeContextPanel from '../components/runtime/RuntimeContextPanel';
 import glassStyles from '../components/shared/GlassCard.module.css';
 import InsightPanel from '../components/shared/InsightPanel';
@@ -46,6 +46,7 @@ export default function Inference() {
   const [performanceStats, setPerformanceStats] = useState<any>(null);
   const [performanceRecommendations, setPerformanceRecommendations] = useState<string[]>([]);
   const [comparisonMode, setComparisonMode] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     void refreshInference();
@@ -126,6 +127,10 @@ export default function Inference() {
   const handleSend = async () => {
     if (!selectedModel || !prompt.trim()) return;
 
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setLoading(true);
     setResponse('');
 
@@ -142,6 +147,8 @@ export default function Inference() {
           (text: string) => {
             setResponse((prev) => prev + text);
           },
+          undefined,
+          controller.signal,
         );
       } else {
         await streamInference(
@@ -155,13 +162,21 @@ export default function Inference() {
           (text: string) => {
             setResponse((prev) => prev + text);
           },
+          undefined,
+          controller.signal,
         );
       }
     } catch (error: unknown) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      }
       const errorMsg = error instanceof Error ? error.message : '推理失败';
       setResponse(`错误: ${errorMsg}`);
     } finally {
-      setLoading(false);
+      if (abortControllerRef.current === controller) {
+        setLoading(false);
+        abortControllerRef.current = null;
+      }
     }
   };
 

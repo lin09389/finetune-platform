@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import {
+import {
   AppstoreOutlined,
   BookOutlined,
   BulbOutlined,
