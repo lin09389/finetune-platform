@@ -7,13 +7,15 @@ import {
   ReloadOutlined,
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
-import { Button, Form, Input, Modal, Select, Space, Tag, message } from 'antd';
+import { Button, Form, Input, Modal, Popconfirm, Segmented, Select, Space, Switch, Tag, message } from 'antd';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   approveWorkflowStep,
   createWorkflow,
+  createWorkflowTemplate,
+  deleteWorkflowTemplate,
   getSavedCloudProviders,
   getWorkflow,
   getWorkflowArtifacts,
@@ -22,8 +24,9 @@ import {
   getWorkflows,
   retryWorkflowStep,
   runWorkflow,
+  updateWorkflowTemplate,
 } from '../services/api';
-import type { SavedCloudProvider, Workflow, WorkflowStep, WorkflowTemplate } from '../services/api';
+import type { SavedCloudProvider, Workflow, WorkflowTemplate } from '../services/api';
 import styles from './DigitalTeam.module.css';
 
 const stepMeta: Record<string, { label: string; icon: ReactNode }> = {
@@ -65,7 +68,11 @@ export default function Workflows() {
   const [cloudProviders, setCloudProviders] = useState<SavedCloudProvider[]>([]);
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [activeView, setActiveView] = useState<'run' | 'templates'>('run');
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<WorkflowTemplate | null>(null);
   const [form] = Form.useForm();
+  const [templateForm] = Form.useForm();
   const selectedFormProvider = Form.useWatch('provider', form);
 
   const selectedId = selectedWorkflow?.workflow_id || selectedWorkflow?.id;
@@ -142,6 +149,103 @@ export default function Workflows() {
     }
   };
 
+  const openTemplateModal = (template?: WorkflowTemplate, duplicate = false) => {
+    setEditingTemplate(duplicate ? null : template || null);
+    const base = template || {
+      id: '',
+      name: '',
+      description: '',
+      default_provider: cloudProviders[0]?.provider || 'minimax',
+      default_model: cloudProviders[0]?.default_model || '',
+      is_enabled: true,
+      agents: [
+        {
+          agent_id: 'planner',
+          name: 'Planner',
+          description: '拆解目标',
+          system_prompt: '你负责拆解用户目标，并严格输出 JSON。',
+        },
+      ],
+      steps: [
+        {
+          step_key: 'plan',
+          agent_id: 'planner',
+          title: '计划',
+          description: '输出任务计划',
+          artifact_type: 'plan',
+          requires_approval: true,
+          sort_order: 0,
+        },
+      ],
+    } as any;
+    templateForm.setFieldsValue({
+      id: duplicate ? `${base.id}_copy` : base.id,
+      name: duplicate ? `${base.name} 副本` : base.name,
+      description: base.description,
+      default_provider: base.default_provider || cloudProviders[0]?.provider || 'minimax',
+      default_model: base.default_model || '',
+      is_enabled: base.is_enabled ?? true,
+      agents: (base.agents || []).map((agent: any) => ({
+        agent_id: agent.agent_id || agent.id,
+        name: agent.name,
+        description: agent.description,
+        system_prompt: agent.system_prompt || '你负责完成当前步骤，并严格输出 JSON。',
+        output_requirements: agent.output_requirements || '',
+      })),
+      steps: (base.steps || []).map((step: any, index: number) => ({
+        step_key: step.step_key || step.key,
+        agent_id: step.agent_id,
+        title: step.title,
+        description: step.description,
+        artifact_type: step.artifact_type,
+        requires_approval: step.requires_approval,
+        sort_order: step.sort_order ?? index,
+      })),
+    });
+    setTemplateOpen(true);
+  };
+
+  const handleTemplateSubmit = async (values: any) => {
+    const payload = {
+      ...values,
+      default_model: values.default_model || undefined,
+      default_approval_mode: 'manual',
+      agents: (values.agents || []).map((agent: any) => ({
+        ...agent,
+        output_requirements: agent.output_requirements || '',
+      })),
+      steps: (values.steps || []).map((step: any, index: number) => ({
+        ...step,
+        sort_order: index,
+      })),
+    };
+    try {
+      if (editingTemplate) {
+        await updateWorkflowTemplate(editingTemplate.id, payload);
+        message.success('模板已更新');
+      } else {
+        await createWorkflowTemplate(payload);
+        message.success('模板已创建');
+      }
+      setTemplateOpen(false);
+      setEditingTemplate(null);
+      templateForm.resetFields();
+      await loadInitialData();
+    } catch (error: any) {
+      message.error(error?.response?.data?.detail || '模板保存失败');
+    }
+  };
+
+  const handleDeleteTemplate = async (templateId: string) => {
+    try {
+      await deleteWorkflowTemplate(templateId);
+      message.success('模板已删除');
+      await loadInitialData();
+    } catch (error: any) {
+      message.error(error?.response?.data?.detail || '模板删除失败');
+    }
+  };
+
   const handleRun = async () => {
     if (!selectedWorkflow) return;
     setLoading(true);
@@ -193,13 +297,14 @@ export default function Workflows() {
     [selectedWorkflow],
   );
 
-  const stepsByKey = useMemo(() => {
-    const map: Record<string, WorkflowStep | undefined> = {};
-    (selectedWorkflow?.steps || []).forEach((step) => {
-      map[step.step_key] = step;
-    });
-    return map;
-  }, [selectedWorkflow]);
+  const orderedSteps = useMemo(
+    () => [...(selectedWorkflow?.steps || [])].sort((a, b) => {
+      const aTemplate = templates.find((template) => template.id === selectedWorkflow?.template_id);
+      const order = new Map((aTemplate?.steps || []).map((step, index) => [step.step_key || step.key, index]));
+      return (order.get(a.step_key) ?? 0) - (order.get(b.step_key) ?? 0);
+    }),
+    [selectedWorkflow, templates],
+  );
 
   const providerOptions = useMemo(() => {
     const savedOptions = cloudProviders.map((provider) => ({
@@ -229,6 +334,27 @@ export default function Workflows() {
     return models.map((model) => ({ value: model, label: model }));
   }, [selectedCloudProvider]);
 
+  const displayTemplates = useMemo<WorkflowTemplate[]>(
+    () =>
+      templates.length
+        ? templates
+        : [
+            {
+              id: 'software_delivery',
+              name: 'AI 软件交付流程',
+              description: 'Plan / Implement / Review',
+              legacy_template_id: 'software_dev_team',
+              is_builtin: true,
+              is_enabled: true,
+              agents: [],
+              steps: [],
+              default_provider: 'minimax',
+              default_approval_mode: 'manual',
+            },
+          ],
+    [templates],
+  );
+
   const openCreateModal = () => {
     const defaultProvider = cloudProviders[0]?.provider || 'minimax';
     const defaultModel = cloudProviders[0]?.default_model || cloudProviders[0]?.models?.[0] || undefined;
@@ -250,23 +376,77 @@ export default function Workflows() {
           <p>用通用工作流视角编排 Planner、Implementer、Reviewer，关键步骤由你审批。</p>
         </div>
         <Space>
+          <Segmented
+            value={activeView}
+            onChange={(value) => setActiveView(value as 'run' | 'templates')}
+            options={[
+              { label: '工作流运行', value: 'run' },
+              { label: '模板配置', value: 'templates' },
+            ]}
+          />
           <Button icon={<ReloadOutlined />} onClick={loadInitialData} loading={loading}>
             刷新
           </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
-            新建工作流
-          </Button>
+          {activeView === 'run' ? (
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
+              新建工作流
+            </Button>
+          ) : (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => openTemplateModal()}>
+              新建模板
+            </Button>
+          )}
         </Space>
       </div>
 
+      {activeView === 'templates' ? (
+        <div className={styles.layout}>
+          <main className={styles.panel} style={{ gridColumn: '1 / -1' }}>
+            <h3 className={styles.panelTitle}>模板配置</h3>
+            <div className={styles.board}>
+              {templates.map((template) => (
+                <div key={template.id} className={styles.taskCard}>
+                  <div className={styles.taskHeader}>
+                    <span className={styles.taskRole}>{template.name}</span>
+                    <Space>
+                      {template.is_builtin && <Tag color="blue">内置</Tag>}
+                      <Tag color={template.is_enabled ? 'success' : 'default'}>
+                        {template.is_enabled ? '启用' : '停用'}
+                      </Tag>
+                    </Space>
+                  </div>
+                  <p className={styles.taskDescription}>{template.description || '暂无描述'}</p>
+                  <div className={styles.projectMeta}>
+                    {template.agents.length} Agent · {template.steps.length} Step · {template.default_provider}
+                  </div>
+                  <Space style={{ marginTop: 12 }}>
+                    {!template.is_builtin && (
+                      <Button size="small" onClick={() => openTemplateModal(template)}>
+                        编辑
+                      </Button>
+                    )}
+                    <Button size="small" onClick={() => openTemplateModal(template, true)}>
+                      复制
+                    </Button>
+                    {!template.is_builtin && (
+                      <Popconfirm title="删除该模板？" onConfirm={() => handleDeleteTemplate(template.id)}>
+                        <Button size="small" danger>
+                          删除
+                        </Button>
+                      </Popconfirm>
+                    )}
+                  </Space>
+                </div>
+              ))}
+            </div>
+          </main>
+        </div>
+      ) : (
       <div className={styles.layout}>
         <aside className={styles.panel}>
           <h3 className={styles.panelTitle}>模板</h3>
           <Space direction="vertical" style={{ width: '100%', marginBottom: 16 }}>
-            {(templates.length
-              ? templates
-              : [{ id: 'software_delivery', name: 'AI 软件交付流程', description: 'Plan / Implement / Review' }]
-            ).map((template) => (
+            {displayTemplates.map((template) => (
               <div key={template.id} className={styles.projectItem}>
                 <div className={styles.projectTitle}>{template.name}</div>
                 <div className={styles.projectMeta}>{template.description}</div>
@@ -320,9 +500,9 @@ export default function Workflows() {
             <>
               <div className={styles.outputBox}>{selectedWorkflow.goal}</div>
               <div className={styles.board} style={{ marginTop: 16 }}>
-                {['plan', 'implement', 'review'].map((stepKey) => {
-                  const step = stepsByKey[stepKey];
-                  const meta = stepMeta[stepKey] || { label: stepKey, icon: null };
+                {(orderedSteps.length ? orderedSteps : []).map((step) => {
+                  const stepKey = step.step_key;
+                  const meta = stepMeta[stepKey] || { label: step.title || stepKey, icon: <PartitionOutlined /> };
                   return (
                     <div key={stepKey} className={styles.taskCard}>
                       <div className={styles.taskHeader}>
@@ -336,10 +516,13 @@ export default function Workflows() {
                       <p className={styles.taskDescription}>
                         {step?.description || '等待上一节点完成。'}
                       </p>
-                      {step && <div className={styles.outputBox}>{compactJson(step.output_data || step.output)}</div>}
+                      <div className={styles.outputBox}>{compactJson(step.output_data || step.output)}</div>
                     </div>
                   );
                 })}
+                {!orderedSteps.length && (
+                  <div className={styles.emptyState}>运行后会按模板动态显示步骤。</div>
+                )}
               </div>
             </>
           ) : (
@@ -407,6 +590,7 @@ export default function Workflows() {
           </div>
         </aside>
       </div>
+      )}
 
       <Modal
         title="新建工作流"
@@ -428,7 +612,7 @@ export default function Workflows() {
           </Form.Item>
           <Form.Item name="template_id" label="工作流模板" initialValue="software_delivery">
             <Select
-              options={(templates.length ? templates : [{ id: 'software_delivery', name: 'AI 软件交付流程' }]).map(
+              options={displayTemplates.map(
                 (template) => ({ value: template.id, label: template.name }),
               )}
             />
@@ -465,6 +649,143 @@ export default function Workflows() {
               />
             </Form.Item>
           </Space>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={editingTemplate ? '编辑工作流模板' : '新建工作流模板'}
+        open={templateOpen}
+        onCancel={() => setTemplateOpen(false)}
+        onOk={() => templateForm.submit()}
+        width={880}
+        destroyOnHidden
+      >
+        <Form form={templateForm} layout="vertical" onFinish={handleTemplateSubmit}>
+          <Space style={{ width: '100%' }} align="start">
+            <Form.Item name="id" label="模板标识" rules={[{ required: true, message: '请输入模板标识' }]}>
+              <Input disabled={!!editingTemplate} placeholder="content_ops" style={{ width: 220 }} />
+            </Form.Item>
+            <Form.Item name="name" label="模板名称" rules={[{ required: true, message: '请输入模板名称' }]}>
+              <Input placeholder="内容运营团队" style={{ width: 260 }} />
+            </Form.Item>
+            <Form.Item name="is_enabled" label="启用" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+          </Space>
+          <Form.Item name="description" label="描述">
+            <Input placeholder="这个团队适合完成什么任务" />
+          </Form.Item>
+          <Space style={{ width: '100%' }} align="start">
+            <Form.Item name="default_provider" label="默认服务商" rules={[{ required: true }]}>
+              <Select style={{ width: 240 }} options={providerOptions} />
+            </Form.Item>
+            <Form.Item name="default_model" label="默认模型">
+              <Input placeholder="可留空" style={{ width: 260 }} />
+            </Form.Item>
+          </Space>
+
+          <h3 className={styles.panelTitle}>Agent</h3>
+          <Form.List
+            name="agents"
+            rules={[
+              {
+                validator: async (_, agents) => {
+                  if (!agents || agents.length < 1) {
+                    throw new Error('至少需要 1 个 Agent');
+                  }
+                },
+              },
+            ]}
+          >
+            {(fields, { add, remove }) => (
+              <Space direction="vertical" style={{ width: '100%' }}>
+                {fields.map((field) => (
+                  <div key={field.key} className={styles.artifactItem}>
+                    <Space align="start" wrap>
+                      <Form.Item {...field} name={[field.name, 'agent_id']} label="Agent ID" rules={[{ required: true }]}>
+                        <Input placeholder="planner" style={{ width: 140 }} />
+                      </Form.Item>
+                      <Form.Item {...field} name={[field.name, 'name']} label="名称" rules={[{ required: true }]}>
+                        <Input placeholder="选题策划" style={{ width: 160 }} />
+                      </Form.Item>
+                      <Form.Item {...field} name={[field.name, 'description']} label="职责">
+                        <Input placeholder="拆解目标" style={{ width: 220 }} />
+                      </Form.Item>
+                      <Button danger onClick={() => remove(field.name)}>
+                        删除
+                      </Button>
+                    </Space>
+                    <Form.Item {...field} name={[field.name, 'system_prompt']} label="System Prompt" rules={[{ required: true }]}>
+                      <Input.TextArea rows={3} placeholder="你负责..." />
+                    </Form.Item>
+                    <Form.Item {...field} name={[field.name, 'output_requirements']} label="输出要求">
+                      <Input.TextArea rows={2} placeholder="可选，补充 JSON 输出要求" />
+                    </Form.Item>
+                  </div>
+                ))}
+                <Button onClick={() => add({ agent_id: 'agent', name: 'Agent', system_prompt: '你负责完成当前步骤，并严格输出 JSON。' })}>
+                  添加 Agent
+                </Button>
+              </Space>
+            )}
+          </Form.List>
+
+          <h3 className={styles.panelTitle} style={{ marginTop: 16 }}>Step</h3>
+          <Form.List
+            name="steps"
+            rules={[
+              {
+                validator: async (_, steps) => {
+                  if (!steps || steps.length < 1) {
+                    throw new Error('至少需要 1 个 Step');
+                  }
+                },
+              },
+            ]}
+          >
+            {(fields, { add, remove, move }) => (
+              <Space direction="vertical" style={{ width: '100%' }}>
+                {fields.map((field, index) => (
+                  <div key={field.key} className={styles.artifactItem}>
+                    <Space align="start" wrap>
+                      <Form.Item {...field} name={[field.name, 'step_key']} label="Step Key" rules={[{ required: true }]}>
+                        <Input placeholder="plan" style={{ width: 140 }} />
+                      </Form.Item>
+                      <Form.Item {...field} name={[field.name, 'agent_id']} label="Agent ID" rules={[{ required: true }]}>
+                        <Input placeholder="planner" style={{ width: 140 }} />
+                      </Form.Item>
+                      <Form.Item {...field} name={[field.name, 'title']} label="标题" rules={[{ required: true }]}>
+                        <Input placeholder="内容计划" style={{ width: 180 }} />
+                      </Form.Item>
+                      <Form.Item {...field} name={[field.name, 'artifact_type']} label="产物类型" rules={[{ required: true }]}>
+                        <Input placeholder="content_plan" style={{ width: 160 }} />
+                      </Form.Item>
+                      <Form.Item {...field} name={[field.name, 'requires_approval']} label="审批" valuePropName="checked">
+                        <Switch />
+                      </Form.Item>
+                    </Space>
+                    <Form.Item {...field} name={[field.name, 'description']} label="描述">
+                      <Input placeholder="输出选题和结构" />
+                    </Form.Item>
+                    <Space>
+                      <Button size="small" disabled={index === 0} onClick={() => move(index, index - 1)}>
+                        上移
+                      </Button>
+                      <Button size="small" disabled={index === fields.length - 1} onClick={() => move(index, index + 1)}>
+                        下移
+                      </Button>
+                      <Button size="small" danger onClick={() => remove(field.name)}>
+                        删除
+                      </Button>
+                    </Space>
+                  </div>
+                ))}
+                <Button onClick={() => add({ step_key: 'step', agent_id: 'planner', title: '新步骤', artifact_type: 'artifact', requires_approval: true })}>
+                  添加 Step
+                </Button>
+              </Space>
+            )}
+          </Form.List>
         </Form>
       </Modal>
     </div>

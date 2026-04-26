@@ -11,24 +11,32 @@ class AgentDefinition(BaseModel):
     id: str
     name: str
     description: str = ""
+    system_prompt: str = ""
+    output_requirements: str = ""
 
 
 class StepDefinition(BaseModel):
     key: str
     agent_id: str
-    legacy_role: str
+    legacy_role: str = ""
     title: str
     description: str
     artifact_type: str
-    artifact_title: str
+    artifact_title: str = ""
     requires_approval: bool = True
+    sort_order: int = 0
 
 
 class WorkflowDefinition(BaseModel):
     id: str
     name: str
     description: str
-    legacy_template_id: str
+    legacy_template_id: str = ""
+    is_builtin: bool = False
+    is_enabled: bool = True
+    default_provider: str = "minimax"
+    default_model: str | None = None
+    default_approval_mode: str = "manual"
     agents: list[AgentDefinition] = Field(default_factory=list)
     steps: list[StepDefinition] = Field(default_factory=list)
 
@@ -43,6 +51,12 @@ class WorkflowDefinition(BaseModel):
             if step.legacy_role == legacy_role:
                 return step
         raise KeyError(f"Unknown legacy role: {legacy_role}")
+
+    def agent_by_id(self, agent_id: str) -> AgentDefinition:
+        for agent in self.agents:
+            if agent.id == agent_id:
+                return agent
+        raise KeyError(f"Unknown agent id: {agent_id}")
 
 
 class RuntimeExecutionContext(BaseModel):

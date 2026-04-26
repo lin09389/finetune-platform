@@ -19,8 +19,8 @@ import RuntimeContextPanel from '../components/runtime/RuntimeContextPanel';
 import APIKeyManager from '../pages/APIKeyManager';
 
 import { useRuntimeContext } from '../runtime/RuntimeContext';
-import { API_BASE_URL, createWorkflow, getSavedCloudProviders } from '../services/api';
-import type { SavedCloudProvider } from '../services/api';
+import { API_BASE_URL, createWorkflow, getSavedCloudProviders, getWorkflowTemplates } from '../services/api';
+import type { SavedCloudProvider, WorkflowTemplate } from '../services/api';
 import { transitions } from '../theme/animations';
 import { notify } from '../utils/notify';
 import styles from './ChatNew.module.css';
@@ -148,6 +148,8 @@ const ChatPage: React.FC = () => {
   const [cloudAIConfig, setCloudAIConfig] = useState<APIKeyConfig | null>(null);
   const [cloudProviders, setCloudProviders] = useState<SavedCloudProvider[]>([]);
   const [selectedCloudModel, setSelectedCloudModel] = useState<string>('');
+  const [workflowTemplates, setWorkflowTemplates] = useState<WorkflowTemplate[]>([]);
+  const [selectedWorkflowTemplate, setSelectedWorkflowTemplate] = useState('software_delivery');
   const [creatingWorkflow, setCreatingWorkflow] = useState(false);
   const navigate = useNavigate();
 
@@ -181,6 +183,7 @@ const ChatPage: React.FC = () => {
       refreshInference(),
       loadSessions(),
       loadCloudAIConfig(),
+      loadWorkflowTemplates(),
       refreshKnowledge(),
     ]).then((results) => {
       const failed = results.filter((r) => r.status === 'rejected');
@@ -292,6 +295,18 @@ const ChatPage: React.FC = () => {
     }
   };
 
+  const loadWorkflowTemplates = async () => {
+    try {
+      const templates = await getWorkflowTemplates();
+      setWorkflowTemplates(templates || []);
+      if (!templates?.some((template: WorkflowTemplate) => template.id === selectedWorkflowTemplate)) {
+        setSelectedWorkflowTemplate('software_delivery');
+      }
+    } catch {
+      setWorkflowTemplates([]);
+    }
+  };
+
   const handleSend = useCallback(
     async (content: string) => {
       if (!content.trim()) return;
@@ -328,7 +343,7 @@ const ChatPage: React.FC = () => {
         const workflow = await createWorkflow({
           title: goal.slice(0, 30),
           goal,
-          template_id: 'software_delivery',
+          template_id: selectedWorkflowTemplate || 'software_delivery',
           provider: cloudAIConfig?.provider || undefined,
           model: selectedCloudModel || cloudAIConfig?.model || undefined,
           approval_mode: 'manual',
@@ -341,7 +356,16 @@ const ChatPage: React.FC = () => {
         setCreatingWorkflow(false);
       }
     },
-    [cloudAIConfig?.model, cloudAIConfig?.provider, navigate, selectedCloudModel],
+    [cloudAIConfig?.model, cloudAIConfig?.provider, navigate, selectedCloudModel, selectedWorkflowTemplate],
+  );
+
+  const workflowTemplateOptions = useMemo(
+    () =>
+      (workflowTemplates.length
+        ? workflowTemplates
+        : [{ id: 'software_delivery', name: 'AI 软件交付流程' } as WorkflowTemplate]
+      ).map((template) => ({ value: template.id, label: template.name })),
+    [workflowTemplates],
   );
 
   const selectedCloudProvider = useMemo(
@@ -766,6 +790,9 @@ const ChatPage: React.FC = () => {
         modelId={useCloudAI ? selectedCloudModel : settings.modelId}
         onCreateWorkflow={handleCreateWorkflow}
         creatingWorkflow={creatingWorkflow}
+        workflowTemplateOptions={workflowTemplateOptions}
+        selectedWorkflowTemplate={selectedWorkflowTemplate}
+        onWorkflowTemplateChange={setSelectedWorkflowTemplate}
       />
 
       <ChatHistoryDrawer

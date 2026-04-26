@@ -8,13 +8,16 @@ from .definitions import WorkflowDefinition, WorkflowStepView, WorkflowView
 
 
 def step_from_task(task: dict[str, Any], workflow: WorkflowDefinition) -> WorkflowStepView:
-    step = workflow.step_by_role(task["role"])
+    if task.get("step_key"):
+        step = workflow.step_by_key(task["step_key"])
+    else:
+        step = workflow.step_by_role(task["role"])
     return WorkflowStepView(
         id=task["id"],
         workflow_id=task["project_id"],
         step_key=step.key,
         agent_id=step.agent_id,
-        legacy_role=task["role"],
+        legacy_role=step.legacy_role or task.get("role", step.agent_id),
         title=task["title"],
         description=task["description"],
         status=task["status"],

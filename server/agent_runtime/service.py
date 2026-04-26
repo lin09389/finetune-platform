@@ -10,7 +10,6 @@ from typing import Any
 from fastapi import HTTPException
 
 from core.config import settings
-from digital_team.repository import DigitalTeamRepository
 
 from .adapters import workflow_from_project
 from .definitions import WorkflowDefinition, WorkflowView
@@ -19,12 +18,14 @@ from .models import (
     WorkflowAgentResponse,
     WorkflowCreate,
     WorkflowResponse,
+    WorkflowTemplateCreate,
     WorkflowStepResponse,
     WorkflowStepTemplateResponse,
+    WorkflowTemplateUpdate,
     WorkflowTemplateResponse,
 )
+from .repository import WorkflowRuntimeRepository
 from .runner import AgentRuntimeRunner
-from .templates import SOFTWARE_DELIVERY_TEMPLATE, get_workflow_definition
 
 logger = logging.getLogger(__name__)
 
@@ -34,24 +35,54 @@ class AgentRuntimeService:
 
     def __init__(
         self,
-        repository: DigitalTeamRepository | None = None,
+        repository: WorkflowRuntimeRepository | None = None,
         runner: AgentRuntimeRunner | None = None,
     ):
-        self.repository = repository or DigitalTeamRepository()
+        self.repository = repository or WorkflowRuntimeRepository()
         self.runner = runner or AgentRuntimeRunner()
         self.engine = AgentRuntimeEngine(self.repository, self.runner)
 
     def list_templates(self) -> list[WorkflowTemplateResponse]:
-        return [self._template_response(SOFTWARE_DELIVERY_TEMPLATE)]
+        return [self._template_response(template) for template in self.repository.list_templates()]
+
+    def get_template(self, template_id: str) -> WorkflowTemplateResponse:
+        return self._template_response(self._get_workflow_definition(template_id))
+
+    def create_template(self, request: WorkflowTemplateCreate) -> WorkflowTemplateResponse:
+        try:
+            return self._template_response(self.repository.create_template(request))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    def update_template(self, template_id: str, request: WorkflowTemplateUpdate) -> WorkflowTemplateResponse:
+        try:
+            return self._template_response(self.repository.update_template(template_id, request))
+        except PermissionError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Workflow template not found") from exc
+
+    def delete_template(self, template_id: str) -> dict[str, bool]:
+        try:
+            self.repository.delete_template(template_id)
+            return {"deleted": True}
+        except PermissionError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Workflow template not found") from exc
 
     def create_workflow(self, request: WorkflowCreate) -> WorkflowResponse:
         workflow = self._get_workflow_definition(request.template_id)
+        if not workflow.is_enabled:
+            raise HTTPException(status_code=400, detail="Workflow template is disabled")
         project_path = self._validate_project_path(request.project_path)
-        team = self.repository.create_team(workflow.legacy_template_id, workflow.name, workflow.description)
         data = request.model_dump()
-        data["template_id"] = workflow.legacy_template_id
+        data["template_id"] = workflow.id
         data["project_path"] = project_path
-        project = self.repository.create_project(data, team)
+        data["provider"] = data.get("provider") or workflow.default_provider
+        data["model"] = data.get("model") or workflow.default_model
+        data["approval_mode"] = data.get("approval_mode") or workflow.default_approval_mode
+        project = self.repository.create_project(data)
         return self._project_response(project, workflow)
 
     def list_workflows(self) -> list[WorkflowResponse]:
@@ -108,7 +139,7 @@ class AgentRuntimeService:
         return project
 
     def _get_workflow_definition(self, template_id: str) -> WorkflowDefinition:
-        workflow = get_workflow_definition(template_id)
+        workflow = self.repository.get_template(template_id)
         if workflow is None:
             raise HTTPException(status_code=400, detail="Unknown workflow template")
         return workflow
@@ -173,16 +204,33 @@ class AgentRuntimeService:
             name=workflow.name,
             description=workflow.description,
             legacy_template_id=workflow.legacy_template_id,
-            agents=[WorkflowAgentResponse(**agent.model_dump()) for agent in workflow.agents],
+            is_builtin=workflow.is_builtin,
+            is_enabled=workflow.is_enabled,
+            default_provider=workflow.default_provider,
+            default_model=workflow.default_model,
+            default_approval_mode=workflow.default_approval_mode,
+            agents=[
+                WorkflowAgentResponse(
+                    id=agent.id,
+                    agent_id=agent.id,
+                    name=agent.name,
+                    description=agent.description,
+                    system_prompt=agent.system_prompt,
+                    output_requirements=agent.output_requirements,
+                )
+                for agent in workflow.agents
+            ],
             steps=[
                 WorkflowStepTemplateResponse(
                     key=step.key,
+                    step_key=step.key,
                     agent_id=step.agent_id,
                     legacy_role=step.legacy_role,
                     title=step.title,
                     description=step.description,
                     artifact_type=step.artifact_type,
                     requires_approval=step.requires_approval,
+                    sort_order=step.sort_order,
                 )
                 for step in workflow.steps
             ],

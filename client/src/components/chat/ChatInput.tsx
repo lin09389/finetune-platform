@@ -6,7 +6,7 @@ import {
   SendOutlined,
   StopOutlined,
 } from '@ant-design/icons';
-import { Avatar, Button, Input, Tooltip, Typography, message } from 'antd';
+import { Avatar, Button, Input, Select, Tooltip, Typography, message } from 'antd';
 import { motion } from 'framer-motion';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useResponsive } from '../../hooks/useResponsive';
@@ -29,6 +29,9 @@ interface ChatInputProps {
   showModelInfo?: boolean;
   onCreateWorkflow?: (content: string) => void | Promise<void>;
   creatingWorkflow?: boolean;
+  workflowTemplateOptions?: Array<{ value: string; label: string }>;
+  selectedWorkflowTemplate?: string;
+  onWorkflowTemplateChange?: (templateId: string) => void;
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({
@@ -44,6 +47,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
   showModelInfo = true,
   onCreateWorkflow,
   creatingWorkflow = false,
+  workflowTemplateOptions = [],
+  selectedWorkflowTemplate = 'software_delivery',
+  onWorkflowTemplateChange,
 }) => {
   const { isMobile } = useResponsive();
   const [value, setValue] = useState('');
@@ -221,17 +227,29 @@ const ChatInput: React.FC<ChatInputProps> = ({
               )}
 
               {onCreateWorkflow && (
-                <Tooltip title="发起工作流">
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<PartitionOutlined />}
-                    onClick={handleCreateWorkflow}
-                    loading={creatingWorkflow}
-                    disabled={loading || isStreaming}
-                    className={styles.ghostIcon}
-                  />
-                </Tooltip>
+                <>
+                  {workflowTemplateOptions.length > 1 && (
+                    <Select
+                      size="small"
+                      value={selectedWorkflowTemplate}
+                      options={workflowTemplateOptions}
+                      onChange={onWorkflowTemplateChange}
+                      style={{ minWidth: 128 }}
+                      disabled={loading || isStreaming || creatingWorkflow}
+                    />
+                  )}
+                  <Tooltip title="发起工作流">
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<PartitionOutlined />}
+                      onClick={handleCreateWorkflow}
+                      loading={creatingWorkflow}
+                      disabled={loading || isStreaming}
+                      className={styles.ghostIcon}
+                    />
+                  </Tooltip>
+                </>
               )}
 
               {isStreaming ? (

@@ -23,6 +23,10 @@ class AgentRuntimeEngine:
         self.runner = runner
 
     def get_workflow(self, template_id: str) -> WorkflowDefinition:
+        if hasattr(self.repository, "get_template"):
+            workflow = self.repository.get_template(template_id)
+            if workflow is not None:
+                return workflow
         workflow = get_workflow_definition(template_id)
         if workflow is None:
             raise HTTPException(status_code=400, detail="Unknown digital team template")
@@ -30,15 +34,15 @@ class AgentRuntimeEngine:
 
     async def start(self, project: dict[str, Any], project_context: str) -> dict[str, Any]:
         workflow = self.get_workflow(project["template_id"])
-        step = workflow.step_by_key("plan")
+        step = self._ordered_steps(workflow)[0]
         self.repository.update_project(
             project["id"],
-            status="planning",
-            current_stage=step.legacy_role,
+            status="running",
+            current_stage=step.key,
         )
-        self.repository.add_event(project["id"], None, "project_started", "system", "CEO Agent 开始拆解任务")
+        self.repository.add_event(project["id"], None, "workflow_started", "system", f"{step.title} 开始执行")
         context = self._context_from_project(project, project_context)
-        await self._run_plan_step(project, step, context)
+        await self._run_until_pause(project, workflow, context, start_index=0, previous_outputs=[])
         return self.repository.get_project(project["id"]) or project
 
     async def approve(
@@ -52,16 +56,11 @@ class AgentRuntimeEngine:
         self.repository.update_task(task["id"], status=TaskStatus.APPROVED.value)
         self.repository.add_event(project["id"], task["id"], "approval_granted", "user", comment or "审批通过")
 
-        if task["role"] == workflow.step_by_key("plan").legacy_role:
-            context = self._context_from_project(project, project_context)
-            await self._run_implement_and_review(project, workflow, context, task)
-        elif task["role"] == workflow.step_by_key("review").legacy_role:
-            self.repository.update_project(
-                project["id"],
-                status="completed",
-                current_stage="completed",
-                completed_at=datetime.now().isoformat(),
-            )
+        context = self._context_from_project(project, project_context)
+        steps = self._ordered_steps(workflow)
+        current_index = self._step_index(steps, task)
+        previous_outputs = [item.get("output", {}) for item in project.get("tasks", []) if item.get("output")]
+        await self._run_until_pause(project, workflow, context, current_index + 1, previous_outputs)
         return self.repository.get_project(project["id"]) or project
 
     async def reject(
@@ -78,18 +77,173 @@ class AgentRuntimeEngine:
     async def retry(self, project: dict[str, Any], task: dict[str, Any], project_context: str) -> dict[str, Any]:
         workflow = self.get_workflow(project["template_id"])
         context = self._context_from_project(project, project_context)
-        if task["role"] == workflow.step_by_key("plan").legacy_role:
-            return await self.start(project, project_context)
-        if task["role"] in {
-            workflow.step_by_key("implement").legacy_role,
-            workflow.step_by_key("review").legacy_role,
-        }:
-            plan_task = next((item for item in project["tasks"] if item["role"] == workflow.step_by_key("plan").legacy_role), None)
-            if not plan_task:
-                raise HTTPException(status_code=400, detail="CEO task is required before retry")
-            await self._run_implement_and_review(project, workflow, context, plan_task)
-            return self.repository.get_project(project["id"]) or project
-        raise HTTPException(status_code=400, detail="Unsupported task retry")
+        steps = self._ordered_steps(workflow)
+        current_index = self._step_index(steps, task)
+        previous_outputs = [
+            item.get("output", {})
+            for item in project.get("tasks", [])
+            if item.get("sort_order", 0) < task.get("sort_order", current_index) and item.get("output")
+        ]
+        await self._run_until_pause(project, workflow, context, current_index, previous_outputs)
+        return self.repository.get_project(project["id"]) or project
+
+    async def _run_until_pause(
+        self,
+        project: dict[str, Any],
+        workflow: WorkflowDefinition,
+        context: RuntimeExecutionContext,
+        start_index: int,
+        previous_outputs: list[dict[str, Any]],
+    ) -> None:
+        steps = self._ordered_steps(workflow)
+        if start_index >= len(steps):
+            self.repository.update_project(
+                project["id"],
+                status="completed",
+                current_stage="completed",
+                completed_at=datetime.now().isoformat(),
+            )
+            self.repository.add_event(project["id"], None, "workflow_completed", "system", "工作流已完成")
+            return
+
+        for index in range(start_index, len(steps)):
+            step = steps[index]
+            output = await self._run_step(project, workflow, step, context, previous_outputs, index)
+            if output is None:
+                return
+            previous_outputs.append(output.model_dump())
+            if output.needs_manual_review or (
+                step.requires_approval and not (step.agent_id == "reviewer" and self._review_approved(output))
+            ):
+                self.repository.update_project(
+                    project["id"],
+                    status="awaiting_approval",
+                    current_stage=f"{step.key}_approval",
+                )
+                return
+
+        self.repository.update_project(
+            project["id"],
+            status="completed",
+            current_stage="completed",
+            completed_at=datetime.now().isoformat(),
+        )
+        self.repository.add_event(project["id"], None, "workflow_completed", "system", "工作流已完成")
+
+    async def _run_step(
+        self,
+        project: dict[str, Any],
+        workflow: WorkflowDefinition,
+        step: StepDefinition,
+        context: RuntimeExecutionContext,
+        previous_outputs: list[dict[str, Any]],
+        index: int,
+    ) -> AgentOutput | None:
+        existing = next(
+            (
+                task
+                for task in project.get("tasks", [])
+                if task.get("step_key") == step.key and task.get("status") != TaskStatus.FAILED.value
+            ),
+            None,
+        )
+        if existing:
+            task = existing
+        else:
+            try:
+                task = self.repository.create_task(
+                    project_id=project["id"],
+                    role=step.agent_id,
+                    title=step.title,
+                    description=step.description,
+                    status=TaskStatus.RUNNING.value,
+                    input_data={"goal": project["goal"], "previous_outputs": previous_outputs},
+                    requires_approval=step.requires_approval,
+                    step_key=step.key,
+                    sort_order=index,
+                )
+            except TypeError:
+                task = self.repository.create_task(
+                    project_id=project["id"],
+                    role=step.legacy_role or step.agent_id,
+                    title=step.title,
+                    description=step.description,
+                    status=TaskStatus.RUNNING.value,
+                    input_data={"goal": project["goal"], "previous_outputs": previous_outputs},
+                    requires_approval=step.requires_approval,
+                )
+        self.repository.update_project(project["id"], status="running", current_stage=step.key)
+        try:
+            agent = workflow.agent_by_id(step.agent_id)
+            output = await self._run_agent(
+                step.agent_id,
+                context,
+                {
+                    "goal": project["goal"],
+                    "previous_outputs": previous_outputs,
+                    "agent": agent.model_dump(),
+                    "step": step.model_dump(),
+                },
+            )
+            auto_approved_review = step.agent_id == "reviewer" and self._review_approved(output)
+            task_status = (
+                TaskStatus.NEEDS_MANUAL_REVIEW.value
+                if output.needs_manual_review
+                else (
+                    TaskStatus.AWAITING_APPROVAL.value
+                    if step.requires_approval and not auto_approved_review
+                    else TaskStatus.COMPLETED.value
+                )
+            )
+            self.repository.update_task(
+                task["id"],
+                status=task_status,
+                output=output.model_dump(),
+                completed_at=None if task_status in {TaskStatus.AWAITING_APPROVAL.value, TaskStatus.NEEDS_MANUAL_REVIEW.value} else datetime.now().isoformat(),
+            )
+            self.repository.add_artifact(
+                project["id"],
+                task["id"],
+                step.artifact_type,
+                step.artifact_title or step.title,
+                output.model_dump(),
+            )
+            if step.agent_id == "reviewer":
+                self.repository.add_review(
+                    project["id"],
+                    task["id"],
+                    approved=self._review_approved(output),
+                    summary=output.summary,
+                    risks=output.risks,
+                )
+            self.repository.add_event(
+                project["id"],
+                task["id"],
+                "agent_output",
+                step.agent_id,
+                f"{step.title} 已完成" if task_status == TaskStatus.COMPLETED.value else f"{step.title} 等待审批",
+                output.model_dump(),
+            )
+            return output
+        except Exception as exc:
+            self._mark_step_failed(project["id"], task["id"], step.agent_id, step.key, exc)
+            return None
+
+    def _ordered_steps(self, workflow: WorkflowDefinition) -> list[StepDefinition]:
+        if not workflow.steps:
+            raise HTTPException(status_code=400, detail="Workflow template has no steps")
+        return sorted(workflow.steps, key=lambda item: item.sort_order)
+
+    def _step_index(self, steps: list[StepDefinition], task: dict[str, Any]) -> int:
+        task_key = task.get("step_key")
+        for index, step in enumerate(steps):
+            if task_key and step.key == task_key:
+                return index
+            if step.legacy_role and step.legacy_role == task.get("role"):
+                return index
+            if step.agent_id == task.get("role"):
+                return index
+        raise HTTPException(status_code=400, detail="Workflow step is not part of its template")
 
     async def _run_plan_step(
         self,

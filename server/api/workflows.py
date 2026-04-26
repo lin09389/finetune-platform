@@ -8,7 +8,9 @@ from agent_runtime.models import (
     WorkflowApprovalRequest,
     WorkflowCreate,
     WorkflowResponse,
+    WorkflowTemplateCreate,
     WorkflowTemplateResponse,
+    WorkflowTemplateUpdate,
 )
 from agent_runtime.service import AgentRuntimeService
 
@@ -27,6 +29,39 @@ def get_agent_runtime_service() -> AgentRuntimeService:
 @router.get("/workflows/templates", response_model=list[WorkflowTemplateResponse])
 async def list_workflow_templates(service: AgentRuntimeService = Depends(get_agent_runtime_service)):
     return service.list_templates()
+
+
+@router.post("/workflows/templates", response_model=WorkflowTemplateResponse)
+async def create_workflow_template(
+    request: WorkflowTemplateCreate,
+    service: AgentRuntimeService = Depends(get_agent_runtime_service),
+):
+    return service.create_template(request)
+
+
+@router.get("/workflows/templates/{template_id}", response_model=WorkflowTemplateResponse)
+async def get_workflow_template(
+    template_id: str,
+    service: AgentRuntimeService = Depends(get_agent_runtime_service),
+):
+    return service.get_template(template_id)
+
+
+@router.put("/workflows/templates/{template_id}", response_model=WorkflowTemplateResponse)
+async def update_workflow_template(
+    template_id: str,
+    request: WorkflowTemplateUpdate,
+    service: AgentRuntimeService = Depends(get_agent_runtime_service),
+):
+    return service.update_template(template_id, request)
+
+
+@router.delete("/workflows/templates/{template_id}")
+async def delete_workflow_template(
+    template_id: str,
+    service: AgentRuntimeService = Depends(get_agent_runtime_service),
+):
+    return service.delete_template(template_id)
 
 
 @router.post("/workflows", response_model=WorkflowResponse)

@@ -349,6 +349,36 @@ export interface WorkflowCreate {
   approval_mode?: string;
 }
 
+export interface WorkflowAgentConfig {
+  agent_id: string;
+  name: string;
+  description?: string;
+  system_prompt: string;
+  output_requirements?: string;
+}
+
+export interface WorkflowStepConfig {
+  step_key: string;
+  agent_id: string;
+  title: string;
+  description?: string;
+  artifact_type: string;
+  requires_approval: boolean;
+  sort_order?: number;
+}
+
+export interface WorkflowTemplatePayload {
+  id: string;
+  name: string;
+  description?: string;
+  default_provider?: string;
+  default_model?: string;
+  default_approval_mode?: string;
+  is_enabled?: boolean;
+  agents: WorkflowAgentConfig[];
+  steps: WorkflowStepConfig[];
+}
+
 export interface WorkflowStep {
   id: string;
   step_id: string;
@@ -391,20 +421,45 @@ export interface WorkflowTemplate {
   name: string;
   description: string;
   legacy_template_id: string;
-  agents: Array<{ id: string; name: string; description?: string }>;
+  is_builtin: boolean;
+  is_enabled: boolean;
+  default_provider?: string;
+  default_model?: string;
+  default_approval_mode?: string;
+  agents: Array<WorkflowAgentConfig & { id?: string }>;
   steps: Array<{
     key: string;
+    step_key: string;
     agent_id: string;
     legacy_role: string;
     title: string;
     description: string;
     artifact_type: string;
     requires_approval: boolean;
+    sort_order?: number;
   }>;
 }
 
 export const getWorkflowTemplates = async () => {
   const response = await apiClient.get('/workflows/templates');
+  return response.data;
+};
+
+export const createWorkflowTemplate = async (payload: WorkflowTemplatePayload) => {
+  const response = await apiClient.post('/workflows/templates', payload);
+  return response.data;
+};
+
+export const updateWorkflowTemplate = async (
+  templateId: string,
+  payload: Omit<WorkflowTemplatePayload, 'id'>,
+) => {
+  const response = await apiClient.put(`/workflows/templates/${templateId}`, payload);
+  return response.data;
+};
+
+export const deleteWorkflowTemplate = async (templateId: string) => {
+  const response = await apiClient.delete(`/workflows/templates/${templateId}`);
   return response.data;
 };
 
@@ -1583,11 +1638,13 @@ export const streamGenerate = async (
   request: GenerateRequest,
   onChunk: (content: string) => void,
   onComplete?: () => void,
+  signal?: AbortSignal,
 ) => {
   const response = await fetch(`${API_BASE_URL}/inference-engine/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
+    signal,
   });
 
   const reader = response.body?.getReader();

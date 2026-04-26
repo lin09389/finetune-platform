@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from agent_runtime.service import AgentRuntimeService
 from api.workflows import get_agent_runtime_service
 from digital_team.models import AgentOutput
-from digital_team.repository import DigitalTeamRepository
+from agent_runtime.repository import WorkflowRuntimeRepository
 from main import app
 
 
@@ -41,7 +41,7 @@ class DummyRuntimeRunner:
 
 
 def make_client(tmp_path: Path) -> TestClient:
-    repository = DigitalTeamRepository(str(tmp_path / "workflows.db"))
+    repository = WorkflowRuntimeRepository(str(tmp_path / "workflows.db"))
     service = AgentRuntimeService(repository=repository, runner=DummyRuntimeRunner())
     service._project_context = lambda project_path, goal: "context"
     app.dependency_overrides[get_agent_runtime_service] = lambda: service
@@ -56,7 +56,7 @@ def test_workflow_templates_expose_software_delivery(tmp_path):
     assert response.status_code == 200
     data = response.json()
     assert data[0]["id"] == "software_delivery"
-    assert [step["key"] for step in data[0]["steps"]] == ["plan", "implement", "review"]
+    assert [step["step_key"] for step in data[0]["steps"]] == ["plan", "implement", "review"]
 
 
 def test_create_workflow_success(tmp_path):
