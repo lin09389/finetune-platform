@@ -1,6 +1,6 @@
-﻿"""
-妯″瀷涓嬭浇绠＄悊 API
-浠庨瓟鎼ぞ鍖猴紙ModelScope锛変笅杞藉拰绠＄悊妯″瀷
+"""
+模型下载管理 API
+从魔搭社区（ModelScope）下载和管理模型
 """
 import json
 import logging
@@ -71,15 +71,15 @@ def cleanup_expired_tasks():
         ]
         for task_id in expired_tasks:
             del download_tasks[task_id]
-            logger.debug(f"娓呯悊杩囨湡浠诲姟: {task_id}")
+            logger.debug(f"清理过期任务: {task_id}")
 
     return len(expired_tasks)
 
 
 class ModelSearchRequest(BaseModel):
     query: str = Field(default="", description="搜索关键词")
-    limit: int = Field(default=20, ge=1, le=100, description="杩斿洖鏁伴噺")
-    source: str = Field(default="modelscope", description="鎼滅储婧愶細modelscope/huggingface")
+    limit: int = Field(default=20, ge=1, le=100, description="返回数量")
+    source: str = Field(default="modelscope", description="搜索源：modelscope/huggingface")
 
 
 class ModelInfo(BaseModel):
@@ -94,9 +94,9 @@ class ModelInfo(BaseModel):
 
 
 class DownloadRequest(BaseModel):
-    repo_id: str = Field(..., description="妯″瀷浠撳簱 ID锛屽锛歈wen/Qwen2.5-0.5B-Instruct")
-    revision: str | None = Field(default="master", description="鐗堟湰鍒嗘敮")
-    source: str = Field(default="modelscope", description="涓嬭浇婧愶細modelscope/huggingface")
+    repo_id: str = Field(..., description="模型仓库 ID，如：Qwen/Qwen2.5-0.5B-Instruct")
+    revision: str | None = Field(default="master", description="版本分支")
+    source: str = Field(default="modelscope", description="下载源：modelscope/huggingface")
 
 
 class DownloadProgress(BaseModel):
@@ -119,7 +119,7 @@ class ModelLocal(BaseModel):
 
 
 def download_model_from_modelscope(task_id: str, repo_id: str, revision: str):
-    """浠?ModelScope 涓嬭浇妯″瀷"""
+    """从 ModelScope 下载模型"""
     try:
         from modelscope import snapshot_download
 
@@ -131,7 +131,7 @@ def download_model_from_modelscope(task_id: str, repo_id: str, revision: str):
         local_dir = MODELS_DIR / repo_id.split("/")[-1]
         local_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"寮€濮嬩粠 ModelScope 涓嬭浇妯″瀷: {repo_id} -> {local_dir}")
+        logger.info(f"开始从 ModelScope 下载模型: {repo_id} -> {local_dir}")
 
         with download_tasks_lock:
             if task_id in download_tasks:
@@ -175,7 +175,7 @@ def download_model_from_modelscope(task_id: str, repo_id: str, revision: str):
 
 
 def download_model_from_huggingface(task_id: str, repo_id: str, revision: str):
-    """浠?HuggingFace 涓嬭浇妯″瀷锛堝鐢級"""
+    """从 HuggingFace 下载模型（备用）"""
     try:
         import subprocess
         import sys
@@ -197,7 +197,7 @@ def download_model_from_huggingface(task_id: str, repo_id: str, revision: str):
         local_dir = MODELS_DIR / repo_id.split("/")[-1]
         local_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"寮€濮嬩粠 HuggingFace 涓嬭浇妯″瀷: {repo_id} -> {local_dir}")
+        logger.info(f"开始从 HuggingFace 下载模型: {repo_id} -> {local_dir}")
 
         download_script = f'''
 import os
@@ -231,7 +231,7 @@ print('DOWNLOAD_SUCCESS')
         )
 
         if 'DOWNLOAD_SUCCESS' in result.stdout:
-            logger.info(f"HuggingFace 妯″瀷涓嬭浇瀹屾垚: {local_dir}")
+            logger.info(f"HuggingFace 模型下载完成: {local_dir}")
 
             model_info_path = local_dir / "model_info.json"
             model_info = {
@@ -251,15 +251,15 @@ print('DOWNLOAD_SUCCESS')
 
             logger.info(f"HuggingFace 模型下载完成：{repo_id} -> {local_dir}")
         else:
-            error_msg = result.stderr or result.stdout or "鏈煡閿欒"
-            logger.error(f"涓嬭浇澶辫触: {error_msg}")
+            error_msg = result.stderr or result.stdout or "未知错误"
+            logger.error(f"下载失败: {error_msg}")
             with download_tasks_lock:
                 if task_id in download_tasks:
                     download_tasks[task_id]["status"] = "failed"
                     download_tasks[task_id]["error"] = error_msg[:500]
 
     except subprocess.TimeoutExpired:
-        logger.error("涓嬭浇瓒呮椂")
+        logger.error("下载超时")
         with download_tasks_lock:
             if task_id in download_tasks:
                 download_tasks[task_id]["status"] = "failed"
@@ -372,7 +372,7 @@ async def search_modelscope_models(request: ModelSearchRequest) -> list[ModelInf
     raise HTTPException(status_code=500, detail=f"搜索失败：{str(primary_error)}")
 
 async def search_huggingface_models(request: ModelSearchRequest) -> list[ModelInfo]:
-    """鎼滅储 HuggingFace 妯″瀷锛堝鐢級"""
+    """搜索 HuggingFace 模型（备用）"""
     try:
         import requests
         import urllib3
@@ -425,7 +425,7 @@ async def download_model(request: DownloadRequest):
 
     with download_tasks_lock:
         if len(download_tasks) >= MAX_DOWNLOAD_TASKS:
-            raise HTTPException(status_code=503, detail="涓嬭浇浠诲姟闃熷垪宸叉弧锛岃绋嶅悗閲嶈瘯")
+            raise HTTPException(status_code=503, detail="下载任务队列已满，请稍后重试")
 
         download_tasks[task_id] = {
             "task_id": task_id,
@@ -453,14 +453,14 @@ async def download_model(request: DownloadRequest):
     )
     thread.start()
 
-    logger.info(f"寮€濮嬩笅杞芥ā鍨嬶細{request.repo_id}, 浠诲姟 ID: {task_id}, 婧? {request.source}")
+    logger.info(f"开始下载模型：{request.repo_id}, 任务 ID: {task_id}, 源: {request.source}")
 
     return {"task_id": task_id, "message": "下载已开始", "source": request.source}
 
 
 @router.get("/download/{task_id}", response_model=DownloadProgress)
 async def get_download_progress(task_id: str):
-    """鑾峰彇涓嬭浇杩涘害"""
+    """获取下载进度"""
     with download_tasks_lock:
         if task_id not in download_tasks:
             raise HTTPException(status_code=404, detail="任务不存在")
@@ -480,7 +480,7 @@ async def get_download_progress(task_id: str):
 
 @router.delete("/download/{task_id}")
 async def cancel_download(task_id: str):
-    """鍙栨秷涓嬭浇浠诲姟"""
+    """取消下载任务"""
     with download_tasks_lock:
         if task_id not in download_tasks:
             raise HTTPException(status_code=404, detail="任务不存在")
@@ -488,7 +488,7 @@ async def cancel_download(task_id: str):
         task = download_tasks[task_id]
         if task["status"] == "downloading" or task["status"] == "pending":
             task["status"] = "cancelled"
-            task["error"] = "鐢ㄦ埛鍙栨秷"
+            task["error"] = "用户取消"
         else:
             raise HTTPException(status_code=400, detail=f"无法取消状态为 {task['status']} 的任务")
 
@@ -497,7 +497,7 @@ async def cancel_download(task_id: str):
 
 @router.get("/local", response_model=list[ModelLocal])
 async def list_local_models():
-    """鑾峰彇鏈湴妯″瀷鍒楄〃"""
+    """获取本地模型列表"""
     models = []
 
     if not MODELS_DIR.exists():
@@ -515,7 +515,7 @@ async def list_local_models():
                 with open(info_path, encoding="utf-8") as f:
                     config = json.load(f)
             except Exception as e:
-                logger.warning(f"璇诲彇妯″瀷淇℃伅澶辫触: {info_path}, 閿欒: {e}")
+                logger.warning(f"读取模型信息失败: {info_path}, 错误: {e}")
 
         total_size = sum(
             f.stat().st_size for f in model_path.rglob("*") if f.is_file()
@@ -537,7 +537,7 @@ async def list_local_models():
 
 @router.delete("/local/{model_id}")
 async def delete_local_model(model_id: str):
-    """鍒犻櫎鏈湴妯″瀷"""
+    """删除本地模型"""
     import shutil
 
     model_path = MODELS_DIR / model_id
@@ -547,8 +547,8 @@ async def delete_local_model(model_id: str):
 
     try:
         shutil.rmtree(model_path)
-        logger.info(f"妯″瀷宸插垹闄わ細{model_id}")
-        return {"message": "鍒犻櫎鎴愬姛", "model_id": model_id}
+        logger.info(f"模型已删除：{model_id}")
+        return {"message": "删除成功", "model_id": model_id}
     except Exception as e:
         logger.error(f"删除模型失败：{e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"删除失败：{str(e)}")
@@ -561,7 +561,7 @@ async def get_model_suggestions():
         {
             "repo_id": "Qwen/Qwen2.5-0.5B-Instruct",
             "name": "Qwen2.5 0.5B Instruct",
-            "description": "閫氫箟鍗冮棶杞婚噺鐗堬紝閫傚悎涓枃瀵硅瘽锛屼粎闇€ 4GB 鏄惧瓨",
+            "description": "通义千问轻量版，适合中文对话，仅需 4GB 显存",
             "size": "~1GB",
             "category": "chat",
             "source": "modelscope"
@@ -577,7 +577,7 @@ async def get_model_suggestions():
         {
             "repo_id": "Qwen/Qwen2.5-7B-Instruct",
             "name": "Qwen2.5 7B Instruct",
-            "description": "閫氫箟鍗冮棶 7B 鐗堟湰锛屽己澶ф€ц兘锛屾帹鑽?16GB 鏄惧瓨",
+            "description": "通义千问 7B 版本，强大性能，推荐 16GB 显存",
             "size": "~15GB",
             "category": "chat",
             "source": "modelscope"
@@ -585,7 +585,7 @@ async def get_model_suggestions():
         {
             "repo_id": "THUDM/chatglm3-6b",
             "name": "ChatGLM3-6B",
-            "description": "鏅鸿氨 AI 寮€婧愬璇濇ā鍨嬶紝涓嫳鍙岃",
+            "description": "智谱 AI 开源对话模型，中英双语",
             "size": "~7GB",
             "category": "chat",
             "source": "modelscope"
@@ -600,16 +600,16 @@ async def get_model_suggestions():
         },
         {
             "repo_id": "damo/nlp_corom_sentence-embedding_chinese-base",
-            "name": "涓枃鍙ュ瓙宓屽叆妯″瀷",
-            "description": "涓枃鏂囨湰宓屽叆妯″瀷锛圧AG 鐢級",
+            "name": "中文句子嵌入模型",
+            "description": "中文文本嵌入模型（RAG 用）",
             "size": "~400MB",
             "category": "embedding",
             "source": "modelscope"
         },
         {
             "repo_id": "iic/nlp_gte_sentence-embedding_chinese-base",
-            "name": "GTE 涓枃宓屽叆妯″瀷",
-            "description": "閫氫箟瀹為獙瀹?GTE 涓枃宓屽叆妯″瀷",
+            "name": "GTE 中文嵌入模型",
+            "description": "通义实验室 GTE 中文嵌入模型",
             "size": "~400MB",
             "category": "embedding",
             "source": "modelscope"
@@ -617,7 +617,7 @@ async def get_model_suggestions():
         {
             "repo_id": "AI-ModelScope/stable-diffusion-xl-base-1.0",
             "name": "Stable Diffusion XL",
-            "description": "鍥惧儚鐢熸垚妯″瀷",
+            "description": "图像生成模型",
             "size": "~7GB",
             "category": "image",
             "source": "modelscope"
@@ -630,14 +630,14 @@ async def get_model_suggestions():
 class ImportModelRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
-    model_name: str = Field(..., description="妯″瀷鍚嶇О")
+    model_name: str = Field(..., description="模型名称")
     source_path: str = Field(..., description="源路径（本地目录）")
 
 
 class ImportModelScopeRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
-    model_name: str = Field(default="Qwen2.5-0.5B-Instruct", description="妯″瀷鍚嶇О")
+    model_name: str = Field(default="Qwen2.5-0.5B-Instruct", description="模型名称")
     modelscope_path: str | None = Field(
         default=None,
         description="ModelScope 缓存路径，如不填则使用默认路径",
@@ -646,7 +646,7 @@ class ImportModelScopeRequest(BaseModel):
 
 @router.post("/import")
 async def import_local_model(request: ImportModelRequest):
-    """瀵煎叆鏈湴妯″瀷"""
+    """导入本地模型"""
     import shutil
 
     source_path = Path(request.source_path)
@@ -654,7 +654,7 @@ async def import_local_model(request: ImportModelRequest):
         raise HTTPException(status_code=404, detail=f"源路径不存在：{request.source_path}")
 
     if not source_path.is_dir():
-        raise HTTPException(status_code=400, detail="婧愯矾寰勫繀椤绘槸鐩綍")
+        raise HTTPException(status_code=400, detail="源路径必须是目录")
 
     model_files = list(source_path.glob("*.safetensors")) + \
                   list(source_path.glob("*.bin")) + \
@@ -670,7 +670,7 @@ async def import_local_model(request: ImportModelRequest):
 
     target_path = MODELS_DIR / request.model_name
     if target_path.exists():
-        raise HTTPException(status_code=409, detail=f"妯″瀷鍚嶇О宸插瓨鍦細{request.model_name}")
+        raise HTTPException(status_code=409, detail=f"模型名称已存在：{request.model_name}")
 
     try:
         shutil.copytree(source_path, target_path)
@@ -691,7 +691,7 @@ async def import_local_model(request: ImportModelRequest):
         logger.info(f"模型导入成功：{request.model_name}，大小：{total_size / (1024**3):.2f} GB")
 
         return {
-            "message": "瀵煎叆鎴愬姛",
+            "message": "导入成功",
             "model_id": request.model_name,
             "path": str(target_path),
             "size": total_size
@@ -704,7 +704,7 @@ async def import_local_model(request: ImportModelRequest):
 
 @router.post("/import-modelscope")
 async def import_modelscope_model(request: ImportModelScopeRequest):
-    """瀵煎叆 ModelScope 宸蹭笅杞界殑妯″瀷"""
+    """导入 ModelScope 已下载的模型"""
     import getpass
     import shutil
 
@@ -727,12 +727,12 @@ async def import_modelscope_model(request: ImportModelScopeRequest):
         else:
             raise HTTPException(
                 status_code=404,
-                detail=f"ModelScope 妯″瀷璺緞涓嶅瓨鍦細{source_path}\n"
+                detail=f"ModelScope 模型路径不存在：{source_path}\n"
                        f"请确认模型已从魔搭社区下载完成",
             )
 
     if not source_path.is_dir():
-        raise HTTPException(status_code=400, detail="婧愯矾寰勫繀椤绘槸鐩綍")
+        raise HTTPException(status_code=400, detail="源路径必须是目录")
 
     model_files = list(source_path.glob("*.safetensors")) + \
                   list(source_path.glob("*.bin")) + \
@@ -748,7 +748,7 @@ async def import_modelscope_model(request: ImportModelScopeRequest):
 
     target_path = MODELS_DIR / request.model_name
     if target_path.exists():
-        raise HTTPException(status_code=409, detail=f"妯″瀷鍚嶇О宸插瓨鍦細{request.model_name}")
+        raise HTTPException(status_code=409, detail=f"模型名称已存在：{request.model_name}")
 
     try:
         logger.info(f"正在从 ModelScope 导入模型：{source_path} -> {target_path}")
@@ -772,7 +772,7 @@ async def import_modelscope_model(request: ImportModelScopeRequest):
         logger.info(f"ModelScope 模型导入成功：{request.model_name}，大小：{total_size / (1024**3):.2f} GB")
 
         return {
-            "message": "瀵煎叆鎴愬姛",
+            "message": "导入成功",
             "model_id": request.model_name,
             "path": str(target_path),
             "size": total_size,
@@ -840,13 +840,13 @@ async def get_model_source():
 async def set_model_source(source: str):
     """切换模型下载源。"""
     if source not in ["modelscope", "huggingface"]:
-        raise HTTPException(status_code=400, detail="鏃犳晥鐨勪笅杞芥簮锛岃閫夋嫨 modelscope 鎴?huggingface")
+        raise HTTPException(status_code=400, detail="无效的下载源，请选择 modelscope 或 huggingface")
 
     settings.model_source = source
-    logger.info(f"妯″瀷涓嬭浇婧愬凡鍒囨崲涓猴細{source}")
+    logger.info(f"模型下载源已切换为：{source}")
 
     return {
-        "message": "涓嬭浇婧愬凡鍒囨崲",
+        "message": "下载源已切换",
         "current_source": source
     }
 

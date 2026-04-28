@@ -69,14 +69,14 @@ echo.
 
 REM 启动后端
 echo [后端] 启动中...
-start "Finetune - 后端" cmd /k "cd /d "%~dp0server" && python -m uvicorn main:app --host 127.0.0.1 --port 8000"
+start "Finetune - 后端" cmd /k "cd /d "%~dp0server" && python -m uvicorn main:app --host 127.0.0.1 --port 8010"
 
 REM 等待后端启动
 echo 等待后端启动 (5 秒)...
 timeout /t 5 /nobreak >nul
 
 REM 检查后端是否启动成功
-powershell -Command "try { $r = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/' -TimeoutSec 3 -ErrorAction Stop; Write-Host '[OK] 后端启动成功' -ForegroundColor Green } catch { Write-Host '[警告] 后端可能未启动成功' -ForegroundColor Yellow }"
+powershell -Command "try { $r = Invoke-RestMethod -Uri 'http://127.0.0.1:8010/' -TimeoutSec 3 -ErrorAction Stop; Write-Host '[OK] 后端启动成功' -ForegroundColor Green } catch { Write-Host '[警告] 后端可能未启动成功' -ForegroundColor Yellow }"
 
 echo.
 
@@ -90,8 +90,8 @@ echo   启动完成!
 echo ========================================
 echo.
 echo   前端地址：http://localhost:5173
-echo   后端地址：http://127.0.0.1:8000
-echo   API 文档：http://127.0.0.1:8000/docs
+echo   后端地址：http://127.0.0.1:8010
+echo   API 文档：http://127.0.0.1:8010/docs
 echo.
 echo   请打开浏览器访问：http://localhost:5173
 echo.

@@ -82,3 +82,6 @@ server/workspaces/*/.workspace.json
 .ruff_cache/
 .coverage
 htmlcov/
+
+*storybook.log
+storybook-static

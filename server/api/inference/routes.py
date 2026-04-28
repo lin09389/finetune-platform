@@ -636,6 +636,9 @@ async def chat_stream(request: ChatRequest):
 
                 yield f"data: {json.dumps(metadata_payload, ensure_ascii=False)}\n\n"
 
+                buffer = []
+                last_yield_time = time.time()
+
                 async for chunk in backend.chat_stream(messages, generation_config):
                     if not chunk:
                         continue
@@ -647,7 +650,21 @@ async def chat_stream(request: ChatRequest):
                         else:
                             logger.info(f"TTFT (Time To First Token): {ttft_ms}ms")
                             
-                    yield f"data: {json.dumps({'type': 'delta', 'content': chunk}, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps({'type': 'delta', 'content': chunk}, ensure_ascii=False)}\n\n"
+                        last_yield_time = time.time()
+                        continue
+
+                    buffer.append(chunk)
+                    now = time.time()
+                    if now - last_yield_time >= 0.05 or len(buffer) >= 20:
+                        content = "".join(buffer)
+                        yield f"data: {json.dumps({'type': 'delta', 'content': content}, ensure_ascii=False)}\n\n"
+                        buffer.clear()
+                        last_yield_time = now
+
+                if buffer:
+                    content = "".join(buffer)
+                    yield f"data: {json.dumps({'type': 'delta', 'content': content}, ensure_ascii=False)}\n\n"
 
                 duration_ms = int((time.time() - started_at) * 1000)
                 if request.memory.enabled and request.memory.auto_extract and last_user_message:

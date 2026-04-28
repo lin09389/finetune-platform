@@ -47,8 +47,8 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = Field(default=30, description="Access Token 过期时间（分钟）")
     jwt_refresh_token_expire_days: int = Field(default=7, description="Refresh Token 过期时间（天）")
 
-    allowed_origins: list[str] = Field(
-        default=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000", "http://127.0.0.1:3000"],
+    allowed_origins: list[str] | str = Field(
+        default=["*"],
         description="允许的 CORS 来源"
     )
 
@@ -143,7 +143,7 @@ class Settings(BaseSettings):
     checkpoint_interval: int = Field(default=500, ge=100, description="检查点间隔步数")
 
     max_upload_size: int = Field(default=100 * 1024 * 1024, description="最大上传大小 (字节)")
-    allowed_file_types: list[str] = Field(
+    allowed_file_types: list[str] | str = Field(
         default=[".json", ".jsonl"],
         description="允许的文件类型"
     )
@@ -164,6 +164,14 @@ class Settings(BaseSettings):
     @classmethod
     def parse_origins(cls, v):
         if isinstance(v, str):
+            if v.strip() == "*":
+                return ["*"]
+            if v.startswith('[') and v.endswith(']'):
+                import json
+                try:
+                    return json.loads(v)
+                except:
+                    pass
             return [x.strip() for x in v.split(',') if x.strip()]
         return v
 
@@ -171,6 +179,12 @@ class Settings(BaseSettings):
     @classmethod
     def parse_file_types(cls, v):
         if isinstance(v, str):
+            if v.startswith('[') and v.endswith(']'):
+                import json
+                try:
+                    return json.loads(v)
+                except:
+                    pass
             return [x.strip().lower() for x in v.split(',') if x.strip()]
         return v
 
