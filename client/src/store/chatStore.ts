@@ -155,6 +155,7 @@ function messageMetadata(message: ChatMessage): Record<string, unknown> {
     ...(message.attachments ? { attachments: message.attachments } : {}),
     ...(message.experiment_config ? { experiment_config: message.experiment_config } : {}),
     ...(message.run_metrics ? { run_metrics: message.run_metrics } : {}),
+    ...(message.agent_metadata ? { agent_metadata: message.agent_metadata } : {}),
     ...(message.isEdited ? { isEdited: message.isEdited } : {}),
   };
 }
@@ -291,12 +292,21 @@ export const useChatStore = create<ChatStore>()(
         }
       },
 
-      updateSessionTitle: (sessionId, title) => {
+      updateSessionTitle: async (sessionId, title) => {
         set((state) => ({
           sessions: state.sessions.map((s) =>
             s.id === sessionId ? { ...s, title, updatedAt: new Date().toISOString() } : s,
           ),
         }));
+
+        if (!sessionId.startsWith('local_')) {
+          try {
+            const { updateChatSessionTitle } = await import('../services/chatSessionApi');
+            await updateChatSessionTitle(sessionId, title);
+          } catch (error) {
+            console.error('更新会话标题失败：', error);
+          }
+        }
       },
 
       setCurrentSessionId: (sessionId) => {

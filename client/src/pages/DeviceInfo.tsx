@@ -11,6 +11,7 @@ import {
 import { Button, Col, Progress, Row, Spin, Tag } from 'antd';
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import AnimatedLayout from '../components/shared/AnimatedLayout';
 import GlassCard from '../components/shared/GlassCard';
 import PageHeader from '../components/shared/PageHeader';
@@ -38,7 +39,11 @@ const itemVariants = {
 };
 
 export default function DeviceInfo() {
-  const { backendStatus, deviceInfo, setDeviceInfo } = useAppStore();
+  const { backendStatus, deviceInfo, setDeviceInfo } = useAppStore(useShallow(state => ({
+    backendStatus: state.backendStatus,
+    deviceInfo: state.deviceInfo,
+    setDeviceInfo: state.setDeviceInfo
+  })));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

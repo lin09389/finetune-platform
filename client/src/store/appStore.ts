@@ -46,7 +46,7 @@ interface AppState {
 export const useAppStore = create<AppState>()(
   persist(
     (set) => ({
-      backendUrl: 'http://127.0.0.1:8000',
+      backendUrl: 'http://127.0.0.1:8010',
       backendStatus: 'checking',
       deviceInfo: null,
       models: [],

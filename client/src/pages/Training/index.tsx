@@ -338,8 +338,13 @@ const TrainingPage: React.FC = () => {
     [resolveTrainingRecoveryState, setIsTraining],
   );
 
+  const lastV2EventAtRef = useRef<number>(0);
+  useEffect(() => {
+    lastV2EventAtRef.current = lastV2EventAt;
+  }, [lastV2EventAt]);
+
   const checkTrainingStatus = useCallback(async () => {
-    const recentV2Signal = Date.now() - lastV2EventAt < 20000;
+    const recentV2Signal = Date.now() - lastV2EventAtRef.current < 20000;
     if (recentV2Signal) return;
     try {
       const data = await getTrainingStatus();
@@ -372,7 +377,7 @@ const TrainingPage: React.FC = () => {
     } catch (error) {
       console.error('Failed to check training status:', error);
     }
-  }, [lastV2EventAt, setIsTraining]);
+  }, [setIsTraining]);
 
   useEffect(() => {
     const interval = setInterval(checkTrainingStatus, 15000);
@@ -434,7 +439,7 @@ const TrainingPage: React.FC = () => {
 
   useEffect(() => {
     if (isTraining && backendStatus === 'connected') {
-      const shouldUseLegacySse = Date.now() - lastV2EventAt > 8000;
+      const shouldUseLegacySse = Date.now() - lastV2EventAtRef.current > 8000;
       if (!shouldUseLegacySse) return;
       setTrainingStatus('training');
       setFailureDiagnosis(null);
@@ -454,7 +459,12 @@ const TrainingPage: React.FC = () => {
         unsubscribeRef.current = null;
       }
     };
-  }, [applyIncomingProgress, backendStatus, isTraining, lastV2EventAt]);
+  }, [applyIncomingProgress, backendStatus, isTraining]);
+
+  const progressRef = useRef<TrainingProgressType | null>(null);
+  useEffect(() => {
+    progressRef.current = progress;
+  }, [progress]);
 
   const handleV2Event = useCallback(
     (event: TrainingEventV2) => {
@@ -462,22 +472,23 @@ const TrainingPage: React.FC = () => {
         return;
       }
       const payload = event.payload || {};
+      const currentProgress = progressRef.current;
       const normalizedProgress = {
-        epoch: payload.epoch ?? progress?.epoch ?? 0,
-        step: payload.step ?? progress?.step ?? 0,
-        totalSteps: payload.total_steps ?? payload.totalSteps ?? progress?.totalSteps ?? 0,
-        loss: payload.loss ?? payload.final_loss ?? progress?.loss ?? 0,
-        lr: payload.lr ?? payload.final_lr ?? progress?.lr ?? 0,
-        vramUsed: payload.vram_used ?? payload.vramUsed ?? progress?.vramUsed ?? 0,
+        epoch: payload.epoch ?? currentProgress?.epoch ?? 0,
+        step: payload.step ?? currentProgress?.step ?? 0,
+        totalSteps: payload.total_steps ?? payload.totalSteps ?? currentProgress?.totalSteps ?? 0,
+        loss: payload.loss ?? payload.final_loss ?? currentProgress?.loss ?? 0,
+        lr: payload.lr ?? payload.final_lr ?? currentProgress?.lr ?? 0,
+        vramUsed: payload.vram_used ?? payload.vramUsed ?? currentProgress?.vramUsed ?? 0,
         elapsedTime:
           payload.elapsed_time ??
           payload.elapsedTime ??
           payload.final_elapsed_time ??
-          progress?.elapsedTime ??
+          currentProgress?.elapsedTime ??
           0,
-        eta: payload.eta ?? progress?.eta ?? 0,
+        eta: payload.eta ?? currentProgress?.eta ?? 0,
         status: event.phase === 'queued' ? 'queued' : payload.status || event.phase,
-        message: payload.message || progress?.message || '',
+        message: payload.message || currentProgress?.message || '',
         queuePosition: payload.queue_position ?? payload.queuePosition,
         estimatedWaitSeconds: payload.estimated_wait_seconds ?? payload.estimatedWaitSeconds,
         errorCode: payload.error_code ?? payload.errorCode,
@@ -486,14 +497,18 @@ const TrainingPage: React.FC = () => {
       };
       applyIncomingProgress(normalizedProgress, 'v2');
     },
-    [applyIncomingProgress, currentTaskId, progress],
+    [applyIncomingProgress, currentTaskId],
   );
 
   const handleV2SequenceGap = useCallback(async () => {
     if (!currentTaskId) return;
     try {
       const backfill = await getTrainingTaskMetricsV2(currentTaskId, 0, 1000);
-      const items: any[] = Array.isArray(backfill?.items) ? backfill.items : [];
+      const items: any[] = Array.isArray(backfill)
+        ? backfill
+        : Array.isArray(backfill?.items)
+        ? backfill.items
+        : [];
       if (items.length === 0) return;
       setChartData((prev) => {
         const existingSteps = new Set(prev.map((point) => point.step));

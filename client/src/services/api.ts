@@ -7,10 +7,10 @@ import axios, { AxiosInstance } from 'axios';
 // Resolve backend API base URL.
 const getApiBaseUrl = () => {
   if (typeof window !== 'undefined' && (window as any).electronAPI) {
-    return (window as any).electronAPI.getBackendUrlSync?.() || `http://${window.location.hostname}:8000`;
+    return (window as any).electronAPI.getBackendUrlSync?.() || `http://${window.location.hostname}:8010`;
   }
   const host = typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1';
-  return ((import.meta as any).env?.VITE_API_URL || `http://${host}:8000`) as string;
+  return ((import.meta as any).env?.VITE_API_URL || `http://${host}:8010`) as string;
 };
 
 // Export base URL for other modules.
@@ -65,6 +65,10 @@ class ConnectionPool {
       entry.controller.abort();
       this.pool.delete(key);
     }
+  }
+
+  hasKey(key: string): boolean {
+    return this.pool.has(key);
   }
 
   abortByType(requestType: string): void {
@@ -166,7 +170,7 @@ function isRetryableError(error: any): boolean {
   );
 }
 
-async function fetchWithRetry<T>(
+export async function fetchWithRetry<T>(
   fetchFn: () => Promise<T>,
   config: Partial<RetryConfig> = {},
 ): Promise<T> {
@@ -201,6 +205,30 @@ async function fetchWithRetry<T>(
   throw lastError;
 }
 
+// ==================== Request Cache & Offline Queue ====================
+
+const GET_CACHE_TTL = 10000; // 10秒
+const getCacheMap = new Map<string, { timestamp: number; data: any; promise?: Promise<any> }>();
+
+interface OfflineRequest {
+  config: any;
+  resolve: (value: any) => void;
+  reject: (reason?: any) => void;
+}
+let offlineQueue: OfflineRequest[] = [];
+// isOnline 可以在后续与后端健康状态同步，或者作为导出变量
+
+export const processOfflineQueue = () => {
+  if (offlineQueue.length > 0) {
+    console.log(`[API] Processing offline queue: ${offlineQueue.length} requests`);
+    const queue = [...offlineQueue];
+    offlineQueue = [];
+    queue.forEach(({ config, resolve, reject }) => {
+      apiClient(config).then(resolve).catch(reject);
+    });
+  }
+};
+
 // ==================== Axios Instance Creation ====================
 
 const createAxiosInstance = (): AxiosInstance => {
@@ -212,12 +240,71 @@ const createAxiosInstance = (): AxiosInstance => {
     },
   });
 
+  // GET 请求白名单（缓存和防并发）
+  const CACHEABLE_GET_URLS = [
+    '/digital-team/templates',
+    '/model-center/suggestions',
+    '/model-center/source',
+    '/workflows/templates'
+  ];
+
   instance.interceptors.request.use(
     (config) => {
-      const key = connectionPool.generateKey(config.url || '', config.method || 'get');
-      const controller = connectionPool.acquire(key, 'axios');
-      config.signal = controller.signal;
-      (config as any)._connectionKey = key;
+      const url = config.url || '';
+      const method = (config.method || 'get').toLowerCase();
+      
+      // GET 请求缓存处理
+      if (method === 'get' && CACHEABLE_GET_URLS.some(u => url.includes(u))) {
+        const cacheKey = url;
+        const cached = getCacheMap.get(cacheKey);
+        
+        if (cached && Date.now() - cached.timestamp < GET_CACHE_TTL) {
+          // 如果有正在进行的相同请求，或者已有有效数据
+          if (cached.promise || cached.data) {
+             const controller = new AbortController();
+             config.signal = controller.signal;
+             controller.abort('CACHED'); // 提前中断，在 response error 中处理
+             (config as any)._cacheKey = cacheKey;
+             return config;
+          }
+        }
+      }
+
+      // POST 防抖 (连击防护)
+      // 生成包含 body 的 hash key
+      let bodyStr = '';
+      if (config.data) {
+        if (config.data instanceof FormData) {
+          // 不对 FormData 进行完整内容防抖，或者使用随机数避免误杀
+          bodyStr = `FormData_${Date.now()}_${Math.random()}`;
+        } else {
+          try {
+            bodyStr = JSON.stringify(config.data);
+          } catch {
+            bodyStr = 'Unstringifiable';
+          }
+        }
+      }
+      const debounceKey = `${method}:${url}:${bodyStr}`;
+      
+      if (method === 'post' || method === 'put') {
+         if (connectionPool.hasKey(debounceKey)) {
+             const controller = new AbortController();
+             config.signal = controller.signal;
+             controller.abort('DEBOUNCED');
+             return config;
+         }
+         const controller = connectionPool.acquire(debounceKey, 'axios');
+         config.signal = controller.signal;
+         (config as any)._debounceKey = debounceKey;
+      } else {
+        // 普通请求
+        const key = connectionPool.generateKey(url, method);
+        const controller = connectionPool.acquire(key, 'axios');
+        config.signal = controller.signal;
+        (config as any)._connectionKey = key;
+      }
+      
       return config;
     },
     (error) => {
@@ -231,16 +318,77 @@ const createAxiosInstance = (): AxiosInstance => {
       if (key) {
         connectionPool.release(key);
       }
+      const debounceKey = (response.config as any)?._debounceKey;
+      if (debounceKey) {
+        connectionPool.release(debounceKey);
+      }
+
+      // GET 缓存记录
+      const method = (response.config.method || 'get').toLowerCase();
+      const url = response.config.url || '';
+      if (method === 'get' && CACHEABLE_GET_URLS.some(u => url.includes(u))) {
+        const cacheKey = url;
+        getCacheMap.set(cacheKey, { timestamp: Date.now(), data: response.data });
+      }
+
       return response;
     },
     (error) => {
-      const suppressErrorLogging = Boolean((error.config as any)?.suppressErrorLogging);
-      const key = (error.config as any)?._connectionKey;
+      const config = error.config as any;
+      
+      // 处理拦截的请求
+      if (axios.isCancel(error)) {
+         if (error.message === 'CACHED' && config._cacheKey) {
+            const cached = getCacheMap.get(config._cacheKey);
+            if (cached?.data) {
+                // 伪造成功 response
+                return Promise.resolve({
+                   data: cached.data,
+                   status: 200,
+                   statusText: 'OK',
+                   headers: {},
+                   config: config,
+                   request: {}
+                });
+            } else if (cached?.promise) {
+               return cached.promise.then(data => ({
+                   data,
+                   status: 200,
+                   statusText: 'OK',
+                   headers: {},
+                   config: config,
+                   request: {}
+               }));
+            }
+         }
+         if (error.message === 'DEBOUNCED') {
+             return Promise.reject(new Error('请求防抖，请勿重复点击'));
+         }
+      }
+
+      const key = config?._connectionKey;
       if (key) {
         connectionPool.release(key);
       }
+      const debounceKey = config?._debounceKey;
+      if (debounceKey) {
+        connectionPool.release(debounceKey);
+      }
 
-      if (!suppressErrorLogging) {
+      // 处理离线缓冲
+      if (error.message === 'Network Error' || error.code === 'ECONNABORTED' || (error.response && error.response.status >= 500)) {
+         // 只缓冲写操作
+         if (config && ['post', 'put', 'patch', 'delete'].includes((config.method || '').toLowerCase())) {
+            console.log(`[API] Network error detected, queuing request: ${config.method} ${config.url}`);
+            return new Promise((resolve, reject) => {
+               offlineQueue.push({ config, resolve, reject });
+            });
+         }
+      }
+
+      const suppressErrorLogging = Boolean(config?.suppressErrorLogging);
+
+      if (!suppressErrorLogging && !axios.isCancel(error)) {
         if (error.response) {
           console.error('API Error:', error.response.data);
         } else if (error.request) {
@@ -290,8 +438,17 @@ export interface DigitalTeamProjectCreate {
 }
 
 export const getDigitalTeamTemplates = async () => {
-  const response = await apiClient.get('/digital-team/templates');
-  return response.data;
+  const url = '/digital-team/templates';
+  const cacheKey = url;
+  const cached = getCacheMap.get(cacheKey);
+  
+  if (cached && Date.now() - cached.timestamp < GET_CACHE_TTL && cached.promise) {
+    return cached.promise;
+  }
+  
+  const promise = apiClient.get(url).then(res => responseData(res));
+  getCacheMap.set(cacheKey, { timestamp: Date.now(), data: null, promise });
+  return promise;
 };
 
 export const createDigitalTeamProject = async (payload: DigitalTeamProjectCreate) => {
@@ -464,6 +621,99 @@ export interface WorkflowMemoryEntry {
   reverted_at?: string;
 }
 
+export interface WorkflowStepLog {
+  id: string;
+  workflow_id: string;
+  step_id?: string;
+  step_key?: string;
+  agent_id?: string;
+  status: string;
+  provider?: string;
+  model?: string;
+  input_summary?: string;
+  output_summary?: string;
+  error?: string;
+  started_at?: string;
+  completed_at?: string;
+  duration_ms?: number;
+  metadata?: Record<string, any>;
+  created_at: string;
+}
+
+export interface WorkflowActionExecution {
+  id: string;
+  action_id: string;
+  workflow_id: string;
+  status: string;
+  stdout?: string;
+  stderr?: string;
+  exit_code?: number;
+  duration_ms?: number;
+  error?: string;
+  created_at: string;
+}
+
+export interface WorkflowAction {
+  id: string;
+  workflow_id: string;
+  step_id?: string;
+  action_type: 'patch' | 'command' | string;
+  title: string;
+  description?: string;
+  payload: Record<string, any>;
+  status: string;
+  created_by?: string;
+  approved_at?: string;
+  rejected_at?: string;
+  executed_at?: string;
+  created_at: string;
+  updated_at: string;
+  executions?: WorkflowActionExecution[];
+}
+
+export interface WorkflowObservability {
+  workflow_id: string;
+  status: string;
+  current_stage?: string;
+  step_logs: WorkflowStepLog[];
+  actions: WorkflowAction[];
+  recent_events: Array<Record<string, any>>;
+}
+
+export interface ChatAgentRunCreate {
+  chat_session_id?: string;
+  message_id?: string;
+  content: string;
+  template_id?: string;
+  provider?: string;
+  model?: string;
+  project_path?: string;
+  force_agent?: boolean;
+}
+
+export interface ChatAgentRun {
+  id: string;
+  mode: 'chat' | 'agent';
+  chat_session_id?: string;
+  trigger_message_id?: string;
+  workflow_id?: string;
+  status: string;
+  intent_type?: string;
+  summary?: string;
+  details_url?: string;
+  workflow?: Workflow;
+  observability?: WorkflowObservability;
+  latest_event?: Record<string, any>;
+}
+
+export interface ChatAgentRunEvent {
+  event_type: string;
+  run_id: string;
+  workflow_id?: string;
+  message: string;
+  payload: Record<string, any>;
+}
+
 export interface WorkflowTemplate {
   id: string;
   name: string;
@@ -489,8 +739,17 @@ export interface WorkflowTemplate {
 }
 
 export const getWorkflowTemplates = async () => {
-  const response = await apiClient.get('/workflows/templates');
-  return response.data;
+  const url = '/workflows/templates';
+  const cacheKey = url;
+  const cached = getCacheMap.get(cacheKey);
+  
+  if (cached && Date.now() - cached.timestamp < GET_CACHE_TTL && cached.promise) {
+    return cached.promise;
+  }
+  
+  const promise = apiClient.get(url).then(res => responseData(res));
+  getCacheMap.set(cacheKey, { timestamp: Date.now(), data: null, promise });
+  return promise;
 };
 
 export const createWorkflowTemplate = async (payload: WorkflowTemplatePayload) => {
@@ -554,6 +813,79 @@ export const getWorkflowTimeline = async (workflowId: string) => {
 
 export const getWorkflowArtifacts = async (workflowId: string) => {
   const response = await apiClient.get(`/workflows/${workflowId}/artifacts`);
+  return response.data;
+};
+
+export const getWorkflowObservability = async (
+  workflowId: string,
+): Promise<WorkflowObservability> => {
+  const response = await apiClient.get(`/workflows/${workflowId}/observability`);
+  return response.data;
+};
+
+export const getWorkflowStepLogs = async (workflowId: string): Promise<WorkflowStepLog[]> => {
+  const response = await apiClient.get(`/workflows/${workflowId}/step-logs`);
+  return response.data;
+};
+
+export const getWorkflowActions = async (workflowId: string): Promise<WorkflowAction[]> => {
+  const response = await apiClient.get(`/workflows/${workflowId}/actions`);
+  return response.data;
+};
+
+export const approveWorkflowAction = async (actionId: string): Promise<WorkflowAction> => {
+  const response = await apiClient.post(`/workflow-actions/${actionId}/approve`);
+  return response.data;
+};
+
+export const rejectWorkflowAction = async (actionId: string): Promise<WorkflowAction> => {
+  const response = await apiClient.post(`/workflow-actions/${actionId}/reject`);
+  return response.data;
+};
+
+export const executeWorkflowAction = async (actionId: string): Promise<WorkflowAction> => {
+  const response = await apiClient.post(`/workflow-actions/${actionId}/execute`);
+  return response.data;
+};
+
+export const createChatAgentRun = async (payload: ChatAgentRunCreate): Promise<ChatAgentRun> => {
+  const response = await apiClient.post('/chat-agent/runs', payload);
+  return response.data;
+};
+
+export const getChatAgentRun = async (runId: string): Promise<ChatAgentRun> => {
+  const response = await apiClient.get(`/chat-agent/runs/${runId}`);
+  return response.data;
+};
+
+export const runChatAgentRun = async (runId: string): Promise<ChatAgentRun> => {
+  const response = await apiClient.post(`/chat-agent/runs/${runId}/run`);
+  return response.data;
+};
+
+export const approveChatAgentStep = async (
+  stepId: string,
+  payload: { approved?: boolean; comment?: string } = {},
+): Promise<ChatAgentRun> => {
+  const response = await apiClient.post(`/chat-agent/steps/${stepId}/approve`, {
+    approved: payload.approved ?? true,
+    comment: payload.comment,
+  });
+  return response.data;
+};
+
+export const approveChatAgentAction = async (actionId: string): Promise<WorkflowAction> => {
+  const response = await apiClient.post(`/chat-agent/actions/${actionId}/approve`);
+  return response.data;
+};
+
+export const rejectChatAgentAction = async (actionId: string): Promise<WorkflowAction> => {
+  const response = await apiClient.post(`/chat-agent/actions/${actionId}/reject`);
+  return response.data;
+};
+
+export const executeChatAgentAction = async (actionId: string): Promise<WorkflowAction> => {
+  const response = await apiClient.post(`/chat-agent/actions/${actionId}/execute`);
   return response.data;
 };
 
@@ -696,9 +1028,20 @@ export const getDownloadProgress = async (taskId: string) => {
 
 // Get model suggestions.
 export const getModelSuggestions = async () => {
-  const response = await apiClient.get('/model-center/suggestions');
-  return response.data;
+  const url = '/model-center/suggestions';
+  const cacheKey = url;
+  const cached = getCacheMap.get(cacheKey);
+  
+  if (cached && Date.now() - cached.timestamp < GET_CACHE_TTL && cached.promise) {
+    return cached.promise;
+  }
+  
+  const promise = apiClient.get(url).then(res => responseData(res));
+  getCacheMap.set(cacheKey, { timestamp: Date.now(), data: null, promise });
+  return promise;
 };
+
+const responseData = (res: any) => res.data;
 
 // Get local model list.
 export const getLocalModels = async () => {
@@ -1221,6 +1564,22 @@ export const streamInference = async (
       let done = false;
       const streamStartTime = Date.now();
       const STREAM_READ_TIMEOUT = 60000;
+      let lastYieldTime = performance.now();
+
+      let flushPending = false;
+      let frameId: number | null = null;
+      let flushTimeoutId: ReturnType<typeof setTimeout> | null = null;
+      let lastFlushTime = 0;
+      let chunkBuffer = '';
+
+      const flushUpdate = () => {
+        if (chunkBuffer) {
+          onChunk(chunkBuffer);
+          chunkBuffer = '';
+        }
+        flushPending = false;
+        lastFlushTime = Date.now();
+      };
 
       while (!done) {
         if (Date.now() - streamStartTime > STREAM_READ_TIMEOUT) {
@@ -1252,7 +1611,22 @@ export const streamInference = async (
 
             if (data.content) {
               chunkCount++;
-              onChunk(data.content);
+              chunkBuffer += data.content;
+              
+              if (!flushPending) {
+                flushPending = true;
+                const now = Date.now();
+                const timeSinceLastFlush = now - lastFlushTime;
+                const throttleMs = 32;
+                
+                if (timeSinceLastFlush >= throttleMs) {
+                  frameId = requestAnimationFrame(flushUpdate);
+                } else {
+                  flushTimeoutId = setTimeout(() => {
+                    frameId = requestAnimationFrame(flushUpdate);
+                  }, throttleMs - timeSinceLastFlush);
+                }
+              }
             }
 
             if (data.done) {
@@ -1269,7 +1643,16 @@ export const streamInference = async (
             }
           }
         }
+
+        if (performance.now() - lastYieldTime > 16) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          lastYieldTime = performance.now();
+        }
       }
+      
+      if (flushTimeoutId) clearTimeout(flushTimeoutId);
+      if (frameId) cancelAnimationFrame(frameId);
+      flushUpdate();
     } finally {
       connectionPool.release(connectionKey);
     }
@@ -1316,6 +1699,76 @@ export const chatInference = async (
     ...options,
   });
   return response.data;
+};
+
+export const generateTitleCloud = async (
+  content: string,
+  config: {
+    provider: string;
+    model: string;
+    apiKey?: string;
+    keyId?: string;
+    groupId?: string;
+    baseUrl?: string;
+  }
+) => {
+  const response = await apiClient.post('/cloud/chat', {
+    provider: config.provider,
+    model: config.model,
+    api_key: config.apiKey,
+    key_id: config.keyId,
+    group_id: config.groupId,
+    base_url: config.baseUrl,
+    messages: [{ role: 'user', content: `你是一个专业的对话摘要助手。请根据以下对话内容，生成一个极其简短、专业且具代表性的对话标题。
+
+约束条件：
+- 长度控制在 2-6 个词或 10 个汉字以内。
+- 优先提取对话的核心技术点、问题意图或目标。
+- 直接返回标题，严禁包含任何前缀（如“标题：”）、后缀、引号或标点符号。
+- 如果对话过于简短无法判断主题，请返回“新对话”。
+
+对话内容：
+${content}` }],
+    temperature: 0.5,
+    max_tokens: 20
+  });
+  return (response.data.content || response.data.message?.content)
+    ?.replace(/<think>[\s\S]*?<\/think>\s*/gi, '')
+    .trim()
+    .replace(/^(标题|Title|Summary)[:：]\s*/i, '')
+    .replace(/^["'「『]|["'」』]$/g, '')
+    .substring(0, 15);
+};
+
+export const generateTitleLocal = async (
+  modelId: string,
+  backend: string,
+  content: string
+) => {
+  const response = await apiClient.post('/inference/chat', {
+    model_id: modelId,
+    messages: [{ role: 'user', content: `你是一个专业的对话摘要助手。请根据以下对话内容，生成一个极其简短、专业且具代表性的对话标题。
+
+约束条件：
+- 长度控制在 2-6 个词或 10 个汉字以内。
+- 优先提取对话的核心技术点、问题意图或目标。
+- 直接返回标题，严禁包含任何前缀（如“标题：”）、后缀、引号或标点符号。
+- 如果对话过于简短无法判断主题，请返回“新对话”。
+
+对话内容：
+${content}` }],
+    options: {
+      backend,
+      temperature: 0.5,
+      max_tokens: 20
+    }
+  });
+  return (response.data.content || response.data.message?.content)
+    ?.replace(/<think>[\s\S]*?<\/think>\s*/gi, '')
+    .trim()
+    .replace(/^(标题|Title|Summary)[:：]\s*/i, '')
+    .replace(/^["'「『]|["'」』]$/g, '')
+    .substring(0, 15);
 };
 
 export const getBackends = async () => {
@@ -1549,10 +2002,85 @@ export const mergeLora = async (
 export const checkBackendHealth = async () => {
   try {
     const response = await apiClient.get('/health', { suppressErrorLogging: true } as any);
-    return response.status === 200;
+    if (response.status === 200) {
+      processOfflineQueue();
+      return true;
+    }
+    return false;
   } catch {
     return false;
   }
+};
+
+export const startHealthCheck = (
+  onStatusChange: (isHealthy: boolean) => void
+): (() => void) => {
+  let ws: WebSocket | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let httpFallbackTimer: ReturnType<typeof setInterval> | null = null;
+  let isClosed = false;
+
+  const startHttpFallback = () => {
+    if (httpFallbackTimer) return;
+    httpFallbackTimer = setInterval(async () => {
+      const isHealthy = await checkBackendHealth();
+      if (!isClosed) {
+        onStatusChange(isHealthy);
+      }
+    }, 5000);
+  };
+
+  const stopHttpFallback = () => {
+    if (httpFallbackTimer) {
+      clearInterval(httpFallbackTimer);
+      httpFallbackTimer = null;
+    }
+  };
+
+  const connectWS = () => {
+    if (isClosed) return;
+    
+    // 使用 gateway/ws 检测长连接存活状态
+    const wsUrl = API_BASE_URL.replace(/^http/i, 'ws') + '/gateway/ws';
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      onStatusChange(true);
+      processOfflineQueue();
+      stopHttpFallback(); // WebSocket连接成功，停止HTTP轮询
+    };
+
+    ws.onmessage = () => {
+      onStatusChange(true);
+      processOfflineQueue();
+    };
+
+    ws.onclose = () => {
+      ws = null;
+      if (!isClosed) {
+        // WebSocket 断开，启动 HTTP 轮询作为 fallback，并在后台尝试重连
+        startHttpFallback();
+        reconnectTimer = setTimeout(connectWS, 5000);
+      }
+    };
+
+    ws.onerror = () => {
+      // onerror 会紧跟着触发 onclose
+    };
+  };
+
+  // 初始启动时，先做一次 HTTP 检查，然后尝试 WS
+  checkBackendHealth().then(isHealthy => {
+    if (!isClosed) onStatusChange(isHealthy);
+  });
+  connectWS();
+
+  return () => {
+    isClosed = true;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    stopHttpFallback();
+    if (ws) ws.close();
+  };
 };
 
 // ==================== CUA API ====================

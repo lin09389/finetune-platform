@@ -94,7 +94,11 @@ export default function Inference() {
         getPerformanceRecommendations().catch(() => null),
       ]);
       setPerformanceStats(stats);
-      setPerformanceRecommendations(recommendations?.recommendations || []);
+      setPerformanceRecommendations(
+        (recommendations?.recommendations || []).map((r: any) =>
+          r.action ? `${r.message} (${r.action})` : r.message
+        )
+      );
     } catch (error) {
       console.error('Failed to load performance info:', error);
     }

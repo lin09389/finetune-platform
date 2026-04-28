@@ -1,4 +1,4 @@
-﻿import {
+import {
   AppstoreOutlined,
   ApiOutlined,
   BookOutlined,
@@ -24,6 +24,7 @@ import { Avatar, Button, Drawer } from 'antd';
 import { motion } from 'framer-motion';
 import React, { memo, useCallback, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useShallow } from 'zustand/react/shallow';
 import { useResponsive } from '../../hooks/useResponsive';
 import { useAppStore } from '../../store/appStore';
 
@@ -67,7 +68,9 @@ const MobileNav: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { isMobile, isTablet } = useResponsive();
-  const { backendStatus } = useAppStore();
+  const { backendStatus } = useAppStore(useShallow(state => ({
+    backendStatus: state.backendStatus
+  })));
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const handleNavigate = useCallback(

@@ -10,11 +10,31 @@
 .suggestionsHeader {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  justify-content: space-between;
   font-size: 13px;
   color: var(--text-tertiary);
   font-weight: 500;
   margin-left: var(--space-1);
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.refreshBtn {
+  color: var(--text-tertiary) !important;
+  font-size: 12px !important;
+  padding: 0 var(--space-2) !important;
+  height: 24px !important;
+  display: flex;
+  align-items: center;
+}
+
+.refreshBtn:hover {
+  color: var(--accent-primary) !important;
+  background: var(--accent-primary-alpha) !important;
 }
 
 .headerIcon {

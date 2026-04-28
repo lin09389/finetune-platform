@@ -10,13 +10,19 @@ import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import { getDeviceInfo } from '../services/api';
 import { useAppStore } from '../store/appStore';
+import { useShallow } from 'zustand/react/shallow';
 import styles from './HeaderBar.module.css';
 import { NotificationPanel, useNotifications } from './NotificationPanel';
 
 const { Header } = Layout;
 
 export default function HeaderBar() {
-  const { backendStatus, setDeviceInfo, themeMode, setThemeMode } = useAppStore();
+  const { backendStatus, setDeviceInfo, themeMode, setThemeMode } = useAppStore(useShallow(state => ({
+    backendStatus: state.backendStatus,
+    setDeviceInfo: state.setDeviceInfo,
+    themeMode: state.themeMode,
+    setThemeMode: state.setThemeMode
+  })));
   const [loading, setLoading] = useState(false);
   const { notifications, addNotification, markAsRead, markAllAsRead, deleteNotification } =
     useNotifications();

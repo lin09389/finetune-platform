@@ -8,7 +8,7 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    // Frontend uses absolute API_BASE_URL (http://127.0.0.1:8000) directly.
+    // Frontend uses absolute API_BASE_URL (http://127.0.0.1:8010) directly.
     // Keep dev server free of route-overlapping proxies so SPA paths like
     // /training and /device are always handled by Vite history fallback.
   },

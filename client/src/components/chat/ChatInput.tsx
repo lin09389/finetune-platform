@@ -169,6 +169,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
             autoSize={{ minRows: 1, maxRows: 6 }}
             disabled={disabled || loading}
             maxLength={maxLength}
+            bordered={false}
             className={styles.textarea}
           />
 

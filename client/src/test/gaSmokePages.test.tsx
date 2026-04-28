@@ -223,28 +223,32 @@ vi.mock('../pages/Training/components/LossChart', () => ({
   default: () => <div>Mock Loss Chart</div>,
 }));
 
-vi.mock('../components/SwiftChecker', () => ({
-  default: ({ onStatusChange }: { onStatusChange: (status: { available: boolean }) => void }) => {
+vi.mock('../components/SwiftChecker', () => {
+  function MockSwiftChecker({ onStatusChange }: { onStatusChange: (status: { available: boolean }) => void }) {
     React.useEffect(() => {
       onStatusChange({ available: false });
     }, [onStatusChange]);
     return <div>Mock Swift Checker</div>;
-  },
-}));
+  }
+  return { default: MockSwiftChecker };
+});
 
 vi.mock('../components/TrainingChart', () => ({
   default: () => <div>Mock Training Chart</div>,
 }));
 
-vi.mock('react-virtuoso', () => ({
-  Virtuoso: ({
+vi.mock('react-virtuoso', () => {
+  function MockVirtuoso({
     itemContent,
     totalCount,
   }: {
     itemContent?: (index: number) => React.ReactNode;
     totalCount?: number;
-  }) => <div>{Array.from({ length: totalCount || 0 }, (_, index) => itemContent?.(index))}</div>,
-}));
+  }) {
+    return <div>{Array.from({ length: totalCount || 0 }, (_, index) => itemContent?.(index))}</div>;
+  }
+  return { Virtuoso: MockVirtuoso };
+});
 
 import ChatPage from '../pages/ChatNew';
 import Dashboard from '../pages/Dashboard';

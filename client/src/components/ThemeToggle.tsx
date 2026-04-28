@@ -1,10 +1,14 @@
 import { LaptopOutlined, MoonOutlined, SunOutlined } from '@ant-design/icons';
 import { Dropdown } from 'antd';
 import { AnimatePresence, motion } from 'framer-motion';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore, type ThemeMode } from '../store/appStore';
 
 export default function ThemeToggle() {
-  const { themeMode, setThemeMode } = useAppStore();
+  const { themeMode, setThemeMode } = useAppStore(useShallow(state => ({
+    themeMode: state.themeMode,
+    setThemeMode: state.setThemeMode
+  })));
 
   const getIcon = () => {
     switch (themeMode) {

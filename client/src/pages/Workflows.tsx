@@ -7,24 +7,31 @@ import {
   ReloadOutlined,
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
-import { Button, Form, Input, Modal, Popconfirm, Segmented, Select, Space, Switch, Tag, message } from 'antd';
+import { Button, Form, Input, Modal, Popconfirm, Segmented, Select, Space, Switch, Tag, message, Tabs } from 'antd';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   approveWorkflowStep,
+  approveWorkflowAction,
+  API_BASE_URL,
   createWorkflow,
   createWorkflowTemplate,
   deleteWorkflowTemplate,
+  executeWorkflowAction,
+  getWorkflowActions,
   getSavedCloudProviders,
   getWorkflow,
   getWorkflowArtifacts,
   getWorkflowContext,
   getWorkflowContextSnapshots,
   getWorkflowMemory,
+  getWorkflowObservability,
+  getWorkflowStepLogs,
   getWorkflowTemplates,
   getWorkflowTimeline,
   getWorkflows,
+  rejectWorkflowAction,
   revertWorkflowMemory,
   retryWorkflowStep,
   runWorkflow,
@@ -34,12 +41,15 @@ import {
 import type {
   SavedCloudProvider,
   Workflow,
+  WorkflowAction,
   WorkflowContextProfile,
   WorkflowContextSnapshot,
   WorkflowMemoryEntry,
+  WorkflowObservability,
+  WorkflowStepLog,
   WorkflowTemplate,
 } from '../services/api';
-import styles from './DigitalTeam.module.css';
+import styles from './Workflows.module.css';
 
 const stepMeta: Record<string, { label: string; icon: ReactNode }> = {
   plan: { label: 'Plan', icon: <PartitionOutlined /> },
@@ -80,6 +90,9 @@ export default function Workflows() {
   const [contextProfile, setContextProfile] = useState<WorkflowContextProfile | null>(null);
   const [contextSnapshots, setContextSnapshots] = useState<WorkflowContextSnapshot[]>([]);
   const [workflowMemory, setWorkflowMemory] = useState<WorkflowMemoryEntry[]>([]);
+  const [observability, setObservability] = useState<WorkflowObservability | null>(null);
+  const [stepLogs, setStepLogs] = useState<WorkflowStepLog[]>([]);
+  const [actions, setActions] = useState<WorkflowAction[]>([]);
   const [cloudProviders, setCloudProviders] = useState<SavedCloudProvider[]>([]);
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -102,6 +115,20 @@ export default function Workflows() {
       void loadWorkflowDetails(selectedId);
     }
   }, [selectedId]);
+
+  useEffect(() => {
+    if (!selectedId || !['running', 'awaiting_approval'].includes(selectedWorkflow?.status || '')) {
+      return;
+    }
+    const source = new EventSource(`${API_BASE_URL}/workflows/${selectedId}/events/stream`);
+    source.addEventListener('workflow_event', () => {
+      void loadWorkflowDetails(selectedId);
+    });
+    source.onerror = () => {
+      source.close();
+    };
+    return () => source.close();
+  }, [selectedId, selectedWorkflow?.status]);
 
   const loadInitialData = async () => {
     setLoading(true);
@@ -131,10 +158,13 @@ export default function Workflows() {
         getWorkflowTimeline(workflowId),
         getWorkflowArtifacts(workflowId),
       ]);
-      const [profileData, snapshotData, memoryData] = await Promise.all([
+      const [profileData, snapshotData, memoryData, observabilityData, stepLogData, actionData] = await Promise.all([
         getWorkflowContext(workflowId).catch(() => null),
         getWorkflowContextSnapshots(workflowId).catch(() => []),
         getWorkflowMemory(workflowId).catch(() => []),
+        getWorkflowObservability(workflowId).catch(() => null),
+        getWorkflowStepLogs(workflowId).catch(() => []),
+        getWorkflowActions(workflowId).catch(() => []),
       ]);
       setSelectedWorkflow(workflow);
       setTimeline(timelineData?.events || []);
@@ -142,6 +172,9 @@ export default function Workflows() {
       setContextProfile(profileData);
       setContextSnapshots(snapshotData || []);
       setWorkflowMemory(memoryData || []);
+      setObservability(observabilityData);
+      setStepLogs(stepLogData || []);
+      setActions(actionData || []);
       if (profileData) {
         contextForm.setFieldsValue(profileData);
       }
@@ -352,6 +385,39 @@ export default function Workflows() {
     }
   };
 
+  const handleApproveAction = async (actionId: string) => {
+    try {
+      await approveWorkflowAction(actionId);
+      message.success('动作已审批');
+      if (selectedWorkflow) await loadWorkflowDetails(selectedWorkflow.workflow_id);
+    } catch (error: any) {
+      message.error(error?.response?.data?.detail || '动作审批失败');
+    }
+  };
+
+  const handleRejectAction = async (actionId: string) => {
+    try {
+      await rejectWorkflowAction(actionId);
+      message.success('动作已拒绝');
+      if (selectedWorkflow) await loadWorkflowDetails(selectedWorkflow.workflow_id);
+    } catch (error: any) {
+      message.error(error?.response?.data?.detail || '动作拒绝失败');
+    }
+  };
+
+  const handleExecuteAction = async (actionId: string) => {
+    setLoading(true);
+    try {
+      await executeWorkflowAction(actionId);
+      message.success('动作已执行');
+      if (selectedWorkflow) await loadWorkflowDetails(selectedWorkflow.workflow_id);
+    } catch (error: any) {
+      message.error(error?.response?.data?.detail || '动作执行失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const actionableSteps = useMemo(
     () =>
       (selectedWorkflow?.steps || []).filter((step) =>
@@ -467,285 +533,418 @@ export default function Workflows() {
       </div>
 
       {activeView === 'templates' ? (
-        <div className={styles.layout}>
-          <main className={styles.panel} style={{ gridColumn: '1 / -1' }}>
-            <h3 className={styles.panelTitle}>模板配置</h3>
-            <div className={styles.board}>
-              {templates.map((template) => (
-                <div key={template.id} className={styles.taskCard}>
-                  <div className={styles.taskHeader}>
-                    <span className={styles.taskRole}>{template.name}</span>
-                    <Space>
-                      {template.is_builtin && <Tag color="blue">内置</Tag>}
-                      <Tag color={template.is_enabled ? 'success' : 'default'}>
-                        {template.is_enabled ? '启用' : '停用'}
-                      </Tag>
-                    </Space>
-                  </div>
-                  <p className={styles.taskDescription}>{template.description || '暂无描述'}</p>
-                  <div className={styles.projectMeta}>
-                    {template.agents.length} Agent · {template.steps.length} Step · {template.default_provider}
-                  </div>
-                  <Space style={{ marginTop: 12 }}>
-                    {!template.is_builtin && (
-                      <Button size="small" onClick={() => openTemplateModal(template)}>
-                        编辑
-                      </Button>
-                    )}
-                    <Button size="small" onClick={() => openTemplateModal(template, true)}>
-                      复制
-                    </Button>
-                    {!template.is_builtin && (
-                      <Popconfirm title="删除该模板？" onConfirm={() => handleDeleteTemplate(template.id)}>
-                        <Button size="small" danger>
-                          删除
-                        </Button>
-                      </Popconfirm>
-                    )}
-                  </Space>
-                </div>
-              ))}
-            </div>
-          </main>
-        </div>
-      ) : (
-      <div className={styles.layout}>
-        <aside className={styles.panel}>
-          <h3 className={styles.panelTitle}>模板</h3>
-          <Space direction="vertical" style={{ width: '100%', marginBottom: 16 }}>
-            {displayTemplates.map((template) => (
-              <div key={template.id} className={styles.projectItem}>
-                <div className={styles.projectTitle}>{template.name}</div>
-                <div className={styles.projectMeta}>{template.description}</div>
-              </div>
-            ))}
-          </Space>
-
-          <h3 className={styles.panelTitle}>工作流列表</h3>
-          <div className={styles.projectList}>
-            {workflows.map((workflow) => (
-              <button
-                key={workflow.workflow_id}
-                type="button"
-                className={`${styles.projectItem} ${
-                  selectedWorkflow?.workflow_id === workflow.workflow_id ? styles.projectItemActive : ''
-                }`}
-                onClick={() => {
-                  setSelectedWorkflow(workflow);
-                  setSearchParams({ workflow: workflow.workflow_id });
-                }}
-              >
-                <div className={styles.projectTitle}>{workflow.title}</div>
-                <div className={styles.projectMeta}>
-                  <Tag color={statusColor[workflow.status] || 'default'}>{workflow.status}</Tag>
-                  {new Date(workflow.updated_at).toLocaleString()}
-                </div>
-              </button>
-            ))}
-            {!workflows.length && <div className={styles.emptyState}>暂无工作流</div>}
-          </div>
-        </aside>
-
-        <main className={styles.panel}>
-          <div className={styles.header}>
-            <div>
-              <h3 className={styles.panelTitle}>{selectedWorkflow?.title || '选择或创建一个工作流'}</h3>
-              {selectedWorkflow && (
-                <Tag color={statusColor[selectedWorkflow.status] || 'default'}>
-                  {selectedWorkflow.status}
-                </Tag>
-              )}
-            </div>
-            {selectedWorkflow?.status === 'draft' && (
-              <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleRun} loading={loading}>
-                运行工作流
-              </Button>
-            )}
-          </div>
-
-          {selectedWorkflow ? (
-            <>
-              <div className={styles.outputBox}>{selectedWorkflow.goal}</div>
-              <div className={styles.board} style={{ marginTop: 16 }}>
-                {(orderedSteps.length ? orderedSteps : []).map((step) => {
-                  const stepKey = step.step_key;
-                  const meta = stepMeta[stepKey] || { label: step.title || stepKey, icon: <PartitionOutlined /> };
-                  return (
-                    <div key={stepKey} className={styles.taskCard}>
-                      <div className={styles.taskHeader}>
-                        <span className={styles.taskRole}>
-                          {meta.icon} {meta.label}
-                        </span>
-                        <Tag color={statusColor[step?.status || 'pending'] || 'default'}>
-                          {step?.status || 'pending'}
-                        </Tag>
-                      </div>
-                      <p className={styles.taskDescription}>
-                        {step?.description || '等待上一节点完成。'}
-                      </p>
-                      <div className={styles.outputBox}>{compactJson(step.output_data || step.output)}</div>
-                    </div>
-                  );
-                })}
-                {!orderedSteps.length && (
-                  <div className={styles.emptyState}>运行后会按模板动态显示步骤。</div>
-                )}
-              </div>
-            </>
-          ) : (
-            <div className={styles.emptyState}>创建工作流后，步骤流程会显示在这里</div>
-          )}
-        </main>
-
-        <aside className={styles.panel}>
-          <h3 className={styles.panelTitle}>审批与操作</h3>
-          <Space direction="vertical" style={{ width: '100%' }}>
-            {actionableSteps.map((step) => (
-              <div key={step.step_id} className={styles.artifactItem}>
-                <div className={styles.artifactTitle}>{step.title}</div>
-                <div className={styles.projectMeta}>
-                  {step.agent_id} · {step.status}
-                </div>
-                <Space style={{ marginTop: 10 }}>
-                  {step.status !== 'failed' && (
-                    <Button
-                      type="primary"
-                      size="small"
-                      icon={<CheckCircleOutlined />}
-                      onClick={() => handleApprove(step.step_id)}
-                      loading={loading}
-                    >
-                      审批通过
-                    </Button>
-                  )}
-                  <Button size="small" icon={<ReloadOutlined />} onClick={() => handleRetry(step.step_id)} loading={loading}>
-                    重试
-                  </Button>
+        <div className={styles.templateBoard}>
+          {templates.map((template) => (
+            <div key={template.id} className={styles.templateCard}>
+              <div className={styles.templateHeader}>
+                <span className={styles.templateName}>{template.name}</span>
+                <Space>
+                  {template.is_builtin && <Tag color="blue">内置</Tag>}
+                  <Tag color={template.is_enabled ? 'success' : 'default'}>
+                    {template.is_enabled ? '启用' : '停用'}
+                  </Tag>
                 </Space>
               </div>
-            ))}
-            {!actionableSteps.length && <div className={styles.emptyState}>暂无待处理步骤</div>}
-          </Space>
-
-          <h3 className={styles.panelTitle} style={{ marginTop: 18 }}>
-            上下文
-          </h3>
-          {selectedWorkflow ? (
-            <Form
-              form={contextForm}
-              layout="vertical"
-              size="small"
-              initialValues={{
-                include_project_context: true,
-                include_chat_context: false,
-                include_memory: true,
-                max_context_chars: 6000,
-              }}
-              onFinish={handleContextSubmit}
-            >
-              <Form.Item name="project_path" label="项目路径">
-                <Input placeholder="留空则不注入项目上下文" />
-              </Form.Item>
-              <Form.Item name="chat_session_id" label="聊天会话 ID">
-                <Input placeholder="从聊天页发起时自动携带" />
-              </Form.Item>
-              <Space wrap>
-                <Form.Item name="include_project_context" valuePropName="checked">
-                  <Switch checkedChildren="项目" unCheckedChildren="项目" />
-                </Form.Item>
-                <Form.Item name="include_chat_context" valuePropName="checked">
-                  <Switch checkedChildren="对话" unCheckedChildren="对话" />
-                </Form.Item>
-                <Form.Item name="include_memory" valuePropName="checked">
-                  <Switch checkedChildren="记忆" unCheckedChildren="记忆" />
-                </Form.Item>
-              </Space>
-              <Form.Item name="max_context_chars" label="上下文上限">
-                <Input type="number" min={500} max={30000} />
-              </Form.Item>
-              <Button size="small" onClick={() => contextForm.submit()}>
-                保存上下文
-              </Button>
-              {contextProfile?.updated_at && (
-                <div className={styles.projectMeta} style={{ marginTop: 8 }}>
-                  更新于 {new Date(contextProfile.updated_at).toLocaleString()}
-                </div>
-              )}
-            </Form>
-          ) : (
-            <div className={styles.emptyState}>选择工作流后可配置上下文</div>
-          )}
-
-          <h3 className={styles.panelTitle} style={{ marginTop: 18 }}>
-            上下文快照
-          </h3>
-          <div className={styles.artifactList}>
-            {contextSnapshots.slice(-3).map((snapshot) => (
-              <div key={snapshot.id} className={styles.artifactItem}>
-                <div className={styles.artifactTitle}>
-                  {snapshot.step_key || 'workflow'} · {snapshot.char_count} 字
-                </div>
-                <div className={styles.projectMeta}>{new Date(snapshot.created_at).toLocaleString()}</div>
-                <div className={styles.artifactContent}>{snapshot.content || '空上下文'}</div>
+              <div className={styles.templateDesc}>{template.description || '暂无描述'}</div>
+              <div className={styles.workflowMeta}>
+                {template.agents.length} Agent · {template.steps.length} Step · {template.default_provider}
               </div>
-            ))}
-            {!contextSnapshots.length && <div className={styles.emptyState}>运行步骤后会生成快照</div>}
-          </div>
-
-          <h3 className={styles.panelTitle} style={{ marginTop: 18 }}>
-            时间线
-          </h3>
-          <div className={styles.timeline}>
-            {timeline.map((event) => (
-              <div key={event.id} className={styles.eventItem}>
-                <div className={styles.eventMessage}>{event.message}</div>
-                <div className={styles.eventTime}>{new Date(event.created_at).toLocaleString()}</div>
-              </div>
-            ))}
-            {!timeline.length && <div className={styles.emptyState}>暂无事件</div>}
-          </div>
-
-          <h3 className={styles.panelTitle} style={{ marginTop: 18 }}>
-            产物
-          </h3>
-          <div className={styles.artifactList}>
-            {artifacts.map((artifact) => (
-              <div key={artifact.id} className={styles.artifactItem}>
-                <div className={styles.artifactTitle}>{artifact.title}</div>
-                <div className={styles.projectMeta}>{artifact.artifact_type}</div>
-                <div className={styles.artifactContent}>
-                  {JSON.stringify(artifact.content, null, 2)}
-                </div>
-              </div>
-            ))}
-            {!artifacts.length && <div className={styles.emptyState}>暂无产物</div>}
-          </div>
-
-          <h3 className={styles.panelTitle} style={{ marginTop: 18 }}>
-            自动记忆
-          </h3>
-          <div className={styles.artifactList}>
-            {workflowMemory.map((memory) => (
-              <div key={memory.id} className={styles.artifactItem}>
-                <div className={styles.artifactTitle}>
-                  {memory.memory_type} · {memory.memory_key}
-                </div>
-                <div className={styles.projectMeta}>
-                  <Tag color={memory.status === 'active' ? 'success' : 'default'}>{memory.status}</Tag>
-                  置信度 {Math.round(memory.confidence * 100)}%
-                </div>
-                <div className={styles.artifactContent}>{memory.content}</div>
-                {memory.status === 'active' && (
-                  <Button size="small" danger onClick={() => handleRevertMemory(memory.id)}>
-                    撤销
+              <div className={styles.templateFooter}>
+                <Space>
+                  {!template.is_builtin && (
+                    <Button size="small" onClick={() => openTemplateModal(template)}>
+                      编辑
+                    </Button>
+                  )}
+                  <Button size="small" onClick={() => openTemplateModal(template, true)}>
+                    复制
                   </Button>
+                </Space>
+                {!template.is_builtin && (
+                  <Popconfirm title="删除该模板？" onConfirm={() => handleDeleteTemplate(template.id)}>
+                    <Button size="small" danger type="text">
+                      删除
+                    </Button>
+                  </Popconfirm>
                 )}
               </div>
-            ))}
-            {!workflowMemory.length && <div className={styles.emptyState}>工作流完成后自动沉淀记忆</div>}
-          </div>
-        </aside>
-      </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className={styles.layout}>
+          <aside className={styles.sidebar}>
+            <div className={styles.panelTitle}>工作流列表</div>
+            <div className={styles.workflowList}>
+              {workflows.map((workflow) => (
+                <button
+                  key={workflow.workflow_id}
+                  type="button"
+                  className={`${styles.workflowItem} ${
+                    selectedWorkflow?.workflow_id === workflow.workflow_id ? styles.workflowItemActive : ''
+                  }`}
+                  onClick={() => {
+                    setSelectedWorkflow(workflow);
+                    setSearchParams({ workflow: workflow.workflow_id });
+                  }}
+                >
+                  <div className={styles.workflowTitle}>{workflow.title}</div>
+                  <div className={styles.workflowMeta}>
+                    <Tag color={statusColor[workflow.status] || 'default'}>{workflow.status}</Tag>
+                    {new Date(workflow.updated_at).toLocaleString()}
+                  </div>
+                </button>
+              ))}
+              {!workflows.length && <div className={styles.emptyState}>暂无工作流</div>}
+            </div>
+          </aside>
+
+          <main className={styles.mainPanel}>
+            {selectedWorkflow ? (
+              <>
+                <div className={styles.workflowHeader}>
+                  <div>
+                    <div className={styles.workflowMainTitle}>{selectedWorkflow.title}</div>
+                    <Tag color={statusColor[selectedWorkflow.status] || 'default'}>
+                      {selectedWorkflow.status}
+                    </Tag>
+                  </div>
+                  {selectedWorkflow.status === 'draft' && (
+                    <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleRun} loading={loading}>
+                      运行工作流
+                    </Button>
+                  )}
+                </div>
+
+                <Tabs
+                  defaultActiveKey="flow"
+                  items={[
+                    {
+                      key: 'overview',
+                      label: '总览',
+                      children: (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                          <div className={styles.goalBox}>
+                            <strong>运行状态：</strong>
+                            <div style={{ marginTop: 8 }}>
+                              当前阶段 {observability?.current_stage || selectedWorkflow.current_stage || 'draft'} ·
+                              Step 日志 {stepLogs.length} 条 · 动作建议 {actions.length} 个
+                            </div>
+                          </div>
+                          <div className={styles.stepsBoard}>
+                            {stepLogs.slice(-6).map((log) => (
+                              <div key={log.id} className={styles.stepCard}>
+                                <div className={styles.stepHeader}>
+                                  <div className={styles.stepRole}>
+                                    {log.step_key || 'workflow'} · {log.agent_id || 'system'}
+                                  </div>
+                                  <Tag color={statusColor[log.status] || (log.status === 'failed' ? 'error' : 'default')}>
+                                    {log.status}
+                                  </Tag>
+                                </div>
+                                <div className={styles.stepDesc}>
+                                  {log.provider || selectedWorkflow.provider}
+                                  {log.model ? ` / ${log.model}` : ''}
+                                  {log.duration_ms != null ? ` · ${log.duration_ms}ms` : ''}
+                                </div>
+                                <div className={styles.stepOutput}>
+                                  {log.error || log.output_summary || log.input_summary || '暂无摘要'}
+                                </div>
+                              </div>
+                            ))}
+                            {!stepLogs.length && <div className={styles.emptyState}>运行后会显示 Step 日志</div>}
+                          </div>
+                        </div>
+                      ),
+                    },
+                    {
+                      key: 'flow',
+                      label: '步骤',
+                      children: (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                          {actionableSteps.length > 0 && (
+                            <div className={styles.actionBanner}>
+                              <div>
+                                <strong>需要您的处理</strong>
+                                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                                  有 {actionableSteps.length} 个步骤需要审批或重试
+                                </div>
+                              </div>
+                              <Space>
+                                {actionableSteps.map((step) => (
+                                  <Space key={step.step_id}>
+                                    {step.status !== 'failed' && (
+                                      <Button
+                                        type="primary"
+                                        size="small"
+                                        icon={<CheckCircleOutlined />}
+                                        onClick={() => handleApprove(step.step_id)}
+                                        loading={loading}
+                                      >
+                                        通过 {step.title}
+                                      </Button>
+                                    )}
+                                    <Button
+                                      size="small"
+                                      icon={<ReloadOutlined />}
+                                      onClick={() => handleRetry(step.step_id)}
+                                      loading={loading}
+                                    >
+                                      重试
+                                    </Button>
+                                  </Space>
+                                ))}
+                              </Space>
+                            </div>
+                          )}
+
+                          <div className={styles.goalBox}>
+                            <strong>目标：</strong>
+                            <div style={{ marginTop: 8 }}>{selectedWorkflow.goal}</div>
+                          </div>
+
+                          <div className={styles.stepsBoard}>
+                            {(orderedSteps.length ? orderedSteps : []).map((step) => {
+                              const stepKey = step.step_key;
+                              const meta = stepMeta[stepKey] || { label: step.title || stepKey, icon: <PartitionOutlined /> };
+                              return (
+                                <div key={stepKey} className={styles.stepCard}>
+                                  <div className={styles.stepHeader}>
+                                    <div className={styles.stepRole}>
+                                      {meta.icon} {meta.label}
+                                    </div>
+                                    <Tag color={statusColor[step?.status || 'pending'] || 'default'}>
+                                      {step?.status || 'pending'}
+                                    </Tag>
+                                  </div>
+                                  <div className={styles.stepDesc}>
+                                    {step?.description || '等待上一节点完成。'}
+                                  </div>
+                                  <div className={styles.stepOutput}>
+                                    {compactJson(step.output_data || step.output)}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            {!orderedSteps.length && (
+                              <div className={styles.emptyState}>运行后会按模板动态显示步骤。</div>
+                            )}
+                          </div>
+                        </div>
+                      ),
+                    },
+                    {
+                      key: 'context',
+                      label: '上下文配置',
+                      children: (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                          <Form
+                            form={contextForm}
+                            layout="vertical"
+                            size="middle"
+                            initialValues={{
+                              include_project_context: true,
+                              include_chat_context: false,
+                              include_memory: true,
+                              max_context_chars: 6000,
+                            }}
+                            onFinish={handleContextSubmit}
+                            style={{ background: 'var(--bg-primary)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-primary)' }}
+                          >
+                            <Form.Item name="project_path" label="项目路径">
+                              <Input placeholder="留空则不注入项目上下文" />
+                            </Form.Item>
+                            <Form.Item name="chat_session_id" label="聊天会话 ID">
+                              <Input placeholder="从聊天页发起时自动携带" />
+                            </Form.Item>
+                            <Space wrap style={{ marginBottom: 16 }}>
+                              <Form.Item name="include_project_context" valuePropName="checked" style={{ marginBottom: 0 }}>
+                                <Switch checkedChildren="项目" unCheckedChildren="项目" />
+                              </Form.Item>
+                              <Form.Item name="include_chat_context" valuePropName="checked" style={{ marginBottom: 0 }}>
+                                <Switch checkedChildren="对话" unCheckedChildren="对话" />
+                              </Form.Item>
+                              <Form.Item name="include_memory" valuePropName="checked" style={{ marginBottom: 0 }}>
+                                <Switch checkedChildren="记忆" unCheckedChildren="记忆" />
+                              </Form.Item>
+                            </Space>
+                            <Form.Item name="max_context_chars" label="上下文上限">
+                              <Input type="number" min={500} max={30000} style={{ width: 200 }} />
+                            </Form.Item>
+                            <Button type="primary" onClick={() => contextForm.submit()}>
+                              保存上下文
+                            </Button>
+                            {contextProfile?.updated_at && (
+                              <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-secondary)' }}>
+                                更新于 {new Date(contextProfile.updated_at).toLocaleString()}
+                              </div>
+                            )}
+                          </Form>
+
+                          <div>
+                            <div className={styles.panelTitle} style={{ marginBottom: 12 }}>上下文快照</div>
+                            <div className={styles.dataList}>
+                              {contextSnapshots.slice(-3).map((snapshot) => (
+                                <div key={snapshot.id} className={styles.dataItem}>
+                                  <div className={styles.dataHeader}>
+                                    <div className={styles.dataTitle}>{snapshot.step_key || 'workflow'}</div>
+                                    <div className={styles.dataTime}>{new Date(snapshot.created_at).toLocaleString()}</div>
+                                  </div>
+                                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{snapshot.char_count} 字</div>
+                                  <div className={styles.dataContent}>{snapshot.content || '空上下文'}</div>
+                                </div>
+                              ))}
+                              {!contextSnapshots.length && <div className={styles.emptyState}>运行步骤后会生成快照</div>}
+                            </div>
+                          </div>
+                        </div>
+                      ),
+                    },
+                    {
+                      key: 'artifacts',
+                      label: '产物与记忆',
+                      children: (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                          <div>
+                            <div className={styles.panelTitle} style={{ marginBottom: 12 }}>工作流产物</div>
+                            <div className={styles.dataList}>
+                              {artifacts.map((artifact) => (
+                                <div key={artifact.id} className={styles.dataItem}>
+                                  <div className={styles.dataHeader}>
+                                    <div className={styles.dataTitle}>{artifact.title}</div>
+                                    <Tag>{artifact.artifact_type}</Tag>
+                                  </div>
+                                  <div className={styles.dataContent}>
+                                    {JSON.stringify(artifact.content, null, 2)}
+                                  </div>
+                                </div>
+                              ))}
+                              {!artifacts.length && <div className={styles.emptyState}>暂无产物</div>}
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className={styles.panelTitle} style={{ marginBottom: 12 }}>自动记忆</div>
+                            <div className={styles.dataList}>
+                              {workflowMemory.map((memory) => (
+                                <div key={memory.id} className={styles.dataItem}>
+                                  <div className={styles.dataHeader}>
+                                    <div className={styles.dataTitle}>{memory.memory_type} · {memory.memory_key}</div>
+                                    <Space>
+                                      <Tag color={memory.status === 'active' ? 'success' : 'default'}>{memory.status}</Tag>
+                                      {memory.status === 'active' && (
+                                        <Button size="small" danger onClick={() => handleRevertMemory(memory.id)}>
+                                          撤销
+                                        </Button>
+                                      )}
+                                    </Space>
+                                  </div>
+                                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>置信度 {Math.round(memory.confidence * 100)}%</div>
+                                  <div className={styles.dataContent}>{memory.content}</div>
+                                </div>
+                              ))}
+                              {!workflowMemory.length && <div className={styles.emptyState}>工作流完成后自动沉淀记忆</div>}
+                            </div>
+                          </div>
+                        </div>
+                      ),
+                    },
+                    {
+                      key: 'actions',
+                      label: '动作',
+                      children: (
+                        <div className={styles.dataList}>
+                          {actions.map((action) => {
+                            const latestExecution = action.executions?.[action.executions.length - 1];
+                            const files = action.payload?.files || action.payload?.file_changes || [];
+                            const command = action.payload?.command;
+                            return (
+                              <div key={action.id} className={styles.dataItem}>
+                                <div className={styles.dataHeader}>
+                                  <div>
+                                    <div className={styles.dataTitle}>{action.title}</div>
+                                    <div className={styles.dataTime}>
+                                      {action.action_type} · {action.status} · {new Date(action.created_at).toLocaleString()}
+                                    </div>
+                                  </div>
+                                  <Space>
+                                    <Tag color={action.status === 'executed' ? 'success' : action.status === 'rejected' ? 'error' : 'warning'}>
+                                      {action.status}
+                                    </Tag>
+                                    {action.status === 'pending_approval' && (
+                                      <>
+                                        <Button size="small" type="primary" onClick={() => handleApproveAction(action.id)}>
+                                          审批
+                                        </Button>
+                                        <Button size="small" danger onClick={() => handleRejectAction(action.id)}>
+                                          拒绝
+                                        </Button>
+                                      </>
+                                    )}
+                                    {action.status === 'approved' && (
+                                      <Button size="small" type="primary" loading={loading} onClick={() => handleExecuteAction(action.id)}>
+                                        执行
+                                      </Button>
+                                    )}
+                                  </Space>
+                                </div>
+                                {action.description && <div className={styles.stepDesc}>{action.description}</div>}
+                                <div className={styles.dataContent}>
+                                  {action.action_type === 'command'
+                                    ? Array.isArray(command)
+                                      ? command.join(' ')
+                                      : command || JSON.stringify(action.payload, null, 2)
+                                    : files.length
+                                      ? files.map((file: any) => `# ${file.path || file.file_path}\n${file.content || ''}`).join('\n\n')
+                                      : JSON.stringify(action.payload, null, 2)}
+                                </div>
+                                {latestExecution && (
+                                  <div className={styles.dataContent}>
+                                    {[
+                                      `status: ${latestExecution.status}`,
+                                      latestExecution.exit_code != null ? `exit_code: ${latestExecution.exit_code}` : '',
+                                      latestExecution.stdout ? `stdout:\n${latestExecution.stdout}` : '',
+                                      latestExecution.stderr ? `stderr:\n${latestExecution.stderr}` : '',
+                                      latestExecution.error ? `error:\n${latestExecution.error}` : '',
+                                    ].filter(Boolean).join('\n\n')}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                          {!actions.length && <div className={styles.emptyState}>Agent 产出 patch 或 command artifact 后会显示动作建议</div>}
+                        </div>
+                      ),
+                    },
+                    {
+                      key: 'timeline',
+                      label: '时间线',
+                      children: (
+                        <div className={styles.dataList}>
+                          {timeline.map((event) => (
+                            <div key={event.id} className={styles.dataItem} style={{ borderLeft: '4px solid var(--primary)' }}>
+                              <div className={styles.dataHeader}>
+                                <div className={styles.dataTitle} style={{ fontWeight: 'normal' }}>{event.message}</div>
+                                <div className={styles.dataTime}>{new Date(event.created_at).toLocaleString()}</div>
+                              </div>
+                            </div>
+                          ))}
+                          {!timeline.length && <div className={styles.emptyState}>暂无事件</div>}
+                        </div>
+                      ),
+                    },
+                  ]}
+                />
+              </>
+            ) : (
+              <div className={styles.emptyState}>
+                <PartitionOutlined style={{ fontSize: 48, color: 'var(--border-primary)' }} />
+                <div style={{ fontSize: 16, fontWeight: 600 }}>选择或创建一个工作流</div>
+                <div>步骤流程、配置和上下文会显示在这里</div>
+              </div>
+            )}
+          </main>
+        </div>
       )}
 
       <Modal

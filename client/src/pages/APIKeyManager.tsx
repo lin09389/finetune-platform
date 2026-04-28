@@ -21,7 +21,7 @@ import {
 } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
-import { API_BASE_URL } from '../services/api';
+import { API_BASE_URL, getSavedCloudProviderData, getSavedCloudProviders } from '../services/api';
 
 const { Text } = Typography;
 
@@ -120,31 +120,79 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
 
   const loadSavedKeys = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/cloud/api-keys`);
-      const data = await response.json();
-      setSavedKeys(data.keys || []);
+      const data = await getSavedCloudProviders();
+      const keys = data.keys || [];
+      setSavedKeys(keys);
+      return keys;
     } catch (error) {
       console.error('加载 API Keys 失败:', error);
+      return [];
+    }
+  };
+
+  const fillFormFromSavedKey = async (key: APIKeyInfo) => {
+    setSelectedProvider(key.provider);
+    try {
+      const data = await getSavedCloudProviderData(key.provider);
+      form.setFieldsValue({
+        provider: key.provider,
+        name: data.name || key.name || key.provider,
+        note: data.note || key.note || '',
+        official_url: data.official_url || key.official_url || '',
+        interface_format:
+          data.interface_format || key.interface_format || builtinFormatByProvider[key.provider] || 'openai-chat-completions',
+        api_key: '',
+        base_url: data.base_url || key.base_url || '',
+        default_model: data.default_model || key.default_model || '',
+        models_text: modelsToText(data.models || key.models),
+        group_id: data.group_id || '',
+      });
+    } catch (error) {
+      console.error('加载供应商配置失败:', error);
+      message.error('加载配置失败');
     }
   };
 
   useEffect(() => {
-    void loadSavedKeys();
-    const provider = initialConfig?.provider || localConfig?.provider || '';
-    if (provider) {
-      setSelectedProvider(provider);
-      form.setFieldsValue({
-        ...defaultValues,
-        provider,
-        base_url: initialConfig?.base_url || localConfig?.base_url || '',
-        default_model: initialConfig?.model || localConfig?.model || '',
-        group_id: initialConfig?.group_id || localConfig?.group_id || '',
-        interface_format: builtinFormatByProvider[provider] || 'openai-chat-completions',
-      });
-    } else {
-      form.setFieldsValue(defaultValues);
-    }
-  }, [form, initialConfig, localConfig]);
+    let cancelled = false;
+
+    const initialize = async () => {
+      const provider = initialConfig?.provider || localConfig?.provider || '';
+      if (provider) {
+        setSelectedProvider(provider);
+        form.setFieldsValue({
+          ...defaultValues,
+          provider,
+          base_url: initialConfig?.base_url || localConfig?.base_url || '',
+          default_model: initialConfig?.model || localConfig?.model || '',
+          group_id: initialConfig?.group_id || localConfig?.group_id || '',
+          interface_format: builtinFormatByProvider[provider] || 'openai-chat-completions',
+        });
+      } else {
+        form.setFieldsValue(defaultValues);
+      }
+
+      const keys = await loadSavedKeys();
+      if (cancelled || keys.length === 0) {
+        return;
+      }
+
+      const matchedKey =
+        keys.find((item: APIKeyInfo) => item.provider === provider) ||
+        keys.find((item: APIKeyInfo) => item.provider === selectedProvider) ||
+        (!provider && !selectedProvider ? keys[0] : null);
+
+      if (matchedKey) {
+        await fillFormFromSavedKey(matchedKey);
+      }
+    };
+
+    void initialize();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [form, initialConfig, localConfig, selectedProvider]);
 
   const handleSave = async () => {
     let values: ProviderFormValues;
@@ -250,27 +298,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
   };
 
   const handleSelectSaved = async (key: APIKeyInfo) => {
-    setSelectedProvider(key.provider);
-    try {
-      const response = await fetch(`${API_BASE_URL}/cloud/api-keys/${key.provider}/data`);
-      const data = await response.json();
-      form.setFieldsValue({
-        provider: key.provider,
-        name: data.name || key.name || key.provider,
-        note: data.note || key.note || '',
-        official_url: data.official_url || key.official_url || '',
-        interface_format:
-          data.interface_format || key.interface_format || builtinFormatByProvider[key.provider] || 'openai-chat-completions',
-        api_key: '',
-        base_url: data.base_url || key.base_url || '',
-        default_model: data.default_model || key.default_model || '',
-        models_text: modelsToText(data.models || key.models),
-        group_id: data.group_id || '',
-      });
-    } catch (error) {
-      console.error('加载供应商配置失败:', error);
-      message.error('加载配置失败');
-    }
+    await fillFormFromSavedKey(key);
   };
 
   const handleClear = () => {

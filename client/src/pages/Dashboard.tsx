@@ -20,6 +20,8 @@ import { Button, Empty, Progress, Space, Table, Tag } from 'antd';
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useShallow } from 'zustand/react/shallow';
+import { InteractiveButton, GlassHoverCard } from '../components/motion';
 import AnimatedLayout from '../components/shared/AnimatedLayout';
 import GlassCard from '../components/shared/GlassCard';
 import PageHeader from '../components/shared/PageHeader';
@@ -78,7 +80,7 @@ const StatCard: React.FC<StatCardProps> = ({
   progress,
 }) => {
   return (
-    <GlassCard className={styles.statCard}>
+    <GlassHoverCard className={styles.statCard} tilt3D={false}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
@@ -95,10 +97,10 @@ const StatCard: React.FC<StatCardProps> = ({
           </div>
           <div className={styles.statValue}>
             {prefix}
-            <CountUp value={value} decimals={total ? 1 : 0} />
+            <CountUp value={value} decimals={0} />
             {total !== undefined && (
               <span className={styles.statTotal}>
-                / {total} {suffix}
+                / {Math.round(total)} {suffix}
               </span>
             )}
             {total === undefined && suffix && <span className={styles.statTotal}>{suffix}</span>}
@@ -139,7 +141,7 @@ const StatCard: React.FC<StatCardProps> = ({
           </div>
         </div>
       )}
-    </GlassCard>
+    </GlassHoverCard>
   );
 };
 
@@ -155,8 +157,17 @@ export default function Dashboard() {
     setModels,
     setDatasets,
     setTrainingRecords,
-  } =
-    useAppStore();
+  } = useAppStore(useShallow(state => ({
+    backendStatus: state.backendStatus,
+    deviceInfo: state.deviceInfo,
+    setDeviceInfo: state.setDeviceInfo,
+    models: state.models,
+    datasets: state.datasets,
+    trainingRecords: state.trainingRecords,
+    setModels: state.setModels,
+    setDatasets: state.setDatasets,
+    setTrainingRecords: state.setTrainingRecords
+  })));
   const { inference, summary } = useRuntimeContext();
   const [deploymentPackageCount, setDeploymentPackageCount] = useState(0);
 
@@ -720,15 +731,13 @@ export default function Dashboard() {
                               {suggestion.desc}
                             </div>
                             {suggestion.action && (
-                              <Button
-                                type="primary"
-                                ghost
-                                size="small"
+                              <InteractiveButton
+                                variant="primary"
                                 onClick={suggestion.action}
-                                style={{ borderRadius: '6px', fontWeight: 600 }}
+                                style={{ borderRadius: '6px', fontWeight: 600, padding: '4px 12px', fontSize: '14px', height: '32px' }}
                               >
                                 {suggestion.buttonText}
-                              </Button>
+                              </InteractiveButton>
                             )}
                           </div>
                         </div>
@@ -749,13 +758,12 @@ export default function Dashboard() {
                   <div key={index} className={styles['span-3']}>
                     <motion.div
                       variants={itemVariants}
-                      whileTap={{ scale: 0.98 }}
                       style={{ height: '100%' }}
                     >
-                      <GlassCard
+                      <GlassHoverCard
                         className={styles.quickActionCard}
                         onClick={action.onClick}
-                        intensity="low"
+                        tilt3D={true}
                       >
                         <div
                           className={styles.quickActionIcon}
@@ -771,7 +779,7 @@ export default function Dashboard() {
                           <div className={styles.quickActionTitle}>{action.title}</div>
                           <div className={styles.quickActionDesc}>{action.description}</div>
                         </div>
-                      </GlassCard>
+                      </GlassHoverCard>
                     </motion.div>
                   </div>
                 ))}

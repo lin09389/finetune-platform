@@ -27,6 +27,7 @@ import {
 import { Layout, Tooltip } from 'antd';
 import { motion } from 'framer-motion';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/appStore';
 import styles from './Sidebar.module.css';
 
@@ -196,9 +197,13 @@ const logoVariants = {
 };
 
 export default function Sidebar() {
-  const navigate = useNavigate();
   const location = useLocation();
-  const { sidebarCollapsed, toggleSidebar, backendStatus } = useAppStore();
+  const navigate = useNavigate();
+  const { sidebarCollapsed, toggleSidebar, backendStatus } = useAppStore(useShallow(state => ({
+    sidebarCollapsed: state.sidebarCollapsed,
+    toggleSidebar: state.toggleSidebar,
+    backendStatus: state.backendStatus
+  })));
 
   return (
     <Sider

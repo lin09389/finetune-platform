@@ -10,35 +10,53 @@ import {
 import { Button, Input, message, Space, Tag, Tooltip } from 'antd';
 import { AnimatePresence, motion } from 'framer-motion';
 import 'highlight.js/styles/atom-one-dark.css';
-import React, { memo, useCallback, useMemo, useState, useEffect } from 'react';
+import React, { memo, useCallback, useMemo, useState, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
-import rehypeSanitize from 'rehype-sanitize';
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
+import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import CodePreview from '../components/CodePreview';
-import StreamingMessage from '../components/StreamingMessage';
+import AgentRunCard from '../components/chat/AgentRunCard';
 import ThinkingProcess from '../components/ThinkingProcess';
-import { messageVariants, transitions, typingIndicatorVariants } from '../theme/animations';
-import type { KnowledgeSource, RetrievalInfo } from '../types';
+import { useTypewriter } from '../hooks/chat/useTypewriter';
+import { messageVariants, transitions } from '../theme/animations';
+import type { ChatAgentMetadata, KnowledgeSource, RetrievalInfo } from '../types';
 import styles from './ChatMessage.module.css';
 
 interface ChatMessageProps {
+  id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   thinkingContent?: string;
   timestamp?: string;
-  onRetry?: () => void;
-  onDelete?: () => void;
-  onEdit?: (newContent: string) => void;
+  onRetry?: (id: string) => void;
+  onDelete?: (id: string) => Promise<void>;
+  onEdit?: (id: string, newContent: string) => void;
   isLoading?: boolean;
   isStreaming?: boolean;
   enableTypewriter?: boolean;
   typewriterSpeed?: number;
   knowledge_sources?: KnowledgeSource[];
   retrieval_info?: RetrievalInfo;
+  agent_metadata?: ChatAgentMetadata;
+  onApproveAgentStep?: (stepId: string) => void | Promise<void>;
+  onApproveAgentAction?: (actionId: string) => void | Promise<void>;
+  onRejectAgentAction?: (actionId: string) => void | Promise<void>;
+  onExecuteAgentAction?: (actionId: string) => void | Promise<void>;
+  onOpenAgentDetails?: (url: string) => void;
 }
+
+const customSanitizeSchema = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    span: [...(defaultSchema.attributes?.span || []), 'className'],
+  },
+};
 
 const ChatMessage: React.FC<ChatMessageProps> = memo(
   ({
+    id,
     role,
     content,
     thinkingContent,
@@ -51,27 +69,31 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
     enableTypewriter = true,
     typewriterSpeed = 50,
     knowledge_sources,
+    agent_metadata,
+    onApproveAgentStep,
+    onApproveAgentAction,
+    onRejectAgentAction,
+    onExecuteAgentAction,
+    onOpenAgentDetails,
   }) => {
     const [copied, setCopied] = useState(false);
     const [showKnowledgeSources, setShowKnowledgeSources] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const [editContent, setEditContent] = useState(content);
-    const [isDoneTyping, setIsDoneTyping] = useState(false);
 
     const isUser = role === 'user';
     const isAssistant = role === 'assistant';
 
-    const shouldUseStreaming = useMemo(() => {
-      // Keep using StreamingMessage until both stream is over AND typing is done
-      return isAssistant && enableTypewriter && (isStreaming || !isDoneTyping);
-    }, [isAssistant, enableTypewriter, isStreaming, isDoneTyping]);
+    // Typewriter effect handles progressive reveal for assistant messages
+    const { processedContent, isDoneTyping } = useTypewriter(
+      content,
+      isStreaming && isAssistant && enableTypewriter,
+      typewriterSpeed
+    );
 
-    // Reset isDoneTyping when a new streaming session starts
-    useEffect(() => {
-      if (isStreaming) {
-        setIsDoneTyping(false);
-      }
-    }, [isStreaming]);
+    // Provide a stable ref for isActuallyTyping to the markdown components
+    const isActuallyTypingRef = useRef(false);
+    isActuallyTypingRef.current = isAssistant && enableTypewriter && (isStreaming || !isDoneTyping);
 
     const handleCopy = useCallback(async () => {
       try {
@@ -86,10 +108,23 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
 
     const handleSaveEdit = useCallback(() => {
       if (editContent.trim() && editContent !== content) {
-        onEdit?.(editContent.trim());
+        onEdit?.(id, editContent.trim());
       }
       setIsEditing(false);
-    }, [editContent, content, onEdit]);
+    }, [id, editContent, content, onEdit]);
+
+    const handleDelete = useCallback(() => {
+      if (onDelete) {
+        onDelete(id).catch((error) => {
+          const errMsg = error instanceof Error ? error.message : '删除消息失败';
+          message.error(errMsg);
+        });
+      }
+    }, [id, onDelete]);
+
+    const handleRetry = useCallback(() => {
+      onRetry?.(id);
+    }, [id, onRetry]);
 
     const formatTime = useCallback((timeStr?: string) => {
       if (!timeStr) return '';
@@ -98,6 +133,184 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
         minute: '2-digit',
       });
     }, []);
+
+    // Memoize markdown components to avoid unnecessary remounts
+    const markdownComponents = useMemo(
+      () => ({
+        code({ inline, className, children, ...props }: any) {
+          const match = /language-(\w+)/.exec(className || '');
+          const language = match ? match[1] : 'text';
+          
+          if (inline) {
+            return (
+              <code
+                style={{
+                  backgroundColor: 'color-mix(in srgb, var(--text-primary) 6%, transparent)',
+                  padding: '3px 6px',
+                  borderRadius: '6px',
+                  fontSize: '0.85em',
+                  color: 'var(--accent-primary)',
+                  fontFamily: 'var(--font-mono)',
+                }}
+                {...props}
+              >
+                {children}
+              </code>
+            );
+          }
+
+          const codeText = String(children).replace(/\n$/, '');
+
+          // Use lightweight block during active streaming to prevent UI stutter
+          if (isActuallyTypingRef.current) {
+            return (
+              <div style={{
+                background: '#f4f4f5',
+                borderRadius: '12px',
+                margin: '12px 0',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '8px 16px',
+                  color: '#666',
+                  fontSize: 13,
+                  fontFamily: 'var(--font-mono)'
+                }}>
+                  <span>{language}</span>
+                  <span className={styles.pulseIndicator}>●</span>
+                </div>
+                <pre style={{
+                  margin: 0,
+                  padding: '0 16px 16px 16px',
+                  background: 'transparent',
+                  overflowX: 'auto',
+                  border: 'none'
+                }}>
+                  <code style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: '#24292e', whiteSpace: 'pre' }}>
+                    {codeText}
+                  </code>
+                </pre>
+              </div>
+            );
+          }
+
+          return (
+            <CodePreview
+              code={codeText}
+              language={language}
+              showLineNumbers={false}
+              collapsible={false}
+              showFullscreen={false}
+              showSave={false}
+              defaultFilename={`code_${language}`}
+              maxHeight={600}
+            />
+          );
+        },
+        p: ({ children }: any) => (
+          <p style={{ margin: 'var(--space-2) 0', lineHeight: 1.7 }}>{children}</p>
+        ),
+        ul: ({ children }: any) => (
+          <ul style={{ margin: 'var(--space-3) 0', paddingLeft: '1.5rem', lineHeight: 1.7 }}>
+            {children}
+          </ul>
+        ),
+        ol: ({ children }: any) => (
+          <ol style={{ margin: 'var(--space-3) 0', paddingLeft: '1.5rem', lineHeight: 1.7 }}>
+            {children}
+          </ol>
+        ),
+        li: ({ children }: any) => (
+          <li style={{ margin: '4px 0' }}>{children}</li>
+        ),
+        h1: ({ children }: any) => (
+          <h1
+            style={{
+              margin: 'var(--space-4) 0 var(--space-2)',
+              fontSize: 'var(--text-xl)',
+              fontWeight: 700,
+            }}
+          >
+            {children}
+          </h1>
+        ),
+        h2: ({ children }: any) => (
+          <h2
+            style={{
+              margin: 'var(--space-3) 0 var(--space-2)',
+              fontSize: 'var(--text-lg)',
+              fontWeight: 600,
+            }}
+          >
+            {children}
+          </h2>
+        ),
+        h3: ({ children }: any) => (
+          <h3
+            style={{
+              margin: 'var(--space-2) 0 var(--space-1)',
+              fontSize: '15px',
+              fontWeight: 600,
+            }}
+          >
+            {children}
+          </h3>
+        ),
+        blockquote: ({ children }: any) => (
+          <blockquote
+            style={{
+              margin: 'var(--space-3) 0',
+              padding: 'var(--space-2) var(--space-4)',
+              borderLeft: '4px solid var(--accent-primary)',
+              background: 'color-mix(in srgb, var(--accent-primary) 8%, transparent)',
+              borderRadius: '0 var(--radius-lg) var(--radius-lg) 0',
+              color: 'var(--text-secondary)',
+            }}
+          >
+            {children}
+          </blockquote>
+        ),
+        table: ({ children }: any) => (
+          <div
+            style={{
+              overflowX: 'auto',
+              margin: 'var(--space-3) 0',
+              borderRadius: 'var(--radius-lg)',
+              border: '1px solid var(--border-color)',
+            }}
+          >
+            <table
+              style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                fontSize: '14px',
+              }}
+            >
+              {children}
+            </table>
+          </div>
+        ),
+        th: ({ children }: any) => (
+          <th style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-secondary)', fontWeight: 600, textAlign: 'left' }}>
+            {children}
+          </th>
+        ),
+        td: ({ children }: any) => (
+          <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-color)' }}>
+            {children}
+          </td>
+        ),
+        tr: ({ children }: any) => (
+          <tr className={styles.tableRow}>
+            {children}
+          </tr>
+        ),
+      }),
+      []
+    );
 
     return (
       <motion.div
@@ -124,33 +337,11 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              style={{ display: 'flex', gap: 6, padding: 'var(--space-2) 0', alignItems: 'center' }}
+              className={styles.shimmeringLoading}
             >
-              {[0, 1, 2].map((i) => (
-                <motion.span
-                  key={i}
-                  variants={typingIndicatorVariants}
-                  initial="initial"
-                  animate="animate"
-                  transition={{ delay: i * 0.15 }}
-                  style={{
-                    width: 6,
-                    height: 6,
-                    backgroundColor: isUser ? 'rgba(255,255,255,0.6)' : 'var(--text-tertiary)',
-                    borderRadius: '50%',
-                  }}
-                />
-              ))}
-              <span
-                style={{
-                  marginLeft: 8,
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: isUser ? 'rgba(255,255,255,0.8)' : 'var(--text-secondary)',
-                }}
-              >
-                思考中...
-              </span>
+              <div className={styles.shimmerLine} style={{ width: '80%' }} />
+              <div className={styles.shimmerLine} style={{ width: '100%' }} />
+              <div className={styles.shimmerLine} style={{ width: '60%' }} />
             </motion.div>
           ) : (
             <div className={styles.markdownContent}>
@@ -195,6 +386,16 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
                 ) : (
                   <div>{content}</div>
                 )
+              ) : agent_metadata ? (
+                <AgentRunCard
+                  content={content}
+                  metadata={agent_metadata}
+                  onApproveStep={onApproveAgentStep}
+                  onApproveAction={onApproveAgentAction}
+                  onRejectAction={onRejectAgentAction}
+                  onExecuteAction={onExecuteAgentAction}
+                  onOpenDetails={onOpenAgentDetails}
+                />
               ) : (
                 <>
                   {thinkingContent && (
@@ -202,156 +403,17 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
                       <ThinkingProcess content={thinkingContent} isStreaming={isStreaming} />
                     </div>
                   )}
-                  {shouldUseStreaming ? (
-                    <StreamingMessage
-                      content={content}
-                      isStreaming={isStreaming}
-                      speed={typewriterSpeed}
-                      onTypingComplete={() => setIsDoneTyping(true)}
-                    />
-                  ) : (
+                  
+                  <div className="streaming-content progressive-markdown">
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
-                      rehypePlugins={[rehypeSanitize]}
-                      components={{
-                        code({ inline, className, children, ...props }: any) {
-                          const match = /language-(\w+)/.exec(className || '');
-                          const language = match ? match[1] : 'text';
-                          if (inline) {
-                            return (
-                              <code
-                                style={{
-                                  backgroundColor: 'rgba(0,0,0,0.05)',
-                                  padding: '2px 4px',
-                                  borderRadius: '4px',
-                                  fontSize: '0.9em',
-                                  color: 'var(--error)',
-                                  fontFamily: 'var(--font-mono)',
-                                }}
-                                {...props}
-                              >
-                                {children}
-                              </code>
-                            );
-                          }
-                          return (
-                            <CodePreview
-                              code={String(children)}
-                              language={language}
-                              showLineNumbers={true}
-                              collapsible={false}
-                              showFullscreen={true}
-                              showSave={true}
-                              defaultFilename={`code_${language}`}
-                              maxHeight={400}
-                            />
-                          );
-                        },
-                        p: ({ children }) => (
-                          <p style={{ margin: 'var(--space-2) 0' }}>{children}</p>
-                        ),
-                        ul: ({ children }) => (
-                          <ul style={{ margin: 'var(--space-2) 0', paddingLeft: 24 }}>
-                            {children}
-                          </ul>
-                        ),
-                        ol: ({ children }) => (
-                          <ol style={{ margin: 'var(--space-2) 0', paddingLeft: 24 }}>
-                            {children}
-                          </ol>
-                        ),
-                        li: ({ children }) => (
-                          <li style={{ margin: 'var(--space-1) 0' }}>{children}</li>
-                        ),
-                        h1: ({ children }) => (
-                          <h1
-                            style={{
-                              margin: 'var(--space-4) 0 var(--space-2)',
-                              fontSize: 'var(--text-xl)',
-                              fontWeight: 700,
-                            }}
-                          >
-                            {children}
-                          </h1>
-                        ),
-                        h2: ({ children }) => (
-                          <h2
-                            style={{
-                              margin: 'var(--space-3) 0 var(--space-2)',
-                              fontSize: 'var(--text-lg)',
-                              fontWeight: 600,
-                            }}
-                          >
-                            {children}
-                          </h2>
-                        ),
-                        h3: ({ children }) => (
-                          <h3
-                            style={{
-                              margin: 'var(--space-2) 0 var(--space-1)',
-                              fontSize: '15px',
-                              fontWeight: 600,
-                            }}
-                          >
-                            {children}
-                          </h3>
-                        ),
-                        blockquote: ({ children }) => (
-                          <blockquote
-                            style={{
-                              margin: 'var(--space-3) 0',
-                              padding: 'var(--space-2) var(--space-3)',
-                              borderLeft: '4px solid var(--accent-primary)',
-                              background: 'rgba(212, 163, 115, 0.05)',
-                              borderRadius: '0 var(--radius-md) var(--radius-md) 0',
-                              fontStyle: 'italic',
-                            }}
-                          >
-                            {children}
-                          </blockquote>
-                        ),
-                        table: ({ children }) => (
-                          <div
-                            style={{
-                              overflowX: 'auto',
-                              margin: 'var(--space-3) 0',
-                              borderRadius: 'var(--radius-lg)',
-                              border: '1px solid var(--border-color)',
-                            }}
-                          >
-                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                              {children}
-                            </table>
-                          </div>
-                        ),
-                        th: ({ children }) => (
-                          <th
-                            style={{
-                              padding: 'var(--space-2)',
-                              background: 'var(--bg-elevated)',
-                              fontWeight: 700,
-                              borderBottom: '1px solid var(--border-color)',
-                              textAlign: 'left',
-                            }}
-                          >
-                            {children}
-                          </th>
-                        ),
-                        td: ({ children }) => (
-                          <td
-                            style={{
-                              padding: 'var(--space-2)',
-                              borderBottom: '1px solid var(--border-color)',
-                            }}
-                          >
-                            {children}
-                          </td>
-                        ),
-                      }}
+                      rehypePlugins={[rehypeRaw, [rehypeSanitize, customSanitizeSchema]]}
+                      components={markdownComponents}
                     >
-                      {content}
+                      {processedContent}
                     </ReactMarkdown>
-                  )}
+                  </div>
+                  
                   {knowledge_sources && knowledge_sources.length > 0 && showKnowledgeSources && (
                     <div className={styles.knowledgeWrapper}>
                       <AnimatePresence>
@@ -414,15 +476,14 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
                     />
                   </Tooltip>
                 )}
-                {onRetry && (
+                {onRetry && !isUser && (
                   <Tooltip title="重新生成">
                     <Button
                       type="text"
                       size="small"
                       icon={<ReloadOutlined />}
-                      onClick={onRetry}
+                      onClick={handleRetry}
                       className={styles.actionBtn}
-                      style={isUser ? { color: 'var(--text-tertiary)' } : undefined}
                     />
                   </Tooltip>
                 )}
@@ -432,7 +493,7 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
                       type="text"
                       size="small"
                       icon={<DeleteOutlined />}
-                      onClick={onDelete}
+                      onClick={handleDelete}
                       className={styles.actionBtn}
                       style={isUser ? { color: 'var(--text-tertiary)' } : undefined}
                       danger={!isUser}

@@ -3,26 +3,22 @@
   bottom: 0;
   left: 0;
   right: 0;
-  background: linear-gradient(
-    180deg,
-    transparent 0%,
-    var(--bg-primary) 30%,
-    var(--bg-primary) 100%
-  );
+  z-index: 100;
+  background: linear-gradient(180deg, transparent 0%, var(--bg-primary) 30%);
   pointer-events: none; /* 让上方的渐变区域不阻挡点击 */
-  padding-top: 40px;
-  z-index: 10;
+  padding: var(--space-4) 0;
 }
 
 .inputShellDesktop {
-  padding-bottom: 24px;
+  padding-bottom: var(--space-6);
 }
 
 .inputShellMobile {
-  padding-bottom: 16px;
+  padding-bottom: var(--space-4);
 }
 
 .container {
+  position: relative;
   max-width: 860px;
   margin: 0 auto;
   pointer-events: auto; /* 恢复输入框容器的点击事件 */
@@ -65,17 +61,14 @@
 }
 
 .editorCard {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border-radius: 24px;
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.06),
-    0 2px 8px rgba(0, 0, 0, 0.04);
-  transition:
-    box-shadow 0.3s ease,
-    border-color 0.3s ease;
+  background: color-mix(in srgb, var(--bg-elevated) 80%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  transition: all var(--transition-base);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
 }
 
 :global(.dark-theme) .editorCard {
@@ -103,6 +96,19 @@
   box-shadow: none !important;
   padding: 0 !important;
   color: var(--text-primary) !important;
+  outline: none !important;
+  transition: all var(--transition-fast);
+}
+
+.textarea:focus {
+  background: color-mix(in srgb, var(--accent-primary) 2%, transparent) !important;
+}
+
+.textarea:focus,
+.textarea:focus-within {
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
 }
 
 .textarea::placeholder {

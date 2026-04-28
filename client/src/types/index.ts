@@ -360,6 +360,33 @@ export interface ChatMessage {
   experiment_config?: Partial<PlaygroundExperimentConfig>;
   run_metrics?: PlaygroundRunMetrics;
   isEdited?: boolean;
+  agent_metadata?: ChatAgentMetadata;
+}
+
+export type ChatAgentMessageKind =
+  | 'agent_run_card'
+  | 'agent_step_update'
+  | 'agent_approval_request'
+  | 'agent_action_proposal'
+  | 'agent_action_execution'
+  | 'agent_final_summary'
+  | 'agent_error';
+
+export interface ChatAgentMetadata {
+  agent_run_id: string;
+  workflow_id?: string;
+  kind: ChatAgentMessageKind;
+  status: string;
+  step_id?: string;
+  action_id?: string;
+  action_type?: 'patch' | 'command' | string;
+  can_approve?: boolean;
+  can_execute?: boolean;
+  details_url?: string;
+  workflow?: unknown;
+  observability?: unknown;
+  action?: unknown;
+  event?: unknown;
 }
 
 export interface ChatSession {

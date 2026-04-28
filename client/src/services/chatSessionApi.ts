@@ -86,6 +86,9 @@ function normalizeChatMessage(message: Record<string, unknown>): ChatMessage {
     run_metrics:
       (message.run_metrics as ChatMessage['run_metrics']) ||
       (metadata.run_metrics as ChatMessage['run_metrics']),
+    agent_metadata:
+      (message.agent_metadata as ChatMessage['agent_metadata']) ||
+      (metadata.agent_metadata as ChatMessage['agent_metadata']),
     isEdited: Boolean(message.isEdited),
   };
 }
@@ -145,6 +148,18 @@ export async function getChatSession(
   );
 
   return normalizeChatSession(session, fallbackBackend);
+}
+
+export async function updateChatSessionTitle(
+  sessionId: string,
+  title: string,
+): Promise<void> {
+  await requestJson(
+    `${API_BASE_URL}/chat/sessions/${sessionId}/title?title=${encodeURIComponent(title)}`,
+    {
+      method: 'PUT',
+    },
+  );
 }
 
 export async function getChatSessionMessages(

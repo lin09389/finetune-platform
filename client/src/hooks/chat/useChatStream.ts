@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { API_BASE_URL } from '../../services/api';
 import { persistChatRunToSession } from '../../services/chatSessionApi';
+import { generateTitleCloud, generateTitleLocal } from '../../services/api';
 import { useChatStore } from '../../store/chatStore';
 import type {
   KnowledgeSource,
@@ -161,6 +162,7 @@ async function streamSse(
   let buffer = '';
   let content = '';
   let metadata: StreamMetadata = {};
+  let lastYieldTime = performance.now();
 
   while (true) {
     const { done, value } = await reader.read();
@@ -212,6 +214,14 @@ async function streamSse(
 
       content += delta;
       onDelta(delta);
+    }
+
+    // Yield to the browser's event loop if we've been processing synchronously for too long
+    // This prevents the main thread from blocking and ensures requestAnimationFrame fires
+    // for progressive rendering during high-speed local streams or coalesced network packets.
+    if (performance.now() - lastYieldTime > 16) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      lastYieldTime = performance.now();
     }
   }
 
@@ -267,6 +277,7 @@ export function useChatStream(config: StreamConfig = {}) {
       }
 
       let sessionId = store.currentSessionId;
+      const isNewSession = !sessionId || store.messages.length === 0;
       if (!sessionId) {
         const session = await store.createSession();
         sessionId = session.id;
@@ -350,6 +361,18 @@ export function useChatStream(config: StreamConfig = {}) {
       refreshStreamTimeout();
 
       let fullContent = '';
+      let flushPending = false;
+      let frameId: number | null = null;
+      let flushTimeoutId: ReturnType<typeof setTimeout> | null = null;
+      let lastFlushTime = 0;
+
+      const flushUpdate = () => {
+        const activeStore = useChatStore.getState();
+        activeStore.setStreamState({ status: 'streaming' });
+        activeStore.updateStreamingContent(fullContent);
+        flushPending = false;
+        lastFlushTime = Date.now();
+      };
 
       try {
         const result = await streamSse(
@@ -359,13 +382,29 @@ export function useChatStream(config: StreamConfig = {}) {
           (delta) => {
             fullContent += delta;
             refreshStreamTimeout();
-            const activeStore = useChatStore.getState();
-            activeStore.setStreamState({ status: 'streaming' });
-            activeStore.updateStreamingContent(fullContent);
+            
+            if (!flushPending) {
+              flushPending = true;
+              const now = Date.now();
+              const timeSinceLastFlush = now - lastFlushTime;
+              const throttleMs = 32; // Throttle to ~30fps to prevent ReactMarkdown from freezing the main thread
+              
+              if (timeSinceLastFlush >= throttleMs) {
+                frameId = requestAnimationFrame(flushUpdate);
+              } else {
+                flushTimeoutId = setTimeout(() => {
+                  frameId = requestAnimationFrame(flushUpdate);
+                }, throttleMs - timeSinceLastFlush);
+              }
+            }
+            
             config.onStatusChange?.('streaming');
             config.onChunk?.(delta, fullContent);
           },
         );
+        if (flushTimeoutId) clearTimeout(flushTimeoutId);
+        if (frameId) cancelAnimationFrame(frameId);
+        flushUpdate();
 
         const assistantMetadata = {
           knowledge_sources: result.metadata?.knowledgeSources,
@@ -407,6 +446,17 @@ export function useChatStream(config: StreamConfig = {}) {
               timestamp: persisted.assistantMessage.timestamp,
             });
             await persistedStore.loadSessions().catch(() => undefined);
+
+            if (isNewSession) {
+              const combinedContent = `用户提问: ${prompt}\n\nAI回复: ${result.content}`;
+              generateTitleLocal(
+                payload.parameterOverrides?.modelId || currentState.settings.modelId,
+                payload.parameterOverrides?.backend || currentState.settings.backend,
+                combinedContent
+              ).then(title => {
+                if (title) persistedStore.updateSessionTitle(sessionId, title);
+              }).catch(e => console.error('Failed to generate local title:', e));
+            }
           } catch (persistError) {
             const message =
               persistError instanceof Error ? persistError.message : '历史记录保存失败';
@@ -465,6 +515,7 @@ export function useChatStream(config: StreamConfig = {}) {
       if (!prompt) return undefined;
 
       let sessionId = store.currentSessionId;
+      const isNewSession = !sessionId || store.messages.length === 0;
       if (!sessionId) {
         const session = await store.createSession();
         sessionId = session.id;
@@ -547,6 +598,18 @@ export function useChatStream(config: StreamConfig = {}) {
       refreshStreamTimeout();
 
       let fullContent = '';
+      let flushPending = false;
+      let frameId: number | null = null;
+      let flushTimeoutId: ReturnType<typeof setTimeout> | null = null;
+      let lastFlushTime = 0;
+
+      const flushUpdate = () => {
+        const activeStore = useChatStore.getState();
+        activeStore.setStreamState({ status: 'streaming' });
+        activeStore.updateStreamingContent(fullContent);
+        flushPending = false;
+        lastFlushTime = Date.now();
+      };
 
       try {
         const result = await streamSse(
@@ -556,13 +619,29 @@ export function useChatStream(config: StreamConfig = {}) {
           (delta) => {
             fullContent += delta;
             refreshStreamTimeout();
-            const activeStore = useChatStore.getState();
-            activeStore.setStreamState({ status: 'streaming' });
-            activeStore.updateStreamingContent(fullContent);
+            
+            if (!flushPending) {
+              flushPending = true;
+              const now = Date.now();
+              const timeSinceLastFlush = now - lastFlushTime;
+              const throttleMs = 32; // Throttle to ~30fps to prevent ReactMarkdown from freezing the main thread
+              
+              if (timeSinceLastFlush >= throttleMs) {
+                frameId = requestAnimationFrame(flushUpdate);
+              } else {
+                flushTimeoutId = setTimeout(() => {
+                  frameId = requestAnimationFrame(flushUpdate);
+                }, throttleMs - timeSinceLastFlush);
+              }
+            }
+            
             config.onStatusChange?.('streaming');
             config.onChunk?.(delta, fullContent);
           },
         );
+        if (flushTimeoutId) clearTimeout(flushTimeoutId);
+        if (frameId) cancelAnimationFrame(frameId);
+        flushUpdate();
 
         const assistantMetadata = {
           knowledge_sources: result.metadata?.knowledgeSources,
@@ -604,6 +683,20 @@ export function useChatStream(config: StreamConfig = {}) {
               timestamp: persisted.assistantMessage.timestamp,
             });
             await persistedStore.loadSessions().catch(() => undefined);
+
+            if (isNewSession) {
+              const combinedContent = `用户提问: ${prompt}\n\nAI回复: ${result.content}`;
+              generateTitleCloud(combinedContent, {
+                provider: cloudConfig.provider,
+                model: cloudConfig.model,
+                apiKey: cloudConfig.apiKey,
+                keyId: cloudConfig.keyId,
+                groupId: cloudConfig.groupId,
+                baseUrl: cloudConfig.baseUrl,
+              }).then(title => {
+                if (title) persistedStore.updateSessionTitle(sessionId, title);
+              }).catch(e => console.error('Failed to generate cloud title:', e));
+            }
           } catch (persistError) {
             const message =
               persistError instanceof Error ? persistError.message : '历史记录保存失败';

@@ -1,39 +1,17 @@
 import {
   CheckOutlined,
   CodeOutlined,
-  CompressOutlined,
   CopyOutlined,
   FullscreenExitOutlined,
   FullscreenOutlined,
   SaveOutlined,
-  UnorderedListOutlined,
 } from '@ant-design/icons';
-import { Button, Card, message, Modal, Select, Space, Spin, Tooltip } from 'antd';
-import hljs from 'highlight.js/lib/core';
-import 'highlight.js/styles/atom-one-dark.css';
+import { Button, message, Modal, Space, Spin, Tooltip } from 'antd';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-// 注册常用语言
-import bash from 'highlight.js/lib/languages/bash';
-import javascript from 'highlight.js/lib/languages/javascript';
-import json from 'highlight.js/lib/languages/json';
-import markdown from 'highlight.js/lib/languages/markdown';
-import plaintext from 'highlight.js/lib/languages/plaintext';
-import python from 'highlight.js/lib/languages/python';
-import typescript from 'highlight.js/lib/languages/typescript';
-import xml from 'highlight.js/lib/languages/xml';
-import yaml from 'highlight.js/lib/languages/yaml';
-
-hljs.registerLanguage('javascript', javascript);
-hljs.registerLanguage('python', python);
-hljs.registerLanguage('typescript', typescript);
-hljs.registerLanguage('json', json);
-hljs.registerLanguage('xml', xml);
-hljs.registerLanguage('bash', bash);
-hljs.registerLanguage('yaml', yaml);
-hljs.registerLanguage('markdown', markdown);
-hljs.registerLanguage('plaintext', plaintext);
-hljs.registerLanguage('text', plaintext);
+// 只引入核心类型
+import type { HLJSApi } from 'highlight.js';
+import 'highlight.js/styles/github.css'; // 使用浅色主题
 
 export interface CodePreviewProps {
   /** 代码内容 */
@@ -57,31 +35,6 @@ export interface CodePreviewProps {
   /** 代码块标题 */
   title?: string;
 }
-
-const LANGUAGE_OPTIONS = [
-  { value: 'auto', label: '自动检测' },
-  { value: 'python', label: 'Python' },
-  { value: 'javascript', label: 'JavaScript' },
-  { value: 'typescript', label: 'TypeScript' },
-  { value: 'json', label: 'JSON' },
-  { value: 'xml', label: 'XML/HTML' },
-  { value: 'bash', label: 'Bash/Shell' },
-  { value: 'yaml', label: 'YAML' },
-  { value: 'markdown', label: 'Markdown' },
-  { value: 'text', label: '纯文本' },
-];
-
-const FILE_EXTENSIONS: Record<string, string> = {
-  python: '.py',
-  javascript: '.js',
-  typescript: '.ts',
-  json: '.json',
-  xml: '.xml',
-  bash: '.sh',
-  yaml: '.yaml',
-  markdown: '.md',
-  text: '.txt',
-};
 
 /**
  * 自动检测代码语言
@@ -124,13 +77,6 @@ const detectLanguage = (code: string): string => {
 };
 
 /**
- * 获取文件扩展名
- */
-const getFileExtension = (language: string): string => {
-  return FILE_EXTENSIONS[language] || '.txt';
-};
-
-/**
  * 生成行号
  */
 const generateLineNumbers = (code: string): string => {
@@ -154,7 +100,6 @@ const CodePreview: React.FC<CodePreviewProps> = ({
   code,
   language: propLanguage,
   showLineNumbers = true,
-  collapsible = true,
   showFullscreen = true,
   showSave = true,
   defaultFilename = 'code',
@@ -162,13 +107,14 @@ const CodePreview: React.FC<CodePreviewProps> = ({
   className = '',
   title,
 }) => {
-  const [selectedLanguage, setSelectedLanguage] = useState<string>('auto');
+  const [selectedLanguage] = useState<string>('auto');
   const [detectedLanguage, setDetectedLanguage] = useState<string>('text');
   const [copied, setCopied] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed] = useState(false);
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const [highlightedCode, setHighlightedCode] = useState('');
   const [isVisible, setIsVisible] = useState(false);
+  const [hljsInstance, setHljsInstance] = useState<HLJSApi | null>(null);
   const codeRef = useRef<HTMLPreElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -205,8 +151,118 @@ const CodePreview: React.FC<CodePreviewProps> = ({
     if (!isVisible) return;
 
     const lang = selectedLanguage === 'auto' ? detectedLanguage : selectedLanguage;
+
+    let isMounted = true;
+
+    const loadHighlightJs = async () => {
+      try {
+        if (!hljsInstance) {
+          // 动态引入 hljs core
+          const hljsModule = await import('highlight.js/lib/core');
+          const hljs = hljsModule.default;
+          
+          // 动态引入对应语言包
+          try {
+            let langModule;
+            switch (lang) {
+              case 'javascript':
+                langModule = await import('highlight.js/lib/languages/javascript');
+                break;
+              case 'python':
+                langModule = await import('highlight.js/lib/languages/python');
+                break;
+              case 'typescript':
+                langModule = await import('highlight.js/lib/languages/typescript');
+                break;
+              case 'json':
+                langModule = await import('highlight.js/lib/languages/json');
+                break;
+              case 'xml':
+                langModule = await import('highlight.js/lib/languages/xml');
+                break;
+              case 'bash':
+                langModule = await import('highlight.js/lib/languages/bash');
+                break;
+              case 'yaml':
+                langModule = await import('highlight.js/lib/languages/yaml');
+                break;
+              case 'markdown':
+                langModule = await import('highlight.js/lib/languages/markdown');
+                break;
+              case 'text':
+              case 'plaintext':
+              default:
+                langModule = await import('highlight.js/lib/languages/plaintext');
+                break;
+            }
+            hljs.registerLanguage(lang, langModule.default);
+          } catch (e) {
+            console.warn(`Failed to load language module for ${lang}`, e);
+          }
+          
+          if (isMounted) {
+            setHljsInstance(hljs);
+          }
+        } else {
+          // 如果实例已存在，检查语言是否已注册
+          if (!hljsInstance.getLanguage(lang)) {
+            try {
+              let langModule;
+              switch (lang) {
+                case 'javascript':
+                  langModule = await import('highlight.js/lib/languages/javascript');
+                  break;
+                case 'python':
+                  langModule = await import('highlight.js/lib/languages/python');
+                  break;
+                case 'typescript':
+                  langModule = await import('highlight.js/lib/languages/typescript');
+                  break;
+                case 'json':
+                  langModule = await import('highlight.js/lib/languages/json');
+                  break;
+                case 'xml':
+                  langModule = await import('highlight.js/lib/languages/xml');
+                  break;
+                case 'bash':
+                  langModule = await import('highlight.js/lib/languages/bash');
+                  break;
+                case 'yaml':
+                  langModule = await import('highlight.js/lib/languages/yaml');
+                  break;
+                case 'markdown':
+                  langModule = await import('highlight.js/lib/languages/markdown');
+                  break;
+                case 'text':
+                case 'plaintext':
+                default:
+                  langModule = await import('highlight.js/lib/languages/plaintext');
+                  break;
+              }
+              hljsInstance.registerLanguage(lang, langModule.default);
+            } catch (e) {
+              console.warn(`Failed to load language module for ${lang}`, e);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load highlight.js core', error);
+      }
+    };
+
+    loadHighlightJs();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isVisible, selectedLanguage, detectedLanguage, hljsInstance]);
+
+  useEffect(() => {
+    if (!isVisible || !hljsInstance) return;
+
+    const lang = selectedLanguage === 'auto' ? detectedLanguage : selectedLanguage;
     try {
-      const result = hljs.highlight(code, {
+      const result = hljsInstance.highlight(code, {
         language: lang,
         ignoreIllegals: true,
       });
@@ -214,7 +270,7 @@ const CodePreview: React.FC<CodePreviewProps> = ({
     } catch {
       setHighlightedCode(code);
     }
-  }, [code, selectedLanguage, detectedLanguage, isVisible]);
+  }, [code, selectedLanguage, detectedLanguage, isVisible, hljsInstance]);
 
   const handleCopy = useCallback(async () => {
     try {
@@ -228,30 +284,17 @@ const CodePreview: React.FC<CodePreviewProps> = ({
   }, [code]);
 
   const handleSave = useCallback(() => {
-    try {
-      const lang = selectedLanguage === 'auto' ? detectedLanguage : selectedLanguage;
-      const ext = getFileExtension(lang);
-      const filename = defaultFilename + ext;
-
-      const blob = new Blob([code], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
-      message.success(`已保存为 ${filename}`);
-    } catch {
-      message.error('保存失败');
-    }
-  }, [code, selectedLanguage, detectedLanguage, defaultFilename]);
-
-  const handleToggleCollapse = useCallback(() => {
-    setCollapsed(!collapsed);
-  }, [collapsed]);
+    const blob = new Blob([code], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${defaultFilename}.${detectedLanguage === 'text' ? 'txt' : detectedLanguage}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    message.success('代码已保存');
+  }, [code, defaultFilename, detectedLanguage]);
 
   const currentLanguage = selectedLanguage === 'auto' ? detectedLanguage : selectedLanguage;
 
@@ -266,13 +309,13 @@ const CodePreview: React.FC<CodePreviewProps> = ({
         alignItems: 'center',
         justifyContent: 'center',
         minHeight: 80,
-        background: '#1e293b',
+        background: '#f4f4f5',
         borderRadius: 8,
         gap: 8,
       }}
     >
-      <CodeOutlined style={{ fontSize: 20, color: '#64748b' }} />
-      <span style={{ color: '#64748b', fontSize: 13 }}>
+      <CodeOutlined style={{ fontSize: 20, color: '#999' }} />
+      <span style={{ color: '#999', fontSize: 13 }}>
         {lineCount} 行代码 · {currentLanguage}
       </span>
     </div>
@@ -285,7 +328,7 @@ const CodePreview: React.FC<CodePreviewProps> = ({
         alignItems: 'center',
         justifyContent: 'center',
         minHeight: 80,
-        background: '#1e293b',
+        background: '#f4f4f5',
         borderRadius: 8,
       }}
     >
@@ -295,70 +338,73 @@ const CodePreview: React.FC<CodePreviewProps> = ({
 
   return (
     <>
-      <Card
+      <div
         ref={containerRef as any}
         className={`code-preview ${className}`}
-        title={title}
-        size="small"
         style={{
           borderRadius: 12,
           overflow: 'hidden',
+          background: '#f4f4f5',
+          margin: '12px 0',
         }}
-        styles={{
-          body: { padding: 0 },
-        }}
-        extra={
-          <Space size="small">
-            <Select
-              value={selectedLanguage}
-              onChange={setSelectedLanguage}
-              options={LANGUAGE_OPTIONS}
-              size="small"
-              style={{ width: 110 }}
-              placeholder="选择语言"
-            />
-
-            <Tooltip title={copied ? '已复制' : '复制代码'}>
-              <Button
-                type="text"
-                size="small"
-                icon={
-                  copied ? <CheckOutlined style={{ color: 'var(--success)' }} /> : <CopyOutlined />
-                }
-                onClick={handleCopy}
-              />
-            </Tooltip>
-
-            {showSave && (
-              <Tooltip title="保存为文件">
-                <Button type="text" size="small" icon={<SaveOutlined />} onClick={handleSave} />
-              </Tooltip>
-            )}
-
-            {collapsible && (
-              <Tooltip title={collapsed ? '展开' : '折叠'}>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={collapsed ? <CompressOutlined /> : <UnorderedListOutlined />}
-                  onClick={handleToggleCollapse}
-                />
-              </Tooltip>
-            )}
-
-            {showFullscreen && (
-              <Tooltip title="全屏预览">
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<FullscreenOutlined />}
-                  onClick={() => setFullscreenOpen(true)}
-                />
-              </Tooltip>
-            )}
-          </Space>
-        }
       >
+        {!collapsed && (
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '6px 16px',
+              background: '#ececec',
+              color: '#666',
+              fontSize: 12,
+              fontFamily: 'var(--font-mono)',
+              borderBottom: '1px solid #e5e5e5',
+            }}
+          >
+            <Space>
+              <CodeOutlined style={{ color: '#999' }} />
+              <span style={{ fontWeight: 600 }}>{title || currentLanguage}</span>
+            </Space>
+            
+            <Space size={4}>
+              {showSave && (
+                <Tooltip title="下载代码">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<SaveOutlined />}
+                    onClick={handleSave}
+                    style={{ color: '#666', fontSize: 13, display: 'flex', alignItems: 'center' }}
+                  />
+                </Tooltip>
+              )}
+              {showFullscreen && (
+                <Tooltip title="全屏查看">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<FullscreenOutlined />}
+                    onClick={() => setFullscreenOpen(true)}
+                    style={{ color: '#666', fontSize: 13, display: 'flex', alignItems: 'center' }}
+                  />
+                </Tooltip>
+              )}
+              <Tooltip title={copied ? '已复制' : '复制代码'}>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={copied ? <CheckOutlined style={{ color: 'var(--success)' }} /> : <CopyOutlined />}
+                  onClick={handleCopy}
+                  style={{ color: copied ? 'var(--success)' : '#666', fontSize: 13, display: 'flex', alignItems: 'center' }}
+                >
+                  {copied ? '已复制' : '复制'}
+                </Button>
+              </Tooltip>
+            </Space>
+          </div>
+        )}
+
         {!collapsed &&
           (!isVisible ? (
             renderPlaceholder()
@@ -369,26 +415,26 @@ const CodePreview: React.FC<CodePreviewProps> = ({
                 display: 'flex',
                 maxHeight,
                 overflow: 'auto',
-                background: '#1e293b',
-                borderRadius: 8,
+                background: '#f4f4f5',
                 opacity: 1,
                 transform: 'translateY(0)',
                 transition: 'opacity 0.3s ease, transform 0.3s ease',
+                paddingTop: 12,
               }}
             >
               {showLineNumbers && (
                 <div
                   className="code-line-numbers"
                   style={{
-                    padding: '16px 8px',
+                    padding: '0 8px 16px 16px',
                     textAlign: 'right',
-                    background: '#0f172a',
-                    color: '#64748b',
+                    background: '#f4f4f5',
+                    color: '#999',
                     fontFamily: 'var(--font-mono)',
                     fontSize: 13,
                     lineHeight: 1.6,
                     userSelect: 'none',
-                    borderRight: '1px solid #334155',
+                    borderRight: '1px solid #e5e5e5',
                     minWidth: 50,
                   }}
                 >
@@ -400,7 +446,7 @@ const CodePreview: React.FC<CodePreviewProps> = ({
                 style={{
                   flex: 1,
                   overflow: 'auto',
-                  padding: 16,
+                  padding: '0 16px 16px 16px',
                 }}
               >
                 <pre
@@ -412,7 +458,7 @@ const CodePreview: React.FC<CodePreviewProps> = ({
                     fontSize: 13,
                     lineHeight: 1.6,
                     fontFamily: 'var(--font-mono)',
-                    color: '#e2e8f0',
+                    color: '#24292e',
                   }}
                   dangerouslySetInnerHTML={{ __html: highlightedCode }}
                 />
@@ -421,24 +467,7 @@ const CodePreview: React.FC<CodePreviewProps> = ({
           ) : (
             renderLoading()
           ))}
-
-        {!collapsed && (
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              padding: '8px 12px',
-              background: 'var(--bg-secondary)',
-              borderTop: '1px solid var(--border-color)',
-              fontSize: 12,
-              color: 'var(--text-tertiary)',
-            }}
-          >
-            <span>{lineCount} 行</span>
-            <span>{currentLanguage}</span>
-          </div>
-        )}
-      </Card>
+      </div>
 
       <Modal
         open={fullscreenOpen}
@@ -449,16 +478,16 @@ const CodePreview: React.FC<CodePreviewProps> = ({
         styles={{
           body: {
             padding: 0,
-            background: '#1e293b',
+            background: '#f4f4f5',
             borderRadius: 12,
             overflow: 'hidden',
           },
         }}
         title={
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: '#e2e8f0' }}>{title || defaultFilename}</span>
+            <span style={{ color: '#24292e' }}>{title || defaultFilename}</span>
             <Space>
-              <span style={{ color: '#64748b', fontSize: 12 }}>
+              <span style={{ color: '#666', fontSize: 12 }}>
                 {currentLanguage} · {lineCount} 行
               </span>
               <Button
@@ -466,7 +495,7 @@ const CodePreview: React.FC<CodePreviewProps> = ({
                 size="small"
                 icon={<FullscreenExitOutlined />}
                 onClick={() => setFullscreenOpen(false)}
-                style={{ color: '#94a3b8' }}
+                style={{ color: '#666' }}
               />
             </Space>
           </div>
@@ -477,22 +506,22 @@ const CodePreview: React.FC<CodePreviewProps> = ({
             display: 'flex',
             maxHeight: '70vh',
             overflow: 'auto',
-            background: '#1e293b',
+            background: '#f4f4f5',
           }}
         >
           {showLineNumbers && (
             <div
               className="code-line-numbers"
               style={{
-                padding: '16px 8px',
+                padding: '0 8px 16px 16px',
                 textAlign: 'right',
-                background: '#0f172a',
-                color: '#64748b',
+                background: '#f4f4f5',
+                color: '#999',
                 fontFamily: 'var(--font-mono)',
                 fontSize: 13,
                 lineHeight: 1.6,
                 userSelect: 'none',
-                borderRight: '1px solid #334155',
+                borderRight: '1px solid #e5e5e5',
                 minWidth: 50,
               }}
             >
@@ -503,7 +532,7 @@ const CodePreview: React.FC<CodePreviewProps> = ({
             style={{
               flex: 1,
               overflow: 'auto',
-              padding: 16,
+              padding: '0 16px 16px 16px',
             }}
           >
             <pre
@@ -514,7 +543,7 @@ const CodePreview: React.FC<CodePreviewProps> = ({
                 fontSize: 14,
                 lineHeight: 1.6,
                 fontFamily: 'var(--font-mono)',
-                color: '#e2e8f0',
+                color: '#24292e',
               }}
               dangerouslySetInnerHTML={{ __html: highlightedCode }}
             />
@@ -523,35 +552,46 @@ const CodePreview: React.FC<CodePreviewProps> = ({
       </Modal>
 
       <style>{`
+        .code-preview {
+          border: 1px solid #e5e5e5;
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+          transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        
+        .code-preview:hover {
+          border-color: #d9d9d9;
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+        }
+
         .code-preview-container::-webkit-scrollbar {
-          width: 10px;
-          height: 10px;
+          width: 8px;
+          height: 8px;
         }
 
         .code-preview-container::-webkit-scrollbar-track {
-          background: #0f172a;
+          background: transparent;
         }
 
         .code-preview-container::-webkit-scrollbar-thumb {
-          background: #475569;
-          border-radius: 5px;
+          background: #d9d9d9;
+          border-radius: 4px;
         }
 
         .code-preview-container::-webkit-scrollbar-thumb:hover {
-          background: #64748b;
+          background: #bfbfbf;
         }
 
         .code-line-numbers pre {
           font-family: var(--font-mono);
         }
 
-        /* 深色模式适配 */
+        /* 深色模式适配保留原色或使用稍暗一点的浅色 */
         .dark-theme .code-preview-container {
-          background: #1e293b;
+          background: #f4f4f5;
         }
 
         .dark-theme .code-line-numbers {
-          background: #0f172a;
+          background: #f4f4f5;
         }
       `}</style>
     </>

@@ -1,5 +1,5 @@
 import { App as AntApp, ConfigProvider, Layout, theme as antdTheme } from 'antd';
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
@@ -9,10 +9,12 @@ import HeaderBar from './components/HeaderBar';
 import MobileNav, { MobileBottomNav } from './components/MobileNav';
 import PageSkeleton from './components/shared/PageSkeleton';
 import Sidebar from './components/Sidebar';
+import { PageTransition } from './components/motion';
 import { useResponsive } from './hooks/useResponsive';
 import { RuntimeContextProvider } from './runtime/RuntimeContext';
-import { API_BASE_URL, checkBackendHealth } from './services/api';
+import { API_BASE_URL, checkBackendHealth, startHealthCheck } from './services/api';
 import { useAppStore } from './store/appStore';
+import { useShallow } from 'zustand/react/shallow';
 import { ThemeProvider, useTheme } from './theme';
 import ContextualToolbar from './components/shared/ContextualToolbar';
 
@@ -46,35 +48,11 @@ const SharedChat = lazy(() => import('./pages/SharedChat'));
 const FeedbackPanel = lazy(() => import('./components/FeedbackPanel'));
 const HelpPanel = lazy(() => import('./components/HelpPanel'));
 
-const pageVariants = {
-  initial: { opacity: 0, y: 16 },
-  animate: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -12 },
-};
-
-const pageTransition = {
-  duration: 0.3,
-  ease: [0.16, 1, 0.3, 1] as const,
-};
-
-function PageWrapper({ children }: { children: React.ReactNode }) {
-  const shouldReduceMotion = useReducedMotion();
-
-  if (shouldReduceMotion) {
-    return <div style={{ height: '100%' }}>{children}</div>;
-  }
-
+function PageWrapper({ children, locationKey }: { children: React.ReactNode; locationKey: string }) {
   return (
-    <motion.div
-      initial="initial"
-      animate="animate"
-      exit="exit"
-      variants={pageVariants}
-      transition={pageTransition}
-      style={{ height: '100%' }}
-    >
+    <PageTransition locationKey={locationKey} style={{ height: '100%' }}>
       {children}
-    </motion.div>
+    </PageTransition>
   );
 }
 
@@ -176,7 +154,11 @@ const routes = [
 function AppContent() {
   const { message } = AntApp.useApp();
   const location = useLocation();
-  const { setBackendUrl, setBackendStatus, sidebarCollapsed } = useAppStore();
+  const { setBackendUrl, setBackendStatus, sidebarCollapsed } = useAppStore(useShallow(state => ({
+    setBackendUrl: state.setBackendUrl,
+    setBackendStatus: state.setBackendStatus,
+    sidebarCollapsed: state.sidebarCollapsed
+  })));
   const { theme } = useTheme();
   const { isMobile, isTablet } = useResponsive();
   const useCompactNav = isMobile || isTablet;
@@ -219,16 +201,14 @@ function AppContent() {
 
     void initApp();
 
-    const checkInterval = setInterval(async () => {
-      try {
-        const isHealthy = await checkBackendHealth();
-        applyBackendStatus(isHealthy);
-      } catch {
-        applyBackendStatus(false);
-      }
-    }, 5000);
+    // 启用混合健康状态监听（首选 WS，降级 HTTP 轮询）
+    const cleanupHealthCheck = startHealthCheck((isHealthy) => {
+      applyBackendStatus(isHealthy);
+    });
 
-    return () => clearInterval(checkInterval);
+    return () => {
+      cleanupHealthCheck();
+    };
   }, [message, setBackendStatus, setBackendUrl]);
 
   if (loading) {
@@ -335,7 +315,7 @@ function AppContent() {
                       key={path}
                       path={path}
                       element={
-                        <PageWrapper>
+                        <PageWrapper locationKey={location.pathname}>
                           <Suspense fallback={<PageLoader />}>{element}</Suspense>
                         </PageWrapper>
                       }
