@@ -44,6 +44,8 @@ class WorkflowRuntimeRepository:
         with get_db_pool(self.db_path).get_connection() as conn:
             conn.executescript((migrations_dir / "003_workflow_runtime.sql").read_text(encoding="utf-8"))
             conn.executescript((migrations_dir / "004_workflow_context_memory.sql").read_text(encoding="utf-8"))
+            conn.executescript((migrations_dir / "005_workflow_observability_actions.sql").read_text(encoding="utf-8"))
+            conn.executescript((migrations_dir / "006_chat_agent_runs.sql").read_text(encoding="utf-8"))
 
     def seed_builtin_templates(self) -> None:
         if self.get_template(SOFTWARE_DELIVERY_TEMPLATE.id):
@@ -630,6 +632,162 @@ class WorkflowRuntimeRepository:
         self.add_event(workflow_id, None, event_type, actor, message, payload)
         return {"id": event_id, "workflow_id": workflow_id, "memory_id": memory_id, "created_at": now}
 
+    def add_step_log(
+        self,
+        workflow_id: str,
+        step_id: str | None,
+        step_key: str | None,
+        agent_id: str | None,
+        status: str,
+        provider: str | None = None,
+        model: str | None = None,
+        input_summary: str = "",
+        output_summary: str = "",
+        error: str | None = None,
+        started_at: str | None = None,
+        completed_at: str | None = None,
+        duration_ms: int | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        log_id = f"wfsl_{uuid.uuid4().hex[:8]}"
+        now = _now()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO workflow_step_logs
+                    (id, workflow_id, step_id, step_key, agent_id, status, provider, model,
+                     input_summary, output_summary, error, started_at, completed_at,
+                     duration_ms, metadata, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    log_id,
+                    workflow_id,
+                    step_id,
+                    step_key,
+                    agent_id,
+                    status,
+                    provider,
+                    model,
+                    input_summary,
+                    output_summary,
+                    error,
+                    started_at,
+                    completed_at,
+                    duration_ms,
+                    _json(metadata or {}),
+                    now,
+                ),
+            )
+        return {
+            "id": log_id,
+            "workflow_id": workflow_id,
+            "step_id": step_id,
+            "step_key": step_key,
+            "agent_id": agent_id,
+            "status": status,
+            "created_at": now,
+        }
+
+    def list_step_logs(self, workflow_id: str) -> list[dict[str, Any]]:
+        with get_db_pool(self.db_path).get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM workflow_step_logs WHERE workflow_id = ? ORDER BY created_at ASC",
+                (workflow_id,),
+            ).fetchall()
+        return [self._step_log_from_row(row) for row in rows]
+
+    def add_action_proposal(
+        self,
+        workflow_id: str,
+        step_id: str | None,
+        action_type: str,
+        title: str,
+        description: str = "",
+        payload: dict[str, Any] | None = None,
+        created_by: str = "agent",
+    ) -> dict[str, Any]:
+        action_id = f"wfac_{uuid.uuid4().hex[:8]}"
+        now = _now()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO workflow_action_proposals
+                    (id, workflow_id, step_id, action_type, title, description, payload,
+                     status, created_by, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?, ?, ?)
+                """,
+                (action_id, workflow_id, step_id, action_type, title, description, _json(payload or {}), created_by, now, now),
+            )
+        self.add_event(workflow_id, step_id, "action_proposed", created_by, f"动作建议已生成：{title}", {"action_id": action_id, "action_type": action_type})
+        return self.get_action_proposal(action_id) or {}
+
+    def get_action_proposal(self, action_id: str) -> dict[str, Any] | None:
+        with get_db_pool(self.db_path).get_connection() as conn:
+            row = conn.execute("SELECT * FROM workflow_action_proposals WHERE id = ?", (action_id,)).fetchone()
+        return self._action_from_row(row) if row else None
+
+    def list_action_proposals(self, workflow_id: str) -> list[dict[str, Any]]:
+        with get_db_pool(self.db_path).get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM workflow_action_proposals WHERE workflow_id = ? ORDER BY created_at ASC",
+                (workflow_id,),
+            ).fetchall()
+        return [self._action_from_row(row) for row in rows]
+
+    def update_action_status(self, action_id: str, status: str, **fields: Any) -> dict[str, Any]:
+        fields["status"] = status
+        fields["updated_at"] = _now()
+        assignments = ", ".join(f"{key} = ?" for key in fields)
+        values = list(fields.values()) + [action_id]
+        with get_db_pool(self.db_path).get_connection() as conn:
+            conn.execute(f"UPDATE workflow_action_proposals SET {assignments} WHERE id = ?", values)
+        return self.get_action_proposal(action_id) or {}
+
+    def add_action_execution(
+        self,
+        action_id: str,
+        workflow_id: str,
+        status: str,
+        stdout: str = "",
+        stderr: str = "",
+        exit_code: int | None = None,
+        duration_ms: int | None = None,
+        error: str | None = None,
+    ) -> dict[str, Any]:
+        execution_id = f"wfae_{uuid.uuid4().hex[:8]}"
+        now = _now()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO workflow_action_executions
+                    (id, action_id, workflow_id, status, stdout, stderr, exit_code,
+                     duration_ms, error, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (execution_id, action_id, workflow_id, status, stdout, stderr, exit_code, duration_ms, error, now),
+            )
+        return {
+            "id": execution_id,
+            "action_id": action_id,
+            "workflow_id": workflow_id,
+            "status": status,
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": exit_code,
+            "duration_ms": duration_ms,
+            "error": error,
+            "created_at": now,
+        }
+
+    def list_action_executions(self, action_id: str) -> list[dict[str, Any]]:
+        with get_db_pool(self.db_path).get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM workflow_action_executions WHERE action_id = ? ORDER BY created_at ASC",
+                (action_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def _definition_from_template_payload(self, template_id: str, payload: dict[str, Any], is_builtin: bool) -> WorkflowDefinition:
         legacy_role_map = self._legacy_role_map(template_id)
         return WorkflowDefinition(
@@ -747,6 +905,17 @@ class WorkflowRuntimeRepository:
     def _memory_entry_from_row(self, row: Any) -> dict[str, Any]:
         data = dict(row)
         data["memory_value"] = _load(data.get("memory_value"))
+        return data
+
+    def _step_log_from_row(self, row: Any) -> dict[str, Any]:
+        data = dict(row)
+        data["metadata"] = _load(data.get("metadata"))
+        return data
+
+    def _action_from_row(self, row: Any) -> dict[str, Any]:
+        data = dict(row)
+        data["payload"] = _load(data.get("payload"))
+        data["executions"] = self.list_action_executions(data["id"])
         return data
 
     def _legacy_role_map(self, template_id: str) -> dict[str, str]:

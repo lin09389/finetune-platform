@@ -13,6 +13,32 @@ from security.encryption import secure_storage
 from .definitions import RuntimeExecutionContext
 
 
+ACTION_ARTIFACT_GUIDE = {
+    "patch": {
+        "type": "patch",
+        "title": "写入安全补丁",
+        "description": "说明补丁用途。只能建议写入 project_path 内的相对路径。",
+        "payload": {
+            "files": [
+                {
+                    "path": "tmp/workflow-smoke.txt",
+                    "content": "workflow action executed",
+                }
+            ]
+        },
+    },
+    "command": {
+        "type": "command",
+        "title": "运行类型检查",
+        "description": "验证建议补丁或项目状态。",
+        "payload": {
+            "command": ["npm", "run", "typecheck"],
+            "timeout_seconds": 120,
+        },
+    },
+}
+
+
 def resolve_saved_provider(provider_name: str, key_data: dict[str, Any]):
     group_id = key_data.get("group_id", "")
     base_url = key_data.get("base_url", "")
@@ -99,13 +125,24 @@ class AgentRuntimeRunner:
                     "summary": "string",
                     "tasks": "array",
                     "risks": "array",
-                    "artifacts": "array",
+                    "artifacts": [
+                        "普通产物对象",
+                        ACTION_ARTIFACT_GUIDE["patch"],
+                        ACTION_ARTIFACT_GUIDE["command"],
+                    ],
                     "next_action": "string",
                     "requires_approval": "boolean",
                 },
+                "action_artifact_policy": {
+                    "planner": "只输出计划、验收标准和风险，不输出 patch 或 command action。",
+                    "implementer": "如果目标涉及代码或文件变更，优先输出 patch action；如果需要验证，输出 command action。",
+                    "reviewer": "可以输出 command action 用于建议测试或检查，不输出 patch action。",
+                    "safety": "所有 action 只是建议，系统会等待用户审批后才执行。不要建议删除文件、不要建议 workspace 外路径、不要建议非白名单命令。",
+                },
             }
+            role_instruction = self._action_role_instruction(agent_id)
             return [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": f"{system_prompt}\n\n{role_instruction}"},
                 {
                     "role": "user",
                     "content": (
@@ -126,3 +163,24 @@ class AgentRuntimeRunner:
         if agent_id == "reviewer":
             return reviewer_prompt(context.goal, step_input.get("developer_output", {}))
         raise RuntimeError(f"Unknown agent id: {agent_id}")
+
+    def _action_role_instruction(self, agent_id: str) -> str:
+        if agent_id == "planner":
+            return (
+                "动作协议：你是规划阶段，不要输出 type=patch 或 type=command 的 artifacts。"
+                "请只输出任务拆解、验收标准、风险和下一步审批建议。"
+            )
+        if agent_id == "implementer":
+            return (
+                "动作协议：如果用户目标需要改文件，请在 artifacts 中输出 type=patch。"
+                "patch payload.files 必须是数组，每项包含 path 和 content，path 必须是 project_path 内相对路径。"
+                "如果需要验证，请额外输出 type=command，command 必须使用数组形式，例如 [\"npm\",\"run\",\"typecheck\"]、"
+                "[\"npm\",\"test\"]、[\"python\",\"-m\",\"pytest\"] 或 [\"python\",\"-m\",\"py_compile\"]。"
+                "不要输出 Markdown，严格输出 JSON。"
+            )
+        if agent_id == "reviewer":
+            return (
+                "动作协议：你可以在 artifacts 中输出 type=command 作为审查或测试建议，"
+                "但不要输出 type=patch。不要建议非白名单命令。严格输出 JSON。"
+            )
+        return "动作协议：仅当当前 Agent 职责明确需要时才输出 patch 或 command action；否则输出普通 artifacts。"

@@ -15,19 +15,29 @@ SOFTWARE_DELIVERY_TEMPLATE = WorkflowDefinition(
             id="planner",
             name="Planner",
             description="拆解需求、定义验收标准",
-            system_prompt="你是 Planner Agent，负责拆解用户目标、给出任务列表、验收标准和下一步审批建议。",
+            system_prompt=(
+                "你是 Planner Agent，负责拆解用户目标、给出任务列表、验收标准和下一步审批建议。"
+                "你只做规划，不输出 type=patch 或 type=command 的 artifacts。"
+            ),
         ),
         AgentDefinition(
             id="implementer",
             name="Implementer",
             description="给出实现方案和补丁建议",
-            system_prompt="你是 Implementer Agent，负责基于计划生成实现方案、影响文件、补丁建议和测试建议。",
+            system_prompt=(
+                "你是 Implementer Agent，负责基于计划生成实现方案、影响文件、补丁建议和测试建议。"
+                "如果目标需要改文件，必须优先在 artifacts 中输出 type=patch 的 action artifact；"
+                "如果需要验证，输出 type=command 的 action artifact。所有 action 只是建议，用户审批后才会执行。"
+            ),
         ),
         AgentDefinition(
             id="reviewer",
             name="Reviewer",
             description="审查风险、遗漏和测试缺口",
-            system_prompt="你是 Reviewer Agent，负责审查实现建议，指出风险、遗漏、测试缺口和是否可交付。",
+            system_prompt=(
+                "你是 Reviewer Agent，负责审查实现建议，指出风险、遗漏、测试缺口和是否可交付。"
+                "你可以输出 type=command 的 action artifact 用于建议测试或检查，但不要输出 type=patch。"
+            ),
         ),
         AgentDefinition(
             id="memory_curator",

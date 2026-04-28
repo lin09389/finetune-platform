@@ -172,6 +172,65 @@ class WorkflowMemoryEntryResponse(BaseModel):
     reverted_at: str | None = None
 
 
+class WorkflowStepLogResponse(BaseModel):
+    id: str
+    workflow_id: str
+    step_id: str | None = None
+    step_key: str | None = None
+    agent_id: str | None = None
+    status: str
+    provider: str | None = None
+    model: str | None = None
+    input_summary: str = ""
+    output_summary: str = ""
+    error: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    duration_ms: int | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+
+
+class WorkflowActionExecutionResponse(BaseModel):
+    id: str
+    action_id: str
+    workflow_id: str
+    status: str
+    stdout: str = ""
+    stderr: str = ""
+    exit_code: int | None = None
+    duration_ms: int | None = None
+    error: str | None = None
+    created_at: str
+
+
+class WorkflowActionResponse(BaseModel):
+    id: str
+    workflow_id: str
+    step_id: str | None = None
+    action_type: str
+    title: str
+    description: str = ""
+    payload: dict[str, Any] = Field(default_factory=dict)
+    status: str
+    created_by: str = "agent"
+    approved_at: str | None = None
+    rejected_at: str | None = None
+    executed_at: str | None = None
+    created_at: str
+    updated_at: str
+    executions: list[WorkflowActionExecutionResponse] = Field(default_factory=list)
+
+
+class WorkflowObservabilityResponse(BaseModel):
+    workflow_id: str
+    status: str
+    current_stage: str | None = None
+    step_logs: list[WorkflowStepLogResponse] = Field(default_factory=list)
+    actions: list[WorkflowActionResponse] = Field(default_factory=list)
+    recent_events: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class WorkflowStepResponse(BaseModel):
     id: str
     step_id: str

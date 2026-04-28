@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 
 from agent_runtime.models import (
     WorkflowApprovalRequest,
+    WorkflowActionResponse,
     WorkflowContextProfile,
     WorkflowContextProfileUpdate,
     WorkflowContextSnapshotResponse,
     WorkflowCreate,
     WorkflowMemoryEntryResponse,
+    WorkflowObservabilityResponse,
     WorkflowResponse,
+    WorkflowStepLogResponse,
     WorkflowTemplateCreate,
     WorkflowTemplateResponse,
     WorkflowTemplateUpdate,
@@ -128,6 +135,74 @@ async def get_workflow_artifacts(
     service: AgentRuntimeService = Depends(get_agent_runtime_service),
 ):
     return {"artifacts": service.list_artifacts(workflow_id)}
+
+
+@router.get("/workflows/{workflow_id}/observability", response_model=WorkflowObservabilityResponse)
+async def get_workflow_observability(
+    workflow_id: str,
+    service: AgentRuntimeService = Depends(get_agent_runtime_service),
+):
+    return service.get_observability(workflow_id)
+
+
+@router.get("/workflows/{workflow_id}/step-logs", response_model=list[WorkflowStepLogResponse])
+async def get_workflow_step_logs(
+    workflow_id: str,
+    service: AgentRuntimeService = Depends(get_agent_runtime_service),
+):
+    return service.list_step_logs(workflow_id)
+
+
+@router.get("/workflows/{workflow_id}/actions", response_model=list[WorkflowActionResponse])
+async def get_workflow_actions(
+    workflow_id: str,
+    service: AgentRuntimeService = Depends(get_agent_runtime_service),
+):
+    return service.list_actions(workflow_id)
+
+
+@router.post("/workflow-actions/{action_id}/approve", response_model=WorkflowActionResponse)
+async def approve_workflow_action(
+    action_id: str,
+    service: AgentRuntimeService = Depends(get_agent_runtime_service),
+):
+    return service.approve_action(action_id)
+
+
+@router.post("/workflow-actions/{action_id}/reject", response_model=WorkflowActionResponse)
+async def reject_workflow_action(
+    action_id: str,
+    service: AgentRuntimeService = Depends(get_agent_runtime_service),
+):
+    return service.reject_action(action_id)
+
+
+@router.post("/workflow-actions/{action_id}/execute", response_model=WorkflowActionResponse)
+async def execute_workflow_action(
+    action_id: str,
+    service: AgentRuntimeService = Depends(get_agent_runtime_service),
+):
+    return service.execute_action(action_id)
+
+
+@router.get("/workflows/{workflow_id}/events/stream")
+async def stream_workflow_events(
+    workflow_id: str,
+    service: AgentRuntimeService = Depends(get_agent_runtime_service),
+):
+    async def event_stream():
+        seen: set[str] = set()
+        for _ in range(30):
+            events = service.list_timeline(workflow_id)
+            for event in events:
+                event_id = event.get("id")
+                if event_id in seen:
+                    continue
+                seen.add(event_id)
+                yield f"event: workflow_event\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+            await asyncio.sleep(1)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.get("/workflows/{workflow_id}/context", response_model=WorkflowContextProfile)

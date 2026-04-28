@@ -11,6 +11,7 @@ from fastapi import HTTPException
 
 from core.config import settings
 
+from .actions import WorkflowActionService
 from .adapters import workflow_from_project
 from .context_builder import WorkflowContextBuilder
 from .definitions import WorkflowDefinition, WorkflowView
@@ -20,7 +21,10 @@ from .models import (
     WorkflowContextProfile,
     WorkflowContextProfileUpdate,
     WorkflowContextSnapshotResponse,
+    WorkflowActionResponse,
     WorkflowMemoryEntryResponse,
+    WorkflowObservabilityResponse,
+    WorkflowStepLogResponse,
     WorkflowAgentResponse,
     WorkflowCreate,
     WorkflowResponse,
@@ -48,7 +52,14 @@ class AgentRuntimeService:
         self.runner = runner or AgentRuntimeRunner()
         self.context_builder = WorkflowContextBuilder(self.repository)
         self.memory_curator = WorkflowMemoryCurator(self.repository)
-        self.engine = AgentRuntimeEngine(self.repository, self.runner, self.context_builder, self.memory_curator)
+        self.action_service = WorkflowActionService(self.repository)
+        self.engine = AgentRuntimeEngine(
+            self.repository,
+            self.runner,
+            self.context_builder,
+            self.memory_curator,
+            self.action_service,
+        )
 
     def list_templates(self) -> list[WorkflowTemplateResponse]:
         return [self._template_response(template) for template in self.repository.list_templates()]
@@ -136,6 +147,35 @@ class AgentRuntimeService:
     def list_artifacts(self, workflow_id: str) -> list[dict[str, Any]]:
         self._get_project(workflow_id)
         return self.repository.list_artifacts(workflow_id)
+
+    def get_observability(self, workflow_id: str) -> WorkflowObservabilityResponse:
+        project = self._get_project(workflow_id)
+        events = self.repository.list_events(workflow_id)
+        return WorkflowObservabilityResponse(
+            workflow_id=workflow_id,
+            status=project["status"],
+            current_stage=project.get("current_stage"),
+            step_logs=self.list_step_logs(workflow_id),
+            actions=self.list_actions(workflow_id),
+            recent_events=events[-20:],
+        )
+
+    def list_step_logs(self, workflow_id: str) -> list[WorkflowStepLogResponse]:
+        self._get_project(workflow_id)
+        return [WorkflowStepLogResponse(**item) for item in self.repository.list_step_logs(workflow_id)]
+
+    def list_actions(self, workflow_id: str) -> list[WorkflowActionResponse]:
+        self._get_project(workflow_id)
+        return [WorkflowActionResponse(**item) for item in self.repository.list_action_proposals(workflow_id)]
+
+    def approve_action(self, action_id: str) -> WorkflowActionResponse:
+        return WorkflowActionResponse(**self.action_service.approve(action_id))
+
+    def reject_action(self, action_id: str) -> WorkflowActionResponse:
+        return WorkflowActionResponse(**self.action_service.reject(action_id))
+
+    def execute_action(self, action_id: str) -> WorkflowActionResponse:
+        return WorkflowActionResponse(**self.action_service.execute(action_id))
 
     def get_context_profile(self, workflow_id: str) -> WorkflowContextProfile:
         self._get_project(workflow_id)

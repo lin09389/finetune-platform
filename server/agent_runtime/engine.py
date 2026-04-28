@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from time import perf_counter
 from typing import Any
 
 from fastapi import HTTPException
@@ -18,11 +19,19 @@ logger = logging.getLogger(__name__)
 
 
 class AgentRuntimeEngine:
-    def __init__(self, repository: DigitalTeamRepository, runner: Any, context_builder: Any | None = None, memory_curator: Any | None = None):
+    def __init__(
+        self,
+        repository: DigitalTeamRepository,
+        runner: Any,
+        context_builder: Any | None = None,
+        memory_curator: Any | None = None,
+        action_service: Any | None = None,
+    ):
         self.repository = repository
         self.runner = runner
         self.context_builder = context_builder
         self.memory_curator = memory_curator
+        self.action_service = action_service
 
     def get_workflow(self, template_id: str) -> WorkflowDefinition:
         if hasattr(self.repository, "get_template"):
@@ -174,6 +183,20 @@ class AgentRuntimeEngine:
                     requires_approval=step.requires_approval,
                 )
         self.repository.update_project(project["id"], status="running", current_stage=step.key)
+        started_at = datetime.now().isoformat()
+        start_time = perf_counter()
+        if hasattr(self.repository, "add_step_log"):
+            self.repository.add_step_log(
+                project["id"],
+                task["id"],
+                step.key,
+                step.agent_id,
+                "started",
+                provider=project.get("provider"),
+                model=project.get("model"),
+                input_summary=project.get("goal", "")[:500],
+                started_at=started_at,
+            )
         try:
             agent = workflow.agent_by_id(step.agent_id)
             context = self._context_for_step(project, workflow, step, task, previous_outputs, project_context)
@@ -212,6 +235,8 @@ class AgentRuntimeEngine:
                 step.artifact_title or step.title,
                 output.model_dump(),
             )
+            if self.action_service:
+                self.action_service.extract_from_output(project["id"], task["id"], output)
             if step.agent_id == "reviewer":
                 self.repository.add_review(
                     project["id"],
@@ -228,8 +253,39 @@ class AgentRuntimeEngine:
                 f"{step.title} 已完成" if task_status == TaskStatus.COMPLETED.value else f"{step.title} 等待审批",
                 output.model_dump(),
             )
+            if hasattr(self.repository, "add_step_log"):
+                self.repository.add_step_log(
+                    project["id"],
+                    task["id"],
+                    step.key,
+                    step.agent_id,
+                    "completed" if task_status == TaskStatus.COMPLETED.value else task_status,
+                    provider=project.get("provider"),
+                    model=project.get("model"),
+                    input_summary=project.get("goal", "")[:500],
+                    output_summary=output.summary[:1000],
+                    started_at=started_at,
+                    completed_at=datetime.now().isoformat(),
+                    duration_ms=int((perf_counter() - start_time) * 1000),
+                    metadata={"needs_manual_review": output.needs_manual_review},
+                )
             return output
         except Exception as exc:
+            if hasattr(self.repository, "add_step_log"):
+                self.repository.add_step_log(
+                    project["id"],
+                    task["id"],
+                    step.key,
+                    step.agent_id,
+                    "failed",
+                    provider=project.get("provider"),
+                    model=project.get("model"),
+                    input_summary=project.get("goal", "")[:500],
+                    error=str(exc),
+                    started_at=started_at,
+                    completed_at=datetime.now().isoformat(),
+                    duration_ms=int((perf_counter() - start_time) * 1000),
+                )
             self._mark_step_failed(project["id"], task["id"], step.agent_id, step.key, exc)
             return None
 
