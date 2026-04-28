@@ -2,18 +2,26 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
+from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.config import get_settings
 
 router = APIRouter()
+
+_run_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+
+def _get_run_lock(run_id: str) -> asyncio.Lock:
+    return _run_locks[run_id]
+
 
 Scenario = Literal["qa_assistant", "structured_extraction"]
 
@@ -266,40 +274,46 @@ async def _populate_inference_outputs(
         except Exception as exc:
             warnings.append(f"adapter 自动合并失败：{exc}")
 
-    for case in case_payloads:
-        prompt = _build_prompt(case, request.scenario)
-
-        if request.run_inference and not case.get("base_output"):
-            try:
-                case["base_output"] = await run_model_inference(
-                    model=request.base_model,
-                    prompt=prompt,
-                    backend=request.backend,
-                    max_tokens=request.max_tokens,
-                    temperature=request.temperature,
-                    response_format=response_format,
-                )
-            except Exception as exc:
-                case["base_output_error"] = str(exc)
-                warnings.append(f"基础模型推理失败：{exc}")
-
-        if request.run_inference and not case.get("finetuned_output"):
-            if finetuned_model:
+    if request.run_inference:
+        # Phase 1: Run all base model inferences to avoid model thrashing
+        for case in case_payloads:
+            if not case.get("base_output"):
+                prompt = _build_prompt(case, request.scenario)
                 try:
-                    case["finetuned_output"] = await run_model_inference(
-                        model=finetuned_model,
+                    case["base_output"] = await run_model_inference(
+                        model=request.base_model,
                         prompt=prompt,
-                        backend=finetuned_backend,
+                        backend=request.backend,
                         max_tokens=request.max_tokens,
                         temperature=request.temperature,
                         response_format=response_format,
                     )
                 except Exception as exc:
-                    case["finetuned_output_error"] = str(exc)
-                    warnings.append(f"微调模型推理失败：{exc}")
-            elif request.adapter_path:
-                case["finetuned_output_error"] = "adapter 自动合并未成功，且未提供 finetuned_model。"
-                warnings.append("仅提供 adapter_path，但未能生成 merged model，本次未运行微调模型推理。")
+                    case["base_output_error"] = str(exc)
+                    warnings.append(f"基础模型推理失败：{exc}")
+
+        # Phase 2: Run all finetuned model inferences
+        if finetuned_model:
+            for case in case_payloads:
+                if not case.get("finetuned_output"):
+                    prompt = _build_prompt(case, request.scenario)
+                    try:
+                        case["finetuned_output"] = await run_model_inference(
+                            model=finetuned_model,
+                            prompt=prompt,
+                            backend=finetuned_backend,
+                            max_tokens=request.max_tokens,
+                            temperature=request.temperature,
+                            response_format=response_format,
+                        )
+                    except Exception as exc:
+                        case["finetuned_output_error"] = str(exc)
+                        warnings.append(f"微调模型推理失败：{exc}")
+        elif request.adapter_path:
+            warnings.append("仅提供 adapter_path，但未能生成 merged model，本次未运行微调模型推理。")
+            for case in case_payloads:
+                if not case.get("finetuned_output"):
+                    case["finetuned_output_error"] = "adapter 自动合并未成功，且未提供 finetuned_model。"
 
     return warnings, adapter_merge
 
@@ -321,7 +335,21 @@ def _load_cases_from_dataset(dataset_id: str | None, limit: int = 100) -> list[E
 
     cases: list[EvaluationCase] = []
     with open(data_file, encoding="utf-8") as f:
-        raw = [json.loads(line) for line in f if line.strip()] if data_file.suffix == ".jsonl" else json.load(f)
+        if data_file.suffix == ".jsonl":
+            raw = []
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    raw.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+        else:
+            try:
+                raw = json.load(f)
+            except json.JSONDecodeError:
+                raise HTTPException(status_code=400, detail="数据集格式错误")
 
     for item in raw[:limit] if isinstance(raw, list) else [raw]:
         if not isinstance(item, dict):
@@ -343,24 +371,60 @@ def _load_cases_from_dataset(dataset_id: str | None, limit: int = 100) -> list[E
     return cases
 
 
+async def _run_evaluation_task(request: EvaluationRunRequest, run_id: str, case_payloads: list[dict[str, Any]]):
+    try:
+        async with _get_run_lock(run_id):
+            with open(_run_path(run_id), "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            payload["status"] = "running"
+            with open(_run_path(run_id), "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+
+        inference_warnings, adapter_merge = await _populate_inference_outputs(request, case_payloads, run_id)
+        metrics, failed_cases = _compute_metrics(request.scenario, case_payloads)
+        status = "completed_with_warnings" if inference_warnings else "completed"
+
+        async with _get_run_lock(run_id):
+            with open(_run_path(run_id), "r", encoding="utf-8") as f:
+                payload = json.load(f)
+
+            payload["status"] = status
+            payload["finetuned_model"] = request.finetuned_model or (adapter_merge or {}).get("merged_model_path")
+            payload["adapter_merge"] = adapter_merge
+            payload["warnings"] = inference_warnings
+            payload["base_outputs"] = [case.get("base_output") for case in case_payloads]
+            payload["finetuned_outputs"] = [case.get("finetuned_output") for case in case_payloads]
+            payload["cases"] = case_payloads
+            payload["metrics"] = metrics
+            payload["failed_cases"] = failed_cases
+
+            with open(_run_path(run_id), "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+    except Exception as exc:
+        async with _get_run_lock(run_id):
+            with open(_run_path(run_id), "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            payload["status"] = "failed"
+            payload["error"] = str(exc)
+            with open(_run_path(run_id), "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+
+
 @router.post("/runs")
-async def create_evaluation_run(request: EvaluationRunRequest):
+async def create_evaluation_run(request: EvaluationRunRequest, background_tasks: BackgroundTasks):
     cases = request.cases or _load_cases_from_dataset(request.test_dataset_id, request.max_cases)
     run_id = f"eval_{uuid.uuid4().hex[:12]}"
     case_payloads = [case.model_dump(by_alias=True) for case in cases[:request.max_cases]]
-    inference_warnings, adapter_merge = await _populate_inference_outputs(request, case_payloads, run_id)
-    metrics, failed_cases = _compute_metrics(request.scenario, case_payloads)
-    status = "completed_with_warnings" if inference_warnings else "completed"
 
     payload = {
         "run_id": run_id,
         "scenario": request.scenario,
-        "status": status,
+        "status": "pending",
         "created_at": datetime.now().isoformat(),
         "base_model": request.base_model,
-        "finetuned_model": request.finetuned_model or (adapter_merge or {}).get("merged_model_path"),
+        "finetuned_model": request.finetuned_model,
         "adapter_path": request.adapter_path,
-        "adapter_merge": adapter_merge,
+        "adapter_merge": None,
         "test_dataset_id": request.test_dataset_id,
         "backend": request.backend,
         "run_inference": request.run_inference,
@@ -370,17 +434,19 @@ async def create_evaluation_run(request: EvaluationRunRequest):
             "max_cases": request.max_cases,
             "auto_merge_adapter": request.auto_merge_adapter,
         },
-        "warnings": inference_warnings,
-        "base_outputs": [case.get("base_output") for case in case_payloads],
-        "finetuned_outputs": [case.get("finetuned_output") for case in case_payloads],
+        "warnings": [],
+        "base_outputs": [],
+        "finetuned_outputs": [],
         "cases": case_payloads,
-        "metrics": metrics,
-        "failed_cases": failed_cases,
+        "metrics": {},
+        "failed_cases": [],
         "human_scores": [],
     }
 
     with open(_run_path(run_id), "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
+
+    background_tasks.add_task(_run_evaluation_task, request, run_id, case_payloads)
 
     return payload
 
@@ -390,30 +456,37 @@ async def get_evaluation_run(run_id: str):
     path = _run_path(run_id)
     if not path.exists():
         raise HTTPException(status_code=404, detail="评估任务不存在")
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    async with _get_run_lock(run_id):
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
 
 
 @router.post("/runs/{run_id}/score")
 async def score_evaluation_case(run_id: str, request: EvaluationScoreRequest):
-    payload = await get_evaluation_run(run_id)
-    cases = payload.get("cases", [])
-    if request.case_index < 0 or request.case_index >= len(cases):
-        raise HTTPException(status_code=400, detail="case_index 超出范围")
+    async with _get_run_lock(run_id):
+        path = _run_path(run_id)
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="评估任务不存在")
+        with open(path, encoding="utf-8") as f:
+            payload = json.load(f)
+            
+        cases = payload.get("cases", [])
+        if request.case_index < 0 or request.case_index >= len(cases):
+            raise HTTPException(status_code=400, detail="case_index 超出范围")
 
-    score_payload = {
-        "case_index": request.case_index,
-        "score": request.score,
-        "notes": request.notes,
-        "answer_covered": request.answer_covered,
-        "grounded_in_context": request.grounded_in_context,
-        "updated_at": datetime.now().isoformat(),
-    }
-    cases[request.case_index]["human_score"] = score_payload
-    payload["human_scores"] = [case["human_score"] for case in cases if case.get("human_score")]
-    payload["metrics"], payload["failed_cases"] = _compute_metrics(payload["scenario"], cases)
+        score_payload = {
+            "case_index": request.case_index,
+            "score": request.score,
+            "notes": request.notes,
+            "answer_covered": request.answer_covered,
+            "grounded_in_context": request.grounded_in_context,
+            "updated_at": datetime.now().isoformat(),
+        }
+        cases[request.case_index]["human_score"] = score_payload
+        payload["human_scores"] = [case["human_score"] for case in cases if case.get("human_score")]
+        payload["metrics"], payload["failed_cases"] = _compute_metrics(payload["scenario"], cases)
 
-    with open(_run_path(run_id), "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
 
-    return payload
+        return payload

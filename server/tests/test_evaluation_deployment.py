@@ -39,7 +39,16 @@ def test_structured_evaluation_metrics(tmp_path: Path, monkeypatch):
     )
 
     assert response.status_code == 200
-    payload = response.json()
+    run_id = response.json()["run_id"]
+    
+    import time
+    for _ in range(50):
+        response = TestClient(app).get(f"/evaluation/runs/{run_id}")
+        payload = response.json()
+        if payload["status"] not in ("pending", "running"):
+            break
+        time.sleep(0.1)
+
     assert payload["metrics"]["json_valid_rate"] == 1.0
     assert payload["metrics"]["schema_match_rate"] == 1.0
     assert payload["failed_cases"] == []
@@ -75,7 +84,16 @@ def test_evaluation_runs_real_inference_when_outputs_missing(tmp_path: Path, mon
     )
 
     assert response.status_code == 200
-    payload = response.json()
+    run_id = response.json()["run_id"]
+    
+    import time
+    for _ in range(50):
+        response = TestClient(app).get(f"/evaluation/runs/{run_id}")
+        payload = response.json()
+        if payload["status"] not in ("pending", "running"):
+            break
+        time.sleep(0.1)
+
     assert payload["base_outputs"] == ["金额是 19.9"]
     assert payload["finetuned_outputs"] == ['{"amount": 19.9}']
     assert payload["metrics"]["json_valid_rate"] == 1.0
@@ -122,7 +140,16 @@ def test_evaluation_auto_merges_adapter_for_real_inference(tmp_path: Path, monke
     )
 
     assert response.status_code == 200
-    payload = response.json()
+    run_id = response.json()["run_id"]
+    
+    import time
+    for _ in range(50):
+        response = TestClient(app).get(f"/evaluation/runs/{run_id}")
+        payload = response.json()
+        if payload["status"] not in ("pending", "running"):
+            break
+        time.sleep(0.1)
+
     assert payload["adapter_merge"]["backend"] == "huggingface"
     assert payload["adapter_merge"]["adapter_path"] == "outputs/train_1/lora_adapter"
     assert "evaluation-merged" in payload["finetuned_model"]
