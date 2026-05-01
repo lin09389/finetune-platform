@@ -65,7 +65,7 @@ const metricLabels: Record<string, string> = {
   grounding_marked_count: '依据上下文标记数',
 };
 
-type SelectOption = { label: string; value: string };
+type SelectOption = { label: string; value: string; backend?: string };
 
 const getStringValue = (item: Record<string, unknown>, keys: string[]) => {
   for (const key of keys) {
@@ -85,6 +85,7 @@ const normalizeModelOptions = (items: unknown[]): SelectOption[] => {
     let value = '';
     let label = '';
     let tag = '';
+    let backend = '';
 
     if (typeof item === 'string') {
       value = item;
@@ -94,6 +95,7 @@ const normalizeModelOptions = (items: unknown[]): SelectOption[] => {
       value = getStringValue(record, ['id', 'model_id', 'name', 'model_name', 'path']);
       label = getStringValue(record, ['name', 'model_name', 'id', 'model_id', 'path']);
       tag = getStringValue(record, ['backend', 'source', 'type']);
+      backend = getStringValue(record, ['backend']);
     }
 
     if (!value || seen.has(value)) continue;
@@ -101,6 +103,7 @@ const normalizeModelOptions = (items: unknown[]): SelectOption[] => {
     options.push({
       value,
       label: tag ? `${label || value} · ${tag}` : label || value,
+      backend: backend || undefined,
     });
   }
 
@@ -130,7 +133,7 @@ export default function Evaluation() {
   const [pollingRunId, setPollingRunId] = useState<string | null>(null);
   const pollingRef = useRef<number | null>(null);
   const [selectorLoading, setSelectorLoading] = useState(false);
-  const [modelOptions, setModelOptions] = useState<SelectOption[]>(() =>
+  const [allModelOptions, setAllModelOptions] = useState<SelectOption[]>(() =>
     normalizeModelOptions(models),
   );
   const [datasetOptions, setDatasetOptions] = useState<SelectOption[]>(() =>
@@ -142,6 +145,22 @@ export default function Evaluation() {
       .map(r => ({ label: `${r.modelName} - ${r.id}`, value: r.adapterPath! })),
     [trainingRecords],
   );
+  const modelOptionByValue = useMemo(
+    () => new Map(allModelOptions.map((option) => [option.value, option])),
+    [allModelOptions],
+  );
+  const watchedBackend = Form.useWatch('backend', form) as string | undefined;
+  const modelOptions = useMemo(() => {
+    if (watchedBackend === 'ollama') {
+      return allModelOptions.filter((option) => option.backend === 'ollama');
+    }
+    if (watchedBackend === 'huggingface') {
+      return allModelOptions.filter(
+        (option) => option.backend === 'huggingface' || option.backend === 'llama-cpp',
+      );
+    }
+    return allModelOptions;
+  }, [allModelOptions, watchedBackend]);
 
   const initialDatasetId = searchParams.get('test_dataset_id');
   const [testMode, setTestMode] = useState<'dataset' | 'single'>(initialDatasetId ? 'dataset' : 'single');
@@ -150,7 +169,6 @@ export default function Evaluation() {
   const watchedBaseModel = Form.useWatch('base_model', form) as string | undefined;
   const watchedFinetunedModel = Form.useWatch('finetuned_model', form) as string | undefined;
   const watchedAdapterPath = Form.useWatch('adapter_path', form) as string | undefined;
-  const watchedBackend = Form.useWatch('backend', form) as string | undefined;
   const watchedDatasetId = Form.useWatch('test_dataset_id', form) as string | undefined;
   const watchedTrainingTaskId = Form.useWatch('training_task_id', form) as string | undefined;
   const watchedRunInference = Form.useWatch('run_inference', form) as boolean | undefined;
@@ -219,7 +237,7 @@ export default function Evaluation() {
           modelItems.push(...inferenceModelResult.value);
         }
         if (modelItems.length) {
-          setModelOptions(normalizeModelOptions(modelItems));
+          setAllModelOptions(normalizeModelOptions(modelItems));
         }
 
         if (datasetResult.status === 'fulfilled' && Array.isArray(datasetResult.value)) {
@@ -285,6 +303,33 @@ export default function Evaluation() {
   }) => {
     setLoading(true);
     try {
+      const selectedBackend = values.backend || 'ollama';
+      const ensureModelMatchesBackend = (fieldLabel: string, modelValue?: string) => {
+        if (!modelValue) return;
+
+        const knownOption = modelOptionByValue.get(modelValue);
+        if (selectedBackend === 'ollama') {
+          if (knownOption?.backend && knownOption.backend !== 'ollama') {
+            throw new Error(`${fieldLabel}“${modelValue}”不属于 Ollama 模型，请切换到 HuggingFace 后端或改选 Ollama tag。`);
+          }
+          if (/[\\/]/.test(modelValue)) {
+            throw new Error(`${fieldLabel}“${modelValue}”看起来是本地路径。Ollama 后端需要类似 \`qwen2.5:7b\` 的模型 tag。`);
+          }
+        }
+
+        if (
+          selectedBackend === 'huggingface' &&
+          knownOption?.backend &&
+          knownOption.backend !== 'huggingface' &&
+          knownOption.backend !== 'llama-cpp'
+        ) {
+          throw new Error(`${fieldLabel}“${modelValue}”不是本地 HuggingFace 模型，请切换到 Ollama 后端或改选本地模型目录。`);
+        }
+      };
+
+      ensureModelMatchesBackend('基础模型', values.base_model);
+      ensureModelMatchesBackend('微调模型', values.finetuned_model);
+
       const schema = values.schema ? (typeof values.schema === 'string' ? JSON.parse(values.schema) : values.schema) : undefined;
       const isDatasetMode = testMode === 'dataset';
       const payload = {
@@ -455,26 +500,35 @@ export default function Evaluation() {
                 <Form.Item name="base_model" label="基础模型" rules={[{ required: true }]}>
                   <AutoComplete
                     options={modelOptions}
-                    placeholder="选择模型，或输入 qwen2.5:7b"
+                    placeholder={watchedBackend === 'huggingface' ? '选择本地模型目录或名称' : '选择模型，或输入 qwen2.5:7b'}
                     filterOption={(input, option) =>
                       String(option?.label ?? '').toLowerCase().includes(input.toLowerCase()) ||
                       String(option?.value ?? '').toLowerCase().includes(input.toLowerCase())
                     }
-                    notFoundContent={selectorLoading ? '正在加载模型...' : '暂无可选模型，可直接输入'}
+                    notFoundContent={selectorLoading ? '正在加载模型...' : '当前后端下暂无可选模型，可手动输入'}
                   />
                 </Form.Item>
                 <Form.Item name="finetuned_model" label="微调模型">
                   <AutoComplete
                     options={modelOptions}
-                    placeholder="选择已合并模型，或输入 outputs/my-run/merged"
+                    placeholder={watchedBackend === 'huggingface' ? '选择已合并模型目录，或输入本地路径' : '选择 Ollama 模型 tag'}
                     filterOption={(input, option) =>
                       String(option?.label ?? '').toLowerCase().includes(input.toLowerCase()) ||
                       String(option?.value ?? '').toLowerCase().includes(input.toLowerCase())
                     }
-                    notFoundContent={selectorLoading ? '正在加载模型...' : '暂无可选模型，可直接输入'}
+                    notFoundContent={selectorLoading ? '正在加载模型...' : '当前后端下暂无可选模型，可手动输入'}
                     allowClear
                   />
                 </Form.Item>
+                {watchedBackend === 'ollama' && (
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message="Ollama 后端只能使用 Ollama 已安装模型"
+                    description="例如 `qwen2.5:7b`。如果你要评估本地目录里的 HuggingFace 模型，请把后端切换为 HuggingFace。"
+                  />
+                )}
                 <Form.Item name="adapter_path" label="Adapter 路径" rules={[
                   {
                     validator: async (_, value) => {

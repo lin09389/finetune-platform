@@ -43,6 +43,7 @@ interface ChatMessageProps {
   onApproveAgentAction?: (actionId: string) => void | Promise<void>;
   onRejectAgentAction?: (actionId: string) => void | Promise<void>;
   onExecuteAgentAction?: (actionId: string) => void | Promise<void>;
+  onRefreshAgentRun?: (runId: string) => void | Promise<void>;
   onOpenAgentDetails?: (url: string) => void;
 }
 
@@ -74,6 +75,7 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
     onApproveAgentAction,
     onRejectAgentAction,
     onExecuteAgentAction,
+    onRefreshAgentRun,
     onOpenAgentDetails,
   }) => {
     const [copied, setCopied] = useState(false);
@@ -394,6 +396,7 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
                   onApproveAction={onApproveAgentAction}
                   onRejectAction={onRejectAgentAction}
                   onExecuteAction={onExecuteAgentAction}
+                  onRefreshRun={onRefreshAgentRun}
                   onOpenDetails={onOpenAgentDetails}
                 />
               ) : (

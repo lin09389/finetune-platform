@@ -239,13 +239,16 @@ vi.mock('../components/TrainingChart', () => ({
 
 vi.mock('react-virtuoso', () => {
   function MockVirtuoso({
+    data,
     itemContent,
     totalCount,
   }: {
-    itemContent?: (index: number) => React.ReactNode;
+    data?: unknown[];
+    itemContent?: (index: number, item: unknown) => React.ReactNode;
     totalCount?: number;
   }) {
-    return <div>{Array.from({ length: totalCount || 0 }, (_, index) => itemContent?.(index))}</div>;
+    const items = data || Array.from({ length: totalCount || 0 }, (_, index) => index);
+    return <div>{items.map((item, index) => <div key={index}>{itemContent?.(index, item)}</div>)}</div>;
   }
   return { Virtuoso: MockVirtuoso };
 });

@@ -115,6 +115,81 @@
   color: var(--text-tertiary);
 }
 
+.routeStatus {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  margin-top: 10px;
+  padding: 6px 10px;
+  gap: 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-primary) 62%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+}
+
+.routePulse {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--text-tertiary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--text-tertiary) 12%, transparent);
+}
+
+.routePulse_auto {
+  background: #0f8b8d;
+  box-shadow: 0 0 0 3px rgba(15, 139, 141, 0.12);
+}
+
+.routePulse_chat {
+  background: #5f6f89;
+  box-shadow: 0 0 0 3px rgba(95, 111, 137, 0.12);
+}
+
+.routePulse_agent {
+  background: var(--accent-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-primary) 14%, transparent);
+}
+
+.routePulseActive {
+  animation: routePulse 1.2s ease-in-out infinite;
+}
+
+.routeLabel {
+  color: var(--text-primary) !important;
+  font-size: 12px !important;
+  font-weight: 650 !important;
+  white-space: nowrap;
+}
+
+.routeHint {
+  min-width: 0;
+  color: var(--text-secondary) !important;
+  font-size: 12px !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.routeAgent {
+  margin-left: auto;
+  color: var(--text-tertiary) !important;
+  font-size: 11px !important;
+  white-space: nowrap;
+}
+
+@keyframes routePulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.75;
+  }
+  50% {
+    transform: scale(1.55);
+    opacity: 1;
+  }
+}
+
 .toolbar {
   display: flex;
   justify-content: space-between;
@@ -141,11 +216,48 @@
   background: var(--bg-hover) !important;
 }
 
+.routingSegment {
+  height: 32px;
+  padding: 2px !important;
+  border-radius: 10px !important;
+  background: color-mix(in srgb, var(--bg-primary) 70%, transparent) !important;
+}
+
+.routingSegment :global(.ant-segmented-item) {
+  border-radius: 8px !important;
+}
+
+.routingSegment :global(.ant-segmented-item-label) {
+  min-height: 26px !important;
+  line-height: 26px !important;
+  font-size: 12px !important;
+}
+
 .hint {
   display: flex;
   justify-content: center;
   margin-top: 12px;
   opacity: 0.7;
+}
+
+@media (max-width: 720px) {
+  .routeStatus {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .routeHint {
+    flex-basis: calc(100% - 20px);
+    white-space: normal;
+  }
+
+  .routeAgent {
+    margin-left: 16px;
+  }
+
+  .toolbarRight {
+    justify-content: flex-end;
+  }
 }
 
 .sendBtn {

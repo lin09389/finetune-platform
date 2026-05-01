@@ -2,7 +2,7 @@ import { Button, Modal } from 'antd';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Virtuoso } from 'react-virtuoso';
+import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 
 import { useChatStream } from '../hooks/chat/useChatStream';
 import { useResponsive } from '../hooks/useResponsive';
@@ -24,8 +24,10 @@ import {
   API_BASE_URL,
   approveChatAgentAction,
   approveChatAgentStep,
+  classifyChatAgentIntent,
   createChatAgentRun,
   executeChatAgentAction,
+  getPrimaryAgents,
   getSavedCloudProviderData,
   getSavedCloudProviders,
   getWorkflowTemplates,
@@ -33,7 +35,7 @@ import {
   rejectChatAgentAction,
   runChatAgentRun,
 } from '../services/api';
-import type { ChatAgentRun, SavedCloudProvider, WorkflowAction, WorkflowTemplate } from '../services/api';
+import type { AgentInfo, ChatAgentRun, SavedCloudProvider, WorkflowAction, WorkflowTemplate } from '../services/api';
 import { transitions } from '../theme/animations';
 import { notify } from '../utils/notify';
 import { ArrowDownOutlined } from '@ant-design/icons';
@@ -54,6 +56,50 @@ const DEFAULT_SUGGESTIONS = [
   '写一段 Python 代码实现数据清洗',
   '分析一下当前的 AI 行业趋势'
 ];
+
+interface StoredChatScrollState {
+  topIndex: number;
+  atBottom: boolean;
+  updatedAt: string;
+}
+
+const CHAT_SCROLL_STORAGE_KEY = 'chat_scroll_positions_v1';
+
+const clampMessageIndex = (index: number, messageCount: number) => {
+  if (messageCount <= 0) return 0;
+  return Math.min(Math.max(index, 0), messageCount - 1);
+};
+
+const readStoredScrollMap = (): Record<string, StoredChatScrollState> => {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = localStorage.getItem(CHAT_SCROLL_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object'
+      ? (parsed as Record<string, StoredChatScrollState>)
+      : {};
+  } catch {
+    return {};
+  }
+};
+
+const getStoredScrollState = (sessionId: string | null): StoredChatScrollState | null => {
+  if (!sessionId) return null;
+  return readStoredScrollMap()[sessionId] || null;
+};
+
+const persistScrollState = (
+  sessionId: string | null,
+  scrollState: StoredChatScrollState,
+) => {
+  if (typeof window === 'undefined' || !sessionId) return;
+  const next = {
+    ...readStoredScrollMap(),
+    [sessionId]: scrollState,
+  };
+  localStorage.setItem(CHAT_SCROLL_STORAGE_KEY, JSON.stringify(next));
+};
 
 const extractDynamicSuggestions = (content: string): string[] => {
   if (!content) return [];
@@ -178,15 +224,60 @@ const ChatPage: React.FC = () => {
   const [selectedCloudModel, setSelectedCloudModel] = useState<string>('');
   const [workflowTemplates, setWorkflowTemplates] = useState<WorkflowTemplate[]>([]);
   const [selectedWorkflowTemplate, setSelectedWorkflowTemplate] = useState('software_delivery');
+  const [primaryAgents, setPrimaryAgents] = useState<AgentInfo[]>([]);
+  const [selectedPrimaryAgent, setSelectedPrimaryAgent] = useState('build');
+  const [routingMode, setRoutingMode] = useState<'auto' | 'chat' | 'agent'>(
+    () => {
+      const saved = localStorage.getItem('chat_routing_mode');
+      return saved === 'chat' || saved === 'agent' || saved === 'auto' ? saved : 'auto';
+    },
+  );
+  const [routingIntent, setRoutingIntent] = useState(false);
   const [creatingWorkflow, setCreatingWorkflow] = useState(false);
   const chatAgentStreamsRef = useRef<Record<string, EventSource>>({});
   const navigate = useNavigate();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const virtuosoRef = useRef<VirtuosoHandle | null>(null);
+  const visibleRangeStartRef = useRef(0);
   const isAutoScrollEnabledRef = useRef(true);
   const restoredSessionRef = useRef<string | null>(null);
+  const savedScrollState = useMemo(
+    () => getStoredScrollState(currentSessionId),
+    [currentSessionId],
+  );
+  const shouldRestoreToBottom = savedScrollState?.atBottom !== false;
+  const initialTopMostItemIndex = useMemo(() => {
+    if (messages.length === 0) return undefined;
+    if (shouldRestoreToBottom) return messages.length - 1;
+    return clampMessageIndex(savedScrollState?.topIndex ?? messages.length - 1, messages.length);
+  }, [messages.length, savedScrollState?.topIndex, shouldRestoreToBottom]);
+  const [isAtBottom, setIsAtBottom] = useState(shouldRestoreToBottom);
   const [showScrollButton, setShowScrollButton] = useState(false);
+
+  const saveCurrentScrollState = useCallback(
+    (overrides?: Partial<StoredChatScrollState>) => {
+      if (!currentSessionId || messages.length === 0) return;
+      persistScrollState(currentSessionId, {
+        topIndex: clampMessageIndex(visibleRangeStartRef.current, messages.length),
+        atBottom: isAutoScrollEnabledRef.current,
+        updatedAt: new Date().toISOString(),
+        ...overrides,
+      });
+    },
+    [currentSessionId, messages.length],
+  );
+
+  useEffect(() => {
+    setIsAtBottom(shouldRestoreToBottom);
+    isAutoScrollEnabledRef.current = shouldRestoreToBottom;
+    setShowScrollButton(messages.length > 0 && !shouldRestoreToBottom);
+  }, [currentSessionId, messages.length, shouldRestoreToBottom]);
+
+  useEffect(() => () => {
+    saveCurrentScrollState();
+  }, [saveCurrentScrollState]);
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
@@ -198,10 +289,19 @@ const ChatPage: React.FC = () => {
 
   const scrollToBottom = useCallback((smooth: boolean = true, force: boolean = false) => {
     if (!force && !isAutoScrollEnabledRef.current) return;
+    if (messages.length === 0) return;
+    if (virtuosoRef.current) {
+      virtuosoRef.current.scrollToIndex({
+        index: messages.length - 1,
+        align: 'end',
+        behavior: smooth ? 'smooth' : 'auto',
+      });
+      return;
+    }
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
     }
-  }, []);
+  }, [messages.length]);
 
   const {
     sendMessage,
@@ -226,6 +326,7 @@ const ChatPage: React.FC = () => {
       loadSessions(),
       loadCloudAIConfig(),
       loadWorkflowTemplates(),
+      loadPrimaryAgents(),
       refreshKnowledge(),
     ]).then((results) => {
       const failed = results.filter((r) => r.status === 'rejected');
@@ -234,6 +335,14 @@ const ChatPage: React.FC = () => {
       }
     });
   }, [loadSessions, refreshInference, refreshKnowledge]);
+
+  useEffect(() => {
+    localStorage.setItem('chat_primary_agent', selectedPrimaryAgent);
+  }, [selectedPrimaryAgent]);
+
+  useEffect(() => {
+    localStorage.setItem('chat_routing_mode', routingMode);
+  }, [routingMode]);
 
   useEffect(() => {
     if (!currentSessionId || currentSessionId.startsWith('local_')) return;
@@ -347,6 +456,19 @@ const ChatPage: React.FC = () => {
     }
   };
 
+  const loadPrimaryAgents = async () => {
+    try {
+      const agents = await getPrimaryAgents();
+      setPrimaryAgents(agents || []);
+      const saved = localStorage.getItem('chat_primary_agent') || 'build';
+      const fallback = agents?.some((agent) => agent.id === saved) ? saved : agents?.[0]?.id || 'build';
+      setSelectedPrimaryAgent(fallback);
+    } catch {
+      setPrimaryAgents([]);
+      setSelectedPrimaryAgent('build');
+    }
+  };
+
   const isLikelyAgentGoal = useCallback((content: string) => {
     const text = content.trim().toLowerCase();
     if (!text) return false;
@@ -381,22 +503,43 @@ const ChatPage: React.FC = () => {
   }, []);
 
   const buildAgentMetadata = useCallback(
-    (run: ChatAgentRun, kind: any, action?: WorkflowAction) => ({
-      agent_run_id: run.id,
-      workflow_id: run.workflow_id,
-      kind,
-      status: action?.status || run.status,
-      step_id: run.workflow?.steps?.find((step) => step.status === 'awaiting_approval')?.step_id,
-      action_id: action?.id,
-      action_type: action?.action_type,
-      can_approve: kind === 'agent_approval_request' || action?.status === 'pending_approval',
-      can_execute: action?.status === 'approved',
-      details_url: run.details_url,
-      workflow: run.workflow,
-      observability: run.observability,
-      action,
-      event: run.latest_event,
-    }),
+    (run: ChatAgentRun, kind: any, action?: WorkflowAction) => {
+      const toolCalls = run.observability?.tool_calls || [];
+      const workflowMetadata = (run.workflow?.metadata || {}) as Record<string, any>;
+      const blocked = [...toolCalls]
+        .reverse()
+        .find((item) => item.status === 'blocked' || item.permission_decision === 'ask' || item.permission_decision === 'deny');
+      return {
+        agent_run_id: run.id,
+        workflow_id: run.workflow_id,
+        kind,
+        status: action?.status || run.status,
+        step_id: run.workflow?.steps?.find((step) => step.status === 'awaiting_approval')?.step_id,
+        action_id: action?.id,
+        action_type: action?.action_type,
+        can_approve: kind === 'agent_approval_request' || action?.status === 'pending_approval',
+        can_execute: action?.status === 'approved',
+        details_url: run.details_url,
+        active_agent_id: run.active_agent_id || run.workflow?.active_agent_id,
+        subagent_runs: run.subagent_runs || run.observability?.subagent_runs || [],
+        workflow: run.workflow,
+        observability: run.observability,
+        tool_calls: toolCalls,
+        permission_pending: Boolean(
+          toolCalls.some((item) => item.permission_decision === 'ask' && item.status === 'blocked'),
+        ),
+        latest_blocked_tool: blocked?.tool_name,
+        execution_state: run.execution_state || workflowMetadata.execution_state,
+        execution_state_message: run.execution_state_message || workflowMetadata.execution_state_message,
+        final_summary: run.final_summary,
+        recoverable: run.recoverable,
+        blocked_state: workflowMetadata.blocked_state || run.blocked_state,
+        repair_attempts: workflowMetadata.repair_attempts,
+        max_repair_attempts: workflowMetadata.max_repair_attempts,
+        action,
+        event: run.latest_event,
+      };
+    },
     [],
   );
 
@@ -494,7 +637,11 @@ const ChatPage: React.FC = () => {
   );
 
   const handleAgentWorkflow = useCallback(
-    async (content: string, forceAgent = false) => {
+    async (
+      content: string,
+      forceAgent = false,
+      options: { agentId?: string; templateId?: string; reason?: string } = {},
+    ) => {
       const goal = content.trim();
       if (!goal) return false;
       if (!forceAgent && !isLikelyAgentGoal(goal)) return false;
@@ -512,9 +659,10 @@ const ChatPage: React.FC = () => {
           chat_session_id: sessionId && !sessionId.startsWith('local_') ? sessionId : undefined,
           message_id: userMessageId,
           content: goal,
-          template_id: selectedWorkflowTemplate || 'software_delivery',
+          template_id: options.templateId || selectedWorkflowTemplate || 'software_delivery',
           provider: cloudAIConfig?.provider || undefined,
           model: selectedCloudModel || cloudAIConfig?.model || undefined,
+          agent_id: options.agentId || selectedPrimaryAgent || 'build',
           force_agent: forceAgent,
         });
 
@@ -525,10 +673,13 @@ const ChatPage: React.FC = () => {
           return false;
         }
 
-        await upsertAgentMessages(run);
+        if (options.reason) {
+          notify.info(options.reason);
+        }
+        await upsertAgentMessages(options.reason ? { ...run, summary: `${options.reason} ${run.summary || ''}` } : run);
+        startChatAgentStream(run.id);
         const started = await runChatAgentRun(run.id);
         await upsertAgentMessages(started);
-        startChatAgentStream(run.id);
         notify.success('Agent 已开始工作');
         return true;
       } catch (error: any) {
@@ -546,6 +697,7 @@ const ChatPage: React.FC = () => {
       currentSessionId,
       isLikelyAgentGoal,
       selectedCloudModel,
+      selectedPrimaryAgent,
       selectedWorkflowTemplate,
       startChatAgentStream,
       upsertAgentMessages,
@@ -559,8 +711,48 @@ const ChatPage: React.FC = () => {
       isAutoScrollEnabledRef.current = true;
       setTimeout(() => scrollToBottom(true, true), 100);
 
-      const handledByAgent = await handleAgentWorkflow(content);
-      if (handledByAgent) return;
+      if (routingMode === 'agent') {
+        const handledByAgent = await handleAgentWorkflow(content, true, { reason: '已按 Agent 模式启动 Build Agent。' });
+        if (handledByAgent) return;
+      }
+
+      if (routingMode === 'auto') {
+        setRoutingIntent(true);
+        try {
+          const intent = await classifyChatAgentIntent({
+            content,
+            provider: cloudAIConfig?.provider || undefined,
+            model: selectedCloudModel || cloudAIConfig?.model || undefined,
+            agent_id: selectedPrimaryAgent || 'build',
+            template_id: selectedWorkflowTemplate || 'software_delivery',
+            chat_session_id: currentSessionId && !currentSessionId.startsWith('local_') ? currentSessionId : undefined,
+            routing_mode: 'auto',
+          });
+          if (intent.mode === 'agent') {
+            const handledByAgent = await handleAgentWorkflow(content, true, {
+              agentId: intent.suggested_agent_id || selectedPrimaryAgent || 'build',
+              templateId: intent.suggested_template_id || selectedWorkflowTemplate || 'software_delivery',
+              reason: intent.source === 'cloud'
+                ? `云端判断需要 Agent：${intent.reason}`
+                : `已识别为开发任务，启动 Agent：${intent.reason}`,
+            });
+            if (handledByAgent) return;
+          }
+          if (intent.source === 'fallback') {
+            notify.info(intent.reason);
+          }
+        } catch (error) {
+          if (isLikelyAgentGoal(content)) {
+            const handledByAgent = await handleAgentWorkflow(content, true, {
+              reason: '意图判断失败，已按本地规则启动 Agent。',
+            });
+            if (handledByAgent) return;
+          }
+          notify.info('意图判断失败，已按普通对话处理。');
+        } finally {
+          setRoutingIntent(false);
+        }
+      }
 
       if (useCloudAI && cloudAIConfig) {
         await sendCloudMessage(
@@ -578,7 +770,20 @@ const ChatPage: React.FC = () => {
         await sendMessage({ prompt: content });
       }
     },
-    [useCloudAI, cloudAIConfig, selectedCloudModel, sendCloudMessage, sendMessage, handleAgentWorkflow, scrollToBottom],
+    [
+      cloudAIConfig,
+      currentSessionId,
+      handleAgentWorkflow,
+      isLikelyAgentGoal,
+      routingMode,
+      scrollToBottom,
+      selectedCloudModel,
+      selectedPrimaryAgent,
+      selectedWorkflowTemplate,
+      sendCloudMessage,
+      sendMessage,
+      useCloudAI,
+    ],
   );
 
   const handleCreateWorkflow = useCallback(
@@ -682,21 +887,52 @@ const ChatPage: React.FC = () => {
     [upsertAgentMessages],
   );
 
-  const handleApproveAgentStep = useCallback(
-    async (stepId: string) => {
-      const run = await approveChatAgentStep(stepId, { approved: true });
+  const handleRefreshAgentRun = useCallback(
+    async (runId: string) => {
+      const run = await getChatAgentRun(runId);
       await upsertAgentMessages(run);
-      startChatAgentStream(run.id);
+      if (run.recoverable && ['created', 'running', 'planning', 'implementing', 'reviewing'].includes(run.status)) {
+        startChatAgentStream(run.id);
+      }
     },
     [startChatAgentStream, upsertAgentMessages],
   );
 
+  const findAgentRunIdByStep = useCallback((stepId: string) => {
+    return useChatStore
+      .getState()
+      .messages.find((item) => item.agent_metadata?.step_id === stepId)?.agent_metadata?.agent_run_id;
+  }, []);
+
+  const findAgentRunIdByAction = useCallback((actionId: string) => {
+    return useChatStore
+      .getState()
+      .messages.find((item) => item.agent_metadata?.action_id === actionId)?.agent_metadata?.agent_run_id;
+  }, []);
+
+  const handleApproveAgentStep = useCallback(
+    async (stepId: string) => {
+      const runId = findAgentRunIdByStep(stepId);
+      if (runId) {
+        startChatAgentStream(runId);
+      }
+      const run = await approveChatAgentStep(stepId, { approved: true });
+      await upsertAgentMessages(run);
+      startChatAgentStream(run.id);
+    },
+    [findAgentRunIdByStep, startChatAgentStream, upsertAgentMessages],
+  );
+
   const handleApproveAgentAction = useCallback(
     async (actionId: string) => {
+      const runId = findAgentRunIdByAction(actionId);
+      if (runId) {
+        startChatAgentStream(runId);
+      }
       await approveChatAgentAction(actionId);
       await refreshAgentRunByAction(actionId);
     },
-    [refreshAgentRunByAction],
+    [findAgentRunIdByAction, refreshAgentRunByAction, startChatAgentStream],
   );
 
   const handleRejectAgentAction = useCallback(
@@ -709,6 +945,10 @@ const ChatPage: React.FC = () => {
 
   const handleExecuteAgentAction = useCallback(
     async (actionId: string) => {
+      const runId = findAgentRunIdByAction(actionId);
+      if (runId) {
+        startChatAgentStream(runId);
+      }
       const action = await executeChatAgentAction(actionId);
       await refreshAgentRunByAction(actionId);
       if (action.status === 'failed') {
@@ -717,7 +957,7 @@ const ChatPage: React.FC = () => {
         notify.success('动作已执行');
       }
     },
-    [refreshAgentRunByAction],
+    [findAgentRunIdByAction, refreshAgentRunByAction, startChatAgentStream],
   );
 
   const handleRetry = useCallback(
@@ -968,6 +1208,7 @@ const ChatPage: React.FC = () => {
       onApproveAgentAction={handleApproveAgentAction}
       onRejectAgentAction={handleRejectAgentAction}
       onExecuteAgentAction={handleExecuteAgentAction}
+      onRefreshAgentRun={handleRefreshAgentRun}
       onOpenAgentDetails={(url) => navigate(url)}
     />
   ), [
@@ -980,6 +1221,7 @@ const ChatPage: React.FC = () => {
     handleApproveAgentAction,
     handleRejectAgentAction,
     handleExecuteAgentAction,
+    handleRefreshAgentRun,
     navigate,
   ]);
 
@@ -1045,7 +1287,7 @@ const ChatPage: React.FC = () => {
       <motion.div
         className={styles.chatMessagesArea}
         ref={scrollContainerRef}
-        onScroll={handleScroll}
+        onScroll={enableVirtualScroll ? undefined : handleScroll}
         initial={prefersReducedMotion ? false : { opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={prefersReducedMotion ? { duration: 0 } : { delay: 0.16, ...transitions.base }}
@@ -1082,6 +1324,8 @@ const ChatPage: React.FC = () => {
             </motion.div>
           ) : enableVirtualScroll ? (
             <Virtuoso
+              key={currentSessionId || 'chat-empty'}
+              ref={virtuosoRef}
               data={messages}
               itemContent={renderMessageItem}
               components={{
@@ -1095,7 +1339,20 @@ const ChatPage: React.FC = () => {
                   </div>
                 ),
               }}
-              followOutput="smooth"
+              initialTopMostItemIndex={initialTopMostItemIndex}
+              rangeChanged={(range) => {
+                visibleRangeStartRef.current = range.startIndex;
+                saveCurrentScrollState({
+                  topIndex: clampMessageIndex(range.startIndex, messages.length),
+                });
+              }}
+              atBottomStateChange={(nextIsAtBottom) => {
+                isAutoScrollEnabledRef.current = nextIsAtBottom;
+                setIsAtBottom(nextIsAtBottom);
+                setShowScrollButton(!nextIsAtBottom);
+                saveCurrentScrollState({ atBottom: nextIsAtBottom });
+              }}
+              followOutput={isAtBottom ? 'smooth' : false}
               style={{ height: '100%' }}
               alignToBottom
             />
@@ -1161,8 +1418,15 @@ const ChatPage: React.FC = () => {
         loading={isLoading}
         isStreaming={isActivelyStreaming}
         modelId={useCloudAI ? selectedCloudModel : settings.modelId}
+        agentModeAvailable={primaryAgents.length > 0}
         onCreateWorkflow={handleCreateWorkflow}
         creatingWorkflow={creatingWorkflow}
+        agentOptions={primaryAgents.map((agent) => ({ value: agent.id, label: agent.name }))}
+        selectedAgent={selectedPrimaryAgent}
+        onAgentChange={setSelectedPrimaryAgent}
+        routingMode={routingMode}
+        onRoutingModeChange={setRoutingMode}
+        routing={routingIntent}
         workflowTemplateOptions={workflowTemplateOptions}
         selectedWorkflowTemplate={selectedWorkflowTemplate}
         onWorkflowTemplateChange={setSelectedWorkflowTemplate}

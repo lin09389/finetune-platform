@@ -577,6 +577,7 @@ export interface Workflow {
   updated_at: string;
   completed_at?: string;
   metadata?: Record<string, any>;
+  active_agent_id?: string;
   steps: WorkflowStep[];
 }
 
@@ -640,6 +641,27 @@ export interface WorkflowStepLog {
   created_at: string;
 }
 
+export interface WorkflowToolCall {
+  id: string;
+  workflow_id: string;
+  step_id?: string;
+  agent_id?: string;
+  tool_name: string;
+  arguments: Record<string, any>;
+  status: 'running' | 'completed' | 'failed' | string;
+  result_summary?: string;
+  result_payload?: Record<string, any>;
+  permission_decision?: 'allow' | 'deny' | 'ask';
+  blocked_reason?: string;
+  replay_of_call_id?: string;
+  trace_id?: string;
+  error?: string;
+  started_at?: string;
+  completed_at?: string;
+  duration_ms?: number;
+  created_at: string;
+}
+
 export interface WorkflowActionExecution {
   id: string;
   action_id: string;
@@ -650,6 +672,7 @@ export interface WorkflowActionExecution {
   exit_code?: number;
   duration_ms?: number;
   error?: string;
+  failure_summary?: string;
   created_at: string;
 }
 
@@ -663,6 +686,12 @@ export interface WorkflowAction {
   payload: Record<string, any>;
   status: string;
   created_by?: string;
+  execution_mode?: 'auto' | 'approval_required' | string;
+  policy_reason?: string;
+  auto_executed_at?: string;
+  execution_state?: string;
+  changed_files?: string[];
+  failure_summary?: string;
   approved_at?: string;
   rejected_at?: string;
   executed_at?: string;
@@ -675,7 +704,12 @@ export interface WorkflowObservability {
   workflow_id: string;
   status: string;
   current_stage?: string;
+  active_agent_id?: string;
+  subagent_runs?: Array<Record<string, any>>;
+  auto_execution_policy?: Record<string, any>;
+  blocked_state?: Record<string, any> | null;
   step_logs: WorkflowStepLog[];
+  tool_calls?: WorkflowToolCall[];
   actions: WorkflowAction[];
   recent_events: Array<Record<string, any>>;
 }
@@ -687,8 +721,28 @@ export interface ChatAgentRunCreate {
   template_id?: string;
   provider?: string;
   model?: string;
+  agent_id?: string;
   project_path?: string;
   force_agent?: boolean;
+}
+
+export interface ChatAgentIntentRequest {
+  content: string;
+  provider?: string;
+  model?: string;
+  agent_id?: string;
+  template_id?: string;
+  chat_session_id?: string;
+  routing_mode?: 'auto' | 'chat' | 'agent';
+}
+
+export interface ChatAgentIntentResponse {
+  mode: 'chat' | 'agent';
+  confidence: number;
+  reason: string;
+  source: 'local_rule' | 'cloud' | 'fallback' | 'manual';
+  suggested_agent_id?: string;
+  suggested_template_id?: string;
 }
 
 export interface ChatAgentRun {
@@ -700,10 +754,33 @@ export interface ChatAgentRun {
   status: string;
   intent_type?: string;
   summary?: string;
+  final_summary?: string;
+  execution_state?: string;
+  execution_state_message?: string;
+  recoverable?: boolean;
   details_url?: string;
+  active_agent_id?: string;
+  subagent_runs?: Array<Record<string, any>>;
+  auto_execution_policy?: Record<string, any>;
+  blocked_state?: Record<string, any> | null;
   workflow?: Workflow;
   observability?: WorkflowObservability;
   latest_event?: Record<string, any>;
+}
+
+export interface AgentInfo {
+  id: string;
+  name: string;
+  description?: string;
+  mode: 'primary' | 'subagent' | 'all' | string;
+  system_prompt?: string;
+  default_provider?: string;
+  default_model?: string;
+  max_iterations?: number;
+  tools?: string[];
+  permission_rules?: Array<Record<string, any>>;
+  handoff_targets?: string[];
+  hidden?: boolean;
 }
 
 export interface ChatAgentRunEvent {
@@ -750,6 +827,21 @@ export const getWorkflowTemplates = async () => {
   const promise = apiClient.get(url).then(res => responseData(res));
   getCacheMap.set(cacheKey, { timestamp: Date.now(), data: null, promise });
   return promise;
+};
+
+export const getAgents = async (): Promise<AgentInfo[]> => {
+  const response = await apiClient.get('/agents');
+  return response.data;
+};
+
+export const getPrimaryAgents = async (): Promise<AgentInfo[]> => {
+  const response = await apiClient.get('/agents/primary');
+  return response.data;
+};
+
+export const getAgent = async (agentId: string): Promise<AgentInfo> => {
+  const response = await apiClient.get(`/agents/${agentId}`);
+  return response.data;
 };
 
 export const createWorkflowTemplate = async (payload: WorkflowTemplatePayload) => {
@@ -828,6 +920,11 @@ export const getWorkflowStepLogs = async (workflowId: string): Promise<WorkflowS
   return response.data;
 };
 
+export const getWorkflowToolCalls = async (workflowId: string): Promise<WorkflowToolCall[]> => {
+  const response = await apiClient.get(`/workflows/${workflowId}/tool-calls`);
+  return response.data;
+};
+
 export const getWorkflowActions = async (workflowId: string): Promise<WorkflowAction[]> => {
   const response = await apiClient.get(`/workflows/${workflowId}/actions`);
   return response.data;
@@ -853,8 +950,20 @@ export const createChatAgentRun = async (payload: ChatAgentRunCreate): Promise<C
   return response.data;
 };
 
+export const classifyChatAgentIntent = async (
+  payload: ChatAgentIntentRequest,
+): Promise<ChatAgentIntentResponse> => {
+  const response = await apiClient.post('/chat-agent/intent', payload);
+  return response.data;
+};
+
 export const getChatAgentRun = async (runId: string): Promise<ChatAgentRun> => {
   const response = await apiClient.get(`/chat-agent/runs/${runId}`);
+  return response.data;
+};
+
+export const getChatAgentToolCalls = async (runId: string): Promise<WorkflowToolCall[]> => {
+  const response = await apiClient.get(`/chat-agent/runs/${runId}/tool-calls`);
   return response.data;
 };
 

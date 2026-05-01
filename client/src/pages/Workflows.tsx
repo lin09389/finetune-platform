@@ -29,6 +29,7 @@ import {
   getWorkflowObservability,
   getWorkflowStepLogs,
   getWorkflowTemplates,
+  getWorkflowToolCalls,
   getWorkflowTimeline,
   getWorkflows,
   rejectWorkflowAction,
@@ -48,6 +49,7 @@ import type {
   WorkflowObservability,
   WorkflowStepLog,
   WorkflowTemplate,
+  WorkflowToolCall,
 } from '../services/api';
 import styles from './Workflows.module.css';
 
@@ -92,6 +94,7 @@ export default function Workflows() {
   const [workflowMemory, setWorkflowMemory] = useState<WorkflowMemoryEntry[]>([]);
   const [observability, setObservability] = useState<WorkflowObservability | null>(null);
   const [stepLogs, setStepLogs] = useState<WorkflowStepLog[]>([]);
+  const [toolCalls, setToolCalls] = useState<WorkflowToolCall[]>([]);
   const [actions, setActions] = useState<WorkflowAction[]>([]);
   const [cloudProviders, setCloudProviders] = useState<SavedCloudProvider[]>([]);
   const [loading, setLoading] = useState(false);
@@ -158,12 +161,13 @@ export default function Workflows() {
         getWorkflowTimeline(workflowId),
         getWorkflowArtifacts(workflowId),
       ]);
-      const [profileData, snapshotData, memoryData, observabilityData, stepLogData, actionData] = await Promise.all([
+      const [profileData, snapshotData, memoryData, observabilityData, stepLogData, toolCallData, actionData] = await Promise.all([
         getWorkflowContext(workflowId).catch(() => null),
         getWorkflowContextSnapshots(workflowId).catch(() => []),
         getWorkflowMemory(workflowId).catch(() => []),
         getWorkflowObservability(workflowId).catch(() => null),
         getWorkflowStepLogs(workflowId).catch(() => []),
+        getWorkflowToolCalls(workflowId).catch(() => []),
         getWorkflowActions(workflowId).catch(() => []),
       ]);
       setSelectedWorkflow(workflow);
@@ -174,6 +178,7 @@ export default function Workflows() {
       setWorkflowMemory(memoryData || []);
       setObservability(observabilityData);
       setStepLogs(stepLogData || []);
+      setToolCalls(toolCallData || observabilityData?.tool_calls || []);
       setActions(actionData || []);
       if (profileData) {
         contextForm.setFieldsValue(profileData);
@@ -591,6 +596,7 @@ export default function Workflows() {
                   <div className={styles.workflowTitle}>{workflow.title}</div>
                   <div className={styles.workflowMeta}>
                     <Tag color={statusColor[workflow.status] || 'default'}>{workflow.status}</Tag>
+                    {workflow.active_agent_id && <Tag color="cyan">{workflow.active_agent_id}</Tag>}
                     {new Date(workflow.updated_at).toLocaleString()}
                   </div>
                 </button>
@@ -628,8 +634,29 @@ export default function Workflows() {
                             <strong>运行状态：</strong>
                             <div style={{ marginTop: 8 }}>
                               当前阶段 {observability?.current_stage || selectedWorkflow.current_stage || 'draft'} ·
-                              Step 日志 {stepLogs.length} 条 · 动作建议 {actions.length} 个
+                              Step 日志 {stepLogs.length} 条 · 工具调用 {toolCalls.length} 次 · 动作建议 {actions.length} 个
                             </div>
+                          </div>
+                          <div className={styles.stepsBoard}>
+                            {toolCalls.slice(-6).map((call) => (
+                              <div key={call.id} className={styles.stepCard}>
+                                <div className={styles.stepHeader}>
+                                  <div className={styles.stepRole}>
+                                    {call.tool_name} · {call.agent_id || 'agent'}
+                                  </div>
+                                  <Tag color={statusColor[call.status] || (call.status === 'failed' ? 'error' : 'default')}>
+                                    {call.status}
+                                  </Tag>
+                                </div>
+                                <div className={styles.stepDesc}>
+                                  {call.duration_ms != null ? `${call.duration_ms}ms` : call.started_at || ''}
+                                </div>
+                                <div className={styles.stepOutput}>
+                                  {call.error || call.result_summary || '等待工具结果'}
+                                </div>
+                              </div>
+                            ))}
+                            {!toolCalls.length && <div className={styles.emptyState}>Agent 搜索或读取文件后会显示工具调用</div>}
                           </div>
                           <div className={styles.stepsBoard}>
                             {stepLogs.slice(-6).map((log) => (
@@ -871,6 +898,11 @@ export default function Workflows() {
                                     <Tag color={action.status === 'executed' ? 'success' : action.status === 'rejected' ? 'error' : 'warning'}>
                                       {action.status}
                                     </Tag>
+                                    {action.execution_mode && (
+                                      <Tag color={action.execution_mode === 'auto' ? 'blue' : 'default'}>
+                                        {action.execution_mode === 'auto' ? '自动执行' : '需审批'}
+                                      </Tag>
+                                    )}
                                     {action.status === 'pending_approval' && (
                                       <>
                                         <Button size="small" type="primary" onClick={() => handleApproveAction(action.id)}>
@@ -889,6 +921,7 @@ export default function Workflows() {
                                   </Space>
                                 </div>
                                 {action.description && <div className={styles.stepDesc}>{action.description}</div>}
+                                {action.policy_reason && <div className={styles.stepDesc}>{action.policy_reason}</div>}
                                 <div className={styles.dataContent}>
                                   {action.action_type === 'command'
                                     ? Array.isArray(command)

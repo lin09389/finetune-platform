@@ -633,7 +633,9 @@ export const useChatStore = create<ChatStore>()(
     {
       name: 'chat-storage',
       partialize: (state) => ({
+        sessions: state.sessions.slice(0, 100),
         currentSessionId: state.currentSessionId,
+        messages: state.messages.slice(-500),
         settings: state.settings,
         promptDraft: state.promptDraft,
         attachments: state.attachments,

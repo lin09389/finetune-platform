@@ -383,8 +383,20 @@ export interface ChatAgentMetadata {
   can_approve?: boolean;
   can_execute?: boolean;
   details_url?: string;
+  active_agent_id?: string;
+  subagent_runs?: Array<Record<string, unknown>>;
   workflow?: unknown;
   observability?: unknown;
+  tool_calls?: unknown[];
+  permission_pending?: boolean;
+  latest_blocked_tool?: string;
+  execution_state?: string;
+  execution_state_message?: string;
+  final_summary?: string;
+  recoverable?: boolean;
+  blocked_state?: Record<string, unknown> | null;
+  repair_attempts?: number;
+  max_repair_attempts?: number;
   action?: unknown;
   event?: unknown;
 }

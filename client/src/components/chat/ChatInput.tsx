@@ -1,12 +1,11 @@
 import {
   AudioOutlined,
   ClearOutlined,
-  PartitionOutlined,
   RobotOutlined,
   SendOutlined,
   StopOutlined,
 } from '@ant-design/icons';
-import { Avatar, Button, Input, Select, Tooltip, Typography, message } from 'antd';
+import { Avatar, Button, Input, Segmented, Select, Tooltip, Typography, message } from 'antd';
 import { motion } from 'framer-motion';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useResponsive } from '../../hooks/useResponsive';
@@ -27,11 +26,18 @@ interface ChatInputProps {
   modelId?: string;
   maxLength?: number;
   showModelInfo?: boolean;
+  agentModeAvailable?: boolean;
   onCreateWorkflow?: (content: string) => void | Promise<void>;
   creatingWorkflow?: boolean;
   workflowTemplateOptions?: Array<{ value: string; label: string }>;
   selectedWorkflowTemplate?: string;
   onWorkflowTemplateChange?: (templateId: string) => void;
+  agentOptions?: Array<{ value: string; label: string }>;
+  selectedAgent?: string;
+  onAgentChange?: (agentId: string) => void;
+  routingMode?: 'auto' | 'chat' | 'agent';
+  onRoutingModeChange?: (mode: 'auto' | 'chat' | 'agent') => void;
+  routing?: boolean;
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({
@@ -45,11 +51,18 @@ const ChatInput: React.FC<ChatInputProps> = ({
   modelId,
   maxLength = 4000,
   showModelInfo = true,
+  agentModeAvailable = false,
   onCreateWorkflow,
   creatingWorkflow = false,
   workflowTemplateOptions = [],
   selectedWorkflowTemplate = 'software_delivery',
   onWorkflowTemplateChange,
+  agentOptions = [],
+  selectedAgent = 'build',
+  onAgentChange,
+  routingMode = 'auto',
+  onRoutingModeChange,
+  routing = false,
 }) => {
   const { isMobile } = useResponsive();
   const [value, setValue] = useState('');
@@ -57,22 +70,46 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isRecording, setIsRecording] = useState(false);
 
-  const canSend = value.trim().length > 0 && !disabled && !loading;
-
-  const handleSend = useCallback(() => {
-    if (!canSend) return;
-    onSend(value.trim());
-    setValue('');
-  }, [canSend, onSend, value]);
+  const inputDisabled = disabled && !agentModeAvailable;
+  const routingMeta = {
+    auto: {
+      label: routing ? '正在判断路由' : '自动路由',
+      hint: routing ? '正在判断是否需要 Agent' : '开发任务会自动进入 Agent',
+    },
+    chat: {
+      label: '普通对话',
+      hint: '本次只发送普通聊天',
+    },
+    agent: {
+      label: 'Agent 工作',
+      hint: '发送后直接启动 Agent',
+    },
+  }[routingMode];
+  const canSend =
+    value.trim().length > 0 &&
+    (!disabled || (agentModeAvailable && routingMode !== 'chat')) &&
+    !loading &&
+    !routing;
 
   const handleCreateWorkflow = useCallback(async () => {
     const content = value.trim();
     if (!content) {
-      message.warning('请先输入工作流目标');
+      message.warning('先输入一个要让 Agent 完成的目标');
       return;
     }
     await onCreateWorkflow?.(content);
+    setValue('');
   }, [onCreateWorkflow, value]);
+
+  const handleSend = useCallback(async () => {
+    if (!canSend) return;
+    if (disabled && agentModeAvailable && routingMode !== 'chat' && onCreateWorkflow) {
+      await handleCreateWorkflow();
+      return;
+    }
+    onSend(value.trim());
+    setValue('');
+  }, [agentModeAvailable, canSend, disabled, handleCreateWorkflow, onCreateWorkflow, onSend, routingMode, value]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -160,18 +197,29 @@ const ChatInput: React.FC<ChatInputProps> = ({
         >
           <TextArea
             ref={textareaRef}
-            placeholder={disabled ? '请先选择模型' : placeholder}
+            placeholder={inputDisabled ? '请先选择模型' : placeholder}
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
             autoSize={{ minRows: 1, maxRows: 6 }}
-            disabled={disabled || loading}
+            disabled={inputDisabled || loading}
             maxLength={maxLength}
             bordered={false}
             className={styles.textarea}
           />
+
+          {onCreateWorkflow && (
+            <div className={styles.routeStatus}>
+              <div className={`${styles.routePulse} ${styles[`routePulse_${routingMode}`]} ${routing ? styles.routePulseActive : ''}`} />
+              <Text className={styles.routeLabel}>{routingMeta.label}</Text>
+              <Text className={styles.routeHint}>{routingMeta.hint}</Text>
+              {agentOptions.length > 0 && routingMode !== 'chat' && (
+                <Text className={styles.routeAgent}>Agent: {selectedAgent}</Text>
+              )}
+            </div>
+          )}
 
           <div className={styles.toolbar}>
             <div className={styles.toolbarLeft}>
@@ -194,7 +242,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 </>
               ) : (
                 <Text type="secondary" style={{ fontSize: 13 }}>
-                  请先选择模型
+                  {agentModeAvailable ? 'Agent 模式可用' : '请先选择模型'}
                 </Text>
               )}
 
@@ -229,6 +277,30 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
               {onCreateWorkflow && (
                 <>
+                  {agentOptions.length > 0 && (
+                    <Select
+                      size="small"
+                      value={selectedAgent}
+                      options={agentOptions}
+                      onChange={onAgentChange}
+                      style={{ minWidth: 128 }}
+                      disabled={loading || isStreaming || creatingWorkflow || routing}
+                    />
+                  )}
+                  {onRoutingModeChange && (
+                    <Segmented
+                      size="small"
+                      value={routingMode}
+                      className={styles.routingSegment}
+                      options={[
+                        { label: '自动', value: 'auto' },
+                        { label: '对话', value: 'chat' },
+                        { label: 'Agent', value: 'agent' },
+                      ]}
+                      onChange={(mode) => onRoutingModeChange(mode as 'auto' | 'chat' | 'agent')}
+                      disabled={loading || isStreaming || creatingWorkflow || routing}
+                    />
+                  )}
                   {workflowTemplateOptions.length > 1 && (
                     <Select
                       size="small"
@@ -236,20 +308,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
                       options={workflowTemplateOptions}
                       onChange={onWorkflowTemplateChange}
                       style={{ minWidth: 128 }}
-                      disabled={loading || isStreaming || creatingWorkflow}
+                      disabled={loading || isStreaming || creatingWorkflow || routing}
                     />
                   )}
-                  <Tooltip title="发起工作流">
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={<PartitionOutlined />}
-                      onClick={handleCreateWorkflow}
-                      loading={creatingWorkflow}
-                      disabled={loading || isStreaming}
-                      className={styles.ghostIcon}
-                    />
-                  </Tooltip>
                 </>
               )}
 
@@ -277,7 +338,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
                     disabled={!canSend}
                     className={styles.sendBtn}
                   >
-                    发送
+                    {routing ? '判断中' : routingMode === 'agent' ? '启动' : '发送'}
                   </Button>
                 </motion.div>
               )}
@@ -287,7 +348,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
         <div className={styles.hint}>
           <Text type="secondary" style={{ fontSize: 11 }}>
-            按 Enter 发送 · Shift+Enter 换行 · 按 / 快速聚焦
+            按 Enter 发送 · Shift+Enter 换行 · 开发/修改/测试类目标会自动进入 Agent 工作
           </Text>
         </div>
       </div>
