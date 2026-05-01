@@ -33,6 +33,7 @@ class BackendType(str, Enum):
     HUGGINGFACE = "huggingface"
     OLLAMA = "ollama"
     CLOUD = "cloud"
+    LLAMACPP = "llama-cpp"
     AUTO = "auto"
 
 
@@ -351,6 +352,17 @@ class ModelScheduler:
                 self._backends[backend] = CloudBackend()
             return self._backends[backend]
 
+        elif backend == BackendType.LLAMACPP.value:
+            from api.inference.backends.llama_cpp import LlamaCppBackend
+            if backend not in self._backends:
+                from core.config import get_settings
+                settings = get_settings()
+                self._backends[backend] = LlamaCppBackend({
+                    "n_gpu_layers": getattr(settings, "llama_cpp_n_gpu_layers", -1),
+                    "n_ctx": getattr(settings, "llama_cpp_n_ctx", 2048)
+                })
+            return self._backends[backend]
+
         else:
             raise ValueError(f"不支持的后端类型: {backend}")
 
@@ -381,6 +393,13 @@ class ModelScheduler:
                         )
                         return resp.status_code == 200
                 except Exception:
+                    return False
+
+            elif backend_type == BackendType.LLAMACPP.value:
+                try:
+                    import llama_cpp
+                    return True
+                except ImportError:
                     return False
 
             elif backend_type == BackendType.CLOUD.value:
@@ -428,18 +447,26 @@ class ModelScheduler:
             except Exception as e:
                 logger.warning(f"获取 Ollama 模型列表失败: {e}")
 
-        if backend_type == BackendType.HUGGINGFACE.value or backend_type is None:
+        if backend_type == BackendType.HUGGINGFACE.value or backend_type == BackendType.LLAMACPP.value or backend_type is None:
             from core.config import get_settings
             settings = get_settings()
             models_dir = settings.models_dir_resolved
             if models_dir.exists():
                 for model_path in models_dir.iterdir():
-                    if model_path.is_dir():
-                        models.append({
-                            "name": model_path.name,
-                            "backend": BackendType.HUGGINGFACE.value,
-                            "path": str(model_path),
-                        })
+                    if backend_type == BackendType.LLAMACPP.value:
+                        if model_path.is_file() and model_path.suffix.lower() in [".gguf", ".ggml"]:
+                            models.append({
+                                "name": model_path.name,
+                                "backend": BackendType.LLAMACPP.value,
+                                "path": str(model_path),
+                            })
+                    else:
+                        if model_path.is_dir() or (model_path.is_file() and model_path.suffix.lower() in [".gguf", ".ggml"]):
+                            models.append({
+                                "name": model_path.name,
+                                "backend": BackendType.LLAMACPP.value if model_path.is_file() else BackendType.HUGGINGFACE.value,
+                                "path": str(model_path),
+                            })
 
         return models
 

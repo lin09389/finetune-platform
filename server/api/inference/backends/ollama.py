@@ -212,6 +212,7 @@ class OllamaBackend(InferenceBackend):
                 model=self.model_name,
                 messages=[OllamaMessage(role=m["role"], content=m["content"]) for m in messages],
                 stream=False,
+                format=getattr(request, "format", getattr(request, "response_format", None)) if hasattr(request, "format") or hasattr(request, "response_format") else None,
                 options=OllamaOptions(
                     num_predict=config.max_tokens,
                     temperature=config.temperature,

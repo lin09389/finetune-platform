@@ -27,13 +27,11 @@ class HuggingFaceBackend(InferenceBackend):
         self.load_in_4bit = config.get("load_in_4bit", False)
         self.trust_remote_code = config.get("trust_remote_code", False)
 
-        self._pipeline = None
-
     async def load_model(self, model_name: str, **kwargs) -> bool:
         """加载模型"""
         try:
             import torch
-            from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+            from transformers import AutoModelForCausalLM, AutoTokenizer
 
             logger.info(f"Loading HuggingFace model: {model_name}")
 
@@ -62,13 +60,6 @@ class HuggingFaceBackend(InferenceBackend):
 
             self._model = AutoModelForCausalLM.from_pretrained(**model_kwargs)
 
-            self._pipeline = pipeline(
-                "text-generation",
-                model=self._model,
-                tokenizer=self._tokenizer,
-                device_map=self.device
-            )
-
             self._is_loaded = True
             logger.info(f"HuggingFace model loaded: {model_name}")
 
@@ -88,11 +79,9 @@ class HuggingFaceBackend(InferenceBackend):
 
             del self._model
             del self._tokenizer
-            del self._pipeline
 
             self._model = None
             self._tokenizer = None
-            self._pipeline = None
 
             gc.collect()
 
@@ -127,27 +116,26 @@ class HuggingFaceBackend(InferenceBackend):
         start_time = time.time()
 
         try:
-            input_ids = self._tokenizer.encode(prompt, return_tensors="pt")
+            input_ids = self._tokenizer.encode(prompt, return_tensors="pt").to(self._model.device)
             prompt_tokens = len(input_ids[0])
 
-            outputs = await asyncio.to_thread(
-                self._pipeline,
-                prompt,
-                max_new_tokens=config.max_tokens,
-                temperature=config.temperature,
-                top_p=config.top_p,
-                top_k=config.top_k,
-                repetition_penalty=config.repetition_penalty,
-                do_sample=config.temperature > 0,
-                num_return_sequences=1,
-                pad_token_id=self._tokenizer.eos_token_id
-            )
+            def _generate_sync():
+                return self._model.generate(
+                    input_ids,
+                    max_new_tokens=config.max_tokens,
+                    temperature=config.temperature,
+                    top_p=config.top_p,
+                    top_k=config.top_k,
+                    repetition_penalty=config.repetition_penalty,
+                    do_sample=config.temperature > 0,
+                    pad_token_id=self._tokenizer.eos_token_id
+                )
 
-            generated_text = outputs[0]["generated_text"]
-            new_text = generated_text[len(prompt):]
+            outputs = await asyncio.to_thread(_generate_sync)
 
-            output_ids = self._tokenizer.encode(new_text, return_tensors="pt")
-            tokens_generated = len(output_ids[0])
+            output_ids = outputs[0][prompt_tokens:]
+            new_text = self._tokenizer.decode(output_ids, skip_special_tokens=True)
+            tokens_generated = len(output_ids)
 
             latency_ms = (time.time() - start_time) * 1000
 
@@ -204,16 +192,21 @@ class HuggingFaceBackend(InferenceBackend):
         thread = Thread(target=self._model.generate, kwargs=generation_kwargs)
         thread.start()
 
-        import queue
+        streamer_iter = iter(streamer)
         while True:
-            try:
-                new_text = await asyncio.to_thread(streamer.text_queue.get, True, 1.0)
-                if new_text == streamer.stop_signal:
-                    break
+            def get_next():
+                try:
+                    return next(streamer_iter)
+                except StopIteration:
+                    return None
+
+            new_text = await asyncio.to_thread(get_next)
+            if new_text is None:
+                break
+            if new_text:
                 yield new_text
-            except queue.Empty:
-                if not thread.is_alive():
-                    break
+
+        thread.join()
 
     async def chat(
         self,
@@ -267,6 +260,20 @@ class HuggingFaceBackend(InferenceBackend):
 
     def _format_chat_prompt(self, messages: list[dict[str, str]]) -> str:
         """格式化对话提示"""
+        if hasattr(self._tokenizer, "apply_chat_template"):
+            try:
+                formatted_messages = [
+                    {"role": msg.get("role", "user"), "content": msg.get("content", "")}
+                    for msg in messages
+                ]
+                return self._tokenizer.apply_chat_template(
+                    formatted_messages,
+                    tokenize=False,
+                    add_generation_prompt=True
+                )
+            except Exception as e:
+                logger.warning(f"apply_chat_template failed: {e}, falling back to manual formatting")
+
         formatted = []
 
         for msg in messages:

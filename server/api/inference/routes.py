@@ -28,6 +28,7 @@ from api.types import (
     KnowledgeSource,
 )
 from core.config import get_settings
+from core.performance import get_performance_monitor, PerformanceMetrics, StreamingMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -298,11 +299,27 @@ async def generate(request: GenerateRequest):
         raise HTTPException(503, "所有后端不可用")
 
     try:
-        return await circuit_breaker.execute_with_protection(
+        result = await circuit_breaker.execute_with_protection(
             backend_name,
             _do_generate,
             _fallback_generate
         )
+
+        if isinstance(result, GenerationResult) and result.latency_ms:
+            tps = (result.tokens_generated / (result.latency_ms / 1000.0)) if result.latency_ms > 0 else 0
+            try:
+                get_performance_monitor().record(PerformanceMetrics(
+                    tokens_per_second=tps,
+                    latency_ms=result.latency_ms,
+                    first_token_latency_ms=result.latency_ms, # for non-stream they are the same
+                    vram_used_gb=0.0, # Could retrieve real vram if needed
+                    model_id=result.model or request.model,
+                    engine_type=backend_name
+                ))
+            except Exception as metric_err:
+                logger.warning(f"记录性能指标失败: {metric_err}")
+
+        return result
 
     except CircuitBreakerOpenError:
         raise HTTPException(503, "服务暂时不可用，请稍后重试")
@@ -324,12 +341,40 @@ async def generate_stream(request: GenerateRequest):
 
     request.prompt = sanitize_input(request.prompt)
 
-    try:
+    backend_name = request.options.backend or "default"
+
+    async def _do_generate_stream():
         scheduler = get_scheduler()
         backend = await scheduler.get_backend(request.options.backend)
+        async for chunk in backend.generate_stream(request):
+            yield chunk
+
+    async def _fallback_generate_stream():
+        if request.options.backend != "cloud":
+            logger.info("本地后端不可用，尝试云端AI降级 (流式)")
+            import copy
+            cloud_request = GenerateRequest(
+                prompt=request.prompt,
+                model=request.model,
+                options=copy.deepcopy(request.options)
+            )
+            cloud_request.options.backend = "cloud"
+            scheduler = get_scheduler()
+            backend = await scheduler.get_backend("cloud")
+            async for chunk in backend.generate_stream(cloud_request):
+                yield chunk
+        else:
+            raise HTTPException(503, "所有后端不可用")
+
+    try:
+        protected_stream = circuit_breaker.execute_stream_with_protection(
+            backend_name,
+            _do_generate_stream,
+            _fallback_generate_stream
+        )
 
         return StreamingResponse(
-            backend.generate_stream(request),
+            protected_stream,
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -338,6 +383,8 @@ async def generate_stream(request: GenerateRequest):
             }
         )
 
+    except CircuitBreakerOpenError:
+        raise HTTPException(503, "服务暂时不可用，请稍后重试")
     except APIError:
         raise
     except Exception as e:
@@ -399,11 +446,12 @@ async def chat(request: ChatRequest):
 
     _inject_system_prompt_message(request, system_prompt)
 
-    try:
+    backend_name = request.options.backend or "ollama"
+
+    async def _do_chat():
         scheduler = get_scheduler()
         backend = await scheduler.get_backend(request.options.backend)
 
-        backend_name = request.options.backend or "ollama"
         if backend_name == "ollama":
             as_dict_messages = [
                 {
@@ -431,7 +479,7 @@ async def chat(request: ChatRequest):
                     Message(role=_to_role(str(message.get("role", "user"))), content=str(message.get("content", "")))
                     for message in patched_messages
                 ]
-            result = await backend.chat(request)
+            return await backend.chat(request)
         else:
             messages = [
                 {
@@ -443,7 +491,7 @@ async def chat(request: ChatRequest):
             if system_prompt and (not messages or messages[0]["role"] != "system"):
                 messages = [{"role": "system", "content": system_prompt}, *messages]
 
-            result = await backend.chat(
+            return await backend.chat(
                 messages,
                 GenerationConfig(
                     max_tokens=request.options.max_tokens,
@@ -454,6 +502,48 @@ async def chat(request: ChatRequest):
                 ),
             )
 
+    async def _fallback_chat():
+        if request.options.backend != "cloud":
+            logger.info("本地后端不可用，尝试云端AI降级 (Chat)")
+            import copy
+            cloud_request = ChatRequest(
+                model=request.model,
+                messages=copy.deepcopy(request.messages),
+                options=copy.deepcopy(request.options)
+            )
+            cloud_request.options.backend = "cloud"
+            scheduler = get_scheduler()
+            backend = await scheduler.get_backend("cloud")
+            messages = [
+                {
+                    "role": msg.role.value if hasattr(msg.role, "value") else msg.role,
+                    "content": msg.content,
+                }
+                for msg in cloud_request.messages
+            ]
+            if system_prompt and (not messages or messages[0]["role"] != "system"):
+                messages = [{"role": "system", "content": system_prompt}, *messages]
+
+            return await backend.chat(
+                messages,
+                GenerationConfig(
+                    max_tokens=cloud_request.options.max_tokens,
+                    temperature=cloud_request.options.temperature,
+                    top_p=cloud_request.options.top_p,
+                    top_k=cloud_request.options.top_k,
+                    repetition_penalty=cloud_request.options.repetition_penalty,
+                ),
+            )
+        else:
+            raise HTTPException(503, "所有后端不可用")
+
+    try:
+        result = await circuit_breaker.execute_with_protection(
+            backend_name,
+            _do_chat,
+            _fallback_chat
+        )
+
         logger.info(f"Chat result type: {type(result)}, isinstance GenerationResult: {isinstance(result, GenerationResult)}")
         if hasattr(result, 'text'):
             logger.info(f"Result text: {result.text[:100] if result.text else 'empty'}...")
@@ -462,6 +552,21 @@ async def chat(request: ChatRequest):
 
         if isinstance(result, GenerationResult):
             from api.types import Message, MessageRole, TokenUsage
+            
+            if result.latency_ms:
+                tps = (result.tokens_generated / (result.latency_ms / 1000.0)) if result.latency_ms > 0 else 0
+                try:
+                    get_performance_monitor().record(PerformanceMetrics(
+                        tokens_per_second=tps,
+                        latency_ms=result.latency_ms,
+                        first_token_latency_ms=result.latency_ms,
+                        vram_used_gb=0.0,
+                        model_id=result.model or request.model,
+                        engine_type=backend_name
+                    ))
+                except Exception as metric_err:
+                    logger.warning(f"记录性能指标失败: {metric_err}")
+
             response = ChatResponse(
                 message=Message(
                     role=MessageRole.ASSISTANT,
@@ -483,6 +588,8 @@ async def chat(request: ChatRequest):
                     "tokens_generated": result.tokens_generated,
                     "prompt_tokens": result.prompt_tokens,
                     "total_tokens": result.total_tokens,
+                    "error": result.metadata.get("error") if result.metadata else None,
+                    "metadata": result.metadata or {},
                 },
             )
         else:
@@ -540,6 +647,8 @@ async def chat(request: ChatRequest):
 
         return response
 
+    except CircuitBreakerOpenError:
+        raise HTTPException(503, "服务暂时不可用，请稍后重试")
     except APIError:
         raise
     except Exception as e:
@@ -585,12 +694,13 @@ async def chat_stream(request: ChatRequest):
         base_system_prompt=system_prompt,
     )
 
-    try:
+    backend_name = request.options.backend or "ollama"
+    model_name = request.model
+
+    async def _do_chat_stream():
         scheduler = get_scheduler()
         backend = await scheduler.get_backend(request.options.backend)
 
-        backend_name = request.options.backend or "ollama"
-        model_name = request.model
         messages = [
             {
                 "role": msg.role.value if hasattr(msg.role, "value") else msg.role,
@@ -598,9 +708,9 @@ async def chat_stream(request: ChatRequest):
             }
             for msg in request.messages
         ]
-        messages = _inject_system_prompt_dict(messages, system_prompt)
+        local_messages = _inject_system_prompt_dict(messages, system_prompt)
         if backend_name == "ollama":
-            messages = enforce_fast_ollama_response(messages, model_name, settings.ollama_fast_mode)
+            local_messages = enforce_fast_ollama_response(local_messages, model_name, settings.ollama_fast_mode)
 
         if hasattr(backend, "model_name") and model_name:
             backend.model_name = model_name
@@ -615,6 +725,47 @@ async def chat_stream(request: ChatRequest):
             stream=True,
         )
 
+        async for chunk in backend.chat_stream(local_messages, generation_config):
+            yield chunk
+
+    async def _fallback_chat_stream():
+        if request.options.backend != "cloud":
+            logger.info("本地后端不可用，尝试云端AI降级 (Chat流式)")
+            import copy
+            cloud_request = ChatRequest(
+                model=request.model,
+                messages=copy.deepcopy(request.messages),
+                options=copy.deepcopy(request.options)
+            )
+            cloud_request.options.backend = "cloud"
+            scheduler = get_scheduler()
+            backend = await scheduler.get_backend("cloud")
+            
+            messages = [
+                {
+                    "role": msg.role.value if hasattr(msg.role, "value") else msg.role,
+                    "content": msg.content,
+                }
+                for msg in cloud_request.messages
+            ]
+            local_messages = _inject_system_prompt_dict(messages, system_prompt)
+
+            generation_config = GenerationConfig(
+                max_tokens=cloud_request.options.max_tokens,
+                temperature=cloud_request.options.temperature,
+                top_p=cloud_request.options.top_p,
+                top_k=cloud_request.options.top_k,
+                repetition_penalty=cloud_request.options.repetition_penalty,
+                stop_sequences=cloud_request.options.stop or [],
+                stream=True,
+            )
+
+            async for chunk in backend.chat_stream(local_messages, generation_config):
+                yield chunk
+        else:
+            raise HTTPException(503, "所有后端不可用")
+
+    try:
         async def generate():
             started_at = time.time()
             first_token_time = None
@@ -638,10 +789,18 @@ async def chat_stream(request: ChatRequest):
 
                 buffer = []
                 last_yield_time = time.time()
+                total_chunks = 0
 
-                async for chunk in backend.chat_stream(messages, generation_config):
+                protected_stream = circuit_breaker.execute_stream_with_protection(
+                    backend_name,
+                    _do_chat_stream,
+                    _fallback_chat_stream
+                )
+
+                async for chunk in protected_stream:
                     if not chunk:
                         continue
+                    total_chunks += 1
                     if first_token_time is None:
                         first_token_time = time.time()
                         ttft_ms = int((first_token_time - started_at) * 1000)
@@ -684,6 +843,22 @@ async def chat_stream(request: ChatRequest):
                 yield f"data: {json.dumps({'type': 'metadata', 'model': model_name, 'backend': backend_name, 'duration_ms': duration_ms}, ensure_ascii=False)}\n\n"
                 yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
                 yield "data: [DONE]\n\n"
+
+                # Record metrics
+                if first_token_time:
+                    try:
+                        get_performance_monitor().record_streaming(StreamingMetrics(
+                            total_tokens=total_chunks, # Rough estimate (chunks usually = tokens)
+                            total_time_ms=duration_ms,
+                            first_token_latency_ms=(first_token_time - started_at) * 1000,
+                            avg_chunk_latency_ms=duration_ms / max(total_chunks, 1),
+                            max_chunk_latency_ms=0.0,
+                            min_chunk_latency_ms=0.0,
+                            backpressure_events=0
+                        ))
+                    except Exception as metric_err:
+                        logger.warning(f"记录流式性能指标失败: {metric_err}")
+
             except Exception as stream_error:
                 logger.error(f"流式聊天输出失败: {stream_error}", exc_info=True)
                 yield f"data: {json.dumps({'type': 'error', 'error': str(stream_error)}, ensure_ascii=False)}\n\n"
@@ -699,6 +874,8 @@ async def chat_stream(request: ChatRequest):
             }
         )
 
+    except CircuitBreakerOpenError:
+        raise HTTPException(503, "服务暂时不可用，请稍后重试")
     except APIError:
         raise
     except Exception as e:

@@ -12,6 +12,7 @@ transformers==4.57.1
 accelerate==1.13.0
 peft==0.18.1
 bitsandbytes==0.41.3
+llama-cpp-python>=0.2.79
 
 # Training and data
 scipy==1.11.4

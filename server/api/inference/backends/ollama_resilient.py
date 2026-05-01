@@ -186,6 +186,35 @@ class OllamaResilientBackend(InferenceBackend):
         
         raise last_exception or Exception("Request failed")
 
+    async def _retry_stream_with_backoff(self, stream_func):
+        """带指数退避的流式重试机制（仅在未输出任何内容时重试）"""
+        last_exception = None
+        
+        for attempt in range(self.max_retries):
+            chunks_yielded = 0
+            try:
+                async for chunk in stream_func():
+                    chunks_yielded += 1
+                    yield chunk
+                return
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                if chunks_yielded > 0:
+                    raise e
+                last_exception = e
+                if attempt < self.max_retries - 1:
+                    delay = self.retry_delay * (2 ** attempt)
+                    logger.warning(
+                        f"Ollama stream failed (attempt {attempt + 1}/{self.max_retries}), "
+                        f"retrying in {delay}s: {e}"
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(f"Ollama stream failed after {self.max_retries} attempts")
+            except Exception as e:
+                raise e
+        
+        raise last_exception or Exception("Stream request failed")
+
     async def _iter_ndjson_objects(self, response: aiohttp.ClientResponse):
         """Iterate NDJSON objects from a chunked response safely."""
         import json
@@ -340,7 +369,7 @@ class OllamaResilientBackend(InferenceBackend):
                         yield data["response"]
 
         try:
-            async for chunk in _stream():
+            async for chunk in self._retry_stream_with_backoff(_stream):
                 yield chunk
         except Exception as e:
             logger.error(f"Ollama stream failed: {e}")
@@ -449,7 +478,7 @@ class OllamaResilientBackend(InferenceBackend):
                         yield content
 
         try:
-            async for chunk in _stream():
+            async for chunk in self._retry_stream_with_backoff(_stream):
                 yield chunk
         except Exception as e:
             logger.error(f"Ollama chat stream failed: {e}")

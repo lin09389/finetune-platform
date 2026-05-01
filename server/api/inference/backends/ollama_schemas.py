@@ -38,6 +38,7 @@ class OllamaChatRequest(BaseModel):
     model: str
     messages: list[OllamaMessage]
     stream: bool = Field(default=False, description="Chat stream behavior")
+    format: Optional[str | dict] = None
     options: Optional[OllamaOptions] = None
     keep_alive: Optional[str] = None
     think: Optional[bool] = None

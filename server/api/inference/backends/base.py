@@ -13,6 +13,7 @@ class BackendType(str, Enum):
     HUGGINGFACE = "huggingface"
     OLLAMA = "ollama"
     VLLM = "vllm"
+    LLAMACPP = "llama-cpp"
     CLOUD = "cloud"
 
 

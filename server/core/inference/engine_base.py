@@ -17,6 +17,7 @@ class InferenceBackend(str, Enum):
     HUGGINGFACE = "huggingface"
     OLLAMA = "ollama"
     VLLM = "vllm"
+    LLAMACPP = "llama-cpp"
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     CUSTOM = "custom"
