@@ -8,9 +8,9 @@ Finetune Platform 2.0 - 企业级大模型微调平台，专为消费级显卡�
 
 **技术栈：**
 - 后端：FastAPI + Python 3.10+（PyTorch、Transformers、PEFT）
-- 前端：React 18 + TypeScript + Ant Design + Vite
+- 前端：React 18 + TypeScript + Ant Design + Vite + Framer Motion
 - 桌面端：Electron（可选）
-- 存储：ChromaDB（向量存储）、JSON（训练历史）
+- 存储：SQLite（应用/工作流状态）、ChromaDB（向量存储）、JSON（训练/评估历史）
 - 部署：Docker + Docker Compose
 
 ## 开发命令
@@ -20,10 +20,10 @@ Finetune Platform 2.0 - 企业级大模型微调平台，专为消费级显卡�
 ```bash
 # 启动后端服务
 cd server
-python -m uvicorn main:app --host 127.0.0.1 --port 8000
+python -m uvicorn main:app --host 127.0.0.1 --port 8010
 
 # 开发模式（自动重载）
-python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+python -m uvicorn main:app --host 127.0.0.1 --port 8010 --reload
 
 # 运行测试
 pytest
@@ -32,6 +32,9 @@ pytest --cov=server --cov-report=html
 # 运行单个测试
 pytest server/tests/test_training.py -v
 pytest server/tests/test_training.py::test_start_training -v
+pytest server/tests/test_workflow_observability_actions.py -v
+pytest server/tests/test_chat_agent.py -v
+pytest server/tests/test_evaluation_deployment.py -v
 ```
 
 ### 前端
@@ -48,6 +51,7 @@ npm run build
 npm test
 npm run test:ui
 npm run test:coverage
+npm run test:smoke
 
 # 类型检查
 npm run typecheck
@@ -57,6 +61,11 @@ npm run lint
 
 # 代码格式化
 npm run format
+
+# Storybook / 性能检查
+npm run storybook
+npm run build-storybook
+npm run test:perf
 ```
 
 ### Docker
@@ -113,8 +122,26 @@ server/
 │   ├── memory.py          # 智能记忆
 │   ├── agent.py           # Agent 操作
 │   ├── cloud_chat.py      # 云端 AI 集成
+│   ├── chat_agent.py      # Chat Agent 运行入口
+│   ├── workflows.py       # 多 Agent 工作流、观测与动作审批
+│   ├── evaluation.py      # 模型评估任务（后台执行/轮询）
+│   ├── deployment.py      # 模型部署包管理
+│   ├── model_center.py    # ModelScope/HuggingFace 模型中心
 │   └── gateway/           # Gateway API 路由
 │       └── routes.py      # 设备认证、消息路由端点
+├── agent_runtime/         # 多 Agent 工作流运行时
+│   ├── engine.py          # 工作流执行引擎
+│   ├── runner.py          # Agent 执行适配
+│   ├── service.py         # 工作流应用服务
+│   ├── repository.py      # 工作流持久化
+│   ├── actions.py         # 审批门控动作执行（patch/command）
+│   ├── models.py          # 工作流 Pydantic 模型
+│   └── templates.py       # 内置工作流模板
+├── chat_agent/            # 从聊天触发 Agent 工作流
+│   ├── intent.py          # 意图分类与触发判断
+│   ├── models.py          # Chat Agent API 模型
+│   ├── repository.py      # Chat Agent run 持久化
+│   └── service.py         # Chat Agent 编排服务
 ├── gateway/               # Gateway 统一入口（借鉴 OpenClaw）
 │   ├── server.py          # WebSocket 服务器
 │   ├── router.py          # 消息路由器
@@ -133,7 +160,8 @@ server/
 │   ├── training_state.py  # 线程安全训练状态管理器
 │   ├── training_queue.py  # 训练任务队列（最大并发数）
 │   ├── model_cache.py     # 模型缓存（减少重复加载）
-│   ├── db_manager.py      # 数据库管理
+│   ├── db_manager.py      # SQLite 连接池与事务管理
+│   ├── migrations/        # 应用数据库迁移脚本
 │   ├── utils.py           # 工具函数（显存、清理、验证）
 │   ├── quantization.py    # 量化模型支持（GPTQ/AWQ/GGUF）
 │   ├── batching.py        # 动态批处理
@@ -176,7 +204,10 @@ client/src/
 │   ├── DatasetManager.tsx # 数据集管理
 │   ├── Training.tsx       # 训练界面
 │   ├── Chat.tsx           # 对话界面
+│   ├── ChatNew.tsx        # 新版对话界面（流式/Agent 卡片）
 │   ├── Inference.tsx      # 推理测试
+│   ├── Evaluation.tsx     # 模型评估与人工评分
+│   ├── Workflows.tsx      # 多 Agent 工作流观测与审批
 │   ├── KnowledgeBase.tsx  # RAG 知识库
 │   ├── ProjectContext.tsx # 项目上下文
 │   └── History.tsx        # 训练历史
@@ -185,11 +216,16 @@ client/src/
 │   ├── HeaderBar.tsx      # 顶部导航栏
 │   ├── ChatMessage.tsx    # 聊天消息显示
 │   ├── CodePreview.tsx    # 代码高亮
-│   └── TrainingChart.tsx  # 训练指标图表
+│   ├── TrainingChart.tsx  # 训练指标图表
+│   ├── chat/              # Chat 输入、建议、Agent 运行卡片
+│   └── motion/            # Framer Motion 动效组件
 ├── services/
 │   └── api.ts             # Axios API 客户端
 ├── store/
 │   └── appStore.ts        # Zustand 状态管理
+├── theme/
+│   └── motion-tokens.ts   # 动效 token
+├── stories/               # Storybook 示例
 └── types/                 # TypeScript 类型定义
 ```
 
@@ -246,6 +282,31 @@ client/src/
 - 中期记忆（Episodic Memory）
 - 长期记忆（Semantic Memory）
 
+**11. Workflow Runtime 与观测**
+- `WorkflowRuntimeRepository` 使用 SQLite 迁移维护工作流、步骤日志、动作建议与执行记录
+- `GET /workflows/{workflow_id}/observability` 汇总状态、step logs、actions、recent events
+- `GET /workflows/{workflow_id}/events/stream` 使用 SSE 推送工作流事件
+
+**12. 审批门控动作执行**
+- Agent 只能提出 `patch` / `command` action，必须先 approve 再 execute
+- patch 写入会校验目标路径必须位于当前工作区根内
+- command 只允许白名单命令前缀（如 `npm run typecheck`、`python -m pytest`）
+
+**13. Chat Agent 编排**
+- `/chat-agent/runs` 根据意图判断普通聊天或创建工作流
+- Agent run 与 chat session/message 关联，前端用 AgentRunCard 展示进度、审批与执行结果
+- 事件流端点：`GET /chat-agent/runs/{run_id}/events/stream`
+
+**14. 异步评估任务**
+- `POST /evaluation/runs` 立即创建 pending run，并通过后台任务执行真实推理/指标计算
+- `GET /evaluation/runs/{run_id}` 用于前端轮询状态
+- 人工评分通过 `POST /evaluation/runs/{run_id}/score` 写回并重新计算指标
+
+**15. 前端动效与体验层**
+- Framer Motion 封装在 `client/src/components/motion/`
+- 动效 token 在 `client/src/theme/motion-tokens.ts`
+- Storybook 配置位于 `client/.storybook/`
+
 ## 配置说明
 
 环境变量（`.env` 文件）：
@@ -253,10 +314,10 @@ client/src/
 ```bash
 # 服务器配置
 HOST=127.0.0.1
-PORT=8000
+PORT=8010
 
 # CORS 配置
-ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+ALLOWED_ORIGINS=*
 
 # Ollama 配置
 OLLAMA_BASE_URL=http://localhost:11434
@@ -278,6 +339,7 @@ CHECKPOINT_INTERVAL=500
 RATE_LIMIT=100
 RATE_WINDOW=60
 MAX_UPLOAD_SIZE=104857600
+ALLOWED_FILE_TYPES=.json,.jsonl
 
 # 日志配置
 LOG_LEVEL=INFO
@@ -323,12 +385,26 @@ LOG_FORMAT=text  # 或 "json"
 - **检索器**：代码库语义搜索
 - **集成**：自动注入上下文到聊天提示词
 
+### Workflow / Chat Agent
+
+- **工作流运行时**：`server/agent_runtime/` 管理模板、执行、事件、上下文、记忆和动作建议
+- **动作审批**：`WorkflowActionService` 执行前必须审批，且限制 patch 路径和 command 白名单
+- **Chat Agent**：`server/chat_agent/` 将聊天意图升级为工作流，并把事件映射回聊天 UI
+- **前端入口**：`client/src/pages/Workflows.tsx` 与 `client/src/components/chat/AgentRunCard.tsx`
+
+### 评估系统
+
+- **异步执行**：创建评估 run 后立即返回，后台补齐推理输出、指标和失败样本
+- **轮询状态**：前端通过 `getEvaluationRun` 轮询 pending/running/completed 状态
+- **人工评分**：支持对每个 case 标记 good/neutral/bad，并更新指标
+
 ### 安全特性
 
 - **速率限制**：内存存储 + 滑动窗口
 - **文件上传验证**：类型检查、大小限制、内容验证
 - **路径遍历防护**：严格路径验证
 - **CORS**：可配置允许来源
+- **Agent 动作隔离**：动作执行限制在工作区内，命令执行使用 allowlist
 
 ## 测试
 
@@ -340,6 +416,9 @@ LOG_FORMAT=text  # 或 "json"
 - `test_datasets.py` - 数据集操作
 - `test_training.py` - 训练生命周期
 - `test_inference.py` - 推理端点
+- `test_workflow_observability_actions.py` - 工作流观测与动作审批
+- `test_chat_agent.py` - Chat Agent 触发、事件流与动作执行
+- `test_evaluation_deployment.py` - 评估与部署链路
 
 运行：`pytest -v`
 
@@ -347,6 +426,8 @@ LOG_FORMAT=text  # 或 "json"
 
 位于 `client/src/test/`：
 - 使用 Vitest + React Testing Library
+- `motion.test.tsx` 覆盖动效组件基础行为
+- `gaSmokePages.test.tsx` 覆盖 GA 页面 smoke
 - 运行：`npm test`
 
 ## 常见问题
@@ -367,13 +448,13 @@ LOG_FORMAT=text  # 或 "json"
 - 重启后端清除状态
 
 **4. 前端无法连接**
-- 确保后端在正确端口运行
+- 确保后端在正确端口运行（当前 Windows 启动脚本和前端默认指向 `8010`）
 - 检查 `.env` 中的 CORS 设置
 - 验证防火墙规则
 
 ## API 文档
 
-完整 API 文档：`http://localhost:8000/docs`（Swagger UI）
+完整 API 文档：`http://localhost:8010/docs`（Swagger UI）
 
 主要端点：
 - 设备：`/device/info`、`/device/vram`
@@ -381,15 +462,22 @@ LOG_FORMAT=text  # 或 "json"
 - 数据集：`/datasets`、`/datasets/upload`、`/datasets/{id}/statistics`
 - 训练：`/training/status`、`/training/start`、`/training/stop`、`/training/progress/stream`
 - Chat Session：`/chat/sessions`、`/chat/sessions/{session_id}`、`/chat/sessions/{session_id}/messages`
+- Chat Agent：`/chat-agent/runs`、`/chat-agent/runs/{run_id}/run`、`/chat-agent/runs/{run_id}/events/stream`
 - 推理：`/inference/chat`、`/inference/stream`、`/inference/merge`
+- 评估：`/evaluation/runs`、`/evaluation/runs/{run_id}`、`/evaluation/runs/{run_id}/score`
+- 部署：`/deployment/packages`、`/deployment/packages/{package_id}`
+- 工作流：`/workflows`、`/workflows/{workflow_id}/observability`、`/workflow-actions/{action_id}/approve`
 - RAG：`/rag/upload`、`/rag/query`
 - 上下文：`/context/scan`、`/context/index`、`/context/retrieve`
+- 模型中心：`/model-center/suggestions`、`/model-center/download/{task_id}`、`/model-center/local`
 - Gateway：`/gateway/status`、`/gateway/devices`、`/gateway/messages`、`/gateway/bindings`、`/gateway/ws`
 - 性能监控：`/inference/performance`、`/inference/optimize`
 
-架构收口现状（2026-04-08）：
+架构收口现状（2026-04-28）：
 - `Chat` 兼容旧路由已下线，统一使用 `/chat/sessions...`
 - `Training` 根别名 `GET /training` 已下线，统一使用 `/training/status`
+- `Evaluation` 已改为后台执行 + 前端轮询，创建接口不再等待长推理完成
+- `Workflow Runtime / Chat Agent` 已具备观测、事件流和审批门控动作执行
 - `Gateway / Heartbeat / CUA / MCP` 当前按 experimental 对待，页面提示不代表稳定主承诺
 
 ## 项目特性
