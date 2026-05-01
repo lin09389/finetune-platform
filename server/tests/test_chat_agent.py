@@ -58,6 +58,7 @@ def test_agent_intent_creates_workflow_and_run(tmp_path):
             "chat_session_id": "chat_1",
             "message_id": "msg_1",
             "content": "给当前项目新增一个 smoke patch 并跑 typecheck",
+            "agent_id": "build",
             "project_path": str(Path.cwd()),
         },
     )
@@ -67,6 +68,7 @@ def test_agent_intent_creates_workflow_and_run(tmp_path):
     data = response.json()
     assert data["mode"] == "agent"
     assert data["workflow_id"]
+    assert data["active_agent_id"] == "build"
     assert data["workflow"]["goal"].startswith("给当前项目")
     assert data["details_url"] == f"/workflows?workflow={data['workflow_id']}"
 
@@ -82,6 +84,7 @@ def test_run_streams_events_and_action_can_execute_from_chat_agent(tmp_path):
     ).json()
 
     run_response = client.post(f"/chat-agent/runs/{run['id']}/run").json()
+    assert "完成 Agent 步骤" in run_response["summary"]
     actions = run_response["observability"]["actions"]
     patch_action = actions[0]
     blocked = client.post(f"/chat-agent/actions/{patch_action['id']}/execute")

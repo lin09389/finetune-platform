@@ -11,6 +11,9 @@ from digital_team.prompts import ceo_prompt, developer_prompt, reviewer_prompt
 from security.encryption import secure_storage
 
 from .definitions import RuntimeExecutionContext
+from .tool_loop import AgentToolLoop
+from .tool_models import AgentToolResult
+from .tools import AgentToolExecutor
 
 
 ACTION_ARTIFACT_GUIDE = {
@@ -72,12 +75,7 @@ def parse_agent_output(content: str) -> AgentOutput:
 
 
 class AgentRuntimeRunner:
-    async def execute(
-        self,
-        agent_id: str,
-        context: RuntimeExecutionContext,
-        step_input: dict[str, Any] | None = None,
-    ) -> AgentOutput:
+    def _provider_for_context(self, context: RuntimeExecutionContext):
         key_data = secure_storage.get(f"cloud_{context.provider}_key") or {}
         api_key = key_data.get("api_key", "")
         if not api_key:
@@ -86,15 +84,235 @@ class AgentRuntimeRunner:
         provider = resolve_saved_provider(context.provider, key_data)
         if provider is None:
             raise RuntimeError(f"不支持的云端服务商: {context.provider}")
-
-        messages = self._build_messages(agent_id, context, step_input or {})
         selected_model = context.model or key_data.get("default_model") or provider.get_default_model()
+        return provider, api_key, selected_model
+
+    async def execute(
+        self,
+        agent_id: str,
+        context: RuntimeExecutionContext,
+        step_input: dict[str, Any] | None = None,
+    ) -> AgentOutput:
+        provider, api_key, selected_model = self._provider_for_context(context)
+        messages = self._build_messages(agent_id, context, step_input or {})
         response = await provider.chat(
             messages=messages,
             model=selected_model,
             api_key=api_key,
             temperature=0.3,
             max_tokens=3000,
+        )
+        return parse_agent_output(response.get("content", ""))
+
+    async def execute_tool_loop(
+        self,
+        agent_id: str,
+        context: RuntimeExecutionContext,
+        step_input: dict[str, Any],
+        *,
+        project: dict[str, Any],
+        task: dict[str, Any],
+        repository: Any,
+        action_service: Any,
+        trace_id: str | None = None,
+    ) -> AgentOutput:
+        provider, api_key, selected_model = self._provider_for_context(context)
+
+        async def model_call(messages: list[dict[str, str]]) -> str:
+            response = await provider.chat(
+                messages=messages,
+                model=selected_model,
+                api_key=api_key,
+                temperature=0.2,
+                max_tokens=2200,
+            )
+            return response.get("content", "")
+
+        async def delegate_call(
+            parent_agent_id: str,
+            arguments: dict[str, Any],
+            delegate_context: RuntimeExecutionContext,
+            raw_step_input: dict[str, Any],
+        ) -> AgentToolResult:
+            return await self.execute_subagent(
+                parent_agent_id,
+                arguments,
+                delegate_context,
+                raw_step_input,
+                project=project,
+                task=task,
+                repository=repository,
+            )
+
+        loop = AgentToolLoop(
+            repository=repository,
+            executor=AgentToolExecutor(repository, action_service),
+            max_iterations=6,
+        )
+        response = await loop.run(
+            agent_id=agent_id,
+            context=context,
+            step_input=step_input,
+            project=project,
+            task=task,
+            model_call=model_call,
+            delegate_call=delegate_call,
+            trace_id=trace_id,
+        )
+        return response.output
+
+    async def execute_subagent(
+        self,
+        parent_agent_id: str,
+        arguments: dict[str, Any],
+        context: RuntimeExecutionContext,
+        step_input: dict[str, Any],
+        *,
+        project: dict[str, Any],
+        task: dict[str, Any],
+        repository: Any,
+    ) -> AgentToolResult:
+        available = {
+            item.get("id"): item
+            for item in (step_input.get("available_subagents") or [])
+            if isinstance(item, dict) and item.get("id")
+        }
+        target_id = str(arguments.get("agent_id") or "").strip()
+        if not target_id:
+            return AgentToolResult(tool="delegate_agent", status="failed", error="agent_id is required")
+        if target_id not in list((step_input.get("agent") or {}).get("handoff_targets") or []):
+            return AgentToolResult(tool="delegate_agent", status="failed", error=f"{parent_agent_id} cannot delegate to {target_id}")
+        target = available.get(target_id)
+        if not target:
+            return AgentToolResult(tool="delegate_agent", status="failed", error=f"subagent {target_id} is not available")
+
+        subagent_stack = list(context.metadata.get("subagent_stack") or [])
+        if len(subagent_stack) >= 2:
+            return AgentToolResult(tool="delegate_agent", status="failed", error="subagent depth limit reached")
+        subgoal = str(arguments.get("task") or context.goal).strip() or context.goal
+
+        metadata = dict(project.get("metadata") or {})
+        metadata["active_agent_id"] = target_id
+        repository.update_project(project["id"], metadata=metadata)
+        repository.add_event(
+            project["id"],
+            task.get("id"),
+            "subagent_started",
+            target_id,
+            f"子 Agent {target_id} 开始处理委派任务",
+            {"parent_agent_id": parent_agent_id, "task": subgoal},
+        )
+        try:
+            output = await self.execute(
+                target_id,
+                RuntimeExecutionContext(
+                    workflow_id=context.workflow_id,
+                    goal=subgoal,
+                    project_path=context.project_path,
+                    project_context=context.project_context,
+                    chat_context=context.chat_context,
+                    memory_context=context.memory_context,
+                    artifact_context=context.artifact_context,
+                    context_pack=context.context_pack,
+                    context_sources=context.context_sources,
+                    provider=context.provider,
+                    model=context.model,
+                    metadata={**context.metadata, "subagent_stack": [*subagent_stack, target_id]},
+                ),
+                {
+                    "agent": target,
+                    "step": {"step_key": f"subagent_{target_id}", "title": target.get("name", target_id)},
+                    "previous_outputs": [],
+                },
+            )
+            metadata = dict(project.get("metadata") or {})
+            metadata["active_agent_id"] = parent_agent_id
+            metadata["subagent_runs"] = [
+                *(metadata.get("subagent_runs") or []),
+                {
+                    "agent_id": target_id,
+                    "parent_agent_id": parent_agent_id,
+                    "task": subgoal,
+                    "status": "completed",
+                    "summary": output.summary,
+                },
+            ]
+            repository.update_project(project["id"], metadata=metadata)
+            repository.add_event(
+                project["id"],
+                task.get("id"),
+                "subagent_completed",
+                target_id,
+                f"子 Agent {target_id} 已返回结果",
+                {"task": subgoal, "summary": output.summary},
+            )
+            return AgentToolResult(
+                tool="delegate_agent",
+                status="completed",
+                summary=f"子 Agent {target_id} 已完成委派任务",
+                payload={"agent_id": target_id, "task": subgoal, "output": output.model_dump()},
+                permission_decision="allow",
+            )
+        except Exception as exc:
+            metadata = dict(project.get("metadata") or {})
+            metadata["active_agent_id"] = parent_agent_id
+            repository.update_project(project["id"], metadata=metadata)
+            repository.add_event(
+                project["id"],
+                task.get("id"),
+                "subagent_failed",
+                target_id,
+                f"子 Agent {target_id} 执行失败：{exc}",
+                {"task": subgoal},
+            )
+            return AgentToolResult(tool="delegate_agent", status="failed", error=str(exc), summary="子 Agent 执行失败")
+
+    async def repair_after_action_failure(self, project: dict[str, Any], action: dict[str, Any]) -> AgentOutput:
+        context = RuntimeExecutionContext(
+            workflow_id=project["id"],
+            goal=project["goal"],
+            project_path=project.get("project_path"),
+            provider=project["provider"],
+            model=project.get("model"),
+        )
+        provider, api_key, selected_model = self._provider_for_context(context)
+        latest_execution = (action.get("executions") or [])[-1] if action.get("executions") else {}
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是修复失败动作的 Implementer。请基于失败输出生成新的 action artifact。"
+                    "只允许输出 JSON AgentOutput；不要自动执行；需要改文件时输出 patch，"
+                    "需要验证时输出 command。"
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "goal": project.get("goal"),
+                        "failed_action": action,
+                        "latest_execution": latest_execution,
+                        "required_json_schema": {
+                            "summary": "string",
+                            "tasks": "array",
+                            "risks": "array",
+                            "artifacts": [ACTION_ARTIFACT_GUIDE["patch"], ACTION_ARTIFACT_GUIDE["command"]],
+                            "next_action": "string",
+                            "requires_approval": True,
+                        },
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+            },
+        ]
+        response = await provider.chat(
+            messages=messages,
+            model=selected_model,
+            api_key=api_key,
+            temperature=0.2,
+            max_tokens=2200,
         )
         return parse_agent_output(response.get("content", ""))
 

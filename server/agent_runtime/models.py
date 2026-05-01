@@ -21,6 +21,7 @@ class WorkflowCreate(BaseModel):
     max_context_chars: int = Field(default=6000, ge=500, le=30000)
     provider: str = "minimax"
     model: str | None = None
+    agent_id: str | None = None
     approval_mode: str = "manual"
 
 
@@ -187,7 +188,29 @@ class WorkflowStepLogResponse(BaseModel):
     started_at: str | None = None
     completed_at: str | None = None
     duration_ms: int | None = None
+    trace_id: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+
+
+class WorkflowToolCallResponse(BaseModel):
+    id: str
+    workflow_id: str
+    step_id: str | None = None
+    agent_id: str | None = None
+    tool_name: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    status: str
+    result_summary: str = ""
+    result_payload: dict[str, Any] = Field(default_factory=dict)
+    permission_decision: str | None = None
+    blocked_reason: str | None = None
+    replay_of_call_id: str | None = None
+    trace_id: str | None = None
+    error: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    duration_ms: int | None = None
     created_at: str
 
 
@@ -214,6 +237,12 @@ class WorkflowActionResponse(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
     status: str
     created_by: str = "agent"
+    execution_mode: str | None = None
+    policy_reason: str | None = None
+    auto_executed_at: str | None = None
+    execution_state: str | None = None
+    changed_files: list[str] = Field(default_factory=list)
+    failure_summary: str = ""
     approved_at: str | None = None
     rejected_at: str | None = None
     executed_at: str | None = None
@@ -226,9 +255,15 @@ class WorkflowObservabilityResponse(BaseModel):
     workflow_id: str
     status: str
     current_stage: str | None = None
+    active_agent_id: str | None = None
+    subagent_runs: list[dict[str, Any]] = Field(default_factory=list)
+    auto_execution_policy: dict[str, Any] = Field(default_factory=dict)
+    blocked_state: dict[str, Any] | None = None
     step_logs: list[WorkflowStepLogResponse] = Field(default_factory=list)
+    tool_calls: list[WorkflowToolCallResponse] = Field(default_factory=list)
     actions: list[WorkflowActionResponse] = Field(default_factory=list)
     recent_events: list[dict[str, Any]] = Field(default_factory=list)
+    total_token_usage: dict[str, int] = Field(default_factory=dict)
 
 
 class WorkflowStepResponse(BaseModel):
@@ -265,4 +300,5 @@ class WorkflowResponse(BaseModel):
     updated_at: str
     completed_at: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    active_agent_id: str | None = None
     steps: list[WorkflowStepResponse] = Field(default_factory=list)

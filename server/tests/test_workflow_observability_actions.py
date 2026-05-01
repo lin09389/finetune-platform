@@ -104,9 +104,11 @@ def test_run_creates_step_logs_and_action_proposals(tmp_path):
     actions = client.get(f"/workflows/{workflow['workflow_id']}/actions").json()
     app.dependency_overrides.clear()
 
+    statuses = {action["action_type"]: action["status"] for action in actions}
     assert {log["status"] for log in logs} >= {"started", "completed"}
     assert {action["action_type"] for action in actions} == {"patch", "command"}
-    assert {action["status"] for action in actions} == {"pending_approval"}
+    assert statuses["patch"] == "pending_approval"
+    assert statuses["command"] == "executed"
 
 
 def test_unapproved_action_cannot_execute_and_approved_patch_can_write_inside_workspace(tmp_path):
@@ -148,8 +150,8 @@ def test_approved_command_runs_and_non_allowlisted_command_is_rejected(tmp_path)
     actions = client.get(f"/workflows/{workflow['workflow_id']}/actions").json()
     command_action = next(action for action in actions if action["action_type"] == "command")
 
-    client.post(f"/workflow-actions/{command_action['id']}/approve")
-    executed = client.post(f"/workflow-actions/{command_action['id']}/execute").json()
+    executed = client.get(f"/workflows/{workflow['workflow_id']}/actions").json()
+    command_after_run = next(action for action in executed if action["action_type"] == "command")
     bad_action = client.app.dependency_overrides[get_agent_runtime_service]().repository.add_action_proposal(
         workflow["workflow_id"],
         None,
@@ -161,8 +163,8 @@ def test_approved_command_runs_and_non_allowlisted_command_is_rejected(tmp_path)
     rejected = client.post(f"/workflow-actions/{bad_action['id']}/execute")
     app.dependency_overrides.clear()
 
-    assert executed["status"] == "executed"
-    assert executed["executions"][-1]["exit_code"] == 0
+    assert command_after_run["status"] == "executed"
+    assert command_after_run["executions"][-1]["exit_code"] == 0
     assert rejected.status_code == 400
 
 

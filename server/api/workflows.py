@@ -22,6 +22,7 @@ from agent_runtime.models import (
     WorkflowTemplateCreate,
     WorkflowTemplateResponse,
     WorkflowTemplateUpdate,
+    WorkflowToolCallResponse,
 )
 from agent_runtime.service import AgentRuntimeService
 
@@ -153,6 +154,14 @@ async def get_workflow_step_logs(
     return service.list_step_logs(workflow_id)
 
 
+@router.get("/workflows/{workflow_id}/tool-calls", response_model=list[WorkflowToolCallResponse])
+async def get_workflow_tool_calls(
+    workflow_id: str,
+    service: AgentRuntimeService = Depends(get_agent_runtime_service),
+):
+    return service.list_tool_calls(workflow_id)
+
+
 @router.get("/workflows/{workflow_id}/actions", response_model=list[WorkflowActionResponse])
 async def get_workflow_actions(
     workflow_id: str,
@@ -166,7 +175,7 @@ async def approve_workflow_action(
     action_id: str,
     service: AgentRuntimeService = Depends(get_agent_runtime_service),
 ):
-    return service.approve_action(action_id)
+    return await service.approve_action(action_id)
 
 
 @router.post("/workflow-actions/{action_id}/reject", response_model=WorkflowActionResponse)

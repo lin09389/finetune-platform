@@ -14,8 +14,28 @@ class ChatAgentRunCreate(BaseModel):
     template_id: str = "software_delivery"
     provider: str | None = None
     model: str | None = None
+    agent_id: str | None = None
     project_path: str | None = None
     force_agent: bool = False
+
+
+class ChatAgentIntentRequest(BaseModel):
+    content: str = Field(..., min_length=1)
+    provider: str | None = None
+    model: str | None = None
+    agent_id: str | None = None
+    template_id: str | None = None
+    chat_session_id: str | None = None
+    routing_mode: Literal["auto", "chat", "agent"] = "auto"
+
+
+class ChatAgentIntentResponse(BaseModel):
+    mode: Literal["chat", "agent"]
+    confidence: float = Field(default=0.5, ge=0, le=1)
+    reason: str
+    source: Literal["local_rule", "cloud", "fallback", "manual"]
+    suggested_agent_id: str | None = None
+    suggested_template_id: str | None = None
 
 
 class ChatAgentApprovalRequest(BaseModel):
@@ -32,7 +52,15 @@ class ChatAgentRunResponse(BaseModel):
     status: str
     intent_type: str | None = None
     summary: str = ""
+    final_summary: str | None = None
+    execution_state: str | None = None
+    execution_state_message: str | None = None
+    recoverable: bool = False
     details_url: str | None = None
+    active_agent_id: str | None = None
+    subagent_runs: list[dict[str, Any]] = Field(default_factory=list)
+    auto_execution_policy: dict[str, Any] = Field(default_factory=dict)
+    blocked_state: dict[str, Any] | None = None
     workflow: WorkflowResponse | None = None
     observability: WorkflowObservabilityResponse | None = None
     latest_event: dict[str, Any] | None = None

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -46,6 +47,7 @@ class WorkflowRuntimeRepository:
             conn.executescript((migrations_dir / "004_workflow_context_memory.sql").read_text(encoding="utf-8"))
             conn.executescript((migrations_dir / "005_workflow_observability_actions.sql").read_text(encoding="utf-8"))
             conn.executescript((migrations_dir / "006_chat_agent_runs.sql").read_text(encoding="utf-8"))
+            conn.executescript((migrations_dir / "007_agent_tool_calls.sql").read_text(encoding="utf-8"))
 
     def seed_builtin_templates(self) -> None:
         if self.get_template(SOFTWARE_DELIVERY_TEMPLATE.id):
@@ -201,12 +203,22 @@ class WorkflowRuntimeRepository:
             conn.execute("DELETE FROM workflow_template_agents WHERE template_id = ?", (workflow.id,))
             conn.execute("DELETE FROM workflow_template_steps WHERE template_id = ?", (workflow.id,))
             for agent in workflow.agents:
+                agent_metadata = {
+                    "mode": agent.mode,
+                    "default_provider": agent.default_provider,
+                    "default_model": agent.default_model,
+                    "max_iterations": agent.max_iterations,
+                    "tools": agent.tools,
+                    "permission_rules": agent.permission_rules,
+                    "handoff_targets": agent.handoff_targets,
+                    "hidden": agent.hidden,
+                }
                 conn.execute(
                     """
                     INSERT INTO workflow_template_agents
                         (id, template_id, agent_id, name, description, system_prompt,
                          output_requirements, metadata, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         f"wta_{uuid.uuid4().hex[:8]}",
@@ -216,6 +228,7 @@ class WorkflowRuntimeRepository:
                         agent.description,
                         agent.system_prompt,
                         agent.output_requirements,
+                        _json(agent_metadata),
                         now,
                         now,
                     ),
@@ -332,6 +345,8 @@ class WorkflowRuntimeRepository:
     def update_project(self, project_id: str, **fields: Any) -> None:
         if not fields:
             return
+        if isinstance(fields.get("metadata"), dict):
+            fields["metadata"] = _json(fields["metadata"])
         fields["updated_at"] = _now()
         assignments = ", ".join(f"{key} = ?" for key in fields)
         values = list(fields.values()) + [project_id]
@@ -697,6 +712,87 @@ class WorkflowRuntimeRepository:
             ).fetchall()
         return [self._step_log_from_row(row) for row in rows]
 
+    def add_tool_call(
+        self,
+        workflow_id: str,
+        step_id: str | None,
+        agent_id: str | None,
+        tool_name: str,
+        arguments: dict[str, Any] | None = None,
+        status: str = "running",
+        result_summary: str = "",
+        result_payload: dict[str, Any] | None = None,
+        error: str | None = None,
+        started_at: str | None = None,
+        completed_at: str | None = None,
+        duration_ms: int | None = None,
+    ) -> dict[str, Any]:
+        call_id = f"wftc_{uuid.uuid4().hex[:8]}"
+        now = _now()
+        def insert_call() -> None:
+            with get_db_pool(self.db_path).get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO workflow_tool_calls
+                        (id, workflow_id, step_id, agent_id, tool_name, arguments, status,
+                         result_summary, result_payload, error, started_at, completed_at,
+                         duration_ms, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        call_id,
+                        workflow_id,
+                        step_id,
+                        agent_id,
+                        tool_name,
+                        _json(arguments or {}),
+                        status,
+                        result_summary,
+                        _json(result_payload or {}),
+                        error,
+                        started_at,
+                        completed_at,
+                        duration_ms,
+                        now,
+                    ),
+                )
+
+        self._with_schema_retry(insert_call)
+        return self.get_tool_call(call_id) or {}
+
+    def update_tool_call(self, call_id: str, **fields: Any) -> dict[str, Any]:
+        if isinstance(fields.get("result_payload"), dict):
+            fields["result_payload"] = _json(fields["result_payload"])
+        if not fields:
+            return self.get_tool_call(call_id) or {}
+        assignments = ", ".join(f"{key} = ?" for key in fields)
+        values = list(fields.values()) + [call_id]
+        def update_call() -> None:
+            with get_db_pool(self.db_path).get_connection() as conn:
+                conn.execute(f"UPDATE workflow_tool_calls SET {assignments} WHERE id = ?", values)
+
+        self._with_schema_retry(update_call)
+        return self.get_tool_call(call_id) or {}
+
+    def get_tool_call(self, call_id: str) -> dict[str, Any] | None:
+        def fetch_call():
+            with get_db_pool(self.db_path).get_connection() as conn:
+                return conn.execute("SELECT * FROM workflow_tool_calls WHERE id = ?", (call_id,)).fetchone()
+
+        row = self._with_schema_retry(fetch_call)
+        return self._tool_call_from_row(row) if row else None
+
+    def list_tool_calls(self, workflow_id: str) -> list[dict[str, Any]]:
+        def fetch_calls():
+            with get_db_pool(self.db_path).get_connection() as conn:
+                return conn.execute(
+                    "SELECT * FROM workflow_tool_calls WHERE workflow_id = ? ORDER BY created_at ASC",
+                    (workflow_id,),
+                ).fetchall()
+
+        rows = self._with_schema_retry(fetch_calls)
+        return [self._tool_call_from_row(row) for row in rows]
+
     def add_action_proposal(
         self,
         workflow_id: str,
@@ -737,6 +833,8 @@ class WorkflowRuntimeRepository:
 
     def update_action_status(self, action_id: str, status: str, **fields: Any) -> dict[str, Any]:
         fields["status"] = status
+        if isinstance(fields.get("payload"), dict):
+            fields["payload"] = _json(fields["payload"])
         fields["updated_at"] = _now()
         assignments = ", ".join(f"{key} = ?" for key in fields)
         values = list(fields.values()) + [action_id]
@@ -807,6 +905,14 @@ class WorkflowRuntimeRepository:
                     description=agent.get("description", ""),
                     system_prompt=agent.get("system_prompt", ""),
                     output_requirements=agent.get("output_requirements", ""),
+                    mode=agent.get("mode", "all"),
+                    default_provider=agent.get("default_provider", "minimax"),
+                    default_model=agent.get("default_model"),
+                    max_iterations=agent.get("max_iterations", 6),
+                    tools=list(agent.get("tools") or []),
+                    permission_rules=list(agent.get("permission_rules") or []),
+                    handoff_targets=list(agent.get("handoff_targets") or []),
+                    hidden=bool(agent.get("hidden", False)),
                 )
                 for agent in payload["agents"]
             ],
@@ -848,16 +954,7 @@ class WorkflowRuntimeRepository:
             default_provider=data["default_provider"],
             default_model=data["default_model"],
             default_approval_mode=data["default_approval_mode"],
-            agents=[
-                AgentDefinition(
-                    id=agent["agent_id"],
-                    name=agent["name"],
-                    description=agent["description"],
-                    system_prompt=agent["system_prompt"],
-                    output_requirements=agent["output_requirements"],
-                )
-                for agent in agents
-            ],
+            agents=[self._agent_definition_from_template_row(agent) for agent in agents],
             steps=[
                 StepDefinition(
                     key=step["step_key"],
@@ -872,6 +969,25 @@ class WorkflowRuntimeRepository:
                 )
                 for step in steps
             ],
+        )
+
+    def _agent_definition_from_template_row(self, row: Any) -> AgentDefinition:
+        data = dict(row)
+        metadata = _load(data.get("metadata"), {})
+        return AgentDefinition(
+            id=data["agent_id"],
+            name=data["name"],
+            description=data["description"],
+            system_prompt=data["system_prompt"],
+            output_requirements=data["output_requirements"],
+            mode=metadata.get("mode", "all"),
+            default_provider=metadata.get("default_provider", "minimax"),
+            default_model=metadata.get("default_model"),
+            max_iterations=int(metadata.get("max_iterations") or 6),
+            tools=list(metadata.get("tools") or []),
+            permission_rules=list(metadata.get("permission_rules") or []),
+            handoff_targets=list(metadata.get("handoff_targets") or []),
+            hidden=bool(metadata.get("hidden", False)),
         )
 
     def _project_from_row(self, row: Any, include_tasks: bool = False) -> dict[str, Any]:
@@ -915,8 +1031,34 @@ class WorkflowRuntimeRepository:
     def _action_from_row(self, row: Any) -> dict[str, Any]:
         data = dict(row)
         data["payload"] = _load(data.get("payload"))
+        data["execution_mode"] = data["payload"].get("_execution_mode")
+        data["policy_reason"] = data["payload"].get("_policy_reason")
+        data["auto_executed_at"] = data["payload"].get("_auto_executed_at")
+        data["execution_state"] = data["payload"].get("_execution_state")
+        data["changed_files"] = data["payload"].get("_changed_files") or []
+        data["failure_summary"] = data["payload"].get("_failure_summary") or ""
         data["executions"] = self.list_action_executions(data["id"])
         return data
+
+    def _tool_call_from_row(self, row: Any) -> dict[str, Any]:
+        data = dict(row)
+        data["arguments"] = _load(data.get("arguments"), {})
+        payload = _load(data.get("result_payload"), {})
+        data["result_payload"] = payload
+        data["permission_decision"] = payload.get("_permission_decision")
+        data["blocked_reason"] = payload.get("_blocked_reason")
+        data["replay_of_call_id"] = payload.get("_replay_of_call_id")
+        data["trace_id"] = payload.get("_trace_id")
+        return data
+
+    def _with_schema_retry(self, operation):
+        try:
+            return operation()
+        except sqlite3.OperationalError as exc:
+            if "workflow_tool_calls" not in str(exc):
+                raise
+            self.ensure_schema()
+            return operation()
 
     def _legacy_role_map(self, template_id: str) -> dict[str, str]:
         if template_id == "software_delivery":

@@ -191,24 +191,35 @@ async def run_model_inference(
         SessionOptions,
     )
 
-    response = await inference_chat(
-        ChatRequest(
-            model=model,
-            messages=[Message(role=MessageRole.USER, content=prompt)],
-            options=InferenceOptions(
-                backend=backend,
-                max_tokens=max_tokens,
-                temperature=temperature,
-            ),
-            response_format=response_format,
-            format=response_format,
-            memory=MemoryOptions(enabled=False, auto_extract=False, auto_retrieve=False),
-            knowledge=KnowledgeRetrievalOptions(use_knowledge=False, auto_retrieve=False),
-            context=ProjectContextOptions(use_context=False),
-            session=SessionOptions(user_id="evaluation"),
+    try:
+        response = await inference_chat(
+            ChatRequest(
+                model=model,
+                messages=[Message(role=MessageRole.USER, content=prompt)],
+                options=InferenceOptions(
+                    backend=backend,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                ),
+                response_format=response_format,
+                format=response_format,
+                memory=MemoryOptions(enabled=False, auto_extract=False, auto_retrieve=False),
+                knowledge=KnowledgeRetrievalOptions(use_knowledge=False, auto_retrieve=False),
+                context=ProjectContextOptions(use_context=False),
+                session=SessionOptions(user_id="evaluation"),
+            )
         )
-    )
-    return response.message.content
+        
+        if response.raw_response and response.raw_response.get("finish_reason") == "error":
+            err_msg = response.raw_response.get("error") or "未知推理错误"
+            raise RuntimeError(f"模型推理失败: {err_msg}")
+            
+        if not response.message.content and response.raw_response and response.raw_response.get("finish_reason") not in ("stop", "length"):
+            raise RuntimeError(f"模型推理异常终止: finish_reason={response.raw_response.get('finish_reason')}")
+
+        return response.message.content or ""
+    except Exception as exc:
+        raise RuntimeError(str(exc))
 
 
 def _merge_adapter_for_evaluation(request: EvaluationRunRequest, run_id: str) -> dict[str, Any]:

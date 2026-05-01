@@ -182,8 +182,20 @@ class WorkflowContextBuilder:
             self.repository.add_event(workflow_id, None, event_type, "system", message)
 
     def _trim(self, text: str | None, max_chars: int) -> str:
+        """Trim text to max_chars, respecting paragraph and code block boundaries."""
         if not text:
             return ""
         if len(text) <= max_chars:
             return text
-        return text[: max_chars - 20] + "\n...[已截断]"
+        # Try to break at paragraph boundaries (double newline)
+        cutoff = max_chars - 30
+        # Look for the last double-newline before the cutoff
+        last_para = text.rfind("\n\n", 0, cutoff)
+        if last_para > cutoff * 0.5:
+            return text[:last_para] + "\n\n...[已截断]"
+        # Fall back to line boundary
+        last_line = text.rfind("\n", 0, cutoff)
+        if last_line > cutoff * 0.5:
+            return text[:last_line] + "\n...[已截断]"
+        # Last resort: hard cut
+        return text[:cutoff] + "\n...[已截断]"

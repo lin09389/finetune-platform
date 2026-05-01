@@ -179,6 +179,8 @@ class DigitalTeamRepository:
     def update_project(self, project_id: str, **fields: Any) -> None:
         if not fields:
             return
+        if "metadata" in fields:
+            fields["metadata"] = _json(fields["metadata"])
         fields["updated_at"] = _now()
         assignments = ", ".join(f"{key} = ?" for key in fields)
         values = list(fields.values()) + [project_id]

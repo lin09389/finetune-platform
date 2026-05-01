@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import uuid
+from dataclasses import dataclass, field
 from datetime import datetime
 from time import perf_counter
 from typing import Any
@@ -18,6 +21,15 @@ from .templates import get_workflow_definition
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class StepRetryPolicy:
+    """Policy governing automatic retries for step-level LLM failures."""
+
+    max_retries: int = 1
+    retry_on: tuple[type[Exception], ...] = (RuntimeError, TimeoutError, ConnectionError)
+    backoff_seconds: float = 2.0
+
+
 class AgentRuntimeEngine:
     def __init__(
         self,
@@ -26,12 +38,16 @@ class AgentRuntimeEngine:
         context_builder: Any | None = None,
         memory_curator: Any | None = None,
         action_service: Any | None = None,
+        agent_registry: Any | None = None,
+        retry_policy: StepRetryPolicy | None = None,
     ):
         self.repository = repository
         self.runner = runner
         self.context_builder = context_builder
         self.memory_curator = memory_curator
         self.action_service = action_service
+        self.agent_registry = agent_registry
+        self.retry_policy = retry_policy or StepRetryPolicy()
 
     def get_workflow(self, template_id: str) -> WorkflowDefinition:
         if hasattr(self.repository, "get_template"):
@@ -50,6 +66,7 @@ class AgentRuntimeEngine:
             project["id"],
             status="running",
             current_stage=step.key,
+            metadata={**(project.get("metadata") or {}), "active_agent_id": (project.get("metadata") or {}).get("primary_agent_id") or step.agent_id},
         )
         self.repository.add_event(project["id"], None, "workflow_started", "system", f"{step.title} 开始执行")
         await self._run_until_pause(project, workflow, project_context, start_index=0, previous_outputs=[])
@@ -149,6 +166,7 @@ class AgentRuntimeEngine:
         previous_outputs: list[dict[str, Any]],
         index: int,
     ) -> AgentOutput | None:
+        trace_id = str(uuid.uuid4())
         existing = next(
             (
                 task
@@ -183,6 +201,10 @@ class AgentRuntimeEngine:
                     requires_approval=step.requires_approval,
                 )
         self.repository.update_project(project["id"], status="running", current_stage=step.key)
+        self.repository.update_project(
+            project["id"],
+            metadata={**(project.get("metadata") or {}), "active_agent_id": step.agent_id, "blocked_state": None},
+        )
         started_at = datetime.now().isoformat()
         start_time = perf_counter()
         if hasattr(self.repository, "add_step_log"):
@@ -196,98 +218,166 @@ class AgentRuntimeEngine:
                 model=project.get("model"),
                 input_summary=project.get("goal", "")[:500],
                 started_at=started_at,
+                metadata={"trace_id": trace_id},
             )
-        try:
-            agent = workflow.agent_by_id(step.agent_id)
-            context = self._context_for_step(project, workflow, step, task, previous_outputs, project_context)
-            output = await self._run_agent(
+
+        # Retry loop
+        last_exc: Exception | None = None
+        for attempt in range(1 + self.retry_policy.max_retries):
+            if attempt > 0:
+                self.repository.add_event(
+                    project["id"],
+                    task["id"],
+                    "step_retry_attempt",
+                    step.agent_id,
+                    f"{step.title} 第 {attempt + 1} 次尝试（前次失败：{last_exc}）",
+                    {"attempt": attempt + 1, "previous_error": str(last_exc), "trace_id": trace_id},
+                )
+                await asyncio.sleep(self.retry_policy.backoff_seconds * attempt)
+
+            try:
+                output = await self._execute_step_core(
+                    project, workflow, step, task, previous_outputs, project_context, trace_id,
+                )
+                # Success — record and return
+                auto_approved_review = step.agent_id == "reviewer" and self._review_approved(output)
+                task_status = (
+                    TaskStatus.NEEDS_MANUAL_REVIEW.value
+                    if output.needs_manual_review
+                    else (
+                        TaskStatus.AWAITING_APPROVAL.value
+                        if step.requires_approval and not auto_approved_review
+                        else TaskStatus.COMPLETED.value
+                    )
+                )
+                self.repository.update_task(
+                    task["id"],
+                    status=task_status,
+                    output=output.model_dump(),
+                    completed_at=None if task_status in {TaskStatus.AWAITING_APPROVAL.value, TaskStatus.NEEDS_MANUAL_REVIEW.value} else datetime.now().isoformat(),
+                )
+                self.repository.add_artifact(
+                    project["id"],
+                    task["id"],
+                    step.artifact_type,
+                    step.artifact_title or step.title,
+                    output.model_dump(),
+                )
+                if self.action_service:
+                    self.action_service.extract_from_output(project["id"], task["id"], output)
+                if step.agent_id == "reviewer":
+                    self.repository.add_review(
+                        project["id"],
+                        task["id"],
+                        approved=self._review_approved(output),
+                        summary=output.summary,
+                        risks=output.risks,
+                    )
+                self.repository.add_event(
+                    project["id"],
+                    task["id"],
+                    "agent_output",
+                    step.agent_id,
+                    f"{step.title} 已完成" if task_status == TaskStatus.COMPLETED.value else f"{step.title} 等待审批",
+                    {**output.model_dump(), "trace_id": trace_id},
+                )
+                if output.needs_manual_review:
+                    self.repository.update_project(
+                        project["id"],
+                        metadata={
+                            **(project.get("metadata") or {}),
+                            "blocked_state": {"reason": output.summary, "step_key": step.key, "agent_id": step.agent_id},
+                        },
+                    )
+                if hasattr(self.repository, "add_step_log"):
+                    self.repository.add_step_log(
+                        project["id"],
+                        task["id"],
+                        step.key,
+                        step.agent_id,
+                        "completed" if task_status == TaskStatus.COMPLETED.value else task_status,
+                        provider=project.get("provider"),
+                        model=project.get("model"),
+                        input_summary=project.get("goal", "")[:500],
+                        output_summary=output.summary[:1000],
+                        started_at=started_at,
+                        completed_at=datetime.now().isoformat(),
+                        duration_ms=int((perf_counter() - start_time) * 1000),
+                        metadata={"needs_manual_review": output.needs_manual_review, "trace_id": trace_id, "attempt": attempt + 1},
+                    )
+                return output
+
+            except Exception as exc:
+                last_exc = exc
+                is_retryable = isinstance(exc, self.retry_policy.retry_on)
+                if is_retryable and attempt < self.retry_policy.max_retries:
+                    logger.warning(
+                        "Step %s attempt %d failed (retryable): %s",
+                        step.key, attempt + 1, exc,
+                    )
+                    continue
+                # Final failure
+                if hasattr(self.repository, "add_step_log"):
+                    self.repository.add_step_log(
+                        project["id"],
+                        task["id"],
+                        step.key,
+                        step.agent_id,
+                        "failed",
+                        provider=project.get("provider"),
+                        model=project.get("model"),
+                        input_summary=project.get("goal", "")[:500],
+                        error=str(exc),
+                        started_at=started_at,
+                        completed_at=datetime.now().isoformat(),
+                        duration_ms=int((perf_counter() - start_time) * 1000),
+                        metadata={"trace_id": trace_id, "attempt": attempt + 1, "total_attempts": attempt + 1},
+                    )
+                self._mark_step_failed(project["id"], task["id"], step.agent_id, step.key, exc)
+                return None
+
+        # Should not reach here, but safety net
+        return None
+
+    async def _execute_step_core(
+        self,
+        project: dict[str, Any],
+        workflow: WorkflowDefinition,
+        step: StepDefinition,
+        task: dict[str, Any],
+        previous_outputs: list[dict[str, Any]],
+        project_context: str,
+        trace_id: str,
+    ) -> AgentOutput:
+        """Core step execution logic, separated for retry wrapping."""
+        agent = workflow.agent_by_id(step.agent_id)
+        available_subagents = self._available_subagents(step.agent_id)
+        context = self._context_for_step(project, workflow, step, task, previous_outputs, project_context)
+        step_input = {
+            "goal": project["goal"],
+            "previous_outputs": previous_outputs,
+            "context_pack": context.context_pack,
+            "context_sources": context.context_sources,
+            "agent": agent.model_dump(),
+            "step": step.model_dump(),
+            "available_subagents": [item.model_dump() if hasattr(item, "model_dump") else item for item in available_subagents],
+        }
+        if (
+            step.agent_id in {"planner", "implementer", "reviewer"}
+            and hasattr(self.runner, "execute_tool_loop")
+            and self.action_service is not None
+        ):
+            return await self.runner.execute_tool_loop(
                 step.agent_id,
                 context,
-                {
-                    "goal": project["goal"],
-                    "previous_outputs": previous_outputs,
-                    "context_pack": context.context_pack,
-                    "context_sources": context.context_sources,
-                    "agent": agent.model_dump(),
-                    "step": step.model_dump(),
-                },
+                step_input,
+                project=project,
+                task=task,
+                repository=self.repository,
+                action_service=self.action_service,
+                trace_id=trace_id,
             )
-            auto_approved_review = step.agent_id == "reviewer" and self._review_approved(output)
-            task_status = (
-                TaskStatus.NEEDS_MANUAL_REVIEW.value
-                if output.needs_manual_review
-                else (
-                    TaskStatus.AWAITING_APPROVAL.value
-                    if step.requires_approval and not auto_approved_review
-                    else TaskStatus.COMPLETED.value
-                )
-            )
-            self.repository.update_task(
-                task["id"],
-                status=task_status,
-                output=output.model_dump(),
-                completed_at=None if task_status in {TaskStatus.AWAITING_APPROVAL.value, TaskStatus.NEEDS_MANUAL_REVIEW.value} else datetime.now().isoformat(),
-            )
-            self.repository.add_artifact(
-                project["id"],
-                task["id"],
-                step.artifact_type,
-                step.artifact_title or step.title,
-                output.model_dump(),
-            )
-            if self.action_service:
-                self.action_service.extract_from_output(project["id"], task["id"], output)
-            if step.agent_id == "reviewer":
-                self.repository.add_review(
-                    project["id"],
-                    task["id"],
-                    approved=self._review_approved(output),
-                    summary=output.summary,
-                    risks=output.risks,
-                )
-            self.repository.add_event(
-                project["id"],
-                task["id"],
-                "agent_output",
-                step.agent_id,
-                f"{step.title} 已完成" if task_status == TaskStatus.COMPLETED.value else f"{step.title} 等待审批",
-                output.model_dump(),
-            )
-            if hasattr(self.repository, "add_step_log"):
-                self.repository.add_step_log(
-                    project["id"],
-                    task["id"],
-                    step.key,
-                    step.agent_id,
-                    "completed" if task_status == TaskStatus.COMPLETED.value else task_status,
-                    provider=project.get("provider"),
-                    model=project.get("model"),
-                    input_summary=project.get("goal", "")[:500],
-                    output_summary=output.summary[:1000],
-                    started_at=started_at,
-                    completed_at=datetime.now().isoformat(),
-                    duration_ms=int((perf_counter() - start_time) * 1000),
-                    metadata={"needs_manual_review": output.needs_manual_review},
-                )
-            return output
-        except Exception as exc:
-            if hasattr(self.repository, "add_step_log"):
-                self.repository.add_step_log(
-                    project["id"],
-                    task["id"],
-                    step.key,
-                    step.agent_id,
-                    "failed",
-                    provider=project.get("provider"),
-                    model=project.get("model"),
-                    input_summary=project.get("goal", "")[:500],
-                    error=str(exc),
-                    started_at=started_at,
-                    completed_at=datetime.now().isoformat(),
-                    duration_ms=int((perf_counter() - start_time) * 1000),
-                )
-            self._mark_step_failed(project["id"], task["id"], step.agent_id, step.key, exc)
-            return None
+        return await self._run_agent(step.agent_id, context, step_input)
 
     def _ordered_steps(self, workflow: WorkflowDefinition) -> list[StepDefinition]:
         if not workflow.steps:
@@ -513,6 +603,17 @@ class AgentRuntimeEngine:
             return self.context_builder.build_for_step(project, workflow, step, task, previous_outputs, project_context)
         return self._context_from_project(project, project_context)
 
+    def _available_subagents(self, agent_id: str) -> list[Any]:
+        if not self.agent_registry:
+            return []
+        if agent_id == "planner":
+            targets = {"explore"}
+        elif agent_id == "implementer":
+            targets = {"explore", "review"}
+        else:
+            targets = set()
+        return [agent for agent in self.agent_registry.list_agents(include_hidden=True) if agent.id in targets]
+
     async def _curate_memory(self, workflow_id: str) -> None:
         if not self.memory_curator:
             return
@@ -541,4 +642,11 @@ class AgentRuntimeEngine:
                 return bool(artifact.get("approved"))
             if isinstance(artifact, dict) and isinstance(artifact.get("acceptance_result"), dict):
                 return bool(artifact["acceptance_result"].get("approved"))
-        return "通过" in output.summary and "不通过" not in output.summary
+        summary = (output.summary or "").strip()
+        next_action = (output.next_action or "").strip()
+        approval_text = f"{summary}\n{next_action}"
+        negative_markers = ("不通过", "未通过", "失败", "不能交付", "需要人工")
+        positive_markers = ("审查通过", "已通过", "通过", "可交付", "已完成")
+        return any(marker in approval_text for marker in positive_markers) and not any(
+            marker in approval_text for marker in negative_markers
+        )

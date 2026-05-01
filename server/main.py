@@ -38,6 +38,7 @@ from api.digital_team import router as digital_team
 from api.evaluation import router as evaluation
 from api.workflows import router as workflows
 from api.chat.routes import router as chat
+from api.agents import router as agents
 from api.chat_branch import router as chat_branch
 from api.chat_share import router as chat_share
 from api.code_executor import router as code_executor
@@ -420,6 +421,7 @@ app.include_router(evaluation, prefix="/evaluation", tags=["Evaluation"])
 app.include_router(deployment, prefix="/deployment", tags=["Deployment"])
 app.include_router(inference, prefix="/inference", tags=["Inference"])
 app.include_router(chat, tags=["Chat"])
+app.include_router(agents)
 app.include_router(knowledge, prefix="/knowledge", tags=["Knowledge"])
 # Backward compatibility for legacy frontend paths.
 app.include_router(knowledge, prefix="/v2/knowledge", tags=["Knowledge v2"])

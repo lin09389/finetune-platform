@@ -12,13 +12,9 @@ from typing import Any
 from fastapi import HTTPException
 from core.config import settings
 
-
-COMMAND_ALLOWLIST = (
-    ("npm", "run", "typecheck"),
-    ("npm", "test"),
-    ("python", "-m", "pytest"),
-    ("python", "-m", "py_compile"),
-)
+from .command_policy import command_allowed, normalize_command, normalize_executable, summarize_failure
+from .execution_state import APPLYING_PATCH, COMPLETED, FAILED, VERIFYING, set_workflow_state
+from .patch_engine import SafePatchEngine
 
 
 class WorkflowActionService:
@@ -28,6 +24,7 @@ class WorkflowActionService:
     def extract_from_output(self, workflow_id: str, step_id: str, output: Any) -> list[dict[str, Any]]:
         artifacts = getattr(output, "artifacts", []) or []
         proposals: list[dict[str, Any]] = []
+        project = self.repository.get_project(workflow_id) if self.repository else None
         for artifact in artifacts:
             if not isinstance(artifact, dict):
                 continue
@@ -41,16 +38,34 @@ class WorkflowActionService:
                 for key, value in artifact.items()
                 if key not in {"type", "kind", "action_type", "title", "description", "summary"}
             }
-            proposals.append(
-                self.repository.add_action_proposal(
-                    workflow_id=workflow_id,
-                    step_id=step_id,
-                    action_type=action_type,
-                    title=title,
-                    description=description,
-                    payload=payload,
-                )
+            action = self.repository.add_action_proposal(
+                workflow_id=workflow_id,
+                step_id=step_id,
+                action_type=action_type,
+                title=title,
+                description=description,
+                payload=payload,
             )
+            policy = self._evaluate_policy(project or {}, action_type, payload)
+            action_payload = dict(action.get("payload") or {})
+            action_payload["_execution_mode"] = policy["execution_mode"]
+            action_payload["_policy_reason"] = policy["policy_reason"]
+            action = self.repository.update_action_status(action["id"], action["status"], payload=action_payload)
+            self.repository.add_event(
+                workflow_id,
+                step_id,
+                "auto_action_executed" if policy["execution_mode"] == "auto" else "auto_action_blocked",
+                "system",
+                policy["policy_reason"],
+                {"action_id": action["id"], "action_type": action_type, "execution_mode": policy["execution_mode"]},
+            )
+            if policy["execution_mode"] == "auto":
+                action = self.repository.update_action_status(action["id"], "approved", approved_at=self._now())
+                action = self.execute(action["id"])
+                payload = dict(action.get("payload") or {})
+                payload["_auto_executed_at"] = action.get("executed_at")
+                action = self.repository.update_action_status(action["id"], action["status"], payload=payload)
+            proposals.append(action)
         return proposals
 
     def approve(self, action_id: str) -> dict[str, Any]:
@@ -69,6 +84,8 @@ class WorkflowActionService:
 
     def execute(self, action_id: str) -> dict[str, Any]:
         action = self._get_action(action_id)
+        if action["status"] == "executed":
+            return action
         if action["status"] != "approved":
             raise HTTPException(status_code=400, detail="Action must be approved before execution")
         project = self.repository.get_project(action["workflow_id"])
@@ -78,15 +95,61 @@ class WorkflowActionService:
         start = time.perf_counter()
         try:
             if action["action_type"] == "patch":
+                set_workflow_state(self.repository, project, APPLYING_PATCH, f"正在应用补丁：{action['title']}", step_id=action.get("step_id"), actor="agent")
+            elif action["action_type"] == "command":
+                set_workflow_state(self.repository, project, VERIFYING, f"正在执行验证命令：{action['title']}", step_id=action.get("step_id"), actor="agent")
+            if action["action_type"] == "patch":
                 result = self._execute_patch(project, action)
             elif action["action_type"] == "command":
                 result = self._execute_command(project, action)
             else:
                 raise HTTPException(status_code=400, detail="Unsupported action type")
             duration_ms = int((time.perf_counter() - start) * 1000)
-            execution = self.repository.add_action_execution(action_id, action["workflow_id"], duration_ms=duration_ms, **result)
+            execution_result = {
+                key: result.get(key)
+                for key in ("status", "stdout", "stderr", "exit_code", "error")
+                if key in result
+            }
+            execution = self.repository.add_action_execution(action_id, action["workflow_id"], duration_ms=duration_ms, **execution_result)
             next_status = "executed" if result.get("status") == "completed" else "failed"
+            self._merge_action_payload(
+                action_id,
+                action,
+                {
+                    "_changed_files": result.get("changed_files") or [],
+                    "_failure_summary": result.get("failure_summary") or "",
+                    "_execution_state": "completed" if next_status == "executed" else FAILED,
+                },
+            )
             self.repository.update_action_status(action_id, next_status, executed_at=self._now())
+            if next_status == "executed":
+                if action["action_type"] == "patch":
+                    set_workflow_state(
+                        self.repository,
+                        project,
+                        VERIFYING,
+                        f"补丁已应用：{action['title']}，可以继续执行验证命令。",
+                        step_id=action.get("step_id"),
+                        actor="agent",
+                    )
+                elif action["action_type"] == "command":
+                    set_workflow_state(
+                        self.repository,
+                        project,
+                        COMPLETED,
+                        f"验证命令已通过：{action['title']}",
+                        step_id=action.get("step_id"),
+                        actor="agent",
+                    )
+            else:
+                set_workflow_state(
+                    self.repository,
+                    project,
+                    FAILED,
+                    result.get("failure_summary") or f"动作执行失败：{action['title']}",
+                    step_id=action.get("step_id"),
+                    actor="agent",
+                )
             self.repository.add_event(
                 action["workflow_id"],
                 action.get("step_id"),
@@ -96,44 +159,73 @@ class WorkflowActionService:
                 {"action_id": action_id, "execution": execution},
             )
             return self.repository.get_action_proposal(action_id) or action
-        except HTTPException:
+        except HTTPException as exc:
+            duration_ms = int((time.perf_counter() - start) * 1000)
+            detail = str(exc.detail)
+            execution = self.repository.add_action_execution(action_id, action["workflow_id"], "failed", duration_ms=duration_ms, error=detail)
+            self._merge_action_payload(action_id, action, {"_failure_summary": detail, "_execution_state": FAILED})
+            self.repository.update_action_status(action_id, "failed")
+            self.repository.add_event(action["workflow_id"], action.get("step_id"), "action_failed", "system", f"动作执行失败：{detail}", {"action_id": action_id, "execution": execution})
+            set_workflow_state(self.repository, project, FAILED, f"动作执行失败：{detail}", step_id=action.get("step_id"), actor="agent")
             raise
         except Exception as exc:
             duration_ms = int((time.perf_counter() - start) * 1000)
             execution = self.repository.add_action_execution(action_id, action["workflow_id"], "failed", duration_ms=duration_ms, error=str(exc))
+            self._merge_action_payload(action_id, action, {"_failure_summary": str(exc), "_execution_state": FAILED})
             self.repository.update_action_status(action_id, "failed")
             self.repository.add_event(action["workflow_id"], action.get("step_id"), "action_failed", "system", f"动作执行失败：{exc}", {"action_id": action_id, "execution": execution})
+            set_workflow_state(self.repository, project, FAILED, f"动作执行失败：{exc}", step_id=action.get("step_id"), actor="agent")
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     def _execute_patch(self, project: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
         payload = action.get("payload") or {}
-        files = payload.get("files") or payload.get("file_changes") or []
-        if not isinstance(files, list) or not files:
-            raise HTTPException(status_code=400, detail="Patch action requires files/file_changes")
         root = self._allowed_root(project)
-        written: list[str] = []
-        for item in files:
-            if not isinstance(item, dict):
-                continue
-            relative_path = item.get("path") or item.get("file_path")
-            content = item.get("content")
-            if not relative_path or content is None:
-                raise HTTPException(status_code=400, detail="Each patch file requires path and content")
-            target = (root / relative_path).resolve()
-            if not (target == root or target.is_relative_to(root)):
-                raise HTTPException(status_code=400, detail="Patch target must stay inside workflow project path")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(str(content), encoding="utf-8")
-            written.append(str(target))
-        return {"status": "completed", "stdout": "\n".join(written), "stderr": "", "exit_code": 0}
+        result = SafePatchEngine(root).apply_payload(payload)
+        return {
+            "status": "completed",
+            "stdout": result.stdout,
+            "stderr": "",
+            "exit_code": 0,
+            "changed_files": result.changed_files,
+            "failure_summary": "",
+        }
+
+    def _evaluate_policy(self, project: dict[str, Any], action_type: str, payload: dict[str, Any]) -> dict[str, str]:
+        if action_type == "command":
+            command = payload.get("command")
+            try:
+                args = normalize_command(command)
+            except HTTPException as exc:
+                return {"execution_mode": "approval_required", "policy_reason": str(exc.detail)}
+            if args and command_allowed(args):
+                return {"execution_mode": "auto", "policy_reason": "白名单短命令，已自动执行"}
+            return {"execution_mode": "approval_required", "policy_reason": "命令不在自动执行策略内，需人工审批"}
+
+        if action_type == "patch":
+            if payload.get("format") == "unified_diff" or payload.get("diff"):
+                return {"execution_mode": "approval_required", "policy_reason": "diff 补丁需人工确认后执行"}
+            files = payload.get("files") or payload.get("file_changes") or []
+            if not isinstance(files, list) or not files or len(files) > 3:
+                return {"execution_mode": "approval_required", "policy_reason": "补丁文件数量超出自动执行策略，需人工审批"}
+            safe_prefixes = ("tmp/", "tmp\\", "tests/", "tests\\", "server/tests/", "client/src/test/")
+            for item in files:
+                if not isinstance(item, dict):
+                    return {"execution_mode": "approval_required", "policy_reason": "补丁格式异常，需人工审批"}
+                relative_path = str(item.get("path") or item.get("file_path") or "")
+                content = str(item.get("content") or "")
+                if not relative_path or len(content) > 20_000:
+                    return {"execution_mode": "approval_required", "policy_reason": "补丁内容超出自动执行策略，需人工审批"}
+                if not relative_path.startswith(safe_prefixes):
+                    return {"execution_mode": "approval_required", "policy_reason": "补丁涉及业务源码或敏感路径，需人工审批"}
+            return {"execution_mode": "auto", "policy_reason": "安全小补丁，已自动执行"}
+
+        return {"execution_mode": "approval_required", "policy_reason": "未知动作类型，需人工审批"}
 
     def _execute_command(self, project: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
         payload = action.get("payload") or {}
         command = payload.get("command")
-        args = command if isinstance(command, list) else str(command or "").split()
-        if not args:
-            raise HTTPException(status_code=400, detail="Command action requires command")
-        if not self._command_allowed(args):
+        args = normalize_command(command)
+        if not command_allowed(args):
             raise HTTPException(status_code=400, detail="Command is not in workflow allowlist")
         root = self._command_root(project, args)
         executable = shutil.which(args[0])
@@ -151,6 +243,8 @@ class WorkflowActionService:
             "stdout": completed.stdout,
             "stderr": completed.stderr,
             "exit_code": completed.returncode,
+            "changed_files": [],
+            "failure_summary": summarize_failure(completed.stdout, completed.stderr) if completed.returncode != 0 else "",
         }
 
     def _allowed_root(self, project: dict[str, Any]) -> Path:
@@ -163,12 +257,11 @@ class WorkflowActionService:
         return root
 
     def _command_allowed(self, args: list[str]) -> bool:
-        lowered = tuple(self._normalize_executable(item) if index == 0 else item.lower() for index, item in enumerate(args))
-        return any(lowered[: len(prefix)] == prefix for prefix in COMMAND_ALLOWLIST)
+        return command_allowed(args)
 
     def _command_root(self, project: dict[str, Any], args: list[str]) -> Path:
         root = self._allowed_root(project)
-        command = self._normalize_executable(args[0]) if args else ""
+        command = normalize_executable(args[0]) if args else ""
         if command == "npm" and len(args) >= 3 and args[1] == "run":
             script = args[2]
             if self._package_has_script(root, script):
@@ -189,11 +282,12 @@ class WorkflowActionService:
         return script in (data.get("scripts") or {})
 
     def _normalize_executable(self, value: str) -> str:
-        name = Path(value).name.lower()
-        for suffix in (".cmd", ".exe", ".bat"):
-            if name.endswith(suffix):
-                return name[: -len(suffix)]
-        return name
+        return normalize_executable(value)
+
+    def _merge_action_payload(self, action_id: str, action: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(action.get("payload") or {})
+        payload.update(updates)
+        return self.repository.update_action_status(action_id, action.get("status", "approved"), payload=payload)
 
     def _workspace_root(self) -> Path:
         base_dir = settings.base_dir.resolve()

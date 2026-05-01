@@ -15,6 +15,8 @@ SOFTWARE_DELIVERY_TEMPLATE = WorkflowDefinition(
             id="planner",
             name="Planner",
             description="拆解需求、定义验收标准",
+            tools=["list_files", "search_code", "read_file", "inspect_project", "delegate_agent", "finalize"],
+            handoff_targets=["explore"],
             system_prompt=(
                 "你是 Planner Agent，负责拆解用户目标、给出任务列表、验收标准和下一步审批建议。"
                 "你只做规划，不输出 type=patch 或 type=command 的 artifacts。"
@@ -24,6 +26,21 @@ SOFTWARE_DELIVERY_TEMPLATE = WorkflowDefinition(
             id="implementer",
             name="Implementer",
             description="给出实现方案和补丁建议",
+            max_iterations=10,
+            tools=[
+                "list_files",
+                "search_code",
+                "read_file",
+                "inspect_project",
+                "detect_project_commands",
+                "propose_patch",
+                "propose_command",
+                "read_execution_result",
+                "read_test_failures",
+                "delegate_agent",
+                "finalize",
+            ],
+            handoff_targets=["explore", "review"],
             system_prompt=(
                 "你是 Implementer Agent，负责基于计划生成实现方案、影响文件、补丁建议和测试建议。"
                 "如果目标需要改文件，必须优先在 artifacts 中输出 type=patch 的 action artifact；"
@@ -34,6 +51,7 @@ SOFTWARE_DELIVERY_TEMPLATE = WorkflowDefinition(
             id="reviewer",
             name="Reviewer",
             description="审查风险、遗漏和测试缺口",
+            tools=["list_files", "search_code", "read_file", "inspect_project", "read_execution_result", "propose_command", "finalize"],
             system_prompt=(
                 "你是 Reviewer Agent，负责审查实现建议，指出风险、遗漏、测试缺口和是否可交付。"
                 "你可以输出 type=command 的 action artifact 用于建议测试或检查，但不要输出 type=patch。"
