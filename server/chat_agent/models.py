@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from agent_runtime.models import WorkflowActionResponse, WorkflowObservabilityResponse, WorkflowResponse
+from agent_runtime.models import WorkflowActionResponse, WorkflowObservabilityResponse, WorkflowResponse, WorkflowToolCallResponse
 
 
 class ChatAgentRunCreate(BaseModel):
@@ -85,6 +85,8 @@ class ChatAgentRunResponse(BaseModel):
     workflow: WorkflowResponse | None = None
     observability: WorkflowObservabilityResponse | None = None
     latest_event: dict[str, Any] | None = None
+    latest_tool_call: WorkflowToolCallResponse | None = None
+    latest_action: WorkflowActionResponse | None = None
 
 
 class ChatAgentRunEvent(BaseModel):

@@ -159,12 +159,16 @@ class ChatAgentService:
         metadata = self._metadata_with_acceptance_report(workflow, observability, metadata)
         response_status = workflow.status if workflow else (run.get("status") or "created")
         final_summary = self._latest_output_summary(workflow.model_dump() if workflow and hasattr(workflow, "model_dump") else {})
+        latest_tool_call = self._latest_tool_call(observability)
+        latest_action = self._latest_action(observability)
         execution_state = metadata.get("execution_state")
         blocked_state = metadata.get("blocked_state")
         execution_message = metadata.get("execution_state_message") or self._stopped_state_message(
             response_status,
             metadata,
             final_summary,
+            latest_action=latest_action,
+            latest_tool_call=latest_tool_call,
         )
         recoverable = bool(
             workflow
@@ -202,6 +206,8 @@ class ChatAgentService:
             workflow=workflow,
             observability=observability,
             latest_event=events[-1] if events else None,
+            latest_tool_call=latest_tool_call,
+            latest_action=latest_action,
         )
 
     def _event_from_workflow(self, run_id: str, workflow_id: str, event: dict[str, Any]) -> ChatAgentRunEvent:
@@ -251,22 +257,79 @@ class ChatAgentService:
                 return summary
         return ""
 
-    def _stopped_state_message(self, status: str | None, metadata: dict[str, Any], final_summary: str = "") -> str:
+    def _stopped_state_message(
+        self,
+        status: str | None,
+        metadata: dict[str, Any],
+        final_summary: str = "",
+        *,
+        latest_action: Any | None = None,
+        latest_tool_call: Any | None = None,
+    ) -> str:
         blocked_state = metadata.get("blocked_state")
         blocked_reason = ""
         if isinstance(blocked_state, dict):
-            blocked_reason = str(blocked_state.get("reason") or blocked_state.get("message") or "").strip()
+            blocked_reason = str(blocked_state.get("message") or blocked_state.get("reason") or "").strip()
         state_message = str(metadata.get("execution_state_message") or "").strip()
         if status == "needs_manual_review":
             reason = blocked_reason or state_message or final_summary or "Agent 已暂停，需要人工确认后继续。"
             return f"需要人工处理：{reason}"
         if status == "failed":
-            reason = state_message or final_summary or "动作或验证执行失败。"
+            action_failure = self._action_failure_message(latest_action)
+            tool_failure = self._tool_failure_message(latest_tool_call)
+            reason = state_message or action_failure or tool_failure or final_summary or "动作或验证执行失败。"
             return f"执行失败：{reason}"
         if status == "awaiting_approval":
-            reason = state_message or final_summary or "Agent 正在等待你的审批。"
+            reason = state_message or self._approval_message(latest_action) or final_summary or "Agent 正在等待你的审批。"
             return f"等待审批：{reason}"
+        if status == "completed" and not final_summary:
+            return "已完成：Agent 已结束运行，请查看验收报告和动作执行记录。"
         return state_message
+
+    def _latest_tool_call(self, observability: Any | None) -> Any | None:
+        calls = getattr(observability, "tool_calls", None) if observability is not None else None
+        if not calls and isinstance(observability, dict):
+            calls = observability.get("tool_calls")
+        return calls[-1] if calls else None
+
+    def _latest_action(self, observability: Any | None) -> Any | None:
+        actions = getattr(observability, "actions", None) if observability is not None else None
+        if not actions and isinstance(observability, dict):
+            actions = observability.get("actions")
+        return actions[-1] if actions else None
+
+    def _field(self, item: Any | None, key: str, default: Any = None) -> Any:
+        if item is None:
+            return default
+        if isinstance(item, dict):
+            return item.get(key, default)
+        return getattr(item, key, default)
+
+    def _approval_message(self, action: Any | None) -> str:
+        if not action or self._field(action, "status") != "pending_approval":
+            return ""
+        title = str(self._field(action, "title", "动作") or "动作")
+        reason = str(self._field(action, "policy_reason", "") or "").strip()
+        return f"{title}{f'，原因：{reason}' if reason else ''}"
+
+    def _action_failure_message(self, action: Any | None) -> str:
+        if not action or self._field(action, "status") != "failed":
+            return ""
+        title = str(self._field(action, "title", "动作") or "动作")
+        failure = str(self._field(action, "failure_summary", "") or "").strip()
+        return f"{title}{f'：{failure}' if failure else ' 执行失败'}"
+
+    def _tool_failure_message(self, tool_call: Any | None) -> str:
+        if not tool_call or self._field(tool_call, "status") not in {"failed", "blocked"}:
+            return ""
+        tool = str(self._field(tool_call, "tool_name", "工具") or "工具")
+        reason = str(
+            self._field(tool_call, "blocked_reason")
+            or self._field(tool_call, "error")
+            or self._field(tool_call, "result_summary")
+            or ""
+        ).strip()
+        return f"{tool}{f'：{reason}' if reason else ' 调用失败'}"
 
     async def _ensure_acceptance_report(self, workflow: Any | None) -> None:
         if workflow is None:

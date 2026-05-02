@@ -241,6 +241,13 @@ class AgentToolLoop:
                         "模型输出不是可解析的工具 JSON，重试后仍失败，需要人工审查。",
                         step_id=task.get("id"),
                         actor=agent_id,
+                        extra={
+                            "blocked_state": {
+                                "tool": "model_output",
+                                "reason": "unparseable_model_output",
+                                "message": "模型输出不是可解析的工具 JSON，重试后仍失败。",
+                            }
+                        },
                     )
                     return AgentToolLoopResponse(
                         needs_manual_review=True,
@@ -499,6 +506,8 @@ class AgentToolLoop:
                 "error": result.error,
                 "permission_decision": result.permission_decision,
                 "blocked_reason": result.blocked_reason,
+                "action": self._action_observation(result),
+                "guidance": self._guidance_for_result(result, agent_id),
             }
             observation_text = json.dumps(observation, ensure_ascii=False, indent=2)
             observation_text = self.context_manager.trim_large_payload(observation_text)
@@ -549,6 +558,21 @@ class AgentToolLoop:
             last_output=last_model_output_preview,
             parse_repair_count=parse_repair_count,
             fallback_summary_used=False,
+        )
+        set_workflow_state(
+            self.repository,
+            project,
+            NEEDS_MANUAL_REVIEW,
+            "工具循环达到最大轮数，需要人工确认。",
+            step_id=task.get("id"),
+            actor=agent_id,
+            extra={
+                "blocked_state": {
+                    "tool": "tool_loop",
+                    "reason": "max_iterations",
+                    "message": "工具循环达到最大轮数，且系统无法生成可信兜底总结。",
+                }
+            },
         )
         return AgentToolLoopResponse(
             needs_manual_review=True,
@@ -644,6 +668,108 @@ class AgentToolLoop:
                 }
             ],
         )
+
+    def _action_for_result(self, result: AgentToolResult) -> dict[str, Any] | None:
+        payload = result.payload or {}
+        action_id = payload.get("action_id")
+        if not action_id:
+            return None
+        try:
+            return self.repository.get_action_proposal(str(action_id))
+        except Exception:
+            logger.exception("Failed to load action for tool result: %s", action_id)
+            return None
+
+    def _action_observation(self, result: AgentToolResult) -> dict[str, Any] | None:
+        action = self._action_for_result(result)
+        if not action:
+            return None
+        executions = action.get("executions") or []
+        latest_execution = executions[-1] if executions else None
+        payload = action.get("payload") or {}
+        return {
+            "id": action.get("id"),
+            "type": action.get("action_type"),
+            "status": action.get("status"),
+            "execution_mode": action.get("execution_mode") or payload.get("_execution_mode"),
+            "policy_decision": action.get("policy_decision") or payload.get("_policy_decision"),
+            "risk_level": action.get("risk_level") or payload.get("_risk_level"),
+            "policy_reason": action.get("policy_reason") or payload.get("_policy_reason"),
+            "changed_files": action.get("changed_files") or [],
+            "auto_executed_at": action.get("auto_executed_at") or payload.get("_auto_executed_at"),
+            "failure_summary": action.get("failure_summary") or payload.get("_failure_summary") or "",
+            "latest_execution": {
+                "status": latest_execution.get("status"),
+                "exit_code": latest_execution.get("exit_code"),
+                "failure_summary": latest_execution.get("failure_summary")
+                or action.get("failure_summary")
+                or payload.get("_failure_summary")
+                or "",
+                "stdout_preview": (latest_execution.get("stdout") or "")[:1000],
+                "stderr_preview": (latest_execution.get("stderr") or "")[:1000],
+            }
+            if latest_execution
+            else None,
+        }
+
+    def _guidance_for_result(self, result: AgentToolResult, agent_id: str) -> str:
+        payload = result.payload or {}
+        if result.status == "failed":
+            if payload.get("required_tools"):
+                return "已引导 Agent 先读取项目结构或目标文件；下一步请调用 inspect_project、search_code 或 read_file。"
+            if payload.get("required_tool") == "detect_project_commands":
+                return "已引导 Agent 先识别验证命令；下一步请调用 detect_project_commands。"
+            return "工具执行失败；请根据 error 调整下一次工具调用，必要时 finalize 说明阻断原因。"
+
+        if result.status == "blocked":
+            return "工具调用被权限或策略阻断；请 finalize 说明阻断原因，或等待用户审批后继续。"
+
+        action = self._action_for_result(result)
+        if result.tool == "propose_patch":
+            if not action:
+                return "补丁建议已生成；下一步应确认动作状态，然后提出验证命令。"
+            status = action.get("status")
+            changed_files = action.get("changed_files") or []
+            if status == "executed":
+                files_text = ", ".join(changed_files) if changed_files else "已变更文件"
+                return (
+                    f"补丁已自动执行，变更文件：{files_text}。"
+                    "下一步应提出验证命令；若尚未识别验证命令，请先调用 detect_project_commands。"
+                )
+            if status == "pending_approval":
+                return "补丁已生成但等待用户审批；若无需继续只读分析，请 finalize 当前状态并说明等待审批。"
+            if status == "blocked":
+                reason = action.get("policy_reason") or "策略阻断"
+                return f"补丁被策略阻断：{reason}。请 finalize 说明原因或改为低风险方案。"
+            return "补丁动作已记录；下一步请检查动作状态并继续验证或 finalize。"
+
+        if result.tool == "propose_command":
+            if not action:
+                return "命令建议已生成；下一步应读取执行结果或 finalize。"
+            status = action.get("status")
+            executions = action.get("executions") or []
+            latest = executions[-1] if executions else None
+            if latest:
+                exit_code = latest.get("exit_code")
+                if exit_code == 0 and status == "executed":
+                    return "验证命令已执行且通过。下一步必须调用 finalize，总结变更、命令和验证结果。"
+                return "验证命令执行失败。下一步请调用 read_test_failures 读取失败摘要，然后最多进行一次修复。"
+            if status == "pending_approval":
+                return "验证命令等待用户审批；请 finalize 说明等待审批，或继续只读检查。"
+            if status == "blocked":
+                reason = action.get("policy_reason") or "策略阻断"
+                return f"验证命令被策略阻断：{reason}。请 finalize 说明原因。"
+            return "验证命令动作已记录；下一步请读取执行结果或 finalize。"
+
+        if result.tool == "read_test_failures":
+            return "请根据失败摘要生成修复补丁或 finalize 说明无法自动修复。"
+        if result.tool in {"inspect_project", "search_code", "read_file", "list_files"}:
+            return "已获得项目上下文；如需要修改，可继续读取相关文件后再 propose_patch。"
+        if result.tool == "detect_project_commands":
+            return "已识别候选验证命令；后续 propose_command 应优先使用这些命令。"
+        if result.tool == "read_execution_result":
+            return "已读取动作执行结果；成功则 finalize，失败则 read_test_failures 或说明阻断。"
+        return "请基于工具结果继续下一步，或在目标完成/阻断时调用 finalize。"
 
     def _fallback_summary_output(self, results: list[AgentToolResult], project: dict[str, Any]) -> AgentOutput | None:
         actions = self.repository.list_action_proposals(project["id"])

@@ -159,6 +159,9 @@ export default function AgentRunCard({
     .reverse()
     .find((call) => call.status === 'blocked' || call.permission_decision === 'ask' || call.permission_decision === 'deny');
   const latestTool = toolCalls.length ? toolCalls[toolCalls.length - 1] : undefined;
+  const diagnosticLatestTool = ((metadata.latest_tool_call as WorkflowToolCall | undefined) || latestTool);
+  const diagnosticLatestAction = ((metadata.latest_action as WorkflowAction | undefined) || (metadata.action as WorkflowAction | undefined));
+  const diagnosticLatestEvent = (metadata.latest_event || metadata.event) as Record<string, any> | undefined;
   const action = metadata.action as WorkflowAction | undefined;
   const waitingStep = workflow?.steps?.find((step) => step.status === 'awaiting_approval');
   const lastExecution = action?.executions?.[action.executions.length - 1];
@@ -643,12 +646,13 @@ export default function AgentRunCard({
                 <Typography.Text type="secondary">Run ID: {metadata.agent_run_id || '-'}</Typography.Text>
                 <Typography.Text type="secondary">Workflow ID: {metadata.workflow_id || '-'}</Typography.Text>
                 <Typography.Text type="secondary">
-                  Last event: {String((metadata.event as any)?.event_type || (metadata.event as any)?.message || '-')}
+                  Last event: {String(diagnosticLatestEvent?.event_type || diagnosticLatestEvent?.message || '-')}
                 </Typography.Text>
                 <Typography.Text type="secondary">
-                  Last tool: {latestTool ? toolLabel[latestTool.tool_name] || latestTool.tool_name : '-'}
+                  Last tool: {diagnosticLatestTool ? toolLabel[diagnosticLatestTool.tool_name] || diagnosticLatestTool.tool_name : '-'}
                 </Typography.Text>
-                <Typography.Text type="secondary">Latest action: {action?.title || '-'}</Typography.Text>
+                <Typography.Text type="secondary">Latest action: {diagnosticLatestAction?.title || '-'}</Typography.Text>
+                <Typography.Text type="secondary">Protocol: {protocolStatus || '-'}</Typography.Text>
               </Space>
             ),
           },

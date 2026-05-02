@@ -408,6 +408,9 @@ export interface ChatAgentMetadata {
   max_repair_attempts?: number;
   action?: unknown;
   event?: unknown;
+  latest_event?: unknown;
+  latest_tool_call?: unknown;
+  latest_action?: unknown;
 }
 
 export interface ChatAgentAcceptanceReport {

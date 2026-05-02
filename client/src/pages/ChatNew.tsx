@@ -558,6 +558,9 @@ const ChatPage: React.FC = () => {
         max_repair_attempts: workflowMetadata.max_repair_attempts,
         action,
         event: run.latest_event,
+        latest_event: run.latest_event,
+        latest_tool_call: run.latest_tool_call,
+        latest_action: run.latest_action,
       };
     },
     [],

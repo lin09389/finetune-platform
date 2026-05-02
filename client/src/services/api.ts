@@ -794,6 +794,8 @@ export interface ChatAgentIntentResponse {
   workflow?: Workflow;
   observability?: WorkflowObservability;
   latest_event?: Record<string, any>;
+  latest_tool_call?: WorkflowToolCall;
+  latest_action?: WorkflowAction;
 }
 
 export interface AgentInfo {
