@@ -15,13 +15,11 @@ import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import VersionComparisonChat from '../components/shared/VersionComparisonChat';
 import { useRuntimeContext } from '../runtime/RuntimeContext';
 import {
+  getInferenceCacheStatus,
   getPerformanceRecommendations,
   getPerformanceStats,
-  listInferenceEngines,
-  streamGenerate,
   streamInference,
   switchBackend,
-  type InferenceEngine,
 } from '../services/api';
 import { notify } from '../utils/notify';
 import styles from './Inference.module.css';
@@ -42,9 +40,10 @@ export default function Inference() {
   const [currentBackend, setCurrentBackend] = useState<string>(
     observed.inference.currentBackend || 'huggingface',
   );
-  const [inferenceEngines, setInferenceEngines] = useState<InferenceEngine[]>([]);
   const [performanceStats, setPerformanceStats] = useState<any>(null);
   const [performanceRecommendations, setPerformanceRecommendations] = useState<string[]>([]);
+  const [performanceContext, setPerformanceContext] = useState<any>(null);
+  const [cacheStatus, setCacheStatus] = useState<any>(null);
   const [comparisonMode, setComparisonMode] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -74,26 +73,16 @@ export default function Inference() {
     });
   }, [currentBackend, selectedModel, setInferenceSelection]);
 
-  useEffect(() => {
-    const loadEngines = async () => {
-      try {
-        const enginesData = await listInferenceEngines();
-        setInferenceEngines(enginesData.engines);
-      } catch (e) {
-        console.warn('Failed to load inference engines:', e);
-      }
-    };
-
-    void loadEngines();
-  }, []);
-
   const loadPerformance = async () => {
     try {
-      const [stats, recommendations] = await Promise.all([
+      const [stats, recommendations, cache] = await Promise.all([
         getPerformanceStats().catch(() => null),
         getPerformanceRecommendations().catch(() => null),
+        getInferenceCacheStatus().catch(() => null),
       ]);
       setPerformanceStats(stats);
+      setPerformanceContext(recommendations);
+      setCacheStatus(cache);
       setPerformanceRecommendations(
         (recommendations?.recommendations || []).map((r: any) =>
           r.action ? `${r.message} (${r.action})` : r.message
@@ -111,7 +100,8 @@ export default function Inference() {
       setSelectedModel(undefined);
       syncInferenceSelection({ backend, modelId: undefined });
       await refreshInference();
-      notify.success(`已切换到 ${backend === 'ollama' ? 'Ollama' : 'HuggingFace'} 后端`);
+      const backendLabel = observed.inference.backends.find((item) => item.id === backend)?.name || backend;
+      notify.success(`已切换到 ${backendLabel} 后端`);
     } catch (error) {
       notify.error('切换失败');
     }
@@ -131,6 +121,14 @@ export default function Inference() {
 
   const currentBackendInfo = observed.inference.backends.find((b) => b.id === currentBackend);
   const isBackendAvailable = currentBackendInfo?.available ?? true;
+  const recommendedBackend = performanceContext?.hardware_profile?.recommended_backend;
+  const recommendedQuantization = performanceContext?.hardware_profile?.recommended_quantization;
+  const recommendedProfile = performanceContext?.hardware_profile?.profile;
+  const warmupResult = selectedModel ? cacheStatus?.warmup?.[selectedModel] : undefined;
+  const batchingQueueSize = Object.values(cacheStatus?.batching || {}).reduce(
+    (total: number, item: any) => total + (item?.queue_size || 0),
+    0
+  );
 
   const handleSend = async () => {
     if (!selectedModel || !prompt.trim()) return;
@@ -143,37 +141,20 @@ export default function Inference() {
     setResponse('');
 
     try {
-      if (inferenceEngines.length > 0) {
-        await streamGenerate(
-          {
-            model_id: selectedModel,
-            prompt: prompt,
-            max_tokens: maxTokens,
-            temperature: temperature,
-            backend: currentBackend,
-          },
-          (text: string) => {
-            setResponse((prev) => prev + text);
-          },
-          undefined,
-          controller.signal,
-        );
-      } else {
-        await streamInference(
-          {
-            modelId: selectedModel,
-            prompt: prompt,
-            maxTokens: maxTokens,
-            temperature: temperature,
-            backend: currentBackend,
-          },
-          (text: string) => {
-            setResponse((prev) => prev + text);
-          },
-          undefined,
-          controller.signal,
-        );
-      }
+      await streamInference(
+        {
+          modelId: selectedModel,
+          prompt: prompt,
+          maxTokens: maxTokens,
+          temperature: temperature,
+          backend: currentBackend,
+        },
+        (text: string) => {
+          setResponse((prev) => prev + text);
+        },
+        undefined,
+        controller.signal,
+      );
     } catch (error: unknown) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         return;
@@ -274,6 +255,16 @@ export default function Inference() {
                         刷新
                       </Button>
                     }
+                  />
+                )}
+
+                {recommendedBackend && recommendedBackend !== currentBackend && (
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 16, borderRadius: 8 }}
+                    message={`当前设备推荐优先使用 ${recommendedBackend}`}
+                    description={`硬件档位：${recommendedProfile || 'unknown'}，推荐量化：${recommendedQuantization || 'auto'}。如果你更关注低显存稳定性，可优先尝试推荐组合。`}
                   />
                 )}
 
@@ -478,7 +469,25 @@ export default function Inference() {
                       },
                       {
                         label: '平均首响应 / 总耗时',
-                        value: `${performanceStats?.streaming?.avg_first_token_ms ?? 0} ms / ${performanceStats?.inference?.avg_latency_ms ?? 0} ms`,
+                        value: `${performanceStats?.streaming?.first_token_latency_ms?.avg ?? 0} ms / ${performanceStats?.inference?.latency_ms?.avg ?? 0} ms`,
+                      },
+                      {
+                        label: '推荐后端 / 量化',
+                        value: recommendedBackend
+                          ? `${recommendedBackend} / ${recommendedQuantization || 'auto'}`
+                          : '等待采样',
+                      },
+                      {
+                        label: '队列 / 活跃租约',
+                        value: `${batchingQueueSize} / ${cacheStatus?.active_leases ?? 0}`,
+                      },
+                      {
+                        label: '当前模型预热',
+                        value: warmupResult
+                          ? warmupResult.success
+                            ? `已完成 (${warmupResult.latency_ms} ms)`
+                            : `失败`
+                          : '未执行',
                       },
                     ]}
                     sections={[

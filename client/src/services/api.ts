@@ -2055,6 +2055,11 @@ export const getPerformanceRecommendations = async () => {
   return response.data;
 };
 
+export const getInferenceCacheStatus = async () => {
+  const response = await apiClient.get('/inference/cache/status');
+  return response.data;
+};
+
 export const clearPerformanceHistory = async () => {
   const response = await apiClient.post('/inference/performance/clear');
   return response.data;
