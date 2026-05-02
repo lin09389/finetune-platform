@@ -119,6 +119,7 @@ class WorkflowActionService:
                     "_changed_files": result.get("changed_files") or [],
                     "_failure_summary": result.get("failure_summary") or "",
                     "_execution_state": "completed" if next_status == "executed" else FAILED,
+                    "_applied_hunks": result.get("applied_hunks"),
                 },
             )
             self.repository.update_action_status(action_id, next_status, executed_at=self._now())
@@ -187,6 +188,7 @@ class WorkflowActionService:
             "stderr": "",
             "exit_code": 0,
             "changed_files": result.changed_files,
+            "applied_hunks": len(result.summaries),
             "failure_summary": "",
         }
 
@@ -208,6 +210,8 @@ class WorkflowActionService:
             if not isinstance(files, list) or not files or len(files) > 3:
                 return {"execution_mode": "approval_required", "policy_reason": "补丁文件数量超出自动执行策略，需人工审批"}
             safe_prefixes = ("tmp/", "tmp\\", "tests/", "tests\\", "server/tests/", "client/src/test/")
+            source_policy = self._evaluate_source_patch_policy(project, files)
+            used_source_policy = False
             for item in files:
                 if not isinstance(item, dict):
                     return {"execution_mode": "approval_required", "policy_reason": "补丁格式异常，需人工审批"}
@@ -216,10 +220,79 @@ class WorkflowActionService:
                 if not relative_path or len(content) > 20_000:
                     return {"execution_mode": "approval_required", "policy_reason": "补丁内容超出自动执行策略，需人工审批"}
                 if not relative_path.startswith(safe_prefixes):
-                    return {"execution_mode": "approval_required", "policy_reason": "补丁涉及业务源码或敏感路径，需人工审批"}
+                    if source_policy["execution_mode"] == "auto":
+                        used_source_policy = True
+                        continue
+                    return source_policy
+            if used_source_policy:
+                return source_policy
             return {"execution_mode": "auto", "policy_reason": "安全小补丁，已自动执行"}
 
         return {"execution_mode": "approval_required", "policy_reason": "未知动作类型，需人工审批"}
+
+    def _evaluate_source_patch_policy(self, project: dict[str, Any], files: list[Any]) -> dict[str, str]:
+        if not files or len(files) > 2:
+            return {"execution_mode": "approval_required", "policy_reason": "源码自动修改最多允许 2 个文件"}
+        allowed_suffixes = {".py", ".ts", ".tsx", ".css", ".md"}
+        sensitive_names = {
+            ".env",
+            ".env.local",
+            "package.json",
+            "package-lock.json",
+            "pnpm-lock.yaml",
+            "yarn.lock",
+            "requirements.txt",
+            "pyproject.toml",
+            "alembic.ini",
+            "docker-compose.yml",
+            "Dockerfile",
+        }
+        sensitive_parts = {".git", "migrations", "secrets", "keys"}
+        read_paths = self._context_touched_paths(project.get("id") or project.get("workflow_id"))
+        total_lines = 0
+        for item in files:
+            if not isinstance(item, dict):
+                return {"execution_mode": "approval_required", "policy_reason": "源码补丁格式异常，需人工审批"}
+            relative_path = str(item.get("path") or item.get("file_path") or "").replace("\\", "/")
+            content = str(item.get("content") or "")
+            if not relative_path:
+                return {"execution_mode": "approval_required", "policy_reason": "源码补丁缺少路径，需人工审批"}
+            path = Path(relative_path)
+            if path.is_absolute() or ".." in path.parts:
+                return {"execution_mode": "approval_required", "policy_reason": "源码补丁路径不安全，需人工审批"}
+            if path.name in sensitive_names or any(part in sensitive_parts for part in path.parts):
+                return {"execution_mode": "approval_required", "policy_reason": "源码补丁涉及敏感文件或目录，需人工审批"}
+            if path.suffix.lower() not in allowed_suffixes:
+                return {"execution_mode": "approval_required", "policy_reason": "源码补丁文件类型不在自动执行策略内"}
+            line_count = len(content.splitlines())
+            total_lines += line_count
+            if line_count > 80:
+                return {"execution_mode": "approval_required", "policy_reason": "单文件源码补丁超过 80 行，需人工审批"}
+            if relative_path not in read_paths:
+                return {"execution_mode": "approval_required", "policy_reason": "源码文件未在同一轮被读取或搜索命中，需人工审批"}
+        if total_lines > 160:
+            return {"execution_mode": "approval_required", "policy_reason": "源码补丁总行数超过 160 行，需人工审批"}
+        return {"execution_mode": "auto", "policy_reason": "低风险源码小改，已按策略自动执行"}
+
+    def _context_touched_paths(self, workflow_id: str | None) -> set[str]:
+        if not workflow_id:
+            return set()
+        touched: set[str] = set()
+        try:
+            calls = self.repository.list_tool_calls(workflow_id)
+        except Exception:
+            return touched
+        for call in calls:
+            if call.get("status") != "completed":
+                continue
+            payload = call.get("result_payload") or {}
+            if call.get("tool_name") == "read_file" and payload.get("path"):
+                touched.add(str(payload["path"]).replace("\\", "/"))
+            if call.get("tool_name") == "search_code":
+                for match in payload.get("matches") or []:
+                    if isinstance(match, dict) and match.get("path"):
+                        touched.add(str(match["path"]).replace("\\", "/"))
+        return touched
 
     def _execute_command(self, project: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
         payload = action.get("payload") or {}

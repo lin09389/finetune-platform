@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from digital_team.models import AgentOutput
 
@@ -55,9 +55,15 @@ class AgentToolLoopState(BaseModel):
 
 
 class AgentToolLoopResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     output: AgentOutput
     tool_calls: list[AgentToolResult] = Field(default_factory=list)
     needs_manual_review: bool = False
     trace_id: str | None = None
     total_input_tokens: int = 0
     total_output_tokens: int = 0
+    model_protocol_status: str | None = None
+    last_model_output_preview: str | None = None
+    parse_repair_count: int = 0
+    fallback_summary_used: bool = False

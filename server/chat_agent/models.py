@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from agent_runtime.models import WorkflowActionResponse, WorkflowObservabilityResponse, WorkflowResponse
 
@@ -44,6 +44,8 @@ class ChatAgentApprovalRequest(BaseModel):
 
 
 class ChatAgentRunResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     id: str
     mode: Literal["chat", "agent"]
     chat_session_id: str | None = None
@@ -56,6 +58,10 @@ class ChatAgentRunResponse(BaseModel):
     execution_state: str | None = None
     execution_state_message: str | None = None
     recoverable: bool = False
+    model_protocol_status: str | None = None
+    last_model_output_preview: str | None = None
+    parse_repair_count: int = 0
+    fallback_summary_used: bool = False
     details_url: str | None = None
     active_agent_id: str | None = None
     subagent_runs: list[dict[str, Any]] = Field(default_factory=list)

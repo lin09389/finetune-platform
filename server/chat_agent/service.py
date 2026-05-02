@@ -148,9 +148,15 @@ class ChatAgentService:
         observability = self.runtime.get_observability(workflow_id) if workflow_id else None
         events = self.runtime.list_timeline(workflow_id) if workflow_id else []
         metadata = dict((workflow.metadata if workflow else {}) or {})
+        response_status = workflow.status if workflow else (run.get("status") or "created")
         final_summary = self._latest_output_summary(workflow.model_dump() if workflow and hasattr(workflow, "model_dump") else {})
         execution_state = metadata.get("execution_state")
         blocked_state = metadata.get("blocked_state")
+        execution_message = metadata.get("execution_state_message") or self._stopped_state_message(
+            response_status,
+            metadata,
+            final_summary,
+        )
         recoverable = bool(
             workflow
             and (
@@ -165,13 +171,17 @@ class ChatAgentService:
             chat_session_id=run.get("chat_session_id"),
             trigger_message_id=run.get("trigger_message_id"),
             workflow_id=workflow_id,
-            status=run.get("status") or (workflow.status if workflow else "created"),
+            status=response_status,
             intent_type=run.get("intent_type"),
             summary=run.get("summary") or "",
             final_summary=final_summary or None,
             execution_state=execution_state,
-            execution_state_message=metadata.get("execution_state_message"),
+            execution_state_message=execution_message,
             recoverable=recoverable,
+            model_protocol_status=metadata.get("model_protocol_status"),
+            last_model_output_preview=metadata.get("last_model_output_preview"),
+            parse_repair_count=int(metadata.get("parse_repair_count") or 0),
+            fallback_summary_used=bool(metadata.get("fallback_summary_used")),
             details_url=f"/workflows?workflow={workflow_id}" if workflow_id else None,
             active_agent_id=metadata.get("active_agent_id"),
             subagent_runs=list(metadata.get("subagent_runs") or []),
@@ -208,6 +218,10 @@ class ChatAgentService:
         if final_summary and status in {"completed", "awaiting_approval", "needs_manual_review"}:
             prefix = "最终结果" if status == "completed" else "当前结果"
             return f"{prefix}：{final_summary}"
+        metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
+        stopped_message = self._stopped_state_message(status, metadata or {}, final_summary)
+        if stopped_message and status in {"failed", "needs_manual_review", "awaiting_approval"}:
+            return stopped_message
         return f"Agent 工作流状态：{status}，当前阶段：{current}"
 
     def _latest_output_summary(self, workflow: dict[str, Any]) -> str:
@@ -224,3 +238,20 @@ class ChatAgentService:
             if summary:
                 return summary
         return ""
+
+    def _stopped_state_message(self, status: str | None, metadata: dict[str, Any], final_summary: str = "") -> str:
+        blocked_state = metadata.get("blocked_state")
+        blocked_reason = ""
+        if isinstance(blocked_state, dict):
+            blocked_reason = str(blocked_state.get("reason") or blocked_state.get("message") or "").strip()
+        state_message = str(metadata.get("execution_state_message") or "").strip()
+        if status == "needs_manual_review":
+            reason = blocked_reason or state_message or final_summary or "Agent 已暂停，需要人工确认后继续。"
+            return f"需要人工处理：{reason}"
+        if status == "failed":
+            reason = state_message or final_summary or "动作或验证执行失败。"
+            return f"执行失败：{reason}"
+        if status == "awaiting_approval":
+            reason = state_message or final_summary or "Agent 正在等待你的审批。"
+            return f"等待审批：{reason}"
+        return state_message

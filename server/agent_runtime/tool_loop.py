@@ -48,18 +48,23 @@ def _sanitize_model_output(content: str) -> str:
         return text
 
     # Try extracting from markdown fence
-    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    fence = re.search(r"```(?:json)?\s*([\[{].*?[\]}])\s*```", text, re.DOTALL)
     if fence:
         return fence.group(1).strip()
 
-    # If starts with '{', return as-is
-    if text.startswith("{"):
+    # If starts with JSON object/array, return as-is
+    if text.startswith("{") or text.startswith("["):
         return text
 
     # Try finding the outermost JSON object
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if match:
         return match.group(0).strip()
+
+    # Some providers wrap tool requests in a top-level array.
+    array_match = re.search(r"\[.*\]", text, re.DOTALL)
+    if array_match:
+        return array_match.group(0).strip()
 
     return text
 
@@ -109,6 +114,9 @@ class AgentToolLoop:
         recent_tool_names: list[str] = []
         total_input_tokens = 0
         total_output_tokens = 0
+        parse_repair_count = 0
+        protocol_status = "ok"
+        last_model_output_preview = ""
         loop_start_time = perf_counter()
 
         for _iteration in range(effective_max_iterations):
@@ -117,6 +125,7 @@ class AgentToolLoop:
 
             iteration_start = perf_counter()
             content = await model_call(messages)
+            last_model_output_preview = self._preview(content)
 
             # --- Phase 6: Token estimation ---
             input_tokens = estimate_tokens(messages)
@@ -128,6 +137,44 @@ class AgentToolLoop:
             sanitized = _sanitize_model_output(content)
             request = self._try_parse_request(sanitized)
             if request is None:
+                if _looks_like_final_text(content):
+                    output = self._final_output(
+                        {
+                            "summary": content.strip(),
+                            "risks": [],
+                            "next_action": "请查看最终结果。",
+                            "requires_approval": False,
+                        },
+                        results,
+                    )
+                    output.raw_output = content
+                    protocol_status = "fallback_summary"
+                    self._set_protocol_metadata(
+                        project,
+                        status=protocol_status,
+                        last_output=last_model_output_preview,
+                        parse_repair_count=parse_repair_count,
+                        fallback_summary_used=True,
+                    )
+                    set_workflow_state(
+                        self.repository,
+                        project,
+                        COMPLETED,
+                        "模型返回普通文本，已作为最终结果收口。",
+                        step_id=task.get("id"),
+                        actor=agent_id,
+                    )
+                    return AgentToolLoopResponse(
+                        output=output,
+                        tool_calls=results,
+                        trace_id=trace_id,
+                        total_input_tokens=total_input_tokens,
+                        total_output_tokens=total_output_tokens,
+                        model_protocol_status=protocol_status,
+                        last_model_output_preview=last_model_output_preview,
+                        parse_repair_count=parse_repair_count,
+                        fallback_summary_used=True,
+                    )
                 # Retry once with a correction prompt
                 messages.append({"role": "assistant", "content": content})
                 messages.append({
@@ -137,7 +184,9 @@ class AgentToolLoop:
                         "不要包含 Markdown 格式或多余文本。格式：{\"thought\":\"...\",\"tool\":\"...\",\"arguments\":{...}}"
                     ),
                 })
+                parse_repair_count += 1
                 retry_content = await model_call(messages)
+                last_model_output_preview = self._preview(retry_content)
                 retry_input_tokens = estimate_tokens(messages)
                 retry_output_tokens = estimate_tokens([{"role": "assistant", "content": retry_content}])
                 total_input_tokens += retry_input_tokens
@@ -172,7 +221,19 @@ class AgentToolLoop:
                             trace_id=trace_id,
                             total_input_tokens=total_input_tokens,
                             total_output_tokens=total_output_tokens,
+                            model_protocol_status="fallback_summary",
+                            last_model_output_preview=last_model_output_preview,
+                            parse_repair_count=parse_repair_count,
+                            fallback_summary_used=True,
                         )
+                    protocol_status = "needs_manual_review"
+                    self._set_protocol_metadata(
+                        project,
+                        status=protocol_status,
+                        last_output=last_model_output_preview,
+                        parse_repair_count=parse_repair_count,
+                        fallback_summary_used=False,
+                    )
                     set_workflow_state(
                         self.repository,
                         project,
@@ -194,8 +255,21 @@ class AgentToolLoop:
                         trace_id=trace_id,
                         total_input_tokens=total_input_tokens,
                         total_output_tokens=total_output_tokens,
+                        model_protocol_status=protocol_status,
+                        last_model_output_preview=last_model_output_preview,
+                        parse_repair_count=parse_repair_count,
                     )
                 content = retry_content
+                sanitized = retry_sanitized
+                protocol_status = "repaired"
+
+            self._set_protocol_metadata(
+                project,
+                status=protocol_status,
+                last_output=last_model_output_preview,
+                parse_repair_count=parse_repair_count,
+                fallback_summary_used=False,
+            )
 
             # --- Phase 1: Enhanced repeat detection ---
             call_fingerprint = (request.tool, json.dumps(request.arguments, ensure_ascii=False, sort_keys=True))
@@ -263,7 +337,12 @@ class AgentToolLoop:
                 step_id=task.get("id"),
                 agent_id=agent_id,
                 tool_name=request.tool,
-                arguments=request.arguments,
+                arguments={
+                    **request.arguments,
+                    "_raw_model_output": content,
+                    "_sanitized_model_output": sanitized,
+                    "_protocol_repair_attempted": protocol_status == "repaired",
+                },
                 status="running",
                 started_at=started_at,
             )
@@ -298,6 +377,9 @@ class AgentToolLoop:
                     "_blocked_reason": result.blocked_reason,
                     "_replay_of_call_id": result.replay_of_call_id,
                     "_trace_id": trace_id,
+                    "_raw_model_output": content,
+                    "_sanitized_model_output": sanitized,
+                    "_protocol_repair_attempted": protocol_status == "repaired",
                 },
                 error=result.error,
                 completed_at=completed_at,
@@ -430,6 +512,44 @@ class AgentToolLoop:
                 }
             )
 
+        fallback = self._fallback_summary_output(results, project)
+        if fallback:
+            protocol_status = "fallback_summary"
+            self._set_protocol_metadata(
+                project,
+                status=protocol_status,
+                last_output=last_model_output_preview,
+                parse_repair_count=parse_repair_count,
+                fallback_summary_used=True,
+            )
+            set_workflow_state(
+                self.repository,
+                project,
+                COMPLETED,
+                fallback.summary,
+                step_id=task.get("id"),
+                actor=agent_id,
+            )
+            return AgentToolLoopResponse(
+                tool_calls=results,
+                output=fallback,
+                trace_id=trace_id,
+                total_input_tokens=total_input_tokens,
+                total_output_tokens=total_output_tokens,
+                model_protocol_status=protocol_status,
+                last_model_output_preview=last_model_output_preview,
+                parse_repair_count=parse_repair_count,
+                fallback_summary_used=True,
+            )
+
+        protocol_status = "needs_manual_review"
+        self._set_protocol_metadata(
+            project,
+            status=protocol_status,
+            last_output=last_model_output_preview,
+            parse_repair_count=parse_repair_count,
+            fallback_summary_used=False,
+        )
         return AgentToolLoopResponse(
             needs_manual_review=True,
             tool_calls=results,
@@ -441,14 +561,66 @@ class AgentToolLoop:
             trace_id=trace_id,
             total_input_tokens=total_input_tokens,
             total_output_tokens=total_output_tokens,
+            model_protocol_status=protocol_status,
+            last_model_output_preview=last_model_output_preview,
+            parse_repair_count=parse_repair_count,
         )
 
     def _try_parse_request(self, content: str) -> AgentToolRequest | None:
         """Attempt to parse an AgentToolRequest from sanitized content."""
         try:
-            return AgentToolRequest(**json.loads(content))
+            payload = json.loads(content)
+            if isinstance(payload, list):
+                payload = next((item for item in payload if isinstance(item, dict)), None)
+            if not isinstance(payload, dict):
+                return None
+            for wrapper_key in ("tool_call", "toolCall", "request", "action", "function_call", "functionCall"):
+                wrapped = payload.get(wrapper_key)
+                if isinstance(wrapped, dict):
+                    payload = wrapped
+                    break
+            tool = payload.get("tool") or payload.get("tool_name") or payload.get("name")
+            arguments = (
+                payload.get("arguments")
+                if isinstance(payload.get("arguments"), dict)
+                else payload.get("args")
+                if isinstance(payload.get("args"), dict)
+                else payload.get("input")
+                if isinstance(payload.get("input"), dict)
+                else payload.get("parameters")
+                if isinstance(payload.get("parameters"), dict)
+                else {}
+            )
+            if not tool:
+                return None
+            return AgentToolRequest(
+                thought=str(payload.get("thought") or payload.get("reason") or payload.get("reasoning") or ""),
+                tool=tool,
+                arguments=arguments,
+            )
         except Exception:
             return None
+
+    def _preview(self, content: str, limit: int = 1000) -> str:
+        text = (content or "").strip()
+        return text[:limit]
+
+    def _set_protocol_metadata(
+        self,
+        project: dict[str, Any],
+        *,
+        status: str,
+        last_output: str,
+        parse_repair_count: int,
+        fallback_summary_used: bool,
+    ) -> None:
+        metadata = dict(project.get("metadata") or {})
+        metadata["model_protocol_status"] = status
+        metadata["last_model_output_preview"] = last_output
+        metadata["parse_repair_count"] = parse_repair_count
+        metadata["fallback_summary_used"] = fallback_summary_used
+        self.repository.update_project(project["id"], metadata=metadata)
+        project["metadata"] = metadata
 
     def _manual_review_output(
         self,
@@ -471,6 +643,45 @@ class AgentToolLoop:
                     "payload": {"results": [item.model_dump() for item in results]},
                 }
             ],
+        )
+
+    def _fallback_summary_output(self, results: list[AgentToolResult], project: dict[str, Any]) -> AgentOutput | None:
+        actions = self.repository.list_action_proposals(project["id"])
+        if not actions:
+            return None
+        failed_tools = [item for item in results if item.status in {"failed", "blocked"}]
+        if failed_tools:
+            return None
+        changed_files: list[str] = []
+        commands: list[list[str]] = []
+        failed_actions: list[str] = []
+        for action in actions:
+            changed_files.extend(action.get("changed_files") or [])
+            payload = action.get("payload") or {}
+            if action.get("action_type") == "command" and isinstance(payload.get("command"), list):
+                commands.append([str(item) for item in payload["command"]])
+            if action.get("status") == "failed":
+                failed_actions.append(action.get("title") or action.get("id"))
+        verification = "部分失败" if failed_actions else "已执行" if actions else "未运行"
+        summary = "Agent 已完成可执行动作，但模型未调用 finalize，系统已根据动作和执行记录生成兜底总结。"
+        if changed_files:
+            summary += f" 变更文件：{', '.join(dict.fromkeys(changed_files))}。"
+        if commands:
+            summary += f" 验证命令：{'; '.join(' '.join(cmd) for cmd in commands)}。"
+        if failed_actions:
+            summary += f" 仍需处理失败动作：{', '.join(failed_actions)}。"
+        return self._final_output(
+            {
+                "summary": summary,
+                "tasks": ["生成动作建议", "执行自动策略", "汇总执行结果"],
+                "risks": ["模型未显式调用 finalize，结果由系统兜底生成。"],
+                "changed_files": list(dict.fromkeys(changed_files)),
+                "commands": commands,
+                "verification": verification,
+                "next_action": "请检查自动生成的总结和动作执行结果。",
+                "requires_approval": bool(failed_actions),
+            },
+            results,
         )
 
     def _resolve_max_iterations(self, step_input: dict[str, Any]) -> int:

@@ -1032,11 +1032,13 @@ class WorkflowRuntimeRepository:
         data = dict(row)
         data["payload"] = _load(data.get("payload"))
         data["execution_mode"] = data["payload"].get("_execution_mode")
+        data["policy_decision"] = data["payload"].get("_execution_mode")
         data["policy_reason"] = data["payload"].get("_policy_reason")
         data["auto_executed_at"] = data["payload"].get("_auto_executed_at")
         data["execution_state"] = data["payload"].get("_execution_state")
         data["changed_files"] = data["payload"].get("_changed_files") or []
         data["failure_summary"] = data["payload"].get("_failure_summary") or ""
+        data["applied_hunks"] = data["payload"].get("_applied_hunks")
         data["executions"] = self.list_action_executions(data["id"])
         return data
 
@@ -1049,6 +1051,12 @@ class WorkflowRuntimeRepository:
         data["blocked_reason"] = payload.get("_blocked_reason")
         data["replay_of_call_id"] = payload.get("_replay_of_call_id")
         data["trace_id"] = payload.get("_trace_id")
+        data["raw_model_output"] = payload.get("_raw_model_output") or data["arguments"].get("_raw_model_output")
+        data["sanitized_model_output"] = payload.get("_sanitized_model_output") or data["arguments"].get("_sanitized_model_output")
+        data["parse_error"] = payload.get("_parse_error")
+        data["protocol_repair_attempted"] = bool(
+            payload.get("_protocol_repair_attempted") or data["arguments"].get("_protocol_repair_attempted")
+        )
         return data
 
     def _with_schema_retry(self, operation):

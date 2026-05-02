@@ -207,6 +207,10 @@ class WorkflowToolCallResponse(BaseModel):
     blocked_reason: str | None = None
     replay_of_call_id: str | None = None
     trace_id: str | None = None
+    raw_model_output: str | None = None
+    sanitized_model_output: str | None = None
+    parse_error: str | None = None
+    protocol_repair_attempted: bool = False
     error: str | None = None
     started_at: str | None = None
     completed_at: str | None = None
@@ -238,10 +242,12 @@ class WorkflowActionResponse(BaseModel):
     status: str
     created_by: str = "agent"
     execution_mode: str | None = None
+    policy_decision: str | None = None
     policy_reason: str | None = None
     auto_executed_at: str | None = None
     execution_state: str | None = None
     changed_files: list[str] = Field(default_factory=list)
+    applied_hunks: int | None = None
     failure_summary: str = ""
     approved_at: str | None = None
     rejected_at: str | None = None

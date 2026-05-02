@@ -437,6 +437,9 @@ class AgentToolExecutor:
                 from datetime import datetime
                 action = self.repository.update_action_status(action["id"], "approved", approved_at=datetime.now().isoformat())
                 action = self.action_service.execute(action["id"])
+                payload_after_execute = dict(action.get("payload") or {})
+                payload_after_execute["_auto_executed_at"] = action.get("executed_at")
+                action = self.repository.update_action_status(action["id"], action["status"], payload=payload_after_execute)
         return AgentToolResult(
             tool=request.tool, status="completed",
             summary=f"已生成 {action_type} 动作建议",
