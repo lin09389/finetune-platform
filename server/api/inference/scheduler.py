@@ -7,6 +7,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -94,8 +95,131 @@ class ModelScheduler:
             "total_loads": 0,
             "total_unloads": 0,
             "cache_hits": 0,
-            "cache_misses": 0
+            "cache_misses": 0,
+            "active_leases": 0,
         }
+
+    def _resolve_backend_type(self, backend: BackendType | str | None) -> BackendType:
+        if backend is None:
+            return BackendType(self._default_backend)
+        if isinstance(backend, BackendType):
+            return backend
+        return BackendType(backend)
+
+    def _get_loaded_model_for_backend(self, backend: BackendType) -> str | None:
+        for name, info in self._models.items():
+            if name in self._loaded_models and info.backend == backend:
+                return name
+        return None
+
+    def resolve_model_path(self, model_name: str, backend: BackendType | str | None = None) -> str:
+        """将模型名解析为本地实际路径。"""
+        model_backend = self._resolve_backend_type(backend)
+        path = Path(model_name)
+        if path.exists():
+            return str(path)
+
+        from core.config import get_settings
+
+        settings = get_settings()
+        candidate = settings.models_dir_resolved / model_name
+        if candidate.exists():
+            return str(candidate)
+
+        if model_backend == BackendType.LLAMACPP:
+            for suffix in (".gguf", ".ggml"):
+                suffixed = settings.models_dir_resolved / f"{model_name}{suffix}"
+                if suffixed.exists():
+                    return str(suffixed)
+
+        return model_name
+
+    async def _ensure_model_loaded(
+        self,
+        model_name: str,
+        model_path: str,
+        backend: BackendType | None = None,
+        **kwargs,
+    ) -> bool:
+        model_backend = self._resolve_backend_type(backend)
+        now = datetime.now()
+
+        existing = self._models.get(model_name)
+        if existing and model_name in self._loaded_models and existing.status == ModelStatus.LOADED:
+            self._stats["cache_hits"] += 1
+            existing.last_used = now
+            return True
+
+        self._stats["cache_misses"] += 1
+
+        if len(self._loaded_models) >= self.max_loaded_models:
+            await self._evict_lru_model()
+
+        current_backend_model = self._get_loaded_model_for_backend(model_backend)
+        if current_backend_model and current_backend_model != model_name:
+            await self._unload_model_locked(current_backend_model, force=True)
+
+        model_info = existing or ModelInfo(
+            name=model_name,
+            path=model_path,
+            backend=model_backend,
+        )
+        model_info.path = model_path
+        model_info.backend = model_backend
+        model_info.status = ModelStatus.LOADING
+        model_info.metadata.setdefault("warmup_runs", 0)
+        self._models[model_name] = model_info
+
+        from core.model_warmup import get_model_warmup_manager
+        from core.runtime_policy import build_runtime_policy
+
+        runtime_policy = build_runtime_policy(
+            model_path=model_path,
+            backend=model_backend.value,
+            options=kwargs,
+        )
+
+        backend_instance = await self.get_backend(model_backend.value)
+        load_started_at = datetime.now()
+        try:
+            logger.info(f"开始加载模型: {model_name} (后端: {model_backend.value})")
+            success = await backend_instance.load_model(model_path, runtime_policy=runtime_policy, **kwargs)
+            if not success:
+                model_info.status = ModelStatus.ERROR
+                return False
+
+            model_info.status = ModelStatus.LOADED
+            model_info.loaded_at = now
+            model_info.last_used = now
+            model_info.metadata["runtime_policy"] = runtime_policy
+            model_info.metadata["quantization"] = runtime_policy.get("quantization", {})
+            model_info.metadata["load_duration_ms"] = (
+                datetime.now() - load_started_at
+            ).total_seconds() * 1000
+
+            if runtime_policy.get("warmup_enabled"):
+                warmup_result = await get_model_warmup_manager().warmup_model(
+                    model_name=model_name,
+                    backend=backend_instance,
+                    prompt=runtime_policy.get("warmup_prompt", "Hello"),
+                )
+                model_info.metadata["warmup"] = warmup_result
+                if warmup_result.get("success"):
+                    model_info.metadata["warmup_runs"] = model_info.metadata.get("warmup_runs", 0) + 1
+
+            self._loaded_models[model_name] = {
+                "path": model_path,
+                "loaded_at": now,
+                "backend": model_backend.value,
+            }
+            self._stats["total_loads"] += 1
+            logger.info(f"模型加载完成: {model_name}")
+            return True
+        except Exception as exc:
+            model_info.status = ModelStatus.ERROR
+            model_info.metadata["error"] = str(exc)
+            logger.error(f"模型加载失败: {model_name}, {exc}")
+            return False
 
     async def load_model(
         self,
@@ -117,54 +241,36 @@ class ModelScheduler:
             是否成功
         """
         async with self._load_lock:
-            if model_name in self._loaded_models:
-                self._stats["cache_hits"] += 1
-                model_info = self._models[model_name]
-                model_info.last_used = datetime.now()
-                model_info.ref_count += 1
-                logger.info(f"模型已加载，增加引用: {model_name}")
-                return True
-
-            self._stats["cache_misses"] += 1
-
-            if len(self._loaded_models) >= self.max_loaded_models:
-                await self._evict_lru_model()
-
-            model_backend = backend or BackendType(self._default_backend)
-
-            model_info = ModelInfo(
-                name=model_name,
-                path=model_path,
-                status=ModelStatus.LOADING,
-                backend=model_backend
+            return await self._ensure_model_loaded(
+                model_name=model_name,
+                model_path=model_path,
+                backend=backend,
+                priority=priority.value,
             )
-            self._models[model_name] = model_info
 
-            try:
-                logger.info(f"开始加载模型: {model_name} (后端: {model_backend.value})")
+    async def acquire_model(
+        self,
+        model_name: str,
+        model_path: str,
+        backend: BackendType | str | None = None,
+        **kwargs,
+    ) -> ModelInfo | None:
+        """获取模型租约，确保模型已真实加载。"""
+        async with self._load_lock:
+            success = await self._ensure_model_loaded(
+                model_name=model_name,
+                model_path=model_path,
+                backend=backend,
+                **kwargs,
+            )
+            if not success:
+                return None
 
-                await asyncio.sleep(0.1)
-
-                self._loaded_models[model_name] = {
-                    "path": model_path,
-                    "loaded_at": datetime.now(),
-                    "backend": model_backend.value
-                }
-
-                model_info.status = ModelStatus.LOADED
-                model_info.loaded_at = datetime.now()
-                model_info.last_used = datetime.now()
-                model_info.ref_count = 1
-
-                self._stats["total_loads"] += 1
-                logger.info(f"模型加载完成: {model_name}")
-
-                return True
-
-            except Exception as e:
-                model_info.status = ModelStatus.ERROR
-                logger.error(f"模型加载失败: {model_name}, {e}")
-                return False
+            model_info = self._models[model_name]
+            model_info.ref_count += 1
+            model_info.last_used = datetime.now()
+            self._stats["active_leases"] += 1
+            return model_info
 
     async def unload_model(self, model_name: str, force: bool = False) -> bool:
         """
@@ -178,33 +284,39 @@ class ModelScheduler:
             是否成功
         """
         async with self._load_lock:
-            if model_name not in self._loaded_models:
-                return True
+            return await self._unload_model_locked(model_name, force=force)
 
-            model_info = self._models.get(model_name)
-            if not model_info:
-                return True
+    async def _unload_model_locked(self, model_name: str, force: bool = False) -> bool:
+        if model_name not in self._loaded_models:
+            return True
 
-            if model_info.ref_count > 0 and not force:
-                logger.warning(f"模型仍有引用，无法卸载: {model_name}")
-                return False
+        model_info = self._models.get(model_name)
+        if not model_info:
+            return True
 
-            try:
-                model_info.status = ModelStatus.UNLOADING
+        if model_info.ref_count > 0 and not force:
+            logger.warning(f"模型仍有引用，无法卸载: {model_name}")
+            return False
 
-                del self._loaded_models[model_name]
+        try:
+            model_info.status = ModelStatus.UNLOADING
+            backend = await self.get_backend(model_info.backend.value)
+            if hasattr(backend, "unload_model"):
+                await backend.unload_model()
 
-                model_info.status = ModelStatus.UNLOADED
-                model_info.ref_count = 0
+            del self._loaded_models[model_name]
 
-                self._stats["total_unloads"] += 1
-                logger.info(f"模型已卸载: {model_name}")
+            model_info.status = ModelStatus.UNLOADED
+            model_info.ref_count = 0
 
-                return True
+            self._stats["total_unloads"] += 1
+            logger.info(f"模型已卸载: {model_name}")
 
-            except Exception as e:
-                logger.error(f"模型卸载失败: {model_name}, {e}")
-                return False
+            return True
+
+        except Exception as e:
+            logger.error(f"模型卸载失败: {model_name}, {e}")
+            return False
 
     async def release_model(self, model_name: str) -> bool:
         """
@@ -222,10 +334,24 @@ class ModelScheduler:
         model_info = self._models[model_name]
         if model_info.ref_count > 0:
             model_info.ref_count -= 1
+            if self._stats["active_leases"] > 0:
+                self._stats["active_leases"] -= 1
 
         model_info.last_used = datetime.now()
 
         return True
+
+    async def unload_least_used(self) -> bool:
+        """卸载当前最不活跃且无引用的模型。"""
+        async with self._load_lock:
+            candidates = [
+                info for name, info in self._models.items()
+                if name in self._loaded_models and info.ref_count == 0 and info.last_used is not None
+            ]
+            if not candidates:
+                return False
+            victim = min(candidates, key=lambda item: item.last_used or datetime.max)
+            return await self._unload_model_locked(victim.name, force=True)
 
     def get_model_status(self, model_name: str) -> ModelStatus | None:
         """获取模型状态"""
@@ -259,7 +385,7 @@ class ModelScheduler:
                 lru_model = name
 
         if lru_model:
-            await self.unload_model(lru_model, force=True)
+            await self._unload_model_locked(lru_model, force=True)
             logger.info(f"LRU 淘汰模型: {lru_model}")
 
     async def shutdown(self):
@@ -318,6 +444,8 @@ class ModelScheduler:
             后端实例
         """
         backend = backend_type or self._default_backend
+        if backend == BackendType.AUTO.value:
+            backend = self._default_backend
 
         if backend == BackendType.HUGGINGFACE.value:
             from api.inference.backends.huggingface import HuggingFaceBackend
@@ -472,20 +600,28 @@ class ModelScheduler:
 
     def get_stats(self) -> dict[str, Any]:
         """获取统计信息"""
+        from core.model_warmup import get_model_warmup_manager
+
         return {
             **self._stats,
             "loaded_models": len(self._loaded_models),
             "max_models": self.max_loaded_models,
             "default_backend": self._default_backend,
+            "queue_size": len(self._request_queue),
+            "warmup": get_model_warmup_manager().get_all_results(),
             "models": {
                 name: {
                     "status": info.status.value,
                     "ref_count": info.ref_count,
                     "backend": info.backend.value,
-                    "last_used": info.last_used.isoformat() if info.last_used else None
+                    "path": info.path,
+                    "last_used": info.last_used.isoformat() if info.last_used else None,
+                    "loaded_at": info.loaded_at.isoformat() if info.loaded_at else None,
+                    "metadata": info.metadata,
                 }
                 for name, info in self._models.items()
-            }
+            },
+            "backends": list(self._backends.keys()),
         }
 
 

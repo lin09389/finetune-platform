@@ -207,12 +207,25 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Memory service init failed: {e}")
 
     storage_worker = None
+    grpc_server = None
     try:
         from core.storage_worker import get_storage_outbox_worker
         storage_worker = get_storage_outbox_worker()
         await storage_worker.start()
     except Exception as e:
         logger.warning(f"Storage outbox worker start failed: {e}")
+
+    if settings.enable_inference_grpc:
+        try:
+            from api.inference.grpc_server import get_inference_grpc_server
+
+            grpc_server = get_inference_grpc_server(
+                settings.inference_grpc_host,
+                settings.inference_grpc_port,
+            )
+            await grpc_server.start()
+        except Exception as e:
+            logger.warning(f"Inference gRPC startup failed: {e}")
 
     yield
 
@@ -223,9 +236,18 @@ async def lifespan(app: FastAPI):
             await storage_worker.stop()
         except Exception as e:
             logger.warning(f"Storage outbox worker shutdown failed: {e}")
+
+    if grpc_server:
+        try:
+            await grpc_server.stop()
+            logger.info("Inference gRPC shutdown complete")
+        except Exception as e:
+            logger.warning(f"Inference gRPC shutdown failed: {e}")
     
     try:
         from api.inference.routes import get_scheduler
+        from api.inference.pipeline import get_local_inference_pipeline
+        await get_local_inference_pipeline().shutdown()
         await get_scheduler().shutdown()
         logger.info("Inference scheduler shutdown complete")
     except Exception as e:

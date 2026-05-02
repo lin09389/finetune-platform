@@ -4,6 +4,7 @@ Logging configuration module
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 from pythonjsonlogger.jsonlogger import JsonFormatter
 
@@ -62,3 +63,9 @@ def setup_logging(
 def get_logger(name: str = "finetune-platform") -> logging.Logger:
     """Get logger instance"""
     return logging.getLogger(name)
+
+
+def log_inference_event(logger: logging.Logger, message: str, **fields: Any) -> None:
+    """记录结构化推理日志字段。"""
+    extra_payload = " ".join(f"{key}={value}" for key, value in fields.items())
+    logger.info(f"{message} {extra_payload}".strip())

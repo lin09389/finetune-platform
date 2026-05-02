@@ -244,7 +244,12 @@ class OllamaResilientBackend(InferenceBackend):
 
     async def load_model(self, model_name: str, **kwargs) -> bool:
         """加载模型"""
+        runtime_policy = kwargs.get("runtime_policy", {})
         self.model_name = model_name or self.model_name
+        self.num_ctx = runtime_policy.get("num_ctx", self.num_ctx)
+        self.num_batch = runtime_policy.get("num_batch", self.num_batch)
+        self.num_thread = runtime_policy.get("num_thread", self.num_thread)
+        self.num_gpu = runtime_policy.get("num_gpu", self.num_gpu)
         if not await self._health_check_if_needed():
             logger.warning("Ollama service is not healthy, attempting to load model anyway")
 

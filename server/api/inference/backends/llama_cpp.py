@@ -30,9 +30,12 @@ class LlamaCppBackend(InferenceBackend):
         config = config or {}
         self.n_gpu_layers = config.get("n_gpu_layers", -1)
         self.n_ctx = config.get("n_ctx", 2048)
+        self.n_threads = config.get("n_threads", None)
+        self.n_batch = config.get("n_batch", 512)
         self.lora_base = config.get("lora_base", None)
         self.lora_path = config.get("lora_path", None)
         self.verbose = config.get("verbose", False)
+        self.runtime_policy: dict[str, Any] = {}
         
         self._llm: Llama | None = None
         self._model_name = ""
@@ -45,11 +48,19 @@ class LlamaCppBackend(InferenceBackend):
 
         try:
             logger.info(f"Loading Llama.cpp model: {model_name}")
+            runtime_policy = kwargs.get("runtime_policy", {})
+            self.runtime_policy = runtime_policy
+            self.n_gpu_layers = runtime_policy.get("n_gpu_layers", self.n_gpu_layers)
+            self.n_ctx = runtime_policy.get("num_ctx", self.n_ctx)
+            self.n_threads = runtime_policy.get("num_thread", self.n_threads)
+            self.n_batch = runtime_policy.get("num_batch", self.n_batch)
 
             load_kwargs = {
                 "model_path": model_name,
                 "n_gpu_layers": self.n_gpu_layers,
                 "n_ctx": self.n_ctx,
+                "n_threads": self.n_threads,
+                "n_batch": self.n_batch,
                 "verbose": self.verbose,
             }
 
@@ -328,8 +339,11 @@ class LlamaCppBackend(InferenceBackend):
             "is_loaded": self._is_loaded,
             "n_gpu_layers": self.n_gpu_layers,
             "n_ctx": self.n_ctx,
+            "n_threads": self.n_threads,
+            "n_batch": self.n_batch,
             "lora_base": self.lora_base,
-            "lora_path": self.lora_path
+            "lora_path": self.lora_path,
+            "runtime_policy": self.runtime_policy,
         }
 
     async def count_tokens(self, text: str) -> int:

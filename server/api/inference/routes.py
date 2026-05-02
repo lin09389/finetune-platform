@@ -6,6 +6,8 @@ import time
 import json
 from typing import Any
 
+import psutil
+
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
@@ -27,8 +29,12 @@ from api.types import (
     GenerateResponse,
     KnowledgeSource,
 )
+from api.inference.pipeline import get_local_inference_pipeline
 from core.config import get_settings
+from core.logging import log_inference_event
+from core.offline_cache import get_offline_cache
 from core.performance import get_performance_monitor, PerformanceMetrics, StreamingMetrics
+from core.utils import get_device_info as get_runtime_device_info
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +63,116 @@ PROMPT_INJECTION_PATTERNS = [
 MAX_MESSAGE_LENGTH = 10000
 MAX_MESSAGES_COUNT = 100
 NO_THINK_SYSTEM_PROMPT = "请直接给出最终回答，不要输出思考过程、推理步骤或草稿。"
+
+
+def _current_backend_name(explicit_backend: str | None) -> str:
+    scheduler = get_scheduler()
+    return explicit_backend or scheduler.get_stats().get("default_backend", "huggingface")
+
+
+def _resource_snapshot() -> dict[str, float]:
+    runtime_info = get_runtime_device_info(use_cache=False)
+    memory = psutil.virtual_memory()
+    return {
+        "vram_used_gb": float(runtime_info.get("memory_allocated", 0.0) or 0.0),
+        "memory_used_gb": memory.used / (1024 ** 3),
+        "memory_peak_gb": memory.used / (1024 ** 3),
+        "cpu_percent": psutil.cpu_percent(interval=None),
+        "gpu_util_percent": 0.0,
+    }
+
+
+def _record_request_metrics(
+    *,
+    backend_name: str,
+    model_id: str,
+    result: GenerationResult,
+    first_token_latency_ms: float | None = None,
+    load_duration_ms: float = 0.0,
+    queue_wait_ms: float = 0.0,
+    retry_count: int = 0,
+    fallback_used: bool = False,
+    cache_hit: bool = False,
+    cancelled: bool = False,
+    error_type: str | None = None,
+) -> None:
+    if not result.latency_ms:
+        return
+
+    snapshot = _resource_snapshot()
+    tps = (result.tokens_generated / (result.latency_ms / 1000.0)) if result.latency_ms > 0 else 0.0
+    get_performance_monitor().record(
+        PerformanceMetrics(
+            tokens_per_second=tps,
+            latency_ms=result.latency_ms,
+            first_token_latency_ms=first_token_latency_ms if first_token_latency_ms is not None else result.latency_ms,
+            vram_used_gb=snapshot["vram_used_gb"],
+            model_id=model_id,
+            engine_type=backend_name,
+            batch_size=1,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.tokens_generated,
+            total_tokens=result.total_tokens,
+            load_duration_ms=load_duration_ms,
+            queue_wait_ms=queue_wait_ms,
+            memory_used_gb=snapshot["memory_used_gb"],
+            memory_peak_gb=snapshot["memory_peak_gb"],
+            cpu_percent=snapshot["cpu_percent"],
+            gpu_util_percent=snapshot["gpu_util_percent"],
+            retry_count=retry_count,
+            fallback_used=fallback_used,
+            cache_hit=cache_hit,
+            cancelled=cancelled,
+            error_type=error_type,
+        )
+    )
+
+
+def _should_use_batching(backend_name: str) -> bool:
+    settings = get_settings()
+    return settings.enable_batching and backend_name != BackendType.CLOUD.value
+
+
+def _should_use_offline_cache(backend_name: str, temperature: float, stream: bool = False) -> bool:
+    return backend_name != BackendType.CLOUD.value and not stream and temperature <= 0.3
+
+
+def _build_generate_cache_key(request: GenerateRequest, backend_name: str) -> str:
+    return get_offline_cache().build_key(
+        "generate",
+        {
+            "backend": backend_name,
+            "model": request.model,
+            "prompt": request.prompt,
+            "temperature": request.options.temperature,
+            "top_p": request.options.top_p,
+            "top_k": request.options.top_k,
+            "max_tokens": request.options.max_tokens,
+            "stop": request.options.stop or [],
+        },
+    )
+
+
+def _build_chat_cache_key(request: ChatRequest, backend_name: str) -> str:
+    return get_offline_cache().build_key(
+        "chat",
+        {
+            "backend": backend_name,
+            "model": request.model,
+            "messages": [
+                {
+                    "role": msg.role.value if hasattr(msg.role, "value") else msg.role,
+                    "content": msg.content,
+                }
+                for msg in request.messages
+            ],
+            "temperature": request.options.temperature,
+            "top_p": request.options.top_p,
+            "top_k": request.options.top_k,
+            "max_tokens": request.options.max_tokens,
+            "stop": request.options.stop or [],
+        },
+    )
 
 
 def detect_prompt_injection(text: str) -> bool:
@@ -277,12 +393,67 @@ async def generate(request: GenerateRequest):
 
     request.prompt = sanitize_input(request.prompt)
 
-    backend_name = request.options.backend or "default"
+    scheduler = get_scheduler()
+    backend_name = _current_backend_name(request.options.backend)
+    leased_model = None
+    load_duration_ms = 0.0
+    cache_key = _build_generate_cache_key(request, backend_name)
+    if _should_use_offline_cache(backend_name, request.options.temperature):
+        cached_response = get_offline_cache().get(cache_key)
+        if cached_response is not None:
+            log_inference_event(
+                logger,
+                "offline cache hit",
+                backend=backend_name,
+                model=request.model,
+                request_type="generate",
+            )
+            return GenerateResponse(**cached_response)
 
     async def _do_generate():
-        scheduler = get_scheduler()
-        backend = await scheduler.get_backend(request.options.backend)
-        return await backend.generate(request)
+        nonlocal leased_model, load_duration_ms
+        backend = await scheduler.get_backend(backend_name)
+        request_config = GenerationConfig(
+            max_tokens=request.options.max_tokens,
+            temperature=request.options.temperature,
+            top_p=request.options.top_p,
+            top_k=request.options.top_k,
+            repetition_penalty=request.options.repetition_penalty,
+            stop_sequences=request.options.stop or [],
+        )
+        if backend_name != BackendType.CLOUD.value:
+            model_path = (
+                scheduler.resolve_model_path(request.model, backend_name)
+                if hasattr(scheduler, "resolve_model_path")
+                else request.model
+            )
+            if hasattr(scheduler, "acquire_model"):
+                leased_model = await scheduler.acquire_model(
+                    request.model,
+                    model_path,
+                    backend_name,
+                    num_ctx=request.options.num_ctx,
+                    num_batch=request.options.num_batch,
+                    max_tokens=request.options.max_tokens,
+                )
+                if leased_model is None:
+                    raise HTTPException(status_code=503, detail=f"模型加载失败: {request.model}")
+                load_duration_ms = float(leased_model.metadata.get("load_duration_ms", 0.0) or 0.0)
+
+        if hasattr(backend, "model_name") and request.model:
+            backend.model_name = request.model
+
+        if _should_use_batching(backend_name):
+            return await get_local_inference_pipeline().submit(
+                pipeline_key=f"{backend_name}:{request.model}:generate",
+                prompt=request.prompt,
+                max_batch_size=min(request.options.num_batch, get_settings().max_batch_size),
+                max_wait_ms=get_settings().max_batch_wait_ms,
+                timeout=60.0,
+                executor=lambda: backend.generate(request.prompt, request_config),
+            )
+
+        return await backend.generate(request.prompt, request_config)
 
     async def _fallback_generate():
         if request.options.backend != "cloud":
@@ -295,7 +466,17 @@ async def generate(request: GenerateRequest):
             cloud_request.options.backend = "cloud"
             scheduler = get_scheduler()
             backend = await scheduler.get_backend("cloud")
-            return await backend.generate(cloud_request)
+            return await backend.generate(
+                cloud_request.prompt,
+                GenerationConfig(
+                    max_tokens=cloud_request.options.max_tokens,
+                    temperature=cloud_request.options.temperature,
+                    top_p=cloud_request.options.top_p,
+                    top_k=cloud_request.options.top_k,
+                    repetition_penalty=cloud_request.options.repetition_penalty,
+                    stop_sequences=cloud_request.options.stop or [],
+                ),
+            )
         raise HTTPException(503, "所有后端不可用")
 
     try:
@@ -305,19 +486,58 @@ async def generate(request: GenerateRequest):
             _fallback_generate
         )
 
-        if isinstance(result, GenerationResult) and result.latency_ms:
-            tps = (result.tokens_generated / (result.latency_ms / 1000.0)) if result.latency_ms > 0 else 0
+        if isinstance(result, GenerationResult):
+            queue_wait_ms = float(result.metadata.get("queue_wait_ms", 0.0) or 0.0)
             try:
-                get_performance_monitor().record(PerformanceMetrics(
-                    tokens_per_second=tps,
-                    latency_ms=result.latency_ms,
-                    first_token_latency_ms=result.latency_ms, # for non-stream they are the same
-                    vram_used_gb=0.0, # Could retrieve real vram if needed
+                _record_request_metrics(
+                    backend_name=backend_name,
                     model_id=result.model or request.model,
-                    engine_type=backend_name
-                ))
+                    result=result,
+                    load_duration_ms=load_duration_ms,
+                    queue_wait_ms=queue_wait_ms,
+                )
             except Exception as metric_err:
                 logger.warning(f"记录性能指标失败: {metric_err}")
+
+            response_payload = {
+                "model": result.model or request.model,
+                "response": result.text,
+                "done": result.finish_reason == "stop",
+                "usage": {
+                    "prompt_tokens": result.prompt_tokens,
+                    "completion_tokens": result.tokens_generated,
+                    "total_tokens": result.total_tokens,
+                },
+                "total_duration": result.latency_ms / 1000.0 if result.latency_ms else None,
+                "load_duration": load_duration_ms / 1000.0 if load_duration_ms else None,
+                "eval_duration": result.latency_ms / 1000.0 if result.latency_ms else None,
+            }
+            if _should_use_offline_cache(backend_name, request.options.temperature):
+                get_offline_cache().set(cache_key, response_payload)
+            log_inference_event(
+                logger,
+                "local generate completed",
+                backend=backend_name,
+                model=result.model or request.model,
+                ttft_ms=round(result.latency_ms, 2),
+                throughput_tps=round((result.tokens_generated / max(result.latency_ms / 1000.0, 0.001)), 2),
+                queue_wait_ms=round(queue_wait_ms, 2),
+                cache_hit=False,
+            )
+
+            return GenerateResponse(
+                model=result.model or request.model,
+                response=result.text,
+                done=result.finish_reason == "stop",
+                usage={
+                    "prompt_tokens": result.prompt_tokens,
+                    "completion_tokens": result.tokens_generated,
+                    "total_tokens": result.total_tokens,
+                },
+                total_duration=result.latency_ms / 1000.0 if result.latency_ms else None,
+                load_duration=load_duration_ms / 1000.0 if load_duration_ms else None,
+                eval_duration=result.latency_ms / 1000.0 if result.latency_ms else None,
+            )
 
         return result
 
@@ -328,6 +548,9 @@ async def generate(request: GenerateRequest):
     except Exception as e:
         logger.error(f"生成失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"生成失败: {str(e)}")
+    finally:
+        if leased_model is not None:
+            await scheduler.release_model(request.model)
 
 
 @router.post("/generate/stream")
@@ -341,12 +564,46 @@ async def generate_stream(request: GenerateRequest):
 
     request.prompt = sanitize_input(request.prompt)
 
-    backend_name = request.options.backend or "default"
+    scheduler = get_scheduler()
+    backend_name = _current_backend_name(request.options.backend)
+    load_duration_ms = 0.0
+    leased_model = None
 
     async def _do_generate_stream():
-        scheduler = get_scheduler()
-        backend = await scheduler.get_backend(request.options.backend)
-        async for chunk in backend.generate_stream(request):
+        nonlocal leased_model, load_duration_ms
+        backend = await scheduler.get_backend(backend_name)
+        if backend_name != BackendType.CLOUD.value:
+            model_path = (
+                scheduler.resolve_model_path(request.model, backend_name)
+                if hasattr(scheduler, "resolve_model_path")
+                else request.model
+            )
+            if hasattr(scheduler, "acquire_model"):
+                leased_model = await scheduler.acquire_model(
+                    request.model,
+                    model_path,
+                    backend_name,
+                    num_ctx=request.options.num_ctx,
+                    num_batch=request.options.num_batch,
+                    max_tokens=request.options.max_tokens,
+                )
+                if leased_model is None:
+                    raise HTTPException(status_code=503, detail=f"模型加载失败: {request.model}")
+                load_duration_ms = float(leased_model.metadata.get("load_duration_ms", 0.0) or 0.0)
+        if hasattr(backend, "model_name") and request.model:
+            backend.model_name = request.model
+        async for chunk in backend.generate_stream(
+            request.prompt,
+            GenerationConfig(
+                max_tokens=request.options.max_tokens,
+                temperature=request.options.temperature,
+                top_p=request.options.top_p,
+                top_k=request.options.top_k,
+                repetition_penalty=request.options.repetition_penalty,
+                stop_sequences=request.options.stop or [],
+                stream=True,
+            ),
+        ):
             yield chunk
 
     async def _fallback_generate_stream():
@@ -361,20 +618,67 @@ async def generate_stream(request: GenerateRequest):
             cloud_request.options.backend = "cloud"
             scheduler = get_scheduler()
             backend = await scheduler.get_backend("cloud")
-            async for chunk in backend.generate_stream(cloud_request):
+            async for chunk in backend.generate_stream(
+                cloud_request.prompt,
+                GenerationConfig(
+                    max_tokens=cloud_request.options.max_tokens,
+                    temperature=cloud_request.options.temperature,
+                    top_p=cloud_request.options.top_p,
+                    top_k=cloud_request.options.top_k,
+                    repetition_penalty=cloud_request.options.repetition_penalty,
+                    stop_sequences=cloud_request.options.stop or [],
+                    stream=True,
+                ),
+            ):
                 yield chunk
         else:
             raise HTTPException(503, "所有后端不可用")
 
     try:
-        protected_stream = circuit_breaker.execute_stream_with_protection(
-            backend_name,
-            _do_generate_stream,
-            _fallback_generate_stream
-        )
+        async def instrumented_stream():
+            started_at = time.time()
+            first_token_time = None
+            token_chunks = 0
+            chunk_latencies: list[float] = []
+            last_chunk_at = started_at
+            try:
+                protected_stream = circuit_breaker.execute_stream_with_protection(
+                    backend_name,
+                    _do_generate_stream,
+                    _fallback_generate_stream
+                )
+                async for chunk in protected_stream:
+                    now = time.time()
+                    if first_token_time is None:
+                        first_token_time = now
+                    else:
+                        chunk_latencies.append((now - last_chunk_at) * 1000)
+                    last_chunk_at = now
+                    token_chunks += 1
+                    yield chunk
+            finally:
+                if first_token_time is not None:
+                    try:
+                        get_performance_monitor().record_streaming(
+                            StreamingMetrics(
+                                total_tokens=token_chunks,
+                                total_time_ms=(time.time() - started_at) * 1000,
+                                first_token_latency_ms=(first_token_time - started_at) * 1000,
+                                avg_chunk_latency_ms=sum(chunk_latencies) / max(len(chunk_latencies), 1) if chunk_latencies else 0.0,
+                                max_chunk_latency_ms=max(chunk_latencies) if chunk_latencies else 0.0,
+                                min_chunk_latency_ms=min(chunk_latencies) if chunk_latencies else 0.0,
+                                load_duration_ms=load_duration_ms,
+                                model_id=request.model,
+                                engine_type=backend_name,
+                            )
+                        )
+                    except Exception as metric_err:
+                        logger.warning(f"记录流式性能指标失败: {metric_err}")
+                if leased_model is not None:
+                    await scheduler.release_model(request.model)
 
         return StreamingResponse(
-            protected_stream,
+            instrumented_stream(),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -446,11 +750,43 @@ async def chat(request: ChatRequest):
 
     _inject_system_prompt_message(request, system_prompt)
 
-    backend_name = request.options.backend or "ollama"
+    scheduler = get_scheduler()
+    backend_name = _current_backend_name(request.options.backend)
+    leased_model = None
+    load_duration_ms = 0.0
 
     async def _do_chat():
-        scheduler = get_scheduler()
-        backend = await scheduler.get_backend(request.options.backend)
+        nonlocal leased_model, load_duration_ms
+        backend = await scheduler.get_backend(backend_name)
+        chat_config = GenerationConfig(
+            max_tokens=request.options.max_tokens,
+            temperature=request.options.temperature,
+            top_p=request.options.top_p,
+            top_k=request.options.top_k,
+            repetition_penalty=request.options.repetition_penalty,
+        )
+
+        if backend_name != BackendType.CLOUD.value:
+            model_path = (
+                scheduler.resolve_model_path(request.model, backend_name)
+                if hasattr(scheduler, "resolve_model_path")
+                else request.model
+            )
+            if hasattr(scheduler, "acquire_model"):
+                leased_model = await scheduler.acquire_model(
+                    request.model,
+                    model_path,
+                    backend_name,
+                    num_ctx=request.options.num_ctx,
+                    num_batch=request.options.num_batch,
+                    max_tokens=request.options.max_tokens,
+                )
+                if leased_model is None:
+                    raise HTTPException(status_code=503, detail=f"模型加载失败: {request.model}")
+                load_duration_ms = float(leased_model.metadata.get("load_duration_ms", 0.0) or 0.0)
+
+        if hasattr(backend, "model_name") and request.model:
+            backend.model_name = request.model
 
         if backend_name == "ollama":
             as_dict_messages = [
@@ -491,16 +827,17 @@ async def chat(request: ChatRequest):
             if system_prompt and (not messages or messages[0]["role"] != "system"):
                 messages = [{"role": "system", "content": system_prompt}, *messages]
 
-            return await backend.chat(
-                messages,
-                GenerationConfig(
-                    max_tokens=request.options.max_tokens,
-                    temperature=request.options.temperature,
-                    top_p=request.options.top_p,
-                    top_k=request.options.top_k,
-                    repetition_penalty=request.options.repetition_penalty,
-                ),
-            )
+            if _should_use_batching(backend_name):
+                return await get_local_inference_pipeline().submit(
+                    pipeline_key=f"{backend_name}:{request.model}:chat",
+                    prompt=messages[-1]["content"] if messages else "",
+                    max_batch_size=min(request.options.num_batch, get_settings().max_batch_size),
+                    max_wait_ms=get_settings().max_batch_wait_ms,
+                    timeout=90.0,
+                    executor=lambda: backend.chat(messages, chat_config),
+                )
+
+            return await backend.chat(messages, chat_config)
 
     async def _fallback_chat():
         if request.options.backend != "cloud":
@@ -554,18 +891,26 @@ async def chat(request: ChatRequest):
             from api.types import Message, MessageRole, TokenUsage
             
             if result.latency_ms:
-                tps = (result.tokens_generated / (result.latency_ms / 1000.0)) if result.latency_ms > 0 else 0
                 try:
-                    get_performance_monitor().record(PerformanceMetrics(
-                        tokens_per_second=tps,
-                        latency_ms=result.latency_ms,
-                        first_token_latency_ms=result.latency_ms,
-                        vram_used_gb=0.0,
+                    _record_request_metrics(
+                        backend_name=backend_name,
                         model_id=result.model or request.model,
-                        engine_type=backend_name
-                    ))
+                        result=result,
+                        load_duration_ms=load_duration_ms,
+                        queue_wait_ms=float(result.metadata.get("queue_wait_ms", 0.0) or 0.0),
+                    )
                 except Exception as metric_err:
                     logger.warning(f"记录性能指标失败: {metric_err}")
+            log_inference_event(
+                logger,
+                "local chat completed",
+                backend=backend_name,
+                model=result.model or request.model,
+                ttft_ms=round(result.latency_ms, 2),
+                throughput_tps=round((result.tokens_generated / max(result.latency_ms / 1000.0, 0.001)), 2),
+                queue_wait_ms=round(float(result.metadata.get("queue_wait_ms", 0.0) or 0.0), 2),
+                cache_hit=False,
+            )
 
             response = ChatResponse(
                 message=Message(
@@ -573,7 +918,7 @@ async def chat(request: ChatRequest):
                     content=result.text
                 ),
                 model=result.model,
-                backend=request.options.backend or "ollama",
+                backend=backend_name,
                 done=result.finish_reason == "stop",
                 usage=TokenUsage(
                     prompt_tokens=result.prompt_tokens,
@@ -581,6 +926,7 @@ async def chat(request: ChatRequest):
                     total_tokens=result.total_tokens
                 ),
                 total_duration=result.latency_ms / 1000.0 if result.latency_ms else None,
+                load_duration=load_duration_ms / 1000.0 if load_duration_ms else None,
                 duration_ms=int(result.latency_ms) if result.latency_ms is not None else None,
                 raw_response={
                     "model": result.model,
@@ -654,6 +1000,9 @@ async def chat(request: ChatRequest):
     except Exception as e:
         logger.error(f"聊天失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"聊天失败: {str(e)}")
+    finally:
+        if leased_model is not None:
+            await scheduler.release_model(request.model)
 
 
 @router.post("/chat/stream")
@@ -694,12 +1043,34 @@ async def chat_stream(request: ChatRequest):
         base_system_prompt=system_prompt,
     )
 
-    backend_name = request.options.backend or "ollama"
+    scheduler = get_scheduler()
+    backend_name = _current_backend_name(request.options.backend)
     model_name = request.model
+    leased_model = None
+    load_duration_ms = 0.0
 
     async def _do_chat_stream():
-        scheduler = get_scheduler()
-        backend = await scheduler.get_backend(request.options.backend)
+        nonlocal leased_model, load_duration_ms
+        backend = await scheduler.get_backend(backend_name)
+
+        if backend_name != BackendType.CLOUD.value:
+            model_path = (
+                scheduler.resolve_model_path(model_name, backend_name)
+                if hasattr(scheduler, "resolve_model_path")
+                else model_name
+            )
+            if hasattr(scheduler, "acquire_model"):
+                leased_model = await scheduler.acquire_model(
+                    model_name,
+                    model_path,
+                    backend_name,
+                    num_ctx=request.options.num_ctx,
+                    num_batch=request.options.num_batch,
+                    max_tokens=request.options.max_tokens,
+                )
+                if leased_model is None:
+                    raise HTTPException(status_code=503, detail=f"模型加载失败: {model_name}")
+                load_duration_ms = float(leased_model.metadata.get("load_duration_ms", 0.0) or 0.0)
 
         messages = [
             {
@@ -790,6 +1161,7 @@ async def chat_stream(request: ChatRequest):
                 buffer = []
                 last_yield_time = time.time()
                 total_chunks = 0
+                chunk_latencies: list[float] = []
 
                 protected_stream = circuit_breaker.execute_stream_with_protection(
                     backend_name,
@@ -817,6 +1189,7 @@ async def chat_stream(request: ChatRequest):
                     now = time.time()
                     if now - last_yield_time >= 0.05 or len(buffer) >= 20:
                         content = "".join(buffer)
+                        chunk_latencies.append((now - last_yield_time) * 1000)
                         yield f"data: {json.dumps({'type': 'delta', 'content': content}, ensure_ascii=False)}\n\n"
                         buffer.clear()
                         last_yield_time = now
@@ -851,10 +1224,13 @@ async def chat_stream(request: ChatRequest):
                             total_tokens=total_chunks, # Rough estimate (chunks usually = tokens)
                             total_time_ms=duration_ms,
                             first_token_latency_ms=(first_token_time - started_at) * 1000,
-                            avg_chunk_latency_ms=duration_ms / max(total_chunks, 1),
-                            max_chunk_latency_ms=0.0,
-                            min_chunk_latency_ms=0.0,
-                            backpressure_events=0
+                            avg_chunk_latency_ms=sum(chunk_latencies) / max(len(chunk_latencies), 1) if chunk_latencies else 0.0,
+                            max_chunk_latency_ms=max(chunk_latencies) if chunk_latencies else 0.0,
+                            min_chunk_latency_ms=min(chunk_latencies) if chunk_latencies else 0.0,
+                            backpressure_events=0,
+                            load_duration_ms=load_duration_ms,
+                            model_id=model_name,
+                            engine_type=backend_name,
                         ))
                     except Exception as metric_err:
                         logger.warning(f"记录流式性能指标失败: {metric_err}")
@@ -863,6 +1239,9 @@ async def chat_stream(request: ChatRequest):
                 logger.error(f"流式聊天输出失败: {stream_error}", exc_info=True)
                 yield f"data: {json.dumps({'type': 'error', 'error': str(stream_error)}, ensure_ascii=False)}\n\n"
                 yield "data: [DONE]\n\n"
+            finally:
+                if leased_model is not None:
+                    await scheduler.release_model(model_name)
 
         return StreamingResponse(
             generate(),
@@ -913,6 +1292,12 @@ async def list_backends():
             available=await scheduler.is_backend_available(BackendType.OLLAMA.value),
             description="Ollama 本地部署"
         ),
+        BackendInfo(
+            id=BackendType.LLAMACPP.value,
+            name="Llama.cpp (GGUF)",
+            available=await scheduler.is_backend_available(BackendType.LLAMACPP.value),
+            description="适合低显存设备的 GGUF 本地推理"
+        ),
     ]
 
     return BackendListResponse(
@@ -936,7 +1321,10 @@ async def switch_backend(request: BackendSwitchRequest):
 async def get_cache_status():
     """获取缓存状态"""
     scheduler = get_scheduler()
-    return await scheduler.get_stats()
+    cache_stats = scheduler.get_stats()
+    cache_stats["batching"] = get_local_inference_pipeline().get_stats()
+    cache_stats["offline_cache"] = get_offline_cache().get_stats()
+    return cache_stats
 
 
 @router.post("/cache/clear")
@@ -944,6 +1332,7 @@ async def clear_cache():
     """清除模型缓存"""
     scheduler = get_scheduler()
     await scheduler.unload_all()
+    get_offline_cache().clear()
     return {"message": "模型缓存已清除"}
 
 
@@ -987,6 +1376,7 @@ async def get_performance_stats(model_id: str | None = Query(None)):
 async def get_performance_recommendations():
     """获取性能优化建议"""
     from core.performance import get_performance_monitor
+    from core.hardware_profile import build_hardware_profile
     from core.utils import get_device_info
 
     monitor = get_performance_monitor()
@@ -998,4 +1388,27 @@ async def get_performance_recommendations():
     return {
         "recommendations": recommendations,
         "device_info": device_info,
+        "hardware_profile": build_hardware_profile(device_info),
     }
+
+
+@router.post("/performance/clear")
+async def clear_performance_history():
+    """清空本地推理性能历史。"""
+    get_performance_monitor().clear_history()
+    return {"message": "推理性能历史已清除"}
+
+
+@router.get("/performance/prometheus")
+async def get_performance_prometheus():
+    """导出 Prometheus 格式的本地推理指标。"""
+    return StreamingResponse(
+        iter([get_performance_monitor().export_prometheus()]),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )
+
+
+@router.get("/metrics")
+async def get_metrics_alias():
+    """Prometheus 指标兼容入口。"""
+    return await get_performance_prometheus()

@@ -38,7 +38,7 @@ class BatchRequest:
     started_at: float | None = None
     completed_at: float | None = None
     status: BatchRequestStatus = BatchRequestStatus.PENDING
-    result: dict[str, Any] | None = None
+    result: Any = None
     error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -112,7 +112,7 @@ class DynamicBatcher:
             "avg_batch_size": 0.0,
         }
 
-    def set_processor(self, processor: Callable[[list[BatchRequest]], Awaitable[list[dict[str, Any]]]]):
+    def set_processor(self, processor: Callable[[list[BatchRequest]], Awaitable[list[Any]]]):
         """设置批处理函数"""
         self._processor = processor
 
@@ -149,7 +149,7 @@ class DynamicBatcher:
         prompt: str,
         params: dict[str, Any] | None = None,
         timeout: float | None = None,
-    ) -> dict[str, Any]:
+    ) -> Any:
         """
         提交请求
 
@@ -278,7 +278,7 @@ class DynamicBatcher:
 
         logger.debug(f"批处理完成: {len(batch)} 个请求, 耗时 {total_time:.3f}s")
 
-    async def _default_processor(self, batch: list[BatchRequest]) -> list[dict[str, Any]]:
+    async def _default_processor(self, batch: list[BatchRequest]) -> list[Any]:
         """默认处理器"""
         results = []
         for request in batch:
@@ -296,6 +296,8 @@ class DynamicBatcher:
             "queue_size": self._queue.qsize(),
             "pending_requests": len(self._pending),
             "is_running": self._is_running,
+            "timeout_seconds": self.timeout,
+            "max_wait_time_ms": round(self.max_wait_time * 1000, 2),
         }
 
     def get_queue_size(self) -> int:

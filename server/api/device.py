@@ -7,7 +7,9 @@ from typing import Any
 import psutil
 from fastapi import APIRouter, HTTPException
 
+from core.hardware_profile import build_hardware_profile
 from core.logging import get_logger
+from core.utils import get_device_info as get_core_device_info
 
 logger = get_logger(__name__)
 
@@ -16,6 +18,7 @@ router = APIRouter()
 
 def get_device_info() -> dict[str, Any]:
     """获取设备详细信息"""
+    core_info = get_core_device_info(use_cache=False)
     info = {
         "platform": "unknown",
         "device_name": "Unknown",
@@ -71,6 +74,17 @@ def get_device_info() -> dict[str, Any]:
         "used_gb": round(info["memory_used"], 2),
         "free_gb": round(info["memory_free"], 2),
     }
+    info["inference"] = {
+        "memory_total_gb": round(core_info.get("memory_total", 0.0), 2),
+        "memory_allocated_gb": round(core_info.get("memory_allocated", 0.0), 2),
+        "memory_reserved_gb": round(core_info.get("memory_reserved", 0.0), 2),
+    }
+    info["hardware_profile"] = build_hardware_profile(
+        {
+            **core_info,
+            "mps_available": info["mps_available"],
+        }
+    )
 
     return info
 

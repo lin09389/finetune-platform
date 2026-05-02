@@ -113,6 +113,10 @@ class Settings(BaseSettings):
 
     enable_perf_monitoring: bool = Field(default=True, description="启用性能监控")
     perf_log_interval: int = Field(default=60, ge=10, le=3600, description="性能日志记录间隔 (秒)")
+    offline_cache_ttl_seconds: int = Field(default=600, ge=0, description="本地离线缓存 TTL（秒）")
+    enable_inference_grpc: bool = Field(default=False, description="启用本地推理 gRPC 服务")
+    inference_grpc_host: str = Field(default="127.0.0.1", description="本地推理 gRPC 绑定地址")
+    inference_grpc_port: int = Field(default=50061, ge=1, le=65535, description="本地推理 gRPC 端口")
 
     hf_mirror: str = Field(
         default="hf-mirror",

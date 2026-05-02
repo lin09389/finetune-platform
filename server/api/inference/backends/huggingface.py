@@ -7,6 +7,8 @@ import time
 from collections.abc import AsyncIterator
 from typing import Any
 
+from core.quantization import QuantizationConfig, QuantizationLoader
+
 from .base import BackendType, GenerationConfig, GenerationResult, InferenceBackend
 
 logger = logging.getLogger(__name__)
@@ -26,6 +28,7 @@ class HuggingFaceBackend(InferenceBackend):
         self.load_in_8bit = config.get("load_in_8bit", False)
         self.load_in_4bit = config.get("load_in_4bit", False)
         self.trust_remote_code = config.get("trust_remote_code", False)
+        self.quantization: dict[str, Any] = {}
 
     async def load_model(self, model_name: str, **kwargs) -> bool:
         """加载模型"""
@@ -34,6 +37,14 @@ class HuggingFaceBackend(InferenceBackend):
             from transformers import AutoModelForCausalLM, AutoTokenizer
 
             logger.info(f"Loading HuggingFace model: {model_name}")
+
+            runtime_policy = kwargs.get("runtime_policy", {})
+            quant_payload = runtime_policy.get("quantization", {})
+            self.quantization = quant_payload
+            self.device = runtime_policy.get("device_map", self.device)
+            self.torch_dtype = runtime_policy.get("torch_dtype", self.torch_dtype)
+            self.load_in_8bit = runtime_policy.get("load_in_8bit", self.load_in_8bit)
+            self.load_in_4bit = runtime_policy.get("load_in_4bit", self.load_in_4bit)
 
             torch_dtype = self.torch_dtype
             if torch_dtype == "auto":
@@ -53,7 +64,10 @@ class HuggingFaceBackend(InferenceBackend):
                 "trust_remote_code": self.trust_remote_code,
             }
 
-            if self.load_in_8bit:
+            if quant_payload:
+                quant_config = QuantizationConfig.from_dict(quant_payload)
+                model_kwargs.update(QuantizationLoader.get_loader_args(model_name, quant_config))
+            elif self.load_in_8bit:
                 model_kwargs["load_in_8bit"] = True
             elif self.load_in_4bit:
                 model_kwargs["load_in_4bit"] = True
@@ -248,7 +262,8 @@ class HuggingFaceBackend(InferenceBackend):
             "is_loaded": self._is_loaded,
             "device": self.device,
             "load_in_8bit": self.load_in_8bit,
-            "load_in_4bit": self.load_in_4bit
+            "load_in_4bit": self.load_in_4bit,
+            "quantization": self.quantization,
         }
 
     async def count_tokens(self, text: str) -> int:
