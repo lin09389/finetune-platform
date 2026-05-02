@@ -65,6 +65,9 @@ def build_runtime_policy(
         "device_map": "auto",
         "load_in_8bit": quant_type == QuantizationType.INT8,
         "load_in_4bit": quant_type == QuantizationType.INT4,
+        "enable_flash_attention": bool(settings.enable_flash_attention),
+        "kv_cache_dtype": settings.kv_cache_dtype,
+        "enable_prefix_caching": bool(settings.enable_prefix_caching),
     }
 
     if backend == "llama-cpp":

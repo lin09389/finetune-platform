@@ -216,8 +216,16 @@ class OllamaResilientBackend(InferenceBackend):
         raise last_exception or Exception("Stream request failed")
 
     async def _iter_ndjson_objects(self, response: aiohttp.ClientResponse):
-        """Iterate NDJSON objects from a chunked response safely."""
-        import json
+        """Iterate NDJSON objects from a chunked response safely.
+        
+        Uses orjson for ~3x faster parsing when available.
+        """
+        try:
+            import orjson
+            _loads = orjson.loads
+        except ImportError:
+            import json
+            _loads = json.loads
 
         buffer = b""
         async for chunk in response.content.iter_any():
@@ -230,15 +238,15 @@ class OllamaResilientBackend(InferenceBackend):
                 if not line:
                     continue
                 try:
-                    yield json.loads(line.decode("utf-8", errors="ignore"))
-                except json.JSONDecodeError:
+                    yield _loads(line)
+                except (ValueError, Exception):
                     continue
 
         trailing = buffer.strip()
         if trailing:
             try:
-                yield json.loads(trailing.decode("utf-8", errors="ignore"))
-            except json.JSONDecodeError:
+                yield _loads(trailing)
+            except (ValueError, Exception):
                 pass
 
 
@@ -292,7 +300,9 @@ class OllamaResilientBackend(InferenceBackend):
             num_ctx=self.num_ctx,
             num_batch=self.num_batch,
             num_thread=self.num_thread,
-            num_gpu=self.num_gpu
+            num_gpu=self.num_gpu,
+            use_mmap=True,   # Keep model memory-mapped for faster loading
+            use_mlock=True,  # Lock model in RAM to prevent swapping
         )
 
     async def generate(self, prompt: str, config: GenerationConfig = None) -> GenerationResult:
@@ -312,6 +322,7 @@ class OllamaResilientBackend(InferenceBackend):
                 model=self.model_name,
                 prompt=prompt,
                 stream=False,
+                keep_alive="5m",
                 options=self._get_ollama_options(config)
             )
             if self.disable_thinking:

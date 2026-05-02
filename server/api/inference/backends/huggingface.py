@@ -45,6 +45,7 @@ class HuggingFaceBackend(InferenceBackend):
             self.torch_dtype = runtime_policy.get("torch_dtype", self.torch_dtype)
             self.load_in_8bit = runtime_policy.get("load_in_8bit", self.load_in_8bit)
             self.load_in_4bit = runtime_policy.get("load_in_4bit", self.load_in_4bit)
+            enable_flash_attn = runtime_policy.get("enable_flash_attention", False)
 
             torch_dtype = self.torch_dtype
             if torch_dtype == "auto":
@@ -64,6 +65,19 @@ class HuggingFaceBackend(InferenceBackend):
                 "trust_remote_code": self.trust_remote_code,
             }
 
+            # --- Flash Attention 2 / SDPA acceleration ---
+            if enable_flash_attn and torch.cuda.is_available():
+                try:
+                    import flash_attn  # noqa: F401
+                    model_kwargs["attn_implementation"] = "flash_attention_2"
+                    logger.info("Flash Attention 2 enabled for model loading")
+                except ImportError:
+                    model_kwargs["attn_implementation"] = "sdpa"
+                    logger.info("flash-attn not installed, using SDPA attention")
+            elif torch.cuda.is_available():
+                # SDPA (Scaled Dot-Product Attention) is always faster than eager
+                model_kwargs["attn_implementation"] = "sdpa"
+
             if quant_payload:
                 quant_config = QuantizationConfig.from_dict(quant_payload)
                 model_kwargs.update(QuantizationLoader.get_loader_args(model_name, quant_config))
@@ -73,6 +87,14 @@ class HuggingFaceBackend(InferenceBackend):
                 model_kwargs["load_in_4bit"] = True
 
             self._model = AutoModelForCausalLM.from_pretrained(**model_kwargs)
+
+            # --- BetterTransformer fallback for models without native FA/SDPA ---
+            if not model_kwargs.get("attn_implementation"):
+                try:
+                    self._model = self._model.to_bettertransformer()
+                    logger.info("BetterTransformer optimization applied")
+                except Exception as bt_err:
+                    logger.debug(f"BetterTransformer not applicable: {bt_err}")
 
             self._is_loaded = True
             logger.info(f"HuggingFace model loaded: {model_name}")
@@ -130,20 +152,24 @@ class HuggingFaceBackend(InferenceBackend):
         start_time = time.time()
 
         try:
+            import torch
+
             input_ids = self._tokenizer.encode(prompt, return_tensors="pt").to(self._model.device)
             prompt_tokens = len(input_ids[0])
 
             def _generate_sync():
-                return self._model.generate(
-                    input_ids,
-                    max_new_tokens=config.max_tokens,
-                    temperature=config.temperature,
-                    top_p=config.top_p,
-                    top_k=config.top_k,
-                    repetition_penalty=config.repetition_penalty,
-                    do_sample=config.temperature > 0,
-                    pad_token_id=self._tokenizer.eos_token_id
-                )
+                # inference_mode is faster than no_grad — less autograd bookkeeping
+                with torch.inference_mode():
+                    return self._model.generate(
+                        input_ids,
+                        max_new_tokens=config.max_tokens,
+                        temperature=config.temperature,
+                        top_p=config.top_p,
+                        top_k=config.top_k,
+                        repetition_penalty=config.repetition_penalty,
+                        do_sample=config.temperature > 0,
+                        pad_token_id=self._tokenizer.eos_token_id
+                    )
 
             outputs = await asyncio.to_thread(_generate_sync)
 
@@ -185,6 +211,7 @@ class HuggingFaceBackend(InferenceBackend):
 
         config = config or GenerationConfig()
         
+        import torch
         from transformers import TextIteratorStreamer
         from threading import Thread
 
@@ -203,7 +230,11 @@ class HuggingFaceBackend(InferenceBackend):
             pad_token_id=self._tokenizer.eos_token_id
         )
 
-        thread = Thread(target=self._model.generate, kwargs=generation_kwargs)
+        def _stream_generate():
+            with torch.inference_mode():
+                self._model.generate(**generation_kwargs)
+
+        thread = Thread(target=_stream_generate)
         thread.start()
 
         streamer_iter = iter(streamer)

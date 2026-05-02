@@ -3,7 +3,14 @@
 优化的 SSE 流式响应实现，支持批量推送、背压控制和延迟监控
 """
 import asyncio
-import json
+try:
+    import orjson
+    def _json_dumps(data: dict) -> str:
+        return orjson.dumps(data, option=orjson.OPT_NON_STR_KEYS).decode("utf-8")
+except ImportError:
+    import json
+    def _json_dumps(data: dict) -> str:
+        return json.dumps(data, ensure_ascii=False)
 import logging
 import time
 from collections import deque
@@ -244,7 +251,7 @@ class OptimizedStreamingResponse:
             if self._backpressure:
                 await self._backpressure.release(len(tokens))
 
-            return await create_sse_event({
+            return create_sse_event({
                 "content": "".join(tokens),
                 "done": False,
                 "buffered": len(tokens)
@@ -289,7 +296,7 @@ class OptimizedStreamingResponse:
                 else:
                     self.on_complete()
 
-            yield await create_sse_event({
+            yield create_sse_event({
                 "done": True,
                 "stats": self._latency_stats.to_dict()
             }, "done")
@@ -304,7 +311,7 @@ class OptimizedStreamingResponse:
                 else:
                     self.on_error(e)
 
-            yield await create_sse_event({
+            yield create_sse_event({
                 "error": str(e),
                 "done": True,
                 "stats": self._latency_stats.to_dict()
@@ -326,9 +333,9 @@ class StreamingResponse:
             yield chunk
 
 
-async def create_sse_event(data: dict[str, Any], event_type: str = "message") -> str:
+def create_sse_event(data: dict[str, Any], event_type: str = "message") -> str:
     """
-    创建 SSE 事件
+    创建 SSE 事件（同步，避免不必要的协程开销）
 
     Args:
         data: 数据字典
@@ -337,7 +344,7 @@ async def create_sse_event(data: dict[str, Any], event_type: str = "message") ->
     Returns:
         SSE 格式字符串
     """
-    return f"event: {event_type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+    return f"event: {event_type}\ndata: {_json_dumps(data)}\n\n"
 
 
 async def stream_generator(
@@ -366,12 +373,12 @@ async def stream_generator(
                 "content": chunk,
                 "done": False
             }
-            yield await create_sse_event(sse_data)
+            yield create_sse_event(sse_data)
 
         if on_complete:
             await on_complete() if asyncio.iscoroutinefunction(on_complete) else on_complete()
 
-        yield await create_sse_event({"done": True}, "done")
+        yield create_sse_event({"done": True}, "done")
 
     except Exception as e:
         logger.error(f"流式生成错误：{e}", exc_info=True)
@@ -379,7 +386,7 @@ async def stream_generator(
         if on_error:
             await on_error(e) if asyncio.iscoroutinefunction(on_error) else on_error(e)
 
-        yield await create_sse_event({
+        yield create_sse_event({
             "error": str(e),
             "done": True
         }, "error")
@@ -421,7 +428,8 @@ async def optimized_stream_generator(
     async for chunk in streaming.stream():
         if on_chunk and "content" in chunk:
             try:
-                data = json.loads(chunk.split("data: ")[1].split("\n")[0])
+                import json as _json_stdlib
+                data = _json_stdlib.loads(chunk.split("data: ")[1].split("\n")[0])
                 if "content" in data:
                     await on_chunk(data["content"]) if asyncio.iscoroutinefunction(on_chunk) else on_chunk(data["content"])
             except Exception:

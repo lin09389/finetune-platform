@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     outputs_dir: Path | None = Field(default=None, description="输出目录")
 
     ollama_base_url: str = Field(default="http://localhost:11434", description="Ollama 基础 URL")
-    ollama_fast_mode: bool = Field(default=False, description="Ollama 快速模式（更短输出、更低延迟）")
+    ollama_fast_mode: bool = Field(default=True, description="Ollama 快速模式（更短输出、更低延迟）")
     ollama_fast_max_tokens: int = Field(default=128, ge=16, le=2048, description="快速模式下最大生成 token")
     ollama_timeout_seconds: int = Field(default=60, ge=10, le=600, description="Ollama 请求超时（秒）")
     ollama_stream_read_timeout_seconds: int = Field(default=120, ge=10, le=1200, description="Ollama 流式读取超时（秒）")
@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     
     # Ollama 高级性能参数 (为单用户优化)
     ollama_num_ctx: int = Field(default=4096, ge=1024, description="Ollama 上下文窗口大小")
-    ollama_num_batch: int = Field(default=512, ge=1, description="Ollama 处理 prompt 的批次大小")
+    ollama_num_batch: int = Field(default=1024, ge=1, description="Ollama 处理 prompt 的批次大小")
     ollama_num_thread: int | None = Field(default=None, description="Ollama 使用的 CPU 线程数 (默认自动)")
     ollama_num_gpu: int | None = Field(default=None, description="Ollama 强制使用 GPU 的层数 (默认自动)")
 
@@ -102,7 +102,7 @@ class Settings(BaseSettings):
     vllm_tensor_parallel_size: int = Field(default=1, ge=1, le=8, description="vLLM 张量并行大小")
 
     stream_buffer_size: int = Field(default=10, ge=1, le=100, description="流式输出缓冲区大小")
-    stream_flush_interval_ms: int = Field(default=16, ge=1, le=1000, description="流式输出刷新间隔 (毫秒)")
+    stream_flush_interval_ms: int = Field(default=8, ge=1, le=1000, description="流式输出刷新间隔 (毫秒)")
     enable_backpressure: bool = Field(default=True, description="启用背压控制")
 
     intent_route_chat_threshold: float = Field(default=0.45, ge=0, le=1, description="意图路由 chat 阈值")

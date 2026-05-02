@@ -6,6 +6,14 @@ import time
 import json
 from typing import Any
 
+try:
+    import orjson
+    def _fast_dumps(data: dict) -> str:
+        return orjson.dumps(data, option=orjson.OPT_NON_STR_KEYS).decode("utf-8")
+except ImportError:
+    def _fast_dumps(data: dict) -> str:
+        return json.dumps(data, ensure_ascii=False)
+
 import psutil
 
 from fastapi import APIRouter, HTTPException, Query
@@ -35,6 +43,7 @@ from core.logging import log_inference_event
 from core.offline_cache import get_offline_cache
 from core.performance import get_performance_monitor, PerformanceMetrics, StreamingMetrics
 from core.utils import get_device_info as get_runtime_device_info
+from core.kv_cache import get_kv_cache
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +144,19 @@ def _should_use_batching(backend_name: str) -> bool:
 
 def _should_use_offline_cache(backend_name: str, temperature: float, stream: bool = False) -> bool:
     return backend_name != BackendType.CLOUD.value and not stream and temperature <= 0.3
+
+
+def _should_use_kv_cache(temperature: float) -> bool:
+    """Deterministic requests (temperature near 0) can use the fast in-memory KV cache."""
+    return temperature <= 0.1
+
+
+_inference_kv_cache = get_kv_cache(
+    "inference",
+    max_size=256 * 1024 * 1024,  # 256 MB
+    max_entries=2000,
+    default_ttl=600.0,  # 10 min
+)
 
 
 def _build_generate_cache_key(request: GenerateRequest, backend_name: str) -> str:
@@ -410,6 +432,21 @@ async def generate(request: GenerateRequest):
             )
             return GenerateResponse(**cached_response)
 
+    # --- Fast KV cache for deterministic requests ---
+    kv_cache_key = f"gen:{cache_key}"
+    if _should_use_kv_cache(request.options.temperature):
+        kv_hit = _inference_kv_cache.get(kv_cache_key)
+        if kv_hit is not None:
+            log_inference_event(
+                logger,
+                "kv cache hit",
+                backend=backend_name,
+                model=request.model,
+                request_type="generate",
+                cache_hit=True,
+            )
+            return GenerateResponse(**kv_hit)
+
     async def _do_generate():
         nonlocal leased_model, load_duration_ms
         backend = await scheduler.get_backend(backend_name)
@@ -514,6 +551,8 @@ async def generate(request: GenerateRequest):
             }
             if _should_use_offline_cache(backend_name, request.options.temperature):
                 get_offline_cache().set(cache_key, response_payload)
+            if _should_use_kv_cache(request.options.temperature):
+                _inference_kv_cache.set(kv_cache_key, response_payload)
             log_inference_event(
                 logger,
                 "local generate completed",
@@ -1156,7 +1195,7 @@ async def chat_stream(request: ChatRequest):
                 if unified_context_info:
                     metadata_payload["unified_context"] = _model_to_dict(unified_context_info)
 
-                yield f"data: {json.dumps(metadata_payload, ensure_ascii=False)}\n\n"
+                yield f"data: {_fast_dumps(metadata_payload)}\n\n"
 
                 buffer = []
                 last_yield_time = time.time()
@@ -1181,22 +1220,23 @@ async def chat_stream(request: ChatRequest):
                         else:
                             logger.info(f"TTFT (Time To First Token): {ttft_ms}ms")
                             
-                        yield f"data: {json.dumps({'type': 'delta', 'content': chunk}, ensure_ascii=False)}\n\n"
+                        yield f"data: {_fast_dumps({'type': 'delta', 'content': chunk})}\n\n"
                         last_yield_time = time.time()
                         continue
 
                     buffer.append(chunk)
                     now = time.time()
-                    if now - last_yield_time >= 0.05 or len(buffer) >= 20:
+                    flush_interval_s = settings.stream_flush_interval_ms / 1000.0
+                    if now - last_yield_time >= flush_interval_s or len(buffer) >= settings.stream_buffer_size:
                         content = "".join(buffer)
                         chunk_latencies.append((now - last_yield_time) * 1000)
-                        yield f"data: {json.dumps({'type': 'delta', 'content': content}, ensure_ascii=False)}\n\n"
+                        yield f"data: {_fast_dumps({'type': 'delta', 'content': content})}\n\n"
                         buffer.clear()
                         last_yield_time = now
 
                 if buffer:
                     content = "".join(buffer)
-                    yield f"data: {json.dumps({'type': 'delta', 'content': content}, ensure_ascii=False)}\n\n"
+                    yield f"data: {_fast_dumps({'type': 'delta', 'content': content})}\n\n"
 
                 duration_ms = int((time.time() - started_at) * 1000)
                 if request.memory.enabled and request.memory.auto_extract and last_user_message:
@@ -1213,8 +1253,8 @@ async def chat_stream(request: ChatRequest):
                     except Exception as memory_error:
                         logger.warning(f"流式聊天记忆提取失败: {memory_error}")
 
-                yield f"data: {json.dumps({'type': 'metadata', 'model': model_name, 'backend': backend_name, 'duration_ms': duration_ms}, ensure_ascii=False)}\n\n"
-                yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+                yield f"data: {_fast_dumps({'type': 'metadata', 'model': model_name, 'backend': backend_name, 'duration_ms': duration_ms})}\n\n"
+                yield f"data: {_fast_dumps({'type': 'done'})}\n\n"
                 yield "data: [DONE]\n\n"
 
                 # Record metrics
@@ -1237,7 +1277,7 @@ async def chat_stream(request: ChatRequest):
 
             except Exception as stream_error:
                 logger.error(f"流式聊天输出失败: {stream_error}", exc_info=True)
-                yield f"data: {json.dumps({'type': 'error', 'error': str(stream_error)}, ensure_ascii=False)}\n\n"
+                yield f"data: {_fast_dumps({'type': 'error', 'error': str(stream_error)})}\n\n"
                 yield "data: [DONE]\n\n"
             finally:
                 if leased_model is not None:

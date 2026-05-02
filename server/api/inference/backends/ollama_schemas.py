@@ -13,6 +13,8 @@ class OllamaOptions(BaseModel):
     num_batch: Optional[int] = None
     num_thread: Optional[int] = None
     num_gpu: Optional[int] = None
+    use_mmap: Optional[bool] = None
+    use_mlock: Optional[bool] = None
 
 
 class OllamaPullRequest(BaseModel):
