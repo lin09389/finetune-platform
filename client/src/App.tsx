@@ -17,6 +17,7 @@ import { useAppStore } from './store/appStore';
 import { useShallow } from 'zustand/react/shallow';
 import { ThemeProvider, useTheme } from './theme';
 import ContextualToolbar from './components/shared/ContextualToolbar';
+import TechBackground from './components/shared/TechBackground';
 
 const { Content } = Layout;
 
@@ -275,6 +276,7 @@ function AppContent() {
           },
         }}
       >
+        <TechBackground />
         <ContextualToolbar />
         <Layout
           className="app-shell"
@@ -302,9 +304,11 @@ function AppContent() {
                   ? '12px 10px 76px'
                   : useCompactNav
                     ? '16px 14px 84px'
-                    : 'clamp(16px, 2vw, 32px) clamp(12px, 2vw, 24px)',
+                    : '16px 24px 24px 24px', // Added top margin for floating header space
                 padding: 0,
-                minHeight: 'calc(100vh - 56px - 32px)',
+                minHeight: 'calc(100vh - 56px - 40px)',
+                borderRadius: '16px', // Rounded corners for content area
+                overflow: 'hidden', // Contain content
               }}
             >
               <AnimatePresence mode="wait">
