@@ -14,6 +14,7 @@ import styles from './ChatInput.module.css';
 
 const { TextArea } = Input;
 const { Text } = Typography;
+type AutonomyMode = 'safe_auto' | 'confirm_all' | 'read_only';
 
 interface ChatInputProps {
   onSend: (content: string) => void;
@@ -38,6 +39,8 @@ interface ChatInputProps {
   routingMode?: 'auto' | 'chat' | 'agent';
   onRoutingModeChange?: (mode: 'auto' | 'chat' | 'agent') => void;
   routing?: boolean;
+  autonomyMode?: AutonomyMode;
+  onAutonomyModeChange?: (mode: AutonomyMode) => void;
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({
@@ -63,6 +66,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
   routingMode = 'auto',
   onRoutingModeChange,
   routing = false,
+  autonomyMode = 'safe_auto',
+  onAutonomyModeChange,
 }) => {
   const { isMobile } = useResponsive();
   const [value, setValue] = useState('');
@@ -89,8 +94,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
     routingMode === 'chat'
       ? '按 Enter 发送 · Shift+Enter 换行 · 当前为普通对话模式'
       : routingMode === 'agent'
-        ? '按 Enter 启动 Agent · 只读工具自动执行，补丁和命令受策略门禁控制'
-        : '按 Enter 发送 · Shift+Enter 换行 · 自动判断是否需要 Agent';
+        ? `按 Enter 启动 Agent · 当前自主模式：${autonomyMode === 'safe_auto' ? '安全自动' : autonomyMode === 'confirm_all' ? '确认模式' : '只读'}`
+        : `按 Enter 发送 · Shift+Enter 换行 · 自动判断是否需要 Agent · 自主模式：${autonomyMode === 'safe_auto' ? '安全自动' : autonomyMode === 'confirm_all' ? '确认模式' : '只读'}`;
   const canSend =
     value.trim().length > 0 &&
     (!disabled || (agentModeAvailable && routingMode !== 'chat')) &&
@@ -222,7 +227,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
               <Text className={styles.routeLabel}>{routingMeta.label}</Text>
               <Text className={styles.routeHint}>{routingMeta.hint}</Text>
               {agentOptions.length > 0 && routingMode !== 'chat' && (
-                <Text className={styles.routeAgent}>Agent: {selectedAgent}</Text>
+                <Text className={styles.routeAgent}>
+                  Agent: {selectedAgent} · {autonomyMode === 'safe_auto' ? '安全自动' : autonomyMode === 'confirm_all' ? '确认模式' : '只读'}
+                </Text>
               )}
             </div>
           )}
@@ -307,6 +314,22 @@ const ChatInput: React.FC<ChatInputProps> = ({
                           { label: 'Agent', value: 'agent' },
                         ]}
                         onChange={(mode) => onRoutingModeChange(mode as 'auto' | 'chat' | 'agent')}
+                        disabled={loading || isStreaming || creatingWorkflow || routing}
+                      />
+                    </Tooltip>
+                  )}
+                  {onAutonomyModeChange && routingMode !== 'chat' && (
+                    <Tooltip title="切换 Agent 自主执行策略">
+                      <Segmented
+                        size="small"
+                        value={autonomyMode}
+                        className={styles.routingSegment}
+                        options={[
+                          { label: '安全自动', value: 'safe_auto' },
+                          { label: '确认', value: 'confirm_all' },
+                          { label: '只读', value: 'read_only' },
+                        ]}
+                        onChange={(mode) => onAutonomyModeChange(mode as AutonomyMode)}
                         disabled={loading || isStreaming || creatingWorkflow || routing}
                       />
                     </Tooltip>

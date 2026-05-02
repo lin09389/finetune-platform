@@ -644,6 +644,7 @@ export default function Evaluation() {
                                   { label: 'Ollama', value: 'ollama' },
                                   { label: 'HuggingFace', value: 'huggingface' },
                                   { label: '云端 API', value: 'cloud' },
+                                  { label: 'Llama.cpp', value: 'llama-cpp' },
                                 ]}
                               />
                             </Form.Item>

@@ -120,10 +120,14 @@ export default function Inference() {
   const modelOptions =
     currentBackend === 'ollama'
       ? observed.inference.ollamaModels.map((m) => ({ value: m.id, label: m.name }))
-      : observed.inference.huggingfaceModels.map((m) => ({
-          value: m.id,
-          label: m.name,
-        }));
+      : currentBackend === 'llama-cpp'
+        ? observed.inference.huggingfaceModels
+            .filter((m) => m.name.toLowerCase().includes('.gguf') || m.name.toLowerCase().includes('.ggml'))
+            .map((m) => ({ value: m.id, label: m.name }))
+        : observed.inference.huggingfaceModels.map((m) => ({
+            value: m.id,
+            label: m.name,
+          }));
 
   const currentBackendInfo = observed.inference.backends.find((b) => b.id === currentBackend);
   const isBackendAvailable = currentBackendInfo?.available ?? true;

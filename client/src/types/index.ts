@@ -290,7 +290,7 @@ export interface PlaygroundExperimentConfig {
   systemPrompt: string;
   responseFormat: 'text' | 'json';
   modelId: string;
-  backend: 'ollama' | 'huggingface' | 'cloud';
+  backend: 'ollama' | 'huggingface' | 'cloud' | 'llama-cpp';
   temperature: number;
   topP: number;
   maxTokens: number;
@@ -398,11 +398,27 @@ export interface ChatAgentMetadata {
   last_model_output_preview?: string;
   parse_repair_count?: number;
   fallback_summary_used?: boolean;
+  acceptance_report?: ChatAgentAcceptanceReport;
+  acceptance_report_source?: 'model' | 'fallback' | string;
+  acceptance_report_raw?: string;
   blocked_state?: Record<string, unknown> | null;
+  autonomy_mode?: 'safe_auto' | 'confirm_all' | 'read_only';
+  auto_execution_policy?: Record<string, unknown>;
   repair_attempts?: number;
   max_repair_attempts?: number;
   action?: unknown;
   event?: unknown;
+}
+
+export interface ChatAgentAcceptanceReport {
+  result: 'passed' | 'partial' | 'blocked' | 'failed';
+  summary: string;
+  completed_items?: string[];
+  changed_files?: string[];
+  commands_run?: string[];
+  verification_result?: string;
+  blocking_reason?: string;
+  next_action?: string;
 }
 
 export interface ChatSession {

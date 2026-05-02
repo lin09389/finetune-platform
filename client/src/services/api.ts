@@ -510,6 +510,7 @@ export interface WorkflowCreate {
   max_context_chars?: number;
   provider?: string;
   model?: string;
+  autonomy_mode?: 'safe_auto' | 'confirm_all' | 'read_only';
   approval_mode?: string;
 }
 
@@ -693,10 +694,12 @@ export interface WorkflowAction {
   execution_mode?: 'auto' | 'approval_required' | string;
   policy_decision?: 'auto' | 'approval_required' | 'blocked' | string;
   policy_reason?: string;
+  risk_level?: 'low' | 'medium' | 'high' | string;
   auto_executed_at?: string;
   execution_state?: string;
   changed_files?: string[];
   applied_hunks?: number;
+  patch_summaries?: Array<Record<string, any>>;
   failure_summary?: string;
   approved_at?: string;
   rejected_at?: string;
@@ -729,6 +732,7 @@ export interface ChatAgentRunCreate {
   model?: string;
   agent_id?: string;
   project_path?: string;
+  autonomy_mode?: 'safe_auto' | 'confirm_all' | 'read_only';
   force_agent?: boolean;
 }
 
@@ -751,7 +755,18 @@ export interface ChatAgentIntentResponse {
   suggested_template_id?: string;
 }
 
-export interface ChatAgentRun {
+  export interface ChatAgentAcceptanceReport {
+    result: 'passed' | 'partial' | 'blocked' | 'failed';
+    summary: string;
+    completed_items?: string[];
+    changed_files?: string[];
+    commands_run?: string[];
+    verification_result?: string;
+    blocking_reason?: string;
+    next_action?: string;
+  }
+
+  export interface ChatAgentRun {
   id: string;
   mode: 'chat' | 'agent';
   chat_session_id?: string;
@@ -767,8 +782,11 @@ export interface ChatAgentRun {
   model_protocol_status?: 'ok' | 'repaired' | 'fallback_summary' | 'needs_manual_review' | string;
   last_model_output_preview?: string;
   parse_repair_count?: number;
-  fallback_summary_used?: boolean;
-  details_url?: string;
+    fallback_summary_used?: boolean;
+    acceptance_report?: ChatAgentAcceptanceReport;
+    acceptance_report_source?: 'model' | 'fallback' | string;
+    acceptance_report_raw?: string;
+    details_url?: string;
   active_agent_id?: string;
   subagent_runs?: Array<Record<string, any>>;
   auto_execution_policy?: Record<string, any>;
@@ -833,7 +851,7 @@ export const getWorkflowTemplates = async () => {
   if (cached && Date.now() - cached.timestamp < GET_CACHE_TTL && cached.promise) {
     return cached.promise;
   }
-  
+
   const promise = apiClient.get(url).then(res => responseData(res));
   getCacheMap.set(cacheKey, { timestamp: Date.now(), data: null, promise });
   return promise;

@@ -92,6 +92,20 @@ const toolLabel: Record<string, string> = {
   finalize: '完成总结',
 };
 
+const acceptanceResultLabel: Record<string, string> = {
+  passed: '已通过',
+  partial: '部分完成',
+  blocked: '已阻断',
+  failed: '失败',
+};
+
+const acceptanceResultColor: Record<string, string> = {
+  passed: 'success',
+  partial: 'processing',
+  blocked: 'warning',
+  failed: 'error',
+};
+
 function stringify(value: unknown) {
   if (value === undefined || value === null) return '';
   if (typeof value === 'string') return value;
@@ -164,6 +178,7 @@ export default function AgentRunCard({
   const finalOutput = stepOutput(finalStep);
   const finalSummary = metadata.final_summary || finalOutput.summary;
   const showFinalOutput = Boolean(finalSummary || finalOutput.next_action);
+  const acceptanceReport = metadata.acceptance_report;
   const actions = observability?.actions?.length ? observability.actions : action ? [action] : [];
   const autoExecutedActions = actions.filter((item) => item.execution_mode === 'auto' && item.status === 'executed').length;
   const pendingActions = actions.filter((item) => item.status === 'pending_approval').length;
@@ -311,6 +326,58 @@ export default function AgentRunCard({
         />
       )}
 
+      {acceptanceReport && (
+        <Alert
+          type={acceptanceReport.result === 'passed' ? 'success' : acceptanceReport.result === 'failed' ? 'error' : 'warning'}
+          showIcon
+          message={
+            <Space wrap size={6}>
+              <span>验收报告</span>
+              <Tag color={acceptanceResultColor[acceptanceReport.result] || 'default'}>
+                {acceptanceResultLabel[acceptanceReport.result] || acceptanceReport.result}
+              </Tag>
+              {metadata.acceptance_report_source === 'fallback' && <Tag>系统根据执行记录生成</Tag>}
+              {metadata.acceptance_report_source === 'model' && <Tag color="blue">模型自评</Tag>}
+            </Space>
+          }
+          description={
+            <div style={{ display: 'grid', gap: 8 }}>
+              <Typography.Paragraph style={{ margin: 0 }}>{acceptanceReport.summary}</Typography.Paragraph>
+              {acceptanceReport.completed_items?.length ? (
+                <Typography.Text type="secondary">
+                  完成项：{acceptanceReport.completed_items.join('；')}
+                </Typography.Text>
+              ) : null}
+              {acceptanceReport.changed_files?.length ? (
+                <Typography.Text type="secondary">
+                  变更文件：{acceptanceReport.changed_files.join('；')}
+                </Typography.Text>
+              ) : null}
+              {acceptanceReport.commands_run?.length ? (
+                <Typography.Text type="secondary">
+                  执行命令：{acceptanceReport.commands_run.join('；')}
+                </Typography.Text>
+              ) : null}
+              {acceptanceReport.verification_result && (
+                <Typography.Text type="secondary">
+                  验证结果：{acceptanceReport.verification_result}
+                </Typography.Text>
+              )}
+              {acceptanceReport.blocking_reason && (
+                <Typography.Text type="danger">
+                  阻断原因：{acceptanceReport.blocking_reason}
+                </Typography.Text>
+              )}
+              {acceptanceReport.next_action && (
+                <Typography.Text type="secondary">
+                  下一步：{acceptanceReport.next_action}
+                </Typography.Text>
+              )}
+            </div>
+          }
+        />
+      )}
+
       {workflow?.steps?.length ? (
         <div style={{ display: 'grid', gap: 8 }}>
           <Progress percent={progressPercent} size="small" showInfo={false} />
@@ -448,8 +515,17 @@ export default function AgentRunCard({
               {action.action_type === 'patch' ? '补丁' : action.action_type === 'permission_request' ? '权限请求' : '命令'}
             </Tag>
             <Tag icon={<SafetyCertificateOutlined />} color="green">
-              {action.execution_mode === 'auto' ? '策略自动执行' : '审批后执行'}
+              {action.execution_mode === 'auto'
+                ? '安全自动'
+                : action.execution_mode === 'blocked'
+                  ? '策略阻断'
+                  : '审批后执行'}
             </Tag>
+            {action.risk_level && (
+              <Tag color={action.risk_level === 'high' ? 'red' : action.risk_level === 'medium' ? 'orange' : 'green'}>
+                {action.risk_level === 'high' ? '高风险' : action.risk_level === 'medium' ? '中风险' : '低风险'}
+              </Tag>
+            )}
             <Tag color={statusColor[action.status] || 'default'}>{statusLabel[action.status] || action.status}</Tag>
             {action.execution_mode === 'auto' && <Tag color="blue">自动执行</Tag>}
             {action.policy_reason && <Tag>{action.policy_reason}</Tag>}
@@ -469,6 +545,14 @@ export default function AgentRunCard({
               type="warning"
               showIcon
               message="策略要求人工确认"
+              description={action.policy_reason}
+            />
+          )}
+          {action.status === 'blocked' && action.policy_reason && (
+            <Alert
+              type="error"
+              showIcon
+              message="已按安全策略阻断"
               description={action.policy_reason}
             />
           )}

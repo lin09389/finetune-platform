@@ -232,6 +232,12 @@ const ChatPage: React.FC = () => {
       return saved === 'chat' || saved === 'agent' || saved === 'auto' ? saved : 'auto';
     },
   );
+  const [autonomyMode, setAutonomyMode] = useState<'safe_auto' | 'confirm_all' | 'read_only'>(
+    () => {
+      const saved = localStorage.getItem('chat_agent_autonomy_mode');
+      return saved === 'confirm_all' || saved === 'read_only' || saved === 'safe_auto' ? saved : 'safe_auto';
+    },
+  );
   const [routingIntent, setRoutingIntent] = useState(false);
   const [creatingWorkflow, setCreatingWorkflow] = useState(false);
   const chatAgentStreamsRef = useRef<Record<string, EventSource>>({});
@@ -344,6 +350,10 @@ const ChatPage: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('chat_routing_mode', routingMode);
   }, [routingMode]);
+
+  useEffect(() => {
+    localStorage.setItem('chat_agent_autonomy_mode', autonomyMode);
+  }, [autonomyMode]);
 
   useEffect(() => {
     if (!currentSessionId || currentSessionId.startsWith('local_')) return;
@@ -538,7 +548,12 @@ const ChatPage: React.FC = () => {
         last_model_output_preview: run.last_model_output_preview || workflowMetadata.last_model_output_preview,
         parse_repair_count: run.parse_repair_count ?? workflowMetadata.parse_repair_count,
         fallback_summary_used: run.fallback_summary_used ?? workflowMetadata.fallback_summary_used,
+        acceptance_report: run.acceptance_report || workflowMetadata.acceptance_report,
+        acceptance_report_source: run.acceptance_report_source || workflowMetadata.acceptance_report_source,
+        acceptance_report_raw: run.acceptance_report_raw || workflowMetadata.acceptance_report_raw,
         blocked_state: workflowMetadata.blocked_state || run.blocked_state,
+        autonomy_mode: (run.auto_execution_policy?.mode || workflowMetadata.autonomy_mode || workflowMetadata.auto_execution_policy?.mode || 'safe_auto') as 'safe_auto' | 'confirm_all' | 'read_only',
+        auto_execution_policy: run.auto_execution_policy || workflowMetadata.auto_execution_policy,
         repair_attempts: workflowMetadata.repair_attempts,
         max_repair_attempts: workflowMetadata.max_repair_attempts,
         action,
@@ -700,6 +715,7 @@ const ChatPage: React.FC = () => {
           provider: cloudAIConfig?.provider || undefined,
           model: selectedCloudModel || cloudAIConfig?.model || undefined,
           agent_id: options.agentId || selectedPrimaryAgent || 'build',
+          autonomy_mode: autonomyMode,
           force_agent: forceAgent,
         });
 
@@ -728,6 +744,7 @@ const ChatPage: React.FC = () => {
     },
     [
       addMessage,
+      autonomyMode,
       cloudAIConfig?.model,
       cloudAIConfig?.provider,
       createSession,
@@ -1198,7 +1215,11 @@ const ChatPage: React.FC = () => {
   const modelOptions =
     settings.backend === 'ollama'
       ? observed.inference.ollamaModels.map((m) => ({ id: m.id, name: m.name }))
-      : observed.inference.huggingfaceModels.map((m) => ({ id: m.id, name: m.name }));
+      : settings.backend === 'llama-cpp'
+        ? observed.inference.huggingfaceModels
+            .filter((m) => m.name.toLowerCase().includes('.gguf') || m.name.toLowerCase().includes('.ggml'))
+            .map((m) => ({ id: m.id, name: m.name }))
+        : observed.inference.huggingfaceModels.map((m) => ({ id: m.id, name: m.name }));
 
   useEffect(() => {
     if (settings.modelId) return;
@@ -1464,6 +1485,8 @@ const ChatPage: React.FC = () => {
         routingMode={routingMode}
         onRoutingModeChange={setRoutingMode}
         routing={routingIntent}
+        autonomyMode={autonomyMode}
+        onAutonomyModeChange={setAutonomyMode}
         workflowTemplateOptions={workflowTemplateOptions}
         selectedWorkflowTemplate={selectedWorkflowTemplate}
         onWorkflowTemplateChange={setSelectedWorkflowTemplate}

@@ -41,7 +41,7 @@ export interface ChatSession {
 
 export interface ChatSettings {
   modelId: string;
-  backend: 'ollama' | 'huggingface' | 'cloud';
+  backend: 'ollama' | 'huggingface' | 'cloud' | 'llama-cpp';
   useKnowledge: boolean;
   knowledgeCollection?: string;
   useMemory: boolean;
