@@ -110,12 +110,15 @@ class AgentRuntimeService:
         data["model"] = data.get("model") or workflow.default_model
         data["approval_mode"] = data.get("approval_mode") or workflow.default_approval_mode
         project = self.repository.create_project(data)
+        autonomy_mode = data.get("autonomy_mode") if data.get("autonomy_mode") in {"safe_auto", "confirm_all", "read_only"} else "safe_auto"
         metadata = {
             **(project.get("metadata") or {}),
             "primary_agent_id": primary_agent_id,
             "active_agent_id": primary_agent_id,
+            "autonomy_mode": autonomy_mode,
             "subagent_runs": [],
             "auto_execution_policy": {
+                "mode": autonomy_mode,
                 "patch": "safe_small_patch",
                 "command": "allowlisted_short_command",
             },

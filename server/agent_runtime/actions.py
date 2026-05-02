@@ -16,6 +16,11 @@ from .command_policy import command_allowed, normalize_command, normalize_execut
 from .execution_state import APPLYING_PATCH, COMPLETED, FAILED, VERIFYING, set_workflow_state
 from .patch_engine import SafePatchEngine
 
+AUTONOMY_SAFE_AUTO = "safe_auto"
+AUTONOMY_CONFIRM_ALL = "confirm_all"
+AUTONOMY_READ_ONLY = "read_only"
+AUTONOMY_MODES = {AUTONOMY_SAFE_AUTO, AUTONOMY_CONFIRM_ALL, AUTONOMY_READ_ONLY}
+
 
 class WorkflowActionService:
     def __init__(self, repository: Any):
@@ -49,15 +54,23 @@ class WorkflowActionService:
             policy = self._evaluate_policy(project or {}, action_type, payload)
             action_payload = dict(action.get("payload") or {})
             action_payload["_execution_mode"] = policy["execution_mode"]
+            action_payload["_policy_decision"] = policy["execution_mode"]
             action_payload["_policy_reason"] = policy["policy_reason"]
-            action = self.repository.update_action_status(action["id"], action["status"], payload=action_payload)
+            action_payload["_risk_level"] = policy["risk_level"]
+            next_action_status = "blocked" if policy["execution_mode"] == "blocked" else action["status"]
+            action = self.repository.update_action_status(action["id"], next_action_status, payload=action_payload)
             self.repository.add_event(
                 workflow_id,
                 step_id,
                 "auto_action_executed" if policy["execution_mode"] == "auto" else "auto_action_blocked",
                 "system",
                 policy["policy_reason"],
-                {"action_id": action["id"], "action_type": action_type, "execution_mode": policy["execution_mode"]},
+                {
+                    "action_id": action["id"],
+                    "action_type": action_type,
+                    "execution_mode": policy["execution_mode"],
+                    "risk_level": policy["risk_level"],
+                },
             )
             if policy["execution_mode"] == "auto":
                 action = self.repository.update_action_status(action["id"], "approved", approved_at=self._now())
@@ -120,6 +133,7 @@ class WorkflowActionService:
                     "_failure_summary": result.get("failure_summary") or "",
                     "_execution_state": "completed" if next_status == "executed" else FAILED,
                     "_applied_hunks": result.get("applied_hunks"),
+                    "_patch_summaries": result.get("patch_summaries") or [],
                 },
             )
             self.repository.update_action_status(action_id, next_status, executed_at=self._now())
@@ -189,50 +203,67 @@ class WorkflowActionService:
             "exit_code": 0,
             "changed_files": result.changed_files,
             "applied_hunks": len(result.summaries),
+            "patch_summaries": result.summaries,
             "failure_summary": "",
         }
 
     def _evaluate_policy(self, project: dict[str, Any], action_type: str, payload: dict[str, Any]) -> dict[str, str]:
+        autonomy_mode = self._autonomy_mode(project)
+        if autonomy_mode == AUTONOMY_READ_ONLY and action_type in {"patch", "command"}:
+            return self._policy("blocked", "high", "只读模式已开启，Agent 不会写文件或执行命令")
+
         if action_type == "command":
             command = payload.get("command")
+            if isinstance(command, str):
+                return self._policy("blocked", "high", "命令必须使用 argv 数组，禁止 shell 字符串")
             try:
                 args = normalize_command(command)
             except HTTPException as exc:
-                return {"execution_mode": "approval_required", "policy_reason": str(exc.detail)}
+                return self._policy("blocked", "high", str(exc.detail))
             if args and command_allowed(args):
-                return {"execution_mode": "auto", "policy_reason": "白名单短命令，已自动执行"}
-            return {"execution_mode": "approval_required", "policy_reason": "命令不在自动执行策略内，需人工审批"}
+                if autonomy_mode == AUTONOMY_CONFIRM_ALL:
+                    return self._policy("approval_required", "low", "确认模式已开启，白名单命令需人工审批")
+                return self._policy("auto", "low", "白名单短命令，已按安全自动模式执行")
+            return self._policy("approval_required", "medium", "命令不在自动执行策略内，需人工审批")
 
         if action_type == "patch":
             if payload.get("format") == "unified_diff" or payload.get("diff"):
-                return {"execution_mode": "approval_required", "policy_reason": "diff 补丁需人工确认后执行"}
+                return self._confirm_or_approval("diff 补丁需人工确认后执行")
             files = payload.get("files") or payload.get("file_changes") or []
             if not isinstance(files, list) or not files or len(files) > 3:
-                return {"execution_mode": "approval_required", "policy_reason": "补丁文件数量超出自动执行策略，需人工审批"}
-            safe_prefixes = ("tmp/", "tmp\\", "tests/", "tests\\", "server/tests/", "client/src/test/")
+                return self._confirm_or_approval("补丁文件数量超出自动执行策略，需人工审批")
+            safety = self._evaluate_patch_safety(files)
+            if safety["execution_mode"] == "blocked":
+                return safety
+            safe_prefixes = ("tmp/", "tmp\\", "docs/", "docs\\", "tests/", "tests\\", "server/tests/", "client/src/test/")
+            if autonomy_mode == AUTONOMY_CONFIRM_ALL:
+                risk_level = "low" if self._is_low_risk_file_write(files, safe_prefixes) else safety["risk_level"]
+                return self._policy("approval_required", risk_level, "确认模式已开启，补丁需人工审批")
+
             source_policy = self._evaluate_source_patch_policy(project, files)
             used_source_policy = False
             for item in files:
                 if not isinstance(item, dict):
-                    return {"execution_mode": "approval_required", "policy_reason": "补丁格式异常，需人工审批"}
+                    return self._confirm_or_approval("补丁格式异常，需人工审批")
                 relative_path = str(item.get("path") or item.get("file_path") or "")
                 content = str(item.get("content") or "")
                 if not relative_path or len(content) > 20_000:
-                    return {"execution_mode": "approval_required", "policy_reason": "补丁内容超出自动执行策略，需人工审批"}
-                if not relative_path.startswith(safe_prefixes):
+                    return self._confirm_or_approval("补丁内容超出自动执行策略，需人工审批")
+                normalized_path = relative_path.replace("\\", "/")
+                if not normalized_path.startswith(tuple(prefix.replace("\\", "/") for prefix in safe_prefixes)) and not normalized_path.endswith(".md"):
                     if source_policy["execution_mode"] == "auto":
                         used_source_policy = True
                         continue
                     return source_policy
             if used_source_policy:
                 return source_policy
-            return {"execution_mode": "auto", "policy_reason": "安全小补丁，已自动执行"}
+            return self._policy("auto", "low", "安全小补丁，已按安全自动模式执行")
 
-        return {"execution_mode": "approval_required", "policy_reason": "未知动作类型，需人工审批"}
+        return self._policy("approval_required", "medium", "未知动作类型，需人工审批")
 
     def _evaluate_source_patch_policy(self, project: dict[str, Any], files: list[Any]) -> dict[str, str]:
         if not files or len(files) > 2:
-            return {"execution_mode": "approval_required", "policy_reason": "源码自动修改最多允许 2 个文件"}
+            return self._policy("approval_required", "medium", "源码自动修改最多允许 2 个文件")
         allowed_suffixes = {".py", ".ts", ".tsx", ".css", ".md"}
         sensitive_names = {
             ".env",
@@ -252,27 +283,86 @@ class WorkflowActionService:
         total_lines = 0
         for item in files:
             if not isinstance(item, dict):
-                return {"execution_mode": "approval_required", "policy_reason": "源码补丁格式异常，需人工审批"}
+                return self._policy("approval_required", "medium", "源码补丁格式异常，需人工审批")
             relative_path = str(item.get("path") or item.get("file_path") or "").replace("\\", "/")
             content = str(item.get("content") or "")
             if not relative_path:
-                return {"execution_mode": "approval_required", "policy_reason": "源码补丁缺少路径，需人工审批"}
+                return self._policy("approval_required", "medium", "源码补丁缺少路径，需人工审批")
             path = Path(relative_path)
             if path.is_absolute() or ".." in path.parts:
-                return {"execution_mode": "approval_required", "policy_reason": "源码补丁路径不安全，需人工审批"}
+                return self._policy("blocked", "high", "源码补丁路径不安全，已阻断")
             if path.name in sensitive_names or any(part in sensitive_parts for part in path.parts):
-                return {"execution_mode": "approval_required", "policy_reason": "源码补丁涉及敏感文件或目录，需人工审批"}
+                return self._policy("blocked", "high", "源码补丁涉及敏感文件或目录，已阻断")
             if path.suffix.lower() not in allowed_suffixes:
-                return {"execution_mode": "approval_required", "policy_reason": "源码补丁文件类型不在自动执行策略内"}
+                return self._policy("approval_required", "medium", "源码补丁文件类型不在自动执行策略内")
             line_count = len(content.splitlines())
             total_lines += line_count
             if line_count > 80:
-                return {"execution_mode": "approval_required", "policy_reason": "单文件源码补丁超过 80 行，需人工审批"}
+                return self._policy("approval_required", "medium", "单文件源码补丁超过 80 行，需人工审批")
             if relative_path not in read_paths:
-                return {"execution_mode": "approval_required", "policy_reason": "源码文件未在同一轮被读取或搜索命中，需人工审批"}
+                return self._policy("approval_required", "medium", "源码文件未在同一轮被读取或搜索命中，需人工审批")
         if total_lines > 160:
-            return {"execution_mode": "approval_required", "policy_reason": "源码补丁总行数超过 160 行，需人工审批"}
-        return {"execution_mode": "auto", "policy_reason": "低风险源码小改，已按策略自动执行"}
+            return self._policy("approval_required", "medium", "源码补丁总行数超过 160 行，需人工审批")
+        return self._policy("auto", "low", "低风险源码小改，已按安全自动模式执行")
+
+    def _evaluate_patch_safety(self, files: list[Any]) -> dict[str, str]:
+        sensitive_names = {
+            ".env",
+            ".env.local",
+            "package.json",
+            "package-lock.json",
+            "pnpm-lock.yaml",
+            "yarn.lock",
+            "requirements.txt",
+            "pyproject.toml",
+            "alembic.ini",
+            "docker-compose.yml",
+            "Dockerfile",
+        }
+        sensitive_parts = {".git", "migrations", "secrets", "keys"}
+        for item in files:
+            if not isinstance(item, dict):
+                return self._policy("approval_required", "medium", "补丁格式异常，需人工审批")
+            relative_path = str(item.get("path") or item.get("file_path") or "").replace("\\", "/")
+            if not relative_path:
+                return self._policy("approval_required", "medium", "补丁缺少路径，需人工审批")
+            path = Path(relative_path)
+            if path.is_absolute() or ".." in path.parts:
+                return self._policy("blocked", "high", "补丁路径不安全，已阻断")
+            if path.name in sensitive_names or any(part in sensitive_parts for part in path.parts):
+                return self._policy("blocked", "high", "补丁涉及敏感文件或目录，已阻断")
+            if item.get("delete") or item.get("deleted") or item.get("rename") or item.get("old_path"):
+                return self._policy("blocked", "high", "删除、重命名类补丁已阻断")
+        return self._policy("approval_required", "medium", "补丁需策略继续评估")
+
+    def _is_low_risk_file_write(self, files: list[Any], safe_prefixes: tuple[str, ...]) -> bool:
+        normalized_prefixes = tuple(prefix.replace("\\", "/") for prefix in safe_prefixes)
+        for item in files:
+            if not isinstance(item, dict):
+                return False
+            relative_path = str(item.get("path") or item.get("file_path") or "").replace("\\", "/")
+            content = str(item.get("content") or "")
+            if not relative_path or len(content) > 20_000:
+                return False
+            if not relative_path.startswith(normalized_prefixes) and not relative_path.endswith(".md"):
+                return False
+        return True
+
+    def _autonomy_mode(self, project: dict[str, Any]) -> str:
+        metadata = project.get("metadata") if isinstance(project.get("metadata"), dict) else {}
+        mode = str(metadata.get("autonomy_mode") or AUTONOMY_SAFE_AUTO)
+        return mode if mode in AUTONOMY_MODES else AUTONOMY_SAFE_AUTO
+
+    def _confirm_or_approval(self, reason: str) -> dict[str, str]:
+        return self._policy("approval_required", "medium", reason)
+
+    def _policy(self, execution_mode: str, risk_level: str, reason: str) -> dict[str, str]:
+        return {
+            "execution_mode": execution_mode,
+            "policy_decision": execution_mode,
+            "risk_level": risk_level,
+            "policy_reason": reason,
+        }
 
     def _context_touched_paths(self, workflow_id: str | None) -> set[str]:
         if not workflow_id:

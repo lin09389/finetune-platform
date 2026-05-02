@@ -16,6 +16,7 @@ class ChatAgentRunCreate(BaseModel):
     model: str | None = None
     agent_id: str | None = None
     project_path: str | None = None
+    autonomy_mode: Literal["safe_auto", "confirm_all", "read_only"] = "safe_auto"
     force_agent: bool = False
 
 
@@ -43,6 +44,17 @@ class ChatAgentApprovalRequest(BaseModel):
     comment: str | None = None
 
 
+class ChatAgentAcceptanceReport(BaseModel):
+    result: Literal["passed", "partial", "blocked", "failed"]
+    summary: str
+    completed_items: list[str] = Field(default_factory=list)
+    changed_files: list[str] = Field(default_factory=list)
+    commands_run: list[str] = Field(default_factory=list)
+    verification_result: str = ""
+    blocking_reason: str = ""
+    next_action: str = ""
+
+
 class ChatAgentRunResponse(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
@@ -62,6 +74,9 @@ class ChatAgentRunResponse(BaseModel):
     last_model_output_preview: str | None = None
     parse_repair_count: int = 0
     fallback_summary_used: bool = False
+    acceptance_report: ChatAgentAcceptanceReport | None = None
+    acceptance_report_source: str | None = None
+    acceptance_report_raw: str | None = None
     details_url: str | None = None
     active_agent_id: str | None = None
     subagent_runs: list[dict[str, Any]] = Field(default_factory=list)

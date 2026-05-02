@@ -263,11 +263,25 @@ class AgentToolExecutor:
                 tool=request.tool, status="failed",
                 summary="需要先读取项目上下文",
                 error="请先调用 inspect_project、search_code 或 read_file，再提出补丁建议。",
+                payload={
+                    "required_tools": ["inspect_project", "search_code", "read_file"],
+                    "next_action": "先读取项目结构或目标文件，再重新提出补丁。",
+                },
             )
         return self._propose_action(workflow_id, step_id, request, "patch")
 
     @register_tool("propose_command")
     def _handle_propose_command(self, request, project, workflow_id, step_id, agent_id) -> AgentToolResult:
+        if agent_id in {"build", "implementer"} and not self._has_detected_project_commands(project, workflow_id):
+            return AgentToolResult(
+                tool=request.tool, status="failed",
+                summary="需要先识别项目验证命令",
+                error="请先调用 detect_project_commands，再提出验证命令建议。",
+                payload={
+                    "required_tool": "detect_project_commands",
+                    "next_tool": {"tool": "detect_project_commands", "arguments": {}},
+                },
+            )
         return self._propose_action(workflow_id, step_id, request, "command")
 
     @register_tool("read_execution_result")
@@ -417,6 +431,10 @@ class AgentToolExecutor:
         calls = self.repository.list_tool_calls(workflow_id)
         return any(call.get("status") == "completed" and call.get("tool_name") in {"inspect_project", "search_code", "read_file", "list_files"} for call in calls)
 
+    def _has_detected_project_commands(self, project: dict[str, Any], workflow_id: str) -> bool:
+        calls = self.repository.list_tool_calls(workflow_id)
+        return any(call.get("status") == "completed" and call.get("tool_name") == "detect_project_commands" for call in calls)
+
     def _propose_action(self, workflow_id: str, step_id: str | None, request: AgentToolRequest, action_type: str) -> AgentToolResult:
         payload = request.arguments.get("payload")
         if not isinstance(payload, dict):
@@ -431,8 +449,16 @@ class AgentToolExecutor:
         if project and hasattr(self.action_service, "_evaluate_policy"):
             policy = self.action_service._evaluate_policy(project, action_type, payload)
             action_payload = dict(action.get("payload") or {})
-            action_payload.update({"_execution_mode": policy["execution_mode"], "_policy_reason": policy["policy_reason"]})
-            action = self.repository.update_action_status(action["id"], action["status"], payload=action_payload)
+            action_payload.update(
+                {
+                    "_execution_mode": policy["execution_mode"],
+                    "_policy_decision": policy["execution_mode"],
+                    "_policy_reason": policy["policy_reason"],
+                    "_risk_level": policy.get("risk_level"),
+                }
+            )
+            next_action_status = "blocked" if policy["execution_mode"] == "blocked" else action["status"]
+            action = self.repository.update_action_status(action["id"], next_action_status, payload=action_payload)
             if policy["execution_mode"] == "auto":
                 from datetime import datetime
                 action = self.repository.update_action_status(action["id"], "approved", approved_at=datetime.now().isoformat())

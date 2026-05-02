@@ -43,7 +43,7 @@ def test_failed_action_triggers_one_repair_proposal(tmp_path):
         "失败命令",
         payload={"command": ["python", "-m", "py_compile", "missing_file_for_repair.py"]},
     )
-    service.approve_action(action["id"])
+    asyncio.run(service.approve_action(action["id"]))
     failed = service.execute_action(action["id"])
 
     repair = asyncio.run(service.repair_after_failed_action(failed.id))
@@ -75,7 +75,7 @@ def test_second_failure_enters_manual_review_without_auto_execution(tmp_path):
         "失败命令",
         payload={"command": ["python", "-m", "py_compile", "missing_file_for_repair.py"]},
     )
-    service.approve_action(action["id"])
+    asyncio.run(service.approve_action(action["id"]))
     failed = service.execute_action(action["id"])
     repair = asyncio.run(service.repair_after_failed_action(failed.id))
     project = repository.get_project(workflow.workflow_id)

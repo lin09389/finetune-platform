@@ -22,6 +22,7 @@ class WorkflowCreate(BaseModel):
     provider: str = "minimax"
     model: str | None = None
     agent_id: str | None = None
+    autonomy_mode: str = "safe_auto"
     approval_mode: str = "manual"
 
 
@@ -244,10 +245,12 @@ class WorkflowActionResponse(BaseModel):
     execution_mode: str | None = None
     policy_decision: str | None = None
     policy_reason: str | None = None
+    risk_level: str | None = None
     auto_executed_at: str | None = None
     execution_state: str | None = None
     changed_files: list[str] = Field(default_factory=list)
     applied_hunks: int | None = None
+    patch_summaries: list[dict[str, Any]] = Field(default_factory=list)
     failure_summary: str = ""
     approved_at: str | None = None
     rejected_at: str | None = None

@@ -65,7 +65,7 @@ def test_small_read_source_patch_auto_executes(tmp_path):
 
         assert action["status"] == "executed"
         assert action["execution_mode"] == "auto"
-        assert action["policy_reason"] == "低风险源码小改，已按策略自动执行"
+        assert action["policy_reason"] == "低风险源码小改，已按安全自动模式执行"
         assert action["changed_files"] == [target.name]
         assert action["auto_executed_at"]
         assert action["applied_hunks"] == 1
@@ -87,14 +87,15 @@ def test_unread_source_patch_requires_approval(tmp_path):
     assert "未在同一轮被读取或搜索命中" in actions[0]["policy_reason"]
 
 
-def test_sensitive_source_patch_requires_approval(tmp_path):
+def test_sensitive_source_patch_is_blocked(tmp_path):
     service, repository, project, task = make_policy_service(tmp_path)
     mark_read(repository, project["id"], task["id"], "package.json")
 
     actions = service.extract_from_output(project["id"], task["id"], patch_output("package.json", "{}\n"))
 
-    assert actions[0]["status"] == "pending_approval"
-    assert actions[0]["execution_mode"] == "approval_required"
+    assert actions[0]["status"] == "blocked"
+    assert actions[0]["execution_mode"] == "blocked"
+    assert actions[0]["risk_level"] == "high"
     assert "敏感" in actions[0]["policy_reason"]
 
 

@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from agent_runtime.models import WorkflowCreate
 from agent_runtime.service import AgentRuntimeService
 
+from .acceptance import AcceptanceReportGenerator
 from .intent import ChatAgentIntentClassifier
 from .models import ChatAgentIntentRequest, ChatAgentIntentResponse, ChatAgentRunCreate, ChatAgentRunEvent, ChatAgentRunResponse
 from .repository import ChatAgentRepository
@@ -18,10 +19,12 @@ class ChatAgentService:
         runtime: AgentRuntimeService,
         repository: ChatAgentRepository | None = None,
         classifier: ChatAgentIntentClassifier | None = None,
+        acceptance_generator: AcceptanceReportGenerator | None = None,
     ):
         self.runtime = runtime
         self.repository = repository or ChatAgentRepository(runtime.repository.db_path)
         self.classifier = classifier or ChatAgentIntentClassifier()
+        self.acceptance_generator = acceptance_generator or AcceptanceReportGenerator()
 
     def create_run(self, request: ChatAgentRunCreate) -> ChatAgentRunResponse:
         should_agent, intent_type = self.classifier.classify(request.content, request.force_agent)
@@ -50,6 +53,7 @@ class ChatAgentService:
                 provider=request.provider or "minimax",
                 model=request.model,
                 agent_id=request.agent_id or "build",
+                autonomy_mode=request.autonomy_mode,
                 approval_mode="manual",
             )
         )
@@ -84,17 +88,19 @@ class ChatAgentService:
             raise HTTPException(status_code=400, detail="Chat agent run has no workflow")
         self.repository.update_run(run_id, status="running")
         workflow = await self.runtime.run_workflow(workflow_id)
+        await self._ensure_acceptance_report(workflow)
         status = "completed" if workflow.status == "completed" else workflow.status
         run = self.repository.update_run(run_id, status=status, summary=self._summarize_workflow(workflow.model_dump()))
-        return self._response(run, workflow=workflow)
+        return self._response(run)
 
     async def approve_step(self, step_id: str, approved: bool = True, comment: str | None = None) -> ChatAgentRunResponse:
         workflow = await self.runtime.approve_step(step_id, approved=approved, comment=comment)
         run = self.repository.get_run_by_workflow(workflow.workflow_id)
         if not run:
             raise HTTPException(status_code=404, detail="Chat agent run not found")
+        await self._ensure_acceptance_report(workflow)
         self.repository.update_run(run["id"], status=workflow.status, summary=self._summarize_workflow(workflow.model_dump()))
-        return self._response(self._get_run(run["id"]), workflow=workflow)
+        return self._response(self._get_run(run["id"]))
 
     async def approve_action(self, action_id: str):
         action = await self.runtime.approve_action(action_id)
@@ -119,6 +125,8 @@ class ChatAgentService:
         if action.status == "failed":
             await self.runtime.repair_after_failed_action(action.id)
             self._sync_action_run(action.workflow_id, "repair_attempt", action.id)
+        workflow = self.runtime.get_workflow(action.workflow_id)
+        await self._ensure_acceptance_report(workflow)
         return action
 
     def list_tool_calls(self, run_id: str):
@@ -148,6 +156,7 @@ class ChatAgentService:
         observability = self.runtime.get_observability(workflow_id) if workflow_id else None
         events = self.runtime.list_timeline(workflow_id) if workflow_id else []
         metadata = dict((workflow.metadata if workflow else {}) or {})
+        metadata = self._metadata_with_acceptance_report(workflow, observability, metadata)
         response_status = workflow.status if workflow else (run.get("status") or "created")
         final_summary = self._latest_output_summary(workflow.model_dump() if workflow and hasattr(workflow, "model_dump") else {})
         execution_state = metadata.get("execution_state")
@@ -182,6 +191,9 @@ class ChatAgentService:
             last_model_output_preview=metadata.get("last_model_output_preview"),
             parse_repair_count=int(metadata.get("parse_repair_count") or 0),
             fallback_summary_used=bool(metadata.get("fallback_summary_used")),
+            acceptance_report=metadata.get("acceptance_report"),
+            acceptance_report_source=metadata.get("acceptance_report_source"),
+            acceptance_report_raw=metadata.get("acceptance_report_raw"),
             details_url=f"/workflows?workflow={workflow_id}" if workflow_id else None,
             active_agent_id=metadata.get("active_agent_id"),
             subagent_runs=list(metadata.get("subagent_runs") or []),
@@ -255,3 +267,39 @@ class ChatAgentService:
             reason = state_message or final_summary or "Agent 正在等待你的审批。"
             return f"等待审批：{reason}"
         return state_message
+
+    async def _ensure_acceptance_report(self, workflow: Any | None) -> None:
+        if workflow is None:
+            return
+        workflow_data = workflow.model_dump() if hasattr(workflow, "model_dump") else dict(workflow)
+        metadata = dict(workflow_data.get("metadata") or {})
+        if metadata.get("acceptance_report"):
+            return
+        observability = self.runtime.get_observability(workflow_data["workflow_id"])
+        if not self.acceptance_generator.should_generate(workflow_data, observability):
+            return
+        report, source, raw = await self.acceptance_generator.generate(workflow_data, observability)
+        metadata.update(
+            {
+                "acceptance_report": report.model_dump(),
+                "acceptance_report_source": source,
+                "acceptance_report_raw": raw[:4000] if raw else "",
+            }
+        )
+        self.runtime.repository.update_project(workflow_data["workflow_id"], metadata=metadata)
+
+    def _metadata_with_acceptance_report(self, workflow: Any | None, observability: Any | None, metadata: dict[str, Any]) -> dict[str, Any]:
+        if workflow is None or metadata.get("acceptance_report"):
+            return metadata
+        workflow_data = workflow.model_dump() if hasattr(workflow, "model_dump") else dict(workflow)
+        if not self.acceptance_generator.should_generate(workflow_data, observability):
+            return metadata
+        report = self.acceptance_generator.build_fallback(workflow_data, observability)
+        metadata = {
+            **metadata,
+            "acceptance_report": report.model_dump(),
+            "acceptance_report_source": "fallback",
+            "acceptance_report_raw": "generated_on_read",
+        }
+        self.runtime.repository.update_project(workflow_data["workflow_id"], metadata=metadata)
+        return metadata

@@ -1032,13 +1032,15 @@ class WorkflowRuntimeRepository:
         data = dict(row)
         data["payload"] = _load(data.get("payload"))
         data["execution_mode"] = data["payload"].get("_execution_mode")
-        data["policy_decision"] = data["payload"].get("_execution_mode")
+        data["policy_decision"] = data["payload"].get("_policy_decision") or data["payload"].get("_execution_mode")
         data["policy_reason"] = data["payload"].get("_policy_reason")
+        data["risk_level"] = data["payload"].get("_risk_level")
         data["auto_executed_at"] = data["payload"].get("_auto_executed_at")
         data["execution_state"] = data["payload"].get("_execution_state")
         data["changed_files"] = data["payload"].get("_changed_files") or []
         data["failure_summary"] = data["payload"].get("_failure_summary") or ""
         data["applied_hunks"] = data["payload"].get("_applied_hunks")
+        data["patch_summaries"] = data["payload"].get("_patch_summaries") or []
         data["executions"] = self.list_action_executions(data["id"])
         return data
 
