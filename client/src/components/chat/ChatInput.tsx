@@ -74,17 +74,23 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const routingMeta = {
     auto: {
       label: routing ? '正在判断路由' : '自动路由',
-      hint: routing ? '正在判断是否需要 Agent' : '开发任务会自动进入 Agent',
+      hint: routing ? '正在判断是否需要 Agent' : '普通问题走对话，开发/修改/测试启动 Agent',
     },
     chat: {
       label: '普通对话',
-      hint: '本次只发送普通聊天',
+      hint: '本次不会触发 Agent 或写入动作',
     },
     agent: {
       label: 'Agent 工作',
-      hint: '发送后直接启动 Agent',
+      hint: '直接进入理解项目、补丁、验证闭环',
     },
   }[routingMode];
+  const footerHint =
+    routingMode === 'chat'
+      ? '按 Enter 发送 · Shift+Enter 换行 · 当前为普通对话模式'
+      : routingMode === 'agent'
+        ? '按 Enter 启动 Agent · 只读工具自动执行，补丁和命令受策略门禁控制'
+        : '按 Enter 发送 · Shift+Enter 换行 · 自动判断是否需要 Agent';
   const canSend =
     value.trim().length > 0 &&
     (!disabled || (agentModeAvailable && routingMode !== 'chat')) &&
@@ -278,38 +284,44 @@ const ChatInput: React.FC<ChatInputProps> = ({
               {onCreateWorkflow && (
                 <>
                   {agentOptions.length > 0 && (
-                    <Select
-                      size="small"
-                      value={selectedAgent}
-                      options={agentOptions}
-                      onChange={onAgentChange}
-                      style={{ minWidth: 128 }}
-                      disabled={loading || isStreaming || creatingWorkflow || routing}
-                    />
+                    <Tooltip title="选择主 Agent">
+                      <Select
+                        size="small"
+                        value={selectedAgent}
+                        options={agentOptions}
+                        onChange={onAgentChange}
+                        style={{ minWidth: 128 }}
+                        disabled={loading || isStreaming || creatingWorkflow || routing}
+                      />
+                    </Tooltip>
                   )}
                   {onRoutingModeChange && (
-                    <Segmented
-                      size="small"
-                      value={routingMode}
-                      className={styles.routingSegment}
-                      options={[
-                        { label: '自动', value: 'auto' },
-                        { label: '对话', value: 'chat' },
-                        { label: 'Agent', value: 'agent' },
-                      ]}
-                      onChange={(mode) => onRoutingModeChange(mode as 'auto' | 'chat' | 'agent')}
-                      disabled={loading || isStreaming || creatingWorkflow || routing}
-                    />
+                    <Tooltip title="切换发送路由">
+                      <Segmented
+                        size="small"
+                        value={routingMode}
+                        className={styles.routingSegment}
+                        options={[
+                          { label: '自动', value: 'auto' },
+                          { label: '对话', value: 'chat' },
+                          { label: 'Agent', value: 'agent' },
+                        ]}
+                        onChange={(mode) => onRoutingModeChange(mode as 'auto' | 'chat' | 'agent')}
+                        disabled={loading || isStreaming || creatingWorkflow || routing}
+                      />
+                    </Tooltip>
                   )}
                   {workflowTemplateOptions.length > 1 && (
-                    <Select
-                      size="small"
-                      value={selectedWorkflowTemplate}
-                      options={workflowTemplateOptions}
-                      onChange={onWorkflowTemplateChange}
-                      style={{ minWidth: 128 }}
-                      disabled={loading || isStreaming || creatingWorkflow || routing}
-                    />
+                    <Tooltip title="选择工作流模板">
+                      <Select
+                        size="small"
+                        value={selectedWorkflowTemplate}
+                        options={workflowTemplateOptions}
+                        onChange={onWorkflowTemplateChange}
+                        style={{ minWidth: 128 }}
+                        disabled={loading || isStreaming || creatingWorkflow || routing}
+                      />
+                    </Tooltip>
                   )}
                 </>
               )}
@@ -348,7 +360,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
         <div className={styles.hint}>
           <Text type="secondary" style={{ fontSize: 11 }}>
-            按 Enter 发送 · Shift+Enter 换行 · 开发/修改/测试类目标会自动进入 Agent 工作
+            {footerHint}
           </Text>
         </div>
       </div>

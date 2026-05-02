@@ -655,6 +655,10 @@ export interface WorkflowToolCall {
   blocked_reason?: string;
   replay_of_call_id?: string;
   trace_id?: string;
+  raw_model_output?: string;
+  sanitized_model_output?: string;
+  parse_error?: string;
+  protocol_repair_attempted?: boolean;
   error?: string;
   started_at?: string;
   completed_at?: string;
@@ -687,10 +691,12 @@ export interface WorkflowAction {
   status: string;
   created_by?: string;
   execution_mode?: 'auto' | 'approval_required' | string;
+  policy_decision?: 'auto' | 'approval_required' | 'blocked' | string;
   policy_reason?: string;
   auto_executed_at?: string;
   execution_state?: string;
   changed_files?: string[];
+  applied_hunks?: number;
   failure_summary?: string;
   approved_at?: string;
   rejected_at?: string;
@@ -758,6 +764,10 @@ export interface ChatAgentRun {
   execution_state?: string;
   execution_state_message?: string;
   recoverable?: boolean;
+  model_protocol_status?: 'ok' | 'repaired' | 'fallback_summary' | 'needs_manual_review' | string;
+  last_model_output_preview?: string;
+  parse_repair_count?: number;
+  fallback_summary_used?: boolean;
   details_url?: string;
   active_agent_id?: string;
   subagent_runs?: Array<Record<string, any>>;

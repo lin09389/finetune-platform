@@ -5,11 +5,12 @@ import {
   FileTextOutlined,
   LinkOutlined,
   PlayCircleOutlined,
+  ReloadOutlined,
   SafetyCertificateOutlined,
   SearchOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
-import { Alert, Button, Collapse, Divider, Progress, Space, Steps, Tag, Typography } from 'antd';
+import { Alert, Button, Collapse, Divider, Progress, Space, Steps, Tag, Tooltip, Typography } from 'antd';
 import type { ChatAgentMetadata } from '../../types';
 import type { Workflow, WorkflowAction, WorkflowObservability, WorkflowToolCall } from '../../services/api';
 
@@ -134,12 +135,16 @@ export default function AgentRunCard({
   const activeAgentId = (metadata as any).active_agent_id || workflow?.active_agent_id || observability?.active_agent_id;
   const executionState = metadata.execution_state || (workflow?.metadata as any)?.execution_state;
   const executionMessage = metadata.execution_state_message || (workflow?.metadata as any)?.execution_state_message;
+  const protocolStatus = metadata.model_protocol_status || (workflow?.metadata as any)?.model_protocol_status;
+  const parseRepairCount = metadata.parse_repair_count ?? (workflow?.metadata as any)?.parse_repair_count;
+  const fallbackSummaryUsed = metadata.fallback_summary_used ?? (workflow?.metadata as any)?.fallback_summary_used;
   const subagentRuns = ((metadata as any).subagent_runs as Array<Record<string, any>> | undefined) || observability?.subagent_runs || [];
   const recentToolCalls = toolCalls.slice(-3).reverse();
   const runningTool = [...toolCalls].reverse().find((call) => call.status === 'running');
   const latestBlockedTool = [...toolCalls]
     .reverse()
     .find((call) => call.status === 'blocked' || call.permission_decision === 'ask' || call.permission_decision === 'deny');
+  const latestTool = toolCalls.length ? toolCalls[toolCalls.length - 1] : undefined;
   const action = metadata.action as WorkflowAction | undefined;
   const waitingStep = workflow?.steps?.find((step) => step.status === 'awaiting_approval');
   const lastExecution = action?.executions?.[action.executions.length - 1];
@@ -159,6 +164,19 @@ export default function AgentRunCard({
   const finalOutput = stepOutput(finalStep);
   const finalSummary = metadata.final_summary || finalOutput.summary;
   const showFinalOutput = Boolean(finalSummary || finalOutput.next_action);
+  const actions = observability?.actions?.length ? observability.actions : action ? [action] : [];
+  const autoExecutedActions = actions.filter((item) => item.execution_mode === 'auto' && item.status === 'executed').length;
+  const pendingActions = actions.filter((item) => item.status === 'pending_approval').length;
+  const failedActions = actions.filter((item) => item.status === 'failed').length;
+  const changedFileCount = new Set(actions.flatMap((item) => item.changed_files || [])).size;
+  const phaseAccent =
+    status === 'failed' || executionState === 'failed' || executionState === 'needs_manual_review'
+      ? 'var(--accent-danger, #ff4d4f)'
+      : pendingActions || actionNeedsDecision || executionState === 'waiting_approval' || executionState === 'waiting_permission'
+        ? 'var(--accent-warning, #faad14)'
+        : status === 'completed' || action?.status === 'executed'
+          ? 'var(--accent-success, #52c41a)'
+          : 'var(--accent-primary, #1677ff)';
 
   return (
     <div
@@ -167,6 +185,7 @@ export default function AgentRunCard({
         gap: 14,
         minWidth: 280,
         border: '1px solid var(--border-color)',
+        borderLeft: `3px solid ${phaseAccent}`,
         borderRadius: 10,
         padding: 14,
         background: 'color-mix(in srgb, var(--bg-elevated) 92%, var(--accent-primary) 8%)',
@@ -178,22 +197,47 @@ export default function AgentRunCard({
           <Tag color={statusColor[status] || 'default'}>{statusLabel[status] || status}</Tag>
           {workflow?.current_stage && <Tag>{workflow.current_stage}</Tag>}
           {activeAgentId && <Tag color="cyan">当前 Agent: {activeAgentId}</Tag>}
+          {protocolStatus === 'repaired' && <Tag color="gold">模型输出已修复</Tag>}
+          {protocolStatus === 'fallback_summary' && <Tag color="purple">使用兜底总结</Tag>}
+          {protocolStatus === 'needs_manual_review' && <Tag color="red">协议需人工处理</Tag>}
         </Space>
         <Space size={4}>
           {metadata.recoverable && (
-            <Button size="small" type="text" onClick={() => onRefreshRun?.(metadata.agent_run_id)}>
-              刷新
-            </Button>
+            <Tooltip title="刷新运行状态">
+              <Button
+                aria-label="刷新运行状态"
+                size="small"
+                type="text"
+                icon={<ReloadOutlined />}
+                onClick={() => onRefreshRun?.(metadata.agent_run_id)}
+              />
+            </Tooltip>
           )}
           {metadata.details_url && (
-            <Button size="small" type="text" icon={<LinkOutlined />} onClick={() => onOpenDetails?.(metadata.details_url!)}>
-              详情
-            </Button>
+            <Tooltip title="查看工作流详情">
+              <Button
+                aria-label="查看工作流详情"
+                size="small"
+                type="text"
+                icon={<LinkOutlined />}
+                onClick={() => onOpenDetails?.(metadata.details_url!)}
+              />
+            </Tooltip>
           )}
         </Space>
       </div>
 
       <Typography.Text strong>{content}</Typography.Text>
+
+      <Space wrap size={6}>
+        <Tag>{toolCalls.length ? `工具 ${toolCalls.length}` : '等待工具'}</Tag>
+        {actions.length ? <Tag>{`动作 ${actions.length}`}</Tag> : null}
+        {autoExecutedActions ? <Tag color="green">自动执行 {autoExecutedActions}</Tag> : null}
+        {pendingActions ? <Tag color="gold">待确认 {pendingActions}</Tag> : null}
+        {failedActions ? <Tag color="red">失败动作 {failedActions}</Tag> : null}
+        {changedFileCount ? <Tag color="blue">变更文件 {changedFileCount}</Tag> : null}
+        {parseRepairCount ? <Tag color="purple">协议修复 {parseRepairCount}</Tag> : null}
+      </Space>
 
       {executionState && (
         <Alert
@@ -210,6 +254,33 @@ export default function AgentRunCard({
           showIcon
           message="需要人工确认"
           description={(metadata.blocked_state as any)?.reason || executionMessage || 'Agent 当前无法自动继续，请查看工具调用和动作输出后决定下一步。'}
+        />
+      )}
+
+      {protocolStatus && protocolStatus !== 'ok' && (
+        <Alert
+          type={protocolStatus === 'needs_manual_review' ? 'warning' : 'info'}
+          showIcon
+          message={
+            protocolStatus === 'repaired'
+              ? '模型输出已自动修复'
+              : protocolStatus === 'fallback_summary'
+                ? '已使用后端兜底总结'
+                : '模型协议需要人工确认'
+          }
+          description={
+            <Space direction="vertical" size={4}>
+              <Typography.Text type="secondary">
+                修复次数：{parseRepairCount || 0}
+                {fallbackSummaryUsed ? '，最终结果由系统根据工具和动作记录生成。' : ''}
+              </Typography.Text>
+              {metadata.last_model_output_preview && (
+                <Typography.Text type="secondary" ellipsis>
+                  最近模型输出：{metadata.last_model_output_preview}
+                </Typography.Text>
+              )}
+            </Space>
+          }
         />
       )}
 
@@ -309,6 +380,7 @@ export default function AgentRunCard({
                               {call.permission_decision}
                             </Tag>
                           )}
+                          {call.protocol_repair_attempted && <Tag color="gold">协议修复</Tag>}
                           {call.duration_ms !== undefined && (
                             <Typography.Text type="secondary">{call.duration_ms}ms</Typography.Text>
                           )}
@@ -382,7 +454,24 @@ export default function AgentRunCard({
             {action.execution_mode === 'auto' && <Tag color="blue">自动执行</Tag>}
             {action.policy_reason && <Tag>{action.policy_reason}</Tag>}
             {action.execution_state && <Tag>{statusLabel[action.execution_state] || action.execution_state}</Tag>}
+            {action.applied_hunks !== undefined && <Tag>hunks {action.applied_hunks}</Tag>}
           </Space>
+          {action.execution_mode === 'auto' && action.status === 'executed' && (
+            <Alert
+              type="success"
+              showIcon
+              message="已按策略自动执行"
+              description={action.policy_reason || '该动作满足自动执行策略，已完成执行。'}
+            />
+          )}
+          {action.status === 'pending_approval' && action.policy_reason && (
+            <Alert
+              type="warning"
+              showIcon
+              message="策略要求人工确认"
+              description={action.policy_reason}
+            />
+          )}
           {action.changed_files?.length ? (
             <Alert
               type="success"
@@ -457,6 +546,30 @@ export default function AgentRunCard({
           </Typography.Text>
         </>
       ) : null}
+
+      <Collapse
+        size="small"
+        ghost
+        items={[
+          {
+            key: 'debug',
+            label: '排查信息',
+            children: (
+              <Space direction="vertical" size={4}>
+                <Typography.Text type="secondary">Run ID: {metadata.agent_run_id || '-'}</Typography.Text>
+                <Typography.Text type="secondary">Workflow ID: {metadata.workflow_id || '-'}</Typography.Text>
+                <Typography.Text type="secondary">
+                  Last event: {String((metadata.event as any)?.event_type || (metadata.event as any)?.message || '-')}
+                </Typography.Text>
+                <Typography.Text type="secondary">
+                  Last tool: {latestTool ? toolLabel[latestTool.tool_name] || latestTool.tool_name : '-'}
+                </Typography.Text>
+                <Typography.Text type="secondary">Latest action: {action?.title || '-'}</Typography.Text>
+              </Space>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }

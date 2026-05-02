@@ -394,6 +394,10 @@ export interface ChatAgentMetadata {
   execution_state_message?: string;
   final_summary?: string;
   recoverable?: boolean;
+  model_protocol_status?: 'ok' | 'repaired' | 'fallback_summary' | 'needs_manual_review' | string;
+  last_model_output_preview?: string;
+  parse_repair_count?: number;
+  fallback_summary_used?: boolean;
   blocked_state?: Record<string, unknown> | null;
   repair_attempts?: number;
   max_repair_attempts?: number;

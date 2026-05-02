@@ -235,6 +235,7 @@ const ChatPage: React.FC = () => {
   const [routingIntent, setRoutingIntent] = useState(false);
   const [creatingWorkflow, setCreatingWorkflow] = useState(false);
   const chatAgentStreamsRef = useRef<Record<string, EventSource>>({});
+  const refreshedAgentRunsRef = useRef<Set<string>>(new Set());
   const navigate = useNavigate();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -533,6 +534,10 @@ const ChatPage: React.FC = () => {
         execution_state_message: run.execution_state_message || workflowMetadata.execution_state_message,
         final_summary: run.final_summary,
         recoverable: run.recoverable,
+        model_protocol_status: run.model_protocol_status || workflowMetadata.model_protocol_status,
+        last_model_output_preview: run.last_model_output_preview || workflowMetadata.last_model_output_preview,
+        parse_repair_count: run.parse_repair_count ?? workflowMetadata.parse_repair_count,
+        fallback_summary_used: run.fallback_summary_used ?? workflowMetadata.fallback_summary_used,
         blocked_state: workflowMetadata.blocked_state || run.blocked_state,
         repair_attempts: workflowMetadata.repair_attempts,
         max_repair_attempts: workflowMetadata.max_repair_attempts,
@@ -635,6 +640,38 @@ const ChatPage: React.FC = () => {
     },
     [upsertAgentMessages],
   );
+
+  useEffect(() => {
+    if (!currentSessionId || currentSessionId.startsWith('local_') || messages.length === 0) return;
+    const runIds = Array.from(
+      new Set(
+        messages
+          .map((message) => message.agent_metadata?.agent_run_id)
+          .filter((runId): runId is string => Boolean(runId)),
+      ),
+    );
+    if (!runIds.length) return;
+
+    let cancelled = false;
+    runIds.forEach((runId) => {
+      const refreshKey = `${currentSessionId}:${runId}`;
+      if (refreshedAgentRunsRef.current.has(refreshKey)) return;
+      refreshedAgentRunsRef.current.add(refreshKey);
+      getChatAgentRun(runId)
+        .then(async (run) => {
+          if (!cancelled) {
+            await upsertAgentMessages(run);
+          }
+        })
+        .catch(() => {
+          refreshedAgentRunsRef.current.delete(refreshKey);
+        });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentSessionId, messages, upsertAgentMessages]);
 
   const handleAgentWorkflow = useCallback(
     async (
