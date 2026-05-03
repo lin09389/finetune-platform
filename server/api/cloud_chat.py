@@ -478,10 +478,7 @@ async def cloud_chat_stream(request: CloudChatRequest):
             messages, metadata = await _build_cloud_context(request)
             if metadata:
                 yield f"data: {json.dumps({'type': 'metadata', 'model': model, 'backend': 'cloud', **metadata}, ensure_ascii=False)}\n\n"
-
-            buffer = []
-            last_yield_time = time.time()
-            first_token = True
+            yield ": stream-ready\n\n"
 
             async for chunk in provider.chat_stream(
                 messages=messages,
@@ -497,33 +494,16 @@ async def cloud_chat_stream(request: CloudChatRequest):
                         continue
                     if "content" in chunk:
                         text = chunk.get("content", "")
-                        if first_token:
-                            first_token = False
+                        if text:
                             yield f"data: {json.dumps({'type': 'delta', 'content': text}, ensure_ascii=False)}\n\n"
-                            last_yield_time = time.time()
-                            continue
-                        buffer.append(text)
-                elif isinstance(chunk, str):
-                    if first_token:
-                        first_token = False
-                        yield f"data: {json.dumps({'type': 'delta', 'content': chunk}, ensure_ascii=False)}\n\n"
-                        last_yield_time = time.time()
                         continue
-                    buffer.append(chunk)
+                elif isinstance(chunk, str):
+                    if chunk:
+                        yield f"data: {json.dumps({'type': 'delta', 'content': chunk}, ensure_ascii=False)}\n\n"
+                    continue
                 else:
                     yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
                     continue
-
-                now = time.time()
-                if now - last_yield_time >= 0.05 or len(buffer) >= 20:
-                    content = "".join(buffer)
-                    yield f"data: {json.dumps({'type': 'delta', 'content': content}, ensure_ascii=False)}\n\n"
-                    buffer.clear()
-                    last_yield_time = now
-
-            if buffer:
-                content = "".join(buffer)
-                yield f"data: {json.dumps({'type': 'delta', 'content': content}, ensure_ascii=False)}\n\n"
 
             last_user_message = next(
                 (message.get("content", "") for message in reversed(request.messages) if message.get("role") == "user"),
@@ -557,7 +537,7 @@ async def cloud_chat_stream(request: CloudChatRequest):
         generate(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no"
         }

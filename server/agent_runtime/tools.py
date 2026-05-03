@@ -268,6 +268,9 @@ class AgentToolExecutor:
                     "next_action": "先读取项目结构或目标文件，再重新提出补丁。",
                 },
             )
+        context_check = self._check_patch_context(project, workflow_id, request.arguments)
+        if context_check:
+            return context_check
         return self._propose_action(workflow_id, step_id, request, "patch")
 
     @register_tool("propose_command")
@@ -434,6 +437,69 @@ class AgentToolExecutor:
     def _has_detected_project_commands(self, project: dict[str, Any], workflow_id: str) -> bool:
         calls = self.repository.list_tool_calls(workflow_id)
         return any(call.get("status") == "completed" and call.get("tool_name") == "detect_project_commands" for call in calls)
+
+    def _check_patch_context(self, project: dict[str, Any], workflow_id: str, arguments: dict[str, Any]) -> AgentToolResult | None:
+        payload = arguments.get("payload") if isinstance(arguments.get("payload"), dict) else arguments
+        patch_paths = self._patch_paths(payload)
+        source_paths = [path for path in patch_paths if self._is_source_path(path)]
+        if len(source_paths) < 2:
+            return None
+        touched = self._context_touched_paths(workflow_id)
+        missing = [path for path in source_paths if path not in touched]
+        if not missing:
+            return None
+        return AgentToolResult(
+            tool="propose_patch",
+            status="failed",
+            summary="需要补充读取相关文件",
+            error="功能级多文件补丁需要先读取或搜索命中所有目标源码文件。",
+            payload={
+                "required_tools": ["search_code", "read_file"],
+                "missing_related_files": missing,
+                "touched_files": sorted(touched),
+                "next_action": "先读取或搜索缺失的相关文件，再重新提出补丁。",
+            },
+        )
+
+    def _patch_paths(self, payload: dict[str, Any]) -> list[str]:
+        files = payload.get("files") or payload.get("file_changes") or []
+        paths: list[str] = []
+        if isinstance(files, list):
+            for item in files:
+                if isinstance(item, dict):
+                    raw_path = str(item.get("path") or item.get("file_path") or "").replace("\\", "/")
+                    if raw_path:
+                        paths.append(raw_path)
+        diff = str(payload.get("diff") or "")
+        if payload.get("format") == "unified_diff" or diff:
+            for line in diff.splitlines():
+                if not line.startswith("+++ "):
+                    continue
+                path = line[4:].strip().split("\t", 1)[0]
+                if path == "/dev/null":
+                    continue
+                if path.startswith("a/") or path.startswith("b/"):
+                    path = path[2:]
+                paths.append(path.replace("\\", "/"))
+        return list(dict.fromkeys(paths))
+
+    def _context_touched_paths(self, workflow_id: str) -> set[str]:
+        touched: set[str] = set()
+        for call in self.repository.list_tool_calls(workflow_id):
+            if call.get("status") != "completed":
+                continue
+            payload = call.get("result_payload") or {}
+            if call.get("tool_name") == "read_file" and payload.get("path"):
+                touched.add(str(payload["path"]).replace("\\", "/"))
+            if call.get("tool_name") == "search_code":
+                for match in payload.get("matches") or []:
+                    if isinstance(match, dict) and match.get("path"):
+                        touched.add(str(match["path"]).replace("\\", "/"))
+        return touched
+
+    def _is_source_path(self, path: str) -> bool:
+        suffix = Path(path).suffix.lower()
+        return suffix in {".py", ".ts", ".tsx", ".css", ".md"}
 
     def _propose_action(self, workflow_id: str, step_id: str | None, request: AgentToolRequest, action_type: str) -> AgentToolResult:
         payload = request.arguments.get("payload")

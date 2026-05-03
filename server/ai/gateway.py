@@ -606,9 +606,9 @@ class OpenAICompatibleProvider(AIProvider):
         ) as response:
             response.raise_for_status()
             async for line in response.aiter_lines():
-                if not line.startswith("data: "):
+                if not line.startswith("data:"):
                     continue
-                payload_text = line[6:].strip()
+                payload_text = line.split(":", 1)[1].strip()
                 if payload_text == "[DONE]":
                     break
                 try:
@@ -684,10 +684,10 @@ class AnthropicMessagesProvider(AIProvider):
         ) as response:
             response.raise_for_status()
             async for line in response.aiter_lines():
-                if not line.startswith("data: "):
+                if not line.startswith("data:"):
                     continue
                 try:
-                    chunk = json.loads(line[6:].strip())
+                    chunk = json.loads(line.split(":", 1)[1].strip())
                 except json.JSONDecodeError:
                     continue
                 if chunk.get("type") == "content_block_delta":

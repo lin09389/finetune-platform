@@ -140,3 +140,88 @@ def test_mock_cloud_chat():
     assert len(request.messages) == 1
     assert request.stream is True
     assert request.temperature == 0.7
+
+
+def _count_delta_events(body: str) -> int:
+    return body.count('"type": "delta"') + body.count('"type":"delta"')
+
+
+class _StreamingProvider:
+    def __init__(self, chunks):
+        self.chunks = chunks
+
+    def get_default_model(self):
+        return "mock-cloud-model"
+
+    async def chat_stream(self, **_kwargs):
+        for chunk in self.chunks:
+            yield {"content": chunk}
+
+
+def test_cloud_chat_stream_forwards_provider_chunks_without_batching(monkeypatch):
+    import asyncio
+    import importlib
+
+    cloud_chat = importlib.import_module("api.cloud_chat")
+    from api.cloud_chat import CloudChatRequest
+
+    provider = _StreamingProvider(["你", "好", "，", "世界"])
+    async def build_context(request):
+        return request.messages, {}
+
+    monkeypatch.setattr(cloud_chat, "_resolve_provider_instance", lambda *_args, **_kwargs: provider)
+    monkeypatch.setattr(cloud_chat, "_build_cloud_context", build_context)
+
+    request = CloudChatRequest(
+        provider="mock",
+        api_key="test-key",
+        model="mock-cloud-model",
+        messages=[{"role": "user", "content": "hi"}],
+        stream=True,
+    )
+
+    response = asyncio.run(cloud_chat.cloud_chat_stream(request))
+    body = asyncio.run(_collect_stream_body(response))
+
+    assert _count_delta_events(body) == 4
+    assert "data: [DONE]" in body
+
+
+def test_cloud_chat_stream_single_large_chunk_stays_valid_sse(monkeypatch):
+    import asyncio
+    import importlib
+
+    cloud_chat = importlib.import_module("api.cloud_chat")
+    from api.cloud_chat import CloudChatRequest
+
+    provider = _StreamingProvider(["这是一段供应商一次性返回的完整内容，用来验证前端兜底打字机不会破坏后端协议。"])
+    async def build_context(request):
+        return request.messages, {}
+
+    monkeypatch.setattr(cloud_chat, "_resolve_provider_instance", lambda *_args, **_kwargs: provider)
+    monkeypatch.setattr(cloud_chat, "_build_cloud_context", build_context)
+
+    request = CloudChatRequest(
+        provider="mock",
+        api_key="test-key",
+        model="mock-cloud-model",
+        messages=[{"role": "user", "content": "hi"}],
+        stream=True,
+    )
+
+    response = asyncio.run(cloud_chat.cloud_chat_stream(request))
+    body = asyncio.run(_collect_stream_body(response))
+
+    assert _count_delta_events(body) == 1
+    assert '"type": "done"' in body or '"type":"done"' in body
+    assert "data: [DONE]" in body
+
+
+async def _collect_stream_body(response) -> str:
+    chunks = []
+    async for chunk in response.body_iterator:
+        if isinstance(chunk, bytes):
+            chunks.append(chunk.decode("utf-8"))
+        else:
+            chunks.append(str(chunk))
+    return "".join(chunks)

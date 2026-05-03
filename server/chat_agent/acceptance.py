@@ -147,6 +147,8 @@ class AcceptanceReportGenerator:
                     "你是 Agent 执行验收员。只能根据输入中的真实执行记录评估结果，不能编造未发生的工具、文件或命令。"
                     "只返回 JSON，不要 Markdown。字段：result, summary, completed_items, changed_files, commands_run, "
                     "verification_result, blocking_reason, next_action。result 只能是 passed/partial/blocked/failed。"
+                    "输出风格要像开发排查报告：summary 用一句话给结论；completed_items 每项尽量写成“文件或模块 —— 做了什么/修复了什么”。"
+                    "如果任务被阻断，blocking_reason 必须具体说明等待审批、策略阻断或验证失败的原因，next_action 必须可执行。"
                 ),
             },
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False, default=str)},

@@ -872,7 +872,7 @@ class AgentToolLoop:
                 "运行命令必须使用 propose_command；command 必须是 argv 数组，例如 [\"npm\",\"run\",\"typecheck\"]。",
                 "如果需要只读协作，可以使用 delegate_agent 委派允许的子 Agent。",
                 "不能凭空猜文件路径，修改前必须 inspect/search/read。",
-                "最终必须调用 finalize，并总结完成项、变更文件、验证命令、失败/风险和下一步。",
+                "最终必须调用 finalize，并用开发排查报告风格总结完成项、变更文件、验证命令、失败/风险和下一步。",
             ],
         }
         system_prompt = agent.get("system_prompt") or "你是一个多 Agent 工作流中的开发 Agent。"

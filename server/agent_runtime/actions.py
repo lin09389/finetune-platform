@@ -228,9 +228,12 @@ class WorkflowActionService:
 
         if action_type == "patch":
             if payload.get("format") == "unified_diff" or payload.get("diff"):
-                return self._confirm_or_approval("diff 补丁需人工确认后执行")
+                diff_policy = self._evaluate_source_diff_policy(project, str(payload.get("diff") or ""))
+                if autonomy_mode == AUTONOMY_CONFIRM_ALL and diff_policy["execution_mode"] != "blocked":
+                    return self._policy("approval_required", diff_policy["risk_level"], "确认模式已开启，diff 补丁需人工审批")
+                return diff_policy
             files = payload.get("files") or payload.get("file_changes") or []
-            if not isinstance(files, list) or not files or len(files) > 3:
+            if not isinstance(files, list) or not files or len(files) > 5:
                 return self._confirm_or_approval("补丁文件数量超出自动执行策略，需人工审批")
             safety = self._evaluate_patch_safety(files)
             if safety["execution_mode"] == "blocked":
@@ -262,8 +265,11 @@ class WorkflowActionService:
         return self._policy("approval_required", "medium", "未知动作类型，需人工审批")
 
     def _evaluate_source_patch_policy(self, project: dict[str, Any], files: list[Any]) -> dict[str, str]:
-        if not files or len(files) > 2:
-            return self._policy("approval_required", "medium", "源码自动修改最多允许 2 个文件")
+        if not files:
+            return self._policy("approval_required", "medium", "源码补丁为空，需人工审批")
+        if len(files) > 5:
+            return self._policy("approval_required", "medium", "源码补丁文件数量超出自动执行策略，需人工审批")
+        multi_file_requires_approval = len(files) > 2
         allowed_suffixes = {".py", ".ts", ".tsx", ".css", ".md"}
         sensitive_names = {
             ".env",
@@ -303,7 +309,113 @@ class WorkflowActionService:
                 return self._policy("approval_required", "medium", "源码文件未在同一轮被读取或搜索命中，需人工审批")
         if total_lines > 160:
             return self._policy("approval_required", "medium", "源码补丁总行数超过 160 行，需人工审批")
+        if multi_file_requires_approval:
+            return self._policy("approval_required", "medium", "多文件源码补丁需人工审批后执行")
         return self._policy("auto", "low", "低风险源码小改，已按安全自动模式执行")
+
+    def _evaluate_source_diff_policy(self, project: dict[str, Any], diff: str) -> dict[str, str]:
+        if not diff.strip():
+            return self._policy("approval_required", "medium", "diff 补丁为空，需人工审批")
+        lowered = diff.lower()
+        if "binary files " in lowered or "\nrename from " in lowered or "\nrename to " in lowered:
+            return self._policy("blocked", "high", "二进制或重命名 diff 已阻断")
+
+        files = self._source_diff_files(diff)
+        if not files:
+            return self._policy("approval_required", "medium", "diff 补丁未包含可识别文件，需人工审批")
+        if len(files) > 5:
+            return self._policy("approval_required", "medium", "源码 diff 文件数量超出自动执行策略，需人工审批")
+        multi_file_requires_approval = len(files) > 2
+
+        allowed_suffixes = {".py", ".ts", ".tsx", ".css", ".md"}
+        sensitive_names = {
+            ".env",
+            ".env.local",
+            "package.json",
+            "package-lock.json",
+            "pnpm-lock.yaml",
+            "yarn.lock",
+            "requirements.txt",
+            "pyproject.toml",
+            "alembic.ini",
+            "docker-compose.yml",
+            "Dockerfile",
+        }
+        sensitive_parts = {".git", "migrations", "secrets", "keys"}
+        read_paths = self._context_touched_paths(project.get("id") or project.get("workflow_id"))
+        total_changed_lines = 0
+
+        for item in files:
+            relative_path = str(item.get("path") or "").replace("\\", "/")
+            old_path = str(item.get("old_path") or "").replace("\\", "/")
+            changed_lines = int(item.get("changed_lines") or 0)
+            if relative_path == "/dev/null":
+                return self._policy("blocked", "high", "删除类 diff 已阻断")
+            if not relative_path:
+                return self._policy("approval_required", "medium", "源码 diff 缺少路径，需人工审批")
+            path = Path(relative_path)
+            if path.is_absolute() or ".." in path.parts:
+                return self._policy("blocked", "high", "源码 diff 路径不安全，已阻断")
+            if path.name in sensitive_names or any(part in sensitive_parts for part in path.parts):
+                return self._policy("blocked", "high", "源码 diff 涉及敏感文件或目录，已阻断")
+            if path.suffix.lower() not in allowed_suffixes:
+                return self._policy("approval_required", "medium", "源码 diff 文件类型不在自动执行策略内")
+            total_changed_lines += changed_lines
+            if changed_lines > 80:
+                return self._policy("approval_required", "medium", "单文件源码 diff 超过 80 行，需人工审批")
+            if relative_path not in read_paths:
+                return self._policy("approval_required", "medium", "源码文件未在同一轮被读取或搜索命中，需人工审批")
+
+        if total_changed_lines > 160:
+            return self._policy("approval_required", "medium", "源码 diff 总变更行数超过 160 行，需人工审批")
+        if multi_file_requires_approval:
+            return self._policy("approval_required", "medium", "多文件源码 diff 需人工审批后执行")
+        return self._policy("auto", "low", "低风险源码 diff 小改，已按安全自动模式执行")
+
+    def _source_diff_files(self, diff: str) -> list[dict[str, Any]]:
+        files: list[dict[str, Any]] = []
+        current_old: str | None = None
+        current_new: str | None = None
+        changed_lines = 0
+
+        def flush() -> None:
+            nonlocal current_old, current_new, changed_lines
+            if current_new is not None:
+                files.append(
+                    {
+                        "old_path": current_old or "",
+                        "path": current_new,
+                        "changed_lines": changed_lines,
+                    }
+                )
+            current_old = None
+            current_new = None
+            changed_lines = 0
+
+        for line in diff.splitlines():
+            if line.startswith("--- "):
+                flush()
+                current_old = self._clean_diff_path(line[4:])
+                continue
+            if line.startswith("+++ "):
+                current_new = self._clean_diff_path(line[4:])
+                continue
+            if current_new is None:
+                continue
+            if line.startswith("@@"):
+                continue
+            if (line.startswith("+") and not line.startswith("+++")) or (line.startswith("-") and not line.startswith("---")):
+                changed_lines += 1
+        flush()
+        return files
+
+    def _clean_diff_path(self, value: str) -> str:
+        path = value.strip().split("\t", 1)[0].strip()
+        if path == "/dev/null":
+            return path
+        if path.startswith("a/") or path.startswith("b/"):
+            return path[2:]
+        return path
 
     def _evaluate_patch_safety(self, files: list[Any]) -> dict[str, str]:
         sensitive_names = {
