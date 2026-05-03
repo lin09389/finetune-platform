@@ -5,7 +5,7 @@ import {
   SendOutlined,
   StopOutlined,
 } from '@ant-design/icons';
-import { Avatar, Button, Input, Segmented, Select, Tooltip, Typography, message } from 'antd';
+import { Avatar, Button, Input, Tooltip, Typography, message } from 'antd';
 import { motion } from 'framer-motion';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useResponsive } from '../../hooks/useResponsive';
@@ -29,18 +29,9 @@ interface ChatInputProps {
   showModelInfo?: boolean;
   agentModeAvailable?: boolean;
   onCreateWorkflow?: (content: string) => void | Promise<void>;
-  creatingWorkflow?: boolean;
-  workflowTemplateOptions?: Array<{ value: string; label: string }>;
-  selectedWorkflowTemplate?: string;
-  onWorkflowTemplateChange?: (templateId: string) => void;
-  agentOptions?: Array<{ value: string; label: string }>;
-  selectedAgent?: string;
-  onAgentChange?: (agentId: string) => void;
   routingMode?: 'auto' | 'chat' | 'agent';
-  onRoutingModeChange?: (mode: 'auto' | 'chat' | 'agent') => void;
   routing?: boolean;
   autonomyMode?: AutonomyMode;
-  onAutonomyModeChange?: (mode: AutonomyMode) => void;
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({
@@ -56,18 +47,9 @@ const ChatInput: React.FC<ChatInputProps> = ({
   showModelInfo = true,
   agentModeAvailable = false,
   onCreateWorkflow,
-  creatingWorkflow = false,
-  workflowTemplateOptions = [],
-  selectedWorkflowTemplate = 'software_delivery',
-  onWorkflowTemplateChange,
-  agentOptions = [],
-  selectedAgent = 'build',
-  onAgentChange,
   routingMode = 'auto',
-  onRoutingModeChange,
   routing = false,
   autonomyMode = 'safe_auto',
-  onAutonomyModeChange,
 }) => {
   const { isMobile } = useResponsive();
   const [value, setValue] = useState('');
@@ -76,20 +58,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const [isRecording, setIsRecording] = useState(false);
 
   const inputDisabled = disabled && !agentModeAvailable;
-  const routingMeta = {
-    auto: {
-      label: routing ? '正在判断路由' : '自动路由',
-      hint: routing ? '正在判断是否需要 Agent' : '普通问题走对话，开发/修改/测试启动 Agent',
-    },
-    chat: {
-      label: '普通对话',
-      hint: '本次不会触发 Agent 或写入动作',
-    },
-    agent: {
-      label: 'Agent 工作',
-      hint: '直接进入理解项目、补丁、验证闭环',
-    },
-  }[routingMode];
   const footerHint =
     routingMode === 'chat'
       ? '按 Enter 发送 · Shift+Enter 换行 · 当前为普通对话模式'
@@ -221,19 +189,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
             className={styles.textarea}
           />
 
-          {onCreateWorkflow && (
-            <div className={styles.routeStatus}>
-              <div className={`${styles.routePulse} ${styles[`routePulse_${routingMode}`]} ${routing ? styles.routePulseActive : ''}`} />
-              <Text className={styles.routeLabel}>{routingMeta.label}</Text>
-              <Text className={styles.routeHint}>{routingMeta.hint}</Text>
-              {agentOptions.length > 0 && routingMode !== 'chat' && (
-                <Text className={styles.routeAgent}>
-                  Agent: {selectedAgent} · {autonomyMode === 'safe_auto' ? '安全自动' : autonomyMode === 'confirm_all' ? '确认模式' : '只读'}
-                </Text>
-              )}
-            </div>
-          )}
-
           <div className={styles.toolbar}>
             <div className={styles.toolbarLeft}>
               {showModelInfo && modelId ? (
@@ -286,67 +241,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
                     className={styles.ghostIcon}
                   />
                 </Tooltip>
-              )}
-
-              {onCreateWorkflow && (
-                <>
-                  {agentOptions.length > 0 && (
-                    <Tooltip title="选择主 Agent">
-                      <Select
-                        size="small"
-                        value={selectedAgent}
-                        options={agentOptions}
-                        onChange={onAgentChange}
-                        style={{ minWidth: 128 }}
-                        disabled={loading || isStreaming || creatingWorkflow || routing}
-                      />
-                    </Tooltip>
-                  )}
-                  {onRoutingModeChange && (
-                    <Tooltip title="切换发送路由">
-                      <Segmented
-                        size="small"
-                        value={routingMode}
-                        className={styles.routingSegment}
-                        options={[
-                          { label: '自动', value: 'auto' },
-                          { label: '对话', value: 'chat' },
-                          { label: 'Agent', value: 'agent' },
-                        ]}
-                        onChange={(mode) => onRoutingModeChange(mode as 'auto' | 'chat' | 'agent')}
-                        disabled={loading || isStreaming || creatingWorkflow || routing}
-                      />
-                    </Tooltip>
-                  )}
-                  {onAutonomyModeChange && routingMode !== 'chat' && (
-                    <Tooltip title="切换 Agent 自主执行策略">
-                      <Segmented
-                        size="small"
-                        value={autonomyMode}
-                        className={styles.routingSegment}
-                        options={[
-                          { label: '安全自动', value: 'safe_auto' },
-                          { label: '确认', value: 'confirm_all' },
-                          { label: '只读', value: 'read_only' },
-                        ]}
-                        onChange={(mode) => onAutonomyModeChange(mode as AutonomyMode)}
-                        disabled={loading || isStreaming || creatingWorkflow || routing}
-                      />
-                    </Tooltip>
-                  )}
-                  {workflowTemplateOptions.length > 1 && (
-                    <Tooltip title="选择工作流模板">
-                      <Select
-                        size="small"
-                        value={selectedWorkflowTemplate}
-                        options={workflowTemplateOptions}
-                        onChange={onWorkflowTemplateChange}
-                        style={{ minWidth: 128 }}
-                        disabled={loading || isStreaming || creatingWorkflow || routing}
-                      />
-                    </Tooltip>
-                  )}
-                </>
               )}
 
               {isStreaming ? (

@@ -1,4 +1,4 @@
-import { Button, Modal } from 'antd';
+import { Button, Drawer, Modal } from 'antd';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -11,12 +11,12 @@ import { useChatStore } from '../store/chatStore';
 import { useTheme } from '../theme';
 
 import ChatHeader from '../components/chat/ChatHeader';
+import ChatContextPanel from '../components/chat/ChatContextPanel';
 import ChatInput from '../components/chat/ChatInput';
 import FollowUpSuggestions from '../components/chat/FollowUpSuggestions';
 import ChatHistoryDrawer from '../components/ChatHistoryDrawer';
 import ChatMessage from '../components/ChatMessage';
 import MemoryManager from '../components/MemoryManager';
-import RuntimeContextPanel from '../components/runtime/RuntimeContextPanel';
 import APIKeyManager from '../pages/APIKeyManager';
 
 import { useRuntimeContext } from '../runtime/RuntimeContext';
@@ -170,7 +170,7 @@ const extractDynamicSuggestions = (content: string): string[] => {
 
 const ChatPage: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
-  const { isMobile } = useResponsive();
+  const { isMobile, isDesktop } = useResponsive();
   const prefersReducedMotion = useReducedMotion();
   const runtime = useRuntimeContext();
   const { actions, derived, observed } = runtime;
@@ -217,6 +217,7 @@ const ChatPage: React.FC = () => {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [memoryManagerOpen, setMemoryManagerOpen] = useState(false);
   const [configModalOpen, setConfigModalOpen] = useState(false);
+  const [contextPanelOpen, setContextPanelOpen] = useState(false);
 
   const [useCloudAI, setUseCloudAI] = useState(false);
   const [cloudAIConfig, setCloudAIConfig] = useState<APIKeyConfig | null>(null);
@@ -260,7 +261,7 @@ const ChatPage: React.FC = () => {
     if (shouldRestoreToBottom) return messages.length - 1;
     return clampMessageIndex(savedScrollState?.topIndex ?? messages.length - 1, messages.length);
   }, [messages.length, savedScrollState?.topIndex, shouldRestoreToBottom]);
-  const [isAtBottom, setIsAtBottom] = useState(shouldRestoreToBottom);
+  const [, setIsAtBottom] = useState(shouldRestoreToBottom);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
   const saveCurrentScrollState = useCallback(
@@ -386,9 +387,8 @@ const ChatPage: React.FC = () => {
     });
   }, [setInferenceSelection, settings.backend, settings.modelId]);
 
-  useEffect(() => {
-    scrollToBottom(!isActivelyStreaming);
-  }, [messages, isActivelyStreaming, scrollToBottom]);
+  // Virtuoso's followOutput handles auto-scrolling to bottom.
+  // We don't manually call scrollToBottom on messages change to prevent forcing users to the bottom when they scroll up.
 
   const loadCloudAIConfig = async () => {
     try {
@@ -1147,6 +1147,37 @@ const ChatPage: React.FC = () => {
     [syncKnowledgeCollection, updateSettings],
   );
 
+  const handleBackendChange = useCallback(
+    async (backend: string) => {
+      setUseCloudAI(false);
+      localStorage.setItem('chat_use_cloud_ai', '0');
+      updateSettings({ backend: backend as 'ollama' | 'huggingface' | 'cloud', modelId: '' });
+      setInferenceSelection({ backend, modelId: undefined });
+      await refreshInference();
+    },
+    [refreshInference, setInferenceSelection, updateSettings],
+  );
+
+  const handleModelChange = useCallback(
+    (model: string) => {
+      updateSettings({ modelId: model });
+      setInferenceSelection({ backend: settings.backend, modelId: model });
+    },
+    [setInferenceSelection, settings.backend, updateSettings],
+  );
+
+  const handleToggleCloudAI = useCallback(() => {
+    if (!cloudAIConfig?.api_key && !cloudAIConfig?.key_id) {
+      setConfigModalOpen(true);
+      return;
+    }
+    setUseCloudAI((enabled) => !enabled);
+  }, [cloudAIConfig?.api_key, cloudAIConfig?.key_id]);
+
+  const handleToggleMemory = useCallback(() => {
+    updateSettings({ useMemory: !settings.useMemory });
+  }, [settings.useMemory, updateSettings]);
+
   const enableVirtualScroll = true;
 
   const currentSuggestions = React.useMemo(() => {
@@ -1249,6 +1280,61 @@ const ChatPage: React.FC = () => {
     updateSettings,
   ]);
 
+  const activeModeLabel = useCloudAI
+    ? '云端 AI'
+    : settings.backend === 'ollama'
+      ? 'Ollama'
+      : settings.backend === 'llama-cpp'
+        ? 'llama.cpp'
+        : 'HuggingFace';
+  const activeModelLabel = useCloudAI
+    ? selectedCloudModel || '未选择模型'
+    : settings.modelId || '未选择模型';
+  const agentOptions = primaryAgents.map((agent) => ({ value: agent.id, label: agent.name }));
+  const contextPanel = (
+    <ChatContextPanel
+      currentBackend={settings.backend}
+      backends={observed.inference.backends}
+      onBackendChange={handleBackendChange}
+      currentModel={settings.modelId}
+      models={modelOptions}
+      onModelChange={handleModelChange}
+      useCloudAI={useCloudAI}
+      onToggleCloudAI={handleToggleCloudAI}
+      cloudAIConfigured={!!(cloudAIConfig?.api_key || cloudAIConfig?.key_id)}
+      onOpenCloudAIConfig={() => setConfigModalOpen(true)}
+      currentCloudProvider={cloudAIConfig?.provider}
+      cloudProviders={cloudProviderOptions}
+      onCloudProviderChange={handleCloudProviderChange}
+      currentCloudModel={selectedCloudModel}
+      cloudModels={cloudModelOptions}
+      onCloudModelChange={handleCloudModelChange}
+      useKnowledge={settings.useKnowledge}
+      onToggleKnowledge={handleToggleKnowledge}
+      collectionsCount={observed.knowledge.collections.length}
+      currentKnowledgeCollection={derived.activeKnowledgeCollection}
+      knowledgeCollections={observed.knowledge.collections}
+      onKnowledgeCollectionChange={handleKnowledgeCollectionChange}
+      useMemory={settings.useMemory}
+      onToggleMemory={handleToggleMemory}
+      agentModeAvailable={primaryAgents.length > 0}
+      agentOptions={agentOptions}
+      selectedAgent={selectedPrimaryAgent}
+      onAgentChange={setSelectedPrimaryAgent}
+      routingMode={routingMode}
+      onRoutingModeChange={setRoutingMode}
+      routing={routingIntent}
+      autonomyMode={autonomyMode}
+      onAutonomyModeChange={setAutonomyMode}
+      workflowTemplateOptions={workflowTemplateOptions}
+      selectedWorkflowTemplate={selectedWorkflowTemplate}
+      onWorkflowTemplateChange={setSelectedWorkflowTemplate}
+      creatingWorkflow={creatingWorkflow}
+      isLoading={isLoading}
+      isStreaming={isActivelyStreaming}
+    />
+  );
+
   const renderMessageItem = useCallback((index: number, msg: any) => (
     <ChatMessage
       id={msg.id}
@@ -1298,65 +1384,26 @@ const ChatPage: React.FC = () => {
         onNewChat={() => createSession()}
         onOpenHistory={() => setHistoryOpen(true)}
         onOpenMemory={() => setMemoryManagerOpen(true)}
+        onOpenContextPanel={() => setContextPanelOpen(true)}
         onClearChat={handleClearChat}
         onExportChat={handleExportChat}
-        currentBackend={settings.backend}
-        backends={observed.inference.backends}
-        onBackendChange={async (backend) => {
-          setUseCloudAI(false);
-          localStorage.setItem('chat_use_cloud_ai', '0');
-          updateSettings({ backend: backend as 'ollama' | 'huggingface' | 'cloud', modelId: '' });
-          setInferenceSelection({ backend, modelId: undefined });
-          await refreshInference();
-        }}
-        currentModel={settings.modelId}
-        models={modelOptions}
-        onModelChange={(model) => {
-          updateSettings({ modelId: model });
-          setInferenceSelection({ backend: settings.backend, modelId: model });
-        }}
-        useCloudAI={useCloudAI}
-        onToggleCloudAI={() => {
-          if (!cloudAIConfig?.api_key && !cloudAIConfig?.key_id) {
-            setConfigModalOpen(true);
-          } else {
-            setUseCloudAI(!useCloudAI);
-          }
-        }}
-        cloudAIConfigured={!!(cloudAIConfig?.api_key || cloudAIConfig?.key_id)}
-        onOpenCloudAIConfig={() => setConfigModalOpen(true)}
-        currentCloudProvider={cloudAIConfig?.provider}
-        cloudProviders={cloudProviderOptions}
-        onCloudProviderChange={handleCloudProviderChange}
-        currentCloudModel={selectedCloudModel}
-        cloudModels={cloudModelOptions}
-        onCloudModelChange={handleCloudModelChange}
-        useKnowledge={settings.useKnowledge}
-        onToggleKnowledge={handleToggleKnowledge}
-        collectionsCount={observed.knowledge.collections.length}
-        currentKnowledgeCollection={derived.activeKnowledgeCollection}
-        knowledgeCollections={observed.knowledge.collections}
-        onKnowledgeCollectionChange={handleKnowledgeCollectionChange}
-        useMemory={settings.useMemory}
-        onToggleMemory={() => updateSettings({ useMemory: !settings.useMemory })}
         theme={theme}
         onToggleTheme={toggleTheme}
         messageCount={messages.length}
-        isLoading={isLoading}
-        isStreaming={isActivelyStreaming}
+        activeModeLabel={activeModeLabel}
+        activeModelLabel={activeModelLabel}
       />
-      <motion.div
-        className={styles.chatMessagesArea}
-        ref={scrollContainerRef}
-        onScroll={enableVirtualScroll ? undefined : handleScroll}
-        initial={prefersReducedMotion ? false : { opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={prefersReducedMotion ? { duration: 0 } : { delay: 0.16, ...transitions.base }}
-      >
-        <div className={styles.messagesInner}>
-          <div style={{ marginBottom: 20 }}>
-            <RuntimeContextPanel page="chat" />
-          </div>
+      <div className={styles.chatWorkspace}>
+        <main className={styles.mainChatPane}>
+          <motion.div
+            className={styles.chatMessagesArea}
+            ref={scrollContainerRef}
+            onScroll={enableVirtualScroll ? undefined : handleScroll}
+            initial={prefersReducedMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={prefersReducedMotion ? { duration: 0 } : { delay: 0.16, ...transitions.base }}
+          >
+            <div className={styles.messagesInner}>
           {messages.length === 0 ? (
             <motion.div
               initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.94 }}
@@ -1364,9 +1411,11 @@ const ChatPage: React.FC = () => {
               transition={prefersReducedMotion ? { duration: 0 } : transitions.spring}
               className={styles.emptyState}
             >
-              <div className={styles.emptyOrb}>AI</div>
+              <div className={styles.emptyKicker}>效率工作台</div>
               <h3 className={styles.emptyTitle}>开始新的对话</h3>
-              <p className={styles.emptyDesc}>选择模型后，输入你的问题并开始探索。</p>
+              <p className={styles.emptyDesc}>
+                当前使用 {activeModeLabel} · {activeModelLabel}，右侧可以快速调整模型、知识库和 Agent 路由。
+              </p>
               
               <div className={styles.starterSuggestions}>
                 {DEFAULT_SUGGESTIONS.map((s, i) => (
@@ -1413,7 +1462,7 @@ const ChatPage: React.FC = () => {
                 setShowScrollButton(!nextIsAtBottom);
                 saveCurrentScrollState({ atBottom: nextIsAtBottom });
               }}
-              followOutput={isAtBottom ? 'smooth' : false}
+              followOutput={(isAtBottom) => isAtBottom ? 'smooth' : false}
               style={{ height: '100%' }}
               alignToBottom
             />
@@ -1445,7 +1494,7 @@ const ChatPage: React.FC = () => {
             exit={{ opacity: 0, y: 20 }}
             style={{
               position: 'absolute',
-              bottom: isMobile ? 120 : 160,
+              bottom: isMobile ? 108 : 148,
               right: '50%',
               transform: 'translateX(50%)',
               zIndex: 90,
@@ -1481,19 +1530,66 @@ const ChatPage: React.FC = () => {
         modelId={useCloudAI ? selectedCloudModel : settings.modelId}
         agentModeAvailable={primaryAgents.length > 0}
         onCreateWorkflow={handleCreateWorkflow}
-        creatingWorkflow={creatingWorkflow}
-        agentOptions={primaryAgents.map((agent) => ({ value: agent.id, label: agent.name }))}
-        selectedAgent={selectedPrimaryAgent}
-        onAgentChange={setSelectedPrimaryAgent}
         routingMode={routingMode}
-        onRoutingModeChange={setRoutingMode}
         routing={routingIntent}
         autonomyMode={autonomyMode}
-        onAutonomyModeChange={setAutonomyMode}
-        workflowTemplateOptions={workflowTemplateOptions}
-        selectedWorkflowTemplate={selectedWorkflowTemplate}
-        onWorkflowTemplateChange={setSelectedWorkflowTemplate}
       />
+
+        </main>
+        {isDesktop && <div className={styles.contextSidePanel}>{contextPanel}</div>}
+      </div>
+
+      <Drawer
+        title="对话设置"
+        placement="right"
+        width={360}
+        open={!isDesktop && contextPanelOpen}
+        onClose={() => setContextPanelOpen(false)}
+        destroyOnClose={false}
+      >
+        <ChatContextPanel
+          mobile
+          currentBackend={settings.backend}
+          backends={observed.inference.backends}
+          onBackendChange={handleBackendChange}
+          currentModel={settings.modelId}
+          models={modelOptions}
+          onModelChange={handleModelChange}
+          useCloudAI={useCloudAI}
+          onToggleCloudAI={handleToggleCloudAI}
+          cloudAIConfigured={!!(cloudAIConfig?.api_key || cloudAIConfig?.key_id)}
+          onOpenCloudAIConfig={() => setConfigModalOpen(true)}
+          currentCloudProvider={cloudAIConfig?.provider}
+          cloudProviders={cloudProviderOptions}
+          onCloudProviderChange={handleCloudProviderChange}
+          currentCloudModel={selectedCloudModel}
+          cloudModels={cloudModelOptions}
+          onCloudModelChange={handleCloudModelChange}
+          useKnowledge={settings.useKnowledge}
+          onToggleKnowledge={handleToggleKnowledge}
+          collectionsCount={observed.knowledge.collections.length}
+          currentKnowledgeCollection={derived.activeKnowledgeCollection}
+          knowledgeCollections={observed.knowledge.collections}
+          onKnowledgeCollectionChange={handleKnowledgeCollectionChange}
+          useMemory={settings.useMemory}
+          onToggleMemory={handleToggleMemory}
+          agentModeAvailable={primaryAgents.length > 0}
+          agentOptions={agentOptions}
+          selectedAgent={selectedPrimaryAgent}
+          onAgentChange={setSelectedPrimaryAgent}
+          routingMode={routingMode}
+          onRoutingModeChange={setRoutingMode}
+          routing={routingIntent}
+          autonomyMode={autonomyMode}
+          onAutonomyModeChange={setAutonomyMode}
+          workflowTemplateOptions={workflowTemplateOptions}
+          selectedWorkflowTemplate={selectedWorkflowTemplate}
+          onWorkflowTemplateChange={setSelectedWorkflowTemplate}
+          creatingWorkflow={creatingWorkflow}
+          isLoading={isLoading}
+          isStreaming={isActivelyStreaming}
+        />
+      </Drawer>
 
       <ChatHistoryDrawer
         open={historyOpen}

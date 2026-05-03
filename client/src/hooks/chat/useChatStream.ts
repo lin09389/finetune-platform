@@ -72,6 +72,43 @@ interface CloudConfig {
 
 const STREAM_IDLE_TIMEOUT_MS = 45000;
 const OLLAMA_PREFLIGHT_TIMEOUT_MS = 4000;
+const CLOUD_LARGE_DELTA_THRESHOLD = 48;
+const CLOUD_SMOOTH_CHUNK_SIZE = 3;
+const CLOUD_SMOOTH_DELAY_MS = 14;
+
+export function splitDeltaForDisplay(delta: string): string[] {
+  const chars = Array.from(delta);
+  if (chars.length <= CLOUD_LARGE_DELTA_THRESHOLD) {
+    return [delta];
+  }
+
+  const chunks: string[] = [];
+  for (let index = 0; index < chars.length; index += CLOUD_SMOOTH_CHUNK_SIZE) {
+    chunks.push(chars.slice(index, index + CLOUD_SMOOTH_CHUNK_SIZE).join(''));
+  }
+  return chunks;
+}
+
+function waitForSmoothDelay(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    return Promise.reject(new DOMException('Aborted', 'AbortError'));
+  }
+
+  return new Promise((resolve, reject) => {
+    const abortHandler = () => {
+      clearTimeout(timeoutId);
+      signal.removeEventListener('abort', abortHandler);
+      reject(new DOMException('Aborted', 'AbortError'));
+    };
+
+    const timeoutId = setTimeout(() => {
+      signal.removeEventListener('abort', abortHandler);
+      resolve();
+    }, CLOUD_SMOOTH_DELAY_MS);
+
+    signal.addEventListener('abort', abortHandler, { once: true });
+  });
+}
 
 function toRequestAttachments(attachments: PlaygroundAttachment[] = []) {
   return attachments.map((attachment) => ({
@@ -135,7 +172,7 @@ async function streamSse(
   url: string,
   body: Record<string, unknown>,
   signal: AbortSignal,
-  onDelta: (delta: string) => void,
+  onDelta: (delta: string) => void | Promise<void>,
 ): Promise<ChatRunResult> {
   const response = await fetch(url, {
     method: 'POST',
@@ -213,7 +250,7 @@ async function streamSse(
       if (!delta) continue;
 
       content += delta;
-      onDelta(delta);
+      await onDelta(delta);
     }
 
     // Yield to the browser's event loop if we've been processing synchronously for too long
@@ -382,13 +419,13 @@ export function useChatStream(config: StreamConfig = {}) {
           (delta) => {
             fullContent += delta;
             refreshStreamTimeout();
-            
+
             if (!flushPending) {
               flushPending = true;
               const now = Date.now();
               const timeSinceLastFlush = now - lastFlushTime;
               const throttleMs = 32; // Throttle to ~30fps to prevent ReactMarkdown from freezing the main thread
-              
+
               if (timeSinceLastFlush >= throttleMs) {
                 frameId = requestAnimationFrame(flushUpdate);
               } else {
@@ -397,7 +434,7 @@ export function useChatStream(config: StreamConfig = {}) {
                 }, throttleMs - timeSinceLastFlush);
               }
             }
-            
+
             config.onStatusChange?.('streaming');
             config.onChunk?.(delta, fullContent);
           },
@@ -616,27 +653,41 @@ export function useChatStream(config: StreamConfig = {}) {
           `${API_BASE_URL}/cloud/chat/stream`,
           requestBody,
           controller.signal,
-          (delta) => {
-            fullContent += delta;
-            refreshStreamTimeout();
-            
-            if (!flushPending) {
-              flushPending = true;
-              const now = Date.now();
-              const timeSinceLastFlush = now - lastFlushTime;
-              const throttleMs = 32; // Throttle to ~30fps to prevent ReactMarkdown from freezing the main thread
-              
-              if (timeSinceLastFlush >= throttleMs) {
-                frameId = requestAnimationFrame(flushUpdate);
-              } else {
-                flushTimeoutId = setTimeout(() => {
+          async (delta) => {
+            const displayChunks = splitDeltaForDisplay(delta);
+
+            for (let index = 0; index < displayChunks.length; index += 1) {
+              if (controller.signal.aborted) {
+                throw new DOMException('Aborted', 'AbortError');
+              }
+
+              const displayChunk = displayChunks[index] ?? '';
+              if (!displayChunk) continue;
+              fullContent += displayChunk;
+              refreshStreamTimeout();
+
+              if (!flushPending) {
+                flushPending = true;
+                const now = Date.now();
+                const timeSinceLastFlush = now - lastFlushTime;
+                const throttleMs = 32; // Throttle to ~30fps to prevent ReactMarkdown from freezing the main thread
+
+                if (timeSinceLastFlush >= throttleMs) {
                   frameId = requestAnimationFrame(flushUpdate);
-                }, throttleMs - timeSinceLastFlush);
+                } else {
+                  flushTimeoutId = setTimeout(() => {
+                    frameId = requestAnimationFrame(flushUpdate);
+                  }, throttleMs - timeSinceLastFlush);
+                }
+              }
+
+              config.onStatusChange?.('streaming');
+              config.onChunk?.(displayChunk, fullContent);
+
+              if (displayChunks.length > 1 && index < displayChunks.length - 1) {
+                await waitForSmoothDelay(controller.signal);
               }
             }
-            
-            config.onStatusChange?.('streaming');
-            config.onChunk?.(delta, fullContent);
           },
         );
         if (flushTimeoutId) clearTimeout(flushTimeoutId);

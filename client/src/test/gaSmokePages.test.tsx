@@ -31,6 +31,10 @@ const mockGetOllamaStatus = vi.hoisted(() => vi.fn());
 const mockListInferenceEngines = vi.hoisted(() => vi.fn());
 const mockGetPerformanceStats = vi.hoisted(() => vi.fn());
 const mockGetPerformanceRecommendations = vi.hoisted(() => vi.fn());
+const mockGetSavedCloudProviders = vi.hoisted(() => vi.fn());
+const mockGetSavedCloudProviderData = vi.hoisted(() => vi.fn());
+const mockGetWorkflowTemplates = vi.hoisted(() => vi.fn());
+const mockGetPrimaryAgents = vi.hoisted(() => vi.fn());
 const mockCreateEvaluationRun = vi.hoisted(() => vi.fn());
 const mockScoreEvaluationCase = vi.hoisted(() => vi.fn());
 const mockCreateDeploymentPackage = vi.hoisted(() => vi.fn());
@@ -116,6 +120,10 @@ vi.mock('../services/api', () => ({
   uploadDataset: mockUploadDataset,
   getPerformanceStats: mockGetPerformanceStats,
   getPerformanceRecommendations: mockGetPerformanceRecommendations,
+  getSavedCloudProviders: mockGetSavedCloudProviders,
+  getSavedCloudProviderData: mockGetSavedCloudProviderData,
+  getWorkflowTemplates: mockGetWorkflowTemplates,
+  getPrimaryAgents: mockGetPrimaryAgents,
   streamInference: vi.fn(),
   streamGenerate: vi.fn(),
   switchBackend: vi.fn(),
@@ -550,6 +558,10 @@ describe('GA smoke pages', () => {
       streaming: { avg_first_token_ms: 0 },
     });
     mockGetPerformanceRecommendations.mockResolvedValue({ recommendations: [] });
+    mockGetSavedCloudProviders.mockResolvedValue({ keys: [] });
+    mockGetSavedCloudProviderData.mockResolvedValue({});
+    mockGetWorkflowTemplates.mockResolvedValue([]);
+    mockGetPrimaryAgents.mockResolvedValue([]);
 
     mockFetch.mockImplementation((url: string) => {
       if (url.includes('/knowledge/embedder/status')) {
@@ -643,8 +655,7 @@ describe('GA smoke pages', () => {
     expect(screen.getByText('Mock Chat Header')).toBeInTheDocument();
     await waitFor(() => {
       expect(mockLoadSessions).toHaveBeenCalled();
-      expect(screen.getByText('会话运行上下文')).toBeInTheDocument();
-      expect(mockFetch).toHaveBeenCalledWith('http://localhost:8000/cloud/api-keys');
+      expect(mockGetSavedCloudProviders).toHaveBeenCalled();
     });
   });
 

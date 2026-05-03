@@ -7,17 +7,13 @@ import {
 } from '@ant-design/icons';
 import { Alert, Badge, Button, Col, Divider, Input, Row, Select, Slider, Space, Tag, Switch } from 'antd';
 import { useEffect, useRef, useState } from 'react';
-import RuntimeContextPanel from '../components/runtime/RuntimeContextPanel';
 import glassStyles from '../components/shared/GlassCard.module.css';
-import InsightPanel from '../components/shared/InsightPanel';
 import PageHeader from '../components/shared/PageHeader';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import VersionComparisonChat from '../components/shared/VersionComparisonChat';
 import { useRuntimeContext } from '../runtime/RuntimeContext';
 import {
-  getInferenceCacheStatus,
   getPerformanceRecommendations,
-  getPerformanceStats,
   streamInference,
   switchBackend,
 } from '../services/api';
@@ -40,10 +36,7 @@ export default function Inference() {
   const [currentBackend, setCurrentBackend] = useState<string>(
     observed.inference.currentBackend || 'huggingface',
   );
-  const [performanceStats, setPerformanceStats] = useState<any>(null);
-  const [performanceRecommendations, setPerformanceRecommendations] = useState<string[]>([]);
   const [performanceContext, setPerformanceContext] = useState<any>(null);
-  const [cacheStatus, setCacheStatus] = useState<any>(null);
   const [comparisonMode, setComparisonMode] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -75,19 +68,8 @@ export default function Inference() {
 
   const loadPerformance = async () => {
     try {
-      const [stats, recommendations, cache] = await Promise.all([
-        getPerformanceStats().catch(() => null),
-        getPerformanceRecommendations().catch(() => null),
-        getInferenceCacheStatus().catch(() => null),
-      ]);
-      setPerformanceStats(stats);
+      const recommendations = await getPerformanceRecommendations().catch(() => null);
       setPerformanceContext(recommendations);
-      setCacheStatus(cache);
-      setPerformanceRecommendations(
-        (recommendations?.recommendations || []).map((r: any) =>
-          r.action ? `${r.message} (${r.action})` : r.message
-        )
-      );
     } catch (error) {
       console.error('Failed to load performance info:', error);
     }
@@ -124,11 +106,6 @@ export default function Inference() {
   const recommendedBackend = performanceContext?.hardware_profile?.recommended_backend;
   const recommendedQuantization = performanceContext?.hardware_profile?.recommended_quantization;
   const recommendedProfile = performanceContext?.hardware_profile?.profile;
-  const warmupResult = selectedModel ? cacheStatus?.warmup?.[selectedModel] : undefined;
-  const batchingQueueSize = Object.values(cacheStatus?.batching || {}).reduce(
-    (total: number, item: any) => total + (item?.queue_size || 0),
-    0
-  );
 
   const handleSend = async () => {
     if (!selectedModel || !prompt.trim()) return;
@@ -208,9 +185,6 @@ export default function Inference() {
           <Row gutter={[24, 24]}>
             <Col xs={24} lg={16}>
               <div className={`${glassStyles.glassCard} ${styles.card}`}>
-                <div style={{ marginBottom: 24 }}>
-                  <RuntimeContextPanel page="inference" />
-                </div>
                 <div
                   style={{
                     display: 'flex',
@@ -451,57 +425,6 @@ export default function Inference() {
                       </div>
                     </div>
                   ))}
-                </div>
-
-                <div className={glassStyles.glassCard}>
-                  <InsightPanel
-                    embedded
-                    title="运行观测"
-                    status={{
-                      type: performanceStats?.inference?.total_requests > 0 ? 'info' : 'pending',
-                      text: performanceStats?.inference?.total_requests > 0 ? '已采样' : '等待样本',
-                    }}
-                    summary="这组指标用于判断当前推理链路是否健康，尤其适合在切换后端、模型预热或做性能回归时快速确认变化。"
-                    metrics={[
-                      {
-                        label: '已记录推理次数',
-                        value: performanceStats?.inference?.total_requests ?? 0,
-                      },
-                      {
-                        label: '平均首响应 / 总耗时',
-                        value: `${performanceStats?.streaming?.first_token_latency_ms?.avg ?? 0} ms / ${performanceStats?.inference?.latency_ms?.avg ?? 0} ms`,
-                      },
-                      {
-                        label: '推荐后端 / 量化',
-                        value: recommendedBackend
-                          ? `${recommendedBackend} / ${recommendedQuantization || 'auto'}`
-                          : '等待采样',
-                      },
-                      {
-                        label: '队列 / 活跃租约',
-                        value: `${batchingQueueSize} / ${cacheStatus?.active_leases ?? 0}`,
-                      },
-                      {
-                        label: '当前模型预热',
-                        value: warmupResult
-                          ? warmupResult.success
-                            ? `已完成 (${warmupResult.latency_ms} ms)`
-                            : `失败`
-                          : '未执行',
-                      },
-                    ]}
-                    sections={[
-                      {
-                        title: '性能建议',
-                        items: performanceRecommendations.slice(0, 3),
-                      },
-                    ]}
-                    footer={
-                      performanceRecommendations.length > 0
-                        ? undefined
-                        : '暂无性能建议，先运行几次推理即可生成观测数据。'
-                    }
-                  />
                 </div>
 
                 <div className={glassStyles.glassCard}>

@@ -29,7 +29,6 @@ vi.mock('../services/api', () => ({
   getRuntimeBootstrap: mockGetRuntimeBootstrap,
 }));
 
-import RuntimeContextPanel from '../components/runtime/RuntimeContextPanel';
 import { RuntimeContextProvider, useRuntimeContext } from '../runtime/RuntimeContext';
 
 type MockChatState = {
@@ -485,32 +484,6 @@ describe('RuntimeContextProvider', () => {
       expect(screen.getByTestId('runtime-collection')).toHaveTextContent('project-docs');
       expect(screen.getByTestId('runtime-model-count')).toHaveTextContent('1');
       expect(screen.getByTestId('runtime-warning-count')).toHaveTextContent('2');
-    });
-  });
-
-  it('renders runtime panel using shared summary data', async () => {
-    render(
-      <RuntimeContextProvider>
-        <RuntimeContextPanel page="chat" />
-      </RuntimeContextProvider>,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTestId('runtime-context-chat')).toBeInTheDocument();
-      expect(screen.getByText('会话运行上下文')).toBeInTheDocument();
-      expect(screen.getByText('上下文受限')).toBeInTheDocument();
-      expect(screen.getByText('team-docs')).toBeInTheDocument();
-      expect(
-        screen.getByText('知识库嵌入模型尚未就绪，检索和上传后的向量化能力会受限。'),
-      ).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /刷新运行上下文/ })).toBeInTheDocument();
-    });
-
-    const callsBeforeRefresh = mockGetRuntimeBootstrap.mock.calls.length;
-    fireEvent.click(screen.getByRole('button', { name: /刷新运行上下文/ }));
-
-    await waitFor(() => {
-      expect(mockGetRuntimeBootstrap.mock.calls.length).toBeGreaterThan(callsBeforeRefresh);
     });
   });
 

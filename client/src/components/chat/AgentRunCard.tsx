@@ -8,9 +8,8 @@ import {
   ReloadOutlined,
   SafetyCertificateOutlined,
   SearchOutlined,
-  ThunderboltOutlined,
 } from '@ant-design/icons';
-import { Alert, Button, Collapse, Divider, Progress, Space, Steps, Tag, Tooltip, Typography } from 'antd';
+import { Button, Collapse, Divider, Space, Tag, Tooltip, Typography } from 'antd';
 import type { ChatAgentMetadata } from '../../types';
 import type { Workflow, WorkflowAction, WorkflowObservability, WorkflowToolCall } from '../../services/api';
 
@@ -24,22 +23,6 @@ interface AgentRunCardProps {
   onRefreshRun?: (runId: string) => void | Promise<void>;
   onOpenDetails?: (url: string) => void;
 }
-
-const statusColor: Record<string, string> = {
-  created: 'default',
-  running: 'processing',
-  planning: 'processing',
-  awaiting_approval: 'warning',
-  implementing: 'processing',
-  reviewing: 'processing',
-  completed: 'success',
-  failed: 'error',
-  blocked: 'warning',
-  pending_approval: 'warning',
-  approved: 'success',
-  executed: 'success',
-  rejected: 'default',
-};
 
 const statusLabel: Record<string, string> = {
   created: '已创建',
@@ -63,17 +46,6 @@ const statusLabel: Record<string, string> = {
   approved: '已批准',
   executed: '已执行',
   rejected: '已拒绝',
-};
-
-const stepStatusMap: Record<string, 'wait' | 'process' | 'finish' | 'error'> = {
-  draft: 'wait',
-  pending: 'wait',
-  running: 'process',
-  awaiting_approval: 'process',
-  approved: 'finish',
-  completed: 'finish',
-  failed: 'error',
-  needs_manual_review: 'error',
 };
 
 const toolLabel: Record<string, string> = {
@@ -133,6 +105,122 @@ function stepOutput(step: any) {
   return output && typeof output === 'object' ? output : {};
 }
 
+function shortPath(path: string) {
+  const normalized = path.replace(/\\/g, '/');
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts.length <= 4) return normalized;
+  return `${parts[0]}/.../${parts.slice(-2).join('/')}`;
+}
+
+function splitReportItem(value: string) {
+  const separators = [' —— ', ' — ', ' - ', '：', ':'];
+  for (const separator of separators) {
+    const index = value.indexOf(separator);
+    if (index > 0) {
+      return {
+        scope: value.slice(0, index).trim(),
+        detail: value.slice(index + separator.length).trim(),
+      };
+    }
+  }
+  return { scope: '', detail: value };
+}
+
+function reportRows(report: NonNullable<ChatAgentMetadata['acceptance_report']>) {
+  const files = report.changed_files || [];
+  const items = report.completed_items || [];
+  const max = Math.max(files.length, items.length, 1);
+  return Array.from({ length: max }, (_, index) => {
+    const parsed = splitReportItem(items[index] || items[0] || report.summary);
+    const file = files[index] || (parsed.scope.includes('/') || parsed.scope.includes('\\') ? parsed.scope : files[0] || '');
+    const item = parsed.detail || parsed.scope || report.summary;
+    return { file, item };
+  });
+}
+
+function resultTone(result: string) {
+  if (result === 'passed') {
+    return {
+      status: '已处理',
+      issue: '未发现阻断问题。',
+      accent: 'var(--accent-success, #52c41a)',
+    };
+  }
+  if (result === 'failed') {
+    return {
+      status: '验证失败',
+      issue: '执行或验证未通过。',
+      accent: 'var(--accent-danger, #ff4d4f)',
+    };
+  }
+  if (result === 'blocked') {
+    return {
+      status: '等待处理',
+      issue: '当前链路被策略或审批阻断。',
+      accent: 'var(--accent-warning, #faad14)',
+    };
+  }
+  return {
+    status: '部分完成',
+    issue: '任务已有进展，但还没有完全闭环。',
+    accent: 'var(--accent-primary, #1677ff)',
+  };
+}
+
+function toolTone(call: WorkflowToolCall) {
+  if (call.status === 'failed') {
+    return {
+      color: 'error',
+      accent: 'var(--accent-danger, #ff4d4f)',
+      label: '失败',
+    };
+  }
+  if (call.status === 'running') {
+    return {
+      color: 'processing',
+      accent: 'var(--accent-primary, #1677ff)',
+      label: '进行中',
+    };
+  }
+  if (call.status === 'blocked' || call.permission_decision === 'deny') {
+    return {
+      color: 'warning',
+      accent: 'var(--accent-warning, #faad14)',
+      label: '已阻断',
+    };
+  }
+  return {
+    color: 'success',
+    accent: 'var(--accent-success, #52c41a)',
+    label: '完成',
+  };
+}
+
+function actionTone(action: WorkflowAction) {
+  if (action.status === 'failed') {
+    return { color: 'error', accent: 'var(--accent-danger, #ff4d4f)', label: '执行失败' };
+  }
+  if (action.status === 'blocked' || action.execution_mode === 'blocked') {
+    return { color: 'warning', accent: 'var(--accent-warning, #faad14)', label: '策略阻断' };
+  }
+  if (action.status === 'pending_approval') {
+    return { color: 'gold', accent: 'var(--accent-warning, #faad14)', label: '等待确认' };
+  }
+  if (action.status === 'executed') {
+    return { color: 'success', accent: 'var(--accent-success, #52c41a)', label: action.execution_mode === 'auto' ? '已自动执行' : '已执行' };
+  }
+  if (action.status === 'approved') {
+    return { color: 'processing', accent: 'var(--accent-primary, #1677ff)', label: '已批准' };
+  }
+  return { color: 'default', accent: 'var(--border-color)', label: statusLabel[action.status] || action.status };
+}
+
+function actionKindLabel(action: WorkflowAction) {
+  if (action.action_type === 'patch') return '文件补丁';
+  if (action.action_type === 'permission_request') return '权限请求';
+  return '验证命令';
+}
+
 export default function AgentRunCard({
   content,
   metadata,
@@ -169,7 +257,6 @@ export default function AgentRunCard({
   const status = action?.status || executionState || metadata.status || workflow?.status || 'running';
   const completedSteps = workflow?.steps?.filter((step) => ['approved', 'completed'].includes(step.status)).length || 0;
   const totalSteps = workflow?.steps?.length || 0;
-  const progressPercent = totalSteps ? Math.round((completedSteps / totalSteps) * 100) : 0;
   const actionNeedsDecision = action?.status === 'pending_approval';
   const actionCanExecute = action?.status === 'approved' && action?.action_type !== 'permission_request';
   const finalStep = [...(workflow?.steps || [])]
@@ -187,6 +274,7 @@ export default function AgentRunCard({
   const pendingActions = actions.filter((item) => item.status === 'pending_approval').length;
   const failedActions = actions.filter((item) => item.status === 'failed').length;
   const changedFileCount = new Set(actions.flatMap((item) => item.changed_files || [])).size;
+  const reportTone = acceptanceReport ? resultTone(acceptanceReport.result) : undefined;
   const phaseAccent =
     status === 'failed' || executionState === 'failed' || executionState === 'needs_manual_review'
       ? 'var(--accent-danger, #ff4d4f)'
@@ -200,25 +288,22 @@ export default function AgentRunCard({
     <div
       style={{
         display: 'grid',
-        gap: 14,
+        gap: 10,
         minWidth: 280,
-        border: '1px solid var(--border-color)',
-        borderLeft: `3px solid ${phaseAccent}`,
-        borderRadius: 10,
-        padding: 14,
-        background: 'color-mix(in srgb, var(--bg-elevated) 92%, var(--accent-primary) 8%)',
+        borderLeft: `2px solid ${phaseAccent}`,
+        padding: '2px 0 2px 12px',
+        background: 'transparent',
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
-        <Space wrap>
-          <Tag icon={<ThunderboltOutlined />} color="blue">Agent 工作台</Tag>
-          <Tag color={statusColor[status] || 'default'}>{statusLabel[status] || status}</Tag>
-          {workflow?.current_stage && <Tag>{workflow.current_stage}</Tag>}
-          {activeAgentId && <Tag color="cyan">当前 Agent: {activeAgentId}</Tag>}
-          {protocolStatus === 'repaired' && <Tag color="gold">模型输出已修复</Tag>}
-          {protocolStatus === 'fallback_summary' && <Tag color="purple">使用兜底总结</Tag>}
-          {protocolStatus === 'needs_manual_review' && <Tag color="red">协议需人工处理</Tag>}
-        </Space>
+        <Typography.Text type="secondary">
+          {statusLabel[status] || status}
+          {activeAgentId ? ` · ${activeAgentId}` : ''}
+          {workflow?.current_stage ? ` · ${workflow.current_stage}` : ''}
+          {protocolStatus === 'repaired' ? ' · 模型输出已修复' : ''}
+          {protocolStatus === 'fallback_summary' ? ' · 使用兜底总结' : ''}
+          {protocolStatus === 'needs_manual_review' ? ' · 协议需人工处理' : ''}
+        </Typography.Text>
         <Space size={4}>
           {metadata.recoverable && (
             <Tooltip title="刷新运行状态">
@@ -245,155 +330,172 @@ export default function AgentRunCard({
         </Space>
       </div>
 
-      <Typography.Text strong>{content}</Typography.Text>
+      <Typography.Text strong>请求：{content}</Typography.Text>
 
-      <Space wrap size={6}>
-        <Tag>{toolCalls.length ? `工具 ${toolCalls.length}` : '等待工具'}</Tag>
-        {actions.length ? <Tag>{`动作 ${actions.length}`}</Tag> : null}
-        {autoExecutedActions ? <Tag color="green">自动执行 {autoExecutedActions}</Tag> : null}
-        {pendingActions ? <Tag color="gold">待确认 {pendingActions}</Tag> : null}
-        {failedActions ? <Tag color="red">失败动作 {failedActions}</Tag> : null}
-        {changedFileCount ? <Tag color="blue">变更文件 {changedFileCount}</Tag> : null}
-        {parseRepairCount ? <Tag color="purple">协议修复 {parseRepairCount}</Tag> : null}
-      </Space>
+      <Typography.Text type="secondary">
+        {toolCalls.length ? `工具 ${toolCalls.length}` : '等待工具'}
+        {actions.length ? ` · 动作 ${actions.length}` : ''}
+        {autoExecutedActions ? ` · 自动执行 ${autoExecutedActions}` : ''}
+        {pendingActions ? ` · 待确认 ${pendingActions}` : ''}
+        {failedActions ? ` · 失败动作 ${failedActions}` : ''}
+        {changedFileCount ? ` · 变更文件 ${changedFileCount}` : ''}
+        {parseRepairCount ? ` · 协议修复 ${parseRepairCount}` : ''}
+      </Typography.Text>
 
       {executionState && (
-        <Alert
-          type={executionState === 'failed' || executionState === 'needs_manual_review' ? 'warning' : 'info'}
-          showIcon
-          message={`当前阶段：${statusLabel[executionState] || executionState}`}
-          description={executionMessage || 'Agent 正在推进开发闭环。'}
-        />
+        <Typography.Text type={executionState === 'failed' || executionState === 'needs_manual_review' ? 'danger' : 'secondary'}>
+          当前阶段：{statusLabel[executionState] || executionState}
+          {executionMessage ? ` · ${executionMessage}` : ' · Agent 正在推进开发闭环。'}
+        </Typography.Text>
       )}
 
       {executionState === 'needs_manual_review' && (
-        <Alert
-          type="warning"
-          showIcon
-          message="需要人工确认"
-          description={(metadata.blocked_state as any)?.reason || executionMessage || 'Agent 当前无法自动继续，请查看工具调用和动作输出后决定下一步。'}
-        />
+        <Typography.Text type="danger">
+          需要人工确认：{(metadata.blocked_state as any)?.reason || executionMessage || 'Agent 当前无法自动继续，请查看工具调用和动作输出后决定下一步。'}
+        </Typography.Text>
       )}
 
       {protocolStatus && protocolStatus !== 'ok' && (
-        <Alert
-          type={protocolStatus === 'needs_manual_review' ? 'warning' : 'info'}
-          showIcon
-          message={
-            protocolStatus === 'repaired'
-              ? '模型输出已自动修复'
-              : protocolStatus === 'fallback_summary'
-                ? '已使用后端兜底总结'
-                : '模型协议需要人工确认'
-          }
-          description={
-            <Space direction="vertical" size={4}>
-              <Typography.Text type="secondary">
-                修复次数：{parseRepairCount || 0}
-                {fallbackSummaryUsed ? '，最终结果由系统根据工具和动作记录生成。' : ''}
-              </Typography.Text>
-              {metadata.last_model_output_preview && (
-                <Typography.Text type="secondary" ellipsis>
-                  最近模型输出：{metadata.last_model_output_preview}
-                </Typography.Text>
-              )}
-            </Space>
-          }
-        />
+        <Typography.Text type={protocolStatus === 'needs_manual_review' ? 'danger' : 'secondary'}>
+          {protocolStatus === 'repaired'
+            ? '模型输出已自动修复'
+            : protocolStatus === 'fallback_summary'
+              ? '已使用后端兜底总结'
+              : '模型协议需要人工确认'}
+          {' · '}修复次数：{parseRepairCount || 0}
+          {fallbackSummaryUsed ? ' · 最终结果由系统根据工具和动作记录生成' : ''}
+          {metadata.last_model_output_preview ? ` · 最近模型输出：${metadata.last_model_output_preview}` : ''}
+        </Typography.Text>
       )}
 
       {showFinalOutput && (
-        <Alert
-          type="success"
-          showIcon
-          message="最终结果"
-          description={
-            <div style={{ display: 'grid', gap: 8 }}>
-              {finalSummary && (
-                <Typography.Paragraph style={{ margin: 0 }}>
-                  {finalSummary}
-                </Typography.Paragraph>
-              )}
-              {Array.isArray(finalOutput.risks) && finalOutput.risks.length > 0 && (
-                <Typography.Text type="secondary">
-                  风险：{finalOutput.risks.join('；')}
-                </Typography.Text>
-              )}
-              {finalOutput.next_action && (
-                <Typography.Text type="secondary">
-                  下一步：{finalOutput.next_action}
-                </Typography.Text>
-              )}
-            </div>
-          }
-        />
+        <div style={{ display: 'grid', gap: 4, borderTop: '1px solid var(--border-color)', paddingTop: 10 }}>
+          <Typography.Text strong>最终结果</Typography.Text>
+          {finalSummary && <Typography.Text>{finalSummary}</Typography.Text>}
+          {Array.isArray(finalOutput.risks) && finalOutput.risks.length > 0 && (
+            <Typography.Text type="secondary">风险：{finalOutput.risks.join('；')}</Typography.Text>
+          )}
+          {finalOutput.next_action && (
+            <Typography.Text type="secondary">下一步：{finalOutput.next_action}</Typography.Text>
+          )}
+        </div>
       )}
 
       {acceptanceReport && (
-        <Alert
-          type={acceptanceReport.result === 'passed' ? 'success' : acceptanceReport.result === 'failed' ? 'error' : 'warning'}
-          showIcon
-          message={
+        <section
+          style={{
+            display: 'grid',
+            gap: 10,
+            borderTop: '1px solid var(--border-color)',
+            paddingTop: 12,
+          }}
+          aria-label="Agent 验收报告"
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
             <Space wrap size={6}>
-              <span>验收报告</span>
+              <Typography.Text strong style={{ fontSize: 16 }}>开发验收报告</Typography.Text>
               <Tag color={acceptanceResultColor[acceptanceReport.result] || 'default'}>
                 {acceptanceResultLabel[acceptanceReport.result] || acceptanceReport.result}
               </Tag>
               {metadata.acceptance_report_source === 'fallback' && <Tag>系统根据执行记录生成</Tag>}
               {metadata.acceptance_report_source === 'model' && <Tag color="blue">模型自评</Tag>}
             </Space>
-          }
-          description={
-            <div style={{ display: 'grid', gap: 8 }}>
-              <Typography.Paragraph style={{ margin: 0 }}>{acceptanceReport.summary}</Typography.Paragraph>
-              {acceptanceReport.completed_items?.length ? (
-                <Typography.Text type="secondary">
-                  完成项：{acceptanceReport.completed_items.join('；')}
+            {acceptanceReport.commands_run?.length ? (
+              <Tag icon={<PlayCircleOutlined />} color="cyan">验证 {acceptanceReport.commands_run.length}</Tag>
+            ) : null}
+          </div>
+
+          <Typography.Paragraph style={{ margin: 0, lineHeight: 1.75 }}>
+            {acceptanceReport.summary}
+          </Typography.Paragraph>
+
+          <Typography.Text type="secondary">
+            结果：{acceptanceResultLabel[acceptanceReport.result] || acceptanceReport.result}
+            {' · '}变更：{acceptanceReport.changed_files?.length || 0} 个文件
+            {' · '}验证：{acceptanceReport.commands_run?.length ? `${acceptanceReport.commands_run.length} 条命令` : '未运行命令'}
+            {' · '}状态：{reportTone?.status || '已记录'}
+          </Typography.Text>
+
+          <div style={{ display: 'grid', gap: 8 }}>
+            {reportRows(acceptanceReport).map((row, index) => (
+              <div
+                key={`${row.file || row.item}-${index}`}
+                style={{
+                  display: 'grid',
+                  gap: 4,
+                  paddingLeft: 12,
+                  borderLeft: `2px solid ${reportTone?.accent || 'var(--accent-primary)'}`,
+                }}
+              >
+                <Typography.Text strong style={{ lineHeight: 1.6 }}>
+                  {index + 1}.{' '}
+                  {row.file ? (
+                    <Typography.Text
+                      code
+                      style={{
+                        color: 'var(--accent-primary)',
+                        background: 'color-mix(in srgb, var(--accent-primary) 10%, transparent)',
+                        borderRadius: 6,
+                        padding: '2px 6px',
+                      }}
+                    >
+                      {shortPath(row.file)}
+                    </Typography.Text>
+                  ) : (
+                    <Typography.Text type="secondary">执行结果</Typography.Text>
+                  )}{' '}
+                  <span>— {row.item}</span>
                 </Typography.Text>
-              ) : null}
-              {acceptanceReport.changed_files?.length ? (
-                <Typography.Text type="secondary">
-                  变更文件：{acceptanceReport.changed_files.join('；')}
-                </Typography.Text>
-              ) : null}
-              {acceptanceReport.commands_run?.length ? (
-                <Typography.Text type="secondary">
-                  执行命令：{acceptanceReport.commands_run.join('；')}
-                </Typography.Text>
-              ) : null}
-              {acceptanceReport.verification_result && (
-                <Typography.Text type="secondary">
-                  验证结果：{acceptanceReport.verification_result}
-                </Typography.Text>
-              )}
-              {acceptanceReport.blocking_reason && (
-                <Typography.Text type="danger">
-                  阻断原因：{acceptanceReport.blocking_reason}
-                </Typography.Text>
-              )}
-              {acceptanceReport.next_action && (
-                <Typography.Text type="secondary">
-                  下一步：{acceptanceReport.next_action}
-                </Typography.Text>
-              )}
-            </div>
-          }
-        />
+                <div style={{ display: 'grid', gap: 4, paddingLeft: 18 }}>
+                  <Typography.Text type="secondary">
+                    • 状态：{reportTone?.status || '已记录'}
+                  </Typography.Text>
+                  <Typography.Text type="secondary">
+                    • 处理：{row.item}
+                  </Typography.Text>
+                  <Typography.Text type={acceptanceReport.blocking_reason ? 'danger' : 'secondary'}>
+                    • 说明：{acceptanceReport.blocking_reason || reportTone?.issue || '已根据执行记录整理。'}
+                  </Typography.Text>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ display: 'grid', gap: 8 }}>
+            {acceptanceReport.changed_files?.length ? (
+              <Typography.Text type="secondary">
+                变更文件：{acceptanceReport.changed_files.map(shortPath).join('；')}
+              </Typography.Text>
+            ) : null}
+            {acceptanceReport.commands_run?.length ? (
+              <Typography.Text type="secondary">
+                执行命令：{acceptanceReport.commands_run.join('；')}
+              </Typography.Text>
+            ) : null}
+            {acceptanceReport.verification_result && (
+              <Typography.Text type="secondary">
+                验证结果：{acceptanceReport.verification_result}
+              </Typography.Text>
+            )}
+            {acceptanceReport.blocking_reason && (
+              <Typography.Text type="danger">
+                阻断原因：{acceptanceReport.blocking_reason}
+              </Typography.Text>
+            )}
+            {acceptanceReport.next_action && (
+              <Typography.Text type="secondary">
+                下一步：{acceptanceReport.next_action}
+              </Typography.Text>
+            )}
+          </div>
+        </section>
       )}
 
       {workflow?.steps?.length ? (
-        <div style={{ display: 'grid', gap: 8 }}>
-          <Progress percent={progressPercent} size="small" showInfo={false} />
-          <Steps
-            size="small"
-            current={Math.max(0, workflow.steps.findIndex((step) => ['running', 'awaiting_approval'].includes(step.status)))}
-            items={workflow.steps.map((step) => ({
-              title: step.title,
-              description: statusLabel[step.status] || step.status,
-              status: stepStatusMap[step.status] || 'wait',
-            }))}
-          />
-        </div>
+        <Typography.Text type="secondary">
+          阶段：{completedSteps}/{totalSteps}
+          {workflow.steps.map((step) => ` · ${step.title}:${statusLabel[step.status] || step.status}`).join('')}
+        </Typography.Text>
       ) : null}
 
       {toolCalls.length ? (
@@ -409,23 +511,61 @@ export default function AgentRunCard({
             {executionState === 'repairing' && <Tag color="orange">正在尝试修复</Tag>}
           </Space>
           {latestBlockedTool && (
-            <Alert
-              type={latestBlockedTool.permission_decision === 'deny' ? 'error' : 'warning'}
-              showIcon
-              message={
-                latestBlockedTool.permission_decision === 'deny'
-                  ? `权限拒绝：${toolLabel[latestBlockedTool.tool_name] || latestBlockedTool.tool_name}`
-                  : `等待权限审批：${toolLabel[latestBlockedTool.tool_name] || latestBlockedTool.tool_name}`
-              }
-              description={latestBlockedTool.blocked_reason || latestBlockedTool.result_summary || '该工具调用被权限策略阻断。'}
-            />
+            <Typography.Text type={latestBlockedTool.permission_decision === 'deny' ? 'danger' : 'secondary'}>
+              {latestBlockedTool.permission_decision === 'deny'
+                ? `权限拒绝：${toolLabel[latestBlockedTool.tool_name] || latestBlockedTool.tool_name}`
+                : `等待权限审批：${toolLabel[latestBlockedTool.tool_name] || latestBlockedTool.tool_name}`}
+              {' · '}{latestBlockedTool.blocked_reason || latestBlockedTool.result_summary || '该工具调用被权限策略阻断。'}
+            </Typography.Text>
           )}
+          <div
+            style={{
+              display: 'grid',
+              gap: 8,
+              borderTop: '1px solid var(--border-color)',
+              paddingTop: 10,
+            }}
+          >
+            <Space wrap size={6}>
+              <Typography.Text strong>执行过程</Typography.Text>
+              <Tag color={runningTool ? 'processing' : 'default'}>
+                {runningTool ? '实时推进中' : '最近动作'}
+              </Tag>
+            </Space>
+            {recentToolCalls.map((call, index) => {
+              const tone = toolTone(call);
+              return (
+                <div
+                  key={`live-${call.id}`}
+                  style={{
+                    display: 'grid',
+                    gap: 3,
+                    paddingLeft: 12,
+                    borderLeft: `2px solid ${tone.accent}`,
+                  }}
+                >
+                  <Space wrap size={6}>
+                    <Typography.Text strong>
+                      {index + 1}. {toolLabel[call.tool_name] || call.tool_name}
+                    </Typography.Text>
+                    <Tag color={tone.color as any}>{tone.label}</Tag>
+                    {call.duration_ms !== undefined && (
+                      <Typography.Text type="secondary">{call.duration_ms}ms</Typography.Text>
+                    )}
+                  </Space>
+                  <Typography.Text type={call.status === 'failed' ? 'danger' : 'secondary'}>
+                    {call.error || call.blocked_reason || call.result_summary || '等待工具结果'}
+                  </Typography.Text>
+                </div>
+              );
+            })}
+          </div>
           <Collapse
             size="small"
             items={[
               {
                 key: 'tools',
-                label: '最近工具调用',
+                label: '展开工具参数与原始结果',
                 children: (
                   <div style={{ display: 'grid', gap: 8 }}>
                     {recentToolCalls.map((call) => (
@@ -469,119 +609,124 @@ export default function AgentRunCard({
       ) : null}
 
       {subagentRuns.length ? (
-        <Alert
-          type="info"
-          showIcon
-          message="子 Agent 协作"
-          description={subagentRuns.slice(-2).map((item) => `${item.agent_id}: ${item.summary || item.task || item.status}`).join('\n')}
-        />
+        <Typography.Text type="secondary">
+          子 Agent：{subagentRuns.slice(-2).map((item) => `${item.agent_id}: ${item.summary || item.task || item.status}`).join('；')}
+        </Typography.Text>
       ) : null}
 
       {metadata.kind === 'agent_approval_request' && waitingStep && (
-        <Alert
-          type="warning"
-          showIcon
-          message={`等待审批：${waitingStep.title}`}
-          description={waitingStep.output?.summary || waitingStep.output_data?.summary || 'Agent 已完成当前步骤，请确认是否继续。'}
-          action={
+        <div style={{ display: 'grid', gap: 8, borderLeft: '2px solid var(--accent-warning, #faad14)', paddingLeft: 10 }}>
+          <Typography.Text strong>等待审批：{waitingStep.title}</Typography.Text>
+          <Typography.Text type="secondary">
+            {waitingStep.output?.summary || waitingStep.output_data?.summary || 'Agent 已完成当前步骤，请确认是否继续。'}
+          </Typography.Text>
+          <div>
             <Button size="small" type="primary" onClick={() => onApproveStep?.(waitingStep.step_id)}>
               批准进入下一步
             </Button>
-          }
-        />
+          </div>
+        </div>
       )}
 
       {action && (
-        <div style={{ display: 'grid', gap: 10 }}>
-          <Alert
-            type={action.status === 'failed' ? 'error' : action.status === 'pending_approval' ? 'warning' : 'info'}
-            showIcon
-            icon={
-              action.action_type === 'patch'
-                ? <CodeOutlined />
-                : action.action_type === 'permission_request'
-                  ? <SafetyCertificateOutlined />
-                  : <PlayCircleOutlined />
-            }
-            message={action.title}
-            description={
-              action.description ||
-              (action.action_type === 'patch'
-                ? 'Agent 建议写入一个受限补丁，执行前需要你批准。'
-                : action.action_type === 'permission_request'
-                  ? 'Agent 请求额外工具权限，批准后将自动重放本次工具调用。'
-                  : 'Agent 建议运行一个白名单命令，执行前需要你批准。')
-            }
-          />
-          <Space wrap size={6}>
-            <Tag icon={action.action_type === 'patch' ? <FileTextOutlined /> : <PlayCircleOutlined />}>
-              {action.action_type === 'patch' ? '补丁' : action.action_type === 'permission_request' ? '权限请求' : '命令'}
-            </Tag>
-            <Tag icon={<SafetyCertificateOutlined />} color="green">
-              {action.execution_mode === 'auto'
-                ? '安全自动'
-                : action.execution_mode === 'blocked'
-                  ? '策略阻断'
-                  : '审批后执行'}
-            </Tag>
-            {action.risk_level && (
-              <Tag color={action.risk_level === 'high' ? 'red' : action.risk_level === 'medium' ? 'orange' : 'green'}>
-                {action.risk_level === 'high' ? '高风险' : action.risk_level === 'medium' ? '中风险' : '低风险'}
+        <section
+          style={{
+            display: 'grid',
+            gap: 10,
+            borderLeft: `3px solid ${actionTone(action).accent}`,
+            paddingLeft: 12,
+          }}
+          aria-label="Agent 动作"
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
+            <div style={{ display: 'grid', gap: 6 }}>
+              <Space wrap size={6}>
+                <Tag
+                  icon={
+                    action.action_type === 'patch'
+                      ? <CodeOutlined />
+                      : action.action_type === 'permission_request'
+                        ? <SafetyCertificateOutlined />
+                        : <PlayCircleOutlined />
+                  }
+                  color={action.action_type === 'patch' ? 'blue' : action.action_type === 'permission_request' ? 'gold' : 'cyan'}
+                >
+                  {actionKindLabel(action)}
+                </Tag>
+                <Tag color={actionTone(action).color}>{actionTone(action).label}</Tag>
+                {action.risk_level && (
+                  <Tag color={action.risk_level === 'high' ? 'red' : action.risk_level === 'medium' ? 'orange' : 'green'}>
+                    {action.risk_level === 'high' ? '高风险' : action.risk_level === 'medium' ? '中风险' : '低风险'}
+                  </Tag>
+                )}
+              </Space>
+              <Typography.Text strong style={{ fontSize: 15 }}>{action.title}</Typography.Text>
+              <Typography.Text type="secondary">
+                {action.description ||
+                  (action.action_type === 'patch'
+                    ? 'Agent 生成了一个受控文件补丁。'
+                    : action.action_type === 'permission_request'
+                      ? 'Agent 请求额外工具权限，批准后将重放本次工具调用。'
+                      : 'Agent 生成了一个受控验证命令。')}
+              </Typography.Text>
+            </div>
+            {action.status === 'executed' ? (
+              <Tag icon={<CheckCircleOutlined />} color="success">
+                {action.execution_mode === 'auto' ? '自动完成' : '执行完成'}
               </Tag>
-            )}
-            <Tag color={statusColor[action.status] || 'default'}>{statusLabel[action.status] || action.status}</Tag>
-            {action.execution_mode === 'auto' && <Tag color="blue">自动执行</Tag>}
-            {action.policy_reason && <Tag>{action.policy_reason}</Tag>}
-            {action.execution_state && <Tag>{statusLabel[action.execution_state] || action.execution_state}</Tag>}
-            {action.applied_hunks !== undefined && <Tag>hunks {action.applied_hunks}</Tag>}
-          </Space>
-          {action.execution_mode === 'auto' && action.status === 'executed' && (
-            <Alert
-              type="success"
-              showIcon
-              message="已按策略自动执行"
-              description={action.policy_reason || '该动作满足自动执行策略，已完成执行。'}
-            />
+            ) : null}
+          </div>
+
+          <Typography.Text type="secondary">
+            执行策略：
+            {action.execution_mode === 'auto'
+              ? '安全自动'
+              : action.execution_mode === 'blocked'
+                ? '已阻断'
+                : '审批后执行'}
+            {' · '}动作状态：{statusLabel[action.status] || action.status}
+            {' · '}变更文件：{action.changed_files?.length || 0} 个
+            {' · '}补丁块：{action.applied_hunks !== undefined ? action.applied_hunks : '-'}
+          </Typography.Text>
+
+          {action.policy_reason && (
+            <Typography.Text type={action.status === 'blocked' || action.execution_mode === 'blocked' ? 'danger' : 'secondary'}>
+              {action.execution_mode === 'auto'
+                ? '已按安全策略自动执行'
+                : action.execution_mode === 'blocked'
+                  ? '已按安全策略阻断'
+                  : '策略要求人工确认'}
+              {' · '}{action.policy_reason}
+            </Typography.Text>
           )}
-          {action.status === 'pending_approval' && action.policy_reason && (
-            <Alert
-              type="warning"
-              showIcon
-              message="策略要求人工确认"
-              description={action.policy_reason}
-            />
-          )}
-          {action.status === 'blocked' && action.policy_reason && (
-            <Alert
-              type="error"
-              showIcon
-              message="已按安全策略阻断"
-              description={action.policy_reason}
-            />
-          )}
+
           {action.changed_files?.length ? (
-            <Alert
-              type="success"
-              showIcon
-              message="影响文件"
-              description={action.changed_files.join('\n')}
-            />
+            <div style={{ display: 'grid', gap: 6 }}>
+              <Typography.Text strong>影响文件</Typography.Text>
+              <Space wrap size={6}>
+                {action.changed_files.map((file) => (
+                  <Tag key={file} icon={<FileTextOutlined />} color="blue">
+                    {shortPath(file)}
+                  </Tag>
+                ))}
+              </Space>
+            </div>
           ) : null}
+
           {action.failure_summary && (
-            <Alert
-              type="error"
-              showIcon
-              message="失败摘要"
-              description={<pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{action.failure_summary}</pre>}
-            />
+            <div style={{ display: 'grid', gap: 4 }}>
+              <Typography.Text type="danger" strong>失败摘要</Typography.Text>
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: 'var(--text-secondary)' }}>{action.failure_summary}</pre>
+            </div>
           )}
+
           {preview && (
             <Collapse
               size="small"
               items={[
                 {
                   key: 'preview',
-                  label: action.action_type === 'patch' ? '查看补丁内容' : '查看命令',
+                  label: action.action_type === 'patch' ? '查看补丁内容' : '查看命令内容',
                   children: <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{preview}</pre>,
                 },
               ]}
@@ -612,7 +757,7 @@ export default function AgentRunCard({
               items={[
                 {
                   key: 'execution',
-                  label: `执行结果：${lastExecution.status}${lastExecution.exit_code !== undefined ? ` / exit ${lastExecution.exit_code}` : ''}`,
+                  label: `执行输出：${lastExecution.status}${lastExecution.exit_code !== undefined ? ` / exit ${lastExecution.exit_code}` : ''}`,
                   children: (
                     <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
                       {[lastExecution.stdout, lastExecution.stderr, lastExecution.error, lastExecution.failure_summary].filter(Boolean).join('\n\n')}
@@ -622,7 +767,7 @@ export default function AgentRunCard({
               ]}
             />
           )}
-        </div>
+        </section>
       )}
 
       {observability?.step_logs?.length ? (

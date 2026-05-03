@@ -136,6 +136,14 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
       });
     }, []);
 
+    const isPathLike = useCallback((value: string) => {
+      const text = value.trim();
+      return (
+        /^(client|server|src|docs|tests|tmp|app|components|pages|api)\//.test(text) ||
+        /\.(tsx?|py|css|md|json|ya?ml|sql)(:\d+)?$/.test(text)
+      );
+    }, []);
+
     // Memoize markdown components to avoid unnecessary remounts
     const markdownComponents = useMemo(
       () => ({
@@ -144,15 +152,20 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
           const language = match ? match[1] : 'text';
           
           if (inline) {
+            const inlineText = String(children);
+            const pathLike = isPathLike(inlineText);
             return (
               <code
                 style={{
-                  backgroundColor: 'color-mix(in srgb, var(--text-primary) 6%, transparent)',
-                  padding: '3px 6px',
+                  backgroundColor: pathLike
+                    ? 'color-mix(in srgb, var(--accent-primary) 12%, transparent)'
+                    : 'color-mix(in srgb, var(--text-primary) 6%, transparent)',
+                  padding: pathLike ? '2px 6px' : '2px 5px',
                   borderRadius: '6px',
                   fontSize: '0.85em',
-                  color: 'var(--accent-primary)',
+                  color: pathLike ? 'var(--accent-primary)' : 'color-mix(in srgb, var(--text-primary) 88%, var(--accent-primary) 12%)',
                   fontFamily: 'var(--font-mono)',
+                  border: pathLike ? '1px solid color-mix(in srgb, var(--accent-primary) 20%, transparent)' : 'none',
                 }}
                 {...props}
               >
@@ -213,27 +226,28 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
           );
         },
         p: ({ children }: any) => (
-          <p style={{ margin: 'var(--space-2) 0', lineHeight: 1.7 }}>{children}</p>
+          <p style={{ margin: '6px 0', lineHeight: 1.65 }}>{children}</p>
         ),
         ul: ({ children }: any) => (
-          <ul style={{ margin: 'var(--space-3) 0', paddingLeft: '1.5rem', lineHeight: 1.7 }}>
+          <ul style={{ margin: '8px 0', paddingLeft: '1.25rem', lineHeight: 1.65 }}>
             {children}
           </ul>
         ),
         ol: ({ children }: any) => (
-          <ol style={{ margin: 'var(--space-3) 0', paddingLeft: '1.5rem', lineHeight: 1.7 }}>
+          <ol style={{ margin: '8px 0', paddingLeft: '1.35rem', lineHeight: 1.65 }}>
             {children}
           </ol>
         ),
         li: ({ children }: any) => (
-          <li style={{ margin: '4px 0' }}>{children}</li>
+          <li style={{ margin: '5px 0', paddingLeft: 2 }}>{children}</li>
         ),
         h1: ({ children }: any) => (
           <h1
             style={{
-              margin: 'var(--space-4) 0 var(--space-2)',
-              fontSize: 'var(--text-xl)',
+              margin: '14px 0 8px',
+              fontSize: '18px',
               fontWeight: 700,
+              lineHeight: 1.35,
             }}
           >
             {children}
@@ -242,9 +256,10 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
         h2: ({ children }: any) => (
           <h2
             style={{
-              margin: 'var(--space-3) 0 var(--space-2)',
-              fontSize: 'var(--text-lg)',
+              margin: '12px 0 6px',
+              fontSize: '16px',
               fontWeight: 600,
+              lineHeight: 1.4,
             }}
           >
             {children}
@@ -253,9 +268,10 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
         h3: ({ children }: any) => (
           <h3
             style={{
-              margin: 'var(--space-2) 0 var(--space-1)',
+              margin: '10px 0 4px',
               fontSize: '15px',
               fontWeight: 600,
+              lineHeight: 1.4,
             }}
           >
             {children}
@@ -264,11 +280,10 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
         blockquote: ({ children }: any) => (
           <blockquote
             style={{
-              margin: 'var(--space-3) 0',
-              padding: 'var(--space-2) var(--space-4)',
-              borderLeft: '4px solid var(--accent-primary)',
-              background: 'color-mix(in srgb, var(--accent-primary) 8%, transparent)',
-              borderRadius: '0 var(--radius-lg) var(--radius-lg) 0',
+              margin: '8px 0',
+              padding: '6px 12px',
+              borderLeft: '3px solid var(--accent-primary)',
+              background: 'transparent',
               color: 'var(--text-secondary)',
             }}
           >
@@ -311,7 +326,7 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
           </tr>
         ),
       }),
-      []
+      [isPathLike]
     );
 
     return (

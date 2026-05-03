@@ -11,9 +11,7 @@ import {
 import { Button, Progress, Select, Tag, Upload } from 'antd';
 import type { UploadProps } from 'antd/es/upload/interface';
 import { useEffect, useState } from 'react';
-import RuntimeContextPanel from '../components/runtime/RuntimeContextPanel';
 import glassStyles from '../components/shared/GlassCard.module.css';
-import InsightPanel from '../components/shared/InsightPanel';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import { useRuntimeContext } from '../runtime/RuntimeContext';
 import { API_BASE_URL } from '../services/api';
@@ -296,33 +294,6 @@ export default function KnowledgeBase() {
 
         {/* 上传文档 */}
         <div className={`${glassStyles.glassCard} ${styles.card}`}>
-          <div style={{ marginBottom: 20 }}>
-            <RuntimeContextPanel page="knowledge" />
-          </div>
-          <InsightPanel
-            embedded
-            title="知识库接入状态"
-            status={{
-              type: embedderStatus?.loaded ? 'success' : 'warning',
-              text: embedderStatus?.loaded ? '向量化就绪' : '嵌入模型待加载',
-            }}
-            summary={`当前工作空间为 ${collectionId}。上传链路已经改为异步任务，页面会持续展示集合状态与任务进度，不再只给出一次性提交结果。`}
-            metrics={[
-              {
-                label: '当前集合文档数',
-                value: collectionInfo?.count ?? ((collectionInfo?.documents || []).length || 0),
-                hint: collectionInfo?.name ? `集合：${collectionInfo.name}` : '默认集合',
-              },
-              {
-                label: '嵌入模型',
-                value: embedderStatus?.loaded ? embedderStatus.model_name || '已加载' : '未加载',
-                hint: embedderStatus?.loaded
-                  ? `${embedderStatus.dimension || '-'} 维`
-                  : embedderStatus?.error || '需要先预加载模型',
-              },
-            ]}
-          />
-
           <div className={styles.workspaceInput}>
             <span>工作空间 ID：</span>
             {observed.knowledge.collections.length > 0 && (
@@ -377,35 +348,16 @@ export default function KnowledgeBase() {
               />
               {activeUploadTask && (
                 <div style={{ marginTop: 12, textAlign: 'left' }}>
-                  <InsightPanel
-                    embedded
-                    title="上传任务观测"
-                    status={{
-                      type:
-                        activeUploadTask.status === 'completed'
-                          ? 'success'
-                          : activeUploadTask.status === 'failed'
-                            ? 'error'
-                            : 'processing',
-                      text: activeUploadTask.status,
+                  <div
+                    style={{
+                      color: 'var(--text-secondary)',
+                      fontSize: 13,
+                      marginTop: 8,
+                      textAlign: 'center',
                     }}
-                    summary={uploadStatus || activeUploadTask.message}
-                    metrics={[
-                      {
-                        label: '任务进度',
-                        value: `${activeUploadTask.progress || uploadProgress}%`,
-                      },
-                      {
-                        label: '任务 ID',
-                        value: activeUploadTask.task_id,
-                      },
-                    ]}
-                    footer={
-                      activeUploadTask.result
-                        ? `结果：${activeUploadTask.result.file_name || '文件'}，共 ${activeUploadTask.result.chunk_count || 0} 个文本块。`
-                        : undefined
-                    }
-                  />
+                  >
+                    {uploadStatus || activeUploadTask.message} ({activeUploadTask.progress || uploadProgress}%)
+                  </div>
                 </div>
               )}
               {!activeUploadTask && (

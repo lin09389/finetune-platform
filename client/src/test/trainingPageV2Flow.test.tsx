@@ -242,10 +242,6 @@ vi.mock('../components/TrainingChart', () => ({
   default: () => <div data-testid="training-chart">chart</div>,
 }));
 
-vi.mock('../components/runtime/RuntimeContextPanel', () => ({
-  default: () => <div data-testid="runtime-panel">runtime</div>,
-}));
-
 vi.mock('../pages/Training/components/ConfigForm', () => ({
   default: () => <div data-testid="config-form">config</div>,
 }));

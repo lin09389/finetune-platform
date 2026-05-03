@@ -89,9 +89,7 @@ Use the local selection APIs when a page only needs to contribute temporary loca
 
 When wiring a page into the shared runtime layer, follow these rules:
 
-1. Render [client/src/components/runtime/RuntimeContextPanel.tsx](/C:/Users/JHJ/Desktop/finetune-platform/client/src/components/runtime/RuntimeContextPanel.tsx) near the top of the page so runtime truth is always visible.
-
-2. Read shared runtime state before creating page-local fallbacks.  
+1. Read shared runtime state before creating page-local fallbacks.  
    Pages should not invent their own default backend, model, or knowledge collection if runtime already has one.
 
 3. Prefer the explicit layers for new code.  
@@ -193,9 +191,8 @@ When adding a new platform-level capability, prefer this order:
 
 1. Decide whether the state is local, shared, or synchronized.
 2. Extend `RuntimeContext` only if another page should read the same truth.
-3. Add or reuse a small summary surface in `RuntimeContextPanel` or an adjacent `InsightPanel`.
-4. Route user feedback through `notify` if the workflow belongs to the core platform chain.
-5. Add or update:
+3. Route user feedback through `notify` if the workflow belongs to the core platform chain.
+4. Add or update:
    - one runtime contract test if provider behavior changes
    - one smoke test if page-level user understanding changes
 
