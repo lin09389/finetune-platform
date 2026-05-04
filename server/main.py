@@ -31,6 +31,9 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from api.cloud_chat import router as cloud_chat
 from api.chat_agent import router as chat_agent
+from api.agent_sessions import action_router as agent_session_actions
+from api.agent_sessions import permission_router as agent_session_permissions
+from api.agent_sessions import router as agent_sessions
 from api.datasets import router as datasets
 from api.deployment import router as deployment
 from api.device import router as device
@@ -451,6 +454,9 @@ app.include_router(workspace, prefix="/workspace", tags=["Workspace"])
 app.include_router(digital_team, tags=["Digital Team"])
 app.include_router(workflows, tags=["Workflows"])
 app.include_router(chat_agent)
+app.include_router(agent_sessions)
+app.include_router(agent_session_permissions)
+app.include_router(agent_session_actions)
 app.include_router(model_center, prefix="/model-center", tags=["Model Center"])
 app.include_router(memory, tags=["Memory"])
 app.include_router(compat_router, tags=["Compatibility"])
