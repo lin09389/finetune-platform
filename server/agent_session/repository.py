@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from core.db_manager import get_db_pool
+from core.db_manager import get_db_pool, validate_column_names
 from core.storage import APP_DB_PATH
 
 
@@ -42,8 +42,7 @@ class AgentSessionRepository:
         self.ensure_schema()
 
     def ensure_schema(self) -> None:
-        with get_db_pool(self.db_path).get_connection() as conn:
-            conn.executescript(
+        get_db_pool(self.db_path).safe_execute_script(
                 """
                 CREATE TABLE IF NOT EXISTS agent_sessions (
                     id TEXT PRIMARY KEY,
@@ -109,24 +108,21 @@ class AgentSessionRepository:
         return self.get_session(session_id) or {}
 
     def get_session(self, session_id: str) -> dict[str, Any] | None:
-        with get_db_pool(self.db_path).get_connection() as conn:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
             row = conn.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,)).fetchone()
         return _row(row)
 
+    _SESSION_UPDATABLE = {"status", "title", "project_path", "provider", "model", "metadata", "updated_at"}
+
     def update_session(self, session_id: str, **updates: Any) -> dict[str, Any]:
-        allowed = {"status", "title", "project_path", "provider", "model", "metadata"}
-        fields = []
-        values = []
-        for key, value in updates.items():
-            if key not in allowed:
-                continue
-            fields.append(f"{key} = ?")
-            values.append(_json(value) if key == "metadata" else value)
-        fields.append("updated_at = ?")
-        values.append(_now())
-        values.append(session_id)
+        if "metadata" in updates:
+            updates["metadata"] = _json(updates["metadata"])
+        updates["updated_at"] = _now()
+        validate_column_names(list(updates.keys()), self._SESSION_UPDATABLE)
+        assignments = ", ".join(f"{key} = ?" for key in updates)
+        values = list(updates.values()) + [session_id]
         with get_db_pool(self.db_path).get_connection() as conn:
-            conn.execute(f"UPDATE agent_sessions SET {', '.join(fields)} WHERE id = ?", values)
+            conn.execute(f"UPDATE agent_sessions SET {assignments} WHERE id = ?", values)
         return self.get_session(session_id) or {}
 
     def add_part(
@@ -151,29 +147,26 @@ class AgentSessionRepository:
             )
         return self.get_part(part_id) or {}
 
+    _PART_UPDATABLE = {"status", "title", "content", "payload", "updated_at"}
+
     def update_part(self, part_id: str, **updates: Any) -> dict[str, Any]:
-        allowed = {"status", "title", "content", "payload"}
-        fields = []
-        values = []
-        for key, value in updates.items():
-            if key not in allowed:
-                continue
-            fields.append(f"{key} = ?")
-            values.append(_json(value) if key == "payload" else value)
-        fields.append("updated_at = ?")
-        values.append(_now())
-        values.append(part_id)
+        if "payload" in updates:
+            updates["payload"] = _json(updates["payload"])
+        updates["updated_at"] = _now()
+        validate_column_names(list(updates.keys()), self._PART_UPDATABLE)
+        assignments = ", ".join(f"{key} = ?" for key in updates)
+        values = list(updates.values()) + [part_id]
         with get_db_pool(self.db_path).get_connection() as conn:
-            conn.execute(f"UPDATE agent_parts SET {', '.join(fields)} WHERE id = ?", values)
+            conn.execute(f"UPDATE agent_parts SET {assignments} WHERE id = ?", values)
         return self.get_part(part_id) or {}
 
     def get_part(self, part_id: str) -> dict[str, Any] | None:
-        with get_db_pool(self.db_path).get_connection() as conn:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
             row = conn.execute("SELECT * FROM agent_parts WHERE id = ?", (part_id,)).fetchone()
         return _row(row)
 
     def list_parts(self, session_id: str) -> list[dict[str, Any]]:
-        with get_db_pool(self.db_path).get_connection() as conn:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
             rows = conn.execute("SELECT * FROM agent_parts WHERE session_id = ? ORDER BY created_at ASC", (session_id,)).fetchall()
         return [_row(row) or {} for row in rows]
 
@@ -188,12 +181,12 @@ class AgentSessionRepository:
         return self.get_event(event_id) or {}
 
     def get_event(self, event_id: str) -> dict[str, Any] | None:
-        with get_db_pool(self.db_path).get_connection() as conn:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
             row = conn.execute("SELECT * FROM agent_events WHERE id = ?", (event_id,)).fetchone()
         return _row(row)
 
     def list_events(self, session_id: str) -> list[dict[str, Any]]:
-        with get_db_pool(self.db_path).get_connection() as conn:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
             rows = conn.execute("SELECT * FROM agent_events WHERE session_id = ? ORDER BY created_at ASC", (session_id,)).fetchall()
         return [_row(row) or {} for row in rows]
 

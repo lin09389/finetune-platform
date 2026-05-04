@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from core.db_manager import run_sync
 from digital_team.models import ApprovalRequest, ProjectCreate, ProjectResponse, TeamTemplate
 from digital_team.service import DigitalTeamService
 
@@ -21,7 +22,7 @@ def get_digital_team_service() -> DigitalTeamService:
 
 @router.get("/templates", response_model=list[TeamTemplate])
 async def list_templates(service: DigitalTeamService = Depends(get_digital_team_service)):
-    return service.list_templates()
+    return await run_sync(service.list_templates)
 
 
 @router.post("/projects", response_model=ProjectResponse)
@@ -29,12 +30,12 @@ async def create_project(
     request: ProjectCreate,
     service: DigitalTeamService = Depends(get_digital_team_service),
 ):
-    return service.create_project(request)
+    return await run_sync(service.create_project, request)
 
 
 @router.get("/projects", response_model=list[ProjectResponse])
 async def list_projects(service: DigitalTeamService = Depends(get_digital_team_service)):
-    return service.list_projects()
+    return await run_sync(service.list_projects)
 
 
 @router.get("/projects/{project_id}", response_model=ProjectResponse)
@@ -42,7 +43,7 @@ async def get_project(
     project_id: str,
     service: DigitalTeamService = Depends(get_digital_team_service),
 ):
-    return service.get_project(project_id)
+    return await run_sync(service.get_project, project_id)
 
 
 @router.post("/projects/{project_id}/run", response_model=ProjectResponse)
@@ -75,7 +76,7 @@ async def get_timeline(
     project_id: str,
     service: DigitalTeamService = Depends(get_digital_team_service),
 ):
-    return {"events": service.list_timeline(project_id)}
+    return {"events": await run_sync(service.list_timeline, project_id)}
 
 
 @router.get("/projects/{project_id}/artifacts")
@@ -83,5 +84,5 @@ async def get_artifacts(
     project_id: str,
     service: DigitalTeamService = Depends(get_digital_team_service),
 ):
-    return {"artifacts": service.list_artifacts(project_id)}
+    return {"artifacts": await run_sync(service.list_artifacts, project_id)}
 

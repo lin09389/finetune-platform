@@ -34,9 +34,11 @@ class ChatAgentRepository:
         self.ensure_schema()
 
     def ensure_schema(self) -> None:
+        pool = get_db_pool(self.db_path)
         migrations_dir = Path(__file__).resolve().parents[1] / "core" / "migrations"
-        with get_db_pool(self.db_path).get_connection() as conn:
-            conn.executescript((migrations_dir / "006_chat_agent_runs.sql").read_text(encoding="utf-8"))
+        pool.safe_execute_script(
+            (migrations_dir / "006_chat_agent_runs.sql").read_text(encoding="utf-8")
+        )
 
     def create_run(
         self,
@@ -83,10 +85,17 @@ class ChatAgentRepository:
             row = conn.execute("SELECT * FROM chat_agent_runs WHERE workflow_id = ?", (workflow_id,)).fetchone()
         return self._run_from_row(row) if row else None
 
+    _RUN_UPDATABLE = {
+        "status", "summary", "metadata", "chat_session_id",
+        "trigger_message_id", "workflow_id", "intent_type", "updated_at",
+    }
+
     def update_run(self, run_id: str, **fields: Any) -> dict[str, Any]:
         if not fields:
             return self.get_run(run_id) or {}
         fields["updated_at"] = _now()
+        from core.db_manager import validate_column_names
+        validate_column_names(list(fields.keys()), self._RUN_UPDATABLE)
         assignments = ", ".join(f"{key} = ?" for key in fields)
         values = [_json(value) if key == "metadata" else value for key, value in fields.items()]
         values.append(run_id)

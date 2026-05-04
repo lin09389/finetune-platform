@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,6 +50,7 @@ class AgentToolRegistry:
         self.register(ToolDefinition("search", "搜索代码", "read", {"query": "string"}, self._search))
         self.register(ToolDefinition("glob", "列出文件", "read", {"path_glob": "string"}, self._glob))
         self.register(ToolDefinition("collect_context", "批量收集上下文", "read", {}, self._collect_context))
+        self.register(ToolDefinition("detect_project_commands", "识别验证命令", "read", {}, self._detect_project_commands))
         self.register(ToolDefinition("patch", "提出或应用补丁", "patch", {}, self._patch))
         self.register(ToolDefinition("bash_command", "运行白名单命令", "command", {}, self._command))
         self.register(ToolDefinition("read_execution", "读取执行结果", "read", {}, self._read_execution))
@@ -101,9 +103,11 @@ class AgentToolRegistry:
         limit = int(args.get("limit") or 20)
         matches: list[dict[str, Any]] = []
         lowered = query.lower()
-        for path in root.rglob("*"):
-            if not path.is_file() or any(part in {".git", "node_modules", "dist", "build", ".venv", "__pycache__"} for part in path.parts):
-                continue
+        scanned = 0
+        for path in self._candidate_files(root):
+            scanned += 1
+            if scanned > 3000:
+                break
             rel = path.relative_to(root).as_posix()
             if path_glob and not path.match(path_glob):
                 continue
@@ -125,29 +129,71 @@ class AgentToolRegistry:
         return ToolResult("completed", f"列出 {len(files)} 个文件", {"files": files})
 
     def _collect_context(self, args: dict[str, Any], context: dict[str, Any]) -> ToolResult:
-        markers = {
-            "package_json": (self._root(context) / "package.json").exists(),
-            "client_package_json": (self._root(context) / "client" / "package.json").exists(),
-            "server_dir": (self._root(context) / "server").exists(),
-            "client_dir": (self._root(context) / "client").exists(),
-        }
+        root = self._root(context)
+        goal = str(args.get("goal") or (context.get("session") or {}).get("metadata", {}).get("current_goal") or (context.get("session") or {}).get("title") or "")
+        markers = self._project_markers(root)
         matches: list[dict[str, Any]] = []
         files: list[dict[str, Any]] = []
         touched: list[str] = []
-        for query in args.get("search") or args.get("queries") or []:
+        explicit_reads = list(args.get("read") or args.get("files") or [])
+        explicit_queries = list(args.get("search") or args.get("queries") or [])
+        inferred_reads, inferred_queries = self._infer_context_targets(root, goal)
+        reads = list(dict.fromkeys([*explicit_reads, *inferred_reads]))
+        queries = list(dict.fromkeys([*explicit_queries, *inferred_queries]))
+        for query in queries[:8]:
             result = self._search({"query": query, "limit": 10, "path_glob": args.get("path_glob") or "**/*"}, context)
             matches.extend(result.payload.get("matches") or [])
-        for raw_path in args.get("read") or args.get("files") or []:
+        for raw_path in reads[:8]:
             result = self._read({"path": raw_path}, context)
             if result.status == "completed":
                 files.append(result.payload)
                 touched.append(result.payload["path"])
         touched.extend(match.get("path") for match in matches if match.get("path"))
+        commands = self._detect_project_commands({}, context).payload.get("commands") or []
         return ToolResult(
             "completed",
-            f"已收集上下文：读取 {len(files)} 个文件，找到 {len(matches)} 条匹配",
-            {"markers": markers, "matches": matches, "files": files, "touched_paths": list(dict.fromkeys(touched))},
+            f"已收集上下文：读取 {len(files)} 个文件，找到 {len(matches)} 条匹配，识别 {len(commands)} 个验证命令",
+            {
+                "goal": goal,
+                "markers": markers,
+                "matches": matches,
+                "files": files,
+                "commands": commands,
+                "inferred_queries": queries,
+                "touched_paths": list(dict.fromkeys(touched)),
+            },
         )
+
+    def _detect_project_commands(self, args: dict[str, Any], context: dict[str, Any]) -> ToolResult:
+        root = self._root(context)
+        commands: list[dict[str, Any]] = []
+        client_pkg = root / "client" / "package.json"
+        root_pkg = root / "package.json"
+        for pkg, cwd_hint in ((client_pkg, "client"), (root_pkg, ".")):
+            if not pkg.exists():
+                continue
+            try:
+                data = json.loads(pkg.read_text(encoding="utf-8", errors="ignore"))
+            except Exception:
+                continue
+            scripts = data.get("scripts") if isinstance(data, dict) else {}
+            if not isinstance(scripts, dict):
+                continue
+            if "typecheck" in scripts:
+                commands.append({"kind": "typecheck", "command": ["npm", "run", "typecheck"], "cwd_hint": cwd_hint, "source": pkg.relative_to(root).as_posix()})
+            if "test" in scripts:
+                commands.append({"kind": "test", "command": ["npm", "test"], "cwd_hint": cwd_hint, "source": pkg.relative_to(root).as_posix()})
+        if (root / "pytest.ini").exists() or (root / "server" / "pytest.ini").exists() or (root / "server" / "tests").exists():
+            commands.append({"kind": "python_tests", "command": ["python", "-m", "pytest"], "cwd_hint": ".", "source": "pytest"})
+        commands.append({"kind": "python_compile", "command": ["python", "-m", "py_compile"], "cwd_hint": ".", "source": "python"})
+        unique: list[dict[str, Any]] = []
+        seen: set[tuple[str, ...]] = set()
+        for item in commands:
+            key = tuple(item["command"])
+            if key not in seen:
+                seen.add(key)
+                unique.append(item)
+        return ToolResult("completed", f"识别 {len(unique)} 个可用验证命令", {"commands": unique})
 
     def _patch(self, args: dict[str, Any], context: dict[str, Any]) -> ToolResult:
         payload = args.get("payload") if isinstance(args.get("payload"), dict) else args
@@ -189,6 +235,91 @@ class AgentToolRegistry:
         except Exception as exc:
             return ToolResult("failed", "补丁执行失败", {}, str(exc))
 
+    def _project_markers(self, root: Path) -> dict[str, bool]:
+        return {
+            "package_json": (root / "package.json").exists(),
+            "client_package_json": (root / "client" / "package.json").exists(),
+            "server_dir": (root / "server").exists(),
+            "client_dir": (root / "client").exists(),
+            "tests_dir": (root / "server" / "tests").exists() or (root / "client" / "src" / "test").exists(),
+        }
+
+    def _infer_context_targets(self, root: Path, goal: str) -> tuple[list[str], list[str]]:
+        reads: list[str] = []
+        queries: list[str] = []
+        for token in re.findall(r"[\w./\\-]+\.(?:py|ts|tsx|css|md|json)", goal):
+            reads.append(token.replace("\\", "/"))
+        for token in re.findall(r"`([^`]+)`", goal):
+            if "/" in token or "." in token:
+                reads.append(token.replace("\\", "/"))
+            elif len(token) >= 3:
+                queries.append(token)
+        identifiers = re.findall(r"\b[A-Z][A-Za-z0-9_]{2,}\b|\b[a-zA-Z_][a-zA-Z0-9_]{3,}\b", goal)
+        queries.extend(identifiers[:6])
+        keyword_map = {
+            "聊天": ["ChatNew", "ChatInput", "ChatMessage"],
+            "对话": ["ChatNew", "ChatInput", "ChatMessage"],
+            "Agent": ["AgentPartMessage", "AgentRunCard", "AgentSession"],
+            "卡片": ["AgentRunCard", "AgentPartMessage"],
+            "样式": ["module.css", "styles"],
+            "typecheck": ["typecheck", "tsconfig"],
+            "测试": ["pytest", "vitest", "test"],
+            "前端": ["client/src", "React"],
+            "后端": ["server", "FastAPI"],
+        }
+        for keyword, mapped in keyword_map.items():
+            if keyword.lower() in goal.lower():
+                queries.extend(mapped)
+        for candidate in self._likely_files(root, queries):
+            reads.append(candidate)
+        return list(dict.fromkeys(reads)), list(dict.fromkeys(query for query in queries if query))
+
+    def _likely_files(self, root: Path, queries: list[str]) -> list[str]:
+        if not queries:
+            return []
+        lowered_queries = [query.lower() for query in queries if len(query) >= 3]
+        if not lowered_queries:
+            return []
+        candidates: list[str] = []
+        scanned = 0
+        for path in self._candidate_files(root):
+            scanned += 1
+            if scanned > 2500:
+                break
+            if len(candidates) >= 6:
+                break
+            rel = path.relative_to(root).as_posix()
+            haystack = rel.lower()
+            if any(query.lower().replace("/", "") in haystack.replace("/", "") or query.lower() in haystack for query in lowered_queries):
+                candidates.append(rel)
+        return candidates
+
+    def _candidate_files(self, root: Path):
+        preferred = [
+            root / "client" / "src",
+            root / "server" / "agent_session",
+            root / "server" / "chat_agent",
+            root / "server" / "api",
+            root / "server" / "tests",
+            root / "docs",
+            root / "tmp",
+        ]
+        ignored = {".git", "node_modules", "dist", "build", ".venv", "__pycache__"}
+        seen: set[Path] = set()
+        for base in preferred:
+            if not base.exists():
+                continue
+            for path in base.rglob("*"):
+                if path in seen or not path.is_file() or any(part in ignored for part in path.parts):
+                    continue
+                seen.add(path)
+                yield path
+        for path in root.glob("*"):
+            if path in seen or not path.is_file() or any(part in ignored for part in path.parts):
+                continue
+            seen.add(path)
+            yield path
+
 
 def parse_tool_request(raw: str) -> dict[str, Any] | None:
     text = raw.strip()
@@ -211,4 +342,3 @@ def parse_tool_request(raw: str) -> dict[str, Any] | None:
         return None
     arguments = payload.get("arguments") or payload.get("args") or payload.get("parameters") or {}
     return {"tool": str(tool), "arguments": arguments if isinstance(arguments, dict) else {}}
-

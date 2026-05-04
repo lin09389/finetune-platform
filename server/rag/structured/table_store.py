@@ -4,8 +4,10 @@
 """
 import json
 import logging
+import re
 import sqlite3
 import uuid
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -14,6 +16,10 @@ import pandas as pd
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+_SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+_DDL_KEYWORDS = {"DROP", "ALTER", "CREATE", "VACUUM", "REINDEX", "ATTACH", "DETACH", "PRAGMA"}
 
 
 class TableMetadata(BaseModel):
@@ -53,39 +59,62 @@ class TableStore:
         self._tables: dict[str, TableMetadata] = {}
         self._load_metadata()
 
+    def _get_connection(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(str(self.db_path), timeout=10.0)
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
+        conn.execute("PRAGMA busy_timeout = 10000")
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    @contextmanager
+    def _db(self):
+        conn = self._get_connection()
+        try:
+            yield conn
+        except Exception:
+            conn.rollback()
+            raise
+        else:
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _validate_identifier(self, name: str, context: str = "identifier") -> str:
+        if not _SAFE_IDENTIFIER_RE.match(name):
+            raise ValueError(f"Invalid {context}: {name!r}")
+        return name
+
     def _init_database(self):
         """初始化 SQLite 数据库"""
-        conn = sqlite3.connect(str(self.db_path))
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS table_registry (
-                table_id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                description TEXT,
-                source_file TEXT,
-                source_type TEXT,
-                row_count INTEGER,
-                column_count INTEGER,
-                columns_json TEXT,
-                created_at TEXT,
-                updated_at TEXT,
-                tags_json TEXT
-            )
-        """)
-
-        conn.commit()
-        conn.close()
+        with self._db() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS table_registry (
+                    table_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT,
+                    source_file TEXT,
+                    source_type TEXT,
+                    row_count INTEGER,
+                    column_count INTEGER,
+                    columns_json TEXT,
+                    created_at TEXT,
+                    updated_at TEXT,
+                    tags_json TEXT
+                )
+            """)
         logger.info(f"表格数据库已初始化：{self.db_path}")
 
     def _load_metadata(self):
         """加载所有表格元数据"""
-        conn = sqlite3.connect(str(self.db_path))
-        cursor = conn.cursor()
-
-        cursor.execute("SELECT * FROM table_registry")
-        rows = cursor.fetchall()
-        conn.close()
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM table_registry")
+            rows = cursor.fetchall()
+        finally:
+            conn.close()
 
         for row in rows:
             table_id, name, description, source_file, source_type, row_count, column_count, columns_json, created_at, updated_at, tags_json = row
@@ -109,33 +138,39 @@ class TableStore:
 
     def _save_metadata(self, metadata: TableMetadata):
         """保存表格元数据"""
-        conn = sqlite3.connect(str(self.db_path))
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            INSERT OR REPLACE INTO table_registry
-            (table_id, name, description, source_file, source_type, row_count, column_count, columns_json, created_at, updated_at, tags_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            metadata.table_id,
-            metadata.name,
-            metadata.description,
-            metadata.source_file,
-            metadata.source_type,
-            metadata.row_count,
-            metadata.column_count,
-            json.dumps(metadata.columns, ensure_ascii=False),
-            metadata.created_at.isoformat(),
-            metadata.updated_at.isoformat(),
-            json.dumps(metadata.tags, ensure_ascii=False)
-        ))
-
-        conn.commit()
-        conn.close()
+        with self._db() as conn:
+            conn.execute("""
+                INSERT INTO table_registry
+                (table_id, name, description, source_file, source_type, row_count, column_count, columns_json, created_at, updated_at, tags_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(table_id) DO UPDATE SET
+                    name=excluded.name,
+                    description=excluded.description,
+                    source_file=excluded.source_file,
+                    source_type=excluded.source_type,
+                    row_count=excluded.row_count,
+                    column_count=excluded.column_count,
+                    columns_json=excluded.columns_json,
+                    updated_at=excluded.updated_at,
+                    tags_json=excluded.tags_json
+            """, (
+                metadata.table_id,
+                metadata.name,
+                metadata.description,
+                metadata.source_file,
+                metadata.source_type,
+                metadata.row_count,
+                metadata.column_count,
+                json.dumps(metadata.columns, ensure_ascii=False),
+                metadata.created_at.isoformat(),
+                metadata.updated_at.isoformat(),
+                json.dumps(metadata.tags, ensure_ascii=False)
+            ))
 
     def _get_table_name(self, table_id: str) -> str:
-        """获取数据库表名"""
-        return f"table_{table_id.replace('-', '_')}"
+        """获取数据库表名，校验 table_id 仅含安全字符"""
+        clean = table_id.replace("-", "_")
+        return f"table_{self._validate_identifier(clean, 'table_id')}"
 
     def import_csv(
         self,
@@ -302,16 +337,14 @@ class TableStore:
         column_defs = []
         for col in columns:
             col_name = col.get("name", "column")
+            self._validate_identifier(col_name, "column name")
             col_type = self._map_column_type(col.get("type", "TEXT"))
-            column_defs.append(f"{col_name} {col_type}")
+            column_defs.append(f"\"{col_name}\" {col_type}")
 
         create_sql = f"CREATE TABLE {db_table_name} ({', '.join(column_defs)})"
 
-        conn = sqlite3.connect(str(self.db_path))
-        cursor = conn.cursor()
-        cursor.execute(create_sql)
-        conn.commit()
-        conn.close()
+        with self._db() as conn:
+            conn.execute(create_sql)
 
         metadata = TableMetadata(
             table_id=table_id,
@@ -353,23 +386,20 @@ class TableStore:
 
         db_table_name = self._get_table_name(table_id)
         columns = list(rows[0].keys())
+        for col in columns:
+            self._validate_identifier(col, "column name")
         placeholders = ", ".join(["?" for _ in columns])
-        column_names = ", ".join(columns)
+        column_names = ", ".join(f"\"{c}\"" for c in columns)
 
         insert_sql = f"INSERT INTO {db_table_name} ({column_names}) VALUES ({placeholders})"
 
-        conn = sqlite3.connect(str(self.db_path))
-        cursor = conn.cursor()
+        with self._db() as conn:
+            for row in rows:
+                values = [row.get(col) for col in columns]
+                conn.execute(insert_sql, values)
 
-        for row in rows:
-            values = [row.get(col) for col in columns]
-            cursor.execute(insert_sql, values)
-
-        conn.commit()
-
-        cursor.execute(f"SELECT COUNT(*) FROM {db_table_name}")
-        new_count = cursor.fetchone()[0]
-        conn.close()
+            row = conn.execute(f"SELECT COUNT(*) FROM {db_table_name}").fetchone()
+            new_count = row["count"] if isinstance(row, sqlite3.Row) else row[0]
 
         metadata = self._tables[table_id]
         metadata.row_count = new_count
@@ -407,27 +437,36 @@ class TableStore:
 
         db_table_name = self._get_table_name(table_id)
 
-        select_cols = ", ".join(columns) if columns else "*"
+        if columns:
+            validated_cols = [self._validate_identifier(c, "column name") for c in columns]
+            select_cols = ", ".join(f"\"{c}\"" for c in validated_cols)
+        else:
+            select_cols = "*"
         sql = f"SELECT {select_cols} FROM {db_table_name}"
 
         if where:
+            if ";" in where:
+                raise ValueError("Semicolon not allowed in WHERE clause")
             sql += f" WHERE {where}"
         if order_by:
+            if ";" in order_by:
+                raise ValueError("Semicolon not allowed in ORDER BY clause")
             sql += f" ORDER BY {order_by}"
-        if limit:
-            sql += f" LIMIT {limit}"
-        if offset:
-            sql += f" OFFSET {offset}"
+        if limit is not None:
+            sql += f" LIMIT {int(limit)}"
+        if offset is not None:
+            sql += f" OFFSET {int(offset)}"
 
-        conn = sqlite3.connect(str(self.db_path))
-        cursor = conn.cursor()
+        conn = self._get_connection()
+        try:
+            metadata = self._tables[table_id]
+            col_names = [c["name"] for c in metadata.columns]
 
-        metadata = self._tables[table_id]
-        col_names = [c["name"] for c in metadata.columns]
-
-        cursor.execute(sql)
-        rows = cursor.fetchall()
-        conn.close()
+            cursor = conn.cursor()
+            cursor.execute(sql)
+            rows = cursor.fetchall()
+        finally:
+            conn.close()
 
         results = []
         for row in rows:
@@ -456,10 +495,14 @@ class TableStore:
         db_table_name = self._get_table_name(table_id)
         actual_sql = sql.replace("{table}", db_table_name)
 
-        conn = sqlite3.connect(str(self.db_path))
-        cursor = conn.cursor()
+        sql_upper = actual_sql.strip().upper()
+        for keyword in _DDL_KEYWORDS:
+            if sql_upper.startswith(keyword) or f" {keyword} " in sql_upper:
+                raise ValueError(f"DDL statement ({keyword}) not allowed in execute_sql, use dedicated methods")
 
+        conn = self._get_connection()
         try:
+            cursor = conn.cursor()
             cursor.execute(actual_sql)
 
             if actual_sql.strip().upper().startswith("SELECT"):
@@ -521,14 +564,9 @@ class TableStore:
 
         db_table_name = self._get_table_name(table_id)
 
-        conn = sqlite3.connect(str(self.db_path))
-        cursor = conn.cursor()
-
-        cursor.execute(f"DROP TABLE IF EXISTS {db_table_name}")
-        cursor.execute("DELETE FROM table_registry WHERE table_id = ?", (table_id,))
-
-        conn.commit()
-        conn.close()
+        with self._db() as conn:
+            conn.execute(f"DROP TABLE IF EXISTS {db_table_name}")
+            conn.execute("DELETE FROM table_registry WHERE table_id = ?", (table_id,))
 
         del self._tables[table_id]
         logger.info(f"表格已删除：{table_id}")
@@ -550,12 +588,13 @@ class TableStore:
 
         db_table_name = self._get_table_name(table_id)
 
-        conn = sqlite3.connect(str(self.db_path))
-        cursor = conn.cursor()
-
-        cursor.execute(f"PRAGMA table_info({db_table_name})")
-        columns_info = cursor.fetchall()
-        conn.close()
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(f"PRAGMA table_info({db_table_name})")
+            columns_info = cursor.fetchall()
+        finally:
+            conn.close()
 
         schema = {
             "table_id": table_id,
@@ -621,9 +660,12 @@ class TableStore:
         """从 DataFrame 创建数据库表"""
         db_table_name = self._get_table_name(table_id)
 
-        conn = sqlite3.connect(str(self.db_path))
-        df.to_sql(db_table_name, conn, if_exists="replace", index=False)
-        conn.close()
+        conn = self._get_connection()
+        try:
+            df.to_sql(db_table_name, conn, if_exists="replace", index=False)
+            conn.commit()
+        finally:
+            conn.close()
 
 
 _store_instance: TableStore | None = None

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from fastapi.responses import StreamingResponse
 
 from api.workflows import get_agent_runtime_service
@@ -28,11 +28,14 @@ def get_chat_agent_service(
     return ChatAgentService(runtime)
 
 
-@router.post("/runs", response_model=ChatAgentRunResponse)
+@router.post("/runs", response_model=ChatAgentRunResponse, deprecated=True)
 async def create_chat_agent_run(
     request: ChatAgentRunCreate,
+    response: Response,
     service: ChatAgentService = Depends(get_chat_agent_service),
 ):
+    response.headers["X-Agent-Compat-Mode"] = "legacy-workflow"
+    response.headers["Warning"] = '299 - "Deprecated: use /agent-sessions for new chat agent runs"'
     return service.create_run(request)
 
 
@@ -52,11 +55,13 @@ async def get_chat_agent_run(
     return service.get_run(run_id)
 
 
-@router.post("/runs/{run_id}/run", response_model=ChatAgentRunResponse)
+@router.post("/runs/{run_id}/run", response_model=ChatAgentRunResponse, deprecated=True)
 async def run_chat_agent_run(
     run_id: str,
+    response: Response,
     service: ChatAgentService = Depends(get_chat_agent_service),
 ):
+    response.headers["X-Agent-Compat-Mode"] = "legacy-workflow"
     return await service.run(run_id)
 
 

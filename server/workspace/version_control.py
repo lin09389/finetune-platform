@@ -129,9 +129,14 @@ class VersionControl:
         db_pool = get_db_pool(str(self._db_path))
 
         db_pool.execute_update("""
-            INSERT OR REPLACE INTO file_versions
+            INSERT INTO file_versions
             (version_id, file_id, version_number, content_hash, size, message, author, created_at, metadata)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(version_id) DO UPDATE SET
+                content_hash=excluded.content_hash,
+                size=excluded.size,
+                message=excluded.message,
+                metadata=excluded.metadata
         """, (
             version.version_id,
             version.file_id,

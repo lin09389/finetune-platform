@@ -41,13 +41,18 @@ class WorkflowRuntimeRepository:
         self.import_legacy_digital_team()
 
     def ensure_schema(self) -> None:
+        pool = get_db_pool(self.db_path)
         migrations_dir = Path(__file__).resolve().parents[1] / "core" / "migrations"
-        with get_db_pool(self.db_path).get_connection() as conn:
-            conn.executescript((migrations_dir / "003_workflow_runtime.sql").read_text(encoding="utf-8"))
-            conn.executescript((migrations_dir / "004_workflow_context_memory.sql").read_text(encoding="utf-8"))
-            conn.executescript((migrations_dir / "005_workflow_observability_actions.sql").read_text(encoding="utf-8"))
-            conn.executescript((migrations_dir / "006_chat_agent_runs.sql").read_text(encoding="utf-8"))
-            conn.executescript((migrations_dir / "007_agent_tool_calls.sql").read_text(encoding="utf-8"))
+        for migration_file in [
+            "003_workflow_runtime.sql",
+            "004_workflow_context_memory.sql",
+            "005_workflow_observability_actions.sql",
+            "006_chat_agent_runs.sql",
+            "007_agent_tool_calls.sql",
+        ]:
+            pool.safe_execute_script(
+                (migrations_dir / migration_file).read_text(encoding="utf-8")
+            )
 
     def seed_builtin_templates(self) -> None:
         if self.get_template(SOFTWARE_DELIVERY_TEMPLATE.id):
@@ -180,11 +185,19 @@ class WorkflowRuntimeRepository:
         with get_db_pool(self.db_path).get_connection() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO workflow_templates
+                INSERT INTO workflow_templates
                     (id, name, description, is_builtin, is_enabled, default_provider, default_model,
                      default_approval_mode, metadata, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}',
-                    COALESCE((SELECT created_at FROM workflow_templates WHERE id = ?), ?), ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name=excluded.name,
+                    description=excluded.description,
+                    is_builtin=excluded.is_builtin,
+                    is_enabled=excluded.is_enabled,
+                    default_provider=excluded.default_provider,
+                    default_model=excluded.default_model,
+                    default_approval_mode=excluded.default_approval_mode,
+                    updated_at=excluded.updated_at
                 """,
                 (
                     workflow.id,
@@ -195,7 +208,6 @@ class WorkflowRuntimeRepository:
                     workflow.default_provider,
                     workflow.default_model,
                     workflow.default_approval_mode,
-                    workflow.id,
                     now,
                     now,
                 ),
@@ -257,9 +269,31 @@ class WorkflowRuntimeRepository:
                 )
 
     def list_templates(self) -> list[WorkflowDefinition]:
-        with get_db_pool(self.db_path).get_connection() as conn:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
             rows = conn.execute("SELECT * FROM workflow_templates ORDER BY is_builtin DESC, updated_at DESC").fetchall()
-        return [self._template_from_row(row) for row in rows]
+            if not rows:
+                return []
+            template_ids = [row["id"] for row in rows]
+            placeholders = ",".join("?" for _ in template_ids)
+            all_agents = conn.execute(
+                f"SELECT * FROM workflow_template_agents WHERE template_id IN ({placeholders}) ORDER BY created_at ASC",
+                template_ids,
+            ).fetchall()
+            all_steps = conn.execute(
+                f"SELECT * FROM workflow_template_steps WHERE template_id IN ({placeholders}) ORDER BY sort_order ASC, created_at ASC",
+                template_ids,
+            ).fetchall()
+            agents_by_template: dict[str, list] = {tid: [] for tid in template_ids}
+            for agent_row in all_agents:
+                tid = agent_row["template_id"]
+                if tid in agents_by_template:
+                    agents_by_template[tid].append(agent_row)
+            steps_by_template: dict[str, list] = {tid: [] for tid in template_ids}
+            for step_row in all_steps:
+                tid = step_row["template_id"]
+                if tid in steps_by_template:
+                    steps_by_template[tid].append(step_row)
+        return [self._template_from_row_batched(row, agents_by_template.get(row["id"], []), steps_by_template.get(row["id"], [])) for row in rows]
 
     def get_template(self, template_id: str) -> WorkflowDefinition | None:
         with get_db_pool(self.db_path).get_connection() as conn:
@@ -333,14 +367,46 @@ class WorkflowRuntimeRepository:
         return self.get_project(workflow_id) or {}
 
     def list_projects(self) -> list[dict[str, Any]]:
-        with get_db_pool(self.db_path).get_connection() as conn:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
             rows = conn.execute("SELECT * FROM workflows ORDER BY updated_at DESC").fetchall()
-        return [self._project_from_row(row, include_tasks=True) for row in rows]
+            # Batch-load all tasks in a single query to avoid N+1
+            workflow_ids = [row["id"] for row in rows]
+            tasks_by_workflow: dict[str, list[dict[str, Any]]] = {wid: [] for wid in workflow_ids}
+            if workflow_ids:
+                placeholders = ",".join("?" for _ in workflow_ids)
+                task_rows = conn.execute(
+                    f"SELECT * FROM workflow_steps WHERE workflow_id IN ({placeholders}) ORDER BY sort_order ASC, created_at ASC",
+                    workflow_ids,
+                ).fetchall()
+                for task_row in task_rows:
+                    wid = task_row["workflow_id"]
+                    if wid in tasks_by_workflow:
+                        tasks_by_workflow[wid].append(self._task_from_row(task_row))
+        result = []
+        for row in rows:
+            data = dict(row)
+            from core.storage import _json_loads
+            data["metadata"] = _load(data.get("metadata"))
+            data["tasks"] = tasks_by_workflow.get(data["id"], [])
+            result.append(data)
+        return result
 
     def get_project(self, project_id: str) -> dict[str, Any] | None:
-        with get_db_pool(self.db_path).get_connection() as conn:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
             row = conn.execute("SELECT * FROM workflows WHERE id = ?", (project_id,)).fetchone()
-        return self._project_from_row(row, include_tasks=True) if row else None
+            if not row:
+                return None
+            tasks = conn.execute(
+                "SELECT * FROM workflow_steps WHERE workflow_id = ? ORDER BY sort_order ASC, created_at ASC",
+                (project_id,),
+            ).fetchall()
+        return self._project_from_row(row, include_tasks=True, preloaded_tasks=[self._task_from_row(t) for t in tasks])
+
+    _WORKFLOW_UPDATABLE = {
+        "title", "goal", "template_id", "project_path", "provider", "model",
+        "approval_mode", "status", "current_stage", "metadata",
+        "completed_at", "updated_at",
+    }
 
     def update_project(self, project_id: str, **fields: Any) -> None:
         if not fields:
@@ -348,6 +414,8 @@ class WorkflowRuntimeRepository:
         if isinstance(fields.get("metadata"), dict):
             fields["metadata"] = _json(fields["metadata"])
         fields["updated_at"] = _now()
+        from core.db_manager import validate_column_names
+        validate_column_names(list(fields.keys()), self._WORKFLOW_UPDATABLE)
         assignments = ", ".join(f"{key} = ?" for key in fields)
         values = list(fields.values()) + [project_id]
         with get_db_pool(self.db_path).get_connection() as conn:
@@ -393,17 +461,23 @@ class WorkflowRuntimeRepository:
         return self.get_task(task_id) or {}
 
     def get_task(self, task_id: str) -> dict[str, Any] | None:
-        with get_db_pool(self.db_path).get_connection() as conn:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
             row = conn.execute("SELECT * FROM workflow_steps WHERE id = ?", (task_id,)).fetchone()
         return self._task_from_row(row) if row else None
 
     def get_tasks(self, project_id: str) -> list[dict[str, Any]]:
-        with get_db_pool(self.db_path).get_connection() as conn:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
             rows = conn.execute(
                 "SELECT * FROM workflow_steps WHERE workflow_id = ? ORDER BY sort_order ASC, created_at ASC",
                 (project_id,),
             ).fetchall()
         return [self._task_from_row(row) for row in rows]
+
+    _STEP_UPDATABLE = {
+        "step_key", "agent_id", "title", "description", "status",
+        "requires_approval", "input", "output", "error",
+        "sort_order", "completed_at", "updated_at",
+    }
 
     def update_task(self, task_id: str, **fields: Any) -> None:
         if "output" in fields:
@@ -411,6 +485,8 @@ class WorkflowRuntimeRepository:
         if "input" in fields:
             fields["input"] = _json(fields["input"])
         fields["updated_at"] = _now()
+        from core.db_manager import validate_column_names
+        validate_column_names(list(fields.keys()), self._STEP_UPDATABLE)
         assignments = ", ".join(f"{key} = ?" for key in fields)
         values = list(fields.values()) + [task_id]
         with get_db_pool(self.db_path).get_connection() as conn:
@@ -499,11 +575,20 @@ class WorkflowRuntimeRepository:
             ).fetchone()
             conn.execute(
                 """
-                INSERT OR REPLACE INTO workflow_context_profiles
+                INSERT INTO workflow_context_profiles
                     (workflow_id, project_path, chat_session_id, include_project_context,
                      include_chat_context, include_memory, max_context_chars, metadata,
                      created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(workflow_id) DO UPDATE SET
+                    project_path=excluded.project_path,
+                    chat_session_id=excluded.chat_session_id,
+                    include_project_context=excluded.include_project_context,
+                    include_chat_context=excluded.include_chat_context,
+                    include_memory=excluded.include_memory,
+                    max_context_chars=excluded.max_context_chars,
+                    metadata=excluded.metadata,
+                    updated_at=excluded.updated_at
                 """,
                 (
                     workflow_id,
@@ -760,11 +845,18 @@ class WorkflowRuntimeRepository:
         self._with_schema_retry(insert_call)
         return self.get_tool_call(call_id) or {}
 
+    _TOOL_CALL_UPDATABLE = {
+        "status", "result_summary", "result_payload", "error",
+        "started_at", "completed_at", "duration_ms",
+    }
+
     def update_tool_call(self, call_id: str, **fields: Any) -> dict[str, Any]:
         if isinstance(fields.get("result_payload"), dict):
             fields["result_payload"] = _json(fields["result_payload"])
         if not fields:
             return self.get_tool_call(call_id) or {}
+        from core.db_manager import validate_column_names
+        validate_column_names(list(fields.keys()), self._TOOL_CALL_UPDATABLE)
         assignments = ", ".join(f"{key} = ?" for key in fields)
         values = list(fields.values()) + [call_id]
         def update_call() -> None:
@@ -776,7 +868,7 @@ class WorkflowRuntimeRepository:
 
     def get_tool_call(self, call_id: str) -> dict[str, Any] | None:
         def fetch_call():
-            with get_db_pool(self.db_path).get_connection() as conn:
+            with get_db_pool(self.db_path).get_readonly_connection() as conn:
                 return conn.execute("SELECT * FROM workflow_tool_calls WHERE id = ?", (call_id,)).fetchone()
 
         row = self._with_schema_retry(fetch_call)
@@ -784,7 +876,7 @@ class WorkflowRuntimeRepository:
 
     def list_tool_calls(self, workflow_id: str) -> list[dict[str, Any]]:
         def fetch_calls():
-            with get_db_pool(self.db_path).get_connection() as conn:
+            with get_db_pool(self.db_path).get_readonly_connection() as conn:
                 return conn.execute(
                     "SELECT * FROM workflow_tool_calls WHERE workflow_id = ? ORDER BY created_at ASC",
                     (workflow_id,),
@@ -831,11 +923,18 @@ class WorkflowRuntimeRepository:
             ).fetchall()
         return [self._action_from_row(row) for row in rows]
 
+    _ACTION_UPDATABLE = {
+        "status", "payload", "approved_by", "approved_at", "rejected_at",
+        "rejection_reason", "executed_at", "updated_at",
+    }
+
     def update_action_status(self, action_id: str, status: str, **fields: Any) -> dict[str, Any]:
         fields["status"] = status
         if isinstance(fields.get("payload"), dict):
             fields["payload"] = _json(fields["payload"])
         fields["updated_at"] = _now()
+        from core.db_manager import validate_column_names
+        validate_column_names(list(fields.keys()), self._ACTION_UPDATABLE)
         assignments = ", ".join(f"{key} = ?" for key in fields)
         values = list(fields.values()) + [action_id]
         with get_db_pool(self.db_path).get_connection() as conn:
@@ -935,7 +1034,7 @@ class WorkflowRuntimeRepository:
     def _template_from_row(self, row: Any) -> WorkflowDefinition:
         data = dict(row)
         legacy_role_map = self._legacy_role_map(data["id"])
-        with get_db_pool(self.db_path).get_connection() as conn:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
             agents = conn.execute(
                 "SELECT * FROM workflow_template_agents WHERE template_id = ? ORDER BY created_at ASC",
                 (data["id"],),
@@ -944,6 +1043,11 @@ class WorkflowRuntimeRepository:
                 "SELECT * FROM workflow_template_steps WHERE template_id = ? ORDER BY sort_order ASC, created_at ASC",
                 (data["id"],),
             ).fetchall()
+        return self._template_from_row_batched(row, agents, steps)
+
+    def _template_from_row_batched(self, row: Any, agent_rows: list, step_rows: list) -> WorkflowDefinition:
+        data = dict(row)
+        legacy_role_map = self._legacy_role_map(data["id"])
         return WorkflowDefinition(
             id=data["id"],
             name=data["name"],
@@ -954,7 +1058,7 @@ class WorkflowRuntimeRepository:
             default_provider=data["default_provider"],
             default_model=data["default_model"],
             default_approval_mode=data["default_approval_mode"],
-            agents=[self._agent_definition_from_template_row(agent) for agent in agents],
+            agents=[self._agent_definition_from_template_row(agent) for agent in agent_rows],
             steps=[
                 StepDefinition(
                     key=step["step_key"],
@@ -967,7 +1071,7 @@ class WorkflowRuntimeRepository:
                     requires_approval=bool(step["requires_approval"]),
                     sort_order=step["sort_order"],
                 )
-                for step in steps
+                for step in step_rows
             ],
         )
 
@@ -990,10 +1094,13 @@ class WorkflowRuntimeRepository:
             hidden=bool(metadata.get("hidden", False)),
         )
 
-    def _project_from_row(self, row: Any, include_tasks: bool = False) -> dict[str, Any]:
+    def _project_from_row(self, row: Any, include_tasks: bool = False, preloaded_tasks: list | None = None) -> dict[str, Any]:
         data = dict(row)
         data["metadata"] = _load(data.get("metadata"))
-        data["tasks"] = self.get_tasks(data["id"]) if include_tasks else []
+        if preloaded_tasks is not None:
+            data["tasks"] = preloaded_tasks
+        else:
+            data["tasks"] = self.get_tasks(data["id"]) if include_tasks else []
         return data
 
     def _task_from_row(self, row: Any) -> dict[str, Any]:
@@ -1061,14 +1168,22 @@ class WorkflowRuntimeRepository:
         )
         return data
 
-    def _with_schema_retry(self, operation):
-        try:
-            return operation()
-        except sqlite3.OperationalError as exc:
-            if "workflow_tool_calls" not in str(exc):
-                raise
-            self.ensure_schema()
-            return operation()
+    def _with_schema_retry(self, operation, max_retries: int = 2):
+        import time
+        last_exc = None
+        for attempt in range(max_retries + 1):
+            try:
+                return operation()
+            except sqlite3.OperationalError as exc:
+                msg = str(exc).lower()
+                if "no such" not in msg and "workflow_tool_calls" not in msg:
+                    raise
+                last_exc = exc
+                if attempt < max_retries:
+                    logger.warning(f"Schema error (attempt {attempt + 1}/{max_retries + 1}), running ensure_schema: {exc}")
+                    self.ensure_schema()
+                    time.sleep(0.1 * (2 ** attempt))
+        raise last_exc
 
     def _legacy_role_map(self, template_id: str) -> dict[str, str]:
         if template_id == "software_delivery":

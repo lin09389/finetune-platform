@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.chat_branch import get_next_message_tree_metadata, register_branch_message
+from core.db_manager import run_sync
 
 from .context import get_context_manager
 from .session import get_session_manager
@@ -68,14 +69,15 @@ class SessionResponse(ChatApiModel):
     updated_at: str
 
 
-def _sync_context_from_session(session_id: str) -> None:
-    session = get_session_manager().get_session(session_id)
+async def _sync_context_from_session(session_id: str) -> None:
+    session = await run_sync(get_session_manager().get_session, session_id)
     context_manager = get_context_manager()
-    context_manager.clear_context(session_id)
+    await run_sync(context_manager.clear_context, session_id)
     if not session:
         return
     for message in session.messages:
-        context_manager.add_message(
+        await run_sync(
+            context_manager.add_message,
             session_id=session_id,
             role=message.role,
             content=message.content,
@@ -92,7 +94,8 @@ async def create_session(request: CreateSessionRequest | None = None, title: str
         metadata["model_id"] = request.model_id
     if request and request.backend:
         metadata["backend"] = request.backend
-    session = manager.create_session(
+    session = await run_sync(
+        manager.create_session,
         title=resolved_title,
         metadata=metadata,
     )
@@ -114,7 +117,7 @@ async def list_sessions(
     offset: int = Query(default=0, ge=0),
 ):
     manager = get_session_manager()
-    sessions = manager.list_sessions(limit=limit, offset=offset)
+    sessions = await run_sync(manager.list_sessions, limit=limit, offset=offset)
 
     return {
         "sessions": [
@@ -130,14 +133,14 @@ async def list_sessions(
             }
             for s in sessions
         ],
-        "total": manager.get_session_count(),
+        "total": await run_sync(manager.get_session_count),
     }
 
 
 @router.get("/sessions/{session_id}")
 async def get_session(session_id: str):
     manager = get_session_manager()
-    session = manager.get_session(session_id)
+    session = await run_sync(manager.get_session, session_id)
 
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -157,9 +160,9 @@ async def get_session(session_id: str):
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
     manager = get_session_manager()
-    success = manager.delete_session(session_id)
+    await run_sync(manager.delete_session, session_id)
 
-    # 无论找没找到都返回 200，因为目标是“让它不存在”
+    # 无论找没找到都返回 200，因为目标是"让它不存在"
     return {"success": True, "session_id": session_id}
 
 
@@ -168,20 +171,22 @@ async def send_message(session_id: str, request: SendMessageRequest):
     session_manager = get_session_manager()
     context_manager = get_context_manager()
 
-    session = session_manager.get_session(session_id)
+    session = await run_sync(session_manager.get_session, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
     message_metadata, current_branch_id = get_next_message_tree_metadata(session, request.metadata)
-    message = session.add_message(
+    message = await run_sync(
+        session.add_message,
         role=request.role,
         content=request.content,
         metadata=message_metadata,
     )
     register_branch_message(session, current_branch_id, message.id)
-    session_manager.append_message(session_id, message)
+    await run_sync(session_manager.append_message, session_id, message)
 
-    context_manager.add_message(
+    await run_sync(
+        context_manager.add_message,
         session_id=session_id,
         role=request.role,
         content=request.content,
@@ -204,12 +209,12 @@ async def get_messages(
     limit: int = Query(default=200, ge=1, le=500),
 ):
     manager = get_session_manager()
-    session = manager.get_session(session_id)
+    session = await run_sync(manager.get_session, session_id)
 
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    messages = session.get_messages(limit=limit)
+    messages = await run_sync(session.get_messages, limit=limit)
 
     return {
         "messages": [
@@ -230,7 +235,7 @@ async def get_messages(
 async def replace_messages(session_id: str, request: ReplaceMessagesRequest):
     session_manager = get_session_manager()
 
-    session = session_manager.get_session(session_id)
+    session = await run_sync(session_manager.get_session, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -244,10 +249,10 @@ async def replace_messages(session_id: str, request: ReplaceMessagesRequest):
         }
         for message in request.messages
     ]
-    session_manager.replace_session_messages(session_id, messages)
-    _sync_context_from_session(session_id)
+    await run_sync(session_manager.replace_session_messages, session_id, messages)
+    await _sync_context_from_session(session_id)
 
-    updated_session = session_manager.get_session(session_id)
+    updated_session = await run_sync(session_manager.get_session, session_id)
     return {
         "messages": [
             {
@@ -268,12 +273,12 @@ async def clear_messages(session_id: str):
     session_manager = get_session_manager()
     context_manager = get_context_manager()
 
-    session = session_manager.get_session(session_id)
+    session = await run_sync(session_manager.get_session, session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    session_manager.clear_session_messages(session_id)
-    context_manager.clear_context(session_id)
+    await run_sync(session_manager.clear_session_messages, session_id)
+    await run_sync(context_manager.clear_context, session_id)
 
     return {"success": True, "session_id": session_id}
 
@@ -281,7 +286,8 @@ async def clear_messages(session_id: str):
 @router.put("/sessions/{session_id}/messages/{message_id}")
 async def update_message(session_id: str, message_id: str, request: UpdateMessageRequest):
     manager = get_session_manager()
-    message = manager.update_message(
+    message = await run_sync(
+        manager.update_message,
         session_id,
         message_id,
         content=request.content,
@@ -292,7 +298,7 @@ async def update_message(session_id: str, message_id: str, request: UpdateMessag
     if not message:
         raise HTTPException(status_code=404, detail="Message not found")
 
-    _sync_context_from_session(session_id)
+    await _sync_context_from_session(session_id)
 
     return {
         "id": message.id,
@@ -307,12 +313,12 @@ async def update_message(session_id: str, message_id: str, request: UpdateMessag
 @router.delete("/sessions/{session_id}/messages/{message_id}")
 async def delete_message(session_id: str, message_id: str):
     manager = get_session_manager()
-    success = manager.delete_message(session_id, message_id)
+    success = await run_sync(manager.delete_message, session_id, message_id)
 
     if not success:
         raise HTTPException(status_code=404, detail="Message not found")
 
-    _sync_context_from_session(session_id)
+    await _sync_context_from_session(session_id)
 
     return {"success": True, "session_id": session_id, "message_id": message_id}
 
@@ -320,7 +326,7 @@ async def delete_message(session_id: str, message_id: str):
 @router.put("/sessions/{session_id}/title")
 async def update_session_title(session_id: str, title: str):
     manager = get_session_manager()
-    success = manager.update_session_title(session_id, title)
+    success = await run_sync(manager.update_session_title, session_id, title)
 
     if not success:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -331,12 +337,12 @@ async def update_session_title(session_id: str, title: str):
 @router.put("/sessions/{session_id}/metadata")
 async def update_session_metadata(session_id: str, request: UpdateSessionMetadataRequest):
     manager = get_session_manager()
-    success = manager.update_session_metadata(session_id, request.metadata)
+    success = await run_sync(manager.update_session_metadata, session_id, request.metadata)
 
     if not success:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    session = manager.get_session(session_id)
+    session = await run_sync(manager.get_session, session_id)
     return {
         "success": True,
         "session_id": session_id,
@@ -347,7 +353,7 @@ async def update_session_metadata(session_id: str, request: UpdateSessionMetadat
 @router.get("/sessions/{session_id}/context")
 async def get_context(session_id: str):
     manager = get_context_manager()
-    context = manager.get_context(session_id)
+    context = await run_sync(manager.get_context, session_id)
 
     return {
         "session_id": session_id,
@@ -360,7 +366,7 @@ async def get_context(session_id: str):
 @router.put("/sessions/{session_id}/system-prompt")
 async def set_system_prompt(session_id: str, prompt: str):
     manager = get_context_manager()
-    context = manager.get_context(session_id)
-    context.set_system_prompt(prompt)
+    context = await run_sync(manager.get_context, session_id)
+    await run_sync(context.set_system_prompt, prompt)
 
     return {"success": True, "session_id": session_id}

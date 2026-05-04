@@ -34,8 +34,7 @@ class DigitalTeamRepository:
         self.ensure_schema()
 
     def ensure_schema(self) -> None:
-        with get_db_pool(self.db_path).get_connection() as conn:
-            conn.executescript(
+        get_db_pool(self.db_path).safe_execute_script(
                 """
                 CREATE TABLE IF NOT EXISTS digital_teams (
                     id TEXT PRIMARY KEY,
@@ -162,19 +161,44 @@ class DigitalTeamRepository:
         return self.get_project(project_id) or {}
 
     def list_projects(self) -> list[dict[str, Any]]:
-        with get_db_pool(self.db_path).get_connection() as conn:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
             rows = conn.execute(
                 "SELECT * FROM digital_team_projects ORDER BY updated_at DESC"
             ).fetchall()
-        return [self._project_from_row(row, include_tasks=True) for row in rows]
+            # Batch-load tasks to avoid N+1 query
+            project_ids = [row["id"] for row in rows]
+            tasks_by_project: dict[str, list[dict[str, Any]]] = {pid: [] for pid in project_ids}
+            if project_ids:
+                placeholders = ",".join("?" for _ in project_ids)
+                task_rows = conn.execute(
+                    f"SELECT * FROM digital_team_tasks WHERE project_id IN ({placeholders}) ORDER BY created_at ASC",
+                    project_ids,
+                ).fetchall()
+                for task_row in task_rows:
+                    pid = task_row["project_id"]
+                    if pid in tasks_by_project:
+                        tasks_by_project[pid].append(self._task_from_row(task_row))
+        result = []
+        for row in rows:
+            data = dict(row)
+            data["metadata"] = _load(data.get("metadata"))
+            data["tasks"] = tasks_by_project.get(data["id"], [])
+            result.append(data)
+        return result
 
     def get_project(self, project_id: str) -> dict[str, Any] | None:
-        with get_db_pool(self.db_path).get_connection() as conn:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
             row = conn.execute(
                 "SELECT * FROM digital_team_projects WHERE id = ?",
                 (project_id,),
             ).fetchone()
         return self._project_from_row(row, include_tasks=True) if row else None
+
+    _PROJECT_UPDATABLE = {
+        "title", "goal", "template_id", "project_path", "provider", "model",
+        "approval_mode", "status", "current_stage", "metadata",
+        "completed_at", "updated_at",
+    }
 
     def update_project(self, project_id: str, **fields: Any) -> None:
         if not fields:
@@ -182,6 +206,8 @@ class DigitalTeamRepository:
         if "metadata" in fields:
             fields["metadata"] = _json(fields["metadata"])
         fields["updated_at"] = _now()
+        from core.db_manager import validate_column_names
+        validate_column_names(list(fields.keys()), self._PROJECT_UPDATABLE)
         assignments = ", ".join(f"{key} = ?" for key in fields)
         values = list(fields.values()) + [project_id]
         with get_db_pool(self.db_path).get_connection() as conn:
@@ -231,12 +257,17 @@ class DigitalTeamRepository:
         return self._task_from_row(row) if row else None
 
     def get_tasks(self, project_id: str) -> list[dict[str, Any]]:
-        with get_db_pool(self.db_path).get_connection() as conn:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
             rows = conn.execute(
                 "SELECT * FROM digital_team_tasks WHERE project_id = ? ORDER BY created_at ASC",
                 (project_id,),
             ).fetchall()
         return [self._task_from_row(row) for row in rows]
+
+    _TASK_UPDATABLE = {
+        "role", "title", "description", "status", "requires_approval",
+        "input", "output", "error", "completed_at", "updated_at",
+    }
 
     def update_task(self, task_id: str, **fields: Any) -> None:
         if "output" in fields:
@@ -244,6 +275,8 @@ class DigitalTeamRepository:
         if "input" in fields:
             fields["input"] = _json(fields["input"])
         fields["updated_at"] = _now()
+        from core.db_manager import validate_column_names
+        validate_column_names(list(fields.keys()), self._TASK_UPDATABLE)
         assignments = ", ".join(f"{key} = ?" for key in fields)
         values = list(fields.values()) + [task_id]
         with get_db_pool(self.db_path).get_connection() as conn:
@@ -346,10 +379,13 @@ class DigitalTeamRepository:
             for row in rows
         ]
 
-    def _project_from_row(self, row: Any, include_tasks: bool = False) -> dict[str, Any]:
+    def _project_from_row(self, row: Any, include_tasks: bool = False, preloaded_tasks: list | None = None) -> dict[str, Any]:
         data = dict(row)
         data["metadata"] = _load(data.get("metadata"))
-        data["tasks"] = self.get_tasks(data["id"]) if include_tasks else []
+        if preloaded_tasks is not None:
+            data["tasks"] = preloaded_tasks
+        else:
+            data["tasks"] = self.get_tasks(data["id"]) if include_tasks else []
         return data
 
     def _task_from_row(self, row: Any) -> dict[str, Any]:

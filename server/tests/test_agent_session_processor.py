@@ -96,6 +96,7 @@ def test_whitelisted_command_executes_and_records_command_part(tmp_path: Path):
     rel = target.relative_to(workspace).as_posix()
     responses = iter(
         [
+            {"tool": "detect_project_commands", "arguments": {}},
             {"tool": "bash_command", "arguments": {"payload": {"command": ["python", "-m", "py_compile", rel]}}},
             {"tool": "finalize", "arguments": {"summary": "验证通过。"}},
         ]
@@ -138,3 +139,75 @@ def test_non_allowlisted_command_is_blocked(tmp_path: Path):
     assert command.type == "summary"
     assert blocked_command.status == "blocked"
     assert "Destructive" in command.content or "白名单" in command.content
+
+
+def test_command_before_detect_gets_guidance_and_continues(tmp_path: Path):
+    workspace = Path.cwd()
+    run_dir = workspace / "tmp" / f"agent-command-guidance-{uuid.uuid4().hex[:8]}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    target = run_dir / "ok.py"
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_command_guidance.db")))
+    session = service.create_session(AgentSessionCreate(title="command guidance", project_path=str(workspace)))
+    rel = target.relative_to(workspace).as_posix()
+    responses = iter(
+        [
+            {"tool": "bash_command", "arguments": {"payload": {"command": ["python", "-m", "py_compile", rel]}}},
+            {"tool": "detect_project_commands", "arguments": {}},
+            {"tool": "bash_command", "arguments": {"payload": {"command": ["python", "-m", "py_compile", rel]}}},
+            {"tool": "finalize", "arguments": {"summary": "验证通过。"}},
+        ]
+    )
+
+    async def model_call(_messages):
+        return json.dumps(next(responses), ensure_ascii=False)
+
+    service.processor.max_iterations = 6
+    service.model_call = model_call
+    try:
+        result = asyncio.run(service.prompt(session.id, AgentPromptRequest(content="运行验证")))
+        guidance = next(part for part in result.parts if part.type == "tool_result" and "识别验证命令" in (part.title or ""))
+        command = next(part for part in result.parts if part.type == "command")
+
+        assert result.status == "completed"
+        assert guidance.status == "completed"
+        assert command.status == "completed"
+    finally:
+        shutil.rmtree(run_dir, ignore_errors=True)
+
+
+def test_collect_context_infers_source_file_before_patch(tmp_path: Path):
+    workspace = Path.cwd()
+    run_dir = workspace / "tmp" / f"agent-source-guidance-{uuid.uuid4().hex[:8]}"
+    src_dir = run_dir / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    target = src_dir / "feature.ts"
+    target.write_text("export const VALUE = 1;\n", encoding="utf-8")
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_source_guidance.db")))
+    session = service.create_session(AgentSessionCreate(title="source guidance", project_path=str(workspace)))
+    rel = target.relative_to(workspace).as_posix()
+    responses = iter(
+        [
+            {"tool": "collect_context", "arguments": {}},
+            {"tool": "patch", "arguments": {"payload": {"files": [{"path": rel, "content": "export const VALUE = 2;\n"}]}}},
+            {"tool": "finalize", "arguments": {"summary": "源码修改完成。"}},
+        ]
+    )
+
+    async def model_call(_messages):
+        return json.dumps(next(responses), ensure_ascii=False)
+
+    service.processor.max_iterations = 8
+    service.model_call = model_call
+    try:
+        result = asyncio.run(service.prompt(session.id, AgentPromptRequest(content="修改 feature.ts")))
+        context = next(part for part in result.parts if part.type == "tool_result" and part.title == "批量收集上下文")
+        diff = next(part for part in result.parts if part.type == "diff")
+
+        assert result.status == "completed"
+        assert rel in result.metadata["state"]["touched_paths"]
+        assert context.payload["files"]
+        assert diff.status == "executed"
+        assert target.read_text(encoding="utf-8") == "export const VALUE = 2;\n"
+    finally:
+        shutil.rmtree(run_dir, ignore_errors=True)

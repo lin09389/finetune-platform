@@ -132,10 +132,21 @@ class FileManager:
         db_pool = get_db_pool(str(self._db_path))
 
         db_pool.execute_update("""
-            INSERT OR REPLACE INTO files
+            INSERT INTO files
             (id, project_id, path, name, file_type, size, content_hash,
              current_version, version_count, metadata, created_at, updated_at, tags)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                path=excluded.path,
+                name=excluded.name,
+                file_type=excluded.file_type,
+                size=excluded.size,
+                content_hash=excluded.content_hash,
+                current_version=excluded.current_version,
+                version_count=excluded.version_count,
+                metadata=excluded.metadata,
+                updated_at=excluded.updated_at,
+                tags=excluded.tags
         """, (
             file_info.id,
             file_info.project_id,

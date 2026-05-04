@@ -14,6 +14,7 @@ from agent_session.models import (
     AgentSessionResponse,
 )
 from agent_session.service import AgentSessionService
+from core.db_manager import run_sync
 
 router = APIRouter(prefix="/agent-sessions", tags=["Agent Sessions"])
 
@@ -27,7 +28,7 @@ async def create_agent_session(
     request: AgentSessionCreate,
     service: AgentSessionService = Depends(get_agent_session_service),
 ):
-    return service.create_session(request)
+    return await run_sync(service.create_session, request)
 
 
 @router.get("/{session_id}", response_model=AgentSessionResponse)
@@ -36,7 +37,7 @@ async def get_agent_session(
     service: AgentSessionService = Depends(get_agent_session_service),
 ):
     try:
-        return service.get_session(session_id)
+        return await run_sync(service.get_session, session_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -59,10 +60,10 @@ async def list_agent_session_events(
     service: AgentSessionService = Depends(get_agent_session_service),
 ):
     try:
-        service.get_session(session_id)
+        await run_sync(service.get_session, session_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return service.list_events(session_id)
+    return await run_sync(service.list_events, session_id)
 
 
 @router.get("/{session_id}/events/stream")
@@ -73,13 +74,13 @@ async def stream_agent_session_events(
     async def event_stream():
         seen: set[str] = set()
         for _ in range(180):
-            for event in service.list_events(session_id):
+            for event in await run_sync(service.list_events, session_id):
                 if event["id"] in seen:
                     continue
                 seen.add(event["id"])
                 yield f"event: agent_session_event\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
             try:
-                session = service.get_session(session_id)
+                session = await run_sync(service.get_session, session_id)
                 if session.status in {"completed", "failed"} and seen:
                     break
             except Exception:
@@ -98,7 +99,7 @@ async def approve_agent_permission(
     permission_id: str,
     service: AgentSessionService = Depends(get_agent_session_service),
 ):
-    session = service.approve_permission(permission_id, True)
+    session = await run_sync(service.approve_permission, permission_id, True)
     part = next((item for item in session.parts if item.id == permission_id), None)
     if not part:
         raise HTTPException(status_code=404, detail="Permission part not found")
@@ -110,7 +111,7 @@ async def reject_agent_permission(
     permission_id: str,
     service: AgentSessionService = Depends(get_agent_session_service),
 ):
-    session = service.approve_permission(permission_id, False)
+    session = await run_sync(service.approve_permission, permission_id, False)
     part = next((item for item in session.parts if item.id == permission_id), None)
     if not part:
         raise HTTPException(status_code=404, detail="Permission part not found")
@@ -122,7 +123,7 @@ async def approve_agent_action(
     action_id: str,
     service: AgentSessionService = Depends(get_agent_session_service),
 ):
-    session = service.approve_action(action_id, True)
+    session = await run_sync(service.approve_action, action_id, True)
     part = next((item for item in session.parts if item.id == action_id), None)
     if not part:
         raise HTTPException(status_code=404, detail="Action part not found")
@@ -134,7 +135,7 @@ async def reject_agent_action(
     action_id: str,
     service: AgentSessionService = Depends(get_agent_session_service),
 ):
-    session = service.approve_action(action_id, False)
+    session = await run_sync(service.approve_action, action_id, False)
     part = next((item for item in session.parts if item.id == action_id), None)
     if not part:
         raise HTTPException(status_code=404, detail="Action part not found")
@@ -146,7 +147,7 @@ async def execute_agent_action(
     action_id: str,
     service: AgentSessionService = Depends(get_agent_session_service),
 ):
-    session = service.execute_action(action_id)
+    session = await run_sync(service.execute_action, action_id)
     part = next((item for item in session.parts if item.id == action_id), None)
     if not part:
         raise HTTPException(status_code=404, detail="Action part not found")

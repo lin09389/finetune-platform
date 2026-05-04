@@ -45,6 +45,7 @@ def test_plain_question_stays_chat_mode(tmp_path):
     app.dependency_overrides.clear()
 
     assert response.status_code == 200
+    assert response.headers["X-Agent-Compat-Mode"] == "legacy-workflow"
     data = response.json()
     assert data["mode"] == "chat"
     assert not data["workflow_id"]

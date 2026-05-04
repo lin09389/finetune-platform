@@ -102,9 +102,15 @@ class NotificationManager:
         db_pool = get_db_pool(str(self._db_path))
 
         db_pool.execute_update("""
-            INSERT OR REPLACE INTO task_notifications
+            INSERT INTO task_notifications
             (id, task_id, type, title, message, read, created_at, recipient)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                type=excluded.type,
+                title=excluded.title,
+                message=excluded.message,
+                read=excluded.read,
+                recipient=excluded.recipient
         """, (
             notification.id,
             notification.task_id,
@@ -337,10 +343,26 @@ class TaskManager:
         subtasks_data = [st.model_dump() for st in task.subtasks]
 
         db_pool.execute_update("""
-            INSERT OR REPLACE INTO tasks
+            INSERT INTO tasks
             (id, title, description, project_id, status, priority, due_date, assignee,
              tags, subtasks, progress, metadata, created_at, updated_at, started_at, completed_at, created_by)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                title=excluded.title,
+                description=excluded.description,
+                project_id=excluded.project_id,
+                status=excluded.status,
+                priority=excluded.priority,
+                due_date=excluded.due_date,
+                assignee=excluded.assignee,
+                tags=excluded.tags,
+                subtasks=excluded.subtasks,
+                progress=excluded.progress,
+                metadata=excluded.metadata,
+                updated_at=excluded.updated_at,
+                started_at=excluded.started_at,
+                completed_at=excluded.completed_at,
+                created_by=excluded.created_by
         """, (
             task.id,
             task.title,

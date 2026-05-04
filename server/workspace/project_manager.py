@@ -120,9 +120,18 @@ class ProjectManager:
         db_pool = get_db_pool(str(self._db_path))
 
         db_pool.execute_update("""
-            INSERT OR REPLACE INTO projects
+            INSERT INTO projects
             (id, name, description, tags, status, metadata, created_at, updated_at, file_count, total_size)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name=excluded.name,
+                description=excluded.description,
+                tags=excluded.tags,
+                status=excluded.status,
+                metadata=excluded.metadata,
+                updated_at=excluded.updated_at,
+                file_count=excluded.file_count,
+                total_size=excluded.total_size
         """, (
             project.id,
             project.name,

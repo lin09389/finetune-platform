@@ -97,20 +97,46 @@ def _ensure_migration_table(conn: sqlite3.Connection) -> None:
 
 
 def run_schema_migrations(db_path: str = APP_DB_PATH) -> dict[str, Any]:
-    """Run versioned schema migrations from core/migrations."""
+    """Run versioned schema migrations from core/migrations.
+
+    Each migration file is executed via ``safe_execute_script`` (outside any
+    explicit transaction) so that ``executescript`` cannot implicitly COMMIT
+    an in-progress transaction.  Migration bookkeeping (migration_runs) is
+    recorded in a separate short-lived write transaction after each file.
+    """
     MIGRATIONS_DIR.mkdir(parents=True, exist_ok=True)
     migration_files = sorted(MIGRATIONS_DIR.glob("*.sql"))
     applied = 0
     skipped = 0
     failed: list[dict[str, Any]] = []
+    pool = get_db_pool(db_path)
 
-    with get_db_pool(db_path).get_connection() as conn:
+    # Ensure migration_runs table exists (DDL, safe outside transaction)
+    pool.safe_execute_script(
+        """
+        CREATE TABLE IF NOT EXISTS migration_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            version TEXT NOT NULL,
+            source_path TEXT NOT NULL DEFAULT '',
+            checksum TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL,
+            migrated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(version, source_path, checksum)
+        );
+        """
+    )
+    # Ensure extra columns exist
+    with pool.get_connection() as conn:
         _ensure_migration_table(conn)
-        for file_path in migration_files:
-            version = file_path.stem.split("_", 1)[0]
-            name = file_path.stem
-            sql = file_path.read_text(encoding="utf-8")
-            checksum = _sha256_text(sql)
+
+    for file_path in migration_files:
+        version = file_path.stem.split("_", 1)[0]
+        name = file_path.stem
+        sql = file_path.read_text(encoding="utf-8")
+        checksum = _sha256_text(sql)
+
+        # Check if already applied (read-only)
+        with pool.get_readonly_connection() as conn:
             existing = conn.execute(
                 """
                 SELECT checksum, status FROM migration_runs
@@ -119,18 +145,21 @@ def run_schema_migrations(db_path: str = APP_DB_PATH) -> dict[str, Any]:
                 """,
                 (version, str(file_path)),
             ).fetchone()
-            if existing:
-                if existing["checksum"] != checksum:
-                    message = f"Migration checksum mismatch for {file_path}"
-                    failed.append({"version": version, "name": name, "error": message})
-                    raise RuntimeError(message)
-                skipped += 1
-                continue
+        if existing:
+            if existing["checksum"] != checksum:
+                message = f"Migration checksum mismatch for {file_path}"
+                failed.append({"version": version, "name": name, "error": message})
+                raise RuntimeError(message)
+            skipped += 1
+            continue
 
-            started = time.perf_counter()
-            try:
-                conn.executescript(sql)
-                duration_ms = round((time.perf_counter() - started) * 1000, 3)
+        started = time.perf_counter()
+        try:
+            # Execute DDL script outside of any explicit transaction
+            pool.safe_execute_script(sql)
+            duration_ms = round((time.perf_counter() - started) * 1000, 3)
+            # Record success in a separate write transaction
+            with pool.get_connection() as conn:
                 conn.execute(
                     """
                     INSERT INTO migration_runs
@@ -139,164 +168,179 @@ def run_schema_migrations(db_path: str = APP_DB_PATH) -> dict[str, Any]:
                     """,
                     (version, name, str(file_path), checksum, duration_ms, _utcnow(), _utcnow()),
                 )
-                applied += 1
-            except Exception as exc:
-                duration_ms = round((time.perf_counter() - started) * 1000, 3)
-                conn.execute(
-                    """
-                    INSERT OR IGNORE INTO migration_runs
-                        (version, name, source_path, checksum, status, error, duration_ms, migrated_at, applied_at)
-                    VALUES (?, ?, ?, ?, 'failed', ?, ?, ?, ?)
-                    """,
-                    (version, name, str(file_path), checksum, str(exc), duration_ms, _utcnow(), _utcnow()),
-                )
-                failed.append({"version": version, "name": name, "error": str(exc)})
-                raise
+            applied += 1
+        except Exception as exc:
+            duration_ms = round((time.perf_counter() - started) * 1000, 3)
+            try:
+                with pool.get_connection() as conn:
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO migration_runs
+                            (version, name, source_path, checksum, status, error, duration_ms, migrated_at, applied_at)
+                        VALUES (?, ?, ?, ?, 'failed', ?, ?, ?, ?)
+                        """,
+                        (version, name, str(file_path), checksum, str(exc), duration_ms, _utcnow(), _utcnow()),
+                    )
+            except Exception as record_err:
+                logger.warning(f"Failed to record migration failure: {record_err}")
+            failed.append({"version": version, "name": name, "error": str(exc)})
+            raise
 
     return {"applied": applied, "skipped": skipped, "failed": failed}
 
 
 def init_storage(db_path: str = APP_DB_PATH) -> None:
-    """Create the canonical SQLite schema and lightweight compatibility columns."""
+    """Create the canonical SQLite schema and lightweight compatibility columns.
+
+    DDL statements are executed via ``safe_execute_script`` to avoid the
+    ``executescript`` implicit-COMMIT bug inside active transactions.
+    ALTER TABLE / CREATE INDEX for compatibility columns use a separate
+    short-lived write transaction.
+    """
     pool = get_db_pool(db_path)
+
+    # Step 1: Create core tables via safe_execute_script (no outer transaction)
+    pool.safe_execute_script(
+        """
+        CREATE TABLE IF NOT EXISTS chat_sessions (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            message_count INTEGER DEFAULT 0,
+            metadata TEXT DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS chat_messages (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            metadata TEXT DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            ordinal INTEGER NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_chat_messages_session_ordinal
+        ON chat_messages(session_id, ordinal);
+
+        CREATE TABLE IF NOT EXISTS chat_branches (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            parent_message_id TEXT,
+            title TEXT,
+            metadata TEXT DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_chat_branches_session
+        ON chat_branches(session_id);
+
+        CREATE TABLE IF NOT EXISTS chat_shares (
+            share_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            messages TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            expires_at TEXT,
+            view_count INTEGER DEFAULT 0,
+            is_public INTEGER DEFAULT 1,
+            FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_chat_shares_session
+        ON chat_shares(session_id);
+
+        CREATE TABLE IF NOT EXISTS memory_items (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL DEFAULT 'default',
+            content TEXT NOT NULL,
+            type TEXT NOT NULL DEFAULT 'knowledge',
+            importance REAL DEFAULT 0.5,
+            source TEXT DEFAULT 'unknown',
+            metadata TEXT DEFAULT '{}',
+            vector_state TEXT DEFAULT 'pending',
+            access_count INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            deleted_at TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_memory_items_user_type
+        ON memory_items(user_id, type, deleted_at);
+
+        CREATE INDEX IF NOT EXISTS idx_memory_items_content
+        ON memory_items(content);
+
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id TEXT UNIQUE,
+            trace_id TEXT,
+            user_id TEXT,
+            session_id TEXT,
+            agent_id TEXT,
+            source_ip TEXT,
+            event_type TEXT,
+            severity TEXT,
+            resource_type TEXT,
+            resource_id TEXT,
+            action TEXT,
+            details TEXT DEFAULT '{}',
+            params TEXT,
+            status TEXT,
+            result TEXT,
+            latency REAL,
+            error TEXT,
+            metadata TEXT DEFAULT '{}',
+            timestamp TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS migration_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            version TEXT NOT NULL,
+            source_path TEXT NOT NULL,
+            checksum TEXT NOT NULL,
+            status TEXT NOT NULL,
+            migrated_at TEXT NOT NULL,
+            UNIQUE(version, source_path, checksum)
+        );
+
+        CREATE TABLE IF NOT EXISTS storage_outbox (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL,
+            target TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            max_retries INTEGER NOT NULL DEFAULT 5,
+            next_retry_at TEXT,
+            error TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_storage_outbox_status_next
+        ON storage_outbox(status, next_retry_at, updated_at);
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_messages_session_id
+        ON chat_messages(session_id, id);
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_messages_session_ordinal_unique
+        ON chat_messages(session_id, ordinal);
+        """
+    )
+
+    # Step 2: Ensure migration_runs has extended columns
     with pool.get_connection() as conn:
         _ensure_migration_table(conn)
-        cursor = conn.cursor()
-        cursor.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS chat_sessions (
-                id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                message_count INTEGER DEFAULT 0,
-                metadata TEXT DEFAULT '{}',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                deleted_at TEXT
-            );
 
-            CREATE TABLE IF NOT EXISTS chat_messages (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                metadata TEXT DEFAULT '{}',
-                created_at TEXT NOT NULL,
-                ordinal INTEGER NOT NULL,
-                FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_chat_messages_session_ordinal
-            ON chat_messages(session_id, ordinal);
-
-            CREATE TABLE IF NOT EXISTS chat_branches (
-                id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                parent_message_id TEXT,
-                title TEXT,
-                metadata TEXT DEFAULT '{}',
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_chat_branches_session
-            ON chat_branches(session_id);
-
-            CREATE TABLE IF NOT EXISTS chat_shares (
-                share_id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                title TEXT NOT NULL,
-                messages TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                expires_at TEXT,
-                view_count INTEGER DEFAULT 0,
-                is_public INTEGER DEFAULT 1,
-                FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_chat_shares_session
-            ON chat_shares(session_id);
-
-            CREATE TABLE IF NOT EXISTS memory_items (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL DEFAULT 'default',
-                content TEXT NOT NULL,
-                type TEXT NOT NULL DEFAULT 'knowledge',
-                importance REAL DEFAULT 0.5,
-                source TEXT DEFAULT 'unknown',
-                metadata TEXT DEFAULT '{}',
-                vector_state TEXT DEFAULT 'pending',
-                access_count INTEGER DEFAULT 0,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                deleted_at TEXT
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_memory_items_user_type
-            ON memory_items(user_id, type, deleted_at);
-
-            CREATE INDEX IF NOT EXISTS idx_memory_items_content
-            ON memory_items(content);
-
-            CREATE TABLE IF NOT EXISTS audit_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_id TEXT UNIQUE,
-                trace_id TEXT,
-                user_id TEXT,
-                session_id TEXT,
-                agent_id TEXT,
-                source_ip TEXT,
-                event_type TEXT,
-                severity TEXT,
-                resource_type TEXT,
-                resource_id TEXT,
-                action TEXT,
-                details TEXT DEFAULT '{}',
-                params TEXT,
-                status TEXT,
-                result TEXT,
-                latency REAL,
-                error TEXT,
-                metadata TEXT DEFAULT '{}',
-                timestamp TEXT DEFAULT CURRENT_TIMESTAMP
-            );
-
-            CREATE TABLE IF NOT EXISTS migration_runs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                version TEXT NOT NULL,
-                source_path TEXT NOT NULL,
-                checksum TEXT NOT NULL,
-                status TEXT NOT NULL,
-                migrated_at TEXT NOT NULL,
-                UNIQUE(version, source_path, checksum)
-            );
-
-            CREATE TABLE IF NOT EXISTS storage_outbox (
-                id TEXT PRIMARY KEY,
-                type TEXT NOT NULL,
-                target TEXT NOT NULL,
-                payload TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                retry_count INTEGER NOT NULL DEFAULT 0,
-                max_retries INTEGER NOT NULL DEFAULT 5,
-                next_retry_at TEXT,
-                error TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_storage_outbox_status_next
-            ON storage_outbox(status, next_retry_at, updated_at);
-
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_messages_session_id
-            ON chat_messages(session_id, id);
-
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_messages_session_ordinal_unique
-            ON chat_messages(session_id, ordinal);
-            """
-        )
-
-        existing_cols = {row[1] for row in cursor.execute("PRAGMA table_info(audit_logs)").fetchall()}
+    # Step 3: ALTER TABLE for backward-compat columns + extra indexes
+    with pool.get_connection() as conn:
+        existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(audit_logs)").fetchall()}
         for col_name, col_def in {
             "event_id": "TEXT",
             "session_id": "TEXT",
@@ -313,13 +357,13 @@ def init_storage(db_path: str = APP_DB_PATH) -> None:
             "metadata": "TEXT DEFAULT '{}'",
         }.items():
             if col_name not in existing_cols:
-                cursor.execute(f"ALTER TABLE audit_logs ADD COLUMN {col_name} {col_def}")
-        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_logs_event_id ON audit_logs(event_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_event_type ON audit_logs(event_type)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated ON chat_sessions(updated_at DESC)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_memory_vector_state ON memory_items(vector_state, updated_at)")
+                conn.execute(f"ALTER TABLE audit_logs ADD COLUMN {col_name} {col_def}")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_logs_event_id ON audit_logs(event_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_event_type ON audit_logs(event_type)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated ON chat_sessions(updated_at DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_vector_state ON memory_items(vector_state, updated_at)")
         _ensure_memory_fts(conn)
 
     run_schema_migrations(db_path)

@@ -22,7 +22,7 @@ ModelCall = Callable[[list[dict[str, str]]], Awaitable[str]]
 
 
 READ_TOOLS = {"read", "search", "glob", "collect_context", "read_execution"}
-CONTEXT_TOOLS = {"read", "search", "glob", "collect_context"}
+CONTEXT_TOOLS = {"read", "search", "glob", "collect_context", "detect_project_commands"}
 MAX_REPAIR_ATTEMPTS = DEFAULT_MAX_REPAIR_ATTEMPTS
 
 
@@ -48,6 +48,8 @@ class AgentSessionProcessor:
         if not session:
             raise ValueError("Agent session not found")
         metadata = self._ensure_metadata(session)
+        metadata["current_goal"] = content
+        metadata = set_phase(metadata, "running")
         session = self.repository.update_session(session_id, status="running", metadata=metadata)
         self._event(session_id, "session_started", "Agent 开始处理请求", {"content": content})
         self.repository.add_part(session_id, "text", status="completed", title="请求", content=content)
@@ -99,6 +101,43 @@ class AgentSessionProcessor:
                 messages.append({"role": "assistant", "content": raw})
                 messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
                 continue
+            if tool_name == "patch":
+                missing_context = self._missing_patch_context(args, set(metadata.get("touched_paths") or []))
+                if missing_context:
+                    metadata = set_phase(metadata, "inspecting")
+                    self.repository.update_session(session_id, metadata=metadata)
+                    guidance = f"补丁目标 {', '.join(missing_context)} 还没有在本轮被读取或搜索命中。请先 read 或 search 这些相关文件，再生成补丁。"
+                    result_part = self.repository.add_part(
+                        session_id,
+                        "tool_result",
+                        status="completed",
+                        title="需要更多上下文",
+                        content=guidance,
+                        payload={"guidance": guidance, "missing_context": missing_context, "required_tools": ["read", "search", "collect_context"]},
+                    )
+                    self._event(session_id, "tool_call_completed", guidance, {"part_id": result_part["id"], "tool": tool_name})
+                    observation = {"tool": tool_name, "status": "blocked", "summary": guidance, "payload": result_part["payload"]}
+                    messages.append({"role": "assistant", "content": raw})
+                    messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
+                    continue
+            if tool_name == "bash_command" and not metadata.get("detected_commands"):
+                command_payload = args.get("payload") if isinstance(args.get("payload"), dict) else args
+                pre_policy = evaluate_agent_action_policy(session, "command", command_payload, set(metadata.get("touched_paths") or []))
+                if pre_policy["execution_mode"] != "blocked":
+                    guidance = "请先调用 detect_project_commands 或 collect_context 识别当前项目可用的验证命令，再提出 bash_command。"
+                    result_part = self.repository.add_part(
+                        session_id,
+                        "tool_result",
+                        status="completed",
+                        title="需要识别验证命令",
+                        content=guidance,
+                        payload={"guidance": guidance, "required_tools": ["detect_project_commands", "collect_context"]},
+                    )
+                    self._event(session_id, "tool_call_completed", guidance, {"part_id": result_part["id"], "tool": tool_name})
+                    observation = {"tool": tool_name, "status": "blocked", "summary": guidance, "payload": result_part["payload"]}
+                    messages.append({"role": "assistant", "content": raw})
+                    messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
+                    continue
 
             call_part = self.repository.add_part(
                 session_id,
@@ -162,8 +201,8 @@ class AgentSessionProcessor:
                 observation = {
                     "tool": tool_name,
                     "status": "completed",
-                    "summary": "补丁已自动执行，请继续提出验证命令。",
-                    "payload": applied_payload,
+                    "summary": "补丁已自动执行。下一步必须提出一个白名单验证命令；优先使用已识别的 commands。",
+                    "payload": {**applied_payload, "available_commands": (metadata.get("detected_commands") or [])},
                 }
                 messages.append({"role": "assistant", "content": raw})
                 messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
@@ -278,6 +317,11 @@ class AgentSessionProcessor:
             if isinstance(item, dict) and item.get("path"):
                 touched.add(str(item["path"]).replace("\\", "/"))
         metadata = add_touched_paths(metadata, sorted(touched))
+        if payload.get("commands"):
+            metadata["detected_commands"] = payload.get("commands") or []
+            state = dict(metadata.get("state") or {})
+            state["detected_commands"] = metadata["detected_commands"]
+            metadata["state"] = state
         self.repository.update_session(session_id, metadata=metadata)
 
     def _handle_command(
@@ -320,7 +364,7 @@ class AgentSessionProcessor:
         observation = {"tool": "bash_command", "status": result.status, "summary": result.summary, "payload": payload, "error": result.error}
         if result.status == "completed":
             messages.append({"role": "assistant", "content": raw})
-            messages.append({"role": "user", "content": "工具结果：\n" + json.dumps({**observation, "guidance": "验证通过，请调用 finalize 输出最终结果。"}, ensure_ascii=False)})
+            messages.append({"role": "user", "content": "工具结果：\n" + json.dumps({**observation, "guidance": "验证通过。下一步必须调用 finalize，输出改动文件、验证命令、验证结果和剩余风险。"}, ensure_ascii=False)})
             return None
 
         metadata = self._ensure_metadata(self.repository.get_session(session_id) or session)
@@ -329,7 +373,7 @@ class AgentSessionProcessor:
             metadata = record_repair_attempt(metadata)
             self.repository.update_session(session_id, status="repairing", metadata=metadata)
             messages.append({"role": "assistant", "content": raw})
-            messages.append({"role": "user", "content": "工具结果：\n" + json.dumps({**observation, "guidance": "验证失败。请先读取失败摘要或相关文件，然后最多生成一次修复补丁。"}, ensure_ascii=False)})
+            messages.append({"role": "user", "content": "工具结果：\n" + json.dumps({**observation, "guidance": "验证失败。请先调用 read_execution 或读取相关文件，基于 failure_summary 最多生成一次修复补丁，然后再次验证。"}, ensure_ascii=False)})
             return None
         detail = result.error or result.summary or "已达到最大修复次数。"
         return self._stop_with_summary(session_id, "needs_manual_review", f"验证失败，已达到最大修复次数。{detail}", part_id=part["id"])
@@ -365,9 +409,29 @@ class AgentSessionProcessor:
             return f"搜索 {args.get('query') or ''}"
         if tool_name == "collect_context":
             return "收集上下文"
+        if tool_name == "detect_project_commands":
+            return "识别验证命令"
         if tool_name == "patch":
             return "生成补丁"
         if tool_name == "bash_command":
             command = args.get("payload", {}).get("command") if isinstance(args.get("payload"), dict) else args.get("command")
             return "运行 " + (" ".join(command) if isinstance(command, list) else str(command or "命令"))
         return tool_name
+
+    def _missing_patch_context(self, args: dict[str, Any], touched_paths: set[str]) -> list[str]:
+        payload = args.get("payload") if isinstance(args.get("payload"), dict) else args
+        files = payload.get("files") or payload.get("file_changes") or []
+        if not isinstance(files, list):
+            return []
+        safe_prefixes = ("tmp/", "docs/", "tests/", "server/tests/", "client/src/test/")
+        source_suffixes = (".py", ".ts", ".tsx", ".css")
+        missing: list[str] = []
+        for item in files:
+            if not isinstance(item, dict):
+                continue
+            path = str(item.get("path") or item.get("file_path") or "").replace("\\", "/")
+            if not path or path.startswith(safe_prefixes) or path.endswith(".md"):
+                continue
+            if path.endswith(source_suffixes) and path not in touched_paths:
+                missing.append(path)
+        return missing

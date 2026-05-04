@@ -63,7 +63,12 @@ class ChatAgentService:
             workflow_id=workflow.workflow_id,
             intent_type=intent_type,
             summary=f"已创建 Agent 工作流：{workflow.title}",
-            metadata={"template_id": workflow.template_id, "primary_agent_id": request.agent_id or "build"},
+            metadata={
+                "template_id": workflow.template_id,
+                "primary_agent_id": request.agent_id or "build",
+                "compat_mode": "legacy_workflow",
+                "new_agent_entrypoint": "/agent-sessions",
+            },
         )
         return self._response(run, workflow=workflow)
 
@@ -240,7 +245,7 @@ class ChatAgentService:
         stopped_message = self._stopped_state_message(status, metadata or {}, final_summary)
         if stopped_message and status in {"failed", "needs_manual_review", "awaiting_approval"}:
             return stopped_message
-        return f"Agent 工作流状态：{status}，当前阶段：{current}"
+        return f"Agent 状态：{status}，当前阶段：{current}"
 
     def _latest_output_summary(self, workflow: dict[str, Any]) -> str:
         steps = workflow.get("steps") or workflow.get("tasks") or []

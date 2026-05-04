@@ -3,6 +3,7 @@
 支持 SQLite、PostgreSQL 等数据库连接
 """
 import logging
+import re
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from pathlib import Path
@@ -11,6 +12,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+
+_SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class ConnectionConfig(BaseModel):
@@ -160,9 +163,11 @@ class DatabaseConnector(ABC):
 class SQLiteConnector(DatabaseConnector):
     """SQLite 数据库连接器"""
 
-    def __init__(self, config: ConnectionConfig):
-        super().__init__(config)
-        self._db_path = Path(config.database)
+    @staticmethod
+    def _validate_table_name(name: str) -> str:
+        if not _SAFE_IDENTIFIER_RE.match(name):
+            raise ValueError(f"Invalid table name: {name!r}")
+        return name
 
     def connect(self) -> bool:
         """建立连接"""
@@ -173,6 +178,10 @@ class SQLiteConnector(DatabaseConnector):
                 check_same_thread=False
             )
             self._connection.row_factory = sqlite3.Row
+            self._connection.execute("PRAGMA foreign_keys = ON")
+            self._connection.execute("PRAGMA journal_mode = WAL")
+            self._connection.execute("PRAGMA synchronous = NORMAL")
+            self._connection.execute("PRAGMA busy_timeout = 10000")
             logger.info(f"SQLite 连接成功：{self._db_path}")
             return True
         except Exception as e:
@@ -278,6 +287,7 @@ class SQLiteConnector(DatabaseConnector):
     def get_table_schema(self, table_name: str) -> TableSchema | None:
         """获取表结构"""
         try:
+            self._validate_table_name(table_name)
             cursor = self._connection.cursor()
             cursor.execute(f"PRAGMA table_info({table_name})")
             columns_info = cursor.fetchall()
@@ -335,6 +345,9 @@ class SQLiteConnector(DatabaseConnector):
 
     def get_table_sample(self, table_name: str, limit: int = 5) -> list[dict[str, Any]]:
         """获取表数据样本"""
+        self._validate_table_name(table_name)
+        if not isinstance(limit, int) or limit < 1 or limit > 100:
+            limit = 5
         result = self.query(f"SELECT * FROM {table_name} LIMIT {limit}")
         return result.rows
 
