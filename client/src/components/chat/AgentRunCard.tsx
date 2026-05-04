@@ -319,9 +319,9 @@ export default function AgentRunCard({
             </Tooltip>
           )}
           {metadata.details_url && (
-            <Tooltip title="查看工作流详情">
+            <Tooltip title="查看执行详情">
               <Button
-                aria-label="查看工作流详情"
+                aria-label="查看执行详情"
                 size="small"
                 type="text"
                 icon={<LinkOutlined />}
@@ -887,7 +887,7 @@ export default function AgentRunCard({
             children: (
               <Space direction="vertical" size={4}>
                 <Typography.Text type="secondary">Run ID: {metadata.agent_run_id || '-'}</Typography.Text>
-                <Typography.Text type="secondary">Workflow ID: {metadata.workflow_id || '-'}</Typography.Text>
+                <Typography.Text type="secondary">兼容运行 ID: {metadata.workflow_id || '-'}</Typography.Text>
                 <Typography.Text type="secondary">
                   Last event: {String(diagnosticLatestEvent?.event_type || diagnosticLatestEvent?.message || '-')}
                 </Typography.Text>

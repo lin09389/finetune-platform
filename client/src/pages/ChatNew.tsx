@@ -669,7 +669,7 @@ const ChatPage: React.FC = () => {
       const existingRun = current.find(
         (message) => message.agent_metadata?.agent_run_id === run.id && message.agent_metadata.kind === 'agent_run_card',
       );
-      const runContent = run.summary || `Agent 工作流状态：${run.status}`;
+      const runContent = run.summary || `Agent 状态：${run.status}`;
       if (existingRun) {
         state.updateMessage(existingRun.id, {
           content: runContent,
@@ -980,7 +980,7 @@ const ChatPage: React.FC = () => {
     async (content: string) => {
       const goal = content.trim();
       if (!goal) {
-        notify.warning('请先输入工作流目标');
+        notify.warning('请先输入 Agent 目标');
         return;
       }
 

@@ -71,8 +71,8 @@ const autonomyLabels: Record<AutonomyMode, string> = {
 
 const routingHints: Record<RoutingMode, string> = {
   auto: '普通问题走对话，开发任务自动交给 Agent。',
-  chat: '只进行普通对话，不触发 Agent 工作流。',
-  agent: '直接按项目任务进入 Agent 工作流。',
+  chat: '只进行普通对话，不触发 Agent。',
+  agent: '直接按项目任务进入 Agent。',
 };
 
 const ChatContextPanel: React.FC<ChatContextPanelProps> = ({
@@ -312,7 +312,7 @@ const ChatContextPanel: React.FC<ChatContextPanelProps> = ({
 
           {workflowTemplateOptions.length > 1 && (
             <div className={styles.field}>
-              <span className={styles.label}>工作流模板</span>
+              <span className={styles.label}>Agent 任务模板</span>
               <Select
                 className={styles.select}
                 value={selectedWorkflowTemplate}
