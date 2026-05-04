@@ -16,6 +16,7 @@ import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import CodePreview from '../components/CodePreview';
+import AgentPartMessage from '../components/chat/AgentPartMessage';
 import AgentRunCard from '../components/chat/AgentRunCard';
 import ThinkingProcess from '../components/ThinkingProcess';
 import { useTypewriter } from '../hooks/chat/useTypewriter';
@@ -403,6 +404,15 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
                 ) : (
                   <div>{content}</div>
                 )
+              ) : agent_metadata?.kind === 'agent_part' ? (
+                <AgentPartMessage
+                  content={content}
+                  metadata={agent_metadata}
+                  onApproveAction={onApproveAgentAction}
+                  onRejectAction={onRejectAgentAction}
+                  onExecuteAction={onExecuteAgentAction}
+                  onRefreshRun={onRefreshAgentRun}
+                />
               ) : agent_metadata ? (
                 <AgentRunCard
                   content={content}

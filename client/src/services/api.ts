@@ -821,6 +821,83 @@ export interface ChatAgentRunEvent {
   payload: Record<string, any>;
 }
 
+export interface AgentSessionCreate {
+  chat_session_id?: string;
+  agent_id?: string;
+  title?: string;
+  project_path?: string;
+  provider?: string;
+  model?: string;
+  autonomy_mode?: 'safe_auto' | 'confirm_all' | 'read_only';
+}
+
+export interface AgentPromptRequest {
+  content: string;
+  provider?: string;
+  model?: string;
+}
+
+export interface AgentPart {
+  id: string;
+  session_id: string;
+  type: 'text' | 'tool_call' | 'tool_result' | 'diff' | 'command' | 'permission' | 'summary' | 'error';
+  status?: 'pending' | 'running' | 'completed' | 'failed' | 'blocked' | 'approved' | 'executed';
+  title?: string;
+  content?: string;
+  payload?: Record<string, any>;
+  created_at: string;
+}
+
+export interface AgentSessionState {
+  touched_paths?: string[];
+  changed_files?: string[];
+  latest_diff_part_id?: string;
+  latest_command_part_id?: string;
+  latest_error?: string;
+  repair_attempts?: number;
+  max_repair_attempts?: number;
+  fallback_summary_used?: boolean;
+  current_phase?: string;
+}
+
+export interface AgentSession {
+  id: string;
+  chat_session_id?: string;
+  agent_id: string;
+  status:
+    | 'idle'
+    | 'running'
+    | 'waiting_permission'
+    | 'waiting_approval'
+    | 'verifying'
+    | 'repairing'
+    | 'needs_manual_review'
+    | 'completed'
+    | 'failed';
+  title: string;
+  project_path?: string;
+  provider?: string;
+  model?: string;
+  metadata?: Record<string, any> & { state?: AgentSessionState };
+  parts: AgentPart[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentSessionApprovalResponse {
+  part: AgentPart;
+  session: AgentSession;
+}
+
+export interface AgentSessionEvent {
+  id: string;
+  session_id: string;
+  event_type: string;
+  message: string;
+  payload: Record<string, any>;
+  created_at: string;
+}
+
 export interface WorkflowTemplate {
   id: string;
   name: string;
@@ -1025,6 +1102,58 @@ export const rejectChatAgentAction = async (actionId: string): Promise<WorkflowA
 
 export const executeChatAgentAction = async (actionId: string): Promise<WorkflowAction> => {
   const response = await apiClient.post(`/chat-agent/actions/${actionId}/execute`);
+  return response.data;
+};
+
+export const createAgentSession = async (payload: AgentSessionCreate): Promise<AgentSession> => {
+  const response = await apiClient.post('/agent-sessions', payload);
+  return response.data;
+};
+
+export const getAgentSession = async (sessionId: string): Promise<AgentSession> => {
+  const response = await apiClient.get(`/agent-sessions/${sessionId}`);
+  return response.data;
+};
+
+export const promptAgentSession = async (
+  sessionId: string,
+  payload: AgentPromptRequest,
+): Promise<AgentSession> => {
+  const response = await apiClient.post(`/agent-sessions/${sessionId}/prompt`, payload);
+  return response.data;
+};
+
+export const approveAgentPermission = async (
+  permissionId: string,
+): Promise<AgentSessionApprovalResponse> => {
+  const response = await apiClient.post(`/agent-permissions/${permissionId}/approve`);
+  return response.data;
+};
+
+export const rejectAgentPermission = async (
+  permissionId: string,
+): Promise<AgentSessionApprovalResponse> => {
+  const response = await apiClient.post(`/agent-permissions/${permissionId}/reject`);
+  return response.data;
+};
+
+export const approveAgentAction = async (actionId: string): Promise<AgentSessionApprovalResponse> => {
+  const response = await apiClient.post(`/agent-actions/${actionId}/approve`);
+  return response.data;
+};
+
+export const rejectAgentAction = async (actionId: string): Promise<AgentSessionApprovalResponse> => {
+  const response = await apiClient.post(`/agent-actions/${actionId}/reject`);
+  return response.data;
+};
+
+export const executeAgentAction = async (actionId: string): Promise<AgentSessionApprovalResponse> => {
+  const response = await apiClient.post(`/agent-actions/${actionId}/execute`);
+  return response.data;
+};
+
+export const getAgentSessionEvents = async (sessionId: string): Promise<AgentSessionEvent[]> => {
+  const response = await apiClient.get(`/agent-sessions/${sessionId}/events`);
   return response.data;
 };
 

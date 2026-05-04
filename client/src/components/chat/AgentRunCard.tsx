@@ -11,7 +11,7 @@ import {
 } from '@ant-design/icons';
 import { Button, Collapse, Divider, Space, Tag, Tooltip, Typography } from 'antd';
 import type { ChatAgentMetadata } from '../../types';
-import type { Workflow, WorkflowAction, WorkflowObservability, WorkflowToolCall } from '../../services/api';
+import type { AgentPart, Workflow, WorkflowAction, WorkflowObservability, WorkflowToolCall } from '../../services/api';
 
 interface AgentRunCardProps {
   content: string;
@@ -232,6 +232,8 @@ export default function AgentRunCard({
   onOpenDetails,
 }: AgentRunCardProps) {
   const workflow = metadata.workflow as Workflow | undefined;
+  const agentParts = ((metadata as any).agent_parts as AgentPart[] | undefined) || [];
+  const agentActionPart = [...agentParts].reverse().find((part) => ['diff', 'command', 'permission'].includes(part.type));
   const observability = metadata.observability as WorkflowObservability | undefined;
   const toolCalls = ((metadata.tool_calls as WorkflowToolCall[] | undefined) || observability?.tool_calls || []);
   const activeAgentId = (metadata as any).active_agent_id || workflow?.active_agent_id || observability?.active_agent_id;
@@ -254,7 +256,7 @@ export default function AgentRunCard({
   const waitingStep = workflow?.steps?.find((step) => step.status === 'awaiting_approval');
   const lastExecution = action?.executions?.[action.executions.length - 1];
   const preview = actionPreview(action);
-  const status = action?.status || executionState || metadata.status || workflow?.status || 'running';
+  const status = action?.status || agentActionPart?.status || executionState || metadata.status || workflow?.status || 'running';
   const completedSteps = workflow?.steps?.filter((step) => ['approved', 'completed'].includes(step.status)).length || 0;
   const totalSteps = workflow?.steps?.length || 0;
   const actionNeedsDecision = action?.status === 'pending_approval';
@@ -333,7 +335,7 @@ export default function AgentRunCard({
       <Typography.Text strong>请求：{content}</Typography.Text>
 
       <Typography.Text type="secondary">
-        {toolCalls.length ? `工具 ${toolCalls.length}` : '等待工具'}
+        {agentParts.length ? `输出 ${agentParts.length}` : toolCalls.length ? `工具 ${toolCalls.length}` : '等待工具'}
         {actions.length ? ` · 动作 ${actions.length}` : ''}
         {autoExecutedActions ? ` · 自动执行 ${autoExecutedActions}` : ''}
         {pendingActions ? ` · 待确认 ${pendingActions}` : ''}
@@ -341,6 +343,102 @@ export default function AgentRunCard({
         {changedFileCount ? ` · 变更文件 ${changedFileCount}` : ''}
         {parseRepairCount ? ` · 协议修复 ${parseRepairCount}` : ''}
       </Typography.Text>
+
+      {agentParts.length ? (
+        <div style={{ display: 'grid', gap: 8, borderTop: '1px solid var(--border-color)', paddingTop: 10 }}>
+          {agentParts
+            .filter((part) => part.type !== 'text' || part.title !== '请求')
+            .map((part) => {
+              const isDiff = part.type === 'diff';
+              const isCommand = part.type === 'command';
+              const isPermission = part.type === 'permission';
+              const isPending = part.status === 'pending';
+              const isApproved = part.status === 'approved';
+              const tone =
+                part.status === 'failed' || part.status === 'blocked'
+                  ? { color: 'error', accent: 'var(--accent-danger, #ff4d4f)' }
+                  : isPending || isApproved
+                    ? { color: 'gold', accent: 'var(--accent-warning, #faad14)' }
+                    : part.status === 'running'
+                      ? { color: 'processing', accent: 'var(--accent-primary, #1677ff)' }
+                      : { color: 'success', accent: 'var(--accent-success, #52c41a)' };
+              const label =
+                part.type === 'tool_call'
+                  ? '工具'
+                  : part.type === 'tool_result'
+                    ? '结果'
+                    : isDiff
+                      ? '补丁'
+                      : isCommand
+                        ? '命令'
+                        : isPermission
+                          ? '权限'
+                          : part.type === 'summary'
+                            ? '总结'
+                            : part.type === 'error'
+                              ? '错误'
+                              : '消息';
+              const payloadText = isDiff
+                ? stringify(part.payload?.diff || part.payload?.files || part.payload)
+                : isCommand
+                  ? stringify(part.payload)
+                  : '';
+              return (
+                <div key={part.id} style={{ display: 'grid', gap: 6, paddingLeft: 12, borderLeft: `2px solid ${tone.accent}` }}>
+                  <Space wrap size={6}>
+                    <Tag color={tone.color as any}>{label}</Tag>
+                    <Typography.Text strong>{part.title || part.content || label}</Typography.Text>
+                    {part.status && <Typography.Text type="secondary">{statusLabel[part.status] || part.status}</Typography.Text>}
+                  </Space>
+                  {part.payload?.policy_reason && (
+                    <Typography.Text type={part.status === 'blocked' ? 'danger' : 'secondary'}>
+                      {part.payload.execution_mode === 'auto'
+                        ? '已按安全自动模式执行'
+                        : part.payload.execution_mode === 'blocked'
+                          ? '已按安全策略阻断'
+                          : '需要确认'}
+                      {' · '}{String(part.payload.policy_reason)}
+                    </Typography.Text>
+                  )}
+                  {part.payload?.failure_summary && (
+                    <Typography.Text type="danger">
+                      失败摘要：{String(part.payload.failure_summary)}
+                    </Typography.Text>
+                  )}
+                  {part.content && part.title !== part.content && (
+                    <Typography.Text type={part.type === 'error' ? 'danger' : 'secondary'}>{part.content}</Typography.Text>
+                  )}
+                  {payloadText && (
+                    <Collapse
+                      size="small"
+                      items={[{ key: 'payload', label: isDiff ? '查看 diff / 文件内容' : '查看命令输出', children: <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{payloadText}</pre> }]}
+                    />
+                  )}
+                  {(isDiff || isPermission) && (
+                    <Space wrap>
+                      {isPending && (
+                        <>
+                          <Button size="small" type="primary" onClick={() => onApproveAction?.(part.id)}>
+                            批准
+                          </Button>
+                          <Button size="small" onClick={() => onRejectAction?.(part.id)}>
+                            拒绝
+                          </Button>
+                        </>
+                      )}
+                      {isApproved && (isDiff || isCommand) && (
+                        <Button size="small" type="primary" icon={<PlayCircleOutlined />} onClick={() => onExecuteAction?.(part.id)}>
+                          {isCommand ? '执行命令' : '执行补丁'}
+                        </Button>
+                      )}
+                      {part.status === 'executed' && <Tag color="success">已执行</Tag>}
+                    </Space>
+                  )}
+                </div>
+              );
+            })}
+        </div>
+      ) : null}
 
       {executionState && (
         <Typography.Text type={executionState === 'failed' || executionState === 'needs_manual_review' ? 'danger' : 'secondary'}>

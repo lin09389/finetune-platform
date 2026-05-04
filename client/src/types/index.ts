@@ -364,6 +364,7 @@ export interface ChatMessage {
 }
 
 export type ChatAgentMessageKind =
+  | 'agent_part'
   | 'agent_run_card'
   | 'agent_step_update'
   | 'agent_approval_request'
@@ -374,6 +375,8 @@ export type ChatAgentMessageKind =
 
 export interface ChatAgentMetadata {
   agent_run_id: string;
+  agent_session_id?: string;
+  agent_part_id?: string;
   workflow_id?: string;
   kind: ChatAgentMessageKind;
   status: string;
@@ -411,6 +414,9 @@ export interface ChatAgentMetadata {
   latest_event?: unknown;
   latest_tool_call?: unknown;
   latest_action?: unknown;
+  agent_parts?: unknown[];
+  agent_part?: unknown;
+  agent_session_state?: unknown;
 }
 
 export interface ChatAgentAcceptanceReport {

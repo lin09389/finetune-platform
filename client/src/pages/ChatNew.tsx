@@ -22,20 +22,24 @@ import APIKeyManager from '../pages/APIKeyManager';
 import { useRuntimeContext } from '../runtime/RuntimeContext';
 import {
   API_BASE_URL,
+  approveAgentAction,
   approveChatAgentAction,
   approveChatAgentStep,
   classifyChatAgentIntent,
-  createChatAgentRun,
+  createAgentSession,
+  executeAgentAction,
   executeChatAgentAction,
+  getAgentSession,
   getPrimaryAgents,
   getSavedCloudProviderData,
   getSavedCloudProviders,
   getWorkflowTemplates,
   getChatAgentRun,
+  promptAgentSession,
+  rejectAgentAction as rejectAgentSessionAction,
   rejectChatAgentAction,
-  runChatAgentRun,
 } from '../services/api';
-import type { AgentInfo, ChatAgentRun, SavedCloudProvider, WorkflowAction, WorkflowTemplate } from '../services/api';
+import type { AgentInfo, AgentSession, ChatAgentRun, SavedCloudProvider, WorkflowAction, WorkflowTemplate } from '../services/api';
 import { transitions } from '../theme/animations';
 import { notify } from '../utils/notify';
 import { ArrowDownOutlined } from '@ant-design/icons';
@@ -242,7 +246,9 @@ const ChatPage: React.FC = () => {
   const [routingIntent, setRoutingIntent] = useState(false);
   const [creatingWorkflow, setCreatingWorkflow] = useState(false);
   const chatAgentStreamsRef = useRef<Record<string, EventSource>>({});
+  const agentSessionStreamsRef = useRef<Record<string, EventSource>>({});
   const refreshedAgentRunsRef = useRef<Set<string>>(new Set());
+  const refreshedAgentSessionsRef = useRef<Set<string>>(new Set());
   const navigate = useNavigate();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -343,6 +349,11 @@ const ChatPage: React.FC = () => {
       }
     });
   }, [loadSessions, refreshInference, refreshKnowledge]);
+
+  useEffect(() => () => {
+    Object.values(chatAgentStreamsRef.current).forEach((source) => source.close());
+    Object.values(agentSessionStreamsRef.current).forEach((source) => source.close());
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('chat_primary_agent', selectedPrimaryAgent);
@@ -572,6 +583,84 @@ const ChatPage: React.FC = () => {
     await state.replaceCurrentSessionMessages(state.messages).catch(() => undefined);
   }, []);
 
+  const buildAgentPartMetadata = useCallback((session: AgentSession, part: any) => {
+    const actionLike = ['diff', 'permission', 'command'].includes(part.type);
+    const summaryPart = part.type === 'summary' ? part : [...(session.parts || [])].reverse().find((item) => item.type === 'summary');
+    return {
+      agent_run_id: session.id,
+      agent_session_id: session.id,
+      agent_part_id: part.id,
+      kind: 'agent_part' as const,
+      status: part.status || session.status,
+      action_id: actionLike ? part.id : undefined,
+      action_type: part.type === 'diff' ? 'patch' : part.type,
+      can_approve: actionLike && part.status === 'pending',
+      can_execute: ['diff', 'command'].includes(part.type) && part.status === 'approved',
+      active_agent_id: session.agent_id,
+      agent_part: part,
+      agent_session_state: (session.metadata as any)?.state,
+      final_summary: summaryPart?.content,
+      recoverable: !['completed', 'failed'].includes(session.status),
+      autonomy_mode: (session.metadata as any)?.autonomy_mode,
+    };
+  }, []);
+
+  const upsertAgentSessionMessage = useCallback(
+    async (session: AgentSession, fallbackContent?: string) => {
+      const state = useChatStore.getState();
+      const renderableParts = (session.parts || []).filter((part) => !(part.type === 'text' && part.title === '请求'));
+      if (!renderableParts.length && fallbackContent) {
+        const placeholderId = `${session.id}:pending`;
+        const existing = state.messages.find((message) => message.agent_metadata?.agent_part_id === placeholderId);
+        const placeholderPart = {
+          id: placeholderId,
+          session_id: session.id,
+          type: 'text',
+          status: session.status === 'running' ? 'running' : 'completed',
+          title: 'Agent 已启动',
+          content: fallbackContent,
+          payload: {},
+          created_at: session.updated_at,
+        };
+        const metadata = buildAgentPartMetadata(session, placeholderPart);
+        if (existing) {
+          state.updateMessage(existing.id, { content: fallbackContent, isLoading: session.status === 'running', agent_metadata: metadata });
+        } else {
+          state.addMessage({ role: 'assistant', content: fallbackContent, isLoading: session.status === 'running', agent_metadata: metadata });
+        }
+        await persistAgentMessages();
+        return;
+      }
+
+      for (const part of renderableParts) {
+        const existing = state.messages.find((message) => message.agent_metadata?.agent_part_id === part.id);
+        const content = part.content || part.title || session.title;
+        const metadata = buildAgentPartMetadata(session, part);
+        if (existing) {
+          state.updateMessage(existing.id, {
+            content,
+            isLoading: part.status === 'running',
+            agent_metadata: metadata,
+          });
+        } else {
+          state.addMessage({
+            role: 'assistant',
+            content,
+            isLoading: part.status === 'running',
+            agent_metadata: metadata,
+          });
+        }
+      }
+
+      const placeholder = state.messages.find((message) => message.agent_metadata?.agent_part_id === `${session.id}:pending`);
+      if (placeholder && renderableParts.length) {
+        await state.deleteMessage(placeholder.id).catch(() => undefined);
+      }
+      await persistAgentMessages();
+    },
+    [buildAgentPartMetadata, persistAgentMessages],
+  );
+
   const upsertAgentMessages = useCallback(
     async (run: ChatAgentRun) => {
       if (!run.workflow_id) return;
@@ -659,18 +748,68 @@ const ChatPage: React.FC = () => {
     [upsertAgentMessages],
   );
 
+  const startAgentSessionStream = useCallback(
+    (sessionId: string) => {
+      agentSessionStreamsRef.current[sessionId]?.close();
+      const source = new EventSource(`${API_BASE_URL}/agent-sessions/${sessionId}/events/stream`);
+      agentSessionStreamsRef.current[sessionId] = source;
+      const refresh = async () => {
+        const session = await getAgentSession(sessionId).catch(() => null);
+        if (session) {
+          await upsertAgentSessionMessage(session);
+          if (['completed', 'failed'].includes(session.status)) {
+            source.close();
+            delete agentSessionStreamsRef.current[sessionId];
+          }
+        }
+      };
+      source.addEventListener('agent_session_event', refresh);
+      source.onmessage = refresh;
+      source.onerror = () => {
+        source.close();
+        delete agentSessionStreamsRef.current[sessionId];
+      };
+    },
+    [upsertAgentSessionMessage],
+  );
+
   useEffect(() => {
     if (!currentSessionId || currentSessionId.startsWith('local_') || messages.length === 0) return;
+    const agentSessionIds = Array.from(
+      new Set(
+        messages
+          .map((message) => message.agent_metadata?.agent_session_id)
+          .filter((sessionId): sessionId is string => Boolean(sessionId)),
+      ),
+    );
+    let cancelled = false;
+    agentSessionIds.forEach((sessionId) => {
+      const refreshKey = `${currentSessionId}:session:${sessionId}`;
+      if (refreshedAgentSessionsRef.current.has(refreshKey)) return;
+      refreshedAgentSessionsRef.current.add(refreshKey);
+      getAgentSession(sessionId)
+        .then(async (session) => {
+          if (!cancelled) {
+            await upsertAgentSessionMessage(session);
+            if (!['completed', 'failed'].includes(session.status)) {
+              startAgentSessionStream(session.id);
+            }
+          }
+        })
+        .catch(() => {
+          refreshedAgentSessionsRef.current.delete(refreshKey);
+        });
+    });
+
     const runIds = Array.from(
       new Set(
         messages
+          .filter((message) => !message.agent_metadata?.agent_session_id)
           .map((message) => message.agent_metadata?.agent_run_id)
           .filter((runId): runId is string => Boolean(runId)),
       ),
     );
-    if (!runIds.length) return;
-
-    let cancelled = false;
+    if (!runIds.length && !agentSessionIds.length) return;
     runIds.forEach((runId) => {
       const refreshKey = `${currentSessionId}:${runId}`;
       if (refreshedAgentRunsRef.current.has(refreshKey)) return;
@@ -689,7 +828,7 @@ const ChatPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [currentSessionId, messages, upsertAgentMessages]);
+  }, [currentSessionId, messages, startAgentSessionStream, upsertAgentMessages, upsertAgentSessionMessage]);
 
   const handleAgentWorkflow = useCallback(
     async (
@@ -707,35 +846,30 @@ const ChatPage: React.FC = () => {
         sessionId = session.id;
       }
 
-      const userMessageId = addMessage({ role: 'user', content: goal });
+      addMessage({ role: 'user', content: goal });
       setCreatingWorkflow(true);
       try {
-        const run = await createChatAgentRun({
+        const session = await createAgentSession({
           chat_session_id: sessionId && !sessionId.startsWith('local_') ? sessionId : undefined,
-          message_id: userMessageId,
-          content: goal,
-          template_id: options.templateId || selectedWorkflowTemplate || 'software_delivery',
+          agent_id: options.agentId || selectedPrimaryAgent || 'build',
+          title: goal.slice(0, 40) || 'Agent Session',
+          project_path: undefined,
           provider: cloudAIConfig?.provider || undefined,
           model: selectedCloudModel || cloudAIConfig?.model || undefined,
-          agent_id: options.agentId || selectedPrimaryAgent || 'build',
           autonomy_mode: autonomyMode,
-          force_agent: forceAgent,
         });
-
-        if (run.mode === 'chat') {
-          useChatStore.setState((state) => ({
-            messages: state.messages.filter((message) => message.id !== userMessageId),
-          }));
-          return false;
-        }
 
         if (options.reason) {
           notify.info(options.reason);
         }
-        await upsertAgentMessages(options.reason ? { ...run, summary: `${options.reason} ${run.summary || ''}` } : run);
-        startChatAgentStream(run.id);
-        const started = await runChatAgentRun(run.id);
-        await upsertAgentMessages(started);
+        await upsertAgentSessionMessage(session, options.reason ? `${options.reason} ${goal}` : goal);
+        startAgentSessionStream(session.id);
+        const started = await promptAgentSession(session.id, {
+          content: goal,
+          provider: cloudAIConfig?.provider || undefined,
+          model: selectedCloudModel || cloudAIConfig?.model || undefined,
+        });
+        await upsertAgentSessionMessage(started);
         notify.success('Agent 已开始工作');
         return true;
       } catch (error: any) {
@@ -755,9 +889,8 @@ const ChatPage: React.FC = () => {
       isLikelyAgentGoal,
       selectedCloudModel,
       selectedPrimaryAgent,
-      selectedWorkflowTemplate,
-      startChatAgentStream,
-      upsertAgentMessages,
+      startAgentSessionStream,
+      upsertAgentSessionMessage,
     ],
   );
 
@@ -946,13 +1079,19 @@ const ChatPage: React.FC = () => {
 
   const handleRefreshAgentRun = useCallback(
     async (runId: string) => {
+      const sessionMessage = useChatStore.getState().messages.find((item) => item.agent_metadata?.agent_session_id === runId);
+      if (sessionMessage) {
+        const session = await getAgentSession(runId);
+        await upsertAgentSessionMessage(session);
+        return;
+      }
       const run = await getChatAgentRun(runId);
       await upsertAgentMessages(run);
       if (run.recoverable && ['created', 'running', 'planning', 'implementing', 'reviewing'].includes(run.status)) {
         startChatAgentStream(run.id);
       }
     },
-    [startChatAgentStream, upsertAgentMessages],
+    [startChatAgentStream, upsertAgentMessages, upsertAgentSessionMessage],
   );
 
   const findAgentRunIdByStep = useCallback((stepId: string) => {
@@ -965,6 +1104,13 @@ const ChatPage: React.FC = () => {
     return useChatStore
       .getState()
       .messages.find((item) => item.agent_metadata?.action_id === actionId)?.agent_metadata?.agent_run_id;
+  }, []);
+
+  const findAgentSessionIdByAction = useCallback((actionId: string) => {
+    return useChatStore
+      .getState()
+      .messages.find((item) => item.agent_metadata?.action_id === actionId && item.agent_metadata?.agent_session_id)
+      ?.agent_metadata?.agent_session_id;
   }, []);
 
   const handleApproveAgentStep = useCallback(
@@ -982,6 +1128,12 @@ const ChatPage: React.FC = () => {
 
   const handleApproveAgentAction = useCallback(
     async (actionId: string) => {
+      const sessionId = findAgentSessionIdByAction(actionId);
+      if (sessionId) {
+        const response = await approveAgentAction(actionId);
+        await upsertAgentSessionMessage(response.session);
+        return;
+      }
       const runId = findAgentRunIdByAction(actionId);
       if (runId) {
         startChatAgentStream(runId);
@@ -989,19 +1141,32 @@ const ChatPage: React.FC = () => {
       await approveChatAgentAction(actionId);
       await refreshAgentRunByAction(actionId);
     },
-    [findAgentRunIdByAction, refreshAgentRunByAction, startChatAgentStream],
+    [findAgentRunIdByAction, findAgentSessionIdByAction, refreshAgentRunByAction, startChatAgentStream, upsertAgentSessionMessage],
   );
 
   const handleRejectAgentAction = useCallback(
     async (actionId: string) => {
+      const sessionId = findAgentSessionIdByAction(actionId);
+      if (sessionId) {
+        const response = await rejectAgentSessionAction(actionId);
+        await upsertAgentSessionMessage(response.session);
+        return;
+      }
       await rejectChatAgentAction(actionId);
       await refreshAgentRunByAction(actionId);
     },
-    [refreshAgentRunByAction],
+    [findAgentSessionIdByAction, refreshAgentRunByAction, upsertAgentSessionMessage],
   );
 
   const handleExecuteAgentAction = useCallback(
     async (actionId: string) => {
+      const sessionId = findAgentSessionIdByAction(actionId);
+      if (sessionId) {
+        const response = await executeAgentAction(actionId);
+        await upsertAgentSessionMessage(response.session);
+        notify.success(response.part.status === 'executed' ? '动作已执行' : '动作执行完成');
+        return;
+      }
       const runId = findAgentRunIdByAction(actionId);
       if (runId) {
         startChatAgentStream(runId);
@@ -1014,7 +1179,7 @@ const ChatPage: React.FC = () => {
         notify.success('动作已执行');
       }
     },
-    [findAgentRunIdByAction, refreshAgentRunByAction, startChatAgentStream],
+    [findAgentRunIdByAction, findAgentSessionIdByAction, refreshAgentRunByAction, startChatAgentStream, upsertAgentSessionMessage],
   );
 
   const handleRetry = useCallback(
