@@ -417,6 +417,21 @@ export interface ChatAgentMetadata {
   agent_parts?: unknown[];
   agent_part?: unknown;
   agent_session_state?: unknown;
+  agent_session_diagnostics?: {
+    status?: string;
+    current_phase?: string;
+    stop_reason?: string;
+    next_action?: string;
+    refresh_safe?: boolean;
+    latest_event?: unknown;
+    latest_tool_call?: unknown;
+    latest_tool_result?: unknown;
+    latest_action?: unknown;
+    latest_command?: unknown;
+    latest_summary?: unknown;
+    latest_error?: unknown;
+    recent_events?: unknown[];
+  };
 }
 
 export interface ChatAgentAcceptanceReport {

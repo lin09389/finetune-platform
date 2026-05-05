@@ -860,6 +860,40 @@ export interface AgentSessionState {
   current_phase?: string;
 }
 
+export interface AgentSessionDiagnosticItem {
+  id?: string;
+  type?: string;
+  status?: string;
+  title?: string;
+  content?: string;
+  event_type?: string;
+  message?: string;
+  policy_decision?: string;
+  risk_level?: string;
+  policy_reason?: string;
+  changed_files?: string[];
+  exit_code?: number;
+  failure_summary?: string;
+  created_at?: string;
+  payload?: Record<string, any>;
+}
+
+export interface AgentSessionDiagnostics {
+  status?: string;
+  current_phase?: string;
+  latest_event?: AgentSessionDiagnosticItem | null;
+  latest_tool_call?: AgentSessionDiagnosticItem | null;
+  latest_tool_result?: AgentSessionDiagnosticItem | null;
+  latest_action?: AgentSessionDiagnosticItem | null;
+  latest_command?: AgentSessionDiagnosticItem | null;
+  latest_summary?: AgentSessionDiagnosticItem | null;
+  latest_error?: AgentSessionDiagnosticItem | null;
+  recent_events?: AgentSessionDiagnosticItem[];
+  stop_reason?: string;
+  next_action?: string;
+  refresh_safe?: boolean;
+}
+
 export interface AgentSession {
   id: string;
   chat_session_id?: string;
@@ -878,7 +912,7 @@ export interface AgentSession {
   project_path?: string;
   provider?: string;
   model?: string;
-  metadata?: Record<string, any> & { state?: AgentSessionState };
+  metadata?: Record<string, any> & { state?: AgentSessionState; diagnostics?: AgentSessionDiagnostics };
   parts: AgentPart[];
   created_at: string;
   updated_at: string;

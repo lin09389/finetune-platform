@@ -599,6 +599,7 @@ const ChatPage: React.FC = () => {
       active_agent_id: session.agent_id,
       agent_part: part,
       agent_session_state: (session.metadata as any)?.state,
+      agent_session_diagnostics: (session.metadata as any)?.diagnostics,
       final_summary: summaryPart?.content,
       recoverable: !['completed', 'failed'].includes(session.status),
       autonomy_mode: (session.metadata as any)?.autonomy_mode,

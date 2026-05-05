@@ -92,6 +92,7 @@ export default function AgentPartMessage({
   }
 
   const payload = part.payload || {};
+  const diagnostics = metadata.agent_session_diagnostics;
   const status = part.status || metadata.status || 'completed';
   const files = changedFiles(payload);
   const canApprove = Boolean(metadata.can_approve && metadata.action_id);
@@ -111,6 +112,20 @@ export default function AgentPartMessage({
     ) : (
       <FileTextOutlined />
     );
+
+  const shouldShowDiagnostics =
+    Boolean(diagnostics?.stop_reason) &&
+    (part.type === 'summary' || isProblem || canApprove || canExecute || status === 'pending' || status === 'blocked' || status === 'failed');
+  const diagnosticBlock = shouldShowDiagnostics ? (
+    <Space direction="vertical" size={2} style={{ width: '100%' }}>
+      <Typography.Text type={isProblem || status === 'blocked' ? 'danger' : 'secondary'}>
+        {diagnostics?.stop_reason}
+      </Typography.Text>
+      {diagnostics?.next_action && (
+        <Typography.Text type="secondary">下一步：{diagnostics.next_action}</Typography.Text>
+      )}
+    </Space>
+  ) : null;
 
   const shell = (body: ReactNode) => (
     <div
@@ -133,6 +148,7 @@ export default function AgentPartMessage({
           <Tag color="success">已完成</Tag>
         </Space>
         <Typography.Paragraph style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{part.content || content}</Typography.Paragraph>
+        {diagnosticBlock}
         {onRefreshRun && (
           <Button size="small" type="text" icon={<ReloadOutlined />} onClick={() => onRefreshRun(metadata.agent_run_id)}>
             刷新状态
@@ -154,6 +170,7 @@ export default function AgentPartMessage({
           {payload.risk_level ? <Tag>{payload.risk_level}</Tag> : null}
         </Space>
         {payload.policy_reason && <Typography.Text type="secondary">{payload.policy_reason}</Typography.Text>}
+        {diagnosticBlock}
         {files.length > 0 && (
           <Space wrap>
             {files.map((file) => (
@@ -205,6 +222,7 @@ export default function AgentPartMessage({
             {payload.failure_summary || part.content || payload.policy_reason}
           </Typography.Text>
         )}
+        {diagnosticBlock}
         {(payload.stdout || payload.stderr || payload.exit_code !== undefined) && (
           <Collapse
             ghost
@@ -254,6 +272,7 @@ export default function AgentPartMessage({
           <Tag color={statusColor[status] || 'warning'}>{statusLabel[status] || status}</Tag>
         </Space>
         {payload.guidance && <Typography.Text type="secondary">{payload.guidance}</Typography.Text>}
+        {diagnosticBlock}
       </Space>,
     );
   }
