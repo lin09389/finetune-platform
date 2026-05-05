@@ -378,7 +378,10 @@ const createAxiosInstance = (): AxiosInstance => {
       // 处理离线缓冲
       if (error.message === 'Network Error' || error.code === 'ECONNABORTED' || (error.response && error.response.status >= 500)) {
          // 只缓冲写操作
-         if (config && ['post', 'put', 'patch', 'delete'].includes((config.method || '').toLowerCase())) {
+         const url = String(config?.url || '');
+         const shouldQueue = config && ['post', 'put', 'patch', 'delete'].includes((config.method || '').toLowerCase())
+           && !url.includes('/agent-sessions/');
+         if (shouldQueue) {
             console.log(`[API] Network error detected, queuing request: ${config.method} ${config.url}`);
             return new Promise((resolve, reject) => {
                offlineQueue.push({ config, resolve, reject });
@@ -390,11 +393,30 @@ const createAxiosInstance = (): AxiosInstance => {
 
       if (!suppressErrorLogging && !axios.isCancel(error)) {
         if (error.response) {
-          console.error('API Error:', error.response.data);
+          const responseData = error.response.data;
+          const detail =
+            typeof responseData === 'string'
+              ? responseData
+              : responseData?.detail || responseData?.message || JSON.stringify(responseData);
+          console.error('[API] Error', {
+            status: error.response.status,
+            method: String(config?.method || '').toUpperCase(),
+            url: config?.url,
+            detail,
+            data: responseData,
+          });
         } else if (error.request) {
-          console.error('Network Error:', error.request);
+          console.error('[API] Network Error', {
+            method: String(config?.method || '').toUpperCase(),
+            url: config?.url,
+            message: error.message,
+          });
         } else {
-          console.error('Error:', error.message);
+          console.error('[API] Error', {
+            method: String(config?.method || '').toUpperCase(),
+            url: config?.url,
+            message: error.message,
+          });
         }
       }
       return Promise.reject(error);
@@ -846,6 +868,7 @@ export interface AgentPart {
   content?: string;
   payload?: Record<string, any>;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface AgentSessionState {
@@ -927,9 +950,34 @@ export interface AgentSessionEvent {
   id: string;
   session_id: string;
   event_type: string;
+  chunk_type?:
+    | 'status'
+    | 'phase'
+    | 'part_start'
+    | 'part_delta'
+    | 'part_complete'
+    | 'part_snapshot'
+    | 'tool_call'
+    | 'tool_result'
+    | 'permission_request'
+    | 'action'
+    | 'summary'
+    | 'error'
+    | 'tool'
+    | 'event'
+    | 'session_snapshot';
   message: string;
   payload: Record<string, any>;
   created_at: string;
+  session_status?: AgentSession['status'];
+  agent_id?: string;
+  phase?: string;
+  tool?: string;
+  delta?: string;
+  content?: string;
+  summary?: string;
+  part?: AgentPart | null;
+  session_snapshot?: AgentSession;
 }
 
 export interface WorkflowTemplate {

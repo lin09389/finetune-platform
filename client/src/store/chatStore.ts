@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import axios from 'axios';
 import {
   clearChatSessionMessages,
   createChatSession,
@@ -453,10 +454,31 @@ export const useChatStore = create<ChatStore>()(
           created_at: message.timestamp,
           metadata: messageMetadata(message),
         }));
-        const result = await replaceChatSessionMessages(currentSessionId, payload);
+        let targetSessionId = currentSessionId;
+        let result;
+        try {
+          result = await replaceChatSessionMessages(targetSessionId, payload);
+        } catch (error) {
+          const status = axios.isAxiosError(error) ? error.response?.status : (error as { status?: number })?.status;
+          if (status !== 404) {
+            throw error;
+          }
+          const firstUserMessage = messages.find((message) => message.role === 'user');
+          const recreated = await createChatSession(
+            firstUserMessage?.content?.slice(0, 40) || 'Agent Chat',
+            get().settings.modelId,
+            get().settings.backend,
+          );
+          targetSessionId = recreated.id;
+          set((state) => ({
+            currentSessionId: recreated.id,
+            sessions: [recreated, ...state.sessions.filter((session) => session.id !== currentSessionId)],
+          }));
+          result = await replaceChatSessionMessages(targetSessionId, payload);
+        }
         set((state) => ({
           messages: result.messages,
-          sessions: updateSessionSummary(state.sessions, currentSessionId, {
+          sessions: updateSessionSummary(state.sessions, targetSessionId, {
             messageCount: result.messages.length,
           }),
         }));

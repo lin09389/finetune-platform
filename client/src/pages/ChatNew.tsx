@@ -14,6 +14,7 @@ import ChatHeader from '../components/chat/ChatHeader';
 import ChatContextPanel from '../components/chat/ChatContextPanel';
 import ChatInput from '../components/chat/ChatInput';
 import FollowUpSuggestions from '../components/chat/FollowUpSuggestions';
+import AgentPhaseIndicator from '../components/chat/AgentPhaseIndicator';
 import ChatHistoryDrawer from '../components/ChatHistoryDrawer';
 import ChatMessage from '../components/ChatMessage';
 import MemoryManager from '../components/MemoryManager';
@@ -39,7 +40,7 @@ import {
   rejectAgentAction as rejectAgentSessionAction,
   rejectChatAgentAction,
 } from '../services/api';
-import type { AgentInfo, AgentSession, ChatAgentRun, SavedCloudProvider, WorkflowAction, WorkflowTemplate } from '../services/api';
+import type { AgentInfo, AgentPart, AgentSession, AgentSessionEvent, ChatAgentRun, SavedCloudProvider, WorkflowAction, WorkflowTemplate } from '../services/api';
 import { transitions } from '../theme/animations';
 import { notify } from '../utils/notify';
 import { ArrowDownOutlined } from '@ant-design/icons';
@@ -68,6 +69,21 @@ interface StoredChatScrollState {
 }
 
 const CHAT_SCROLL_STORAGE_KEY = 'chat_scroll_positions_v1';
+const INTENT_ROUTING_TIMEOUT_MS = 8000;
+
+const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};
 
 const clampMessageIndex = (index: number, messageCount: number) => {
   if (messageCount <= 0) return 0;
@@ -247,8 +263,11 @@ const ChatPage: React.FC = () => {
   const [creatingWorkflow, setCreatingWorkflow] = useState(false);
   const chatAgentStreamsRef = useRef<Record<string, EventSource>>({});
   const agentSessionStreamsRef = useRef<Record<string, EventSource>>({});
+  const agentSessionStateRef = useRef<Record<string, AgentSession>>({});
   const refreshedAgentRunsRef = useRef<Set<string>>(new Set());
   const refreshedAgentSessionsRef = useRef<Set<string>>(new Set());
+  const streamingDeltaRef = useRef<Record<string, { partId: string; content: string }>>({});
+  const [agentPhase, setAgentPhase] = useState<{ phase: string; tool?: string; visible: boolean }>({ phase: '', visible: false });
   const navigate = useNavigate();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -583,6 +602,57 @@ const ChatPage: React.FC = () => {
     await state.replaceCurrentSessionMessages(state.messages).catch(() => undefined);
   }, []);
 
+  const rememberAgentSession = useCallback((session: AgentSession) => {
+    agentSessionStateRef.current[session.id] = session;
+    return session;
+  }, []);
+
+  const ensureAgentSessionSnapshot = useCallback((
+    sessionId: string,
+    overrides: Partial<AgentSession> = {},
+  ): AgentSession => {
+    const cached = agentSessionStateRef.current[sessionId];
+    const next: AgentSession = {
+      id: sessionId,
+      chat_session_id: overrides.chat_session_id ?? cached?.chat_session_id,
+      agent_id: overrides.agent_id ?? cached?.agent_id ?? 'build',
+      status: overrides.status ?? cached?.status ?? 'running',
+      title: overrides.title ?? cached?.title ?? 'Agent Session',
+      project_path: overrides.project_path ?? cached?.project_path,
+      provider: overrides.provider ?? cached?.provider,
+      model: overrides.model ?? cached?.model,
+      metadata: overrides.metadata ?? cached?.metadata ?? {},
+      parts: overrides.parts ?? cached?.parts ?? [],
+      created_at: overrides.created_at ?? cached?.created_at ?? new Date().toISOString(),
+      updated_at: overrides.updated_at ?? cached?.updated_at ?? new Date().toISOString(),
+    };
+    agentSessionStateRef.current[sessionId] = next;
+    return next;
+  }, []);
+
+  const mergeAgentSessionPart = useCallback((
+    sessionId: string,
+    part: AgentPart,
+    overrides: Partial<AgentSession> = {},
+  ): AgentSession => {
+    const session = ensureAgentSessionSnapshot(sessionId, overrides);
+    const parts = [...(session.parts || [])];
+    const index = parts.findIndex((item) => item.id === part.id);
+    if (index >= 0) {
+      parts[index] = { ...parts[index], ...part };
+    } else {
+      parts.push(part);
+    }
+    const next = {
+      ...session,
+      ...overrides,
+      parts,
+      updated_at: part.updated_at || overrides.updated_at || session.updated_at,
+    };
+    agentSessionStateRef.current[sessionId] = next;
+    return next;
+  }, [ensureAgentSessionSnapshot]);
+
   const buildAgentPartMetadata = useCallback((session: AgentSession, part: any) => {
     const actionLike = ['diff', 'permission', 'command'].includes(part.type);
     const summaryPart = part.type === 'summary' ? part : [...(session.parts || [])].reverse().find((item) => item.type === 'summary');
@@ -608,6 +678,7 @@ const ChatPage: React.FC = () => {
 
   const upsertAgentSessionMessage = useCallback(
     async (session: AgentSession, fallbackContent?: string) => {
+      rememberAgentSession(session);
       const state = useChatStore.getState();
       const renderableParts = (session.parts || []).filter((part) => !(part.type === 'text' && part.title === '请求'));
       if (!renderableParts.length && fallbackContent) {
@@ -659,7 +730,45 @@ const ChatPage: React.FC = () => {
       }
       await persistAgentMessages();
     },
-    [buildAgentPartMetadata, persistAgentMessages],
+    [buildAgentPartMetadata, persistAgentMessages, rememberAgentSession],
+  );
+
+  const upsertAgentSessionPartMessage = useCallback(
+    async (
+      sessionId: string,
+      part: AgentPart,
+      overrides: Partial<AgentSession> = {},
+      options: { persist?: boolean } = {},
+    ) => {
+      if (part.type === 'text' && part.title === '请求') return;
+      const state = useChatStore.getState();
+      const session = mergeAgentSessionPart(sessionId, part, overrides);
+      const content = part.content || part.title || session.title;
+      const metadata = buildAgentPartMetadata(session, part);
+      const existing = state.messages.find((message) => message.agent_metadata?.agent_part_id === part.id);
+      if (existing) {
+        state.updateMessage(existing.id, {
+          content,
+          isLoading: part.status === 'running',
+          agent_metadata: metadata,
+        });
+      } else {
+        state.addMessage({
+          role: 'assistant',
+          content,
+          isLoading: part.status === 'running',
+          agent_metadata: metadata,
+        });
+      }
+      const placeholder = state.messages.find((message) => message.agent_metadata?.agent_part_id === `${sessionId}:pending`);
+      if (placeholder) {
+        await state.deleteMessage(placeholder.id).catch(() => undefined);
+      }
+      if (options.persist) {
+        await persistAgentMessages();
+      }
+    },
+    [buildAgentPartMetadata, mergeAgentSessionPart, persistAgentMessages],
   );
 
   const upsertAgentMessages = useCallback(
@@ -754,24 +863,86 @@ const ChatPage: React.FC = () => {
       agentSessionStreamsRef.current[sessionId]?.close();
       const source = new EventSource(`${API_BASE_URL}/agent-sessions/${sessionId}/events/stream`);
       agentSessionStreamsRef.current[sessionId] = source;
-      const refresh = async () => {
-        const session = await getAgentSession(sessionId).catch(() => null);
-        if (session) {
-          await upsertAgentSessionMessage(session);
-          if (['completed', 'failed'].includes(session.status)) {
-            source.close();
-            delete agentSessionStreamsRef.current[sessionId];
+      const handleChunk = async (chunk: AgentSessionEvent) => {
+        const part = chunk.part || undefined;
+        const sessionStatus = chunk.session_status;
+        const agentId = chunk.agent_id;
+
+        if (chunk.chunk_type === 'session_snapshot') {
+          const snapshot = chunk.session_snapshot;
+          if (snapshot) {
+            await upsertAgentSessionMessage(snapshot as AgentSession);
           }
+          source.close();
+          delete agentSessionStreamsRef.current[sessionId];
+          Object.keys(streamingDeltaRef.current).forEach((key) => {
+            if (key.startsWith('agp_')) delete streamingDeltaRef.current[key];
+          });
+          setAgentPhase({ phase: '', visible: false });
+          return;
+        }
+
+        if (sessionStatus || agentId) {
+          ensureAgentSessionSnapshot(sessionId, {
+            status: sessionStatus || undefined,
+            agent_id: agentId || undefined,
+            updated_at: chunk.created_at,
+          });
+        }
+        if (chunk.chunk_type === 'phase') {
+          const phaseStr = chunk.phase || (chunk.payload?.phase as string) || '';
+          if (phaseStr === 'model_thinking') {
+            setAgentPhase({ phase: 'model_thinking', visible: true });
+          } else if (phaseStr === 'tool_execution') {
+            setAgentPhase({ phase: 'tool_execution', tool: chunk.tool || (chunk.payload?.tool as string | undefined), visible: true });
+          } else if (phaseStr === 'tool_completed') {
+            setAgentPhase({ phase: 'tool_completed', tool: chunk.tool || (chunk.payload?.tool as string | undefined), visible: true });
+            setTimeout(() => setAgentPhase((prev) => prev.phase === 'tool_completed' ? { ...prev, visible: false } : prev), 1500);
+          } else {
+            setAgentPhase({ phase: phaseStr, visible: true });
+          }
+          return;
+        }
+        if (chunk.chunk_type === 'part_start') {
+          setAgentPhase({ phase: 'model_streaming', visible: false });
+        }
+        if (part) {
+          if (chunk.chunk_type === 'part_delta' && (chunk.delta !== undefined || chunk.content !== undefined)) {
+            streamingDeltaRef.current[part.id] = { partId: part.id, content: (chunk.content || part.content || '') as string };
+          }
+          const shouldPersist = chunk.chunk_type !== 'part_delta' && chunk.chunk_type !== 'part_start';
+          await upsertAgentSessionPartMessage(
+            sessionId,
+            part,
+            {
+              status: sessionStatus || undefined,
+              agent_id: agentId || undefined,
+              updated_at: chunk.created_at,
+            },
+            { persist: shouldPersist },
+          );
+        }
+        if (chunk.chunk_type === 'tool_call') {
+          setAgentPhase({ phase: 'tool_execution', tool: chunk.tool || (chunk.payload?.tool as string | undefined), visible: true });
+        } else if (chunk.chunk_type === 'tool_result' || chunk.chunk_type === 'summary' || chunk.chunk_type === 'action') {
+          setAgentPhase((prev) => ({ ...prev, visible: false }));
+        } else if (chunk.chunk_type === 'error') {
+          setAgentPhase({ phase: 'model_thinking_fallback', visible: true });
         }
       };
-      source.addEventListener('agent_session_event', refresh);
-      source.onmessage = refresh;
+      source.addEventListener('agent_session_event', (e: MessageEvent) => {
+        try { void handleChunk(JSON.parse((e as MessageEvent).data) as AgentSessionEvent); } catch { /* ignore */ }
+      });
       source.onerror = () => {
+        Object.keys(streamingDeltaRef.current).forEach((key) => {
+          if (key.startsWith('agp_')) delete streamingDeltaRef.current[key];
+        });
+        setAgentPhase({ phase: '', visible: false });
         source.close();
         delete agentSessionStreamsRef.current[sessionId];
       };
     },
-    [upsertAgentSessionMessage],
+    [ensureAgentSessionSnapshot, upsertAgentSessionPartMessage],
   );
 
   useEffect(() => {
@@ -788,18 +959,7 @@ const ChatPage: React.FC = () => {
       const refreshKey = `${currentSessionId}:session:${sessionId}`;
       if (refreshedAgentSessionsRef.current.has(refreshKey)) return;
       refreshedAgentSessionsRef.current.add(refreshKey);
-      getAgentSession(sessionId)
-        .then(async (session) => {
-          if (!cancelled) {
-            await upsertAgentSessionMessage(session);
-            if (!['completed', 'failed'].includes(session.status)) {
-              startAgentSessionStream(session.id);
-            }
-          }
-        })
-        .catch(() => {
-          refreshedAgentSessionsRef.current.delete(refreshKey);
-        });
+      startAgentSessionStream(sessionId);
     });
 
     const runIds = Array.from(
@@ -910,16 +1070,21 @@ const ChatPage: React.FC = () => {
       if (routingMode === 'auto') {
         setRoutingIntent(true);
         try {
-          const intent = await classifyChatAgentIntent({
-            content,
-            provider: cloudAIConfig?.provider || undefined,
-            model: selectedCloudModel || cloudAIConfig?.model || undefined,
-            agent_id: selectedPrimaryAgent || 'build',
-            template_id: selectedWorkflowTemplate || 'software_delivery',
-            chat_session_id: currentSessionId && !currentSessionId.startsWith('local_') ? currentSessionId : undefined,
-            routing_mode: 'auto',
-          });
+          const intent = await withTimeout(
+            classifyChatAgentIntent({
+              content,
+              provider: cloudAIConfig?.provider || undefined,
+              model: selectedCloudModel || cloudAIConfig?.model || undefined,
+              agent_id: selectedPrimaryAgent || 'build',
+              template_id: selectedWorkflowTemplate || 'software_delivery',
+              chat_session_id: currentSessionId && !currentSessionId.startsWith('local_') ? currentSessionId : undefined,
+              routing_mode: 'auto',
+            }),
+            INTENT_ROUTING_TIMEOUT_MS,
+            'intent_routing_timeout',
+          );
           if (intent.mode === 'agent') {
+            setRoutingIntent(false);
             const handledByAgent = await handleAgentWorkflow(content, true, {
               agentId: intent.suggested_agent_id || selectedPrimaryAgent || 'build',
               templateId: intent.suggested_template_id || selectedWorkflowTemplate || 'software_delivery',
@@ -934,6 +1099,7 @@ const ChatPage: React.FC = () => {
           }
         } catch (error) {
           if (isLikelyAgentGoal(content)) {
+            setRoutingIntent(false);
             const handledByAgent = await handleAgentWorkflow(content, true, {
               reason: '意图判断失败，已按本地规则启动 Agent。',
             });
@@ -1612,6 +1778,11 @@ const ChatPage: React.FC = () => {
                       isVisible={!isLoading && !isActivelyStreaming && currentSuggestions.length > 0}
                       onSuggestionClick={handleSend}
                     />
+                    <AgentPhaseIndicator
+                      phase={agentPhase.phase}
+                      tool={agentPhase.tool}
+                      visible={agentPhase.visible}
+                    />
                   </div>
                 ),
               }}
@@ -1644,6 +1815,12 @@ const ChatPage: React.FC = () => {
                 suggestions={currentSuggestions}
                 isVisible={!isLoading && !isActivelyStreaming && currentSuggestions.length > 0}
                 onSuggestionClick={handleSend}
+              />
+
+              <AgentPhaseIndicator
+                phase={agentPhase.phase}
+                tool={agentPhase.tool}
+                visible={agentPhase.visible}
               />
 
               <div ref={messagesEndRef} style={{ height: 1 }} />

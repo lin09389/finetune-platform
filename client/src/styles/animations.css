@@ -267,6 +267,113 @@
   }
 }
 
+/* Agent 流式输出光标 */
+@keyframes agentStreamBlink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Agent 阶段指示器 */
+@keyframes agentPhasePulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes agentPhaseSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes agentPhaseSlideOut {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.agent-phase-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  margin: 6px 0;
+  border-radius: 16px;
+  background: rgba(22, 119, 255, 0.08);
+  border: 1px solid rgba(22, 119, 255, 0.15);
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.65));
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.25s ease, transform 0.25s ease, background 0.25s ease;
+  animation: agentPhaseSlideIn 0.25s ease forwards;
+}
+
+.agent-phase-indicator-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.agent-phase-indicator-transient {
+  background: rgba(82, 196, 26, 0.08);
+  border-color: rgba(82, 196, 26, 0.2);
+}
+
+.agent-phase-spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  animation: agentPhasePulse 1.5s ease-in-out infinite;
+  color: #1677ff;
+}
+
+.agent-phase-indicator-transient .agent-phase-spinner {
+  color: #52c41a;
+  animation: none;
+}
+
+.agent-phase-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-phase-label {
+  font-weight: 500;
+}
+
+.agent-phase-tool {
+  color: var(--text-tertiary, rgba(255, 255, 255, 0.45));
+  font-size: 12px;
+}
+
+.agent-phase-sub {
+  color: var(--text-tertiary, rgba(255, 255, 255, 0.45));
+  font-size: 12px;
+}
+
+.agent-phase-icon svg {
+  display: block;
+}
+
 /* 呼吸 */
 @keyframes breathe {
   0%,

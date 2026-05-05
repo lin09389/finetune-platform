@@ -139,6 +139,16 @@ export default function AgentPartMessage({
     </div>
   );
 
+  if (part.type === 'text') {
+    const isStreaming = status === 'running' || (part.payload as Record<string, unknown>)?.streaming === true;
+    return (
+      <Typography.Paragraph style={{ margin: '2px 0', whiteSpace: 'pre-wrap' }}>
+        {part.content || content}
+        {isStreaming && <span style={{ display: 'inline-block', width: 2, height: 14, background: '#1677ff', marginLeft: 2, verticalAlign: 'middle', animation: 'agentStreamBlink 0.8s infinite', borderRadius: 1 }} />}
+      </Typography.Paragraph>
+    );
+  }
+
   if (part.type === 'summary') {
     return shell(
       <Space direction="vertical" size={6} style={{ width: '100%' }}>
@@ -277,10 +287,13 @@ export default function AgentPartMessage({
     );
   }
 
+  const isRunningTool = part.type === 'tool_call' && status === 'running';
+
   return shell(
     <Space direction="vertical" size={4} style={{ width: '100%' }}>
       <Space wrap>
         {icon}
+        {isRunningTool && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><span className="typing-dot" /><span className="typing-dot" style={{ animationDelay: '0.2s' }} /><span className="typing-dot" style={{ animationDelay: '0.4s' }} /></span>}
         <Typography.Text>{partTitle(part, content)}</Typography.Text>
         {status !== 'completed' && <Tag color={statusColor[status] || 'default'}>{statusLabel[status] || status}</Tag>}
       </Space>
