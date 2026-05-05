@@ -211,3 +211,56 @@ def test_collect_context_infers_source_file_before_patch(tmp_path: Path):
         assert target.read_text(encoding="utf-8") == "export const VALUE = 2;\n"
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
+
+
+def test_model_call_failure_returns_summary_instead_of_raising(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_model_failure.db")))
+    session = service.create_session(AgentSessionCreate(title="model failure", project_path=str(Path.cwd())))
+
+    async def model_call(_messages):
+        raise RuntimeError("provider exploded")
+
+    service.model_call = model_call
+    result = asyncio.run(service.prompt(session.id, AgentPromptRequest(content="触发模型失败")))
+
+    assert result.status == "needs_manual_review"
+    assert result.parts[-1].type == "summary"
+    assert "provider exploded" in result.parts[-1].content
+
+
+def test_processor_internal_failure_returns_recoverable_summary(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_processor_failure.db")))
+    session = service.create_session(AgentSessionCreate(title="processor failure", project_path=str(Path.cwd())))
+
+    async def broken_prompt(*_args, **_kwargs):
+        raise RuntimeError("processor exploded")
+
+    service.processor.prompt = broken_prompt  # type: ignore[method-assign]
+    result = asyncio.run(service.prompt(session.id, AgentPromptRequest(content="触发 processor 失败")))
+
+    assert result.status == "needs_manual_review"
+    assert result.parts[-1].type == "summary"
+    assert "processor exploded" in result.parts[-1].content
+    assert result.metadata["diagnostics"]["stop_reason"]
+
+
+def test_missing_provider_can_still_run_explicit_read_only_task(tmp_path: Path):
+    workspace = Path.cwd()
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_local_read_fallback.db")))
+    session = service.create_session(AgentSessionCreate(title="local read fallback", project_path=str(workspace)))
+    service.processor.max_iterations = 4
+
+    result = asyncio.run(
+        service.prompt(
+            session.id,
+            AgentPromptRequest(
+                content="先简单说明你要做什么，然后读取当前项目的 package.json 和 server/main.py，最后总结你看到了什么。不要写文件。"
+            ),
+        )
+    )
+
+    read_paths = [part.payload.get("path") for part in result.parts if part.type == "tool_result"]
+    assert result.status == "completed"
+    assert "package.json" in read_paths
+    assert "server/main.py" in read_paths
+    assert result.parts[-1].type == "summary"

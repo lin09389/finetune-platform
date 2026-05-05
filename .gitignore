@@ -55,6 +55,7 @@ coverage/
 tmp/
 temp/
 *.tmp
+server/scratch/
 
 # Runtime state
 data/

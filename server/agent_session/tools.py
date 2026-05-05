@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from agent_runtime.command_policy import command_allowed, normalize_command, summarize_failure
 from agent_runtime.patch_engine import SafePatchEngine
 from core.config import settings
+from .parser import parse_tool_request
 
 
 @dataclass
@@ -319,26 +320,3 @@ class AgentToolRegistry:
                 continue
             seen.add(path)
             yield path
-
-
-def parse_tool_request(raw: str) -> dict[str, Any] | None:
-    text = raw.strip()
-    if not text:
-        return None
-    if text.startswith("```"):
-        import re
-
-        match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
-        if match:
-            text = match.group(1)
-    try:
-        payload = json.loads(text)
-    except Exception:
-        return None
-    if not isinstance(payload, dict):
-        return None
-    tool = payload.get("tool") or payload.get("name") or payload.get("tool_name")
-    if not tool:
-        return None
-    arguments = payload.get("arguments") or payload.get("args") or payload.get("parameters") or {}
-    return {"tool": str(tool), "arguments": arguments if isinstance(arguments, dict) else {}}

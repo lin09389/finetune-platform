@@ -99,7 +99,7 @@ def test_state_tracks_repair_and_latest_error(tmp_path: Path):
         shutil.rmtree(run_dir, ignore_errors=True)
 
 
-def test_fallback_summary_marks_state(tmp_path: Path):
+def test_plain_final_text_marks_completed_state(tmp_path: Path):
     workspace = Path.cwd()
     service = _service(tmp_path)
     service.processor.max_iterations = 1
@@ -109,13 +109,14 @@ def test_fallback_summary_marks_state(tmp_path: Path):
         return "我已经完成了，但是没有按 JSON 输出。"
 
     service.model_call = model_call
-    result = asyncio.run(service.prompt(session.id, AgentPromptRequest(content="触发兜底总结")))
+    result = asyncio.run(service.prompt(session.id, AgentPromptRequest(content="触发自然总结")))
     state = result.metadata["state"]
 
-    assert result.status == "needs_manual_review"
-    assert state["fallback_summary_used"] is True
-    assert state["current_phase"] == "needs_manual_review"
+    assert result.status == "completed"
+    assert state["fallback_summary_used"] is False
+    assert state["current_phase"] == "completed"
     assert result.parts[-1].type == "summary"
+    assert "我已经完成了" in result.parts[-1].content
 
 
 def test_get_session_recovers_state_without_duplicate_execution(tmp_path: Path):

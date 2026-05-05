@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import json
+import re
+import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from fastapi import BackgroundTasks
 
 from agent_runtime.runner import resolve_saved_provider
 from security.encryption import secure_storage
@@ -9,7 +15,7 @@ from security.encryption import secure_storage
 from .models import AgentPromptRequest, AgentSessionCreate, AgentSessionResponse
 from .processor import AgentSessionProcessor, ModelCall
 from .repository import AgentSessionRepository
-from .state import ensure_session_state
+from .state import ensure_session_state, record_fallback_summary, set_phase
 
 
 class AgentSessionService:
@@ -22,6 +28,8 @@ class AgentSessionService:
         self.repository = repository or AgentSessionRepository()
         self.processor = processor or AgentSessionProcessor(self.repository)
         self.model_call = model_call
+
+    ACTIVE_STATUSES = {"running", "verifying", "repairing", "waiting_approval", "waiting_permission"}
 
     def create_session(self, request: AgentSessionCreate) -> AgentSessionResponse:
         session = self.repository.create_session(
@@ -54,8 +62,111 @@ class AgentSessionService:
             self.repository.update_session(session_id, provider=request.provider or session.get("provider"), model=request.model or session.get("model"), metadata=metadata)
             session = self.repository.get_session(session_id) or session
         model_call = self.model_call or self._cloud_model_call(session)
-        result = await self.processor.prompt(session_id, request.content, model_call=model_call)
+        stream_model_call = None
+        if self.model_call is None:
+            try:
+                stream_model_call = self._cloud_stream_model_call(session)
+            except (ValueError, TypeError):
+                stream_model_call = None
+        try:
+            result = await self.processor.prompt(session_id, request.content, model_call=model_call, stream_model_call=stream_model_call)
+        except Exception as exc:
+            result = self.record_prompt_failure(session_id, exc)
         return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
+
+    def start_prompt_background(
+        self,
+        session_id: str,
+        request: AgentPromptRequest,
+        background_tasks: BackgroundTasks,
+    ) -> AgentSessionResponse:
+        session = self.repository.get_session(session_id)
+        if not session:
+            raise ValueError("Agent session not found")
+
+        if str(session.get("status") or "") in self.ACTIVE_STATUSES:
+            self.repository.add_event(
+                session_id,
+                "prompt_already_running",
+                "Agent 正在处理当前任务，未重复启动。",
+                {"session_id": session_id, "status": session.get("status"), "summary": "Agent 正在处理当前任务，未重复启动。"},
+            )
+            return self.get_session(session_id)
+
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        prompt_id = f"agprompt_{uuid.uuid4().hex}"
+        now = datetime.now().isoformat()
+        metadata["active_prompt_id"] = prompt_id
+        metadata["background_run"] = True
+        metadata["last_prompt_started_at"] = now
+        metadata["current_goal"] = request.content
+        metadata = set_phase(metadata, "running")
+        session = self.repository.update_session(
+            session_id,
+            status="running",
+            provider=request.provider or session.get("provider"),
+            model=request.model or session.get("model"),
+            metadata=metadata,
+        )
+        self.repository.add_event(
+            session_id,
+            "prompt_queued",
+            "Agent 已进入后台执行。",
+            {"session_id": session_id, "active_prompt_id": prompt_id, "status": "running", "summary": "Agent 已进入后台执行。"},
+        )
+        background_tasks.add_task(self._run_prompt_background, session_id, request, prompt_id)
+        session["parts"] = self.repository.list_parts(session_id)
+        return AgentSessionResponse(**self._attach_recovery_diagnostics(session))
+
+    async def _run_prompt_background(self, session_id: str, request: AgentPromptRequest, prompt_id: str) -> None:
+        try:
+            await self.prompt(session_id, request)
+            session = self.repository.get_session(session_id)
+            if session:
+                metadata = ensure_session_state(dict(session.get("metadata") or {}))
+                if metadata.get("active_prompt_id") == prompt_id:
+                    metadata["last_prompt_completed_at"] = datetime.now().isoformat()
+                    metadata["active_prompt_id"] = None
+                    self.repository.update_session(session_id, metadata=metadata)
+        except Exception as exc:
+            try:
+                self.record_prompt_failure(session_id, exc)
+            except Exception:
+                # Background task failures must never escape into the server loop.
+                pass
+
+    def record_prompt_failure(self, session_id: str, exc: Exception) -> dict[str, Any]:
+        session = self.repository.get_session(session_id)
+        if not session:
+            raise ValueError("Agent session not found")
+        message = f"Agent 执行时发生内部错误，已停止且没有继续执行动作。错误：{str(exc)[:600]}"
+        metadata = self._ensure_failed_metadata(session, message)
+        summary = self.repository.add_part(
+            session_id,
+            "summary",
+            status="completed",
+            title="最终结果",
+            content=message,
+            payload={"summary": message, "fallback": True, "error": str(exc)[:1200]},
+        )
+        self.repository.update_session(session_id, status="needs_manual_review", metadata=metadata)
+        self.repository.add_event(
+            session_id,
+            "session_failed",
+            message,
+            {
+                "session_id": session_id,
+                "part_id": summary.get("id"),
+                "part_type": "summary",
+                "status": "completed",
+                "summary": message,
+                "error": str(exc)[:1200],
+                "fallback": True,
+            },
+        )
+        result = self.repository.get_session(session_id) or session
+        result["parts"] = self.repository.list_parts(session_id)
+        return result
 
     def approve_permission(self, part_id: str, approved: bool) -> AgentSessionResponse:
         return AgentSessionResponse(**self._attach_recovery_diagnostics(self.processor.approve_part(part_id, approved)))
@@ -66,8 +177,74 @@ class AgentSessionService:
     def execute_action(self, part_id: str) -> AgentSessionResponse:
         return AgentSessionResponse(**self._attach_recovery_diagnostics(self.processor.execute_part(part_id)))
 
-    def list_events(self, session_id: str) -> list[dict[str, Any]]:
-        return self.repository.list_events(session_id)
+    def list_events(self, session_id: str, since_event_id: str | None = None) -> list[dict[str, Any]]:
+        return self.repository.list_events_after(session_id, since_event_id)
+
+    def build_stream_chunk(self, event: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(event.get("payload") or {})
+        session_id = str(event.get("session_id") or payload.get("session_id") or "")
+        session = self.repository.get_session(session_id) or {}
+        payload_chunk_type = payload.get("chunk_type")
+        payload_part = payload.get("part")
+        event_type = str(event.get("event_type") or "")
+        computed_part = payload_part if isinstance(payload_part, dict) else None
+        if computed_part is None:
+            computed_part = self._stream_part_snapshot(event, payload)
+        chunk_type = payload_chunk_type if isinstance(payload_chunk_type, str) else self._stream_chunk_type(event_type, payload, computed_part)
+        return {
+            "id": event.get("id"),
+            "session_id": session_id,
+            "created_at": event.get("created_at"),
+            "event_type": event_type,
+            "chunk_type": chunk_type,
+            "message": str(event.get("message") or ""),
+            "payload": payload,
+            "session_status": session.get("status"),
+            "agent_id": session.get("agent_id"),
+            "phase": payload.get("phase"),
+            "tool": payload.get("tool"),
+            "delta": payload.get("delta"),
+            "content": payload.get("content"),
+            "summary": payload.get("summary") or event.get("message"),
+            "part": computed_part,
+        }
+
+    def build_session_snapshot_chunk(self, session_id: str) -> dict[str, Any]:
+        session = self.repository.get_session(session_id)
+        if not session:
+            return {"chunk_type": "session_snapshot", "session_id": session_id, "session_status": "unknown", "parts": [], "payload": {}}
+        parts = self.repository.list_parts(session_id)
+        session["parts"] = parts
+        hydrated = self._attach_recovery_diagnostics(session)
+        return {
+            "id": f"snap_{session_id}",
+            "session_id": session_id,
+            "created_at": hydrated.get("updated_at") or hydrated.get("created_at") or "",
+            "event_type": "session_snapshot",
+            "chunk_type": "session_snapshot",
+            "message": "Session state snapshot",
+            "payload": {},
+            "session_status": hydrated.get("status"),
+            "agent_id": hydrated.get("agent_id"),
+            "phase": None,
+            "tool": None,
+            "delta": None,
+            "content": None,
+            "summary": None,
+            "part": None,
+            "session_snapshot": hydrated,
+        }
+
+    def _ensure_failed_metadata(self, session: dict[str, Any], message: str) -> dict[str, Any]:
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        metadata = record_fallback_summary(metadata)
+        metadata = set_phase(metadata, "needs_manual_review")
+        metadata["latest_error"] = message
+        metadata["model_protocol_status"] = "needs_manual_review"
+        state = dict(metadata.get("state") or {})
+        state["latest_error"] = message
+        metadata["state"] = state
+        return metadata
 
     def _attach_recovery_diagnostics(self, session: dict[str, Any]) -> dict[str, Any]:
         hydrated = dict(session)
@@ -89,6 +266,74 @@ class AgentSessionService:
         hydrated["metadata"] = metadata
         hydrated["parts"] = parts
         return hydrated
+
+    def _stream_part_snapshot(self, event: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any] | None:
+        session_id = str(event.get("session_id") or payload.get("session_id") or "")
+        event_type = str(event.get("event_type") or "")
+        part_id = payload.get("part_id")
+        stored_part = self.repository.get_part(str(part_id)) if isinstance(part_id, str) and part_id.startswith("agp_") else None
+        if stored_part is None and not part_id:
+            return None
+        if event_type in {"part_delta", "model_stream_started", "model_stream_failed"}:
+            part_type = str(payload.get("part_type") or (stored_part or {}).get("type") or "text")
+            status = str(payload.get("status") or (stored_part or {}).get("status") or ("failed" if event_type == "model_stream_failed" else "running"))
+            stored_payload = dict((stored_part or {}).get("payload") or {})
+            if payload.get("streaming"):
+                stored_payload["streaming"] = True
+            return {
+                "id": str(part_id or ""),
+                "session_id": session_id,
+                "type": part_type,
+                "status": status,
+                "title": (stored_part or {}).get("title") or ("流式输出失败" if event_type == "model_stream_failed" else "生成中"),
+                "content": str(payload.get("content") or (stored_part or {}).get("content") or ""),
+                "payload": stored_payload,
+                "created_at": (stored_part or {}).get("created_at") or event.get("created_at"),
+                "updated_at": event.get("created_at"),
+            }
+        if stored_part is not None:
+            return stored_part
+        return {
+            "id": str(part_id or ""),
+            "session_id": session_id,
+            "type": str(payload.get("part_type") or "text"),
+            "status": str(payload.get("status") or "completed"),
+            "title": None,
+            "content": str(payload.get("content") or payload.get("summary") or event.get("message") or ""),
+            "payload": payload,
+            "created_at": event.get("created_at"),
+            "updated_at": event.get("created_at"),
+        }
+
+    @staticmethod
+    def _stream_chunk_type(event_type: str, payload: dict[str, Any], part: dict[str, Any] | None) -> str:
+        if event_type == "phase_change":
+            return "phase"
+        if event_type == "model_stream_started":
+            return "part_start"
+        if event_type == "part_delta":
+            return "part_delta"
+        if event_type == "model_stream_completed":
+            return "part_complete"
+        if event_type == "tool_call_started":
+            return "tool_call"
+        if event_type == "tool_call_completed":
+            return "tool_result"
+        if event_type == "summary_completed":
+            return "summary"
+        if event_type == "permission_asked":
+            return "permission_request"
+        if event_type in {"action_proposed", "action_approved", "action_rejected", "action_executed", "action_failed", "command_completed", "command_failed"}:
+            return "action"
+        if event_type in {"model_stream_failed", "session_failed", "session_blocked"}:
+            return "error"
+        if event_type in {"session_started", "prompt_queued", "prompt_already_running"}:
+            return "status"
+        if part is not None:
+            return "part_snapshot"
+        if payload.get("tool"):
+            return "tool"
+        return "event"
 
     def _build_diagnostics(
         self,
@@ -212,31 +457,97 @@ class AgentSessionService:
         async def call(messages: list[dict[str, str]]) -> str:
             provider_name = session.get("provider")
             if not provider_name:
-                return (
-                    '{"tool":"finalize","arguments":{"summary":'
-                    '"还没有为本次 Agent Session 选择云端模型，因此只创建了会话。请在聊天页选择 provider/model 后重试。"}}'
-                )
+                return self._local_fallback_model_response(messages, "没有选择云端模型")
             key_data = secure_storage.get(f"cloud_{provider_name}_key") or {}
             api_key = key_data.get("api_key", "")
             if not api_key:
-                return (
-                    '{"tool":"finalize","arguments":{"summary":'
-                    f'"未配置 {provider_name} 的 API Key，无法继续执行 Agent。"}}'
-                )
+                return self._local_fallback_model_response(messages, f"未配置 {provider_name} 的 API Key")
             provider = resolve_saved_provider(provider_name, key_data)
             if provider is None:
-                return (
-                    '{"tool":"finalize","arguments":{"summary":'
-                    f'"不支持的云端服务商：{provider_name}。"}}'
-                )
+                return self._local_fallback_model_response(messages, f"不支持的云端服务商：{provider_name}")
             model = session.get("model") or key_data.get("default_model") or provider.get_default_model()
-            response = await provider.chat(
+            try:
+                response = await provider.chat(
+                    messages=messages,
+                    model=model,
+                    api_key=api_key,
+                    temperature=0.2,
+                    max_tokens=2400,
+                )
+            except Exception as exc:
+                message = str(exc).replace('"', "'")[:600]
+                return self._local_fallback_model_response(messages, f"云端模型调用失败：{message}")
+            return response.get("content", "")
+
+        return call
+
+    def _cloud_stream_model_call(self, session: dict[str, Any]):
+        from collections.abc import AsyncGenerator
+
+        async def stream(messages: list[dict[str, str]]):
+            provider_name = session.get("provider")
+            key_data = (secure_storage.get(f"cloud_{provider_name}_key") or {}) if provider_name else {}
+            if not provider_name:
+                raise ValueError("没有选择云端模型")
+            api_key = key_data.get("api_key", "") if isinstance(key_data, dict) else ""
+            if not api_key:
+                raise ValueError(f"未配置 {provider_name} 的 API Key")
+            provider = resolve_saved_provider(provider_name, key_data)
+            if provider is None:
+                raise ValueError(f"不支持的云端服务商：{provider_name}")
+            model = (session.get("model") or key_data.get("default_model", "")) if isinstance(key_data, dict) else (session.get("model") or "")
+            if not model:
+                model = provider.get_default_model()
+            async for chunk in provider.chat_stream(
                 messages=messages,
                 model=model,
                 api_key=api_key,
                 temperature=0.2,
                 max_tokens=2400,
-            )
-            return response.get("content", "")
+            ):
+                yield chunk
 
-        return call
+        return stream
+
+    def _local_fallback_model_response(self, messages: list[dict[str, str]], reason: str) -> str:
+        latest_user = next((item.get("content", "") for item in reversed(messages) if item.get("role") == "user"), "")
+        transcript = "\n".join(item.get("content", "") for item in messages[-6:])
+        if "工具结果" in latest_user or "工具结果" in transcript:
+            return json.dumps(
+                {
+                    "tool": "finalize",
+                    "arguments": {
+                        "summary": f"已完成本地只读兜底流程。原因：{reason}。已根据工具结果生成总结；未写入文件，也未执行命令。"
+                    },
+                },
+                ensure_ascii=False,
+            )
+
+        explicit_files = self._extract_requested_files(transcript)
+        read_only = any(marker in transcript for marker in ("不要写文件", "不写文件", "只读", "读取", "看看", "分析"))
+        if explicit_files and read_only:
+            return (
+                "云端模型暂不可用，我先按本地只读规则读取你明确指定的文件。\n"
+                + json.dumps(
+                    [{"tool": "read", "arguments": {"path": path}} for path in explicit_files[:6]],
+                    ensure_ascii=False,
+                )
+            )
+        return json.dumps(
+            {
+                "tool": "finalize",
+                "arguments": {
+                    "summary": f"Agent 无法调用云端模型，已安全停止。原因：{reason}。未写入文件，也未执行命令。"
+                },
+            },
+            ensure_ascii=False,
+        )
+
+    @staticmethod
+    def _extract_requested_files(text: str) -> list[str]:
+        files: list[str] = []
+        for token in re.findall(r"[\w./\\-]+\.(?:py|ts|tsx|css|md|json)", text):
+            normalized = token.strip("`'\"，。,；;：:（）()[]{}").replace("\\", "/")
+            if normalized and normalized not in files:
+                files.append(normalized)
+        return files

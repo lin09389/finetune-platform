@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from agent_session.models import (
@@ -46,12 +46,18 @@ async def get_agent_session(
 async def prompt_agent_session(
     session_id: str,
     request: AgentPromptRequest,
+    background_tasks: BackgroundTasks,
     service: AgentSessionService = Depends(get_agent_session_service),
 ):
     try:
-        return await service.prompt(session_id, request)
+        return await run_sync(service.start_prompt_background, session_id, request, background_tasks)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        try:
+            return await run_sync(service.record_prompt_failure, session_id, exc)
+        except ValueError as value_exc:
+            raise HTTPException(status_code=404, detail=str(value_exc)) from value_exc
 
 
 @router.get("/{session_id}/events", response_model=list[AgentEventResponse])
@@ -69,23 +75,32 @@ async def list_agent_session_events(
 @router.get("/{session_id}/events/stream")
 async def stream_agent_session_events(
     session_id: str,
+    since_event_id: str | None = None,
     service: AgentSessionService = Depends(get_agent_session_service),
 ):
+    terminal_statuses = {"completed", "failed", "needs_manual_review", "waiting_approval", "waiting_permission"}
+
     async def event_stream():
-        seen: set[str] = set()
-        for _ in range(180):
-            for event in await run_sync(service.list_events, session_id):
+        seen: set[str] = {since_event_id} if since_event_id else set()
+        since_id = since_event_id
+        for _ in range(720):
+            events = await run_sync(service.list_events, session_id, since_id)
+            for event in events:
                 if event["id"] in seen:
                     continue
                 seen.add(event["id"])
-                yield f"event: agent_session_event\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+                since_id = event["id"]
+                chunk = await run_sync(service.build_stream_chunk, event)
+                yield f"event: agent_session_event\ndata: {json.dumps(chunk, ensure_ascii=False)}\n\n"
             try:
                 session = await run_sync(service.get_session, session_id)
-                if session.status in {"completed", "failed"} and seen:
+                if session.status in terminal_statuses and seen:
+                    snapshot_chunk = await run_sync(service.build_session_snapshot_chunk, session_id)
+                    yield f"event: agent_session_event\ndata: {json.dumps(snapshot_chunk, ensure_ascii=False)}\n\n"
                     break
             except Exception:
                 break
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.25)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

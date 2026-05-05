@@ -37,7 +37,7 @@ def test_agent_session_events_are_persisted_in_order(tmp_path: Path):
         asyncio.run(service.prompt(session.id, AgentPromptRequest(content="读取文件")))
         events = service.list_events(session.id)
 
-        assert [event["event_type"] for event in events][:2] == ["session_started", "tool_call_started"]
+        assert [event["event_type"] for event in events][0] == "session_started"
         assert events[-1]["event_type"] == "summary_completed"
         restored = service.get_session(session.id)
         assert restored.status == "completed"
@@ -61,3 +61,46 @@ def test_agent_session_failed_state_has_error_part(tmp_path: Path):
     assert result.status == "needs_manual_review"
     assert result.parts[-1].type == "summary"
     assert result.parts[-1].content
+
+
+def test_event_payloads_have_chunk_type_for_tool_call_flow(tmp_path: Path):
+    workspace = Path.cwd()
+    run_dir = workspace / "tmp" / f"agent-evt-{uuid.uuid4().hex[:8]}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    target = run_dir / "check.txt"
+    target.write_text("check", encoding="utf-8")
+    repository = AgentSessionRepository(str(tmp_path / "chunk_type_flow.db"))
+    service = AgentSessionService(repository)
+    session = service.create_session(AgentSessionCreate(title="chunk-flow", project_path=str(workspace)))
+    rel = target.relative_to(workspace).as_posix()
+
+    responses = iter(
+        [
+            {"tool": "read", "arguments": {"path": rel}},
+            {"tool": "finalize", "arguments": {"summary": "chunk type 流程完成。"}},
+        ]
+    )
+
+    async def model_call(_messages):
+        return json.dumps(next(responses), ensure_ascii=False)
+
+    service.processor.max_iterations = 4
+    service.model_call = model_call
+    try:
+        asyncio.run(service.prompt(session.id, AgentPromptRequest(content="读取并总结")))
+        events = service.list_events(session.id)
+
+        event_chunk_types = {}
+        for event in events:
+            payload = event.get("payload", {})
+            chunk_type = payload.get("chunk_type")
+            event_type = event["event_type"]
+            event_chunk_types[event_type] = chunk_type
+            assert chunk_type is not None, f"Event {event_type} missing chunk_type"
+
+        assert event_chunk_types.get("session_started") == "status"
+        assert event_chunk_types.get("tool_call_started") == "tool_call"
+        assert event_chunk_types.get("tool_call_completed") == "tool_result"
+        assert event_chunk_types.get("summary_completed") == "summary"
+    finally:
+        shutil.rmtree(run_dir, ignore_errors=True)

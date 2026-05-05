@@ -147,7 +147,7 @@ class AgentSessionRepository:
             )
         return self.get_part(part_id) or {}
 
-    _PART_UPDATABLE = {"status", "title", "content", "payload", "updated_at"}
+    _PART_UPDATABLE = {"status", "title", "content", "payload", "type", "updated_at"}
 
     def update_part(self, part_id: str, **updates: Any) -> dict[str, Any]:
         if "payload" in updates:
@@ -188,5 +188,27 @@ class AgentSessionRepository:
     def list_events(self, session_id: str) -> list[dict[str, Any]]:
         with get_db_pool(self.db_path).get_readonly_connection() as conn:
             rows = conn.execute("SELECT * FROM agent_events WHERE session_id = ? ORDER BY created_at ASC", (session_id,)).fetchall()
+        return [_row(row) or {} for row in rows]
+
+    def list_events_after(self, session_id: str, event_id: str | None) -> list[dict[str, Any]]:
+        if not event_id:
+            return self.list_events(session_id)
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
+            marker = conn.execute(
+                "SELECT created_at, id FROM agent_events WHERE id = ? AND session_id = ?",
+                (event_id, session_id),
+            ).fetchone()
+            if not marker:
+                rows = conn.execute("SELECT * FROM agent_events WHERE session_id = ? ORDER BY created_at ASC, id ASC", (session_id,)).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM agent_events
+                    WHERE session_id = ?
+                      AND (created_at > ? OR (created_at = ? AND id > ?))
+                    ORDER BY created_at ASC, id ASC
+                    """,
+                    (session_id, marker["created_at"], marker["created_at"], marker["id"]),
+                ).fetchall()
         return [_row(row) or {} for row in rows]
 

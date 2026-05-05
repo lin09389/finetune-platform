@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 import re
+import time
+from collections.abc import AsyncGenerator
 from typing import Any, Awaitable, Callable
 
 from .policy import evaluate_agent_action_policy
+from .parser import parse_agent_response
 from .repository import AgentSessionRepository
 from .state import (
     DEFAULT_MAX_REPAIR_ATTEMPTS,
@@ -16,10 +19,14 @@ from .state import (
     record_repair_attempt,
     set_phase,
 )
-from .tools import AgentToolRegistry, parse_tool_request
+from .tools import AgentToolRegistry
 
 
 ModelCall = Callable[[list[dict[str, str]]], Awaitable[str]]
+StreamModelCall = Callable[[list[dict[str, str]]], AsyncGenerator[dict[str, Any], None]]
+
+_STREAM_THROTTLE_INTERVAL = 0.08
+_STREAM_THROTTLE_CHARS = 24
 
 
 READ_TOOLS = {"read", "search", "glob", "collect_context", "read_execution"}
@@ -45,6 +52,7 @@ class AgentSessionProcessor:
         content: str,
         *,
         model_call: ModelCall | None = None,
+        stream_model_call: StreamModelCall | None = None,
     ) -> dict[str, Any]:
         session = self.repository.get_session(session_id)
         if not session:
@@ -54,188 +62,302 @@ class AgentSessionProcessor:
         metadata["task_intent"] = self._classify_task_intent(content)
         metadata = set_phase(metadata, "running")
         session = self.repository.update_session(session_id, status="running", metadata=metadata)
-        self._event(session_id, "session_started", "Agent 开始处理请求", {"content": content})
-        self.repository.add_part(session_id, "text", status="completed", title="请求", content=content)
+        request_part = self.repository.add_part(session_id, "text", status="completed", title="请求", content=content)
+        self._event(session_id, "session_started", "Agent 开始处理请求", {"content": content, "part_id": request_part["id"]})
 
         messages = self._initial_messages(session, content)
         if model_call is None:
             model_call = self._fallback_model_call
 
         for _ in range(self.max_iterations):
-            raw = await model_call(messages)
-            request = parse_tool_request(raw)
-            if request is None:
+            streaming_part_id: str | None = None
+            self._pending_stream_part_id: str | None = None
+            try:
+                if stream_model_call is not None:
+                    try:
+                        raw, streaming_part_id = await self._stream_model_output(session_id, messages, stream_model_call)
+                    except Exception as stream_exc:
+                        failed_part_id = self._pending_stream_part_id
+                        if failed_part_id:
+                            self.repository.update_part(failed_part_id, status="failed", title="流式输出失败")
+                        self._event(
+                            session_id,
+                            "model_stream_failed",
+                            f"流式输出失败，回退到非流式：{str(stream_exc)[:200]}",
+                            {"error": str(stream_exc)[:600], "part_id": failed_part_id},
+                        )
+                        streaming_part_id = None
+                        stream_model_call = None
+                        raw = await model_call(messages)
+                else:
+                    self._event(session_id, "phase_change", "模型思考中", {"phase": "model_thinking"})
+                    raw = await model_call(messages)
+            except Exception as exc:
+                return self._fallback_summary(
+                    session_id,
+                    f"模型调用失败，Agent 已停止且没有继续执行动作。错误：{str(exc)[:600]}",
+                )
+            model_parts = parse_agent_response(raw)
+            streaming_finalized_type = self._finalize_streaming_text_part(session_id, raw, model_parts, streaming_part_id)
+            tool_or_summary_seen = False
+            if not model_parts:
                 handled = self._handle_protocol_miss(session_id, raw, messages)
                 if handled is not None:
                     return handled
                 continue
 
-            tool_name = request["tool"]
-            args = request["arguments"]
-            tool = self.tools.get(tool_name)
-            if tool is None:
-                part = self.repository.add_part(
-                    session_id,
-                    "permission",
-                    status="pending",
-                    title=f"未知工具：{tool_name}",
-                    content="该工具不在内置工具列表中，需要人工确认。",
-                    payload={"tool": tool_name, "arguments": args},
-                )
-                self.repository.update_session(session_id, status="waiting_permission")
-                self._event(session_id, "permission_asked", f"未知工具需要确认：{tool_name}", {"part_id": part["id"]})
-                return self._with_parts(session_id)
+            for part_index, model_part in enumerate(model_parts):
+                if model_part.type == "text":
+                    content_text = model_part.content.strip()
+                    if content_text and not streaming_finalized_type:
+                        text_part = self.repository.add_part(
+                            session_id,
+                            "text",
+                            status="completed",
+                            title="说明",
+                            content=content_text,
+                            payload={**(model_part.payload or {}), "part_index": part_index},
+                        )
+                        self._event(session_id, "part_created", content_text, {"part_id": text_part["id"], "part_type": "text", "status": "completed"})
+                    continue
+                if model_part.type == "summary":
+                    tool_or_summary_seen = True
+                    summary_text = model_part.content.strip() or str((model_part.payload or {}).get("summary") or "任务已完成。")
+                    if not streaming_finalized_type:
+                        summary = self.repository.add_part(
+                            session_id,
+                            "summary",
+                            status="completed",
+                            title="最终结果",
+                            content=summary_text,
+                            payload={**(model_part.payload or {}), "summary": summary_text, "part_index": part_index},
+                        )
+                        metadata = set_phase(self._ensure_metadata(self.repository.get_session(session_id) or session), "completed")
+                        self.repository.update_session(session_id, status="completed", metadata=metadata)
+                        self._event(session_id, "summary_completed", summary_text, {"part_id": summary["id"]})
+                    else:
+                        metadata = set_phase(self._ensure_metadata(self.repository.get_session(session_id) or session), "completed")
+                        self.repository.update_session(session_id, status="completed", metadata=metadata)
+                        self._event(
+                            session_id,
+                            "summary_completed",
+                            summary_text,
+                            {"part_id": streaming_part_id or "streaming", "streaming": True},
+                        )
+                    if part_index < len(model_parts) - 1:
+                        self._event(session_id, "tool_call_ignored", "finalize 后的工具请求已忽略", {"part_id": summary["id"] if not streaming_finalized_type else "streaming"})
+                    return self._with_parts(session_id)
+                if model_part.type == "tool_call":
+                    tool_or_summary_seen = True
+                    if streaming_finalized_type == "summary" and model_part.tool == "finalize":
+                        summary_text = str((model_part.arguments or {}).get("summary") or "任务已完成。")
+                        metadata = set_phase(self._ensure_metadata(self.repository.get_session(session_id) or session), "completed")
+                        self.repository.update_session(session_id, status="completed", metadata=metadata)
+                        self._event(
+                            session_id,
+                            "summary_completed",
+                            summary_text,
+                            {"part_id": streaming_part_id or "streaming", "streaming": True, "converted_from_text": True},
+                        )
+                        return self._with_parts(session_id)
+                    handled, next_model = self._execute_tool_request(
+                        session_id,
+                        {"tool": model_part.tool or "", "arguments": model_part.arguments or {}},
+                        raw,
+                        messages,
+                        part_index=part_index,
+                    )
+                    if handled is not None:
+                        if model_part.tool == "finalize" and part_index < len(model_parts) - 1:
+                            self._event(session_id, "tool_call_ignored", "finalize 后的工具请求已忽略", {"tool": "finalize"})
+                        return handled
+                    if next_model:
+                        break
 
-            session = self.repository.get_session(session_id) or session
-            metadata = self._ensure_metadata(session)
-            if tool_name == "patch" and not metadata.get("had_context"):
+            if not tool_or_summary_seen:
+                handled = self._handle_protocol_miss(session_id, raw, messages)
+                if handled is not None:
+                    return handled
+
+        return self._fallback_summary(session_id, "Agent 达到最大工具轮次，已根据当前执行记录生成总结。")
+
+    def _execute_tool_request(
+        self,
+        session_id: str,
+        request: dict[str, Any],
+        raw: str,
+        messages: list[dict[str, str]],
+        *,
+        part_index: int = 0,
+    ) -> tuple[dict[str, Any] | None, bool]:
+        session = self.repository.get_session(session_id)
+        if not session:
+            raise ValueError("Agent session not found")
+        tool_name = request["tool"]
+        args = request["arguments"]
+        tool = self.tools.get(tool_name)
+        if tool is None:
+            part = self.repository.add_part(
+                session_id,
+                "permission",
+                status="pending",
+                title=f"未知工具：{tool_name}",
+                content="该工具不在内置工具列表中，需要人工确认。",
+                payload={"tool": tool_name, "arguments": args, "part_index": part_index},
+            )
+            self.repository.update_session(session_id, status="waiting_permission")
+            self._event(session_id, "permission_asked", f"未知工具需要确认：{tool_name}", {"part_id": part["id"]})
+            return self._with_parts(session_id), False
+
+        metadata = self._ensure_metadata(session)
+        if tool_name == "patch" and not metadata.get("had_context"):
+            metadata = set_phase(metadata, "inspecting")
+            self.repository.update_session(session_id, metadata=metadata)
+            guidance = "请先读取项目上下文或目标文件，再生成补丁。"
+            result_part = self.repository.add_part(
+                session_id,
+                "tool_result",
+                status="completed",
+                title="需要上下文",
+                content=guidance,
+                payload={"guidance": guidance, "required_tools": ["collect_context", "read", "search"], "part_index": part_index},
+            )
+            self._event(session_id, "tool_call_completed", guidance, {"part_id": result_part["id"], "tool": tool_name})
+            observation = self._compact_observation(tool_name, "blocked", guidance, result_part["payload"])
+            messages.append({"role": "assistant", "content": raw})
+            messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
+            return None, True
+        if tool_name == "patch":
+            missing_context = self._missing_patch_context(args, set(metadata.get("touched_paths") or []))
+            if missing_context:
                 metadata = set_phase(metadata, "inspecting")
                 self.repository.update_session(session_id, metadata=metadata)
-                guidance = "请先读取项目上下文或目标文件，再生成补丁。"
+                guidance = f"补丁目标 {', '.join(missing_context)} 还没有在本轮被读取或搜索命中。请先 read 或 search 这些相关文件，再生成补丁。"
                 result_part = self.repository.add_part(
                     session_id,
                     "tool_result",
                     status="completed",
-                    title="需要上下文",
+                    title="需要更多上下文",
                     content=guidance,
-                    payload={"guidance": guidance, "required_tools": ["collect_context", "read", "search"]},
+                    payload={"guidance": guidance, "missing_context": missing_context, "required_tools": ["read", "search", "collect_context"], "part_index": part_index},
                 )
                 self._event(session_id, "tool_call_completed", guidance, {"part_id": result_part["id"], "tool": tool_name})
                 observation = self._compact_observation(tool_name, "blocked", guidance, result_part["payload"])
                 messages.append({"role": "assistant", "content": raw})
                 messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
-                continue
-            if tool_name == "patch":
-                missing_context = self._missing_patch_context(args, set(metadata.get("touched_paths") or []))
-                if missing_context:
-                    metadata = set_phase(metadata, "inspecting")
-                    self.repository.update_session(session_id, metadata=metadata)
-                    guidance = f"补丁目标 {', '.join(missing_context)} 还没有在本轮被读取或搜索命中。请先 read 或 search 这些相关文件，再生成补丁。"
-                    result_part = self.repository.add_part(
-                        session_id,
-                        "tool_result",
-                        status="completed",
-                        title="需要更多上下文",
-                        content=guidance,
-                        payload={"guidance": guidance, "missing_context": missing_context, "required_tools": ["read", "search", "collect_context"]},
-                    )
-                    self._event(session_id, "tool_call_completed", guidance, {"part_id": result_part["id"], "tool": tool_name})
-                    observation = self._compact_observation(tool_name, "blocked", guidance, result_part["payload"])
-                    messages.append({"role": "assistant", "content": raw})
-                    messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
-                    continue
-            if tool_name == "bash_command" and not metadata.get("detected_commands"):
-                command_payload = args.get("payload") if isinstance(args.get("payload"), dict) else args
-                pre_policy = evaluate_agent_action_policy(session, "command", command_payload, set(metadata.get("touched_paths") or []))
-                if pre_policy["execution_mode"] != "blocked":
-                    guidance = "请先调用 detect_project_commands 或 collect_context 识别当前项目可用的验证命令，再提出 bash_command。"
-                    result_part = self.repository.add_part(
-                        session_id,
-                        "tool_result",
-                        status="completed",
-                        title="需要识别验证命令",
-                        content=guidance,
-                        payload={"guidance": guidance, "required_tools": ["detect_project_commands", "collect_context"]},
-                    )
-                    self._event(session_id, "tool_call_completed", guidance, {"part_id": result_part["id"], "tool": tool_name})
-                    observation = self._compact_observation(tool_name, "blocked", guidance, result_part["payload"])
-                    messages.append({"role": "assistant", "content": raw})
-                    messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
-                    continue
-
-            call_part = self.repository.add_part(
-                session_id,
-                "tool_call",
-                status="running",
-                title=tool.description,
-                content=self._tool_call_text(tool_name, args),
-                payload={"tool": tool_name, "arguments": args},
-            )
-            self._event(session_id, "tool_call_started", call_part.get("content") or tool.description, {"part_id": call_part["id"], "tool": tool_name})
-
-            if tool_name == "bash_command":
-                command_payload = args.get("payload") if isinstance(args.get("payload"), dict) else args
-                policy = evaluate_agent_action_policy(session, "command", command_payload, set(metadata.get("touched_paths") or []))
-                result = self._handle_command(session, call_part["id"], command_payload, policy, tool, messages, raw)
-                if result is not None:
-                    return result
-                continue
-
-            result = tool.execute(args, self._context(session))
-            self.repository.update_part(call_part["id"], status=result.status)
-
-            if tool_name == "patch":
-                patch_payload = dict(result.payload.get("payload") or {})
-                policy = evaluate_agent_action_policy(session, "diff", patch_payload, set(metadata.get("touched_paths") or []))
-                part_payload = dict(result.payload)
-                part_payload.update(policy)
-                part = self.repository.add_part(
-                    session_id,
-                    "diff",
-                    status="pending",
-                    title=str(args.get("title") or "补丁建议"),
-                    content=result.summary,
-                    payload=part_payload,
-                )
-                metadata = record_diff(self._ensure_metadata(self.repository.get_session(session_id) or session), part["id"])
-                if policy["execution_mode"] == "blocked":
-                    metadata = set_phase(metadata, "needs_manual_review")
-                    self.repository.update_session(session_id, metadata=metadata)
-                    self.repository.update_part(part["id"], status="blocked", content=policy["policy_reason"])
-                    return self._stop_with_summary(session_id, "needs_manual_review", policy["policy_reason"], part_id=part["id"])
-                if policy["execution_mode"] == "approval_required":
-                    metadata = set_phase(metadata, "waiting_approval")
-                    self.repository.update_session(session_id, status="waiting_approval", metadata=metadata)
-                    self._event(session_id, "action_proposed", policy["policy_reason"], {"part_id": part["id"], **policy})
-                    return self._with_parts(session_id)
-                patch_result = self.tools.apply_patch_payload(patch_payload, self._context(session))
-                applied_payload = dict(part_payload)
-                applied_payload.update(patch_result.payload)
-                status = "executed" if patch_result.status == "completed" else "failed"
-                self.repository.update_part(part["id"], status=status, payload=applied_payload, content=patch_result.summary if status == "executed" else patch_result.error)
-                if status == "failed":
-                    metadata = set_phase(self._ensure_metadata(self.repository.get_session(session_id) or session), "needs_manual_review")
-                    metadata = record_diff(metadata, part["id"], applied_payload.get("changed_files") or [])
-                    self.repository.update_session(session_id, metadata=metadata)
-                    return self._stop_with_summary(session_id, "needs_manual_review", patch_result.error or "补丁执行失败", part_id=part["id"])
-                metadata = set_phase(self._ensure_metadata(self.repository.get_session(session_id) or session), "verifying")
-                metadata = record_diff(metadata, part["id"], applied_payload.get("changed_files") or [])
-                self.repository.update_session(session_id, metadata=metadata)
-                self._event(session_id, "action_executed", patch_result.summary, {"part_id": part["id"], **applied_payload})
-                observation = self._compact_observation(
-                    tool_name,
-                    "completed",
-                    "补丁已自动执行。下一步必须提出一个白名单验证命令；优先使用已识别的 commands。",
-                    {**applied_payload, "available_commands": (metadata.get("detected_commands") or [])},
-                )
-                messages.append({"role": "assistant", "content": raw})
-                messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
-                continue
-
-            if tool_name == "finalize":
-                summary = self.repository.add_part(session_id, "summary", status="completed", title="最终结果", content=result.summary, payload=result.payload)
-                metadata = set_phase(self._ensure_metadata(self.repository.get_session(session_id) or session), "completed")
-                self.repository.update_session(session_id, status="completed", metadata=metadata)
-                self._event(session_id, "summary_completed", result.summary, {"part_id": summary["id"]})
-                return self._with_parts(session_id)
-            else:
+                return None, True
+        if tool_name == "bash_command" and not metadata.get("detected_commands"):
+            command_payload = args.get("payload") if isinstance(args.get("payload"), dict) else args
+            pre_policy = evaluate_agent_action_policy(session, "command", command_payload, set(metadata.get("touched_paths") or []))
+            if pre_policy["execution_mode"] != "blocked":
+                guidance = "请先调用 detect_project_commands 或 collect_context 识别当前项目可用的验证命令，再提出 bash_command。"
                 result_part = self.repository.add_part(
                     session_id,
                     "tool_result",
-                    status=result.status,
-                    title=tool.description,
-                    content=result.summary,
-                    payload=result.payload,
+                    status="completed",
+                    title="需要识别验证命令",
+                    content=guidance,
+                    payload={"guidance": guidance, "required_tools": ["detect_project_commands", "collect_context"], "part_index": part_index},
                 )
-                self._event(session_id, "tool_call_completed", result.summary, {"part_id": result_part["id"], "tool": tool_name})
-                if tool_name in CONTEXT_TOOLS and result.status == "completed":
-                    self._record_context(session_id, result.payload)
+                self._event(session_id, "tool_call_completed", guidance, {"part_id": result_part["id"], "tool": tool_name})
+                observation = self._compact_observation(tool_name, "blocked", guidance, result_part["payload"])
+                messages.append({"role": "assistant", "content": raw})
+                messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
+                return None, True
 
-            observation = self._compact_observation(tool_name, result.status, result.summary, result.payload, result.error)
+        call_part = self.repository.add_part(
+            session_id,
+            "tool_call",
+            status="running",
+            title=tool.description,
+            content=self._tool_call_text(tool_name, args),
+            payload={"tool": tool_name, "arguments": args, "part_index": part_index},
+        )
+        self._event(session_id, "tool_call_started", call_part.get("content") or tool.description, {"part_id": call_part["id"], "tool": tool_name})
+        self._event(session_id, "phase_change", f"执行工具：{tool_name}", {"phase": "tool_execution", "tool": tool_name})
+
+        if tool_name == "bash_command":
+            command_payload = args.get("payload") if isinstance(args.get("payload"), dict) else args
+            policy = evaluate_agent_action_policy(session, "command", command_payload, set(metadata.get("touched_paths") or []))
+            result = self._handle_command(session, call_part["id"], command_payload, policy, tool, messages, raw)
+            return result, result is None
+
+        result = tool.execute(args, self._context(session))
+        self.repository.update_part(call_part["id"], status=result.status)
+
+        if tool_name == "patch":
+            patch_payload = dict(result.payload.get("payload") or {})
+            policy = evaluate_agent_action_policy(session, "diff", patch_payload, set(metadata.get("touched_paths") or []))
+            part_payload = dict(result.payload)
+            part_payload.update(policy)
+            part_payload["part_index"] = part_index
+            part = self.repository.add_part(
+                session_id,
+                "diff",
+                status="pending",
+                title=str(args.get("title") or "补丁建议"),
+                content=result.summary,
+                payload=part_payload,
+            )
+            metadata = record_diff(self._ensure_metadata(self.repository.get_session(session_id) or session), part["id"])
+            if policy["execution_mode"] == "blocked":
+                metadata = set_phase(metadata, "needs_manual_review")
+                self.repository.update_session(session_id, metadata=metadata)
+                self.repository.update_part(part["id"], status="blocked", content=policy["policy_reason"])
+                return self._stop_with_summary(session_id, "needs_manual_review", policy["policy_reason"], part_id=part["id"]), False
+            if policy["execution_mode"] == "approval_required":
+                metadata = set_phase(metadata, "waiting_approval")
+                self.repository.update_session(session_id, status="waiting_approval", metadata=metadata)
+                self._event(session_id, "action_proposed", policy["policy_reason"], {"part_id": part["id"], **policy})
+                return self._with_parts(session_id), False
+            patch_result = self.tools.apply_patch_payload(patch_payload, self._context(session))
+            applied_payload = dict(part_payload)
+            applied_payload.update(patch_result.payload)
+            status = "executed" if patch_result.status == "completed" else "failed"
+            self.repository.update_part(part["id"], status=status, payload=applied_payload, content=patch_result.summary if status == "executed" else patch_result.error)
+            if status == "failed":
+                metadata = set_phase(self._ensure_metadata(self.repository.get_session(session_id) or session), "needs_manual_review")
+                metadata = record_diff(metadata, part["id"], applied_payload.get("changed_files") or [])
+                self.repository.update_session(session_id, metadata=metadata)
+                return self._stop_with_summary(session_id, "needs_manual_review", patch_result.error or "补丁执行失败", part_id=part["id"]), False
+            metadata = set_phase(self._ensure_metadata(self.repository.get_session(session_id) or session), "verifying")
+            metadata = record_diff(metadata, part["id"], applied_payload.get("changed_files") or [])
+            self.repository.update_session(session_id, metadata=metadata)
+            self._event(session_id, "action_executed", patch_result.summary, {"part_id": part["id"], **applied_payload})
+            observation = self._compact_observation(
+                tool_name,
+                "completed",
+                "补丁已自动执行。下一步必须提出一个白名单验证命令；优先使用已识别的 commands。",
+                {**applied_payload, "available_commands": (metadata.get("detected_commands") or [])},
+            )
             messages.append({"role": "assistant", "content": raw})
             messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
+            return None, False
 
-        return self._fallback_summary(session_id, "Agent 达到最大工具轮次，已根据当前执行记录生成总结。")
+        if tool_name == "finalize":
+            summary = self.repository.add_part(session_id, "summary", status="completed", title="最终结果", content=result.summary, payload={**result.payload, "part_index": part_index})
+            metadata = set_phase(self._ensure_metadata(self.repository.get_session(session_id) or session), "completed")
+            self.repository.update_session(session_id, status="completed", metadata=metadata)
+            self._event(session_id, "summary_completed", result.summary, {"part_id": summary["id"]})
+            return self._with_parts(session_id), False
+
+        result_part = self.repository.add_part(
+            session_id,
+            "tool_result",
+            status=result.status,
+            title=tool.description,
+            content=result.summary,
+            payload={**result.payload, "part_index": part_index},
+        )
+        self._event(session_id, "tool_call_completed", result.summary, {"part_id": result_part["id"], "tool": tool_name})
+        if tool_name in CONTEXT_TOOLS and result.status == "completed":
+            self._record_context(session_id, result.payload)
+
+        observation = self._compact_observation(tool_name, result.status, result.summary, result.payload, result.error)
+        messages.append({"role": "assistant", "content": raw})
+        messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
+        self._event(session_id, "phase_change", "工具执行完成，准备继续", {"phase": "tool_completed", "tool": tool_name})
+        return None, False
 
     def approve_part(self, part_id: str, approved: bool) -> dict[str, Any]:
         part = self.repository.get_part(part_id)
@@ -293,18 +415,136 @@ class AgentSessionProcessor:
             {
                 "role": "system",
                 "content": (
-                    "你是开发 Agent。只输出 JSON 工具请求。"
-                    '格式：{"tool":"工具名","arguments":{...}}。'
-                    "每次只调用一个工具。不要解释，不要 Markdown，不要多段文本。"
-                    "默认流程：collect_context -> patch 或 bash_command -> finalize。"
+                    "你是开发 Agent。可以先用一两句自然语言说明你要做什么，然后输出 JSON 工具请求。"
+                    '工具格式：{"tool":"工具名","arguments":{...}}；也可以输出 JSON 数组一次请求多个工具。'
+                    "不要把非 JSON 内容放进工具对象里。"
+                    "默认流程：collect_context -> 按需 read/search -> patch 或 bash_command -> finalize。"
                     "写文件用 patch。验证用 bash_command。完成用 finalize。"
                     "patch 后必须验证；验证成功必须 finalize；验证失败最多修复一次。"
+                    "同一轮可以批量调用只读工具；patch/command 会由系统按安全策略执行或等待确认。"
                     f"{intent_guidance}"
                     f"可用工具：{', '.join(tool_names)}。"
                 ),
             },
             {"role": "user", "content": content},
         ]
+
+
+    async def _stream_model_output(
+        self,
+        session_id: str,
+        messages: list[dict[str, str]],
+        stream_model_call,
+    ) -> tuple[str, str]:
+        self._event(session_id, "phase_change", "模型思考中", {"phase": "model_thinking"})
+        text_part = self.repository.add_part(
+            session_id, "text", status="running", title="生成中",
+            content="", payload={"streaming": True},
+        )
+        self._pending_stream_part_id = text_part["id"]
+        self._event(
+            session_id, "model_stream_started", "流式输出开始",
+            {"part_id": text_part["id"], "part_type": "text", "status": "running", "streaming": True},
+        )
+
+        accumulated = ""
+        last_flush_time = time.monotonic()
+        chars_since_flush = 0
+
+        async for delta_chunk in stream_model_call(messages):
+            content_delta = delta_chunk.get("content", "")
+            if not content_delta:
+                continue
+            accumulated += content_delta
+            chars_since_flush += len(content_delta)
+            now = time.monotonic()
+            should_flush = (now - last_flush_time >= _STREAM_THROTTLE_INTERVAL) or (chars_since_flush >= _STREAM_THROTTLE_CHARS)
+            if should_flush:
+                self.repository.update_part(text_part["id"], content=accumulated)
+                self._event(session_id, "part_delta", content_delta, {
+                    "part_id": text_part["id"], "part_type": "text",
+                    "delta": content_delta, "content": accumulated,
+                    "status": "running", "streaming": True,
+                })
+                last_flush_time = now
+                chars_since_flush = 0
+
+        self.repository.update_part(text_part["id"], content=accumulated)
+        self._event(session_id, "part_delta", "", {
+            "part_id": text_part["id"], "part_type": "text",
+            "delta": "", "content": accumulated,
+            "status": "running", "streaming": True,
+        })
+        self._event(
+            session_id, "model_stream_completed", "流式输出完成",
+            {"part_id": text_part["id"], "part_type": "text", "streaming": True, "content_length": len(accumulated)},
+        )
+
+        self._pending_stream_part_id = None
+        return accumulated, text_part["id"]
+
+    def _finalize_streaming_text_part(
+        self,
+        session_id: str,
+        raw: str,
+        model_parts: list,
+        streaming_part_id: str | None,
+    ) -> str:
+        if streaming_part_id is None:
+            return ""
+        has_tool_calls = any(p.type == "tool_call" for p in model_parts)
+        has_summary = any(p.type == "summary" for p in model_parts)
+        has_finalize = any(p.type == "tool_call" and p.tool == "finalize" for p in model_parts)
+
+        if has_summary and not has_tool_calls:
+            summary_text = ""
+            for p in model_parts:
+                if p.type == "summary":
+                    summary_text = p.content.strip() or str((p.payload or {}).get("summary") or "")
+                    break
+            self.repository.update_part(
+                streaming_part_id, status="completed", type="summary",
+                title="最终结果",
+                content=summary_text or raw.strip(),
+                payload={"streaming": True, "converted_from_text": True, "summary": summary_text or raw.strip()},
+            )
+            return "summary"
+
+        if has_tool_calls:
+            natural_text = ""
+            for p in model_parts:
+                if p.type == "text" and p.content.strip():
+                    natural_text += p.content.strip() + "\n"
+            finalize_summary = ""
+            for p in model_parts:
+                if p.type == "tool_call" and p.tool == "finalize" and p.arguments:
+                    finalize_summary = str(p.arguments.get("summary") or "")
+            if has_finalize and not natural_text.strip():
+                self.repository.update_part(
+                    streaming_part_id, status="completed", type="summary",
+                    title="最终结果",
+                    content=finalize_summary or raw.strip(),
+                    payload={"streaming": True, "converted_from_text": True, "summary": finalize_summary or raw.strip()},
+                )
+                return "summary"
+            if has_finalize and natural_text.strip():
+                self.repository.update_part(
+                    streaming_part_id, status="completed", type="summary",
+                    title="最终结果",
+                    content=finalize_summary or natural_text.strip(),
+                    payload={"streaming": True, "converted_from_text": True, "summary": finalize_summary or natural_text.strip()},
+                )
+                return "summary"
+            self.repository.update_part(
+                streaming_part_id, status="completed",
+                title="说明",
+                content=natural_text.strip() if natural_text.strip() else raw.strip(),
+                payload={"streaming": True},
+            )
+            return "text"
+
+        self.repository.update_part(streaming_part_id, status="completed", title="说明", content=raw.strip())
+        return "text"
 
     async def _fallback_model_call(self, _messages: list[dict[str, str]]) -> str:
         return json.dumps({"tool": "finalize", "arguments": {"summary": "没有配置模型调用，已创建 Agent Session。"}}, ensure_ascii=False)
@@ -414,8 +654,63 @@ class AgentSessionProcessor:
         session["parts"] = self.repository.list_parts(session_id)
         return session
 
+    _CHUNK_TYPE_MAP: dict[str, str] = {
+        "phase_change": "phase",
+        "model_stream_started": "part_start",
+        "part_delta": "part_delta",
+        "model_stream_completed": "part_complete",
+        "tool_call_started": "tool_call",
+        "tool_call_completed": "tool_result",
+        "summary_completed": "summary",
+        "permission_asked": "permission_request",
+        "action_proposed": "action",
+        "action_approved": "action",
+        "action_rejected": "action",
+        "action_executed": "action",
+        "action_failed": "action",
+        "command_completed": "action",
+        "command_failed": "action",
+        "model_stream_failed": "error",
+        "session_failed": "error",
+        "session_blocked": "error",
+        "session_started": "status",
+        "prompt_queued": "status",
+        "prompt_already_running": "status",
+    }
+
+    def _resolve_chunk_type(self, event_type: str, payload: dict[str, Any]) -> str:
+        mapped = self._CHUNK_TYPE_MAP.get(event_type)
+        if mapped:
+            return mapped
+        if payload.get("part_id"):
+            return "part_snapshot"
+        if payload.get("tool"):
+            return "tool"
+        return "event"
+
     def _event(self, session_id: str, event_type: str, message: str, payload: dict[str, Any]) -> None:
-        self.repository.add_event(session_id, event_type, message, payload)
+        enriched = dict(payload or {})
+        enriched.setdefault("session_id", session_id)
+        enriched.setdefault("chunk_type", self._resolve_chunk_type(event_type, enriched))
+        part_id = enriched.get("part_id")
+        if not enriched.get("part") and part_id and isinstance(part_id, str) and part_id.startswith("agp_"):
+            part = self.repository.get_part(part_id)
+            if part:
+                if not enriched.get("part_type"):
+                    enriched.setdefault("part_type", part.get("type"))
+                if not enriched.get("status"):
+                    enriched.setdefault("status", part.get("status"))
+                if not enriched.get("summary"):
+                    enriched.setdefault("summary", part.get("content") or part.get("title") or message)
+                enriched["part"] = part
+        elif part_id and not enriched.get("part_type"):
+            part = self.repository.get_part(str(part_id)) if isinstance(part_id, str) and part_id.startswith("agp_") else None
+            if part:
+                enriched.setdefault("part_type", part.get("type"))
+                enriched.setdefault("status", part.get("status"))
+                enriched.setdefault("summary", part.get("content") or part.get("title") or message)
+        enriched.setdefault("summary", message)
+        self.repository.add_event(session_id, event_type, message, enriched)
 
     def _tool_call_text(self, tool_name: str, args: dict[str, Any]) -> str:
         if tool_name == "read":

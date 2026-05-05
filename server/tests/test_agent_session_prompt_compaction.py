@@ -21,15 +21,16 @@ def _workspace_tmp(name: str) -> Path:
     return path
 
 
-def test_initial_prompt_is_strict_json_protocol(tmp_path: Path):
+def test_initial_prompt_allows_natural_text_with_json_tool_protocol(tmp_path: Path):
     service = _service(tmp_path)
     session = service.create_session(AgentSessionCreate(title="prompt", project_path=str(Path.cwd())))
     messages = service.processor._initial_messages(session.model_dump(), "分析当前执行链路，不要写文件")
     system = messages[0]["content"]
 
-    assert "只输出 JSON 工具请求" in system
+    assert "自然语言说明" in system
+    assert "JSON 工具请求" in system
     assert '{"tool":"工具名","arguments":{...}}' in system
-    assert "不要解释" in system
+    assert "JSON 数组" in system
     assert "只读分析" in system
 
 
