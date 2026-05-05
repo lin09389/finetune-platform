@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Awaitable, Callable
 
 from .policy import evaluate_agent_action_policy
@@ -24,6 +25,7 @@ ModelCall = Callable[[list[dict[str, str]]], Awaitable[str]]
 READ_TOOLS = {"read", "search", "glob", "collect_context", "read_execution"}
 CONTEXT_TOOLS = {"read", "search", "glob", "collect_context", "detect_project_commands"}
 MAX_REPAIR_ATTEMPTS = DEFAULT_MAX_REPAIR_ATTEMPTS
+MAX_PROTOCOL_REPAIRS = 2
 
 
 class AgentSessionProcessor:
@@ -49,6 +51,7 @@ class AgentSessionProcessor:
             raise ValueError("Agent session not found")
         metadata = self._ensure_metadata(session)
         metadata["current_goal"] = content
+        metadata["task_intent"] = self._classify_task_intent(content)
         metadata = set_phase(metadata, "running")
         session = self.repository.update_session(session_id, status="running", metadata=metadata)
         self._event(session_id, "session_started", "Agent 开始处理请求", {"content": content})
@@ -62,8 +65,9 @@ class AgentSessionProcessor:
             raw = await model_call(messages)
             request = parse_tool_request(raw)
             if request is None:
-                self.repository.add_part(session_id, "text", status="completed", content=raw)
-                messages.append({"role": "assistant", "content": raw})
+                handled = self._handle_protocol_miss(session_id, raw, messages)
+                if handled is not None:
+                    return handled
                 continue
 
             tool_name = request["tool"]
@@ -97,7 +101,7 @@ class AgentSessionProcessor:
                     payload={"guidance": guidance, "required_tools": ["collect_context", "read", "search"]},
                 )
                 self._event(session_id, "tool_call_completed", guidance, {"part_id": result_part["id"], "tool": tool_name})
-                observation = {"tool": tool_name, "status": "blocked", "summary": guidance, "payload": result_part["payload"]}
+                observation = self._compact_observation(tool_name, "blocked", guidance, result_part["payload"])
                 messages.append({"role": "assistant", "content": raw})
                 messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
                 continue
@@ -116,7 +120,7 @@ class AgentSessionProcessor:
                         payload={"guidance": guidance, "missing_context": missing_context, "required_tools": ["read", "search", "collect_context"]},
                     )
                     self._event(session_id, "tool_call_completed", guidance, {"part_id": result_part["id"], "tool": tool_name})
-                    observation = {"tool": tool_name, "status": "blocked", "summary": guidance, "payload": result_part["payload"]}
+                    observation = self._compact_observation(tool_name, "blocked", guidance, result_part["payload"])
                     messages.append({"role": "assistant", "content": raw})
                     messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
                     continue
@@ -134,7 +138,7 @@ class AgentSessionProcessor:
                         payload={"guidance": guidance, "required_tools": ["detect_project_commands", "collect_context"]},
                     )
                     self._event(session_id, "tool_call_completed", guidance, {"part_id": result_part["id"], "tool": tool_name})
-                    observation = {"tool": tool_name, "status": "blocked", "summary": guidance, "payload": result_part["payload"]}
+                    observation = self._compact_observation(tool_name, "blocked", guidance, result_part["payload"])
                     messages.append({"role": "assistant", "content": raw})
                     messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
                     continue
@@ -198,12 +202,12 @@ class AgentSessionProcessor:
                 metadata = record_diff(metadata, part["id"], applied_payload.get("changed_files") or [])
                 self.repository.update_session(session_id, metadata=metadata)
                 self._event(session_id, "action_executed", patch_result.summary, {"part_id": part["id"], **applied_payload})
-                observation = {
-                    "tool": tool_name,
-                    "status": "completed",
-                    "summary": "补丁已自动执行。下一步必须提出一个白名单验证命令；优先使用已识别的 commands。",
-                    "payload": {**applied_payload, "available_commands": (metadata.get("detected_commands") or [])},
-                }
+                observation = self._compact_observation(
+                    tool_name,
+                    "completed",
+                    "补丁已自动执行。下一步必须提出一个白名单验证命令；优先使用已识别的 commands。",
+                    {**applied_payload, "available_commands": (metadata.get("detected_commands") or [])},
+                )
                 messages.append({"role": "assistant", "content": raw})
                 messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
                 continue
@@ -227,7 +231,7 @@ class AgentSessionProcessor:
                 if tool_name in CONTEXT_TOOLS and result.status == "completed":
                     self._record_context(session_id, result.payload)
 
-            observation = {"tool": tool_name, "status": result.status, "summary": result.summary, "payload": result.payload, "error": result.error}
+            observation = self._compact_observation(tool_name, result.status, result.summary, result.payload, result.error)
             messages.append({"role": "assistant", "content": raw})
             messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
 
@@ -278,14 +282,25 @@ class AgentSessionProcessor:
 
     def _initial_messages(self, session: dict[str, Any], content: str) -> list[dict[str, str]]:
         tool_names = [tool.name for tool in self.tools.list()]
+        metadata = self._ensure_metadata(session)
+        intent = metadata.get("task_intent") or self._classify_task_intent(content)
+        intent_guidance = {
+            "analyze": "本任务是只读分析；允许 collect_context 后直接 finalize，不要 patch。",
+            "verify": "本任务偏验证；优先 detect_project_commands，再 bash_command，成功后 finalize。",
+            "develop": "本任务是开发任务；除非确认无需修改，否则需要 patch 或 bash_command。",
+        }.get(str(intent), "默认先 collect_context，再按需要 patch/bash_command，完成时 finalize。")
         return [
             {
                 "role": "system",
                 "content": (
-                    "你是 Codex 风格的开发 Agent。直接推进任务，优先使用 collect_context/read/search 获取上下文。"
-                    "每次只输出一个 JSON 工具请求，字段为 tool 和 arguments。"
+                    "你是开发 Agent。只输出 JSON 工具请求。"
+                    '格式：{"tool":"工具名","arguments":{...}}。'
+                    "每次只调用一个工具。不要解释，不要 Markdown，不要多段文本。"
+                    "默认流程：collect_context -> patch 或 bash_command -> finalize。"
+                    "写文件用 patch。验证用 bash_command。完成用 finalize。"
+                    "patch 后必须验证；验证成功必须 finalize；验证失败最多修复一次。"
+                    f"{intent_guidance}"
                     f"可用工具：{', '.join(tool_names)}。"
-                    "写文件必须用 patch，验证命令必须用 bash_command，完成时用 finalize。"
                 ),
             },
             {"role": "user", "content": content},
@@ -361,7 +376,7 @@ class AgentSessionProcessor:
         metadata = record_command(self._ensure_metadata(self.repository.get_session(session_id) or session), part["id"], None if result.status == "completed" else result.error or result.summary)
         self.repository.update_session(session_id, metadata=metadata)
         self._event(session_id, "command_completed" if result.status == "completed" else "command_failed", result.summary, {"part_id": part["id"], **payload})
-        observation = {"tool": "bash_command", "status": result.status, "summary": result.summary, "payload": payload, "error": result.error}
+        observation = self._compact_observation("bash_command", result.status, result.summary, payload, result.error)
         if result.status == "completed":
             messages.append({"role": "assistant", "content": raw})
             messages.append({"role": "user", "content": "工具结果：\n" + json.dumps({**observation, "guidance": "验证通过。下一步必须调用 finalize，输出改动文件、验证命令、验证结果和剩余风险。"}, ensure_ascii=False)})
@@ -417,6 +432,144 @@ class AgentSessionProcessor:
             command = args.get("payload", {}).get("command") if isinstance(args.get("payload"), dict) else args.get("command")
             return "运行 " + (" ".join(command) if isinstance(command, list) else str(command or "命令"))
         return tool_name
+
+    def _handle_protocol_miss(self, session_id: str, raw: str, messages: list[dict[str, str]]) -> dict[str, Any] | None:
+        session = self.repository.get_session(session_id) or {}
+        metadata = self._ensure_metadata(session)
+        metadata["last_raw_model_output"] = raw[:4000]
+        metadata["last_parse_error"] = "model_output_not_tool_json"
+        existing_parts = self.repository.list_parts(session_id)
+        has_execution = any(part.get("type") in {"diff", "command"} for part in existing_parts)
+        looks_final = self._looks_like_final_text(raw)
+        if has_execution or looks_final:
+            summary_text = raw.strip() or "任务已有执行记录，系统已生成兜底总结。"
+            metadata = set_phase(metadata, "completed" if has_execution else "needs_manual_review")
+            metadata["model_protocol_status"] = "fallback_summary"
+            metadata["fallback_summary_used"] = True
+            state = dict(metadata.get("state") or {})
+            state["fallback_summary_used"] = True
+            metadata["state"] = state
+            self.repository.add_part(session_id, "summary", status="completed", title="最终结果", content=summary_text, payload={"summary": summary_text, "fallback": True, "raw_model_output": raw})
+            self.repository.update_session(session_id, status="completed" if has_execution else "needs_manual_review", metadata=metadata)
+            self._event(session_id, "summary_completed", summary_text, {"fallback": True})
+            return self._with_parts(session_id)
+
+        attempts = int(metadata.get("protocol_repair_count") or 0)
+        if attempts < MAX_PROTOCOL_REPAIRS:
+            metadata["protocol_repair_count"] = attempts + 1
+            metadata["model_protocol_status"] = "repaired"
+            self.repository.update_session(session_id, metadata=metadata)
+            guidance = '请只输出一个 JSON 工具请求，例如 {"tool":"collect_context","arguments":{}}。不要解释，不要 Markdown。'
+            part = self.repository.add_part(
+                session_id,
+                "tool_result",
+                status="completed",
+                title="协议纠偏",
+                content=guidance,
+                payload={"guidance": guidance, "raw_model_output_preview": raw[:500]},
+            )
+            self._event(session_id, "tool_call_completed", guidance, {"part_id": part["id"], "tool": "protocol"})
+            messages.append({"role": "assistant", "content": raw})
+            messages.append({"role": "user", "content": "工具结果：\n" + json.dumps({"tool": "protocol", "status": "blocked", "summary": guidance, "payload": {"guidance": guidance}}, ensure_ascii=False)})
+            return None
+
+        metadata["model_protocol_status"] = "needs_manual_review"
+        self.repository.update_session(session_id, metadata=metadata)
+        return self._stop_with_summary(session_id, "needs_manual_review", "模型连续没有按 JSON 工具协议输出，已停止等待人工处理。")
+
+    def _compact_observation(
+        self,
+        tool_name: str,
+        status: str,
+        summary: str,
+        payload: dict[str, Any],
+        error: str | None = None,
+    ) -> dict[str, Any]:
+        compact: dict[str, Any] = {"tool": tool_name, "status": status, "summary": summary, "payload": {}, "compact_observation_used": True}
+        if error:
+            compact["error"] = self._truncate(str(error), 1200)
+        if tool_name == "collect_context":
+            compact["payload"] = {
+                "goal": payload.get("goal"),
+                "markers": payload.get("markers") or {},
+                "files": [item.get("path") for item in (payload.get("files") or [])[:8] if isinstance(item, dict)],
+                "matches": [
+                    {"path": item.get("path"), "line": item.get("line"), "preview": self._truncate(str(item.get("preview") or ""), 180)}
+                    for item in (payload.get("matches") or [])[:8]
+                    if isinstance(item, dict)
+                ],
+                "commands": (payload.get("commands") or [])[:6],
+                "touched_paths": (payload.get("touched_paths") or [])[:12],
+            }
+            return compact
+        if tool_name == "read":
+            compact["payload"] = {
+                "path": payload.get("path"),
+                "content": self._truncate(str(payload.get("content") or ""), 2000),
+                "truncated": bool(payload.get("truncated") or len(str(payload.get("content") or "")) > 2000),
+            }
+            return compact
+        if tool_name == "search":
+            compact["payload"] = {
+                "query": payload.get("query"),
+                "matches": (payload.get("matches") or [])[:8],
+                "touched_paths": (payload.get("touched_paths") or [])[:12],
+            }
+            return compact
+        if tool_name == "patch":
+            compact["payload"] = {
+                "changed_files": payload.get("changed_files") or [],
+                "applied_hunks": payload.get("applied_hunks"),
+                "patch_summaries": payload.get("patch_summaries") or [],
+                "policy_decision": payload.get("policy_decision"),
+                "risk_level": payload.get("risk_level"),
+                "policy_reason": payload.get("policy_reason"),
+                "available_commands": payload.get("available_commands") or [],
+            }
+            return compact
+        if tool_name == "bash_command":
+            compact["payload"] = {
+                "command": payload.get("command"),
+                "exit_code": payload.get("exit_code"),
+                "stdout": self._truncate(str(payload.get("stdout") or ""), 2000),
+                "stderr": self._truncate(str(payload.get("stderr") or ""), 2000),
+                "failure_summary": payload.get("failure_summary") or "",
+                "policy_decision": payload.get("policy_decision"),
+                "risk_level": payload.get("risk_level"),
+                "policy_reason": payload.get("policy_reason"),
+            }
+            return compact
+        if tool_name == "detect_project_commands":
+            compact["payload"] = {"commands": (payload.get("commands") or [])[:8]}
+            return compact
+        compact["payload"] = payload
+        return compact
+
+    def _classify_task_intent(self, content: str) -> str:
+        lowered = content.lower()
+        analyze_markers = ("分析", "看看", "排查", "不要写文件", "不写文件", "只读", "解释")
+        develop_markers = ("修改", "新增", "修复", "实现", "增加", "typecheck", "跑测试", "运行测试")
+        verify_markers = ("验证", "测试", "检查", "typecheck", "pytest")
+        if any(marker in lowered for marker in develop_markers):
+            return "develop"
+        if any(marker in lowered for marker in verify_markers):
+            return "verify"
+        if any(marker in lowered for marker in analyze_markers):
+            return "analyze"
+        return "develop"
+
+    def _looks_like_final_text(self, raw: str) -> bool:
+        text = raw.strip()
+        if len(text) < 12:
+            return False
+        markers = ("完成", "总结", "结果", "已", "建议", "风险", "验证")
+        return any(marker in text for marker in markers)
+
+    def _truncate(self, value: str, limit: int) -> str:
+        if len(value) <= limit:
+            return value
+        head = value[: max(limit - 120, 0)]
+        return f"{head}\n... 已截断 {len(value) - len(head)} 字符 ..."
 
     def _missing_patch_context(self, args: dict[str, Any], touched_paths: set[str]) -> list[str]:
         payload = args.get("payload") if isinstance(args.get("payload"), dict) else args

@@ -1,159 +1,241 @@
-# 第十阶段计划：Agent 执行内核增强与开发闭环
+# 第二十七阶段开发文档：真实云端 Agent 提速与 Prompt/Observation 压缩
 
-## Summary
+## 1. 背景
 
-下一阶段不要继续堆页面和模板，而是把执行层做厚：让 `/chat` 里的 Agent 能稳定完成“理解项目 → 提补丁 → 审批/策略执行 → 跑验证 → 读失败 → 修复一次 → 给最终结果”的闭环。
+当前项目已经完成 Chat Agent 主链路迁移：
 
-主入口仍是 `/chat`，`/workflows` 继续做观测和审批台。安全边界不变：只读工具可自动执行；写文件和命令必须经过策略门禁或人工审批；不开放任意 shell，不自动 git commit/push。
+```text
+/chat
+→ /agent-sessions
+→ AgentSessionProcessor
+→ AgentToolRegistry
+→ AgentPart transcript
+```
 
-## Key Changes
+旧 `/chat-agent` 已降级为兼容层，只用于历史消息、旧 workflow run 和旧动作恢复。
 
-### 1. 执行状态机
+第二十六阶段已经完成：
 
-新增统一执行状态，贯穿 Chat Agent、Workflow、前端卡片：
+- `collect_context` 可根据用户目标推断相关文件和搜索词。
+- 新增 `detect_project_commands` 工具。
+- Processor 可纠偏 patch / command 跳步。
+- 新 Agent 输出已按 `AgentPart` transcript 渲染。
 
-- 状态包括：`created`、`planning`、`inspecting`、`proposing_patch`、`waiting_permission`、`waiting_approval`、`applying_patch`、`verifying`、`repairing`、`completed`、`needs_manual_review`、`failed`。
-- Runtime 每次状态变化写入 timeline / step log，并发出 `agent_state_changed` 事件。
-- Chat Agent run metadata 保存当前状态、当前阶段说明、阻断原因、修复次数。
-- 前端不再只显示“运行中/失败”，而是显示 Agent 当前到底在做什么。
+第二十七阶段目标是：**让真实云端模型执行更快、更稳、更少废话**。
 
-### 2. 补丁执行引擎
+## 2. 阶段目标
 
-新增 `patch_engine`，让 patch 不只是“写文件内容”，而是支持更接近真实开发的 diff 补丁。
+- 减少真实云端模型调用轮次。
+- 减少喂给模型的 observation token。
+- 让模型更稳定输出 JSON tool request。
+- 避免模型长篇解释但不调用工具。
+- 保持 Codex 风格 transcript 输出。
+- 不新增页面、不扩大执行权限、不恢复旧 workflow 主链路。
 
-- `patch` action payload 支持两种格式：
-  - 兼容旧格式：`files: [{ path, content }]`
-  - 新格式：`format: "unified_diff"` + `diff`
-- 第一版只支持文本文件的新增/修改，不支持删除、重命名、二进制文件。
-- 执行前校验：
-  - 路径必须在 workspace 或 workflow `project_path` 内。
-  - 禁止路径穿越。
-  - 限制单次文件数、单文件大小、总 diff 大小。
-  - 检测明显冲突，冲突时进入 `needs_manual_review`。
-- 执行结果记录 changed files、before/after 摘要、失败原因，并同步到聊天卡片和 workflow actions。
+## 3. 后端实现
 
-### 3. 命令策略与项目命令发现
+### 3.1 压缩 System Prompt
 
-新增命令策略层，让 Agent 能知道“这个项目该怎么验证”，但仍不能乱跑命令。
+修改 `AgentSessionProcessor._initial_messages(...)`。
 
-新增只读工具：
+推荐协议：
 
-- `detect_project_commands`：读取 `package.json`、`pyproject.toml`、`pytest.ini` 等，识别可用测试/类型检查命令。
-- `get_git_status`：读取当前变更概览。
-- `get_git_diff`：读取已变更文件 diff 摘要。
-- `list_changed_files`：列出本轮 action 影响文件。
-- `read_test_failures`：读取最近一次命令执行失败摘要。
+```text
+你是开发 Agent。只输出 JSON 工具请求。
+格式：{"tool":"工具名","arguments":{...}}
+每次只调用一个工具。
+默认流程：collect_context → patch 或 bash_command → finalize。
+写文件用 patch。验证用 bash_command。完成用 finalize。
+不要解释，不要 Markdown，不要输出多段文本。
+```
 
-命令执行规则：
+补充规则：
 
-- 只接受 argv 数组，不接受 shell 字符串。
-- 继续限制白名单：`npm run typecheck`、`npm test`、`python -m pytest`、`python -m py_compile`。
-- 禁止重定向、管道、删除、移动、提交、推送等危险行为。
-- 默认超时 120 秒。
-- 执行结果统一生成 `stdout`、`stderr`、`exit_code`、`failure_summary`。
+- 不知道文件路径时先 `collect_context` 或 `search`。
+- patch 后必须验证。
+- 验证成功后必须 `finalize`。
+- 验证失败最多 repair 一次。
+- 只读分析任务允许 `collect_context → finalize`。
 
-### 4. Developer Loop
+### 3.2 压缩 Observation
 
-升级 `build` Agent 的默认工作流程：
+新增 helper：
 
-1. `inspect_project`
-2. `detect_project_commands`
-3. `search_code` / `read_file`
-4. 生成实现 checklist
-5. `propose_patch`
-6. 等待策略执行或用户审批
-7. `propose_command`
-8. 执行验证
-9. 如果失败，读取失败结果并最多 repair 一次
-10. `finalize`
+```python
+def _compact_observation(tool_name, result, guidance=None) -> dict:
+    ...
+```
 
-最终输出必须包含：
+压缩规则：
 
-- 做了什么
-- 改了哪些文件
-- 执行了哪些命令
-- 验证是否通过
-- 剩余风险
-- 下一步建议
+- `collect_context`
+  - 不回传完整 file content。
+  - 只回传文件路径、匹配摘要、commands、guidance。
+- `read`
+  - content 超过 2000 字符时截断。
+- `search`
+  - matches 最多 8 条。
+- `patch`
+  - 只回传 changed_files、policy_decision、risk_level、policy_reason。
+- `bash_command`
+  - stdout/stderr 最多各 2000 字符。
+  - failure_summary 必须保留。
+- 完整 payload 仍保存到 `AgentPart.payload`，只压缩喂给模型的内容。
 
-如果没有 final summary，后端根据 actions、executions、tool calls 自动生成兜底总结，避免“模型执行完但用户看不到结果”。
+### 3.3 模型输出纠偏
 
-### 5. 前端体验打磨
+增强 `parse_tool_request` 或 Processor 解析逻辑：
 
-`AgentRunCard` 拆成更清晰的运行面板：
+支持：
 
-- `AgentExecutionTimeline`：显示当前状态和最近工具调用。
-- `AgentActionPanel`：显示 patch / command、审批、执行、输出。
-- `AgentFinalSummary`：显示最终交付结果。
-- Patch action 展示 diff 预览。
-- Command action 展示命令、状态、stdout/stderr、失败摘要。
-- Repair loop 显示“正在尝试修复 / 已生成修复建议 / 需要人工处理”。
+```json
+{"tool_name":"collect_context","args":{}}
+```
 
-`/workflows` 不重做，只消费同一套 enhanced observability。
+```json
+{"name":"patch","parameters":{}}
+```
 
-## Public Interfaces / Types
+新增行为：
 
-- 不新增主页面，不新增顶层产品入口。
-- 现有 `/chat-agent`、`/workflows` API 保持兼容。
-- `WorkflowActionResponse` 扩展可选字段：
-  - `execution_state`
-  - `changed_files`
-  - `failure_summary`
-  - `policy_reason`
-- `patch` action payload 新增支持：
-  - `format: "unified_diff"`
-  - `diff: string`
-- `WorkflowToolCall.tool_name` 新增：
-  - `detect_project_commands`
-  - `get_git_status`
-  - `get_git_diff`
-  - `list_changed_files`
-  - `read_test_failures`
+- 普通文本 + 已有执行记录：自动转 `finalize`。
+- 普通文本 + 无执行记录：先返回一次协议提示，要求只输出 JSON。
+- 连续 2 次协议失败：进入 `needs_manual_review`，并生成 summary。
 
-## Test Plan
+### 3.4 Fast Path
 
-后端新增测试：
+在 session metadata 中记录：
 
-- `test_patch_engine.py`
-  - simple unified diff 可应用。
-  - workspace 外路径被拒绝。
-  - delete / rename / binary patch 被拒绝。
-  - 冲突 patch 进入 `needs_manual_review`。
-- `test_command_policy.py`
-  - 能识别 npm / pytest 验证命令。
-  - 白名单命令可执行。
-  - shell 字符串、管道、重定向、危险命令被拒绝。
-- `test_agent_developer_loop.py`
-  - mock Agent 完成 inspect → patch → command → finalize。
-  - actions、executions、final summary 都能返回给聊天页。
-- `test_agent_repair_loop.py`
-  - command 失败后触发一次 repair。
-  - 第二次失败后进入 `needs_manual_review`。
-  - repair 生成的新 patch/command 仍需门禁。
+```python
+task_intent = "analyze" | "develop" | "verify"
+```
 
-回归测试：
+判断规则：
 
-- `test_chat_agent.py`
-- `test_chat_agent_intent.py`
-- `test_agent_permission_replay.py`
-- `test_workflow_observability_actions.py`
-- `test_agent_tool_runtime.py`
-- `npm run typecheck`
+- 包含“分析 / 看看 / 排查 / 不写文件 / 只读 / 解释”：`analyze`
+- 包含“修改 / 新增 / 修复 / typecheck / 跑测试”：`develop`
+- 包含“验证 / 测试 / 检查”：`verify`
 
-手动验收：
+行为：
 
-1. 打开 `/chat`。
-2. 输入“新增一个 tmp smoke 文件并运行 typecheck”。
-3. 确认 Agent 自动 inspect/search/read。
-4. 确认生成 patch diff。
-5. 审批或策略执行 patch。
-6. 执行 `npm run typecheck`。
-7. 如果失败，确认 Agent 自动 repair 一次。
-8. 最后聊天卡片显示明确最终结果。
+- `analyze`：允许 `collect_context → finalize`
+- `develop`：prompt 强调需要 patch 或 command
+- `verify`：优先 `detect_project_commands → bash_command → finalize`
 
-## Assumptions
+### 3.5 协议诊断
 
-- 本阶段不做任意 shell、不做 git commit/push、不做后台长任务队列。
-- 第一版 unified diff 只支持文本新增/修改。
-- 业务源码修改默认仍走审批；小型安全文件可走自动策略。
-- 尽量复用现有 workflow action、tool call、event 表；只有现有 JSON 字段无法承载时才新增迁移。
+保存到 metadata 或 part payload：
+
+- `last_raw_model_output`
+- `last_parse_error`
+- `protocol_repair_count`
+- `compact_observation_used`
+
+普通聊天 UI 默认不展示，只用于调试和测试。
+
+## 4. 前端要求
+
+不新增页面。
+
+保持当前 transcript：
+
+- `AgentPartMessage` 继续渲染 text/tool/diff/command/summary。
+- 不恢复大卡片。
+- 不展示 workflow / artifact / observability 等内部词。
+- summary 仍固定可见。
+- diff / command 仍可展开。
+
+前端只需同步类型字段，如后端新增 metadata 字段。
+
+## 5. 测试计划
+
+新增：
+
+```text
+server/tests/test_agent_session_prompt_compaction.py
+```
+
+覆盖：
+
+- system prompt 包含严格 JSON 协议。
+- `collect_context` observation 不包含完整大文件内容。
+- `read` 超长内容会截断。
+- `search` matches 数量受限。
+- `bash_command` 保留 failure_summary，并截断 stdout/stderr。
+- 普通文本 + 已有执行记录会自动 finalize。
+- 普通文本 + 无执行记录会先生成协议纠偏提示。
+- 连续协议失败进入 `needs_manual_review`。
+- 分析类任务允许 `collect_context → finalize`。
+- 开发类任务 patch 后会引导 command。
+
+回归命令：
+
+```powershell
+$env:PYTEST_DISABLE_PLUGIN_AUTOLOAD='1'
+$env:SystemRoot='C:\Windows'
+$env:WINDIR='C:\Windows'
+$env:SystemDrive='C:'
+.\.venv\Scripts\python.exe -m pytest `
+  server\tests\test_agent_session_prompt_compaction.py `
+  server\tests\test_agent_session_processor.py `
+  server\tests\test_agent_session_dev_loop.py `
+  server\tests\test_agent_session_state.py `
+  server\tests\test_agent_tool_registry.py `
+  server\tests\test_chat_agent.py -q
+```
+
+前端验证：
+
+```powershell
+cd client
+npm run typecheck
+```
+
+## 6. 手动验收 Prompt
+
+### 只读分析
+
+```text
+分析当前 Chat Agent Session 的执行链路，不要写文件。
+```
+
+期望：
+
+- 只执行只读工具。
+- 不生成 patch。
+- 最终输出分析 summary。
+
+### 小开发任务
+
+```text
+给 AgentPartMessage 增加一个更清晰的命令失败摘要展示，并运行 typecheck。
+```
+
+期望：
+
+- 先 collect_context/read。
+- 再 patch。
+- 低风险自动执行，中风险请求确认。
+- 运行或建议 `npm run typecheck`。
+- 最终输出修改文件、验证结果和下一步。
+
+### 协议兜底
+
+让 mock 模型输出普通文本而不是 JSON。
+
+期望：
+
+- 第一次提示模型只输出 JSON。
+- 已有执行记录时自动 finalize。
+- 不出现卡死或无输出。
+
+## 7. 明确约束
+
+- 不新增页面。
+- 不扩大自动执行权限。
+- 不开放任意 shell。
+- 不自动 git commit / push。
+- 不删除旧 `/chat-agent`。
+- 不恢复旧 workflow 主链路。
+- 优先改 `server/agent_session/*`。
+- 不扩旧 `agent_runtime`。

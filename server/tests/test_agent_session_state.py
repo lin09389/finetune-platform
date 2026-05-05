@@ -150,3 +150,80 @@ def test_get_session_recovers_state_without_duplicate_execution(tmp_path: Path):
         assert restored.metadata["state"]["changed_files"] == [rel]
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
+
+
+def test_get_session_includes_recovery_diagnostics_for_completed_run(tmp_path: Path):
+    workspace = Path.cwd()
+    run_dir = _workspace_tmp("agent-diagnostics")
+    target = run_dir / "done.py"
+    rel = target.relative_to(workspace).as_posix()
+    service = _service(tmp_path)
+    session = service.create_session(AgentSessionCreate(title="diagnostics", project_path=str(workspace)))
+    responses = iter(
+        [
+            {"tool": "collect_context", "arguments": {"read": [rel]}},
+            {"tool": "patch", "arguments": {"payload": {"files": [{"path": rel, "content": "VALUE = 1\n"}]}}},
+            {"tool": "bash_command", "arguments": {"payload": {"command": ["python", "-m", "py_compile", rel]}}},
+            {"tool": "finalize", "arguments": {"summary": "已完成诊断 smoke，并通过验证。"}},
+        ]
+    )
+
+    async def model_call(_messages):
+        return json.dumps(next(responses), ensure_ascii=False)
+
+    service.model_call = model_call
+    service.processor.max_iterations = 6
+    try:
+        asyncio.run(service.prompt(session.id, AgentPromptRequest(content="写入并验证")))
+        restored = service.get_session(session.id)
+        diagnostics = restored.metadata["diagnostics"]
+
+        assert diagnostics["status"] == "completed"
+        assert diagnostics["latest_event"]["event_type"] == "summary_completed"
+        assert diagnostics["latest_tool_call"]["type"] == "tool_call"
+        assert diagnostics["latest_action"]["type"] == "command"
+        assert diagnostics["latest_command"]["exit_code"] == 0
+        assert diagnostics["latest_summary"]["content"] == "已完成诊断 smoke，并通过验证。"
+        assert diagnostics["stop_reason"] == "已完成诊断 smoke，并通过验证。"
+        assert diagnostics["next_action"] == "可以查看结果，或继续提出下一步需求。"
+        assert diagnostics["refresh_safe"] is True
+        assert restored.metadata["latest_event"] == diagnostics["latest_event"]
+    finally:
+        shutil.rmtree(run_dir, ignore_errors=True)
+
+
+def test_get_session_explains_waiting_approval_action(tmp_path: Path):
+    workspace = Path.cwd()
+    run_dir = _workspace_tmp("agent-diagnostics-approval")
+    target = run_dir / "confirm.py"
+    rel = target.relative_to(workspace).as_posix()
+    target.write_text("VALUE = 0\n", encoding="utf-8")
+    service = _service(tmp_path)
+    session = service.create_session(
+        AgentSessionCreate(title="approval", project_path=str(workspace), autonomy_mode="confirm_all")
+    )
+    responses = iter(
+        [
+            {"tool": "collect_context", "arguments": {"read": [rel]}},
+            {"tool": "patch", "arguments": {"payload": {"files": [{"path": rel, "content": "VALUE = 1\n"}]}}},
+        ]
+    )
+
+    async def model_call(_messages):
+        return json.dumps(next(responses), ensure_ascii=False)
+
+    service.model_call = model_call
+    service.processor.max_iterations = 4
+    try:
+        asyncio.run(service.prompt(session.id, AgentPromptRequest(content="确认模式写文件")))
+        restored = service.get_session(session.id)
+        diagnostics = restored.metadata["diagnostics"]
+
+        assert restored.status == "waiting_approval"
+        assert diagnostics["latest_action"]["type"] == "diff"
+        assert diagnostics["latest_action"]["policy_decision"] == "approval_required"
+        assert "确认模式" in diagnostics["stop_reason"]
+        assert diagnostics["next_action"] == "请确认待处理的修改或验证命令。"
+        assert target.read_text(encoding="utf-8") == "VALUE = 0\n"
+    finally:
+        shutil.rmtree(run_dir, ignore_errors=True)
