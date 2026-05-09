@@ -67,6 +67,32 @@ def test_collect_context_observation_omits_full_file_content(tmp_path: Path):
         shutil.rmtree(run_dir, ignore_errors=True)
 
 
+def test_collect_context_observation_keeps_symbol_summary_compact(tmp_path: Path):
+    service = _service(tmp_path)
+    payload = {
+        "goal": "修复 alpha",
+        "markers": {"client_dir": True},
+        "files": [{"path": "tmp/demo.ts", "content": "export function alpha() {}\n", "truncated": False}],
+        "matches": [{"path": "tmp/demo.ts", "line": 1, "preview": "export function alpha() {}"}],
+        "symbols": [
+            {
+                "symbol": "alpha",
+                "engine": "ast-grep",
+                "definitions": [{"path": "tmp/demo.ts", "line": 1, "kind": "function", "preview": "export function alpha() {}"}],
+                "references": [{"path": "tmp/demo.ts", "line": 3, "is_definition": False, "preview": "const x = alpha()"}],
+            }
+        ],
+        "commands": [],
+        "touched_paths": ["tmp/demo.ts"],
+    }
+
+    observation = service.processor._compact_observation("collect_context", "completed", "done", payload)
+
+    assert observation["payload"]["symbols"][0]["symbol"] == "alpha"
+    assert observation["payload"]["symbols"][0]["definitions"][0]["kind"] == "function"
+    assert "preview" not in json.dumps(observation["payload"]["symbols"], ensure_ascii=False)
+
+
 def test_read_observation_truncates_large_content(tmp_path: Path):
     workspace = Path.cwd()
     run_dir = _workspace_tmp("compact-read")

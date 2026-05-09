@@ -175,6 +175,13 @@ def test_command_root_detects_client_for_npm_when_project_is_workspace_root(tmp_
     assert root.name == "client"
 
 
+def test_command_root_detects_client_for_frontend_tooling_when_project_is_workspace_root(tmp_path):
+    service = WorkflowActionService(repository=None)
+
+    assert service._command_root({"project_path": str(Path.cwd())}, ["npx", "vitest", "run"]).name == "client"
+    assert service._command_root({"project_path": str(Path.cwd())}, ["tsc", "--noEmit"]).name == "client"
+
+
 def test_command_allowlist_accepts_windows_npm_cmd():
     service = WorkflowActionService(repository=None)
 

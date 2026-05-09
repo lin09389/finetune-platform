@@ -176,6 +176,94 @@ def test_command_before_detect_gets_guidance_and_continues(tmp_path: Path):
         shutil.rmtree(run_dir, ignore_errors=True)
 
 
+def test_run_dev_server_requires_approval(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_dev_server.db")))
+    session = service.create_session(AgentSessionCreate(title="dev server", project_path=str(Path.cwd())))
+    responses = iter(
+        [
+            {"tool": "run_dev_server", "arguments": {"payload": {"command": ["npm", "run", "dev"], "server_url": "http://localhost:5173"}}},
+        ]
+    )
+
+    async def model_call(_messages):
+        return json.dumps(next(responses), ensure_ascii=False)
+
+    service.model_call = model_call
+    result = asyncio.run(service.prompt(session.id, AgentPromptRequest(content="启动前端开发服务器")))
+    command = next(part for part in result.parts if part.type == "command")
+
+    assert result.status == "waiting_approval"
+    assert command.status == "pending"
+    assert command.payload["tool"] == "run_dev_server"
+    assert command.payload["server_url"] == "http://localhost:5173"
+    assert command.payload["execution_mode"] == "approval_required"
+
+
+def test_stop_dev_server_auto_executes_without_manual_approval(tmp_path: Path, monkeypatch):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_stop_dev_server.db")))
+    session = service.create_session(AgentSessionCreate(title="stop dev server", project_path=str(Path.cwd())))
+
+    class FakeProcess:
+        def __init__(self):
+            self.pid = 123
+            self._returncode = None
+
+        def poll(self):
+            return self._returncode
+
+        def terminate(self):
+            self._returncode = 0
+
+        def wait(self, timeout=None):
+            self._returncode = 0
+            return 0
+
+        def kill(self):
+            self._returncode = -9
+
+    log_path = Path.cwd() / "tmp" / "agent-dev-servers" / "test.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_file = log_path.open("a", encoding="utf-8")
+    fake_process = FakeProcess()
+    monkeypatch.setitem(
+        __import__("agent_session.tools", fromlist=["DEV_SERVER_PROCESSES"]).DEV_SERVER_PROCESSES,
+        f"{session.id}:dev",
+        {
+            "name": "dev",
+            "command": ["npm", "run", "dev"],
+            "cwd": str(Path.cwd()),
+            "pid": fake_process.pid,
+            "server_url": "http://localhost:5173",
+            "log_path": log_path.relative_to(Path.cwd()).as_posix(),
+            "process": fake_process,
+            "log_file": log_file,
+        },
+    )
+    responses = iter(
+        [
+            {"tool": "stop_dev_server", "arguments": {"payload": {"name": "dev"}}},
+            {"tool": "finalize", "arguments": {"summary": "开发服务器已停止。"}},
+        ]
+    )
+
+    async def model_call(_messages):
+        return json.dumps(next(responses), ensure_ascii=False)
+
+    service.processor.max_iterations = 4
+    service.model_call = model_call
+    try:
+        result = asyncio.run(service.prompt(session.id, AgentPromptRequest(content="停止开发服务器并总结状态")))
+        command = next(part for part in result.parts if part.type == "command")
+        assert result.status == "completed"
+        assert command.status == "completed"
+        assert command.payload["running"] is False
+    finally:
+        try:
+            log_file.close()
+        except Exception:
+            pass
+
+
 def test_collect_context_infers_source_file_before_patch(tmp_path: Path):
     workspace = Path.cwd()
     run_dir = workspace / "tmp" / f"agent-source-guidance-{uuid.uuid4().hex[:8]}"

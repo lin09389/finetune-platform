@@ -103,9 +103,43 @@ def test_large_source_patch_requires_approval(tmp_path):
     service, repository, project, task = make_policy_service(tmp_path)
     mark_read(repository, project["id"], task["id"], "tmp_source_policy_large.py")
 
-    content = "\n".join(f"VALUE_{index} = {index}" for index in range(81))
+    content = "\n".join(f"VALUE_{index} = {index}" for index in range(121))
     actions = service.extract_from_output(project["id"], task["id"], patch_output("tmp_source_policy_large.py", content))
 
     assert actions[0]["status"] == "pending_approval"
     assert actions[0]["execution_mode"] == "approval_required"
-    assert "超过 80 行" in actions[0]["policy_reason"]
+    assert "超过 120 行" in actions[0]["policy_reason"]
+
+
+def test_three_small_read_source_patches_auto_execute(tmp_path):
+    service, repository, project, task = make_policy_service(tmp_path)
+    targets = [Path.cwd() / f"tmp_source_policy_multi_{index}.py" for index in range(3)]
+    previous: list[str | None] = []
+    for target in targets:
+        previous.append(target.read_text(encoding="utf-8") if target.exists() else None)
+        mark_read(repository, project["id"], task["id"], target.name)
+
+    output = AgentOutput(
+        summary="生成多文件源码补丁",
+        artifacts=[
+            {
+                "type": "patch",
+                "title": "source patch",
+                "payload": {
+                    "files": [{"path": target.name, "content": f"VALUE_{index} = {index}\n"} for index, target in enumerate(targets)]
+                },
+            }
+        ],
+    )
+
+    try:
+        actions = service.extract_from_output(project["id"], task["id"], output)
+
+        assert actions[0]["status"] == "executed"
+        assert actions[0]["execution_mode"] == "auto"
+    finally:
+        for target, content in zip(targets, previous):
+            if content is None and target.exists():
+                target.unlink()
+            elif content is not None:
+                target.write_text(content, encoding="utf-8")

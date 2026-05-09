@@ -8,9 +8,8 @@ from fastapi.testclient import TestClient
 from agent_session.models import AgentPartResponse, AgentSessionResponse
 from agent_session.repository import AgentSessionRepository
 from agent_session.service import AgentSessionService
-from api.agent_sessions import get_agent_session_service
+from api.agent_sessions import get_agent_session_service, get_agent_session_user
 from main import app
-from security.auth_middleware import get_current_user
 
 
 def test_agent_session_action_route_uses_async_service_method(tmp_path: Path, monkeypatch):
@@ -40,7 +39,7 @@ def test_agent_session_action_route_uses_async_service_method(tmp_path: Path, mo
     monkeypatch.setattr(service, "approve_action", should_not_be_called)
     monkeypatch.setattr(service, "approve_action_async", async_approve_action)
     app.dependency_overrides[get_agent_session_service] = lambda: service
-    app.dependency_overrides[get_current_user] = lambda: object()
+    app.dependency_overrides[get_agent_session_user] = lambda: object()
     try:
         client = TestClient(app)
         response = client.post(f"/agent-actions/{part['id']}/approve")
