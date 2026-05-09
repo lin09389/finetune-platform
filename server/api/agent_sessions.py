@@ -15,6 +15,8 @@ from agent_session.models import (
 )
 from agent_session.service import AgentSessionService
 from core.db_manager import run_sync
+from security.auth_middleware import get_current_user
+from security.jwt_auth import TokenPayload
 
 router = APIRouter(prefix="/agent-sessions", tags=["Agent Sessions"])
 
@@ -27,6 +29,7 @@ def get_agent_session_service() -> AgentSessionService:
 async def create_agent_session(
     request: AgentSessionCreate,
     service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_current_user),
 ):
     return await run_sync(service.create_session, request)
 
@@ -35,6 +38,7 @@ async def create_agent_session(
 async def get_agent_session(
     session_id: str,
     service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_current_user),
 ):
     try:
         return await run_sync(service.get_session, session_id)
@@ -48,6 +52,7 @@ async def prompt_agent_session(
     request: AgentPromptRequest,
     background_tasks: BackgroundTasks,
     service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_current_user),
 ):
     try:
         return await run_sync(service.start_prompt_background, session_id, request, background_tasks)
@@ -64,6 +69,7 @@ async def prompt_agent_session(
 async def list_agent_session_events(
     session_id: str,
     service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_current_user),
 ):
     try:
         await run_sync(service.get_session, session_id)
@@ -77,9 +83,8 @@ async def stream_agent_session_events(
     session_id: str,
     since_event_id: str | None = None,
     service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_current_user),
 ):
-    terminal_statuses = {"completed", "failed", "needs_manual_review", "waiting_approval", "waiting_permission"}
-
     async def event_stream():
         seen: set[str] = {since_event_id} if since_event_id else set()
         since_id = since_event_id
@@ -94,9 +99,7 @@ async def stream_agent_session_events(
                 yield f"event: agent_session_event\ndata: {json.dumps(chunk, ensure_ascii=False)}\n\n"
             try:
                 session = await run_sync(service.get_session, session_id)
-                if session.status in terminal_statuses and seen:
-                    snapshot_chunk = await run_sync(service.build_session_snapshot_chunk, session_id)
-                    yield f"event: agent_session_event\ndata: {json.dumps(snapshot_chunk, ensure_ascii=False)}\n\n"
+                if session.status in {"completed", "failed", "needs_manual_review", "waiting_approval", "waiting_permission"} and seen:
                     break
             except Exception:
                 break
@@ -113,6 +116,7 @@ action_router = APIRouter(tags=["Agent Sessions"])
 async def approve_agent_permission(
     permission_id: str,
     service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_current_user),
 ):
     session = await run_sync(service.approve_permission, permission_id, True)
     part = next((item for item in session.parts if item.id == permission_id), None)
@@ -125,6 +129,7 @@ async def approve_agent_permission(
 async def reject_agent_permission(
     permission_id: str,
     service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_current_user),
 ):
     session = await run_sync(service.approve_permission, permission_id, False)
     part = next((item for item in session.parts if item.id == permission_id), None)
@@ -137,6 +142,7 @@ async def reject_agent_permission(
 async def approve_agent_action(
     action_id: str,
     service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_current_user),
 ):
     session = await run_sync(service.approve_action, action_id, True)
     part = next((item for item in session.parts if item.id == action_id), None)
@@ -149,6 +155,7 @@ async def approve_agent_action(
 async def reject_agent_action(
     action_id: str,
     service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_current_user),
 ):
     session = await run_sync(service.approve_action, action_id, False)
     part = next((item for item in session.parts if item.id == action_id), None)
@@ -161,6 +168,7 @@ async def reject_agent_action(
 async def execute_agent_action(
     action_id: str,
     service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_current_user),
 ):
     session = await run_sync(service.execute_action, action_id)
     part = next((item for item in session.parts if item.id == action_id), None)

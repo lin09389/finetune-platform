@@ -237,16 +237,25 @@ async function streamSse(
         continue;
       }
 
+      if (parsed.type === 'workflow_event') {
+        metadata = mergeMetadata(metadata, {
+          raw_response: parsed.workflow_event,
+        });
+        continue;
+      }
+
       if (parsed.type === 'done') {
         continue;
       }
 
       const delta =
-        typeof parsed.content === 'string'
-          ? parsed.content
-          : typeof parsed.delta === 'string'
-            ? parsed.delta
-            : '';
+        typeof parsed.type === 'string' && parsed.type === 'text_delta'
+          ? (typeof parsed.content === 'string' ? parsed.content : '')
+          : typeof parsed.content === 'string'
+            ? parsed.content
+            : typeof parsed.delta === 'string'
+              ? parsed.delta
+              : '';
       if (!delta) continue;
 
       content += delta;
@@ -670,7 +679,7 @@ export function useChatStream(config: StreamConfig = {}) {
                 flushPending = true;
                 const now = Date.now();
                 const timeSinceLastFlush = now - lastFlushTime;
-                const throttleMs = 32; // Throttle to ~30fps to prevent ReactMarkdown from freezing the main thread
+const throttleMs = 50; // Throttle to ~20fps for better performance during streaming
 
                 if (timeSinceLastFlush >= throttleMs) {
                   frameId = requestAnimationFrame(flushUpdate);

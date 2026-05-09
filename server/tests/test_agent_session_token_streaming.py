@@ -99,12 +99,48 @@ def test_stream_with_tool_call_parses_correctly(tmp_path: Path):
         part_types = [p.get("type") for p in parts]
         assert "tool_call" in part_types, f"Expected tool_call in part types: {part_types}"
         assert "summary" in part_types, f"Expected summary in part types: {part_types}"
-
         events = service.repository.list_events(session.id)
         tool_events = [e for e in events if e.get("event_type") == "tool_call_started"]
         assert len(tool_events) >= 1, "Expected tool_call_started event"
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
+
+
+def test_stream_pure_tool_json_is_marked_protocol_only(tmp_path: Path):
+    service = _service(tmp_path)
+    session = service.create_session(AgentSessionCreate(title="stream-tool-only", project_path=str(Path.cwd())))
+
+    responses = [
+        json.dumps({"tool": "collect_context", "arguments": {}}, ensure_ascii=False),
+        json.dumps({"tool": "finalize", "arguments": {"summary": "完成。"}}, ensure_ascii=False),
+    ]
+    call_index = {"count": 0}
+
+    async def model_call(messages):
+        idx = call_index["count"]
+        call_index["count"] += 1
+        return responses[idx]
+
+    async def stream_model_call(messages):
+        idx = call_index["count"]
+        call_index["count"] += 1
+        full_text = responses[idx]
+        for index in range(0, len(full_text), 8):
+            yield {"content": full_text[index:index + 8], "delta": True}
+
+    result = asyncio.run(service.processor.prompt(
+        session.id,
+        "只输出工具请求",
+        model_call=model_call,
+        stream_model_call=stream_model_call,
+    ))
+
+    protocol_text_parts = [
+        p for p in result.get("parts", [])
+        if p.get("type") == "text" and p.get("payload", {}).get("protocol_only")
+    ]
+    assert protocol_text_parts, "Expected pure tool JSON stream to be marked protocol_only"
+    assert protocol_text_parts[0].get("content") == ""
 
 
 def test_stream_failure_falls_back_to_non_streaming(tmp_path: Path):
@@ -163,6 +199,44 @@ def test_stream_delta_events_have_correct_payload(tmp_path: Path):
         assert "part_id" in payload, f"Expected part_id in delta payload: {payload}"
         assert "streaming" in payload, f"Expected streaming in delta payload: {payload}"
         assert payload.get("part_type") == "text", f"Expected part_type text: {payload}"
+
+
+def test_streaming_diagnostics_record_native_and_fallback_modes(tmp_path: Path):
+    service = _service(tmp_path)
+    session = service.create_session(AgentSessionCreate(title="stream-diagnostics", project_path=str(Path.cwd())))
+
+    async def model_call(messages):
+        return json.dumps({"tool": "finalize", "arguments": {"summary": "回退完成。"}}, ensure_ascii=False)
+
+    async def stream_model_call(messages):
+        yield {"content": "流式", "delta": True}
+        yield {"content": "完成", "delta": True}
+
+    result = asyncio.run(service.processor.prompt(
+        session.id, "测试诊断",
+        model_call=model_call,
+        stream_model_call=stream_model_call,
+    ))
+    diagnostics = (result.get("metadata") or {}).get("streaming_diagnostics") or {}
+    assert diagnostics.get("mode") == "chat_stream"
+    assert diagnostics.get("status") == "completed"
+    assert diagnostics.get("fallback_to_non_stream") is False
+
+    failed = service.create_session(AgentSessionCreate(title="stream-diagnostics-failed", project_path=str(Path.cwd())))
+
+    async def failing_stream(messages):
+        raise RuntimeError("stream boom")
+        yield
+
+    failed_result = asyncio.run(service.processor.prompt(
+        failed.id, "测试失败诊断",
+        model_call=model_call,
+        stream_model_call=failing_stream,
+    ))
+    failed_diagnostics = (failed_result.get("metadata") or {}).get("streaming_diagnostics") or {}
+    assert failed_diagnostics.get("status") == "failed_then_fallback"
+    assert failed_diagnostics.get("fallback_to_non_stream") is True
+    assert "stream boom" in failed_diagnostics.get("error", "")
 
 
 def test_stream_chunk_delta_has_typed_payload_and_part_snapshot(tmp_path: Path):

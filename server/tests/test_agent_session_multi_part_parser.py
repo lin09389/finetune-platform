@@ -49,6 +49,27 @@ def test_parse_markdown_json_tool_block():
     assert parts[1].tool == "collect_context"
 
 
+def test_parse_malformed_markdown_json_array_extracts_tools_without_protocol_text():
+    raw = """
+先创建文件，然后运行验证。
+
+```json
+[
+  {"tool": "bash_command", "arguments": {"command": "mkdir -p tmp && echo 'agent stream smoke ok' > tmp/agent-stream-smoke.txt"}}d
+  {"tool": "bash_command", "arguments": {"command": "npm run typecheck"}}
+]
+```
+""".strip()
+
+    parts = parse_agent_response(raw)
+
+    assert parts[0].type == "text"
+    assert "先创建文件" in parts[0].content
+    tool_parts = [part for part in parts if part.type == "tool_call"]
+    assert [part.tool for part in tool_parts] == ["bash_command", "bash_command"]
+    assert all("```" not in part.content for part in parts if part.type == "text")
+
+
 def test_parse_text_with_multiple_inline_json_blocks():
     parts = parse_agent_response(
         '我会先读文件 {"tool":"read","arguments":{"path":"a.py"}} 然后搜索 {"tool":"search","arguments":{"query":"VALUE"}}'

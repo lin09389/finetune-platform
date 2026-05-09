@@ -1,4 +1,4 @@
-import { Button, Drawer, Modal } from 'antd';
+import { Button, Drawer, Modal, Tag } from 'antd';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -17,6 +17,8 @@ import FollowUpSuggestions from '../components/chat/FollowUpSuggestions';
 import AgentPhaseIndicator from '../components/chat/AgentPhaseIndicator';
 import ChatHistoryDrawer from '../components/ChatHistoryDrawer';
 import ChatMessage from '../components/ChatMessage';
+import WorkflowStepCard from '../components/chat/WorkflowStepCard';
+import ToolEventTimeline from '../components/chat/ToolEventTimeline';
 import MemoryManager from '../components/MemoryManager';
 import APIKeyManager from '../pages/APIKeyManager';
 
@@ -40,7 +42,7 @@ import {
   rejectAgentAction as rejectAgentSessionAction,
   rejectChatAgentAction,
 } from '../services/api';
-import type { AgentInfo, AgentPart, AgentSession, AgentSessionEvent, ChatAgentRun, SavedCloudProvider, WorkflowAction, WorkflowTemplate } from '../services/api';
+import type { AgentInfo, AgentPart, AgentSession, AgentSessionEvent, ChatAgentRun, SavedCloudProvider, WorkflowAction, WorkflowStep, WorkflowTemplate } from '../services/api';
 import { transitions } from '../theme/animations';
 import { notify } from '../utils/notify';
 import { ArrowDownOutlined } from '@ant-design/icons';
@@ -55,12 +57,30 @@ interface APIKeyConfig {
   base_url?: string;
 }
 
-const DEFAULT_SUGGESTIONS = [
-  '帮我制定一个学习计划',
-  '如何进行大模型微调？',
-  '写一段 Python 代码实现数据清洗',
-  '分析一下当前的 AI 行业趋势'
+const STARTER_IDEAS = [
+  {
+    title: '学习与规划',
+    desc: '帮我制定一个深度学习入门计划',
+    icon: '📚'
+  },
+  {
+    title: '模型微调',
+    desc: '如何进行大模型 QLoRA 微调？',
+    icon: '⚡'
+  },
+  {
+    title: '代码助理',
+    desc: '用 Python 写一个分布式爬虫示例',
+    icon: '💻'
+  },
+  {
+    title: '数据分析',
+    desc: '分析当前大语言模型的技术趋势',
+    icon: '📊'
+  }
 ];
+
+const DEFAULT_SUGGESTIONS = STARTER_IDEAS.map(i => i.desc);
 
 interface StoredChatScrollState {
   topIndex: number;
@@ -202,6 +222,8 @@ const ChatPage: React.FC = () => {
     syncKnowledgeCollection,
   } = actions;
 
+  const enableVirtualScroll = false;
+
   const {
     sessions,
     currentSessionId,
@@ -261,6 +283,10 @@ const ChatPage: React.FC = () => {
   );
   const [routingIntent, setRoutingIntent] = useState(false);
   const [creatingWorkflow, setCreatingWorkflow] = useState(false);
+  const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([]);
+  const [workflowTitle, setWorkflowTitle] = useState('Workflow Report');
+  const [workflowStatus, setWorkflowStatus] = useState('idle');
+  const [toolEvents, setToolEvents] = useState<Array<{ id: string; toolName: string; status: string; summary?: string; agentId?: string; durationMs?: number; error?: string; stepId?: string }>>([]);
   const chatAgentStreamsRef = useRef<Record<string, EventSource>>({});
   const agentSessionStreamsRef = useRef<Record<string, EventSource>>({});
   const agentSessionStateRef = useRef<Record<string, AgentSession>>({});
@@ -288,6 +314,8 @@ const ChatPage: React.FC = () => {
   }, [messages.length, savedScrollState?.topIndex, shouldRestoreToBottom]);
   const [, setIsAtBottom] = useState(shouldRestoreToBottom);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const autoScrollFrameRef = useRef<number | null>(null);
+  const pendingAutoScrollRef = useRef(false);
 
   const saveCurrentScrollState = useCallback(
     (overrides?: Partial<StoredChatScrollState>) => {
@@ -323,18 +351,34 @@ const ChatPage: React.FC = () => {
   const scrollToBottom = useCallback((smooth: boolean = true, force: boolean = false) => {
     if (!force && !isAutoScrollEnabledRef.current) return;
     if (messages.length === 0) return;
-    if (virtuosoRef.current) {
-      virtuosoRef.current.scrollToIndex({
-        index: messages.length - 1,
-        align: 'end',
-        behavior: smooth ? 'smooth' : 'auto',
-      });
-      return;
+    
+    if (autoScrollFrameRef.current !== null) {
+      cancelAnimationFrame(autoScrollFrameRef.current);
+      autoScrollFrameRef.current = null;
     }
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
-    }
-  }, [messages.length]);
+
+    autoScrollFrameRef.current = requestAnimationFrame(() => {
+      autoScrollFrameRef.current = null;
+      if (!force && !isAutoScrollEnabledRef.current) return;
+
+      if (virtuosoRef.current && enableVirtualScroll) {
+        virtuosoRef.current.scrollToIndex({
+          index: messages.length - 1,
+          align: 'end',
+          behavior: smooth ? 'smooth' : 'auto',
+        });
+        return;
+      }
+
+      if (scrollContainerRef.current) {
+        const { scrollHeight, clientHeight } = scrollContainerRef.current;
+        scrollContainerRef.current.scrollTo({
+          top: Math.max(0, scrollHeight - clientHeight),
+          behavior: smooth ? 'smooth' : 'auto',
+        });
+      }
+    });
+  }, [messages.length, enableVirtualScroll]);
 
   const {
     sendMessage,
@@ -353,6 +397,56 @@ const ChatPage: React.FC = () => {
     },
   });
 
+  // Keep the viewport pinned to the bottom while streaming when auto-scroll is enabled.
+  useEffect(() => {
+    if (enableVirtualScroll || !isAutoScrollEnabledRef.current) return;
+    pendingAutoScrollRef.current = true;
+    if (autoScrollFrameRef.current !== null) return;
+
+    autoScrollFrameRef.current = requestAnimationFrame(() => {
+      autoScrollFrameRef.current = null;
+      if (!pendingAutoScrollRef.current || !isAutoScrollEnabledRef.current) return;
+      pendingAutoScrollRef.current = false;
+      scrollToBottom(false, true);
+    });
+  }, [enableVirtualScroll, isActivelyStreaming, messages.length, scrollToBottom]);
+
+  // Use ResizeObserver for robust auto-scroll during content updates
+  useEffect(() => {
+    if (enableVirtualScroll || !scrollContainerRef.current) return;
+
+    const container = scrollContainerRef.current;
+    let lastHeight = container.scrollHeight;
+    let lastScrollTop = container.scrollTop;
+    let rafId: number | null = null;
+
+    const resizeObserver = new ResizeObserver(() => {
+      const newHeight = container.scrollHeight;
+      const newScrollTop = container.scrollTop;
+      if (newHeight === lastHeight && newScrollTop === lastScrollTop) return;
+
+      lastHeight = newHeight;
+      lastScrollTop = newScrollTop;
+
+      if (!isAutoScrollEnabledRef.current) return;
+
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const nextTop = Math.max(0, container.scrollHeight - container.clientHeight);
+        if (Math.abs(container.scrollTop - nextTop) > 1) {
+          container.scrollTop = nextTop;
+        }
+      });
+    });
+
+    resizeObserver.observe(container);
+    return () => {
+      resizeObserver.disconnect();
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+  }, [enableVirtualScroll]);
+
   useEffect(() => {
     Promise.allSettled([
       refreshInference(),
@@ -370,6 +464,7 @@ const ChatPage: React.FC = () => {
   }, [loadSessions, refreshInference, refreshKnowledge]);
 
   useEffect(() => () => {
+    if (autoScrollFrameRef.current !== null) cancelAnimationFrame(autoScrollFrameRef.current);
     Object.values(chatAgentStreamsRef.current).forEach((source) => source.close());
     Object.values(agentSessionStreamsRef.current).forEach((source) => source.close());
   }, []);
@@ -596,6 +691,92 @@ const ChatPage: React.FC = () => {
     [],
   );
 
+  const workflowStepFromRun = useCallback((run: ChatAgentRun): WorkflowStep | null => {
+    const workflow = run.workflow;
+    if (!workflow) return null;
+    const steps = workflow.steps || [];
+    if (!steps.length) return null;
+    const activeStep = [...steps].reverse().find((step) =>
+      step.status !== 'completed'
+    ) || steps[steps.length - 1];
+    
+    if (!activeStep) return null;
+
+    const latestEvent: any = run.latest_event || {};
+    const latestToolCall: any = run.latest_tool_call || {};
+    const latestAction: any = run.latest_action || {};
+    const problem = run.blocked_state?.summary
+      || run.execution_state_message
+      || activeStep.description
+      || run.summary
+      || run.final_summary
+      || latestEvent?.message
+      || '工作流已启动';
+    const reason = run.blocked_state?.reason
+      || run.execution_state_message
+      || latestEvent?.message
+      || latestToolCall?.result_summary
+      || latestToolCall?.sanitized_model_output
+      || '';
+    const fix = run.acceptance_report?.next_action
+      || latestAction?.title
+      || latestAction?.description
+      || latestToolCall?.result_summary
+      || latestToolCall?.sanitized_model_output
+      || '';
+    return {
+      id: activeStep.id,
+      step_id: activeStep.step_id,
+      workflow_id: activeStep.workflow_id,
+      step_key: activeStep.step_key,
+      agent_id: activeStep.agent_id,
+      legacy_role: activeStep.legacy_role,
+      title: activeStep.title,
+      description: activeStep.description,
+      status: latestEvent?.event_type === 'approval_needed' ? 'waiting_approval' : (run.status || activeStep.status),
+      requires_approval: activeStep.requires_approval,
+      input_data: {
+        latest_event: latestEvent,
+        latest_tool_call: latestToolCall,
+      },
+      output_data: {
+        problem,
+        reason,
+        fix,
+        summary: run.summary || run.final_summary || run.execution_state_message || '',
+      },
+      output: {
+        problem,
+        reason,
+        fix,
+        summary: run.summary || run.final_summary || run.execution_state_message || '',
+      },
+      error: run.blocked_state?.message || run.execution_state_message || undefined,
+    };
+  }, []);
+
+  const workflowStepCards = useMemo(() => {
+    const steps = workflowSteps.length > 0 ? workflowSteps : [];
+    return steps.map((step, index) => (
+      <WorkflowStepCard
+        key={step.id || step.step_id || String(index)}
+        index={index + 1}
+        step={step}
+        active={workflowStatus === 'running' && index === steps.length - 1}
+        toolEvents={toolEvents.filter((event) => event.stepId === step.step_id || event.stepId === step.id)}
+      />
+    ));
+  }, [toolEvents, workflowStatus, workflowSteps]);
+
+  const pushToolEvent = useCallback((event: { id: string; toolName: string; status: string; summary?: string; agentId?: string; durationMs?: number; error?: string; stepId?: string }) => {
+    setToolEvents((prev) => {
+      const nextMap = new Map<string, typeof event>();
+      for (const item of prev) nextMap.set(item.id, item);
+      nextMap.set(event.id, event);
+      return Array.from(nextMap.values()).slice(-12);
+    });
+  }, []);
+
   const persistAgentMessages = useCallback(async () => {
     const state = useChatStore.getState();
     if (!state.currentSessionId || state.currentSessionId.startsWith('local_')) return;
@@ -670,6 +851,7 @@ const ChatPage: React.FC = () => {
       agent_part: part,
       agent_session_state: (session.metadata as any)?.state,
       agent_session_diagnostics: (session.metadata as any)?.diagnostics,
+      agent_streaming_diagnostics: (session.metadata as any)?.streaming_diagnostics,
       final_summary: summaryPart?.content,
       recoverable: !['completed', 'failed'].includes(session.status),
       autonomy_mode: (session.metadata as any)?.autonomy_mode,
@@ -847,6 +1029,50 @@ const ChatPage: React.FC = () => {
       source.addEventListener('chat_agent_event', async () => {
         const run = await getChatAgentRun(runId).catch(() => null);
         if (run) {
+          const nextWorkflowStep = workflowStepFromRun(run);
+          if (nextWorkflowStep) {
+            setWorkflowTitle(run.workflow?.title || (run as any).title || 'Workflow Report');
+            setWorkflowStatus(run.status || run.execution_state || 'running');
+            setWorkflowSteps((prev) => {
+              const nextMap = new Map<string, WorkflowStep>();
+              for (const step of prev) {
+                nextMap.set(`${step.workflow_id}:${step.step_id || step.id}`, step);
+              }
+              nextMap.set(`${nextWorkflowStep.workflow_id}:${nextWorkflowStep.step_id || nextWorkflowStep.id}`, nextWorkflowStep);
+              return Array.from(nextMap.values()).sort((a, b) => {
+                const aActive = a.status === 'running' || a.status === 'waiting_approval' || a.status === 'blocked';
+                const bActive = b.status === 'running' || b.status === 'waiting_approval' || b.status === 'blocked';
+                if (aActive !== bActive) return aActive ? 1 : -1;
+                return String(a.step_id || a.id).localeCompare(String(b.step_id || b.id));
+              });
+            });
+          }
+          const latestToolCall = run.latest_tool_call;
+          if (latestToolCall?.tool_name) {
+            pushToolEvent({
+              id: `${run.id}:${latestToolCall.id || latestToolCall.tool_name}:${latestToolCall.status || 'pending'}`,
+              toolName: latestToolCall.tool_name,
+              status: latestToolCall.status || 'pending',
+              summary: latestToolCall.result_summary || latestToolCall.sanitized_model_output || latestToolCall.raw_model_output,
+              agentId: run.active_agent_id || run.workflow?.active_agent_id,
+              durationMs: latestToolCall.duration_ms,
+              error: latestToolCall.error,
+              stepId: latestToolCall.step_id,
+            });
+          }
+          for (const toolCall of run.observability?.tool_calls || []) {
+            if (!toolCall?.tool_name) continue;
+            pushToolEvent({
+              id: `${run.id}:${toolCall.id || toolCall.tool_name}:${toolCall.status || 'pending'}`,
+              toolName: toolCall.tool_name,
+              status: toolCall.status || 'pending',
+              summary: toolCall.result_summary || toolCall.sanitized_model_output || toolCall.raw_model_output,
+              agentId: toolCall.agent_id || run.active_agent_id || run.workflow?.active_agent_id,
+              durationMs: toolCall.duration_ms,
+              error: toolCall.error,
+              stepId: toolCall.step_id,
+            });
+          }
           await upsertAgentMessages(run);
         }
       });
@@ -954,14 +1180,6 @@ const ChatPage: React.FC = () => {
           .filter((sessionId): sessionId is string => Boolean(sessionId)),
       ),
     );
-    let cancelled = false;
-    agentSessionIds.forEach((sessionId) => {
-      const refreshKey = `${currentSessionId}:session:${sessionId}`;
-      if (refreshedAgentSessionsRef.current.has(refreshKey)) return;
-      refreshedAgentSessionsRef.current.add(refreshKey);
-      startAgentSessionStream(sessionId);
-    });
-
     const runIds = Array.from(
       new Set(
         messages
@@ -971,25 +1189,29 @@ const ChatPage: React.FC = () => {
       ),
     );
     if (!runIds.length && !agentSessionIds.length) return;
-    runIds.forEach((runId) => {
-      const refreshKey = `${currentSessionId}:${runId}`;
-      if (refreshedAgentRunsRef.current.has(refreshKey)) return;
-      refreshedAgentRunsRef.current.add(refreshKey);
-      getChatAgentRun(runId)
-        .then(async (run) => {
-          if (!cancelled) {
-            await upsertAgentMessages(run);
-          }
-        })
-        .catch(() => {
-          refreshedAgentRunsRef.current.delete(refreshKey);
-        });
+
+    agentSessionIds.forEach((sessionId) => {
+      const refreshKey = `${currentSessionId}:session:${sessionId}`;
+      if (!refreshedAgentSessionsRef.current.has(refreshKey)) {
+        refreshedAgentSessionsRef.current.add(refreshKey);
+        startAgentSessionStream(sessionId);
+      }
     });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [currentSessionId, messages, startAgentSessionStream, upsertAgentMessages, upsertAgentSessionMessage]);
+    runIds.forEach((runId) => {
+      const refreshKey = `${currentSessionId}:${runId}`;
+      if (!refreshedAgentRunsRef.current.has(refreshKey)) {
+        refreshedAgentRunsRef.current.add(refreshKey);
+        getChatAgentRun(runId)
+          .then(async (run) => {
+            await upsertAgentMessages(run);
+          })
+          .catch(() => {
+            refreshedAgentRunsRef.current.delete(refreshKey);
+          });
+      }
+    });
+  }, [currentSessionId, messages, startAgentSessionStream, upsertAgentMessages]);
 
   const handleAgentWorkflow = useCallback(
     async (
@@ -1062,52 +1284,56 @@ const ChatPage: React.FC = () => {
       isAutoScrollEnabledRef.current = true;
       setTimeout(() => scrollToBottom(true, true), 100);
 
-      if (routingMode === 'agent') {
-        const handledByAgent = await handleAgentWorkflow(content, true, { reason: '已按 Agent 模式启动 Build Agent。' });
-        if (handledByAgent) return;
-      }
+      const shouldPreferWorkflow = routingMode !== 'chat';
 
-      if (routingMode === 'auto') {
-        setRoutingIntent(true);
-        try {
-          const intent = await withTimeout(
-            classifyChatAgentIntent({
-              content,
-              provider: cloudAIConfig?.provider || undefined,
-              model: selectedCloudModel || cloudAIConfig?.model || undefined,
-              agent_id: selectedPrimaryAgent || 'build',
-              template_id: selectedWorkflowTemplate || 'software_delivery',
-              chat_session_id: currentSessionId && !currentSessionId.startsWith('local_') ? currentSessionId : undefined,
-              routing_mode: 'auto',
-            }),
-            INTENT_ROUTING_TIMEOUT_MS,
-            'intent_routing_timeout',
-          );
-          if (intent.mode === 'agent') {
+      if (routingMode === 'agent' || shouldPreferWorkflow) {
+        if (routingMode === 'agent') {
+          const handledByAgent = await handleAgentWorkflow(content, true, { reason: '已按 Agent 模式启动 Build Agent。' });
+          if (handledByAgent) return;
+        }
+
+        if (routingMode === 'auto') {
+          setRoutingIntent(true);
+          try {
+            const intent = await withTimeout(
+              classifyChatAgentIntent({
+                content,
+                provider: cloudAIConfig?.provider || undefined,
+                model: selectedCloudModel || cloudAIConfig?.model || undefined,
+                agent_id: selectedPrimaryAgent || 'build',
+                template_id: selectedWorkflowTemplate || 'software_delivery',
+                chat_session_id: currentSessionId && !currentSessionId.startsWith('local_') ? currentSessionId : undefined,
+                routing_mode: 'auto',
+              }),
+              INTENT_ROUTING_TIMEOUT_MS,
+              'intent_routing_timeout',
+            );
+            if (intent.mode === 'agent') {
+              setRoutingIntent(false);
+              const handledByAgent = await handleAgentWorkflow(content, true, {
+                agentId: intent.suggested_agent_id || selectedPrimaryAgent || 'build',
+                templateId: intent.suggested_template_id || selectedWorkflowTemplate || 'software_delivery',
+                reason: intent.source === 'cloud'
+                  ? `云端判断需要 Agent：${intent.reason}`
+                  : `已识别为开发任务，启动 Agent：${intent.reason}`,
+              });
+              if (handledByAgent) return;
+            }
+            if (intent.source === 'fallback') {
+              notify.info(intent.reason);
+            }
+          } catch (error) {
+            if (isLikelyAgentGoal(content)) {
+              setRoutingIntent(false);
+              const handledByAgent = await handleAgentWorkflow(content, true, {
+                reason: '意图判断失败，已按本地规则启动 Agent。',
+              });
+              if (handledByAgent) return;
+            }
+            notify.info('意图判断失败，已按普通对话处理。');
+          } finally {
             setRoutingIntent(false);
-            const handledByAgent = await handleAgentWorkflow(content, true, {
-              agentId: intent.suggested_agent_id || selectedPrimaryAgent || 'build',
-              templateId: intent.suggested_template_id || selectedWorkflowTemplate || 'software_delivery',
-              reason: intent.source === 'cloud'
-                ? `云端判断需要 Agent：${intent.reason}`
-                : `已识别为开发任务，启动 Agent：${intent.reason}`,
-            });
-            if (handledByAgent) return;
           }
-          if (intent.source === 'fallback') {
-            notify.info(intent.reason);
-          }
-        } catch (error) {
-          if (isLikelyAgentGoal(content)) {
-            setRoutingIntent(false);
-            const handledByAgent = await handleAgentWorkflow(content, true, {
-              reason: '意图判断失败，已按本地规则启动 Agent。',
-            });
-            if (handledByAgent) return;
-          }
-          notify.info('意图判断失败，已按普通对话处理。');
-        } finally {
-          setRoutingIntent(false);
         }
       }
 
@@ -1510,7 +1736,7 @@ const ChatPage: React.FC = () => {
     updateSettings({ useMemory: !settings.useMemory });
   }, [settings.useMemory, updateSettings]);
 
-  const enableVirtualScroll = true;
+
 
   const currentSuggestions = React.useMemo(() => {
     if (messages.length === 0) return DEFAULT_SUGGESTIONS;
@@ -1577,6 +1803,39 @@ const ChatPage: React.FC = () => {
     
     return [];
   }, [messages, isActivelyStreaming]);
+
+  const virtuosoFooter = useCallback(
+    () => (
+      <div style={{ paddingBottom: '20px' }}>
+        <FollowUpSuggestions
+          suggestions={currentSuggestions}
+          isVisible={!isLoading && !isActivelyStreaming && currentSuggestions.length > 0}
+          onSuggestionClick={handleSend}
+        />
+        <AgentPhaseIndicator
+          phase={agentPhase.phase}
+          tool={agentPhase.tool}
+          visible={agentPhase.visible}
+        />
+      </div>
+    ),
+    [
+      agentPhase.phase,
+      agentPhase.tool,
+      agentPhase.visible,
+      currentSuggestions,
+      handleSend,
+      isActivelyStreaming,
+      isLoading,
+    ],
+  );
+
+  const virtuosoComponents = useMemo(
+    () => ({
+      Footer: virtuosoFooter,
+    }),
+    [virtuosoFooter],
+  );
 
   const modelOptions =
     settings.backend === 'ollama'
@@ -1677,6 +1936,8 @@ const ChatPage: React.FC = () => {
       isStreaming={
         isActivelyStreaming && index === messages.length - 1 && msg.role === 'assistant'
       }
+      enableTypewriter={true}
+      typewriterSpeed={90}
       onRetry={handleRetry}
       onEdit={handleEditMessage}
       onDelete={deleteMessage}
@@ -1704,12 +1965,42 @@ const ChatPage: React.FC = () => {
     navigate,
   ]);
 
-  return (
+  const workflowHeader = (
     <motion.div
-      className={styles.chatContainer}
-      initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
+      initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={prefersReducedMotion ? { duration: 0 } : transitions.slower}
+      transition={prefersReducedMotion ? { duration: 0 } : transitions.base}
+      style={{
+        marginBottom: 16,
+        padding: '18px 20px',
+        borderRadius: 20,
+        border: '1px solid color-mix(in srgb, var(--border-color) 72%, transparent)',
+        background: 'linear-gradient(180deg, color-mix(in srgb, var(--bg-elevated) 96%, transparent), color-mix(in srgb, var(--bg-secondary) 92%, transparent))',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 6 }}>Workflow Report</div>
+          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: 'var(--text-primary)' }}>{workflowTitle}</h2>
+          <div style={{ marginTop: 8, display: 'flex', gap: 10, flexWrap: 'wrap', color: 'var(--text-secondary)', fontSize: 13 }}>
+            <span>状态：{workflowStatus}</span>
+            <span>步骤：{workflowSteps.length}</span>
+            <span>模式：{routingMode === 'agent' ? 'Agent' : routingMode === 'auto' ? 'Auto' : 'Chat'}</span>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Tag color="blue" style={{ borderRadius: 999, marginInlineEnd: 0 }}>Workflow</Tag>
+          <Tag color="geekblue" style={{ borderRadius: 999, marginInlineEnd: 0 }}>{activeModeLabel}</Tag>
+        </div>
+      </div>
+    </motion.div>
+  );
+
+
+
+  return (
+    <div
+      className={styles.chatContainer}
       style={isMobile ? { height: 'calc(100vh - 64px)' } : undefined}
     >
       <ChatHeader
@@ -1727,107 +2018,118 @@ const ChatPage: React.FC = () => {
       />
       <div className={styles.chatWorkspace}>
         <main className={styles.mainChatPane}>
-          <motion.div
+          <div
             className={styles.chatMessagesArea}
             ref={scrollContainerRef}
             onScroll={enableVirtualScroll ? undefined : handleScroll}
-            initial={prefersReducedMotion ? false : { opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={prefersReducedMotion ? { duration: 0 } : { delay: 0.16, ...transitions.base }}
           >
             <div className={styles.messagesInner}>
-          {messages.length === 0 ? (
-            <motion.div
-              initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.94 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={prefersReducedMotion ? { duration: 0 } : transitions.spring}
-              className={styles.emptyState}
-            >
-              <div className={styles.emptyKicker}>效率工作台</div>
-              <h3 className={styles.emptyTitle}>开始新的对话</h3>
-              <p className={styles.emptyDesc}>
-                当前使用 {activeModeLabel} · {activeModelLabel}，右侧可以快速调整模型、知识库和 Agent 路由。
-              </p>
-              
-              <div className={styles.starterSuggestions}>
-                {DEFAULT_SUGGESTIONS.map((s, i) => (
-                  <motion.button
-                    key={s}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2 + i * 0.1 }}
-                    className={styles.starterBtn}
-                    onClick={() => handleSend(s)}
-                  >
-                    {s}
-                  </motion.button>
-                ))}
-              </div>
-            </motion.div>
-          ) : enableVirtualScroll ? (
-            <Virtuoso
-              key={currentSessionId || 'chat-empty'}
-              ref={virtuosoRef}
-              data={messages}
-              itemContent={renderMessageItem}
-              components={{
-                Footer: () => (
-                  <div style={{ paddingBottom: '20px' }}>
-                    <FollowUpSuggestions
-                      suggestions={currentSuggestions}
-                      isVisible={!isLoading && !isActivelyStreaming && currentSuggestions.length > 0}
-                      onSuggestionClick={handleSend}
-                    />
-                    <AgentPhaseIndicator
-                      phase={agentPhase.phase}
-                      tool={agentPhase.tool}
-                      visible={agentPhase.visible}
-                    />
+              {workflowHeader}
+              {workflowSteps.length > 0 && (
+                <div style={{ marginBottom: 18 }}>
+                  {workflowStepCards}
+                </div>
+              )}
+              {toolEvents.length > 0 && (
+                <ToolEventTimeline events={toolEvents} />
+              )}
+              {workflowSteps.length > 0 ? (
+                <>
+                  {messages.length > 0 && (
+                    <div style={{ marginTop: 10 }}>
+                      {messages.map((msg, index) => (
+                        <React.Fragment key={msg.id}>
+                          {renderMessageItem(index, msg)}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  )}
+                  <AgentPhaseIndicator
+                    phase={agentPhase.phase}
+                    tool={agentPhase.tool}
+                    visible={agentPhase.visible}
+                  />
+                  <div ref={messagesEndRef} style={{ height: 1 }} />
+                </>
+              ) : messages.length === 0 ? (
+                <motion.div
+                  initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={prefersReducedMotion ? { duration: 0 } : { ...transitions.spring, delay: 0.1 }}
+                  className={styles.emptyState}
+                >
+                  <div className={styles.emptyKicker}>AI 精英工作台</div>
+                  <h3 className={styles.emptyTitle}>
+                    今天想处理点什么？
+                  </h3>
+                  <p className={styles.emptyDesc}>
+                    无论是代码编写、故障排查还是知识探索，系统都会通过智能工作流为您提供端到端的自动化执行体验。
+                  </p>
+                  
+                  <div className={styles.starterSuggestions}>
+                    {STARTER_IDEAS.map((idea, i) => (
+                      <motion.button
+                        key={idea.title}
+                        initial={prefersReducedMotion ? false : { opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={prefersReducedMotion ? { duration: 0 } : { delay: 0.18 + i * 0.06, duration: 0.28 }}
+                        className={styles.starterBtn}
+                        onClick={() => handleSend(idea.desc)}
+                      >
+                        <div style={{ fontSize: 24, marginBottom: 4 }}>{idea.icon}</div>
+                        <div className={styles.starterBtnTitle}>{idea.title}</div>
+                        <div className={styles.starterBtnDesc}>{idea.desc}</div>
+                      </motion.button>
+                    ))}
                   </div>
-                ),
-              }}
-              initialTopMostItemIndex={initialTopMostItemIndex}
-              rangeChanged={(range) => {
-                visibleRangeStartRef.current = range.startIndex;
-                saveCurrentScrollState({
-                  topIndex: clampMessageIndex(range.startIndex, messages.length),
-                });
-              }}
-              atBottomStateChange={(nextIsAtBottom) => {
-                isAutoScrollEnabledRef.current = nextIsAtBottom;
-                setIsAtBottom(nextIsAtBottom);
-                setShowScrollButton(!nextIsAtBottom);
-                saveCurrentScrollState({ atBottom: nextIsAtBottom });
-              }}
-              followOutput={(isAtBottom) => isAtBottom ? 'smooth' : false}
-              style={{ height: '100%' }}
-              alignToBottom
-            />
-          ) : (
-            <>
-              {messages.map((msg, index) => (
-                <React.Fragment key={msg.id}>
-                  {renderMessageItem(index, msg)}
-                </React.Fragment>
-              ))}
-              
-              <FollowUpSuggestions
-                suggestions={currentSuggestions}
-                isVisible={!isLoading && !isActivelyStreaming && currentSuggestions.length > 0}
-                onSuggestionClick={handleSend}
-              />
+                </motion.div>
+              ) : enableVirtualScroll ? (
+                <Virtuoso
+                  ref={virtuosoRef}
+                  data={messages}
+                  itemContent={renderMessageItem}
+                  components={virtuosoComponents}
+                  initialTopMostItemIndex={initialTopMostItemIndex}
+                  rangeChanged={(range) => {
+                    visibleRangeStartRef.current = range.startIndex;
+                    saveCurrentScrollState({
+                      topIndex: clampMessageIndex(range.startIndex, messages.length),
+                    });
+                  }}
+                  atBottomStateChange={(nextIsAtBottom) => {
+                    isAutoScrollEnabledRef.current = nextIsAtBottom;
+                    setIsAtBottom(nextIsAtBottom);
+                    setShowScrollButton(!nextIsAtBottom);
+                  }}
+                  followOutput={(isAtBottom) => isAtBottom ? 'smooth' : false}
+                  style={{ height: '100%' }}
+                  alignToBottom
+                />
+              ) : (
+                <>
+                  {messages.map((msg, index) => (
+                    <React.Fragment key={msg.id}>
+                      {renderMessageItem(index, msg)}
+                    </React.Fragment>
+                  ))}
+                  
+                  <FollowUpSuggestions
+                    suggestions={currentSuggestions}
+                    isVisible={!isLoading && !isActivelyStreaming && currentSuggestions.length > 0}
+                    onSuggestionClick={handleSend}
+                  />
 
-              <AgentPhaseIndicator
-                phase={agentPhase.phase}
-                tool={agentPhase.tool}
-                visible={agentPhase.visible}
-              />
+                  <AgentPhaseIndicator
+                    phase={agentPhase.phase}
+                    tool={agentPhase.tool}
+                    visible={agentPhase.visible}
+                  />
 
-              <div ref={messagesEndRef} style={{ height: 1 }} />
-            </>
-          )}
+                  <div ref={messagesEndRef} style={{ height: 1 }} />
+                </>
+              )}
         </div>
-      </motion.div>
+      </div>
 
       <AnimatePresence>
         {showScrollButton && (
@@ -1979,7 +2281,7 @@ const ChatPage: React.FC = () => {
           initialConfig={cloudAIConfig}
         />
       </Modal>
-    </motion.div>
+    </div>
   );
 };
 

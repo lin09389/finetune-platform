@@ -63,11 +63,39 @@ class AgentSessionService:
             session = self.repository.get_session(session_id) or session
         model_call = self.model_call or self._cloud_model_call(session)
         stream_model_call = None
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
         if self.model_call is None:
             try:
                 stream_model_call = self._cloud_stream_model_call(session)
-            except (ValueError, TypeError):
+                metadata["streaming_diagnostics"] = {
+                    "mode": "chat_stream",
+                    "status": "configured",
+                    "provider": session.get("provider") or "",
+                    "model": session.get("model") or "",
+                    "source": "cloud_provider",
+                    "fallback_to_non_stream": False,
+                }
+            except (ValueError, TypeError) as exc:
                 stream_model_call = None
+                metadata["streaming_diagnostics"] = {
+                    "mode": "non_stream",
+                    "status": "unavailable",
+                    "provider": session.get("provider") or "",
+                    "model": session.get("model") or "",
+                    "source": "cloud_provider",
+                    "reason": str(exc)[:300],
+                    "fallback_to_non_stream": True,
+                }
+        else:
+            metadata["streaming_diagnostics"] = {
+                "mode": "non_stream",
+                "status": "disabled",
+                "source": "injected_model_call",
+                "reason": "测试或自定义 model_call 未提供 stream_model_call",
+                "fallback_to_non_stream": True,
+            }
+        self.repository.update_session(session_id, metadata=metadata)
+        session = self.repository.get_session(session_id) or session
         try:
             result = await self.processor.prompt(session_id, request.content, model_call=model_call, stream_model_call=stream_model_call)
         except Exception as exc:
@@ -484,20 +512,21 @@ class AgentSessionService:
     def _cloud_stream_model_call(self, session: dict[str, Any]):
         from collections.abc import AsyncGenerator
 
+        provider_name = session.get("provider")
+        key_data = (secure_storage.get(f"cloud_{provider_name}_key") or {}) if provider_name else {}
+        if not provider_name:
+            raise ValueError("没有选择云端模型")
+        api_key = key_data.get("api_key", "") if isinstance(key_data, dict) else ""
+        if not api_key:
+            raise ValueError(f"未配置 {provider_name} 的 API Key")
+        provider = resolve_saved_provider(provider_name, key_data)
+        if provider is None:
+            raise ValueError(f"不支持的云端服务商：{provider_name}")
+        model = (session.get("model") or key_data.get("default_model", "")) if isinstance(key_data, dict) else (session.get("model") or "")
+        if not model:
+            model = provider.get_default_model()
+
         async def stream(messages: list[dict[str, str]]):
-            provider_name = session.get("provider")
-            key_data = (secure_storage.get(f"cloud_{provider_name}_key") or {}) if provider_name else {}
-            if not provider_name:
-                raise ValueError("没有选择云端模型")
-            api_key = key_data.get("api_key", "") if isinstance(key_data, dict) else ""
-            if not api_key:
-                raise ValueError(f"未配置 {provider_name} 的 API Key")
-            provider = resolve_saved_provider(provider_name, key_data)
-            if provider is None:
-                raise ValueError(f"不支持的云端服务商：{provider_name}")
-            model = (session.get("model") or key_data.get("default_model", "")) if isinstance(key_data, dict) else (session.get("model") or "")
-            if not model:
-                model = provider.get_default_model()
             async for chunk in provider.chat_stream(
                 messages=messages,
                 model=model,

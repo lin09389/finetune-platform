@@ -169,6 +169,13 @@ export interface TrainingProgress {
   errorCode?: string;
   errorCategory?: string;
   actionableSuggestions?: string[];
+  // 扩展观测字段
+  gradNorm?: number | null;
+  speed?: number;
+  samplesPerSec?: number;
+  currentPhase?: string;
+  phaseDurations?: Record<string, number>;
+  retryCount?: number;
 }
 
 export interface TrainingRecord {
@@ -192,11 +199,24 @@ export interface TrainingRecord {
   totalSteps?: number;
 }
 
+export interface CheckpointMetadata {
+  task_id?: string;
+  step?: number;
+  epoch?: number;
+  loss?: number;
+  lr?: number;
+  saved_at?: string;
+  config?: Record<string, unknown>;
+  tags?: string[];
+}
+
 export interface Checkpoint {
   name: string;
   path: string;
   step: number;
   created: string;
+  metadata?: CheckpointMetadata;
+  valid?: boolean;
 }
 
 export interface InferenceRequest {
@@ -417,6 +437,17 @@ export interface ChatAgentMetadata {
   agent_parts?: unknown[];
   agent_part?: unknown;
   agent_session_state?: unknown;
+  agent_streaming_diagnostics?: {
+    mode?: string;
+    status?: string;
+    provider?: string;
+    model?: string;
+    reason?: string;
+    error?: string;
+    fallback_to_non_stream?: boolean;
+    content_length?: number;
+    updated_at?: string;
+  };
   agent_session_diagnostics?: {
     status?: string;
     current_phase?: string;

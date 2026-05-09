@@ -158,6 +158,43 @@ def test_patch_before_context_gets_guidance_and_continues(tmp_path: Path):
         shutil.rmtree(run_dir, ignore_errors=True)
 
 
+def test_shell_string_command_gets_guidance_and_continues(tmp_path: Path):
+    workspace = Path.cwd()
+    service = _service(tmp_path)
+    session = service.create_session(
+        AgentSessionCreate(title="command-guidance", project_path=str(workspace), autonomy_mode="safe_auto")
+    )
+    responses = iter(
+        [
+            {"tool": "collect_context", "arguments": {"read": []}},
+            {
+                "tool": "bash_command",
+                "arguments": {
+                    "payload": {
+                        "command": "mkdir -p tmp && echo 'agent stream smoke ok' > tmp/agent-stream-smoke.txt"
+                    }
+                },
+            },
+            {"tool": "finalize", "arguments": {"summary": "已识别命令格式问题，未执行 shell 字符串。"}},
+        ]
+    )
+
+    async def model_call(_messages):
+        return json.dumps(next(responses), ensure_ascii=False)
+
+    service.model_call = model_call
+    service.processor.max_iterations = 5
+    result = asyncio.run(service.prompt(session.id, AgentPromptRequest(content="测试 shell 字符串命令纠偏")))
+
+    guidance = next(part for part in result.parts if part.type == "tool_result" and "argv 数组" in (part.content or ""))
+    commands = [part for part in result.parts if part.type == "command"]
+
+    assert result.status == "completed"
+    assert guidance.status == "completed"
+    assert commands == []
+    assert "未执行 shell 字符串" in result.parts[-1].content
+
+
 def test_command_failure_repairs_once_then_needs_manual_review(tmp_path: Path):
     workspace = Path.cwd()
     run_dir = _workspace_tmp("agent-repair")
@@ -195,4 +232,3 @@ def test_command_failure_repairs_once_then_needs_manual_review(tmp_path: Path):
         assert "验证失败" in result.parts[-1].content
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
-

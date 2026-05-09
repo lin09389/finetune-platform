@@ -1,20 +1,19 @@
 import {
   AudioOutlined,
   ClearOutlined,
+  PlusOutlined,
   RobotOutlined,
   SendOutlined,
   StopOutlined,
 } from '@ant-design/icons';
-import { Avatar, Button, Input, Tooltip, Typography, message } from 'antd';
+import { Button, Input, Tooltip, Typography, message } from 'antd';
 import { motion } from 'framer-motion';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useResponsive } from '../../hooks/useResponsive';
-import { transitions } from '../../theme/animations';
 import styles from './ChatInput.module.css';
 
 const { TextArea } = Input;
 const { Text } = Typography;
-type AutonomyMode = 'safe_auto' | 'confirm_all' | 'read_only';
 
 interface ChatInputProps {
   onSend: (content: string) => void;
@@ -27,11 +26,6 @@ interface ChatInputProps {
   modelId?: string;
   maxLength?: number;
   showModelInfo?: boolean;
-  agentModeAvailable?: boolean;
-  onCreateWorkflow?: (content: string) => void | Promise<void>;
-  routingMode?: 'auto' | 'chat' | 'agent';
-  routing?: boolean;
-  autonomyMode?: AutonomyMode;
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({
@@ -41,15 +35,10 @@ const ChatInput: React.FC<ChatInputProps> = ({
   disabled = false,
   loading = false,
   isStreaming = false,
-  placeholder = '输入你的问题... (Shift+Enter 换行)',
+  placeholder = '有问题，尽管问',
   modelId,
   maxLength = 4000,
   showModelInfo = true,
-  agentModeAvailable = false,
-  onCreateWorkflow,
-  routingMode = 'auto',
-  routing = false,
-  autonomyMode = 'safe_auto',
 }) => {
   const { isMobile } = useResponsive();
   const [value, setValue] = useState('');
@@ -57,38 +46,13 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isRecording, setIsRecording] = useState(false);
 
-  const inputDisabled = disabled && !agentModeAvailable;
-  const footerHint =
-    routingMode === 'chat'
-      ? '按 Enter 发送 · Shift+Enter 换行 · 当前为普通对话模式'
-      : routingMode === 'agent'
-        ? `按 Enter 启动 Agent · 当前自主模式：${autonomyMode === 'safe_auto' ? '安全自动' : autonomyMode === 'confirm_all' ? '确认模式' : '只读'}`
-        : `按 Enter 发送 · Shift+Enter 换行 · 自动判断是否需要 Agent · 自主模式：${autonomyMode === 'safe_auto' ? '安全自动' : autonomyMode === 'confirm_all' ? '确认模式' : '只读'}`;
-  const canSend =
-    value.trim().length > 0 &&
-    (!disabled || (agentModeAvailable && routingMode !== 'chat')) &&
-    !loading &&
-    !routing;
-
-  const handleCreateWorkflow = useCallback(async () => {
-    const content = value.trim();
-    if (!content) {
-      message.warning('先输入一个要让 Agent 完成的目标');
-      return;
-    }
-    await onCreateWorkflow?.(content);
-    setValue('');
-  }, [onCreateWorkflow, value]);
+  const canSend = value.trim().length > 0 && !loading;
 
   const handleSend = useCallback(async () => {
     if (!canSend) return;
-    if (disabled && agentModeAvailable && routingMode !== 'chat' && onCreateWorkflow) {
-      await handleCreateWorkflow();
-      return;
-    }
     onSend(value.trim());
     setValue('');
-  }, [agentModeAvailable, canSend, disabled, handleCreateWorkflow, onCreateWorkflow, onSend, routingMode, value]);
+  }, [canSend, onSend, value]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -141,147 +105,91 @@ const ChatInput: React.FC<ChatInputProps> = ({
     recognition.start();
   }, []);
 
-  const focusInput = useCallback(() => {
-    textareaRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    const handleGlobalShortcut = (e: KeyboardEvent) => {
-      if (e.key === '/' && document.activeElement !== textareaRef.current) {
-        e.preventDefault();
-        focusInput();
-      }
-    };
-
-    window.addEventListener('keydown', handleGlobalShortcut);
-    return () => window.removeEventListener('keydown', handleGlobalShortcut);
-  }, [focusInput]);
-
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.24, ...transitions.base }}
-      className={`${styles.inputShell} ${isMobile ? styles.inputShellMobile : styles.inputShellDesktop}`}
-    >
+    <div className={styles.inputShell}>
       <div className={styles.container}>
-        <motion.div
-          animate={{
-            boxShadow: isFocused
-              ? '0 8px 32px rgba(0, 0, 0, 0.08), 0 2px 8px rgba(0, 0, 0, 0.06), inset 0 0 0 1px var(--text-tertiary)'
-              : '0 8px 32px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.02)',
-          }}
-          transition={transitions.base}
-          className={`${styles.editorCard} ${isMobile ? styles.editorCardMobile : styles.editorCardDesktop}`}
-        >
+        <div className={`${styles.pillDock} ${isFocused ? styles.pillDockFocused : ''}`}>
+          <div className={styles.leftActions}>
+            <Tooltip title="更多功能">
+              <Button 
+                type="text" 
+                icon={<PlusOutlined />} 
+                className={styles.iconBtn} 
+              />
+            </Tooltip>
+          </div>
+
           <TextArea
             ref={textareaRef}
-            placeholder={inputDisabled ? '请先选择模型' : placeholder}
+            placeholder={placeholder}
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
             autoSize={{ minRows: 1, maxRows: 6 }}
-            disabled={inputDisabled || loading}
+            disabled={disabled || loading}
             maxLength={maxLength}
             variant="borderless"
             className={styles.textarea}
           />
 
-          <div className={styles.toolbar}>
-            <div className={styles.toolbarLeft}>
-              {showModelInfo && modelId ? (
-                <>
-                  <Avatar
-                    size={24}
-                    icon={<RobotOutlined />}
-                    style={{
-                      background: 'var(--bg-elevated)',
-                      border: '1px solid var(--border-color)',
-                      color: 'var(--text-primary)',
-                      width: 24,
-                      height: 24,
-                    }}
-                  />
-                  <Text type="secondary" style={{ fontSize: 13 }}>
-                    {modelId}
-                  </Text>
-                </>
-              ) : (
-                <Text type="secondary" style={{ fontSize: 13 }}>
-                  {agentModeAvailable ? 'Agent 模式可用' : '请先选择模型'}
-                </Text>
-              )}
+          <div className={styles.rightActions}>
+            {showModelInfo && modelId && !isMobile && (
+              <div className={styles.modelBadge}>
+                <RobotOutlined style={{ fontSize: 12, color: 'var(--accent-primary)' }} />
+                <span className={styles.modelName}>{modelId}</span>
+              </div>
+            )}
 
-              <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
-                {value.length}/{maxLength}
-              </Text>
-            </div>
+            <Tooltip title="语音输入">
+              <Button
+                type="text"
+                icon={<AudioOutlined />}
+                onClick={handleVoiceInput}
+                danger={isRecording}
+                className={styles.iconBtn}
+              />
+            </Tooltip>
 
-            <div className={styles.toolbarRight}>
-              <Tooltip title="语音输入">
+            {onClear && !isMobile && (
+              <Tooltip title="清空对话">
                 <Button
                   type="text"
-                  size="small"
-                  icon={<AudioOutlined />}
-                  onClick={handleVoiceInput}
-                  danger={isRecording}
-                  className={styles.ghostIcon}
+                  icon={<ClearOutlined />}
+                  onClick={onClear}
+                  className={styles.iconBtn}
                 />
               </Tooltip>
+            )}
 
-              {onClear && (
-                <Tooltip title="清空对话">
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<ClearOutlined />}
-                    onClick={onClear}
-                    className={styles.ghostIcon}
-                  />
-                </Tooltip>
-              )}
-
-              {isStreaming ? (
-                <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                  <Button
-                    type="primary"
-                    danger
-                    icon={<StopOutlined />}
-                    onClick={onStop}
-                    className={styles.stopBtn}
-                  >
-                    停止
-                  </Button>
-                </motion.div>
-              ) : (
-                <motion.div
-                  whileHover={{ scale: canSend ? 1.02 : 1 }}
-                  whileTap={{ scale: canSend ? 0.98 : 1 }}
-                >
-                  <Button
-                    type="primary"
-                    icon={<SendOutlined />}
-                    onClick={handleSend}
-                    disabled={!canSend}
-                    className={styles.sendBtn}
-                  >
-                    {routing ? '判断中' : routingMode === 'agent' ? '启动' : '发送'}
-                  </Button>
-                </motion.div>
-              )}
-            </div>
+            {isStreaming ? (
+              <Button
+                type="primary"
+                danger
+                icon={<StopOutlined />}
+                onClick={onStop}
+                className={styles.sendBtnCircle}
+              />
+            ) : (
+              <Button
+                type="primary"
+                icon={<SendOutlined style={{ fontSize: 18, transform: 'translateX(1px)' }} />}
+                onClick={handleSend}
+                disabled={!canSend}
+                className={styles.sendBtnCircle}
+              />
+            )}
           </div>
-        </motion.div>
-
-        <div className={styles.hint}>
-          <Text type="secondary" style={{ fontSize: 11 }}>
-            {footerHint}
-          </Text>
         </div>
       </div>
-    </motion.div>
+
+      <div className={styles.hint}>
+        <Text type="secondary" style={{ fontSize: 11 }}>
+          按 Enter 发送 · Shift+Enter 换行
+        </Text>
+      </div>
+    </div>
   );
 };
 

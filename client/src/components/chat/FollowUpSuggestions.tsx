@@ -85,4 +85,4 @@ const FollowUpSuggestions: React.FC<FollowUpSuggestionsProps> = ({
   );
 };
 
-export default FollowUpSuggestions;
+export default React.memo(FollowUpSuggestions);

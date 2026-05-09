@@ -39,6 +39,12 @@ def parse_agent_response(raw: str) -> list[ModelOutputPart]:
         block = match.group(1).strip()
         parsed = _parse_json(block)
         json_parts = _parts_from_json(parsed) if parsed is not None else []
+        if not json_parts:
+            json_parts = [
+                part
+                for part in _parse_inline_json_parts(block)
+                if part.type in {"tool_call", "summary"}
+            ]
         if json_parts:
             found_json = True
             parts.extend(json_parts)

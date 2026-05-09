@@ -21,7 +21,12 @@ import {
 } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
-import { API_BASE_URL, getSavedCloudProviderData, getSavedCloudProviders } from '../services/api';
+import {
+  API_BASE_URL,
+  getSavedCloudProviderData,
+  getSavedCloudProviders,
+  testCloudProviderStream,
+} from '../services/api';
 
 const { Text } = Typography;
 
@@ -46,6 +51,12 @@ interface APIKeyInfo {
   base_url?: string;
   default_model?: string;
   models?: string[];
+  streaming_status?: string;
+  streaming_supported?: boolean | null;
+  streaming_tested_at?: string | null;
+  streaming_error?: string;
+  streaming_chunks?: number | null;
+  streaming_model?: string;
 }
 
 interface ProviderFormValues {
@@ -86,6 +97,16 @@ const defaultValues: ProviderFormValues = {
   group_id: '',
 };
 
+const streamStatusTag = (key: APIKeyInfo) => {
+  if (key.streaming_supported) {
+    return <Tag color="processing">流式已验证</Tag>;
+  }
+  if (key.streaming_status === 'failed' || key.streaming_status === 'unsupported') {
+    return <Tag color="warning">流式未通过</Tag>;
+  }
+  return <Tag color="default">流式未测试</Tag>;
+};
+
 const splitModels = (value?: string) =>
   (value || '')
     .split(/[\n,]/)
@@ -115,6 +136,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
   const [savedKeys, setSavedKeys] = useState<APIKeyInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [streamTestingProvider, setStreamTestingProvider] = useState<string>('');
   const [selectedProvider, setSelectedProvider] = useState<string>('');
   const localConfig = useMemo(() => (initialConfig ? null : loadLocalConfig()), [initialConfig]);
 
@@ -282,6 +304,38 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
     }
   };
 
+  const handleTestStream = async (providerOverride?: string) => {
+    const provider = providerOverride || form.getFieldValue('provider');
+    const savedKey = providerOverride ? savedKeys.find((item) => item.provider === providerOverride) : undefined;
+    const baseUrl = providerOverride ? savedKey?.base_url : form.getFieldValue('base_url');
+    const groupId = providerOverride ? undefined : form.getFieldValue('group_id');
+    if (!provider) {
+      message.error('请先填写供应商标识');
+      return;
+    }
+
+    setStreamTestingProvider(provider);
+    try {
+      const data = await testCloudProviderStream(provider, {
+        base_url: baseUrl || undefined,
+        group_id: groupId || undefined,
+      });
+      if (data?.streaming_supported) {
+        message.success(`流式测试通过，收到 ${data.streaming_chunks || 0} 个增量片段`);
+      } else {
+        message.warning(data?.message || '流式测试未通过');
+      }
+      await loadSavedKeys();
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail;
+      const reason = typeof detail === 'object' ? detail.streaming_error || detail.message : detail;
+      message.error(reason || '流式测试失败');
+      await loadSavedKeys();
+    } finally {
+      setStreamTestingProvider('');
+    }
+  };
+
   const handleDeleteKey = async (provider: string) => {
     try {
       await fetch(`${API_BASE_URL}/cloud/api-keys/${provider}`, { method: 'DELETE' });
@@ -338,6 +392,13 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
             </Button>
             <Button icon={<ExperimentOutlined />} loading={testing} onClick={handleTest}>
               测试连接
+            </Button>
+            <Button
+              icon={<ReloadOutlined />}
+              loading={Boolean(streamTestingProvider && streamTestingProvider === form.getFieldValue('provider'))}
+              onClick={() => void handleTestStream()}
+            >
+              测试流式
             </Button>
             <Button onClick={handleClear}>清空表单</Button>
             <Button type="primary" icon={<SaveOutlined />} loading={loading} onClick={handleSave}>
@@ -397,7 +458,28 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
                     <div style={{ marginTop: 8 }}>
                       <Tag>{key.interface_format || 'native'}</Tag>
                       {key.masked_key && <Tag color="success">{key.masked_key}</Tag>}
+                      {streamStatusTag(key)}
                     </div>
+                    {(key.streaming_error || key.streaming_tested_at || key.streaming_chunks != null) && (
+                      <div style={{ marginTop: 6 }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {key.streaming_supported
+                            ? `最近流式测试：${key.streaming_chunks || 0} 个片段`
+                            : key.streaming_error || '尚未验证真实流式输出'}
+                        </Text>
+                      </div>
+                    )}
+                    <Button
+                      size="small"
+                      style={{ marginTop: 8 }}
+                      loading={streamTestingProvider === key.provider}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleTestStream(key.provider);
+                      }}
+                    >
+                      测试流式
+                    </Button>
                   </div>
                 ))}
               </Space>

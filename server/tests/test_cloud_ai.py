@@ -143,7 +143,7 @@ def test_mock_cloud_chat():
 
 
 def _count_delta_events(body: str) -> int:
-    return body.count('"type": "delta"') + body.count('"type":"delta"')
+    return body.count('"type": "text_delta"') + body.count('"type":"text_delta"')
 
 
 class _StreamingProvider:
@@ -215,6 +215,60 @@ def test_cloud_chat_stream_single_large_chunk_stays_valid_sse(monkeypatch):
     assert _count_delta_events(body) == 1
     assert '"type": "done"' in body or '"type":"done"' in body
     assert "data: [DONE]" in body
+
+
+def test_provider_stream_probe_persists_success_metadata(monkeypatch):
+    import asyncio
+    import importlib
+    import uuid
+
+    from security.encryption import secure_storage
+
+    cloud_chat = importlib.import_module("api.cloud_chat")
+    provider_id = f"mock-stream-{uuid.uuid4().hex[:8]}"
+    secure_storage.store(f"cloud_{provider_id}_key", {"api_key": "test-key", "default_model": "mock-cloud-model"})
+    monkeypatch.setattr(cloud_chat, "_resolve_provider_instance", lambda *_args, **_kwargs: _StreamingProvider(["a", "b", "c"]))
+
+    try:
+        result = asyncio.run(cloud_chat.test_provider_stream(provider_id))
+        key_data = secure_storage.get(f"cloud_{provider_id}_key") or {}
+        assert result["streaming_supported"] is True
+        assert result["streaming_chunks"] == 3
+        assert key_data["streaming_status"] == "supported"
+        assert key_data["streaming_supported"] is True
+        assert key_data["streaming_chunks"] == 3
+    finally:
+        secure_storage.delete(f"cloud_{provider_id}_key")
+
+
+def test_set_api_key_preserves_streaming_metadata():
+    import asyncio
+    import uuid
+
+    from api.cloud_chat import APIKeyRequest, set_api_key
+    from security.encryption import secure_storage
+
+    provider_id = f"mock-preserve-{uuid.uuid4().hex[:8]}"
+    secure_storage.store(
+        f"cloud_{provider_id}_key",
+        {
+            "api_key": "old-key",
+            "streaming_status": "supported",
+            "streaming_supported": True,
+            "streaming_chunks": 5,
+        },
+    )
+
+    try:
+        asyncio.run(set_api_key(APIKeyRequest(provider=provider_id, api_key="", name="Mock", models=["mock-model"])))
+        key_data = secure_storage.get(f"cloud_{provider_id}_key") or {}
+        assert key_data["streaming_status"] == "supported"
+        assert key_data["streaming_supported"] is True
+        assert key_data["streaming_chunks"] == 5
+    finally:
+        secure_storage.delete(f"cloud_{provider_id}_key")
+        cloud_chat = __import__("api.cloud_chat", fromlist=["_delete_custom_provider_id"])
+        cloud_chat._delete_custom_provider_id(provider_id)
 
 
 async def _collect_stream_body(response) -> str:

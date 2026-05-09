@@ -1158,7 +1158,7 @@ body,
 }
 
 .markdown-content pre {
-  background: #282c34;
+  background: var(--bg-elevated);
   border-radius: var(--radius-lg);
   padding: var(--space-4);
   overflow-x: auto;

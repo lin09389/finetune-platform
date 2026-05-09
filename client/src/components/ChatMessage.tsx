@@ -6,16 +6,18 @@ import {
   DeleteOutlined,
   EditOutlined,
   ReloadOutlined,
+  RobotOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
-import { Button, Input, message, Space, Tag, Tooltip } from 'antd';
-import { AnimatePresence, motion } from 'framer-motion';
+import { Avatar, Button, Input, message, Space, Tag, Tooltip } from 'antd';
+import { motion } from 'framer-motion';
 import 'highlight.js/styles/atom-one-dark.css';
-import React, { memo, useCallback, useMemo, useState, useRef } from 'react';
+import React, { Suspense, lazy, memo, useCallback, useMemo, useState, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
-import CodePreview from '../components/CodePreview';
+const CodePreview = lazy(() => import('../components/CodePreview'));
 import AgentPartMessage from '../components/chat/AgentPartMessage';
 import AgentRunCard from '../components/chat/AgentRunCard';
 import ThinkingProcess from '../components/ThinkingProcess';
@@ -88,15 +90,19 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
     const isAssistant = role === 'assistant';
 
     // Typewriter effect handles progressive reveal for assistant messages
-    const { processedContent, isDoneTyping } = useTypewriter(
+    const { processedContent, isDoneTyping, splitContent } = useTypewriter(
       content,
       isStreaming && isAssistant && enableTypewriter,
-      typewriterSpeed
+      Math.max(typewriterSpeed, 32)
     );
+
+    const shouldShowStreamingContent = isAssistant && (isStreaming || !isDoneTyping);
+    const shouldUseSplitStreaming = shouldShowStreamingContent && splitContent.codeBlocks.length > 0;
+    const shouldShowOpenFenceFallback = shouldShowStreamingContent && splitContent.hasOpenFence;
 
     // Provide a stable ref for isActuallyTyping to the markdown components
     const isActuallyTypingRef = useRef(false);
-    isActuallyTypingRef.current = isAssistant && enableTypewriter && (isStreaming || !isDoneTyping);
+    isActuallyTypingRef.current = shouldShowStreamingContent;
 
     const handleCopy = useCallback(async () => {
       try {
@@ -156,20 +162,7 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
             const inlineText = String(children);
             const pathLike = isPathLike(inlineText);
             return (
-              <code
-                style={{
-                  backgroundColor: pathLike
-                    ? 'color-mix(in srgb, var(--accent-primary) 12%, transparent)'
-                    : 'color-mix(in srgb, var(--text-primary) 6%, transparent)',
-                  padding: pathLike ? '2px 6px' : '2px 5px',
-                  borderRadius: '6px',
-                  fontSize: '0.85em',
-                  color: pathLike ? 'var(--accent-primary)' : 'color-mix(in srgb, var(--text-primary) 88%, var(--accent-primary) 12%)',
-                  fontFamily: 'var(--font-mono)',
-                  border: pathLike ? '1px solid color-mix(in srgb, var(--accent-primary) 20%, transparent)' : 'none',
-                }}
-                {...props}
-              >
+              <code className={pathLike ? styles.pathCode : styles.inlineCode} {...props}>
                 {children}
               </code>
             );
@@ -177,35 +170,58 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
 
           const codeText = String(children).replace(/\n$/, '');
 
-          // Use lightweight block during active streaming to prevent UI stutter
-          if (isActuallyTypingRef.current) {
+          if (shouldUseSplitStreaming) {
+            return (
+              <Suspense fallback={<div style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>代码块加载中…</div>}>
+                <CodePreview
+                  code={codeText}
+                  language={language}
+                  showLineNumbers={false}
+                  collapsible={false}
+                  showFullscreen={false}
+                  showSave={false}
+                  defaultFilename={`code_${language}`}
+                  maxHeight={600}
+                />
+              </Suspense>
+            );
+          }
+
+          if (shouldShowOpenFenceFallback) {
             return (
               <div style={{
-                background: '#f4f4f5',
-                borderRadius: '12px',
-                margin: '12px 0',
-                overflow: 'hidden'
+                background: 'var(--bg-elevated)',
+                borderRadius: '8px',
+                margin: '8px 0',
+                overflow: 'hidden',
+                border: '1px solid var(--border-color)'
               }}>
                 <div style={{
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
-                  padding: '8px 16px',
-                  color: '#666',
-                  fontSize: 13,
-                  fontFamily: 'var(--font-mono)'
+                  padding: '6px 12px',
+                  color: 'var(--text-secondary)',
+                  fontSize: 11,
+                  fontFamily: 'var(--font-mono)',
+                  borderBottom: '1px solid var(--border-color)'
                 }}>
-                  <span>{language}</span>
-                  <span className={styles.pulseIndicator}>●</span>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--border-color)' }} />
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--border-color)' }} />
+                    <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--border-color)' }} />
+                  </div>
+                  <span style={{ fontSize: 9, opacity: 0.6, textTransform: 'uppercase' }}>{language}</span>
                 </div>
                 <pre style={{
                   margin: 0,
-                  padding: '0 16px 16px 16px',
+                  padding: '10px 12px',
                   background: 'transparent',
                   overflowX: 'auto',
-                  border: 'none'
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
                 }}>
-                  <code style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: '#24292e', whiteSpace: 'pre' }}>
+                  <code style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'var(--text-primary)' }}>
                     {codeText}
                   </code>
                 </pre>
@@ -213,113 +229,89 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
             );
           }
 
-          return (
-            <CodePreview
-              code={codeText}
-              language={language}
-              showLineNumbers={false}
-              collapsible={false}
-              showFullscreen={false}
-              showSave={false}
-              defaultFilename={`code_${language}`}
-              maxHeight={600}
-            />
+          return isActuallyTypingRef.current ? (
+            <div style={{
+              background: 'var(--bg-elevated)',
+              borderRadius: '8px',
+              margin: '8px 0',
+              overflow: 'hidden',
+              border: '1px solid var(--border-color)'
+            }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '6px 12px',
+                color: 'var(--text-secondary)',
+                fontSize: 11,
+                fontFamily: 'var(--font-mono)',
+                borderBottom: '1px solid var(--border-color)'
+              }}>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--border-color)' }} />
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--border-color)' }} />
+                  <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--border-color)' }} />
+                </div>
+                <span style={{ fontSize: 9, opacity: 0.6, textTransform: 'uppercase' }}>{language}</span>
+              </div>
+              <pre style={{
+                margin: 0,
+                padding: '10px 12px',
+                background: 'transparent',
+                overflowX: 'auto',
+              }}>
+                <code style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', color: 'var(--text-primary)', whiteSpace: 'pre-wrap' }}>
+                  {codeText}
+                </code>
+              </pre>
+            </div>
+          ) : (
+            <Suspense fallback={<div style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>代码块加载中…</div>}>
+              <CodePreview
+                code={codeText}
+                language={language}
+                showLineNumbers={false}
+                collapsible={false}
+                showFullscreen={false}
+                showSave={false}
+                defaultFilename={`code_${language}`}
+                maxHeight={600}
+              />
+            </Suspense>
           );
         },
         p: ({ children }: any) => (
-          <p style={{ margin: '6px 0', lineHeight: 1.65 }}>{children}</p>
+          <p>{children}</p>
         ),
         ul: ({ children }: any) => (
-          <ul style={{ margin: '8px 0', paddingLeft: '1.25rem', lineHeight: 1.65 }}>
-            {children}
-          </ul>
+          <ul>{children}</ul>
         ),
         ol: ({ children }: any) => (
-          <ol style={{ margin: '8px 0', paddingLeft: '1.35rem', lineHeight: 1.65 }}>
-            {children}
-          </ol>
+          <ol>{children}</ol>
         ),
         li: ({ children }: any) => (
-          <li style={{ margin: '5px 0', paddingLeft: 2 }}>{children}</li>
+          <li>{children}</li>
         ),
         h1: ({ children }: any) => (
-          <h1
-            style={{
-              margin: '14px 0 8px',
-              fontSize: '18px',
-              fontWeight: 700,
-              lineHeight: 1.35,
-            }}
-          >
-            {children}
-          </h1>
+          <h1>{children}</h1>
         ),
         h2: ({ children }: any) => (
-          <h2
-            style={{
-              margin: '12px 0 6px',
-              fontSize: '16px',
-              fontWeight: 600,
-              lineHeight: 1.4,
-            }}
-          >
-            {children}
-          </h2>
+          <h2>{children}</h2>
         ),
         h3: ({ children }: any) => (
-          <h3
-            style={{
-              margin: '10px 0 4px',
-              fontSize: '15px',
-              fontWeight: 600,
-              lineHeight: 1.4,
-            }}
-          >
-            {children}
-          </h3>
+          <h3>{children}</h3>
         ),
         blockquote: ({ children }: any) => (
-          <blockquote
-            style={{
-              margin: '8px 0',
-              padding: '6px 12px',
-              borderLeft: '3px solid var(--accent-primary)',
-              background: 'transparent',
-              color: 'var(--text-secondary)',
-            }}
-          >
-            {children}
-          </blockquote>
+          <blockquote>{children}</blockquote>
         ),
         table: ({ children }: any) => (
-          <div
-            style={{
-              overflowX: 'auto',
-              margin: 'var(--space-3) 0',
-              borderRadius: 'var(--radius-lg)',
-              border: '1px solid var(--border-color)',
-            }}
-          >
-            <table
-              style={{
-                width: '100%',
-                borderCollapse: 'collapse',
-                fontSize: '14px',
-              }}
-            >
-              {children}
-            </table>
-          </div>
+          <table>{children}</table>
         ),
         th: ({ children }: any) => (
-          <th style={{ padding: '12px 16px', borderBottom: '1px solid var(--border-color)', background: 'var(--bg-secondary)', fontWeight: 600, textAlign: 'left' }}>
-            {children}
-          </th>
+          <th>{children}</th>
         ),
         td: ({ children }: any) => (
-          <td style={{ padding: '10px 16px', borderBottom: '1px solid var(--border-color)' }}>
-            {children}
-          </td>
+          <td>{children}</td>
         ),
         tr: ({ children }: any) => (
           <tr className={styles.tableRow}>
@@ -340,6 +332,18 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
         animate="animate"
         exit="exit"
       >
+        <div className={styles.avatarArea}>
+          <Avatar 
+            size={28}
+            icon={isUser ? <UserOutlined /> : <RobotOutlined />} 
+            style={{ 
+              background: isUser ? 'var(--bg-secondary)' : 'var(--accent-primary)',
+              color: isUser ? 'var(--text-secondary)' : '#fff',
+              border: isUser ? '1px solid var(--border-color)' : 'none',
+              flexShrink: 0
+            }} 
+          />
+        </div>
         <motion.div
           className={`${styles.bubble} ${isUser ? styles.userBubble : styles.assistantBubble} ${
             isLoading && isAssistant ? styles.loadingBubble : ''
@@ -351,7 +355,7 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
           transition={transitions.springGentle}
           style={isEditing ? { width: '100%', maxWidth: '800px' } : undefined}
         >
-          {isLoading ? (
+          {isLoading && !shouldShowStreamingContent ? (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -362,7 +366,12 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
               <div className={styles.shimmerLine} style={{ width: '60%' }} />
             </motion.div>
           ) : (
-            <div className={styles.markdownContent}>
+            <motion.div
+              className={styles.markdownContent}
+              initial={isAssistant && isStreaming ? { opacity: 0, y: 4 } : false}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            >
               {isUser ? (
                 isEditing ? (
                   <div className={styles.editMode}>
@@ -432,15 +441,45 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
                     </div>
                   )}
                   
-                  <div className="streaming-content progressive-markdown">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      rehypePlugins={[rehypeRaw, [rehypeSanitize, customSanitizeSchema]]}
-                      components={markdownComponents}
-                    >
-                      {processedContent}
-                    </ReactMarkdown>
-                  </div>
+                  {shouldUseSplitStreaming ? (
+                    <>
+                      {splitContent.plainText.trim() && (
+                        <div className="streaming-content progressive-markdown">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            rehypePlugins={[rehypeRaw, [rehypeSanitize, customSanitizeSchema]]}
+                            components={markdownComponents}
+                          >
+                            {splitContent.plainText}
+                          </ReactMarkdown>
+                        </div>
+                      )}
+                      {splitContent.codeBlocks.map((block, index) => (
+                        <Suspense key={`${id}-split-code-${index}`} fallback={<div style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>代码块加载中…</div>}>
+                          <CodePreview
+                            code={block.replace(/^```[\w-]*\n?/, '').replace(/```$/, '')}
+                            language={(block.match(/^```([\w-]+)/)?.[1] || 'text')}
+                            showLineNumbers={false}
+                            collapsible={false}
+                            showFullscreen={false}
+                            showSave={false}
+                            defaultFilename={`code_${index}`}
+                            maxHeight={600}
+                          />
+                        </Suspense>
+                      ))}
+                    </>
+                  ) : (
+                    <div className="streaming-content progressive-markdown">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        rehypePlugins={[rehypeRaw, [rehypeSanitize, customSanitizeSchema]]}
+                        components={markdownComponents}
+                      >
+                        {processedContent}
+                      </ReactMarkdown>
+                    </div>
+                  )}
                   
                   {knowledge_sources && knowledge_sources.length > 0 && showKnowledgeSources && (
                     <div className={styles.knowledgeWrapper}>
@@ -467,7 +506,7 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
                   )}
                 </>
               )}
-            </div>
+            </motion.div>
           )}
         </motion.div>
 

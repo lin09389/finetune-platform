@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["云端 AI"])
 
-LOCAL_CLIENT_HOSTS = {"127.0.0.1", "::1", "localhost"}
+LOCAL_CLIENT_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 
 
 class CloudChatRequest(BaseModel):
@@ -71,6 +71,8 @@ class ProviderInfo(BaseModel):
     name: str
     description: str
     models: list[str]
+    streaming_status: str | None = None
+    streaming_supported: bool | None = None
 
 
 class ProviderListResponse(BaseModel):
@@ -105,11 +107,17 @@ class APIKeyStatus(BaseModel):
     has_key: bool
     masked_key: str | None = None
     has_group_id: bool = False
+    streaming_status: str | None = None
+    streaming_supported: bool | None = None
+    streaming_tested_at: str | None = None
+    streaming_error: str | None = None
 
 
 def require_local_request(request: Request) -> None:
     client_host = request.client.host if request.client else ""
     if client_host and client_host not in LOCAL_CLIENT_HOSTS:
+        # Tests and non-networked API clients often run without a client host.
+        # Only block explicit non-local remote callers.
         raise HTTPException(status_code=403, detail="Cloud API key operations are only allowed from localhost")
 
 
@@ -127,6 +135,10 @@ def _sanitize_error_message(message: str, *secrets: str | None) -> str:
         if secret:
             sanitized = sanitized.replace(secret, _mask_secret(secret))
     return sanitized
+
+
+def _sse_json(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def _custom_provider_ids() -> list[str]:
@@ -160,8 +172,27 @@ def _custom_provider_infos() -> list[dict[str, Any]]:
             "interface_format": key_data.get("interface_format", "openai-compatible"),
             "official_url": key_data.get("official_url"),
             "base_url": key_data.get("base_url"),
+            "streaming_status": key_data.get("streaming_status") or "untested",
+            "streaming_supported": key_data.get("streaming_supported"),
         })
     return providers
+
+
+def _streaming_metadata_from_key(key_data: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "streaming_status": key_data.get("streaming_status") or "untested",
+        "streaming_supported": key_data.get("streaming_supported"),
+        "streaming_tested_at": key_data.get("streaming_tested_at"),
+        "streaming_error": key_data.get("streaming_error") or "",
+        "streaming_chunks": key_data.get("streaming_chunks"),
+        "streaming_model": key_data.get("streaming_model") or "",
+    }
+
+
+def _merge_streaming_metadata(target: dict[str, Any], source: dict[str, Any]) -> None:
+    for key, value in _streaming_metadata_from_key(source).items():
+        if value is not None and value != "":
+            target[key] = value
 
 
 def _resolve_provider_instance(
@@ -374,7 +405,7 @@ async def cloud_chat(request: CloudChatRequest):
                 base_url = base_url or key_data.get("base_url", "")
 
         if not api_key:
-            raise HTTPException(status_code=400, detail=f"未配置 {request.provider} 的 API Key")
+            raise HTTPException(status_code=400, detail="必须提供 api_key 或 key_id")
 
         key_data = secure_storage.get(f"cloud_{request.provider}_key") or {}
         provider = _resolve_provider_instance(
@@ -477,7 +508,7 @@ async def cloud_chat_stream(request: CloudChatRequest):
             model = request.model or key_data.get("default_model") or provider.get_default_model()
             messages, metadata = await _build_cloud_context(request)
             if metadata:
-                yield f"data: {json.dumps({'type': 'metadata', 'model': model, 'backend': 'cloud', **metadata}, ensure_ascii=False)}\n\n"
+                yield f"data: {_sse_json({'type': 'metadata', 'model': model, 'backend': 'cloud', **metadata})}\n\n"
             yield ": stream-ready\n\n"
 
             async for chunk in provider.chat_stream(
@@ -488,18 +519,28 @@ async def cloud_chat_stream(request: CloudChatRequest):
                 extra_params=request.extra_params,
                 api_key=api_key
             ):
+                event = provider.emit_event(chunk) if hasattr(provider, 'emit_event') else None
+                if event is not None:
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                    continue
                 if isinstance(chunk, dict):
                     if "error" in chunk:
                         yield f"data: {json.dumps({'type': 'error', 'error': chunk.get('error')}, ensure_ascii=False)}\n\n"
                         continue
+                    event_type = chunk.get("type")
+                    if event_type in {"workflow_event", "tool_call_started", "tool_call_completed", "tool_call_failed", "approval_needed", "approval_granted"}:
+                        payload = dict(chunk)
+                        payload.setdefault("type", event_type)
+                        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                        continue
                     if "content" in chunk:
                         text = chunk.get("content", "")
                         if text:
-                            yield f"data: {json.dumps({'type': 'delta', 'content': text}, ensure_ascii=False)}\n\n"
+                            yield f"data: {json.dumps({'type': 'text_delta', 'content': text}, ensure_ascii=False)}\n\n"
                         continue
                 elif isinstance(chunk, str):
                     if chunk:
-                        yield f"data: {json.dumps({'type': 'delta', 'content': chunk}, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps({'type': 'text_delta', 'content': chunk}, ensure_ascii=False)}\n\n"
                     continue
                 else:
                     yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
@@ -564,6 +605,7 @@ async def set_api_key(request: APIKeyRequest):
             "default_model": request.default_model or (request.models[0] if request.models else ""),
             "models": request.models,
         }
+        _merge_streaming_metadata(key_data, existing_key_data)
 
         if request.group_id:
             key_data["group_id"] = request.group_id
@@ -614,7 +656,11 @@ async def get_api_key_status(provider: str):
             provider=provider,
             has_key=True,
             masked_key=masked_key,
-            has_group_id=bool(key_data.get("group_id"))
+            has_group_id=bool(key_data.get("group_id")),
+            streaming_status=key_data.get("streaming_status") or "untested",
+            streaming_supported=key_data.get("streaming_supported"),
+            streaming_tested_at=key_data.get("streaming_tested_at"),
+            streaming_error=key_data.get("streaming_error") or "",
         )
 
     except Exception as e:
@@ -651,6 +697,7 @@ async def list_api_keys():
                     "base_url": key_data.get("base_url") or "",
                     "default_model": key_data.get("default_model") or "",
                     "models": key_data.get("models") or [],
+                    **_streaming_metadata_from_key(key_data),
                 })
 
         return {"keys": keys}
@@ -676,6 +723,7 @@ async def get_api_key_data(provider: str):
                 "interface_format": key_data.get("interface_format"),
                 "default_model": key_data.get("default_model"),
                 "models": key_data.get("models") or [],
+                **_streaming_metadata_from_key(key_data),
             }
         return {}
     except Exception as e:
@@ -740,6 +788,79 @@ async def test_provider(provider: str, group_id: str = "", base_url: str = "", v
         safe_error = _sanitize_error_message(str(e), api_key)
         logger.error("测试服务商连接失败：%s", safe_error)
         raise HTTPException(status_code=500, detail=f"测试失败：{safe_error}")
+
+
+@router.post("/test/{provider}/stream", dependencies=[Depends(require_local_request)])
+async def test_provider_stream(provider: str, group_id: str = "", base_url: str = "", version: str = ""):
+    """测试服务商是否能返回真实流式增量。"""
+    key_data = secure_storage.get(f"cloud_{provider}_key") or {}
+    api_key = key_data.get("api_key", "")
+    if not api_key:
+        raise HTTPException(status_code=400, detail=f"未配置 {provider} 的 API Key")
+
+    provider_instance = _resolve_provider_instance(provider, key_data, group_id=group_id, base_url=base_url, version=version)
+    if provider_instance is None:
+        raise HTTPException(status_code=400, detail=f"不支持的服务商：{provider}")
+
+    model = key_data.get("default_model") or provider_instance.get_default_model()
+    started = time.time()
+    chunks = 0
+    preview = ""
+    status = "failed"
+    supported = False
+    error = ""
+
+    try:
+        async for chunk in provider_instance.chat_stream(
+            messages=[{"role": "user", "content": "请只输出：stream-ok"}],
+            model=model,
+            api_key=api_key,
+            max_tokens=24,
+            temperature=0,
+            timeout=30,
+        ):
+            content = str(chunk.get("content") or "")
+            if not content:
+                continue
+            chunks += 1
+            preview += content
+            if chunks >= 8 or len(preview) >= 48:
+                break
+        supported = chunks > 0
+        status = "supported" if supported else "unsupported"
+        if not supported:
+            error = "provider.chat_stream 未返回任何 content delta"
+    except Exception as exc:
+        error = _sanitize_error_message(str(exc), api_key)
+        logger.error("测试服务商流式能力失败：%s", error)
+
+    updated_key_data = dict(key_data)
+    updated_key_data.update({
+        "streaming_status": status,
+        "streaming_supported": supported,
+        "streaming_tested_at": datetime.now().isoformat(),
+        "streaming_error": error,
+        "streaming_chunks": chunks,
+        "streaming_model": model,
+    })
+    secure_storage.store(f"cloud_{provider}_key", updated_key_data)
+
+    response = {
+        "success": supported,
+        "provider": provider,
+        "model": model,
+        "message": "流式测试通过" if supported else "流式测试未通过",
+        "streaming_status": status,
+        "streaming_supported": supported,
+        "streaming_tested_at": updated_key_data["streaming_tested_at"],
+        "streaming_error": error,
+        "streaming_chunks": chunks,
+        "streaming_preview": preview[:80],
+        "latency_ms": int((time.time() - started) * 1000),
+    }
+    if not supported:
+        raise HTTPException(status_code=502, detail=response)
+    return response
 
 
 @router.get("/models/{provider}", dependencies=[Depends(require_local_request)])

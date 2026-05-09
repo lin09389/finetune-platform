@@ -50,10 +50,29 @@ def api_client():
     return requests.Session()
 
 
+@pytest.fixture
+def api_context(api_client):
+    """兼容旧 E2E 测试的 API 上下文"""
+    api_client.headers.update({"Accept": "application/json"})
+    original_request = api_client.request
+
+    def request(method, url, **kwargs):
+        if url.startswith("/"):
+            url = f"{API_URL}{url}"
+        return original_request(method, url, **kwargs)
+
+    api_client.request = request
+    return api_client
+
+
+@pytest.fixture(scope="session", autouse=True)
 def skip_if_no_backend(api_client):
-    """检查后端是否可用"""
+    """后端不可用时自动跳过依赖后端的 E2E。"""
     try:
         response = api_client.get(f"{API_URL}/health", timeout=5)
-        return response.status_code == 200
+        if response.status_code == 200:
+            return True
     except Exception:
-        return False
+        pass
+
+    pytest.skip("Backend is not running on http://localhost:8000")

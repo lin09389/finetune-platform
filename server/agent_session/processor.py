@@ -86,11 +86,24 @@ class AgentSessionProcessor:
                             f"流式输出失败，回退到非流式：{str(stream_exc)[:200]}",
                             {"error": str(stream_exc)[:600], "part_id": failed_part_id},
                         )
+                        self._update_streaming_diagnostics(
+                            session_id,
+                            status="failed_then_fallback",
+                            mode="non_stream",
+                            fallback_to_non_stream=True,
+                            error=str(stream_exc)[:600],
+                        )
                         streaming_part_id = None
                         stream_model_call = None
                         raw = await model_call(messages)
                 else:
                     self._event(session_id, "phase_change", "模型思考中", {"phase": "model_thinking"})
+                    self._update_streaming_diagnostics(
+                        session_id,
+                        status="non_stream",
+                        mode="non_stream",
+                        fallback_to_non_stream=True,
+                    )
                     raw = await model_call(messages)
             except Exception as exc:
                 return self._fallback_summary(
@@ -240,6 +253,35 @@ class AgentSessionProcessor:
                     title="需要更多上下文",
                     content=guidance,
                     payload={"guidance": guidance, "missing_context": missing_context, "required_tools": ["read", "search", "collect_context"], "part_index": part_index},
+                )
+                self._event(session_id, "tool_call_completed", guidance, {"part_id": result_part["id"], "tool": tool_name})
+                observation = self._compact_observation(tool_name, "blocked", guidance, result_part["payload"])
+                messages.append({"role": "assistant", "content": raw})
+                messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
+                return None, True
+        if tool_name == "bash_command":
+            command_payload = args.get("payload") if isinstance(args.get("payload"), dict) else args
+            if isinstance(command_payload.get("command"), str):
+                metadata = set_phase(metadata, "running")
+                metadata["command_protocol_repair_count"] = int(metadata.get("command_protocol_repair_count") or 0) + 1
+                self.repository.update_session(session_id, metadata=metadata)
+                guidance = (
+                    "bash_command 的 command 必须是 argv 数组，不能是 shell 字符串，也不能使用 &&、>、|。"
+                    "如果目标是写文件，请改用 patch 工具；如果目标是验证，请使用如 "
+                    '{"command":["npm","run","typecheck"]} 的数组格式。'
+                )
+                result_part = self.repository.add_part(
+                    session_id,
+                    "tool_result",
+                    status="completed",
+                    title="命令格式需要修正",
+                    content=guidance,
+                    payload={
+                        "guidance": guidance,
+                        "invalid_command": command_payload.get("command"),
+                        "required_format": {"command": ["npm", "run", "typecheck"]},
+                        "part_index": part_index,
+                    },
                 )
                 self._event(session_id, "tool_call_completed", guidance, {"part_id": result_part["id"], "tool": tool_name})
                 observation = self._compact_observation(tool_name, "blocked", guidance, result_part["payload"])
@@ -420,6 +462,7 @@ class AgentSessionProcessor:
                     "不要把非 JSON 内容放进工具对象里。"
                     "默认流程：collect_context -> 按需 read/search -> patch 或 bash_command -> finalize。"
                     "写文件用 patch。验证用 bash_command。完成用 finalize。"
+                    "bash_command 的 command 必须是 argv 数组，例如 {\"command\":[\"npm\",\"run\",\"typecheck\"]}；禁止 shell 字符串、&&、管道和重定向。"
                     "patch 后必须验证；验证成功必须 finalize；验证失败最多修复一次。"
                     "同一轮可以批量调用只读工具；patch/command 会由系统按安全策略执行或等待确认。"
                     f"{intent_guidance}"
@@ -445,6 +488,13 @@ class AgentSessionProcessor:
         self._event(
             session_id, "model_stream_started", "流式输出开始",
             {"part_id": text_part["id"], "part_type": "text", "status": "running", "streaming": True},
+        )
+        self._update_streaming_diagnostics(
+            session_id,
+            status="streaming",
+            mode="chat_stream",
+            fallback_to_non_stream=False,
+            current_part_id=text_part["id"],
         )
 
         accumulated = ""
@@ -479,9 +529,28 @@ class AgentSessionProcessor:
             session_id, "model_stream_completed", "流式输出完成",
             {"part_id": text_part["id"], "part_type": "text", "streaming": True, "content_length": len(accumulated)},
         )
+        self._update_streaming_diagnostics(
+            session_id,
+            status="completed",
+            mode="chat_stream",
+            fallback_to_non_stream=False,
+            current_part_id=text_part["id"],
+            content_length=len(accumulated),
+        )
 
         self._pending_stream_part_id = None
         return accumulated, text_part["id"]
+
+    def _update_streaming_diagnostics(self, session_id: str, **updates: Any) -> None:
+        session = self.repository.get_session(session_id)
+        if not session:
+            return
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        diagnostics = dict(metadata.get("streaming_diagnostics") or {})
+        diagnostics.update({key: value for key, value in updates.items() if value is not None})
+        diagnostics["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        metadata["streaming_diagnostics"] = diagnostics
+        self.repository.update_session(session_id, metadata=metadata)
 
     def _finalize_streaming_text_part(
         self,
@@ -537,9 +606,9 @@ class AgentSessionProcessor:
                 return "summary"
             self.repository.update_part(
                 streaming_part_id, status="completed",
-                title="说明",
-                content=natural_text.strip() if natural_text.strip() else raw.strip(),
-                payload={"streaming": True},
+                title="工具请求" if not natural_text.strip() else "说明",
+                content=natural_text.strip(),
+                payload={"streaming": True, "protocol_only": not bool(natural_text.strip())},
             )
             return "text"
 

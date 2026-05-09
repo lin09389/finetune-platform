@@ -98,6 +98,28 @@ class AIProvider(ABC):
         """获取可用模型列表"""
         pass
 
+    def emit_event(self, chunk: dict[str, Any]) -> dict[str, Any] | None:
+        event_type = chunk.get("type") if isinstance(chunk, dict) else None
+        if event_type in {
+            "workflow_event",
+            "text_delta",
+            "tool_call_started",
+            "tool_call_completed",
+            "tool_call_failed",
+            "approval_needed",
+            "approval_granted",
+            "done",
+            "error",
+        }:
+            return chunk
+        return None
+
+    def text_event(self, content: str, **payload: Any) -> dict[str, Any]:
+        return {"type": "text_delta", "content": content, **payload}
+
+    def tool_event(self, event_type: str, tool_name: str, **payload: Any) -> dict[str, Any]:
+        return {"type": event_type, "tool_name": tool_name, "payload": payload, **payload}
+
     async def test_connection(self) -> dict[str, Any]:
         """测试连接"""
         try:
@@ -129,7 +151,7 @@ class MinimaxProvider(AIProvider):
             group_id: Group ID（可选）
             base_url: 自定义 Base URL（可选）
         """
-        self.base_url = base_url or "https://api.minimaxi.com/v1"
+        self.base_url = base_url or "https://api.minimax.chat/v1"
         self.coding_mode = coding_mode
         self.group_id = group_id
         self._api_key = ""
@@ -246,6 +268,14 @@ class MinimaxProvider(AIProvider):
                     continue
 
                 error_detail = self._parse_error_response(e.response)
+                self.tool_event(
+                    "tool_call_failed",
+                    "request",
+                    provider="minimax",
+                    model=model,
+                    error=error_detail,
+                    status_code=e.response.status_code,
+                )
 
                 if e.response.status_code == 401:
                     raise ValueError(f"API Key 认证失败：{error_detail}")
@@ -260,6 +290,13 @@ class MinimaxProvider(AIProvider):
                 if attempt < max_retries - 1:
                     await asyncio.sleep(1)
                     continue
+                self.tool_event(
+                    "tool_call_failed",
+                    "request",
+                    provider="minimax",
+                    model=model,
+                    error=str(e),
+                )
                 raise ValueError(f"网络连接失败：{str(e)}")
 
         raise ValueError("请求重试失败")
@@ -357,7 +394,11 @@ class MinimaxProvider(AIProvider):
                         )
 
                     if content:
-                        yield {"content": content, "delta": True}
+                        structured = self.emit_event(self.text_event(content, provider="minimax", model=model))
+                        if structured is not None:
+                            yield structured
+                        else:
+                            yield {"content": content, "delta": True}
                         yielded += 1
 
                 if yielded == 0:
@@ -365,8 +406,23 @@ class MinimaxProvider(AIProvider):
 
         except httpx.HTTPStatusError as e:
             error_detail = self._parse_error_response(e.response)
+            yield self.tool_event(
+                "tool_call_failed",
+                "request",
+                provider="minimax",
+                model=model,
+                error=error_detail,
+                status_code=e.response.status_code,
+            )
             raise ValueError(f"流式调用失败 ({e.response.status_code}): {error_detail}")
         except httpx.RequestError as e:
+            yield self.tool_event(
+                "tool_call_failed",
+                "request",
+                provider="minimax",
+                model=model,
+                error=str(e),
+            )
             raise ValueError(f"网络连接失败：{str(e)}")
 
     def _parse_error_response(self, response) -> str:
@@ -541,12 +597,31 @@ class GLMProvider(AIProvider):
                         content = chunk.get("content") or chunk.get("text") or ""
 
                     if content:
-                        yield {"content": content, "delta": True}
+                        structured = self.emit_event(self.text_event(content, provider="glm", model=model))
+                        if structured is not None:
+                            yield structured
+                        else:
+                            yield {"content": content, "delta": True}
 
         except httpx.HTTPStatusError as e:
             error_detail = self._parse_error_response(e.response)
+            yield self.tool_event(
+                "tool_call_failed",
+                "request",
+                provider="glm",
+                model=model,
+                error=error_detail,
+                status_code=e.response.status_code,
+            )
             raise ValueError(f"流式调用失败 ({e.response.status_code}): {error_detail}")
         except httpx.RequestError as e:
+            yield self.tool_event(
+                "tool_call_failed",
+                "request",
+                provider="glm",
+                model=model,
+                error=str(e),
+            )
             raise ValueError(f"网络连接失败：{str(e)}")
 
     def _parse_error_response(self, response) -> str:
@@ -616,10 +691,28 @@ class OpenAICompatibleProvider(AIProvider):
                 except json.JSONDecodeError:
                     continue
                 choices = chunk.get("choices") or []
-                delta = choices[0].get("delta", {}) if choices else {}
+                first_choice = choices[0] if choices else {}
+                delta = first_choice.get("delta", {}) if isinstance(first_choice, dict) else {}
                 content = delta.get("content") or ""
+                tool_calls = delta.get("tool_calls") or []
+                for tool_call in tool_calls:
+                    if not isinstance(tool_call, dict):
+                        continue
+                    function = tool_call.get("function") or {}
+                    tool_name = function.get("name") or tool_call.get("name") or tool_call.get("id") or "tool"
+                    yield self.tool_event(
+                        "tool_call_started",
+                        tool_name,
+                        provider="openai-compatible",
+                        model=model or self.get_default_model(),
+                        tool_call_id=tool_call.get("id"),
+                        arguments=function.get("arguments"),
+                    )
                 if content:
-                    yield {"content": content, "delta": True}
+                    yield self.text_event(content, provider="openai-compatible", model=model or self.get_default_model())
+                finish_reason = first_choice.get("finish_reason") if isinstance(first_choice, dict) else None
+                if finish_reason in {"stop", "tool_calls", "length"}:
+                    yield {"type": "tool_call_completed" if finish_reason == "tool_calls" else "done", "provider": "openai-compatible", "model": model or self.get_default_model(), "finish_reason": finish_reason}
 
     def get_default_model(self) -> str:
         return self.default_model
@@ -690,10 +783,35 @@ class AnthropicMessagesProvider(AIProvider):
                     chunk = json.loads(line.split(":", 1)[1].strip())
                 except json.JSONDecodeError:
                     continue
+                if chunk.get("type") == "content_block_start":
+                    content_block = chunk.get("content_block") or {}
+                    if isinstance(content_block, dict) and content_block.get("type") == "tool_use":
+                        yield self.tool_event(
+                            "tool_call_started",
+                            content_block.get("name") or "tool",
+                            provider="anthropic",
+                            model=model or self.get_default_model(),
+                            tool_call_id=content_block.get("id"),
+                            arguments=content_block.get("input"),
+                        )
+                    continue
                 if chunk.get("type") == "content_block_delta":
-                    text = (chunk.get("delta") or {}).get("text", "")
+                    delta = chunk.get("delta") or {}
+                    text = delta.get("text", "") if isinstance(delta, dict) else ""
                     if text:
-                        yield {"content": text, "delta": True}
+                        yield self.text_event(text, provider="anthropic", model=model or self.get_default_model())
+                    if isinstance(delta, dict) and delta.get("type") == "tool_use_delta":
+                        yield self.tool_event(
+                            "tool_call_started",
+                            delta.get("name") or "tool",
+                            provider="anthropic",
+                            model=model or self.get_default_model(),
+                            tool_call_id=delta.get("id"),
+                            arguments=delta.get("input"),
+                        )
+                if chunk.get("type") == "message_stop":
+                    yield {"type": "tool_call_completed", "provider": "anthropic", "model": model or self.get_default_model(), "finish_reason": "message_stop"}
+                    yield {"type": "done", "provider": "anthropic", "model": model or self.get_default_model()}
 
     def get_default_model(self) -> str:
         return self.default_model

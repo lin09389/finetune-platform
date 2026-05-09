@@ -10,6 +10,7 @@ import {
   SearchOutlined,
 } from '@ant-design/icons';
 import { Button, Collapse, Divider, Space, Tag, Tooltip, Typography } from 'antd';
+import React from 'react';
 import type { ChatAgentMetadata } from '../../types';
 import type { AgentPart, Workflow, WorkflowAction, WorkflowObservability, WorkflowToolCall } from '../../services/api';
 
@@ -221,7 +222,7 @@ function actionKindLabel(action: WorkflowAction) {
   return '验证命令';
 }
 
-export default function AgentRunCard({
+const AgentRunCardInner = React.memo(function AgentRunCardInner({
   content,
   metadata,
   onApproveStep,
@@ -903,4 +904,6 @@ export default function AgentRunCard({
       />
     </div>
   );
-}
+});
+
+export default AgentRunCardInner;

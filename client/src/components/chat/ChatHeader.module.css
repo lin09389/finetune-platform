@@ -1,82 +1,107 @@
 .header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 16px;
-  padding: 12px 20px;
-  background: color-mix(in srgb, var(--bg-secondary) 84%, transparent);
-  border-bottom: 1px solid var(--border-color);
-  flex-shrink: 0;
-  backdrop-filter: blur(8px);
+  justify-content: space-between;
+  padding: 16px 20px 8px; /* Tucked to the top */
+  background: transparent;
+  border-bottom: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  pointer-events: none; /* Let clicks pass through to content if needed, but buttons should handle their own */
+}
+
+.headerLeft, .headerRight {
+  pointer-events: auto; /* Re-enable for buttons */
+}
+
+.headerMobile {
+  padding: 8px 16px;
 }
 
 .headerLeft {
   display: flex;
   align-items: center;
-  gap: 16px;
-  min-width: 0;
+  gap: 12px;
+}
+
+.actionButton {
+  border-radius: 8px !important;
+  height: 32px !important; /* Reduced from 38px */
+  padding: 0 12px !important;
+  font-weight: 500 !important;
+  font-size: 13px !important;
+  transition: all 0.2s ease !important;
+}
+
+.newChatBtn {
+  background: #000 !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 10px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+}
+
+.newChatBtn:hover {
+  opacity: 0.85;
+  transform: translateY(-1px);
+}
+
+.historyBtn {
+  background: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-color) !important;
+}
+
+.historyBtn:hover {
+  background: var(--bg-hover) !important;
 }
 
 .contextSummary {
   display: flex;
   align-items: center;
-  min-width: 0;
-  max-width: min(42vw, 520px);
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--bg-primary) 66%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 3px 10px; /* Tighter */
+  margin-left: 6px;
+  gap: 6px;
 }
 
 .modeDot {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: var(--success);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 14%, transparent);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #52c41a;
+  box-shadow: 0 0 0 3px rgba(82, 196, 26, 0.15);
 }
 
 .summaryText {
+  font-size: 13px !important;
+  font-weight: 600 !important;
   color: var(--text-primary) !important;
-  font-size: 12px !important;
-  font-weight: 700 !important;
-  white-space: nowrap;
 }
 
 .summaryModel {
-  min-width: 0;
-  color: var(--text-secondary) !important;
   font-size: 12px !important;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--text-tertiary) !important;
+  opacity: 0.8;
 }
 
-.headerMobile {
-  align-items: flex-start;
-  flex-direction: column;
-  gap: 10px;
-  padding: 10px 12px;
+:global(.dark-theme) .header {
+  background: transparent;
+  backdrop-filter: none;
+  border-bottom: none;
 }
 
-.headerMobile .headerLeft {
-  width: 100%;
-  align-items: flex-start;
-  flex-direction: column;
-  gap: 10px;
+:global(.dark-theme) .newChatBtn {
+  background: #fff !important;
+  color: #000 !important;
 }
 
-.headerMobile .contextSummary {
-  max-width: 100%;
-}
-
-.actionButton {
-  border-radius: 8px !important;
-  height: 36px !important;
-}
-
-.compactSelect {
-  border-radius: 8px;
+:global(.dark-theme) .contextSummary {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.1);
 }

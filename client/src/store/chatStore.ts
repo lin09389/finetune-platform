@@ -109,7 +109,7 @@ interface ChatStore {
   setStreamState: (state: Partial<StreamState>) => void;
 
   updateSettings: (settings: Partial<ChatSettings>) => void;
-  setPromptDraft: (prompt: string) => void;
+  setPromptDraft: (promptDraft: string) => void;
   setAttachments: (attachments: PlaygroundAttachment[]) => void;
   addAttachment: (attachment: PlaygroundAttachment) => void;
   removeAttachment: (attachmentId: string) => void;
@@ -117,33 +117,18 @@ interface ChatStore {
   setActiveCandidates: (candidates: PlaygroundCandidate[]) => void;
   updateActiveCandidate: (candidateId: string, updates: Partial<PlaygroundCandidate>) => void;
   clearActiveCandidates: () => void;
-  setSelectedCandidateId: (candidateId: string | null) => void;
+  setSelectedCandidateId: (selectedCandidateId: string | null) => void;
   addExperimentSnapshot: (snapshot: PlaygroundSnapshot) => void;
   updateExperimentSnapshot: (snapshotId: string, updates: Partial<PlaygroundSnapshot>) => void;
   setSelectedExperimentId: (experimentId: string | null) => void;
-  setResponseView: (view: ChatStore['responseView']) => void;
+  setResponseView: (view: 'response' | 'patch' | 'sources' | 'metadata' | 'raw') => void;
   setLastRunMetadata: (snapshot: PlaygroundSnapshot | null) => void;
   savePreset: (preset: PlaygroundPreset) => void;
   deletePreset: (presetId: string) => void;
-  setSelectedPresetId: (presetId: string | null) => void;
+  setSelectedPresetId: (selectedPresetId: string | null) => void;
 
   setError: (error: string | null) => void;
   setIsLoading: (loading: boolean) => void;
-}
-
-function mergeLoadedSessionRecord(
-  existingSession: ChatSession,
-  loadedSession: ChatSession,
-): ChatSession {
-  return {
-    ...existingSession,
-    title: loadedSession.title || existingSession.title,
-    modelId: loadedSession.modelId || existingSession.modelId,
-    backend: loadedSession.backend || existingSession.backend,
-    messageCount: loadedSession.messageCount ?? existingSession.messageCount,
-    updatedAt: loadedSession.updatedAt || existingSession.updatedAt,
-    metadata: loadedSession.metadata || existingSession.metadata || {},
-  };
 }
 
 function messageMetadata(message: ChatMessage): Record<string, unknown> {
@@ -158,6 +143,21 @@ function messageMetadata(message: ChatMessage): Record<string, unknown> {
     ...(message.run_metrics ? { run_metrics: message.run_metrics } : {}),
     ...(message.agent_metadata ? { agent_metadata: message.agent_metadata } : {}),
     ...(message.isEdited ? { isEdited: message.isEdited } : {}),
+  };
+}
+
+function mergeLoadedSessionRecord(
+  existingSession: ChatSession,
+  loadedSession: ChatSession,
+): ChatSession {
+  return {
+    ...existingSession,
+    title: loadedSession.title || existingSession.title,
+    modelId: loadedSession.modelId || existingSession.modelId,
+    backend: loadedSession.backend || existingSession.backend,
+    messageCount: loadedSession.messageCount ?? existingSession.messageCount,
+    updatedAt: loadedSession.updatedAt || existingSession.updatedAt,
+    metadata: loadedSession.metadata || existingSession.metadata || {},
   };
 }
 
@@ -516,9 +516,14 @@ export const useChatStore = create<ChatStore>()(
           },
         }));
 
-        const { streamingMessageId } = get();
+        const { streamingMessageId, messages } = get();
         if (streamingMessageId) {
-          get().updateMessage(streamingMessageId, { content });
+          const idx = messages.findIndex((m) => m.id === streamingMessageId);
+          if (idx !== -1) {
+            const next = messages.slice();
+            next[idx] = { ...next[idx], content } as ChatMessage;
+            set({ messages: next });
+          }
         }
       },
 

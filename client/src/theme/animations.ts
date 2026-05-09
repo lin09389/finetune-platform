@@ -13,20 +13,14 @@ export const transitions = {
 export const messageVariants: Variants = {
   initial: {
     opacity: 0,
-    y: 20,
-    scale: 0.98,
   },
   animate: {
     opacity: 1,
-    y: 0,
-    scale: 1,
-    transition: transitions.slow,
+    transition: { duration: 0.15, ease: [0.16, 1, 0.3, 1] },
   },
   exit: {
     opacity: 0,
-    y: -10,
-    scale: 0.98,
-    transition: transitions.fast,
+    transition: { duration: 0.1 },
   },
 };
 
@@ -119,13 +113,12 @@ export const staggerItem: Variants = {
 };
 
 export const loadingDotsVariants: Variants = {
-  initial: { opacity: 0.3 },
+  initial: { opacity: 0.45 },
   animate: {
-    opacity: 1,
+    opacity: [0.45, 1, 0.45],
     transition: {
-      duration: 0.5,
+      duration: 1.1,
       repeat: Infinity,
-      repeatType: 'reverse',
       ease: 'easeInOut',
     },
   },
@@ -134,10 +127,10 @@ export const loadingDotsVariants: Variants = {
 export const pulseVariants: Variants = {
   initial: { scale: 1, opacity: 1 },
   animate: {
-    scale: [1, 1.05, 1],
-    opacity: [1, 0.8, 1],
+    scale: [1, 1.025, 1],
+    opacity: [1, 0.9, 1],
     transition: {
-      duration: 2,
+      duration: 2.6,
       repeat: Infinity,
       ease: 'easeInOut',
     },
@@ -147,9 +140,9 @@ export const pulseVariants: Variants = {
 export const typingIndicatorVariants: Variants = {
   initial: { y: 0 },
   animate: {
-    y: [-2, 2, -2],
+    y: [-1, 1, -1],
     transition: {
-      duration: 0.6,
+      duration: 0.9,
       repeat: Infinity,
       ease: 'easeInOut',
     },
@@ -157,11 +150,11 @@ export const typingIndicatorVariants: Variants = {
 };
 
 export const shimmerVariants: Variants = {
-  initial: { backgroundPosition: '-200% 0' },
+  initial: { backgroundPosition: '-160% 0' },
   animate: {
-    backgroundPosition: '200% 0',
+    backgroundPosition: '160% 0',
     transition: {
-      duration: 1.5,
+      duration: 1.8,
       repeat: Infinity,
       ease: 'linear',
     },

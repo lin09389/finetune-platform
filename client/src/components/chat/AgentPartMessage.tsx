@@ -8,7 +8,7 @@ import {
   SearchOutlined,
 } from '@ant-design/icons';
 import { Button, Collapse, Space, Tag, Typography } from 'antd';
-import type { ReactNode } from 'react';
+import React, { type ReactNode } from 'react';
 import type { AgentPart } from '../../services/api';
 import type { ChatAgentMetadata } from '../../types';
 
@@ -78,14 +78,31 @@ function partTitle(part: AgentPart, fallback: string) {
   return part.content || part.title || fallback;
 }
 
-export default function AgentPartMessage({
+function looksLikeProtocolText(value?: string) {
+  const text = (value || '').trim();
+  if (!text) return false;
+  if (text.startsWith('{') && /"tool"\s*:/.test(text)) return true;
+  if (text.startsWith('```') && /"tool"\s*:/.test(text)) return true;
+  if (text.startsWith('[') && /"tool"\s*:/.test(text)) return true;
+  return false;
+}
+
+function stripProtocolBlocks(value?: string) {
+  const text = value || '';
+  return text
+    .replace(/```(?:json)?\s*[\s\S]*?"tool"\s*:[\s\S]*?```/gi, '')
+    .replace(/(^|\n)\s*\{[\s\S]*?"tool"\s*:[\s\S]*?\}\s*$/gi, '$1')
+    .trim();
+}
+
+const AgentPartMessage = React.memo(({
   content,
   metadata,
   onApproveAction,
   onRejectAction,
   onExecuteAction,
   onRefreshRun,
-}: AgentPartMessageProps) {
+}: AgentPartMessageProps) => {
   const part = metadata.agent_part as AgentPart | undefined;
   if (!part) {
     return <Typography.Paragraph style={{ margin: 0 }}>{content}</Typography.Paragraph>;
@@ -93,6 +110,7 @@ export default function AgentPartMessage({
 
   const payload = part.payload || {};
   const diagnostics = metadata.agent_session_diagnostics;
+  const streamingDiagnostics = metadata.agent_streaming_diagnostics;
   const status = part.status || metadata.status || 'completed';
   const files = changedFiles(payload);
   const canApprove = Boolean(metadata.can_approve && metadata.action_id);
@@ -139,13 +157,36 @@ export default function AgentPartMessage({
     </div>
   );
 
-  if (part.type === 'text') {
+if (part.type === 'text') {
     const isStreaming = status === 'running' || (part.payload as Record<string, unknown>)?.streaming === true;
+    const protocolOnly = Boolean((part.payload as Record<string, unknown>)?.protocol_only);
+    const displayText = stripProtocolBlocks(part.content || content);
+    if (protocolOnly || looksLikeProtocolText(displayText)) {
+      if (!isStreaming) return null;
+      return (
+        <Space size={6} style={{ color: 'var(--text-secondary)' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            <span className="typing-dot" />
+            <span className="typing-dot" style={{ animationDelay: '0.2s' }} />
+            <span className="typing-dot" style={{ animationDelay: '0.4s' }} />
+          </span>
+          <Typography.Text type="secondary">正在处理工具请求</Typography.Text>
+        </Space>
+      );
+    }
+
     return (
-      <Typography.Paragraph style={{ margin: '2px 0', whiteSpace: 'pre-wrap' }}>
-        {part.content || content}
-        {isStreaming && <span style={{ display: 'inline-block', width: 2, height: 14, background: '#1677ff', marginLeft: 2, verticalAlign: 'middle', animation: 'agentStreamBlink 0.8s infinite', borderRadius: 1 }} />}
-      </Typography.Paragraph>
+      <Space direction="vertical" size={4} style={{ width: '100%' }}>
+        <Typography.Paragraph style={{ margin: '2px 0', whiteSpace: 'pre-wrap' }}>
+          {displayText}
+          {isStreaming && <span style={{ display: 'inline-block', width: 2, height: 14, background: '#1677ff', marginLeft: 2, verticalAlign: 'middle', animation: 'agentStreamBlink 0.8s infinite', borderRadius: 1 }} />}
+        </Typography.Paragraph>
+        {isStreaming && streamingDiagnostics?.mode && (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {streamingDiagnostics.mode === 'chat_stream' ? '云端流式输出中' : '非流式输出'}
+          </Typography.Text>
+        )}
+      </Space>
     );
   }
 
@@ -156,7 +197,14 @@ export default function AgentPartMessage({
           {icon}
           <Typography.Text strong>最终结果</Typography.Text>
           <Tag color="success">已完成</Tag>
+          {streamingDiagnostics?.fallback_to_non_stream ? <Tag color="warning">流式回退</Tag> : null}
+          {streamingDiagnostics?.mode === 'chat_stream' && !streamingDiagnostics?.fallback_to_non_stream ? <Tag color="processing">流式</Tag> : null}
         </Space>
+        {streamingDiagnostics?.fallback_to_non_stream && (
+          <Typography.Text type="secondary">
+            流式未生效，已回退非流式：{streamingDiagnostics.error || streamingDiagnostics.reason || 'provider 未返回流式增量'}
+          </Typography.Text>
+        )}
         <Typography.Paragraph style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{part.content || content}</Typography.Paragraph>
         {diagnosticBlock}
         {onRefreshRun && (
@@ -306,4 +354,6 @@ export default function AgentPartMessage({
       )}
     </Space>,
   );
-}
+});
+
+export default AgentPartMessage;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface AgentPhaseIndicatorProps {
   phase: string;
@@ -85,7 +85,7 @@ function PhaseIcon({ icon }: { icon: string }) {
   }
 }
 
-export default function AgentPhaseIndicator({ phase, tool, visible }: AgentPhaseIndicatorProps) {
+const AgentPhaseIndicator = React.memo(function AgentPhaseIndicator({ phase, tool, visible }: AgentPhaseIndicatorProps) {
   const [show, setShow] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -122,4 +122,6 @@ export default function AgentPhaseIndicator({ phase, tool, visible }: AgentPhase
       </span>
     </div>
   );
-}
+});
+
+export default AgentPhaseIndicator;

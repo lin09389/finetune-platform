@@ -917,6 +917,20 @@ export interface AgentSessionDiagnostics {
   refresh_safe?: boolean;
 }
 
+export interface AgentSessionStreamingDiagnostics {
+  mode?: 'chat_stream' | 'non_stream' | string;
+  status?: string;
+  provider?: string;
+  model?: string;
+  source?: string;
+  reason?: string;
+  error?: string;
+  fallback_to_non_stream?: boolean;
+  current_part_id?: string;
+  content_length?: number;
+  updated_at?: string;
+}
+
 export interface AgentSession {
   id: string;
   chat_session_id?: string;
@@ -935,7 +949,11 @@ export interface AgentSession {
   project_path?: string;
   provider?: string;
   model?: string;
-  metadata?: Record<string, any> & { state?: AgentSessionState; diagnostics?: AgentSessionDiagnostics };
+  metadata?: Record<string, any> & {
+    state?: AgentSessionState;
+    diagnostics?: AgentSessionDiagnostics;
+    streaming_diagnostics?: AgentSessionStreamingDiagnostics;
+  };
   parts: AgentPart[];
   created_at: string;
   updated_at: string;
@@ -1278,6 +1296,12 @@ export interface SavedCloudProvider {
   base_url?: string;
   default_model?: string;
   models?: string[];
+  streaming_status?: 'untested' | 'supported' | 'unsupported' | 'failed' | string;
+  streaming_supported?: boolean | null;
+  streaming_tested_at?: string | null;
+  streaming_error?: string;
+  streaming_chunks?: number | null;
+  streaming_model?: string;
 }
 
 export const getSavedCloudProviders = async () => {
@@ -1287,6 +1311,14 @@ export const getSavedCloudProviders = async () => {
 
 export const getSavedCloudProviderData = async (provider: string) => {
   const response = await apiClient.get(`/cloud/api-keys/${provider}/data`);
+  return response.data;
+};
+
+export const testCloudProviderStream = async (
+  provider: string,
+  params?: { base_url?: string; group_id?: string; version?: string },
+) => {
+  const response = await apiClient.post(`/cloud/test/${provider}/stream`, null, { params });
   return response.data;
 };
 
@@ -1800,6 +1832,16 @@ export const getTrainingHistory = async () => {
 
 export const getTrainingCheckpoints = async (trainingId: string) => {
   const response = await apiClient.get(`/training/checkpoints/${trainingId}`);
+  return response.data;
+};
+
+export const cleanupTrainingCheckpoints = async (trainingId: string) => {
+  const response = await apiClient.delete(`/training/checkpoints/${trainingId}/cleanup`);
+  return response.data;
+};
+
+export const compareTrainingCheckpoints = async (checkpoints: any[]) => {
+  const response = await apiClient.post('/training/checkpoints/compare', { checkpoints });
   return response.data;
 };
 
