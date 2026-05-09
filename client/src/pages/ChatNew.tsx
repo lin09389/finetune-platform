@@ -1,4 +1,4 @@
-import { Button, Drawer, Modal, Tag } from 'antd';
+﻿import { Button, Drawer, Modal, Tag } from 'antd';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -13,7 +13,6 @@ import { useTheme } from '../theme';
 import ChatHeader from '../components/chat/ChatHeader';
 import ChatContextPanel from '../components/chat/ChatContextPanel';
 import ChatInput from '../components/chat/ChatInput';
-import FollowUpSuggestions from '../components/chat/FollowUpSuggestions';
 import AgentPhaseIndicator from '../components/chat/AgentPhaseIndicator';
 import ChatHistoryDrawer from '../components/ChatHistoryDrawer';
 import ChatMessage from '../components/ChatMessage';
@@ -80,7 +79,7 @@ const STARTER_IDEAS = [
   }
 ];
 
-const DEFAULT_SUGGESTIONS = STARTER_IDEAS.map(i => i.desc);
+
 
 interface StoredChatScrollState {
   topIndex: number;
@@ -141,72 +140,6 @@ const persistScrollState = (
   localStorage.setItem(CHAT_SCROLL_STORAGE_KEY, JSON.stringify(next));
 };
 
-const extractDynamicSuggestions = (content: string): string[] => {
-  if (!content) return [];
-  
-  // 预处理：移除思考块 (thought blocks)
-  const cleanContent = content.replace(/<thought>[\s\S]*?<\/thought>/g, '').trim();
-  const lines = cleanContent.split('\n').map((l) => l.trim()).filter(Boolean);
-  const suggestions: string[] = [];
-
-  // 1. 寻找明确的建议引导语
-  const suggestionMarkers = [
-    '您可以尝试这样问',
-    '您可以说',
-    '例如',
-    '可以问',
-    '试着问',
-    '你可以问',
-    '后续建议',
-    '猜你想问',
-    'Next steps',
-    'Follow-up'
-  ];
-
-  let markerFoundIndex = -1;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line && suggestionMarkers.some(marker => line.includes(marker))) {
-      markerFoundIndex = i;
-      break;
-    }
-  }
-
-  // 如果找到了标记，尝试抓取其后的列表项
-  if (markerFoundIndex !== -1) {
-    for (let i = markerFoundIndex + 1; i < Math.min(markerFoundIndex + 6, lines.length); i++) {
-      const line = lines[i];
-      if (!line) continue;
-      // 匹配列表项：- 项, * 项, 1. 项
-      const listMatch = line.match(/^[*-]\s+(.+)$/) || line.match(/^\d+\.\s+(.+)$/);
-      if (listMatch && listMatch[1]) {
-        const s = listMatch[1].replace(/^["“]|["”]$/g, '').trim();
-        if (s && s.length < 50) suggestions.push(s);
-      }
-    }
-  }
-
-  // 2. 如果没找到标记，尝试寻找末尾带有引号的列表项（常见的大模型输出习惯）
-  if (suggestions.length === 0) {
-    const lastLines = lines.slice(-8);
-    for (const line of lastLines) {
-      const quoteMatch = line.match(/^[*-]\s*["“]([^"”]+)["”]/) || line.match(/^\d+\.\s*["“]([^"”]+)["”]/);
-      if (quoteMatch && quoteMatch[1]) {
-        suggestions.push(quoteMatch[1].trim());
-      }
-    }
-  }
-
-  // 3. 兜底策略：如果内容末尾有问号，可能是一个建议
-  if (suggestions.length === 0) {
-    const lastLine = lines[lines.length - 1];
-    if (lastLine && (lastLine.endsWith('?') || lastLine.endsWith('？')) && lastLine.length < 40) {
-      suggestions.push(lastLine.replace(/^[*-]\s*/, '').trim());
-    }
-  }
-
-  return Array.from(new Set(suggestions)).slice(0, 10);
-};
 
 const ChatPage: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
@@ -261,10 +194,21 @@ const ChatPage: React.FC = () => {
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [contextPanelOpen, setContextPanelOpen] = useState(false);
 
-  const [useCloudAI, setUseCloudAI] = useState(false);
-  const [cloudAIConfig, setCloudAIConfig] = useState<APIKeyConfig | null>(null);
-  const [cloudProviders, setCloudProviders] = useState<SavedCloudProvider[]>([]);
-  const [selectedCloudModel, setSelectedCloudModel] = useState<string>('');
+  const { cloudConfig, setCloudConfig } = useChatStore(useShallow((state) => ({
+    cloudConfig: state.cloudConfig,
+    setCloudConfig: state.setCloudConfig,
+  })));
+  const useCloudAI = cloudConfig.useCloudAI;
+  const setUseCloudAI = (val: boolean | ((prev: boolean) => boolean)) => {
+    const next = typeof val === 'function' ? val(cloudConfig.useCloudAI) : val;
+    setCloudConfig({ useCloudAI: next });
+  };
+  const cloudAIConfig = cloudConfig.config as APIKeyConfig | null;
+  const setCloudAIConfig = (cfg: APIKeyConfig | null) => setCloudConfig({ config: cfg });
+  const cloudProviders = cloudConfig.providers as SavedCloudProvider[];
+  const setCloudProviders = (providers: SavedCloudProvider[]) => setCloudConfig({ providers: providers as any });
+  const selectedCloudModel = cloudConfig.selectedModel;
+  const setSelectedCloudModel = (model: string) => setCloudConfig({ selectedModel: model });
   const [workflowTemplates, setWorkflowTemplates] = useState<WorkflowTemplate[]>([]);
   const [selectedWorkflowTemplate, setSelectedWorkflowTemplate] = useState('software_delivery');
   const [primaryAgents, setPrimaryAgents] = useState<AgentInfo[]>([]);
@@ -515,7 +459,15 @@ const ChatPage: React.FC = () => {
   // Virtuoso's followOutput handles auto-scrolling to bottom.
   // We don't manually call scrollToBottom on messages change to prevent forcing users to the bottom when they scroll up.
 
-  const loadCloudAIConfig = async () => {
+  const loadCloudAIConfig = async (force = false) => {
+    // If already loaded from store cache, skip re-fetching unless forced
+    if (!force && cloudConfig.providers.length > 0) {
+      // Apply use cloud AI preference from localStorage if needed
+      if (cloudConfig.config?.key_id || cloudConfig.config?.api_key) {
+        setUseCloudAI(localStorage.getItem('chat_use_cloud_ai') === '1');
+      }
+      return;
+    }
     try {
       const data = await getSavedCloudProviders();
       const keys: SavedCloudProvider[] = data.keys || [];
@@ -1447,12 +1399,11 @@ const ChatPage: React.FC = () => {
   const handleCloudModelChange = useCallback(
     (model: string) => {
       setSelectedCloudModel(model);
-      setCloudAIConfig((config) => {
-        if (!config) return config;
-        const nextConfig = { ...config, model };
+      if (cloudAIConfig) {
+        const nextConfig = { ...cloudAIConfig, model };
+        setCloudAIConfig(nextConfig);
         localStorage.setItem('cloud_ai_config', JSON.stringify(nextConfig));
-        return nextConfig;
-      });
+      }
     },
     [],
   );
@@ -1736,82 +1687,9 @@ const ChatPage: React.FC = () => {
     updateSettings({ useMemory: !settings.useMemory });
   }, [settings.useMemory, updateSettings]);
 
-
-
-  const currentSuggestions = React.useMemo(() => {
-    if (messages.length === 0) return DEFAULT_SUGGESTIONS;
-    if (isActivelyStreaming) return [];
-    
-    // 只有当最后一条消息是助手发出的，且没有正在加载时，才显示建议
-    const lastMessage = messages[messages.length - 1];
-    if (lastMessage && lastMessage.role === 'assistant') {
-      const extracted = extractDynamicSuggestions(lastMessage.content);
-      
-      // 更加智能的上下文启发式建议
-      const content = lastMessage.content;
-      const suggestions = new Set<string>(extracted);
-
-      // 1. 如果包含代码块
-      if (content.includes('```')) {
-        suggestions.add('能帮我给这段代码加上详细注释吗？');
-        suggestions.add('这段代码还有优化的空间吗？');
-      }
-
-      // 2. 如果包含步骤列表
-      if (/^\d+\.\s/m.test(content) || /^-\s/m.test(content)) {
-        suggestions.add('能详细展开其中的第一点吗？');
-        suggestions.add('实际操作中这些步骤有哪些常见的坑？');
-      }
-
-      // 3. 如果包含报错或问题
-      if (content.includes('错误') || content.includes('异常') || content.includes('error') || content.includes('Exception')) {
-        suggestions.add('如何排查和解决这个错误？');
-        suggestions.add('有其他可行的替代方案吗？');
-      }
-
-      // 4. 提取专业术语（简单匹配连续英文字符，如框架、库名）
-      const termsMatch = content.match(/[A-Z][a-zA-Z]{2,}/g);
-      if (termsMatch && termsMatch.length > 0) {
-        // 过滤掉常见词汇，取第一个显著的词汇
-        const ignoreList = ['The', 'This', 'That', 'How', 'What', 'When', 'And', 'For', 'With', 'But'];
-        const validTerms = termsMatch.filter(t => !ignoreList.includes(t));
-        if (validTerms.length > 0) {
-          const term = validTerms[0];
-          suggestions.add(`能深入讲解一下 ${term} 的底层原理吗？`);
-        }
-      }
-
-      // 5. 补充兜底建议
-      if (content.length > 200) {
-        suggestions.add('总结一下核心观点');
-        suggestions.add('这背后的核心原理是什么？');
-        suggestions.add('请用更通俗的话解释一下');
-      } else {
-        suggestions.add('能再多举几个具体的例子吗？');
-        suggestions.add('这有什么实际应用场景？');
-      }
-      
-      // 如果建议太少，继续补充
-      if (suggestions.size < 6) {
-        suggestions.add('还有其他需要注意的细节吗？');
-        suggestions.add('能对比一下其他类似的方案吗？');
-        suggestions.add('有什么相关的最佳实践吗？');
-      }
-
-      return Array.from(suggestions);
-    }
-    
-    return [];
-  }, [messages, isActivelyStreaming]);
-
   const virtuosoFooter = useCallback(
     () => (
       <div style={{ paddingBottom: '20px' }}>
-        <FollowUpSuggestions
-          suggestions={currentSuggestions}
-          isVisible={!isLoading && !isActivelyStreaming && currentSuggestions.length > 0}
-          onSuggestionClick={handleSend}
-        />
         <AgentPhaseIndicator
           phase={agentPhase.phase}
           tool={agentPhase.tool}
@@ -1823,7 +1701,6 @@ const ChatPage: React.FC = () => {
       agentPhase.phase,
       agentPhase.tool,
       agentPhase.visible,
-      currentSuggestions,
       handleSend,
       isActivelyStreaming,
       isLoading,
@@ -2112,12 +1989,6 @@ const ChatPage: React.FC = () => {
                       {renderMessageItem(index, msg)}
                     </React.Fragment>
                   ))}
-                  
-                  <FollowUpSuggestions
-                    suggestions={currentSuggestions}
-                    isVisible={!isLoading && !isActivelyStreaming && currentSuggestions.length > 0}
-                    onSuggestionClick={handleSend}
-                  />
 
                   <AgentPhaseIndicator
                     phase={agentPhase.phase}
@@ -2276,7 +2147,7 @@ const ChatPage: React.FC = () => {
           onConfigChange={(config: APIKeyConfig) => {
             setCloudAIConfig(config);
             setSelectedCloudModel(config.model || '');
-            void loadCloudAIConfig();
+            void loadCloudAIConfig(true);
           }}
           initialConfig={cloudAIConfig}
         />

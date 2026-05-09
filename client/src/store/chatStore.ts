@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+﻿import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import axios from 'axios';
 import {
@@ -127,6 +127,21 @@ interface ChatStore {
   deletePreset: (presetId: string) => void;
   setSelectedPresetId: (selectedPresetId: string | null) => void;
 
+  cloudConfig: {
+    useCloudAI: boolean;
+    config: {
+      provider: string;
+      api_key?: string;
+      key_id?: string;
+      model?: string;
+      group_id?: string;
+      base_url?: string;
+    } | null;
+    providers: Array<{ id: string; provider: string; models?: string[]; default_model?: string }>;
+    selectedModel: string;
+  };
+  setCloudConfig: (config: Partial<ChatStore['cloudConfig']>) => void;
+
   setError: (error: string | null) => void;
   setIsLoading: (loading: boolean) => void;
 }
@@ -211,6 +226,12 @@ export const useChatStore = create<ChatStore>()(
       },
       promptDraft: '',
       attachments: [],
+      cloudConfig: {
+        useCloudAI: false,
+        config: null,
+        providers: [],
+        selectedModel: '',
+      },
       ...initialChatExperimentState,
 
       createSession: async (title = 'New Chat', modelId) => {
@@ -656,6 +677,12 @@ export const useChatStore = create<ChatStore>()(
       setIsLoading: (loading) => {
         set({ isLoading: loading });
       },
+
+      setCloudConfig: (updates) => {
+        set((state) => ({
+          cloudConfig: { ...state.cloudConfig, ...updates },
+        }));
+      },
     }),
     {
       name: 'chat-storage',
@@ -674,6 +701,7 @@ export const useChatStore = create<ChatStore>()(
         experimentSnapshots: state.experimentSnapshots.slice(0, 50),
         presets: state.presets.slice(0, 50),
         selectedPresetId: state.selectedPresetId,
+        cloudConfig: state.cloudConfig,
       }),
     },
   ),
