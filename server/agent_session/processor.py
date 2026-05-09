@@ -29,8 +29,8 @@ _STREAM_THROTTLE_INTERVAL = 0.08
 _STREAM_THROTTLE_CHARS = 24
 
 
-READ_TOOLS = {"read", "search", "glob", "collect_context", "read_execution"}
-CONTEXT_TOOLS = {"read", "search", "glob", "collect_context", "detect_project_commands"}
+READ_TOOLS = {"read", "search", "glob", "collect_context", "read_execution", "find_symbol", "find_references"}
+CONTEXT_TOOLS = {"read", "search", "glob", "collect_context", "detect_project_commands", "find_symbol", "find_references"}
 MAX_REPAIR_ATTEMPTS = DEFAULT_MAX_REPAIR_ATTEMPTS
 MAX_PROTOCOL_REPAIRS = 2
 
@@ -43,7 +43,7 @@ class AgentSessionProcessor:
         max_iterations: int = 8,
     ):
         self.repository = repository
-        self.tools = tools or AgentToolRegistry()
+        self.tools = tools or AgentToolRegistry(repository=repository)
         self.max_iterations = max_iterations
 
     async def prompt(
@@ -318,10 +318,14 @@ class AgentSessionProcessor:
         self._event(session_id, "tool_call_started", call_part.get("content") or tool.description, {"part_id": call_part["id"], "tool": tool_name})
         self._event(session_id, "phase_change", f"执行工具：{tool_name}", {"phase": "tool_execution", "tool": tool_name})
 
-        if tool_name == "bash_command":
-            command_payload = args.get("payload") if isinstance(args.get("payload"), dict) else args
+        if tool.permission == "command":
+            command_payload = args.get("payload") if isinstance(args.get("payload"), dict) else dict(args)
+            command_payload.setdefault("tool", tool_name)
+            if tool_name == "run_dev_server":
+                command_payload.setdefault("command", ["npm", "run", "dev"])
+                command_payload["long_running"] = True
             policy = evaluate_agent_action_policy(session, "command", command_payload, set(metadata.get("touched_paths") or []))
-            result = self._handle_command(session, call_part["id"], command_payload, policy, tool, messages, raw)
+            result = self._handle_command(session, call_part["id"], command_payload, policy, tool, messages, raw, tool_name=tool_name)
             return result, result is None
 
         result = tool.execute(args, self._context(session))
@@ -427,7 +431,9 @@ class AgentSessionProcessor:
             raise ValueError("Only approved action parts can be executed")
         session = self.repository.get_session(part["session_id"]) or {}
         if part.get("type") == "command":
-            result = self.tools.get("bash_command").execute({"payload": part.get("payload") or {}}, self._context(session))  # type: ignore[union-attr]
+            payload = part.get("payload") or {}
+            tool_name = str(payload.get("tool") or "bash_command")
+            result = self.tools.get(tool_name).execute({"payload": payload}, self._context(session))  # type: ignore[union-attr]
         else:
             result = self.tools.apply_patch_payload((part.get("payload") or {}).get("payload") or part.get("payload") or {}, self._context(session))
         status = "executed" if result.status == "completed" else "failed"
@@ -657,19 +663,26 @@ class AgentSessionProcessor:
         tool: Any,
         messages: list[dict[str, str]],
         raw: str,
+        *,
+        tool_name: str,
     ) -> dict[str, Any] | None:
         session_id = session["id"]
         self.repository.update_part(call_part_id, status="completed" if policy["execution_mode"] != "blocked" else "blocked")
         part_payload = dict(command_payload)
         part_payload.update(policy)
+        title = {
+            "run_dev_server": "开发服务器",
+            "stop_dev_server": "停止开发服务器",
+            "bash_command": "验证命令",
+        }.get(tool_name, tool.description)
         if policy["execution_mode"] == "blocked":
-            part = self.repository.add_part(session_id, "command", status="blocked", title="验证命令", content=policy["policy_reason"], payload=part_payload)
+            part = self.repository.add_part(session_id, "command", status="blocked", title=title, content=policy["policy_reason"], payload=part_payload)
             metadata = record_command(self._ensure_metadata(self.repository.get_session(session_id) or session), part["id"], policy["policy_reason"])
             metadata = set_phase(metadata, "needs_manual_review")
             self.repository.update_session(session_id, metadata=metadata)
             return self._stop_with_summary(session_id, "needs_manual_review", policy["policy_reason"], part_id=part["id"])
         if policy["execution_mode"] == "approval_required":
-            part = self.repository.add_part(session_id, "command", status="pending", title="验证命令", content=policy["policy_reason"], payload=part_payload)
+            part = self.repository.add_part(session_id, "command", status="pending", title=title, content=policy["policy_reason"], payload=part_payload)
             metadata = record_command(self._ensure_metadata(self.repository.get_session(session_id) or session), part["id"])
             metadata = set_phase(metadata, "waiting_approval")
             self.repository.update_session(session_id, status="waiting_approval", metadata=metadata)
@@ -681,14 +694,21 @@ class AgentSessionProcessor:
         result = tool.execute({"payload": command_payload}, self._context(session))
         payload = dict(part_payload)
         payload.update(result.payload)
-        part = self.repository.add_part(session_id, "command", status=result.status, title="验证命令", content=result.summary if result.status == "completed" else result.error, payload=payload)
+        part = self.repository.add_part(session_id, "command", status=result.status, title=title, content=result.summary if result.status == "completed" else result.error, payload=payload)
         metadata = record_command(self._ensure_metadata(self.repository.get_session(session_id) or session), part["id"], None if result.status == "completed" else result.error or result.summary)
         self.repository.update_session(session_id, metadata=metadata)
         self._event(session_id, "command_completed" if result.status == "completed" else "command_failed", result.summary, {"part_id": part["id"], **payload})
         observation = self._compact_observation("bash_command", result.status, result.summary, payload, result.error)
         if result.status == "completed":
             messages.append({"role": "assistant", "content": raw})
-            messages.append({"role": "user", "content": "工具结果：\n" + json.dumps({**observation, "guidance": "验证通过。下一步必须调用 finalize，输出改动文件、验证命令、验证结果和剩余风险。"}, ensure_ascii=False)})
+            guidance = (
+                "开发服务器已启动。可以调用 get_server_status 或 read_logs 检查状态；完成后用 finalize 总结 server_url。"
+                if tool_name == "run_dev_server"
+                else "开发服务器已停止。可以调用 get_server_status 确认状态，或重新 collect_context 后继续开发。"
+                if tool_name == "stop_dev_server"
+                else "验证通过。下一步必须调用 finalize，输出改动文件、验证命令、验证结果和剩余风险。"
+            )
+            messages.append({"role": "user", "content": "工具结果：\n" + json.dumps({**observation, "guidance": guidance}, ensure_ascii=False)})
             return None
 
         metadata = self._ensure_metadata(self.repository.get_session(session_id) or session)
@@ -860,6 +880,24 @@ class AgentSessionProcessor:
                 "matches": [
                     {"path": item.get("path"), "line": item.get("line"), "preview": self._truncate(str(item.get("preview") or ""), 180)}
                     for item in (payload.get("matches") or [])[:8]
+                    if isinstance(item, dict)
+                ],
+                "symbols": [
+                    {
+                        "symbol": item.get("symbol"),
+                        "engine": item.get("engine"),
+                        "definitions": [
+                            {"path": match.get("path"), "line": match.get("line"), "kind": match.get("kind")}
+                            for match in (item.get("definitions") or [])[:4]
+                            if isinstance(match, dict)
+                        ],
+                        "references": [
+                            {"path": match.get("path"), "line": match.get("line"), "is_definition": match.get("is_definition")}
+                            for match in (item.get("references") or [])[:6]
+                            if isinstance(match, dict)
+                        ],
+                    }
+                    for item in (payload.get("symbols") or [])[:4]
                     if isinstance(item, dict)
                 ],
                 "commands": (payload.get("commands") or [])[:6],

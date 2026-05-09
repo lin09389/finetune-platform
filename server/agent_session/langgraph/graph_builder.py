@@ -39,8 +39,8 @@ def _after_action(state: AgentSessionGraphState) -> str:
     return "model_call"
 
 
-def build_agent_session_graph(*, repository, processor, model_call=None, checkpointer=None):
-    runtime = AgentSessionLangGraphRuntime(repository=repository, processor=processor, model_call=model_call)
+def build_agent_session_graph(*, repository, processor, model_call=None, checkpointer=None, runtime=None):
+    runtime = runtime or AgentSessionLangGraphRuntime(repository=repository, processor=processor, model_call=model_call)
     graph = StateGraph(AgentSessionGraphState)
     graph.add_node("bootstrap", runtime.bootstrap_node)
     graph.add_node("model_call", runtime.model_call_node)

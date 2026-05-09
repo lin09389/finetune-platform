@@ -42,25 +42,68 @@ class AgentSessionGraphRunner:
                 processor=self.processor,
                 model_call=self.model_call,
                 checkpointer=await self._get_checkpointer(),
+                runtime=self.runtime,
             )
         return self._graph
 
-    async def run_prompt(self, initial_state: dict[str, Any]) -> None:
+    async def run_prompt(
+        self,
+        initial_state: dict[str, Any],
+        *,
+        model_call: Any = None,
+        stream_model_call: Any = None,
+    ) -> None:
+        session_id = str(initial_state.get("session_id") or "")
         graph = await self.get_graph()
-        await graph.ainvoke(
-            initial_state,
-            config={"configurable": {"thread_id": self.thread_id(str(initial_state.get("session_id") or ""))}},
+        self.runtime.set_invocation_context(
+            session_id,
+            model_call=model_call,
+            stream_model_call=stream_model_call,
         )
+        try:
+            await graph.ainvoke(
+                initial_state,
+                config={"configurable": {"thread_id": self.thread_id(session_id)}},
+            )
+        finally:
+            self.runtime.clear_invocation_context(session_id)
 
-    async def resume(self, session_id: str, decision: dict[str, Any]) -> None:
+    async def resume(
+        self,
+        session_id: str,
+        decision: dict[str, Any],
+        *,
+        model_call: Any = None,
+        stream_model_call: Any = None,
+    ) -> None:
         graph = await self.get_graph()
-        await graph.ainvoke(
-            Command(resume=decision),
-            config={"configurable": {"thread_id": self.thread_id(session_id)}},
+        self.runtime.set_invocation_context(
+            session_id,
+            model_call=model_call,
+            stream_model_call=stream_model_call,
         )
+        try:
+            await graph.ainvoke(
+                Command(resume=decision),
+                config={"configurable": {"thread_id": self.thread_id(session_id)}},
+            )
+        finally:
+            self.runtime.clear_invocation_context(session_id)
 
-    async def execute_action_and_resume(self, part_id: str, decision: dict[str, Any]) -> dict[str, Any]:
+    async def execute_action_and_resume(
+        self,
+        part_id: str,
+        decision: dict[str, Any],
+        *,
+        model_call: Any = None,
+        stream_model_call: Any = None,
+    ) -> dict[str, Any]:
         part = await self.runtime.execute_action_part(part_id)
         session_id = str(part.get("session_id") or "")
-        await self.resume(session_id, decision)
+        await self.resume(
+            session_id,
+            decision,
+            model_call=model_call,
+            stream_model_call=stream_model_call,
+        )
         return part

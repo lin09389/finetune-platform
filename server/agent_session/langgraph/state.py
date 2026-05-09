@@ -29,3 +29,8 @@ class AgentSessionGraphState(TypedDict, total=False):
     execution_state: ExecutionState
     iterations: int
     last_model_raw: str
+    streaming_enabled: bool
+    streaming_part_id: str | None
+    streaming_failed: bool
+    last_stream_error: str | None
+    streaming_raw: str

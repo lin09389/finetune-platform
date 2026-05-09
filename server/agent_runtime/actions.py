@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import HTTPException
 from core.config import settings
 
-from .command_policy import command_allowed, normalize_command, normalize_executable, summarize_failure
+from .command_policy import command_allowed, normalize_command, normalize_executable, package_has_script, resolve_command_cwd, summarize_failure
 from .execution_state import APPLYING_PATCH, COMPLETED, FAILED, VERIFYING, set_workflow_state
 from .patch_engine import SafePatchEngine
 
@@ -20,6 +20,9 @@ AUTONOMY_SAFE_AUTO = "safe_auto"
 AUTONOMY_CONFIRM_ALL = "confirm_all"
 AUTONOMY_READ_ONLY = "read_only"
 AUTONOMY_MODES = {AUTONOMY_SAFE_AUTO, AUTONOMY_CONFIRM_ALL, AUTONOMY_READ_ONLY}
+SAFE_PATCH_MAX_FILES = 3
+SAFE_PATCH_MAX_LINES_PER_FILE = 120
+SAFE_PATCH_MAX_TOTAL_LINES = 240
 
 
 class WorkflowActionService:
@@ -233,7 +236,7 @@ class WorkflowActionService:
                     return self._policy("approval_required", diff_policy["risk_level"], "确认模式已开启，diff 补丁需人工审批")
                 return diff_policy
             files = payload.get("files") or payload.get("file_changes") or []
-            if not isinstance(files, list) or not files or len(files) > 5:
+            if not isinstance(files, list) or not files or len(files) > 6:
                 return self._confirm_or_approval("补丁文件数量超出自动执行策略，需人工审批")
             safety = self._evaluate_patch_safety(files)
             if safety["execution_mode"] == "blocked":
@@ -267,9 +270,9 @@ class WorkflowActionService:
     def _evaluate_source_patch_policy(self, project: dict[str, Any], files: list[Any]) -> dict[str, str]:
         if not files:
             return self._policy("approval_required", "medium", "源码补丁为空，需人工审批")
-        if len(files) > 5:
+        if len(files) > 6:
             return self._policy("approval_required", "medium", "源码补丁文件数量超出自动执行策略，需人工审批")
-        multi_file_requires_approval = len(files) > 2
+        multi_file_requires_approval = len(files) > SAFE_PATCH_MAX_FILES
         allowed_suffixes = {".py", ".ts", ".tsx", ".css", ".md"}
         sensitive_names = {
             ".env",
@@ -303,12 +306,12 @@ class WorkflowActionService:
                 return self._policy("approval_required", "medium", "源码补丁文件类型不在自动执行策略内")
             line_count = len(content.splitlines())
             total_lines += line_count
-            if line_count > 80:
-                return self._policy("approval_required", "medium", "单文件源码补丁超过 80 行，需人工审批")
+            if line_count > SAFE_PATCH_MAX_LINES_PER_FILE:
+                return self._policy("approval_required", "medium", f"单文件源码补丁超过 {SAFE_PATCH_MAX_LINES_PER_FILE} 行，需人工审批")
             if relative_path not in read_paths:
                 return self._policy("approval_required", "medium", "源码文件未在同一轮被读取或搜索命中，需人工审批")
-        if total_lines > 160:
-            return self._policy("approval_required", "medium", "源码补丁总行数超过 160 行，需人工审批")
+        if total_lines > SAFE_PATCH_MAX_TOTAL_LINES:
+            return self._policy("approval_required", "medium", f"源码补丁总行数超过 {SAFE_PATCH_MAX_TOTAL_LINES} 行，需人工审批")
         if multi_file_requires_approval:
             return self._policy("approval_required", "medium", "多文件源码补丁需人工审批后执行")
         return self._policy("auto", "low", "低风险源码小改，已按安全自动模式执行")
@@ -323,9 +326,9 @@ class WorkflowActionService:
         files = self._source_diff_files(diff)
         if not files:
             return self._policy("approval_required", "medium", "diff 补丁未包含可识别文件，需人工审批")
-        if len(files) > 5:
+        if len(files) > 6:
             return self._policy("approval_required", "medium", "源码 diff 文件数量超出自动执行策略，需人工审批")
-        multi_file_requires_approval = len(files) > 2
+        multi_file_requires_approval = len(files) > SAFE_PATCH_MAX_FILES
 
         allowed_suffixes = {".py", ".ts", ".tsx", ".css", ".md"}
         sensitive_names = {
@@ -361,13 +364,13 @@ class WorkflowActionService:
             if path.suffix.lower() not in allowed_suffixes:
                 return self._policy("approval_required", "medium", "源码 diff 文件类型不在自动执行策略内")
             total_changed_lines += changed_lines
-            if changed_lines > 80:
-                return self._policy("approval_required", "medium", "单文件源码 diff 超过 80 行，需人工审批")
+            if changed_lines > SAFE_PATCH_MAX_LINES_PER_FILE:
+                return self._policy("approval_required", "medium", f"单文件源码 diff 超过 {SAFE_PATCH_MAX_LINES_PER_FILE} 行，需人工审批")
             if relative_path not in read_paths:
                 return self._policy("approval_required", "medium", "源码文件未在同一轮被读取或搜索命中，需人工审批")
 
-        if total_changed_lines > 160:
-            return self._policy("approval_required", "medium", "源码 diff 总变更行数超过 160 行，需人工审批")
+        if total_changed_lines > SAFE_PATCH_MAX_TOTAL_LINES:
+            return self._policy("approval_required", "medium", f"源码 diff 总变更行数超过 {SAFE_PATCH_MAX_TOTAL_LINES} 行，需人工审批")
         if multi_file_requires_approval:
             return self._policy("approval_required", "medium", "多文件源码 diff 需人工审批后执行")
         return self._policy("auto", "low", "低风险源码 diff 小改，已按安全自动模式执行")
@@ -536,25 +539,10 @@ class WorkflowActionService:
 
     def _command_root(self, project: dict[str, Any], args: list[str]) -> Path:
         root = self._allowed_root(project)
-        command = normalize_executable(args[0]) if args else ""
-        if command == "npm" and len(args) >= 3 and args[1] == "run":
-            script = args[2]
-            if self._package_has_script(root, script):
-                return root
-            for candidate in (root / "client", self._workspace_root() / "client"):
-                if self._package_has_script(candidate, script):
-                    return candidate.resolve()
-        return root
+        return resolve_command_cwd(root, args)
 
     def _package_has_script(self, root: Path, script: str) -> bool:
-        package_json = root / "package.json"
-        if not package_json.exists():
-            return False
-        try:
-            data = json.loads(package_json.read_text(encoding="utf-8"))
-        except Exception:
-            return False
-        return script in (data.get("scripts") or {})
+        return package_has_script(root, script)
 
     def _normalize_executable(self, value: str) -> str:
         return normalize_executable(value)

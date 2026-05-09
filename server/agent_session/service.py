@@ -17,7 +17,7 @@ from security.encryption import secure_storage
 
 from .langgraph import AgentSessionGraphRunner
 from .models import AgentPromptRequest, AgentSessionCreate, AgentSessionResponse
-from .processor import AgentSessionProcessor, ModelCall
+from .processor import AgentSessionProcessor, ModelCall, StreamModelCall
 from .repository import AgentSessionRepository
 from .state import ensure_session_state, record_fallback_summary, set_phase
 
@@ -38,6 +38,11 @@ class AgentSessionService:
         self._graph_runner_error: str | None = None
 
     ACTIVE_STATUSES = {"running", "verifying", "repairing", "waiting_approval", "waiting_permission"}
+
+    def _default_project_path(self) -> str:
+        base_dir = settings.base_dir.resolve()
+        workspace = base_dir.parent if base_dir.name == "server" else base_dir
+        return str(workspace)
 
     async def _get_graph_runner(self) -> AgentSessionGraphRunner | None:
         if not settings.agent_session_langgraph_enabled:
@@ -63,7 +68,7 @@ class AgentSessionService:
                 "chat_session_id": request.chat_session_id,
                 "agent_id": request.agent_id,
                 "title": request.title or "Agent Session",
-                "project_path": request.project_path or str(Path.cwd()),
+                "project_path": request.project_path or self._default_project_path(),
                 "provider": request.provider,
                 "model": request.model,
                 "metadata": {"autonomy_mode": request.autonomy_mode or "safe_auto"},
@@ -123,11 +128,15 @@ class AgentSessionService:
         self.repository.update_session(session_id, metadata=metadata)
         session = self.repository.get_session(session_id) or session
         try:
-            runner = await self._get_graph_runner() if stream_model_call is None else None
+            runner = await self._get_graph_runner()
             if runner is not None:
                 initial_state = self._build_langgraph_initial_state(session_id, request.content)
                 try:
-                    await runner.run_prompt(initial_state)
+                    await runner.run_prompt(
+                        initial_state,
+                        model_call=model_call,
+                        stream_model_call=stream_model_call,
+                    )
                     result = self.repository.get_session(session_id) or session
                     result["parts"] = self.repository.list_parts(session_id)
                 except Exception as exc:
@@ -135,7 +144,7 @@ class AgentSessionService:
                     self._record_langgraph_fallback(session_id, str(exc))
                     result = await self.processor.prompt(session_id, request.content, model_call=model_call, stream_model_call=stream_model_call)
             else:
-                if settings.agent_session_langgraph_enabled and stream_model_call is None and self._graph_runner_error:
+                if settings.agent_session_langgraph_enabled and self._graph_runner_error:
                     self._record_langgraph_fallback(session_id, self._graph_runner_error)
                 result = await self.processor.prompt(session_id, request.content, model_call=model_call, stream_model_call=stream_model_call)
         except Exception as exc:
@@ -249,10 +258,14 @@ class AgentSessionService:
             runner = await self._get_graph_runner()
             if runner is None:
                 raise RuntimeError("LangGraph is not available for this session")
+            model_call = self.model_call or self._cloud_model_call(session)
+            stream_model_call = self._resolve_stream_model_call(session)
             self._record_resume_decision(part["session_id"], {"interrupt_kind": "permission_request", "part_id": part_id, "approved": approved})
             await runner.resume(
                 part["session_id"],
                 {"interrupt_kind": "permission_request", "part_id": part_id, "approved": approved},
+                model_call=model_call,
+                stream_model_call=stream_model_call,
             )
             return self.get_session(part["session_id"])
         return await run_sync(self.approve_permission, part_id, approved)
@@ -272,8 +285,15 @@ class AgentSessionService:
                 runner = await self._get_graph_runner()
                 if runner is None:
                     raise RuntimeError("LangGraph is not available for this session")
+                model_call = self.model_call or self._cloud_model_call(session)
+                stream_model_call = self._resolve_stream_model_call(session)
                 self._record_resume_decision(part["session_id"], {"interrupt_kind": "action_approval", "part_id": part_id, "approved": False})
-                await runner.resume(part["session_id"], {"interrupt_kind": "action_approval", "part_id": part_id, "approved": False})
+                await runner.resume(
+                    part["session_id"],
+                    {"interrupt_kind": "action_approval", "part_id": part_id, "approved": False},
+                    model_call=model_call,
+                    stream_model_call=stream_model_call,
+                )
             return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
         return await run_sync(self.approve_action, part_id, approved)
 
@@ -290,10 +310,14 @@ class AgentSessionService:
             runner = await self._get_graph_runner()
             if runner is None:
                 raise RuntimeError("LangGraph is not available for this session")
+            model_call = self.model_call or self._cloud_model_call(session)
+            stream_model_call = self._resolve_stream_model_call(session)
             self._record_resume_decision(part["session_id"], {"interrupt_kind": "action_approval", "part_id": part_id, "decision": "executed"})
             await runner.execute_action_and_resume(
                 part_id,
                 {"interrupt_kind": "action_approval", "part_id": part_id, "decision": "executed"},
+                model_call=model_call,
+                stream_model_call=stream_model_call,
             )
             return self.get_session(part["session_id"])
         return await run_sync(self.execute_action, part_id)
@@ -700,6 +724,11 @@ class AgentSessionService:
             "execution_state": "created",
             "iterations": 0,
             "last_model_raw": "",
+            "streaming_enabled": False,
+            "streaming_part_id": None,
+            "streaming_failed": False,
+            "last_stream_error": None,
+            "streaming_raw": "",
         }
 
     def _record_langgraph_fallback(self, session_id: str, reason: str) -> None:
@@ -718,3 +747,11 @@ class AgentSessionService:
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
         metadata["last_resume_decision"] = dict(decision)
         self.repository.update_session(session_id, metadata=metadata)
+
+    def _resolve_stream_model_call(self, session: dict[str, Any]) -> StreamModelCall | None:
+        if self.model_call is not None:
+            return None
+        try:
+            return self._cloud_stream_model_call(session)
+        except (ValueError, TypeError):
+            return None

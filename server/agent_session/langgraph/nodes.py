@@ -19,6 +19,22 @@ class AgentSessionLangGraphRuntime:
         self.repository = repository
         self.processor = processor
         self.model_call = model_call
+        self._invocation_contexts: dict[str, dict[str, Any]] = {}
+
+    def set_invocation_context(
+        self,
+        session_id: str,
+        *,
+        model_call: Any = None,
+        stream_model_call: Any = None,
+    ) -> None:
+        self._invocation_contexts[session_id] = {
+            "model_call": model_call,
+            "stream_model_call": stream_model_call,
+        }
+
+    def clear_invocation_context(self, session_id: str) -> None:
+        self._invocation_contexts.pop(session_id, None)
 
     async def bootstrap_node(self, state: AgentSessionGraphState) -> dict[str, Any]:
         if state.get("messages"):
@@ -46,6 +62,11 @@ class AgentSessionLangGraphRuntime:
             "execution_state": "running",
             "iterations": 0,
             "last_model_raw": "",
+            "streaming_enabled": False,
+            "streaming_part_id": None,
+            "streaming_failed": False,
+            "last_stream_error": None,
+            "streaming_raw": "",
         }
 
     async def model_call_node(self, state: AgentSessionGraphState) -> dict[str, Any]:
@@ -57,11 +78,10 @@ class AgentSessionLangGraphRuntime:
             summary = self._latest_summary(session["id"], result)
             return {"final_summary": summary, "execution_state": result.get("status") or "needs_manual_review", "iterations": iterations}
 
-        self.processor._event(session["id"], "phase_change", "模型思考中", {"phase": "model_thinking"})
-        raw, text_chunks, summary_text, tool_calls = await self._invoke_model(session, messages)
+        raw, text_chunks, summary_text, tool_calls, streaming_finalized_type, streaming_part_id, streaming_failed, stream_error = await self._invoke_model(session, messages)
         for index, text in enumerate(text_chunks):
             content = text.strip()
-            if not content:
+            if not content or streaming_finalized_type:
                 continue
             text_part = self.repository.add_part(
                 session["id"],
@@ -79,12 +99,29 @@ class AgentSessionLangGraphRuntime:
             stripped = raw.strip()
             if stripped:
                 final_summary = stripped
+        if streaming_finalized_type == "summary":
+            final_summary = summary_text or final_summary or raw.strip() or "任务已完成。"
+            metadata = set_phase(self.processor._ensure_metadata(self._session(session["id"])), "completed")
+            self.repository.update_session(session["id"], status="completed", metadata=metadata)
+            self.processor._event(
+                session["id"],
+                "summary_completed",
+                final_summary,
+                {"part_id": streaming_part_id or "streaming", "streaming": True},
+            )
+            execution_state = "completed"
+            tool_calls = []
         return {
             "pending_tool_calls": tool_calls,
             "final_summary": final_summary,
             "execution_state": execution_state,
             "iterations": iterations + 1,
             "last_model_raw": raw,
+            "streaming_enabled": bool(self._invocation_context(state["session_id"]).get("stream_model_call")),
+            "streaming_part_id": streaming_part_id,
+            "streaming_failed": streaming_failed,
+            "last_stream_error": stream_error,
+            "streaming_raw": raw if streaming_part_id else "",
         }
 
     async def tool_exec_node(self, state: AgentSessionGraphState) -> dict[str, Any]:
@@ -203,7 +240,7 @@ class AgentSessionLangGraphRuntime:
             return {"pending_part_id": None, "execution_state": "failed", "final_summary": "动作已被拒绝，Agent 已停止。"}
 
         payload_data = dict(action_part.get("payload") or {})
-        tool_name = "patch" if action_part.get("type") == "diff" else "bash_command"
+        tool_name = "patch" if action_part.get("type") == "diff" else str(payload_data.get("tool") or "bash_command")
         summary = str(action_part.get("content") or payload_data.get("failure_summary") or "动作已执行。")
         observation_status = "completed" if status == "executed" else "failed"
         observation = self.processor._compact_observation(tool_name, observation_status, summary, payload_data, summary if observation_status == "failed" else None)
@@ -244,7 +281,8 @@ class AgentSessionLangGraphRuntime:
         session = self._session(str(part.get("session_id") or ""))
         payload = dict(part.get("payload") or {})
         if part.get("type") == "command":
-            tool = self.processor.tools.get("bash_command")
+            tool_name = str(payload.get("tool") or "bash_command")
+            tool = self.processor.tools.get(tool_name)
             result = tool.execute({"payload": payload}, self.processor._context(session))  # type: ignore[union-attr]
             status = "executed" if result.status == "completed" else "failed"
             payload.update(result.payload)
@@ -281,18 +319,52 @@ class AgentSessionLangGraphRuntime:
         self,
         session: dict[str, Any],
         messages: list[dict[str, str]],
-    ) -> tuple[str, list[str], str | None, list[dict[str, Any]]]:
-        if self.model_call is not None:
-            raw = await self.model_call(messages)
-            parts = parse_agent_response(raw)
-            text_chunks = [part.content for part in parts if part.type == "text" and part.content.strip()]
-            summary = next((part.content.strip() or str((part.payload or {}).get("summary") or "") for part in parts if part.type == "summary"), None)
-            tool_calls = [
-                {"name": str(part.tool or ""), "args": dict(part.arguments or {}), "id": f"tool_{index}"}
-                for index, part in enumerate(parts)
-                if part.type == "tool_call" and part.tool
-            ]
-            return raw, text_chunks, summary, tool_calls
+    ) -> tuple[str, list[str], str | None, list[dict[str, Any]], str, str | None, bool, str | None]:
+        session_id = str(session["id"])
+        invocation = self._invocation_context(session_id)
+        stream_model_call = invocation.get("stream_model_call")
+        if stream_model_call is not None:
+            try:
+                raw, streaming_part_id = await self.processor._stream_model_output(session_id, messages, stream_model_call)
+                return self._parse_model_output(
+                    raw,
+                    streaming_part_id=streaming_part_id,
+                    session_id=session_id,
+                ) + (False, None)
+            except Exception as exc:
+                failed_part_id = getattr(self.processor, "_pending_stream_part_id", None)
+                if failed_part_id:
+                    self.repository.update_part(failed_part_id, status="failed", title="流式输出失败")
+                self.processor._event(
+                    session_id,
+                    "model_stream_failed",
+                    f"流式输出失败，回退到非流式：{str(exc)[:200]}",
+                    {"error": str(exc)[:600], "part_id": failed_part_id},
+                )
+                self.processor._update_streaming_diagnostics(
+                    session_id,
+                    status="failed_then_fallback",
+                    mode="non_stream",
+                    fallback_to_non_stream=True,
+                    error=str(exc)[:600],
+                )
+                raw, text_chunks, summary, tool_calls, finalized_type, streaming_part_id = await self._invoke_non_stream_model(session, messages)
+                return raw, text_chunks, summary, tool_calls, finalized_type, streaming_part_id, True, str(exc)[:600]
+
+        self.processor._event(session_id, "phase_change", "模型思考中", {"phase": "model_thinking"})
+        raw, text_chunks, summary, tool_calls, finalized_type, streaming_part_id = await self._invoke_non_stream_model(session, messages)
+        return raw, text_chunks, summary, tool_calls, finalized_type, streaming_part_id, False, None
+
+    async def _invoke_non_stream_model(
+        self,
+        session: dict[str, Any],
+        messages: list[dict[str, str]],
+    ) -> tuple[str, list[str], str | None, list[dict[str, Any]], str, str | None]:
+        invocation = self._invocation_context(str(session["id"]))
+        model_call = invocation.get("model_call") or self.model_call
+        if model_call is not None:
+            raw = await model_call(messages)
+            return self._parse_model_output(raw, session_id=str(session["id"]))
 
         context = RuntimeExecutionContext(
             workflow_id=session["id"],
@@ -306,20 +378,41 @@ class AgentSessionLangGraphRuntime:
         response = await model.ainvoke(self._to_langchain_messages(messages))
         ai_message = response if isinstance(response, AIMessage) else AIMessage(content=str(response))
         content = str(ai_message.content or "")
-        summary = None
-        text_chunks: list[str] = []
-        if content.strip():
-            parsed = parse_agent_response(content)
-            summaries = [part.content.strip() or str((part.payload or {}).get("summary") or "") for part in parsed if part.type == "summary"]
-            text_chunks = [part.content for part in parsed if part.type == "text" and part.content.strip()]
-            summary = summaries[0] if summaries else None
-            if not text_chunks and not summary:
-                text_chunks = [content]
+        raw, text_chunks, summary, tool_calls, finalized_type, streaming_part_id = self._parse_model_output(
+            content,
+            session_id=str(session["id"]),
+        )
+        if ai_message.tool_calls:
+            tool_calls = [
+                {"name": str(call.get("name") or ""), "args": dict(call.get("args") or {}), "id": str(call.get("id") or f"tool_{index}")}
+                for index, call in enumerate(ai_message.tool_calls or [])
+            ]
+        return raw, text_chunks, summary, tool_calls, finalized_type, streaming_part_id
+
+    def _parse_model_output(
+        self,
+        raw: str,
+        *,
+        session_id: str,
+        streaming_part_id: str | None = None,
+    ) -> tuple[str, list[str], str | None, list[dict[str, Any]], str, str | None]:
+        parts = parse_agent_response(raw)
+        finalized_type = self.processor._finalize_streaming_text_part(session_id, raw, parts, streaming_part_id)
+        text_chunks = [part.content for part in parts if part.type == "text" and part.content.strip()]
+        summary = next(
+            (part.content.strip() or str((part.payload or {}).get("summary") or "") for part in parts if part.type == "summary"),
+            None,
+        )
         tool_calls = [
-            {"name": str(call.get("name") or ""), "args": dict(call.get("args") or {}), "id": str(call.get("id") or f"tool_{index}")}
-            for index, call in enumerate(ai_message.tool_calls or [])
+            {"name": str(part.tool or ""), "args": dict(part.arguments or {}), "id": f"tool_{index}"}
+            for index, part in enumerate(parts)
+            if part.type == "tool_call" and part.tool
         ]
-        return content, text_chunks, summary, tool_calls
+        if not parts and raw.strip():
+            text_chunks = [raw]
+        if finalized_type == "summary":
+            tool_calls = []
+        return raw, text_chunks, summary, tool_calls, finalized_type, streaming_part_id
 
     def _tool_schemas(self) -> list[dict[str, Any]]:
         schemas: list[dict[str, Any]] = []
@@ -370,3 +463,6 @@ class AgentSessionLangGraphRuntime:
             if str(part.get("type")) == "summary":
                 return str(part.get("content") or "")
         return None
+
+    def _invocation_context(self, session_id: str) -> dict[str, Any]:
+        return dict(self._invocation_contexts.get(session_id) or {})

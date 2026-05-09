@@ -14,9 +14,10 @@ from agent_session.models import (
     AgentSessionResponse,
 )
 from agent_session.service import AgentSessionService
+from core.config import settings
 from core.db_manager import run_sync
-from security.auth_middleware import get_current_user
-from security.jwt_auth import TokenPayload
+from security.auth_middleware import get_current_user_optional
+from security.jwt_auth import Role, TokenPayload
 
 router = APIRouter(prefix="/agent-sessions", tags=["Agent Sessions"])
 
@@ -25,11 +26,26 @@ def get_agent_session_service() -> AgentSessionService:
     return AgentSessionService()
 
 
+async def get_agent_session_user(
+    current_user: TokenPayload | None = Depends(get_current_user_optional),
+) -> TokenPayload:
+    if current_user:
+        return current_user
+    if settings.environment == "production":
+        raise HTTPException(status_code=401, detail="Missing authorization")
+    return TokenPayload(
+        user_id="desktop-local-user",
+        username="desktop",
+        role=Role.USER,
+        permissions=["agent_sessions:local"],
+    )
+
+
 @router.post("", response_model=AgentSessionResponse)
 async def create_agent_session(
     request: AgentSessionCreate,
     service: AgentSessionService = Depends(get_agent_session_service),
-    current_user: TokenPayload = Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_agent_session_user),
 ):
     return await run_sync(service.create_session, request)
 
@@ -38,7 +54,7 @@ async def create_agent_session(
 async def get_agent_session(
     session_id: str,
     service: AgentSessionService = Depends(get_agent_session_service),
-    current_user: TokenPayload = Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_agent_session_user),
 ):
     try:
         return await run_sync(service.get_session, session_id)
@@ -52,7 +68,7 @@ async def prompt_agent_session(
     request: AgentPromptRequest,
     background_tasks: BackgroundTasks,
     service: AgentSessionService = Depends(get_agent_session_service),
-    current_user: TokenPayload = Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_agent_session_user),
 ):
     try:
         return await run_sync(service.start_prompt_background, session_id, request, background_tasks)
@@ -69,7 +85,7 @@ async def prompt_agent_session(
 async def list_agent_session_events(
     session_id: str,
     service: AgentSessionService = Depends(get_agent_session_service),
-    current_user: TokenPayload = Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_agent_session_user),
 ):
     try:
         await run_sync(service.get_session, session_id)
@@ -83,7 +99,7 @@ async def stream_agent_session_events(
     session_id: str,
     since_event_id: str | None = None,
     service: AgentSessionService = Depends(get_agent_session_service),
-    current_user: TokenPayload = Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_agent_session_user),
 ):
     async def event_stream():
         seen: set[str] = {since_event_id} if since_event_id else set()
@@ -116,7 +132,7 @@ action_router = APIRouter(tags=["Agent Sessions"])
 async def approve_agent_permission(
     permission_id: str,
     service: AgentSessionService = Depends(get_agent_session_service),
-    current_user: TokenPayload = Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_agent_session_user),
 ):
     try:
         session = await service.approve_permission_async(permission_id, True)
@@ -132,7 +148,7 @@ async def approve_agent_permission(
 async def reject_agent_permission(
     permission_id: str,
     service: AgentSessionService = Depends(get_agent_session_service),
-    current_user: TokenPayload = Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_agent_session_user),
 ):
     try:
         session = await service.approve_permission_async(permission_id, False)
@@ -148,7 +164,7 @@ async def reject_agent_permission(
 async def approve_agent_action(
     action_id: str,
     service: AgentSessionService = Depends(get_agent_session_service),
-    current_user: TokenPayload = Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_agent_session_user),
 ):
     try:
         session = await service.approve_action_async(action_id, True)
@@ -164,7 +180,7 @@ async def approve_agent_action(
 async def reject_agent_action(
     action_id: str,
     service: AgentSessionService = Depends(get_agent_session_service),
-    current_user: TokenPayload = Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_agent_session_user),
 ):
     try:
         session = await service.approve_action_async(action_id, False)
@@ -180,7 +196,7 @@ async def reject_agent_action(
 async def execute_agent_action(
     action_id: str,
     service: AgentSessionService = Depends(get_agent_session_service),
-    current_user: TokenPayload = Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_agent_session_user),
 ):
     try:
         session = await service.execute_action_async(action_id)

@@ -12,7 +12,14 @@ from fastapi import HTTPException
 
 COMMAND_ALLOWLIST = (
     ("npm", "run", "typecheck"),
+    ("npm", "run", "build"),
+    ("npm", "run", "lint"),
+    ("npm", "run", "test"),
+    ("npm", "run", "dev"),
     ("npm", "test"),
+    ("npx", "vitest", "run"),
+    ("vitest", "run"),
+    ("tsc", "--noemit"),
     ("python", "-m", "pytest"),
     ("python", "-m", "py_compile"),
 )
@@ -83,7 +90,7 @@ def detect_project_commands(root: Path) -> list[dict[str, Any]]:
         except Exception:
             continue
         scripts = data.get("scripts") or {}
-        for name in ("typecheck", "test"):
+        for name in ("typecheck", "test", "build", "lint"):
             if name in scripts:
                 command = ["npm", "run", name] if name != "test" else ["npm", "test"]
                 key = tuple(command + [str(package_json.parent)])
@@ -98,10 +105,108 @@ def detect_project_commands(root: Path) -> list[dict[str, Any]]:
                             "allowed": command_allowed(command),
                         }
                     )
+        if _has_vitest_support(package_json.parent):
+            command = ["npx", "vitest", "run"]
+            key = tuple(command + [str(package_json.parent)])
+            if key not in seen:
+                seen.add(key)
+                commands.append(
+                    {
+                        "command": command,
+                        "cwd": str(package_json.parent),
+                        "source": package_json.relative_to(root).as_posix() if package_json.is_relative_to(root) else str(package_json),
+                        "description": "vitest run",
+                        "allowed": command_allowed(command),
+                    }
+                )
+        if (package_json.parent / "tsconfig.json").exists():
+            command = ["tsc", "--noEmit"]
+            key = tuple(command + [str(package_json.parent)])
+            if key not in seen:
+                seen.add(key)
+                commands.append(
+                    {
+                        "command": command,
+                        "cwd": str(package_json.parent),
+                        "source": package_json.relative_to(root).as_posix() if package_json.is_relative_to(root) else str(package_json),
+                        "description": "TypeScript compiler check",
+                        "allowed": command_allowed(command),
+                    }
+                )
     if (root / "pytest.ini").exists() or (root / "pyproject.toml").exists() or (root / "server" / "tests").exists():
         command = ["python", "-m", "pytest"]
         commands.append({"command": command, "cwd": str(root), "source": "python", "description": "Python tests", "allowed": True})
     return commands
+
+
+def resolve_command_cwd(root: Path, args: list[str]) -> Path:
+    command = normalize_executable(args[0]) if args else ""
+    if command == "npm" and len(args) >= 3 and args[1].lower() == "run":
+        script = args[2]
+        if package_has_script(root, script):
+            return root
+        for candidate in _javascript_roots(root):
+            if candidate != root and package_has_script(candidate, script):
+                return candidate
+        return root
+    if command == "npm" and len(args) >= 2 and args[1].lower() == "test":
+        if package_has_script(root, "test"):
+            return root
+        for candidate in _javascript_roots(root):
+            if candidate != root and package_has_script(candidate, "test"):
+                return candidate
+        return root
+    if command in {"npx", "vitest"}:
+        for candidate in _javascript_roots(root):
+            if _has_vitest_support(candidate):
+                return candidate
+        return root
+    if command == "tsc":
+        for candidate in _javascript_roots(root):
+            if (candidate / "tsconfig.json").exists():
+                return candidate
+        return root
+    return root
+
+
+def package_has_script(root: Path, script: str) -> bool:
+    package_json = root / "package.json"
+    if not package_json.exists():
+        return False
+    try:
+        data = json.loads(package_json.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    return script in (data.get("scripts") or {})
+
+
+def _javascript_roots(root: Path) -> list[Path]:
+    candidates: list[Path] = []
+    for candidate in (root, root / "client"):
+        resolved = candidate.resolve()
+        if resolved not in candidates and (candidate / "package.json").exists():
+            candidates.append(resolved)
+    for candidate in (root / "client", root):
+        resolved = candidate.resolve()
+        if resolved not in candidates and candidate.exists():
+            candidates.append(resolved)
+    return candidates or [root.resolve()]
+
+
+def _has_vitest_support(root: Path) -> bool:
+    if not root.exists():
+        return False
+    if any((root / name).exists() for name in ("vitest.config.ts", "vitest.config.js", "vite.config.ts", "vite.config.js")):
+        return True
+    package_json = root / "package.json"
+    if not package_json.exists():
+        return False
+    try:
+        data = json.loads(package_json.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    scripts = data.get("scripts") or {}
+    return any("vitest" in str(value).lower() for value in scripts.values())
 
 
 def run_git(args: list[str], root: Path, timeout: int = 10) -> dict[str, Any]:

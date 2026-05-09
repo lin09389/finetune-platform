@@ -4,6 +4,9 @@ version = "2.1.0"
 description = "AI-powered fine-tuning platform with CUA and MCP integration"
 readme = "README.md"
 requires-python = ">=3.10"
+dependencies = [
+    "ast-grep-cli>=0.42.1",
+]
 
 [project.optional-dependencies]
 dev = [

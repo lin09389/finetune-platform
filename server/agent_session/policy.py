@@ -12,6 +12,9 @@ AUTONOMY_SAFE_AUTO = "safe_auto"
 AUTONOMY_CONFIRM_ALL = "confirm_all"
 AUTONOMY_READ_ONLY = "read_only"
 AUTONOMY_MODES = {AUTONOMY_SAFE_AUTO, AUTONOMY_CONFIRM_ALL, AUTONOMY_READ_ONLY}
+SAFE_PATCH_MAX_FILES = 3
+SAFE_PATCH_MAX_LINES_PER_FILE = 120
+SAFE_PATCH_MAX_TOTAL_LINES = 240
 
 
 def evaluate_agent_action_policy(
@@ -25,6 +28,11 @@ def evaluate_agent_action_policy(
         return _policy("blocked", "high", "只读模式已开启，Agent 不会写文件或执行命令")
 
     if part_type == "command":
+        tool_name = str(payload.get("tool") or "")
+        if tool_name == "stop_dev_server":
+            if mode == AUTONOMY_CONFIRM_ALL:
+                return _policy("approval_required", "low", "确认模式已开启，停止开发服务器需人工审批")
+            return _policy("auto", "low", "停止开发服务器属于低风险命令，允许自动执行")
         command = payload.get("command")
         if isinstance(command, str):
             return _policy("blocked", "high", "命令必须使用 argv 数组，禁止 shell 字符串")
@@ -34,6 +42,10 @@ def evaluate_agent_action_policy(
             return _policy("blocked", "high", str(exc.detail))
         if not command_allowed(argv):
             return _policy("blocked", "high", "命令不在白名单内，已阻断")
+        if payload.get("long_running") or tool_name == "run_dev_server" or (len(argv) >= 3 and argv[0].lower() == "npm" and argv[1].lower() == "run" and argv[2].lower() == "dev"):
+            return _policy("approval_required", "medium", "开发服务器是长运行命令，需人工审批后启动")
+        if len(argv) > 8:
+            return _policy("approval_required", "medium", "命令参数较长，需人工审批")
         if mode == AUTONOMY_CONFIRM_ALL:
             return _policy("approval_required", "low", "确认模式已开启，白名单命令需人工审批")
         return _policy("auto", "low", "白名单短命令，已按安全自动模式执行")
@@ -42,7 +54,7 @@ def evaluate_agent_action_policy(
         files = payload.get("files") or payload.get("file_changes") or []
         if not isinstance(files, list) or not files:
             return _policy("approval_required", "medium", "补丁未包含可识别文件，需人工审批")
-        if len(files) > 5:
+        if len(files) > 6:
             return _policy("approval_required", "medium", "补丁文件数量超出自动执行策略，需人工审批")
 
         safety = _evaluate_file_safety(files)
@@ -101,7 +113,7 @@ def _is_low_risk_safe_prefix(files: list[Any], safe_prefixes: tuple[str, ...]) -
         content = str(item.get("content") or "")
         if not relative_path.startswith(safe_prefixes) and not relative_path.endswith(".md"):
             return False
-        if len(content.splitlines()) > 80:
+        if len(content.splitlines()) > SAFE_PATCH_MAX_LINES_PER_FILE:
             return False
     return True
 
@@ -109,7 +121,7 @@ def _is_low_risk_safe_prefix(files: list[Any], safe_prefixes: tuple[str, ...]) -
 def _evaluate_source_policy(files: list[Any], touched_paths: set[str]) -> dict[str, str]:
     allowed_suffixes = {".py", ".ts", ".tsx", ".css", ".md"}
     total_lines = 0
-    multi_file_requires_approval = len(files) > 2
+    multi_file_requires_approval = len(files) > SAFE_PATCH_MAX_FILES
     for item in files:
         relative_path = str(item.get("path") or item.get("file_path") or "").replace("\\", "/")
         content = str(item.get("content") or "")
@@ -118,12 +130,12 @@ def _evaluate_source_policy(files: list[Any], touched_paths: set[str]) -> dict[s
             return _policy("approval_required", "medium", "源码补丁文件类型不在自动执行策略内")
         line_count = len(content.splitlines())
         total_lines += line_count
-        if line_count > 80:
-            return _policy("approval_required", "medium", "单文件源码补丁超过 80 行，需人工审批")
+        if line_count > SAFE_PATCH_MAX_LINES_PER_FILE:
+            return _policy("approval_required", "medium", f"单文件源码补丁超过 {SAFE_PATCH_MAX_LINES_PER_FILE} 行，需人工审批")
         if relative_path not in touched_paths:
             return _policy("approval_required", "medium", "源码文件未在同一轮被读取或搜索命中，需人工审批")
-    if total_lines > 160:
-        return _policy("approval_required", "medium", "源码补丁总行数超过 160 行，需人工审批")
+    if total_lines > SAFE_PATCH_MAX_TOTAL_LINES:
+        return _policy("approval_required", "medium", f"源码补丁总行数超过 {SAFE_PATCH_MAX_TOTAL_LINES} 行，需人工审批")
     if multi_file_requires_approval:
         return _policy("approval_required", "medium", "多文件源码补丁需人工审批后执行")
     return _policy("auto", "low", "低风险源码小改，已按安全自动模式执行")
@@ -136,4 +148,3 @@ def _policy(execution_mode: str, risk_level: str, reason: str) -> dict[str, str]
         "risk_level": risk_level,
         "policy_reason": reason,
     }
-
