@@ -27,7 +27,7 @@ import GlassCard from '../components/shared/GlassCard';
 import PageHeader from '../components/shared/PageHeader';
 import { CountUp } from '../components/shared/MotionWrapper';
 import { getDatasetList, getDeviceInfo, getModelList, listDeploymentPackages } from '../services/api';
-import { getTrainingHistory } from '../services/trainingApi';
+import { getTrainingCheckpoints, getTrainingHistory } from '../services/trainingApi';
 import { useAppStore } from '../store/appStore';
 import type { TrainingRecord } from '../types';
 import { useRuntimeContext } from '../runtime/RuntimeContext';
@@ -170,6 +170,7 @@ export default function Dashboard() {
   })));
   const { inference, summary } = useRuntimeContext();
   const [deploymentPackageCount, setDeploymentPackageCount] = useState(0);
+  const [latestCheckpoints, setLatestCheckpoints] = useState<Record<string, any>>({});
 
   const fetchDeviceInfo = async () => {
     if (backendStatus !== 'connected') return;
@@ -206,6 +207,23 @@ export default function Dashboard() {
         }
         if (trainingResult.status === 'fulfilled' && Array.isArray(trainingResult.value)) {
           setTrainingRecords(trainingResult.value);
+          // 加载最近 5 条训练记录的检查点
+          const recent = trainingResult.value.slice(-5).reverse();
+          const checkpointMap: Record<string, any> = {};
+          await Promise.all(
+            recent.map(async (record: TrainingRecord) => {
+              try {
+                const cps = await getTrainingCheckpoints(record.id);
+                const validCps = cps.filter((cp: any) => cp.valid !== false);
+                if (validCps.length > 0) {
+                  checkpointMap[record.id] = validCps[validCps.length - 1];
+                }
+              } catch {
+                // ignore checkpoint load errors
+              }
+            })
+          );
+          setLatestCheckpoints(checkpointMap);
         }
         if (deploymentResult.status === 'fulfilled' && Array.isArray(deploymentResult.value)) {
           setDeploymentPackageCount(deploymentResult.value.length);
@@ -454,6 +472,34 @@ export default function Dashboard() {
           {new Date(date).toLocaleString('zh-CN')}
         </span>
       ),
+    },
+    {
+      title: '最新检查点',
+      key: 'checkpoint',
+      render: (_: unknown, record: TrainingRecord) => {
+        const cp = latestCheckpoints[record.id];
+        if (!cp) return <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>-</span>;
+        return (
+          <div>
+            <Tag
+              style={{
+                borderRadius: 'var(--radius-sm)',
+                fontWeight: 600,
+                background: 'var(--accent-primary-light)',
+                borderColor: 'var(--accent-primary)',
+                color: 'var(--accent-primary)',
+              }}
+            >
+              step {cp.step}
+            </Tag>
+            {cp.metadata?.loss !== undefined && (
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                loss {cp.metadata.loss.toFixed(4)}
+              </div>
+            )}
+          </div>
+        );
+      },
     },
   ];
 

@@ -137,6 +137,9 @@ const TrainingPage: React.FC = () => {
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
   const [backendTraining, setBackendTraining] = useState(false);
+  const [phaseDurations, setPhaseDurations] = useState<Record<string, number>>({});
+  const [currentPhase, setCurrentPhase] = useState<string>('');
+  const [retryCount, setRetryCount] = useState(0);
   const [preflightResult, setPreflightResult] = useState<PreflightResult | null>(null);
   const [preflightChecking, setPreflightChecking] = useState(false);
   const [preflightFingerprint, setPreflightFingerprint] = useState<string | null>(null);
@@ -302,10 +305,32 @@ const TrainingPage: React.FC = () => {
           if (alreadyExists) return prev;
           const newData = [
             ...prev,
-            { step: nextProgress.step, loss: nextProgress.loss, lr: nextProgress.lr || 0 },
+            {
+              step: nextProgress.step,
+              loss: nextProgress.loss,
+              lr: nextProgress.lr || 0,
+              vram: nextProgress.vramUsed || nextProgress.vram_used || 0,
+            },
           ];
           return newData.length > 800 ? newData.slice(newData.length - 800) : newData;
         });
+      }
+
+      // 阶段信息
+      if (nextProgress.currentPhase || nextProgress.current_phase) {
+        setCurrentPhase(nextProgress.currentPhase || nextProgress.current_phase);
+      }
+      if (nextProgress.phaseDurations || nextProgress.phase_durations) {
+        setPhaseDurations(nextProgress.phaseDurations || nextProgress.phase_durations);
+      }
+      if (nextProgress.retryCount !== undefined || nextProgress.retry_count !== undefined) {
+        setRetryCount(nextProgress.retryCount || nextProgress.retry_count || 0);
+      }
+
+      // Checkpoint saved notification
+      const msg = nextProgress.message || '';
+      if (typeof msg === 'string' && msg.includes('Checkpoint saved')) {
+        notify.success(msg);
       }
 
       if (nextProgress.status === 'queued') setTrainingStatus('queued');
@@ -317,11 +342,13 @@ const TrainingPage: React.FC = () => {
         setTrainingStatus('completed');
         setFailureDiagnosis(null);
         setIsTraining(false);
+        setCurrentPhase('');
         void resolveTrainingRecoveryState();
         notify.success('训练完成');
       } else if (nextProgress.status === 'failed' || nextProgress.status === 'stopped') {
         setTrainingStatus(nextProgress.status === 'failed' ? 'failed' : 'idle');
         setIsTraining(false);
+        setCurrentPhase('');
         if (nextProgress.status === 'failed') {
           setFailureDiagnosis(diagnoseTrainingFailure(nextProgress.message));
           notify.error(nextProgress.message || '训练失败');
@@ -923,6 +950,9 @@ const TrainingPage: React.FC = () => {
     setProgress(null);
     setChartData([]);
     setCurrentTaskId(null);
+    setPhaseDurations({});
+    setCurrentPhase('');
+    setRetryCount(0);
   };
 
   const formatElapsed = (seconds?: number) => {
@@ -1044,6 +1074,9 @@ const TrainingPage: React.FC = () => {
                 selectedDataset={watchedDatasetId}
                 selectedMethod={watchedMethod}
                 onReset={handleResetTraining}
+                phaseDurations={phaseDurations}
+                currentPhase={currentPhase}
+                retryCount={retryCount}
               />
             </div>
           </div>

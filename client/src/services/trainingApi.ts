@@ -59,6 +59,7 @@ const normalizeTrainingConfig = (config: any = {}) => ({
   validationDatasetId: config.validationDatasetId ?? config.validation_dataset_id ?? '',
   validation_dataset_id: config.validation_dataset_id ?? config.validationDatasetId ?? '',
   resume_from_checkpoint: config.resume_from_checkpoint,
+  resume_from_adapter: config.resume_from_adapter,
 });
 
 export const normalizeTrainingRecord = (record: any) => {
@@ -229,5 +230,10 @@ export const checkTrainingResources = async (params: {
 }) => checkRawTrainingResources(params);
 
 export const checkTrainingPreflight = async (config: any) => checkRawTrainingPreflight(config);
+
+export {
+  cleanupTrainingCheckpoints,
+  compareTrainingCheckpoints,
+} from './api';
 
 export { API_BASE_URL, stopTraining };

@@ -16,7 +16,7 @@ from pathlib import Path
 from queue import Empty, Queue
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from core.logging import get_logger
 
@@ -35,6 +35,14 @@ class TrainingProgress(BaseModel):
     eta: float = 0.0
     status: str = "idle"
     message: str = ""
+    # 扩展观测字段
+    grad_norm: float | None = None
+    speed: float = 0.0  # steps/sec
+    samples_per_sec: float = 0.0
+    current_phase: str = ""
+    phase_durations: dict[str, float] = Field(default_factory=dict)
+    retry_count: int = 0
+    queue_position: int = 0
 
     def __await__(self):
         async def _return_self():

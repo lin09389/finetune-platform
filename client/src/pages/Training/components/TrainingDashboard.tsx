@@ -1,24 +1,29 @@
 import React, { useEffect, useRef } from 'react';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid,
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Area, AreaChart,
   Tooltip as RechartsTooltip, ResponsiveContainer,
 } from 'recharts';
 import {
   CodeOutlined, SaveOutlined,
   RocketOutlined, CheckCircleOutlined, CloseCircleOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { AnimatePresence, motion } from 'framer-motion';
+import { Tag } from 'antd';
 import styles from './TrainingDashboard.module.css';
 import type { TrainingProgress as TrainingProgressType } from '../../../types';
 
 interface TrainingDashboardProps {
   progress: TrainingProgressType | null;
-  chartData: { step: number; loss: number; lr: number }[];
+  chartData: { step: number; loss: number; lr: number; vram?: number }[];
   status: 'idle' | 'queued' | 'loading' | 'training' | 'stopping' | 'completed' | 'failed';
   selectedModel?: string;
   selectedDataset?: string;
   selectedMethod?: string;
   onReset?: () => void;
+  phaseDurations?: Record<string, number>;
+  currentPhase?: string;
+  retryCount?: number;
 }
 
 /* ── Animated Metric Value ── */
@@ -138,6 +143,57 @@ const IdleView = ({
   </div>
 );
 
+/* ── Phase Stepper ── */
+const PHASE_ORDER = ['setup', 'load_model', 'load_dataset', 'build_trainer', 'train', 'save', 'cleanup'];
+const PHASE_LABELS: Record<string, string> = {
+  setup: '初始化',
+  load_model: '加载模型',
+  load_dataset: '加载数据',
+  build_trainer: '构建训练器',
+  train: '训练中',
+  save: '保存结果',
+  cleanup: '清理',
+};
+
+const PhaseStepper = ({ currentPhase, phaseDurations }: { currentPhase?: string; phaseDurations?: Record<string, number> }) => {
+  const currentIndex = currentPhase ? PHASE_ORDER.indexOf(currentPhase) : -1;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 16, flexWrap: 'wrap' }}>
+      {PHASE_ORDER.map((phase, index) => {
+        const isActive = index === currentIndex;
+        const isCompleted = index < currentIndex;
+        const duration = phaseDurations?.[phase];
+        return (
+          <React.Fragment key={phase}>
+            <div
+              style={{
+                padding: '4px 10px',
+                borderRadius: 6,
+                fontSize: 11,
+                fontWeight: 600,
+                fontFamily: 'var(--font-mono)',
+                background: isActive ? 'rgba(0,255,194,0.15)' : isCompleted ? 'rgba(255,255,255,0.06)' : 'transparent',
+                color: isActive ? '#00FFC2' : isCompleted ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)',
+                border: `1px solid ${isActive ? 'rgba(0,255,194,0.3)' : isCompleted ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.05)'}`,
+                transition: 'all 0.3s ease',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {PHASE_LABELS[phase]}
+              {duration !== undefined && duration > 0 && (
+                <span style={{ marginLeft: 4, opacity: 0.6 }}>{Math.round(duration)}s</span>
+              )}
+            </div>
+            {index < PHASE_ORDER.length - 1 && (
+              <div style={{ width: 12, height: 1, background: isCompleted ? 'rgba(0,255,194,0.3)' : 'rgba(255,255,255,0.08)' }} />
+            )}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+};
+
 /* ── Main Dashboard ── */
 const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
   progress,
@@ -147,6 +203,9 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
   selectedDataset,
   selectedMethod,
   onReset,
+  phaseDurations,
+  currentPhase,
+  retryCount,
 }) => {
   const fakeLogs = progress
     ? [
@@ -298,6 +357,19 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
   return (
     <div className={styles.dashboardContainer}>
       <div className={styles.dashboardContent}>
+        {/* Phase Stepper */}
+        <PhaseStepper currentPhase={currentPhase} phaseDurations={phaseDurations} />
+
+        {/* Retry indicator */}
+        {retryCount !== undefined && retryCount > 0 && (
+          <div style={{ marginBottom: 8 }}>
+            <Tag color="warning" style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+              <ThunderboltOutlined style={{ marginRight: 4 }} />
+              自动重试中 ({retryCount})
+            </Tag>
+          </div>
+        )}
+
         {/* Stats Grid */}
         <div className={styles.statsRow}>
           <PulseGauge
@@ -319,16 +391,48 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
             />
           </div>
           <div className={styles.statCard}>
+            <div className={styles.statLabel}>速度</div>
+            <AnimatedValue
+              value={progress?.speed ? `${progress.speed.toFixed(1)} s/s` : '--'}
+              className={styles.statValueWhite}
+            />
+          </div>
+        </div>
+
+        {/* Secondary Stats Row */}
+        <div className={styles.statsRow} style={{ marginTop: 8 }}>
+          <div className={styles.statCard}>
+            <div className={styles.statLabel}>样本/秒</div>
+            <AnimatedValue
+              value={progress?.samplesPerSec ? `${progress.samplesPerSec.toFixed(1)}` : '--'}
+              className={styles.statValueWhite}
+            />
+          </div>
+          <div className={styles.statCard}>
+            <div className={styles.statLabel}>梯度范数</div>
+            <AnimatedValue
+              value={progress?.gradNorm ? progress.gradNorm.toFixed(3) : '--'}
+              className={styles.statValueWhite}
+            />
+          </div>
+          <div className={styles.statCard}>
             <div className={styles.statLabel}>预计剩余</div>
             <AnimatedValue
-              value={progress?.eta ? `${Math.floor(progress.eta / 60)}m` : '--'}
+              value={progress?.eta ? `${Math.floor(progress.eta / 60)}m ${Math.floor(progress.eta % 60)}s` : '--'}
+              className={styles.statValueWhite}
+            />
+          </div>
+          <div className={styles.statCard}>
+            <div className={styles.statLabel}>学习率</div>
+            <AnimatedValue
+              value={progress?.lr ? progress.lr.toExponential(2) : '--'}
               className={styles.statValueWhite}
             />
           </div>
         </div>
 
         {/* Step Progress Bar */}
-        <div>
+        <div style={{ marginTop: 16 }}>
           <div className={styles.progressBarContainer}>
             <div
               className={styles.progressBarFill}
@@ -343,7 +447,7 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
           </div>
         </div>
 
-        {/* Chart */}
+        {/* Chart Tabs - Loss/LR + VRAM */}
         <div className={styles.chartWrapper}>
           <div className={styles.chartHeader}>
             <span className={styles.chartTitle}>训练指标回顾</span>
@@ -424,6 +528,63 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
             </div>
           )}
         </div>
+
+        {/* VRAM Chart */}
+        {chartData.some((d) => d.vram !== undefined && d.vram > 0) && (
+          <div className={styles.chartWrapper} style={{ marginTop: 12 }}>
+            <div className={styles.chartHeader}>
+              <span className={styles.chartTitle}>显存使用趋势</span>
+              <div className={styles.chartLegend}>
+                <div className={styles.legendItem}>
+                  <span className={styles.legendDot} style={{ background: '#7B61FF' }} />
+                  VRAM (GB)
+                </div>
+              </div>
+            </div>
+            <ResponsiveContainer width="100%" height={160}>
+              <AreaChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+                <defs>
+                  <linearGradient id="vramGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#7B61FF" stopOpacity={0.25} />
+                    <stop offset="100%" stopColor="#7B61FF" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" />
+                <XAxis
+                  dataKey="step"
+                  stroke="rgba(255,255,255,0.1)"
+                  tick={{ fill: 'rgba(255,255,255,0.25)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)' }}
+                  axisLine={{ stroke: 'rgba(255,255,255,0.06)' }}
+                />
+                <YAxis
+                  stroke="transparent"
+                  tick={{ fill: 'rgba(123, 97, 255, 0.5)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)' }}
+                />
+                <RechartsTooltip
+                  contentStyle={{
+                    backgroundColor: 'rgba(0,0,0,0.9)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: '8px',
+                    fontFamily: 'var(--font-mono, monospace)',
+                    fontSize: 11,
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                    padding: '10px 14px',
+                  }}
+                  labelStyle={{ color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="vram"
+                  stroke="#7B61FF"
+                  strokeWidth={2}
+                  fill="url(#vramGradient)"
+                  dot={false}
+                  activeDot={{ r: 4, fill: '#7B61FF', stroke: 'rgba(123,97,255,0.3)', strokeWidth: 6 }}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        )}
 
         {/* Terminal */}
         <TerminalStream logs={fakeLogs} />

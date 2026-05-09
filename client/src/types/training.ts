@@ -28,6 +28,13 @@ export interface TrainingProgress {
   error_code?: string;
   error_category?: string;
   actionable_suggestions?: string[];
+  // 扩展观测字段
+  grad_norm?: number | null;
+  speed?: number;
+  samples_per_sec?: number;
+  current_phase?: string;
+  phase_durations?: Record<string, number>;
+  retry_count?: number;
 }
 
 export interface TrainingConfig {
@@ -46,6 +53,7 @@ export interface TrainingConfig {
   logging_steps: number;
   quantization: number;
   resume_from_checkpoint?: string;
+  resume_from_adapter?: string;
 }
 
 export interface TrainingRecord {

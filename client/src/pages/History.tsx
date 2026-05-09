@@ -1,4 +1,5 @@
 import {
+  BarChartOutlined,
   DeleteOutlined,
   DownloadOutlined,
   EyeOutlined,
@@ -39,6 +40,8 @@ import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import PageHeader from '../components/shared/PageHeader';
 import { mergeLora } from '../services/api';
 import {
+  cleanupTrainingCheckpoints,
+  compareTrainingCheckpoints,
   getTrainingCheckpoints,
   getTrainingHistory,
   getTrainingTaskMetricsV2,
@@ -166,6 +169,13 @@ export default function History({ mode = 'history' }: HistoryProps) {
   const autoCompareIdsRef = useRef<string[]>([]);
   const compareSelectionTouchedRef = useRef(false);
 
+  // Checkpoint cleanup & compare
+  const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [checkpointCompareOpen, setCheckpointCompareOpen] = useState(false);
+  const [checkpointCompareLoading, setCheckpointCompareLoading] = useState(false);
+  const [checkpointCompareResult, setCheckpointCompareResult] = useState<any>(null);
+  const [selectedCheckpointNames, setSelectedCheckpointNames] = useState<string[]>([]);
+
   useEffect(() => {
     void loadRecords();
   }, []);
@@ -283,6 +293,63 @@ export default function History({ mode = 'history' }: HistoryProps) {
   const handleDelete = async (id: string) => {
     removeTrainingRecord(id);
     message.success('记录已删除');
+  };
+
+  const handleCleanupCheckpoints = async () => {
+    if (!selectedRecord) return;
+    const invalidCount = checkpoints.filter((cp) => cp.valid === false).length;
+    if (invalidCount === 0) {
+      message.info('没有无效检查点需要清理');
+      return;
+    }
+    Modal.confirm({
+      title: '清理无效检查点',
+      content: `确定要清理 ${invalidCount} 个无效检查点吗？此操作不可恢复。`,
+      okText: '确认清理',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        setCleanupLoading(true);
+        try {
+          const result = await cleanupTrainingCheckpoints(selectedRecord.id);
+          message.success(`已清理 ${result.removed} 个无效检查点，释放 ${(result.freed_bytes / 1024 / 1024).toFixed(2)} MB`);
+          await loadCheckpoints(selectedRecord);
+        } catch (error) {
+          console.error('Failed to cleanup checkpoints:', error);
+          message.error(getErrorMessage(error, '清理检查点失败'));
+        } finally {
+          setCleanupLoading(false);
+        }
+      },
+    });
+  };
+
+  const handleOpenCheckpointCompare = () => {
+    if (checkpoints.length < 2) {
+      message.warning('至少需要两个检查点才能对比');
+      return;
+    }
+    setSelectedCheckpointNames([]);
+    setCheckpointCompareResult(null);
+    setCheckpointCompareOpen(true);
+  };
+
+  const handleRunCheckpointCompare = async () => {
+    if (selectedCheckpointNames.length < 2) {
+      message.warning('请选择至少两个检查点进行对比');
+      return;
+    }
+    setCheckpointCompareLoading(true);
+    try {
+      const selected = checkpoints.filter((cp) => selectedCheckpointNames.includes(cp.name));
+      const result = await compareTrainingCheckpoints(selected);
+      setCheckpointCompareResult(result);
+    } catch (error) {
+      console.error('Failed to compare checkpoints:', error);
+      message.error(getErrorMessage(error, '对比检查点失败'));
+    } finally {
+      setCheckpointCompareLoading(false);
+    }
   };
 
   const loadCheckpoints = async (record: TrainingRecord) => {
@@ -1048,32 +1115,101 @@ export default function History({ mode = 'history' }: HistoryProps) {
             </Descriptions>
 
             <div className={styles.detailSection}>
-              <div className={styles.detailSectionTitle}>可恢复检查点</div>
+              <div className={styles.detailSectionTitle}>
+                <span>可恢复检查点</span>
+                <Space>
+                  <Button
+                    size="small"
+                    icon={<BarChartOutlined />}
+                    onClick={handleOpenCheckpointCompare}
+                    disabled={checkpoints.length < 2}
+                  >
+                    对比
+                  </Button>
+                  <Button
+                    size="small"
+                    danger
+                    icon={<DeleteOutlined />}
+                    loading={cleanupLoading}
+                    onClick={handleCleanupCheckpoints}
+                    disabled={checkpoints.filter((cp) => cp.valid === false).length === 0}
+                  >
+                    清理无效
+                  </Button>
+                </Space>
+              </div>
               <Spin spinning={checkpointsLoading}>
                 {checkpoints.length > 0 ? (
-                  checkpoints.map((checkpoint) => (
-                    <div key={checkpoint.name} className={styles.checkpointItem}>
-                      <div>
-                        <div className={styles.checkpointName}>
-                          {checkpoint.name} · step {checkpoint.step}
-                        </div>
-                        <div className={styles.checkpointMeta}>
-                          创建于 {new Date(checkpoint.created).toLocaleString('zh-CN')}
-                        </div>
-                      </div>
-                      <Button
-                        type="primary"
-                        ghost
-                        size="small"
-                        icon={<PlayCircleOutlined />}
-                        loading={resumingCheckpoint === checkpoint.name}
-                        onClick={() => void handleResume(checkpoint.name)}
-                        style={{ borderRadius: 6 }}
+                  checkpoints.map((checkpoint) => {
+                    const tags = checkpoint.metadata?.tags || [];
+                    const isRecovery = tags.includes('recovery');
+                    const isRollback = tags.includes('rollback');
+                    const isValid = checkpoint.valid !== false;
+                    const meta = checkpoint.metadata;
+                    return (
+                      <div
+                        key={checkpoint.name}
+                        className={styles.checkpointItem}
+                        style={{
+                          opacity: isValid ? 1 : 0.6,
+                          borderColor: isValid ? undefined : '#ff4d4f',
+                        }}
                       >
-                        恢复训练
-                      </Button>
-                    </div>
-                  ))
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div className={styles.checkpointName}>
+                            <Space size={4} wrap>
+                              <span>{checkpoint.name}</span>
+                              <span>· step {checkpoint.step}</span>
+                              {!isValid && (
+                                <Tag color="error">无效</Tag>
+                              )}
+                              {isRecovery && (
+                                <Tag color="warning">恢复点</Tag>
+                              )}
+                              {isRollback && (
+                                <Tag color="blue">回退点</Tag>
+                              )}
+                              {!isRecovery && !isRollback && isValid && (
+                                <Tag color="success">常规</Tag>
+                              )}
+                            </Space>
+                          </div>
+                          <div className={styles.checkpointMeta}>
+                            <Space size={12} wrap>
+                              <span>
+                                创建于 {new Date(checkpoint.created).toLocaleString('zh-CN')}
+                              </span>
+                              {meta?.saved_at && (
+                                <span>元数据 {new Date(meta.saved_at).toLocaleString('zh-CN')}</span>
+                              )}
+                              {meta?.loss !== undefined && (
+                                <span>loss {meta.loss.toFixed(4)}</span>
+                              )}
+                              {meta?.lr !== undefined && (
+                                <span>lr {meta.lr.toExponential(2)}</span>
+                              )}
+                              {meta?.epoch !== undefined && (
+                                <span>epoch {meta.epoch.toFixed(2)}</span>
+                              )}
+                            </Space>
+                          </div>
+                        </div>
+                        <Button
+                          type="primary"
+                          ghost
+                          size="small"
+                          icon={<PlayCircleOutlined />}
+                          loading={resumingCheckpoint === checkpoint.name}
+                          onClick={() => void handleResume(checkpoint.name)}
+                          style={{ borderRadius: 6, flexShrink: 0 }}
+                          disabled={!isValid}
+                          title={!isValid ? '检查点文件不完整，无法恢复' : undefined}
+                        >
+                          恢复训练
+                        </Button>
+                      </div>
+                    );
+                  })
                 ) : (
                   <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前没有可用检查点" />
                 )}
@@ -1234,6 +1370,132 @@ export default function History({ mode = 'history' }: HistoryProps) {
           )}
         </Spin>
       </Drawer>
+
+      {/* Checkpoint Compare Modal */}
+      <Modal
+        title="检查点对比"
+        open={checkpointCompareOpen}
+        onCancel={() => setCheckpointCompareOpen(false)}
+        width={720}
+        footer={[
+          <Button key="cancel" onClick={() => setCheckpointCompareOpen(false)}>
+            关闭
+          </Button>,
+          <Button
+            key="compare"
+            type="primary"
+            icon={<BarChartOutlined />}
+            loading={checkpointCompareLoading}
+            onClick={handleRunCheckpointCompare}
+            disabled={selectedCheckpointNames.length < 2}
+          >
+            开始对比
+          </Button>,
+        ]}
+      >
+        <Spin spinning={checkpointCompareLoading}>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>选择检查点（至少两个）：</div>
+            <Space size={8} wrap>
+              {checkpoints.map((cp) => (
+                <Button
+                  key={cp.name}
+                  size="small"
+                  type={selectedCheckpointNames.includes(cp.name) ? 'primary' : 'default'}
+                  onClick={() => {
+                    setSelectedCheckpointNames((prev) =>
+                      prev.includes(cp.name)
+                        ? prev.filter((n) => n !== cp.name)
+                        : [...prev, cp.name]
+                    );
+                  }}
+                >
+                  {cp.name} (step {cp.step})
+                </Button>
+              ))}
+            </Space>
+          </div>
+
+          {checkpointCompareResult && (
+            <div>
+              <div style={{ fontWeight: 600, marginBottom: 12 }}>对比结果</div>
+              {checkpointCompareResult.checkpoints?.map((cp: any, index: number) => (
+                <div
+                  key={index}
+                  style={{
+                    padding: 12,
+                    marginBottom: 8,
+                    borderRadius: 8,
+                    border: '1px solid var(--border-color)',
+                    background: 'var(--bg-primary)',
+                  }}
+                >
+                  <div style={{ fontWeight: 600 }}>{cp.name}</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
+                    step {cp.step} · loss {cp.metadata?.loss?.toFixed(4) ?? '-'} · lr{' '}
+                    {cp.metadata?.lr?.toExponential(2) ?? '-'} · epoch{' '}
+                    {cp.metadata?.epoch?.toFixed(2) ?? '-'}
+                  </div>
+                  <div style={{ marginTop: 4 }}>
+                    <Space size={4}>
+                      {cp.metadata?.tags?.map((tag: string) => (
+                        <Tag key={tag}>{tag}</Tag>
+                      ))}
+                    </Space>
+                  </div>
+                </div>
+              ))}
+
+              {Object.keys(checkpointCompareResult.differences || {}).length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 8 }}>差异分析</div>
+                  <Table
+                    size="small"
+                    columns={[
+                      { title: '指标', dataIndex: 'field', key: 'field' },
+                      { title: '起始值', dataIndex: 'from', key: 'from' },
+                      { title: '结束值', dataIndex: 'to', key: 'to' },
+                      { title: '变化', dataIndex: 'delta', key: 'delta' },
+                      {
+                        title: '趋势',
+                        dataIndex: 'trend',
+                        key: 'trend',
+                        render: (trend: string) => {
+                          const color =
+                            trend === 'improved' ? 'green' : trend === 'worsened' ? 'red' : 'default';
+                          const text =
+                            trend === 'improved' ? '改善' : trend === 'worsened' ? '恶化' : '稳定';
+                          return <Tag color={color}>{text}</Tag>;
+                        },
+                      },
+                    ]}
+                    dataSource={Object.entries(checkpointCompareResult.differences || {}).map(
+                      ([field, diff]: [string, any]) => ({
+                        key: field,
+                        field: field.toUpperCase(),
+                        from:
+                          typeof diff.from === 'number'
+                            ? diff.from.toFixed(4)
+                            : String(diff.from ?? '-'),
+                        to:
+                          typeof diff.to === 'number'
+                            ? diff.to.toFixed(4)
+                            : String(diff.to ?? '-'),
+                        delta:
+                          typeof diff.delta === 'number'
+                            ? `${diff.delta >= 0 ? '+' : ''}${diff.delta.toFixed(4)}`
+                            : String(diff.delta ?? '-'),
+                        trend: checkpointCompareResult.trend?.[field] || 'stable',
+                      })
+                    )}
+                    pagination={false}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </Spin>
+      </Modal>
     </MotionList>
   );
 }
