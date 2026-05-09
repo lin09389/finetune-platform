@@ -124,12 +124,11 @@ def _write_export_manifest(
     }
     if extra:
         manifest.update(extra)
+    if extra and extra.get("adapter_path"):
+        manifest["adapter_path_raw"] = str(extra["adapter_path"])
     manifest_text = json.dumps(manifest, ensure_ascii=False, indent=2)
     with open(output_dir / "export_config.json", "w", encoding="utf-8") as f:
         f.write(manifest_text)
-        if extra and extra.get("adapter_path"):
-            f.write("\n")
-            f.write(f"adapter_path_raw={extra['adapter_path']}\n")
     return manifest
 
 

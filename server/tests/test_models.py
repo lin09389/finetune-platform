@@ -1,9 +1,10 @@
 """
 模型 API 测试
 """
+import importlib
+import json
 import os
 import sys
-import importlib
 import types
 from pathlib import Path
 from types import SimpleNamespace
@@ -177,8 +178,9 @@ class TestModelAPI:
         manifest = Path(data["path"]) / "export_config.json"
         assert manifest.exists()
         manifest_data = manifest.read_text(encoding="utf-8")
-        assert '"format": "lora-merged"' in manifest_data
-        assert str(adapter_dir) in manifest_data
+        manifest_json = json.loads(manifest_data)
+        assert manifest_json["format"] == "lora-merged"
+        assert manifest_json["adapter_path_raw"] == str(adapter_dir)
 
     def test_merge_lora_falls_back_to_training_history_adapter(self, tmp_path, monkeypatch):
         """测试未显式传 adapter 时会从训练历史中兜底查找"""
