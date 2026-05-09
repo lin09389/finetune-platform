@@ -313,34 +313,86 @@ body::before {
   opacity: 0.15;
 }
 
+/* Fluid Mesh Glow Background */
 body::after {
   content: '';
   position: fixed;
-  top: -20vh;
-  left: -20vw;
-  width: 140vw;
-  height: 140vh;
+  top: -50vh;
+  left: -50vw;
+  width: 200vw;
+  height: 200vh;
   z-index: -2;
   pointer-events: none;
   background: 
     radial-gradient(circle at 20% 30%, var(--accent-primary-light) 0%, transparent 40%),
-    radial-gradient(circle at 80% 70%, rgba(124, 58, 237, 0.05) 0%, transparent 40%);
-  animation: ambient-glow 15s ease-in-out infinite alternate;
+    radial-gradient(circle at 80% 70%, rgba(139, 92, 246, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 50% 10%, rgba(59, 130, 246, 0.05) 0%, transparent 35%);
+  animation: ambient-glow 20s ease-in-out infinite alternate;
+  filter: blur(60px);
 }
 
 @keyframes ambient-glow {
-  0% { transform: translate(0, 0) scale(1); }
-  100% { transform: translate(3%, 4%) scale(1.05); }
+  0% { transform: translate(0, 0) scale(1) rotate(0deg); }
+  33% { transform: translate(5%, 5%) scale(1.05) rotate(2deg); }
+  66% { transform: translate(-2%, 8%) scale(0.95) rotate(-1deg); }
+  100% { transform: translate(0%, 0%) scale(1) rotate(0deg); }
 }
 
 .dark-theme body::before {
-  opacity: 0.08;
+  opacity: 0.06;
 }
 
 .dark-theme body::after {
   background: 
-    radial-gradient(circle at 20% 30%, rgba(99, 102, 241, 0.1) 0%, transparent 40%),
-    radial-gradient(circle at 80% 70%, rgba(167, 139, 250, 0.08) 0%, transparent 40%);
+    radial-gradient(circle at 20% 30%, rgba(99, 102, 241, 0.15) 0%, transparent 40%),
+    radial-gradient(circle at 80% 70%, rgba(167, 139, 250, 0.12) 0%, transparent 40%),
+    radial-gradient(circle at 40% 80%, rgba(0, 255, 194, 0.05) 0%, transparent 35%);
+  filter: blur(80px);
+}
+
+/* Gradient Text & Neon Utilities */
+.text-gradient-primary {
+  background: var(--gradient-brand);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+}
+
+.text-gradient-neon {
+  background: linear-gradient(135deg, var(--accent-neon-cyan) 0%, var(--accent-primary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 20px rgba(0, 255, 194, 0.3);
+}
+
+.neon-border {
+  position: relative;
+}
+
+.neon-border::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-neon-cyan), var(--accent-neon-purple));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.neon-pulse {
+  animation: neon-pulse-anim 2s infinite;
+}
+
+@keyframes neon-pulse-anim {
+  0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
+  70% { box-shadow: 0 0 0 10px rgba(99, 102, 241, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
 }
 
 body,

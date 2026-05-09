@@ -72,10 +72,10 @@
   letter-spacing: -0.04em;
   line-height: 1;
   margin-top: var(--space-2);
-  background: linear-gradient(135deg, var(--text-primary) 20%, var(--text-secondary) 100%);
+  background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-primary) 120%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  text-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  text-shadow: 0 8px 16px rgba(99, 102, 241, 0.1);
 }
 
 .statTotal {
@@ -114,7 +114,9 @@
 .quickActionCard:hover {
   transform: translateY(-4px);
   border-color: var(--accent-primary);
-  box-shadow: 0 12px 40px rgba(99, 102, 241, 0.15);
+  box-shadow:
+    0 12px 40px rgba(99, 102, 241, 0.25),
+    inset 0 0 20px rgba(99, 102, 241, 0.05);
 }
 
 .quickActionIcon {

@@ -35,10 +35,10 @@ const GlassCard: React.FC<GlassCardProps> = ({
       animate={{ opacity: 1, y: 0 }}
       whileHover={
         !noHover && !reduceMotion
-          ? { y: -4, transition: { duration: 0.2, ease: [0.16, 1, 0.3, 1] } }
+          ? { y: -6, scale: 1.01, transition: { type: 'spring', stiffness: 300, damping: 20 } }
           : undefined
       }
-      transition={reduceMotion ? { duration: 0 } : { duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+      transition={reduceMotion ? { duration: 0 } : { duration: 0.4, type: 'spring', stiffness: 200, damping: 20 }}
       onMouseMove={handleMouseMove}
       {...props}
     >
