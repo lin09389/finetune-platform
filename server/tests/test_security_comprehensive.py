@@ -218,7 +218,10 @@ class TestAuditLogger:
 
     @pytest.fixture
     def audit_logger(self, tmp_path):
-        return AuditLogger(storage_path=tmp_path / "audit")
+        return AuditLogger(
+            storage_path=tmp_path / "audit",
+            db_path=str(tmp_path / "test_audit.db"),
+        )
 
     def test_log_event(self, audit_logger):
         """AL-001: 记录事件"""

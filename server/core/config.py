@@ -48,8 +48,8 @@ class Settings(BaseSettings):
     jwt_refresh_token_expire_days: int = Field(default=7, description="Refresh Token 过期时间（天）")
 
     allowed_origins: list[str] | str = Field(
-        default=["*"],
-        description="允许的 CORS 来源"
+        default=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"],
+        description="允许的 CORS 来源（生产环境必须限制为具体域名）"
     )
 
     rate_limit: int = Field(default=100, ge=1, description="速率限制请求数")
@@ -162,6 +162,9 @@ class Settings(BaseSettings):
             jwt_secret = info.data.get('jwt_secret_key')
             if not jwt_secret:
                 raise ValueError("生产环境必须设置 JWT_SECRET_KEY")
+            origins = info.data.get('allowed_origins')
+            if isinstance(origins, list) and "*" in origins:
+                raise ValueError("生产环境不允许 CORS 通配符 (ALLOWED_ORIGINS=*)")
         return v
 
     @field_validator('allowed_origins', mode='before')

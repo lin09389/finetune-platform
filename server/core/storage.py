@@ -1439,8 +1439,11 @@ def storage_status(db_path: str = APP_DB_PATH) -> dict[str, Any]:
     outbox_failed = int(outbox_counts.get("failed", 0))
     outbox_pending = int(outbox_counts.get("pending", 0)) + int(outbox_counts.get("retry", 0))
     backup_dir = BACKUP_DIR
-    backups = sorted(backup_dir.glob("app-*.db")) if backup_dir.exists() else []
-    last_backup = str(backups[-1]) if backups else None
+    if Path(db_path) == Path(APP_DB_PATH):
+        backups = sorted(backup_dir.glob("app-*.db")) if backup_dir.exists() else []
+        last_backup = str(backups[-1]) if backups else None
+    else:
+        last_backup = None
     return {
         "db_path": db_path,
         "dual_write_enabled": dual_write_enabled(),

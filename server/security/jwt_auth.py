@@ -8,7 +8,6 @@ JWT 认证模块 - 用户身份验证和授权
 - 权限角色系统
 - 自动续期
 """
-import hashlib
 import logging
 import os
 import time
@@ -19,6 +18,7 @@ from enum import Enum
 from functools import wraps
 from typing import Any
 
+import bcrypt
 import jwt
 
 logger = logging.getLogger(__name__)
@@ -164,7 +164,10 @@ class JWTAuth:
         return uuid.uuid4().hex + uuid.uuid4().hex
 
     def _hash_password(self, password: str) -> str:
-        return hashlib.sha256(password.encode()).hexdigest()
+        return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt(rounds=12)).decode('utf-8')
+
+    def _verify_password(self, password: str, password_hash: str) -> bool:
+        return bcrypt.checkpw(password.encode('utf-8'), password_hash.encode('utf-8'))
 
     def register_user(
         self,
@@ -190,10 +193,8 @@ class JWTAuth:
         return user_id
 
     def authenticate(self, username: str, password: str) -> str | None:
-        password_hash = self._hash_password(password)
-
         for user_id, user in self._users.items():
-            if user['username'] == username and user['password'] == password_hash:
+            if user['username'] == username and self._verify_password(password, user['password']):
                 return user_id
 
         logger.warning(f"用户 {username} 认证失败")

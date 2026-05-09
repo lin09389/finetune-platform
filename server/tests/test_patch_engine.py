@@ -1,3 +1,5 @@
+"""Tests for the SafePatchEngine: file writes, unified diffs, path safety, and rollback."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -5,68 +7,234 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from agent_runtime.patch_engine import SafePatchEngine
+from agent_runtime.patch_engine import SafePatchEngine, MAX_PATCH_FILES, MAX_FILE_CHARS, MAX_DIFF_CHARS
 
 
-def test_unified_diff_patch_applies_text_change(tmp_path: Path):
-    target = tmp_path / "hello.txt"
-    target.write_text("one\ntwo\n", encoding="utf-8")
-    diff = """--- a/hello.txt
-+++ b/hello.txt
-@@ -1,2 +1,2 @@
- one
--two
-+three
-"""
-
-    result = SafePatchEngine(tmp_path).apply_payload({"format": "unified_diff", "diff": diff})
-
-    assert result.changed_files == ["hello.txt"]
-    assert target.read_text(encoding="utf-8") == "one\nthree\n"
+@pytest.fixture
+def workspace(tmp_path: Path) -> Path:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.py").write_text("print('hello')\n", encoding="utf-8")
+    (tmp_path / "src" / "utils.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "readme.md").write_text("# Hello\n", encoding="utf-8")
+    return tmp_path
 
 
-def test_unified_diff_can_create_new_text_file(tmp_path: Path):
-    diff = """--- /dev/null
-+++ b/tmp/smoke.txt
-@@ -0,0 +1,2 @@
-+hello
-+agent
-"""
+class TestApplyFileWrites:
+    def test_single_file_write(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        result = engine.apply_payload({
+            "files": [
+                {"path": "src/main.py", "content": "print('updated')\n"},
+            ]
+        })
+        assert result.changed_files == ["src/main.py"]
+        assert (workspace / "src" / "main.py").read_text() == "print('updated')\n"
+        assert result.summaries[0]["mode"] == "write_file"
 
-    result = SafePatchEngine(tmp_path).apply_payload({"format": "unified_diff", "diff": diff})
+    def test_multiple_file_writes(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        result = engine.apply_payload({
+            "files": [
+                {"path": "src/main.py", "content": "updated1\n"},
+                {"path": "docs/readme.md", "content": "# Updated\n"},
+            ]
+        })
+        assert len(result.changed_files) == 2
+        assert (workspace / "src" / "main.py").read_text() == "updated1\n"
+        assert (workspace / "docs" / "readme.md").read_text() == "# Updated\n"
 
-    assert result.changed_files == ["tmp/smoke.txt"]
-    assert (tmp_path / "tmp" / "smoke.txt").read_text(encoding="utf-8") == "hello\nagent\n"
+    def test_create_new_file(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        result = engine.apply_payload({
+            "files": [
+                {"path": "src/new_module.py", "content": "# new file\n"},
+            ]
+        })
+        assert "src/new_module.py" in result.changed_files
+        assert (workspace / "src" / "new_module.py").read_text() == "# new file\n"
+
+    def test_create_nested_directory(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        result = engine.apply_payload({
+            "files": [
+                {"path": "src/deep/nested/dir.py", "content": "nested\n"},
+            ]
+        })
+        assert (workspace / "src" / "deep" / "nested" / "dir.py").read_text() == "nested\n"
+
+    def test_file_changes_key_alias(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        result = engine.apply_payload({
+            "file_changes": [
+                {"path": "src/main.py", "content": "alt key\n"},
+            ]
+        })
+        assert "src/main.py" in result.changed_files
+
+    def test_too_many_files(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        with pytest.raises(HTTPException) as exc_info:
+            engine.apply_payload({
+                "files": [{"path": f"file{i}.py", "content": "x"} for i in range(MAX_PATCH_FILES + 1)]
+            })
+        assert exc_info.value.status_code == 400
+        assert "too many files" in exc_info.value.detail.lower()
+
+    def test_file_too_large(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        with pytest.raises(HTTPException) as exc_info:
+            engine.apply_payload({
+                "files": [{"path": "src/huge.py", "content": "x" * (MAX_FILE_CHARS + 1)}]
+            })
+        assert exc_info.value.status_code == 400
+        assert "too large" in exc_info.value.detail.lower()
+
+    def test_empty_files_list(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        with pytest.raises(HTTPException) as exc_info:
+            engine.apply_payload({"files": []})
+        assert exc_info.value.status_code == 400
+
+    def test_missing_path_key(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        with pytest.raises(HTTPException) as exc_info:
+            engine.apply_payload({"files": [{"content": "data"}]})
+        assert exc_info.value.status_code == 400
 
 
-def test_unified_diff_rejects_workspace_escape(tmp_path: Path):
-    diff = """--- /dev/null
-+++ b/../outside.txt
-@@ -0,0 +1 @@
-+bad
-"""
+class TestApplyUnifiedDiff:
+    def test_simple_hunk(self, workspace: Path):
+        original = "line1\nline2\nline3\n"
+        target = workspace / "src" / "main.py"
+        target.write_text(original, encoding="utf-8")
 
-    with pytest.raises(HTTPException):
-        SafePatchEngine(tmp_path).apply_payload({"format": "unified_diff", "diff": diff})
+        engine = SafePatchEngine(workspace)
+        diff = "--- a/src/main.py\n+++ b/src/main.py\n@@ -1,3 +1,3 @@\n line1\n-line2\n+line2_modified\n line3\n"
+        result = engine.apply_payload({"format": "unified_diff", "diff": diff})
+
+        assert "src/main.py" in result.changed_files
+        assert "line2_modified" in target.read_text()
+
+    def test_add_new_lines(self, workspace: Path):
+        original = "line1\nline3\n"
+        target = workspace / "src" / "main.py"
+        target.write_text(original, encoding="utf-8")
+
+        engine = SafePatchEngine(workspace)
+        diff = "--- a/src/main.py\n+++ b/src/main.py\n@@ -1,2 +1,3 @@\n line1\n+line2\n line3\n"
+        result = engine.apply_payload({"format": "unified_diff", "diff": diff})
+
+        content = target.read_text()
+        assert "line2" in content
+
+    def test_delete_lines(self, workspace: Path):
+        original = "line1\ndelete_me\nline3\n"
+        target = workspace / "src" / "main.py"
+        target.write_text(original, encoding="utf-8")
+
+        engine = SafePatchEngine(workspace)
+        diff = "--- a/src/main.py\n+++ b/src/main.py\n@@ -1,3 +1,2 @@\n line1\n-delete_me\n line3\n"
+        engine.apply_payload({"format": "unified_diff", "diff": diff})
+
+        content = target.read_text()
+        assert "delete_me" not in content
+        assert "line1" in content
+        assert "line3" in content
+
+    def test_diff_too_large(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        with pytest.raises(HTTPException) as exc_info:
+            engine.apply_payload({"format": "unified_diff", "diff": "x" * (MAX_DIFF_CHARS + 1)})
+        assert exc_info.value.status_code == 400
+
+    def test_binary_diff_rejected(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        diff = "--- a/src/main.py\n+++ b/src/main.py\nBinary files differ\n"
+        with pytest.raises(HTTPException) as exc_info:
+            engine.apply_payload({"format": "unified_diff", "diff": diff})
+        assert exc_info.value.status_code == 400
+        assert "Binary" in exc_info.value.detail
+
+    def test_rename_diff_rejected(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        diff = "--- a/src/main.py\n+++ b/src/main.py\nrename from src/main.py\nrename to src/renamed.py\n"
+        with pytest.raises(HTTPException) as exc_info:
+            engine.apply_payload({"format": "unified_diff", "diff": diff})
+        assert "rename" in exc_info.value.detail.lower()
+
+    def test_empty_diff_rejected(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        with pytest.raises(HTTPException) as exc_info:
+            engine.apply_payload({"format": "unified_diff", "diff": "   \n  \n"})
+        assert exc_info.value.status_code == 400
+
+    def test_new_file_creation_via_diff(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        diff = "--- /dev/null\n+++ b/src/brand_new.py\n@@ -0,0 +1,3 @@\n+import os\n+\n+print(os.getcwd())\n"
+        result = engine.apply_payload({"format": "unified_diff", "diff": diff})
+        assert (workspace / "src" / "brand_new.py").exists()
+        content = (workspace / "src" / "brand_new.py").read_text()
+        assert "import os" in content
 
 
-def test_unified_diff_rejects_delete_and_conflict(tmp_path: Path):
-    target = tmp_path / "hello.txt"
-    target.write_text("one\n", encoding="utf-8")
-    delete_diff = """--- a/hello.txt
-+++ /dev/null
-@@ -1 +0,0 @@
--one
-"""
-    conflict_diff = """--- a/hello.txt
-+++ b/hello.txt
-@@ -1 +1 @@
--missing
-+two
-"""
+class TestPathSafety:
+    def test_path_traversal_blocked(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        with pytest.raises(HTTPException) as exc_info:
+            engine.apply_payload({
+                "files": [{"path": "../../etc/passwd", "content": "hacked"}]
+            })
+        assert exc_info.value.status_code == 400
+        assert "inside" in exc_info.value.detail.lower() or "path" in exc_info.value.detail.lower()
 
-    with pytest.raises(HTTPException):
-        SafePatchEngine(tmp_path).apply_payload({"format": "unified_diff", "diff": delete_diff})
-    with pytest.raises(HTTPException):
-        SafePatchEngine(tmp_path).apply_payload({"format": "unified_diff", "diff": conflict_diff})
+    def test_absolute_path_outside_workspace(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        with pytest.raises(HTTPException) as exc_info:
+            engine.apply_payload({
+                "files": [{"path": "C:/Windows/System32/exploit.py", "content": "bad"}]
+            })
+        assert exc_info.value.status_code == 400
 
+    def test_dev_null_path_rejected(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        with pytest.raises(HTTPException) as exc_info:
+            engine.apply_payload({
+                "files": [{"path": "/dev/null", "content": "x"}]
+            })
+        assert exc_info.value.status_code == 400
+
+
+class TestRollback:
+    def test_rollback_restores_original(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        original = (workspace / "src" / "main.py").read_text()
+
+        engine.apply_payload({
+            "files": [{"path": "src/main.py", "content": "MODIFIED\n"}]
+        })
+        assert (workspace / "src" / "main.py").read_text() == "MODIFIED\n"
+
+        restored = engine.rollback()
+        assert len(restored) >= 1
+        assert (workspace / "src" / "main.py").read_text() == original
+
+    def test_rollback_removes_new_file(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        engine.apply_payload({
+            "files": [{"path": "src/brand_new.py", "content": "new file\n"}]
+        })
+        assert (workspace / "src" / "brand_new.py").exists()
+
+        engine.rollback()
+        assert not (workspace / "src" / "brand_new.py").exists()
+
+    def test_has_backup_property(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        assert not engine.has_backup
+        engine.apply_payload({
+            "files": [{"path": "src/main.py", "content": "changed\n"}]
+        })
+        assert engine.has_backup
+        engine.clear_backup()
+        assert not engine.has_backup

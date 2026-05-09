@@ -101,7 +101,7 @@ logger.info(f"Log Level: {logging.getLevelName(logger.level)}")
 security = HTTPBearer(auto_error=False)
 ALLOWED_ORIGINS = settings.allowed_origins
 DEBUG_MODE = os.getenv("DEBUG", "false").lower() == "true"
-ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+ENVIRONMENT = settings.environment
 
 from security.rate_limiter import get_rate_limiter  # noqa: E402
 
@@ -126,15 +126,14 @@ async def verify_auth(
     request: Request,
     credentials: HTTPAuthorizationCredentials = None
 ) -> bool:
-    """?? JWT ???"""
-    if os.getenv("ENABLE_AUTH", "false").lower() != "true":
+    if not settings.enable_auth:
         return True
 
     if credentials is None:
         return False
 
-    from security.jwt_auth import get_jwt_manager
-    jwt_manager = get_jwt_manager()
+    from security.jwt_auth import get_jwt_auth
+    jwt_manager = get_jwt_auth()
 
     try:
         payload = jwt_manager.verify_token(credentials.credentials)
@@ -146,8 +145,20 @@ async def verify_auth(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """?????????"""
     logger.info("Initializing application...")
+
+    if not settings.enable_auth:
+        logger.warning(
+            "SECURITY: Authentication is DISABLED (enable_auth=false). "
+            "This should NEVER be used in production. "
+            "Set ENABLE_AUTH=true and JWT_SECRET_KEY for production deployments."
+        )
+    if not settings.jwt_secret_key and settings.enable_auth:
+        logger.warning(
+            "SECURITY: JWT secret key is auto-generated. "
+            "Tokens will be invalidated on restart. "
+            "Set JWT_SECRET_KEY environment variable for persistent authentication."
+        )
 
     from core.storage import init_storage, migrate_json_state, storage_json_migrate_on_startup
     init_storage()
@@ -289,10 +300,28 @@ app = FastAPI(
     default_response_class=UnicodeJSONResponse,
 )
 
+def _build_cors_origins(origins):
+    if isinstance(origins, list):
+        return origins
+    if isinstance(origins, str):
+        return [origins]
+    return ["http://localhost:3000", "http://localhost:5173"]
+
+
+_cors_origins = _build_cors_origins(ALLOWED_ORIGINS)
+if "*" in _cors_origins:
+    logger.warning(
+        "SECURITY: CORS allow_origins contains wildcard '*'. "
+        "Disabling allow_credentials to prevent security risks."
+    )
+    _allow_credentials = False
+else:
+    _allow_credentials = True
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -393,12 +422,13 @@ async def security_middleware(request: Request, call_next):
         response = await call_next(request)
         return response
     except Exception as e:
-        logger.error(f"Request error: {e}", exc_info=True)
+        debug_mode = os.getenv("DEBUG", "false").lower() == "true"
+        logger.error(f"Request error: {e}", exc_info=debug_mode)
         return JSONResponse(
             status_code=500,
             content={
                 "error": "Internal server error",
-                "detail": str(e) if os.getenv("DEBUG", "false") == "true" else "An unexpected error occurred"
+                "detail": str(e) if debug_mode else "An unexpected error occurred"
             },
             headers={
                 "Access-Control-Allow-Origin": request.headers.get("origin", "*"),

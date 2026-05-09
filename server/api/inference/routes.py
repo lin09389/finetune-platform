@@ -6,13 +6,8 @@ import time
 import json
 from typing import Any
 
-try:
-    import orjson
-    def _fast_dumps(data: dict) -> str:
-        return orjson.dumps(data, option=orjson.OPT_NON_STR_KEYS).decode("utf-8")
-except ImportError:
-    def _fast_dumps(data: dict) -> str:
-        return json.dumps(data, ensure_ascii=False)
+def _fast_dumps(data: dict) -> str:
+    return json.dumps(data, ensure_ascii=False, separators=(", ", ": "))
 
 import psutil
 
@@ -1190,6 +1185,9 @@ async def chat_stream(request: ChatRequest):
                         _model_to_dict(source) for source in knowledge_sources_response
                     ]
                     metadata_payload["retrieval_info"] = retrieval_info
+                    metadata_payload["sources"] = [
+                        _model_to_dict(source) for source in knowledge_sources_response
+                    ]
                 if memory_context_info:
                     metadata_payload["memory_context"] = _model_to_dict(memory_context_info)
                 if unified_context_info:

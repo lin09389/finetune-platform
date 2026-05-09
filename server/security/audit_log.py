@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from core.storage import AuditRepository
+from security.data_masking import mask
 
 logger = logging.getLogger(__name__)
 
@@ -104,14 +105,21 @@ class AuditLogger:
     - 敏感数据访问监控
     """
 
-    def __init__(self, storage_path: Path | None = None):
+    def __init__(
+        self,
+        storage_path: Path | None = None,
+        db_path: str | None = None,
+        log_dir: str | Path | None = None,
+    ):
+        if log_dir is not None and storage_path is None:
+            storage_path = Path(log_dir)
         self.storage_path = storage_path or Path("data/audit_logs")
         self.log_dir = self.storage_path
         self.storage_path.mkdir(parents=True, exist_ok=True)
 
         self._events: list[AuditEvent] = []
         self._max_events = 10000
-        self._repository = AuditRepository()
+        self._repository = AuditRepository(db_path=db_path) if db_path else AuditRepository()
         self._sensitive_resources: set[str] = {
             "password", "token", "api_key", "secret", "credential",
             "private_key", "ssh_key", "certificate",
@@ -145,11 +153,11 @@ class AuditLogger:
             resource_type=resource_type,
             resource_id=resource_id,
             action=action,
-            details=details or {},
-            result=result,
-            error_message=error_message,
+            details=mask(details or {}),
+            result=mask(result) if isinstance(result, (dict, list, str)) else result,
+            error_message=mask(error_message) if error_message else None,
             duration_ms=duration_ms,
-            metadata=metadata or {},
+            metadata=mask(metadata or {}),
         )
 
         self._events.append(event)
@@ -487,11 +495,15 @@ class AuditLogger:
     def _persist_event(self, event: AuditEvent):
         """持久化事件"""
         date_str = event.timestamp.strftime("%Y-%m-%d")
-        file_path = self.storage_path / f"audit_{date_str}.jsonl"
+        jsonl_path = self.storage_path / f"audit_{date_str}.jsonl"
+        log_path = self.storage_path / f"audit_{date_str}.log"
 
+        payload = json.dumps(event.to_dict(), ensure_ascii=False)
         try:
-            with open(file_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(event.to_dict(), ensure_ascii=False) + "\n")
+            with open(jsonl_path, "a", encoding="utf-8") as f:
+                f.write(payload + "\n")
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(payload + "\n")
         except Exception as e:
             logger.error(f"持久化审计事件失败: {e}")
 

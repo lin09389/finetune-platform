@@ -12,10 +12,12 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from core.logging import get_logger
+from security.auth_middleware import get_current_user
+from security.jwt_auth import Role, TokenPayload
 from security.sandbox import (
     Capability,
     Permission,
@@ -26,6 +28,9 @@ from security.sandbox import (
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+ALLOWED_USER_PERMISSION_LEVELS = {"none", "read_only", "limited"}
+ADMIN_PERMISSION_LEVELS = {"standard", "elevated", "admin"}
 
 
 class Language(str, Enum):
@@ -95,8 +100,16 @@ SUPPORTED_LANGUAGES: dict[str, SupportedLanguage] = {
 }
 
 
-def get_permission_level(level: str) -> PermissionLevel:
-    """获取权限级别"""
+def get_permission_level(level: str, current_user: TokenPayload | None = None) -> PermissionLevel:
+    level_lower = level.lower()
+    if level_lower in ADMIN_PERMISSION_LEVELS:
+        if current_user is None or not _is_admin_user(current_user):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Permission level '{level}' requires admin role"
+            )
+    if level_lower not in ALLOWED_USER_PERMISSION_LEVELS and level_lower not in ADMIN_PERMISSION_LEVELS:
+        level_lower = "limited"
     level_map = {
         "none": PermissionLevel.NONE,
         "read_only": PermissionLevel.READ_ONLY,
@@ -105,7 +118,11 @@ def get_permission_level(level: str) -> PermissionLevel:
         "elevated": PermissionLevel.ELEVATED,
         "admin": PermissionLevel.ADMIN,
     }
-    return level_map.get(level.lower(), PermissionLevel.LIMITED)
+    return level_map.get(level_lower, PermissionLevel.LIMITED)
+
+
+def _is_admin_user(user: TokenPayload) -> bool:
+    return user.role in (Role.ADMIN, Role.SUPER_ADMIN)
 
 
 def create_code_capability(
@@ -464,13 +481,17 @@ async def execute_typescript_code(
 
 
 @router.post("/execute", response_model=ExecuteResponse)
-async def execute_code(request: ExecuteRequest):
-    """
-    执行代码
+async def execute_code(
+    request: ExecuteRequest,
+    current_user: TokenPayload = Depends(get_current_user),
+):
+    logger.info(f"执行代码请求: language={request.language}, timeout={request.timeout}s, user={current_user.username}")
 
-    在沙箱环境中安全执行代码，支持 Python、JavaScript、TypeScript
-    """
-    logger.info(f"执行代码请求: language={request.language}, timeout={request.timeout}s")
+    if request.permission_level.lower() in ADMIN_PERMISSION_LEVELS and not _is_admin_user(current_user):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Permission level '{request.permission_level}' requires admin role"
+        )
 
     available, version_info = await check_language_available(request.language)
     if not available:
@@ -556,12 +577,12 @@ async def get_language_status(language: Language):
 async def create_sandbox(
     permission_level: str = "limited",
     memory_limit_mb: int = 256,
-    timeout: int = 60
+    timeout: int = 60,
+    current_user: TokenPayload = Depends(get_current_user),
 ):
-    """创建新的沙箱环境"""
     try:
+        level = get_permission_level(permission_level, current_user)
         manager = get_sandbox_manager()
-        level = get_permission_level(permission_level)
 
         sandbox_id = manager.create_sandbox(
             permission_level=level,
