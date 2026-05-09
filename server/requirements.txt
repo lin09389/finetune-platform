@@ -1,9 +1,16 @@
-fastapi==0.109.0
-uvicorn==0.27.0
-pydantic==2.5.3
-pydantic-settings==2.1.0
-python-multipart==0.0.6
-python-dotenv==1.0.0
+fastapi>=0.115.0
+uvicorn>=0.30.0
+pydantic>=2.10.0
+pydantic-settings>=2.1.0
+python-multipart>=0.0.6
+python-dotenv>=1.0.0
+
+# LangGraph agent framework
+langgraph>=0.3
+langgraph-checkpoint-sqlite>=2.0
+langchain-core>=0.3
+aiosqlite>=0.20
+xxhash>=3.0
 
 # PyTorch
 # Install the GPU-specific wheel separately when needed.
@@ -56,6 +63,7 @@ onnxruntime==1.16.3
 # Security
 python-magic-bin==0.4.14; sys_platform == 'win32'
 python-magic==0.4.27; sys_platform != 'win32'
+bcrypt>=4.0.0
 
 # MCP and parsing
 websockets>=11.0

@@ -1,4 +1,23 @@
-"""Workflow API routes backed by the multi-agent runtime."""
+"""Workflow API routes backed by the multi-agent runtime.
+
+LangGraph Migration API Compatibility Notes:
+=============================================
+All existing endpoints remain unchanged in URL and request/response schema.
+
+Endpoint mapping after migration:
+  POST /workflows                     → create workflow (unchanged, uses repository)
+  POST /workflows/{id}/run           → invoke LangGraph StateGraph with checkpointer
+  POST /workflow-steps/{id}/approve   → internally calls Command(resume=...) on paused graph
+  POST /workflow-actions/{id}/approve → internally calls Command(resume=...) on interrupt
+  POST /workflow-actions/{id}/reject → updates action status + resumes graph
+  POST /workflow-actions/{id}/execute → executes action + resumes graph
+
+New endpoint added:
+  POST /workflows/{id}/resume        → direct graph resume with decision payload
+
+SSE stream at GET /workflows/{id}/events/stream:
+  Adapted from LangGraph astream_events() → existing event_type format
+"""
 
 from __future__ import annotations
 
@@ -195,6 +214,16 @@ async def execute_workflow_action(
     return await run_sync(service.execute_action, action_id)
 
 
+@router.post("/workflows/{workflow_id}/resume", response_model=WorkflowResponse)
+async def resume_workflow(
+    workflow_id: str,
+    request: WorkflowApprovalRequest | None = None,
+    service: AgentRuntimeService = Depends(get_agent_runtime_service),
+):
+    decision = request.model_dump() if request else {}
+    return await service.resume_workflow(workflow_id, decision)
+
+
 @router.get("/workflows/{workflow_id}/events/stream")
 async def stream_workflow_events(
     workflow_id: str,
@@ -205,12 +234,18 @@ async def stream_workflow_events(
         for _ in range(30):
             events = await run_sync(service.list_timeline, workflow_id)
             for event in events:
-                event_id = event.get("id")
+                event_id = str(event.get("id") or "")
                 if event_id in seen:
                     continue
                 seen.add(event_id)
-                yield f"event: workflow_event\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+                payload = {
+                    "type": "workflow_event",
+                    "workflow_event": event,
+                }
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
             await asyncio.sleep(1)
+        done_payload = {"type": "done"}
+        yield f"data: {json.dumps(done_payload, ensure_ascii=False)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

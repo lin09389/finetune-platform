@@ -133,17 +133,21 @@ class ChatAgentIntentClassifier:
                 {
                     "role": "system",
                     "content": (
-                        "你是聊天到开发 Agent 的意图路由器。只返回 JSON，不要输出解释文本。"
-                        "判断用户输入是否需要进入 Agent 工作。Agent 适合修改代码、搜索项目、生成补丁、运行测试、排查报错；"
-                        "普通聊天适合概念解释、方案讨论、无需操作项目文件的问题。"
+                        "你是聊天到开发 Agent 的意图路由器。\n"
+                        "规则：只输出纯 JSON 对象，不要输出任何解释、markdown 或代码块。\n"
+                        "示例输出：{\"mode\": \"chat\", \"confidence\": 0.9, \"reason\": \"概念讨论\", "
+                        "\"suggested_agent_id\": null, \"suggested_template_id\": null}\n"
+                        "Agent 适合：修改代码、搜索项目、生成补丁、运行测试、排查报错。"
+                        "普通聊天适合：概念解释、方案讨论、无需操作文件的问题。"
                     ),
                 },
                 {
                     "role": "user",
                     "content": (
-                        "请判断下面输入的处理模式。返回字段："
-                        "mode(chat 或 agent), confidence(0-1), reason, suggested_agent_id, suggested_template_id。\n\n"
-                        f"默认 agent_id: {agent_id}\n默认 template_id: {template_id}\n用户输入：{content}"
+                        f"默认 agent_id: {agent_id}\n默认 template_id: {template_id}\n"
+                        f"用户输入：{content}\n\n"
+                        "请输出 JSON，包含字段：mode(chat 或 agent), confidence(0-1 数字), "
+                        "reason(字符串), suggested_agent_id(字符串或 null), suggested_template_id(字符串或 null)"
                     ),
                 },
             ],
@@ -152,10 +156,31 @@ class ChatAgentIntentClassifier:
             temperature=0,
             max_tokens=300,
         )
-        parsed = self._parse_json_object(str(response.get("content") or ""))
+        raw_text = str(response.get("content") or "")
+        parsed = self._try_parse_json_object(raw_text)
+        if parsed is None:
+            # 解析失败时，用关键词兜底判断（不上报为错误）
+            is_agent, reason = self.classify(content)
+            return self._decision(
+                "agent" if is_agent else "chat",
+                0.6,
+                f"云端返回非 JSON，已用本地规则兜底判断。原始响应：{raw_text[:80]}",
+                "fallback",
+                agent_id if is_agent else None,
+                template_id,
+            )
         mode = parsed.get("mode")
         if mode not in {"chat", "agent"}:
-            raise ValueError("云端返回缺少合法 mode")
+            # mode 字段非法时也做兜底
+            is_agent, _ = self.classify(content)
+            return self._decision(
+                "agent" if is_agent else "chat",
+                0.55,
+                f"云端返回 mode 无效（{mode!r}），已用本地规则兜底。",
+                "fallback",
+                agent_id if is_agent else None,
+                template_id,
+            )
 
         confidence = self._safe_confidence(parsed.get("confidence"))
         suggested_agent = parsed.get("suggested_agent_id") or (agent_id if mode == "agent" else None)
@@ -183,19 +208,43 @@ class ChatAgentIntentClassifier:
                     return provider_id, key_data
         raise RuntimeError("未找到已保存的云端 API 配置")
 
-    def _parse_json_object(self, content: str) -> dict[str, Any]:
+    def _try_parse_json_object(self, content: str) -> dict[str, Any] | None:
+        """尝试从文本中提取 JSON 对象，失败返回 None 而非抛异常。"""
         text = content.strip()
-        fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        if not text:
+            return None
+        # 1. 先试 markdown 代码块
+        fence = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text)
         if fence:
-            text = fence.group(1)
-        if not text.startswith("{"):
-            match = re.search(r"\{.*\}", text, re.DOTALL)
-            if match:
-                text = match.group(0)
-        parsed = json.loads(text)
-        if not isinstance(parsed, dict):
+            try:
+                parsed = json.loads(fence.group(1))
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                pass
+        # 2. 尝试直接解析整段
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+        # 3. 提取最外层 {} 块（非贪婪，取第一个合法 JSON 对象）
+        for match in re.finditer(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL):
+            try:
+                parsed = json.loads(match.group(0))
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                continue
+        return None
+
+    def _parse_json_object(self, content: str) -> dict[str, Any]:
+        """旧接口兼容，失败时抛异常。"""
+        result = self._try_parse_json_object(content)
+        if result is None:
             raise ValueError("云端返回不是 JSON 对象")
-        return parsed
+        return result
 
     def _safe_confidence(self, value: Any) -> float:
         try:

@@ -10,11 +10,14 @@ from pathlib import Path
 from typing import Any
 
 from core.db_manager import get_db_pool
+from core.logging import get_logger
 from core.storage import APP_DB_PATH
 
 from .definitions import AgentDefinition, StepDefinition, WorkflowDefinition
 from .models import WorkflowTemplateCreate, WorkflowTemplateUpdate
 from .templates import SOFTWARE_DELIVERY_TEMPLATE
+
+logger = get_logger(__name__)
 
 def _now() -> str:
     return datetime.now().isoformat()

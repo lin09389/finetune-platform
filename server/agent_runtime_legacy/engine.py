@@ -1,8 +1,4 @@
-"""Legacy workflow engine.
-
-Frozen for new development during LangGraph migration.
-Only retained as a fallback path while the new graph-based runtime stabilizes.
-"""
+"""Internal engine that orchestrates phase-1 workflow execution."""
 
 from __future__ import annotations
 

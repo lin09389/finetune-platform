@@ -17,24 +17,26 @@ from .adapters import workflow_from_project
 from .context_builder import WorkflowContextBuilder
 from .definitions import WorkflowDefinition, WorkflowView
 from .engine import AgentRuntimeEngine
+from .langgraph.graph_builder import build_workflow_graph
 from .memory_curator import WorkflowMemoryCurator
 from .models import (
+    WorkflowActionResponse,
+    WorkflowApprovalRequest,
     WorkflowContextProfile,
     WorkflowContextProfileUpdate,
     WorkflowContextSnapshotResponse,
-    WorkflowActionResponse,
+    WorkflowCreate,
     WorkflowMemoryEntryResponse,
     WorkflowObservabilityResponse,
-    WorkflowStepLogResponse,
-    WorkflowToolCallResponse,
-    WorkflowAgentResponse,
-    WorkflowCreate,
     WorkflowResponse,
-    WorkflowTemplateCreate,
+    WorkflowStepLogResponse,
     WorkflowStepResponse,
     WorkflowStepTemplateResponse,
-    WorkflowTemplateUpdate,
+    WorkflowTemplateCreate,
     WorkflowTemplateResponse,
+    WorkflowTemplateUpdate,
+    WorkflowToolCallResponse,
+    WorkflowAgentResponse,
 )
 from .repository import WorkflowRuntimeRepository
 from .runner import AgentRuntimeRunner
@@ -65,6 +67,16 @@ class AgentRuntimeService:
             self.action_service,
             self.agent_registry,
         )
+        self._langgraph = None
+
+    async def _get_langgraph(self):
+        if self._langgraph is None:
+            try:
+                self._langgraph = await build_workflow_graph()
+            except Exception as exc:
+                logger.warning("LangGraph init failed, falling back to legacy engine: %s", exc)
+                self._langgraph = False
+        return self._langgraph or None
 
     def list_templates(self) -> list[WorkflowTemplateResponse]:
         return [self._template_response(template) for template in self.repository.list_templates()]
@@ -122,6 +134,7 @@ class AgentRuntimeService:
                 "patch": "safe_small_patch",
                 "command": "allowlisted_short_command",
             },
+            "bridge_payload": None,
         }
         self.repository.update_project(project["id"], metadata=metadata)
         project = self._get_project(project["id"])
@@ -135,8 +148,74 @@ class AgentRuntimeService:
 
     async def run_workflow(self, workflow_id: str) -> WorkflowResponse:
         project = self._get_project(workflow_id)
+        workflow = self._get_workflow_definition(project["template_id"])
+        graph = await self._get_langgraph()
+        if graph is not None:
+            initial_state = self._build_initial_state(project, workflow)
+            try:
+                await graph.ainvoke(initial_state, config={"configurable": {"thread_id": workflow_id}})
+            except Exception as exc:
+                logger.warning("LangGraph run failed, falling back to legacy engine: %s", exc)
+            else:
+                updated = self._get_project(workflow_id)
+                return self._project_response(updated)
         updated = await self.engine.start(project)
         return self._project_response(updated)
+
+    def _build_initial_state(self, project: dict[str, Any], workflow: WorkflowDefinition) -> dict[str, Any]:
+        step = workflow.steps[0] if workflow.steps else None
+        context_pack = {}
+        context_sources: list[dict[str, Any]] = []
+        if step is not None:
+            context = self.context_builder.build_for_step(
+                project=project,
+                workflow=workflow,
+                step=step,
+                task={"id": None, "step_key": step.key},
+                previous_outputs=[],
+                fallback_project_context=self._project_context(project.get("project_path"), project.get("goal", "")),
+            )
+            context_pack = context.context_pack
+            context_sources = context.context_sources
+        metadata = dict(project.get("metadata") or {})
+        metadata.setdefault("primary_agent_id", metadata.get("active_agent_id") or "planner")
+        metadata.setdefault("review_agent_id", "reviewer")
+        metadata.setdefault("template_id", workflow.id)
+        metadata.setdefault("project", project)
+        metadata.setdefault("step_id", step.id if step else None)
+        from .tools import AgentToolExecutor
+        from .actions import WorkflowActionService
+        metadata.setdefault("tool_executor", AgentToolExecutor(self.repository, WorkflowActionService(self.repository)))
+        return {
+            "workflow_id": project["id"],
+            "goal": project.get("goal") or "",
+            "project_path": project.get("project_path") or "",
+            "template_id": workflow.id,
+            "autonomy_mode": metadata.get("autonomy_mode", "safe_auto"),
+            "messages": [],
+            "current_step": step.key if step else "bootstrap",
+            "current_agent_id": metadata.get("primary_agent_id") or "planner",
+            "step_index": 0,
+            "retry_count": 0,
+            "context_pack": context_pack,
+            "artifacts": {},
+            "actions": [],
+            "execution_state": "created",
+            "needs_manual_review": False,
+            "needs_approval": bool(getattr(step, "requires_approval", True)) if step else False,
+            "approval_comment": None,
+            "tool_trace": [],
+            "metadata": {
+                **metadata,
+                "context_sources": context_sources,
+                "workflow_title": project.get("title"),
+                "project": project,
+                "step_id": step.id if step else None,
+                "tool_executor": self.engine.runner.executor if hasattr(self.engine.runner, "executor") else None,
+                "bridge_payload": metadata.get("bridge_payload"),
+            },
+            "interrupted": False,
+        }
 
     async def approve_step(
         self,
@@ -147,7 +226,23 @@ class AgentRuntimeService:
         task = self.repository.get_task(step_id)
         if not task:
             raise HTTPException(status_code=404, detail="Workflow step not found")
-        project = self._get_project(task["project_id"])
+        project = self._get_project(task["workflow_id"])
+        graph = await self._get_langgraph()
+        if graph is not None:
+            metadata = dict(project.get("metadata") or {})
+            metadata["approval_comment"] = comment
+            metadata["approval_decision"] = "approved" if approved else "rejected"
+            initial_state = self._build_initial_state(project, self._get_workflow_definition(project["template_id"]))
+            initial_state["metadata"]["step_id"] = step_id
+            initial_state["metadata"]["approval_comment"] = comment
+            initial_state["metadata"]["approval_decision"] = "approved" if approved else "rejected"
+            if not approved:
+                initial_state["needs_manual_review"] = True
+            try:
+                await graph.ainvoke(initial_state, config={"configurable": {"thread_id": project["id"]}})
+                return self._project_response(self._get_project(project["id"]))
+            except Exception as exc:
+                logger.warning("LangGraph approve_step failed, falling back to legacy engine: %s", exc)
         if not approved:
             updated = await self.engine.reject(project, task, comment)
             return self._project_response(updated)
@@ -159,9 +254,34 @@ class AgentRuntimeService:
         task = self.repository.get_task(step_id)
         if not task:
             raise HTTPException(status_code=404, detail="Workflow step not found")
-        project = self._get_project(task["project_id"])
+        project = self._get_project(task["workflow_id"])
+        graph = await self._get_langgraph()
+        if graph is not None:
+            initial_state = self._build_initial_state(project, self._get_workflow_definition(project["template_id"]))
+            initial_state["metadata"]["step_id"] = step_id
+            initial_state["retry_count"] = int(initial_state.get("retry_count") or 0) + 1
+            try:
+                await graph.ainvoke(initial_state, config={"configurable": {"thread_id": project["id"]}})
+                return self._project_response(self._get_project(project["id"]))
+            except Exception as exc:
+                logger.warning("LangGraph retry_step failed, falling back to legacy engine: %s", exc)
         updated = await self.engine.retry(project, task, "")
         return self._project_response(updated)
+
+    async def resume_workflow(self, workflow_id: str, decision: dict[str, Any] | None = None) -> WorkflowResponse:
+        project = self._get_project(workflow_id)
+        graph = await self._get_langgraph()
+        if graph is None:
+            raise HTTPException(status_code=400, detail="LangGraph is not available")
+        workflow = self._get_workflow_definition(project["template_id"])
+        initial_state = self._build_initial_state(project, workflow)
+        initial_state["metadata"]["resume_decision"] = decision or {}
+        try:
+            await graph.ainvoke(initial_state, config={"configurable": {"thread_id": workflow_id}})
+            return self._project_response(self._get_project(workflow_id))
+        except Exception as exc:
+            logger.warning("LangGraph resume_workflow failed: %s", exc)
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     def list_timeline(self, workflow_id: str) -> list[dict[str, Any]]:
         self._get_project(workflow_id)
