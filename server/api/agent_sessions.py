@@ -118,7 +118,10 @@ async def approve_agent_permission(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_current_user),
 ):
-    session = await run_sync(service.approve_permission, permission_id, True)
+    try:
+        session = await service.approve_permission_async(permission_id, True)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     part = next((item for item in session.parts if item.id == permission_id), None)
     if not part:
         raise HTTPException(status_code=404, detail="Permission part not found")
@@ -131,7 +134,10 @@ async def reject_agent_permission(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_current_user),
 ):
-    session = await run_sync(service.approve_permission, permission_id, False)
+    try:
+        session = await service.approve_permission_async(permission_id, False)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     part = next((item for item in session.parts if item.id == permission_id), None)
     if not part:
         raise HTTPException(status_code=404, detail="Permission part not found")
@@ -144,7 +150,10 @@ async def approve_agent_action(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_current_user),
 ):
-    session = await run_sync(service.approve_action, action_id, True)
+    try:
+        session = await service.approve_action_async(action_id, True)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     part = next((item for item in session.parts if item.id == action_id), None)
     if not part:
         raise HTTPException(status_code=404, detail="Action part not found")
@@ -157,7 +166,10 @@ async def reject_agent_action(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_current_user),
 ):
-    session = await run_sync(service.approve_action, action_id, False)
+    try:
+        session = await service.approve_action_async(action_id, False)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     part = next((item for item in session.parts if item.id == action_id), None)
     if not part:
         raise HTTPException(status_code=404, detail="Action part not found")
@@ -170,7 +182,10 @@ async def execute_agent_action(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_current_user),
 ):
-    session = await run_sync(service.execute_action, action_id)
+    try:
+        session = await service.execute_action_async(action_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     part = next((item for item in session.parts if item.id == action_id), None)
     if not part:
         raise HTTPException(status_code=404, detail="Action part not found")

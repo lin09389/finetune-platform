@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import uuid
 from datetime import datetime
@@ -10,12 +11,17 @@ from typing import Any
 from fastapi import BackgroundTasks
 
 from agent_runtime.runner import resolve_saved_provider
+from core.config import settings
+from core.db_manager import run_sync
 from security.encryption import secure_storage
 
+from .langgraph import AgentSessionGraphRunner
 from .models import AgentPromptRequest, AgentSessionCreate, AgentSessionResponse
 from .processor import AgentSessionProcessor, ModelCall
 from .repository import AgentSessionRepository
 from .state import ensure_session_state, record_fallback_summary, set_phase
+
+logger = logging.getLogger(__name__)
 
 
 class AgentSessionService:
@@ -28,8 +34,28 @@ class AgentSessionService:
         self.repository = repository or AgentSessionRepository()
         self.processor = processor or AgentSessionProcessor(self.repository)
         self.model_call = model_call
+        self._graph_runner: AgentSessionGraphRunner | bool | None = None
+        self._graph_runner_error: str | None = None
 
     ACTIVE_STATUSES = {"running", "verifying", "repairing", "waiting_approval", "waiting_permission"}
+
+    async def _get_graph_runner(self) -> AgentSessionGraphRunner | None:
+        if not settings.agent_session_langgraph_enabled:
+            return None
+        if self._graph_runner is None:
+            try:
+                self._graph_runner = AgentSessionGraphRunner(
+                    repository=self.repository,
+                    processor=self.processor,
+                    model_call=self.model_call,
+                )
+                await self._graph_runner.get_graph()
+                self._graph_runner_error = None
+            except Exception as exc:
+                logger.warning("agent_session LangGraph init failed, falling back to processor: %s", exc)
+                self._graph_runner = False
+                self._graph_runner_error = str(exc)
+        return self._graph_runner or None
 
     def create_session(self, request: AgentSessionCreate) -> AgentSessionResponse:
         session = self.repository.create_session(
@@ -97,7 +123,21 @@ class AgentSessionService:
         self.repository.update_session(session_id, metadata=metadata)
         session = self.repository.get_session(session_id) or session
         try:
-            result = await self.processor.prompt(session_id, request.content, model_call=model_call, stream_model_call=stream_model_call)
+            runner = await self._get_graph_runner() if stream_model_call is None else None
+            if runner is not None:
+                initial_state = self._build_langgraph_initial_state(session_id, request.content)
+                try:
+                    await runner.run_prompt(initial_state)
+                    result = self.repository.get_session(session_id) or session
+                    result["parts"] = self.repository.list_parts(session_id)
+                except Exception as exc:
+                    logger.warning("agent_session LangGraph prompt failed, falling back to processor: %s", exc)
+                    self._record_langgraph_fallback(session_id, str(exc))
+                    result = await self.processor.prompt(session_id, request.content, model_call=model_call, stream_model_call=stream_model_call)
+            else:
+                if settings.agent_session_langgraph_enabled and stream_model_call is None and self._graph_runner_error:
+                    self._record_langgraph_fallback(session_id, self._graph_runner_error)
+                result = await self.processor.prompt(session_id, request.content, model_call=model_call, stream_model_call=stream_model_call)
         except Exception as exc:
             result = self.record_prompt_failure(session_id, exc)
         return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
@@ -199,11 +239,64 @@ class AgentSessionService:
     def approve_permission(self, part_id: str, approved: bool) -> AgentSessionResponse:
         return AgentSessionResponse(**self._attach_recovery_diagnostics(self.processor.approve_part(part_id, approved)))
 
+    async def approve_permission_async(self, part_id: str, approved: bool) -> AgentSessionResponse:
+        part = self.repository.get_part(part_id)
+        if not part:
+            raise ValueError("Agent part not found")
+        session = self.repository.get_session(part["session_id"]) or {}
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        if settings.agent_session_langgraph_enabled and metadata.get("runtime") == "langgraph":
+            runner = await self._get_graph_runner()
+            if runner is None:
+                raise RuntimeError("LangGraph is not available for this session")
+            self._record_resume_decision(part["session_id"], {"interrupt_kind": "permission_request", "part_id": part_id, "approved": approved})
+            await runner.resume(
+                part["session_id"],
+                {"interrupt_kind": "permission_request", "part_id": part_id, "approved": approved},
+            )
+            return self.get_session(part["session_id"])
+        return await run_sync(self.approve_permission, part_id, approved)
+
     def approve_action(self, part_id: str, approved: bool) -> AgentSessionResponse:
         return AgentSessionResponse(**self._attach_recovery_diagnostics(self.processor.approve_part(part_id, approved)))
 
+    async def approve_action_async(self, part_id: str, approved: bool) -> AgentSessionResponse:
+        part = self.repository.get_part(part_id)
+        if not part:
+            raise ValueError("Agent part not found")
+        session = self.repository.get_session(part["session_id"]) or {}
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        if settings.agent_session_langgraph_enabled and metadata.get("runtime") == "langgraph":
+            result = self.processor.approve_part(part_id, approved)
+            if not approved:
+                runner = await self._get_graph_runner()
+                if runner is None:
+                    raise RuntimeError("LangGraph is not available for this session")
+                self._record_resume_decision(part["session_id"], {"interrupt_kind": "action_approval", "part_id": part_id, "approved": False})
+                await runner.resume(part["session_id"], {"interrupt_kind": "action_approval", "part_id": part_id, "approved": False})
+            return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
+        return await run_sync(self.approve_action, part_id, approved)
+
     def execute_action(self, part_id: str) -> AgentSessionResponse:
         return AgentSessionResponse(**self._attach_recovery_diagnostics(self.processor.execute_part(part_id)))
+
+    async def execute_action_async(self, part_id: str) -> AgentSessionResponse:
+        part = self.repository.get_part(part_id)
+        if not part:
+            raise ValueError("Agent part not found")
+        session = self.repository.get_session(part["session_id"]) or {}
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        if settings.agent_session_langgraph_enabled and metadata.get("runtime") == "langgraph":
+            runner = await self._get_graph_runner()
+            if runner is None:
+                raise RuntimeError("LangGraph is not available for this session")
+            self._record_resume_decision(part["session_id"], {"interrupt_kind": "action_approval", "part_id": part_id, "decision": "executed"})
+            await runner.execute_action_and_resume(
+                part_id,
+                {"interrupt_kind": "action_approval", "part_id": part_id, "decision": "executed"},
+            )
+            return self.get_session(part["session_id"])
+        return await run_sync(self.execute_action, part_id)
 
     def list_events(self, session_id: str, since_event_id: str | None = None) -> list[dict[str, Any]]:
         return self.repository.list_events_after(session_id, since_event_id)
@@ -580,3 +673,48 @@ class AgentSessionService:
             if normalized and normalized not in files:
                 files.append(normalized)
         return files
+
+    def _build_langgraph_initial_state(self, session_id: str, prompt: str) -> dict[str, Any]:
+        session = self.repository.get_session(session_id)
+        if not session:
+            raise ValueError("Agent session not found")
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        metadata["runtime"] = "langgraph"
+        metadata["checkpoint"] = "sqlite"
+        metadata["fallback_reason"] = None
+        metadata["last_graph_error"] = None
+        metadata["last_resume_decision"] = None
+        self.repository.update_session(session_id, metadata=metadata)
+        return {
+            "session_id": session_id,
+            "prompt": prompt,
+            "messages": [],
+            "pending_tool_calls": [],
+            "tool_results": [],
+            "pending_part_id": None,
+            "pending_permission_call": None,
+            "final_summary": None,
+            "phase": metadata.get("current_phase") or "running",
+            "repair_attempts": int(metadata.get("repair_attempts") or 0),
+            "protocol_repair_count": int(metadata.get("protocol_repair_count") or 0),
+            "execution_state": "created",
+            "iterations": 0,
+            "last_model_raw": "",
+        }
+
+    def _record_langgraph_fallback(self, session_id: str, reason: str) -> None:
+        session = self.repository.get_session(session_id)
+        if not session:
+            return
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        metadata["fallback_reason"] = reason[:600]
+        metadata["last_graph_error"] = reason[:600]
+        self.repository.update_session(session_id, metadata=metadata)
+
+    def _record_resume_decision(self, session_id: str, decision: dict[str, Any]) -> None:
+        session = self.repository.get_session(session_id)
+        if not session:
+            return
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        metadata["last_resume_decision"] = dict(decision)
+        self.repository.update_session(session_id, metadata=metadata)

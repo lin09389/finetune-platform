@@ -1,0 +1,66 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.types import Command
+
+from agent_runtime.langgraph.checkpoint import get_checkpoint_db_path
+
+from .graph_builder import build_agent_session_graph
+from .nodes import AgentSessionLangGraphRuntime
+
+
+class AgentSessionGraphRunner:
+    def __init__(self, repository: Any, processor: Any, model_call: Any = None):
+        self.repository = repository
+        self.processor = processor
+        self.model_call = model_call
+        self.runtime = AgentSessionLangGraphRuntime(repository=repository, processor=processor, model_call=model_call)
+        self._graph = None
+        self._checkpointer: AsyncSqliteSaver | None = None
+        self._checkpointer_context = None
+
+    @staticmethod
+    def thread_id(session_id: str) -> str:
+        return f"agent_session:{session_id}"
+
+    async def _get_checkpointer(self) -> AsyncSqliteSaver:
+        if self._checkpointer is None:
+            db_path = str(Path(get_checkpoint_db_path()))
+            self._checkpointer_context = AsyncSqliteSaver.from_conn_string(db_path)
+            self._checkpointer = await self._checkpointer_context.__aenter__()
+            if hasattr(self._checkpointer, "setup"):
+                await self._checkpointer.setup()
+        return self._checkpointer
+
+    async def get_graph(self):
+        if self._graph is None:
+            self._graph = build_agent_session_graph(
+                repository=self.repository,
+                processor=self.processor,
+                model_call=self.model_call,
+                checkpointer=await self._get_checkpointer(),
+            )
+        return self._graph
+
+    async def run_prompt(self, initial_state: dict[str, Any]) -> None:
+        graph = await self.get_graph()
+        await graph.ainvoke(
+            initial_state,
+            config={"configurable": {"thread_id": self.thread_id(str(initial_state.get("session_id") or ""))}},
+        )
+
+    async def resume(self, session_id: str, decision: dict[str, Any]) -> None:
+        graph = await self.get_graph()
+        await graph.ainvoke(
+            Command(resume=decision),
+            config={"configurable": {"thread_id": self.thread_id(session_id)}},
+        )
+
+    async def execute_action_and_resume(self, part_id: str, decision: dict[str, Any]) -> dict[str, Any]:
+        part = await self.runtime.execute_action_part(part_id)
+        session_id = str(part.get("session_id") or "")
+        await self.resume(session_id, decision)
+        return part
