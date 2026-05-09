@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
+from langgraph.types import Command
 
 from core.config import settings
 
@@ -40,6 +41,7 @@ from .models import (
 )
 from .repository import WorkflowRuntimeRepository
 from .runner import AgentRuntimeRunner
+from .tools import AgentToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,8 @@ class AgentRuntimeService:
         self.context_builder = WorkflowContextBuilder(self.repository)
         self.memory_curator = WorkflowMemoryCurator(self.repository)
         self.action_service = WorkflowActionService(self.repository)
+        if getattr(self.runner, "executor", None) is None:
+            self.runner.executor = AgentToolExecutor(self.repository, self.action_service)
         self.engine = AgentRuntimeEngine(
             self.repository,
             self.runner,
@@ -72,7 +76,13 @@ class AgentRuntimeService:
     async def _get_langgraph(self):
         if self._langgraph is None:
             try:
-                self._langgraph = await build_workflow_graph()
+                self._langgraph = await build_workflow_graph(
+                    repository=self.repository,
+                    runner=self.runner,
+                    context_builder=self.context_builder,
+                    memory_curator=self.memory_curator,
+                    action_service=self.action_service,
+                )
             except Exception as exc:
                 logger.warning("LangGraph init failed, falling back to legacy engine: %s", exc)
                 self._langgraph = False
@@ -181,11 +191,26 @@ class AgentRuntimeService:
         metadata.setdefault("primary_agent_id", metadata.get("active_agent_id") or "planner")
         metadata.setdefault("review_agent_id", "reviewer")
         metadata.setdefault("template_id", workflow.id)
-        metadata.setdefault("project", project)
-        metadata.setdefault("step_id", step.id if step else None)
-        from .tools import AgentToolExecutor
-        from .actions import WorkflowActionService
-        metadata.setdefault("tool_executor", AgentToolExecutor(self.repository, WorkflowActionService(self.repository)))
+        metadata.setdefault("step_id", step.key if step else None)
+        metadata["workflow_steps"] = [
+            {
+                "id": item.key,
+                "step_key": item.key,
+                "agent_id": item.agent_id,
+                "legacy_role": item.legacy_role,
+                "title": item.title,
+                "description": item.description,
+                "artifact_type": item.artifact_type,
+                "artifact_title": item.artifact_title,
+                "requires_approval": item.requires_approval,
+                "sort_order": item.sort_order,
+            }
+            for item in sorted(workflow.steps, key=lambda current: current.sort_order)
+        ]
+        metadata["workflow_agents"] = {
+            agent.id: agent.model_dump()
+            for agent in workflow.agents
+        }
         return {
             "workflow_id": project["id"],
             "goal": project.get("goal") or "",
@@ -195,12 +220,21 @@ class AgentRuntimeService:
             "messages": [],
             "current_step": step.key if step else "bootstrap",
             "current_agent_id": metadata.get("primary_agent_id") or "planner",
+            "current_task_id": None,
             "step_index": 0,
             "retry_count": 0,
             "context_pack": context_pack,
             "artifacts": {},
             "actions": [],
+            "pending_tool_calls": [],
+            "tool_results": [],
+            "pending_actions": [],
+            "final_output": None,
+            "interrupt_kind": None,
+            "interrupt_payload": None,
             "execution_state": "created",
+            "review_required": bool(getattr(step, "requires_approval", True)) if step else False,
+            "approval_required": bool(getattr(step, "requires_approval", True)) if step else False,
             "needs_manual_review": False,
             "needs_approval": bool(getattr(step, "requires_approval", True)) if step else False,
             "approval_comment": None,
@@ -209,10 +243,8 @@ class AgentRuntimeService:
                 **metadata,
                 "context_sources": context_sources,
                 "workflow_title": project.get("title"),
-                "project": project,
-                "step_id": step.id if step else None,
-                "tool_executor": self.engine.runner.executor if hasattr(self.engine.runner, "executor") else None,
-                "bridge_payload": metadata.get("bridge_payload"),
+                "step_id": step.key if step else None,
+                "step_started_at": None,
             },
             "interrupted": False,
         }
@@ -229,17 +261,8 @@ class AgentRuntimeService:
         project = self._get_project(task["workflow_id"])
         graph = await self._get_langgraph()
         if graph is not None:
-            metadata = dict(project.get("metadata") or {})
-            metadata["approval_comment"] = comment
-            metadata["approval_decision"] = "approved" if approved else "rejected"
-            initial_state = self._build_initial_state(project, self._get_workflow_definition(project["template_id"]))
-            initial_state["metadata"]["step_id"] = step_id
-            initial_state["metadata"]["approval_comment"] = comment
-            initial_state["metadata"]["approval_decision"] = "approved" if approved else "rejected"
-            if not approved:
-                initial_state["needs_manual_review"] = True
             try:
-                await graph.ainvoke(initial_state, config={"configurable": {"thread_id": project["id"]}})
+                await graph.ainvoke(Command(resume={"interrupt_kind": "step_approval", "approved": approved, "comment": comment}), config={"configurable": {"thread_id": project["id"]}})
                 return self._project_response(self._get_project(project["id"]))
             except Exception as exc:
                 logger.warning("LangGraph approve_step failed, falling back to legacy engine: %s", exc)
@@ -273,11 +296,8 @@ class AgentRuntimeService:
         graph = await self._get_langgraph()
         if graph is None:
             raise HTTPException(status_code=400, detail="LangGraph is not available")
-        workflow = self._get_workflow_definition(project["template_id"])
-        initial_state = self._build_initial_state(project, workflow)
-        initial_state["metadata"]["resume_decision"] = decision or {}
         try:
-            await graph.ainvoke(initial_state, config={"configurable": {"thread_id": workflow_id}})
+            await graph.ainvoke(Command(resume=decision or {}), config={"configurable": {"thread_id": workflow_id}})
             return self._project_response(self._get_project(workflow_id))
         except Exception as exc:
             logger.warning("LangGraph resume_workflow failed: %s", exc)
@@ -325,13 +345,37 @@ class AgentRuntimeService:
         action = self.action_service.approve(action_id)
         if action.get("action_type") == "permission_request":
             action = await self._replay_permission_request(action)
+        else:
+            try:
+                await self.resume_workflow(
+                    action["workflow_id"],
+                    {"interrupt_kind": "action_approval", "action_id": action["id"], "decision": "approved"},
+                )
+            except Exception as exc:
+                logger.info("Workflow resume after approve_action failed: %s", exc)
         return WorkflowActionResponse(**action)
 
-    def reject_action(self, action_id: str) -> WorkflowActionResponse:
-        return WorkflowActionResponse(**self.action_service.reject(action_id))
+    async def reject_action(self, action_id: str) -> WorkflowActionResponse:
+        action = self.action_service.reject(action_id)
+        try:
+            await self.resume_workflow(
+                action["workflow_id"],
+                {"interrupt_kind": "action_approval", "action_id": action["id"], "decision": "rejected"},
+            )
+        except Exception as exc:
+            logger.info("Workflow resume after reject_action failed: %s", exc)
+        return WorkflowActionResponse(**action)
 
-    def execute_action(self, action_id: str) -> WorkflowActionResponse:
-        return WorkflowActionResponse(**self.action_service.execute(action_id))
+    async def execute_action(self, action_id: str) -> WorkflowActionResponse:
+        action = self.action_service.execute(action_id)
+        try:
+            await self.resume_workflow(
+                action["workflow_id"],
+                {"interrupt_kind": "action_approval", "action_id": action["id"], "decision": "executed"},
+            )
+        except Exception as exc:
+            logger.info("Workflow resume after execute_action failed: %s", exc)
+        return WorkflowActionResponse(**action)
 
     async def _replay_permission_request(self, action: dict[str, Any]) -> dict[str, Any]:
         payload = dict(action.get("payload") or {})

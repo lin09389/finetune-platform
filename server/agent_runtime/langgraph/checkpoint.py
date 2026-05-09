@@ -13,6 +13,9 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from core.db_manager import get_db_pool
 
+_cached_checkpointer: AsyncSqliteSaver | None = None
+_cached_checkpointer_context = None
+
 
 @lru_cache(maxsize=1)
 def get_checkpoint_db_path() -> str:
@@ -22,5 +25,8 @@ def get_checkpoint_db_path() -> str:
 
 async def get_checkpointer() -> AsyncSqliteSaver:
     """Create and initialize the LangGraph SQLite checkpointer."""
-    checkpointer = await AsyncSqliteSaver.from_conn_string(get_checkpoint_db_path())
-    return checkpointer
+    global _cached_checkpointer, _cached_checkpointer_context
+    if _cached_checkpointer is None:
+        _cached_checkpointer_context = AsyncSqliteSaver.from_conn_string(get_checkpoint_db_path())
+        _cached_checkpointer = await _cached_checkpointer_context.__aenter__()
+    return _cached_checkpointer

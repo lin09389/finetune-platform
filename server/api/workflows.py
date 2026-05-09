@@ -203,7 +203,7 @@ async def reject_workflow_action(
     action_id: str,
     service: AgentRuntimeService = Depends(get_agent_runtime_service),
 ):
-    return await run_sync(service.reject_action, action_id)
+    return await service.reject_action(action_id)
 
 
 @router.post("/workflow-actions/{action_id}/execute", response_model=WorkflowActionResponse)
@@ -211,7 +211,7 @@ async def execute_workflow_action(
     action_id: str,
     service: AgentRuntimeService = Depends(get_agent_runtime_service),
 ):
-    return await run_sync(service.execute_action, action_id)
+    return await service.execute_action(action_id)
 
 
 @router.post("/workflows/{workflow_id}/resume", response_model=WorkflowResponse)

@@ -75,6 +75,9 @@ def parse_agent_output(content: str) -> AgentOutput:
 
 
 class AgentRuntimeRunner:
+    def __init__(self, executor: AgentToolExecutor | None = None):
+        self.executor = executor
+
     def _provider_for_context(self, context: RuntimeExecutionContext):
         key_data = secure_storage.get(f"cloud_{context.provider}_key") or {}
         api_key = key_data.get("api_key", "")

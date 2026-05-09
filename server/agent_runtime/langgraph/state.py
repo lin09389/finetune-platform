@@ -1,8 +1,4 @@
-"""Shared LangGraph state for workflow execution.
-
-This file defines the durable state shape that will be persisted through the
-LangGraph checkpointer and exchanged between nodes.
-"""
+"""Shared LangGraph state for workflow execution."""
 
 from __future__ import annotations
 
@@ -29,11 +25,7 @@ AutonomyMode = Literal["safe_auto", "confirm_all", "read_only"]
 
 
 class WorkflowState(TypedDict, total=False):
-    """Durable workflow state stored by LangGraph.
-
-    The state intentionally stays flexible during Phase 1 so the graph can be
-    introduced without forcing a full rewrite of the legacy runtime payloads.
-    """
+    """Durable workflow state stored by LangGraph."""
 
     workflow_id: str
     goal: str
@@ -44,13 +36,22 @@ class WorkflowState(TypedDict, total=False):
     messages: Annotated[list[Any], add_messages]
     current_step: str
     current_agent_id: str
+    current_task_id: str | None
     step_index: int
     retry_count: int
 
     context_pack: dict[str, Any]
     artifacts: dict[str, Any]
     actions: list[dict[str, Any]]
+    pending_tool_calls: list[dict[str, Any]]
+    tool_results: list[dict[str, Any]]
+    pending_actions: list[dict[str, Any]]
+    final_output: dict[str, Any] | None
+    interrupt_kind: str | None
+    interrupt_payload: dict[str, Any] | None
     execution_state: ExecutionState
+    review_required: bool
+    approval_required: bool
     needs_manual_review: bool
     needs_approval: bool
     approval_comment: str | None
