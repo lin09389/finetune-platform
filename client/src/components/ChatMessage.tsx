@@ -10,17 +10,18 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import { Avatar, Button, Input, message, Space, Tag, Tooltip } from 'antd';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import 'highlight.js/styles/atom-one-dark.css';
 import React, { Suspense, lazy, memo, useCallback, useMemo, useState, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
-const CodePreview = lazy(() => import('../components/CodePreview'));
 import AgentPartMessage from '../components/chat/AgentPartMessage';
 import AgentRunCard from '../components/chat/AgentRunCard';
 import ThinkingProcess from '../components/ThinkingProcess';
+
+const CodePreview = lazy(() => import('../components/CodePreview'));
 import { useTypewriter } from '../hooks/chat/useTypewriter';
 import { messageVariants, transitions } from '../theme/animations';
 import type { ChatAgentMetadata, KnowledgeSource, RetrievalInfo } from '../types';
@@ -97,6 +98,7 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
     );
 
     const shouldShowStreamingContent = isAssistant && (isStreaming || !isDoneTyping);
+
     const shouldUseSplitStreaming = shouldShowStreamingContent && splitContent.codeBlocks.length > 0;
     const shouldShowOpenFenceFallback = shouldShowStreamingContent && splitContent.hasOpenFence;
 

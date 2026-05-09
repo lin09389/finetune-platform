@@ -7,8 +7,7 @@ import {
   StopOutlined,
 } from '@ant-design/icons';
 import { Button, Input, Tooltip, Typography, message } from 'antd';
-import { motion } from 'framer-motion';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { useResponsive } from '../../hooks/useResponsive';
 import styles from './ChatInput.module.css';
 
@@ -26,6 +25,11 @@ interface ChatInputProps {
   modelId?: string;
   maxLength?: number;
   showModelInfo?: boolean;
+  agentModeAvailable?: boolean;
+  onCreateWorkflow?: (content: string) => Promise<void>;
+  routingMode?: 'auto' | 'chat' | 'agent';
+  routing?: boolean;
+  autonomyMode?: 'none' | 'semi' | 'full' | 'safe_auto' | 'confirm_all' | 'read_only';
 }
 
 const ChatInput: React.FC<ChatInputProps> = ({

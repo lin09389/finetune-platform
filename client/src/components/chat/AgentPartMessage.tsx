@@ -3,6 +3,7 @@ import {
   CodeOutlined,
   ExclamationCircleOutlined,
   FileTextOutlined,
+  LinkOutlined,
   PlayCircleOutlined,
   ReloadOutlined,
   SearchOutlined,
@@ -56,6 +57,10 @@ function changedFiles(payload?: Record<string, any>) {
   const files = payload?.changed_files || payload?.payload?.changed_files || payload?.files || payload?.payload?.files || [];
   if (!Array.isArray(files)) return [];
   return files.map((item: any) => (typeof item === 'string' ? item : item?.path || item?.file_path)).filter(Boolean);
+}
+
+function repairAttempt(payload?: Record<string, any>, metadata?: ChatAgentMetadata) {
+  return payload?.repair_attempt ?? payload?.state?.repair_attempts ?? metadata?.repair_attempts;
 }
 
 function diffPreview(payload?: Record<string, any>) {
@@ -229,6 +234,9 @@ if (part.type === 'text') {
         </Space>
         {payload.policy_reason && <Typography.Text type="secondary">{payload.policy_reason}</Typography.Text>}
         {diagnosticBlock}
+        {repairAttempt(payload, metadata) ? (
+          <Tag color="orange">修复尝试 {repairAttempt(payload, metadata)}/{metadata.max_repair_attempts || payload.max_repair_attempts || 1}</Tag>
+        ) : null}
         {files.length > 0 && (
           <Space wrap>
             {files.map((file) => (
@@ -274,7 +282,17 @@ if (part.type === 'text') {
           <Typography.Text code>{commandText(payload) || part.title || '验证命令'}</Typography.Text>
           <Tag color={statusColor[status] || 'default'}>{statusLabel[status] || status}</Tag>
           {payload.execution_mode === 'auto' || payload.policy_decision === 'auto' ? <Tag color="green">安全自动</Tag> : null}
+          {payload.risk_level ? <Tag>{payload.risk_level}</Tag> : null}
+          {repairAttempt(payload, metadata) ? <Tag color="orange">修复尝试 {repairAttempt(payload, metadata)}</Tag> : null}
         </Space>
+        {payload.server_url && (
+          <Space size={6}>
+            <LinkOutlined />
+            <Typography.Link href={payload.server_url} target="_blank" rel="noreferrer">
+              {payload.server_url}
+            </Typography.Link>
+          </Space>
+        )}
         {(part.content || payload.failure_summary || payload.policy_reason) && (
           <Typography.Text type={status === 'failed' ? 'danger' : 'secondary'}>
             {payload.failure_summary || part.content || payload.policy_reason}
@@ -346,11 +364,26 @@ if (part.type === 'text') {
         {status !== 'completed' && <Tag color={statusColor[status] || 'default'}>{statusLabel[status] || status}</Tag>}
       </Space>
       {part.type === 'tool_result' && payload && Object.keys(payload).length > 0 && (
-        <Collapse
-          ghost
-          size="small"
-          items={[{ key: 'payload', label: '查看结果详情', children: <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{stringify(payload)}</pre> }]}
-        />
+        <Space direction="vertical" size={4} style={{ width: '100%' }}>
+          {Array.isArray(payload.files) && payload.files.length > 0 && (
+            <Space wrap>
+              {payload.files.slice(0, 8).map((file: any) => (
+                <Tag key={String(file)}>{String(file)}</Tag>
+              ))}
+            </Space>
+          )}
+          {payload.server_url && (
+            <Typography.Link href={payload.server_url} target="_blank" rel="noreferrer">
+              {payload.server_url}
+            </Typography.Link>
+          )}
+          {payload.failure_summary && <Typography.Text type="danger">{payload.failure_summary}</Typography.Text>}
+          <Collapse
+            ghost
+            size="small"
+            items={[{ key: 'payload', label: '查看结果详情', children: <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{stringify(payload)}</pre> }]}
+          />
+        </Space>
       )}
     </Space>,
   );

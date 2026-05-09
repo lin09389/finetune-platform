@@ -62,7 +62,7 @@ const detectLanguage = (code: string): string => {
   if (!trimmed) return 'text';
 
   if (trimmed.startsWith('```')) {
-    const firstLine = trimmed.split('\n', 1)[0].replace(/^```/, '').trim();
+    const firstLine = (trimmed.split('\n', 1)[0] ?? '').replace(/^```/, '').trim();
     if (firstLine) return normalizeLanguage(firstLine);
   }
 
@@ -372,6 +372,32 @@ const CodePreview: React.FC<CodePreviewProps> = ({
                   {copied ? '已复制' : '复制'}
                 </Button>
               </Tooltip>
+              {showSave && (
+                <Tooltip title="保存代码">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<SaveOutlined />}
+                    onClick={handleSave}
+                    style={{ color: 'var(--text-tertiary)', fontSize: 12, display: 'flex', alignItems: 'center', paddingInline: 6 }}
+                  >
+                    保存
+                  </Button>
+                </Tooltip>
+              )}
+              {showFullscreen && (
+                <Tooltip title="全屏查看">
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<FullscreenOutlined />}
+                    onClick={() => setFullscreenOpen(true)}
+                    style={{ color: 'var(--text-tertiary)', fontSize: 12, display: 'flex', alignItems: 'center', paddingInline: 6 }}
+                  >
+                    全屏
+                  </Button>
+                </Tooltip>
+              )}
             </Space>
           </div>
         )}
