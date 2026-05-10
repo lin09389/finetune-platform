@@ -30,57 +30,49 @@ Finetune Platform does not treat every visible page as equally mature. Current p
 
 Experimental 模块会在页面内显示实时状态、依赖要求和受限原因；如果你要评估平台主能力，请优先以 `GA` 路径为准。
 
-### 核心功能
-- 🎯 **低显存优化**：支持 4GB 显存微调（INT4 + QLoRA）
-- 🔧 **多种微调方式**：LoRA / QLoRA 主线支持，SWIFT 为实验性后端
-- 📦 **模型管理**：HuggingFace 模型下载、ONNX 导出
-- 📊 **数据集管理**：上传、验证、统计分析
-- 📈 **实时监控**：训练过程可视化、SSE 流式进度
-- 🤖 **推理服务**：内置推理、Ollama 集成、流式输出
-- ♻️ **断点续训**：支持从检查点恢复训练
+### 当前主线能力
+- 🎯 **低显存微调**：LoRA / QLoRA 主线支持，针对 4GB+ 显存设备优化
+- 📦 **模型与数据集管理**：模型下载、本地管理、数据集上传、验证和统计分析
+- 📈 **训练监测**：训练状态、SSE 进度流、断点续训、训练历史
+- 🤖 **推理与评估**：本地推理、Ollama 集成、流式输出、评估 run 与人工评分
+- 🧩 **Chat + Agent**：Chat Session、Chat Agent 意图路由、Agent Session、审批门控动作执行
+- 🛠️ **Workflow Runtime**：多 Agent 工作流、观测、事件流、动作审批与执行
+- 🗂️ **Workspace / Context / Memory**：项目上下文检索、工作区管理、记忆与知识库能力
 
-### 新增增强（v2.0）
-- ✅ **线程安全**：异步状态管理，支持并发任务
-- 🔒 **安全加固**：文件上传校验、路径遍历防护、速率限制
-- 📝 **结构化日志**：JSON 格式日志，便于分析
-- ⚙️ **配置管理**：pydantic-settings 集中配置
-- 🧪 **测试覆盖**：pytest + vitest 完整测试套件
-- 🐳 **Docker 支持**：一键部署，GPU 加速
-- 📖 **完善文档**：API 指南、部署文档
+### 工程化增强
+- ✅ **LangGraph Agent Session**：Graph-first 执行、审批恢复、事件诊断
+- 🔒 **安全约束**：路径白名单、命令 allowlist、上传校验、速率限制
+- 📝 **结构化日志与状态诊断**：便于定位训练、推理、Agent、Workflow 链路问题
+- 🧪 **测试覆盖**：pytest + vitest，覆盖 chat-agent、agent-session、workflow、evaluation 等关键链路
+- 🐳 **Docker / Ollama**：本地 API、前端、Ollama 模式的快速启动路径
 
-## 🏗️ 技术架构
+## 🏗️ 当前架构
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Finetune Platform                       │
-├─────────────────────────────────────────────────────────────┤
-│  Frontend (React 18 + TypeScript + Ant Design)              │
-│  ┌─────────────┬─────────────┬─────────────┬─────────────┐ │
-│  │  设备检测   │  模型管理   │  数据集     │  训练监控   │ │
-│  └─────────────┴─────────────┴─────────────┴─────────────┘ │
-│                          │                                   │
-│                    HTTP / SSE                                │
-├──────────────────────────┼───────────────────────────────────┤
-│  Backend (FastAPI + Python)                                  │
-│  ┌─────────────────────────────────────────────────────────┐ │
-│  │  API Layer (RESTful Endpoints)                          │ │
-│  ├─────────────────────────────────────────────────────────┤ │
-│  │  Core Module                                             │ │
-│  │  ┌─────────────┬─────────────┬─────────────┐            │ │
-│  │  │  Config     │  Logging    │  State Mgr  │            │ │
-│  │  └─────────────┴─────────────┴─────────────┘            │ │
-│  ├─────────────────────────────────────────────────────────┤ │
-│  │  ML Backends                                             │ │
-│  │  ┌─────────────────┬─────────────────┬─────────────────┐│ │
-│  │  │  PyTorch/CUDA   │  Transformers   │  PEFT/LoRA      ││ │
-│  │  └─────────────────┴─────────────────┴─────────────────┘│ │
-│  └─────────────────────────────────────────────────────────┘ │
-├─────────────────────────────────────────────────────────────┤
-│  Storage                                                     │
-│  ┌─────────────┬─────────────┬─────────────┬─────────────┐ │
-│  │  models/    │  datasets/  │  outputs/   │  logs/      │ │
-│  └─────────────┴─────────────┴─────────────┴─────────────┘ │
-└─────────────────────────────────────────────────────────────┘
+当前仓库已经不是单纯的“训练 + 推理”面板，而是四条主链并存：
+
+1. `Finetune Runtime`
+   包含模型、数据集、训练、推理、评估、部署。
+2. `Chat Surface`
+   包含 Chat Session、ChatNew UI、流式消息、上下文面板。
+3. `Agent Surface`
+   包含 Chat Agent 意图路由、Agent Session、LangGraph 执行、审批门控动作。
+4. `Workflow / Workspace Surface`
+   包含多 Agent Workflow Runtime、观测页、工作区文件与上下文能力。
+
+核心后端目录现在以这些模块为主：
+
+```text
+server/
+├── api/                       # FastAPI 路由
+├── agent_session/             # Agent Session、LangGraph、工具、审批恢复
+├── agent_runtime/             # 多 Agent workflow runtime
+├── chat_agent/                # 聊天意图 -> agent/workflow 路由
+├── context/                   # 项目上下文扫描与检索
+├── memory/                    # 记忆系统
+├── rag/                       # 知识库 / 向量检索
+├── security/                  # 速率限制、沙箱、安全中间件
+├── workspace/                 # 工作区相关路径与文件能力
+└── main.py                    # 应用入口
 ```
 
 ## 📋 系统要求
@@ -111,7 +103,7 @@ Experimental 模块会在页面内显示实时状态、依赖要求和受限原�
 
 ```bash
 # 克隆项目
-git clone https://github.com/your-org/finetune-platform.git
+git clone https://github.com/lin09389/finetune-platform.git
 cd finetune-platform
 
 # 安装后端依赖
@@ -130,7 +122,7 @@ npm install
 ```bash
 # 服务配置
 HOST=127.0.0.1
-PORT=8000
+PORT=8010
 
 # CORS 配置
 ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
@@ -153,7 +145,7 @@ LOG_FORMAT=text
 ```bash
 # 终端 1 - 启动后端
 cd server
-python -m uvicorn main:app --host 127.0.0.1 --port 8000
+python -m uvicorn main:app --host 127.0.0.1 --port 8010
 
 # 终端 2 - 启动前端
 cd client
@@ -163,7 +155,7 @@ npm run dev
 #### 4. 访问应用
 
 - 前端：http://localhost:5173
-- API 文档：http://localhost:8000/docs
+- API 文档：http://localhost:8010/docs
 
 ### 方法二：Docker 体验版（推荐预览路径）
 
@@ -199,11 +191,11 @@ docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 ```bash
 # 1) 启动后端（若尚未启动）
 cd server
-python -m uvicorn main:app --host 127.0.0.1 --port 8000
+python -m uvicorn main:app --host 127.0.0.1 --port 8010
 
 # 2) 在仓库根目录执行联调脚本
 cd ..
-python scripts/validate_training_v2_flow.py --base-url http://127.0.0.1:8000 --auto-stop-after 45
+python scripts/validate_training_v2_flow.py --base-url http://127.0.0.1:8010 --auto-stop-after 45
 ```
 
 脚本行为：
@@ -221,28 +213,26 @@ python scripts/validate_training_v2_flow.py --base-url http://127.0.0.1:8000 --a
 
 | 文档 | 说明 |
 |------|------|
-| [API 指南](API_GUIDE.md) | API 端点、使用示例、Python SDK |
+| [AGENTS.md](AGENTS.md) | 当前项目结构、开发命令、能力边界 |
 | [Docker 部署](docs/notes/DOCKER.md) | 容器化部署、GPU 配置 |
-| [启动说明](启动说明.txt) | Windows 快速启动指南 |
 | [能力真值表](docs/capability-truth-table.md) | 功能成熟度、依赖、失败模式、回归覆盖 |
+| [Agent Session 迁移说明](docs/agent_session_migration.md) | Agent Session / LangGraph 设计与收口 |
+| [Chat Agent 验收](docs/chat_agent_real_acceptance.md) | Chat Agent 真实验收记录 |
 
 ## 📁 项目结构
 
 ```
 finetune-platform/
 ├── server/                     # 后端服务
-│   ├── api/                    # API 路由
-│   │   ├── device.py           # 设备管理
-│   │   ├── models.py           # 模型管理
-│   │   ├── datasets.py         # 数据集管理
-│   │   ├── training.py         # 训练管理
-│   │   └── inference.py        # 推理服务
-│   ├── core/                   # 核心模块
-│   │   ├── config.py           # 配置管理
-│   │   ├── logging.py          # 日志配置
-│   │   ├── training_state.py   # 训练状态（线程安全）
-│   │   └── utils.py            # 工具函数
-│   ├── tests/                  # 测试套件
+│   ├── api/                    # 设备 / 模型 / 数据集 / 训练 / 推理 / chat-agent / workflows
+│   ├── agent_session/          # Agent Session 与 LangGraph 执行链
+│   ├── agent_runtime/          # Workflow Runtime
+│   ├── chat_agent/             # chat -> agent/workflow 编排
+│   ├── context/                # 项目上下文
+│   ├── memory/                 # 记忆系统
+│   ├── rag/                    # 知识库
+│   ├── workspace/              # 工作区能力
+│   ├── tests/                  # pytest 测试套件
 │   ├── main.py                 # 应用入口
 │   └── requirements.txt        # Python 依赖
 ├── client/                     # 前端应用
@@ -266,6 +256,85 @@ finetune-platform/
 ├── Dockerfile                  # Docker 镜像
 └── README.md                   # 本文件
 ```
+
+## 🖥️ 当前前端页面
+
+当前前端页面已经不只是训练面板，实际页面可以按下面理解：
+
+- `Dashboard`：平台概览与能力入口
+- `DeviceInfo`：设备、显存、系统资源
+- `ModelManager`：本地模型管理
+- `ModelHub`：模型中心 / 下载建议
+- `DatasetManager`：数据集上传、分析、校验
+- `Training`：训练配置、训练监测、训练事件流 V2
+- `Inference`：推理测试与对话
+- `Evaluation`：评估 run、样例输出、人工评分
+- `Deployment`：部署包与导出物
+- `History`：训练与运行历史
+- `KnowledgeBase`：知识库 / RAG
+- `ProjectContext`：项目上下文扫描与检索
+- `MemoryPage`：记忆与上下文存储能力
+- `WorkspaceManager`：工作区、文件与本地开发协作能力
+- `ChatNew`：新版聊天主界面，包含会话、路由、上下文面板、Agent / Workflow 运行卡片
+- `Workflows`：多 Agent workflow 观测、审批与事件流
+- `APIKeyManager`：云模型 API Key 管理
+
+下面这些页面目前更适合按实验性能力理解：
+
+- `GatewayPage`：Gateway 扩展链路
+- `HeartbeatPage`：Heartbeat 主动唤醒
+- `CUAControl`：CUA 控制面板
+- `MCPTools`：MCP 工具面板
+- `ActionRecorder`：Action Recorder
+- `SharedChat`：共享聊天视图
+- `DesignSystem`：设计系统展示
+- `DigitalTeam`：历史页面，当前不应视为主线能力
+
+## 💬 Chat 页面主能力
+
+`ChatNew` 现在是最重要的统一入口，不只是一个“发消息的页面”。它同时承担了：
+
+- `Chat Session`：多会话历史、消息列表、会话切换、消息删除与清空
+- `Routing`：支持 `auto / chat / agent` 路由模式，自动判断当前请求应该走普通聊天、Agent Task 还是 Workflow Run
+- `Cloud Model`：支持云模型开关、Provider / Model 选择、API Key 管理入口
+- `Workspace Binding`：可绑定工作区与项目路径，让聊天、agent、workflow 都落在同一项目上下文里
+- `Context Panel`：查看和调整路由模式、主 Agent、Workflow Template、Autonomy Mode、工作区与上下文信息
+- `Agent Run Cards`：在同一个聊天流里展示 agent session、动作审批、执行结果、阶段状态
+- `Workflow Timeline`：在聊天页直接展示 workflow steps、tool events、当前状态与活跃节点
+- `Memory / Context`：从聊天页侧边能力进入记忆管理、上下文信息与 API Key 配置
+
+所以更准确地说，当前项目的使用路径不是“先聊天，再单独去 agent 页面”，而是：
+`先在 ChatNew 发起需求 -> 再根据路由结果进入 chat / agent / workflow 三种执行形态`。
+
+同时也需要明确一点：
+当前 `agent` 模块已经能完成只读任务、单文件小补丁、动作审批与基础 workflow 观测，但整体仍然比较粗糙，还不应该被理解成“稳定成熟的通用开发代理”。
+更合适的预期是：
+
+- 它适合做小范围、可观察、可审批的本地任务
+- 它适合做受控验证，而不是一上来就承担大规模重构
+- 当任务跨模块、跨多轮修复、强依赖云模型稳定性时，仍然需要人工密切介入
+
+如果你在评估当前项目，请把 `agent` 理解为“正在快速收口中的核心 Beta 能力”，而不是已经完全产品化的终态。
+
+## 🧭 第一次上手 Chat / Agent / Workflow
+
+如果你第一次想体验现在项目里的主链路，推荐把 `ChatNew` 当成第一入口，按这个顺序：
+
+1. 先启动后端和前端，确认 `http://localhost:5173` 与 `http://localhost:8010/docs` 都能打开。
+2. 进入 `ChatNew`，先看右侧或抽屉式的 `Context Panel`，确认当前 `routing mode`、主 Agent、Workflow Template、Autonomy Mode、Workspace 都符合你的预期。
+3. 先发送一条普通问题，比如“帮我解释一下 LoRA 和 QLoRA 的区别”，确认它会走普通 `chat` 路由，而不是误判成 agent。
+4. 再发送一条明确的开发型目标，比如“读取当前项目的 package.json 和 server/main.py，然后总结项目结构”，确认它会从聊天流中创建 `Agent Session`，并在卡片里展示执行过程。
+5. 如果要体验动作审批，再发送一个明确的小改动目标，例如“只修改某个测试文件中的一个字符串”，观察聊天流里的 Agent 卡片进入 `waiting_approval`，然后执行 `approve / execute`。
+6. 最后进入 `Workflows` 页面看 observability，确认能看到 steps、tool events、actions、recent events，以及动作从 `pending -> approved -> executed` 的状态变化。
+7. 如果你只是想验证当前链路是否健康，优先做“只读任务”与“单文件小补丁任务”，不要一开始就让 agent 做跨模块重构。
+
+一个比较稳妥的第一次体验路径是：
+
+- 在 `ChatNew` 里先完成普通聊天验证
+- 再用同一个页面发起只读 Agent 任务
+- 观察 `AgentRunCard / AgentPartMessage / WorkflowStepCard`
+- 再发起一个单文件 patch 任务并审批执行
+- 最后到 `Workflows` 页面看观测与事件流
 
 ## 🔌 API 端点
 
@@ -305,14 +374,40 @@ finetune-platform/
 - `POST /chat/sessions/{id}/messages` - 添加消息
 - `GET /chat/sessions/{id}/messages` - 获取消息列表
 
+### Chat Agent / Agent Session
+- `POST /chat-agent/intent` - 判断消息应走 `chat / agent / workflow`
+- `POST /chat-agent/runs` - 创建 Chat Agent run
+- `GET /chat-agent/runs/{run_id}/events/stream` - Chat Agent 事件流
+- `POST /agent-sessions` - 创建 Agent Session
+- `GET /agent-sessions/{id}` - 获取 Agent Session
+- `POST /agent-sessions/{id}/prompt` - 提交 Agent 目标
+- `POST /agent-actions/{action_id}/approve` - 批准动作
+- `POST /agent-actions/{action_id}/reject` - 拒绝动作
+- `POST /agent-actions/{action_id}/execute` - 执行动作
+
+### Workflows
+- `GET /workflows` - 工作流列表
+- `GET /workflows/{workflow_id}/observability` - 工作流观测
+- `GET /workflows/{workflow_id}/events/stream` - 工作流事件流
+- `POST /workflow-actions/{action_id}/approve` - 批准 workflow 动作
+- `POST /workflow-actions/{action_id}/execute` - 执行 workflow 动作
+
+### Evaluation / Deployment
+- `POST /evaluation/runs` - 创建评估 run
+- `GET /evaluation/runs/{run_id}` - 查询评估状态
+- `POST /evaluation/runs/{run_id}/score` - 人工评分
+- `GET /deployment/packages` - 部署包列表
+- `POST /deployment/packages` - 创建部署包
+
 ### 推理服务
-- `POST /inference/generate` - 文本生成
 - `POST /inference/chat` - 聊天对话
 - `POST /inference/stream` - 流式输出
-- `GET /inference/backends` - 后端列表
 - `POST /inference/merge` - 合并 LoRA
 
-> 说明：`/chat` 旧兼容路由与 `GET /training` 根别名已移除，请使用上面的 canonical 路径。
+> 说明：
+> `Chat` 旧兼容路由与 `GET /training` 根别名已移除。
+> 当前前端和文档默认后端端口为 `8010`。
+> `digital_team` 已不再作为独立主线能力存在，相关兼容层仅用于过渡。
 
 ## 🧪 测试
 
@@ -352,7 +447,7 @@ npm run test:ui
 | 环境变量 | 说明 | 默认值 |
 |---------|------|--------|
 | `HOST` | 服务地址 | `127.0.0.1` |
-| `PORT` | 服务端口 | `8000` |
+| `PORT` | 服务端口 | `8010` |
 | `LOG_LEVEL` | 日志级别 | `INFO` |
 | `ALLOWED_ORIGINS` | CORS 来源 | `http://localhost:5173` |
 | `OLLAMA_BASE_URL` | Ollama 地址 | `http://localhost:11434` |
