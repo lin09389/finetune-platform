@@ -190,7 +190,7 @@ docker compose --profile ollama up -d --build
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 ```
 
-详细 Docker 启动、清理、GPU/Ollama 和验收说明见 [DOCKER.md](DOCKER.md)。
+详细 Docker 启动、清理、GPU/Ollama 和验收说明见 [DOCKER.md](docs/notes/DOCKER.md)。
 
 ### 训练监测 V2 联调验收（API 直连）
 
@@ -222,7 +222,7 @@ python scripts/validate_training_v2_flow.py --base-url http://127.0.0.1:8000 --a
 | 文档 | 说明 |
 |------|------|
 | [API 指南](API_GUIDE.md) | API 端点、使用示例、Python SDK |
-| [Docker 部署](DOCKER.md) | 容器化部署、GPU 配置 |
+| [Docker 部署](docs/notes/DOCKER.md) | 容器化部署、GPU 配置 |
 | [启动说明](启动说明.txt) | Windows 快速启动指南 |
 | [能力真值表](docs/capability-truth-table.md) | 功能成熟度、依赖、失败模式、回归覆盖 |
 
