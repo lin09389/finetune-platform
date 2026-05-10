@@ -72,6 +72,11 @@ QWEN35_IMPORT.md
 OLLAMA_FIX_README.md
 OLLAMA_STABILITY_SOLUTION.md
 聊天页面重构计划.md
+fix_*.py
+repair_*.py
+scan_*issues*.py
+*encoding*issues*.py
+server/fix_encoding_batch.py
 
 # Runtime state
 data/
