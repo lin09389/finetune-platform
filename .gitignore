@@ -65,6 +65,13 @@ PLAN.md
 *_HANDOVER.md
 docs/*HANDOFF*.md
 server/agent_runtime/agents/plan.md
+CLAUDE.md
+GEMINI.md
+QWEN.md
+QWEN35_IMPORT.md
+OLLAMA_FIX_README.md
+OLLAMA_STABILITY_SOLUTION.md
+聊天页面重构计划.md
 
 # Runtime state
 data/
