@@ -79,6 +79,10 @@ scan_*issues*.py
 server/fix_encoding_batch.py
 AGENTS.md
 CHANGELOG_2026-04-08.md
+install-pytorch-gpu.bat
+start.ps1
+start.py
+verify.ps1
 
 # Runtime state
 data/
