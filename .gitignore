@@ -64,6 +64,7 @@ PLAN.md
 *计划*.md
 *_HANDOVER.md
 docs/*HANDOFF*.md
+server/agent_runtime/agents/plan.md
 
 # Runtime state
 data/
