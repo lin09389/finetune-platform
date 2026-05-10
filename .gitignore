@@ -36,6 +36,8 @@ yarn-error.log*
 .idea/
 *.swp
 *.swo
+.claude/
+.trae/
 
 # OS
 .DS_Store
@@ -56,6 +58,12 @@ tmp/
 temp/
 *.tmp
 server/scratch/
+docs/plans/
+COMMIT_PLAN_*.md
+PLAN.md
+*计划*.md
+*_HANDOVER.md
+docs/*HANDOFF*.md
 
 # Runtime state
 data/

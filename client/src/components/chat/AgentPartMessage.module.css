@@ -1,0 +1,251 @@
+.naturalPart {
+  max-width: 860px;
+}
+
+.summaryPart {
+  display: grid;
+  gap: 8px;
+  max-width: 860px;
+  padding: 14px 14px 14px 16px;
+  border-left: 2px solid color-mix(in srgb, var(--accent-success, #52c41a) 72%, transparent);
+  border-radius: 14px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-success, #52c41a) 8%, transparent), color-mix(in srgb, var(--bg-elevated) 96%, transparent));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.03);
+  transform: translateZ(0);
+}
+
+.summaryHeader {
+  color: var(--text-secondary);
+}
+
+.stagePanel {
+  display: grid;
+  gap: 8px;
+  max-width: 860px;
+  padding: 12px 14px 12px 16px;
+  border-left: 2px solid color-mix(in srgb, var(--accent-primary, #1677ff) 68%, transparent);
+  border-radius: 14px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-primary, #1677ff) 7%, transparent), color-mix(in srgb, var(--bg-elevated) 96%, transparent));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.03);
+  transform: translateZ(0);
+}
+
+.stageHeadline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.stageMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.stageDescription {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.stageDetails {
+  display: grid;
+  gap: 8px;
+}
+
+.diffOverview {
+  display: grid;
+  gap: 10px;
+  margin-top: 2px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+  border-radius: 16px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-elevated) 98%, transparent), color-mix(in srgb, var(--bg-secondary) 92%, transparent));
+}
+
+.diffOverviewHeader {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.diffOverviewMeta {
+  font-size: 12px;
+}
+
+.diffFileGrid {
+  display: grid;
+  gap: 10px;
+}
+
+.diffFileCard {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+  background: color-mix(in srgb, var(--bg-base) 96%, transparent);
+}
+
+.diffFileCardTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.diffFilePath {
+  font-weight: 700;
+  word-break: break-all;
+}
+
+.diffFileTag {
+  margin-inline-end: 0;
+  border-radius: 999px;
+}
+
+.diffFileSummary {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.diffPanel {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color) 64%, transparent);
+}
+
+.diffPanelHeader {
+  display: grid;
+  gap: 8px;
+}
+
+.diffProgress {
+  margin: 0;
+}
+
+.detailSummary {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.readableMarkdown {
+  color: var(--text-primary);
+  font-size: 16px;
+  line-height: 1.82;
+  letter-spacing: 0;
+}
+
+.readableMarkdown > :first-child,
+.paragraph:first-child {
+  margin-top: 0;
+}
+
+.readableMarkdown > :last-child,
+.paragraph:last-child,
+.list:last-child {
+  margin-bottom: 0;
+}
+
+.paragraph {
+  margin: 0 0 14px;
+}
+
+.list {
+  margin: 8px 0 18px;
+  padding-left: 24px;
+}
+
+.listItem {
+  margin: 7px 0;
+  padding-left: 2px;
+}
+
+.listItem::marker {
+  color: var(--text-primary);
+  font-size: 0.9em;
+}
+
+.strong {
+  font-weight: 750;
+}
+
+.inlineCode {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  line-height: 1.55;
+  vertical-align: baseline;
+}
+
+.fileLink {
+  color: color-mix(in srgb, var(--accent-primary) 88%, #174ea6);
+  font-weight: 650;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+
+.fileLink:hover {
+  border-bottom-color: currentColor;
+}
+
+.codeBlock {
+  margin: 12px 0 16px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.streamingCursor {
+  display: inline-block;
+  width: 2px;
+  height: 16px;
+  margin-left: 2px;
+  border-radius: 1px;
+  background: var(--accent-primary);
+  animation: agentStreamBlink 0.8s infinite;
+}
+
+@keyframes agentStreamBlink {
+  0%, 45% {
+    opacity: 1;
+  }
+  46%, 100% {
+    opacity: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .readableMarkdown {
+    font-size: 15px;
+    line-height: 1.76;
+  }
+
+  .list {
+    padding-left: 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .streamingCursor {
+    animation: none;
+  }
+}
