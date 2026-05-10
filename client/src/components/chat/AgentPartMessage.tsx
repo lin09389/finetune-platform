@@ -8,10 +8,14 @@ import {
   ReloadOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
-import { Button, Collapse, Space, Tag, Typography } from 'antd';
+import { Button, Collapse, Progress, Space, Tag, Typography } from 'antd';
 import React, { type ReactNode } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeSanitize from 'rehype-sanitize';
 import type { AgentPart } from '../../services/api';
 import type { ChatAgentMetadata } from '../../types';
+import styles from './AgentPartMessage.module.css';
 
 interface AgentPartMessageProps {
   content: string;
@@ -63,6 +67,45 @@ function repairAttempt(payload?: Record<string, any>, metadata?: ChatAgentMetada
   return payload?.repair_attempt ?? payload?.state?.repair_attempts ?? metadata?.repair_attempts;
 }
 
+function normalizeFileStatus(value?: string) {
+  const status = (value || '').toLowerCase();
+  if (['add', 'added', 'create', 'created', 'new'].includes(status)) return '新增';
+  if (['modify', 'modified', 'update', 'updated', 'change', 'changed'].includes(status)) return '修改';
+  if (['delete', 'deleted', 'remove', 'removed'].includes(status)) return '删除';
+  if (['rename', 'renamed', 'move', 'moved'].includes(status)) return '重命名';
+  if (status) return status;
+  return '变更';
+}
+
+function extractFileDiffs(payload?: Record<string, any>) {
+  const source =
+    payload?.changed_files_detail ||
+    payload?.payload?.changed_files_detail ||
+    payload?.file_changes ||
+    payload?.payload?.file_changes ||
+    payload?.diff_entries ||
+    payload?.payload?.diff_entries ||
+    payload?.diff ||
+    payload?.payload?.diff;
+
+  if (Array.isArray(source)) {
+    return source
+      .map((item: any) => ({
+        path: item?.path || item?.file_path || item?.filename || item?.name || item?.old_path || item?.new_path || '',
+        status: item?.status || item?.change_type || item?.action || item?.type || '',
+        summary: item?.summary || item?.description || item?.message || '',
+        diff: item?.diff || item?.patch || item?.content || item?.after || item?.before || '',
+      }))
+      .filter((item) => item.path || item.summary || item.diff);
+  }
+
+  if (typeof source === 'string') {
+    return [{ path: '', status: '', summary: '', diff: source }];
+  }
+
+  return [];
+}
+
 function diffPreview(payload?: Record<string, any>) {
   if (!payload) return '';
   if (payload.diff) return stringify(payload.diff);
@@ -100,6 +143,43 @@ function stripProtocolBlocks(value?: string) {
     .trim();
 }
 
+const markdownComponents = {
+  a: ({ children, href }: any) => (
+    <a href={href} className={styles.fileLink} target={href?.startsWith('http') ? '_blank' : undefined} rel="noreferrer">
+      {children}
+    </a>
+  ),
+  code: ({ inline, children }: any) => {
+    if (inline) {
+      return <code className={styles.inlineCode}>{children}</code>;
+    }
+    return (
+      <pre className={styles.codeBlock}>
+        <code>{String(children).replace(/\n$/, '')}</code>
+      </pre>
+    );
+  },
+  p: ({ children }: any) => <p className={styles.paragraph}>{children}</p>,
+  ul: ({ children }: any) => <ul className={styles.list}>{children}</ul>,
+  ol: ({ children }: any) => <ol className={styles.list}>{children}</ol>,
+  li: ({ children }: any) => <li className={styles.listItem}>{children}</li>,
+  strong: ({ children }: any) => <strong className={styles.strong}>{children}</strong>,
+};
+
+function MarkdownBody({ children }: { children: string }) {
+  return (
+    <div className={styles.readableMarkdown}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeSanitize]}
+        components={markdownComponents}
+      >
+        {children}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 const AgentPartMessage = React.memo(({
   content,
   metadata,
@@ -118,6 +198,7 @@ const AgentPartMessage = React.memo(({
   const streamingDiagnostics = metadata.agent_streaming_diagnostics;
   const status = part.status || metadata.status || 'completed';
   const files = changedFiles(payload);
+  const diffItems = extractFileDiffs(payload);
   const canApprove = Boolean(metadata.can_approve && metadata.action_id);
   const canExecute = Boolean(metadata.can_execute && metadata.action_id);
   const isProblem = ['failed', 'blocked'].includes(status);
@@ -162,7 +243,26 @@ const AgentPartMessage = React.memo(({
     </div>
   );
 
-if (part.type === 'text') {
+  const renderDiffPanel = (title: string, preview: string, entry?: { path: string; status: string; diff: string; summary: string }) => {
+    const changeRatio = preview ? Math.min(100, Math.max(20, preview.length / 18)) : 0;
+    return (
+      <div className={styles.diffPanel}>
+        <div className={styles.diffPanelHeader}>
+          <Space wrap size={6}>
+            <CodeOutlined />
+            <Typography.Text strong>{title}</Typography.Text>
+            {entry?.path ? <Tag color="blue">{entry.path}</Tag> : null}
+            {entry?.status ? <Tag>{normalizeFileStatus(entry.status)}</Tag> : null}
+          </Space>
+          {changeRatio > 0 ? <Progress percent={Math.min(100, Math.round(changeRatio))} showInfo={false} size="small" className={styles.diffProgress} /> : null}
+        </div>
+        {entry?.summary ? <Typography.Text type="secondary" className={styles.diffSummary}>{entry.summary}</Typography.Text> : null}
+        {preview && <pre className={styles.diffPreview}>{preview}</pre>}
+      </div>
+    );
+  };
+
+  if (part.type === 'text') {
     const isStreaming = status === 'running' || (part.payload as Record<string, unknown>)?.streaming === true;
     const protocolOnly = Boolean((part.payload as Record<string, unknown>)?.protocol_only);
     const displayText = stripProtocolBlocks(part.content || content);
@@ -175,20 +275,18 @@ if (part.type === 'text') {
             <span className="typing-dot" style={{ animationDelay: '0.2s' }} />
             <span className="typing-dot" style={{ animationDelay: '0.4s' }} />
           </span>
-          <Typography.Text type="secondary">正在处理工具请求</Typography.Text>
+          <Typography.Text type="secondary">正在准备下一阶段</Typography.Text>
         </Space>
       );
     }
 
     return (
-      <Space direction="vertical" size={4} style={{ width: '100%' }}>
-        <Typography.Paragraph style={{ margin: '2px 0', whiteSpace: 'pre-wrap' }}>
-          {displayText}
-          {isStreaming && <span style={{ display: 'inline-block', width: 2, height: 14, background: '#1677ff', marginLeft: 2, verticalAlign: 'middle', animation: 'agentStreamBlink 0.8s infinite', borderRadius: 1 }} />}
-        </Typography.Paragraph>
+      <Space direction="vertical" size={4} style={{ width: '100%' }} className={styles.naturalPart}>
+        <MarkdownBody>{displayText}</MarkdownBody>
+        {isStreaming && <span className={styles.streamingCursor} />}
         {isStreaming && streamingDiagnostics?.mode && (
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {streamingDiagnostics.mode === 'chat_stream' ? '云端流式输出中' : '非流式输出'}
+            {streamingDiagnostics.mode === 'chat_stream' ? '流式输出中' : '非流式输出'}
           </Typography.Text>
         )}
       </Space>
@@ -196,9 +294,9 @@ if (part.type === 'text') {
   }
 
   if (part.type === 'summary') {
-    return shell(
-      <Space direction="vertical" size={6} style={{ width: '100%' }}>
-        <Space>
+    return (
+      <div className={styles.summaryPart}>
+        <Space className={styles.summaryHeader} wrap>
           {icon}
           <Typography.Text strong>最终结果</Typography.Text>
           <Tag color="success">已完成</Tag>
@@ -210,21 +308,28 @@ if (part.type === 'text') {
             流式未生效，已回退非流式：{streamingDiagnostics.error || streamingDiagnostics.reason || 'provider 未返回流式增量'}
           </Typography.Text>
         )}
-        <Typography.Paragraph style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{part.content || content}</Typography.Paragraph>
+        <MarkdownBody>{part.content || content}</MarkdownBody>
         {diagnosticBlock}
         {onRefreshRun && (
           <Button size="small" type="text" icon={<ReloadOutlined />} onClick={() => onRefreshRun(metadata.agent_run_id)}>
             刷新状态
           </Button>
         )}
-      </Space>,
+      </div>
     );
   }
 
   if (part.type === 'diff') {
     const preview = diffPreview(payload);
+    const entries = diffItems.length > 0 ? diffItems : files.map((file) => ({ path: file, status: '', diff: preview, summary: '' }));
+    const stats = {
+      total: entries.length || files.length,
+      modified: entries.filter((item) => /修改|modify|change|update/i.test(item.status)).length,
+      added: entries.filter((item) => /新增|add|create|new/i.test(item.status)).length,
+      removed: entries.filter((item) => /删除|remove|delete/i.test(item.status)).length,
+    };
     return shell(
-      <Space direction="vertical" size={8} style={{ width: '100%' }}>
+      <Space direction="vertical" size={10} style={{ width: '100%' }}>
         <Space wrap>
           {icon}
           <Typography.Text strong>{partTitle(part, content)}</Typography.Text>
@@ -237,19 +342,38 @@ if (part.type === 'text') {
         {repairAttempt(payload, metadata) ? (
           <Tag color="orange">修复尝试 {repairAttempt(payload, metadata)}/{metadata.max_repair_attempts || payload.max_repair_attempts || 1}</Tag>
         ) : null}
-        {files.length > 0 && (
-          <Space wrap>
-            {files.map((file) => (
-              <Tag key={file}>{file}</Tag>
-            ))}
-          </Space>
-        )}
-        {preview && (
-          <Collapse
-            ghost
-            size="small"
-            items={[{ key: 'diff', label: '查看修改内容', children: <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{preview}</pre> }]}
-          />
+        {(stats.total > 0 || files.length > 0) && (
+          <div className={styles.diffOverview}>
+            <div className={styles.diffOverviewHeader}>
+              <Typography.Text strong>变更文件</Typography.Text>
+              <Typography.Text type="secondary" className={styles.diffOverviewMeta}>
+                {stats.total} 个文件
+                {stats.added ? ` · ${stats.added} 新增` : ''}
+                {stats.modified ? ` · ${stats.modified} 修改` : ''}
+                {stats.removed ? ` · ${stats.removed} 删除` : ''}
+              </Typography.Text>
+            </div>
+            <div className={styles.diffFileGrid}>
+              {entries.map((entry, index) => (
+                <div key={`${entry.path || 'diff'}-${index}`} className={styles.diffFileCard}>
+                  <div className={styles.diffFileCardTop}>
+                    <Typography.Text className={styles.diffFilePath}>{entry.path || `变更 ${index + 1}`}</Typography.Text>
+                    {entry.status ? <Tag className={styles.diffFileTag}>{normalizeFileStatus(entry.status)}</Tag> : <Tag className={styles.diffFileTag}>修改</Tag>}
+                  </div>
+                  {entry.summary ? <Typography.Text className={styles.diffFileSummary}>{entry.summary}</Typography.Text> : null}
+                  <Collapse
+                    ghost
+                    size="small"
+                    items={[{
+                      key: `${entry.path || 'diff'}-${index}-preview`,
+                      label: '代码预览',
+                      children: renderDiffPanel(entry.path || `变更 ${index + 1}`, entry.diff || preview, entry),
+                    }]}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
         )}
         {(canApprove || canExecute) && (
           <Space>

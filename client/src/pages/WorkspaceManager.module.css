@@ -12,6 +12,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
+  transform: translateZ(0);
 }
 
 .headerLeft {
@@ -31,6 +32,7 @@
   font-size: 20px;
   color: #fff;
   flex-shrink: 0;
+  box-shadow: 0 10px 24px rgba(249, 115, 22, 0.18);
 }
 
 .headerTitle {
@@ -51,6 +53,20 @@
   padding: var(--space-5) var(--space-6);
 }
 
+.toolbarRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.toolbarHint {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .wsGrid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -63,14 +79,17 @@
   border-radius: var(--radius-md);
   padding: var(--space-4);
   transition:
-    border-color 0.2s,
-    box-shadow 0.2s;
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 180ms cubic-bezier(0.16, 1, 0.3, 1);
   cursor: default;
+  will-change: transform;
 }
 
 .wsCard:hover {
   border-color: var(--border-hover);
   box-shadow: var(--shadow-sm);
+  transform: translateY(-2px);
 }
 
 .wsCardTitle {
@@ -115,6 +134,18 @@
   border-top: 1px solid var(--border-color);
 }
 
+.modalFooterHint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-color);
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
 .emptyState {
   text-align: center;
   padding: var(--space-10) 0;
@@ -132,4 +163,14 @@
 
 .emptyText {
   font-size: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wsCard {
+    transition: border-color 180ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .wsCard:hover {
+    transform: none;
+  }
 }

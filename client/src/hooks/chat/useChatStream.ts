@@ -201,9 +201,11 @@ async function streamSse(
   let metadata: StreamMetadata = {};
   let lastYieldTime = performance.now();
 
-  while (true) {
+  let doneReading = false;
+  while (!doneReading) {
     const { done, value } = await reader.read();
-    if (done) break;
+    doneReading = done;
+    if (doneReading) break;
     buffer += decoder.decode(value, { stream: true });
 
     const records = buffer.split('\n\n');
@@ -376,6 +378,11 @@ export function useChatStream(config: StreamConfig = {}) {
         session: {
           session_id: sessionId,
           user_id: 'default',
+        },
+        context: {
+          use_context: currentState.settings.useProjectContext,
+          project_path: currentState.settings.projectPath,
+          max_context_length: 1500,
         },
       };
 
@@ -613,6 +620,11 @@ export function useChatStream(config: StreamConfig = {}) {
         session: {
           session_id: sessionId,
           user_id: 'default',
+        },
+        context: {
+          use_context: currentState.settings.useProjectContext,
+          project_path: currentState.settings.projectPath,
+          max_context_length: 1500,
         },
       };
 

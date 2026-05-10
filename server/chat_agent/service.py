@@ -112,19 +112,19 @@ class ChatAgentService:
         self._sync_action_run(action.workflow_id, "action_approved", action.id)
         return action
 
-    def reject_action(self, action_id: str):
-        action = self.runtime.reject_action(action_id)
+    async def reject_action(self, action_id: str):
+        action = await self.runtime.reject_action(action_id)
         self._sync_action_run(action.workflow_id, "action_rejected", action.id)
         return action
 
-    def execute_action(self, action_id: str):
-        action = self.runtime.execute_action(action_id)
+    async def execute_action(self, action_id: str):
+        action = await self.runtime.execute_action(action_id)
         event_type = "action_failed" if action.status == "failed" else "action_executed"
         self._sync_action_run(action.workflow_id, event_type, action.id)
         return action
 
     async def execute_action_with_repair(self, action_id: str):
-        action = self.runtime.execute_action(action_id)
+        action = await self.runtime.execute_action(action_id)
         event_type = "action_failed" if action.status == "failed" else "action_executed"
         self._sync_action_run(action.workflow_id, event_type, action.id)
         if action.status == "failed":

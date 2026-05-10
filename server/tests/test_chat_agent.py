@@ -74,6 +74,42 @@ def test_agent_intent_creates_workflow_and_run(tmp_path):
     assert data["details_url"] == f"/workflows?workflow={data['workflow_id']}"
 
 
+def test_intent_endpoint_keeps_plain_help_request_in_chat_mode(tmp_path):
+    client = make_client(tmp_path)
+    response = client.post(
+        "/chat-agent/intent",
+        json={
+            "content": "帮我解释一下 LoRA 和 QLoRA 的区别",
+            "agent_id": "build",
+            "template_id": "software_delivery",
+            "routing_mode": "auto",
+        },
+    )
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["mode"] == "chat"
+
+
+def test_intent_endpoint_supports_workflow_mode_response(tmp_path):
+    client = make_client(tmp_path)
+    response = client.post(
+        "/chat-agent/intent",
+        json={
+            "content": "请给我设计一个多阶段 workflow，包含 stage、node 和审批流",
+            "agent_id": "build",
+            "template_id": "software_delivery",
+            "routing_mode": "auto",
+        },
+    )
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["mode"] == "workflow"
+
+
 def test_run_streams_events_and_action_can_execute_from_chat_agent(tmp_path):
     target = Path.cwd() / "tmp_chat_agent_smoke.txt"
     if target.exists():

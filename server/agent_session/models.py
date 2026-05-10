@@ -13,11 +13,44 @@ AgentSessionStatus = Literal[
     "verifying",
     "repairing",
     "needs_manual_review",
+    "interrupted",
     "completed",
     "failed",
 ]
 AgentPartType = Literal["text", "tool_call", "tool_result", "diff", "command", "permission", "summary", "error"]
 AgentPartStatus = Literal["pending", "running", "completed", "failed", "blocked", "approved", "executed"]
+TaskStageStatus = Literal["pending", "running", "blocked", "completed", "failed", "waiting_approval"]
+TaskNodeStatus = Literal["pending", "running", "blocked", "completed", "failed", "waiting_approval"]
+
+
+class TaskNode(BaseModel):
+    id: str
+    title: str
+    description: str | None = None
+    tool: str | None = None
+    args: dict[str, Any] = Field(default_factory=dict)
+    status: TaskNodeStatus = "pending"
+    depends_on: list[str] = Field(default_factory=list)
+    summary: str | None = None
+    artifacts: dict[str, Any] = Field(default_factory=dict)
+
+
+class TaskStage(BaseModel):
+    id: str
+    title: str
+    description: str | None = None
+    status: TaskStageStatus = "pending"
+    nodes: list[TaskNode] = Field(default_factory=list)
+    summary: str | None = None
+
+
+class TaskPlan(BaseModel):
+    task_id: str
+    goal: str
+    stages: list[TaskStage] = Field(default_factory=list)
+    status: Literal["planned", "running", "blocked", "completed", "failed"] = "planned"
+    summary: str | None = None
+    next_action: str | None = None
 
 
 class AgentSessionCreate(BaseModel):

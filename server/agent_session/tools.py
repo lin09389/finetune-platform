@@ -6,19 +6,65 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, Callable
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 from fastapi import HTTPException
 
 from agent_runtime.command_policy import command_allowed, normalize_command, resolve_command_cwd, run_git, summarize_failure
 from agent_runtime.patch_engine import SafePatchEngine
 from core.config import settings
+from workspace.local_paths import get_allowed_workspace_roots
 from .parser import parse_tool_request
 
 
 DEV_SERVER_PROCESSES: dict[str, dict[str, Any]] = {}
 AST_GREP_SYMBOL_RE = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
+LOCAL_HTTP_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+class LocalPageParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self._title_active = False
+        self._heading_tag: str | None = None
+        self.title = ""
+        self.headings: list[dict[str, str]] = []
+        self.links: list[str] = []
+        self.text_parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        lowered = tag.lower()
+        if lowered == "title":
+            self._title_active = True
+        if lowered in {"h1", "h2", "h3"}:
+            self._heading_tag = lowered
+        if lowered == "a":
+            href = dict(attrs).get("href")
+            if href and len(self.links) < 12:
+                self.links.append(href)
+
+    def handle_endtag(self, tag: str) -> None:
+        lowered = tag.lower()
+        if lowered == "title":
+            self._title_active = False
+        if lowered == self._heading_tag:
+            self._heading_tag = None
+
+    def handle_data(self, data: str) -> None:
+        text = " ".join(data.split())
+        if not text:
+            return
+        if self._title_active and not self.title:
+            self.title = text[:200]
+        if self._heading_tag and len(self.headings) < 8:
+            self.headings.append({"tag": self._heading_tag, "text": text[:200]})
+        if len(" ".join(self.text_parts)) < 4000:
+            self.text_parts.append(text[:400])
 
 
 @dataclass
@@ -65,6 +111,17 @@ class AgentToolRegistry:
         self.register(ToolDefinition("git_diff", "读取 Git 差异", "read", {}, self._git_diff))
         self.register(ToolDefinition("list_changed_files", "列出变更文件", "read", {}, self._list_changed_files))
         self.register(ToolDefinition("read_logs", "读取日志", "read", {}, self._read_logs))
+        self.register(ToolDefinition("http_probe", "探测本地 HTTP 服务", "read", {"url": "string"}, self._http_probe))
+        self.register(ToolDefinition("probe_json_endpoint", "探测本地 JSON 接口", "read", {"url": "string"}, self._probe_json_endpoint))
+        self.register(ToolDefinition("read_local_page", "读取本地页面摘要", "read", {"url": "string"}, self._read_local_page))
+        self.register(ToolDefinition("browser_validate_page", "使用浏览器验证本地页面", "read", {"url": "string"}, self._browser_validate_page))
+        self.register(ToolDefinition("capture_network_errors", "捕获本地页面网络错误", "read", {"url": "string"}, self._capture_network_errors))
+        self.register(ToolDefinition("browser_click", "使用浏览器点击本地页面元素", "read", {"url": "string", "selector": "string"}, self._browser_click))
+        self.register(ToolDefinition("browser_fill", "使用浏览器填写本地页面表单", "read", {"url": "string", "selector": "string", "value": "string"}, self._browser_fill))
+        self.register(ToolDefinition("browser_wait_for", "等待本地页面元素或文本出现", "read", {"url": "string"}, self._browser_wait_for))
+        self.register(ToolDefinition("run_targeted_test", "精准运行测试目标", "command", {}, self._run_targeted_test))
+        self.register(ToolDefinition("summarize_test_results", "汇总最近测试结果", "read", {}, self._summarize_test_results))
+        self.register(ToolDefinition("collect_test_failures", "汇总最近测试失败信息", "read", {}, self._collect_test_failures))
         self.register(ToolDefinition("run_dev_server", "启动开发服务器", "command", {}, self._run_dev_server))
         self.register(ToolDefinition("stop_dev_server", "停止开发服务器", "command", {}, self._stop_dev_server))
         self.register(ToolDefinition("get_server_status", "查看开发服务器状态", "read", {}, self._get_server_status))
@@ -94,7 +151,7 @@ class AgentToolRegistry:
         return base_dir.parent if base_dir.name == "server" else base_dir
 
     def _workspace_roots(self) -> set[Path]:
-        return {Path.cwd().resolve(), settings.base_dir.resolve(), self._workspace_root()}
+        return get_allowed_workspace_roots({Path.cwd().resolve(), settings.base_dir.resolve(), self._workspace_root()})
 
     def _read(self, args: dict[str, Any], context: dict[str, Any]) -> ToolResult:
         root = self._root(context)
@@ -363,13 +420,15 @@ class AgentToolRegistry:
         single_symbol = str(args.get("symbol") or "").strip()
         if single_symbol:
             explicit_symbols.append(single_symbol)
-        inferred_reads, inferred_queries = self._infer_context_targets(root, goal)
+        should_infer_targets = not explicit_reads and not explicit_queries and not explicit_symbols
+        inferred_reads, inferred_queries = self._infer_context_targets(root, goal) if should_infer_targets else ([], [])
         reads = list(dict.fromkeys([*explicit_reads, *inferred_reads]))
         queries = list(dict.fromkeys([*explicit_queries, *inferred_queries]))
         for query in queries[:8]:
             result = self._search({"query": query, "limit": 10, "path_glob": args.get("path_glob") or "**/*"}, context)
             matches.extend(result.payload.get("matches") or [])
-        symbols = self._infer_symbol_candidates(goal, queries, reads, explicit_symbols)
+        should_expand_symbols = bool(explicit_symbols) or bool(queries) or not explicit_reads
+        symbols = self._infer_symbol_candidates(goal, queries, reads, explicit_symbols) if should_expand_symbols else []
         symbol_hits: list[dict[str, Any]] = []
         symbol_reads: list[str] = []
         symbol_scope_paths = list(
@@ -526,21 +585,303 @@ class AgentToolRegistry:
             None if entries else "log file not found",
         )
 
+    def _http_probe(self, args: dict[str, Any], context: dict[str, Any]) -> ToolResult:
+        url = str(args.get("url") or args.get("server_url") or "").strip()
+        if not url:
+            return ToolResult("failed", "缺少页面地址", {}, "url is required")
+        timeout_seconds = int(args.get("timeout_seconds") or 10)
+        method = str(args.get("method") or "GET").strip().upper()
+        try:
+            response = self._fetch_local_url(url, timeout_seconds=timeout_seconds, method=method)
+        except ValueError as exc:
+            return ToolResult("blocked", "页面探测被阻断", {"url": url}, str(exc))
+        status = "completed" if response["ok"] else "failed"
+        summary = f"页面探测成功：{response['status_code']}" if response["ok"] else f"页面探测失败：{response['status_code']}"
+        return ToolResult(
+            status,
+            summary,
+            {
+                "url": response["url"],
+                "final_url": response["final_url"],
+                "method": method,
+                "status_code": response["status_code"],
+                "ok": response["ok"],
+                "content_type": response["content_type"],
+                "title": self._extract_html_title(response["body"]),
+                "body_excerpt": response["body"][:1200],
+            },
+            None if response["ok"] else f"unexpected status: {response['status_code']}",
+        )
+
+    def _probe_json_endpoint(self, args: dict[str, Any], context: dict[str, Any]) -> ToolResult:
+        url = str(args.get("url") or args.get("server_url") or "").strip()
+        if not url:
+            return ToolResult("failed", "缺少接口地址", {}, "url is required")
+        timeout_seconds = int(args.get("timeout_seconds") or 10)
+        method = str(args.get("method") or "GET").strip().upper()
+        try:
+            response = self._fetch_local_url(url, timeout_seconds=timeout_seconds, method=method)
+        except ValueError as exc:
+            return ToolResult("blocked", "接口探测被阻断", {"url": url}, str(exc))
+        try:
+            parsed = json.loads(response["body"] or "null")
+            parse_error = None
+        except json.JSONDecodeError as exc:
+            parsed = None
+            parse_error = str(exc)
+        ok = bool(response["ok"] and parse_error is None and isinstance(parsed, (dict, list)))
+        preview = parsed if isinstance(parsed, dict) else parsed[:5] if isinstance(parsed, list) else None
+        return ToolResult(
+            "completed" if ok else "failed",
+            "JSON 接口探测成功" if ok else f"JSON 接口探测失败：{response['status_code']}",
+            {
+                "url": response["url"],
+                "final_url": response["final_url"],
+                "method": method,
+                "status_code": response["status_code"],
+                "ok": ok,
+                "content_type": response["content_type"],
+                "json_type": type(parsed).__name__ if parsed is not None else "",
+                "json_preview": preview,
+                "body_excerpt": response["body"][:1200],
+                "parse_error": parse_error,
+            },
+            None if ok else (parse_error or f"unexpected status: {response['status_code']}"),
+        )
+
+    def _read_local_page(self, args: dict[str, Any], context: dict[str, Any]) -> ToolResult:
+        url = str(args.get("url") or args.get("server_url") or "").strip()
+        if not url:
+            return ToolResult("failed", "缺少页面地址", {}, "url is required")
+        timeout_seconds = int(args.get("timeout_seconds") or 10)
+        try:
+            response = self._fetch_local_url(url, timeout_seconds=timeout_seconds, method="GET")
+        except ValueError as exc:
+            return ToolResult("blocked", "页面读取被阻断", {"url": url}, str(exc))
+        parser = LocalPageParser()
+        parser.feed(response["body"])
+        text_excerpt = " ".join(parser.text_parts)[:1600]
+        return ToolResult(
+            "completed" if response["ok"] else "failed",
+            "页面摘要读取完成" if response["ok"] else f"页面读取失败：{response['status_code']}",
+            {
+                "url": response["url"],
+                "final_url": response["final_url"],
+                "status_code": response["status_code"],
+                "ok": response["ok"],
+                "content_type": response["content_type"],
+                "title": parser.title,
+                "headings": parser.headings,
+                "links": parser.links,
+                "text_excerpt": text_excerpt,
+            },
+            None if response["ok"] else f"unexpected status: {response['status_code']}",
+        )
+
+    def _browser_validate_page(self, args: dict[str, Any], context: dict[str, Any]) -> ToolResult:
+        url = str(args.get("url") or args.get("server_url") or "").strip()
+        if not url:
+            return ToolResult("failed", "缺少页面地址", {}, "url is required")
+        selectors = [str(item).strip() for item in (args.get("selectors") or []) if str(item).strip()][:8]
+        required_text = [str(item).strip() for item in (args.get("required_text") or []) if str(item).strip()][:8]
+        timeout_seconds = int(args.get("timeout_seconds") or 15)
+        try:
+            payload = self._run_browser_validation(
+                url=url,
+                selectors=selectors,
+                required_text=required_text,
+                timeout_seconds=timeout_seconds,
+                root=self._root(context),
+            )
+        except ValueError as exc:
+            return ToolResult("blocked", "浏览器验证被阻断", {"url": url}, str(exc))
+        ok = bool(payload.get("ok"))
+        return ToolResult(
+            "completed" if ok else "failed",
+            "浏览器验证通过" if ok else "浏览器验证失败",
+            payload,
+            None if ok else str(payload.get("error") or "browser validation failed"),
+        )
+
+    def _capture_network_errors(self, args: dict[str, Any], context: dict[str, Any]) -> ToolResult:
+        url = str(args.get("url") or args.get("server_url") or "").strip()
+        if not url:
+            return ToolResult("failed", "缺少页面地址", {}, "url is required")
+        timeout_seconds = int(args.get("timeout_seconds") or 15)
+        try:
+            payload = self._run_network_capture(
+                root=self._root(context),
+                url=url,
+                timeout_seconds=timeout_seconds,
+            )
+        except ValueError as exc:
+            return ToolResult("blocked", "网络错误捕获被阻断", {"url": url}, str(exc))
+        ok = bool(payload.get("ok"))
+        return ToolResult(
+            "completed" if ok else "failed",
+            "网络请求检查通过" if ok else "检测到网络错误",
+            payload,
+            None if ok else str(payload.get("error") or "network errors detected"),
+        )
+
+    def _browser_click(self, args: dict[str, Any], context: dict[str, Any]) -> ToolResult:
+        url = str(args.get("url") or args.get("server_url") or "").strip()
+        selector = str(args.get("selector") or "").strip()
+        if not url or not selector:
+            return ToolResult("failed", "缺少页面地址或选择器", {}, "url and selector are required")
+        timeout_seconds = int(args.get("timeout_seconds") or 15)
+        try:
+            payload = self._run_browser_action(
+                root=self._root(context),
+                action="click",
+                url=url,
+                selector=selector,
+                value="",
+                wait_for=str(args.get("wait_for") or "").strip(),
+                required_text=[str(item).strip() for item in (args.get("required_text") or []) if str(item).strip()][:8],
+                timeout_seconds=timeout_seconds,
+            )
+        except ValueError as exc:
+            return ToolResult("blocked", "浏览器点击被阻断", {"url": url, "selector": selector}, str(exc))
+        return ToolResult("completed" if payload.get("ok") else "failed", "浏览器点击完成" if payload.get("ok") else "浏览器点击失败", payload, None if payload.get("ok") else str(payload.get("error") or "browser click failed"))
+
+    def _browser_fill(self, args: dict[str, Any], context: dict[str, Any]) -> ToolResult:
+        url = str(args.get("url") or args.get("server_url") or "").strip()
+        selector = str(args.get("selector") or "").strip()
+        value = str(args.get("value") or "").strip()
+        if not url or not selector:
+            return ToolResult("failed", "缺少页面地址或选择器", {}, "url and selector are required")
+        timeout_seconds = int(args.get("timeout_seconds") or 15)
+        try:
+            payload = self._run_browser_action(
+                root=self._root(context),
+                action="fill",
+                url=url,
+                selector=selector,
+                value=value,
+                wait_for=str(args.get("wait_for") or "").strip(),
+                required_text=[str(item).strip() for item in (args.get("required_text") or []) if str(item).strip()][:8],
+                timeout_seconds=timeout_seconds,
+            )
+        except ValueError as exc:
+            return ToolResult("blocked", "浏览器填写被阻断", {"url": url, "selector": selector}, str(exc))
+        return ToolResult("completed" if payload.get("ok") else "failed", "浏览器填写完成" if payload.get("ok") else "浏览器填写失败", payload, None if payload.get("ok") else str(payload.get("error") or "browser fill failed"))
+
+    def _browser_wait_for(self, args: dict[str, Any], context: dict[str, Any]) -> ToolResult:
+        url = str(args.get("url") or args.get("server_url") or "").strip()
+        wait_for = str(args.get("wait_for") or args.get("selector") or "").strip()
+        required_text = [str(item).strip() for item in (args.get("required_text") or []) if str(item).strip()][:8]
+        if not url:
+            return ToolResult("failed", "缺少页面地址", {}, "url is required")
+        if not wait_for and not required_text:
+            return ToolResult("failed", "缺少等待条件", {}, "wait_for or required_text is required")
+        timeout_seconds = int(args.get("timeout_seconds") or 15)
+        try:
+            payload = self._run_browser_action(
+                root=self._root(context),
+                action="wait_for",
+                url=url,
+                selector="",
+                value="",
+                wait_for=wait_for,
+                required_text=required_text,
+                timeout_seconds=timeout_seconds,
+            )
+        except ValueError as exc:
+            return ToolResult("blocked", "浏览器等待被阻断", {"url": url}, str(exc))
+        return ToolResult("completed" if payload.get("ok") else "failed", "浏览器等待完成" if payload.get("ok") else "浏览器等待失败", payload, None if payload.get("ok") else str(payload.get("error") or "browser wait failed"))
+
+    def _run_targeted_test(self, args: dict[str, Any], context: dict[str, Any]) -> ToolResult:
+        root = self._root(context)
+        payload = args.get("payload") if isinstance(args.get("payload"), dict) else dict(args)
+        framework = str(payload.get("framework") or "").strip().lower()
+        target = str(payload.get("target") or payload.get("path") or "").strip()
+        test_name = str(payload.get("test_name") or payload.get("name") or "").strip()
+        if not framework:
+            framework = self._infer_test_framework(root, target)
+        if framework not in {"pytest", "vitest", "npm_test"}:
+            return ToolResult("blocked", "无法识别测试框架", {"framework": framework, "target": target}, "unsupported test framework")
+        command = self._build_targeted_test_command(root, framework, target, test_name)
+        if not command_allowed(command):
+            return ToolResult("blocked", "精准测试命令不在白名单内", {"command": command, "framework": framework, "target": target}, "command is not allowlisted")
+        return ToolResult(
+            "completed",
+            "已生成精准测试命令",
+            {
+                "command": command,
+                "framework": framework,
+                "target": target,
+                "test_name": test_name or None,
+                "cwd": str(resolve_command_cwd(root, command)),
+            },
+        )
+
+    def _summarize_test_results(self, args: dict[str, Any], context: dict[str, Any]) -> ToolResult:
+        stdout = str(args.get("stdout") or "")
+        stderr = str(args.get("stderr") or "")
+        exit_code = args.get("exit_code")
+        framework = str(args.get("framework") or "").strip().lower()
+        session = context.get("session") or {}
+        if (not stdout and not stderr and exit_code is None) and self.repository is not None and session.get("id"):
+            parts = self.repository.list_parts(str(session["id"]))
+            latest_command = next((part for part in reversed(parts) if part.get("type") == "command"), None)
+            payload = (latest_command or {}).get("payload") if isinstance((latest_command or {}).get("payload"), dict) else {}
+            stdout = str(payload.get("stdout") or "")
+            stderr = str(payload.get("stderr") or "")
+            exit_code = payload.get("exit_code")
+            framework = framework or self._infer_test_framework(self._root(context), " ".join(payload.get("command") or []))
+        summary = self._parse_test_result_summary(stdout, stderr, framework)
+        summary["exit_code"] = exit_code
+        summary["framework"] = framework or summary.get("framework") or ""
+        return ToolResult(
+            "completed" if (stdout or stderr or exit_code is not None) else "failed",
+            "测试结果已汇总" if (stdout or stderr or exit_code is not None) else "未找到测试结果",
+            summary,
+            None if (stdout or stderr or exit_code is not None) else "no test output available",
+        )
+
+    def _collect_test_failures(self, args: dict[str, Any], context: dict[str, Any]) -> ToolResult:
+        stdout = str(args.get("stdout") or "")
+        stderr = str(args.get("stderr") or "")
+        failure_summary = str(args.get("failure_summary") or "")
+        session = context.get("session") or {}
+        if not stdout and not stderr and self.repository is not None and session.get("id"):
+            parts = self.repository.list_parts(str(session["id"]))
+            latest_command = next((part for part in reversed(parts) if part.get("type") == "command"), None)
+            payload = (latest_command or {}).get("payload") if isinstance((latest_command or {}).get("payload"), dict) else {}
+            stdout = str(payload.get("stdout") or "")
+            stderr = str(payload.get("stderr") or "")
+            failure_summary = failure_summary or str(payload.get("failure_summary") or "")
+        failures = self._parse_test_failures(stdout, stderr)
+        return ToolResult(
+            "completed" if (failures or failure_summary or stdout or stderr) else "failed",
+            f"提取到 {len(failures)} 条测试失败信息" if (failures or failure_summary or stdout or stderr) else "未找到测试失败信息",
+            self._normalize_tool_payload(
+                {
+                    "failure_summary": failure_summary,
+                    "failures": failures[:12],
+                    "stdout_excerpt": stdout[-1600:],
+                    "stderr_excerpt": stderr[-1600:],
+                }
+            ),
+            None if (failures or failure_summary or stdout or stderr) else "no test failure information available",
+        )
+
     def _patch(self, args: dict[str, Any], context: dict[str, Any]) -> ToolResult:
         payload = args.get("payload") if isinstance(args.get("payload"), dict) else args
-        return ToolResult("completed", "已生成补丁建议", {"payload": payload, "diff": payload.get("diff"), "files": payload.get("files") or []})
+        return ToolResult("completed", "已生成补丁建议", self._normalize_tool_payload({"payload": payload, "diff": payload.get("diff"), "files": payload.get("files") or []}))
 
     def _command(self, args: dict[str, Any], context: dict[str, Any]) -> ToolResult:
         payload = args.get("payload") if isinstance(args.get("payload"), dict) else args
         command = payload.get("command")
         if isinstance(command, str):
-            return ToolResult("blocked", "命令被阻断", {"command": command}, "command must be argv array")
+            return ToolResult("blocked", "命令被阻断", self._normalize_tool_payload({"command": command}), "command must be argv array")
         try:
             argv = normalize_command(command)
         except HTTPException as exc:
-            return ToolResult("blocked", "命令被阻断", {"command": command}, str(exc.detail))
+            return ToolResult("blocked", "命令被阻断", self._normalize_tool_payload({"command": command}), str(exc.detail))
         if not command_allowed(argv):
-            return ToolResult("blocked", "命令不在白名单内", {"command": argv}, "command is not allowlisted")
+            return ToolResult("blocked", "命令不在白名单内", self._normalize_tool_payload({"command": argv}), "command is not allowlisted")
         root = self._root(context)
         command_root = resolve_command_cwd(root, argv)
         completed = subprocess.run(argv, cwd=str(command_root), text=True, capture_output=True, timeout=int(payload.get("timeout_seconds") or 120), shell=False)
@@ -548,7 +889,7 @@ class AgentToolRegistry:
         return ToolResult(
             "completed" if completed.returncode == 0 else "failed",
             "命令执行完成" if completed.returncode == 0 else "命令执行失败",
-            {"command": argv, "cwd": str(command_root), "stdout": completed.stdout, "stderr": completed.stderr, "exit_code": completed.returncode, "failure_summary": failure},
+            self._normalize_tool_payload({"command": argv, "cwd": str(command_root), "stdout": completed.stdout, "stderr": completed.stderr, "exit_code": completed.returncode, "failure_summary": failure}),
             failure or None,
         )
 
@@ -639,28 +980,45 @@ class AgentToolRegistry:
         latest_diff = next((part for part in reversed(parts) if part.get("type") == "diff"), None)
         latest_summary = next((part for part in reversed(parts) if part.get("type") == "summary"), None)
         latest_error = next((part for part in reversed(parts) if part.get("status") in {"failed", "blocked"}), None)
-        payload = {
-            "latest_command": self._part_snapshot(latest_command),
-            "latest_diff": self._part_snapshot(latest_diff),
-            "latest_summary": self._part_snapshot(latest_summary),
-            "latest_error": self._part_snapshot(latest_error),
-        }
+        payload = self._normalize_tool_payload(
+            {
+                "latest_command": self._part_snapshot(latest_command),
+                "latest_diff": self._part_snapshot(latest_diff),
+                "latest_summary": self._part_snapshot(latest_summary),
+                "latest_error": self._part_snapshot(latest_error),
+            }
+        )
         command_failure = ((latest_command or {}).get("payload") or {}).get("failure_summary")
         if command_failure:
             payload["failure_summary"] = command_failure
+            payload["next_action"] = command_failure
         return ToolResult("completed", "已读取最近执行结果", payload)
 
     def _finalize(self, args: dict[str, Any], context: dict[str, Any]) -> ToolResult:
         content = str(args.get("summary") or args.get("content") or "任务已完成。")
-        return ToolResult("completed", content, {"summary": content, **args})
+        return ToolResult("completed", content, self._normalize_tool_payload({"summary": content, **args}))
 
     def apply_patch_payload(self, payload: dict[str, Any], context: dict[str, Any]) -> ToolResult:
         root = self._root(context)
         try:
             result = SafePatchEngine(root).apply_payload(payload)
-            return ToolResult("completed", result.stdout, {"changed_files": result.changed_files, "applied_hunks": len(result.summaries), "patch_summaries": result.summaries})
+            return ToolResult(
+                "completed",
+                result.stdout,
+                self._normalize_tool_payload({"changed_files": result.changed_files, "applied_hunks": len(result.summaries), "patch_summaries": result.summaries}),
+            )
         except Exception as exc:
-            return ToolResult("failed", "补丁执行失败", {}, str(exc))
+            return ToolResult("failed", "补丁执行失败", self._normalize_tool_payload({}), str(exc))
+
+    def _normalize_tool_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(payload)
+        if "changed_files" in normalized and "artifacts" not in normalized:
+            normalized["artifacts"] = {"changed_files": normalized.get("changed_files") or []}
+        if "patch_summaries" in normalized and "details" not in normalized:
+            normalized["details"] = normalized.get("patch_summaries") or []
+        if "failure_summary" in normalized and "next_action" not in normalized:
+            normalized["next_action"] = normalized.get("failure_summary") or ""
+        return normalized
 
     def _project_markers(self, root: Path) -> dict[str, bool]:
         return {
@@ -999,3 +1357,650 @@ class AgentToolRegistry:
             if len(results) >= limit:
                 break
         return results
+
+    def _validate_local_url(self, raw_url: str) -> str:
+        parsed = urlparse(raw_url)
+        if parsed.scheme not in {"http", "https"}:
+            raise ValueError("only http/https local URLs are allowed")
+        if (parsed.hostname or "").lower() not in LOCAL_HTTP_HOSTS:
+            raise ValueError("only localhost URLs are allowed")
+        return raw_url
+
+    def _fetch_local_url(self, raw_url: str, *, timeout_seconds: int, method: str) -> dict[str, Any]:
+        url = self._validate_local_url(raw_url)
+        request = Request(url, method=method, headers={"User-Agent": "finetune-platform-agent/1.0"})
+        try:
+            with urlopen(request, timeout=timeout_seconds) as response:
+                body = response.read().decode("utf-8", errors="ignore")
+                status_code = int(getattr(response, "status", 200))
+                final_url = str(response.geturl())
+                content_type = str(response.headers.get("content-type") or "")
+        except HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="ignore")
+            status_code = int(exc.code)
+            final_url = str(exc.geturl() or url)
+            content_type = str(exc.headers.get("content-type") or "")
+        except URLError as exc:
+            return {
+                "url": url,
+                "final_url": url,
+                "status_code": 0,
+                "ok": False,
+                "content_type": "",
+                "body": str(exc.reason),
+            }
+        return {
+            "url": url,
+            "final_url": final_url,
+            "status_code": status_code,
+            "ok": 200 <= status_code < 400,
+            "content_type": content_type,
+            "body": body,
+        }
+
+    def _extract_html_title(self, body: str) -> str:
+        match = re.search(r"<title[^>]*>(.*?)</title>", body, flags=re.IGNORECASE | re.DOTALL)
+        if not match:
+            return ""
+        return " ".join(match.group(1).split())[:200]
+
+    def _run_browser_validation(
+        self,
+        *,
+        url: str,
+        selectors: list[str],
+        required_text: list[str],
+        timeout_seconds: int,
+        root: Path,
+    ) -> dict[str, Any]:
+        validated_url = self._validate_local_url(url)
+        node_executable = shutil.which("node")
+        if not node_executable:
+            return {
+                "url": validated_url,
+                "final_url": validated_url,
+                "ok": False,
+                "status_code": 0,
+                "title": "",
+                "headings": [],
+                "console_errors": [],
+                "page_errors": [],
+                "selector_results": [],
+                "text_results": [],
+                "body_excerpt": "",
+                "error": "node executable not found",
+                "engine": "playwright",
+            }
+        client_root = root / "client"
+        script = """
+const { chromium } = require('playwright');
+
+async function main() {
+  const input = JSON.parse(process.argv[1]);
+  const consoleErrors = [];
+  const pageErrors = [];
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  page.on('console', (msg) => {
+    if (msg.type() === 'error' && consoleErrors.length < 12) {
+      consoleErrors.push(msg.text());
+    }
+  });
+  page.on('pageerror', (error) => {
+    if (pageErrors.length < 12) {
+      pageErrors.push(String(error));
+    }
+  });
+  let response = null;
+  try {
+    response = await page.goto(input.url, { waitUntil: 'networkidle', timeout: input.timeoutMs });
+    const title = await page.title();
+    const headings = await page.$$eval('h1,h2,h3', (nodes) =>
+      nodes.slice(0, 8).map((node) => ({
+        tag: node.tagName.toLowerCase(),
+        text: (node.textContent || '').trim().slice(0, 200),
+      }))
+    );
+    const bodyText = await page.locator('body').innerText().catch(() => '');
+    const selectorResults = [];
+    for (const selector of input.selectors) {
+      const count = await page.locator(selector).count().catch(() => 0);
+      selectorResults.push({ selector, found: count > 0, count });
+    }
+    const textResults = [];
+    for (const text of input.requiredText) {
+      const found = await page.locator('body').evaluate((node, value) => (node.innerText || '').includes(value), text).catch(() => false);
+      textResults.push({ text, found });
+    }
+    const statusCode = response ? response.status() : 0;
+    const ok =
+      statusCode >= 200 &&
+      statusCode < 400 &&
+      consoleErrors.length === 0 &&
+      pageErrors.length === 0 &&
+      selectorResults.every((item) => item.found) &&
+      textResults.every((item) => item.found);
+    const payload = {
+      url: input.url,
+      final_url: page.url(),
+      ok,
+      status_code: statusCode,
+      title,
+      headings,
+      console_errors: consoleErrors,
+      page_errors: pageErrors,
+      selector_results: selectorResults,
+      text_results: textResults,
+      body_excerpt: bodyText.slice(0, 1600),
+      engine: 'playwright',
+    };
+    console.log(JSON.stringify(payload));
+  } catch (error) {
+    const payload = {
+      url: input.url,
+      final_url: page.url() || input.url,
+      ok: false,
+      status_code: response ? response.status() : 0,
+      title: '',
+      headings: [],
+      console_errors: consoleErrors,
+      page_errors: pageErrors,
+      selector_results: [],
+      text_results: [],
+      body_excerpt: '',
+      error: String(error),
+      engine: 'playwright',
+    };
+    console.log(JSON.stringify(payload));
+  } finally {
+    await browser.close().catch(() => {});
+  }
+}
+
+main().catch((error) => {
+  console.log(JSON.stringify({
+    url: '',
+    final_url: '',
+    ok: false,
+    status_code: 0,
+    title: '',
+    headings: [],
+    console_errors: [],
+    page_errors: [String(error)],
+    selector_results: [],
+    text_results: [],
+    body_excerpt: '',
+    error: String(error),
+    engine: 'playwright',
+  }));
+  process.exit(0);
+});
+"""
+        input_payload = json.dumps(
+            {
+                "url": validated_url,
+                "selectors": selectors,
+                "requiredText": required_text,
+                "timeoutMs": timeout_seconds * 1000,
+            },
+            ensure_ascii=False,
+        )
+        completed = subprocess.run(
+            [node_executable, "-e", script, input_payload],
+            cwd=str(client_root if client_root.exists() else root),
+            text=True,
+            capture_output=True,
+            timeout=max(timeout_seconds + 10, 20),
+            shell=False,
+        )
+        output = (completed.stdout or "").strip().splitlines()
+        raw = output[-1] if output else "{}"
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            payload = {
+                "url": validated_url,
+                "final_url": validated_url,
+                "ok": False,
+                "status_code": 0,
+                "title": "",
+                "headings": [],
+                "console_errors": [],
+                "page_errors": [],
+                "selector_results": [],
+                "text_results": [],
+                "body_excerpt": "",
+                "error": completed.stderr.strip() or raw or "invalid browser validation output",
+                "engine": "playwright",
+            }
+        payload.setdefault("url", validated_url)
+        payload.setdefault("final_url", validated_url)
+        payload.setdefault("engine", "playwright")
+        payload.setdefault("console_errors", [])
+        payload.setdefault("page_errors", [])
+        payload.setdefault("selector_results", [])
+        payload.setdefault("text_results", [])
+        payload.setdefault("headings", [])
+        payload.setdefault("title", "")
+        payload.setdefault("body_excerpt", "")
+        payload.setdefault("status_code", 0)
+        payload.setdefault("ok", False)
+        if completed.returncode != 0 and not payload.get("error"):
+            payload["error"] = completed.stderr.strip() or "browser validation command failed"
+        return payload
+
+    def _run_browser_action(
+        self,
+        *,
+        root: Path,
+        action: str,
+        url: str,
+        selector: str,
+        value: str,
+        wait_for: str,
+        required_text: list[str],
+        timeout_seconds: int,
+    ) -> dict[str, Any]:
+        validated_url = self._validate_local_url(url)
+        node_executable = shutil.which("node")
+        if not node_executable:
+            return {
+                "url": validated_url,
+                "final_url": validated_url,
+                "ok": False,
+                "status_code": 0,
+                "title": "",
+                "headings": [],
+                "console_errors": [],
+                "page_errors": [],
+                "selector_results": [],
+                "text_results": [],
+                "body_excerpt": "",
+                "error": "node executable not found",
+                "engine": "playwright",
+                "action": action,
+            }
+        client_root = root / "client"
+        script = """
+const { chromium } = require('playwright');
+async function main() {
+  const input = JSON.parse(process.argv[1]);
+  const consoleErrors = [];
+  const pageErrors = [];
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  page.on('console', (msg) => {
+    if (msg.type() === 'error' && consoleErrors.length < 12) consoleErrors.push(msg.text());
+  });
+  page.on('pageerror', (error) => {
+    if (pageErrors.length < 12) pageErrors.push(String(error));
+  });
+  let response = null;
+  try {
+    response = await page.goto(input.url, { waitUntil: 'networkidle', timeout: input.timeoutMs });
+    if (input.action === 'click') {
+      await page.locator(input.selector).click({ timeout: input.timeoutMs });
+    } else if (input.action === 'fill') {
+      await page.locator(input.selector).fill(input.value, { timeout: input.timeoutMs });
+    }
+    if (input.waitFor) {
+      if (input.waitFor.startsWith('text=')) {
+        await page.getByText(input.waitFor.slice(5), { exact: false }).waitFor({ timeout: input.timeoutMs });
+      } else {
+        await page.locator(input.waitFor).waitFor({ timeout: input.timeoutMs });
+      }
+    }
+    const selectorResults = [];
+    if (input.selector) {
+      const count = await page.locator(input.selector).count().catch(() => 0);
+      selectorResults.push({ selector: input.selector, found: count > 0, count });
+    }
+    const textResults = [];
+    for (const text of input.requiredText) {
+      const found = await page.locator('body').evaluate((node, value) => (node.innerText || '').includes(value), text).catch(() => false);
+      textResults.push({ text, found });
+    }
+    const title = await page.title();
+    const headings = await page.$$eval('h1,h2,h3', (nodes) =>
+      nodes.slice(0, 8).map((node) => ({ tag: node.tagName.toLowerCase(), text: (node.textContent || '').trim().slice(0, 200) }))
+    );
+    const bodyText = await page.locator('body').innerText().catch(() => '');
+    const statusCode = response ? response.status() : 0;
+    const ok = statusCode >= 200 && statusCode < 400 && consoleErrors.length === 0 && pageErrors.length === 0 && textResults.every((item) => item.found);
+    console.log(JSON.stringify({
+      url: input.url,
+      final_url: page.url(),
+      ok,
+      status_code: statusCode,
+      title,
+      headings,
+      console_errors: consoleErrors,
+      page_errors: pageErrors,
+      selector_results: selectorResults,
+      text_results: textResults,
+      body_excerpt: bodyText.slice(0, 1600),
+      engine: 'playwright',
+      action: input.action,
+    }));
+  } catch (error) {
+    console.log(JSON.stringify({
+      url: input.url,
+      final_url: page.url() || input.url,
+      ok: false,
+      status_code: response ? response.status() : 0,
+      title: '',
+      headings: [],
+      console_errors: consoleErrors,
+      page_errors: pageErrors,
+      selector_results: input.selector ? [{ selector: input.selector, found: false, count: 0 }] : [],
+      text_results: input.requiredText.map((text) => ({ text, found: false })),
+      body_excerpt: '',
+      error: String(error),
+      engine: 'playwright',
+      action: input.action,
+    }));
+  } finally {
+    await browser.close().catch(() => {});
+  }
+}
+main().catch((error) => {
+  console.log(JSON.stringify({
+    url: '',
+    final_url: '',
+    ok: false,
+    status_code: 0,
+    title: '',
+    headings: [],
+    console_errors: [],
+    page_errors: [String(error)],
+    selector_results: [],
+    text_results: [],
+    body_excerpt: '',
+    error: String(error),
+    engine: 'playwright',
+    action: 'unknown',
+  }));
+  process.exit(0);
+});
+"""
+        input_payload = json.dumps(
+            {
+                "url": validated_url,
+                "action": action,
+                "selector": selector,
+                "value": value,
+                "waitFor": wait_for,
+                "requiredText": required_text,
+                "timeoutMs": timeout_seconds * 1000,
+            },
+            ensure_ascii=False,
+        )
+        completed = subprocess.run(
+            [node_executable, "-e", script, input_payload],
+            cwd=str(client_root if client_root.exists() else root),
+            text=True,
+            capture_output=True,
+            timeout=max(timeout_seconds + 10, 20),
+            shell=False,
+        )
+        output = (completed.stdout or "").strip().splitlines()
+        raw = output[-1] if output else "{}"
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            payload = {
+                "url": validated_url,
+                "final_url": validated_url,
+                "ok": False,
+                "status_code": 0,
+                "title": "",
+                "headings": [],
+                "console_errors": [],
+                "page_errors": [],
+                "selector_results": [],
+                "text_results": [],
+                "body_excerpt": "",
+                "error": completed.stderr.strip() or raw or "invalid browser action output",
+                "engine": "playwright",
+                "action": action,
+            }
+        payload.setdefault("url", validated_url)
+        payload.setdefault("final_url", validated_url)
+        payload.setdefault("engine", "playwright")
+        payload.setdefault("action", action)
+        payload.setdefault("console_errors", [])
+        payload.setdefault("page_errors", [])
+        payload.setdefault("selector_results", [])
+        payload.setdefault("text_results", [])
+        payload.setdefault("headings", [])
+        payload.setdefault("title", "")
+        payload.setdefault("body_excerpt", "")
+        payload.setdefault("status_code", 0)
+        payload.setdefault("ok", False)
+        if completed.returncode != 0 and not payload.get("error"):
+            payload["error"] = completed.stderr.strip() or "browser action command failed"
+        return payload
+
+    def _run_network_capture(
+        self,
+        *,
+        root: Path,
+        url: str,
+        timeout_seconds: int,
+    ) -> dict[str, Any]:
+        validated_url = self._validate_local_url(url)
+        node_executable = shutil.which("node")
+        if not node_executable:
+            return {
+                "url": validated_url,
+                "final_url": validated_url,
+                "ok": False,
+                "request_failures": [],
+                "error_responses": [],
+                "console_errors": [],
+                "page_errors": [],
+                "engine": "playwright",
+                "error": "node executable not found",
+            }
+        client_root = root / "client"
+        script = """
+const { chromium } = require('playwright');
+async function main() {
+  const input = JSON.parse(process.argv[1]);
+  const requestFailures = [];
+  const errorResponses = [];
+  const consoleErrors = [];
+  const pageErrors = [];
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  page.on('console', (msg) => {
+    if (msg.type() === 'error' && consoleErrors.length < 12) consoleErrors.push(msg.text());
+  });
+  page.on('pageerror', (error) => {
+    if (pageErrors.length < 12) pageErrors.push(String(error));
+  });
+  page.on('requestfailed', (request) => {
+    if (requestFailures.length < 12) {
+      requestFailures.push({
+        url: request.url(),
+        method: request.method(),
+        failure: request.failure() ? request.failure().errorText : 'requestfailed',
+      });
+    }
+  });
+  page.on('response', async (response) => {
+    if (response.status() >= 400 && errorResponses.length < 12) {
+      errorResponses.push({
+        url: response.url(),
+        status: response.status(),
+        method: response.request().method(),
+      });
+    }
+  });
+  try {
+    const response = await page.goto(input.url, { waitUntil: 'networkidle', timeout: input.timeoutMs });
+    console.log(JSON.stringify({
+      url: input.url,
+      final_url: page.url(),
+      ok: requestFailures.length === 0 && errorResponses.length === 0 && consoleErrors.length === 0 && pageErrors.length === 0 && !!response && response.status() < 400,
+      status_code: response ? response.status() : 0,
+      request_failures: requestFailures,
+      error_responses: errorResponses,
+      console_errors: consoleErrors,
+      page_errors: pageErrors,
+      engine: 'playwright',
+    }));
+  } catch (error) {
+    console.log(JSON.stringify({
+      url: input.url,
+      final_url: page.url() || input.url,
+      ok: false,
+      status_code: 0,
+      request_failures: requestFailures,
+      error_responses: errorResponses,
+      console_errors: consoleErrors,
+      page_errors: [...pageErrors, String(error)].slice(0, 12),
+      engine: 'playwright',
+      error: String(error),
+    }));
+  } finally {
+    await browser.close().catch(() => {});
+  }
+}
+main().catch((error) => {
+  console.log(JSON.stringify({
+    url: '',
+    final_url: '',
+    ok: false,
+    status_code: 0,
+    request_failures: [],
+    error_responses: [],
+    console_errors: [],
+    page_errors: [String(error)],
+    engine: 'playwright',
+    error: String(error),
+  }));
+  process.exit(0);
+});
+"""
+        input_payload = json.dumps({"url": validated_url, "timeoutMs": timeout_seconds * 1000}, ensure_ascii=False)
+        completed = subprocess.run(
+            [node_executable, "-e", script, input_payload],
+            cwd=str(client_root if client_root.exists() else root),
+            text=True,
+            capture_output=True,
+            timeout=max(timeout_seconds + 10, 20),
+            shell=False,
+        )
+        output = (completed.stdout or "").strip().splitlines()
+        raw = output[-1] if output else "{}"
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            payload = {
+                "url": validated_url,
+                "final_url": validated_url,
+                "ok": False,
+                "status_code": 0,
+                "request_failures": [],
+                "error_responses": [],
+                "console_errors": [],
+                "page_errors": [],
+                "engine": "playwright",
+                "error": completed.stderr.strip() or raw or "invalid network capture output",
+            }
+        payload.setdefault("url", validated_url)
+        payload.setdefault("final_url", validated_url)
+        payload.setdefault("status_code", 0)
+        payload.setdefault("ok", False)
+        payload.setdefault("request_failures", [])
+        payload.setdefault("error_responses", [])
+        payload.setdefault("console_errors", [])
+        payload.setdefault("page_errors", [])
+        payload.setdefault("engine", "playwright")
+        if completed.returncode != 0 and not payload.get("error"):
+            payload["error"] = completed.stderr.strip() or "network capture command failed"
+        return payload
+
+    def _parse_test_failures(self, stdout: str, stderr: str) -> list[dict[str, Any]]:
+        text = "\n".join(part for part in (stdout, stderr) if part).splitlines()
+        failures: list[dict[str, Any]] = []
+        current: dict[str, Any] | None = None
+        for line in text:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("FAILED ") or stripped.startswith("ERROR "):
+                current = {"headline": stripped[:300], "details": []}
+                failures.append(current)
+                continue
+            if current is not None and len(current["details"]) < 6:
+                if stripped.startswith(("E ", "AssertionError", "RuntimeError", "TypeError", "ValueError", "Expected ", "Received ")):
+                    current["details"].append(stripped[:300])
+        return failures
+
+    def _infer_test_framework(self, root: Path, target: str) -> str:
+        normalized = target.replace("\\", "/").lower()
+        if normalized.endswith(".py") or normalized.startswith("server/tests"):
+            return "pytest"
+        if any(normalized.endswith(ext) for ext in (".ts", ".tsx", ".js", ".jsx")) or normalized.startswith("client/"):
+            if (root / "client" / "package.json").exists():
+                return "vitest"
+        if (root / "server" / "tests").exists():
+            return "pytest"
+        if (root / "client" / "package.json").exists():
+            return "vitest"
+        return ""
+
+    def _build_targeted_test_command(self, root: Path, framework: str, target: str, test_name: str) -> list[str]:
+        if framework == "pytest":
+            command = ["python", "-m", "pytest"]
+            if target:
+                command.append(self._safe_path(root, target).relative_to(root).as_posix())
+            if test_name:
+                command.extend(["-k", test_name])
+            return command
+        if framework == "vitest":
+            command = ["npx", "vitest", "run"]
+            if target:
+                command.append(self._safe_path(root, target).relative_to(root).as_posix())
+            if test_name:
+                command.extend(["-t", test_name])
+            return command
+        command = ["npm", "test"]
+        if target:
+            command.extend(["--", self._safe_path(root, target).relative_to(root).as_posix()])
+        return command
+
+    def _parse_test_result_summary(self, stdout: str, stderr: str, framework: str) -> dict[str, Any]:
+        text = "\n".join(part for part in (stdout, stderr) if part)
+        summary: dict[str, Any] = {
+            "framework": framework,
+            "passed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "collected": 0,
+            "duration": "",
+            "headline": "",
+        }
+        for line in reversed([item.strip() for item in text.splitlines() if item.strip()]):
+            if not summary["headline"] and any(token in line.lower() for token in ("passed", "failed", "error", "collected", "duration", "warnings")):
+                summary["headline"] = line[:300]
+            passed = re.search(r"(\d+)\s+passed", line, flags=re.IGNORECASE)
+            failed = re.search(r"(\d+)\s+failed", line, flags=re.IGNORECASE)
+            skipped = re.search(r"(\d+)\s+skipped", line, flags=re.IGNORECASE)
+            collected = re.search(r"collected\s+(\d+)\s+items", line, flags=re.IGNORECASE)
+            duration = re.search(r"in\s+([0-9.]+s|\d+:\d+\.\d+)", line, flags=re.IGNORECASE)
+            if passed:
+                summary["passed"] = int(passed.group(1))
+            if failed:
+                summary["failed"] = int(failed.group(1))
+            if skipped:
+                summary["skipped"] = int(skipped.group(1))
+            if collected:
+                summary["collected"] = int(collected.group(1))
+            if duration and not summary["duration"]:
+                summary["duration"] = duration.group(1)
+        if not summary["headline"]:
+            summary["headline"] = summarize_failure(stdout, stderr, limit=300)
+        return summary

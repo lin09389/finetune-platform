@@ -87,7 +87,7 @@ async def reject_chat_agent_action(
     action_id: str,
     service: ChatAgentService = Depends(get_chat_agent_service),
 ):
-    return service.reject_action(action_id)
+    return await service.reject_action(action_id)
 
 
 @router.post("/actions/{action_id}/execute", response_model=WorkflowActionResponse)

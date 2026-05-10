@@ -59,7 +59,7 @@ class AgentSessionLangGraphRuntime:
             "phase": "running",
             "repair_attempts": int(metadata.get("repair_attempts") or 0),
             "protocol_repair_count": int(metadata.get("protocol_repair_count") or 0),
-            "execution_state": "running",
+            "execution_state": "created",
             "iterations": 0,
             "last_model_raw": "",
             "streaming_enabled": False,
@@ -69,10 +69,22 @@ class AgentSessionLangGraphRuntime:
             "streaming_raw": "",
         }
 
+    async def plan_node(self, state: AgentSessionGraphState) -> dict[str, Any]:
+        session = self._session(state["session_id"])
+        prompt = str(state.get("prompt") or "")
+        task_plan = self._build_task_plan(prompt, session)
+        current_stage_id = task_plan["stages"][0]["id"] if task_plan.get("stages") else None
+        current_node_id = task_plan["stages"][0]["nodes"][0]["id"] if task_plan.get("stages") and task_plan["stages"][0].get("nodes") else None
+        self.repository.update_session(session["id"], metadata={**self.processor._ensure_metadata(session), "task_plan": task_plan, "current_stage_id": current_stage_id, "current_node_id": current_node_id})
+        self.processor._event(session["id"], "task_plan_created", "任务已自动分解为执行计划", {"stage_count": len(task_plan.get("stages") or [])})
+        return {"task_plan": task_plan, "current_stage_id": current_stage_id, "current_node_id": current_node_id, "stage_results": [], "node_results": [], "execution_state": "running"}
+
     async def model_call_node(self, state: AgentSessionGraphState) -> dict[str, Any]:
         session = self._session(state["session_id"])
         messages = list(state.get("messages") or [])
         iterations = int(state.get("iterations") or 0)
+        current_stage_id = state.get("current_stage_id")
+        current_node_id = state.get("current_node_id")
         if iterations >= self.processor.max_iterations:
             result = self.processor._fallback_summary(session["id"], "Agent 达到最大工具轮次，已根据当前执行记录生成总结。")
             summary = self._latest_summary(session["id"], result)
@@ -111,6 +123,18 @@ class AgentSessionLangGraphRuntime:
             )
             execution_state = "completed"
             tool_calls = []
+        node_results = list(state.get("node_results") or [])
+        if current_stage_id or current_node_id:
+            node_results.append(
+                {
+                    "stage_id": current_stage_id,
+                    "node_id": current_node_id,
+                    "kind": "model_call",
+                    "status": "completed" if execution_state in {"completed", "running"} else execution_state,
+                    "summary": final_summary or "模型已输出",
+                    "artifacts": {"tool_calls": tool_calls},
+                }
+            )
         return {
             "pending_tool_calls": tool_calls,
             "final_summary": final_summary,
@@ -122,12 +146,16 @@ class AgentSessionLangGraphRuntime:
             "streaming_failed": streaming_failed,
             "last_stream_error": stream_error,
             "streaming_raw": raw if streaming_part_id else "",
+            "node_results": node_results,
         }
 
     async def tool_exec_node(self, state: AgentSessionGraphState) -> dict[str, Any]:
         session_id = state["session_id"]
         messages = list(state.get("messages") or [])
         pending_tool_calls = list(state.get("pending_tool_calls") or [])
+        current_stage_id = state.get("current_stage_id")
+        current_node_id = state.get("current_node_id")
+        node_results = list(state.get("node_results") or [])
         for index, call in enumerate(pending_tool_calls):
             raw = json.dumps({"tool": call.get("name"), "arguments": call.get("args") or {}}, ensure_ascii=False)
             handled, next_model = self.processor._execute_tool_request(
@@ -141,29 +169,37 @@ class AgentSessionLangGraphRuntime:
             if handled is not None:
                 status = str(refreshed.get("status") or "")
                 if status == "waiting_permission":
+                    node_results.append({"stage_id": current_stage_id, "node_id": current_node_id, "kind": "tool_call", "status": "waiting_permission", "summary": (handled or {}).get("summary") or "等待权限"})
                     return {
                         "messages": messages,
                         "pending_tool_calls": [],
                         "pending_part_id": self._latest_part_id(session_id, {"permission"}, {"pending"}),
                         "pending_permission_call": dict(call),
                         "execution_state": "waiting_permission",
+                        "node_results": node_results,
                     }
                 if status == "waiting_approval":
+                    node_results.append({"stage_id": current_stage_id, "node_id": current_node_id, "kind": "tool_call", "status": "waiting_approval", "summary": (handled or {}).get("summary") or "等待确认"})
                     return {
                         "messages": messages,
                         "pending_tool_calls": [],
                         "pending_part_id": self._latest_part_id(session_id, {"diff", "command"}, {"pending", "approved"}),
                         "execution_state": "waiting_approval",
+                        "node_results": node_results,
                     }
+                node_results.append({"stage_id": current_stage_id, "node_id": current_node_id, "kind": "tool_call", "status": status or "completed", "summary": self._latest_summary(session_id, handled)})
                 return {
                     "messages": messages,
                     "pending_tool_calls": [],
                     "final_summary": self._latest_summary(session_id, handled),
                     "execution_state": status or "completed",
+                    "node_results": node_results,
                 }
             if next_model:
-                return {"messages": messages, "pending_tool_calls": [], "execution_state": "running"}
-        return {"messages": messages, "pending_tool_calls": [], "execution_state": "running"}
+                if current_stage_id or current_node_id:
+                    node_results.append({"stage_id": current_stage_id, "node_id": current_node_id, "kind": "tool_exec", "status": "running", "summary": "工具执行完成"})
+                return {"messages": messages, "pending_tool_calls": [], "execution_state": "running", "node_results": node_results}
+        return {"messages": messages, "pending_tool_calls": [], "execution_state": "running", "node_results": node_results}
 
     async def permission_gate_node(self, state: AgentSessionGraphState) -> dict[str, Any]:
         session = self._session(state["session_id"])
@@ -185,7 +221,7 @@ class AgentSessionLangGraphRuntime:
             metadata = set_phase(self.processor._ensure_metadata(session), "failed")
             self.repository.update_session(session["id"], status="failed", metadata=metadata)
             self.processor._event(session["id"], "action_rejected", "权限请求已拒绝", {"part_id": part_id})
-            return {"pending_part_id": None, "pending_permission_call": None, "final_summary": "权限请求已拒绝，Agent 已停止。", "execution_state": "failed"}
+            return {"pending_part_id": None, "pending_permission_call": None, "final_summary": "权限请求已拒绝，Agent 已停止。", "execution_state": "failed", "node_results": list(state.get("node_results") or []) + [{"stage_id": state.get("current_stage_id"), "node_id": state.get("current_node_id"), "kind": "permission_gate", "status": "failed", "summary": "权限请求已拒绝"}]}
 
         self.repository.update_part(part_id, status="approved")
         guidance = "权限已批准，但该工具仍不可直接执行。请改用内置工具继续完成任务。"
@@ -238,20 +274,9 @@ class AgentSessionLangGraphRuntime:
             return {"pending_part_id": part_id, "execution_state": "waiting_approval"}
         if status == "blocked":
             return {"pending_part_id": None, "execution_state": "failed", "final_summary": "动作已被拒绝，Agent 已停止。"}
-
-        payload_data = dict(action_part.get("payload") or {})
-        tool_name = "patch" if action_part.get("type") == "diff" else str(payload_data.get("tool") or "bash_command")
-        summary = str(action_part.get("content") or payload_data.get("failure_summary") or "动作已执行。")
-        observation_status = "completed" if status == "executed" else "failed"
-        observation = self.processor._compact_observation(tool_name, observation_status, summary, payload_data, summary if observation_status == "failed" else None)
-        messages = list(state.get("messages") or [])
-        messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
-        if action_part.get("type") == "diff" and status == "failed":
-            return {"messages": messages, "pending_part_id": None, "execution_state": "needs_manual_review", "final_summary": summary}
-        metadata = self.processor._ensure_metadata(self._session(session["id"]))
-        metadata = set_phase(metadata, "repairing" if status == "failed" else "verifying")
-        self.repository.update_session(session["id"], status="running", metadata=metadata)
-        return {"messages": messages, "pending_part_id": None, "execution_state": "running"}
+        if status == "executed":
+            return {"pending_part_id": None, "execution_state": "approved_for_execution"}
+        return {"pending_part_id": None, "execution_state": "running"}
 
     async def finalize_node(self, state: AgentSessionGraphState) -> dict[str, Any]:
         session = self._session(state["session_id"])
@@ -265,20 +290,21 @@ class AgentSessionLangGraphRuntime:
             status="completed",
             title="最终结果",
             content=summary,
-            payload={"summary": summary, "source": "langgraph"},
+            payload={"summary": summary, "source": "langgraph", "task_plan": state.get("task_plan")},
         )
         metadata = set_phase(self.processor._ensure_metadata(session), "completed")
         self.repository.update_session(session["id"], status="completed", metadata=metadata)
         self.processor._event(session["id"], "summary_completed", summary, {"part_id": summary_part["id"]})
-        return {"execution_state": "completed", "final_summary": summary}
+        return {"execution_state": "completed", "final_summary": summary, "stage_results": state.get("stage_results") or [], "node_results": state.get("node_results") or []}
 
-    async def execute_action_part(self, part_id: str) -> dict[str, Any]:
+    async def action_exec_node(self, state: AgentSessionGraphState) -> dict[str, Any]:
+        session = self._session(state["session_id"])
+        part_id = str(state.get("pending_part_id") or self._latest_part_id(session["id"], {"diff", "command"}, {"approved", "executed"}) or "")
+        if not part_id:
+            return {"execution_state": "running"}
         part = self.repository.get_part(part_id)
-        if not part:
-            raise ValueError("Agent part not found")
-        if part.get("type") not in {"diff", "command"} or part.get("status") != "approved":
-            raise ValueError("Only approved action parts can be executed")
-        session = self._session(str(part.get("session_id") or ""))
+        if not part or part.get("status") == "executed":
+            return {"pending_part_id": None, "execution_state": "running"}
         payload = dict(part.get("payload") or {})
         if part.get("type") == "command":
             tool_name = str(payload.get("tool") or "bash_command")
@@ -289,9 +315,9 @@ class AgentSessionLangGraphRuntime:
             self.repository.update_part(part_id, status=status, payload=payload, content=result.summary if status == "executed" else result.error)
             metadata = record_command(self.processor._ensure_metadata(session), part_id, None if status == "executed" else result.error or result.summary)
             metadata = set_phase(metadata, "verifying" if status == "executed" else "repairing")
-            self.repository.update_session(session["id"], status="running", metadata=metadata)
+            self.repository.update_session(session["id"], status="running" if status == "executed" else "needs_manual_review", metadata=metadata)
             self.processor._event(session["id"], "action_executed" if status == "executed" else "action_failed", result.summary, {"part_id": part_id, **result.payload})
-            return self.repository.get_part(part_id) or part
+            return {"pending_part_id": None, "execution_state": "running" if status == "executed" else "needs_manual_review", "final_summary": result.summary if status == "executed" else result.error}
 
         patch_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
         result = self.processor.tools.apply_patch_payload(patch_payload, self.processor._context(session))
@@ -303,17 +329,57 @@ class AgentSessionLangGraphRuntime:
             metadata = set_phase(metadata, "verifying")
             self.repository.update_session(session["id"], status="running", metadata=metadata)
             self.processor._event(session["id"], "action_executed", result.summary, {"part_id": part_id, **result.payload})
-        else:
-            metadata = set_phase(metadata, "needs_manual_review")
-            self.repository.update_session(session["id"], status="needs_manual_review", metadata=metadata)
-            self.processor._event(session["id"], "action_failed", result.error or result.summary, {"part_id": part_id, **result.payload})
-        return self.repository.get_part(part_id) or part
+            return {"pending_part_id": None, "execution_state": "running", "final_summary": result.summary}
+        metadata = set_phase(metadata, "needs_manual_review")
+        self.repository.update_session(session["id"], status="needs_manual_review", metadata=metadata)
+        self.processor._event(session["id"], "action_failed", result.error or result.summary, {"part_id": part_id, **result.payload})
+        return {"pending_part_id": None, "execution_state": "needs_manual_review", "final_summary": result.error or result.summary}
 
     def _session(self, session_id: str) -> dict[str, Any]:
         session = self.repository.get_session(session_id)
         if not session:
             raise ValueError("Agent session not found")
         return session
+
+    def _build_task_plan(self, prompt: str, session: dict[str, Any]) -> dict[str, Any]:
+        prompt_text = prompt.strip() or str(session.get("title") or "Agent Task")
+        intent = str((session.get("metadata") or {}).get("task_intent") or self.processor._classify_task_intent(prompt_text) or "develop")
+        title_map = {
+            "read": "读取上下文并产出结果",
+            "develop": "实现任务并验证结果",
+            "review": "检查风险并给出结论",
+            "command": "执行验证并汇总结果",
+        }
+        node_title = title_map.get(intent, "执行任务并汇总结果")
+        return {
+            "task_id": str(session.get("id") or ""),
+            "goal": prompt_text,
+            "status": "running",
+            "summary": None,
+            "next_action": "按当前节点继续执行",
+            "stages": [
+                {
+                    "id": "stage_execute",
+                    "title": "执行任务",
+                    "description": "模型分析请求并按需调用工具。",
+                    "status": "running",
+                    "summary": None,
+                    "nodes": [
+                        {
+                            "id": "node_main",
+                            "title": node_title,
+                            "description": prompt_text,
+                            "tool": None,
+                            "args": {},
+                            "status": "running",
+                            "depends_on": [],
+                            "summary": None,
+                            "artifacts": {},
+                        }
+                    ],
+                }
+            ],
+        }
 
     async def _invoke_model(
         self,

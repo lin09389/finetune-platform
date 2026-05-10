@@ -301,6 +301,92 @@ def test_collect_context_infers_source_file_before_patch(tmp_path: Path):
         shutil.rmtree(run_dir, ignore_errors=True)
 
 
+def test_local_fallback_summary_mentions_written_files_after_action():
+    service = AgentSessionService(AgentSessionRepository(":memory:"))
+    observation = {
+        "tool": "patch",
+        "status": "completed",
+        "changed_files": ["tmp/demo_live_patch.txt"],
+    }
+    messages = [
+        {
+            "role": "user",
+            "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False),
+        }
+    ]
+
+    raw = service._local_fallback_model_response(messages, "没有选择云端模型")
+
+    parsed = json.loads(raw)
+    assert parsed["tool"] == "finalize"
+    assert "补丁已执行并写入文件" in parsed["arguments"]["summary"]
+    assert "tmp/demo_live_patch.txt" in parsed["arguments"]["summary"]
+
+
+def test_frontend_validation_tools_add_next_step_guidance(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_frontend_guidance.db")))
+    guidance = service.processor._next_tool_guidance(
+        "browser_validate_page",
+        "completed",
+        {"ok": True, "status_code": 200},
+    )
+
+    assert guidance is not None
+    assert "browser_click" in guidance["recommended_tools"]
+    assert "finalize" in guidance["recommended_tools"]
+
+
+def test_collect_test_failures_adds_repair_guidance(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_failure_guidance.db")))
+    guidance = service.processor._next_tool_guidance(
+        "collect_test_failures",
+        "completed",
+        {"failures": [{"headline": "FAILED test_demo"}], "failure_summary": "1 failure"},
+    )
+
+    assert guidance is not None
+    assert "read_execution" in guidance["recommended_tools"]
+    assert "patch" in guidance["recommended_tools"]
+
+
+def test_summarize_test_results_guidance_branches_on_failures(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_summary_guidance.db")))
+    failing = service.processor._next_tool_guidance(
+        "summarize_test_results",
+        "completed",
+        {"failed": 1, "exit_code": 1},
+    )
+    passing = service.processor._next_tool_guidance(
+        "summarize_test_results",
+        "completed",
+        {"failed": 0, "exit_code": 0},
+    )
+
+    assert failing is not None
+    assert "collect_test_failures" in failing["recommended_tools"]
+    assert passing is not None
+    assert "finalize" in passing["recommended_tools"]
+
+
+def test_api_and_network_guidance_suggests_next_steps(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_api_guidance.db")))
+    api = service.processor._next_tool_guidance(
+        "probe_json_endpoint",
+        "completed",
+        {"ok": True, "json_type": "dict"},
+    )
+    network = service.processor._next_tool_guidance(
+        "capture_network_errors",
+        "completed",
+        {"ok": False, "request_failures": [{"url": "x"}]},
+    )
+
+    assert api is not None
+    assert "capture_network_errors" in api["recommended_tools"]
+    assert network is not None
+    assert "read_logs" in network["recommended_tools"]
+
+
 def test_model_call_failure_returns_summary_instead_of_raising(tmp_path: Path):
     service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_model_failure.db")))
     session = service.create_session(AgentSessionCreate(title="model failure", project_path=str(Path.cwd())))

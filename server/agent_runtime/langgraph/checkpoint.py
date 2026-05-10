@@ -1,17 +1,18 @@
 """LangGraph checkpointer factory.
 
-Phase 1 keeps the checkpointer isolated from the legacy SQLite connection pool
-while sharing the same underlying ``app.db`` file.
+The LangGraph checkpoint store uses its own SQLite file so workflow/session
+execution does not contend with the application's main state database.
 """
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-from core.db_manager import get_db_pool
+from core.storage import APP_DB_PATH
 
 _cached_checkpointer: AsyncSqliteSaver | None = None
 _cached_checkpointer_context = None
@@ -19,8 +20,15 @@ _cached_checkpointer_context = None
 
 @lru_cache(maxsize=1)
 def get_checkpoint_db_path() -> str:
-    """Return the SQLite database path used by the application."""
-    return str(Path(get_db_pool()._db_path))
+    """Return the dedicated SQLite database path used for LangGraph checkpoints."""
+    configured = os.getenv("LANGGRAPH_CHECKPOINT_DB", "").strip()
+    if configured:
+        path = Path(configured)
+    else:
+        app_db = Path(APP_DB_PATH)
+        path = app_db.with_name("langgraph_checkpoints.db")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return str(path)
 
 
 async def get_checkpointer() -> AsyncSqliteSaver:

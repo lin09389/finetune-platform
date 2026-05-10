@@ -20,6 +20,9 @@ def ensure_session_state(metadata: dict[str, Any] | None) -> dict[str, Any]:
     data.setdefault("fallback_summary_used", False)
 
     state = dict(data.get("state") or {})
+    state.setdefault("current_phase", data.get("current_phase") or data.get("phase") or "idle")
+    state.setdefault("stage", data.get("stage") or "idle")
+    state.setdefault("node", data.get("node") or "bootstrap")
     state.setdefault("touched_paths", list(data.get("touched_paths") or []))
     state.setdefault("changed_files", list(data.get("changed_files") or []))
     state.setdefault("latest_diff_part_id", data.get("latest_diff_part_id"))
@@ -28,16 +31,24 @@ def ensure_session_state(metadata: dict[str, Any] | None) -> dict[str, Any]:
     state.setdefault("repair_attempts", int(data.get("repair_attempts") or 0))
     state.setdefault("max_repair_attempts", int(data.get("max_repair_attempts") or DEFAULT_MAX_REPAIR_ATTEMPTS))
     state.setdefault("fallback_summary_used", bool(data.get("fallback_summary_used")))
-    state.setdefault("current_phase", data.get("current_phase") or "idle")
 
+    data["current_phase"] = state["current_phase"]
+    data["stage"] = state["stage"]
+    data["node"] = state["node"]
     data["state"] = state
     return data
 
 
-def set_phase(metadata: dict[str, Any], phase: str) -> dict[str, Any]:
+def set_phase(metadata: dict[str, Any], phase: str, *, stage: str | None = None, node: str | None = None) -> dict[str, Any]:
     state = dict(metadata.get("state") or {})
     state["current_phase"] = phase
+    if stage is not None:
+        state["stage"] = stage
+    if node is not None:
+        state["node"] = node
     metadata["current_phase"] = phase
+    metadata["stage"] = state.get("stage", metadata.get("stage"))
+    metadata["node"] = state.get("node", metadata.get("node"))
     metadata["state"] = state
     return metadata
 
@@ -53,6 +64,8 @@ def add_touched_paths(metadata: dict[str, Any], paths: Iterable[Any]) -> dict[st
     state["current_phase"] = "inspecting"
     metadata["state"] = state
     metadata["current_phase"] = "inspecting"
+    metadata["stage"] = state.get("stage", metadata.get("stage", "idle"))
+    metadata["node"] = state.get("node", metadata.get("node", "bootstrap"))
     return metadata
 
 
@@ -67,6 +80,8 @@ def record_diff(metadata: dict[str, Any], part_id: str, changed_files: Iterable[
         metadata["changed_files"] = ordered
         state["changed_files"] = ordered
     metadata["state"] = state
+    metadata["stage"] = state.get("stage", metadata.get("stage"))
+    metadata["node"] = state.get("node", metadata.get("node"))
     return metadata
 
 

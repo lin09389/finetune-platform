@@ -32,9 +32,10 @@ vi.mock('antd', async () => {
 describe('WorkspaceManager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFetch.mockImplementation((url: string, init?: RequestInit) => {
+    mockFetch.mockImplementation((url: string | URL | Request, init?: RequestInit) => {
+      const resolvedUrl = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
       if (
-        url.includes('/workspace/workspaces') &&
+        resolvedUrl.includes('/workspace/workspaces') &&
         (!init || !init.method || init.method === 'GET')
       ) {
         return Promise.resolve({

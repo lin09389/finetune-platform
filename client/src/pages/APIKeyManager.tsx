@@ -629,7 +629,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
 
                 <Alert
                   message="保存后如何使用"
-                  description="保存后，聊天、数字团队等模块可以使用这个供应商标识作为 provider。API Key 会进入后端加密存储，localStorage 只保存 provider 和默认模型等非密钥信息。"
+                  description="保存后，聊天等模块可以使用这个供应商标识作为 provider。API Key 会进入后端加密存储，localStorage 只保存 provider 和默认模型等非密钥信息。"
                   type="success"
                   showIcon
                   icon={<CheckCircleOutlined />}

@@ -37,7 +37,7 @@ from api.agent_sessions import router as agent_sessions
 from api.datasets import router as datasets
 from api.deployment import router as deployment
 from api.device import router as device
-from api.digital_team import router as digital_team
+
 from api.evaluation import router as evaluation
 from api.workflows import router as workflows
 from api.chat.routes import router as chat
@@ -481,7 +481,7 @@ app.include_router(knowledge, prefix="/knowledge", tags=["Knowledge"])
 # Backward compatibility for legacy frontend paths.
 app.include_router(knowledge, prefix="/v2/knowledge", tags=["Knowledge v2"])
 app.include_router(workspace, prefix="/workspace", tags=["Workspace"])
-app.include_router(digital_team, tags=["Digital Team"])
+
 app.include_router(workflows, tags=["Workflows"])
 app.include_router(chat_agent)
 app.include_router(agent_sessions)
@@ -566,7 +566,7 @@ async def api_info():
             "Inference service with backend switching",
             "Chat sessions and knowledge retrieval",
             "Workspace and local AI tooling",
-            "Digital team workflow orchestration",
+
             "Multi-agent workflow orchestration",
         ],
         "capability_tiers": {
@@ -585,7 +585,7 @@ async def api_info():
                 "model_center",
                 "workspace",
                 "workflows",
-                "digital_team",
+
             ],
             "experimental": [
                 "cua",
@@ -608,7 +608,7 @@ async def api_info():
             "memory": "/memory",
             "workspace": "/workspace",
             "workflows": "/workflows",
-            "digital_team": "/digital-team",
+
             "context": "/context",
             "model_center": "/model-center",
             "experimental": {

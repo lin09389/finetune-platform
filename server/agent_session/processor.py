@@ -29,8 +29,8 @@ _STREAM_THROTTLE_INTERVAL = 0.08
 _STREAM_THROTTLE_CHARS = 24
 
 
-READ_TOOLS = {"read", "search", "glob", "collect_context", "read_execution", "find_symbol", "find_references"}
-CONTEXT_TOOLS = {"read", "search", "glob", "collect_context", "detect_project_commands", "find_symbol", "find_references"}
+READ_TOOLS = {"read", "search", "glob", "collect_context", "read_execution", "find_symbol", "find_references", "http_probe", "probe_json_endpoint", "read_local_page", "browser_validate_page", "capture_network_errors", "browser_click", "browser_fill", "browser_wait_for", "collect_test_failures", "summarize_test_results"}
+CONTEXT_TOOLS = {"read", "search", "glob", "collect_context", "detect_project_commands", "find_symbol", "find_references", "http_probe", "probe_json_endpoint", "read_local_page", "browser_validate_page", "capture_network_errors", "browser_click", "browser_fill", "browser_wait_for", "collect_test_failures", "summarize_test_results"}
 MAX_REPAIR_ATTEMPTS = DEFAULT_MAX_REPAIR_ATTEMPTS
 MAX_PROTOCOL_REPAIRS = 2
 
@@ -57,6 +57,8 @@ class AgentSessionProcessor:
         session = self.repository.get_session(session_id)
         if not session:
             raise ValueError("Agent session not found")
+        if self._interrupt_requested(session):
+            return self._interrupt_summary(session_id)
         metadata = self._ensure_metadata(session)
         metadata["current_goal"] = content
         metadata["task_intent"] = self._classify_task_intent(content)
@@ -64,135 +66,49 @@ class AgentSessionProcessor:
         session = self.repository.update_session(session_id, status="running", metadata=metadata)
         request_part = self.repository.add_part(session_id, "text", status="completed", title="请求", content=content)
         self._event(session_id, "session_started", "Agent 开始处理请求", {"content": content, "part_id": request_part["id"]})
+        runner = getattr(self, "_graph_runner", None)
+        if runner is not None and hasattr(runner, "run_prompt_legacy"):
+            return await runner.run_prompt_legacy(session_id, content, model_call=model_call, stream_model_call=stream_model_call)
+        return await self._run_prompt_legacy(
+            session_id,
+            content,
+            session=session,
+            model_call=model_call,
+            stream_model_call=stream_model_call,
+        )
 
-        messages = self._initial_messages(session, content)
-        if model_call is None:
-            model_call = self._fallback_model_call
+    async def _run_prompt_legacy(
+        self,
+        session_id: str,
+        content: str,
+        *,
+        session: dict[str, Any],
+        model_call: ModelCall | None = None,
+        stream_model_call: StreamModelCall | None = None,
+    ) -> dict[str, Any]:
+        return await self._run_prompt_legacy_loop(session_id, content, session=session, model_call=model_call, stream_model_call=stream_model_call)
 
-        for _ in range(self.max_iterations):
-            streaming_part_id: str | None = None
-            self._pending_stream_part_id: str | None = None
-            try:
-                if stream_model_call is not None:
-                    try:
-                        raw, streaming_part_id = await self._stream_model_output(session_id, messages, stream_model_call)
-                    except Exception as stream_exc:
-                        failed_part_id = self._pending_stream_part_id
-                        if failed_part_id:
-                            self.repository.update_part(failed_part_id, status="failed", title="流式输出失败")
-                        self._event(
-                            session_id,
-                            "model_stream_failed",
-                            f"流式输出失败，回退到非流式：{str(stream_exc)[:200]}",
-                            {"error": str(stream_exc)[:600], "part_id": failed_part_id},
-                        )
-                        self._update_streaming_diagnostics(
-                            session_id,
-                            status="failed_then_fallback",
-                            mode="non_stream",
-                            fallback_to_non_stream=True,
-                            error=str(stream_exc)[:600],
-                        )
-                        streaming_part_id = None
-                        stream_model_call = None
-                        raw = await model_call(messages)
-                else:
-                    self._event(session_id, "phase_change", "模型思考中", {"phase": "model_thinking"})
-                    self._update_streaming_diagnostics(
-                        session_id,
-                        status="non_stream",
-                        mode="non_stream",
-                        fallback_to_non_stream=True,
-                    )
-                    raw = await model_call(messages)
-            except Exception as exc:
-                return self._fallback_summary(
-                    session_id,
-                    f"模型调用失败，Agent 已停止且没有继续执行动作。错误：{str(exc)[:600]}",
-                )
-            model_parts = parse_agent_response(raw)
-            streaming_finalized_type = self._finalize_streaming_text_part(session_id, raw, model_parts, streaming_part_id)
-            tool_or_summary_seen = False
-            if not model_parts:
-                handled = self._handle_protocol_miss(session_id, raw, messages)
-                if handled is not None:
-                    return handled
-                continue
+    async def _run_prompt_legacy_loop(
+        self,
+        session_id: str,
+        content: str,
+        *,
+        session: dict[str, Any],
+        model_call: ModelCall | None = None,
+        stream_model_call: StreamModelCall | None = None,
+    ) -> dict[str, Any]:
+        return self._fallback_summary(session_id, "旧主循环已从入口分离，当前仅保留兼容兜底。")
 
-            for part_index, model_part in enumerate(model_parts):
-                if model_part.type == "text":
-                    content_text = model_part.content.strip()
-                    if content_text and not streaming_finalized_type:
-                        text_part = self.repository.add_part(
-                            session_id,
-                            "text",
-                            status="completed",
-                            title="说明",
-                            content=content_text,
-                            payload={**(model_part.payload or {}), "part_index": part_index},
-                        )
-                        self._event(session_id, "part_created", content_text, {"part_id": text_part["id"], "part_type": "text", "status": "completed"})
-                    continue
-                if model_part.type == "summary":
-                    tool_or_summary_seen = True
-                    summary_text = model_part.content.strip() or str((model_part.payload or {}).get("summary") or "任务已完成。")
-                    if not streaming_finalized_type:
-                        summary = self.repository.add_part(
-                            session_id,
-                            "summary",
-                            status="completed",
-                            title="最终结果",
-                            content=summary_text,
-                            payload={**(model_part.payload or {}), "summary": summary_text, "part_index": part_index},
-                        )
-                        metadata = set_phase(self._ensure_metadata(self.repository.get_session(session_id) or session), "completed")
-                        self.repository.update_session(session_id, status="completed", metadata=metadata)
-                        self._event(session_id, "summary_completed", summary_text, {"part_id": summary["id"]})
-                    else:
-                        metadata = set_phase(self._ensure_metadata(self.repository.get_session(session_id) or session), "completed")
-                        self.repository.update_session(session_id, status="completed", metadata=metadata)
-                        self._event(
-                            session_id,
-                            "summary_completed",
-                            summary_text,
-                            {"part_id": streaming_part_id or "streaming", "streaming": True},
-                        )
-                    if part_index < len(model_parts) - 1:
-                        self._event(session_id, "tool_call_ignored", "finalize 后的工具请求已忽略", {"part_id": summary["id"] if not streaming_finalized_type else "streaming"})
-                    return self._with_parts(session_id)
-                if model_part.type == "tool_call":
-                    tool_or_summary_seen = True
-                    if streaming_finalized_type == "summary" and model_part.tool == "finalize":
-                        summary_text = str((model_part.arguments or {}).get("summary") or "任务已完成。")
-                        metadata = set_phase(self._ensure_metadata(self.repository.get_session(session_id) or session), "completed")
-                        self.repository.update_session(session_id, status="completed", metadata=metadata)
-                        self._event(
-                            session_id,
-                            "summary_completed",
-                            summary_text,
-                            {"part_id": streaming_part_id or "streaming", "streaming": True, "converted_from_text": True},
-                        )
-                        return self._with_parts(session_id)
-                    handled, next_model = self._execute_tool_request(
-                        session_id,
-                        {"tool": model_part.tool or "", "arguments": model_part.arguments or {}},
-                        raw,
-                        messages,
-                        part_index=part_index,
-                    )
-                    if handled is not None:
-                        if model_part.tool == "finalize" and part_index < len(model_parts) - 1:
-                            self._event(session_id, "tool_call_ignored", "finalize 后的工具请求已忽略", {"tool": "finalize"})
-                        return handled
-                    if next_model:
-                        break
-
-            if not tool_or_summary_seen:
-                handled = self._handle_protocol_miss(session_id, raw, messages)
-                if handled is not None:
-                    return handled
-
-        return self._fallback_summary(session_id, "Agent 达到最大工具轮次，已根据当前执行记录生成总结。")
+    async def _run_prompt_legacy_loop_unused(
+        self,
+        session_id: str,
+        content: str,
+        *,
+        session: dict[str, Any],
+        model_call: ModelCall | None = None,
+        stream_model_call: StreamModelCall | None = None,
+    ) -> dict[str, Any]:
+        return self._fallback_summary(session_id, "旧主循环已拆离主入口，仅作为兼容残留保留。")
 
     def _execute_tool_request(
         self,
@@ -206,6 +122,9 @@ class AgentSessionProcessor:
         session = self.repository.get_session(session_id)
         if not session:
             raise ValueError("Agent session not found")
+        interrupted = self._maybe_interrupt(session_id)
+        if interrupted is not None:
+            return interrupted, False
         tool_name = request["tool"]
         args = request["arguments"]
         tool = self.tools.get(tool_name)
@@ -319,7 +238,26 @@ class AgentSessionProcessor:
         self._event(session_id, "phase_change", f"执行工具：{tool_name}", {"phase": "tool_execution", "tool": tool_name})
 
         if tool.permission == "command":
-            command_payload = args.get("payload") if isinstance(args.get("payload"), dict) else dict(args)
+            if tool_name == "run_targeted_test":
+                prepared = tool.execute(args, self._context(session))
+                if prepared.status != "completed":
+                    self.repository.update_part(call_part["id"], status=prepared.status)
+                    result_part = self.repository.add_part(
+                        session_id,
+                        "tool_result",
+                        status=prepared.status,
+                        title=tool.description,
+                        content=prepared.summary,
+                        payload={**prepared.payload, "part_index": part_index},
+                    )
+                    self._event(session_id, "tool_call_completed", prepared.summary, {"part_id": result_part["id"], "tool": tool_name})
+                    observation = self._compact_observation(tool_name, prepared.status, prepared.summary, prepared.payload, prepared.error)
+                    messages.append({"role": "assistant", "content": raw})
+                    messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
+                    return None, False
+                command_payload = dict(prepared.payload)
+            else:
+                command_payload = args.get("payload") if isinstance(args.get("payload"), dict) else dict(args)
             command_payload.setdefault("tool", tool_name)
             if tool_name == "run_dev_server":
                 command_payload.setdefault("command", ["npm", "run", "dev"])
@@ -398,10 +336,17 @@ class AgentSessionProcessor:
         self._event(session_id, "tool_call_completed", result.summary, {"part_id": result_part["id"], "tool": tool_name})
         if tool_name in CONTEXT_TOOLS and result.status == "completed":
             self._record_context(session_id, result.payload)
-
-        observation = self._compact_observation(tool_name, result.status, result.summary, result.payload, result.error)
+        guidance_payload = self._next_tool_guidance(tool_name, result.status, result.payload, result.error)
+        result_payload = dict(result.payload)
+        if guidance_payload:
+            result_payload.update(guidance_payload)
+            self.repository.update_part(result_part["id"], payload={**result_payload, "part_index": part_index})
+        observation = self._compact_observation(tool_name, result.status, result.summary, result_payload, result.error)
         messages.append({"role": "assistant", "content": raw})
-        messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
+        if guidance_payload:
+            messages.append({"role": "user", "content": "工具结果：\n" + json.dumps({**observation, "guidance": guidance_payload.get("guidance"), "recommended_tools": guidance_payload.get("recommended_tools") or []}, ensure_ascii=False)})
+        else:
+            messages.append({"role": "user", "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False)})
         self._event(session_id, "phase_change", "工具执行完成，准备继续", {"phase": "tool_completed", "tool": tool_name})
         return None, False
 
@@ -409,17 +354,18 @@ class AgentSessionProcessor:
         part = self.repository.get_part(part_id)
         if not part:
             raise ValueError("Agent part not found")
+        session_id = part["session_id"]
         if not approved:
             self.repository.update_part(part_id, status="blocked")
-            metadata = set_phase(self._ensure_metadata(self.repository.get_session(part["session_id"]) or {}), "failed")
-            self.repository.update_session(part["session_id"], status="failed", metadata=metadata)
-            self._event(part["session_id"], "action_rejected", "动作已拒绝", {"part_id": part_id})
-            return self._with_parts(part["session_id"])
+            metadata = set_phase(self._ensure_metadata(self.repository.get_session(session_id) or {}), "failed")
+            self.repository.update_session(session_id, status="failed", metadata=metadata)
+            self._event(session_id, "action_rejected", "动作已拒绝", {"part_id": part_id, "compatibility_mode": True})
+            return self._with_parts(session_id)
         self.repository.update_part(part_id, status="approved")
-        metadata = set_phase(self._ensure_metadata(self.repository.get_session(part["session_id"]) or {}), "waiting_approval")
-        self.repository.update_session(part["session_id"], status="waiting_approval", metadata=metadata)
-        self._event(part["session_id"], "action_approved", "动作已批准", {"part_id": part_id})
-        return self._with_parts(part["session_id"])
+        metadata = set_phase(self._ensure_metadata(self.repository.get_session(session_id) or {}), "waiting_approval")
+        self.repository.update_session(session_id, status="waiting_approval", metadata=metadata)
+        self._event(session_id, "action_approved", "动作已批准", {"part_id": part_id, "compatibility_mode": True})
+        return self._with_parts(session_id)
 
     def execute_part(self, part_id: str) -> dict[str, Any]:
         part = self.repository.get_part(part_id)
@@ -508,6 +454,15 @@ class AgentSessionProcessor:
         chars_since_flush = 0
 
         async for delta_chunk in stream_model_call(messages):
+            if self._interrupt_requested(self.repository.get_session(session_id) or {}):
+                self.repository.update_part(text_part["id"], status="completed", title="已中断")
+                self._event(
+                    session_id,
+                    "session_interrupted",
+                    "用户已中断 Agent 任务。",
+                    {"part_id": text_part["id"], "part_type": "text", "status": "completed", "interrupted": True},
+                )
+                break
             content_delta = delta_chunk.get("content", "")
             if not content_delta:
                 continue
@@ -673,6 +628,7 @@ class AgentSessionProcessor:
         title = {
             "run_dev_server": "开发服务器",
             "stop_dev_server": "停止开发服务器",
+            "run_targeted_test": "精准测试",
             "bash_command": "验证命令",
         }.get(tool_name, tool.description)
         if policy["execution_mode"] == "blocked":
@@ -702,10 +658,12 @@ class AgentSessionProcessor:
         if result.status == "completed":
             messages.append({"role": "assistant", "content": raw})
             guidance = (
-                "开发服务器已启动。可以调用 get_server_status 或 read_logs 检查状态；完成后用 finalize 总结 server_url。"
+                "开发服务器已启动。优先调用 http_probe 确认 localhost 可访问，再用 read_local_page 或 browser_validate_page 做页面验证；完成后用 finalize 总结 server_url。"
                 if tool_name == "run_dev_server"
                 else "开发服务器已停止。可以调用 get_server_status 确认状态，或重新 collect_context 后继续开发。"
                 if tool_name == "stop_dev_server"
+                else "精准测试已执行。建议调用 summarize_test_results 汇总结果；如果失败，再调用 collect_test_failures 提炼失败块。"
+                if tool_name == "run_targeted_test"
                 else "验证通过。下一步必须调用 finalize，输出改动文件、验证命令、验证结果和剩余风险。"
             )
             messages.append({"role": "user", "content": "工具结果：\n" + json.dumps({**observation, "guidance": guidance}, ensure_ascii=False)})
@@ -717,7 +675,12 @@ class AgentSessionProcessor:
             metadata = record_repair_attempt(metadata)
             self.repository.update_session(session_id, status="repairing", metadata=metadata)
             messages.append({"role": "assistant", "content": raw})
-            messages.append({"role": "user", "content": "工具结果：\n" + json.dumps({**observation, "guidance": "验证失败。请先调用 read_execution 或读取相关文件，基于 failure_summary 最多生成一次修复补丁，然后再次验证。"}, ensure_ascii=False)})
+            failure_guidance = (
+                "测试命令失败。请先调用 summarize_test_results 查看统计，再调用 collect_test_failures 提炼失败块，然后调用 read_execution 或读取相关文件，基于 failure_summary 最多生成一次修复补丁，再次验证时优先使用 run_targeted_test。"
+                if self._is_test_command(payload.get("command"))
+                else "验证失败。请先调用 read_execution 或读取相关文件，基于 failure_summary 最多生成一次修复补丁，然后再次验证。"
+            )
+            messages.append({"role": "user", "content": "工具结果：\n" + json.dumps({**observation, "guidance": failure_guidance}, ensure_ascii=False)})
             return None
         detail = result.error or result.summary or "已达到最大修复次数。"
         return self._stop_with_summary(session_id, "needs_manual_review", f"验证失败，已达到最大修复次数。{detail}", part_id=part["id"])
@@ -727,6 +690,43 @@ class AgentSessionProcessor:
         metadata = set_phase(self._ensure_metadata(self.repository.get_session(session_id) or {}), status)
         self.repository.update_session(session_id, status=status, metadata=metadata)
         self._event(session_id, "session_blocked" if status == "needs_manual_review" else "session_failed", summary, {"part_id": part_id})
+        return self._with_parts(session_id)
+
+    def _interrupt_requested(self, session: dict[str, Any] | None = None) -> bool:
+        if session is None:
+            return False
+        metadata = session.get("metadata") if isinstance(session.get("metadata"), dict) else {}
+        return bool(metadata.get("interrupt_requested") or session.get("status") == "interrupted")
+
+    def _maybe_interrupt(self, session_id: str) -> dict[str, Any] | None:
+        session = self.repository.get_session(session_id) or {}
+        if not self._interrupt_requested(session):
+            return None
+        return self._interrupt_summary(session_id)
+
+    def _interrupt_summary(self, session_id: str) -> dict[str, Any]:
+        session = self.repository.get_session(session_id) or {}
+        metadata = self._ensure_metadata(session)
+        if metadata.get("interrupt_recorded"):
+            return self._with_parts(session_id)
+        summary = "用户已中断 Agent 任务。已停止继续调用模型和工具，当前 transcript 已保留。"
+        metadata = set_phase(metadata, "interrupted")
+        metadata["interrupt_requested"] = True
+        metadata["interrupt_recorded"] = True
+        metadata["active_prompt_id"] = None
+        state = dict(metadata.get("state") or {})
+        state["latest_error"] = summary
+        metadata["state"] = state
+        self.repository.add_part(
+            session_id,
+            "summary",
+            status="completed",
+            title="已中断",
+            content=summary,
+            payload={"summary": summary, "interrupted": True},
+        )
+        self.repository.update_session(session_id, status="interrupted", metadata=metadata)
+        self._event(session_id, "session_interrupted", summary, {"interrupted": True})
         return self._with_parts(session_id)
 
     def _fallback_summary(self, session_id: str, summary: str) -> dict[str, Any]:
@@ -816,6 +816,114 @@ class AgentSessionProcessor:
             command = args.get("payload", {}).get("command") if isinstance(args.get("payload"), dict) else args.get("command")
             return "运行 " + (" ".join(command) if isinstance(command, list) else str(command or "命令"))
         return tool_name
+
+    def _next_tool_guidance(
+        self,
+        tool_name: str,
+        status: str,
+        payload: dict[str, Any],
+        error: str | None = None,
+    ) -> dict[str, Any] | None:
+        if status != "completed":
+            if tool_name == "http_probe":
+                return {
+                    "guidance": "页面探测失败。请先调用 get_server_status 或 read_logs 检查开发服务器，再决定是否重新 run_dev_server。",
+                    "recommended_tools": ["get_server_status", "read_logs", "run_dev_server"],
+                }
+            if tool_name in {"browser_validate_page", "browser_click", "browser_fill", "browser_wait_for"}:
+                return {
+                    "guidance": "浏览器验证失败。请先查看 console_errors / page_errors，再决定是否 read_local_page、read_logs 或修复代码后重新验证。",
+                    "recommended_tools": ["read_local_page", "read_logs", "read", "patch"],
+                }
+            return None
+        if tool_name == "run_dev_server":
+            return {
+                "guidance": "开发服务器已启动。优先调用 http_probe 验证地址可访问，再用 read_local_page 或 browser_validate_page 检查页面。",
+                "recommended_tools": ["http_probe", "read_local_page", "browser_validate_page"],
+            }
+        if tool_name == "http_probe":
+            if payload.get("ok") and "html" in str(payload.get("content_type") or "").lower():
+                return {
+                    "guidance": "HTTP 探测已通过。下一步优先调用 read_local_page 查看标题和结构，或调用 browser_validate_page 做浏览器级验证。",
+                    "recommended_tools": ["read_local_page", "browser_validate_page"],
+                }
+            if payload.get("ok") and "json" in str(payload.get("content_type") or "").lower():
+                return {
+                    "guidance": "HTTP 探测返回了 JSON。下一步优先调用 probe_json_endpoint 查看结构，必要时再结合 capture_network_errors 做联调。",
+                    "recommended_tools": ["probe_json_endpoint", "capture_network_errors"],
+                }
+            return {
+                "guidance": "HTTP 探测完成。若需要继续前端验证，可调用 read_local_page 或 browser_validate_page。",
+                "recommended_tools": ["read_local_page", "browser_validate_page"],
+            }
+        if tool_name == "probe_json_endpoint":
+            if payload.get("ok"):
+                return {
+                    "guidance": "JSON 接口探测成功。若需要排查页面请求链路，可继续调用 capture_network_errors 或 browser_validate_page。",
+                    "recommended_tools": ["capture_network_errors", "browser_validate_page", "finalize"],
+                }
+            return {
+                "guidance": "JSON 接口探测失败。请先检查 parse_error、status_code 和 body_excerpt，再读取相关后端文件或日志。",
+                "recommended_tools": ["read_logs", "read", "search", "patch"],
+            }
+        if tool_name == "read_local_page":
+            return {
+                "guidance": "页面摘要已读取。若要检查控制台错误、关键选择器或文本断言，请继续调用 browser_validate_page。",
+                "recommended_tools": ["browser_validate_page", "browser_click", "browser_fill", "browser_wait_for"],
+            }
+        if tool_name == "browser_validate_page":
+            if payload.get("ok"):
+                return {
+                    "guidance": "浏览器验证通过。若还需交互验证，可继续调用 browser_click、browser_fill 或 browser_wait_for；否则可 finalize。",
+                    "recommended_tools": ["browser_click", "browser_fill", "browser_wait_for", "finalize"],
+                }
+            return {
+                "guidance": "浏览器验证发现问题。请先查看 console_errors、page_errors 和 selector_results，再读取相关文件或补丁修复。",
+                "recommended_tools": ["read", "search", "patch", "read_logs"],
+            }
+        if tool_name in {"browser_click", "browser_fill", "browser_wait_for"}:
+            return {
+                "guidance": "交互步骤已执行。建议再调用 browser_validate_page 或继续 browser_wait_for，确认交互后的页面状态稳定。",
+                "recommended_tools": ["browser_validate_page", "browser_wait_for", "finalize"],
+            }
+        if tool_name == "capture_network_errors":
+            if payload.get("ok"):
+                return {
+                    "guidance": "网络请求检查通过。若页面和接口都符合预期，可以 finalize；否则可继续做交互验证。",
+                    "recommended_tools": ["browser_validate_page", "browser_click", "finalize"],
+                }
+            return {
+                "guidance": "检测到网络错误。请先查看 request_failures 和 error_responses，再读取前后端相关文件或日志定位问题。",
+                "recommended_tools": ["read_logs", "read_local_page", "read", "search", "patch"],
+            }
+        if tool_name == "collect_test_failures":
+            return {
+                "guidance": "测试失败摘要已提取。下一步优先调用 read_execution 或 read 相关文件，基于失败块修复后再次验证；如果只需重跑受影响测试，优先使用 run_targeted_test。",
+                "recommended_tools": ["read_execution", "read", "patch", "run_targeted_test", "bash_command"],
+            }
+        if tool_name == "summarize_test_results":
+            if int(payload.get("failed") or 0) > 0 or int(payload.get("exit_code") or 0) != 0:
+                return {
+                    "guidance": "测试结果显示存在失败。建议继续调用 collect_test_failures 提炼失败块，再读取相关文件进行修复。",
+                    "recommended_tools": ["collect_test_failures", "read_execution", "read", "patch"],
+                }
+            return {
+                "guidance": "测试结果已汇总且没有失败。若验证范围足够，可以直接 finalize；否则可继续 run_targeted_test 补跑相关测试。",
+                "recommended_tools": ["finalize", "run_targeted_test"],
+            }
+        if tool_name == "run_targeted_test":
+            return {
+                "guidance": "精准测试命令已生成。执行后建议调用 summarize_test_results；若失败，再调用 collect_test_failures。",
+                "recommended_tools": ["summarize_test_results", "collect_test_failures", "finalize"],
+            }
+        return None
+
+    def _is_test_command(self, command: Any) -> bool:
+        if not isinstance(command, list):
+            return False
+        lowered = [str(item).lower() for item in command]
+        joined = " ".join(lowered)
+        return any(marker in joined for marker in ("pytest", "vitest", "npm test", "npm run test", "unittest"))
 
     def _handle_protocol_miss(self, session_id: str, raw: str, messages: list[dict[str, str]]) -> dict[str, Any] | None:
         session = self.repository.get_session(session_id) or {}
@@ -916,6 +1024,108 @@ class AgentSessionProcessor:
                 "query": payload.get("query"),
                 "matches": (payload.get("matches") or [])[:8],
                 "touched_paths": (payload.get("touched_paths") or [])[:12],
+            }
+            return compact
+        if tool_name == "http_probe":
+            compact["payload"] = {
+                "url": payload.get("url"),
+                "final_url": payload.get("final_url"),
+                "status_code": payload.get("status_code"),
+                "ok": payload.get("ok"),
+                "content_type": payload.get("content_type"),
+                "title": payload.get("title"),
+                "body_excerpt": self._truncate(str(payload.get("body_excerpt") or ""), 800),
+            }
+            return compact
+        if tool_name == "probe_json_endpoint":
+            compact["payload"] = {
+                "url": payload.get("url"),
+                "final_url": payload.get("final_url"),
+                "status_code": payload.get("status_code"),
+                "ok": payload.get("ok"),
+                "content_type": payload.get("content_type"),
+                "json_type": payload.get("json_type"),
+                "json_preview": payload.get("json_preview"),
+                "parse_error": payload.get("parse_error"),
+            }
+            return compact
+        if tool_name == "read_local_page":
+            compact["payload"] = {
+                "url": payload.get("url"),
+                "final_url": payload.get("final_url"),
+                "status_code": payload.get("status_code"),
+                "ok": payload.get("ok"),
+                "content_type": payload.get("content_type"),
+                "title": payload.get("title"),
+                "headings": (payload.get("headings") or [])[:6],
+                "links": (payload.get("links") or [])[:8],
+                "text_excerpt": self._truncate(str(payload.get("text_excerpt") or ""), 1200),
+            }
+            return compact
+        if tool_name == "browser_validate_page":
+            compact["payload"] = {
+                "url": payload.get("url"),
+                "final_url": payload.get("final_url"),
+                "status_code": payload.get("status_code"),
+                "ok": payload.get("ok"),
+                "title": payload.get("title"),
+                "headings": (payload.get("headings") or [])[:6],
+                "console_errors": (payload.get("console_errors") or [])[:6],
+                "page_errors": (payload.get("page_errors") or [])[:6],
+                "selector_results": (payload.get("selector_results") or [])[:6],
+                "text_results": (payload.get("text_results") or [])[:6],
+                "body_excerpt": self._truncate(str(payload.get("body_excerpt") or ""), 1200),
+                "engine": payload.get("engine"),
+            }
+            return compact
+        if tool_name == "capture_network_errors":
+            compact["payload"] = {
+                "url": payload.get("url"),
+                "final_url": payload.get("final_url"),
+                "status_code": payload.get("status_code"),
+                "ok": payload.get("ok"),
+                "request_failures": (payload.get("request_failures") or [])[:8],
+                "error_responses": (payload.get("error_responses") or [])[:8],
+                "console_errors": (payload.get("console_errors") or [])[:6],
+                "page_errors": (payload.get("page_errors") or [])[:6],
+                "engine": payload.get("engine"),
+            }
+            return compact
+        if tool_name in {"browser_click", "browser_fill", "browser_wait_for"}:
+            compact["payload"] = {
+                "url": payload.get("url"),
+                "final_url": payload.get("final_url"),
+                "status_code": payload.get("status_code"),
+                "ok": payload.get("ok"),
+                "title": payload.get("title"),
+                "action": payload.get("action"),
+                "headings": (payload.get("headings") or [])[:6],
+                "console_errors": (payload.get("console_errors") or [])[:6],
+                "page_errors": (payload.get("page_errors") or [])[:6],
+                "selector_results": (payload.get("selector_results") or [])[:6],
+                "text_results": (payload.get("text_results") or [])[:6],
+                "body_excerpt": self._truncate(str(payload.get("body_excerpt") or ""), 1200),
+                "engine": payload.get("engine"),
+            }
+            return compact
+        if tool_name == "collect_test_failures":
+            compact["payload"] = {
+                "failure_summary": payload.get("failure_summary"),
+                "failures": (payload.get("failures") or [])[:8],
+                "stdout_excerpt": self._truncate(str(payload.get("stdout_excerpt") or ""), 1200),
+                "stderr_excerpt": self._truncate(str(payload.get("stderr_excerpt") or ""), 1200),
+            }
+            return compact
+        if tool_name == "summarize_test_results":
+            compact["payload"] = {
+                "framework": payload.get("framework"),
+                "exit_code": payload.get("exit_code"),
+                "headline": payload.get("headline"),
+                "passed": payload.get("passed"),
+                "failed": payload.get("failed"),
+                "skipped": payload.get("skipped"),
+                "collected": payload.get("collected"),
+                "duration": payload.get("duration"),
             }
             return compact
         if tool_name == "patch":

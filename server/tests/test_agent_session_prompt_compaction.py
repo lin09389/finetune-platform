@@ -137,6 +137,180 @@ def test_search_observation_limits_matches(tmp_path: Path):
     assert len(observation["payload"]["touched_paths"]) == 12
 
 
+def test_page_validation_observations_are_compact(tmp_path: Path):
+    service = _service(tmp_path)
+    probe = service.processor._compact_observation(
+        "http_probe",
+        "completed",
+        "页面探测成功：200",
+        {
+            "url": "http://127.0.0.1:5173",
+            "final_url": "http://127.0.0.1:5173/",
+            "status_code": 200,
+            "ok": True,
+            "content_type": "text/html",
+            "title": "Agent Probe",
+            "body_excerpt": "A" * 4000,
+        },
+    )
+    page = service.processor._compact_observation(
+        "read_local_page",
+        "completed",
+        "页面摘要读取完成",
+        {
+            "url": "http://127.0.0.1:5173",
+            "final_url": "http://127.0.0.1:5173/",
+            "status_code": 200,
+            "ok": True,
+            "content_type": "text/html",
+            "title": "Agent Probe",
+            "headings": [{"tag": "h1", "text": "Frontend Ready"} for _ in range(10)],
+            "links": [f"/item/{i}" for i in range(12)],
+            "text_excerpt": "B" * 5000,
+        },
+    )
+
+    assert len(probe["payload"]["body_excerpt"]) <= 800
+    assert len(page["payload"]["headings"]) == 6
+    assert len(page["payload"]["links"]) == 8
+    assert len(page["payload"]["text_excerpt"]) <= 1200
+
+
+def test_api_probe_and_network_capture_observations_are_compact(tmp_path: Path):
+    service = _service(tmp_path)
+    api = service.processor._compact_observation(
+        "probe_json_endpoint",
+        "completed",
+        "JSON 接口探测成功",
+        {
+            "url": "http://127.0.0.1:8010/api/status",
+            "final_url": "http://127.0.0.1:8010/api/status",
+            "status_code": 200,
+            "ok": True,
+            "content_type": "application/json",
+            "json_type": "dict",
+            "json_preview": {"ok": True, "items": [1, 2, 3]},
+            "parse_error": None,
+        },
+    )
+    network = service.processor._compact_observation(
+        "capture_network_errors",
+        "failed",
+        "检测到网络错误",
+        {
+            "url": "http://127.0.0.1:5173",
+            "final_url": "http://127.0.0.1:5173/",
+            "status_code": 200,
+            "ok": False,
+            "request_failures": [{"url": f"http://127.0.0.1:8010/api/{i}", "method": "GET", "failure": "boom"} for i in range(12)],
+            "error_responses": [{"url": f"http://127.0.0.1:8010/api/{i}", "method": "GET", "status": 500} for i in range(12)],
+            "console_errors": [f"err-{i}" for i in range(10)],
+            "page_errors": [f"page-{i}" for i in range(10)],
+            "engine": "playwright",
+        },
+    )
+
+    assert api["payload"]["json_type"] == "dict"
+    assert len(network["payload"]["request_failures"]) == 8
+    assert len(network["payload"]["error_responses"]) == 8
+    assert len(network["payload"]["console_errors"]) == 6
+
+
+def test_browser_validation_observation_is_compact(tmp_path: Path):
+    service = _service(tmp_path)
+    observation = service.processor._compact_observation(
+        "browser_validate_page",
+        "failed",
+        "浏览器验证失败",
+        {
+            "url": "http://127.0.0.1:5173",
+            "final_url": "http://127.0.0.1:5173/",
+            "status_code": 200,
+            "ok": False,
+            "title": "Agent Probe",
+            "headings": [{"tag": "h1", "text": "Frontend Ready"} for _ in range(10)],
+            "console_errors": [f"err-{i}" for i in range(10)],
+            "page_errors": [f"page-{i}" for i in range(10)],
+            "selector_results": [{"selector": f"#item-{i}", "found": i == 0, "count": i} for i in range(10)],
+            "text_results": [{"text": f"text-{i}", "found": i == 0} for i in range(10)],
+            "body_excerpt": "C" * 5000,
+            "engine": "playwright",
+        },
+        "browser validation failed",
+    )
+
+    assert len(observation["payload"]["console_errors"]) == 6
+    assert len(observation["payload"]["page_errors"]) == 6
+    assert len(observation["payload"]["selector_results"]) == 6
+    assert len(observation["payload"]["text_results"]) == 6
+    assert len(observation["payload"]["body_excerpt"]) <= 1200
+
+
+def test_browser_interaction_and_test_failure_observations_are_compact(tmp_path: Path):
+    service = _service(tmp_path)
+    browser = service.processor._compact_observation(
+        "browser_click",
+        "completed",
+        "浏览器点击完成",
+        {
+            "url": "http://127.0.0.1:5173",
+            "final_url": "http://127.0.0.1:5173/after",
+            "status_code": 200,
+            "ok": True,
+            "title": "After Action",
+            "action": "click",
+            "headings": [{"tag": "h1", "text": "Done"} for _ in range(10)],
+            "console_errors": [f"err-{i}" for i in range(10)],
+            "page_errors": [f"page-{i}" for i in range(10)],
+            "selector_results": [{"selector": f"#item-{i}", "found": True, "count": i} for i in range(10)],
+            "text_results": [{"text": f"text-{i}", "found": True} for i in range(10)],
+            "body_excerpt": "D" * 5000,
+            "engine": "playwright",
+        },
+    )
+    failures = service.processor._compact_observation(
+        "collect_test_failures",
+        "completed",
+        "提取到 2 条测试失败信息",
+        {
+            "failure_summary": "2 failures",
+            "failures": [{"headline": f"FAILED test_{i}", "details": ["AssertionError"]} for i in range(12)],
+            "stdout_excerpt": "X" * 5000,
+            "stderr_excerpt": "Y" * 5000,
+        },
+    )
+
+    assert len(browser["payload"]["headings"]) == 6
+    assert len(browser["payload"]["selector_results"]) == 6
+    assert len(browser["payload"]["body_excerpt"]) <= 1200
+    assert len(failures["payload"]["failures"]) == 8
+    assert len(failures["payload"]["stdout_excerpt"]) <= 1200
+    assert len(failures["payload"]["stderr_excerpt"]) <= 1200
+
+
+def test_targeted_test_and_summary_observations_are_compact(tmp_path: Path):
+    service = _service(tmp_path)
+    summary = service.processor._compact_observation(
+        "summarize_test_results",
+        "completed",
+        "测试结果已汇总",
+        {
+            "framework": "pytest",
+            "exit_code": 1,
+            "headline": "2 passed, 1 failed in 0.45s",
+            "passed": 2,
+            "failed": 1,
+            "skipped": 0,
+            "collected": 3,
+            "duration": "0.45s",
+        },
+    )
+
+    assert summary["payload"]["framework"] == "pytest"
+    assert summary["payload"]["failed"] == 1
+    assert summary["payload"]["duration"] == "0.45s"
+
+
 def test_command_observation_keeps_failure_summary_and_truncates_output(tmp_path: Path):
     service = _service(tmp_path)
     payload = {

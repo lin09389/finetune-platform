@@ -4,7 +4,9 @@ import asyncio
 import json
 import shutil
 import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
 
 from agent_session.models import AgentPromptRequest, AgentSessionCreate
 from agent_session.repository import AgentSessionRepository
@@ -232,3 +234,158 @@ def test_command_failure_repairs_once_then_needs_manual_review(tmp_path: Path):
         assert "验证失败" in result.parts[-1].content
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
+
+
+def test_http_probe_guides_frontend_validation_flow(tmp_path: Path):
+    workspace = Path.cwd()
+    service = _service(tmp_path)
+    session = service.create_session(
+        AgentSessionCreate(title="frontend-guidance", project_path=str(workspace), autonomy_mode="safe_auto")
+    )
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = b"<html><head><title>Probe</title></head><body><h1>Ready</h1></body></html>"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format, *args):
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_port}/"
+    responses = iter(
+        [
+            {"tool": "http_probe", "arguments": {"url": url}},
+            {"tool": "finalize", "arguments": {"summary": "页面已探测。"}},
+        ]
+    )
+    captured: list[list[dict[str, str]]] = []
+
+    async def model_call(messages):
+        captured.append(list(messages))
+        return json.dumps(next(responses), ensure_ascii=False)
+
+    service.model_call = model_call
+    service.processor.max_iterations = 4
+    try:
+        result = asyncio.run(service.prompt(session.id, AgentPromptRequest(content="检查前端页面是否正常")))
+
+        assert result.status == "completed"
+        assert "read_local_page" in captured[1][-1]["content"]
+        assert "browser_validate_page" in captured[1][-1]["content"]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_probe_json_endpoint_guides_api_debug_flow(tmp_path: Path):
+    workspace = Path.cwd()
+    service = _service(tmp_path)
+    session = service.create_session(
+        AgentSessionCreate(title="api-guidance", project_path=str(workspace), autonomy_mode="safe_auto")
+    )
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = json.dumps({"ok": True, "items": [1, 2]}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format, *args):
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_port}/api/status"
+    responses = iter(
+        [
+            {"tool": "probe_json_endpoint", "arguments": {"url": url}},
+            {"tool": "finalize", "arguments": {"summary": "接口已探测。"}},
+        ]
+    )
+    captured: list[list[dict[str, str]]] = []
+
+    async def model_call(messages):
+        captured.append(list(messages))
+        return json.dumps(next(responses), ensure_ascii=False)
+
+    service.model_call = model_call
+    service.processor.max_iterations = 4
+    try:
+        result = asyncio.run(service.prompt(session.id, AgentPromptRequest(content="检查本地 API 是否正常")))
+
+        assert result.status == "completed"
+        assert "capture_network_errors" in captured[1][-1]["content"]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_failed_test_command_guides_collect_test_failures(tmp_path: Path):
+    workspace = Path.cwd()
+    run_dir = _workspace_tmp("agent-test-failure-guidance")
+    target = run_dir / "bad.py"
+    rel = target.relative_to(workspace).as_posix()
+    target.write_text("def broken(:\n", encoding="utf-8")
+    service = _service(tmp_path)
+    session = service.create_session(
+        AgentSessionCreate(title="test-failure-guidance", project_path=str(workspace), autonomy_mode="safe_auto")
+    )
+    responses = iter(
+        [
+            {"tool": "collect_context", "arguments": {"read": [rel]}},
+            {"tool": "bash_command", "arguments": {"payload": {"command": ["python", "-m", "pytest", "server/tests/does_not_exist.py"]}}},
+            {"tool": "finalize", "arguments": {"summary": "测试失败引导已给出。"}},
+        ]
+    )
+    captured: list[list[dict[str, str]]] = []
+
+    async def model_call(messages):
+        captured.append(list(messages))
+        return json.dumps(next(responses), ensure_ascii=False)
+
+    service.model_call = model_call
+    service.processor.max_iterations = 4
+    try:
+        result = asyncio.run(service.prompt(session.id, AgentPromptRequest(content="运行测试并在失败时给出修复路径")))
+
+        assert result.status in {"completed", "needs_manual_review"}
+        assert any("collect_test_failures" in message[-1]["content"] for message in captured[2:])
+    finally:
+        shutil.rmtree(run_dir, ignore_errors=True)
+
+
+def test_run_targeted_test_guides_summary_flow(tmp_path: Path):
+    workspace = Path.cwd()
+    service = _service(tmp_path)
+    session = service.create_session(
+        AgentSessionCreate(title="targeted-test-guidance", project_path=str(workspace), autonomy_mode="safe_auto")
+    )
+    responses = iter(
+        [
+            {"tool": "run_targeted_test", "arguments": {"framework": "pytest", "target": "server/tests/test_agent_tool_registry.py", "test_name": "summarize"}},
+            {"tool": "summarize_test_results", "arguments": {"stdout": "=================== 1 passed in 0.20s ===================", "stderr": "", "exit_code": 0, "framework": "pytest"}},
+            {"tool": "finalize", "arguments": {"summary": "精准测试链路正常。"}},
+        ]
+    )
+    captured: list[list[dict[str, str]]] = []
+
+    async def model_call(messages):
+        captured.append(list(messages))
+        return json.dumps(next(responses), ensure_ascii=False)
+
+    service.model_call = model_call
+    service.processor.max_iterations = 5
+    result = asyncio.run(service.prompt(session.id, AgentPromptRequest(content="运行一个精准测试并总结结果")))
+
+    assert result.status == "completed"
+    assert "summarize_test_results" in captured[1][-1]["content"]

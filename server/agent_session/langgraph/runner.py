@@ -98,12 +98,40 @@ class AgentSessionGraphRunner:
         model_call: Any = None,
         stream_model_call: Any = None,
     ) -> dict[str, Any]:
-        part = await self.runtime.execute_action_part(part_id)
-        session_id = str(part.get("session_id") or "")
+        part = self.repository.get_part(part_id)
+        session_id = str((part or {}).get("session_id") or "")
+        if not session_id:
+            raise ValueError("Agent part session not found")
+        if part and str(part.get("status") or "") == "approved":
+            await self.runtime.action_exec_node({"session_id": session_id, "pending_part_id": part_id})
         await self.resume(
             session_id,
             decision,
             model_call=model_call,
             stream_model_call=stream_model_call,
         )
-        return part
+        return self.repository.get_part(part_id) or part or {}
+
+    async def run_prompt_legacy(
+        self,
+        session_id: str,
+        content: str,
+        *,
+        model_call: Any = None,
+        stream_model_call: Any = None,
+    ) -> dict[str, Any]:
+        graph = await self.get_graph()
+        initial_state = {"session_id": session_id, "prompt": content}
+        self.runtime.set_invocation_context(
+            session_id,
+            model_call=model_call,
+            stream_model_call=stream_model_call,
+        )
+        try:
+            await graph.ainvoke(
+                initial_state,
+                config={"configurable": {"thread_id": self.thread_id(session_id)}},
+            )
+            return self.repository.get_session(session_id) or {}
+        finally:
+            self.runtime.clear_invocation_context(session_id)

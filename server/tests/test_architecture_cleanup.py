@@ -73,13 +73,14 @@ async def test_workspace_metadata_persists(tmp_path, monkeypatch):
     monkeypatch.setattr(workspace_api, "get_vector_store", lambda: _VectorStoreStub())
 
     created = await workspace_api.create_workspace(
-        workspace_api.WorkspaceCreate(name="Persistent", description="test")
+        workspace_api.WorkspaceCreate(name="Persistent", description="test", local_path=str(tmp_path))
     )
 
     assert metadata_file.exists()
     payload = json.loads(metadata_file.read_text(encoding="utf-8"))
     assert created.id in payload
     assert payload[created.id]["name"] == "Persistent"
+    assert payload[created.id]["local_path"] == str(tmp_path.resolve())
 
 
 @pytest.mark.asyncio

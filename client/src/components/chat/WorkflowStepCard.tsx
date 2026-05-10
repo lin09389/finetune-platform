@@ -85,7 +85,7 @@ const WorkflowStepCard = memo(function WorkflowStepCard({ index, step, active, t
           <div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
               <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>
-                {step.title || step.step_key || `步骤 ${index}`}
+                {step.title || step.step_key || `Stage ${index}`}
               </h3>
               <Tag color={status.color as any} style={{ marginInlineEnd: 0, borderRadius: 999 }}>
                 {status.label}
@@ -99,13 +99,13 @@ const WorkflowStepCard = memo(function WorkflowStepCard({ index, step, active, t
           </div>
         </div>
         <Tooltip title={step.step_key || step.id}>
-          <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>#{step.step_key || step.id}</span>
+          <span style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>Node #{step.step_key || step.id}</span>
         </Tooltip>
       </div>
 
       <div style={{ marginTop: 14, display: 'grid', gap: 10 }}>
         <section style={{ padding: 12, borderRadius: 14, background: 'color-mix(in srgb, var(--bg-secondary) 78%, transparent)' }}>
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 4 }}>问题</div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 4 }}>Stage 目标</div>
           <div style={{ fontSize: 14, lineHeight: 1.7, color: 'var(--text-primary)' }}>{problem}</div>
         </section>
 
@@ -120,7 +120,7 @@ const WorkflowStepCard = memo(function WorkflowStepCard({ index, step, active, t
               display: 'flex',
               flexDirection: 'column',
             }}>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 6, letterSpacing: '0.06em' }}>原因</div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 6, letterSpacing: '0.06em' }}>Node 原因</div>
               <div style={{ fontSize: 14, lineHeight: 1.75, color: 'var(--text-primary)', flex: 1 }}>{reason}</div>
             </section>
           ) : <div />}
@@ -134,7 +134,7 @@ const WorkflowStepCard = memo(function WorkflowStepCard({ index, step, active, t
               display: 'flex',
               flexDirection: 'column',
             }}>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 6, letterSpacing: '0.06em' }}>修复</div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 6, letterSpacing: '0.06em' }}>Node 修复</div>
               <div style={{ fontSize: 14, lineHeight: 1.75, color: 'var(--text-primary)', flex: 1 }}>{fix}</div>
             </section>
           ) : <div />}
@@ -147,7 +147,7 @@ const WorkflowStepCard = memo(function WorkflowStepCard({ index, step, active, t
             background: 'color-mix(in srgb, var(--bg-secondary) 72%, transparent)',
             border: '1px solid color-mix(in srgb, var(--border-color) 48%, transparent)',
           }}>
-            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 8, letterSpacing: '0.06em' }}>关联工具</div>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 8, letterSpacing: '0.06em' }}>Node 关联工具</div>
             <div style={{ display: 'grid', gap: 8 }}>
               {toolEvents.map((tool) => (
                 <div key={tool.id} style={{

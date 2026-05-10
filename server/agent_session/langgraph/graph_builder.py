@@ -18,6 +18,8 @@ def _after_tool_exec(state: AgentSessionGraphState) -> str:
         return "permission_gate"
     if execution_state == "waiting_approval":
         return "action_gate"
+    if execution_state == "approved_for_execution":
+        return "action_exec"
     if execution_state in {"completed", "failed", "needs_manual_review"}:
         return "finalize"
     return "model_call"
@@ -43,13 +45,16 @@ def build_agent_session_graph(*, repository, processor, model_call=None, checkpo
     runtime = runtime or AgentSessionLangGraphRuntime(repository=repository, processor=processor, model_call=model_call)
     graph = StateGraph(AgentSessionGraphState)
     graph.add_node("bootstrap", runtime.bootstrap_node)
+    graph.add_node("plan", runtime.plan_node)
     graph.add_node("model_call", runtime.model_call_node)
     graph.add_node("tool_exec", runtime.tool_exec_node)
     graph.add_node("permission_gate", runtime.permission_gate_node)
     graph.add_node("action_gate", runtime.action_gate_node)
+    graph.add_node("action_exec", runtime.action_exec_node)
     graph.add_node("finalize", runtime.finalize_node)
     graph.add_edge(START, "bootstrap")
-    graph.add_edge("bootstrap", "model_call")
+    graph.add_edge("bootstrap", "plan")
+    graph.add_edge("plan", "model_call")
     graph.add_conditional_edges("model_call", _after_model, {"tool_exec": "tool_exec", "finalize": "finalize"})
     graph.add_conditional_edges(
         "tool_exec",
@@ -57,6 +62,7 @@ def build_agent_session_graph(*, repository, processor, model_call=None, checkpo
         {
             "permission_gate": "permission_gate",
             "action_gate": "action_gate",
+            "action_exec": "action_exec",
             "model_call": "model_call",
             "finalize": "finalize",
         },
@@ -71,6 +77,7 @@ def build_agent_session_graph(*, repository, processor, model_call=None, checkpo
         _after_action,
         {"model_call": "model_call", "action_gate": "action_gate", "finalize": "finalize"},
     )
+    graph.add_edge("action_exec", "model_call")
     graph.add_edge("finalize", END)
     if checkpointer is None:
         return graph.compile()

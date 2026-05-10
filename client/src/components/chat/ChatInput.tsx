@@ -43,6 +43,8 @@ const ChatInput: React.FC<ChatInputProps> = ({
   modelId,
   maxLength = 4000,
   showModelInfo = true,
+  routingMode = 'auto',
+  routing = false,
 }) => {
   const { isMobile } = useResponsive();
   const [value, setValue] = useState('');
@@ -114,13 +116,28 @@ const ChatInput: React.FC<ChatInputProps> = ({
       <div className={styles.container}>
         <div className={`${styles.pillDock} ${isFocused ? styles.pillDockFocused : ''}`}>
           <div className={styles.leftActions}>
-            <Tooltip title="更多功能">
-              <Button 
-                type="text" 
-                icon={<PlusOutlined />} 
-                className={styles.iconBtn} 
-              />
-            </Tooltip>
+            {routingMode !== 'chat' && (
+              <Tooltip title={routingMode === 'agent' ? '强制 Agent 模式' : '自动路由模式'}>
+                <div className={styles.modeIcon} data-mode={routingMode}>
+                  <RobotOutlined />
+                </div>
+              </Tooltip>
+            )}
+            {routing && (
+              <div className={styles.routingStatus}>
+                <span className={styles.routingDot} />
+                <span className={styles.routingText}>判断中...</span>
+              </div>
+            )}
+            {!routing && (
+              <Tooltip title="更多功能">
+                <Button 
+                  type="text" 
+                  icon={<PlusOutlined />} 
+                  className={styles.iconBtn} 
+                />
+              </Tooltip>
+            )}
           </div>
 
           <TextArea

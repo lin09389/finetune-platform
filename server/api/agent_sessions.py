@@ -81,6 +81,18 @@ async def prompt_agent_session(
             raise HTTPException(status_code=404, detail=str(value_exc)) from value_exc
 
 
+@router.post("/{session_id}/interrupt", response_model=AgentSessionResponse)
+async def interrupt_agent_session(
+    session_id: str,
+    service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    try:
+        return await run_sync(service.interrupt_session, session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/{session_id}/events", response_model=list[AgentEventResponse])
 async def list_agent_session_events(
     session_id: str,
@@ -115,7 +127,7 @@ async def stream_agent_session_events(
                 yield f"event: agent_session_event\ndata: {json.dumps(chunk, ensure_ascii=False)}\n\n"
             try:
                 session = await run_sync(service.get_session, session_id)
-                if session.status in {"completed", "failed", "needs_manual_review", "waiting_approval", "waiting_permission"} and seen:
+                if session.status in {"completed", "failed", "interrupted", "needs_manual_review", "waiting_approval", "waiting_permission"} and seen:
                     break
             except Exception:
                 break

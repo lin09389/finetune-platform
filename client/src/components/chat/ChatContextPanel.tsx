@@ -70,9 +70,9 @@ const autonomyLabels: Record<AutonomyMode, string> = {
 };
 
 const routingHints: Record<RoutingMode, string> = {
-  auto: '普通问题走对话，开发任务自动交给 Agent。',
-  chat: '只进行普通对话，不触发 Agent。',
-  agent: '直接按项目任务进入 Agent。',
+  auto: '普通问题走 Chat，开发任务自动交给 Agent Task，复杂任务可升级为 Workflow Run。',
+  chat: '只进行普通对话，不触发 Agent Task。',
+  agent: '直接按项目任务进入 Agent Task。',
 };
 
 const ChatContextPanel: React.FC<ChatContextPanelProps> = ({
@@ -265,7 +265,7 @@ const ChatContextPanel: React.FC<ChatContextPanelProps> = ({
           <div className={styles.sectionHeader}>
             <div className={styles.sectionTitle}>
               <ApiOutlined />
-              Agent 路由
+              Task Routing
             </div>
             <span className={styles.sectionHint}>{routing ? '判断中' : autonomyLabels[autonomyMode]}</span>
           </div>
@@ -276,7 +276,7 @@ const ChatContextPanel: React.FC<ChatContextPanelProps> = ({
             options={[
               { label: '自动', value: 'auto' },
               { label: '对话', value: 'chat' },
-              { label: 'Agent', value: 'agent' },
+              { label: 'Agent Task', value: 'agent' },
             ]}
             onChange={(mode) => onRoutingModeChange(mode as RoutingMode)}
             disabled={busy}
@@ -339,7 +339,7 @@ const ChatContextPanel: React.FC<ChatContextPanelProps> = ({
           </div>
           <div className={styles.statusLine}>
             <span>路由</span>
-            <span className={styles.statusValue}>{routingMode === 'auto' ? '自动' : routingMode === 'chat' ? '普通对话' : 'Agent 工作'}</span>
+            <span className={styles.statusValue}>{routingMode === 'auto' ? '自动' : routingMode === 'chat' ? 'Chat' : 'Agent Task'}</span>
           </div>
         </section>
       </div>

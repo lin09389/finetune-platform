@@ -1,4 +1,4 @@
-﻿import { create } from 'zustand';
+import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import axios from 'axios';
 import {
@@ -46,6 +46,8 @@ export interface ChatSettings {
   useKnowledge: boolean;
   knowledgeCollection?: string;
   useMemory: boolean;
+  useProjectContext: boolean;
+  projectPath?: string;
   systemPrompt: string;
   temperature: number;
   topP: number;
@@ -208,6 +210,8 @@ export const useChatStore = create<ChatStore>()(
         backend: 'ollama',
         useKnowledge: false,
         useMemory: true,
+        useProjectContext: false,
+        projectPath: '',
         systemPrompt: '',
         temperature: 0.7,
         topP: 0.9,

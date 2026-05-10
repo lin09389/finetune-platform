@@ -769,7 +769,7 @@ export interface ChatAgentIntentRequest {
 }
 
 export interface ChatAgentIntentResponse {
-  mode: 'chat' | 'agent';
+  mode: 'chat' | 'agent' | 'workflow';
   confidence: number;
   reason: string;
   source: 'local_rule' | 'cloud' | 'fallback' | 'manual';
@@ -851,6 +851,31 @@ export interface AgentSessionCreate {
   provider?: string;
   model?: string;
   autonomy_mode?: 'safe_auto' | 'confirm_all' | 'read_only';
+}
+
+export interface WorkspaceSummary {
+  id: string;
+  name: string;
+  description?: string;
+  local_path?: string | null;
+  created_at: string;
+  updated_at: string;
+  document_count: number;
+  vector_count: number;
+  vector_collection_name?: string;
+  status?: string;
+}
+
+export interface WorkspaceCreateRequest {
+  name: string;
+  description?: string;
+  local_path?: string;
+}
+
+export interface WorkspaceUpdateRequest {
+  name?: string;
+  description?: string;
+  local_path?: string;
 }
 
 export interface AgentPromptRequest {
@@ -943,6 +968,7 @@ export interface AgentSession {
     | 'verifying'
     | 'repairing'
     | 'needs_manual_review'
+    | 'interrupted'
     | 'completed'
     | 'failed';
   title: string;
@@ -1210,6 +1236,21 @@ export const createAgentSession = async (payload: AgentSessionCreate): Promise<A
   return response.data;
 };
 
+export const listWorkspaces = async (): Promise<WorkspaceSummary[]> => {
+  const response = await apiClient.get('/workspace/workspaces');
+  return Array.isArray(response.data) ? response.data : response.data?.workspaces || [];
+};
+
+export const createWorkspace = async (payload: WorkspaceCreateRequest): Promise<WorkspaceSummary> => {
+  const response = await apiClient.post('/workspace/workspaces', payload);
+  return response.data;
+};
+
+export const updateWorkspace = async (workspaceId: string, payload: WorkspaceUpdateRequest): Promise<WorkspaceSummary> => {
+  const response = await apiClient.put(`/workspace/workspaces/${workspaceId}`, payload);
+  return response.data;
+};
+
 export const getAgentSession = async (sessionId: string): Promise<AgentSession> => {
   const response = await apiClient.get(`/agent-sessions/${sessionId}`);
   return response.data;
@@ -1220,6 +1261,11 @@ export const promptAgentSession = async (
   payload: AgentPromptRequest,
 ): Promise<AgentSession> => {
   const response = await apiClient.post(`/agent-sessions/${sessionId}/prompt`, payload);
+  return response.data;
+};
+
+export const interruptAgentSession = async (sessionId: string): Promise<AgentSession> => {
+  const response = await apiClient.post(`/agent-sessions/${sessionId}/interrupt`);
   return response.data;
 };
 

@@ -31,7 +31,7 @@ class ChatAgentIntentRequest(BaseModel):
 
 
 class ChatAgentIntentResponse(BaseModel):
-    mode: Literal["chat", "agent"]
+    mode: Literal["chat", "agent", "workflow"]
     confidence: float = Field(default=0.5, ge=0, le=1)
     reason: str
     source: Literal["local_rule", "cloud", "fallback", "manual"]

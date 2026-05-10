@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from rag.vector_store import get_vector_store
+from workspace.local_paths import normalize_local_workspace_path
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ class WorkspaceCreate(BaseModel):
 
     name: str = Field(..., description="Workspace name")
     description: str | None = Field(default=None, description="Workspace description")
+    local_path: str | None = Field(default=None, description="Optional local project path")
 
 
 class Workspace(BaseModel):
@@ -64,6 +66,7 @@ class Workspace(BaseModel):
     document_count: int = 0
     vector_count: int = 0
     vector_collection_name: str
+    local_path: str | None = None
     status: str = "active"
 
 
@@ -72,6 +75,7 @@ class WorkspaceUpdate(BaseModel):
 
     name: str | None = Field(default=None, description="Updated name")
     description: str | None = Field(default=None, description="Updated description")
+    local_path: str | None = Field(default=None, description="Updated local project path")
 
 
 def _persist_workspaces() -> None:
@@ -103,6 +107,10 @@ def _refresh_workspace_counts(workspace: dict[str, Any]) -> Workspace:
 @router.post("/workspaces", response_model=Workspace)
 async def create_workspace(data: WorkspaceCreate):
     """Create a workspace."""
+    try:
+        local_path = normalize_local_workspace_path(data.local_path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     workspace_id = f"ws_{uuid.uuid4().hex[:8]}"
     now = datetime.now().isoformat()
     collection_name = workspace_id
@@ -116,6 +124,7 @@ async def create_workspace(data: WorkspaceCreate):
         "document_count": 0,
         "vector_count": 0,
         "vector_collection_name": collection_name,
+        "local_path": local_path,
         "status": "active",
     }
 
@@ -163,6 +172,11 @@ async def update_workspace(workspace_id: str, data: WorkspaceUpdate):
         workspace["name"] = data.name
     if data.description is not None:
         workspace["description"] = data.description
+    if data.local_path is not None:
+        try:
+            workspace["local_path"] = normalize_local_workspace_path(data.local_path)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     workspace["updated_at"] = datetime.now().isoformat()
     _persist_workspaces()

@@ -104,7 +104,7 @@ class Settings(BaseSettings):
     stream_buffer_size: int = Field(default=10, ge=1, le=100, description="流式输出缓冲区大小")
     stream_flush_interval_ms: int = Field(default=8, ge=1, le=1000, description="流式输出刷新间隔 (毫秒)")
     enable_backpressure: bool = Field(default=True, description="启用背压控制")
-    agent_session_langgraph_enabled: bool = Field(default=False, description="是否启用 agent_session LangGraph 主路径")
+    agent_session_langgraph_enabled: bool = Field(default=True, description="是否启用 agent_session LangGraph 主路径")
 
     intent_route_chat_threshold: float = Field(default=0.45, ge=0, le=1, description="意图路由 chat 阈值")
     intent_route_tool_threshold: float = Field(default=0.75, ge=0, le=1, description="意图路由 tool 阈值")

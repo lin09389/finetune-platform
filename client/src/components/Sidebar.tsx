@@ -22,7 +22,6 @@ import {
   PlayCircleOutlined,
   QuestionCircleOutlined,
   ThunderboltOutlined,
-  TeamOutlined,
 } from '@ant-design/icons';
 import { Layout, Tooltip } from 'antd';
 import { motion } from 'framer-motion';
@@ -114,12 +113,7 @@ const menuGroups: MenuGroup[] = [
         label: '工作流',
         description: '多 Agent 协作',
       },
-      {
-        key: '/digital-team',
-        icon: <TeamOutlined />,
-        label: '数字团队',
-        description: 'AI 软件团队',
-      },
+
       {
         key: '/workspace',
         icon: <AppstoreOutlined />,

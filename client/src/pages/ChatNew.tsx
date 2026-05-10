@@ -1,8 +1,10 @@
-﻿import { Button, Drawer, Modal, Tag } from 'antd';
+import { Button, Collapse, Drawer, Modal, Tag } from 'antd';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import { useNavigate } from 'react-router-dom';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
+import { Input, Select } from 'antd';
 
 import { useChatStream } from '../hooks/chat/useChatStream';
 import { useResponsive } from '../hooks/useResponsive';
@@ -37,11 +39,13 @@ import {
   getSavedCloudProviders,
   getWorkflowTemplates,
   getChatAgentRun,
+  interruptAgentSession,
+  listWorkspaces,
   promptAgentSession,
   rejectAgentAction as rejectAgentSessionAction,
   rejectChatAgentAction,
 } from '../services/api';
-import type { AgentInfo, AgentPart, AgentSession, AgentSessionEvent, ChatAgentRun, SavedCloudProvider, WorkflowAction, WorkflowStep, WorkflowTemplate } from '../services/api';
+import type { AgentInfo, AgentPart, AgentSession, AgentSessionEvent, ChatAgentRun, SavedCloudProvider, WorkflowAction, WorkflowStep, WorkflowTemplate, WorkspaceSummary } from '../services/api';
 import { transitions } from '../theme/animations';
 import { notify } from '../utils/notify';
 import { ArrowDownOutlined } from '@ant-design/icons';
@@ -79,6 +83,12 @@ const STARTER_IDEAS = [
   }
 ];
 
+const sectionMotion = {
+  initial: { opacity: 0, y: 8 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.26, ease: [0.16, 1, 0.3, 1] as const },
+};
+
 
 
 interface StoredChatScrollState {
@@ -88,7 +98,9 @@ interface StoredChatScrollState {
 }
 
 const CHAT_SCROLL_STORAGE_KEY = 'chat_scroll_positions_v1';
-const INTENT_ROUTING_TIMEOUT_MS = 8000;
+const INTENT_ROUTING_TIMEOUT_MS = 1800;
+const CHAT_WORKSPACE_ID_STORAGE_KEY = 'chat_workspace_id_v1';
+const CHAT_PROJECT_PATH_STORAGE_KEY = 'chat_project_path_v1';
 
 const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -227,6 +239,9 @@ const ChatPage: React.FC = () => {
   );
   const [routingIntent, setRoutingIntent] = useState(false);
   const [creatingWorkflow, setCreatingWorkflow] = useState(false);
+  const [availableWorkspaces, setAvailableWorkspaces] = useState<WorkspaceSummary[]>([]);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>(() => localStorage.getItem(CHAT_WORKSPACE_ID_STORAGE_KEY) || '');
+  const [workspaceProjectPath, setWorkspaceProjectPath] = useState<string>(() => localStorage.getItem(CHAT_PROJECT_PATH_STORAGE_KEY) || '');
   const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([]);
   const [workflowTitle, setWorkflowTitle] = useState('Workflow Report');
   const [workflowStatus, setWorkflowStatus] = useState('idle');
@@ -273,6 +288,24 @@ const ChatPage: React.FC = () => {
     },
     [currentSessionId, messages.length],
   );
+
+  const selectedWorkspace = useMemo(
+    () => availableWorkspaces.find((workspace) => workspace.id === selectedWorkspaceId) || null,
+    [availableWorkspaces, selectedWorkspaceId],
+  );
+  const selectedWorkspaceLabel = selectedWorkspace
+    ? `${selectedWorkspace.name}${selectedWorkspace.local_path ? ` · ${selectedWorkspace.local_path}` : ''}`
+    : '未选择工作区';
+  const workspacePathStatus = useMemo(() => {
+    const path = workspaceProjectPath.trim();
+    if (!path) {
+      return { tone: 'default' as const, text: '未填写路径，将使用所选工作区或默认项目根目录。' };
+    }
+    if (selectedWorkspace?.local_path && selectedWorkspace.local_path.trim() === path) {
+      return { tone: 'success' as const, text: '路径与当前工作区一致。' };
+    }
+    return { tone: 'warning' as const, text: '当前为自定义路径，Agent 将使用这里的目录执行。' };
+  }, [selectedWorkspace?.local_path, workspaceProjectPath]);
 
   useEffect(() => {
     setIsAtBottom(shouldRestoreToBottom);
@@ -340,6 +373,26 @@ const ChatPage: React.FC = () => {
       notify.error(error);
     },
   });
+
+  const activeAgentSessionIds = useMemo(() => {
+    const activeStatuses = new Set(['running', 'verifying', 'repairing', 'waiting_approval', 'waiting_permission']);
+    return Array.from(
+      new Set(
+        messages
+          .filter((message) => {
+            const metadata = message.agent_metadata;
+            return Boolean(
+              metadata?.agent_session_id &&
+              (activeStatuses.has(metadata.status || '') || message.isLoading),
+            );
+          })
+          .map((message) => message.agent_metadata?.agent_session_id)
+          .filter((sessionId): sessionId is string => Boolean(sessionId)),
+      ),
+    );
+  }, [messages]);
+
+  const isAgentSessionRunning = activeAgentSessionIds.length > 0;
 
   // Keep the viewport pinned to the bottom while streaming when auto-scroll is enabled.
   useEffect(() => {
@@ -424,6 +477,36 @@ const ChatPage: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('chat_agent_autonomy_mode', autonomyMode);
   }, [autonomyMode]);
+
+  useEffect(() => {
+    localStorage.setItem(CHAT_WORKSPACE_ID_STORAGE_KEY, selectedWorkspaceId);
+  }, [selectedWorkspaceId]);
+
+  useEffect(() => {
+    localStorage.setItem(CHAT_PROJECT_PATH_STORAGE_KEY, workspaceProjectPath);
+  }, [workspaceProjectPath]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadWorkspaceOptions = async () => {
+      try {
+        const workspaces = await listWorkspaces();
+        if (cancelled) return;
+        setAvailableWorkspaces(workspaces);
+        if (!selectedWorkspaceId) return;
+        const selected = workspaces.find((workspace) => workspace.id === selectedWorkspaceId);
+        if (selected?.local_path && !workspaceProjectPath.trim()) {
+          setWorkspaceProjectPath(selected.local_path);
+        }
+      } catch {
+        if (!cancelled) setAvailableWorkspaces([]);
+      }
+    };
+    void loadWorkspaceOptions();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWorkspaceId, workspaceProjectPath]);
 
   useEffect(() => {
     if (!currentSessionId || currentSessionId.startsWith('local_')) return;
@@ -560,7 +643,7 @@ const ChatPage: React.FC = () => {
   const isLikelyAgentGoal = useCallback((content: string) => {
     const text = content.trim().toLowerCase();
     if (!text) return false;
-    if (['不要执行', '只讨论', '只分析', '解释一下', '什么是'].some((keyword) => text.includes(keyword))) {
+    if (['不要执行', '只讨论', '只分析', '解释一下', '帮我解释', '什么是', '为什么'].some((keyword) => text.includes(keyword))) {
       return false;
     }
     return [
@@ -584,9 +667,13 @@ const ChatPage: React.FC = () => {
       'npm run',
       '让agent做',
       '自动处理',
-      '帮我改',
       '补丁',
-      '执行',
+      '搜索项目',
+      '写脚本',
+      '排查报错',
+      '排查问题',
+      '运行命令',
+      '执行补丁',
     ].some((keyword) => text.includes(keyword));
   }, []);
 
@@ -905,6 +992,45 @@ const ChatPage: React.FC = () => {
     [buildAgentPartMetadata, mergeAgentSessionPart, persistAgentMessages],
   );
 
+  const appendAgentSessionError = useCallback(
+    async (content: string, session?: Partial<AgentSession> & { id?: string }) => {
+      const now = new Date().toISOString();
+      const sessionId = session?.id || `agent_error_${Date.now()}`;
+      const errorPart: AgentPart = {
+        id: `${sessionId}:startup-error`,
+        session_id: sessionId,
+        type: 'error',
+        status: 'failed',
+        title: 'Agent 启动失败',
+        content,
+        payload: {
+          guidance: '已停止本次 Agent 执行，没有重复调用工具。可以检查后端日志或稍后重试。',
+          fallback: true,
+        },
+        created_at: now,
+        updated_at: now,
+      };
+      const snapshot = ensureAgentSessionSnapshot(sessionId, {
+        ...session,
+        id: sessionId,
+        status: 'failed',
+        title: session?.title || 'Agent Session',
+        metadata: {
+          ...(session?.metadata || {}),
+          diagnostics: {
+            stop_reason: content,
+            next_action: '检查后端服务状态、模型配置或权限后再重试。',
+            refresh_safe: true,
+          },
+        },
+        parts: [errorPart],
+        updated_at: now,
+      } as Partial<AgentSession>);
+      await upsertAgentSessionPartMessage(sessionId, errorPart, snapshot, { persist: true });
+    },
+    [ensureAgentSessionSnapshot, upsertAgentSessionPartMessage],
+  );
+
   const upsertAgentMessages = useCallback(
     async (run: ChatAgentRun) => {
       if (!run.workflow_id) return;
@@ -1040,6 +1166,7 @@ const ChatPage: React.FC = () => {
     (sessionId: string) => {
       agentSessionStreamsRef.current[sessionId]?.close();
       const source = new EventSource(`${API_BASE_URL}/agent-sessions/${sessionId}/events/stream`);
+      console.log('[Agent] EventSource connected:', sessionId);
       agentSessionStreamsRef.current[sessionId] = source;
       const handleChunk = async (chunk: AgentSessionEvent) => {
         const part = chunk.part || undefined;
@@ -1116,11 +1243,14 @@ const ChatPage: React.FC = () => {
           if (key.startsWith('agp_')) delete streamingDeltaRef.current[key];
         });
         setAgentPhase({ phase: '', visible: false });
+        getAgentSession(sessionId)
+          .then((session) => upsertAgentSessionMessage(session))
+          .catch(() => appendAgentSessionError('Agent 事件流连接中断，暂时无法读取最新执行 transcript。', { id: sessionId }));
         source.close();
         delete agentSessionStreamsRef.current[sessionId];
       };
     },
-    [ensureAgentSessionSnapshot, upsertAgentSessionPartMessage],
+    [appendAgentSessionError, ensureAgentSessionSnapshot, upsertAgentSessionMessage, upsertAgentSessionPartMessage],
   );
 
   useEffect(() => {
@@ -1169,7 +1299,7 @@ const ChatPage: React.FC = () => {
     async (
       content: string,
       forceAgent = false,
-      options: { agentId?: string; templateId?: string; reason?: string } = {},
+      options: { agentId?: string; templateId?: string; reason?: string; mode?: 'agent' | 'workflow' } = {},
     ) => {
       const goal = content.trim();
       if (!goal) return false;
@@ -1182,22 +1312,35 @@ const ChatPage: React.FC = () => {
       }
 
       addMessage({ role: 'user', content: goal });
+      console.log('[Agent] Starting workflow creation...', { content, options });
       setCreatingWorkflow(true);
+      setRoutingIntent(false);
+      let agentSession: AgentSession | undefined;
       try {
+        const workspaceContext = selectedWorkspaceLabel !== '未选择工作区'
+          ? ` · ${selectedWorkspaceLabel}`
+          : '';
         const session = await createAgentSession({
           chat_session_id: sessionId && !sessionId.startsWith('local_') ? sessionId : undefined,
           agent_id: options.agentId || selectedPrimaryAgent || 'build',
-          title: goal.slice(0, 40) || 'Agent Session',
-          project_path: undefined,
+          title:
+            options.mode === 'workflow'
+              ? `${goal.slice(0, 26) || 'Workflow Run'}${workspaceContext}`.slice(0, 64)
+              : `${goal.slice(0, 26) || 'Agent Task'}${workspaceContext}`.slice(0, 64),
+          project_path: workspaceProjectPath.trim() || undefined,
           provider: cloudAIConfig?.provider || undefined,
           model: selectedCloudModel || cloudAIConfig?.model || undefined,
           autonomy_mode: autonomyMode,
         });
+        agentSession = session;
 
         if (options.reason) {
           notify.info(options.reason);
         }
-        await upsertAgentSessionMessage(session, options.reason ? `${options.reason} ${goal}` : goal);
+        const workspacePrefix = selectedWorkspaceLabel !== '未选择工作区'
+          ? `[${selectedWorkspaceLabel}] `
+          : '';
+        await upsertAgentSessionMessage(session, options.reason ? `${options.reason} ${workspacePrefix}${goal}` : `${workspacePrefix}${goal}`);
         startAgentSessionStream(session.id);
         const started = await promptAgentSession(session.id, {
           content: goal,
@@ -1208,7 +1351,22 @@ const ChatPage: React.FC = () => {
         notify.success('Agent 已开始工作');
         return true;
       } catch (error: any) {
-        notify.error(error?.response?.data?.detail || 'Agent 工作启动失败');
+        const detail =
+          error?.response?.data?.detail?.message ||
+          error?.response?.data?.detail ||
+          error?.message ||
+          'Agent 工作启动失败';
+        const fallback = `${options.mode === 'workflow' ? 'Workflow 运行启动失败' : 'Agent 工作启动失败'}：${detail}`;
+        notify.error(fallback);
+        await appendAgentSessionError(fallback, agentSession || {
+          id: sessionId ? `agent_error_${sessionId}_${Date.now()}` : undefined,
+          chat_session_id: sessionId && !sessionId.startsWith('local_') ? sessionId : undefined,
+          agent_id: options.agentId || selectedPrimaryAgent || 'build',
+          title: `${goal.slice(0, 26) || 'Agent Session'}${selectedWorkspaceLabel !== '未选择工作区' ? ` · ${selectedWorkspaceLabel}` : ''}`.slice(0, 64),
+          provider: cloudAIConfig?.provider || undefined,
+          model: selectedCloudModel || cloudAIConfig?.model || undefined,
+          metadata: { autonomy_mode: autonomyMode },
+        });
         return true;
       } finally {
         setCreatingWorkflow(false);
@@ -1221,6 +1379,7 @@ const ChatPage: React.FC = () => {
       cloudAIConfig?.provider,
       createSession,
       currentSessionId,
+      appendAgentSessionError,
       isLikelyAgentGoal,
       selectedCloudModel,
       selectedPrimaryAgent,
@@ -1240,11 +1399,12 @@ const ChatPage: React.FC = () => {
 
       if (routingMode === 'agent' || shouldPreferWorkflow) {
         if (routingMode === 'agent') {
-          const handledByAgent = await handleAgentWorkflow(content, true, { reason: '已按 Agent 模式启动 Build Agent。' });
+          const handledByAgent = await handleAgentWorkflow(content, true, { reason: '已按 Agent 模式启动 Build Agent。', mode: 'agent' });
           if (handledByAgent) return;
         }
 
         if (routingMode === 'auto') {
+          console.log('[Routing] Classifying intent via Cloud AI...');
           setRoutingIntent(true);
           try {
             const intent = await withTimeout(
@@ -1260,14 +1420,28 @@ const ChatPage: React.FC = () => {
               INTENT_ROUTING_TIMEOUT_MS,
               'intent_routing_timeout',
             );
+            console.log('[Routing] Intent classification result:', intent);
+            if (intent.mode === 'workflow') {
+              setRoutingIntent(false);
+              const handledByWorkflow = await handleAgentWorkflow(content, true, {
+                agentId: intent.suggested_agent_id || selectedPrimaryAgent || 'build',
+                templateId: intent.suggested_template_id || selectedWorkflowTemplate || 'software_delivery',
+                reason: intent.source === 'cloud'
+                  ? `云端判断需要 Workflow Run：${intent.reason}`
+                  : `已识别为流程编排任务，启动 Workflow Run：${intent.reason}`,
+                mode: 'workflow',
+              });
+              if (handledByWorkflow) return;
+            }
             if (intent.mode === 'agent') {
               setRoutingIntent(false);
               const handledByAgent = await handleAgentWorkflow(content, true, {
                 agentId: intent.suggested_agent_id || selectedPrimaryAgent || 'build',
                 templateId: intent.suggested_template_id || selectedWorkflowTemplate || 'software_delivery',
                 reason: intent.source === 'cloud'
-                  ? `云端判断需要 Agent：${intent.reason}`
-                  : `已识别为开发任务，启动 Agent：${intent.reason}`,
+                  ? `云端判断需要 Agent Task：${intent.reason}`
+                  : `已识别为开发任务，启动 Agent Task：${intent.reason}`,
+                mode: 'agent',
               });
               if (handledByAgent) return;
             }
@@ -1278,7 +1452,8 @@ const ChatPage: React.FC = () => {
             if (isLikelyAgentGoal(content)) {
               setRoutingIntent(false);
               const handledByAgent = await handleAgentWorkflow(content, true, {
-                reason: '意图判断失败，已按本地规则启动 Agent。',
+                reason: '意图判断失败，已按本地规则启动 Agent Task。',
+                mode: 'agent',
               });
               if (handledByAgent) return;
             }
@@ -1340,6 +1515,29 @@ const ChatPage: React.FC = () => {
     },
     [handleAgentWorkflow],
   );
+
+  const handleStopCurrentRun = useCallback(async () => {
+    if (!activeAgentSessionIds.length) {
+      stopStream();
+      return;
+    }
+
+    try {
+      await Promise.all(
+        activeAgentSessionIds.map(async (sessionId) => {
+          const session = await interruptAgentSession(sessionId);
+          agentSessionStreamsRef.current[sessionId]?.close();
+          delete agentSessionStreamsRef.current[sessionId];
+          await upsertAgentSessionMessage(session);
+        }),
+      );
+      setAgentPhase({ phase: '', visible: false });
+      notify.info('已中断 Agent 任务');
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || '中断 Agent 失败';
+      notify.error(detail);
+    }
+  }, [activeAgentSessionIds, stopStream, upsertAgentSessionMessage]);
 
   const workflowTemplateOptions = useMemo(
     () =>
@@ -1748,17 +1946,213 @@ const ChatPage: React.FC = () => {
     updateSettings,
   ]);
 
-  const activeModeLabel = useCloudAI
-    ? '云端 AI'
-    : settings.backend === 'ollama'
-      ? 'Ollama'
-      : settings.backend === 'llama-cpp'
-        ? 'llama.cpp'
-        : 'HuggingFace';
+  const activeModeLabel = routingMode === 'agent'
+    ? 'Agent Task'
+    : routingMode === 'auto' && routingIntent
+      ? 'Workflow Run 路由中'
+      : routingMode === 'chat'
+        ? 'Chat'
+        : 'Workflow Run';
   const activeModelLabel = useCloudAI
     ? selectedCloudModel || '未选择模型'
     : settings.modelId || '未选择模型';
   const agentOptions = primaryAgents.map((agent) => ({ value: agent.id, label: agent.name }));
+
+  const agentFileSummaries = useMemo(() => {
+    const seen = new Set<string>();
+    const items: Array<{ id: string; path: string; status: string; summary: string; preview: string; depth: number }> = [];
+
+    const depthOf = (path: string) => path.replace(/\\/g, '/').split('/').filter(Boolean).length;
+
+    for (const message of messages) {
+      const metadata = message.agent_metadata;
+      if (!metadata || metadata.kind !== 'agent_part' || (metadata.agent_part as any)?.type !== 'diff') continue;
+      const part: any = metadata.agent_part;
+      const payload = part?.payload || {};
+      const files = Array.isArray(payload.changed_files)
+        ? payload.changed_files
+        : Array.isArray(payload.files)
+          ? payload.files.map((file: any) => file?.path || file?.file_path).filter(Boolean)
+          : [];
+      const diffSource = payload.diff || payload.payload?.diff || payload.file_changes || payload.payload?.file_changes;
+      const diffText = typeof diffSource === 'string' ? diffSource : JSON.stringify(diffSource || payload, null, 2);
+      const summary = part.title || part.content || payload.policy_reason || '文件变更';
+      const fileEntries = Array.isArray(diffSource)
+        ? diffSource
+        : files.map((path: string) => ({ path, status: part.status || 'modified', summary, diff: diffText }));
+
+      for (const entry of fileEntries) {
+        const path = String(entry?.path || entry?.file_path || entry?.filename || entry?.name || '').trim();
+        if (!path || seen.has(path)) continue;
+        seen.add(path);
+        items.push({
+          id: `${metadata.agent_part_id || message.id}:${path}`,
+          path,
+          status: String(entry?.status || entry?.change_type || entry?.action || part.status || 'modified'),
+          summary: String(entry?.summary || entry?.description || summary),
+          preview: String(entry?.diff || entry?.patch || entry?.content || entry?.after || entry?.before || diffText),
+          depth: depthOf(path),
+        });
+      }
+    }
+
+    return items.slice(-8).sort((a, b) => a.depth - b.depth || a.path.localeCompare(b.path));
+  }, [messages]);
+
+  const agentFileTree = useMemo(() => {
+    type TreeNode = {
+      name: string;
+      path: string;
+      kind: 'folder' | 'file';
+      children: TreeNode[];
+      file?: (typeof agentFileSummaries)[number];
+    };
+
+    const root: TreeNode = { name: '', path: '', kind: 'folder', children: [] };
+
+    const insert = (node: TreeNode, segments: string[], file: (typeof agentFileSummaries)[number], fullPath: string): void => {
+      if (segments.length === 0) {
+        node.children.push({ name: file.path.split('/').pop() || file.path, path: fullPath, kind: 'file', children: [], file });
+        return;
+      }
+      const head = segments[0];
+      if (!head) {
+        node.children.push({ name: file.path.split('/').pop() || file.path, path: fullPath, kind: 'file', children: [], file });
+        return;
+      }
+      const rest = segments.slice(1);
+      const childPath = node.path ? `${node.path}/${head}` : head;
+      let child = node.children.find((item) => item.kind === 'folder' && item.name === head) as TreeNode | undefined;
+      if (!child) {
+        child = { name: head, path: childPath, kind: 'folder', children: [] };
+        node.children.push(child);
+      }
+      if (child) {
+        insert(child, rest, file, fullPath);
+      }
+    };
+
+    for (const file of agentFileSummaries) {
+      const normalized = file.path.replace(/\\/g, '/');
+      const segments = normalized.split('/').filter(Boolean);
+      const name = segments.pop() || normalized;
+      insert(root, segments, file, normalized || name);
+    }
+
+    const sortTree = (node: TreeNode): TreeNode => {
+      const children = node.children
+        .map(sortTree)
+        .sort((a, b) => {
+          if (a.kind !== b.kind) return a.kind === 'folder' ? -1 : 1;
+          return a.name.localeCompare(b.name, 'zh-CN');
+        });
+      return { ...node, children };
+    };
+
+    return sortTree(root);
+  }, [agentFileSummaries]);
+
+  const defaultExpandedFolders = useMemo(() => {
+    const folders = new Set<string>();
+    const walk = (node: typeof agentFileTree, depth = 0) => {
+      if (node.kind === 'folder' && node.path) folders.add(node.path);
+      for (const child of node.children || []) walk(child, depth + 1);
+    };
+    walk(agentFileTree);
+    return folders;
+  }, [agentFileTree]);
+
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => defaultExpandedFolders);
+
+  useEffect(() => {
+    setExpandedFolders((prev) => {
+      const next = new Set<string>();
+      for (const path of prev) {
+        if (defaultExpandedFolders.has(path)) next.add(path);
+      }
+      if (next.size === 0) {
+        defaultExpandedFolders.forEach((path) => next.add(path));
+      }
+      return next;
+    });
+  }, [defaultExpandedFolders]);
+
+  const toggleFolder = useCallback((path: string) => {
+    setExpandedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+
+  const renderTreeNode = useCallback((node: typeof agentFileTree, depth = 0): React.ReactNode => {
+    if (node.kind === 'file' && node.file) {
+      const file = node.file;
+      const statusLower = file.status.toLowerCase();
+      const statusTone = /add|new|create|新增/.test(statusLower)
+        ? 'success'
+        : /delete|remove|removed|删除/.test(statusLower)
+          ? 'error'
+          : /modify|update|change|edit|fix|modified|修改/.test(statusLower)
+            ? 'processing'
+            : 'default';
+      return (
+        <div key={node.path} className={styles.agentFileCard} style={{ ['--file-depth' as any]: String(depth) }}>
+          <div className={styles.agentFileTreeRow}>
+            <div className={styles.agentFileTreeLine} aria-hidden="true">
+              <span className={styles.agentFileTreeBranch} />
+              <span className={styles.agentFileTreeDot} data-tone={statusTone} />
+            </div>
+            <div className={styles.agentFileCardBody}>
+              <div className={styles.agentFileCardTop}>
+                <div className={styles.agentFilePath}>{node.name}</div>
+                <Tag className={styles.agentFileStatus} color={statusTone}>{file.status || 'modified'}</Tag>
+              </div>
+              <div className={styles.agentFileSummary}>{file.summary}</div>
+              <Collapse
+                ghost
+                size="small"
+                items={[{
+                  key: `${file.id}:preview`,
+                  label: '代码预览',
+                  children: <pre className={styles.agentFilePreview}>{file.preview}</pre>,
+                }]}
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (node.kind === 'folder') {
+      const isExpanded = !node.path || expandedFolders.has(node.path);
+      const childrenCount = node.children.length;
+      return (
+        <div key={node.path || 'root'} className={styles.agentFolderGroup} style={{ ['--folder-depth' as any]: String(depth) }}>
+          {node.path ? (
+            <button
+              type="button"
+              className={styles.agentFolderRow}
+              onClick={() => toggleFolder(node.path)}
+            >
+              <span className={`${styles.agentFolderChevron} ${isExpanded ? styles.agentFolderChevronOpen : ''}`}>▸</span>
+              <span className={styles.agentFolderName}>{node.name}</span>
+              <Tag className={styles.agentFolderTag}>{childrenCount}</Tag>
+            </button>
+          ) : null}
+          {isExpanded && (
+            <div className={styles.agentFolderChildren}>
+              {node.children.map((child) => renderTreeNode(child, depth + 1))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    return null;
+  }, [expandedFolders, toggleFolder]);
+
   const contextPanel = (
     <ChatContextPanel
       currentBackend={settings.backend}
@@ -1857,23 +2251,48 @@ const ChatPage: React.FC = () => {
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 6 }}>Workflow Report</div>
+          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 6 }}>Workflow Run</div>
           <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: 'var(--text-primary)' }}>{workflowTitle}</h2>
           <div style={{ marginTop: 8, display: 'flex', gap: 10, flexWrap: 'wrap', color: 'var(--text-secondary)', fontSize: 13 }}>
+            <span>Stage：{workflowSteps.length}</span>
+            <span>Node：{workflowSteps.length > 0 ? workflowSteps[workflowSteps.length - 1]?.title || 'bootstrap' : 'bootstrap'}</span>
             <span>状态：{workflowStatus}</span>
-            <span>步骤：{workflowSteps.length}</span>
-            <span>模式：{routingMode === 'agent' ? 'Agent' : routingMode === 'auto' ? 'Auto' : 'Chat'}</span>
+            <span>模式：{routingMode === 'agent' ? 'Agent Task' : routingMode === 'auto' ? 'Workflow Run' : 'Chat'}</span>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Tag color="blue" style={{ borderRadius: 999, marginInlineEnd: 0 }}>Workflow</Tag>
+          <Tag color="blue" style={{ borderRadius: 999, marginInlineEnd: 0 }}>Workflow Run</Tag>
           <Tag color="geekblue" style={{ borderRadius: 999, marginInlineEnd: 0 }}>{activeModeLabel}</Tag>
         </div>
       </div>
     </motion.div>
   );
 
-
+  const filePanel = (
+    <motion.div
+      initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={prefersReducedMotion ? { duration: 0 } : transitions.base}
+      className={styles.agentFilePanel}
+    >
+      <div className={styles.agentFilePanelHeader}>
+        <div>
+          <div className={styles.agentFilePanelKicker}>Agent Files</div>
+          <div className={styles.agentFilePanelTitle}>变更文件</div>
+        </div>
+        <Tag color={agentFileSummaries.length ? 'processing' : 'default'} className={styles.agentFilePanelTag}>
+          {agentFileSummaries.length ? `${agentFileSummaries.length} 个文件` : '暂无变更'}
+        </Tag>
+      </div>
+      {agentFileSummaries.length > 0 ? (
+        <div className={styles.agentFileList}>
+          {renderTreeNode(agentFileTree)}
+        </div>
+      ) : (
+        <div className={styles.agentFileEmpty}>当 Agent 产生补丁或文件修改时，这里会显示最近的变更摘要与预览。</div>
+      )}
+    </motion.div>
+  );
 
   return (
     <div
@@ -1895,37 +2314,92 @@ const ChatPage: React.FC = () => {
       />
       <div className={styles.chatWorkspace}>
         <main className={styles.mainChatPane}>
-          <div
+          <div className={styles.workspaceSelectorBar}>
+            <div className={styles.workspaceSelectorInfo}>
+              <div className={styles.workspaceSelectorLabelRow}>
+                <span className={styles.workspaceSelectorLabel}>本地工作区</span>
+                <Tag color={selectedWorkspace ? 'green' : 'default'} className={styles.workspaceSelectorTag}>
+                  {selectedWorkspace ? '已选中' : '未选择'}
+                </Tag>
+              </div>
+              <span className={styles.workspaceSelectorHint}>选择已保存工作区，或直接填写项目根目录。</span>
+              <span className={styles.workspaceSelectorMeta}>{selectedWorkspaceLabel}</span>
+            </div>
+            <div className={styles.workspaceSelectorControls}>
+              <Select
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                className={styles.workspaceSelect}
+                placeholder="选择工作区"
+                value={selectedWorkspaceId || undefined}
+                options={availableWorkspaces.map((workspace) => ({
+                  label: workspace.local_path ? `${workspace.name} · ${workspace.local_path}` : workspace.name,
+                  value: workspace.id,
+                }))}
+                onChange={(value) => {
+                  const nextId = value || '';
+                  setSelectedWorkspaceId(nextId);
+                  const selected = availableWorkspaces.find((workspace) => workspace.id === nextId);
+                  if (selected?.local_path) {
+                    setWorkspaceProjectPath(selected.local_path);
+                  }
+                  if (!nextId) {
+                    setWorkspaceProjectPath('');
+                  }
+                }}
+              />
+              <Input
+                className={styles.workspacePathInput}
+                value={workspaceProjectPath}
+                placeholder="例如：C:\\Projects\\my-app"
+                onChange={(event) => setWorkspaceProjectPath(event.target.value)}
+              />
+            </div>
+            <div className={styles.workspaceSelectorStatus}>
+              <span className={styles.workspaceSelectorStatusText} data-tone={workspacePathStatus.tone}>
+                {workspacePathStatus.text}
+              </span>
+            </div>
+          </div>
+          <motion.div
+            {...sectionMotion}
             className={styles.chatMessagesArea}
             ref={scrollContainerRef}
             onScroll={enableVirtualScroll ? undefined : handleScroll}
           >
-            <div className={styles.messagesInner}>
-              {workflowHeader}
+            <MotionList className={styles.messagesInner} stagger={0.04}>
+              <MotionItem variant="scale">{workflowHeader}</MotionItem>
               {workflowSteps.length > 0 && (
-                <div style={{ marginBottom: 18 }}>
-                  {workflowStepCards}
-                </div>
+                <MotionItem>
+                  <div style={{ marginBottom: 18 }}>
+                    {workflowStepCards}
+                  </div>
+                </MotionItem>
               )}
               {toolEvents.length > 0 && (
-                <ToolEventTimeline events={toolEvents} />
+                <MotionItem>
+                  <ToolEventTimeline events={toolEvents} />
+                </MotionItem>
               )}
               {workflowSteps.length > 0 ? (
                 <>
                   {messages.length > 0 && (
-                    <div style={{ marginTop: 10 }}>
+                    <MotionList stagger={0.03} style={{ marginTop: 10 }}>
                       {messages.map((msg, index) => (
                         <React.Fragment key={msg.id}>
                           {renderMessageItem(index, msg)}
                         </React.Fragment>
                       ))}
-                    </div>
+                    </MotionList>
                   )}
-                  <AgentPhaseIndicator
-                    phase={agentPhase.phase}
-                    tool={agentPhase.tool}
-                    visible={agentPhase.visible}
-                  />
+                  <MotionItem>
+                    <AgentPhaseIndicator
+                      phase={agentPhase.phase}
+                      tool={agentPhase.tool}
+                      visible={agentPhase.visible}
+                    />
+                  </MotionItem>
                   <div ref={messagesEndRef} style={{ height: 1 }} />
                 </>
               ) : messages.length === 0 ? (
@@ -1935,12 +2409,12 @@ const ChatPage: React.FC = () => {
                   transition={prefersReducedMotion ? { duration: 0 } : { ...transitions.spring, delay: 0.1 }}
                   className={styles.emptyState}
                 >
-                  <div className={styles.emptyKicker}>AI 精英工作台</div>
+                  <div className={styles.emptyKicker}>AI 工作台</div>
                   <h3 className={styles.emptyTitle}>
                     今天想处理点什么？
                   </h3>
                   <p className={styles.emptyDesc}>
-                    无论是代码编写、故障排查还是知识探索，系统都会通过智能工作流为您提供端到端的自动化执行体验。
+                    普通问题会停留在 Chat，开发任务会进入 Agent Task，多步骤编排则会进入 Workflow Run。
                   </p>
                   
                   <div className={styles.starterSuggestions}>
@@ -1983,76 +2457,83 @@ const ChatPage: React.FC = () => {
                   alignToBottom
                 />
               ) : (
-                <>
+                <MotionList stagger={0.03}>
                   {messages.map((msg, index) => (
                     <React.Fragment key={msg.id}>
                       {renderMessageItem(index, msg)}
                     </React.Fragment>
                   ))}
 
-                  <AgentPhaseIndicator
-                    phase={agentPhase.phase}
-                    tool={agentPhase.tool}
-                    visible={agentPhase.visible}
-                  />
+                  <MotionItem>
+                    <AgentPhaseIndicator
+                      phase={agentPhase.phase}
+                      tool={agentPhase.tool}
+                      visible={agentPhase.visible}
+                    />
+                  </MotionItem>
 
                   <div ref={messagesEndRef} style={{ height: 1 }} />
-                </>
+                </MotionList>
               )}
-        </div>
-      </div>
-
-      <AnimatePresence>
-        {showScrollButton && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            style={{
-              position: 'absolute',
-              bottom: isMobile ? 108 : 148,
-              right: '50%',
-              transform: 'translateX(50%)',
-              zIndex: 90,
-            }}
-          >
-            <Button
-              shape="circle"
-              icon={<ArrowDownOutlined />}
-              onClick={() => {
-                isAutoScrollEnabledRef.current = true;
-                setShowScrollButton(false);
-                scrollToBottom(true, true);
-              }}
-              style={{
-                boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
-                border: '1px solid var(--border-color)',
-                color: 'var(--text-secondary)',
-                width: 40,
-                height: 40,
-              }}
-            />
+            </MotionList>
           </motion.div>
-        )}
-      </AnimatePresence>
 
-      <ChatInput
-        onSend={handleSend}
-        onStop={stopStream}
-        onClear={handleClearChat}
-        disabled={!settings.modelId && !useCloudAI}
-        loading={isLoading}
-        isStreaming={isActivelyStreaming}
-        modelId={useCloudAI ? selectedCloudModel : settings.modelId}
-        agentModeAvailable={primaryAgents.length > 0}
-        onCreateWorkflow={handleCreateWorkflow}
-        routingMode={routingMode}
-        routing={routingIntent}
-        autonomyMode={autonomyMode}
-      />
+          <AnimatePresence>
+            {showScrollButton && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 20 }}
+                style={{
+                  position: 'absolute',
+                  bottom: isMobile ? 108 : 148,
+                  right: '50%',
+                  transform: 'translateX(50%)',
+                  zIndex: 90,
+                }}
+              >
+                <Button
+                  shape="circle"
+                  icon={<ArrowDownOutlined />}
+                  onClick={() => {
+                    isAutoScrollEnabledRef.current = true;
+                    setShowScrollButton(false);
+                    scrollToBottom(true, true);
+                  }}
+                  style={{
+                    boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
+                    border: '1px solid var(--border-color)',
+                    color: 'var(--text-secondary)',
+                    width: 40,
+                    height: 40,
+                  }}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
 
+          <ChatInput
+            onSend={handleSend}
+            onStop={handleStopCurrentRun}
+            onClear={handleClearChat}
+            disabled={!settings.modelId && !useCloudAI}
+            loading={isLoading}
+            isStreaming={isActivelyStreaming || isAgentSessionRunning}
+            modelId={useCloudAI ? selectedCloudModel : settings.modelId}
+            agentModeAvailable={primaryAgents.length > 0}
+            onCreateWorkflow={handleCreateWorkflow}
+            routingMode={routingMode}
+            routing={routingIntent}
+            autonomyMode={autonomyMode}
+          />
         </main>
-        {isDesktop && <div className={styles.contextSidePanel}>{contextPanel}</div>}
+
+        {isDesktop && (
+          <div className={styles.sidePanels}>
+            <div className={styles.contextSidePanel}>{contextPanel}</div>
+            <div className={styles.fileSidePanel}>{filePanel}</div>
+          </div>
+        )}
       </div>
 
       <Drawer

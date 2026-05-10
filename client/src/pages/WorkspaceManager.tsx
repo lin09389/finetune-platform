@@ -1,6 +1,6 @@
-import { DeleteOutlined, EditOutlined, FolderOutlined, PlusOutlined } from '@ant-design/icons';
-import { App, Badge, Button, Form, Input, Modal } from 'antd';
-import { useEffect, useState } from 'react';
+import { DeleteOutlined, EditOutlined, FolderOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { App, Badge, Button, Form, Input, Modal, Tag } from 'antd';
+import { useEffect, useMemo, useState } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import { API_BASE_URL } from '../services/api';
 import styles from './WorkspaceManager.module.css';
@@ -11,6 +11,7 @@ interface Workspace {
   id: string;
   name: string;
   description?: string;
+  local_path?: string | null;
   created_at: string;
   updated_at: string;
   document_count: number;
@@ -25,12 +26,37 @@ function normalizeWorkspaces(data: WorkspaceListResponse): Workspace[] {
   return [];
 }
 
+function normalizePath(value: string | undefined | null) {
+  return value?.trim().replace(/[\\/]+$/, '') || '';
+}
+
 export default function WorkspaceManager() {
   const { message } = App.useApp();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null);
   const [form] = Form.useForm();
+
+  const pathValue = Form.useWatch('local_path', form);
+  const normalizedPath = useMemo(() => normalizePath(pathValue), [pathValue]);
+  const selectedWorkspace = useMemo(
+    () => workspaces.find((workspace) => workspace.id === editingWorkspace?.id) || null,
+    [editingWorkspace?.id, workspaces],
+  );
+  const editingWorkspacePath = normalizePath(editingWorkspace?.local_path);
+  const pathState = useMemo(() => {
+    if (!normalizedPath) return { status: 'empty' as const, text: '可留空，仅创建命名工作空间。' };
+    if (!selectedWorkspace && !editingWorkspace) {
+      return { status: 'info' as const, text: '将用于 Agent 执行时的项目根目录。' };
+    }
+    if (selectedWorkspace?.local_path && normalizePath(selectedWorkspace.local_path) === normalizedPath) {
+      return { status: 'success' as const, text: '当前路径与所选工作区一致。' };
+    }
+    if (editingWorkspacePath && editingWorkspacePath === normalizedPath) {
+      return { status: 'success' as const, text: '当前路径与工作区保存值一致。' };
+    }
+    return { status: 'warning' as const, text: '路径已被修改，保存后将覆盖当前绑定。' };
+  }, [editingWorkspace, editingWorkspacePath, normalizedPath, selectedWorkspace]);
 
   useEffect(() => {
     void loadWorkspaces();
@@ -51,12 +77,12 @@ export default function WorkspaceManager() {
     }
   };
 
-  const handleCreate = async (values: { name: string; description?: string }) => {
+  const handleCreate = async (values: { name: string; description?: string; local_path?: string }) => {
     try {
       const response = await fetch(`${API_BASE_URL}/workspace/workspaces`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values),
+        body: JSON.stringify({ ...values, local_path: normalizePath(values.local_path) || undefined }),
       });
       if (response.ok) {
         message.success('工作空间创建成功');
@@ -71,13 +97,13 @@ export default function WorkspaceManager() {
     }
   };
 
-  const handleUpdate = async (values: { name?: string; description?: string }) => {
+  const handleUpdate = async (values: { name?: string; description?: string; local_path?: string }) => {
     if (!editingWorkspace) return;
     try {
       const response = await fetch(`${API_BASE_URL}/workspace/workspaces/${editingWorkspace.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values),
+        body: JSON.stringify({ ...values, local_path: normalizePath(values.local_path) }),
       });
       if (response.ok) {
         message.success('工作空间更新成功');
@@ -118,12 +144,28 @@ export default function WorkspaceManager() {
   const openModal = (workspace?: Workspace) => {
     if (workspace) {
       setEditingWorkspace(workspace);
-      form.setFieldsValue({ name: workspace.name, description: workspace.description });
+      form.setFieldsValue({
+        name: workspace.name,
+        description: workspace.description,
+        local_path: normalizePath(workspace.local_path),
+      });
     } else {
       setEditingWorkspace(null);
       form.resetFields();
     }
     setModalVisible(true);
+  };
+
+  const quickFillActivePath = () => {
+    if (selectedWorkspace?.local_path) {
+      form.setFieldValue('local_path', selectedWorkspace.local_path);
+      message.success('已填入当前工作区路径');
+      return;
+    }
+    if (editingWorkspace?.local_path) {
+      form.setFieldValue('local_path', editingWorkspace.local_path);
+      message.success('已恢复当前工作区路径');
+    }
   };
 
   return (
@@ -154,8 +196,13 @@ export default function WorkspaceManager() {
 
         {/* 工作空间列表 */}
         <div className={styles.listCard}>
-          <div style={{ marginBottom: 16, color: 'var(--text-secondary)', fontSize: 13 }}>
-            工作空间结构已经可试用，但文档解析、向量构建和后续检索质量仍会受到本地环境影响。
+          <div className={styles.toolbarRow}>
+            <div className={styles.toolbarHint}>
+              工作空间结构已经可试用，但文档解析、向量构建和后续检索质量仍会受到本地环境影响。
+            </div>
+            <Button icon={<ReloadOutlined />} onClick={() => void loadWorkspaces()}>
+              刷新列表
+            </Button>
           </div>
           {workspaces.length > 0 ? (
             <div className={styles.wsGrid}>
@@ -167,6 +214,16 @@ export default function WorkspaceManager() {
                     <Badge count={ws.vector_count} size="small" color="blue" />
                   </div>
                   <div className={styles.wsDesc}>{ws.description || '暂无描述'}</div>
+                  {ws.local_path ? (
+                    <div className={styles.wsTime}>本地路径：{ws.local_path}</div>
+                  ) : (
+                    <div className={styles.wsTime}>未绑定本地目录</div>
+                  )}
+                  {selectedWorkspace?.id === ws.id && (
+                    <Tag color="green" style={{ marginTop: 8, borderRadius: 999 }}>
+                      当前已选中
+                    </Tag>
+                  )}
                   <div className={styles.wsMetaRow}>
                     <span
                       style={{
@@ -254,6 +311,26 @@ export default function WorkspaceManager() {
             <Form.Item name="description" label="描述">
               <TextArea rows={3} placeholder="可选，用于说明该工作空间用途" />
             </Form.Item>
+            <Form.Item
+              name="local_path"
+              label="本地项目路径"
+              extra={pathState.text}
+              validateStatus={
+                pathState.status === 'empty'
+                  ? undefined
+                  : pathState.status === 'info'
+                    ? undefined
+                    : pathState.status
+              }
+            >
+              <Input placeholder="例如：C:\\Projects\\my-app" />
+            </Form.Item>
+            <div className={styles.modalFooterHint}>
+              <span>保存后会用于 Agent 的 `project_path`，请确保目录真实存在且在允许范围内。</span>
+              <Button size="small" onClick={quickFillActivePath} disabled={!selectedWorkspace?.local_path && !editingWorkspace?.local_path}>
+                填入当前路径
+              </Button>
+            </div>
           </Form>
         </Modal>
       </MotionItem>

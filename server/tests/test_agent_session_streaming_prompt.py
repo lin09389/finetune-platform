@@ -11,6 +11,7 @@ from fastapi import BackgroundTasks
 from agent_session.models import AgentPromptRequest, AgentSessionCreate
 from agent_session.repository import AgentSessionRepository
 from agent_session.service import AgentSessionService
+from agent_session.state import ensure_session_state
 
 
 def _service(tmp_path: Path) -> AgentSessionService:
@@ -63,6 +64,30 @@ def test_duplicate_prompt_while_running_does_not_start_second_background_task(tm
     assert len(first.tasks) == 1
     assert len(second.tasks) == 0
     assert any(event["event_type"] == "prompt_already_running" for event in events)
+
+
+def test_interrupt_background_prompt_prevents_later_model_call(tmp_path: Path):
+    service = _service(tmp_path)
+    session = service.create_session(AgentSessionCreate(title="interrupt", project_path=str(Path.cwd())))
+    background = BackgroundTasks()
+    calls = {"count": 0}
+
+    async def model_call(_messages):
+        calls["count"] += 1
+        return json.dumps({"tool": "finalize", "arguments": {"summary": "不应执行"}}, ensure_ascii=False)
+
+    service.model_call = model_call
+    service.start_prompt_background(session.id, AgentPromptRequest(content="准备执行"), background)
+    interrupted = service.interrupt_session(session.id)
+    asyncio.run(background())
+    result = service.get_session(session.id)
+    events = service.list_events(session.id)
+
+    assert interrupted.status == "interrupted"
+    assert result.status == "interrupted"
+    assert calls["count"] == 0
+    assert any(part.type == "summary" and "中断" in (part.title or "") for part in result.parts)
+    assert any(event["event_type"] == "session_interrupted" for event in events)
 
 
 def test_background_run_records_incremental_part_events(tmp_path: Path):
@@ -130,3 +155,41 @@ def test_background_exception_writes_error_summary(tmp_path: Path):
     assert result.status == "needs_manual_review"
     assert result.parts[-1].type == "summary"
     assert "模型调用失败" in (result.parts[-1].content or "")
+
+
+def test_approve_action_async_marks_part_approved_in_langgraph_mode(tmp_path: Path):
+    service = _service(tmp_path)
+    session = service.create_session(AgentSessionCreate(title="approval", project_path=str(Path.cwd())))
+    service.repository.update_session(
+        session.id,
+        status="waiting_approval",
+        metadata={**ensure_session_state(dict(session.metadata or {})), "runtime": "langgraph"},
+    )
+    command = service.repository.add_part(
+        session.id,
+        "command",
+        status="pending",
+        title="启动开发服务器",
+        content="等待审批",
+        payload={
+            "tool": "run_dev_server",
+            "command": ["npm", "run", "dev"],
+            "server_url": "http://localhost:5173",
+        },
+    )
+
+    calls = {"resume": 0}
+
+    class DummyRunner:
+        async def resume(self, *args, **kwargs):
+            calls["resume"] += 1
+
+    async def fake_get_graph_runner():
+        return DummyRunner()
+
+    service._get_graph_runner = fake_get_graph_runner  # type: ignore[method-assign]
+    resumed = asyncio.run(service.approve_action_async(command["id"], True))
+    approved_command = next(part for part in resumed.parts if part.id == command["id"])
+
+    assert approved_command.status == "approved"
+    assert calls["resume"] == 0

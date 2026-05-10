@@ -91,3 +91,62 @@ def test_agent_session_langgraph_patch_requires_execute_then_resumes(tmp_path: P
         assert executed.metadata["last_resume_decision"]["decision"] == "executed"
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
+
+
+def test_agent_session_langgraph_execute_without_model_uses_truthful_local_summary(tmp_path: Path, monkeypatch):
+    workspace = Path.cwd()
+    run_dir = workspace / "tmp" / f"agent-session-langgraph-local-summary-{uuid.uuid4().hex[:8]}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    target = run_dir / "feature_local.py"
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+    monkeypatch.setattr(settings, "agent_session_langgraph_enabled", True)
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_session_langgraph_local_summary.db")))
+    session = service.create_session(
+        AgentSessionCreate(
+            title="langgraph local summary",
+            project_path=str(workspace),
+            autonomy_mode="confirm_all",
+        )
+    )
+    rel = target.relative_to(workspace).as_posix()
+    responses = iter(
+        [
+            json.dumps(
+                [
+                    {"tool": "collect_context", "arguments": {"read": [rel], "queries": [], "symbols": []}},
+                    {
+                        "tool": "patch",
+                        "arguments": {
+                            "title": "更新 local summary 文件",
+                            "payload": {"files": [{"path": rel, "content": "VALUE = 2\n"}]},
+                        },
+                    },
+                ],
+                ensure_ascii=False,
+            )
+        ]
+    )
+
+    async def model_call(_messages):
+        return next(responses)
+
+    service.model_call = model_call
+    try:
+        first = asyncio.run(service.prompt(session.id, AgentPromptRequest(content=f"Patch only this file: {rel}")))
+        diff = next(part for part in first.parts if part.type == "diff")
+        rebuild_service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_session_langgraph_local_summary.db")))
+        rebuild_service.model_call = model_call
+
+        approved = asyncio.run(rebuild_service.approve_action_async(diff.id, True))
+        diff_after_approve = next(part for part in approved.parts if part.id == diff.id)
+        assert diff_after_approve.status == "approved"
+
+        execute_service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_session_langgraph_local_summary.db")))
+        executed = asyncio.run(execute_service.execute_action_async(diff.id))
+        assert executed.status == "completed"
+        assert target.read_text(encoding="utf-8") == "VALUE = 2\n"
+        assert executed.parts[-1].type == "summary"
+        assert "已执行补丁并完成" in executed.parts[-1].content
+        assert rel in executed.parts[-1].content
+    finally:
+        shutil.rmtree(run_dir, ignore_errors=True)

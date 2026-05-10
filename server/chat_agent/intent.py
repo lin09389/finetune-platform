@@ -8,7 +8,7 @@ from agent_runtime.runner import resolve_saved_provider
 from security.encryption import secure_storage
 
 
-IntentMode = Literal["chat", "agent"]
+IntentMode = Literal["chat", "agent", "workflow"]
 IntentSource = Literal["local_rule", "cloud", "fallback", "manual"]
 
 
@@ -36,11 +36,27 @@ class ChatAgentIntentClassifier:
         "npm run",
         "让agent做",
         "自动处理",
-        "帮我改",
         "补丁",
-        "执行",
+        "搜索项目",
+        "写脚本",
+        "排查报错",
+        "排查问题",
+        "运行命令",
+        "执行补丁",
     )
-    discussion_only_keywords = ("不要执行", "只讨论", "只分析", "解释一下", "什么是", "为什么")
+    workflow_keywords = (
+        "workflow",
+        "工作流",
+        "编排",
+        "分阶段",
+        "stage",
+        "node",
+        "流程",
+        "审批流",
+        "任务流",
+        "多阶段",
+    )
+    discussion_only_keywords = ("不要执行", "只讨论", "只分析", "解释一下", "帮我解释", "什么是", "为什么")
 
     def classify(self, content: str, force_agent: bool = False) -> tuple[bool, str]:
         text = content.strip().lower()
@@ -50,6 +66,8 @@ class ChatAgentIntentClassifier:
             return False, "empty"
         if any(keyword in text for keyword in self.discussion_only_keywords):
             return False, "chat"
+        if any(keyword in text for keyword in self.workflow_keywords):
+            return True, "workflow_work"
         if any(keyword in text for keyword in self.agent_keywords):
             return True, "agent_work"
         return False, "chat"
@@ -105,6 +123,8 @@ class ChatAgentIntentClassifier:
             return self._decision("chat", 1.0, "空输入按普通对话处理。", "local_rule", None, template_id)
         if any(keyword in text for keyword in self.discussion_only_keywords):
             return self._decision("chat", 0.92, "本地规则识别为解释或讨论类问题。", "local_rule", None, template_id)
+        if any(keyword in text for keyword in self.workflow_keywords):
+            return self._decision("workflow", 0.9, "本地规则识别为流程编排、阶段控制或多步骤任务。", "local_rule", agent_id, template_id)
         if any(keyword in text for keyword in self.agent_keywords):
             return self._decision("agent", 0.9, "本地规则识别为开发、修改、测试或执行类目标。", "local_rule", agent_id, template_id)
         return None
@@ -137,6 +157,7 @@ class ChatAgentIntentClassifier:
                         "规则：只输出纯 JSON 对象，不要输出任何解释、markdown 或代码块。\n"
                         "示例输出：{\"mode\": \"chat\", \"confidence\": 0.9, \"reason\": \"概念讨论\", "
                         "\"suggested_agent_id\": null, \"suggested_template_id\": null}\n"
+                        "工作流适合：编排、阶段、节点、审批流、多步骤任务。"
                         "Agent 适合：修改代码、搜索项目、生成补丁、运行测试、排查报错。"
                         "普通聊天适合：概念解释、方案讨论、无需操作文件的问题。"
                     ),
@@ -146,7 +167,7 @@ class ChatAgentIntentClassifier:
                     "content": (
                         f"默认 agent_id: {agent_id}\n默认 template_id: {template_id}\n"
                         f"用户输入：{content}\n\n"
-                        "请输出 JSON，包含字段：mode(chat 或 agent), confidence(0-1 数字), "
+                        "请输出 JSON，包含字段：mode(chat 或 agent 或 workflow), confidence(0-1 数字), "
                         "reason(字符串), suggested_agent_id(字符串或 null), suggested_template_id(字符串或 null)"
                     ),
                 },
@@ -170,7 +191,7 @@ class ChatAgentIntentClassifier:
                 template_id,
             )
         mode = parsed.get("mode")
-        if mode not in {"chat", "agent"}:
+        if mode not in {"chat", "agent", "workflow"}:
             # mode 字段非法时也做兜底
             is_agent, _ = self.classify(content)
             return self._decision(

@@ -9,6 +9,7 @@ ExecutionState = Literal[
     "waiting_permission",
     "waiting_approval",
     "needs_manual_review",
+    "approved_for_execution",
     "completed",
     "failed",
 ]
@@ -18,6 +19,11 @@ class AgentSessionGraphState(TypedDict, total=False):
     session_id: str
     prompt: str
     messages: list[dict[str, str]]
+    task_plan: dict[str, Any]
+    current_stage_id: str | None
+    current_node_id: str | None
+    stage_results: list[dict[str, Any]]
+    node_results: list[dict[str, Any]]
     pending_tool_calls: list[dict[str, Any]]
     tool_results: list[dict[str, Any]]
     pending_part_id: str | None
