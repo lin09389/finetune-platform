@@ -77,6 +77,8 @@ repair_*.py
 scan_*issues*.py
 *encoding*issues*.py
 server/fix_encoding_batch.py
+AGENTS.md
+CHANGELOG_2026-04-08.md
 
 # Runtime state
 data/
