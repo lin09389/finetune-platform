@@ -3,7 +3,7 @@
 """
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class TrainingConfigInput(BaseModel):
@@ -16,9 +16,9 @@ class TrainingConfigInput(BaseModel):
         default="qa_assistant",
         description="应用目标：qa_assistant/structured_extraction",
     )
-    method: str = Field(default="qlora", description="微调方法：qlora/lora/full/dora")
+    method: Literal["qlora", "lora", "full", "dora"] = Field(default="qlora", description="微调方法：qlora/lora/full/dora")
     rank: int = Field(default=8, ge=1, le=256, description="LoRA rank")
-    alpha: int = Field(default=16, ge=1, description="LoRA alpha")
+    alpha: int = Field(default=16, ge=1, le=256, description="LoRA alpha")
     learning_rate: float = Field(default=5e-5, gt=0, description="学习率")
     epochs: int = Field(default=3, ge=1, le=100, description="训练轮数")
     batch_size: int = Field(default=1, ge=1, le=32, description="批次大小")
@@ -29,10 +29,10 @@ class TrainingConfigInput(BaseModel):
     logging_steps: int = Field(default=10, ge=1, description="日志间隔")
     resume_from_checkpoint: str | None = Field(default=None, description="从 Trainer 检查点恢复（含 optimizer/scheduler 状态）")
     resume_from_adapter: str | None = Field(default=None, description="从 PEFT adapter 检查点恢复（仅 LoRA 权重）")
-    quantization: int = Field(default=4, description="量化位数：4/8/none")
+    quantization: Literal[0, 4, 8] = Field(default=4, description="量化位数：4/8/none")
 
     use_dora: bool = Field(default=False, description="是否使用 DoRA 微调")
-    lr_scheduler: str = Field(default="cosine", description="学习率调度：cosine/linear/constant")
+    lr_scheduler: Literal["cosine", "linear", "constant"] = Field(default="cosine", description="学习率调度：cosine/linear/constant")
     warmup_ratio: float = Field(default=0.1, ge=0, le=1, description="预热比例")
     weight_decay: float = Field(default=0.01, ge=0, description="权重衰减")
     label_smoothing: float = Field(default=0.0, ge=0, le=0.5, description="标签平滑")
@@ -40,7 +40,19 @@ class TrainingConfigInput(BaseModel):
     bf16: bool = Field(default=True, description="使用 BF16 混合精度")
     eval_steps: int = Field(default=100, ge=10, description="评估间隔")
     load_best_model: bool = Field(default=True, description="加载最佳模型")
-    target_modules: str = Field(default="all", description="目标模块：all/mlp/attn")
+    target_modules: str = Field(default="all", description="目标模块：all/mlp/attn/auto 或逗号分隔的模块名")
+
+    @field_validator("target_modules")
+    @classmethod
+    def validate_target_modules(cls, v: str) -> str:
+        predefined = {"all", "mlp", "attn", "auto"}
+        if v in predefined:
+            return v
+        # 自定义值：逗号分隔的模块名
+        parts = [p.strip() for p in v.split(",")]
+        if not all(parts):
+            raise ValueError(f"target_modules 格式无效：{v}")
+        return v
     lora_dropout: float = Field(default=0.05, ge=0, le=0.5, description="LoRA Dropout")
     max_grad_norm: float = Field(default=1.0, ge=0, description="梯度裁剪范数")
 
@@ -54,19 +66,19 @@ class TrainingConfigInput(BaseModel):
         description="额外数据集列表，格式：[{'dataset_id': 'xxx', 'weight': 0.3}]"
     )
 
-    memory_preset: str = Field(default="auto", description="显存预设：auto/6gb/8gb/12gb")
+    memory_preset: Literal["auto", "6gb", "8gb", "12gb"] = Field(default="auto", description="显存预设：auto/6gb/8gb/12gb")
     use_flash_attn: bool = Field(default=False, description="使用 Flash Attention")
-    deepspeed_stage: int = Field(default=0, description="DeepSpeed ZeRO 阶段：0/1/2/3")
+    deepspeed_stage: Literal[0, 1, 2, 3] = Field(default=0, description="DeepSpeed ZeRO 阶段：0/1/2/3")
     offload_optimizer: bool = Field(default=False, description="CPU Offload 优化器")
 
     use_torch_compile: bool = Field(default=False, description="使用 PyTorch 2.0 compile 编译模型")
-    torch_compile_mode: str = Field(default="default", description="compile 模式：default/reduce-overhead/max-autotune")
+    torch_compile_mode: Literal["default", "reduce-overhead", "max-autotune"] = Field(default="default", description="compile 模式：default/reduce-overhead/max-autotune")
     dataloader_num_workers: int = Field(default=2, ge=0, le=8, description="DataLoader 工作进程数")
     dataloader_pin_memory: bool = Field(default=True, description="DataLoader 固定内存")
     dataloader_persistent_workers: bool = Field(default=True, description="DataLoader 持久化工作进程")
     use_tf32: bool = Field(default=True, description="使用 TF32 加速（Ampere GPU）")
 
-    precision_preset: str = Field(default="balanced", description="精度预设：max/balanced/fast")
+    precision_preset: Literal["max", "balanced", "fast"] = Field(default="balanced", description="精度预设：max/balanced/fast")
 
     use_lora_plus: bool = Field(default=False, description="使用 LoRA+ 技术（不同学习率）")
     lora_plus_lr_ratio: float = Field(default=16.0, ge=1.0, description="LoRA+ B/A 学习率比例")

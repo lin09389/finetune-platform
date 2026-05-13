@@ -55,6 +55,8 @@ class HuggingFaceModelLoader(ModelLoaderStrategy):
             use_lora_plus=config.use_lora_plus,
             lora_plus_lr_ratio=config.lora_plus_lr_ratio,
             bf16=config.bf16,
+            batch_size=config.batch_size,
+            max_seq_length=config.max_seq_length,
         )
 
 

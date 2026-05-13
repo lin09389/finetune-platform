@@ -28,7 +28,7 @@ def build_failure_feedback(error_message: str) -> dict[str, Any]:
             ],
         }
 
-    if any(token in normalized for token in ("dataset", "json", "unsupported dataset", "样本")):
+    if any(token in normalized for token in ("dataset not found", "数据集", "加载数据集", "jsondecodeerror", "json 解析", "invalid json", "unsupported dataset", "样本格式")):
         return {
             "error_code": "DATASET_INVALID",
             "error_category": "dataset",
@@ -97,22 +97,27 @@ def read_latest_metric_point(record: TrainingRecord) -> dict[str, Any] | None:
     if not metrics_file.exists():
         return None
 
-    latest: dict[str, Any] | None = None
     try:
-        with open(metrics_file, encoding="utf-8") as f:
-            for line in f:
+        with open(metrics_file, 'rb') as f:
+            f.seek(0, 2)  # seek to end
+            size = f.tell()
+            if size == 0:
+                return None
+            # 从末尾往前读最多 4KB
+            f.seek(max(0, size - 4096))
+            lines = f.read().decode('utf-8').strip().split('\n')
+            for line in reversed(lines):
                 line = line.strip()
                 if not line:
                     continue
                 try:
-                    latest = json.loads(line)
+                    return json.loads(line)
                 except json.JSONDecodeError:
                     continue
     except Exception as exc:
         logger.debug(f"读取训练指标失败（task={record.id}）：{exc}")
-        return None
 
-    return latest
+    return None
 
 
 def enrich_record_metrics(record: TrainingRecord) -> TrainingRecord:
@@ -159,12 +164,12 @@ def sync_training_record_metadata(record: TrainingRecord) -> TrainingRecord:
     )
     record.dataset_id = (
         record.dataset_id
+        or config.get("dataset_id")
+        or config.get("datasetId")
         or config.get("test_dataset_id")
         or config.get("testDatasetId")
         or config.get("validation_dataset_id")
         or config.get("validationDatasetId")
-        or config.get("dataset_id")
-        or config.get("datasetId")
         or record.dataset_name
     )
     record.task_goal = (

@@ -144,15 +144,28 @@ class TrainingEventBus:
             logger.debug(f"WebSocket 推送失败：{e}")
 
 
+class _NullState:
+    """避免 NullTrainingEventBus 意外调用父类方法时崩溃"""
+    def queue_progress_update(self, **kwargs): pass
+    def queue_training_state(self, value): pass
+    def queue_record_update(self, record): pass
+    def queue_history_add(self, record): pass
+
+
+class _NullHub:
+    """避免 NullTrainingEventBus 意外调用父类方法时崩溃"""
+    def publish(self, **kwargs): pass
+
+
 class NullTrainingEventBus(TrainingEventBus):
     """空实现的事件总线，用于测试或禁用事件上报的场景"""
 
     def __init__(self):
-        self.state = None
+        self.state = _NullState()
         self.task_id = "null"
         self._event_loop = None
         self._ws_manager = None
-        self._hub = None
+        self._hub = _NullHub()
         self._subscribers = []
 
     def publish_progress(self, *, status: str, message: str, **kwargs: Any) -> None:
@@ -162,4 +175,10 @@ class NullTrainingEventBus(TrainingEventBus):
         pass
 
     def publish_training_state(self, is_training: bool) -> None:
+        pass
+
+    def subscribe(self, callback: Callable[[TrainingEvent], None]) -> None:
+        pass
+
+    def unsubscribe(self, callback: Callable[[TrainingEvent], None]) -> None:
         pass

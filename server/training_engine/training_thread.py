@@ -14,7 +14,6 @@ from core.logging import get_logger
 from core.training_state import TrainingRecord, TrainingState
 from core.utils import cleanup_gpu_memory, safe_cleanup_model
 from training_engine.callbacks import queue_training_progress
-from training_engine.config_builder import degrade_training_config
 from training_engine.errors import RecoverableError, UnrecoverableError
 from training_engine.events import TrainingEventBus
 from training_engine.pipeline import PipelineContext, TrainingPhase, TrainingPipeline
@@ -115,11 +114,11 @@ def finalize_stop_requested(
 def cleanup_training_resources(model, tokenizer, trainer):
     """清理训练资源"""
     try:
-        cleanup_gpu_memory(aggressive=True)
         if model is not None:
             safe_cleanup_model(model)
         del model, tokenizer, trainer
         gc.collect()
+        cleanup_gpu_memory(aggressive=True)
     except Exception as e:
         logger.warning(f"清理资源失败：{e}")
 
@@ -182,16 +181,16 @@ def training_thread(
                 except Exception as e:
                     logger.warning(f"保存回退检查点失败：{e}")
 
-            cleanup_gpu_memory(aggressive=True)
             if model is not None:
                 safe_cleanup_model(model)
-            del model, tokenizer, trainer
+            model = None
+            tokenizer = None
+            trainer = None
             gc.collect()
+            cleanup_gpu_memory(aggressive=True)
 
-            # 降级配置
-            old_config = config.model_copy()
-            config = degrade_training_config(config)
-            logger.info(f"应用降级配置：batch_size={config.batch_size}, gradient_accumulation={config.gradient_accumulation}")
+            # 注意：不再在此处调用 degrade_training_config，避免与 pipeline._phase_setup 叠加降级
+            logger.info(f"重试 {retry_count}，pipeline 将自动执行显存降级")
 
             # 尝试从最近的恢复检查点继续
             try:
@@ -214,15 +213,10 @@ def training_thread(
                 payload={
                     "retry_count": retry_count,
                     "max_retries": MAX_RETRIES,
-                    "degraded_config": {
+                    "config": {
                         "batch_size": config.batch_size,
                         "gradient_accumulation": config.gradient_accumulation,
                         "max_seq_length": config.max_seq_length,
-                    },
-                    "previous_config": {
-                        "batch_size": old_config.batch_size,
-                        "gradient_accumulation": old_config.gradient_accumulation,
-                        "max_seq_length": old_config.max_seq_length,
                     },
                     "resume_from_checkpoint": config.resume_from_checkpoint,
                 },
@@ -275,15 +269,19 @@ def training_thread(
                 post_processor=DefaultPostLoadModelProcessor(),
             ) as pipeline:
                 pipeline.run()
-
-            # 训练成功，从 pipeline 上下文获取对象用于后续清理兼容
-            model = ctx.model
-            tokenizer = ctx.tokenizer
-            trainer = ctx.trainer
+                # WARNING: 必须在 with 块内保存引用！__exit__ 会执行 _run_cleanup 将 ctx.model 等置为 None。
+                # 如果把这些赋值移到 with 块外，会拿到 None 导致后续清理失败。
+                model = ctx.model
+                tokenizer = ctx.tokenizer
+                trainer = ctx.trainer
             return
 
         except RecoverableError as e:
             logger.warning(f"可恢复错误：{e}")
+            # 从 ctx 获取引用（Fix 2 保证 RecoverableError 时 __exit__ 不清理）
+            model = ctx.model
+            tokenizer = ctx.tokenizer
+            trainer = ctx.trainer
             if retry_count < MAX_RETRIES:
                 retry_count += 1
             else:

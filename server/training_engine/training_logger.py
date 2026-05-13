@@ -3,6 +3,7 @@
 """
 import json
 import logging
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -23,11 +24,19 @@ class TrainingLogger:
 
         self.log_file.parent.mkdir(parents=True, exist_ok=True)
 
+        self._write_lock = threading.Lock()
+
         self.logger = logging.getLogger(f"training.{task_id}")
         self.logger.setLevel(logging.INFO)
 
         if not self.logger.handlers:
-            handler = logging.FileHandler(self.log_file, encoding='utf-8')
+            from logging.handlers import RotatingFileHandler
+            handler = RotatingFileHandler(
+                self.log_file,
+                maxBytes=10 * 1024 * 1024,  # 10MB
+                backupCount=3,
+                encoding='utf-8',
+            )
             formatter = logging.Formatter(
                 '%(asctime)s | %(levelname)-8s | %(message)s',
                 datefmt='%Y-%m-%d %H:%M:%S'
@@ -65,8 +74,9 @@ class TrainingLogger:
         }
 
         try:
-            with open(self.metrics_file, 'a', encoding='utf-8') as f:
-                f.write(json.dumps(metrics_record, ensure_ascii=False) + '\n')
+            with self._write_lock:
+                with open(self.metrics_file, 'a', encoding='utf-8') as f:
+                    f.write(json.dumps(metrics_record, ensure_ascii=False) + '\n')
         except Exception as e:
             self.logger.warning(f"记录指标失败：{e}")
 
@@ -83,8 +93,9 @@ class TrainingLogger:
         }
 
         try:
-            with open(self.events_file, 'a', encoding='utf-8') as f:
-                f.write(json.dumps(event, ensure_ascii=False) + '\n')
+            with self._write_lock:
+                with open(self.events_file, 'a', encoding='utf-8') as f:
+                    f.write(json.dumps(event, ensure_ascii=False) + '\n')
         except Exception as e:
             self.logger.warning(f"记录事件失败：{e}")
 
@@ -116,3 +127,9 @@ class TrainingLogger:
         self._log_event("training_completed", {
             "final_metrics": final_metrics
         })
+
+    def close(self):
+        """清理 logging handler，防止泄漏"""
+        for handler in self.logger.handlers[:]:
+            handler.close()
+            self.logger.removeHandler(handler)

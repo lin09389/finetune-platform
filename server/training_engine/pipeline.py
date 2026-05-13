@@ -128,14 +128,17 @@ class TrainingPipeline:
                     kind="pipeline_exception",
                     payload=self._exception_info,
                 )
-                # 异常时尝试保存恢复检查点
-                self._try_save_recovery_checkpoint("exception")
+                # 仅对不可恢复异常保存 recovery checkpoint
+                if not isinstance(exc_val, RecoverableError):
+                    self._try_save_recovery_checkpoint("exception")
         finally:
             # 记录最后阶段耗时
             if self._current_phase in self._phase_start_times:
                 duration = (datetime.now() - self._phase_start_times[self._current_phase]).total_seconds()
                 self._phase_timings[self._current_phase] = self._phase_timings.get(self._current_phase, 0) + duration
-            self._run_cleanup()
+            # RecoverableError 时不执行 cleanup，留给 training_thread 的 retry 逻辑
+            if exc_type is None or not isinstance(exc_val, RecoverableError):
+                self._run_cleanup()
         return False
 
     def _check_stop(self) -> bool:
@@ -183,6 +186,32 @@ class TrainingPipeline:
 
     def _phase_setup(self) -> None:
         self._set_phase(TrainingPhase.SETUP)
+
+        from training_engine.config_builder import degrade_training_config
+        original_config = self.ctx.config
+        degraded_config = degrade_training_config(original_config, model_path=self.ctx.model_path)
+        if degraded_config is not original_config and degraded_config != original_config:
+            changed = []
+            changed_details = {}
+            for field in ("batch_size", "max_seq_length", "method", "quantization",
+                          "gradient_checkpointing", "use_flash_attn", "gradient_accumulation"):
+                old_val = getattr(original_config, field, None)
+                new_val = getattr(degraded_config, field, None)
+                if old_val != new_val:
+                    changed.append(f"{field}: {old_val} -> {new_val}")
+                    changed_details[field] = {"from": old_val, "to": new_val}
+            if changed:
+                logger.warning(f"显存预检触发智能降级: {', '.join(changed)}")
+                self.bus.publish_event(
+                    phase="setup",
+                    kind="config_degraded",
+                    payload={
+                        "changes": changed_details,
+                        "reason": "VRAM 不足，已自动降级训练配置",
+                    },
+                )
+            self.ctx.config = degraded_config
+
         self.bus.publish_progress(
             status="loading",
             message="Initializing training pipeline...",
@@ -380,12 +409,24 @@ class TrainingPipeline:
         if early_stopping_callback:
             callbacks.append(early_stopping_callback)
 
+        from transformers import DataCollatorForSeq2Seq
+
+        data_collator = DataCollatorForSeq2Seq(
+            tokenizer=tokenizer,
+            padding=True,
+            max_length=config.max_seq_length,
+            pad_to_multiple_of=8,
+            label_pad_token_id=-100,
+            return_tensors="pt",
+        )
+
         self.ctx.trainer = Trainer(
             model=model,
             args=self.ctx.training_args,
             train_dataset=dataset["train"],
             eval_dataset=dataset.get("test"),
             processing_class=tokenizer,
+            data_collator=data_collator,
             callbacks=callbacks,
         )
 
@@ -396,9 +437,22 @@ class TrainingPipeline:
             "eval_strategy": eval_strategy,
         })
 
+    # DeepSpeed scheduler 类型名映射（HuggingFace 名称 → DeepSpeed 名称）
+    _DS_SCHEDULER_MAP = {
+        "linear": "Linear",
+        "cosine": "Cosine",
+        "cosine_with_restarts": "CosineWithRestarts",
+        "polynomial": "Polynomial",
+        "constant": "Constant",
+        "constant_with_warmup": "ConstantWithWarmup",
+        "inverse_sqrt": "InverseSqrt",
+        "reduce_lr_on_plateau": "ReduceLRonPlateau",
+    }
+
     def _build_deepspeed_config(self, config: TrainingConfigInput) -> dict[str, Any] | None:
         if config.deepspeed_stage > 0 and config.method != "qlora":
             logger.info(f"已配置 DeepSpeed ZeRO-{config.deepspeed_stage}, offload={config.offload_optimizer}")
+            ds_scheduler_type = self._DS_SCHEDULER_MAP.get(config.lr_scheduler, config.lr_scheduler)
             return {
                 "fp16": {"enabled": not config.bf16},
                 "bf16": {"enabled": config.bf16},
@@ -422,7 +476,7 @@ class TrainingPipeline:
                     },
                 },
                 "scheduler": {
-                    "type": config.lr_scheduler.capitalize(),
+                    "type": ds_scheduler_type,
                     "params": {
                         "warmup_min_lr": 0,
                         "warmup_max_lr": config.learning_rate,
@@ -441,10 +495,21 @@ class TrainingPipeline:
             config.dataloader_persistent_workers if config.dataloader_num_workers > 0 else False
         )
         if os.name == "nt" and dataloader_num_workers > 0:
-            logger.warning("Windows 环境检测到 dataloader_num_workers>0，已自动调整为 0 以避免训练卡住")
-            dataloader_num_workers = 0
-            dataloader_persistent_workers = False
-            dataloader_pin_memory = False
+            try:
+                import torch.multiprocessing as mp
+                mp.set_start_method("spawn", force=True)
+                logger.info(
+                    f"Windows 环境已设置 multiprocessing start_method=spawn，"
+                    f"保留 dataloader_num_workers={dataloader_num_workers}"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Windows 环境 multiprocessing spawn 设置失败({e})，"
+                    f"dataloader_num_workers 从 {dataloader_num_workers} 降为 0"
+                )
+                dataloader_num_workers = 0
+                dataloader_persistent_workers = False
+                dataloader_pin_memory = False
         return dataloader_num_workers, dataloader_pin_memory, dataloader_persistent_workers
 
     def _phase_train(self) -> None:
@@ -482,6 +547,7 @@ class TrainingPipeline:
             )
         except Exception as e:
             train_exception = e
+            callback.clear_references()
             import torch
             if isinstance(e, torch.cuda.OutOfMemoryError):
                 train_exception = RecoverableError(f"训练时 OOM: {e}")
@@ -641,11 +707,13 @@ class TrainingPipeline:
     def _run_cleanup(self) -> None:
         self._set_phase(TrainingPhase.CLEANUP)
         try:
-            cleanup_gpu_memory(aggressive=True)
+            self.ctx.trainer = None
             if self.ctx.model is not None:
                 safe_cleanup_model(self.ctx.model)
-            del self.ctx.model, self.ctx.tokenizer, self.ctx.trainer
+            self.ctx.model = None
+            self.ctx.tokenizer = None
             gc.collect()
+            cleanup_gpu_memory(aggressive=True)
         except Exception as e:
             logger.warning(f"清理资源失败：{e}")
 
