@@ -8,7 +8,7 @@ import {
   SafetyCertificateOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
-import { Button, Form, Input, Modal, Select, Space, Tag, message } from 'antd';
+import { App, Button, Form, Input, Modal, Select, Space, Tag } from 'antd';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -88,6 +88,7 @@ function compactJson(value: any) {
 }
 
 export default function DigitalTeam() {
+  const { message } = App.useApp();
   const [templates, setTemplates] = useState<TeamTemplate[]>([]);
   const [projects, setProjects] = useState<DigitalProject[]>([]);
   const [selectedProject, setSelectedProject] = useState<DigitalProject | null>(null);
@@ -97,7 +98,7 @@ export default function DigitalTeam() {
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [form] = Form.useForm();
-  const selectedFormProvider = Form.useWatch('provider', form);
+  const [selectedFormProvider, setSelectedFormProvider] = useState<string>();
 
   const selectedId = selectedProject?.id;
 
@@ -263,6 +264,7 @@ export default function DigitalTeam() {
       model: defaultModel,
       template_id: 'software_dev_team',
     });
+    setSelectedFormProvider(defaultProvider);
     setCreateOpen(true);
   };
 
@@ -464,6 +466,7 @@ export default function DigitalTeam() {
                 style={{ width: 240 }}
                 options={providerOptions}
                 onChange={(provider) => {
+                  setSelectedFormProvider(provider);
                   const savedProvider = cloudProviders.find((item) => item.provider === provider);
                   form.setFieldValue(
                     'model',

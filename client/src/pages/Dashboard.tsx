@@ -25,6 +25,7 @@ import { InteractiveButton, GlassHoverCard } from '../components/motion';
 import AnimatedLayout from '../components/shared/AnimatedLayout';
 import GlassCard from '../components/shared/GlassCard';
 import PageHeader from '../components/shared/PageHeader';
+import ThemeToggle from '../components/ThemeToggle';
 import { CountUp } from '../components/shared/MotionWrapper';
 import { getDatasetList, getDeviceInfo, getModelList, listDeploymentPackages } from '../services/api';
 import { getTrainingCheckpoints, getTrainingHistory } from '../services/trainingApi';
@@ -541,6 +542,7 @@ export default function Dashboard() {
         <PageHeader
           title="运行中控台"
           icon={<DesktopOutlined />}
+          extraActions={<ThemeToggle />}
           helpTooltip="环境状态监控与微调工作台入口，指引您完成 AI 应用部署。"
         />
 

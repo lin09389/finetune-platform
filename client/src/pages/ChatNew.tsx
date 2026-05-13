@@ -1,16 +1,17 @@
-import { Button, Collapse, Drawer, Modal, Tag } from 'antd';
+import { Button, Collapse, Drawer, Empty, Input, Modal, Select, Spin, Tag, Tree } from 'antd';
+import type { DataNode } from 'antd/es/tree';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import { useNavigate } from 'react-router-dom';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
-import { Input, Select } from 'antd';
 
 import { useChatStream } from '../hooks/chat/useChatStream';
 import { useResponsive } from '../hooks/useResponsive';
 import { useShallow } from 'zustand/react/shallow';
 import { useChatStore } from '../store/chatStore';
 import { useTheme } from '../theme';
+import { appModal } from '../utils/modal';
 
 import ChatHeader from '../components/chat/ChatHeader';
 import ChatContextPanel from '../components/chat/ChatContextPanel';
@@ -39,16 +40,17 @@ import {
   getSavedCloudProviders,
   getWorkflowTemplates,
   getChatAgentRun,
+  getWorkspaceTree,
   interruptAgentSession,
   listWorkspaces,
   promptAgentSession,
   rejectAgentAction as rejectAgentSessionAction,
   rejectChatAgentAction,
 } from '../services/api';
-import type { AgentInfo, AgentPart, AgentSession, AgentSessionEvent, ChatAgentRun, SavedCloudProvider, WorkflowAction, WorkflowStep, WorkflowTemplate, WorkspaceSummary } from '../services/api';
+import type { AgentInfo, AgentPart, AgentSession, AgentSessionEvent, ChatAgentRun, SavedCloudProvider, WorkflowAction, WorkflowStep, WorkflowTemplate, WorkspaceSummary, WorkspaceTreeNode } from '../services/api';
 import { transitions } from '../theme/animations';
 import { notify } from '../utils/notify';
-import { ArrowDownOutlined } from '@ant-design/icons';
+import { ArrowDownOutlined, FileOutlined, FolderOpenOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import styles from './ChatNew.module.css';
 
 interface APIKeyConfig {
@@ -89,6 +91,19 @@ const sectionMotion = {
   transition: { duration: 0.26, ease: [0.16, 1, 0.3, 1] as const },
 };
 
+function toWorkspaceTreeData(nodes: WorkspaceTreeNode[], parentPath = ''): DataNode[] {
+  return nodes.map((node) => {
+    const key = node.path || (parentPath ? `${parentPath}/${node.name}` : node.name);
+    return {
+      key,
+      title: node.name,
+      icon: node.kind === 'folder' ? <FolderOpenOutlined /> : <FileOutlined />,
+      isLeaf: node.kind === 'file',
+      children: node.children ? toWorkspaceTreeData(node.children, key) : undefined,
+    };
+  });
+}
+
 
 
 interface StoredChatScrollState {
@@ -101,6 +116,7 @@ const CHAT_SCROLL_STORAGE_KEY = 'chat_scroll_positions_v1';
 const INTENT_ROUTING_TIMEOUT_MS = 1800;
 const CHAT_WORKSPACE_ID_STORAGE_KEY = 'chat_workspace_id_v1';
 const CHAT_PROJECT_PATH_STORAGE_KEY = 'chat_project_path_v1';
+const CHAT_WORKSPACE_EVENT = 'chat-workspace-change';
 
 const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -154,7 +170,7 @@ const persistScrollState = (
 
 
 const ChatPage: React.FC = () => {
-  const { theme, toggleTheme } = useTheme();
+  useTheme();
   const { isMobile, isDesktop } = useResponsive();
   const prefersReducedMotion = useReducedMotion();
   const runtime = useRuntimeContext();
@@ -242,6 +258,13 @@ const ChatPage: React.FC = () => {
   const [availableWorkspaces, setAvailableWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>(() => localStorage.getItem(CHAT_WORKSPACE_ID_STORAGE_KEY) || '');
   const [workspaceProjectPath, setWorkspaceProjectPath] = useState<string>(() => localStorage.getItem(CHAT_PROJECT_PATH_STORAGE_KEY) || '');
+  const [workspaceTreeData, setWorkspaceTreeData] = useState<DataNode[]>([]);
+  const [workspaceTreeRoot, setWorkspaceTreeRoot] = useState('');
+  const [workspaceTreeLoading, setWorkspaceTreeLoading] = useState(false);
+  const [workspaceTreeTruncated, setWorkspaceTreeTruncated] = useState(false);
+  const [workspaceTreeSearch, setWorkspaceTreeSearch] = useState('');
+  const [workspaceTreeExpandedKeys, setWorkspaceTreeExpandedKeys] = useState<React.Key[]>([]);
+  const [workspaceTreeFocusedOnly, setWorkspaceTreeFocusedOnly] = useState(false);
   const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([]);
   const [workflowTitle, setWorkflowTitle] = useState('Workflow Report');
   const [workflowStatus, setWorkflowStatus] = useState('idle');
@@ -296,17 +319,7 @@ const ChatPage: React.FC = () => {
   const selectedWorkspaceLabel = selectedWorkspace
     ? `${selectedWorkspace.name}${selectedWorkspace.local_path ? ` · ${selectedWorkspace.local_path}` : ''}`
     : '未选择工作区';
-  const workspacePathStatus = useMemo(() => {
-    const path = workspaceProjectPath.trim();
-    if (!path) {
-      return { tone: 'default' as const, text: '未填写路径，将使用所选工作区或默认项目根目录。' };
-    }
-    if (selectedWorkspace?.local_path && selectedWorkspace.local_path.trim() === path) {
-      return { tone: 'success' as const, text: '路径与当前工作区一致。' };
-    }
-    return { tone: 'warning' as const, text: '当前为自定义路径，Agent 将使用这里的目录执行。' };
-  }, [selectedWorkspace?.local_path, workspaceProjectPath]);
-
+  const effectiveProjectPath = (workspaceProjectPath.trim() || selectedWorkspace?.local_path || '').trim();
   useEffect(() => {
     setIsAtBottom(shouldRestoreToBottom);
     isAutoScrollEnabledRef.current = shouldRestoreToBottom;
@@ -487,14 +500,29 @@ const ChatPage: React.FC = () => {
   }, [workspaceProjectPath]);
 
   useEffect(() => {
+    const handleWorkspaceChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ workspaceId?: string; projectPath?: string }>).detail || {};
+      setSelectedWorkspaceId(detail.workspaceId || '');
+      setWorkspaceProjectPath(detail.projectPath || '');
+    };
+    window.addEventListener(CHAT_WORKSPACE_EVENT, handleWorkspaceChange);
+    return () => window.removeEventListener(CHAT_WORKSPACE_EVENT, handleWorkspaceChange);
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     const loadWorkspaceOptions = async () => {
       try {
         const workspaces = await listWorkspaces();
         if (cancelled) return;
         setAvailableWorkspaces(workspaces);
-        if (!selectedWorkspaceId) return;
-        const selected = workspaces.find((workspace) => workspace.id === selectedWorkspaceId);
+        const selected =
+          workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ||
+          workspaces.find((workspace) => workspace.status === 'default' && workspace.local_path) ||
+          workspaces.find((workspace) => workspace.local_path);
+        if (!selectedWorkspaceId && selected?.id) {
+          setSelectedWorkspaceId(selected.id);
+        }
         if (selected?.local_path && !workspaceProjectPath.trim()) {
           setWorkspaceProjectPath(selected.local_path);
         }
@@ -507,6 +535,47 @@ const ChatPage: React.FC = () => {
       cancelled = true;
     };
   }, [selectedWorkspaceId, workspaceProjectPath]);
+
+  const loadWorkspaceTree = useCallback(async () => {
+    setWorkspaceTreeLoading(true);
+    try {
+      const response = await getWorkspaceTree({
+        workspace_id: selectedWorkspaceId || selectedWorkspace?.id || undefined,
+        project_path: workspaceProjectPath.trim() || selectedWorkspace?.local_path || undefined,
+        max_depth: 4,
+        limit: 360,
+      });
+      const treeData = toWorkspaceTreeData(response.nodes);
+      setWorkspaceTreeRoot(response.root);
+      setWorkspaceTreeData(treeData);
+      setWorkspaceTreeTruncated(response.truncated);
+      setWorkspaceTreeExpandedKeys((prev) => {
+        if (prev.length) return prev;
+        const keys: React.Key[] = [];
+        const walk = (nodes: DataNode[]) => {
+          nodes.forEach((node) => {
+            if (node.children?.length) {
+              keys.push(node.key);
+              walk(node.children);
+            }
+          });
+        };
+        walk(treeData);
+        return keys;
+      });
+    } catch {
+      setWorkspaceTreeRoot('');
+      setWorkspaceTreeData([]);
+      setWorkspaceTreeTruncated(false);
+      setWorkspaceTreeExpandedKeys([]);
+    } finally {
+      setWorkspaceTreeLoading(false);
+    }
+  }, [selectedWorkspace?.id, selectedWorkspace?.local_path, selectedWorkspaceId, workspaceProjectPath]);
+
+  useEffect(() => {
+    void loadWorkspaceTree();
+  }, [loadWorkspaceTree]);
 
   useEffect(() => {
     if (!currentSessionId || currentSessionId.startsWith('local_')) return;
@@ -1327,7 +1396,7 @@ const ChatPage: React.FC = () => {
             options.mode === 'workflow'
               ? `${goal.slice(0, 26) || 'Workflow Run'}${workspaceContext}`.slice(0, 64)
               : `${goal.slice(0, 26) || 'Agent Task'}${workspaceContext}`.slice(0, 64),
-          project_path: workspaceProjectPath.trim() || undefined,
+          project_path: effectiveProjectPath || undefined,
           provider: cloudAIConfig?.provider || undefined,
           model: selectedCloudModel || cloudAIConfig?.model || undefined,
           autonomy_mode: autonomyMode,
@@ -1381,8 +1450,10 @@ const ChatPage: React.FC = () => {
       currentSessionId,
       appendAgentSessionError,
       isLikelyAgentGoal,
+      effectiveProjectPath,
       selectedCloudModel,
       selectedPrimaryAgent,
+      selectedWorkspaceLabel,
       startAgentSessionStream,
       upsertAgentSessionMessage,
     ],
@@ -1804,7 +1875,7 @@ const ChatPage: React.FC = () => {
   );
 
   const handleClearChat = useCallback(() => {
-    Modal.confirm({
+    appModal.confirm({
       title: '确认清空',
       content: '确定要清空当前对话吗？',
       okText: '清空',
@@ -1959,7 +2030,7 @@ const ChatPage: React.FC = () => {
   const agentOptions = primaryAgents.map((agent) => ({ value: agent.id, label: agent.name }));
 
   const agentFileSummaries = useMemo(() => {
-    const seen = new Set<string>();
+    const seen = new Map<string, number>();
     const items: Array<{ id: string; path: string; status: string; summary: string; preview: string; depth: number }> = [];
 
     const depthOf = (path: string) => path.replace(/\\/g, '/').split('/').filter(Boolean).length;
@@ -1983,10 +2054,11 @@ const ChatPage: React.FC = () => {
 
       for (const entry of fileEntries) {
         const path = String(entry?.path || entry?.file_path || entry?.filename || entry?.name || '').trim();
-        if (!path || seen.has(path)) continue;
-        seen.add(path);
+        if (!path) continue;
+        const nextIndex = (seen.get(path) || 0) + 1;
+        seen.set(path, nextIndex);
         items.push({
-          id: `${metadata.agent_part_id || message.id}:${path}`,
+          id: `${metadata.agent_part_id || message.id}:${path}:${nextIndex}`,
           path,
           status: String(entry?.status || entry?.change_type || entry?.action || part.status || 'modified'),
           summary: String(entry?.summary || entry?.description || summary),
@@ -1996,7 +2068,7 @@ const ChatPage: React.FC = () => {
       }
     }
 
-    return items.slice(-8).sort((a, b) => a.depth - b.depth || a.path.localeCompare(b.path));
+    return items.slice(-12).sort((a, b) => a.depth - b.depth || a.path.localeCompare(b.path));
   }, [messages]);
 
   const agentFileTree = useMemo(() => {
@@ -2054,9 +2126,9 @@ const ChatPage: React.FC = () => {
 
   const defaultExpandedFolders = useMemo(() => {
     const folders = new Set<string>();
-    const walk = (node: typeof agentFileTree, depth = 0) => {
+    const walk = (node: typeof agentFileTree) => {
       if (node.kind === 'folder' && node.path) folders.add(node.path);
-      for (const child of node.children || []) walk(child, depth + 1);
+      for (const child of node.children || []) walk(child);
     };
     walk(agentFileTree);
     return folders;
@@ -2097,6 +2169,7 @@ const ChatPage: React.FC = () => {
           : /modify|update|change|edit|fix|modified|修改/.test(statusLower)
             ? 'processing'
             : 'default';
+      const relativePath = file.path.replace(/\\/g, '/');
       return (
         <div key={node.path} className={styles.agentFileCard} style={{ ['--file-depth' as any]: String(depth) }}>
           <div className={styles.agentFileTreeRow}>
@@ -2106,7 +2179,10 @@ const ChatPage: React.FC = () => {
             </div>
             <div className={styles.agentFileCardBody}>
               <div className={styles.agentFileCardTop}>
-                <div className={styles.agentFilePath}>{node.name}</div>
+                <div>
+                  <div className={styles.agentFilePath}>{node.name}</div>
+                  <div className={styles.agentFilePathHint}>{relativePath}</div>
+                </div>
                 <Tag className={styles.agentFileStatus} color={statusTone}>{file.status || 'modified'}</Tag>
               </div>
               <div className={styles.agentFileSummary}>{file.summary}</div>
@@ -2128,6 +2204,7 @@ const ChatPage: React.FC = () => {
     if (node.kind === 'folder') {
       const isExpanded = !node.path || expandedFolders.has(node.path);
       const childrenCount = node.children.length;
+      const fileCount = node.children.filter((child) => child.kind === 'file').length;
       return (
         <div key={node.path || 'root'} className={styles.agentFolderGroup} style={{ ['--folder-depth' as any]: String(depth) }}>
           {node.path ? (
@@ -2139,6 +2216,7 @@ const ChatPage: React.FC = () => {
               <span className={`${styles.agentFolderChevron} ${isExpanded ? styles.agentFolderChevronOpen : ''}`}>▸</span>
               <span className={styles.agentFolderName}>{node.name}</span>
               <Tag className={styles.agentFolderTag}>{childrenCount}</Tag>
+              <Tag className={styles.agentFolderSubTag}>{fileCount} files</Tag>
             </button>
           ) : null}
           {isExpanded && (
@@ -2195,6 +2273,186 @@ const ChatPage: React.FC = () => {
       isLoading={isLoading}
       isStreaming={isActivelyStreaming}
     />
+  );
+
+  const filteredWorkspaceTreeData = useMemo(() => {
+    const query = workspaceTreeSearch.trim().toLowerCase();
+    if (!query) return workspaceTreeData;
+
+    const filterNodes = (nodes: DataNode[]): DataNode[] =>
+      nodes
+        .map((node) => {
+          const title = String(node.title || '').toLowerCase();
+          const keyText = String(node.key || '').toLowerCase();
+          const matchedChildren = node.children ? filterNodes(node.children) : [];
+          const matches = title.includes(query) || keyText.includes(query);
+          if (matches || matchedChildren.length > 0) {
+            return { ...node, children: matchedChildren.length ? matchedChildren : node.children };
+          }
+          return null;
+        })
+        .filter(Boolean) as DataNode[];
+
+    return filterNodes(workspaceTreeData);
+  }, [workspaceTreeData, workspaceTreeSearch]);
+
+  const workspaceTreeStats = useMemo(() => {
+    const countNodes = (nodes: DataNode[]): { files: number; folders: number } =>
+      nodes.reduce((acc, node) => {
+        const isFolder = Boolean(node.children && node.children.length);
+        if (isFolder) acc.folders += 1;
+        else acc.files += 1;
+        if (node.children) {
+          const childStats = countNodes(node.children);
+          acc.files += childStats.files;
+          acc.folders += childStats.folders;
+        }
+        return acc;
+      }, { files: 0, folders: 0 });
+
+    return countNodes(workspaceTreeData);
+  }, [workspaceTreeData]);
+
+  const workspaceTreeDisplayedStats = useMemo(() => {
+    const countNodes = (nodes: DataNode[]): { files: number; folders: number } =>
+      nodes.reduce((acc, node) => {
+        const isFolder = Boolean(node.children && node.children.length);
+        if (isFolder) acc.folders += 1;
+        else acc.files += 1;
+        if (node.children) {
+          const childStats = countNodes(node.children);
+          acc.files += childStats.files;
+          acc.folders += childStats.folders;
+        }
+        return acc;
+      }, { files: 0, folders: 0 });
+
+    return countNodes(filteredWorkspaceTreeData);
+  }, [filteredWorkspaceTreeData]);
+
+  const expandAllWorkspaceTree = useCallback(() => {
+    const keys: React.Key[] = [];
+    const walk = (nodes: DataNode[]) => {
+      nodes.forEach((node) => {
+        if (node.children?.length) {
+          keys.push(node.key);
+          walk(node.children);
+        }
+      });
+    };
+    walk(workspaceTreeData);
+    setWorkspaceTreeExpandedKeys(keys);
+  }, [workspaceTreeData]);
+
+  const collapseAllWorkspaceTree = useCallback(() => {
+    setWorkspaceTreeExpandedKeys([]);
+  }, []);
+
+  const syncWorkspaceTreeExpandedKeys = useCallback((nodes: DataNode[]) => {
+    const keys: React.Key[] = [];
+    const walk = (list: DataNode[]) => {
+      list.forEach((node) => {
+        if (node.children?.length) {
+          keys.push(node.key);
+          walk(node.children);
+        }
+      });
+    };
+    walk(nodes);
+    setWorkspaceTreeExpandedKeys(keys);
+  }, []);
+
+  useEffect(() => {
+    if (!workspaceTreeSearch.trim()) return;
+    syncWorkspaceTreeExpandedKeys(filteredWorkspaceTreeData);
+  }, [filteredWorkspaceTreeData, syncWorkspaceTreeExpandedKeys, workspaceTreeSearch]);
+
+  const projectPanel = (
+    <motion.div {...sectionMotion} className={styles.projectSidePanel}>
+      <div className={styles.projectSideHeader}>
+        <div>
+          <div className={styles.projectSideKicker}>Project Context</div>
+          <div className={styles.projectSideTitle}>本地项目</div>
+          <div className={styles.projectSideMeta}>
+            <span>{workspaceTreeStats.folders} 个目录</span>
+            <span>{workspaceTreeStats.files} 个文件</span>
+            {workspaceTreeTruncated ? <span>已截断</span> : null}
+          </div>
+        </div>
+        <div className={styles.projectSideActions}>
+          <Button size="small" onClick={() => setWorkspaceTreeSearch('')}>清除搜索</Button>
+          <Button size="small" onClick={expandAllWorkspaceTree}>展开全部</Button>
+          <Button size="small" onClick={collapseAllWorkspaceTree}>折叠全部</Button>
+          <Button size="small" icon={<ReloadOutlined />} onClick={() => void loadWorkspaceTree()} />
+        </div>
+      </div>
+
+      <Select
+        allowClear
+        showSearch
+        optionFilterProp="label"
+        className={styles.projectSideSelect}
+        placeholder="选择工作区"
+        value={selectedWorkspaceId || undefined}
+        options={availableWorkspaces.map((workspace) => ({
+          label: workspace.local_path ? `${workspace.name} · ${workspace.local_path}` : workspace.name,
+          value: workspace.id,
+        }))}
+        onChange={(value) => {
+          const nextId = value || '';
+          setSelectedWorkspaceId(nextId);
+          const selected = availableWorkspaces.find((workspace) => workspace.id === nextId);
+          setWorkspaceProjectPath(selected?.local_path || '');
+        }}
+      />
+
+      <Input
+        className={styles.projectSideInput}
+        value={workspaceProjectPath}
+        placeholder="C:\\Projects\\my-app"
+        onChange={(event) => setWorkspaceProjectPath(event.target.value)}
+        onPressEnter={() => void loadWorkspaceTree()}
+      />
+
+      <Input
+        allowClear
+        prefix={<SearchOutlined />}
+        className={styles.projectSideInput}
+        value={workspaceTreeSearch}
+        placeholder="搜索文件或目录"
+        onChange={(event) => setWorkspaceTreeSearch(event.target.value)}
+      />
+
+      <div className={styles.projectSideStatus}>
+        <Tag color={effectiveProjectPath ? 'green' : 'default'} className={styles.projectSideTag}>
+          {effectiveProjectPath ? '已连接' : '未选择'}
+        </Tag>
+        <span title={workspaceTreeRoot || effectiveProjectPath}>
+          {workspaceTreeRoot || effectiveProjectPath || 'Agent 将使用默认项目根目录'}
+        </span>
+      </div>
+
+      <div className={styles.projectTreeBox}>
+        <Spin spinning={workspaceTreeLoading}>
+          {filteredWorkspaceTreeData.length ? (
+            <Tree
+              showIcon
+              selectable={false}
+              treeData={filteredWorkspaceTreeData}
+              expandedKeys={workspaceTreeExpandedKeys}
+              onExpand={(keys) => setWorkspaceTreeExpandedKeys(keys)}
+              className={styles.projectTree}
+            />
+          ) : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={workspaceTreeSearch ? '没有匹配文件' : '暂无文件'} />
+          )}
+        </Spin>
+      </div>
+
+      {workspaceTreeTruncated && (
+        <div className={styles.projectTreeHint}>目录较大，当前仅显示部分文件。</div>
+      )}
+    </motion.div>
   );
 
   const renderMessageItem = useCallback((index: number, msg: any) => (
@@ -2279,10 +2537,22 @@ const ChatPage: React.FC = () => {
         <div>
           <div className={styles.agentFilePanelKicker}>Agent Files</div>
           <div className={styles.agentFilePanelTitle}>变更文件</div>
+          <div className={styles.agentFilePanelMeta}>
+            <span>{workspaceTreeDisplayedStats.files} 个文件</span>
+            <span>{workspaceTreeDisplayedStats.folders} 个目录</span>
+            {workspaceTreeFocusedOnly ? <span>聚焦模式</span> : null}
+          </div>
         </div>
         <Tag color={agentFileSummaries.length ? 'processing' : 'default'} className={styles.agentFilePanelTag}>
           {agentFileSummaries.length ? `${agentFileSummaries.length} 个文件` : '暂无变更'}
         </Tag>
+      </div>
+      <div className={styles.agentFileToolbar}>
+        <Button size="small" onClick={() => setWorkspaceTreeFocusedOnly((value) => !value)}>
+          {workspaceTreeFocusedOnly ? '显示全部' : '只看变更'}
+        </Button>
+        <Button size="small" onClick={expandAllWorkspaceTree}>展开全部</Button>
+        <Button size="small" onClick={collapseAllWorkspaceTree}>折叠全部</Button>
       </div>
       {agentFileSummaries.length > 0 ? (
         <div className={styles.agentFileList}>
@@ -2306,62 +2576,12 @@ const ChatPage: React.FC = () => {
         onOpenContextPanel={() => setContextPanelOpen(true)}
         onClearChat={handleClearChat}
         onExportChat={handleExportChat}
-        theme={theme}
-        onToggleTheme={toggleTheme}
         messageCount={messages.length}
         activeModeLabel={activeModeLabel}
         activeModelLabel={activeModelLabel}
       />
       <div className={styles.chatWorkspace}>
         <main className={styles.mainChatPane}>
-          <div className={styles.workspaceSelectorBar}>
-            <div className={styles.workspaceSelectorInfo}>
-              <div className={styles.workspaceSelectorLabelRow}>
-                <span className={styles.workspaceSelectorLabel}>本地工作区</span>
-                <Tag color={selectedWorkspace ? 'green' : 'default'} className={styles.workspaceSelectorTag}>
-                  {selectedWorkspace ? '已选中' : '未选择'}
-                </Tag>
-              </div>
-              <span className={styles.workspaceSelectorHint}>选择已保存工作区，或直接填写项目根目录。</span>
-              <span className={styles.workspaceSelectorMeta}>{selectedWorkspaceLabel}</span>
-            </div>
-            <div className={styles.workspaceSelectorControls}>
-              <Select
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                className={styles.workspaceSelect}
-                placeholder="选择工作区"
-                value={selectedWorkspaceId || undefined}
-                options={availableWorkspaces.map((workspace) => ({
-                  label: workspace.local_path ? `${workspace.name} · ${workspace.local_path}` : workspace.name,
-                  value: workspace.id,
-                }))}
-                onChange={(value) => {
-                  const nextId = value || '';
-                  setSelectedWorkspaceId(nextId);
-                  const selected = availableWorkspaces.find((workspace) => workspace.id === nextId);
-                  if (selected?.local_path) {
-                    setWorkspaceProjectPath(selected.local_path);
-                  }
-                  if (!nextId) {
-                    setWorkspaceProjectPath('');
-                  }
-                }}
-              />
-              <Input
-                className={styles.workspacePathInput}
-                value={workspaceProjectPath}
-                placeholder="例如：C:\\Projects\\my-app"
-                onChange={(event) => setWorkspaceProjectPath(event.target.value)}
-              />
-            </div>
-            <div className={styles.workspaceSelectorStatus}>
-              <span className={styles.workspaceSelectorStatusText} data-tone={workspacePathStatus.tone}>
-                {workspacePathStatus.text}
-              </span>
-            </div>
-          </div>
           <motion.div
             {...sectionMotion}
             className={styles.chatMessagesArea}
@@ -2530,6 +2750,7 @@ const ChatPage: React.FC = () => {
 
         {isDesktop && (
           <div className={styles.sidePanels}>
+            <div className={styles.projectPanelSlot}>{projectPanel}</div>
             <div className={styles.contextSidePanel}>{contextPanel}</div>
             <div className={styles.fileSidePanel}>{filePanel}</div>
           </div>
@@ -2542,7 +2763,7 @@ const ChatPage: React.FC = () => {
         width={360}
         open={!isDesktop && contextPanelOpen}
         onClose={() => setContextPanelOpen(false)}
-        destroyOnClose={false}
+        destroyOnHidden={false}
       >
         <ChatContextPanel
           mobile

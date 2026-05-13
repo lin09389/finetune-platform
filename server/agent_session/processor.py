@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 from collections.abc import AsyncGenerator
@@ -24,6 +25,8 @@ from .tools import AgentToolRegistry
 
 ModelCall = Callable[[list[dict[str, str]]], Awaitable[str]]
 StreamModelCall = Callable[[list[dict[str, str]]], AsyncGenerator[dict[str, Any], None]]
+
+logger = logging.getLogger(__name__)
 
 _STREAM_THROTTLE_INTERVAL = 0.08
 _STREAM_THROTTLE_CHARS = 24
@@ -66,9 +69,18 @@ class AgentSessionProcessor:
         session = self.repository.update_session(session_id, status="running", metadata=metadata)
         request_part = self.repository.add_part(session_id, "text", status="completed", title="请求", content=content)
         self._event(session_id, "session_started", "Agent 开始处理请求", {"content": content, "part_id": request_part["id"]})
+        logger.info(
+            "agent_session.processor.prompt invoked: session_id=%s model_call=%s stream_model_call=%s",
+            session_id,
+            bool(model_call),
+            bool(stream_model_call),
+        )
         runner = getattr(self, "_graph_runner", None)
         if runner is not None and hasattr(runner, "run_prompt_legacy"):
+            logger.info("agent_session.processor.prompt delegated to LangGraph entry: session_id=%s", session_id)
+            self._event(session_id, "phase_change", "尝试使用 LangGraph 执行链路", {"phase": "langgraph_dispatch"})
             return await runner.run_prompt_legacy(session_id, content, model_call=model_call, stream_model_call=stream_model_call)
+        logger.info("agent_session.processor.prompt using processor legacy fallback path: session_id=%s", session_id)
         return await self._run_prompt_legacy(
             session_id,
             content,
@@ -97,7 +109,146 @@ class AgentSessionProcessor:
         model_call: ModelCall | None = None,
         stream_model_call: StreamModelCall | None = None,
     ) -> dict[str, Any]:
-        return self._fallback_summary(session_id, "旧主循环已从入口分离，当前仅保留兼容兜底。")
+        metadata = self._ensure_metadata(session)
+        if metadata.get("runtime") == "langgraph":
+            self._event(session_id, "phase_change", "旧兼容入口已转交 LangGraph 执行", {"phase": "langgraph"})
+            return self._with_parts(session_id)
+
+        logger.warning(
+            "agent_session.processor legacy prompt entered unexpectedly: session_id=%s provider=%s model=%s stream=%s",
+            session_id,
+            session.get("provider") or "",
+            session.get("model") or "",
+            bool(stream_model_call),
+        )
+        messages = self._initial_messages(session, content)
+        self._event(
+            session_id,
+            "phase_change",
+            "旧兼容入口已进入，等待 LangGraph 迁移完成",
+            {
+                "phase": "langgraph_migration",
+                "runtime": "legacy",
+                "has_model_call": bool(model_call),
+                "has_stream_model_call": bool(stream_model_call),
+            },
+        )
+        active_model_call = model_call or self._fallback_model_call
+
+        for iteration in range(self.max_iterations):
+            interrupted = self._maybe_interrupt(session_id)
+            if interrupted is not None:
+                return interrupted
+
+            raw = ""
+            streaming_part_id: str | None = None
+            if stream_model_call is not None:
+                try:
+                    logger.info(
+                        "agent_session.processor legacy prompt entering chat_stream: session_id=%s iteration=%s",
+                        session_id,
+                        iteration + 1,
+                    )
+                    raw, streaming_part_id = await self._stream_model_output(session_id, messages, stream_model_call)
+                    logger.info("agent_session.processor legacy prompt chat_stream completed: session_id=%s", session_id)
+                except Exception as exc:
+                    failed_part_id = getattr(self, "_pending_stream_part_id", None)
+                    if failed_part_id:
+                        self.repository.update_part(failed_part_id, status="failed", title="流式输出失败")
+                    self._pending_stream_part_id = None
+                    logger.exception("agent_session.processor legacy prompt chat_stream failed: session_id=%s", session_id)
+                    self._event(
+                        session_id,
+                        "model_stream_failed",
+                        "legacy chat_stream 失败，回退到 model_call",
+                        {"error": str(exc)[:600], "part_id": failed_part_id},
+                    )
+                    self._update_streaming_diagnostics(
+                        session_id,
+                        status="failed_then_fallback",
+                        mode="non_stream",
+                        fallback_to_non_stream=True,
+                        error=str(exc)[:600],
+                    )
+
+            if not raw:
+                logger.info(
+                    "agent_session.processor legacy prompt entering model_call: session_id=%s iteration=%s",
+                    session_id,
+                    iteration + 1,
+                )
+                raw = await active_model_call(messages)
+                logger.info("agent_session.processor legacy prompt model_call completed: session_id=%s", session_id)
+
+            parts = parse_agent_response(raw)
+            finalized_type = self._finalize_streaming_text_part(session_id, raw, parts, streaming_part_id)
+            if finalized_type == "summary":
+                summary_part = self.repository.get_part(streaming_part_id) if streaming_part_id else None
+                summary_text = str((summary_part or {}).get("content") or raw.strip() or "任务已完成。")
+                metadata = set_phase(self._ensure_metadata(self.repository.get_session(session_id) or session), "completed")
+                self.repository.update_session(session_id, status="completed", metadata=metadata)
+                self._event(session_id, "summary_completed", summary_text, {"part_id": streaming_part_id or "", "streaming": True})
+                return self._with_parts(session_id)
+
+            if not parts:
+                handled = self._handle_protocol_miss(session_id, raw, messages)
+                if handled is not None:
+                    return handled
+                continue
+
+            text_index = 0
+            next_model = False
+            for part_index, part in enumerate(parts):
+                if part.type == "text":
+                    content_text = part.content.strip()
+                    if content_text and not streaming_part_id:
+                        text_part = self.repository.add_part(
+                            session_id,
+                            "text",
+                            status="completed",
+                            title="说明",
+                            content=content_text,
+                            payload={"part_index": text_index, "source": "legacy_processor"},
+                        )
+                        text_index += 1
+                        self._event(session_id, "part_created", content_text, {"part_id": text_part["id"], "part_type": "text", "status": "completed"})
+                    continue
+                if part.type == "summary":
+                    summary_text = part.content.strip() or str((part.payload or {}).get("summary") or "") or raw.strip() or "任务已完成。"
+                    summary_part = self.repository.add_part(
+                        session_id,
+                        "summary",
+                        status="completed",
+                        title="最终结果",
+                        content=summary_text,
+                        payload={"summary": summary_text, "part_index": part_index},
+                    )
+                    metadata = set_phase(self._ensure_metadata(self.repository.get_session(session_id) or session), "completed")
+                    self.repository.update_session(session_id, status="completed", metadata=metadata)
+                    self._event(session_id, "summary_completed", summary_text, {"part_id": summary_part["id"]})
+                    return self._with_parts(session_id)
+                if part.type != "tool_call" or not part.tool:
+                    continue
+                handled, should_continue = self._execute_tool_request(
+                    session_id,
+                    {"tool": part.tool, "arguments": dict(part.arguments or {})},
+                    raw,
+                    messages,
+                    part_index=part_index,
+                )
+                if handled is not None:
+                    return handled
+                next_model = next_model or should_continue
+
+            if next_model or any(part.type == "tool_call" for part in parts):
+                continue
+
+            handled = self._handle_protocol_miss(session_id, raw, messages)
+            if handled is not None:
+                return handled
+
+        logger.warning("agent_session.processor legacy prompt reached max iterations: session_id=%s", session_id)
+        return self._fallback_summary(session_id, "Agent 达到最大工具轮次，已根据当前执行记录生成总结。")
 
     async def _run_prompt_legacy_loop_unused(
         self,
@@ -431,6 +582,7 @@ class AgentSessionProcessor:
         messages: list[dict[str, str]],
         stream_model_call,
     ) -> tuple[str, str]:
+        logger.info("agent_session.processor entering chat_stream: session_id=%s message_count=%s", session_id, len(messages))
         self._event(session_id, "phase_change", "模型思考中", {"phase": "model_thinking"})
         text_part = self.repository.add_part(
             session_id, "text", status="running", title="生成中",
@@ -500,6 +652,7 @@ class AgentSessionProcessor:
         )
 
         self._pending_stream_part_id = None
+        logger.info("agent_session.processor chat_stream completed: session_id=%s content_length=%s", session_id, len(accumulated))
         return accumulated, text_part["id"]
 
     def _update_streaming_diagnostics(self, session_id: str, **updates: Any) -> None:
@@ -577,6 +730,7 @@ class AgentSessionProcessor:
         return "text"
 
     async def _fallback_model_call(self, _messages: list[dict[str, str]]) -> str:
+        logger.info("agent_session.processor fallback model call used: no external model_call configured")
         return json.dumps({"tool": "finalize", "arguments": {"summary": "没有配置模型调用，已创建 Agent Session。"}}, ensure_ascii=False)
 
     def _context(self, session: dict[str, Any]) -> dict[str, Any]:

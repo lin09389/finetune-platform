@@ -10,7 +10,7 @@ from agent_session.service import AgentSessionService
 from core.config import settings
 
 
-def test_agent_session_langgraph_init_failure_falls_back_to_processor(tmp_path: Path, monkeypatch):
+def test_agent_session_langgraph_init_failure_stops_without_processor_fallback(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(settings, "agent_session_langgraph_enabled", True)
     service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_session_langgraph_init_fallback.db")))
     session = service.create_session(AgentSessionCreate(title="graph fallback", project_path=str(Path.cwd())))
@@ -26,7 +26,9 @@ def test_agent_session_langgraph_init_failure_falls_back_to_processor(tmp_path: 
 
     result = asyncio.run(service.prompt(session.id, AgentPromptRequest(content="触发 LangGraph 初始化失败")))
 
-    assert result.status == "completed"
+    assert result.status == "needs_manual_review"
     assert result.parts[-1].type == "summary"
-    assert result.parts[-1].content == "已回退到旧 processor。"
-    assert result.metadata["fallback_reason"]
+    assert "LangGraph 初始化失败" in result.parts[-1].content
+    assert result.metadata["last_graph_error"]
+    assert result.metadata["execution_trace"]["failure_code"] == "langgraph_init_failed"
+    assert result.metadata["execution_trace"]["fallback_used"] is False

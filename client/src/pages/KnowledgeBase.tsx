@@ -224,14 +224,14 @@ export default function KnowledgeBase() {
   const loadCollectionInfo = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/knowledge/collections/${collectionId}`, {
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(30000),
       });
       if (response.ok) {
         const data = await response.json();
         setCollectionInfo(data);
       }
     } catch (error) {
-      console.error('Failed to load collection info:', error);
+      console.warn('Failed to load collection info:', error);
     }
   };
 

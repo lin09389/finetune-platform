@@ -27,6 +27,12 @@ from .state import ensure_session_state, record_fallback_summary, set_phase
 logger = logging.getLogger(__name__)
 
 
+class AgentSessionCloudError(RuntimeError):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
 class AgentSessionService:
     def __init__(
         self,
@@ -64,9 +70,11 @@ class AgentSessionService:
 
     async def _get_graph_runner(self) -> AgentSessionGraphRunner | None:
         if not settings.agent_session_langgraph_enabled:
+            logger.info("agent_session LangGraph disabled by config; using processor fallback")
             return None
         if self._graph_runner is None:
             try:
+                logger.info("agent_session LangGraph initialization started")
                 self._graph_runner = AgentSessionGraphRunner(
                     repository=self.repository,
                     processor=self.processor,
@@ -74,10 +82,13 @@ class AgentSessionService:
                 )
                 await self._graph_runner.get_graph()
                 self._graph_runner_error = None
+                logger.info("agent_session LangGraph initialization succeeded")
             except Exception as exc:
                 logger.warning("agent_session LangGraph init failed, falling back to processor: %s", exc)
                 self._graph_runner = False
                 self._graph_runner_error = str(exc)
+        elif self._graph_runner is False:
+            logger.warning("agent_session LangGraph previously failed to initialize: %s", self._graph_runner_error or "unknown error")
         return self._graph_runner or None
 
     def create_session(self, request: AgentSessionCreate) -> AgentSessionResponse:
@@ -113,74 +124,87 @@ class AgentSessionService:
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
         if session.get("status") == "interrupted" or metadata.get("interrupt_requested"):
             return self.get_session(session_id)
+
         if request.provider or request.model:
-            self.repository.update_session(session_id, provider=request.provider or session.get("provider"), model=request.model or session.get("model"), metadata=metadata)
+            self.repository.update_session(
+                session_id,
+                provider=request.provider or session.get("provider"),
+                model=request.model or session.get("model"),
+                metadata=metadata,
+            )
             session = self.repository.get_session(session_id) or session
-        model_call = self.model_call or self._cloud_model_call(session)
-        stream_model_call = None
+
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        if self.model_call is None:
-            try:
-                stream_model_call = self._cloud_stream_model_call(session)
-                metadata["streaming_diagnostics"] = {
-                    "mode": "chat_stream",
-                    "status": "configured",
-                    "provider": session.get("provider") or "",
-                    "model": session.get("model") or "",
-                    "source": "cloud_provider",
-                    "fallback_to_non_stream": False,
-                }
-            except (ValueError, TypeError) as exc:
-                stream_model_call = None
-                metadata["streaming_diagnostics"] = {
-                    "mode": "non_stream",
-                    "status": "unavailable",
-                    "provider": session.get("provider") or "",
-                    "model": session.get("model") or "",
-                    "source": "cloud_provider",
-                    "reason": str(exc)[:300],
-                    "fallback_to_non_stream": True,
-                }
-        else:
-            metadata["streaming_diagnostics"] = {
-                "mode": "non_stream",
-                "status": "disabled",
-                "source": "injected_model_call",
-                "reason": "测试或自定义 model_call 未提供 stream_model_call",
-                "fallback_to_non_stream": True,
-            }
+        try:
+            model_call, stream_model_call, metadata = self._resolve_prompt_model_calls(session, metadata)
+        except AgentSessionCloudError as exc:
+            result = self._record_agent_chain_failure(
+                session_id,
+                exc.code,
+                str(exc),
+                provider=session.get("provider") or request.provider,
+                model=session.get("model") or request.model,
+            )
+            return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
         self.repository.update_session(session_id, metadata=metadata)
         session = self.repository.get_session(session_id) or session
+
         try:
             if self._has_custom_processor_prompt():
+                logger.info("agent_session prompt routed to custom processor prompt: session_id=%s", session_id)
                 result = await self.processor.prompt(
                     session_id,
                     request.content,
                     model_call=model_call,
                     stream_model_call=stream_model_call,
                 )
-                return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
-            runner = await self._get_graph_runner()
-            if runner is not None:
-                initial_state = self._build_langgraph_initial_state(session_id, request.content)
-                try:
-                    await runner.run_prompt(
-                        initial_state,
-                        model_call=model_call,
-                        stream_model_call=stream_model_call,
-                    )
-                    result = self.repository.get_session(session_id) or session
-                    result["parts"] = self.repository.list_parts(session_id)
-                except Exception as exc:
-                    logger.exception("agent_session LangGraph prompt failed")
-                    self._record_langgraph_fallback(session_id, str(exc))
-                    result = self.record_prompt_failure(session_id, exc)
             else:
-                if settings.agent_session_langgraph_enabled and self._graph_runner_error:
-                    self._record_langgraph_fallback(session_id, self._graph_runner_error)
-                result = await self.processor.prompt(session_id, request.content, model_call=model_call, stream_model_call=stream_model_call)
+                runner = await self._get_graph_runner()
+                if runner is not None:
+                    initial_state = self._build_langgraph_initial_state(session_id, request.content)
+                    logger.info(
+                        "agent_session prompt routed to LangGraph: session_id=%s provider=%s model=%s stream=%s",
+                        session_id,
+                        session.get("provider") or "",
+                        session.get("model") or "",
+                        bool(stream_model_call),
+                    )
+                    try:
+                        await runner.run_prompt(
+                            initial_state,
+                            model_call=model_call,
+                            stream_model_call=stream_model_call,
+                        )
+                        result = self.repository.get_session(session_id) or session
+                        result["parts"] = self.repository.list_parts(session_id)
+                    except Exception as exc:
+                        logger.exception("agent_session LangGraph prompt failed")
+                        self._record_langgraph_fallback(session_id, str(exc))
+                        result = self.record_prompt_failure(session_id, exc)
+                else:
+                    graph_error = self._graph_runner_error if settings.agent_session_langgraph_enabled else None
+                    if graph_error:
+                        self._record_langgraph_fallback(session_id, graph_error)
+                        result = self._record_agent_chain_failure(
+                            session_id,
+                            "langgraph_init_failed",
+                            f"LangGraph 初始化失败，已停止执行，未回退到旧 processor：{graph_error}",
+                            provider=session.get("provider"),
+                            model=session.get("model"),
+                        )
+                        return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
+                    logger.info(
+                        "agent_session prompt routed to processor fallback: session_id=%s provider=%s model=%s stream=%s graph_error=%s",
+                        session_id,
+                        session.get("provider") or "",
+                        session.get("model") or "",
+                        bool(stream_model_call),
+                        bool(graph_error),
+                    )
+                    result = await self.processor.prompt(session_id, request.content, model_call=model_call, stream_model_call=stream_model_call)
         except Exception as exc:
             result = self.record_prompt_failure(session_id, exc)
+
         return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
 
     def start_prompt_background(
@@ -303,7 +327,7 @@ class AgentSessionService:
             status="completed",
             title="最终结果",
             content=message,
-            payload={"summary": message, "fallback": True, "error": str(exc)[:1200]},
+            payload={"summary": message, "fallback": False, "error": str(exc)[:1200]},
         )
         self.repository.update_session(session_id, status="needs_manual_review", metadata=metadata)
         self.repository.add_event(
@@ -317,7 +341,7 @@ class AgentSessionService:
                 "status": "completed",
                 "summary": message,
                 "error": str(exc)[:1200],
-                "fallback": True,
+                "fallback": False,
             },
         )
         result = self.repository.get_session(session_id) or session
@@ -704,19 +728,165 @@ class AgentSessionService:
             return value
         return value[:limit].rstrip() + "...[truncated]"
 
+    def _resolve_prompt_model_calls(
+        self,
+        session: dict[str, Any],
+        metadata: dict[str, Any],
+    ) -> tuple[ModelCall, StreamModelCall | None, dict[str, Any]]:
+        provider_name = str(session.get("provider") or "")
+        model_name = str(session.get("model") or "")
+        trace = {
+            **dict(metadata.get("execution_trace") or {}),
+            "provider": provider_name,
+            "model": model_name,
+            "fallback_used": False,
+            "last_graph_error": None,
+            "last_model_error": None,
+        }
+
+        if self.model_call is not None:
+            metadata["streaming_diagnostics"] = {
+                "mode": "non_stream",
+                "status": "disabled",
+                "source": "injected_model_call",
+                "reason": "测试或自定义 model_call 未提供 stream_model_call",
+                "fallback_to_non_stream": True,
+            }
+            trace.update({"model_entry": "injected_model_call", "runtime": metadata.get("runtime") or "pending"})
+            metadata["execution_trace"] = trace
+            return self.model_call, None, metadata
+
+        if not provider_name:
+            metadata["streaming_diagnostics"] = {
+                "mode": "non_stream",
+                "status": "local_fallback",
+                "provider": "",
+                "model": model_name,
+                "source": "no_cloud_provider",
+                "reason": "未选择云端 provider，使用本地兼容回复。",
+                "fallback_to_non_stream": True,
+            }
+            trace.update({"model_entry": "local_compatibility_fallback", "fallback_used": True, "fallback_reason": "missing_provider"})
+            metadata["execution_trace"] = trace
+            return self._cloud_model_call(session), None, metadata
+
+        if "_cloud_model_call" in self.__dict__ or "_cloud_stream_model_call" in self.__dict__:
+            stream_model_call = self._cloud_stream_model_call(session)
+            metadata["streaming_diagnostics"] = {
+                "mode": "chat_stream",
+                "status": "configured",
+                "provider": provider_name,
+                "model": model_name,
+                "source": "injected_cloud_call",
+                "fallback_to_non_stream": False,
+            }
+            trace.update({"model_entry": "chat_stream", "cloud_config_status": "injected"})
+            metadata["execution_trace"] = trace
+            return self._cloud_model_call(session), stream_model_call, metadata
+
+        _provider, _api_key, resolved_model = self._resolve_cloud_provider_config(session)
+        stream_model_call = self._cloud_stream_model_call(session)
+        metadata["streaming_diagnostics"] = {
+            "mode": "chat_stream",
+            "status": "configured",
+            "provider": provider_name,
+            "model": resolved_model,
+            "source": "cloud_provider",
+            "fallback_to_non_stream": False,
+        }
+        trace.update({"model": resolved_model, "model_entry": "chat_stream", "cloud_config_status": "ready"})
+        metadata["execution_trace"] = trace
+        return self._cloud_model_call(session), stream_model_call, metadata
+
+    def _resolve_cloud_provider_config(self, session: dict[str, Any]):
+        provider_name = str(session.get("provider") or "")
+        if not provider_name:
+            raise AgentSessionCloudError("missing_provider", "没有选择云端模型 provider")
+        key_data = secure_storage.get(f"cloud_{provider_name}_key") or {}
+        if not isinstance(key_data, dict):
+            raise AgentSessionCloudError("invalid_provider_config", f"{provider_name} 的云端配置格式无效")
+        api_key = str(key_data.get("api_key") or "")
+        if not api_key:
+            raise AgentSessionCloudError("missing_api_key", f"未配置 {provider_name} 的 API Key")
+        provider = resolve_saved_provider(provider_name, key_data)
+        if provider is None:
+            raise AgentSessionCloudError("unsupported_provider", f"不支持的云端服务商：{provider_name}")
+        model = str(session.get("model") or key_data.get("default_model") or provider.get_default_model() or "")
+        if not model:
+            raise AgentSessionCloudError("missing_model", f"未配置 {provider_name} 的默认模型")
+        return provider, api_key, model
+
+    def _record_agent_chain_failure(
+        self,
+        session_id: str,
+        code: str,
+        message: str,
+        *,
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> dict[str, Any]:
+        session = self.repository.get_session(session_id)
+        if not session:
+            raise ValueError("Agent session not found")
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        metadata = set_phase(metadata, "needs_manual_review")
+        metadata["fallback_reason"] = None
+        metadata["last_graph_error"] = message[:600] if code == "langgraph_init_failed" else metadata.get("last_graph_error")
+        metadata["last_model_error"] = message[:600]
+        trace = dict(metadata.get("execution_trace") or {})
+        trace.update(
+            {
+                "runtime": metadata.get("runtime") or "pending",
+                "provider": provider or session.get("provider") or "",
+                "model": model or session.get("model") or "",
+                "status": "failed",
+                "failure_code": code,
+                "fallback_used": False,
+                "last_model_error": message[:600],
+            }
+        )
+        metadata["execution_trace"] = trace
+        summary = self.repository.add_part(
+            session_id,
+            "summary",
+            status="completed",
+            title="执行链路未启动",
+            content=message,
+            payload={"summary": message, "error_code": code, "fallback": False},
+        )
+        self.repository.update_session(session_id, status="needs_manual_review", metadata=metadata)
+        self.repository.add_event(
+            session_id,
+            "agent_chain_failed",
+            message,
+            {
+                "session_id": session_id,
+                "part_id": summary["id"],
+                "part_type": "summary",
+                "status": "needs_manual_review",
+                "summary": message,
+                "error_code": code,
+                "fallback": False,
+            },
+        )
+        result = self.repository.get_session(session_id) or session
+        result["parts"] = self.repository.list_parts(session_id)
+        return result
+
     def _cloud_model_call(self, session: dict[str, Any]) -> ModelCall:
         async def call(messages: list[dict[str, str]]) -> str:
             provider_name = session.get("provider")
+            logger.info(
+                "agent_session.cloud model_call enter: session_id=%s provider=%s model=%s message_count=%s",
+                session.get("id") or "",
+                provider_name or "",
+                session.get("model") or "",
+                len(messages),
+            )
             if not provider_name:
+                logger.warning("agent_session.cloud model_call fallback: missing provider")
                 return self._local_fallback_model_response(messages, "没有选择云端模型")
-            key_data = secure_storage.get(f"cloud_{provider_name}_key") or {}
-            api_key = key_data.get("api_key", "")
-            if not api_key:
-                return self._local_fallback_model_response(messages, f"未配置 {provider_name} 的 API Key")
-            provider = resolve_saved_provider(provider_name, key_data)
-            if provider is None:
-                return self._local_fallback_model_response(messages, f"不支持的云端服务商：{provider_name}")
-            model = session.get("model") or key_data.get("default_model") or provider.get_default_model()
+            provider, api_key, model = self._resolve_cloud_provider_config(session)
             try:
                 response = await provider.chat(
                     messages=messages,
@@ -727,37 +897,66 @@ class AgentSessionService:
                 )
             except Exception as exc:
                 message = str(exc).replace('"', "'")[:600]
-                return self._local_fallback_model_response(messages, f"云端模型调用失败：{message}")
+                logger.exception(
+                    "agent_session.cloud model_call failed: session_id=%s provider=%s model=%s",
+                    session.get("id") or "",
+                    provider_name,
+                    model,
+                )
+                raise AgentSessionCloudError("cloud_model_call_failed", f"云端模型调用失败：{message}") from exc
+            logger.info(
+                "agent_session.cloud model_call success: session_id=%s provider=%s model=%s content_length=%s",
+                session.get("id") or "",
+                provider_name,
+                model,
+                len(str(response.get("content", ""))),
+            )
             return response.get("content", "")
 
         return call
 
     def _cloud_stream_model_call(self, session: dict[str, Any]):
-        from collections.abc import AsyncGenerator
-
         provider_name = session.get("provider")
-        key_data = (secure_storage.get(f"cloud_{provider_name}_key") or {}) if provider_name else {}
-        if not provider_name:
-            raise ValueError("没有选择云端模型")
-        api_key = key_data.get("api_key", "") if isinstance(key_data, dict) else ""
-        if not api_key:
-            raise ValueError(f"未配置 {provider_name} 的 API Key")
-        provider = resolve_saved_provider(provider_name, key_data)
-        if provider is None:
-            raise ValueError(f"不支持的云端服务商：{provider_name}")
-        model = (session.get("model") or key_data.get("default_model", "")) if isinstance(key_data, dict) else (session.get("model") or "")
-        if not model:
-            model = provider.get_default_model()
+        provider, api_key, model = self._resolve_cloud_provider_config(session)
 
         async def stream(messages: list[dict[str, str]]):
-            async for chunk in provider.chat_stream(
-                messages=messages,
-                model=model,
-                api_key=api_key,
-                temperature=0.2,
-                max_tokens=2400,
-            ):
-                yield chunk
+            logger.info(
+                "agent_session.cloud chat_stream enter: session_id=%s provider=%s model=%s message_count=%s",
+                session.get("id") or "",
+                provider_name,
+                model,
+                len(messages),
+            )
+            try:
+                async for chunk in provider.chat_stream(
+                    messages=messages,
+                    model=model,
+                    api_key=api_key,
+                    temperature=0.2,
+                    max_tokens=2400,
+                ):
+                    if isinstance(chunk, dict):
+                        logger.debug(
+                            "agent_session.cloud chat_stream chunk: session_id=%s provider=%s keys=%s",
+                            session.get("id") or "",
+                            provider_name,
+                            sorted(chunk.keys()),
+                        )
+                    yield chunk
+                logger.info(
+                    "agent_session.cloud chat_stream exit: session_id=%s provider=%s model=%s",
+                    session.get("id") or "",
+                    provider_name,
+                    model,
+                )
+            except Exception:
+                logger.exception(
+                    "agent_session.cloud chat_stream failed: session_id=%s provider=%s model=%s",
+                    session.get("id") or "",
+                    provider_name,
+                    model,
+                )
+                raise
 
         return stream
 
@@ -884,6 +1083,16 @@ class AgentSessionService:
         metadata["fallback_reason"] = None
         metadata["last_graph_error"] = None
         metadata["last_resume_decision"] = None
+        metadata["execution_trace"] = {
+            **dict(metadata.get("execution_trace") or {}),
+            "runtime": "langgraph",
+            "provider": session.get("provider") or "",
+            "model": session.get("model") or "",
+            "status": "running",
+            "fallback_used": False,
+            "last_graph_error": None,
+            "last_model_error": None,
+        }
         self.repository.update_session(session_id, metadata=metadata)
         return {
             "session_id": session_id,
@@ -929,7 +1138,7 @@ class AgentSessionService:
             return None
         try:
             return self._cloud_stream_model_call(session)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, AgentSessionCloudError):
             return None
 
     def _has_custom_processor_prompt(self) -> bool:

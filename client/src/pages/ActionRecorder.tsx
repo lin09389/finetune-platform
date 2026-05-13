@@ -32,6 +32,7 @@ import {
 import React, { useEffect, useMemo, useState } from 'react';
 import { apiClient } from '../services/api';
 import type { RecordedAction } from '../types';
+import { appModal } from '../utils/modal';
 
 const { Title } = Typography;
 
@@ -195,7 +196,7 @@ export const ActionRecorder: React.FC = () => {
   };
 
   const handleClear = async () => {
-    Modal.confirm({
+    appModal.confirm({
       title: 'Clear recordings',
       content: 'Remove all recorded actions?',
       onOk: async () => {

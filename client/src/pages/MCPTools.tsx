@@ -8,10 +8,11 @@ import {
   ReloadOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
-import { message, Modal } from 'antd';
+import { message } from 'antd';
 import { useEffect, useState } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import { apiClient } from '../services/api';
+import { appModal } from '../utils/modal';
 import styles from './MCPTools.module.css';
 
 interface MCPToolItem {
@@ -139,7 +140,7 @@ export default function MCPTools() {
   };
 
   const handleRemoveServer = async (name: string) => {
-    Modal.confirm({
+    appModal.confirm({
       title: '确认删除',
       content: `确定要删除服务器 "${name}" 吗？`,
       onOk: async () => {
@@ -179,7 +180,7 @@ export default function MCPTools() {
         message.error(`调用失败: ${response.data.content}`);
       } else {
         message.success('调用成功');
-        Modal.success({
+        appModal.success({
           title: '执行结果',
           content: (
             <pre style={{ maxHeight: 400, overflow: 'auto' }}>

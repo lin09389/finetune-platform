@@ -3,6 +3,7 @@ import { App, Badge, Button, Form, Input, Modal, Tag } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import { API_BASE_URL } from '../services/api';
+import { appModal } from '../utils/modal';
 import styles from './WorkspaceManager.module.css';
 
 const { TextArea } = Input;
@@ -120,7 +121,7 @@ export default function WorkspaceManager() {
   };
 
   const handleDelete = async (id: string) => {
-    Modal.confirm({
+    appModal.confirm({
       title: '确认删除',
       content: '删除后将无法恢复，确认继续吗？',
       onOk: async () => {

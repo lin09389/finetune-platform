@@ -18,6 +18,8 @@ import { useShallow } from 'zustand/react/shallow';
 import { ThemeProvider, useTheme } from './theme';
 import ContextualToolbar from './components/shared/ContextualToolbar';
 import TechBackground from './components/shared/TechBackground';
+import { setModalAdapter } from './utils/modal';
+import { setNotifyAdapter } from './utils/notify';
 
 const { Content } = Layout;
 
@@ -153,7 +155,7 @@ const routes = [
 ];
 
 function AppContent() {
-  const { message } = AntApp.useApp();
+  const { message, modal } = AntApp.useApp();
   const location = useLocation();
   const { setBackendUrl, setBackendStatus, sidebarCollapsed } = useAppStore(useShallow(state => ({
     setBackendUrl: state.setBackendUrl,
@@ -165,6 +167,24 @@ function AppContent() {
   const useCompactNav = isMobile || isTablet;
   const [loading, setLoading] = useState(true);
   const disconnectWarnedRef = useRef(false);
+
+  useEffect(() => {
+    setNotifyAdapter({
+      success: (content) => message.success(content),
+      warning: (content) => message.warning(content),
+      error: (content) => message.error(content),
+      info: (content) => message.info(content),
+    });
+    setModalAdapter({
+      confirm: (config) => modal.confirm(config),
+      success: (config) => modal.success(config),
+    });
+
+    return () => {
+      setNotifyAdapter(null);
+      setModalAdapter(null);
+    };
+  }, [message, modal]);
 
   useEffect(() => {
     const applyBackendStatus = (isHealthy: boolean) => {

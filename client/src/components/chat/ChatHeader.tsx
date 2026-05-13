@@ -3,17 +3,16 @@ import {
   ClearOutlined,
   ExportOutlined,
   HistoryOutlined,
-  MoonOutlined,
   MoreOutlined,
   PlusOutlined,
   SettingOutlined,
-  SunOutlined,
 } from '@ant-design/icons';
-import { Button, Dropdown, Modal, Space, Tooltip, Typography, message } from 'antd';
+import { Button, Dropdown, Space, Tooltip, Typography, message } from 'antd';
 import { motion } from 'framer-motion';
 import React, { useCallback } from 'react';
 import { useResponsive } from '../../hooks/useResponsive';
 import { transitions } from '../../theme/animations';
+import { appModal } from '../../utils/modal';
 import styles from './ChatHeader.module.css';
 
 const { Text } = Typography;
@@ -25,8 +24,6 @@ interface ChatHeaderProps {
   onOpenContextPanel?: () => void;
   onClearChat: () => void;
   onExportChat: (format: 'markdown' | 'json') => void;
-  theme: 'light' | 'dark';
-  onToggleTheme: () => void;
   messageCount: number;
   activeModeLabel: string;
   activeModelLabel: string;
@@ -39,8 +36,6 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
   onOpenContextPanel,
   onClearChat,
   onExportChat,
-  theme,
-  onToggleTheme,
   messageCount,
   activeModeLabel,
   activeModelLabel,
@@ -61,7 +56,7 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
   const handleClear = useCallback(() => {
     if (messageCount === 0) return;
 
-    Modal.confirm({
+    appModal.confirm({
       title: '确认清空',
       content: '确定要清空当前对话吗？',
       okText: '清空',
@@ -126,15 +121,6 @@ const ChatHeader: React.FC<ChatHeaderProps> = ({
             </Tooltip>
           )}
 
-          <Tooltip title={theme === 'light' ? '切换到深色模式' : '切换到浅色模式'}>
-            <motion.div whileHover={{ scale: 1.05, rotate: 12 }} whileTap={{ scale: 0.95 }}>
-              <Button
-                icon={theme === 'light' ? <MoonOutlined /> : <SunOutlined />}
-                onClick={onToggleTheme}
-                className={styles.actionButton}
-              />
-            </motion.div>
-          </Tooltip>
 
           <Dropdown
             menu={{

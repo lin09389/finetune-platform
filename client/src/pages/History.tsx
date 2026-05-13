@@ -49,6 +49,7 @@ import {
 } from '../services/trainingApi';
 import { useAppStore } from '../store/appStore';
 import type { Checkpoint, TrainingRecord } from '../types';
+import { appModal } from '../utils/modal';
 import styles from './History.module.css';
 
 type TrainingMetricPoint = {
@@ -302,7 +303,7 @@ export default function History({ mode = 'history' }: HistoryProps) {
       message.info('没有无效检查点需要清理');
       return;
     }
-    Modal.confirm({
+    appModal.confirm({
       title: '清理无效检查点',
       content: `确定要清理 ${invalidCount} 个无效检查点吗？此操作不可恢复。`,
       okText: '确认清理',
@@ -1235,7 +1236,7 @@ export default function History({ mode = 'history' }: HistoryProps) {
         confirmLoading={merging}
         okText="开始合并"
         cancelText="取消"
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={mergeForm} layout="vertical">
           <Descriptions column={1} size="small" bordered style={{ marginBottom: 16 }}>

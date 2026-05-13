@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from core.config import settings
 from rag.vector_store import get_vector_store
 from workspace.local_paths import normalize_local_workspace_path
 
@@ -45,6 +46,29 @@ def _save_workspace_store(workspaces: dict[str, dict[str, Any]]) -> None:
 
 
 workspaces: dict[str, dict[str, Any]] = _load_workspace_store()
+DEFAULT_WORKSPACE_ID = "current_project"
+
+
+def _default_project_path() -> str:
+    base_dir = settings.base_dir.resolve()
+    workspace = base_dir.parent if base_dir.name == "server" else base_dir
+    return str(workspace)
+
+
+def _default_workspace_payload() -> dict[str, Any]:
+    now = datetime.now().isoformat()
+    return {
+        "id": DEFAULT_WORKSPACE_ID,
+        "name": "当前项目",
+        "description": "当前 Finetune Platform 项目根目录",
+        "created_at": now,
+        "updated_at": now,
+        "document_count": 0,
+        "vector_count": 0,
+        "vector_collection_name": DEFAULT_WORKSPACE_ID,
+        "local_path": _default_project_path(),
+        "status": "default",
+    }
 
 
 class WorkspaceCreate(BaseModel):
@@ -78,6 +102,21 @@ class WorkspaceUpdate(BaseModel):
     local_path: str | None = Field(default=None, description="Updated local project path")
 
 
+class WorkspaceTreeNode(BaseModel):
+    """A local workspace file tree node."""
+
+    name: str
+    path: str
+    kind: str
+    children: list["WorkspaceTreeNode"] | None = None
+
+
+class WorkspaceTreeResponse(BaseModel):
+    root: str
+    nodes: list[WorkspaceTreeNode]
+    truncated: bool = False
+
+
 def _persist_workspaces() -> None:
     _save_workspace_store(workspaces)
 
@@ -102,6 +141,83 @@ def _refresh_workspace_counts(workspace: dict[str, Any]) -> Workspace:
     workspace["vector_collection_name"] = collection_name
     workspace["vector_count"] = vector_count
     return Workspace(**workspace)
+
+
+def _resolve_workspace_path(workspace_id: str | None = None, project_path: str | None = None) -> Path:
+    if project_path and project_path.strip():
+        try:
+            return Path(normalize_local_workspace_path(project_path) or "").resolve()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if workspace_id:
+        if workspace_id == DEFAULT_WORKSPACE_ID:
+            return Path(_default_project_path()).resolve()
+        workspace = _ensure_workspace_exists(workspace_id)
+        local_path = workspace.get("local_path")
+        if not local_path:
+            raise HTTPException(status_code=400, detail="Workspace does not have a local_path")
+        return Path(local_path).resolve()
+
+    return Path(_default_project_path()).resolve()
+
+
+def _is_ignored_tree_entry(path: Path) -> bool:
+    ignored_names = {
+        ".git",
+        ".hg",
+        ".svn",
+        ".vs",
+        ".venv",
+        "venv",
+        "env",
+        "node_modules",
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+        "dist",
+        "build",
+        "coverage",
+    }
+    return path.name in ignored_names
+
+
+def _build_tree(
+    path: Path,
+    root: Path,
+    *,
+    depth: int,
+    max_depth: int,
+    budget: dict[str, int],
+) -> list[WorkspaceTreeNode]:
+    if depth >= max_depth or budget["remaining"] <= 0:
+        return []
+
+    try:
+        entries = [entry for entry in path.iterdir() if not _is_ignored_tree_entry(entry)]
+    except OSError:
+        return []
+
+    entries.sort(key=lambda item: (item.is_file(), item.name.lower()))
+    nodes: list[WorkspaceTreeNode] = []
+    for entry in entries:
+        if budget["remaining"] <= 0:
+            break
+        budget["remaining"] -= 1
+        rel_path = entry.relative_to(root).as_posix()
+        if entry.is_dir():
+            nodes.append(
+                WorkspaceTreeNode(
+                    name=entry.name,
+                    path=rel_path,
+                    kind="folder",
+                    children=_build_tree(entry, root, depth=depth + 1, max_depth=max_depth, budget=budget),
+                )
+            )
+        elif entry.is_file():
+            nodes.append(WorkspaceTreeNode(name=entry.name, path=rel_path, kind="file"))
+    return nodes
 
 
 @router.post("/workspaces", response_model=Workspace)
@@ -142,8 +258,15 @@ async def create_workspace(data: WorkspaceCreate):
 async def list_workspaces():
     """List workspaces."""
     result: list[Workspace] = []
+    default_workspace = _default_workspace_payload()
+    default_path = default_workspace["local_path"]
+    has_default_path = False
     for workspace in workspaces.values():
+        if workspace.get("local_path") == default_path:
+            has_default_path = True
         result.append(_refresh_workspace_counts(workspace))
+    if not has_default_path:
+        result.insert(0, Workspace(**default_workspace))
     _persist_workspaces()
     return result
 
@@ -232,3 +355,19 @@ async def get_workspace_stats(workspace_id: str):
             "document_count": 0,
             "documents": [],
         }
+
+
+@router.get("/tree", response_model=WorkspaceTreeResponse)
+async def get_workspace_tree(
+    workspace_id: str | None = None,
+    project_path: str | None = None,
+    max_depth: int = 3,
+    limit: int = 240,
+):
+    """Return a shallow local file tree for the selected workspace."""
+    root = _resolve_workspace_path(workspace_id=workspace_id, project_path=project_path)
+    max_depth = max(1, min(max_depth, 6))
+    limit = max(20, min(limit, 800))
+    budget = {"remaining": limit}
+    nodes = _build_tree(root, root, depth=0, max_depth=max_depth, budget=budget)
+    return WorkspaceTreeResponse(root=str(root), nodes=nodes, truncated=budget["remaining"] <= 0)

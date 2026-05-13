@@ -19,6 +19,7 @@ import {
   type ConversationBranchSummary,
   type ConversationTreeNode,
 } from '../services/conversationTreeApi';
+import { appModal } from '../utils/modal';
 
 const { Text } = Typography;
 
@@ -284,7 +285,7 @@ const ChatBranchManager: React.FC<ChatBranchManagerProps> = ({
                             label: '删除分支',
                             danger: true,
                             onClick: () => {
-                              Modal.confirm({
+                              appModal.confirm({
                                 title: '确认删除',
                                 content: '确定要删除这个分支吗？',
                                 okButtonProps: { danger: true },

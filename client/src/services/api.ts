@@ -866,6 +866,19 @@ export interface WorkspaceSummary {
   status?: string;
 }
 
+export interface WorkspaceTreeNode {
+  name: string;
+  path: string;
+  kind: 'folder' | 'file';
+  children?: WorkspaceTreeNode[];
+}
+
+export interface WorkspaceTreeResponse {
+  root: string;
+  nodes: WorkspaceTreeNode[];
+  truncated: boolean;
+}
+
 export interface WorkspaceCreateRequest {
   name: string;
   description?: string;
@@ -1248,6 +1261,16 @@ export const createWorkspace = async (payload: WorkspaceCreateRequest): Promise<
 
 export const updateWorkspace = async (workspaceId: string, payload: WorkspaceUpdateRequest): Promise<WorkspaceSummary> => {
   const response = await apiClient.put(`/workspace/workspaces/${workspaceId}`, payload);
+  return response.data;
+};
+
+export const getWorkspaceTree = async (params: {
+  workspace_id?: string;
+  project_path?: string;
+  max_depth?: number;
+  limit?: number;
+}): Promise<WorkspaceTreeResponse> => {
+  const response = await apiClient.get('/workspace/tree', { params });
   return response.data;
 };
 

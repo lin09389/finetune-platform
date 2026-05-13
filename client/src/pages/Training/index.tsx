@@ -1,4 +1,4 @@
-import { Button, Form, Modal } from 'antd';
+import { Button, Form } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   DisconnectOutlined,
@@ -34,6 +34,7 @@ import type {
   TrainingRecord,
 } from '../../types';
 import { notify } from '../../utils/notify';
+import { appModal } from '../../utils/modal';
 import HyperparameterPanel from './components/HyperparameterPanel';
 import TrainingDashboard from './components/TrainingDashboard';
 import {
@@ -593,7 +594,7 @@ const TrainingPage: React.FC = () => {
   const confirmRiskStart = useCallback(
     (warnings: string[]) =>
       new Promise<boolean>((resolve) => {
-        Modal.confirm({
+        appModal.confirm({
           title: '预检提示当前配置存在风险',
           content: `检测到 ${warnings.length} 条风险提示。是否仍然继续启动训练？`,
           okText: '仍然启动',

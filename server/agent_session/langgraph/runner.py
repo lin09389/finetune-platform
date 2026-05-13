@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import logging
+
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 
@@ -10,6 +12,9 @@ from agent_runtime.langgraph.checkpoint import get_checkpoint_db_path
 
 from .graph_builder import build_agent_session_graph
 from .nodes import AgentSessionLangGraphRuntime
+
+
+logger = logging.getLogger(__name__)
 
 
 class AgentSessionGraphRunner:
@@ -37,6 +42,7 @@ class AgentSessionGraphRunner:
 
     async def get_graph(self):
         if self._graph is None:
+            logger.info("agent_session.langgraph.runner building graph")
             self._graph = build_agent_session_graph(
                 repository=self.repository,
                 processor=self.processor,
@@ -44,6 +50,7 @@ class AgentSessionGraphRunner:
                 checkpointer=await self._get_checkpointer(),
                 runtime=self.runtime,
             )
+            logger.info("agent_session.langgraph.runner graph built successfully")
         return self._graph
 
     async def run_prompt(
@@ -61,10 +68,17 @@ class AgentSessionGraphRunner:
             stream_model_call=stream_model_call,
         )
         try:
+            logger.info(
+                "agent_session.langgraph.run_prompt start: session_id=%s model_call=%s stream_model_call=%s",
+                session_id,
+                bool(model_call),
+                bool(stream_model_call),
+            )
             await graph.ainvoke(
                 initial_state,
                 config={"configurable": {"thread_id": self.thread_id(session_id)}},
             )
+            logger.info("agent_session.langgraph.run_prompt completed: session_id=%s", session_id)
         finally:
             self.runtime.clear_invocation_context(session_id)
 

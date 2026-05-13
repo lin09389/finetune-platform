@@ -38,11 +38,33 @@ def test_agent_session_langgraph_streaming_runs_through_graph(tmp_path: Path, mo
 
     assert result.status == "completed"
     assert result.metadata["runtime"] == "langgraph"
+    assert result.metadata["execution_trace"]["runtime"] == "langgraph"
+    assert result.metadata["execution_trace"]["model_entry"] == "chat_stream"
+    assert result.metadata["execution_trace"]["fallback_used"] is False
     assert any(event["event_type"] == "model_stream_started" for event in events)
     assert any(event["event_type"] == "part_delta" for event in events)
     assert any(event["event_type"] == "model_stream_completed" for event in events)
     assert result.parts[-1].type == "summary"
     assert result.parts[-1].content == "最终结果：流式LangGraph"
+
+
+def test_agent_session_cloud_provider_missing_key_fails_fast(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(settings, "agent_session_langgraph_enabled", True)
+    monkeypatch.setattr("agent_session.service.secure_storage.get", lambda _key: {})
+    service = _service(tmp_path)
+    session = service.create_session(
+        AgentSessionCreate(title="missing key", project_path=str(Path.cwd()), provider="mock", model="mock-model")
+    )
+
+    result = asyncio.run(service.prompt(session.id, AgentPromptRequest(content="调用云端模型")))
+    events = service.list_events(session.id)
+
+    assert result.status == "needs_manual_review"
+    assert result.parts[-1].type == "summary"
+    assert "未配置 mock 的 API Key" in result.parts[-1].content
+    assert result.metadata["execution_trace"]["failure_code"] == "missing_api_key"
+    assert result.metadata["execution_trace"]["fallback_used"] is False
+    assert any(event["event_type"] == "agent_chain_failed" for event in events)
 
 
 def test_agent_session_langgraph_streaming_supports_multi_turn_tool_loop(tmp_path: Path, monkeypatch):

@@ -7,7 +7,7 @@ import {
   ReloadOutlined,
   SafetyCertificateOutlined,
 } from '@ant-design/icons';
-import { Button, Form, Input, Modal, Popconfirm, Segmented, Select, Space, Switch, Tag, message, Tabs } from 'antd';
+import { App, Button, Form, Input, Modal, Popconfirm, Segmented, Select, Space, Switch, Tag, Tabs } from 'antd';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -83,6 +83,7 @@ function compactJson(value: any) {
 }
 
 export default function Workflows() {
+  const { message } = App.useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([]);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
@@ -105,7 +106,7 @@ export default function Workflows() {
   const [form] = Form.useForm();
   const [templateForm] = Form.useForm();
   const [contextForm] = Form.useForm();
-  const selectedFormProvider = Form.useWatch('provider', form);
+  const [selectedFormProvider, setSelectedFormProvider] = useState<string>();
 
   const selectedId = selectedWorkflow?.workflow_id || selectedWorkflow?.id;
 
@@ -501,6 +502,7 @@ export default function Workflows() {
       include_memory: true,
       max_context_chars: 6000,
     });
+    setSelectedFormProvider(defaultProvider);
     setCreateOpen(true);
   };
 
@@ -1031,6 +1033,7 @@ export default function Workflows() {
                 style={{ width: 240 }}
                 options={providerOptions}
                 onChange={(provider) => {
+                  setSelectedFormProvider(provider);
                   const savedProvider = cloudProviders.find((item) => item.provider === provider);
                   form.setFieldValue(
                     'model',

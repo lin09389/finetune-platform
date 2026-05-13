@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -12,6 +13,9 @@ from agent_runtime.langgraph.provider_adapter import get_chat_model
 from ..parser import parse_agent_response
 from ..state import ensure_session_state, record_command, record_diff, set_phase
 from .state import AgentSessionGraphState
+
+
+logger = logging.getLogger(__name__)
 
 
 class AgentSessionLangGraphRuntime:
@@ -110,7 +114,28 @@ class AgentSessionLangGraphRuntime:
         if not tool_calls and not final_summary:
             stripped = raw.strip()
             if stripped:
-                final_summary = stripped
+                if self.processor._looks_like_final_text(stripped):
+                    final_summary = stripped
+                else:
+                    result = self.processor._stop_with_summary(
+                        session["id"],
+                        "needs_manual_review",
+                        "模型没有按 JSON 工具协议输出，已停止等待人工处理。",
+                    )
+                    summary = self._latest_summary(session["id"], result) or stripped
+                    return {
+                        "pending_tool_calls": [],
+                        "final_summary": summary,
+                        "execution_state": "needs_manual_review",
+                        "iterations": iterations + 1,
+                        "last_model_raw": raw,
+                        "streaming_enabled": bool(self._invocation_context(state["session_id"]).get("stream_model_call")),
+                        "streaming_part_id": streaming_part_id,
+                        "streaming_failed": streaming_failed,
+                        "last_stream_error": stream_error,
+                        "streaming_raw": raw if streaming_part_id else "",
+                        "node_results": list(state.get("node_results") or []),
+                    }
         if streaming_finalized_type == "summary":
             final_summary = summary_text or final_summary or raw.strip() or "任务已完成。"
             metadata = set_phase(self.processor._ensure_metadata(self._session(session["id"])), "completed")
@@ -389,9 +414,16 @@ class AgentSessionLangGraphRuntime:
         session_id = str(session["id"])
         invocation = self._invocation_context(session_id)
         stream_model_call = invocation.get("stream_model_call")
+        logger.info(
+            "agent_session.langgraph.invoke_model start: session_id=%s stream_available=%s",
+            session_id,
+            bool(stream_model_call),
+        )
         if stream_model_call is not None:
             try:
+                logger.info("agent_session.langgraph.invoke_model entering chat_stream: session_id=%s", session_id)
                 raw, streaming_part_id = await self.processor._stream_model_output(session_id, messages, stream_model_call)
+                logger.info("agent_session.langgraph.invoke_model chat_stream completed: session_id=%s", session_id)
                 return self._parse_model_output(
                     raw,
                     streaming_part_id=streaming_part_id,
@@ -401,6 +433,7 @@ class AgentSessionLangGraphRuntime:
                 failed_part_id = getattr(self.processor, "_pending_stream_part_id", None)
                 if failed_part_id:
                     self.repository.update_part(failed_part_id, status="failed", title="流式输出失败")
+                logger.warning("agent_session.langgraph.invoke_model chat_stream failed, fallback to model_call: session_id=%s error=%s", session_id, str(exc)[:200])
                 self.processor._event(
                     session_id,
                     "model_stream_failed",
@@ -414,11 +447,14 @@ class AgentSessionLangGraphRuntime:
                     fallback_to_non_stream=True,
                     error=str(exc)[:600],
                 )
+                logger.info("agent_session.langgraph.invoke_model entering model_call after chat_stream fallback: session_id=%s", session_id)
                 raw, text_chunks, summary, tool_calls, finalized_type, streaming_part_id = await self._invoke_non_stream_model(session, messages)
                 return raw, text_chunks, summary, tool_calls, finalized_type, streaming_part_id, True, str(exc)[:600]
 
+        logger.info("agent_session.langgraph.invoke_model entering model_call: session_id=%s", session_id)
         self.processor._event(session_id, "phase_change", "模型思考中", {"phase": "model_thinking"})
         raw, text_chunks, summary, tool_calls, finalized_type, streaming_part_id = await self._invoke_non_stream_model(session, messages)
+        logger.info("agent_session.langgraph.invoke_model model_call completed: session_id=%s", session_id)
         return raw, text_chunks, summary, tool_calls, finalized_type, streaming_part_id, False, None
 
     async def _invoke_non_stream_model(
@@ -429,7 +465,9 @@ class AgentSessionLangGraphRuntime:
         invocation = self._invocation_context(str(session["id"]))
         model_call = invocation.get("model_call") or self.model_call
         if model_call is not None:
+            logger.info("agent_session.langgraph.invoke_model entering injected model_call: session_id=%s", session["id"])
             raw = await model_call(messages)
+            logger.info("agent_session.langgraph.invoke_model injected model_call completed: session_id=%s", session["id"])
             return self._parse_model_output(raw, session_id=str(session["id"]))
 
         context = RuntimeExecutionContext(
@@ -440,8 +478,10 @@ class AgentSessionLangGraphRuntime:
             model=session.get("model"),
             metadata={"source": "agent_session_langgraph"},
         )
+        logger.info("agent_session.langgraph.invoke_model entering provider chat model: session_id=%s provider=%s model=%s", session["id"], context.provider, context.model or "")
         model = get_chat_model(context).bind_tools(self._tool_schemas())
         response = await model.ainvoke(self._to_langchain_messages(messages))
+        logger.info("agent_session.langgraph.invoke_model provider chat model completed: session_id=%s", session["id"])
         ai_message = response if isinstance(response, AIMessage) else AIMessage(content=str(response))
         content = str(ai_message.content or "")
         raw, text_chunks, summary, tool_calls, finalized_type, streaming_part_id = self._parse_model_output(

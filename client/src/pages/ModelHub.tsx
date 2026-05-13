@@ -7,10 +7,11 @@ import {
   ReloadOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
-import { App, Button, Input, Modal, Progress, Segmented, Space, Table, Tag, Tooltip } from 'antd';
+import { App, Button, Input, Progress, Segmented, Space, Table, Tag, Tooltip } from 'antd';
 import { useEffect, useState } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import { API_BASE_URL } from '../services/api';
+import { appModal } from '../utils/modal';
 import styles from './ModelHub.module.css';
 
 interface ModelSuggestion {
@@ -190,7 +191,7 @@ export default function ModelHub() {
   };
 
   const handleDeleteLocal = async (modelId: string) => {
-    Modal.confirm({
+    appModal.confirm({
       title: '确认删除',
       content: `确定要删除模型 ${modelId} 吗？`,
       onOk: async () => {
