@@ -14,6 +14,7 @@
 import asyncio
 import json
 import threading
+import uuid
 from collections.abc import Mapping
 from contextlib import suppress
 from datetime import datetime
@@ -119,46 +120,52 @@ class TrainingWebSocketManager:
                     logger.info(f"WebSocket 断开：task_id={task_id}")
 
     async def broadcast(self, task_id: str, data: dict[str, Any]):
+        # Lock内只复制连接列表，释放锁后逐一发送
         async with self._async_lock:
             if task_id not in self._connections:
                 return
-            message = json.dumps(data)
-            disconnected = []
-            current_time = asyncio.get_event_loop().time()
+            targets = list(self._connections[task_id])
+            conn_times = dict(self._connection_times.get(task_id, {}))
 
-            for websocket in list(self._connections[task_id]):
-                try:
-                    if task_id in self._connection_times:
-                        conn_time = self._connection_times[task_id].get(websocket, 0)
-                        if current_time - conn_time > self.CONNECTION_TIMEOUT:
-                            logger.warning(f"WebSocket 连接超时：task_id={task_id}")
-                            disconnected.append(websocket)
-                            continue
-                    try:
-                        await asyncio.wait_for(
-                            websocket.send_text(message),
-                            timeout=self.SEND_TIMEOUT
-                        )
-                    except asyncio.TimeoutError:
-                        logger.warning(f"WebSocket 发送超时：task_id={task_id}")
-                        disconnected.append(websocket)
-                except Exception as e:
-                    logger.warning(f"WebSocket 发送失败：{e}")
+        message = json.dumps(data)
+        disconnected = []
+        current_time = asyncio.get_event_loop().time()
+
+        for websocket in targets:
+            try:
+                conn_time = conn_times.get(websocket, 0)
+                if current_time - conn_time > self.CONNECTION_TIMEOUT:
+                    logger.warning(f"WebSocket 连接超时：task_id={task_id}")
                     disconnected.append(websocket)
-
-            for ws in disconnected:
+                    continue
                 try:
-                    if task_id in self._connections and ws in self._connections[task_id]:
-                        self._connections[task_id].remove(ws)
-                    if task_id in self._connection_times and ws in self._connection_times[task_id]:
-                        del self._connection_times[task_id][ws]
-                except Exception as e:
-                    logger.debug(f"清理断开的 WebSocket 连接失败：{e}")
+                    await asyncio.wait_for(
+                        websocket.send_text(message),
+                        timeout=self.SEND_TIMEOUT
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"WebSocket 发送超时：task_id={task_id}")
+                    disconnected.append(websocket)
+            except Exception as e:
+                logger.warning(f"WebSocket 发送失败：{e}")
+                disconnected.append(websocket)
 
-            if task_id in self._connections and not self._connections[task_id]:
-                del self._connections[task_id]
-                if task_id in self._connection_times:
-                    del self._connection_times[task_id]
+        # 回收断开的连接
+        if disconnected:
+            async with self._async_lock:
+                for ws in disconnected:
+                    try:
+                        if task_id in self._connections and ws in self._connections[task_id]:
+                            self._connections[task_id].remove(ws)
+                        if task_id in self._connection_times and ws in self._connection_times.get(task_id, {}):
+                            del self._connection_times[task_id][ws]
+                    except Exception as e:
+                        logger.debug(f"清理断开的 WebSocket 连接失败：{e}")
+
+                if task_id in self._connections and not self._connections[task_id]:
+                    del self._connections[task_id]
+                    if task_id in self._connection_times:
+                        del self._connection_times[task_id]
 
     async def broadcast_progress(self, task_id: str, progress: dict[str, Any]):
         await self.broadcast(task_id, {"type": "progress", "data": progress})
@@ -282,8 +289,8 @@ async def progress_stream(
 
                 if progress.status == "idle":
                     idle_count += 1
-                    if idle_count > 3:
-                        yield f"data: {progress.model_dump_json()}\n\n"
+                    if idle_count > 30:
+                        yield "event: idle_timeout\ndata: {\"message\": \"Idle timeout\"}\n\n"
                         break
                 else:
                     idle_count = 0
@@ -297,7 +304,7 @@ async def progress_stream(
             logger.info("SSE 连接被客户端取消")
         except Exception as e:
             logger.error(f"SSE 连接错误：{e}")
-            yield f"event: error\ndata: {{\"message\": \"{str(e)}\"}}\n\n"
+            yield 'event: error\ndata: {"message": "Internal stream error"}\n\n'
 
     return StreamingResponse(
         event_generator(),
@@ -328,26 +335,32 @@ async def stream_training_events_v2(
         last_heartbeat = time.time()
         cursor = start_seq
 
-        while True:
-            now = time.time()
-            if now - connection_start > timeout:
-                break
-            events = hub.list_since(cursor, task_id=task_id)
-            if events:
-                for event in events:
-                    cursor = max(cursor, event.sequence)
-                    payload = json.dumps(event.model_dump(), ensure_ascii=False)
-                    yield f"id: {event.event_id}\nevent: {event.kind}\ndata: {payload}\n\n"
-            if now - last_heartbeat >= heartbeat:
-                heartbeat_payload = json.dumps({
-                    "version": "v2",
-                    "kind": "heartbeat",
-                    "sequence": hub.current_sequence(),
-                    "ts": datetime.now().isoformat(),
-                }, ensure_ascii=False)
-                yield f"event: heartbeat\ndata: {heartbeat_payload}\n\n"
-                last_heartbeat = now
-            await asyncio.sleep(1)
+        try:
+            while True:
+                now = time.time()
+                if now - connection_start > timeout:
+                    break
+                events = hub.list_since(cursor, task_id=task_id)
+                if events:
+                    for event in events:
+                        cursor = max(cursor, event.sequence)
+                        payload = json.dumps(event.model_dump(), ensure_ascii=False)
+                        yield f"id: {event.event_id}\nevent: {event.kind}\ndata: {payload}\n\n"
+                if now - last_heartbeat >= heartbeat:
+                    heartbeat_payload = json.dumps({
+                        "version": "v2",
+                        "kind": "heartbeat",
+                        "sequence": hub.current_sequence(),
+                        "ts": datetime.now().isoformat(),
+                    }, ensure_ascii=False)
+                    yield f"event: heartbeat\ndata: {heartbeat_payload}\n\n"
+                    last_heartbeat = now
+                await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"V2 SSE 错误：{e}")
+            yield 'event: error\ndata: {"message": "Stream error"}\n\n'
 
     return StreamingResponse(
         event_generator(),
@@ -368,18 +381,37 @@ async def training_events_websocket_v2(websocket: WebSocket, task_id: str):
     cursor = hub.parse_last_event_id(websocket.query_params.get("last_event_id"))
     task_filter = None if task_id == "all" else task_id
 
+    CONNECTION_TIMEOUT = 300
+    HEARTBEAT_INTERVAL = 30
+    connection_start = asyncio.get_event_loop().time()
+    last_heartbeat = asyncio.get_event_loop().time()
+
     try:
         while True:
+            now = asyncio.get_event_loop().time()
+            if now - connection_start > CONNECTION_TIMEOUT:
+                await websocket.send_text(json.dumps({"type": "timeout", "message": "Connection timeout"}))
+                break
+
             for event in hub.list_since(cursor, task_id=task_filter):
                 cursor = max(cursor, event.sequence)
                 await websocket.send_text(json.dumps(event.model_dump(), ensure_ascii=False))
+
+            if now - last_heartbeat >= HEARTBEAT_INTERVAL:
+                await websocket.send_text(json.dumps({"type": "ping", "ts": now}))
+                last_heartbeat = now
+
             try:
                 message = await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
                 if message == "ping":
                     await websocket.send_text(json.dumps({"type": "pong"}))
+                connection_start = now  # 重置超时
             except asyncio.TimeoutError:
                 pass
     except WebSocketDisconnect:
+        return
+    except Exception as e:
+        logger.debug(f"V2 WebSocket 错误：{e}")
         return
 
 
@@ -450,23 +482,21 @@ async def get_training_metrics_v2(
         return {"task_id": task_id, "cursor": cursor, "next_cursor": cursor, "has_more": False, "items": []}
 
     items: list[dict[str, Any]] = []
+    total = 0
     with open(metrics_file, encoding="utf-8") as f:
         for idx, line in enumerate(f):
+            total = idx + 1
             if idx < cursor:
                 continue
             if len(items) >= limit:
-                break
+                continue  # 继续计数但不收集
             try:
                 items.append(json.loads(line))
             except json.JSONDecodeError:
                 continue
 
     next_cursor = cursor + len(items)
-    has_more = False
-    if items:
-        with open(metrics_file, encoding="utf-8") as f:
-            total = sum(1 for _ in f)
-        has_more = next_cursor < total
+    has_more = next_cursor < total
 
     return {"task_id": task_id, "cursor": cursor, "next_cursor": next_cursor, "has_more": has_more, "items": items}
 
@@ -691,14 +721,32 @@ async def _monitor_swift_training(
     logger.info(f"开始监控 SWIFT 训练：{task_id}")
     state.queue_training_state(True)
     last_progress: dict[str, Any] = {}
+    max_idle_retries = 20  # 60 秒无响应退出
+    idle_count = 0
     while True:
         await asyncio.sleep(3)
         status = swift_backend.get_training_status()
         current_status = status.get("status", "unknown")
 
         if current_status == "idle" or current_status == "unknown":
-            logger.warning("SWIFT 后端状态异常")
+            idle_count += 1
+            if idle_count >= max_idle_retries:
+                logger.error("SWIFT 后端无响应，退出监控")
+                state.queue_training_state(False)
+                record.status = "failed"
+                record.end_time = datetime.now().isoformat()
+                record.final_loss = float(last_progress.get("loss", 0.0))
+                record.final_lr = float(last_progress.get("lr", 0.0))
+                record.elapsed_time = float(last_progress.get("elapsed_time", 0.0))
+                record.total_steps = int(last_progress.get("step", 0))
+                sync_training_record_metadata(record)
+                enrich_record_metrics(record)
+                state.add_to_history_sync(record)
+                swift_backend.cleanup()
+                break
+            logger.warning(f"SWIFT 后端状态异常（{idle_count}/{max_idle_retries}）")
             continue
+        idle_count = 0
 
         if current_status == "running":
             progress = swift_backend.parse_training_progress()
@@ -923,7 +971,15 @@ async def resume_training(task_id: str, checkpoint_name: str):
 
     config_dict = dict(original_record.config)
     config_dict["resume_from_checkpoint"] = str(checkpoint_path)
-    config = TrainingConfigInput(**config_dict)
+    try:
+        config = TrainingConfigInput(**config_dict)
+    except Exception as e:
+        logger.warning(f"从旧记录重建配置失败，使用默认值补充：{e}")
+        defaults = TrainingConfigInput.model_fields
+        for name, field in defaults.items():
+            if name not in config_dict and field.default is not None:
+                config_dict[name] = field.default
+        config = TrainingConfigInput(**config_dict)
     model_path = settings.models_dir_resolved / config.model_id
     dataset_dir = settings.datasets_dir_resolved / config.dataset_id
 

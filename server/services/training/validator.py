@@ -82,26 +82,29 @@ class TrainingValidator:
 
     @staticmethod
     def _estimate_vram(model_id: str, method: str, batch_size: int, max_seq_length: int) -> float:
-        """估算 VRAM 需求"""
-        if "13B" in model_id or "14B" in model_id:
-            base_vram = 8.0
-        elif "7B" in model_id or "8B" in model_id:
-            base_vram = 4.0
-        elif "3B" in model_id:
-            base_vram = 2.0
-        else:
-            base_vram = 4.0
+        """估算 VRAM 需求 - 委托给统一的 estimate_training_vram 函数"""
+        from training_engine.model_loader import _estimate_model_params, _read_model_hidden_and_layers, estimate_training_vram
 
-        if method == "qlora" or (hasattr(method, 'lower') and 'qlora' in method.lower()):
-            base_vram *= 0.6
+        param_count = _estimate_model_params(model_id)
+        hidden_size, num_layers = _read_model_hidden_and_layers(model_id)
 
-        if batch_size > 4:
-            base_vram *= 1.2
+        quantization = 0
+        if method == "qlora":
+            quantization = 4
 
-        if max_seq_length > 1024:
-            base_vram *= 1.3
-
-        return base_vram
+        return estimate_training_vram(
+            param_count=param_count,
+            method=method,
+            quantization=quantization,
+            batch_size=batch_size,
+            max_seq_length=max_seq_length,
+            gradient_checkpointing=True,
+            use_flash_attn=False,
+            bf16=True,
+            lora_rank=8,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+        )
 
     @staticmethod
     async def _validate_dataset(config: TrainingConfigInput, settings: Settings, result: ValidationResult):
@@ -206,16 +209,25 @@ class TrainingValidator:
 
 
 def estimate_preflight_required_vram(config: TrainingConfigInput) -> float:
-    estimated = TrainingValidator._estimate_vram(
-        config.model_id,
-        config.method,
-        config.batch_size,
-        config.max_seq_length,
+    """预检 VRAM 需求估算 - 委托给统一函数"""
+    from training_engine.model_loader import _estimate_model_params, _read_model_hidden_and_layers, estimate_training_vram
+
+    param_count = _estimate_model_params(config.model_id)
+    hidden_size, num_layers = _read_model_hidden_and_layers(config.model_id)
+
+    estimated = estimate_training_vram(
+        param_count=param_count,
+        method=config.method,
+        quantization=config.quantization if config.method == "qlora" else 0,
+        batch_size=config.batch_size,
+        max_seq_length=config.max_seq_length,
+        gradient_checkpointing=config.gradient_checkpointing,
+        use_flash_attn=config.use_flash_attn,
+        bf16=config.bf16,
+        lora_rank=config.rank,
+        hidden_size=hidden_size,
+        num_layers=num_layers,
     )
-    if config.quantization == 4 and config.method == "qlora":
-        estimated *= 0.85
-    if config.gradient_checkpointing:
-        estimated *= 0.9
     return max(0.5, round(estimated, 1))
 
 

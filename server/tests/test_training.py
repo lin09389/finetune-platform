@@ -296,8 +296,9 @@ class TestTrainingDatasetValidation:
         dataset = Dataset.from_list([{"text": "a"}, {"text": "b"}])
         split = split_train_test_dataset(dataset)
 
-        assert len(split["train"]) == 1
-        assert len(split["test"]) == 1
+        # 小数据集（<5 样本）不拆分，全部作为训练集
+        assert len(split["train"]) == 2
+        assert len(split["test"]) == 0
 
     def test_estimate_training_total_steps_uses_ceil_for_small_dataset(self):
         assert estimate_training_total_steps(train_size=1, batch_size=4, epochs=3) == 3
@@ -451,7 +452,8 @@ class TestTrainingReleaseFeatureGuards:
         synced = sync_training_record_metadata(record)
 
         assert synced.base_model_id == "local-base-model"
-        assert synced.dataset_id == "validation-dataset"
+        # dataset_id 优先级高于 validation_dataset_id
+        assert synced.dataset_id == "train-dataset"
         assert synced.task_goal == "structured_extraction"
         assert synced.adapter_path == str(adapter_path)
 

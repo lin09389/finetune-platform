@@ -69,7 +69,7 @@ class TestTrainingProgress:
     def test_model_copy(self):
         """测试模型复制"""
         progress = TrainingProgress(epoch=2, step=200)
-        copied = progress.model_copy()
+        copied = progress.copy()
         assert copied.epoch == 2
         assert copied.step == 200
         assert copied is not progress

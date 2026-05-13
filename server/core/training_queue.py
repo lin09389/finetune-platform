@@ -404,16 +404,23 @@ class TrainingQueue:
         Returns:
             是否取消成功
         """
+        terminal_states = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}
         with self._lock:
             if task_id in self._running_tasks:
                 task = self._running_tasks[task_id]
+                if task.status in terminal_states:
+                    logger.warning(f"任务 {task_id} 已处于终态 {task.status}，无法取消")
+                    return False
                 task.status = TaskStatus.CANCELLED
                 logger.info(f"运行中任务已标记取消：{task_id}")
                 return True
 
             if task_id in self._all_tasks:
-                self._cancelled_tasks.add(task_id)
                 task = self._all_tasks[task_id]
+                if task.status in terminal_states:
+                    logger.warning(f"任务 {task_id} 已处于终态 {task.status}，无法取消")
+                    return False
+                self._cancelled_tasks.add(task_id)
                 task.status = TaskStatus.CANCELLED
                 logger.info(f"队列中任务已标记取消：{task_id}")
                 return True

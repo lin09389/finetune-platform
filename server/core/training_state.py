@@ -4,27 +4,31 @@
 - P0-1: 移除未使用的 asyncio.Lock，统一使用 threading.Lock
 - P1-1: 修复历史记录竞态条件，使用原子写入
 - P1-6: 修复内存泄漏，定期清理已完成任务引用
+- PERF: TrainingProgress 从 Pydantic BaseModel 改为 dataclass，避免高频 model_copy 开销
 """
 import gc
 import json
 import os
 import tempfile
 import threading
+from collections.abc import Mapping
 from contextlib import suppress
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from pathlib import Path
 from queue import Empty, Queue
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from core.logging import get_logger
 
 logger = get_logger(__name__)
 
 
-class TrainingProgress(BaseModel):
-    """训练进度"""
+@dataclass
+class TrainingProgress:
+    """训练进度 - 使用 dataclass 替代 Pydantic BaseModel 以减少高频拷贝开销"""
     epoch: int = 0
     step: int = 0
     total_steps: int = 0
@@ -35,19 +39,22 @@ class TrainingProgress(BaseModel):
     eta: float = 0.0
     status: str = "idle"
     message: str = ""
-    # 扩展观测字段
     grad_norm: float | None = None
-    speed: float = 0.0  # steps/sec
+    speed: float = 0.0
     samples_per_sec: float = 0.0
     current_phase: str = ""
-    phase_durations: dict[str, float] = Field(default_factory=dict)
+    phase_durations: dict[str, float] = field(default_factory=dict)
     retry_count: int = 0
     queue_position: int = 0
+    estimated_wait_seconds: float = 0.0
 
-    def __await__(self):
-        async def _return_self():
-            return self
-        return _return_self().__await__()
+    def copy(self) -> "TrainingProgress":
+        """浅拷贝，避免 dataclass 字典构造开销"""
+        return TrainingProgress(**{f.name: getattr(self, f.name) for f in fields(self)})
+
+    def model_dump(self) -> dict[str, Any]:
+        """兼容 Pydantic 接口的序列化方法"""
+        return {f.name: getattr(self, f.name) for f in fields(self)}
 
 
 class AwaitableBool:
@@ -189,12 +196,6 @@ class TrainingState:
                     for key, value in update.data.items():
                         if hasattr(self._progress, key):
                             setattr(self._progress, key, value)
-            elif update.update_type == 'training':
-                with self._lock:
-                    self._is_training = update.data.get('value', False)
-            elif update.update_type == 'record':
-                with self._lock:
-                    self._current_record = update.data.get('record')
             elif update.update_type == 'history_add':
                 self._add_to_history_internal(update.data.get('record'))
         except Exception as e:
@@ -208,24 +209,16 @@ class TrainingState:
             logger.error(f"队列进度更新失败：{e}")
 
     def queue_training_state(self, value: bool):
-        """队列式训练状态更新"""
+        """训练状态更新（直接写入，已有锁保护）"""
         with self._lock:
             self._is_training = value
             if not value:
                 self._stop_requested = False
-        try:
-            self._update_queue.put(StateUpdate('training', value=value))
-        except Exception as e:
-            logger.error(f"队列训练状态更新失败：{e}")
 
     def queue_record_update(self, record: TrainingRecord | None):
-        """队列式记录更新"""
+        """记录更新（直接写入，已有锁保护）"""
         with self._lock:
             self._current_record = record
-        try:
-            self._update_queue.put(StateUpdate('record', record=record))
-        except Exception as e:
-            logger.error(f"队列记录更新失败：{e}")
 
     def queue_history_add(self, record: TrainingRecord):
         """队列式添加历史记录"""
@@ -278,7 +271,7 @@ class TrainingState:
     def get_progress(self) -> TrainingProgress:
         """获取训练进度"""
         with self._lock:
-            return self._progress.model_copy()
+            return self._progress.copy()
 
     def update_progress(self, **kwargs):
         """更新训练进度"""
