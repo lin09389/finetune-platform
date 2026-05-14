@@ -7,6 +7,7 @@ export type TrainingStatus =
   | 'loading'
   | 'training'
   | 'running'
+  | 'saving'
   | 'stopping'
   | 'completed'
   | 'failed'

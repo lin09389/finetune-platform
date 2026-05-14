@@ -41,6 +41,7 @@ export type RuntimeTrainingPhase =
   | 'loading'
   | 'training'
   | 'running'
+  | 'saving'
   | 'stopping'
   | 'stopped'
   | 'completed'
@@ -171,10 +172,10 @@ export const buildRuntimeTrainingGuardrail = (
     };
   }
 
-  if (phase === 'training' || phase === 'running' || phase === 'loading') {
+  if (phase === 'training' || phase === 'running' || phase === 'loading' || phase === 'saving') {
     return {
       statusType: 'info',
-      statusText: phase === 'loading' ? '训练准备中' : '训练进行中',
+      statusText: phase === 'loading' ? '训练准备中' : phase === 'saving' ? '模型保存中' : '训练进行中',
       summary: detail || '训练链路处于活跃阶段，建议优先观察进度与失败信号。',
       actions: [
         '保持当前配置稳定，避免中途频繁改参数导致排障困难。',

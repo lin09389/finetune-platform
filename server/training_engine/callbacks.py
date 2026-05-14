@@ -387,6 +387,11 @@ class ProgressCallback:
                     "total_steps": self.total_steps
                 }
                 if self._event_loop and not self._event_loop.is_closed():
+                    # 保持向后兼容：保留 training_completed，同时新增 saving_model 事件
+                    asyncio.run_coroutine_threadsafe(
+                        ws_manager.broadcast_event(self.record.id, "saving_model", completion_data),
+                        self._event_loop
+                    )
                     asyncio.run_coroutine_threadsafe(
                         ws_manager.broadcast_event(self.record.id, "training_completed", completion_data),
                         self._event_loop
@@ -404,8 +409,8 @@ class ProgressCallback:
             vram_used=get_vram_usage(),
             elapsed_time=final_elapsed,
             eta=0.0,
-            status="completed",
-            message="Training completed!",
+            status="saving",
+            message="Saving model...",
             final_loss=self.current_loss,
             final_lr=final_lr,
             final_elapsed_time=final_elapsed,

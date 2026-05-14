@@ -40,6 +40,7 @@ export type RuntimeTrainingPhase =
   | 'loading'
   | 'training'
   | 'running'
+  | 'saving'
   | 'stopping'
   | 'stopped'
   | 'completed'
@@ -164,6 +165,7 @@ const TRAINING_PHASE_VALUES: RuntimeTrainingPhase[] = [
   'loading',
   'training',
   'running',
+  'saving',
   'stopping',
   'stopped',
   'completed',
@@ -187,6 +189,7 @@ const toTrainingSignal = (phase: RuntimeTrainingPhase): RuntimeTrainingSignal =>
   if (phase === 'stopped') return { phase, label: '训练已停止', tone: 'warning' };
   if (phase === 'training' || phase === 'running')
     return { phase, label: '训练进行中', tone: 'info' };
+  if (phase === 'saving') return { phase, label: '模型保存中', tone: 'info' };
   if (phase === 'loading') return { phase, label: '训练准备中', tone: 'info' };
   return { phase, label: '训练空闲', tone: 'info' };
 };

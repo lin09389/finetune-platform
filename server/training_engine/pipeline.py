@@ -706,21 +706,37 @@ class TrainingPipeline:
 
     def _run_cleanup(self) -> None:
         self._set_phase(TrainingPhase.CLEANUP)
-        try:
-            self.ctx.trainer = None
-            if self.ctx.model is not None:
-                safe_cleanup_model(self.ctx.model)
-            self.ctx.model = None
-            self.ctx.tokenizer = None
-            gc.collect()
-            cleanup_gpu_memory(aggressive=True)
-        except Exception as e:
-            logger.warning(f"清理资源失败：{e}")
 
+        # 【关键修复】立即设置训练状态为 False，让前端立即响应
         self.bus.publish_training_state(False)
         if self.ctx.task_id:
             self.ctx.state.unregister_training_task(self.ctx.task_id)
             logger.debug(f"已注销训练任务线程：{self.ctx.task_id}")
+
+        # 【优化】将耗时的清理操作放到后台线程执行，不阻塞训练线程退出
+        import threading
+        model = self.ctx.model
+        tokenizer = self.ctx.tokenizer
+        trainer = self.ctx.trainer
+        self.ctx.model = None
+        self.ctx.tokenizer = None
+        self.ctx.trainer = None
+
+        def _async_cleanup(model_ref, _tokenizer_ref, _trainer_ref):
+            try:
+                if model_ref is not None:
+                    safe_cleanup_model(model_ref)
+                gc.collect()
+                cleanup_gpu_memory(aggressive=True)
+            except Exception as e:
+                logger.warning(f"异步清理资源失败：{e}")
+
+        cleanup_thread = threading.Thread(
+            target=_async_cleanup,
+            args=(model, tokenizer, trainer),
+            daemon=True,
+        )
+        cleanup_thread.start()
 
     @property
     def current_phase(self) -> str:

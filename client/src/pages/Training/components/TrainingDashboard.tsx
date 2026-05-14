@@ -16,7 +16,7 @@ import type { TrainingProgress as TrainingProgressType } from '../../../types';
 interface TrainingDashboardProps {
   progress: TrainingProgressType | null;
   chartData: { step: number; loss: number; lr: number; vram?: number }[];
-  status: 'idle' | 'queued' | 'loading' | 'training' | 'stopping' | 'completed' | 'failed';
+  status: 'idle' | 'queued' | 'loading' | 'training' | 'saving' | 'stopping' | 'completed' | 'failed';
   selectedModel?: string;
   selectedDataset?: string;
   selectedMethod?: string;
@@ -272,6 +272,21 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
           <div className={styles.loadingTitle}>正在平滑关闭</div>
           <div className={styles.loadingDesc}>
             {progress?.message || '正在等待当前步骤完成以安全停止。'}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── SAVING ── */
+  if (status === 'saving') {
+    return (
+      <div className={styles.dashboardContainer}>
+        <div className={styles.stoppingContainer}>
+          <div className={styles.stoppingSpinner} />
+          <div className={styles.loadingTitle}>模型保存中</div>
+          <div className={styles.loadingDesc}>
+            训练已完成，正在保存模型到磁盘...
           </div>
         </div>
       </div>

@@ -130,7 +130,7 @@ const TrainingPage: React.FC = () => {
   const [progress, setProgress] = useState<TrainingProgressType | null>(null);
   const [starting, setStarting] = useState(false);
   const [trainingStatus, setTrainingStatus] = useState<
-    'idle' | 'queued' | 'loading' | 'training' | 'stopping' | 'completed' | 'failed'
+    'idle' | 'queued' | 'loading' | 'training' | 'saving' | 'stopping' | 'completed' | 'failed'
   >('idle');
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const [lastV2EventAt, setLastV2EventAt] = useState<number>(0);
@@ -339,6 +339,7 @@ const TrainingPage: React.FC = () => {
       else if (nextProgress.status === 'stopping') setTrainingStatus('stopping');
       else if (nextProgress.status === 'training' || nextProgress.status === 'running')
         setTrainingStatus('training');
+      else if (nextProgress.status === 'saving') setTrainingStatus('saving');
       else if (nextProgress.status === 'completed') {
         setTrainingStatus('completed');
         setFailureDiagnosis(null);
@@ -397,6 +398,9 @@ const TrainingPage: React.FC = () => {
           setTrainingStatus('idle');
           setFailureDiagnosis(null);
           setIsTraining(false);
+        } else if (data.progress.status === 'saving') {
+          setTrainingStatus('saving');
+          setIsTraining(true);
         } else if (data.is_training) {
           setTrainingStatus(data.progress.status === 'loading' ? 'loading' : 'training');
           setIsTraining(true);
@@ -941,6 +945,7 @@ const TrainingPage: React.FC = () => {
     queued: '队列中',
     loading: '加载中',
     training: '训练中',
+    saving: '模型保存中',
     stopping: '停止中',
     completed: '已完成',
     failed: '已失败',
