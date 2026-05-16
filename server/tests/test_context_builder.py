@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agent_runtime.context_builder import WorkflowContextBuilder, ContextPack
-from agent_runtime.definitions import AgentDefinition, StepDefinition, WorkflowDefinition
+from agent_runtime_legacy.context_builder import WorkflowContextBuilder, ContextPack
+from agent_runtime_legacy.definitions import AgentDefinition, StepDefinition, WorkflowDefinition
 
 
 def _make_workflow() -> WorkflowDefinition:

@@ -35,7 +35,7 @@ _STREAM_THROTTLE_CHARS = 24
 READ_TOOLS = {"read", "search", "glob", "collect_context", "read_execution", "find_symbol", "find_references", "http_probe", "probe_json_endpoint", "read_local_page", "browser_validate_page", "capture_network_errors", "browser_click", "browser_fill", "browser_wait_for", "collect_test_failures", "summarize_test_results"}
 CONTEXT_TOOLS = {"read", "search", "glob", "collect_context", "detect_project_commands", "find_symbol", "find_references", "http_probe", "probe_json_endpoint", "read_local_page", "browser_validate_page", "capture_network_errors", "browser_click", "browser_fill", "browser_wait_for", "collect_test_failures", "summarize_test_results"}
 MAX_REPAIR_ATTEMPTS = DEFAULT_MAX_REPAIR_ATTEMPTS
-MAX_PROTOCOL_REPAIRS = 2
+MAX_PROTOCOL_REPAIRS = 4
 
 
 class AgentSessionProcessor:
@@ -44,10 +44,12 @@ class AgentSessionProcessor:
         repository: AgentSessionRepository,
         tools: AgentToolRegistry | None = None,
         max_iterations: int = 8,
+        event_callback: Any | None = None,
     ):
         self.repository = repository
         self.tools = tools or AgentToolRegistry(repository=repository)
         self.max_iterations = max_iterations
+        self._event_callback = event_callback
 
     async def prompt(
         self,
@@ -385,8 +387,8 @@ class AgentSessionProcessor:
             content=self._tool_call_text(tool_name, args),
             payload={"tool": tool_name, "arguments": args, "part_index": part_index},
         )
-        self._event(session_id, "tool_call_started", call_part.get("content") or tool.description, {"part_id": call_part["id"], "tool": tool_name})
-        self._event(session_id, "phase_change", f"执行工具：{tool_name}", {"phase": "tool_execution", "tool": tool_name})
+        self._event(session_id, "tool_call_started", call_part.get("content") or tool.description, {"part_id": call_part["id"], "tool": tool_name, "detail": self._tool_summary(args)})
+        self._event(session_id, "phase_change", f"执行工具：{tool_name}", {"phase": "tool_execution", "tool": tool_name, "detail": self._tool_summary(args)})
 
         if tool.permission == "command":
             if tool_name == "run_targeted_test":
@@ -563,16 +565,45 @@ class AgentSessionProcessor:
             {
                 "role": "system",
                 "content": (
-                    "你是开发 Agent。可以先用一两句自然语言说明你要做什么，然后输出 JSON 工具请求。"
-                    '工具格式：{"tool":"工具名","arguments":{...}}；也可以输出 JSON 数组一次请求多个工具。'
-                    "不要把非 JSON 内容放进工具对象里。"
-                    "默认流程：collect_context -> 按需 read/search -> patch 或 bash_command -> finalize。"
-                    "写文件用 patch。验证用 bash_command。完成用 finalize。"
-                    "bash_command 的 command 必须是 argv 数组，例如 {\"command\":[\"npm\",\"run\",\"typecheck\"]}；禁止 shell 字符串、&&、管道和重定向。"
-                    "patch 后必须验证；验证成功必须 finalize；验证失败最多修复一次。"
-                    "同一轮可以批量调用只读工具；patch/command 会由系统按安全策略执行或等待确认。"
-                    f"{intent_guidance}"
-                    f"可用工具：{', '.join(tool_names)}。"
+                    "你是一个开发 Agent。你的任务是帮助用户完成开发工作。\n\n"
+                    "## 输出格式\n"
+                    "你可以输出两种内容：\n"
+                    "1. 自然语言说明（简短描述你要做什么）\n"
+                    "2. JSON 工具调用（执行具体操作）\n\n"
+                    "工具调用格式，直接输出 JSON，不要用 markdown 代码块包裹：\n"
+                    '{"tool": "工具名", "arguments": {"参数名": "参数值"}}\n\n'
+                    "如果需要一次调用多个工具，输出 JSON 数组：\n"
+                    '[{"tool": "工具1", "arguments": {...}}, {"tool": "工具2", "arguments": {...}}]\n\n'
+                    "## 工具使用流程\n"
+                    "1. 先用 collect_context 了解项目结构\n"
+                    "2. 用 read 或 search 查看具体文件\n"
+                    "3. 用 patch 修改文件，或用 bash_command 运行命令\n"
+                    "4. 用 bash_command 验证修改（如运行 typecheck、测试）\n"
+                    "5. 验证通过后用 finalize 完成任务\n\n"
+                    "## 工具说明\n"
+                    f"- collect_context：收集项目上下文信息\n"
+                    f"- read：读取文件内容\n"
+                    f"- search：搜索代码\n"
+                    f"- glob：查找文件\n"
+                    f"- patch：修改文件（需要先 read 相关文件）\n"
+                    f"- bash_command：运行命令，command 必须是数组格式\n"
+                    f"- finalize：完成任务，需要 summary 参数\n\n"
+                    "## bash_command 示例\n"
+                    '{"tool": "bash_command", "arguments": {"command": ["npm", "run", "typecheck"]}}\n\n'
+                    '{"tool": "bash_command", "arguments": {"command": ["pytest", "server/tests/test_device.py", "-v"]}}\n\n'
+                    "## patch 示例\n"
+                    '{"tool": "patch", "arguments": {"file_path": "server/main.py", "old_string": "旧代码", "new_string": "新代码"}}\n\n'
+                    "## finalize 示例\n"
+                    '{"tool": "finalize", "arguments": {"summary": "已完成XX修改，验证通过。"}}\n\n'
+                    "## 重要规则\n"
+                    "- 不要把非 JSON 内容放进工具对象里\n"
+                    "- bash_command 的 command 必须是数组，禁止 shell 字符串、&&、管道\n"
+                    "- patch 前必须先 read 相关文件\n"
+                    "- patch 后必须用 bash_command 验证\n"
+                    "- 验证通过后必须 finalize\n"
+                    "- 同一轮可以批量调用只读工具\n\n"
+                    f"{intent_guidance}\n"
+                    f"可用工具：{', '.join(tool_names)}"
                 ),
             },
             {"role": "user", "content": content},
@@ -890,9 +921,17 @@ class AgentSessionProcessor:
         session = self.repository.get_session(session_id) or {}
         metadata = self._ensure_metadata(session)
         metadata = record_fallback_summary(metadata)
-        self.repository.add_part(session_id, "summary", status="completed", title="最终结果", content=summary, payload={"summary": summary, "fallback": True})
-        self.repository.update_session(session_id, status="needs_manual_review", metadata=metadata)
-        self._event(session_id, "summary_completed", summary, {"fallback": True})
+        existing_parts = self.repository.list_parts(session_id)
+        has_execution = any(part.get("type") in {"diff", "command"} for part in existing_parts)
+        has_summary = any(part.get("type") == "summary" for part in existing_parts)
+        if has_summary:
+            metadata = set_phase(metadata, "completed")
+            self.repository.update_session(session_id, status="completed", metadata=metadata)
+            return self._with_parts(session_id)
+        final_status = "completed" if has_execution else "needs_manual_review"
+        self.repository.add_part(session_id, "summary", status="completed", title="最终结果", content=summary, payload={"summary": summary, "fallback": True, "has_execution": has_execution})
+        self.repository.update_session(session_id, status=final_status, metadata=metadata)
+        self._event(session_id, "summary_completed", summary, {"fallback": True, "has_execution": has_execution})
         return self._with_parts(session_id)
 
     def _with_parts(self, session_id: str) -> dict[str, Any]:
@@ -956,7 +995,12 @@ class AgentSessionProcessor:
                 enriched.setdefault("status", part.get("status"))
                 enriched.setdefault("summary", part.get("content") or part.get("title") or message)
         enriched.setdefault("summary", message)
-        self.repository.add_event(session_id, event_type, message, enriched)
+        event_row = self.repository.add_event(session_id, event_type, message, enriched)
+        if self._event_callback:
+            try:
+                self._event_callback(session_id, event_row)
+            except Exception:
+                logger.debug("agent_session event callback failed for session %s", session_id, exc_info=True)
 
     def _tool_call_text(self, tool_name: str, args: dict[str, Any]) -> str:
         if tool_name == "read":
@@ -973,6 +1017,19 @@ class AgentSessionProcessor:
             command = args.get("payload", {}).get("command") if isinstance(args.get("payload"), dict) else args.get("command")
             return "运行 " + (" ".join(command) if isinstance(command, list) else str(command or "命令"))
         return tool_name
+
+    def _tool_summary(self, args: dict[str, Any]) -> str:
+        path = args.get("path") or args.get("file_path") or ""
+        query = args.get("query") or ""
+        command = args.get("payload", {}).get("command") if isinstance(args.get("payload"), dict) else args.get("command")
+        if path:
+            return path if len(path) <= 80 else "..." + path[-77:]
+        if query:
+            return query if len(query) <= 80 else query[:77] + "..."
+        if command:
+            cmd_str = " ".join(command) if isinstance(command, list) else str(command)
+            return cmd_str if len(cmd_str) <= 80 else cmd_str[:77] + "..."
+        return ""
 
     def _next_tool_guidance(
         self,
@@ -1108,7 +1165,15 @@ class AgentSessionProcessor:
             metadata["protocol_repair_count"] = attempts + 1
             metadata["model_protocol_status"] = "repaired"
             self.repository.update_session(session_id, metadata=metadata)
-            guidance = '请只输出一个 JSON 工具请求，例如 {"tool":"collect_context","arguments":{}}。不要解释，不要 Markdown。'
+            tool_names = [t.name for t in self.tools.list()]
+            tool_list = ", ".join(tool_names)
+            guidance = (
+                f'你的上一条回复没有包含有效的工具调用。请直接输出一个 JSON 对象来调用工具。\n'
+                f'可用工具：{tool_list}\n'
+                f'格式：{{"tool": "工具名", "arguments": {{...}}}}\n'
+                f'示例：{{"tool": "collect_context", "arguments": {{}}}}\n'
+                f'注意：不要输出任何解释文字，不要用 markdown 代码块包裹，直接输出 JSON。'
+            )
             part = self.repository.add_part(
                 session_id,
                 "tool_result",
@@ -1331,8 +1396,11 @@ class AgentSessionProcessor:
         text = raw.strip()
         if len(text) < 12:
             return False
-        markers = ("完成", "总结", "结果", "已", "建议", "风险", "验证")
-        return any(marker in text for marker in markers)
+        strong_markers = ("已完成", "已经完成", "最终总结", "最终结果", "任务完成", "全部完成")
+        if any(marker in text for marker in strong_markers):
+            return True
+        weak_markers = ("总结", "建议", "风险", "验证结果", "改动")
+        return any(marker in text for marker in weak_markers) and len(text) > 40
 
     def _truncate(self, value: str, limit: int) -> str:
         if len(value) <= limit:

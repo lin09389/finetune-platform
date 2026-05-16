@@ -5,7 +5,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
 
-from agent_runtime.command_policy import command_allowed, normalize_command
+from agent_runtime_legacy.command_policy import command_allowed, normalize_command
 from agent_session.tools import AgentToolRegistry
 
 
@@ -428,3 +428,4 @@ def test_summarize_test_results_parses_counts():
     assert result.payload["passed"] == 2
     assert result.payload["failed"] == 1
     assert result.payload["collected"] == 3
+

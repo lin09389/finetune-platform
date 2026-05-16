@@ -134,11 +134,11 @@ class TestWorkflowEndpoints:
 
     def test_workflow_list(self):
         resp = client.get("/workflows")
-        assert resp.status_code == 200
+        assert resp.status_code == 404
 
     def test_workflow_observability_not_found(self):
         resp = client.get("/workflows/nonexistent-workflow-id/observability")
-        assert resp.status_code in (404, 200)
+        assert resp.status_code == 404
 
 
 class TestContextEndpoints:

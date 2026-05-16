@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -11,9 +12,15 @@ from agent_session.models import (
     AgentEventResponse,
     AgentPromptRequest,
     AgentSessionCreate,
+    AgentSessionOverviewResponse,
     AgentSessionResponse,
+    LegacyAgentHistoryResponse,
 )
+from agent_session.legacy_history import LegacyAgentHistoryService
 from agent_session.service import AgentSessionService
+from agent_runtime_legacy.service import AgentRuntimeService
+from agent_runtime_legacy.read_service import LegacyWorkflowReadService
+from api.workflows import get_agent_runtime_service
 from core.config import settings
 from core.db_manager import run_sync
 from security.auth_middleware import get_current_user_optional
@@ -24,6 +31,12 @@ router = APIRouter(prefix="/agent-sessions", tags=["Agent Sessions"])
 
 def get_agent_session_service() -> AgentSessionService:
     return AgentSessionService()
+
+
+def get_legacy_workflow_read_service(
+    runtime: AgentRuntimeService = Depends(get_agent_runtime_service),
+) -> LegacyWorkflowReadService:
+    return LegacyWorkflowReadService(runtime.repository)
 
 
 async def get_agent_session_user(
@@ -50,6 +63,15 @@ async def create_agent_session(
     return await run_sync(service.create_session, request)
 
 
+@router.get("/legacy-workflows/{workflow_id}", response_model=LegacyAgentHistoryResponse)
+async def get_legacy_workflow_history(
+    workflow_id: str,
+    reader: LegacyWorkflowReadService = Depends(get_legacy_workflow_read_service),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    return await run_sync(LegacyAgentHistoryService(reader).get_workflow_history, workflow_id)
+
+
 @router.get("/{session_id}", response_model=AgentSessionResponse)
 async def get_agent_session(
     session_id: str,
@@ -58,6 +80,18 @@ async def get_agent_session(
 ):
     try:
         return await run_sync(service.get_session, session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/{session_id}/overview", response_model=AgentSessionOverviewResponse)
+async def get_agent_session_overview(
+    session_id: str,
+    service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    try:
+        return await run_sync(service.get_overview, session_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -116,22 +150,55 @@ async def stream_agent_session_events(
     async def event_stream():
         seen: set[str] = {since_event_id} if since_event_id else set()
         since_id = since_event_id
-        for _ in range(720):
-            events = await run_sync(service.list_events, session_id, since_id)
-            for event in events:
-                if event["id"] in seen:
+        last_heartbeat = time.monotonic()
+        heartbeat_interval = 15.0
+        yield "retry: 3000\n\n"
+
+        queue = service.subscribe_events(session_id)
+        try:
+            for event in await run_sync(service.list_events, session_id, since_id):
+                if event.get("id") in seen:
                     continue
                 seen.add(event["id"])
                 since_id = event["id"]
                 chunk = await run_sync(service.build_stream_chunk, event)
                 yield f"event: agent_session_event\ndata: {json.dumps(chunk, ensure_ascii=False)}\n\n"
-            try:
-                session = await run_sync(service.get_session, session_id)
-                if session.status in {"completed", "failed", "interrupted", "needs_manual_review", "waiting_approval", "waiting_permission"} and seen:
+                last_heartbeat = time.monotonic()
+
+            session = await run_sync(service.get_session, session_id)
+            if session and session.get("status") in AgentSessionService.TERMINAL_STATUSES and len(seen) > (1 if since_event_id else 0):
+                yield f"event: agent_session_done\ndata: {json.dumps({'status': session.get('status')}, ensure_ascii=False)}\n\n"
+                return
+
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=heartbeat_interval)
+                except asyncio.TimeoutError:
+                    now = time.monotonic()
+                    if now - last_heartbeat >= heartbeat_interval:
+                        yield ": heartbeat\n\n"
+                        last_heartbeat = now
+                    session = await run_sync(service.get_session, session_id)
+                    if session and session.get("status") in AgentSessionService.TERMINAL_STATUSES:
+                        yield f"event: agent_session_done\ndata: {json.dumps({'status': session.get('status')}, ensure_ascii=False)}\n\n"
+                        break
+                    continue
+
+                event_id = event.get("id", "")
+                if event_id in seen:
+                    continue
+                seen.add(event_id)
+                since_id = event_id
+                chunk = await run_sync(service.build_stream_chunk, event)
+                yield f"event: agent_session_event\ndata: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                last_heartbeat = time.monotonic()
+
+                session_status = chunk.get("session_status")
+                if session_status in AgentSessionService.TERMINAL_STATUSES:
+                    yield f"event: agent_session_done\ndata: {json.dumps({'status': session_status}, ensure_ascii=False)}\n\n"
                     break
-            except Exception:
-                break
-            await asyncio.sleep(0.25)
+        finally:
+            service.unsubscribe_events(session_id, queue)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

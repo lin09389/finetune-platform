@@ -3,11 +3,11 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from agent_runtime.actions import WorkflowActionService
-from agent_runtime.definitions import RuntimeExecutionContext
-from agent_runtime.repository import WorkflowRuntimeRepository
-from agent_runtime.tool_loop import AgentToolLoop
-from agent_runtime.tools import AgentToolExecutor
+from agent_runtime_legacy.actions import WorkflowActionService
+from agent_runtime_legacy.definitions import RuntimeExecutionContext
+from agent_runtime_legacy.repository import WorkflowRuntimeRepository
+from agent_runtime_legacy.tool_loop import AgentToolLoop
+from agent_runtime_legacy.tools import AgentToolExecutor
 
 
 def test_developer_loop_records_execution_state_and_final_summary(tmp_path: Path):
@@ -57,4 +57,5 @@ def test_developer_loop_records_execution_state_and_final_summary(tmp_path: Path
         "detect_project_commands",
         "finalize",
     ]
+
 

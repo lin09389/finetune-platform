@@ -1,4 +1,4 @@
-from agent_runtime.permission import PermissionAction, PermissionRule, evaluate
+from agent_runtime_legacy.permission import PermissionAction, PermissionRule, evaluate
 
 
 def test_permission_last_rule_wins():
@@ -16,3 +16,4 @@ def test_permission_wildcard_match():
 
 def test_permission_default_is_ask():
     assert evaluate("tool.propose_patch", "tmp/file.txt", []) == PermissionAction.ASK
+

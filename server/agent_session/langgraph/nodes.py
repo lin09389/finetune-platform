@@ -7,8 +7,8 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.types import interrupt
 
-from agent_runtime.definitions import RuntimeExecutionContext
-from agent_runtime.langgraph.provider_adapter import get_chat_model
+from agent_kernel.execution_context import RuntimeExecutionContext
+from agent_kernel.langgraph.provider_adapter import get_chat_model
 
 from ..parser import parse_agent_response
 from ..state import ensure_session_state, record_command, record_diff, set_phase

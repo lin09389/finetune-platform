@@ -2,8 +2,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from agent_runtime.repository import WorkflowRuntimeRepository
-from agent_runtime.service import AgentRuntimeService
+from agent_runtime_legacy.repository import WorkflowRuntimeRepository
+from agent_runtime_legacy.service import AgentRuntimeService
 from api.workflows import get_agent_runtime_service
 from chat_agent.intent import ChatAgentIntentClassifier
 from digital_team.models import AgentOutput
@@ -104,3 +104,12 @@ def test_intent_manual_modes(tmp_path):
     assert chat["source"] == "manual"
     assert agent["mode"] == "agent"
     assert agent["source"] == "manual"
+
+
+def test_chat_agent_run_routes_are_removed(tmp_path):
+    client = make_client(tmp_path)
+    response = client.post("/chat-agent/runs", json={"content": "legacy"})
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+

@@ -16,8 +16,8 @@ from urllib.request import Request, urlopen
 
 from fastapi import HTTPException
 
-from agent_runtime.command_policy import command_allowed, normalize_command, resolve_command_cwd, run_git, summarize_failure
-from agent_runtime.patch_engine import SafePatchEngine
+from agent_kernel.command_policy import command_allowed, normalize_command, resolve_command_cwd, run_git, summarize_failure
+from agent_kernel.patch_engine import SafePatchEngine
 from core.config import settings
 from workspace.local_paths import get_allowed_workspace_roots
 from .parser import parse_tool_request

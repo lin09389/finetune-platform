@@ -3,11 +3,11 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from agent_runtime.actions import WorkflowActionService
-from agent_runtime.definitions import RuntimeExecutionContext
-from agent_runtime.repository import WorkflowRuntimeRepository
-from agent_runtime.tool_loop import AgentToolLoop
-from agent_runtime.tools import AgentToolExecutor
+from agent_runtime_legacy.actions import WorkflowActionService
+from agent_runtime_legacy.definitions import RuntimeExecutionContext
+from agent_runtime_legacy.repository import WorkflowRuntimeRepository
+from agent_runtime_legacy.tool_loop import AgentToolLoop
+from agent_runtime_legacy.tools import AgentToolExecutor
 
 
 def make_loop(tmp_path: Path):
@@ -129,3 +129,4 @@ def test_consecutive_parse_failures_need_manual_review(tmp_path):
     assert response.needs_manual_review is True
     assert metadata["model_protocol_status"] == "needs_manual_review"
     assert metadata["parse_repair_count"] == 1
+

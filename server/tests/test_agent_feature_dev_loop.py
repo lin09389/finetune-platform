@@ -6,11 +6,11 @@ import shutil
 import uuid
 from pathlib import Path
 
-from agent_runtime.actions import WorkflowActionService
-from agent_runtime.definitions import RuntimeExecutionContext
-from agent_runtime.repository import WorkflowRuntimeRepository
-from agent_runtime.tool_loop import AgentToolLoop
-from agent_runtime.tools import AgentToolExecutor
+from agent_runtime_legacy.actions import WorkflowActionService
+from agent_runtime_legacy.definitions import RuntimeExecutionContext
+from agent_runtime_legacy.repository import WorkflowRuntimeRepository
+from agent_runtime_legacy.tool_loop import AgentToolLoop
+from agent_runtime_legacy.tools import AgentToolExecutor
 
 
 def _workspace_root() -> Path:
@@ -190,3 +190,4 @@ def test_feature_patch_requires_related_context_before_action(tmp_path: Path):
         assert repository.list_action_proposals(project["id"]) == []
     finally:
         shutil.rmtree(feature_dir, ignore_errors=True)
+

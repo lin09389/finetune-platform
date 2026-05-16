@@ -188,5 +188,8 @@ def _json_candidate_spans(text: str) -> list[tuple[int, int, Any]]:
 def _looks_like_final_text(text: str) -> bool:
     if len(text.strip()) < 12:
         return False
-    strong_markers = ("已完成", "已经完成", "最终总结", "最终结果", "验证结果", "下一步", "风险", "改动")
-    return any(marker in text for marker in strong_markers)
+    strong_markers = ("已完成", "已经完成", "最终总结", "最终结果", "任务完成", "全部完成")
+    if any(marker in text for marker in strong_markers):
+        return True
+    weak_markers = ("验证结果", "风险", "建议", "总结")
+    return any(marker in text for marker in weak_markers) and len(text.strip()) > 40

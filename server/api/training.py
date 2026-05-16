@@ -249,12 +249,17 @@ async def progress_stream(
     state = get_training_context().state
     hub = get_training_event_hub_v2()
 
+    # 加载阶段强制发送间隔（秒）：即使 status/step 不变也推送，让前端感知到心跳
+    FORCE_SEND_INTERVAL = 5
+
     async def event_generator():
         last_step = -1
         last_status = ""
+        last_message = ""
         last_seq = 0
         idle_count = 0
         last_heartbeat = time.time()
+        last_force_send = time.time()
         connection_start = time.time()
         last_activity = time.time()
 
@@ -276,11 +281,21 @@ async def progress_stream(
                 else:
                     progress = state.get_progress()
 
-                should_send = (progress.step != last_step or progress.status != last_status)
+                current_message = getattr(progress, "message", "") or ""
+                # 状态/步骤变化 OR message 变化（心跳线程会更新 message）OR 强制周期发送
+                force_send = (current_time - last_force_send) >= FORCE_SEND_INTERVAL
+                should_send = (
+                    progress.step != last_step
+                    or progress.status != last_status
+                    or current_message != last_message
+                    or force_send
+                )
                 if should_send:
                     yield f"data: {progress.model_dump_json()}\n\n"
                     last_step = progress.step
                     last_status = progress.status
+                    last_message = current_message
+                    last_force_send = current_time
                     last_activity = current_time
 
                 if current_time - last_heartbeat >= heartbeat:
@@ -914,7 +929,16 @@ async def get_recovery_options(limit: int = Query(default=6, ge=1, le=20)):
         checkpoints = _load_checkpoints_for_task(state, settings, record.id)
         if not checkpoints:
             continue
-        latest_checkpoint = checkpoints[-1]
+        resumable_checkpoints = [
+            cp for cp in checkpoints
+            if cp.get("valid") and "recovery-exception" not in cp.get("name", "")
+        ]
+        all_resumable = resumable_checkpoints or [
+            cp for cp in checkpoints if cp.get("valid")
+        ]
+        if not all_resumable:
+            continue
+        latest_checkpoint = all_resumable[-1]
         config = record.config or {}
         options.append({
             "taskId": record.id,
@@ -922,7 +946,7 @@ async def get_recovery_options(limit: int = Query(default=6, ge=1, le=20)):
             "modelName": record.model_name,
             "datasetName": record.dataset_name,
             "startTime": record.start_time,
-            "checkpoints": list(reversed(checkpoints)),
+            "checkpoints": list(reversed(all_resumable)),
             "latestCheckpointName": latest_checkpoint["name"],
             "config": {
                 "method": config.get("method", "qlora"),
@@ -968,6 +992,23 @@ async def resume_training(task_id: str, checkpoint_name: str):
     checkpoint_path = output_dir / "checkpoints" / checkpoint_name
     if not checkpoint_path.exists():
         raise HTTPException(status_code=404, detail="Checkpoint not found")
+
+    from training_engine.checkpoint_manager import validate_checkpoint
+    validation = validate_checkpoint(str(checkpoint_path))
+    if not validation.get("valid"):
+        missing = validation.get("missing", [])
+        raise HTTPException(
+            status_code=400,
+            detail=f"Checkpoint is incomplete, missing: {', '.join(missing)}. "
+                   f"Recovery-exception checkpoints may not contain full trainer state. "
+                   f"Please start a fresh training instead.",
+        )
+    if not validation.get("has_trainer_state"):
+        raise HTTPException(
+            status_code=400,
+            detail="Checkpoint is missing trainer_state.json and cannot be used for resumption. "
+                   "Please start a fresh training instead.",
+        )
 
     config_dict = dict(original_record.config)
     config_dict["resume_from_checkpoint"] = str(checkpoint_path)

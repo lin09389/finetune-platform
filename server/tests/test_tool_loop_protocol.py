@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 import pytest
 
-from agent_runtime.tool_loop import _sanitize_model_output
-from agent_runtime.tool_models import AgentToolRequest, AgentToolResult, AgentToolLoopState, AgentToolLoopResponse
+from agent_runtime_legacy.tool_loop import _sanitize_model_output
+from agent_runtime_legacy.tool_models import AgentToolRequest, AgentToolResult, AgentToolLoopState, AgentToolLoopResponse
 from digital_team.models import AgentOutput
 
 
@@ -115,3 +115,4 @@ class TestAgentToolLoopResponse:
         assert resp.tool_calls == []
         assert resp.fallback_summary_used is False
         assert resp.parse_repair_count == 0
+

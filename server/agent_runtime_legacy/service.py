@@ -122,9 +122,10 @@ class AgentRuntimeService:
         if not workflow.is_enabled:
             raise HTTPException(status_code=400, detail="Workflow template is disabled")
         project_path = self._validate_project_path(request.project_path)
-        primary_agent_id = getattr(request, "agent_id", None) or "build"
-        if self.agent_registry.get(primary_agent_id) is None:
+        entry_agent_id = getattr(request, "agent_id", None) or "build"
+        if self.agent_registry.get(entry_agent_id) is None:
             raise HTTPException(status_code=400, detail="Unknown agent id")
+        primary_agent_id = self._workflow_primary_agent_id(workflow)
         data = request.model_dump()
         data["template_id"] = workflow.id
         data["project_path"] = project_path
@@ -135,6 +136,7 @@ class AgentRuntimeService:
         autonomy_mode = data.get("autonomy_mode") if data.get("autonomy_mode") in {"safe_auto", "confirm_all", "read_only"} else "safe_auto"
         metadata = {
             **(project.get("metadata") or {}),
+            "entry_agent_id": entry_agent_id,
             "primary_agent_id": primary_agent_id,
             "active_agent_id": primary_agent_id,
             "autonomy_mode": autonomy_mode,
@@ -189,7 +191,9 @@ class AgentRuntimeService:
             context_pack = context.context_pack
             context_sources = context.context_sources
         metadata = dict(project.get("metadata") or {})
-        metadata.setdefault("primary_agent_id", metadata.get("active_agent_id") or "planner")
+        primary_agent_id = self._workflow_primary_agent_id(workflow)
+        metadata.setdefault("entry_agent_id", metadata.get("requested_agent_id") or "build")
+        metadata.setdefault("primary_agent_id", primary_agent_id)
         metadata.setdefault("review_agent_id", "reviewer")
         metadata.setdefault("template_id", workflow.id)
         metadata.setdefault("step_id", step.key if step else None)
@@ -220,7 +224,7 @@ class AgentRuntimeService:
             "autonomy_mode": metadata.get("autonomy_mode", "safe_auto"),
             "messages": [],
             "current_step": step.key if step else "bootstrap",
-            "current_agent_id": metadata.get("primary_agent_id") or "planner",
+            "current_agent_id": step.agent_id if step else metadata.get("primary_agent_id") or primary_agent_id,
             "current_task_id": None,
             "step_index": 0,
             "retry_count": 0,
@@ -658,3 +662,11 @@ class AgentRuntimeService:
         except Exception as exc:
             logger.info("Workflow project context unavailable: %s", exc)
             return ""
+
+    def _workflow_primary_agent_id(self, workflow: WorkflowDefinition) -> str:
+        ordered_steps = sorted(workflow.steps, key=lambda item: item.sort_order)
+        if ordered_steps:
+            return ordered_steps[0].agent_id
+        if workflow.agents:
+            return workflow.agents[0].id
+        raise HTTPException(status_code=400, detail="Workflow template has no agents")

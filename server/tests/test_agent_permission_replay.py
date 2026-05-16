@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from agent_runtime.repository import WorkflowRuntimeRepository
-from agent_runtime.service import AgentRuntimeService
+from agent_runtime_legacy.repository import WorkflowRuntimeRepository
+from agent_runtime_legacy.service import AgentRuntimeService
 
 
 def test_approve_permission_request_appends_override_and_emits_event(tmp_path):
@@ -58,3 +58,4 @@ def test_approve_permission_request_appends_override_and_emits_event(tmp_path):
     assert overrides[0]["tool_name"] == "propose_patch"
     events = service.repository.list_events(workflow["id"])
     assert any(item["event_type"] == "permission_approved" for item in events)
+

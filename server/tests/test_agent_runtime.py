@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_runtime.adapters import step_from_task, workflow_from_project
-from agent_runtime.definitions import RuntimeExecutionContext
-from agent_runtime.engine import AgentRuntimeEngine
-from agent_runtime.runner import AgentRuntimeRunner
-from agent_runtime.service import AgentRuntimeService
-from agent_runtime.templates import SOFTWARE_DELIVERY_TEMPLATE, get_workflow_definition
+from agent_runtime_legacy.adapters import step_from_task, workflow_from_project
+from agent_runtime_legacy.definitions import RuntimeExecutionContext
+from agent_runtime_legacy.engine import AgentRuntimeEngine
+from agent_runtime_legacy.models import WorkflowCreate
+from agent_runtime_legacy.runner import AgentRuntimeRunner
+from agent_runtime_legacy.service import AgentRuntimeService
+from agent_runtime_legacy.templates import SOFTWARE_DELIVERY_TEMPLATE, get_workflow_definition
 from digital_team.models import AgentOutput
 from digital_team.repository import DigitalTeamRepository
 
@@ -137,10 +138,10 @@ def test_runtime_engine_advances_from_plan_to_implement_and_review(tmp_path):
     )
 
     planned = __import__("asyncio").run(engine.start(project, "context"))
-    plan_task = next(task for task in planned["tasks"] if task["role"] == "ceo")
+    plan_task = next(task for task in planned["tasks"] if task["role"] == "planner")
     completed = __import__("asyncio").run(engine.approve(planned, plan_task, "context"))
 
-    assert {task["role"] for task in completed["tasks"]} == {"ceo", "developer", "reviewer"}
+    assert {task["role"] for task in completed["tasks"]} == {"planner", "implementer", "reviewer"}
     assert completed["status"] == "awaiting_approval"
     review_task = next(task for task in completed["tasks"] if task["role"] == "reviewer")
     assert review_task["status"] == "awaiting_approval"
@@ -148,13 +149,13 @@ def test_runtime_engine_advances_from_plan_to_implement_and_review(tmp_path):
 
 def test_runtime_runner_prefers_saved_default_model(monkeypatch):
     provider = FakeProvider()
-    monkeypatch.setattr("agent_runtime.runner.secure_storage.get", lambda key: {
+    monkeypatch.setattr("agent_runtime_legacy.runner.secure_storage.get", lambda key: {
         "api_key": "secret-key",
         "default_model": "saved-model",
         "group_id": "",
         "base_url": "",
     })
-    monkeypatch.setattr("agent_runtime.runner.resolve_saved_provider", lambda provider_name, key_data: provider)
+    monkeypatch.setattr("agent_runtime_legacy.runner.resolve_saved_provider", lambda provider_name, key_data: provider)
 
     runner = AgentRuntimeRunner()
     context = RuntimeExecutionContext(
@@ -167,6 +168,26 @@ def test_runtime_runner_prefers_saved_default_model(monkeypatch):
     __import__("asyncio").run(runner.execute("planner", context, {}))
 
     assert provider.last_model == "saved-model"
+
+
+def test_workflow_metadata_separates_entry_agent_from_step_primary_agent(tmp_path):
+    repository = DigitalTeamRepository(str(tmp_path / "agent_runtime_metadata.db"))
+    service = AgentRuntimeService(repository=repository, runner=DummyRuntimeRunner())
+
+    workflow = service.create_workflow(
+        WorkflowCreate(
+            title="语义分层",
+            goal="验证入口 agent 与 workflow 首步 agent 分离",
+            project_path=str(Path.cwd()),
+            provider="minimax",
+            agent_id="build",
+        )
+    )
+
+    metadata = workflow.metadata
+    assert metadata["entry_agent_id"] == "build"
+    assert metadata["primary_agent_id"] == "planner"
+    assert workflow.active_agent_id == "planner"
 
 
 def test_service_fallback_reloads_latest_project_before_legacy_engine(tmp_path):
@@ -190,3 +211,4 @@ def test_service_fallback_reloads_latest_project_before_legacy_engine(tmp_path):
 
     assert result.status == "awaiting_approval"
     assert len([task for task in refreshed["tasks"] if task["step_key"] == "plan"]) == 1
+

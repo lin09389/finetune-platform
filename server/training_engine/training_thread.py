@@ -197,10 +197,14 @@ def training_thread(
                 from training_engine.checkpoint_manager import get_latest_checkpoint
                 from core.config import get_settings
                 latest_cp = get_latest_checkpoint(state, get_settings(), record.id)
-                if latest_cp and latest_cp.get("valid"):
+                if latest_cp and latest_cp.get("valid") and "recovery-exception" not in latest_cp.get("name", ""):
                     cp_path = latest_cp["path"]
                     logger.info(f"重试时将从最近 Trainer 检查点恢复：{cp_path}")
                     config.resume_from_checkpoint = cp_path
+                    config.resume_from_adapter = None
+                elif latest_cp and latest_cp.get("valid"):
+                    logger.warning(f"最近检查点 {latest_cp['name']} 是异常恢复检查点，跳过断点恢复")
+                    config.resume_from_checkpoint = None
                     config.resume_from_adapter = None
             except Exception as e:
                 logger.debug(f"查找恢复检查点失败：{e}")

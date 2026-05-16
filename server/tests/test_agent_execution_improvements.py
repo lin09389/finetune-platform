@@ -20,13 +20,13 @@ class TestSanitizeModelOutput:
     """Test JSON sanitization from noisy LLM outputs."""
 
     def test_clean_json_passthrough(self):
-        from agent_runtime.tool_loop import _sanitize_model_output
+        from agent_runtime_legacy.tool_loop import _sanitize_model_output
 
         raw = '{"thought":"ok","tool":"finalize","arguments":{}}'
         assert _sanitize_model_output(raw) == raw
 
     def test_extract_from_markdown_fence(self):
-        from agent_runtime.tool_loop import _sanitize_model_output
+        from agent_runtime_legacy.tool_loop import _sanitize_model_output
 
         raw = 'Here is the result:\n```json\n{"thought":"x","tool":"finalize","arguments":{}}\n```\nDone.'
         result = _sanitize_model_output(raw)
@@ -34,7 +34,7 @@ class TestSanitizeModelOutput:
         assert parsed["tool"] == "finalize"
 
     def test_extract_from_markdown_fence_no_lang(self):
-        from agent_runtime.tool_loop import _sanitize_model_output
+        from agent_runtime_legacy.tool_loop import _sanitize_model_output
 
         raw = '```\n{"thought":"x","tool":"finalize","arguments":{}}\n```'
         result = _sanitize_model_output(raw)
@@ -42,7 +42,7 @@ class TestSanitizeModelOutput:
         assert parsed["tool"] == "finalize"
 
     def test_extract_embedded_json(self):
-        from agent_runtime.tool_loop import _sanitize_model_output
+        from agent_runtime_legacy.tool_loop import _sanitize_model_output
 
         raw = 'I will call the tool: {"thought":"test","tool":"read_file","arguments":{"path":"a.py"}} end.'
         result = _sanitize_model_output(raw)
@@ -50,12 +50,12 @@ class TestSanitizeModelOutput:
         assert parsed["tool"] == "read_file"
 
     def test_empty_string(self):
-        from agent_runtime.tool_loop import _sanitize_model_output
+        from agent_runtime_legacy.tool_loop import _sanitize_model_output
 
         assert _sanitize_model_output("") == ""
 
     def test_no_json_returns_original(self):
-        from agent_runtime.tool_loop import _sanitize_model_output
+        from agent_runtime_legacy.tool_loop import _sanitize_model_output
 
         raw = "I don't know what to do."
         assert _sanitize_model_output(raw) == raw
@@ -65,7 +65,7 @@ class TestDynamicMaxIterations:
     """Test that max_iterations is read from agent definition."""
 
     def test_from_agent_definition(self):
-        from agent_runtime.tool_loop import AgentToolLoop
+        from agent_runtime_legacy.tool_loop import AgentToolLoop
 
         loop = AgentToolLoop(
             repository=MagicMock(),
@@ -76,7 +76,7 @@ class TestDynamicMaxIterations:
         assert loop._resolve_max_iterations(step_input) == 10
 
     def test_fallback_to_instance_default(self):
-        from agent_runtime.tool_loop import AgentToolLoop
+        from agent_runtime_legacy.tool_loop import AgentToolLoop
 
         loop = AgentToolLoop(
             repository=MagicMock(),
@@ -87,7 +87,7 @@ class TestDynamicMaxIterations:
         assert loop._resolve_max_iterations(step_input) == 8
 
     def test_invalid_agent_max_iterations(self):
-        from agent_runtime.tool_loop import AgentToolLoop
+        from agent_runtime_legacy.tool_loop import AgentToolLoop
 
         loop = AgentToolLoop(
             repository=MagicMock(),
@@ -98,7 +98,7 @@ class TestDynamicMaxIterations:
         assert loop._resolve_max_iterations(step_input) == 6
 
     def test_no_agent_in_step_input(self):
-        from agent_runtime.tool_loop import AgentToolLoop
+        from agent_runtime_legacy.tool_loop import AgentToolLoop
 
         loop = AgentToolLoop(
             repository=MagicMock(),
@@ -117,7 +117,7 @@ class TestStepRetryPolicy:
     """Test the StepRetryPolicy dataclass."""
 
     def test_default_values(self):
-        from agent_runtime.engine import StepRetryPolicy
+        from agent_runtime_legacy.engine import StepRetryPolicy
 
         policy = StepRetryPolicy()
         assert policy.max_retries == 1
@@ -125,7 +125,7 @@ class TestStepRetryPolicy:
         assert RuntimeError in policy.retry_on
 
     def test_custom_values(self):
-        from agent_runtime.engine import StepRetryPolicy
+        from agent_runtime_legacy.engine import StepRetryPolicy
 
         policy = StepRetryPolicy(max_retries=3, backoff_seconds=5.0)
         assert policy.max_retries == 3
@@ -136,7 +136,7 @@ class TestPatchEngineRollback:
     """Test SafePatchEngine backup and rollback."""
 
     def test_backup_and_rollback_existing_file(self, tmp_path):
-        from agent_runtime.patch_engine import SafePatchEngine
+        from agent_runtime_legacy.patch_engine import SafePatchEngine
 
         target = tmp_path / "test.txt"
         target.write_text("original content", encoding="utf-8")
@@ -152,7 +152,7 @@ class TestPatchEngineRollback:
         assert len(restored) == 1
 
     def test_backup_and_rollback_new_file(self, tmp_path):
-        from agent_runtime.patch_engine import SafePatchEngine
+        from agent_runtime_legacy.patch_engine import SafePatchEngine
 
         engine = SafePatchEngine(tmp_path)
         engine.apply_file_writes([{"path": "new_file.txt", "content": "hello"}])
@@ -162,7 +162,7 @@ class TestPatchEngineRollback:
         assert not (tmp_path / "new_file.txt").exists()
 
     def test_clear_backup(self, tmp_path):
-        from agent_runtime.patch_engine import SafePatchEngine
+        from agent_runtime_legacy.patch_engine import SafePatchEngine
 
         target = tmp_path / "test.txt"
         target.write_text("original", encoding="utf-8")
@@ -175,7 +175,7 @@ class TestPatchEngineRollback:
         assert not engine.has_backup
 
     def test_no_backup_initially(self, tmp_path):
-        from agent_runtime.patch_engine import SafePatchEngine
+        from agent_runtime_legacy.patch_engine import SafePatchEngine
 
         engine = SafePatchEngine(tmp_path)
         assert not engine.has_backup
@@ -191,7 +191,7 @@ class TestContextManager:
     """Test ToolLoopContextManager."""
 
     def test_no_compression_below_threshold(self):
-        from agent_runtime.context_manager import ToolLoopContextManager
+        from agent_runtime_legacy.context_manager import ToolLoopContextManager
 
         mgr = ToolLoopContextManager(summary_threshold=10)
         messages = [
@@ -205,7 +205,7 @@ class TestContextManager:
         assert len(result) == len(messages)
 
     def test_compression_above_threshold(self):
-        from agent_runtime.context_manager import ToolLoopContextManager
+        from agent_runtime_legacy.context_manager import ToolLoopContextManager
 
         mgr = ToolLoopContextManager(summary_threshold=6)
         messages = [
@@ -227,7 +227,7 @@ class TestContextManager:
         assert result[-1]["role"] == "user"
 
     def test_token_budget_triggers_compression(self):
-        from agent_runtime.context_manager import ToolLoopContextManager
+        from agent_runtime_legacy.context_manager import ToolLoopContextManager
 
         mgr = ToolLoopContextManager(summary_threshold=100, token_budget=50, budget_ratio=0.5)
         messages = [
@@ -238,7 +238,7 @@ class TestContextManager:
         assert mgr.should_compress(messages)
 
     def test_trim_large_payload(self):
-        from agent_runtime.context_manager import ToolLoopContextManager
+        from agent_runtime_legacy.context_manager import ToolLoopContextManager
 
         mgr = ToolLoopContextManager()
         large = "line\n" * 5000
@@ -251,19 +251,19 @@ class TestTokenEstimation:
     """Test token estimation utility."""
 
     def test_empty_messages(self):
-        from agent_runtime.context_manager import estimate_tokens
+        from agent_runtime_legacy.context_manager import estimate_tokens
 
         assert estimate_tokens([]) == 0
 
     def test_estimates_increase_with_content(self):
-        from agent_runtime.context_manager import estimate_tokens
+        from agent_runtime_legacy.context_manager import estimate_tokens
 
         short = estimate_tokens([{"role": "user", "content": "hello"}])
         long = estimate_tokens([{"role": "user", "content": "hello " * 100}])
         assert long > short
 
     def test_cjk_text_uses_fewer_tokens_per_char(self):
-        from agent_runtime.context_manager import _estimate_tokens_for_text
+        from agent_runtime_legacy.context_manager import _estimate_tokens_for_text
 
         cjk = _estimate_tokens_for_text("你好世界" * 10)
         latin = _estimate_tokens_for_text("abcd" * 10)
@@ -280,7 +280,7 @@ class TestObservabilityModels:
     """Test observability model changes."""
 
     def test_step_log_has_trace_id(self):
-        from agent_runtime.models import WorkflowStepLogResponse
+        from agent_runtime_legacy.models import WorkflowStepLogResponse
 
         log = WorkflowStepLogResponse(
             id="1",
@@ -292,7 +292,7 @@ class TestObservabilityModels:
         assert log.trace_id == "abc-123"
 
     def test_tool_call_has_trace_id(self):
-        from agent_runtime.models import WorkflowToolCallResponse
+        from agent_runtime_legacy.models import WorkflowToolCallResponse
 
         call = WorkflowToolCallResponse(
             id="1",
@@ -305,7 +305,7 @@ class TestObservabilityModels:
         assert call.trace_id == "def-456"
 
     def test_observability_has_token_usage(self):
-        from agent_runtime.models import WorkflowObservabilityResponse
+        from agent_runtime_legacy.models import WorkflowObservabilityResponse
 
         obs = WorkflowObservabilityResponse(
             workflow_id="w1",
@@ -320,7 +320,7 @@ class TestToolLoopResponseTokens:
     """Test AgentToolLoopResponse token tracking fields."""
 
     def test_response_includes_token_counts(self):
-        from agent_runtime.tool_models import AgentToolLoopResponse
+        from agent_runtime_legacy.tool_models import AgentToolLoopResponse
         from digital_team.models import AgentOutput
 
         response = AgentToolLoopResponse(
@@ -334,7 +334,7 @@ class TestToolLoopResponseTokens:
         assert response.total_output_tokens == 300
 
     def test_response_defaults(self):
-        from agent_runtime.tool_models import AgentToolLoopResponse
+        from agent_runtime_legacy.tool_models import AgentToolLoopResponse
         from digital_team.models import AgentOutput
 
         response = AgentToolLoopResponse(output=AgentOutput(summary="done"))
@@ -352,13 +352,13 @@ class TestSmartTrim:
     """Test context_builder improved _trim method."""
 
     def test_short_text_unchanged(self):
-        from agent_runtime.context_builder import WorkflowContextBuilder
+        from agent_runtime_legacy.context_builder import WorkflowContextBuilder
 
         builder = WorkflowContextBuilder(MagicMock())
         assert builder._trim("hello world", 100) == "hello world"
 
     def test_trims_at_paragraph_boundary(self):
-        from agent_runtime.context_builder import WorkflowContextBuilder
+        from agent_runtime_legacy.context_builder import WorkflowContextBuilder
 
         builder = WorkflowContextBuilder(MagicMock())
         text = "First paragraph.\n\nSecond paragraph.\n\nThird very long paragraph " + "x" * 200
@@ -368,7 +368,7 @@ class TestSmartTrim:
         assert result.count("\n\n") >= 1
 
     def test_trims_at_line_boundary(self):
-        from agent_runtime.context_builder import WorkflowContextBuilder
+        from agent_runtime_legacy.context_builder import WorkflowContextBuilder
 
         builder = WorkflowContextBuilder(MagicMock())
         text = "line1\nline2\nline3\n" + "x" * 200
@@ -376,8 +376,9 @@ class TestSmartTrim:
         assert "已截断" in result
 
     def test_empty_text(self):
-        from agent_runtime.context_builder import WorkflowContextBuilder
+        from agent_runtime_legacy.context_builder import WorkflowContextBuilder
 
         builder = WorkflowContextBuilder(MagicMock())
         assert builder._trim("", 100) == ""
         assert builder._trim(None, 100) == ""
+

@@ -25,6 +25,13 @@ def detect_dataset_sample_format(example: Any) -> str:
             return "instruction+input+output"
         return "instruction+output"
 
+    if "description" in example and "code" in example:
+        return "instruction+output"
+    if "question" in example and "answer" in example:
+        return "instruction+output"
+    if "input" in example and "output" in example:
+        return "instruction+output"
+
     if "content" in example:
         return "content"
 
@@ -70,9 +77,9 @@ def _detect_and_format(example: dict[str, Any], tokenizer) -> dict[str, Any]:
         return {"text": text, "sample_format": "messages"}
 
     if sample_format in {"instruction+output", "instruction+input+output"}:
-        instruction = example.get("instruction", "")
+        instruction = example.get("instruction", "") or example.get("description", "") or example.get("question", "")
         input_text = example.get("input", "")
-        output = example.get("output", "")
+        output = example.get("output", "") or example.get("code", "") or example.get("answer", "")
         if input_text:
             text = f"Instruction: {instruction}\nInput: {input_text}\nResponse: {output}"
         else:

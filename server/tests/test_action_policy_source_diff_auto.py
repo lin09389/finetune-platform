@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_runtime.actions import WorkflowActionService
-from agent_runtime.repository import WorkflowRuntimeRepository
+from agent_runtime_legacy.actions import WorkflowActionService
+from agent_runtime_legacy.repository import WorkflowRuntimeRepository
 from digital_team.models import AgentOutput
 
 
@@ -160,3 +160,4 @@ def test_three_small_read_source_diffs_auto_execute(tmp_path):
                 target.unlink()
             elif content is not None:
                 target.write_text(content, encoding="utf-8")
+

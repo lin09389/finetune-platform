@@ -104,3 +104,24 @@ def test_event_payloads_have_chunk_type_for_tool_call_flow(tmp_path: Path):
         assert event_chunk_types.get("summary_completed") == "summary"
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
+
+
+def test_agent_session_overview_collects_artifacts_and_recent_events(tmp_path: Path):
+    repository = AgentSessionRepository(str(tmp_path / "overview.db"))
+    service = AgentSessionService(repository)
+    session = service.create_session(AgentSessionCreate(title="overview", project_path=str(Path.cwd())))
+    repository.add_part(
+        session.id,
+        "diff",
+        status="executed",
+        title="修改文件",
+        payload={"changed_files": ["client/src/App.tsx"], "diff": "@@ sample diff @@"},
+    )
+    repository.add_event(session.id, "action_executed", "补丁已执行", {"part_id": "demo"})
+
+    overview = service.get_overview(session.id)
+
+    assert overview.session.id == session.id
+    assert overview.artifacts[0].path == "client/src/App.tsx"
+    assert overview.artifacts[0].preview == "@@ sample diff @@"
+    assert overview.recent_events[-1]["event_type"] == "action_executed"

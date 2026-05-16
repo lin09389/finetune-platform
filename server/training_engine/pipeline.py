@@ -222,19 +222,45 @@ class TrainingPipeline:
 
     def _phase_load_model(self) -> None:
         self._set_phase(TrainingPhase.LOAD_MODEL)
+        import threading
+        import time as _time
+
         self.bus.publish_progress(
-            status="loading", message="Loading model...",
+            status="loading", message="正在加载模型，首次加载可能需要数分钟...",
             epoch=0, step=0, total_steps=0,
             loss=0.0, lr=0.0, vram_used=0.0,
             elapsed_time=0.0, eta=0.0,
         )
 
+        # 加载阶段心跳线程：每5秒向前端推送一次 elapsed_time，防止前端看起来卡死
+        _load_start = _time.monotonic()
+        _stop_heartbeat = threading.Event()
+
+        def _loading_heartbeat() -> None:
+            while not _stop_heartbeat.wait(5):
+                elapsed = _time.monotonic() - _load_start
+                self.bus.publish_progress(
+                    status="loading",
+                    message=f"正在加载模型... （已等待 {int(elapsed)}s）",
+                    epoch=0, step=0, total_steps=0,
+                    loss=0.0, lr=0.0, vram_used=0.0,
+                    elapsed_time=elapsed, eta=0.0,
+                )
+
+        hb_thread = threading.Thread(target=_loading_heartbeat, daemon=True)
+        hb_thread.start()
         try:
             self.ctx.model, self.ctx.tokenizer = self.model_loader.load(
                 self.ctx.model_path, self.ctx.config
             )
         except Exception as e:
+            _stop_heartbeat.set()
             self._handle_load_model_error(e)
+        finally:
+            _stop_heartbeat.set()
+
+        elapsed_total = _time.monotonic() - _load_start
+        logger.info(f"模型加载完成，耗时 {elapsed_total:.1f}s")
 
         if self._check_stop():
             raise UnrecoverableError("Training stopped after model load")
@@ -243,6 +269,7 @@ class TrainingPipeline:
         self.bus.publish_event(phase=TrainingPhase.LOAD_MODEL, kind="model_loaded", payload={
             "model_path": self.ctx.model_path,
             "method": self.ctx.config.method,
+            "load_elapsed_seconds": elapsed_total,
         })
 
     def _handle_load_model_error(self, error: Exception) -> None:
@@ -258,13 +285,33 @@ class TrainingPipeline:
 
     def _phase_load_dataset(self) -> None:
         self._set_phase(TrainingPhase.LOAD_DATASET)
+        import threading
+        import time as _time
+
         self.bus.publish_progress(
-            status="loading", message="Loading dataset...",
+            status="loading", message="正在加载数据集...",
             epoch=0, step=0, total_steps=0,
             loss=0.0, lr=0.0, vram_used=0.0,
             elapsed_time=0.0, eta=0.0,
         )
 
+        # 数据集加载心跳线程（大数据集 tokenize 可能较慢）
+        _ds_start = _time.monotonic()
+        _stop_ds_hb = threading.Event()
+
+        def _dataset_heartbeat() -> None:
+            while not _stop_ds_hb.wait(5):
+                elapsed = _time.monotonic() - _ds_start
+                self.bus.publish_progress(
+                    status="loading",
+                    message=f"正在加载数据集... （已等待 {int(elapsed)}s）",
+                    epoch=0, step=0, total_steps=0,
+                    loss=0.0, lr=0.0, vram_used=0.0,
+                    elapsed_time=elapsed, eta=0.0,
+                )
+
+        hb_thread = threading.Thread(target=_dataset_heartbeat, daemon=True)
+        hb_thread.start()
         try:
             self.ctx.dataset = self.dataset_formatter.load(
                 self.ctx.dataset_path,
@@ -273,9 +320,13 @@ class TrainingPipeline:
                 self.ctx.settings,
             )
         except FileNotFoundError as e:
+            _stop_ds_hb.set()
             raise UnrecoverableError(f"数据集文件丢失：{e}")
         except Exception as e:
+            _stop_ds_hb.set()
             raise UnrecoverableError(f"数据集格式错误：{e}")
+        finally:
+            _stop_ds_hb.set()
 
         if self._check_stop():
             raise UnrecoverableError("Training stopped after dataset load")

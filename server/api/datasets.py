@@ -266,6 +266,8 @@ def _detect_dataset_format(samples: list[dict[str, Any]]) -> str:
         return "alpaca"
     if {"input", "schema", "output"}.issubset(keys):
         return "structured_extraction"
+    if {"description", "code"}.issubset(keys):
+        return "code_dataset"
     if {"text"} & keys:
         return "plain_text"
     return "unknown"
@@ -274,9 +276,9 @@ def _detect_dataset_format(samples: list[dict[str, Any]]) -> str:
 def _field_candidates(samples: list[dict[str, Any]]) -> dict[str, list[str]]:
     keys = sorted(set().union(*(sample.keys() for sample in samples[:100]))) if samples else []
     return {
-        "prompt": [key for key in keys if key in {"question", "instruction", "input", "text", "content"}],
+        "prompt": [key for key in keys if key in {"question", "instruction", "input", "text", "content", "description"}],
         "context": [key for key in keys if key in {"context", "document", "knowledge"}],
-        "response": [key for key in keys if key in {"answer", "output", "response", "completion"}],
+        "response": [key for key in keys if key in {"answer", "output", "response", "completion", "code"}],
         "schema": [key for key in keys if key in {"schema", "json_schema", "fields"}],
         "messages": [key for key in keys if key == "messages"],
     }
@@ -290,8 +292,10 @@ def _is_valid_for_training(sample: dict[str, Any]) -> bool:
         {"question", "answer"}.issubset(keys)
         or {"instruction", "output"}.issubset(keys)
         or {"input", "output"}.issubset(keys)
+        or {"description", "code"}.issubset(keys)
         or "text" in keys
         or "content" in keys
+        or "code" in keys
     )
 
 
@@ -365,17 +369,44 @@ def _to_openai_messages(sample: dict[str, Any], task_goal: str) -> dict[str, Any
             ]
         }
 
-    question = sample.get("question") or sample.get("instruction") or sample.get("input") or sample.get("text") or sample.get("content") or ""
+    question = sample.get("question") or sample.get("instruction") or sample.get("input") or sample.get("description") or sample.get("text") or sample.get("content") or ""
     context = sample.get("context")
     if context:
         question = f"参考资料：\n{context}\n\n问题：{question}"
-    answer = sample.get("answer") or sample.get("output") or sample.get("response") or ""
+    answer = sample.get("answer") or sample.get("output") or sample.get("code") or sample.get("response") or ""
     return {
         "messages": [
             {"role": "user", "content": str(question)},
             {"role": "assistant", "content": str(answer)},
         ]
     }
+
+
+def _is_valid_sample(item: dict[str, Any]) -> bool:
+    """检查单条样本是否包含训练所需的字段"""
+    if isinstance(item.get("messages"), list) and item["messages"]:
+        return True
+    keys = item.keys()
+    return bool(
+        {"question", "answer"}.issubset(keys)
+        or {"instruction", "output"}.issubset(keys)
+        or {"input", "output"}.issubset(keys)
+        or {"description", "code"}.issubset(keys)
+        or "text" in keys
+        or "content" in keys
+        or "code" in keys
+    )
+
+
+def _extract_samples_from_json(data: Any) -> list[dict[str, Any]]:
+    """从 JSON 数据中提取样本列表，支持根对象嵌套数组的情况"""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in ("data", "conversations", "items", "samples", "records", "examples"):
+            if key in data and isinstance(data[key], list):
+                return data[key]
+    return []
 
 
 def validate_dataset_format(file_path: Path) -> tuple[bool, str, int]:
@@ -396,14 +427,8 @@ def validate_dataset_format(file_path: Path) -> tuple[bool, str, int]:
                 for i, line in enumerate(f):
                     try:
                         data = json.loads(line)
-                        has_valid_field = (
-                            "messages" in data or
-                            "text" in data or
-                            "content" in data or
-                            "instruction" in data
-                        )
-                        if not has_valid_field:
-                            return False, f"Line {i+1}: Missing required field", 0
+                        if not _is_valid_sample(data):
+                            return False, f"Line {i+1}: Missing required field (need messages/text/content/instruction/question+answer/input+output)", 0
                         if "messages" in data and not isinstance(data["messages"], list):
                             return False, f"Line {i+1}: 'messages' must be a list", 0
                         sample_count += 1
@@ -411,21 +436,17 @@ def validate_dataset_format(file_path: Path) -> tuple[bool, str, int]:
                         return False, f"Line {i+1}: Invalid JSON - {str(e)}", 0
             else:
                 data = json.load(f)
-                if isinstance(data, list):
-                    for i, item in enumerate(data):
-                        has_valid_field = (
-                            "messages" in item or
-                            "text" in item or
-                            "content" in item or
-                            "instruction" in item
-                        )
-                        if not has_valid_field:
-                            return False, f"Item {i}: Missing required field", 0
-                        if "messages" in item and not isinstance(item["messages"], list):
-                            return False, f"Item {i}: 'messages' must be a list", 0
-                    sample_count = len(data)
-                else:
-                    return False, "JSON root must be a list of conversations", 0
+                samples = _extract_samples_from_json(data)
+                if not samples:
+                    return False, "JSON root must be a list, or an object containing a list under 'data'/'conversations'/'items'/'samples'/'records'/'examples'", 0
+                for i, item in enumerate(samples):
+                    if not isinstance(item, dict):
+                        return False, f"Item {i}: Expected object, got {type(item).__name__}", 0
+                    if not _is_valid_sample(item):
+                        return False, f"Item {i}: Missing required field (need messages/text/content/instruction/question+answer/input+output)", 0
+                    if "messages" in item and not isinstance(item["messages"], list):
+                        return False, f"Item {i}: 'messages' must be a list", 0
+                sample_count = len(samples)
 
         if sample_count == 0:
             return False, "No valid samples found", 0
@@ -599,6 +620,92 @@ async def analyze_dataset(request: DatasetAnalyzeRequest):
     return _analyze_samples(samples, errors, request.target_goal)
 
 
+def _validate_and_parse(file_path: Path) -> tuple[list[dict[str, Any]] | None, str]:
+    """单次读取完成 JSON 解析 + 格式验证，返回 (samples, error_msg)"""
+    try:
+        with open(file_path, encoding="utf-8") as f:
+            if file_path.suffix.lower() == ".jsonl":
+                samples = []
+                for i, line in enumerate(f):
+                    try:
+                        item = json.loads(line)
+                    except json.JSONDecodeError as e:
+                        return None, f"Line {i+1}: Invalid JSON - {e}"
+                    if not isinstance(item, dict):
+                        return None, f"Line {i+1}: Expected object, got {type(item).__name__}"
+                    if not _is_valid_sample(item):
+                        return None, f"Line {i+1}: Missing required field (need messages/text/content/instruction/question+answer/input+output)"
+                    if "messages" in item and not isinstance(item["messages"], list):
+                        return None, f"Line {i+1}: 'messages' must be a list"
+                    samples.append(item)
+                return samples, ""
+            else:
+                data = json.load(f)
+                raw = _extract_samples_from_json(data)
+                if not raw:
+                    return None, "JSON root must be a list, or an object containing a list under 'data'/'conversations'/'items'/'samples'/'records'/'examples'"
+                for i, item in enumerate(raw):
+                    if not isinstance(item, dict):
+                        return None, f"Item {i}: Expected object, got {type(item).__name__}"
+                    if not _is_valid_sample(item):
+                        return None, f"Item {i}: Missing required field (need messages/text/content/instruction/question+answer/input+output)"
+                    if "messages" in item and not isinstance(item["messages"], list):
+                        return None, f"Item {i}: 'messages' must be a list"
+                return raw, ""
+    except Exception as e:
+        return None, f"Validation error: {e}"
+
+
+def _compute_statistics_from_samples(samples: list[dict[str, Any]], sample_limit: int = 1000) -> DatasetStatistics:
+    """从已解析的样本列表直接计算统计信息，避免重复读文件"""
+    limited = samples[:sample_limit]
+    total_messages = 0
+    total_length = 0
+    total_turns = 0
+    role_counts: dict[str, int] = {}
+    length_buckets = {"0-100": 0, "100-500": 0, "500-1000": 0, "1000-2000": 0, "2000+": 0}
+
+    for sample in limited:
+        messages = sample.get("messages", [])
+        total_turns += len(messages)
+        sample_length = 0
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            role_counts[role] = role_counts.get(role, 0) + 1
+            msg_length = len(str(content))
+            total_length += msg_length
+            sample_length += msg_length
+            total_messages += 1
+        if sample_length < 100:
+            length_buckets["0-100"] += 1
+        elif sample_length < 500:
+            length_buckets["100-500"] += 1
+        elif sample_length < 1000:
+            length_buckets["500-1000"] += 1
+        elif sample_length < 2000:
+            length_buckets["1000-2000"] += 1
+        else:
+            length_buckets["2000+"] += 1
+
+    count = len(limited)
+    msg_length_dist: dict[str, str] = {}
+    for role, cnt in role_counts.items():
+        pct = (cnt / total_messages * 100) if total_messages > 0 else 0
+        msg_length_dist[role] = f"{pct:.1f}%"
+
+    return DatasetStatistics(
+        total_samples=len(samples),
+        avg_message_length=round(total_length / max(total_messages, 1), 2),
+        avg_turns=round(total_turns / max(count, 1), 2),
+        role_distribution=role_counts,
+        message_length_distribution=msg_length_dist,
+        sample_length_distribution=length_buckets,
+    )
+
+
 @router.post("/upload", response_model=DatasetUploadResponse)
 async def upload_dataset(
     file: UploadFile = File(..., description="数据集文件"),
@@ -612,7 +719,7 @@ async def upload_dataset(
     - 文件类型验证
     - 文件大小限制
     - 路径遍历防护
-    - 内容格式验证
+    - 内容格式验证（单次解析完成）
     """
     settings = get_settings_config()
     datasets_dir = get_datasets_dir()
@@ -626,23 +733,6 @@ async def upload_dataset(
             detail=f"不允许的文件类型：{file_ext}，允许：{', '.join(_allowed_types)}"
         )
 
-    try:
-        content = await file.read()
-        file_size = len(content)
-
-        if file_size > settings.max_upload_size:
-            raise HTTPException(
-                status_code=400,
-                detail=f"文件过大：{format_bytes(file_size)}，最大允许：{format_bytes(settings.max_upload_size)}"
-            )
-
-        if file_size == 0:
-            raise HTTPException(status_code=400, detail="空文件")
-    except Exception as e:
-        if isinstance(e, HTTPException):
-            raise
-        raise HTTPException(status_code=500, detail=f"读取文件失败：{str(e)}")
-
     dataset_name = name or Path(original_filename).stem
     dataset_id = safe_filename(dataset_name).replace(" ", "_").lower()
 
@@ -654,29 +744,65 @@ async def upload_dataset(
         )
 
     dataset_path.mkdir(parents=True, exist_ok=True)
-
     dest_file = dataset_path / original_filename
+
+    # 流式写入 + 同步计算哈希，JSONL 边写边验证
+    import hashlib
+    sha256 = hashlib.sha256()
+    file_size = 0
+    samples: list[dict[str, Any]] | None = None
+    is_jsonl = file_ext == ".jsonl"
+
     try:
         with open(dest_file, "wb") as f:
-            f.write(content)
+            while True:
+                chunk = await file.read(1024 * 1024)  # 1MB chunks
+                if not chunk:
+                    break
+                f.write(chunk)
+                sha256.update(chunk)
+                file_size += len(chunk)
+                if file_size > settings.max_upload_size:
+                    f.close()
+                    dest_file.unlink(missing_ok=True)
+                    shutil.rmtree(dataset_path)
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"文件过大：{format_bytes(file_size)}，最大允许：{format_bytes(settings.max_upload_size)}"
+                    )
+    except HTTPException:
+        raise
     except Exception as e:
         shutil.rmtree(dataset_path)
         raise HTTPException(status_code=500, detail=f"保存文件失败：{str(e)}")
 
-    is_valid, error_msg = validate_file_content(dest_file)
-    if not is_valid:
+    if file_size == 0:
         shutil.rmtree(dataset_path)
-        raise HTTPException(status_code=400, detail=f"文件内容无效：{error_msg}")
+        raise HTTPException(status_code=400, detail="空文件")
 
-    is_valid, error_msg, sample_count = validate_dataset_format(dest_file)
-    if not is_valid:
+    file_hash = sha256.hexdigest()
+
+    # 解析 + 格式验证（单次读取）
+    samples, error_msg = _validate_and_parse(dest_file)
+    if samples is None:
         shutil.rmtree(dataset_path)
         raise HTTPException(status_code=400, detail=f"数据集格式错误：{error_msg}")
 
-    file_hash = calculate_file_hash(dest_file)
+    sample_count = len(samples)
+    if sample_count == 0:
+        shutil.rmtree(dataset_path)
+        raise HTTPException(status_code=400, detail="No valid samples found")
 
-    statistics = compute_statistics(dest_file)
-    stats_dict = statistics.model_dump()
+    # 统计信息直接从已解析样本计算，不重读文件
+    try:
+        statistics = _compute_statistics_from_samples(samples)
+        stats_dict = statistics.model_dump()
+    except Exception as e:
+        logger.warning(f"计算统计信息失败，使用空统计：{e}")
+        stats_dict = DatasetStatistics(
+            total_samples=sample_count, avg_message_length=0, avg_turns=0,
+            role_distribution={}, message_length_distribution={}, sample_length_distribution={},
+        ).model_dump()
 
     created_at = datetime.now().isoformat()
     info = {

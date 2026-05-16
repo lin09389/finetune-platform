@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from agent_runtime.actions import WorkflowActionService
-from agent_runtime.repository import WorkflowRuntimeRepository
+from agent_runtime_legacy.actions import WorkflowActionService
+from agent_runtime_legacy.repository import WorkflowRuntimeRepository
 from digital_team.models import AgentOutput
 
 
@@ -87,3 +87,4 @@ def test_allowlisted_command_auto_executes(tmp_path):
     assert actions[0]["status"] == "executed"
     assert actions[0]["execution_mode"] == "auto"
     assert actions[0]["executions"][-1]["exit_code"] == 0
+

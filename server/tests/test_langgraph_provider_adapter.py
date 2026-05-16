@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from langchain_core.messages import HumanMessage
 
-from agent_runtime.langgraph.provider_adapter import GatewayToolCallingChatModel, ProviderAdapterError, get_chat_model
+from agent_runtime_legacy.langgraph.provider_adapter import GatewayToolCallingChatModel, ProviderAdapterError, get_chat_model
 
 
 class FakeProvider:
@@ -59,7 +59,7 @@ async def test_gateway_tool_calling_chat_model_parses_openai_tool_calls():
 
 
 def test_get_chat_model_requires_saved_api_key(monkeypatch):
-    monkeypatch.setattr("agent_runtime.langgraph.provider_adapter.secure_storage.get", lambda key: {})
+    monkeypatch.setattr("agent_runtime_legacy.langgraph.provider_adapter.secure_storage.get", lambda key: {})
     context = type("Context", (), {"provider": "glm", "model": "glm-4"})()
     try:
         get_chat_model(context)
@@ -67,3 +67,4 @@ def test_get_chat_model_requires_saved_api_key(monkeypatch):
         assert "API Key" in str(exc)
     else:
         raise AssertionError("Expected ProviderAdapterError when API key is missing")
+

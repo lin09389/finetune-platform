@@ -3,8 +3,8 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-from agent_runtime.actions import WorkflowActionService
-from agent_runtime.repository import WorkflowRuntimeRepository
+from agent_runtime_legacy.actions import WorkflowActionService
+from agent_runtime_legacy.repository import WorkflowRuntimeRepository
 from digital_team.models import AgentOutput
 
 
@@ -156,3 +156,4 @@ def test_sensitive_files_and_shell_strings_are_blocked(tmp_path):
     assert shell_command["status"] == "blocked"
     assert shell_command["risk_level"] == "high"
     assert "argv 数组" in shell_command["policy_reason"]
+

@@ -14,10 +14,10 @@ from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
-from agent_runtime.runner import resolve_saved_provider
+from agent_kernel.providers import resolve_saved_provider
 from security.encryption import secure_storage
 
-from ..definitions import RuntimeExecutionContext
+from agent_kernel.execution_context import RuntimeExecutionContext
 
 
 class ProviderAdapterError(RuntimeError):

@@ -1,4 +1,4 @@
-from agent_runtime.agent_registry import AgentRegistry
+from agent_runtime_legacy.agent_registry import AgentRegistry
 
 
 def test_builtin_agents_load_and_primary_filter():
@@ -21,3 +21,4 @@ def test_build_agent_lets_action_policy_gate_patch_and_command():
     assert rules["tool.propose_command"] == "allow"
     assert "必须提出对应的 `propose_patch`" in build.system_prompt
     assert "只分析" in build.system_prompt
+

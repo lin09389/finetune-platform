@@ -6,11 +6,11 @@ import shutil
 import uuid
 from pathlib import Path
 
-from agent_runtime.actions import WorkflowActionService
-from agent_runtime.definitions import RuntimeExecutionContext
-from agent_runtime.repository import WorkflowRuntimeRepository
-from agent_runtime.tool_loop import AgentToolLoop
-from agent_runtime.tools import AgentToolExecutor
+from agent_runtime_legacy.actions import WorkflowActionService
+from agent_runtime_legacy.definitions import RuntimeExecutionContext
+from agent_runtime_legacy.repository import WorkflowRuntimeRepository
+from agent_runtime_legacy.tool_loop import AgentToolLoop
+from agent_runtime_legacy.tools import AgentToolExecutor
 
 
 def _make_project(repository: WorkflowRuntimeRepository, project_path: Path) -> dict:
@@ -179,3 +179,4 @@ def test_propose_command_guides_model_to_detect_project_commands_first(tmp_path:
     assert calls[0]["status"] == "failed"
     assert calls[0]["result_payload"]["required_tool"] == "detect_project_commands"
     assert [call["tool_name"] for call in calls] == ["propose_command", "detect_project_commands", "finalize"]
+

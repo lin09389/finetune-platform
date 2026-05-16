@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from agent_runtime.langgraph.graph_builder import build_workflow_graph
-from agent_runtime.langgraph.langgraph_tools import execute_legacy_tool, parse_tool_payload
-from agent_runtime.langgraph.nodes import execute_tool_bridge_node
-from agent_runtime.langgraph.state import WorkflowState
-from agent_runtime.tool_models import AgentToolRequest
+from agent_runtime_legacy.langgraph.graph_builder import build_workflow_graph
+from agent_runtime_legacy.langgraph.langgraph_tools import execute_legacy_tool, parse_tool_payload
+from agent_runtime_legacy.langgraph.nodes import execute_tool_bridge_node
+from agent_runtime_legacy.langgraph.state import WorkflowState
+from agent_runtime_legacy.tool_models import AgentToolRequest
 
 
 class DummyExecutor:
@@ -65,3 +65,4 @@ async def test_execute_tool_bridge_node_clears_payload():
 async def test_build_workflow_graph_compiles():
     graph = await build_workflow_graph(use_checkpointer=False)
     assert graph is not None
+

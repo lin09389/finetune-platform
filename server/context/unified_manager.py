@@ -186,7 +186,11 @@ class ContextCache:
 
     def _make_key(self, query: str, user_id: str, session_id: str, options: ContextOptions) -> str:
         """生成缓存键"""
-        key_data = f"{query}:{user_id}:{session_id}:{options.use_memory}:{options.use_knowledge}:{options.knowledge_collection_id}"
+        key_data = (
+            f"{query}:{user_id}:{session_id}:"
+            f"{options.use_memory}:{options.use_knowledge}:{options.knowledge_collection_id}:"
+            f"{options.use_project_context}:{options.project_path}"
+        )
         return hashlib.md5(key_data.encode()).hexdigest()
 
     def get(self, query: str, user_id: str, session_id: str, options: ContextOptions) -> UnifiedContext | None:
@@ -253,9 +257,19 @@ class UnifiedContextManager:
             try:
                 embedder = get_embedder()
                 vector_store = get_vector_store()
+            except Exception as e:
+                logger.error(f"项目上下文依赖初始化失败（嵌入器/向量存储）: {e}")
+                self._context_service = False
+                return None
+
+            try:
                 self._context_service = get_context_service(embedder=embedder, vector_store=vector_store)
             except Exception as e:
-                logger.warning(f"项目上下文服务初始化失败: {e}")
+                logger.error(f"项目上下文服务初始化失败: {e}")
+                self._context_service = False
+
+        if self._context_service is False:
+            return None
         return self._context_service
 
     async def build_context(
@@ -439,21 +453,30 @@ class UnifiedContextManager:
         sources = []
 
         try:
+            if not options.project_path:
+                logger.warning("项目上下文检索跳过: project_path 为空，请先扫描并设置项目路径")
+                return {"sources": sources, "time": time.time() - start_time}
+
             context_service = self._get_context_service()
 
-            if context_service:
-                context_text = context_service.get_context_for_chat(
-                    query=query,
-                    project_path=options.project_path,
-                    max_length=options.project_max_length
-                )
+            if context_service is None:
+                logger.warning("项目上下文检索跳过: 上下文服务不可用（向量存储或嵌入器初始化失败）")
+                return {"sources": sources, "time": time.time() - start_time}
 
-                if context_text:
-                    sources.append(ProjectContextItem(
-                        content=context_text,
-                        source_type="project_info",
-                        relevance=0.8
-                    ))
+            context_text = context_service.get_context_for_chat(
+                query=query,
+                project_path=options.project_path,
+                max_length=options.project_max_length
+            )
+
+            if context_text:
+                sources.append(ProjectContextItem(
+                    content=context_text,
+                    source_type="project_info",
+                    relevance=0.8
+                ))
+            else:
+                logger.debug(f"项目上下文检索无结果: project_path={options.project_path}, query={query[:50]}")
 
         except Exception as e:
             logger.warning(f"项目上下文检索失败: {e}")

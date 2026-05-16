@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import re
+import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -12,14 +14,20 @@ from typing import Any
 from fastapi import BackgroundTasks
 from fastapi import HTTPException
 
-from agent_runtime.runner import resolve_saved_provider
+from agent_kernel.providers import resolve_saved_provider
 from core.config import settings
 from core.db_manager import run_sync
 from security.encryption import secure_storage
 from workspace.local_paths import get_allowed_workspace_roots
 
 from .langgraph import AgentSessionGraphRunner
-from .models import AgentPromptRequest, AgentSessionCreate, AgentSessionResponse
+from .models import (
+    AgentArtifactResponse,
+    AgentPromptRequest,
+    AgentSessionCreate,
+    AgentSessionOverviewResponse,
+    AgentSessionResponse,
+)
 from .processor import AgentSessionProcessor, ModelCall, StreamModelCall
 from .repository import AgentSessionRepository
 from .state import ensure_session_state, record_fallback_summary, set_phase
@@ -34,6 +42,9 @@ class AgentSessionCloudError(RuntimeError):
 
 
 class AgentSessionService:
+    _event_queues: dict[str, list[asyncio.Queue[dict[str, Any]]]] = {}
+    _event_lock = threading.Lock()
+
     def __init__(
         self,
         repository: AgentSessionRepository | None = None,
@@ -41,12 +52,63 @@ class AgentSessionService:
         model_call: ModelCall | None = None,
     ):
         self.repository = repository or AgentSessionRepository()
-        self.processor = processor or AgentSessionProcessor(self.repository)
+        self.processor = processor or AgentSessionProcessor(self.repository, event_callback=self._notify_event)
         self.model_call = model_call
         self._graph_runner: AgentSessionGraphRunner | bool | None = None
         self._graph_runner_error: str | None = None
 
     ACTIVE_STATUSES = {"running", "verifying", "repairing", "waiting_approval", "waiting_permission"}
+    TERMINAL_STATUSES = {"completed", "failed", "interrupted", "needs_manual_review", "waiting_approval", "waiting_permission"}
+
+    def subscribe_events(self, session_id: str) -> asyncio.Queue[dict[str, Any]]:
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=512)
+        with AgentSessionService._event_lock:
+            if session_id not in AgentSessionService._event_queues:
+                AgentSessionService._event_queues[session_id] = []
+            AgentSessionService._event_queues[session_id].append(queue)
+        return queue
+
+    def unsubscribe_events(self, session_id: str, queue: asyncio.Queue[dict[str, Any]]) -> None:
+        with AgentSessionService._event_lock:
+            queues = AgentSessionService._event_queues.get(session_id)
+            if queues:
+                try:
+                    queues.remove(queue)
+                except ValueError:
+                    pass
+                if not queues:
+                    AgentSessionService._event_queues.pop(session_id, None)
+
+    def _notify_event(self, session_id: str, event: dict[str, Any]) -> None:
+        with AgentSessionService._event_lock:
+            queues = list(AgentSessionService._event_queues.get(session_id, []))
+        for q in queues:
+            try:
+                q.put_nowait(event)
+            except asyncio.QueueFull:
+                logger.warning("agent_session event queue full for session %s, dropping event", session_id)
+            except Exception:
+                pass
+            if not queues:
+                AgentSessionService._event_queues.pop(session_id, None)
+
+    def _notify_event(self, session_id: str, event: dict[str, Any]) -> None:
+        queues = AgentSessionService._event_queues.get(session_id)
+        if not queues:
+            return
+        dead: list[asyncio.Queue[dict[str, Any]]] = []
+        for q in queues:
+            try:
+                q.put_nowait(event)
+            except asyncio.QueueFull:
+                logger.warning("agent_session event queue full for session %s, dropping event", session_id)
+            except Exception:
+                dead.append(q)
+        for q in dead:
+            try:
+                queues.remove(q)
+            except ValueError:
+                pass
 
     def _default_project_path(self) -> str:
         base_dir = settings.base_dir.resolve()
@@ -116,6 +178,18 @@ class AgentSessionService:
             raise ValueError("Agent session not found")
         session["parts"] = self.repository.list_parts(session_id)
         return AgentSessionResponse(**self._attach_recovery_diagnostics(session))
+
+    def get_overview(self, session_id: str) -> AgentSessionOverviewResponse:
+        session = self.get_session(session_id)
+        metadata = dict(session.metadata or {})
+        diagnostics = dict(metadata.get("diagnostics") or {})
+        return AgentSessionOverviewResponse(
+            session=session,
+            task_plan=metadata.get("task_plan"),
+            recent_events=list(diagnostics.get("recent_events") or []),
+            artifacts=self._build_artifacts(session.parts),
+            diagnostics=diagnostics,
+        )
 
     async def prompt(self, session_id: str, request: AgentPromptRequest) -> AgentSessionResponse:
         session = self.repository.get_session(session_id)
@@ -684,6 +758,47 @@ class AgentSessionService:
             "created_at": event.get("created_at"),
             "payload": event.get("payload") if isinstance(event.get("payload"), dict) else {},
         }
+
+    @staticmethod
+    def _build_artifacts(parts: list[Any]) -> list[AgentArtifactResponse]:
+        artifacts: list[AgentArtifactResponse] = []
+        seen: dict[str, int] = {}
+        for part in parts:
+            part_type = getattr(part, "type", None) if not isinstance(part, dict) else part.get("type")
+            if part_type != "diff":
+                continue
+            payload = getattr(part, "payload", None) if not isinstance(part, dict) else part.get("payload")
+            payload = dict(payload or {})
+            nested_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+            diff_source = payload.get("diff") or payload.get("file_changes") or nested_payload.get("diff") or nested_payload.get("file_changes")
+            changed_files = payload.get("changed_files") or []
+            title = getattr(part, "title", None) if not isinstance(part, dict) else part.get("title")
+            content = getattr(part, "content", None) if not isinstance(part, dict) else part.get("content")
+            status = getattr(part, "status", None) if not isinstance(part, dict) else part.get("status")
+            part_id = getattr(part, "id", None) if not isinstance(part, dict) else part.get("id")
+            fallback_summary = str(title or content or payload.get("policy_reason") or "文件变更")
+            entries = diff_source if isinstance(diff_source, list) else [
+                {"path": path, "status": status or "modified", "summary": fallback_summary, "diff": diff_source}
+                for path in changed_files
+            ]
+            for entry in entries:
+                entry = entry or {}
+                path = str(entry.get("path") or entry.get("file_path") or entry.get("filename") or entry.get("name") or "").strip()
+                if not path:
+                    continue
+                seen[path] = seen.get(path, 0) + 1
+                preview = entry.get("diff") or entry.get("patch") or entry.get("content") or diff_source or ""
+                artifacts.append(
+                    AgentArtifactResponse(
+                        id=f"{part_id}:{path}:{seen[path]}",
+                        path=path,
+                        status=str(entry.get("status") or entry.get("change_type") or entry.get("action") or status or "modified"),
+                        summary=str(entry.get("summary") or entry.get("description") or fallback_summary),
+                        preview=str(preview),
+                        source_part_id=str(part_id or ""),
+                    )
+                )
+        return artifacts[-24:]
 
     @staticmethod
     def _explain_status(

@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from agent_runtime.repository import WorkflowRuntimeRepository
-from agent_runtime.service import AgentRuntimeService
-from agent_runtime.models import WorkflowCreate
+from agent_runtime_legacy.repository import WorkflowRuntimeRepository
+from agent_runtime_legacy.service import AgentRuntimeService
+from agent_runtime_legacy.models import WorkflowCreate
 from digital_team.models import AgentOutput
 
 
@@ -83,3 +83,4 @@ def test_second_failure_enters_manual_review_without_auto_execution(tmp_path):
     assert repair is None
     assert project["status"] == "needs_manual_review"
     assert project["metadata"]["repair_attempts"] == 1
+

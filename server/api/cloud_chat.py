@@ -301,6 +301,21 @@ async def _build_cloud_context(request: CloudChatRequest) -> tuple[list[dict[str
 
     from context.unified_manager import ContextOptions, get_unified_context_manager
 
+    project_path = context_options.get("project_path")
+    use_project_context = bool(context_options.get("use_context", False))
+    if use_project_context and not project_path:
+        try:
+            from context.service import get_context_service as _get_ctx_svc
+            _ctx_svc = _get_ctx_svc()
+            _registered = list(_ctx_svc.projects.keys()) if _ctx_svc else []
+            if _registered:
+                project_path = _registered[0]
+                logger.info(f"project_path 为空，自动使用已注册项目: {project_path}")
+            else:
+                logger.warning("project_path 为空且无已注册项目，项目上下文将不可用。请先扫描并索引项目。")
+        except Exception as _e:
+            logger.warning(f"查找已注册项目失败: {_e}")
+
     manager = get_unified_context_manager()
     unified_context = await manager.build_context(
         query=last_user_message,
@@ -309,13 +324,13 @@ async def _build_cloud_context(request: CloudChatRequest) -> tuple[list[dict[str
         options=ContextOptions(
             use_memory=bool(memory_options.get("enabled", True) and memory_options.get("auto_retrieve", True)),
             use_knowledge=bool(knowledge_options.get("use_knowledge", False)),
-            use_project_context=bool(context_options.get("use_context", False)),
+            use_project_context=use_project_context,
             memory_top_k=int(memory_options.get("top_k", 3)),
             memory_include_types=memory_options.get("include_types"),
             knowledge_collection_id=knowledge_options.get("collection_id"),
             knowledge_top_k=int(knowledge_options.get("top_k", 5)),
             knowledge_auto_retrieve=bool(knowledge_options.get("auto_retrieve", True)),
-            project_path=context_options.get("project_path"),
+            project_path=project_path,
             project_max_length=int(context_options.get("max_context_length", 1500)),
         ),
     )
@@ -361,6 +376,12 @@ async def _build_cloud_context(request: CloudChatRequest) -> tuple[list[dict[str
             "project_count": unified_context.project_count,
             "retrieval_time": unified_context.retrieval_time,
         }
+
+    if use_project_context and unified_context.project_count == 0:
+        metadata.setdefault("context_warnings", []).append(
+            "project_context_unavailable" if not project_path
+            else "project_context_no_results"
+        )
 
     if request.system_prompt and (
         not messages or messages[0].get("role") != "system"

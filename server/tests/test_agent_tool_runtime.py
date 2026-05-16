@@ -3,12 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 import asyncio
 
-from agent_runtime.actions import WorkflowActionService
-from agent_runtime.repository import WorkflowRuntimeRepository
-from agent_runtime.tool_loop import AgentToolLoop
-from agent_runtime.tool_models import AgentToolRequest, AgentToolResult
-from agent_runtime.tools import AgentToolExecutor
-from agent_runtime.definitions import RuntimeExecutionContext
+from agent_runtime_legacy.actions import WorkflowActionService
+from agent_runtime_legacy.repository import WorkflowRuntimeRepository
+from agent_runtime_legacy.tool_loop import AgentToolLoop
+from agent_runtime_legacy.tool_models import AgentToolRequest, AgentToolResult
+from agent_runtime_legacy.tools import AgentToolExecutor
+from agent_runtime_legacy.definitions import RuntimeExecutionContext
 
 
 def _workspace_root() -> Path:
@@ -359,3 +359,4 @@ def test_delegate_agent_executor_requires_runtime_delegate_path(tmp_path):
     assert result.payload["runtime_delegate_required"] is True
     assert result.payload["agent_id"] == "explore"
     assert result.payload["task"] == "定位相关文件"
+

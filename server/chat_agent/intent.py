@@ -4,7 +4,7 @@ import json
 import re
 from typing import Any, Literal
 
-from agent_runtime.runner import resolve_saved_provider
+from agent_kernel.providers import resolve_saved_provider
 from security.encryption import secure_storage
 
 
@@ -16,19 +16,16 @@ class ChatAgentIntentClassifier:
     """Small deterministic classifier for routing chat messages into agent work."""
 
     agent_keywords = (
-        "修改",
-        "新增",
-        "实现",
-        "修复",
-        "重构",
+        "修改代码",
+        "新增功能",
+        "新增接口",
+        "新增页面",
+        "实现功能",
+        "实现接口",
+        "修复bug",
+        "修复报错",
+        "重构代码",
         "优化代码",
-        "给当前项目",
-        "代码里",
-        "页面",
-        "接口",
-        "组件",
-        "后端",
-        "前端",
         "跑测试",
         "运行测试",
         "typecheck",
@@ -36,13 +33,41 @@ class ChatAgentIntentClassifier:
         "npm run",
         "让agent做",
         "自动处理",
-        "补丁",
+        "生成补丁",
+        "写补丁",
         "搜索项目",
         "写脚本",
         "排查报错",
         "排查问题",
         "运行命令",
         "执行补丁",
+        "帮我改",
+        "帮我修",
+        "帮我写",
+        "帮我实现",
+        "帮我新增",
+        "帮我添加",
+        "帮我重构",
+        "改成",
+        "改为",
+        "加个",
+        "加一个",
+        "删掉",
+        "删除",
+        "创建",
+        "新建",
+        "安装",
+        "配置",
+        "部署",
+        "写个",
+        "写一个",
+        "运行",
+        "执行",
+        "启动",
+        "打包",
+        "上传",
+        "更新",
+        "重命名",
     )
     workflow_keywords = (
         "workflow",
@@ -56,7 +81,12 @@ class ChatAgentIntentClassifier:
         "任务流",
         "多阶段",
     )
-    discussion_only_keywords = ("不要执行", "只讨论", "只分析", "解释一下", "帮我解释", "什么是", "为什么")
+    discussion_only_keywords = (
+        "不要执行", "只讨论", "只分析", "解释一下", "帮我解释", "什么是", "为什么",
+        "怎么理解", "怎么用", "是什么意思", "有什么区别", "介绍一下", "帮我看看",
+        "分析一下", "看看代码", "这个代码", "这段代码", "看看逻辑", "怎么实现的",
+        "原理是什么", "怎么工作的", "帮我梳理", "帮我看看代码",
+    )
 
     def classify(self, content: str, force_agent: bool = False) -> tuple[bool, str]:
         text = content.strip().lower()
@@ -103,12 +133,13 @@ class ChatAgentIntentClassifier:
                 template_id=template_id,
             )
         except Exception as exc:
+            is_agent, reason = self.classify(content)
             return self._decision(
-                "chat",
-                0.45,
-                f"云端意图判断失败，已回退到普通对话：{exc}",
+                "agent" if is_agent else "chat",
+                0.6 if is_agent else 0.45,
+                f"云端意图判断失败，已用本地规则回退：{exc}",
                 "fallback",
-                None,
+                agent_id if is_agent else None,
                 template_id,
             )
 
@@ -153,22 +184,36 @@ class ChatAgentIntentClassifier:
                 {
                     "role": "system",
                     "content": (
-                        "你是聊天到开发 Agent 的意图路由器。\n"
-                        "规则：只输出纯 JSON 对象，不要输出任何解释、markdown 或代码块。\n"
-                        "示例输出：{\"mode\": \"chat\", \"confidence\": 0.9, \"reason\": \"概念讨论\", "
-                        "\"suggested_agent_id\": null, \"suggested_template_id\": null}\n"
-                        "工作流适合：编排、阶段、节点、审批流、多步骤任务。"
-                        "Agent 适合：修改代码、搜索项目、生成补丁、运行测试、排查报错。"
-                        "普通聊天适合：概念解释、方案讨论、无需操作文件的问题。"
+                        "你是一个意图分类器。判断用户输入应该走哪条路径，只输出一个 JSON 对象。\n\n"
+                        "三种模式：\n"
+                        "- chat：用户在讨论、提问、咨询，不需要修改任何文件或执行任何命令\n"
+                        "- agent：用户需要执行具体操作（修改文件、运行命令、创建代码等）\n"
+                        "- workflow：用户需要多步骤编排、审批流、分阶段执行\n\n"
+                        "判断规则：\n"
+                        "1. 如果用户在问「是什么」「为什么」「怎么理解」「有什么区别」→ chat\n"
+                        "2. 如果用户在问「怎么做」但没有明确要求你去执行 → chat\n"
+                        "3. 如果用户说「帮我改」「帮我修」「帮我写」「帮我实现」「帮我新增」「帮我添加」→ agent\n"
+                        "4. 如果用户说「修改XX文件」「修复XX bug」「运行测试」「生成补丁」→ agent\n"
+                        "5. 如果用户说「不要执行」「只讨论」「只分析」「解释一下」→ chat\n"
+                        "6. 如果涉及多阶段编排、审批流 → workflow\n\n"
+                        "示例：\n"
+                        "用户：「这个函数的作用是什么」→ {\"mode\":\"chat\",\"confidence\":0.95,\"reason\":\"询问代码功能\",\"suggested_agent_id\":null,\"suggested_template_id\":null}\n"
+                        "用户：「帮我修复登录页面的 bug」→ {\"mode\":\"agent\",\"confidence\":0.92,\"reason\":\"要求修复bug\",\"suggested_agent_id\":\"build\",\"suggested_template_id\":\"software_delivery\"}\n"
+                        "用户：「这段代码的性能瓶颈在哪」→ {\"mode\":\"chat\",\"confidence\":0.9,\"reason\":\"性能分析讨论\",\"suggested_agent_id\":null,\"suggested_template_id\":null}\n"
+                        "用户：「帮我优化这段代码的性能」→ {\"mode\":\"agent\",\"confidence\":0.88,\"reason\":\"要求优化代码\",\"suggested_agent_id\":\"build\",\"suggested_template_id\":\"software_delivery\"}\n"
+                        "用户：「运行 npm run typecheck 看看有没有问题」→ {\"mode\":\"agent\",\"confidence\":0.9,\"reason\":\"要求运行命令\",\"suggested_agent_id\":\"build\",\"suggested_template_id\":\"software_delivery\"}\n"
+                        "用户：「什么是 LoRA 微调」→ {\"mode\":\"chat\",\"confidence\":0.95,\"reason\":\"概念解释\",\"suggested_agent_id\":null,\"suggested_template_id\":null}\n\n"
+                        "严格要求：只输出 JSON，不要输出任何其他文字、markdown 或代码块标记。"
                     ),
                 },
                 {
                     "role": "user",
                     "content": (
-                        f"默认 agent_id: {agent_id}\n默认 template_id: {template_id}\n"
                         f"用户输入：{content}\n\n"
-                        "请输出 JSON，包含字段：mode(chat 或 agent 或 workflow), confidence(0-1 数字), "
-                        "reason(字符串), suggested_agent_id(字符串或 null), suggested_template_id(字符串或 null)"
+                        f"默认 agent_id: {agent_id}\n默认 template_id: {template_id}\n\n"
+                        "请判断用户意图，输出 JSON：\n"
+                        "{\"mode\": \"chat|agent|workflow\", \"confidence\": 0.0-1.0, \"reason\": \"判断原因\", "
+                        "\"suggested_agent_id\": \"字符串或null\", \"suggested_template_id\": \"字符串或null\"}"
                     ),
                 },
             ],

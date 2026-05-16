@@ -4,7 +4,7 @@ import json
 import re
 from typing import Any, Awaitable, Callable
 
-from agent_runtime.runner import resolve_saved_provider
+from agent_kernel.providers import resolve_saved_provider
 from security.encryption import secure_storage
 
 from .models import ChatAgentAcceptanceReport

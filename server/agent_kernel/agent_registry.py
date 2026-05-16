@@ -3,12 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .definitions import AgentDefinition
+from .execution_context import AgentDefinition
 
 
 class AgentRegistry:
     def __init__(self, agents_dir: Path | None = None):
-        self.agents_dir = agents_dir or (Path(__file__).resolve().parent / "agents")
+        default_agents_dir = Path(__file__).resolve().parent.parent / "agent_runtime_legacy" / "agents"
+        self.agents_dir = agents_dir or default_agents_dir
         self._agents: dict[str, AgentDefinition] = {}
         self.reload()
 

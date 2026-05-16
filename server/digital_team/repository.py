@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agent_runtime.repository import WorkflowRuntimeRepository
+from agent_runtime_legacy.repository import WorkflowRuntimeRepository
 
 
 class DigitalTeamRepository(WorkflowRuntimeRepository):

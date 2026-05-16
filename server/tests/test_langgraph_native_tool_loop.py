@@ -4,7 +4,7 @@ from copy import deepcopy
 
 from langchain_core.messages import AIMessage
 
-from agent_runtime.langgraph.nodes import LangGraphWorkflowRuntime
+from agent_runtime_legacy.langgraph.nodes import LangGraphWorkflowRuntime
 
 
 class FakeRepository:
@@ -137,7 +137,7 @@ async def test_native_tool_loop_runs_read_tool_and_completes(monkeypatch):
     repository = FakeRepository()
     runtime = LangGraphWorkflowRuntime(repository=repository, runner=FakeRunner(), context_builder=None, memory_curator=None, action_service=object())
     fake_model = FakeModel()
-    monkeypatch.setattr("agent_runtime.langgraph.nodes.get_chat_model", lambda context: fake_model)
+    monkeypatch.setattr("agent_runtime_legacy.langgraph.nodes.get_chat_model", lambda context: fake_model)
 
     state = {
         "workflow_id": "wf_1",
@@ -178,3 +178,4 @@ async def test_native_tool_loop_runs_read_tool_and_completes(monkeypatch):
     assert review_update["execution_state"] == "completed"
     assert repository.project["status"] == "completed"
     assert repository.artifacts[0]["artifact_type"] == "plan"
+

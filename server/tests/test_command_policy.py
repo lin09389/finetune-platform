@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from agent_runtime.command_policy import command_allowed, detect_project_commands, normalize_command, resolve_command_cwd
+from agent_runtime_legacy.command_policy import command_allowed, detect_project_commands, normalize_command, resolve_command_cwd
 
 
 def test_detect_project_commands_finds_npm_and_pytest(tmp_path: Path):
@@ -55,3 +55,4 @@ def test_resolve_command_cwd_prefers_client_for_frontend_checks(tmp_path: Path):
     assert resolve_command_cwd(tmp_path, ["npm", "run", "build"]) == (tmp_path / "client").resolve()
     assert resolve_command_cwd(tmp_path, ["npx", "vitest", "run"]) == (tmp_path / "client").resolve()
     assert resolve_command_cwd(tmp_path, ["tsc", "--noEmit"]) == (tmp_path / "client").resolve()
+
