@@ -11,6 +11,11 @@ from agent_runtime.tools import AgentToolExecutor
 from agent_runtime.definitions import RuntimeExecutionContext
 
 
+def _workspace_root() -> Path:
+    cwd = Path.cwd().resolve()
+    return cwd.parent if cwd.name == "server" else cwd
+
+
 def make_runtime(tmp_path: Path):
     repository = WorkflowRuntimeRepository(str(tmp_path / "agent_tools.db"))
     action_service = WorkflowActionService(repository)
@@ -20,7 +25,7 @@ def make_runtime(tmp_path: Path):
             "title": "tools",
             "goal": "使用工具修改代码",
             "template_id": "software_delivery",
-            "project_path": str(Path.cwd()),
+            "project_path": str(_workspace_root()),
             "provider": "minimax",
             "model": None,
             "approval_mode": "manual",
@@ -39,7 +44,8 @@ def make_runtime(tmp_path: Path):
 
 def test_search_code_and_read_file_are_scoped_to_workspace(tmp_path):
     repository, _, executor, project, _ = make_runtime(tmp_path)
-    target = Path.cwd() / "tmp_agent_tool_runtime_test.txt"
+    workspace = _workspace_root()
+    target = workspace / "tmp_agent_tool_runtime_test.txt"
     target.write_text("AgentRunCard tool call smoke", encoding="utf-8")
     try:
         search = executor.execute(
@@ -96,7 +102,8 @@ def test_tool_call_list_self_heals_missing_table(tmp_path):
 
 def test_read_file_truncates_long_content(tmp_path):
     _, _, executor, project, _ = make_runtime(tmp_path)
-    target = Path.cwd() / "tmp_agent_tool_runtime_long.txt"
+    workspace = _workspace_root()
+    target = workspace / "tmp_agent_tool_runtime_long.txt"
     target.write_text("x" * 21000, encoding="utf-8")
     try:
         result = executor.execute(
@@ -136,6 +143,25 @@ def test_propose_tools_create_action_proposals_without_execution(tmp_path):
         result_payload=context.payload,
     )
 
+    detect = executor.execute(
+        AgentToolRequest(tool="detect_project_commands", arguments={}),
+        workflow_id=project["id"],
+        step_id=task["id"],
+        agent_id="implementer",
+        project=project,
+    )
+    assert detect.status == "completed"
+    repository.add_tool_call(
+        project["id"],
+        task["id"],
+        "implementer",
+        "detect_project_commands",
+        {},
+        status="completed",
+        result_summary=detect.summary,
+        result_payload=detect.payload,
+    )
+
     patch = executor.execute(
         AgentToolRequest(
             tool="propose_patch",
@@ -167,7 +193,7 @@ def test_propose_tools_create_action_proposals_without_execution(tmp_path):
     assert command.permission_decision == "allow"
     assert {action["action_type"] for action in actions} == {"patch", "command"}
     assert {action["status"] for action in actions} == {"pending_approval"}
-    assert not (Path.cwd() / "tmp_agent_tool_runtime_patch.txt").exists()
+    assert not (_workspace_root() / "tmp_agent_tool_runtime_patch.txt").exists()
 
 
 def test_reviewer_cannot_propose_patch(tmp_path):
@@ -316,3 +342,20 @@ def test_tool_loop_can_delegate_subagent(tmp_path):
 
     assert response.output.summary == "已委派 explore 并收集结果"
     assert any(item.tool == "delegate_agent" for item in response.tool_calls)
+
+
+def test_delegate_agent_executor_requires_runtime_delegate_path(tmp_path):
+    _, _, executor, project, task = make_runtime(tmp_path)
+
+    result = executor.execute(
+        AgentToolRequest(tool="delegate_agent", arguments={"agent_id": "explore", "task": "定位相关文件"}),
+        workflow_id=project["id"],
+        step_id=task["id"],
+        agent_id="implementer",
+        project=project,
+    )
+
+    assert result.status == "failed"
+    assert result.payload["runtime_delegate_required"] is True
+    assert result.payload["agent_id"] == "explore"
+    assert result.payload["task"] == "定位相关文件"

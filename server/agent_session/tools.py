@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import time
+import logging
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
@@ -25,6 +26,7 @@ from .parser import parse_tool_request
 DEV_SERVER_PROCESSES: dict[str, dict[str, Any]] = {}
 AST_GREP_SYMBOL_RE = re.compile(r"^[A-Za-z_$][A-Za-z0-9_$]*$")
 LOCAL_HTTP_HOSTS = {"localhost", "127.0.0.1", "::1"}
+logger = logging.getLogger(__name__)
 
 
 class LocalPageParser(HTMLParser):
@@ -208,7 +210,8 @@ class AgentToolRegistry:
                 continue
             try:
                 lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to read file for search {path}: {e}")
                 continue
             for line_no, line in enumerate(lines, 1):
                 if lowered in line.lower():
@@ -260,7 +263,8 @@ class AgentToolRegistry:
                 continue
             try:
                 lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to read file for symbol search {path}: {e}")
                 continue
             for line_no, line in enumerate(lines, 1):
                 definition = self._match_symbol_definition(line, symbol, patterns)
@@ -298,7 +302,8 @@ class AgentToolRegistry:
                 continue
             try:
                 lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to read file for reference search {path}: {e}")
                 continue
             for line_no, line in enumerate(lines, 1):
                 if not ref_pattern.search(line):
@@ -353,7 +358,8 @@ class AgentToolRegistry:
                             f"找到 {len(collected)} 个符号定义",
                             {"symbol": symbol, "matches": collected, "touched_paths": [item["path"] for item in collected], "engine": "ast-grep"},
                         )
-        except Exception:
+        except Exception as e:
+            logger.error(f"ast-grep symbol search failed: {e}")
             return None
         return ToolResult(
             "completed",
@@ -399,7 +405,8 @@ class AgentToolRegistry:
                             f"找到 {len(collected)} 个符号引用",
                             {"symbol": symbol, "matches": collected, "touched_paths": [item["path"] for item in collected], "engine": "ast-grep"},
                         )
-        except Exception:
+        except Exception as e:
+            logger.error(f"ast-grep reference search failed: {e}")
             return None
         return ToolResult(
             "completed",
@@ -498,7 +505,8 @@ class AgentToolRegistry:
                 continue
             try:
                 data = json.loads(pkg.read_text(encoding="utf-8", errors="ignore"))
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to parse {pkg}: {e}")
                 continue
             scripts = data.get("scripts") if isinstance(data, dict) else {}
             if not isinstance(scripts, dict):
@@ -952,7 +960,8 @@ class AgentToolRegistry:
         if log_file:
             try:
                 log_file.close()
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to close log file for dev server {key}: {e}")
                 pass
         DEV_SERVER_PROCESSES.pop(key, None)
         return ToolResult("completed", "开发服务器已停止", {"running": False, "pid": record.get("pid")})
@@ -1300,7 +1309,8 @@ class AgentToolRegistry:
                 continue
             try:
                 rel = self._safe_path(root, value).relative_to(root).as_posix()
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to resolve safe path for {value}: {e}")
                 rel = value.replace("\\", "/").lstrip("./")
             paths.append(rel)
         return list(dict.fromkeys(paths)) or None

@@ -1,6 +1,15 @@
 """
-统一状态管理器 - 参考 Ollama sched.go 设计模式
-管理所有运行时状态：模型缓存、会话状态、记忆状态
+统一状态管理器 - 纯内存缓存层
+
+职责：管理运行时状态的内存缓存，包括模型加载状态、GPU 内存使用、
+推理队列状态等。提供 LRU 淘汰和线程安全访问。
+
+存储方式：纯内存（OrderedDict + Lock），不持久化。
+生命周期：进程生命周期内有效，重启后重新初始化。
+
+注意：此模块是缓存层，不是 Session 管理器。
+实际的聊天会话持久化由 api/chat/session.py（SQLite）处理。
+模型缓存由 core/model_cache.py 处理。
 """
 import gc
 import logging

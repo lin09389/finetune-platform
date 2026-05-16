@@ -19,17 +19,23 @@ def _client_with_service(tmp_path: Path) -> tuple[TestClient, AgentSessionServic
     return TestClient(app), service
 
 
+def _workspace_root() -> Path:
+    cwd = Path.cwd().resolve()
+    return cwd.parent if cwd.name == "server" else cwd
+
+
 def test_agent_sessions_allow_desktop_optional_auth_without_token(tmp_path: Path):
     client, _ = _client_with_service(tmp_path)
+    workspace = _workspace_root()
     try:
         response = client.post(
             "/agent-sessions",
-            json={"title": "desktop smoke", "agent_id": "build", "project_path": str(Path.cwd())},
+            json={"title": "desktop smoke", "agent_id": "build", "project_path": str(workspace)},
         )
         assert response.status_code == 200
         body = response.json()
         assert body["title"] == "desktop smoke"
-        assert Path(body["project_path"]).name == "finetune-platform"
+        assert Path(body["project_path"]).name == workspace.name
 
         prompt = client.post(
             f"/agent-sessions/{body['id']}/prompt",
@@ -53,7 +59,7 @@ def test_agent_sessions_require_token_in_production_without_fallback(tmp_path: P
     try:
         response = client.post(
             "/agent-sessions",
-            json={"title": "prod", "agent_id": "build", "project_path": str(Path.cwd())},
+            json={"title": "prod", "agent_id": "build", "project_path": str(_workspace_root())},
         )
         assert response.status_code == 401
     finally:

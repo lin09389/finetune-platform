@@ -303,6 +303,9 @@ class WorkflowRuntimeRepository:
             row = conn.execute("SELECT * FROM workflow_templates WHERE id = ?", (template_id,)).fetchone()
         return self._template_from_row(row) if row else None
 
+    def create_team(self, team_id: str, name: str, description: str = "") -> dict[str, Any]:
+        return {"id": team_id, "name": name, "description": description}
+
     def create_template(self, request: WorkflowTemplateCreate) -> WorkflowDefinition:
         if self.get_template(request.id):
             raise ValueError("Workflow template already exists")
@@ -417,12 +420,9 @@ class WorkflowRuntimeRepository:
         if isinstance(fields.get("metadata"), dict):
             fields["metadata"] = _json(fields["metadata"])
         fields["updated_at"] = _now()
-        from core.db_manager import validate_column_names
-        validate_column_names(list(fields.keys()), self._WORKFLOW_UPDATABLE)
-        assignments = ", ".join(f"{key} = ?" for key in fields)
-        values = list(fields.values()) + [project_id]
+        from core.db_manager import dynamic_update
         with get_db_pool(self.db_path).get_connection() as conn:
-            conn.execute(f"UPDATE workflows SET {assignments} WHERE id = ?", values)
+            dynamic_update(conn, "workflows", "id", project_id, fields, self._WORKFLOW_UPDATABLE)
 
     def create_task(
         self,
@@ -488,12 +488,9 @@ class WorkflowRuntimeRepository:
         if "input" in fields:
             fields["input"] = _json(fields["input"])
         fields["updated_at"] = _now()
-        from core.db_manager import validate_column_names
-        validate_column_names(list(fields.keys()), self._STEP_UPDATABLE)
-        assignments = ", ".join(f"{key} = ?" for key in fields)
-        values = list(fields.values()) + [task_id]
+        from core.db_manager import dynamic_update
         with get_db_pool(self.db_path).get_connection() as conn:
-            conn.execute(f"UPDATE workflow_steps SET {assignments} WHERE id = ?", values)
+            dynamic_update(conn, "workflow_steps", "id", task_id, fields, self._STEP_UPDATABLE)
 
     def add_event(self, project_id: str, task_id: str | None, event_type: str, actor: str, message: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         event_id = f"wfe_{uuid.uuid4().hex[:8]}"
@@ -858,13 +855,10 @@ class WorkflowRuntimeRepository:
             fields["result_payload"] = _json(fields["result_payload"])
         if not fields:
             return self.get_tool_call(call_id) or {}
-        from core.db_manager import validate_column_names
-        validate_column_names(list(fields.keys()), self._TOOL_CALL_UPDATABLE)
-        assignments = ", ".join(f"{key} = ?" for key in fields)
-        values = list(fields.values()) + [call_id]
+        from core.db_manager import dynamic_update
         def update_call() -> None:
             with get_db_pool(self.db_path).get_connection() as conn:
-                conn.execute(f"UPDATE workflow_tool_calls SET {assignments} WHERE id = ?", values)
+                dynamic_update(conn, "workflow_tool_calls", "id", call_id, fields, self._TOOL_CALL_UPDATABLE)
 
         self._with_schema_retry(update_call)
         return self.get_tool_call(call_id) or {}
@@ -936,12 +930,9 @@ class WorkflowRuntimeRepository:
         if isinstance(fields.get("payload"), dict):
             fields["payload"] = _json(fields["payload"])
         fields["updated_at"] = _now()
-        from core.db_manager import validate_column_names
-        validate_column_names(list(fields.keys()), self._ACTION_UPDATABLE)
-        assignments = ", ".join(f"{key} = ?" for key in fields)
-        values = list(fields.values()) + [action_id]
+        from core.db_manager import dynamic_update
         with get_db_pool(self.db_path).get_connection() as conn:
-            conn.execute(f"UPDATE workflow_action_proposals SET {assignments} WHERE id = ?", values)
+            dynamic_update(conn, "workflow_action_proposals", "id", action_id, fields, self._ACTION_UPDATABLE)
         return self.get_action_proposal(action_id) or {}
 
     def add_action_execution(

@@ -1,3 +1,16 @@
+"""
+项目上下文会话存储 — JSON 文件持久化
+
+职责：管理项目上下文理解的聊天会话（技术栈检测、代码符号提取、
+语义搜索结果的对话历史）。
+
+存储方式：JSON 文件（data/context_sessions/），每个会话一个文件。
+生命周期：跨会话持久化，用户可手动归档/删除。
+
+注意：此模块与 API 层的 SessionManager（SQLite 持久化）和
+Gateway 的 GatewaySessionManager（纯内存）是独立系统。
+此模块专注于项目上下文相关的对话，而非通用聊天。
+"""
 import json
 import uuid
 from dataclasses import dataclass, field

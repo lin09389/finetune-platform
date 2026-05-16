@@ -69,16 +69,6 @@ def _sanitize_model_output(content: str) -> str:
     return text
 
 
-def _looks_like_final_text(content: str) -> bool:
-    text = content.strip()
-    if len(text) < 8:
-        return False
-    lowered = text.lower()
-    final_markers = ("完成", "总结", "最终", "结果", "done", "completed", "summary")
-    tool_markers = ("propose_patch", "propose_command", "read_file", "search_code", "inspect_project")
-    return any(marker in lowered or marker in text for marker in final_markers) and not any(marker in lowered for marker in tool_markers)
-
-
 class AgentToolLoop:
     def __init__(
         self,
@@ -137,44 +127,6 @@ class AgentToolLoop:
             sanitized = _sanitize_model_output(content)
             request = self._try_parse_request(sanitized)
             if request is None:
-                if _looks_like_final_text(content):
-                    output = self._final_output(
-                        {
-                            "summary": content.strip(),
-                            "risks": [],
-                            "next_action": "请查看最终结果。",
-                            "requires_approval": False,
-                        },
-                        results,
-                    )
-                    output.raw_output = content
-                    protocol_status = "fallback_summary"
-                    self._set_protocol_metadata(
-                        project,
-                        status=protocol_status,
-                        last_output=last_model_output_preview,
-                        parse_repair_count=parse_repair_count,
-                        fallback_summary_used=True,
-                    )
-                    set_workflow_state(
-                        self.repository,
-                        project,
-                        COMPLETED,
-                        "模型返回普通文本，已作为最终结果收口。",
-                        step_id=task.get("id"),
-                        actor=agent_id,
-                    )
-                    return AgentToolLoopResponse(
-                        output=output,
-                        tool_calls=results,
-                        trace_id=trace_id,
-                        total_input_tokens=total_input_tokens,
-                        total_output_tokens=total_output_tokens,
-                        model_protocol_status=protocol_status,
-                        last_model_output_preview=last_model_output_preview,
-                        parse_repair_count=parse_repair_count,
-                        fallback_summary_used=True,
-                    )
                 # Retry once with a correction prompt
                 messages.append({"role": "assistant", "content": content})
                 messages.append({
@@ -195,37 +147,6 @@ class AgentToolLoop:
                 retry_sanitized = _sanitize_model_output(retry_content)
                 request = self._try_parse_request(retry_sanitized)
                 if request is None:
-                    fallback_text = retry_content if _looks_like_final_text(retry_content) else content
-                    if _looks_like_final_text(fallback_text):
-                        set_workflow_state(
-                            self.repository,
-                            project,
-                            COMPLETED,
-                            "模型返回普通文本，已作为最终结果收口。",
-                            step_id=task.get("id"),
-                            actor=agent_id,
-                        )
-                        output = self._final_output(
-                            {
-                                "summary": fallback_text.strip(),
-                                "risks": [],
-                                "next_action": "请查看最终结果。",
-                                "requires_approval": False,
-                            },
-                            results,
-                        )
-                        output.raw_output = fallback_text
-                        return AgentToolLoopResponse(
-                            output=output,
-                            tool_calls=results,
-                            trace_id=trace_id,
-                            total_input_tokens=total_input_tokens,
-                            total_output_tokens=total_output_tokens,
-                            model_protocol_status="fallback_summary",
-                            last_model_output_preview=last_model_output_preview,
-                            parse_repair_count=parse_repair_count,
-                            fallback_summary_used=True,
-                        )
                     protocol_status = "needs_manual_review"
                     self._set_protocol_metadata(
                         project,
@@ -361,17 +282,18 @@ class AgentToolLoop:
                 self._tool_message(request.tool, "started"),
                 {"tool_call_id": call["id"], "tool_name": request.tool, "arguments": request.arguments, "trace_id": trace_id},
             )
-            result = self.executor.execute(
-                request,
-                workflow_id=project["id"],
-                step_id=task.get("id"),
-                agent_id=agent_id,
-                project=project,
-                permission_rules=permission_rules,
-                replay_of_call_id=call.get("id"),
-            )
-            if request.tool == "delegate_agent" and result.status == "completed" and delegate_call is not None:
+            if request.tool == "delegate_agent" and delegate_call is not None:
                 result = await delegate_call(agent_id, request.arguments, context, step_input)
+            else:
+                result = self.executor.execute(
+                    request,
+                    workflow_id=project["id"],
+                    step_id=task.get("id"),
+                    agent_id=agent_id,
+                    project=project,
+                    permission_rules=permission_rules,
+                    replay_of_call_id=call.get("id"),
+                )
             duration_ms = int((perf_counter() - start_time) * 1000)
             completed_at = datetime.now().isoformat()
             self.repository.update_tool_call(
@@ -656,7 +578,7 @@ class AgentToolLoop:
     ) -> AgentOutput:
         return AgentOutput(
             summary=summary,
-            raw_output=raw_output,
+            raw_output=raw_output or "",
             needs_manual_review=True,
             requires_approval=True,
             next_action=next_action,

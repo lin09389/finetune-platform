@@ -166,6 +166,7 @@ class AgentRuntimeService:
                 await graph.ainvoke(initial_state, config={"configurable": {"thread_id": workflow_id}})
             except Exception as exc:
                 logger.warning("LangGraph run failed, falling back to legacy engine: %s", exc)
+                project = self._get_project(workflow_id)
             else:
                 updated = self._get_project(workflow_id)
                 return self._project_response(updated)
@@ -266,6 +267,7 @@ class AgentRuntimeService:
                 return self._project_response(self._get_project(project["id"]))
             except Exception as exc:
                 logger.warning("LangGraph approve_step failed, falling back to legacy engine: %s", exc)
+                project = self._get_project(project["id"])
         if not approved:
             updated = await self.engine.reject(project, task, comment)
             return self._project_response(updated)
@@ -288,6 +290,7 @@ class AgentRuntimeService:
                 return self._project_response(self._get_project(project["id"]))
             except Exception as exc:
                 logger.warning("LangGraph retry_step failed, falling back to legacy engine: %s", exc)
+                project = self._get_project(project["id"])
         updated = await self.engine.retry(project, task, "")
         return self._project_response(updated)
 

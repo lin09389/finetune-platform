@@ -2,6 +2,7 @@
 Gateway agent isolation manager.
 """
 import json
+import logging
 import os
 import shutil
 import threading
@@ -11,7 +12,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-logger_name = __name__
+logger = logging.getLogger(__name__)
 
 
 class IsolationLevel(str, Enum):
@@ -50,6 +51,33 @@ class WorkspaceManager:
         self.base_path.mkdir(parents=True, exist_ok=True)
         self._workspaces: dict[str, AgentWorkspace] = {}
         self._lock = threading.Lock()
+        self._load_existing_workspaces()
+
+    def _load_existing_workspaces(self):
+        """从磁盘加载已有的工作空间配置"""
+        for workspace_dir in self.base_path.iterdir():
+            if not workspace_dir.is_dir():
+                continue
+            config_path = workspace_dir / ".workspace.json"
+            if not config_path.exists():
+                continue
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    config = json.load(f)
+                workspace = AgentWorkspace(
+                    agent_id=config["agent_id"],
+                    workspace_path=workspace_dir,
+                    isolation_level=IsolationLevel(config["isolation_level"]),
+                    max_storage_mb=config.get("max_storage_mb", 100),
+                    metadata=config.get("metadata", {}),
+                )
+                for p in config.get("allowed_paths", []):
+                    workspace.allowed_paths.add(p)
+                for p in config.get("denied_paths", []):
+                    workspace.denied_paths.add(p)
+                self._workspaces[workspace.agent_id] = workspace
+            except Exception:
+                logger.warning("Failed to load workspace config from %s", config_path, exc_info=True)
 
     def create_workspace(
         self,

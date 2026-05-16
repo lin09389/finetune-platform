@@ -220,15 +220,26 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Memory service init failed: {e}")
 
-    storage_worker = None
-    grpc_server = None
-    try:
-        from core.storage_worker import get_storage_outbox_worker
-        storage_worker = get_storage_outbox_worker()
-        await storage_worker.start()
-    except Exception as e:
-        logger.warning(f"Storage outbox worker start failed: {e}")
+    # 自动备份调度
+    import asyncio as _asyncio
 
+    async def _auto_backup_loop():
+        interval = int(os.environ.get("BACKUP_INTERVAL_HOURS", "6")) * 3600
+        retention = int(os.environ.get("BACKUP_RETENTION_DAYS", "7"))
+        await _asyncio.sleep(300)  # 启动后 5 分钟再执行首次备份
+        while True:
+            try:
+                from core.storage import backup_all, cleanup_old_backups
+                backup_all()
+                cleanup_old_backups(keep_days=retention)
+                logger.info("自动备份完成")
+            except Exception as exc:
+                logger.warning("自动备份失败: %s", exc)
+            await _asyncio.sleep(interval)
+
+    _backup_task = _asyncio.create_task(_auto_backup_loop())
+
+    grpc_server = None
     if settings.enable_inference_grpc:
         try:
             from api.inference.grpc_server import get_inference_grpc_server
@@ -245,11 +256,11 @@ async def lifespan(app: FastAPI):
 
     logger.info("Shutting down application...")
 
-    if storage_worker:
-        try:
-            await storage_worker.stop()
-        except Exception as e:
-            logger.warning(f"Storage outbox worker shutdown failed: {e}")
+    _backup_task.cancel()
+    try:
+        await _backup_task
+    except _asyncio.CancelledError:
+        pass
 
     if grpc_server:
         try:

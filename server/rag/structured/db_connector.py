@@ -252,7 +252,13 @@ class SQLiteConnector(DatabaseConnector):
                 self.connect()
 
             if limit:
-                sql = f"{sql} LIMIT {limit}"
+                sql = f"{sql} LIMIT ?"
+                if params is None:
+                    params = (limit,)
+                elif isinstance(params, tuple):
+                    params = params + (limit,)
+                else:
+                    params = tuple(params.values()) + (limit,)
 
             cursor = self._connection.cursor()
 
@@ -348,12 +354,18 @@ class SQLiteConnector(DatabaseConnector):
         self._validate_table_name(table_name)
         if not isinstance(limit, int) or limit < 1 or limit > 100:
             limit = 5
-        result = self.query(f"SELECT * FROM {table_name} LIMIT {limit}")
+        result = self.query(f"SELECT * FROM \"{table_name}\" LIMIT ?", (limit,))
         return result.rows
 
 
 class PostgreSQLConnector(DatabaseConnector):
     """PostgreSQL 数据库连接器"""
+
+    @staticmethod
+    def _validate_table_name(name: str) -> str:
+        if not _SAFE_IDENTIFIER_RE.match(name):
+            raise ValueError(f"Invalid table name: {name!r}")
+        return name
 
     def __init__(self, config: ConnectionConfig):
         super().__init__(config)
@@ -459,7 +471,15 @@ class PostgreSQLConnector(DatabaseConnector):
 
         try:
             if limit:
-                sql = f"{sql} LIMIT {limit}"
+                if isinstance(params, dict):
+                    sql = f"{sql} LIMIT %(_limit)s"
+                    params = {**params, "_limit": limit}
+                else:
+                    sql = f"{sql} LIMIT %s"
+                    if params is None:
+                        params = (limit,)
+                    elif isinstance(params, tuple):
+                        params = params + (limit,)
 
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -503,6 +523,7 @@ class PostgreSQLConnector(DatabaseConnector):
 
     def get_table_schema(self, table_name: str) -> TableSchema | None:
         """获取表结构"""
+        table_name = self._validate_table_name(table_name)
         try:
             columns_result = self.query(
                 """
@@ -553,12 +574,19 @@ class PostgreSQLConnector(DatabaseConnector):
 
     def get_table_sample(self, table_name: str, limit: int = 5) -> list[dict[str, Any]]:
         """获取表数据样本"""
-        result = self.query(f'SELECT * FROM "{table_name}" LIMIT {limit}')
+        table_name = self._validate_table_name(table_name)
+        result = self.query(f'SELECT * FROM "{table_name}" LIMIT %s', params=(limit,))
         return result.rows
 
 
 class MySQLConnector(DatabaseConnector):
     """MySQL 数据库连接器"""
+
+    @staticmethod
+    def _validate_table_name(name: str) -> str:
+        if not _SAFE_IDENTIFIER_RE.match(name):
+            raise ValueError(f"Invalid table name: {name!r}")
+        return name
 
     def __init__(self, config: ConnectionConfig):
         super().__init__(config)
@@ -664,7 +692,15 @@ class MySQLConnector(DatabaseConnector):
 
         try:
             if limit:
-                sql = f"{sql} LIMIT {limit}"
+                if isinstance(params, dict):
+                    sql = f"{sql} LIMIT %(_limit)s"
+                    params = {**params, "_limit": limit}
+                else:
+                    sql = f"{sql} LIMIT %s"
+                    if params is None:
+                        params = (limit,)
+                    elif isinstance(params, tuple):
+                        params = params + (limit,)
 
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -700,6 +736,7 @@ class MySQLConnector(DatabaseConnector):
 
     def get_table_schema(self, table_name: str) -> TableSchema | None:
         """获取表结构"""
+        table_name = self._validate_table_name(table_name)
         try:
             columns_result = self.query(
                 """
@@ -749,7 +786,8 @@ class MySQLConnector(DatabaseConnector):
 
     def get_table_sample(self, table_name: str, limit: int = 5) -> list[dict[str, Any]]:
         """获取表数据样本"""
-        result = self.query(f"SELECT * FROM `{table_name}` LIMIT {limit}")
+        table_name = self._validate_table_name(table_name)
+        result = self.query(f"SELECT * FROM `{table_name}` LIMIT %s", params=(limit,))
         return result.rows
 
 

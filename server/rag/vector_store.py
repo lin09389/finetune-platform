@@ -3,6 +3,7 @@ RAG 知识库 - 向量存储
 使用 ChromaDB 进行向量存储和检索
 """
 import logging
+import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -32,14 +33,15 @@ class VectorStore:
             import chromadb
             from chromadb.config import Settings
 
+            allow_reset = os.environ.get("CHROMA_ALLOW_RESET", "false").lower() in ("true", "1", "yes")
             self._client = chromadb.PersistentClient(
                 path=str(self.db_path),
                 settings=Settings(
                     anonymized_telemetry=False,
-                    allow_reset=True
+                    allow_reset=allow_reset,
                 )
             )
-            logger.info(f"ChromaDB 已初始化：{self.db_path}")
+            logger.info(f"ChromaDB 已初始化：{self.db_path} (allow_reset={allow_reset})")
 
         return self._client
 

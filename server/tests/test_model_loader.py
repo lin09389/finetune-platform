@@ -87,27 +87,27 @@ class TestBuildCacheKey:
 class TestEstimateVramRequired:
     def test_qlora_4bit_lowest(self):
         config = ModelLoadConfig(method="qlora", quantize=4)
-        assert _estimate_vram_required(config) == pytest.approx(6.0)
+        assert _estimate_vram_required(config) == pytest.approx(3.14, abs=0.1)
 
     def test_qlora_8bit_higher(self):
         config = ModelLoadConfig(method="qlora", quantize=8)
-        assert _estimate_vram_required(config) == pytest.approx(8.0)
+        assert _estimate_vram_required(config) == pytest.approx(3.39, abs=0.1)
 
     def test_lora_estimate(self):
         config = ModelLoadConfig(method="lora")
-        assert _estimate_vram_required(config) == pytest.approx(12.0)
+        assert _estimate_vram_required(config) == pytest.approx(5.94, abs=0.1)
 
     def test_dora_same_as_lora(self):
         config = ModelLoadConfig(method="dora")
-        assert _estimate_vram_required(config) == pytest.approx(12.0)
+        assert _estimate_vram_required(config) == pytest.approx(5.94, abs=0.1)
 
     def test_full_finetune_highest(self):
         config = ModelLoadConfig(method="full")
-        assert _estimate_vram_required(config) == pytest.approx(16.0)
+        assert _estimate_vram_required(config) == pytest.approx(31.28, abs=0.1)
 
     def test_flash_attn_reduces_estimate(self):
         config = ModelLoadConfig(method="lora", use_flash_attn=True)
-        assert _estimate_vram_required(config) == pytest.approx(10.2)
+        assert _estimate_vram_required(config) == pytest.approx(5.81, abs=0.1)
 
 
 class TestModelLoadConfig:

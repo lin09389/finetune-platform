@@ -83,14 +83,20 @@ def test_missing_tool_field_repairs_once(tmp_path):
     assert metadata["parse_repair_count"] == 1
 
 
-def test_plain_final_text_becomes_summary_without_manual_review(tmp_path):
-    response, repository, project = run_loop(tmp_path, ["最终结果：已经完成检查，没有需要执行的补丁。"])
+def test_plain_final_text_requires_manual_review(tmp_path):
+    response, repository, project = run_loop(
+        tmp_path,
+        [
+            "最终结果：已经完成检查，没有需要执行的补丁。",
+            "仍然是普通文本，没有按协议输出 JSON。",
+        ],
+    )
 
     metadata = repository.get_project(project["id"])["metadata"]
-    assert response.needs_manual_review is False
-    assert "最终结果" in response.output.summary
-    assert metadata["model_protocol_status"] == "fallback_summary"
-    assert metadata["fallback_summary_used"] is True
+    assert response.needs_manual_review is True
+    assert "不是可解析的工具 JSON" in response.output.summary
+    assert metadata["model_protocol_status"] == "needs_manual_review"
+    assert metadata["fallback_summary_used"] is False
 
 
 def test_missing_finalize_generates_backend_fallback_summary(tmp_path):

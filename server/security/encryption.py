@@ -300,6 +300,12 @@ class SecureStorage:
                 })
         return keys
 
+    def list_keys(self) -> list[str]:
+        """列出保险库中所有的键"""
+        vault = self._load_vault()
+        return list(vault.keys())
+
+
     def _load_vault(self) -> dict[str, Any]:
         """加载保险库"""
         if self.vault_file.exists():

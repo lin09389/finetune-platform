@@ -44,6 +44,7 @@ class AgentToolResult(BaseModel):
     replay_of_call_id: str | None = None
 
 
+
 class AgentToolLoopState(BaseModel):
     workflow_id: str
     step_id: str | None = None
@@ -51,7 +52,7 @@ class AgentToolLoopState(BaseModel):
     iteration: int = 0
     max_iterations: int = 6
     results: list[AgentToolResult] = Field(default_factory=list)
-    trace_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class AgentToolLoopResponse(BaseModel):

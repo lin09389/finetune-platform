@@ -26,8 +26,13 @@ def test_unknown_tool_returns_none():
     assert registry.get("unknown_tool") is None
 
 
+def _workspace_root() -> Path:
+    cwd = Path.cwd().resolve()
+    return cwd.parent if cwd.name == "server" else cwd
+
+
 def test_read_tool_accepts_multiple_paths(tmp_path):
-    workspace = Path.cwd()
+    workspace = _workspace_root()
     registry = AgentToolRegistry()
     tool = registry.get("read")
 

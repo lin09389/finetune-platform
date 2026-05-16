@@ -67,6 +67,7 @@ class SpawnedAgent:
     completed_at: datetime | None = None
     result: dict[str, Any] | None = None
     error: str | None = None
+    session_id: str | None = None
 
 
 @dataclass
@@ -213,7 +214,7 @@ class CrossAgentCommunicator:
         """发送消息并等待响应"""
         correlation_id = str(uuid.uuid4())
 
-        future: asyncio.Future = asyncio.get_event_loop().create_future()
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending_responses[correlation_id] = future
 
         try:
@@ -343,15 +344,59 @@ class CrossAgentCommunicator:
 
         finally:
             self.unregister_agent(spawned_id)
+            self._evict_old_spawned_agents()
+
+    def _evict_old_spawned_agents(self):
+        """清理已完成的旧子 Agent，防止内存泄漏"""
+        max_retained = self._max_spawned_agents * 3
+        completed = [
+            (sid, a) for sid, a in self._spawned_agents.items()
+            if a.status in ("completed", "failed", "terminated")
+        ]
+        if len(completed) <= max_retained:
+            return
+        completed.sort(key=lambda x: x[1].completed_at or datetime.min)
+        for sid, _ in completed[: len(completed) - max_retained]:
+            self._spawned_agents.pop(sid, None)
 
     async def _execute_spawned_task(
         self,
         spawned: SpawnedAgent,
         config: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        """执行子 Agent 任务"""
-        await asyncio.sleep(0.1)
-        return {"status": "completed", "task_type": spawned.task_type}
+        """执行子 Agent 任务 — 通过 agent_session 服务"""
+        from agent_session.models import AgentPromptRequest, AgentSessionCreate
+        from agent_session.service import AgentSessionService
+
+        config = config or {}
+        service = AgentSessionService()
+
+        session = service.create_session(AgentSessionCreate(
+            agent_id=spawned.id,
+            title=f"Spawned: {spawned.task_type}",
+            project_path=config.get("project_path"),
+            provider=config.get("provider"),
+            model=config.get("model"),
+        ))
+        spawned.session_id = session.id
+
+        prompt_text = config.get("prompt") or config.get("task") or spawned.task_type
+        result = await service.prompt(
+            session.id,
+            AgentPromptRequest(content=prompt_text),
+        )
+
+        parts = getattr(result, "parts", []) or []
+        summary_parts = [p for p in parts if getattr(p, "type", None) == "summary"]
+        text_parts = [p for p in parts if getattr(p, "type", None) == "text"]
+
+        return {
+            "status": "completed",
+            "session_id": session.id,
+            "task_type": spawned.task_type,
+            "summary": summary_parts[-1].content if summary_parts else None,
+            "output": text_parts[-1].content if text_parts else None,
+        }
 
     async def terminate_agent(self, agent_id: str) -> bool:
         """终止子 Agent"""

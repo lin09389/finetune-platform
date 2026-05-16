@@ -13,11 +13,16 @@ from agent_runtime.tool_loop import AgentToolLoop
 from agent_runtime.tools import AgentToolExecutor
 
 
+def _workspace_root() -> Path:
+    cwd = Path.cwd().resolve()
+    return cwd.parent if cwd.name == "server" else cwd
+
+
 def _make_runtime(tmp_path: Path):
     repository = WorkflowRuntimeRepository(str(tmp_path / "feature_loop.db"))
     action_service = WorkflowActionService(repository)
     executor = AgentToolExecutor(repository, action_service)
-    workspace = Path.cwd()
+    workspace = _workspace_root()
     project = repository.create_project(
         {
             "title": "feature dev loop",
@@ -49,6 +54,7 @@ def test_feature_loop_multi_file_diff_requires_approval_after_context(tmp_path: 
         "feature_a.ts": "export const A = 'old';\n",
         "feature_b.ts": "export const B = 'old';\n",
         "feature_c.ts": "export const C = 'old';\n",
+        "feature_d.ts": "export const D = 'old';\n",
     }
     for name, content in files.items():
         (feature_dir / name).write_text(content, encoding="utf-8")
@@ -60,10 +66,11 @@ def test_feature_loop_multi_file_diff_requires_approval_after_context(tmp_path: 
             {"tool": "read_file", "arguments": {"path": rels[0]}},
             {"tool": "read_file", "arguments": {"path": rels[1]}},
             {"tool": "read_file", "arguments": {"path": rels[2]}},
+            {"tool": "read_file", "arguments": {"path": rels[3]}},
             {
                 "tool": "propose_patch",
                 "arguments": {
-                    "title": "三文件功能改动",
+                    "title": "四文件功能改动",
                     "payload": {
                         "format": "unified_diff",
                         "diff": _multi_diff([(rel, "export const " + chr(65 + i) + " = 'old';", "export const " + chr(65 + i) + " = 'new';") for i, rel in enumerate(rels)]),
@@ -73,7 +80,7 @@ def test_feature_loop_multi_file_diff_requires_approval_after_context(tmp_path: 
             {
                 "tool": "finalize",
                 "arguments": {
-                    "summary": "已生成三文件功能补丁，等待审批后执行。",
+                    "summary": "已生成四文件功能补丁，等待审批后执行。",
                     "changed_files": rels,
                     "verification": "未运行，等待补丁审批。",
                     "risks": ["多文件源码改动需要人工审批。"],
@@ -104,7 +111,7 @@ def test_feature_loop_multi_file_diff_requires_approval_after_context(tmp_path: 
         )
 
         action = next(item for item in repository.list_action_proposals(project["id"]) if item["action_type"] == "patch")
-        assert response.output.summary == "已生成三文件功能补丁，等待审批后执行。"
+        assert response.output.summary == "已生成四文件功能补丁，等待审批后执行。"
         assert action["status"] == "pending_approval"
         assert action["execution_mode"] == "approval_required"
         assert action["risk_level"] == "medium"

@@ -361,6 +361,13 @@ class CredentialManager:
 
         self._credentials: dict[str, Credential] = {}
         self._encryption_key: bytes | None = None
+        # 初始化加密管理器用于凭证值加密
+        try:
+            from security.encryption_storage import EncryptionManager
+            self._encryption = EncryptionManager()
+        except Exception:
+            self._encryption = None
+            logger.warning("凭证加密不可用，凭证将以明文存储")
 
     def set_encryption_key(self, key: bytes):
         """设置加密密钥"""
@@ -429,10 +436,14 @@ class CredentialManager:
         return [c.to_dict() for c in credentials if not c.is_expired()]
 
     def _persist_credential(self, credential: Credential):
-        """持久化凭证"""
+        """持久化凭证（值字段加密存储）"""
         file_path = self.storage_path / f"{credential.credential_id}.json"
         try:
             data = credential.to_dict(include_value=True)
+            # 加密凭证值
+            if self._encryption and "value" in data:
+                data["value"] = self._encryption.encrypt(data["value"])
+                data["_encrypted"] = True
             with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:

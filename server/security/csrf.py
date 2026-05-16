@@ -120,7 +120,7 @@ def get_csrf_protection() -> CSRFProtection:
     if _csrf_protection is None:
         from core.config import get_settings
         settings = get_settings()
-        secret_key = settings.jwt_secret_key or "default-csrf-secret-key"
+        secret_key = settings.jwt_secret_key or secrets.token_hex(32)
         _csrf_protection = CSRFProtection(secret_key=secret_key)
     return _csrf_protection
 

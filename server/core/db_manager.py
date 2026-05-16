@@ -16,6 +16,7 @@
 """
 import asyncio
 import logging
+import os
 import re
 import sqlite3
 import threading
@@ -28,8 +29,6 @@ import anyio
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
-
-logger = logging.getLogger(__name__)
 
 # 合法 SQLite 列名的正则：只允许字母、数字和下划线
 _SAFE_COLUMN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -73,6 +72,11 @@ class DatabaseConnectionPool:
 
     def _create_connection(self) -> sqlite3.Connection:
         """创建一个优化的、允许跨线程的 SQLite 连接"""
+        global _global_connection_count
+        with _global_connection_lock:
+            if _global_connection_count >= _MAX_GLOBAL_CONNECTIONS:
+                logger.warning("全局连接数已达上限 (%d)", _MAX_GLOBAL_CONNECTIONS)
+            _global_connection_count += 1
         Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(
             self._db_path,
@@ -84,7 +88,8 @@ class DatabaseConnectionPool:
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL") # NORMAL 对于 WAL 模式性能最好且足够安全
-        conn.execute("PRAGMA busy_timeout = 10000")
+        busy_timeout = int(os.environ.get("SQLITE_BUSY_TIMEOUT", "10000"))
+        conn.execute(f"PRAGMA busy_timeout = {busy_timeout}")
         logger.debug(f"已新建真实的数据库物理连接 -> {self._db_path}")
         return conn
 
@@ -103,17 +108,25 @@ class DatabaseConnectionPool:
                 self._connections.append(conn)
                 return
         # 池满，物理关闭
+        global _global_connection_count
         try:
             conn.close()
         except Exception as e:
             logger.warning(f"超编连接销毁失败: {e}")
+        finally:
+            with _global_connection_lock:
+                _global_connection_count = max(0, _global_connection_count - 1)
 
     def _destroy_connection(self, conn: sqlite3.Connection) -> None:
         """物理关闭一个受损的连接，不归还池"""
+        global _global_connection_count
         try:
             conn.close()
         except Exception as e:
             logger.warning(f"受损连接物理关闭失败: {e}")
+        finally:
+            with _global_connection_lock:
+                _global_connection_count = max(0, _global_connection_count - 1)
 
     def _acquire_connection(self) -> sqlite3.Connection:
         """从池中签出一个经过健康检查的连接，或创建新连接"""
@@ -219,6 +232,7 @@ class DatabaseConnectionPool:
 
     def close_all(self):
         """关闭所有闲置连接"""
+        global _global_connection_count
         with self._connections_lock:
             connections = self._connections[:]
             self._connections.clear()
@@ -228,6 +242,9 @@ class DatabaseConnectionPool:
                 conn.close()
             except Exception as e:
                 logger.warning(f"关闭数据库闲置连接失败：{e}")
+
+        with _global_connection_lock:
+            _global_connection_count = max(0, _global_connection_count - len(connections))
         logger.debug("数据库连接池中所有连接已物理关闭")
 
     def execute_query(self, query: str, params: tuple = ()):
@@ -259,8 +276,39 @@ class DatabaseConnectionPool:
             return cursor.rowcount
 
 
+def dynamic_update(
+    conn: "sqlite3.Connection",
+    table: str,
+    pk_col: str,
+    pk_val: Any,
+    fields: dict,
+    allowed: set[str],
+) -> int:
+    """
+    安全地执行动态 UPDATE 语句。
+
+    - 列名经过 validate_column_names 白名单校验。
+    - 值使用 ? 参数化占位符。
+    - 表名和主键列名经过正则校验。
+
+    返回受影响的行数。
+    """
+    if not _SAFE_COLUMN_RE.match(table):
+        raise ValueError(f"非法表名: {table!r}")
+    if not _SAFE_COLUMN_RE.match(pk_col):
+        raise ValueError(f"非法主键列名: {pk_col!r}")
+    validate_column_names(fields.keys(), allowed)
+    assignments = ", ".join(f"{k} = ?" for k in fields)
+    sql = f"UPDATE {table} SET {assignments} WHERE {pk_col} = ?"
+    values = list(fields.values()) + [pk_val]
+    return conn.execute(sql, values).rowcount
+
+
 _db_pools: dict[str, DatabaseConnectionPool] = {}
 _pool_lock = threading.Lock()
+_global_connection_count = 0
+_global_connection_lock = threading.Lock()
+_MAX_GLOBAL_CONNECTIONS = 100
 
 
 def get_db_pool(db_path: str = None) -> DatabaseConnectionPool:

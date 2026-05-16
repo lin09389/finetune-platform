@@ -301,28 +301,6 @@ def test_collect_context_infers_source_file_before_patch(tmp_path: Path):
         shutil.rmtree(run_dir, ignore_errors=True)
 
 
-def test_local_fallback_summary_mentions_written_files_after_action():
-    service = AgentSessionService(AgentSessionRepository(":memory:"))
-    observation = {
-        "tool": "patch",
-        "status": "completed",
-        "changed_files": ["tmp/demo_live_patch.txt"],
-    }
-    messages = [
-        {
-            "role": "user",
-            "content": "工具结果：\n" + json.dumps(observation, ensure_ascii=False),
-        }
-    ]
-
-    raw = service._local_fallback_model_response(messages, "没有选择云端模型")
-
-    parsed = json.loads(raw)
-    assert parsed["tool"] == "finalize"
-    assert "补丁已执行并写入文件" in parsed["arguments"]["summary"]
-    assert "tmp/demo_live_patch.txt" in parsed["arguments"]["summary"]
-
-
 def test_frontend_validation_tools_add_next_step_guidance(tmp_path: Path):
     service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_frontend_guidance.db")))
     guidance = service.processor._next_tool_guidance(
@@ -418,10 +396,10 @@ def test_processor_internal_failure_returns_recoverable_summary(tmp_path: Path):
     assert result.metadata["diagnostics"]["stop_reason"]
 
 
-def test_missing_provider_can_still_run_explicit_read_only_task(tmp_path: Path):
+def test_missing_provider_stops_before_running_task(tmp_path: Path):
     workspace = Path.cwd()
-    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_local_read_fallback.db")))
-    session = service.create_session(AgentSessionCreate(title="local read fallback", project_path=str(workspace)))
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_missing_provider.db")))
+    session = service.create_session(AgentSessionCreate(title="missing provider", project_path=str(workspace)))
     service.processor.max_iterations = 4
 
     result = asyncio.run(
@@ -434,7 +412,9 @@ def test_missing_provider_can_still_run_explicit_read_only_task(tmp_path: Path):
     )
 
     read_paths = [part.payload.get("path") for part in result.parts if part.type == "tool_result"]
-    assert result.status == "completed"
-    assert "package.json" in read_paths
-    assert "server/main.py" in read_paths
+    assert result.status == "needs_manual_review"
+    assert read_paths == []
     assert result.parts[-1].type == "summary"
+    assert "没有选择云端模型 provider" in result.parts[-1].content
+    assert result.metadata["execution_trace"]["failure_code"] == "missing_provider"
+    assert result.metadata["execution_trace"]["fallback_used"] is False

@@ -1,7 +1,14 @@
 """
-Gateway 会话管理
+Gateway 会话管理 — 纯内存 WebSocket 会话
 
-管理设备会话、订阅和状态
+职责：管理 Gateway 设备连接会话（WebSocket 生命周期），包括设备订阅、
+事件广播和 Agent 会话关联。
+
+存储方式：纯内存（dict），不持久化。WebSocket 断开后会话自动过期清理。
+生命周期：跟随 WebSocket 连接，超时后自动移除（默认 300 秒）。
+
+注意：此模块与 API 层的 SessionManager（SQLite 持久化聊天会话）
+是独立系统，不要混淆。
 """
 import logging
 from dataclasses import dataclass, field

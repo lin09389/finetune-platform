@@ -326,6 +326,7 @@ async def list_spawned_agents(parent_agent: str | None = None):
                 "created_at": a.created_at.isoformat(),
                 "completed_at": a.completed_at.isoformat() if a.completed_at else None,
                 "error": a.error,
+                "session_id": a.session_id,
             }
             for a in agents
         ],

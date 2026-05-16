@@ -306,7 +306,21 @@ class FrontendDesignSkill(SkillBase):
 </form>'''
 
     def _generate_css_component(self, component_type: str, colors: dict) -> str:
-        return f"/* CSS 组件代码 - {component_type} */\n/* 待实现 */"
+        primary = colors.get("primary", "#2d2d2d")
+        return f"""/* CSS 组件代码 - {component_type} */
+.btn-primary {{
+  padding: 0.75rem 1.5rem;
+  background-color: {primary};
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}}
+.btn-primary:hover {{
+  opacity: 0.9;
+  transform: translateY(-1px);
+}}"""
 
     def _get_design_tokens(self, colors: dict) -> dict:
         return {

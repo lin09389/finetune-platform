@@ -14,7 +14,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import re
+
 from core.db_manager import get_db_pool
+
+_SAFE_COLUMN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +61,8 @@ def _sha256_text(value: str) -> str:
 
 
 def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    if not _SAFE_COLUMN_RE.match(table):
+        raise ValueError(f"非法表名: {table!r}")
     return {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
@@ -69,6 +75,8 @@ def _has_table(conn: sqlite3.Connection, table: str) -> bool:
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    if not _SAFE_COLUMN_RE.match(column):
+        raise ValueError(f"非法列名: {column!r}")
     if column not in _table_columns(conn, table):
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
@@ -891,15 +899,14 @@ def process_json_outbox(db_path: str = APP_DB_PATH, limit: int = 100) -> dict[st
 
 
 def process_storage_outbox(db_path: str = APP_DB_PATH, limit: int = 100) -> dict[str, Any]:
-    """Process all storage outbox task types once."""
-    json_result = process_json_outbox(db_path=db_path, limit=limit)
+    """Reconcile pending vector operations."""
     vector_result = {"enabled": False, "attempted": 0, "ready": 0, "failed": 0, "deleted": 0}
     try:
         from memory.memory_service import get_memory_service
 
-        vector_result = get_memory_service().process_vector_outbox(limit=limit)
+        vector_result = get_memory_service().reconcile_vectors(limit=limit)
     except Exception as exc:
-        logger.warning("Vector outbox processing failed: %s", exc)
+        logger.warning("Vector reconciliation failed: %s", exc)
         vector_result = {
             "enabled": False,
             "attempted": 0,
@@ -908,7 +915,7 @@ def process_storage_outbox(db_path: str = APP_DB_PATH, limit: int = 100) -> dict
             "deleted": 0,
             "error": str(exc),
         }
-    return {"json": json_result, "vector": vector_result}
+    return {"json": {"enabled": False}, "vector": vector_result}
 
 
 class MemoryRepository:
@@ -1190,24 +1197,31 @@ class MemoryRepository:
     def _sync_fts(self, conn: sqlite3.Connection, payload: dict[str, Any]) -> None:
         if not _memory_fts_available(conn):
             return
-        self._delete_fts(conn, payload["id"])
-        conn.execute(
-            """
-            INSERT INTO memory_items_fts (id, user_id, content, type, source)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                payload["id"],
-                payload["user_id"],
-                payload["content"],
-                payload["type"],
-                payload["source"],
-            ),
-        )
+        try:
+            self._delete_fts(conn, payload["id"])
+            conn.execute(
+                """
+                INSERT INTO memory_items_fts (id, user_id, content, type, source)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    payload["id"],
+                    payload["user_id"],
+                    payload["content"],
+                    payload["type"],
+                    payload["source"],
+                ),
+            )
+        except Exception as exc:
+            logger.warning("FTS sync failed for memory %s: %s", payload.get("id"), exc)
 
     def _delete_fts(self, conn: sqlite3.Connection, memory_id: str) -> None:
-        if _memory_fts_available(conn):
+        if not _memory_fts_available(conn):
+            return
+        try:
             conn.execute("DELETE FROM memory_items_fts WHERE id = ?", (memory_id,))
+        except Exception as exc:
+            logger.warning("FTS delete failed for memory %s: %s", memory_id, exc)
 
 
 class AuditRepository:
@@ -1543,8 +1557,58 @@ def backup_storage(db_path: str = APP_DB_PATH, backup_dir: str | Path = BACKUP_D
     }
 
 
+def backup_all(backup_dir: str | Path = BACKUP_DIR) -> dict[str, Any]:
+    """备份所有数据库文件到带时间戳的子目录。"""
+    backup_root = Path(backup_dir)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    dest_dir = backup_root / timestamp
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    results: dict[str, Any] = {"backed_up": [], "skipped": [], "errors": []}
+
+    # 所有可能的数据库文件
+    db_files = [
+        APP_DB_PATH,
+        "data/langgraph_checkpoints.db",
+    ]
+
+    for db_path in db_files:
+        source = Path(db_path)
+        if not source.exists():
+            results["skipped"].append(db_path)
+            continue
+        try:
+            checkpoint_storage(db_path)
+            dest = dest_dir / source.name
+            shutil.copy2(source, dest)
+            results["backed_up"].append({"source": db_path, "dest": str(dest), "size_bytes": dest.stat().st_size})
+        except Exception as e:
+            results["errors"].append({"source": db_path, "error": str(e)})
+            logger.error(f"备份 {db_path} 失败: {e}")
+
+    results["backup_dir"] = str(dest_dir)
+    return results
+
+
+def cleanup_old_backups(backup_dir: str | Path = BACKUP_DIR, keep_days: int = 7) -> int:
+    """清理超过指定天数的备份目录，返回删除的数量。"""
+    backup_root = Path(backup_dir)
+    if not backup_root.exists():
+        return 0
+    cutoff = datetime.now().timestamp() - (keep_days * 86400)
+    removed = 0
+    for entry in backup_root.iterdir():
+        if entry.is_dir() and entry.stat().st_mtime < cutoff:
+            shutil.rmtree(entry, ignore_errors=True)
+            removed += 1
+        elif entry.is_file() and entry.suffix == ".db" and entry.stat().st_mtime < cutoff:
+            entry.unlink(missing_ok=True)
+            removed += 1
+    return removed
+
+
 def dual_write_enabled() -> bool:
-    return _env_bool("STORAGE_DUAL_WRITE_ENABLED", True)
+    return _env_bool("STORAGE_DUAL_WRITE_ENABLED", False)
 
 
 def storage_read_primary() -> str:

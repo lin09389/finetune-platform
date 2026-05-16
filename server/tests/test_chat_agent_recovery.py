@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from agent_runtime.repository import WorkflowRuntimeRepository
+from agent_runtime.models import WorkflowCreate
 from agent_runtime.service import AgentRuntimeService
 from api.workflows import get_agent_runtime_service
 from digital_team.models import AgentOutput
@@ -36,16 +37,36 @@ def make_client(tmp_path: Path):
     return TestClient(app), repository
 
 
+def create_legacy_run(repository: WorkflowRuntimeRepository, service: AgentRuntimeService, content: str):
+    workflow = service.create_workflow(
+        WorkflowCreate(
+            title=content[:30],
+            goal=content,
+            project_path=str(Path.cwd()),
+            provider="mock",
+            agent_id="build",
+        )
+    )
+    from chat_agent.repository import ChatAgentRepository
+
+    return ChatAgentRepository(repository.db_path).create_run(
+        chat_session_id=None,
+        trigger_message_id=None,
+        workflow_id=workflow.workflow_id,
+        intent_type="agent_work",
+        summary=f"已创建 Agent 工作流：{workflow.title}",
+        metadata={"compat_mode": "legacy_workflow"},
+    )
+
+
 def test_get_run_recovers_observability_actions_and_final_summary(tmp_path):
     target = Path.cwd() / "tmp" / "chat-agent-recovery-smoke.txt"
     if target.exists():
         target.unlink()
     target.parent.mkdir(exist_ok=True)
     client, repository = make_client(tmp_path)
-    run = client.post(
-        "/chat-agent/runs",
-        json={"content": "给当前项目新增一个恢复 smoke 文件", "project_path": str(Path.cwd()), "force_agent": True},
-    ).json()
+    service = app.dependency_overrides[get_agent_runtime_service]()
+    run = create_legacy_run(repository, service, "给当前项目新增一个恢复 smoke 文件")
 
     started = client.post(f"/chat-agent/runs/{run['id']}/run").json()
     workflow_id = started["workflow_id"]
@@ -82,10 +103,8 @@ def test_get_run_recovers_observability_actions_and_final_summary(tmp_path):
 
 def test_get_run_surfaces_manual_review_reason(tmp_path):
     client, repository = make_client(tmp_path)
-    run = client.post(
-        "/chat-agent/runs",
-        json={"content": "给当前项目做一个需要人工处理的任务", "project_path": str(Path.cwd()), "force_agent": True},
-    ).json()
+    service = app.dependency_overrides[get_agent_runtime_service]()
+    run = create_legacy_run(repository, service, "给当前项目做一个需要人工处理的任务")
     workflow_id = run["workflow_id"]
     repository.update_project(
         workflow_id,

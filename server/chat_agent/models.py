@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from agent_runtime.models import WorkflowActionResponse, WorkflowObservabilityResponse, WorkflowResponse, WorkflowToolCallResponse
+from agent_session.models import AgentPartResponse, AgentSessionResponse
 
 
 class ChatAgentRunCreate(BaseModel):
@@ -63,6 +64,7 @@ class ChatAgentRunResponse(BaseModel):
     chat_session_id: str | None = None
     trigger_message_id: str | None = None
     workflow_id: str | None = None
+    agent_session_id: str | None = None
     status: str
     intent_type: str | None = None
     summary: str = ""
@@ -84,6 +86,8 @@ class ChatAgentRunResponse(BaseModel):
     blocked_state: dict[str, Any] | None = None
     workflow: WorkflowResponse | None = None
     observability: WorkflowObservabilityResponse | None = None
+    agent_session: AgentSessionResponse | None = None
+    agent_parts: list[AgentPartResponse] = Field(default_factory=list)
     latest_event: dict[str, Any] | None = None
     latest_tool_call: WorkflowToolCallResponse | None = None
     latest_action: WorkflowActionResponse | None = None
@@ -93,6 +97,7 @@ class ChatAgentRunEvent(BaseModel):
     event_type: str
     run_id: str
     workflow_id: str | None = None
+    agent_session_id: str | None = None
     message: str
     payload: dict[str, Any] = Field(default_factory=dict)
 

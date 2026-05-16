@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from core.db_manager import get_db_pool, validate_column_names
+from core.db_manager import get_db_pool, validate_column_names, dynamic_update
 from core.storage import APP_DB_PATH
 
 
@@ -118,11 +118,8 @@ class AgentSessionRepository:
         if "metadata" in updates:
             updates["metadata"] = _json(updates["metadata"])
         updates["updated_at"] = _now()
-        validate_column_names(list(updates.keys()), self._SESSION_UPDATABLE)
-        assignments = ", ".join(f"{key} = ?" for key in updates)
-        values = list(updates.values()) + [session_id]
         with get_db_pool(self.db_path).get_connection() as conn:
-            conn.execute(f"UPDATE agent_sessions SET {assignments} WHERE id = ?", values)
+            dynamic_update(conn, "agent_sessions", "id", session_id, updates, self._SESSION_UPDATABLE)
         return self.get_session(session_id) or {}
 
     def add_part(
@@ -153,11 +150,8 @@ class AgentSessionRepository:
         if "payload" in updates:
             updates["payload"] = _json(updates["payload"])
         updates["updated_at"] = _now()
-        validate_column_names(list(updates.keys()), self._PART_UPDATABLE)
-        assignments = ", ".join(f"{key} = ?" for key in updates)
-        values = list(updates.values()) + [part_id]
         with get_db_pool(self.db_path).get_connection() as conn:
-            conn.execute(f"UPDATE agent_parts SET {assignments} WHERE id = ?", values)
+            dynamic_update(conn, "agent_parts", "id", part_id, updates, self._PART_UPDATABLE)
         return self.get_part(part_id) or {}
 
     def get_part(self, part_id: str) -> dict[str, Any] | None:

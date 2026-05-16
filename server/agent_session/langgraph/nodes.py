@@ -370,10 +370,9 @@ class AgentSessionLangGraphRuntime:
         prompt_text = prompt.strip() or str(session.get("title") or "Agent Task")
         intent = str((session.get("metadata") or {}).get("task_intent") or self.processor._classify_task_intent(prompt_text) or "develop")
         title_map = {
-            "read": "读取上下文并产出结果",
+            "analyze": "读取上下文并产出结果",
             "develop": "实现任务并验证结果",
-            "review": "检查风险并给出结论",
-            "command": "执行验证并汇总结果",
+            "verify": "执行验证并汇总结果",
         }
         node_title = title_map.get(intent, "执行任务并汇总结果")
         return {

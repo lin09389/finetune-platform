@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from core.storage import MemoryRepository, StorageOutboxRepository, vector_reconcile_enabled
+from core.storage import MemoryRepository
 
 from .memory_extractor import MemoryExtractor
 from .models import MEMORY_TYPE_LABELS, MemoryType
@@ -43,7 +43,6 @@ class MemoryService:
 
         self.extractor = MemoryExtractor()
         self.repository = MemoryRepository()
-        self.outbox = StorageOutboxRepository()
         self.simple_memories: dict[str, list[dict]] = {}
 
         self.data_dir = Path(vector_db_path).parent
@@ -107,23 +106,12 @@ class MemoryService:
             "updated_at": memory.get("updated_at") or now,
         })
 
-        task_id = self._enqueue_vector_task("vector_upsert", item)
         if self._upsert_vector(item):
             self.repository.update_vector_state(memory_id, "ready")
-            self.outbox.mark_done(task_id)
         else:
             self.repository.update_vector_state(memory_id, "failed")
-            self.outbox.mark_failed(task_id, f"Failed to upsert vector for {memory_id}")
 
         return memory_id
-
-    def _enqueue_vector_task(self, task_type: str, memory: dict[str, Any]) -> str:
-        return self.outbox.enqueue(
-            task_type=task_type,
-            target=f"memories_{memory['user_id']}",
-            payload=memory,
-            task_id=f"{task_type}_{memory['id']}",
-        )
 
     def _upsert_vector(self, memory: dict[str, Any]) -> bool:
         if not (self._embedding_available and self.embedder and self.vector_store):
@@ -250,12 +238,6 @@ class MemoryService:
             是否成功
         """
         success = self.repository.delete(memory_id=memory_id, user_id=user_id)
-        self.outbox.enqueue(
-            task_type="vector_delete",
-            target=f"memories_{user_id}",
-            payload={"id": memory_id, "user_id": user_id},
-            task_id=f"vector_delete_{memory_id}",
-        )
 
         if self._embedding_available and self.vector_store:
             try:
@@ -396,15 +378,12 @@ class MemoryService:
             updates["metadata"] = merged
         updated = self.repository.update(memory_id=memory_id, user_id=user_id, **updates)
         if updated and content is not None:
-            task_id = self._enqueue_vector_task("vector_upsert", updated)
             if self._upsert_vector(updated):
                 self.repository.update_vector_state(memory_id, "ready")
-                self.outbox.mark_done(task_id)
                 updated["vector_state"] = "ready"
                 updated["storage_mode"] = "vector"
             else:
                 self.repository.update_vector_state(memory_id, "failed")
-                self.outbox.mark_failed(task_id, f"Failed to upsert vector for {memory_id}")
                 updated["vector_state"] = "failed"
                 updated["storage_mode"] = "text_only"
         return updated
@@ -418,49 +397,14 @@ class MemoryService:
         return self.repository.get(memory_id, user_id=user_id, increment_access=increment_access)
 
     def reconcile_vectors(self, limit: int = 100) -> dict[str, Any]:
-        if not vector_reconcile_enabled():
-            return {"enabled": False, "attempted": 0, "ready": 0, "failed": 0, "deleted": 0}
-
-        result = self.process_vector_outbox(limit=limit)
-        remaining_limit = max(0, limit - result["attempted"])
-        pending = self.repository.pending_vectors(limit=remaining_limit) if remaining_limit else []
-        result["attempted"] += len(pending)
+        pending = self.repository.pending_vectors(limit=limit)
+        result = {"enabled": True, "attempted": len(pending), "ready": 0, "failed": 0, "deleted": 0}
         for memory in pending:
             if self._upsert_vector(memory):
                 self.repository.update_vector_state(memory["id"], "ready")
                 result["ready"] += 1
             else:
                 self.repository.update_vector_state(memory["id"], "failed")
-                result["failed"] += 1
-        return result
-
-    def process_vector_outbox(self, limit: int = 100) -> dict[str, Any]:
-        tasks = self.outbox.list_ready(limit=limit)
-        vector_tasks = [task for task in tasks if task["type"] in {"vector_upsert", "vector_delete"}]
-        result = {"enabled": True, "attempted": len(vector_tasks), "ready": 0, "failed": 0, "deleted": 0}
-        for task in vector_tasks:
-            try:
-                if task["type"] == "vector_delete":
-                    if self.vector_store:
-                        self.vector_store.delete_documents(
-                            collection_name=task["target"],
-                            ids=[task["payload"]["id"]],
-                        )
-                    self.outbox.mark_done(task["id"])
-                    result["deleted"] += 1
-                    continue
-
-                memory = task["payload"]
-                if self._upsert_vector(memory):
-                    self.repository.update_vector_state(memory["id"], "ready")
-                    self.outbox.mark_done(task["id"])
-                    result["ready"] += 1
-                else:
-                    self.repository.update_vector_state(memory["id"], "failed")
-                    self.outbox.mark_failed(task["id"], f"Failed to upsert vector for {memory.get('id')}")
-                    result["failed"] += 1
-            except Exception as exc:
-                self.outbox.mark_failed(task["id"], str(exc))
                 result["failed"] += 1
         return result
 

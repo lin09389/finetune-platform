@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from agent_runtime.repository import WorkflowRuntimeRepository
+from agent_runtime.models import WorkflowCreate
 from agent_runtime.service import AgentRuntimeService
 from api.chat_agent import get_chat_agent_service
 from chat_agent.acceptance import AcceptanceReportGenerator
@@ -45,6 +46,26 @@ def clear_overrides():
     app.dependency_overrides.clear()
 
 
+def create_legacy_run(client: TestClient, repository: WorkflowRuntimeRepository, service: ChatAgentService, content: str):
+    workflow = service.runtime.create_workflow(
+        WorkflowCreate(
+            title=content[:30],
+            goal=content,
+            project_path=str(Path.cwd()),
+            provider="mock",
+            agent_id="build",
+        )
+    )
+    return service.repository.create_run(
+        chat_session_id=None,
+        trigger_message_id=None,
+        workflow_id=workflow.workflow_id,
+        intent_type="agent_work",
+        summary=f"已创建 Agent 工作流：{workflow.title}",
+        metadata={"compat_mode": "legacy_workflow"},
+    )
+
+
 def test_model_acceptance_report_is_generated_and_restored_once(tmp_path):
     calls = {"count": 0}
 
@@ -68,10 +89,7 @@ def test_model_acceptance_report_is_generated_and_restored_once(tmp_path):
     if target.exists():
         target.unlink()
     client, _repository = make_client(tmp_path, model_call=model_call)
-    run = client.post(
-        "/chat-agent/runs",
-        json={"content": "新增验收 smoke 文件", "project_path": str(Path.cwd()), "force_agent": True},
-    ).json()
+    run = create_legacy_run(client, _repository, app.dependency_overrides[get_chat_agent_service](), "新增验收 smoke 文件")
 
     started = client.post(f"/chat-agent/runs/{run['id']}/run").json()
     restored = client.get(f"/chat-agent/runs/{run['id']}").json()
@@ -98,10 +116,7 @@ def test_invalid_model_report_falls_back_to_readable_report(tmp_path):
     if target.exists():
         target.unlink()
     client, _repository = make_client(tmp_path, model_call=bad_model_call)
-    run = client.post(
-        "/chat-agent/runs",
-        json={"content": "新增验收 smoke 文件", "project_path": str(Path.cwd()), "force_agent": True},
-    ).json()
+    run = create_legacy_run(client, _repository, app.dependency_overrides[get_chat_agent_service](), "新增验收 smoke 文件")
 
     started = client.post(f"/chat-agent/runs/{run['id']}/run").json()
     clear_overrides()
@@ -117,10 +132,7 @@ def test_invalid_model_report_falls_back_to_readable_report(tmp_path):
 
 def test_manual_review_generates_blocked_report_on_get(tmp_path):
     client, repository = make_client(tmp_path)
-    run = client.post(
-        "/chat-agent/runs",
-        json={"content": "触发人工确认", "project_path": str(Path.cwd()), "force_agent": True},
-    ).json()
+    run = create_legacy_run(client, repository, app.dependency_overrides[get_chat_agent_service](), "触发人工确认")
     repository.update_project(
         run["workflow_id"],
         status="needs_manual_review",

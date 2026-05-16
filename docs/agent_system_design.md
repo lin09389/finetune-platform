@@ -25,7 +25,7 @@
 
 ### 移植目标
 
-�� TypeScript/Effect-TS 架构转换为 Python/Pydantic 架构,保持核心设计思想。
+将 TypeScript/Effect-TS 架构转换为 Python/Pydantic 架构，保持核心设计思想。
 
 ---
 

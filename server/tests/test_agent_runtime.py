@@ -6,6 +6,7 @@ from agent_runtime.adapters import step_from_task, workflow_from_project
 from agent_runtime.definitions import RuntimeExecutionContext
 from agent_runtime.engine import AgentRuntimeEngine
 from agent_runtime.runner import AgentRuntimeRunner
+from agent_runtime.service import AgentRuntimeService
 from agent_runtime.templates import SOFTWARE_DELIVERY_TEMPLATE, get_workflow_definition
 from digital_team.models import AgentOutput
 from digital_team.repository import DigitalTeamRepository
@@ -50,6 +51,28 @@ class FakeProvider:
     async def chat(self, messages, model, api_key, temperature, max_tokens):
         self.last_model = model
         return {"content": '{"summary":"ok","tasks":[],"risks":[],"artifacts":[],"next_action":"done","requires_approval":false}'}
+
+
+class FailingGraph:
+    def __init__(self, repository):
+        self.repository = repository
+
+    async def ainvoke(self, _value, config=None):
+        workflow_id = config["configurable"]["thread_id"]
+        project = self.repository.get_project(workflow_id)
+        if not project["tasks"]:
+            self.repository.create_task(
+                project_id=workflow_id,
+                role="planner",
+                title="需求拆解与验收标准",
+                description="拆任务",
+                status="running",
+                input_data={"goal": project["goal"]},
+                requires_approval=True,
+                step_key="plan",
+                sort_order=0,
+            )
+        raise RuntimeError("graph failed after creating task")
 
 
 def test_template_definition_contains_expected_steps():
@@ -104,7 +127,7 @@ def test_runtime_engine_advances_from_plan_to_implement_and_review(tmp_path):
         {
             "title": "数字团队 MVP",
             "goal": "新增 AI 软件开发团队",
-            "template_id": "software_dev_team",
+            "template_id": "software_delivery",
             "project_path": str(Path.cwd()),
             "provider": "minimax",
             "model": None,
@@ -144,3 +167,26 @@ def test_runtime_runner_prefers_saved_default_model(monkeypatch):
     __import__("asyncio").run(runner.execute("planner", context, {}))
 
     assert provider.last_model == "saved-model"
+
+
+def test_service_fallback_reloads_latest_project_before_legacy_engine(tmp_path):
+    repository = DigitalTeamRepository(str(tmp_path / "agent_runtime_service.db"))
+    service = AgentRuntimeService(repository=repository, runner=DummyRuntimeRunner())
+    service._langgraph = FailingGraph(repository)
+    project = repository.create_project(
+        {
+            "title": "fallback",
+            "goal": "避免重复任务",
+            "template_id": "software_delivery",
+            "project_path": str(Path.cwd()),
+            "provider": "minimax",
+            "model": None,
+            "approval_mode": "manual",
+        }
+    )
+
+    result = __import__("asyncio").run(service.run_workflow(project["id"]))
+    refreshed = repository.get_project(project["id"])
+
+    assert result.status == "awaiting_approval"
+    assert len([task for task in refreshed["tasks"] if task["step_key"] == "plan"]) == 1

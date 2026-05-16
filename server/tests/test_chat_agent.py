@@ -4,35 +4,27 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from agent_session.repository import AgentSessionRepository
+from agent_session.service import AgentSessionService
 from agent_runtime.repository import WorkflowRuntimeRepository
 from agent_runtime.service import AgentRuntimeService
+from api.agent_sessions import get_agent_session_service
 from api.workflows import get_agent_runtime_service
-from digital_team.models import AgentOutput
 from main import app
 
 
-class ChatAgentRunner:
-    async def execute(self, agent_id, context, step_input):
-        return AgentOutput(
-            summary="完成 Agent 步骤",
-            tasks=[],
-            risks=[],
-            artifacts=[
-                {
-                    "type": "patch",
-                    "title": "写入 smoke 文件",
-                    "payload": {"files": [{"path": "tmp_chat_agent_smoke.txt", "content": "chat agent worked"}]},
-                }
-            ],
-            next_action="等待用户审批动作",
-            requires_approval=False,
-        )
+async def chat_agent_model_call(_messages):
+    return '{"tool":"finalize","arguments":{"summary":"完成 Agent 会话"}}'
 
 
 def make_client(tmp_path: Path) -> TestClient:
-    repository = WorkflowRuntimeRepository(str(tmp_path / "chat_agent.db"))
-    service = AgentRuntimeService(repository=repository, runner=ChatAgentRunner())
-    app.dependency_overrides[get_agent_runtime_service] = lambda: service
+    db_path = str(tmp_path / "chat_agent.db")
+    runtime_repository = WorkflowRuntimeRepository(db_path)
+    runtime_service = AgentRuntimeService(repository=runtime_repository)
+    session_repository = AgentSessionRepository(db_path)
+    session_service = AgentSessionService(repository=session_repository, model_call=chat_agent_model_call)
+    app.dependency_overrides[get_agent_runtime_service] = lambda: runtime_service
+    app.dependency_overrides[get_agent_session_service] = lambda: session_service
     return TestClient(app)
 
 
@@ -45,13 +37,14 @@ def test_plain_question_stays_chat_mode(tmp_path):
     app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert response.headers["X-Agent-Compat-Mode"] == "legacy-workflow"
+    assert response.headers["X-Agent-Entrypoint"] == "agent-session"
     data = response.json()
     assert data["mode"] == "chat"
     assert not data["workflow_id"]
+    assert not data["agent_session_id"]
 
 
-def test_agent_intent_creates_workflow_and_run(tmp_path):
+def test_agent_intent_creates_agent_session_and_run(tmp_path):
     client = make_client(tmp_path)
     response = client.post(
         "/chat-agent/runs",
@@ -68,10 +61,11 @@ def test_agent_intent_creates_workflow_and_run(tmp_path):
     assert response.status_code == 200
     data = response.json()
     assert data["mode"] == "agent"
-    assert data["workflow_id"]
+    assert data["agent_session_id"]
+    assert not data["workflow_id"]
     assert data["active_agent_id"] == "build"
-    assert data["workflow"]["goal"].startswith("给当前项目")
-    assert data["details_url"] == f"/workflows?workflow={data['workflow_id']}"
+    assert data["agent_session"]["title"].startswith("给当前项目")
+    assert data["details_url"] == f"/chat?agentSession={data['agent_session_id']}"
 
 
 def test_intent_endpoint_keeps_plain_help_request_in_chat_mode(tmp_path):
@@ -110,34 +104,21 @@ def test_intent_endpoint_supports_workflow_mode_response(tmp_path):
     assert data["mode"] == "workflow"
 
 
-def test_run_streams_events_and_action_can_execute_from_chat_agent(tmp_path):
-    target = Path.cwd() / "tmp_chat_agent_smoke.txt"
-    if target.exists():
-        target.unlink()
+def test_run_streams_agent_session_events_from_chat_agent(tmp_path):
     client = make_client(tmp_path)
     run = client.post(
         "/chat-agent/runs",
-        json={"content": "给当前项目新增一个 smoke patch", "project_path": str(Path.cwd())},
+        json={"content": "给当前项目生成一个最终总结", "project_path": str(Path.cwd())},
     ).json()
 
     run_response = client.post(f"/chat-agent/runs/{run['id']}/run").json()
-    assert "完成 Agent 步骤" in run_response["summary"]
-    actions = run_response["observability"]["actions"]
-    patch_action = actions[0]
-    blocked = client.post(f"/chat-agent/actions/{patch_action['id']}/execute")
-    client.post(f"/chat-agent/actions/{patch_action['id']}/approve")
-    executed = client.post(f"/chat-agent/actions/{patch_action['id']}/execute").json()
+    assert "完成 Agent 会话" in run_response["summary"]
+    assert run_response["agent_session_id"] == run["agent_session_id"]
+    assert run_response["agent_parts"]
     with client.stream("GET", f"/chat-agent/runs/{run['id']}/events/stream") as response:
         body = next(response.iter_text())
     app.dependency_overrides.clear()
 
-    try:
-        assert blocked.status_code == 400
-        assert executed["status"] == "executed"
-        assert target.read_text(encoding="utf-8") == "chat agent worked"
-        assert response.status_code == 200
-        assert "chat_agent_event" in body
-        assert "action_proposed" in body
-    finally:
-        if target.exists():
-            target.unlink()
+    assert response.status_code == 200
+    assert "chat_agent_event" in body
+    assert "summary_completed" in body

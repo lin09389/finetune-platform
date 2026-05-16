@@ -220,8 +220,8 @@ class ChatAgentIntentClassifier:
             key_data = secure_storage.get(f"cloud_{provider}_key") or {}
             return provider, key_data
 
-        vault = secure_storage._load_vault()
-        for key in sorted(vault):
+        keys = secure_storage.list_keys()
+        for key in sorted(keys):
             if key.startswith("cloud_") and key.endswith("_key"):
                 provider_id = key.removeprefix("cloud_").removesuffix("_key")
                 key_data = secure_storage.get(key) or {}

@@ -5,6 +5,11 @@ from agent_runtime.repository import WorkflowRuntimeRepository
 from digital_team.models import AgentOutput
 
 
+def _workspace_root() -> Path:
+    cwd = Path.cwd().resolve()
+    return cwd.parent if cwd.name == "server" else cwd
+
+
 def make_policy_service(tmp_path: Path):
     repository = WorkflowRuntimeRepository(str(tmp_path / "action_policy.db"))
     project = repository.create_project(
@@ -12,7 +17,7 @@ def make_policy_service(tmp_path: Path):
             "title": "policy",
             "goal": "policy",
             "template_id": "software_delivery",
-            "project_path": str(Path.cwd()),
+            "project_path": str(_workspace_root()),
             "provider": "minimax",
             "model": None,
             "approval_mode": "manual",
@@ -22,7 +27,7 @@ def make_policy_service(tmp_path: Path):
 
 
 def test_safe_tmp_patch_auto_executes(tmp_path):
-    target = Path.cwd() / "tmp" / "policy_auto_patch.txt"
+    target = _workspace_root() / "tmp" / "policy_auto_patch.txt"
     if target.exists():
         target.unlink()
     service, _, project = make_policy_service(tmp_path)

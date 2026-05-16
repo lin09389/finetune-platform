@@ -11,14 +11,13 @@ from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from api.chat.session import Session, get_session_manager
-from core.storage import ChatShareRepository, StorageOutboxRepository, dual_write_enabled, json_fallback_enabled
+from core.storage import ChatShareRepository, json_fallback_enabled
 
 router = APIRouter(prefix="/chat/share", tags=["chat-share"])
 
 SHARE_DIR = Path("data/share")
 SHARE_DIR.mkdir(parents=True, exist_ok=True)
 share_repository = ChatShareRepository()
-share_outbox = StorageOutboxRepository()
 
 
 class SharedChat(BaseModel):
@@ -52,25 +51,6 @@ def get_share_file(share_id: str) -> Path:
 def save_share(share: SharedChat) -> None:
     payload = share.model_dump()
     share_repository.save_share(payload)
-    if not dual_write_enabled():
-        return
-
-    file_path = get_share_file(share.share_id)
-    task_id = share_outbox.enqueue(
-        task_type="json_shadow_write",
-        target=str(file_path),
-        payload=payload,
-        task_id=f"json_share_{share.share_id}",
-    )
-    tmp_path = file_path.with_suffix(f".json.tmp.{share.share_id}")
-    try:
-        with open(tmp_path, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, indent=2)
-            handle.flush()
-        tmp_path.replace(file_path)
-        share_outbox.mark_done(task_id)
-    except Exception as exc:
-        share_outbox.mark_failed(task_id, str(exc))
 
 
 def load_share(share_id: str) -> SharedChat | None:
@@ -78,16 +58,15 @@ def load_share(share_id: str) -> SharedChat | None:
     if payload:
         return SharedChat(**payload)
 
-    if not json_fallback_enabled():
-        return None
+    if json_fallback_enabled():
+        file_path = get_share_file(share_id)
+        if file_path.exists():
+            with open(file_path, encoding="utf-8") as handle:
+                share = SharedChat(**json.load(handle))
+            share_repository.save_share(share.model_dump())
+            return share
 
-    file_path = get_share_file(share_id)
-    if not file_path.exists():
-        return None
-    with open(file_path, encoding="utf-8") as handle:
-        share = SharedChat(**json.load(handle))
-    share_repository.save_share(share.model_dump())
-    return share
+    return None
 
 
 def _normalize_message(message: Any) -> dict[str, Any]:
@@ -168,8 +147,6 @@ async def get_share(share_id: str):
 
     _ensure_not_expired(share)
     share.view_count = share_repository.increment_view_count(share.share_id)
-    if dual_write_enabled():
-        save_share(share)
     return share
 
 

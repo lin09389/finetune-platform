@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
+
+logger = logging.getLogger(__name__)
 
 
 COMMAND_ALLOWLIST = (
@@ -87,7 +90,8 @@ def detect_project_commands(root: Path) -> list[dict[str, Any]]:
             continue
         try:
             data = json.loads(package_json.read_text(encoding="utf-8"))
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to parse {package_json}: {e}")
             continue
         scripts = data.get("scripts") or {}
         for name in ("typecheck", "test", "build", "lint"):
@@ -175,7 +179,8 @@ def package_has_script(root: Path, script: str) -> bool:
         return False
     try:
         data = json.loads(package_json.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to parse package.json at {root}: {e}")
         return False
     return script in (data.get("scripts") or {})
 
@@ -203,7 +208,8 @@ def _has_vitest_support(root: Path) -> bool:
         return False
     try:
         data = json.loads(package_json.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to parse package.json at {root} for vitest check: {e}")
         return False
     scripts = data.get("scripts") or {}
     return any("vitest" in str(value).lower() for value in scripts.values())

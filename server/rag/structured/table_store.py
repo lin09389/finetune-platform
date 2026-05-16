@@ -40,12 +40,13 @@ class TableMetadata(BaseModel):
 class TableStore:
     """表格存储管理器"""
 
-    def __init__(self, storage_path: str = "data/tables"):
+    def __init__(self, storage_path: str = "data/tables", db_path: str | None = None):
         """
         初始化表格存储
 
         Args:
-            storage_path: 存储路径
+            storage_path: 元数据文件存储路径
+            db_path: SQLite 数据库路径，默认使用主应用数据库 data/app.db
         """
         self.storage_path = Path(storage_path)
         self.storage_path.mkdir(parents=True, exist_ok=True)
@@ -53,33 +54,24 @@ class TableStore:
         self.metadata_path = self.storage_path / "metadata"
         self.metadata_path.mkdir(parents=True, exist_ok=True)
 
-        self.db_path = self.storage_path / "tables.db"
+        self.db_path = db_path or "data/app.db"
         self._init_database()
+        self._migrate_legacy_database()
 
         self._tables: dict[str, TableMetadata] = {}
         self._load_metadata()
 
-    def _get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path), timeout=10.0)
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.execute("PRAGMA synchronous = NORMAL")
-        conn.execute("PRAGMA busy_timeout = 10000")
-        conn.row_factory = sqlite3.Row
-        return conn
+    def _get_connection(self):
+        """获取数据库连接（使用主应用连接池）"""
+        from core.db_manager import get_db_pool
+        return get_db_pool(self.db_path).get_connection()
 
     @contextmanager
     def _db(self):
-        conn = self._get_connection()
-        try:
+        """获取可写数据库连接（自动管理事务）"""
+        from core.db_manager import get_db_pool
+        with get_db_pool(self.db_path).get_connection() as conn:
             yield conn
-        except Exception:
-            conn.rollback()
-            raise
-        else:
-            conn.commit()
-        finally:
-            conn.close()
 
     def _validate_identifier(self, name: str, context: str = "identifier") -> str:
         if not _SAFE_IDENTIFIER_RE.match(name):
@@ -106,15 +98,72 @@ class TableStore:
             """)
         logger.info(f"表格数据库已初始化：{self.db_path}")
 
+    def _migrate_legacy_database(self) -> None:
+        """将旧 tables.db 中的数据一次性迁移到新的主库。"""
+        legacy_db = self.storage_path / "tables.db"
+        target_db = Path(self.db_path)
+        if not legacy_db.exists() or legacy_db.resolve() == target_db.resolve():
+            return
+
+        with sqlite3.connect(str(legacy_db)) as legacy_conn:
+            legacy_conn.row_factory = sqlite3.Row
+            registry_exists = legacy_conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='table_registry'"
+            ).fetchone()
+            if not registry_exists:
+                return
+            rows = legacy_conn.execute("SELECT * FROM table_registry").fetchall()
+            legacy_tables = {
+                row["name"]
+                for row in legacy_conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'table_%'"
+                ).fetchall()
+            }
+
+            with self._db() as conn:
+                for row in rows:
+                    conn.execute(
+                        """
+                        INSERT OR IGNORE INTO table_registry
+                        (table_id, name, description, source_file, source_type, row_count, column_count, columns_json, created_at, updated_at, tags_json)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        tuple(row),
+                    )
+                    source_table = self._get_table_name(row["table_id"])
+                    if source_table not in legacy_tables:
+                        continue
+                    already_exists = conn.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?",
+                        (source_table,),
+                    ).fetchone()
+                    if already_exists:
+                        continue
+                    create_sql = legacy_conn.execute(
+                        "SELECT sql FROM sqlite_master WHERE type='table' AND name = ?",
+                        (source_table,),
+                    ).fetchone()
+                    if not create_sql or not create_sql["sql"]:
+                        continue
+                    conn.execute(create_sql["sql"])
+                    legacy_rows = legacy_conn.execute(f'SELECT * FROM "{source_table}"').fetchall()
+                    if not legacy_rows:
+                        continue
+                    columns = [desc[1] for desc in legacy_conn.execute(f'PRAGMA table_info("{source_table}")').fetchall()]
+                    placeholders = ", ".join("?" for _ in columns)
+                    quoted_columns = ", ".join(f'"{column}"' for column in columns)
+                    conn.executemany(
+                        f'INSERT INTO "{source_table}" ({quoted_columns}) VALUES ({placeholders})',
+                        [tuple(item) for item in legacy_rows],
+                    )
+        logger.info("已从旧 tables.db 迁移结构化表格数据")
+
     def _load_metadata(self):
         """加载所有表格元数据"""
-        conn = self._get_connection()
-        try:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM table_registry")
             rows = cursor.fetchall()
-        finally:
-            conn.close()
 
         for row in rows:
             table_id, name, description, source_file, source_type, row_count, column_count, columns_json, created_at, updated_at, tags_json = row
@@ -424,8 +473,14 @@ class TableStore:
         Args:
             table_id: 表格 ID
             columns: 要查询的列（None 表示所有列）
-            where: WHERE 条件
-            order_by: 排序字段
+            where: WHERE 条件，接受以下格式：
+                - str: 纯列名条件（如 "age > 18"），列名经过校验，值使用 ? 参数化（需配合 params 使用）
+                - list[tuple[str, str, Any]]: 结构化条件（如 [("age", ">", 18)]）
+                - None: 无条件
+            order_by: 排序字段，接受以下格式：
+                - str: 纯列名（如 "name ASC"），列名经过校验
+                - list[tuple[str, str]]: 结构化排序（如 [("name", "ASC")]）
+                - None: 不排序
             limit: 返回行数限制
             offset: 偏移量
 
@@ -443,36 +498,72 @@ class TableStore:
         else:
             select_cols = "*"
         sql = f"SELECT {select_cols} FROM {db_table_name}"
+        params: list[Any] = []
 
-        if where:
-            if ";" in where:
-                raise ValueError("Semicolon not allowed in WHERE clause")
-            sql += f" WHERE {where}"
-        if order_by:
-            if ";" in order_by:
-                raise ValueError("Semicolon not allowed in ORDER BY clause")
-            sql += f" ORDER BY {order_by}"
+        if where is not None:
+            where_clause, where_params = self._build_where_clause(where)
+            sql += f" WHERE {where_clause}"
+            params.extend(where_params)
+        if order_by is not None:
+            sql += f" ORDER BY {self._build_order_clause(order_by)}"
         if limit is not None:
             sql += f" LIMIT {int(limit)}"
         if offset is not None:
             sql += f" OFFSET {int(offset)}"
 
-        conn = self._get_connection()
-        try:
+        with self._get_connection() as conn:
             metadata = self._tables[table_id]
             col_names = [c["name"] for c in metadata.columns]
 
             cursor = conn.cursor()
-            cursor.execute(sql)
+            cursor.execute(sql, params)
             rows = cursor.fetchall()
-        finally:
-            conn.close()
 
         results = []
         for row in rows:
             results.append(dict(zip(col_names, row, strict=False)))
 
         return results
+
+    def _build_where_clause(self, where: str | list[tuple[str, str, Any]]) -> tuple[str, list[Any]]:
+        """构建参数化 WHERE 子句，返回 (clause, params)。"""
+        _ALLOWED_OPS = {"=", "!=", "<", ">", "<=", ">=", "LIKE", "NOT LIKE", "IN", "NOT IN", "IS", "IS NOT"}
+        if isinstance(where, list):
+            parts: list[str] = []
+            params: list[Any] = []
+            for col, op, val in where:
+                col = self._validate_identifier(col, "WHERE column")
+                op_upper = op.upper().strip()
+                if op_upper not in _ALLOWED_OPS:
+                    raise ValueError(f"不允许的运算符: {op!r}")
+                if op_upper in ("IS", "IS NOT"):
+                    parts.append(f"\"{col}\" {op_upper} ?")
+                    params.append(val)
+                else:
+                    parts.append(f"\"{col}\" {op_upper} ?")
+                    params.append(val)
+            return " AND ".join(parts), params
+        # str 模式：仅允许简单列名条件，禁止分号
+        if ";" in str(where):
+            raise ValueError("Semicolon not allowed in WHERE clause")
+        return str(where), []
+
+    def _build_order_clause(self, order_by: str | list[tuple[str, str]]) -> str:
+        """构建安全的 ORDER BY 子句。"""
+        _ALLOWED_DIR = {"ASC", "DESC"}
+        if isinstance(order_by, list):
+            parts: list[str] = []
+            for col, direction in order_by:
+                col = self._validate_identifier(col, "ORDER BY column")
+                direction = direction.upper().strip()
+                if direction not in _ALLOWED_DIR:
+                    raise ValueError(f"不允许的排序方向: {direction!r}")
+                parts.append(f"\"{col}\" {direction}")
+            return ", ".join(parts)
+        # str 模式：校验后直接使用
+        if ";" in str(order_by):
+            raise ValueError("Semicolon not allowed in ORDER BY clause")
+        return str(order_by)
 
     def execute_sql(
         self,
@@ -500,25 +591,17 @@ class TableStore:
             if sql_upper.startswith(keyword) or f" {keyword} " in sql_upper:
                 raise ValueError(f"DDL statement ({keyword}) not allowed in execute_sql, use dedicated methods")
 
-        conn = self._get_connection()
-        try:
+        # 仅允许 SELECT 语句，阻止 INSERT/UPDATE/DELETE 等写操作
+        if not sql_upper.startswith("SELECT"):
+            raise ValueError("Only SELECT statements are allowed in execute_sql")
+
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(actual_sql)
 
-            if actual_sql.strip().upper().startswith("SELECT"):
-                columns = [desc[0] for desc in cursor.description]
-                rows = cursor.fetchall()
-                results = [dict(zip(columns, row, strict=False)) for row in rows]
-            else:
-                conn.commit()
-                results = [{"affected_rows": cursor.rowcount}]
-
-            return results
-        except Exception as e:
-            logger.error(f"SQL 执行失败：{e}")
-            raise
-        finally:
-            conn.close()
+            columns = [desc[0] for desc in cursor.description]
+            rows = cursor.fetchall()
+            return [dict(zip(columns, row, strict=False)) for row in rows]
 
     def get_table(self, table_id: str) -> TableMetadata | None:
         """获取表格元数据"""
@@ -588,13 +671,10 @@ class TableStore:
 
         db_table_name = self._get_table_name(table_id)
 
-        conn = self._get_connection()
-        try:
+        with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(f"PRAGMA table_info({db_table_name})")
             columns_info = cursor.fetchall()
-        finally:
-            conn.close()
 
         schema = {
             "table_id": table_id,
@@ -660,23 +740,19 @@ class TableStore:
         """从 DataFrame 创建数据库表"""
         db_table_name = self._get_table_name(table_id)
 
-        conn = self._get_connection()
-        try:
+        with self._get_connection() as conn:
             df.to_sql(db_table_name, conn, if_exists="replace", index=False)
-            conn.commit()
-        finally:
-            conn.close()
 
 
 _store_instance: TableStore | None = None
 
 
-def get_table_store(storage_path: str | None = None) -> TableStore:
+def get_table_store(storage_path: str | None = None, db_path: str | None = None) -> TableStore:
     """获取表格存储实例"""
     global _store_instance
     if _store_instance is None:
         path = storage_path or "data/tables"
-        _store_instance = TableStore(path)
+        _store_instance = TableStore(path, db_path=db_path)
     return _store_instance
 
 

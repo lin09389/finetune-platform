@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from api.chat import routes as chat_routes
 from api.chat.session import SessionManager
+from api import chat_share
 from core.db_manager import close_all_pools
 from core.storage import (
     ChatRepository,
@@ -73,6 +74,64 @@ def test_json_data_migration_is_manual_and_idempotent(tmp_path: Path):
     assert first["sessions"] == 1
     assert second["sessions"] == 0
     assert ChatRepository(db_path).get_session("session_1") is not None
+    close_all_pools()
+
+
+def test_session_manager_bootstraps_legacy_json_when_sqlite_is_empty(tmp_path: Path):
+    db_path = str(tmp_path / "app.db")
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    now = datetime.now().isoformat()
+    (sessions_dir / "session_legacy.json").write_text(
+        """
+        {
+          "id": "session_legacy",
+          "title": "Legacy",
+          "messages": [],
+          "message_count": 0,
+          "created_at": "%s",
+          "updated_at": "%s",
+          "metadata": {}
+        }
+        """
+        % (now, now),
+        encoding="utf-8",
+    )
+
+    manager = SessionManager(storage_path=sessions_dir, db_path=db_path)
+
+    assert manager.get_session("session_legacy") is not None
+    assert ChatRepository(db_path).get_session("session_legacy") is not None
+    close_all_pools()
+
+
+def test_chat_share_lazy_migrates_legacy_json(tmp_path: Path, monkeypatch):
+    db_path = str(tmp_path / "app.db")
+    share_dir = tmp_path / "share"
+    share_dir.mkdir()
+    monkeypatch.setattr(chat_share, "SHARE_DIR", share_dir)
+    monkeypatch.setattr(chat_share, "share_repository", chat_share.ChatShareRepository(db_path))
+    ChatRepository(db_path).save_session(DummySession())
+    payload = {
+        "share_id": "legacy_share",
+        "session_id": "session_1",
+        "title": "Legacy Share",
+        "messages": [],
+        "created_at": datetime.now().isoformat(),
+        "expires_at": None,
+        "view_count": 0,
+        "is_public": True,
+    }
+    (share_dir / "share_legacy_share.json").write_text(
+        __import__("json").dumps(payload),
+        encoding="utf-8",
+    )
+
+    share = chat_share.load_share("legacy_share")
+
+    assert share is not None
+    assert share.share_id == "legacy_share"
+    assert chat_share.share_repository.get_share("legacy_share") is not None
     close_all_pools()
 
 

@@ -794,6 +794,7 @@ export interface ChatAgentIntentResponse {
   chat_session_id?: string;
   trigger_message_id?: string;
   workflow_id?: string;
+  agent_session_id?: string;
   status: string;
   intent_type?: string;
   summary?: string;
@@ -815,6 +816,8 @@ export interface ChatAgentIntentResponse {
   blocked_state?: Record<string, any> | null;
   workflow?: Workflow;
   observability?: WorkflowObservability;
+  agent_session?: AgentSession;
+  agent_parts?: AgentPart[];
   latest_event?: Record<string, any>;
   latest_tool_call?: WorkflowToolCall;
   latest_action?: WorkflowAction;
@@ -839,6 +842,7 @@ export interface ChatAgentRunEvent {
   event_type: string;
   run_id: string;
   workflow_id?: string;
+  agent_session_id?: string;
   message: string;
   payload: Record<string, any>;
 }

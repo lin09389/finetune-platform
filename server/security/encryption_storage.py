@@ -20,8 +20,7 @@ try:
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
     CRYPTO_AVAILABLE = True
 except ImportError:
-    CRYPTO_AVAILABLE = False
-    logger.warning("cryptography 库未安装，凭证将使用 Base64 编码存储（不安全）")
+    raise ImportError("cryptography 库是必需的，请运行: pip install cryptography")
 
 
 @dataclass
@@ -76,30 +75,24 @@ class EncryptionManager:
 
     def _generate_key(self, key_file: Path):
         """生成新密钥"""
-        if CRYPTO_AVAILABLE:
-            self._key = Fernet.generate_key()
-            self._fernet = Fernet(self._key)
+        self._key = Fernet.generate_key()
+        self._fernet = Fernet(self._key)
 
-            with open(key_file, "wb") as f:
-                f.write(self._key)
+        with open(key_file, "wb") as f:
+            f.write(self._key)
 
+        try:
             os.chmod(key_file, 0o600)
-            logger.info("已生成新的加密密钥")
-        else:
-            self._key = base64.urlsafe_b64encode(os.urandom(32))
-            self._fernet = None
-            logger.warning("使用不安全的 Base64 编码")
+        except (NotImplementedError, OSError):
+            pass
+        logger.info("已生成新的加密密钥")
 
     def _load_key(self, key_file: Path):
         """加载密钥"""
         with open(key_file, "rb") as f:
             self._key = f.read()
 
-        if CRYPTO_AVAILABLE:
-            self._fernet = Fernet(self._key)
-        else:
-            self._fernet = None
-
+        self._fernet = Fernet(self._key)
         logger.info("已加载加密密钥")
 
     def _derive_key_from_password(self, password: str, salt: bytes = None) -> tuple:
@@ -107,20 +100,14 @@ class EncryptionManager:
         if salt is None:
             salt = os.urandom(16)
 
-        if CRYPTO_AVAILABLE:
-            kdf = PBKDF2HMAC(
-                algorithm=hashes.SHA256(),
-                length=32,
-                salt=salt,
-                iterations=self.MIN_ITERATIONS,
-            )
-            key = base64.urlsafe_b64encode(kdf.derive(password.encode()))
-            return key, salt
-        else:
-            key = base64.urlsafe_b64encode(
-                hashlib.pbkdf2_hmac('sha256', password.encode(), salt, self.MIN_ITERATIONS)
-            )
-            return key, salt
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=self.MIN_ITERATIONS,
+        )
+        key = base64.urlsafe_b64encode(kdf.derive(password.encode()))
+        return key, salt
 
     def encrypt(self, plaintext: str) -> str:
         """
@@ -136,12 +123,8 @@ class EncryptionManager:
             return ""
 
         try:
-            if CRYPTO_AVAILABLE and self._fernet:
-                ciphertext = self._fernet.encrypt(plaintext.encode())
-                return base64.urlsafe_b64encode(ciphertext).decode()
-            else:
-                encoded = base64.urlsafe_b64encode(plaintext.encode())
-                return f"plain:{encoded.decode()}"
+            ciphertext = self._fernet.encrypt(plaintext.encode())
+            return base64.urlsafe_b64encode(ciphertext).decode()
         except Exception as e:
             logger.error(f"加密失败: {e}")
             raise
@@ -160,15 +143,9 @@ class EncryptionManager:
             return ""
 
         try:
-            if ciphertext.startswith("plain:"):
-                return base64.urlsafe_b64decode(ciphertext[6:]).decode()
-
-            if CRYPTO_AVAILABLE and self._fernet:
-                decoded = base64.urlsafe_b64decode(ciphertext.encode())
-                plaintext = self._fernet.decrypt(decoded)
-                return plaintext.decode()
-            else:
-                return base64.urlsafe_b64decode(ciphertext).decode()
+            decoded = base64.urlsafe_b64decode(ciphertext.encode())
+            plaintext = self._fernet.decrypt(decoded)
+            return plaintext.decode()
         except Exception as e:
             logger.error(f"解密失败: {e}")
             raise
@@ -276,7 +253,10 @@ class SecureCredentialStorage:
             with open(cred_file, "w", encoding="utf-8") as f:
                 f.write(encrypted_data)
 
-            os.chmod(cred_file, 0o600)
+            try:
+                os.chmod(cred_file, 0o600)
+            except (NotImplementedError, OSError):
+                pass
         except Exception as e:
             logger.error(f"保存凭证失败: {e}")
 

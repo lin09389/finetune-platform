@@ -161,7 +161,7 @@ class StepDefinition:
     key: str
     agent_id: str
     title: str
-    permission: list[PermissionRule] = field(default_factory=list)  # 新���
+    permission: list[PermissionRule] = field(default_factory=list)  # 新增
 ```
 
 #### 验收标准
@@ -211,7 +211,7 @@ class AgentDefinition(BaseModel):
 class AgentLoader:
     @staticmethod
     def load_from_markdown(file_path: Path) -> AgentDefinition:
-        """解析 Markdown Agent 文���"""
+        """解析 Markdown Agent 文档"""
         content = file_path.read_text(encoding='utf-8')
 
         # 分离 frontmatter 和 prompt
@@ -352,7 +352,7 @@ class AgentRuntimeEngine:
         ...
 
     async def _run_step(self, step: StepDefinition, ...):
-        # 获��� Agent 定义
+        # 获取 Agent 定义
         agent_def = self.agent_manager.get(step.agent_id)
         if not agent_def:
             raise ValueError(f"Agent {step.agent_id} not found")
@@ -635,7 +635,7 @@ export default function AgentManager() {
 
 ---
 
-### Phase 5: ��级特性 (可选，3-4 天)
+### Phase 5: 高级特性 (可选，3-4 天)
 
 #### 5.1 Subagent 调用
 
@@ -807,7 +807,7 @@ async def test_workflow_with_custom_agent():
 - [ ] 可以通过 Markdown 定义 Agent
 - [ ] 权限系统正常工作（allow/deny/ask）
 - [ ] 工具执行前进行权限检查
-- [ ] 前端可��选择和管理 Agent
+- [ ] 前端可以选择和管理 Agent
 - [ ] 现有功能不受影响
 - [ ] 单元测试覆盖率 > 80%
 - [ ] 集成测试通过

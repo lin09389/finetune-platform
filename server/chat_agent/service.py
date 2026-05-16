@@ -4,8 +4,9 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from agent_runtime.models import WorkflowCreate
 from agent_runtime.service import AgentRuntimeService
+from agent_session.models import AgentPromptRequest, AgentSessionCreate
+from agent_session.service import AgentSessionService
 
 from .acceptance import AcceptanceReportGenerator
 from .intent import ChatAgentIntentClassifier
@@ -17,11 +18,13 @@ class ChatAgentService:
     def __init__(
         self,
         runtime: AgentRuntimeService,
+        agent_sessions: AgentSessionService | None = None,
         repository: ChatAgentRepository | None = None,
         classifier: ChatAgentIntentClassifier | None = None,
         acceptance_generator: AcceptanceReportGenerator | None = None,
     ):
         self.runtime = runtime
+        self.agent_sessions = agent_sessions or AgentSessionService()
         self.repository = repository or ChatAgentRepository(runtime.repository.db_path)
         self.classifier = classifier or ChatAgentIntentClassifier()
         self.acceptance_generator = acceptance_generator or AcceptanceReportGenerator()
@@ -39,38 +42,31 @@ class ChatAgentService:
                 summary="继续普通对话",
             )
 
-        workflow = self.runtime.create_workflow(
-            WorkflowCreate(
-                title=request.content.strip()[:30],
-                goal=request.content.strip(),
-                template_id=request.template_id or "software_delivery",
-                project_path=request.project_path,
+        session = self.agent_sessions.create_session(
+            AgentSessionCreate(
                 chat_session_id=request.chat_session_id,
-                include_chat_context=bool(request.chat_session_id),
-                include_project_context=True,
-                include_memory=True,
-                max_context_chars=6000,
-                provider=request.provider or "minimax",
-                model=request.model,
                 agent_id=request.agent_id or "build",
+                title=request.content.strip()[:30] or "Agent Session",
+                project_path=request.project_path,
+                provider=request.provider,
+                model=request.model,
                 autonomy_mode=request.autonomy_mode,
-                approval_mode="manual",
             )
         )
         run = self.repository.create_run(
             chat_session_id=request.chat_session_id,
             trigger_message_id=request.message_id,
-            workflow_id=workflow.workflow_id,
+            agent_session_id=session.id,
             intent_type=intent_type,
-            summary=f"已创建 Agent 工作流：{workflow.title}",
+            summary=f"已创建 Agent 会话：{session.title}",
             metadata={
-                "template_id": workflow.template_id,
+                "template_id": request.template_id or "software_delivery",
                 "primary_agent_id": request.agent_id or "build",
-                "compat_mode": "legacy_workflow",
-                "new_agent_entrypoint": "/agent-sessions",
+                "prompt": request.content.strip(),
+                "entrypoint": "agent_session",
             },
         )
-        return self._response(run, workflow=workflow)
+        return self._response(run, agent_session=session)
 
     async def classify_intent(self, request: ChatAgentIntentRequest) -> ChatAgentIntentResponse:
         decision = await self.classifier.route(
@@ -88,6 +84,19 @@ class ChatAgentService:
 
     async def run(self, run_id: str) -> ChatAgentRunResponse:
         run = self._get_run(run_id)
+        agent_session_id = run.get("agent_session_id")
+        if agent_session_id:
+            prompt = str((run.get("metadata") or {}).get("prompt") or "").strip()
+            if not prompt:
+                raise HTTPException(status_code=400, detail="Chat agent run has no prompt")
+            self.repository.update_run(run_id, status="running")
+            session = await self.agent_sessions.prompt(agent_session_id, AgentPromptRequest(content=prompt))
+            run = self.repository.update_run(
+                run_id,
+                status=session.status,
+                summary=self._summarize_session(session.model_dump()),
+            )
+            return self._response(run, agent_session=session)
         workflow_id = run.get("workflow_id")
         if not workflow_id:
             raise HTTPException(status_code=400, detail="Chat agent run has no workflow")
@@ -136,6 +145,8 @@ class ChatAgentService:
 
     def list_tool_calls(self, run_id: str):
         run = self._get_run(run_id)
+        if run.get("agent_session_id"):
+            return []
         workflow_id = run.get("workflow_id")
         if not workflow_id:
             return []
@@ -143,6 +154,10 @@ class ChatAgentService:
 
     def list_events(self, run_id: str) -> list[ChatAgentRunEvent]:
         run = self._get_run(run_id)
+        agent_session_id = run.get("agent_session_id")
+        if agent_session_id:
+            events = self.agent_sessions.list_events(agent_session_id)
+            return [self._event_from_agent_session(run_id, agent_session_id, event) for event in events]
         workflow_id = run.get("workflow_id")
         if not workflow_id:
             return []
@@ -155,7 +170,42 @@ class ChatAgentService:
             raise HTTPException(status_code=404, detail="Chat agent run not found")
         return run
 
-    def _response(self, run: dict[str, Any], workflow: Any | None = None) -> ChatAgentRunResponse:
+    def _response(
+        self,
+        run: dict[str, Any],
+        workflow: Any | None = None,
+        agent_session: Any | None = None,
+    ) -> ChatAgentRunResponse:
+        agent_session_id = run.get("agent_session_id")
+        if agent_session_id:
+            agent_session = agent_session or self.agent_sessions.get_session(agent_session_id)
+            metadata = dict((agent_session.metadata if agent_session else {}) or {})
+            parts = list(agent_session.parts if agent_session else [])
+            latest_event = self._latest_agent_session_event(agent_session_id)
+            latest_action = self._latest_agent_part(parts, {"diff", "command", "permission"})
+            final_summary = self._latest_agent_summary(parts)
+            response_status = agent_session.status if agent_session else (run.get("status") or "created")
+            return ChatAgentRunResponse(
+                id=run["id"],
+                mode="agent",
+                chat_session_id=run.get("chat_session_id"),
+                trigger_message_id=run.get("trigger_message_id"),
+                agent_session_id=agent_session_id,
+                status=response_status,
+                intent_type=run.get("intent_type"),
+                summary=run.get("summary") or "",
+                final_summary=final_summary or None,
+                execution_state=metadata.get("current_phase") or response_status,
+                execution_state_message=self._agent_session_message(metadata),
+                recoverable=response_status in {"running", "verifying", "repairing", "waiting_approval", "waiting_permission", "needs_manual_review"},
+                details_url=f"/chat?agentSession={agent_session_id}",
+                active_agent_id=agent_session.agent_id if agent_session else metadata.get("active_agent_id"),
+                auto_execution_policy={"mode": metadata.get("autonomy_mode") or "safe_auto"},
+                blocked_state=metadata.get("blocked_state"),
+                agent_session=agent_session,
+                agent_parts=parts,
+                latest_event=latest_event,
+            )
         workflow_id = run.get("workflow_id")
         workflow = workflow or (self.runtime.get_workflow(workflow_id) if workflow_id else None)
         observability = self.runtime.get_observability(workflow_id) if workflow_id else None
@@ -215,6 +265,17 @@ class ChatAgentService:
             latest_action=latest_action,
         )
 
+    def _event_from_agent_session(self, run_id: str, agent_session_id: str, event: dict[str, Any]) -> ChatAgentRunEvent:
+        payload = dict(event.get("payload") or {})
+        payload.update({"agent_event_id": event.get("id"), "part_id": payload.get("part_id")})
+        return ChatAgentRunEvent(
+            event_type=str(event.get("event_type") or "agent_session_event"),
+            run_id=run_id,
+            agent_session_id=agent_session_id,
+            message=str(event.get("message") or ""),
+            payload=payload,
+        )
+
     def _event_from_workflow(self, run_id: str, workflow_id: str, event: dict[str, Any]) -> ChatAgentRunEvent:
         payload = dict(event.get("payload") or {})
         payload.update({"workflow_event_id": event.get("id"), "step_id": event.get("step_id") or event.get("task_id")})
@@ -247,6 +308,13 @@ class ChatAgentService:
             return stopped_message
         return f"Agent 状态：{status}，当前阶段：{current}"
 
+    def _summarize_session(self, session: dict[str, Any]) -> str:
+        status = str(session.get("status") or "running")
+        summary = self._latest_agent_summary(session.get("parts") or [])
+        if summary:
+            return summary
+        return f"Agent 状态：{status}"
+
     def _latest_output_summary(self, workflow: dict[str, Any]) -> str:
         steps = workflow.get("steps") or workflow.get("tasks") or []
         if not isinstance(steps, list):
@@ -261,6 +329,40 @@ class ChatAgentService:
             if summary:
                 return summary
         return ""
+
+    def _latest_agent_summary(self, parts: list[Any]) -> str:
+        for part in reversed(parts):
+            part_type = self._field(part, "type")
+            if part_type != "summary":
+                continue
+            payload = self._field(part, "payload", {}) or {}
+            summary = str(payload.get("summary") or self._field(part, "content", "") or "").strip()
+            if summary:
+                return summary
+        return ""
+
+    def _latest_agent_part(self, parts: list[Any], part_types: set[str]) -> Any | None:
+        for part in reversed(parts):
+            if self._field(part, "type") in part_types:
+                return part
+        return None
+
+    def _latest_agent_session_event(self, agent_session_id: str) -> dict[str, Any] | None:
+        events = self.agent_sessions.list_events(agent_session_id)
+        return events[-1] if events else None
+
+    def _agent_session_message(self, metadata: dict[str, Any]) -> str | None:
+        state = metadata.get("state")
+        if isinstance(state, dict):
+            latest_error = str(state.get("latest_error") or "").strip()
+            if latest_error:
+                return latest_error
+        diagnostics = metadata.get("diagnostics")
+        if isinstance(diagnostics, dict):
+            stop_reason = str(diagnostics.get("stop_reason") or "").strip()
+            if stop_reason:
+                return stop_reason
+        return None
 
     def _stopped_state_message(
         self,

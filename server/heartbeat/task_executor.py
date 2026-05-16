@@ -116,6 +116,9 @@ class TaskExecutor:
     def get_result(self, task_id: str) -> TaskResult | None:
         return self._results.get(task_id)
 
+    def get_all_results(self) -> list[TaskResult]:
+        return list(self._results.values())
+
     def get_stats(self) -> dict[str, Any]:
         enabled_tasks = sum(1 for task in self._tasks.values() if task.enabled)
         completed = sum(1 for result in self._results.values() if result.status == TaskStatus.COMPLETED)

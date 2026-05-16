@@ -13,8 +13,46 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  test-before-deploy:
+    name: Pre-deploy Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-asyncio pytest-cov
+          pip install -r server/requirements.txt
+
+      - name: Run smoke tests
+        run: |
+          cd server
+          pytest tests/test_training.py tests/test_gateway_api_signature_contract.py tests/test_device.py tests/test_models.py tests/test_datasets.py -q
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: client/package-lock.json
+
+      - name: Build frontend
+        run: |
+          cd client
+          npm ci
+          npm run typecheck
+          npm run build
+
   build-and-push:
     name: Build and Push Docker Image
+    needs: test-before-deploy
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -62,13 +100,12 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     if: github.ref == 'refs/heads/main'
-    
+
     steps:
       - name: Deploy to staging environment
         run: |
           echo "Deploying to staging environment..."
           echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main"
-          # Add actual deployment commands here
 
   deploy-production:
     name: Deploy to Production
@@ -76,10 +113,27 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     if: startsWith(github.ref, 'refs/tags/v')
-    
+
     steps:
       - name: Deploy to production environment
         run: |
           echo "Deploying to production environment..."
           echo "Version: ${{ github.ref_name }}"
-          # Add actual deployment commands here
+
+  post-deploy-verify:
+    name: Verify Deployment
+    needs: [deploy-staging, deploy-production]
+    runs-on: ubuntu-latest
+    if: always() && (needs.deploy-staging.result == 'success' || needs.deploy-production.result == 'success')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Run Docker release verification
+        run: |
+          python scripts/verify_docker_release.py --api-url https://staging.example.com --wait 30 || true

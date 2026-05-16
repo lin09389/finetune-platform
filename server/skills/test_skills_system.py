@@ -38,10 +38,10 @@ def test_registry():
 
     registry = get_enhanced_registry()
 
-    from skills.implemented.text_skills import TextTransformSkill, WordCountSkill
+    from skills.implemented.text_skills import TextRegexSkill, TextReplaceSkill
 
-    registry.register(TextTransformSkill)
-    registry.register(WordCountSkill)
+    registry.register(TextRegexSkill)
+    registry.register(TextReplaceSkill)
 
     print(f"已注册技能: {registry.list_skills()}")
     print(f"统计信息: {registry.get_stats()}")
@@ -59,8 +59,8 @@ async def test_execution():
     registry = get_enhanced_registry()
 
     execution = await registry.execute(
-        name="text_transform",
-        parameters={"text": "Hello World", "operation": "uppercase"},
+        name="text_regex",
+        parameters={"text": "Hello World", "pattern": "World"},
     )
 
     print(f"执行状态: {execution.status}")
@@ -69,8 +69,8 @@ async def test_execution():
         print(f"执行时间: {execution.result.execution_time:.3f}s")
 
     execution2 = await registry.execute(
-        name="word_count",
-        parameters={"text": "Hello World\nThis is a test."},
+        name="text_replace",
+        parameters={"text": "Hello World", "old": "World", "new": "Python"},
     )
 
     print(f"字数统计结果: {execution2.result.data if execution2.result else None}")

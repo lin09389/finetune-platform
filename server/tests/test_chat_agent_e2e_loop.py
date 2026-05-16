@@ -7,12 +7,18 @@ from fastapi.testclient import TestClient
 
 from agent_runtime.actions import WorkflowActionService
 from agent_runtime.definitions import RuntimeExecutionContext
+from agent_runtime.models import WorkflowCreate
 from agent_runtime.repository import WorkflowRuntimeRepository
 from agent_runtime.service import AgentRuntimeService
 from agent_runtime.tool_loop import AgentToolLoop
 from agent_runtime.tools import AgentToolExecutor
 from api.workflows import get_agent_runtime_service
 from main import app
+
+
+def _workspace_root() -> Path:
+    cwd = Path.cwd().resolve()
+    return cwd.parent if cwd.name == "server" else cwd
 
 
 class E2EToolLoopRunner:
@@ -61,21 +67,35 @@ def make_client(tmp_path: Path) -> tuple[TestClient, AgentRuntimeService]:
     return TestClient(app), service
 
 
+def create_legacy_run(service: AgentRuntimeService, content: str):
+    from chat_agent.repository import ChatAgentRepository
+
+    workflow = service.create_workflow(
+        WorkflowCreate(
+            title=content[:30],
+            goal=content,
+            project_path=str(_workspace_root()),
+            provider="mock",
+            agent_id="build",
+        )
+    )
+    return ChatAgentRepository(service.repository.db_path).create_run(
+        chat_session_id=None,
+        trigger_message_id=None,
+        workflow_id=workflow.workflow_id,
+        intent_type="agent_work",
+        summary=f"已创建 Agent 工作流：{workflow.title}",
+        metadata={"compat_mode": "legacy_workflow"},
+    )
+
+
 def test_chat_agent_e2e_loop_recovers_and_returns_final_summary(tmp_path: Path):
-    target = Path.cwd() / "tmp" / "chat_agent_e2e_smoke.txt"
+    target = _workspace_root() / "tmp" / "chat_agent_e2e_smoke.txt"
     if target.exists():
         target.unlink()
     client, _service = make_client(tmp_path)
     try:
-        created = client.post(
-            "/chat-agent/runs",
-            json={
-                "content": "新增一个 tmp smoke 文件并运行 py_compile",
-                "project_path": str(Path.cwd()),
-                "force_agent": True,
-                "agent_id": "build",
-            },
-        ).json()
+        created = create_legacy_run(_service, "新增一个 tmp smoke 文件并运行 py_compile")
         planned = client.post(f"/chat-agent/runs/{created['id']}/run").json()
         plan_step = next(step for step in planned["workflow"]["steps"] if step["step_key"] == "plan")
 
@@ -102,7 +122,7 @@ def test_chat_agent_e2e_loop_recovers_and_returns_final_summary(tmp_path: Path):
             target.unlink()
 
 
-def test_tool_loop_plain_final_text_becomes_final_summary(tmp_path: Path):
+def test_tool_loop_plain_final_text_requires_manual_review(tmp_path: Path):
     repository = WorkflowRuntimeRepository(str(tmp_path / "plain_final.db"))
     action_service = WorkflowActionService(repository)
     project = repository.create_project(
@@ -132,7 +152,6 @@ def test_tool_loop_plain_final_text_becomes_final_summary(tmp_path: Path):
         )
     )
 
-    assert response.needs_manual_review is False
-    assert "最终结果" in response.output.summary
-    assert repository.get_project(project["id"])["metadata"]["execution_state"] == "completed"
-
+    assert response.needs_manual_review is True
+    assert "不是可解析的工具 JSON" in response.output.summary
+    assert repository.get_project(project["id"])["metadata"]["execution_state"] == "needs_manual_review"

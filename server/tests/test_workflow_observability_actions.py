@@ -12,6 +12,11 @@ from digital_team.models import AgentOutput
 from main import app
 
 
+def _workspace_root() -> Path:
+    cwd = Path.cwd().resolve()
+    return cwd.parent if cwd.name == "server" else cwd
+
+
 class ActionRunner:
     async def execute(self, agent_id, context, step_input):
         return AgentOutput(
@@ -80,7 +85,7 @@ def test_observability_empty_before_run(tmp_path):
     client.post("/workflows/templates", json=single_step_template())
     workflow = client.post(
         "/workflows",
-        json={"title": "obs", "goal": "观察", "template_id": "action_ops", "project_path": str(Path.cwd())},
+        json={"title": "obs", "goal": "观察", "template_id": "action_ops", "project_path": str(_workspace_root())},
     ).json()
 
     response = client.get(f"/workflows/{workflow['workflow_id']}/observability")
@@ -96,7 +101,7 @@ def test_run_creates_step_logs_and_action_proposals(tmp_path):
     client.post("/workflows/templates", json=single_step_template())
     workflow = client.post(
         "/workflows",
-        json={"title": "actions", "goal": "生成动作", "template_id": "action_ops", "project_path": str(Path.cwd())},
+        json={"title": "actions", "goal": "生成动作", "template_id": "action_ops", "project_path": str(_workspace_root())},
     ).json()
 
     client.post(f"/workflows/{workflow['workflow_id']}/run")
@@ -112,14 +117,14 @@ def test_run_creates_step_logs_and_action_proposals(tmp_path):
 
 
 def test_unapproved_action_cannot_execute_and_approved_patch_can_write_inside_workspace(tmp_path):
-    target = Path.cwd() / "tmp_action_output.txt"
+    target = _workspace_root() / "tmp_action_output.txt"
     if target.exists():
         target.unlink()
     client = make_client(tmp_path)
     client.post("/workflows/templates", json=single_step_template())
     workflow = client.post(
         "/workflows",
-        json={"title": "patch", "goal": "写文件", "template_id": "action_ops", "project_path": str(Path.cwd())},
+        json={"title": "patch", "goal": "写文件", "template_id": "action_ops", "project_path": str(_workspace_root())},
     ).json()
     client.post(f"/workflows/{workflow['workflow_id']}/run")
     actions = client.get(f"/workflows/{workflow['workflow_id']}/actions").json()
@@ -144,7 +149,7 @@ def test_approved_command_runs_and_non_allowlisted_command_is_rejected(tmp_path)
     client.post("/workflows/templates", json=single_step_template())
     workflow = client.post(
         "/workflows",
-        json={"title": "command", "goal": "跑检查", "template_id": "action_ops", "project_path": str(Path.cwd())},
+        json={"title": "command", "goal": "跑检查", "template_id": "action_ops", "project_path": str(_workspace_root())},
     ).json()
     client.post(f"/workflows/{workflow['workflow_id']}/run")
     actions = client.get(f"/workflows/{workflow['workflow_id']}/actions").json()
@@ -169,34 +174,37 @@ def test_approved_command_runs_and_non_allowlisted_command_is_rejected(tmp_path)
 
 
 def test_command_root_detects_client_for_npm_when_project_is_workspace_root(tmp_path):
+    from core.config import settings
     service = WorkflowActionService(repository=None)
-    root = service._command_root({"project_path": str(Path.cwd())}, ["npm", "run", "typecheck"])
+    workspace = settings.base_dir.resolve().parent if settings.base_dir.resolve().name == "server" else settings.base_dir.resolve()
+    root = service._command_root({"project_path": str(workspace)}, ["npm", "run", "typecheck"])
 
     assert root.name == "client"
 
 
 def test_command_root_detects_client_for_frontend_tooling_when_project_is_workspace_root(tmp_path):
+    from core.config import settings
     service = WorkflowActionService(repository=None)
+    workspace = settings.base_dir.resolve().parent if settings.base_dir.resolve().name == "server" else settings.base_dir.resolve()
 
-    assert service._command_root({"project_path": str(Path.cwd())}, ["npx", "vitest", "run"]).name == "client"
-    assert service._command_root({"project_path": str(Path.cwd())}, ["tsc", "--noEmit"]).name == "client"
+    assert service._command_root({"project_path": str(workspace)}, ["npx", "vitest", "run"]).name == "client"
+    assert service._command_root({"project_path": str(workspace)}, ["tsc", "--noEmit"]).name == "client"
 
 
 def test_command_allowlist_accepts_windows_npm_cmd():
-    service = WorkflowActionService(repository=None)
-
-    assert service._command_allowed(["npm.cmd", "run", "typecheck"])
+    from agent_runtime.command_policy import command_allowed, normalize_command
+    assert command_allowed(normalize_command(["npm.cmd", "run", "typecheck"]))
 
 
 def test_observability_contains_actions_logs_and_recent_events_after_execution(tmp_path):
-    target = Path.cwd() / "tmp_action_output.txt"
+    target = _workspace_root() / "tmp_action_output.txt"
     if target.exists():
         target.unlink()
     client = make_client(tmp_path)
     client.post("/workflows/templates", json=single_step_template())
     workflow = client.post(
         "/workflows",
-        json={"title": "e2e", "goal": "端到端打通", "template_id": "action_ops", "project_path": str(Path.cwd())},
+        json={"title": "e2e", "goal": "端到端打通", "template_id": "action_ops", "project_path": str(_workspace_root())},
     ).json()
     client.post(f"/workflows/{workflow['workflow_id']}/run")
     actions = client.get(f"/workflows/{workflow['workflow_id']}/actions").json()
@@ -223,7 +231,7 @@ def test_sse_stream_includes_action_events(tmp_path):
     client.post("/workflows/templates", json=single_step_template())
     workflow = client.post(
         "/workflows",
-        json={"title": "sse", "goal": "事件流", "template_id": "action_ops", "project_path": str(Path.cwd())},
+        json={"title": "sse", "goal": "事件流", "template_id": "action_ops", "project_path": str(_workspace_root())},
     ).json()
     client.post(f"/workflows/{workflow['workflow_id']}/run")
 
@@ -241,7 +249,7 @@ def test_step_failure_writes_failed_log(tmp_path):
     client.post("/workflows/templates", json=single_step_template())
     workflow = client.post(
         "/workflows",
-        json={"title": "fail", "goal": "失败", "template_id": "action_ops", "project_path": str(Path.cwd())},
+        json={"title": "fail", "goal": "失败", "template_id": "action_ops", "project_path": str(_workspace_root())},
     ).json()
 
     client.post(f"/workflows/{workflow['workflow_id']}/run")

@@ -198,7 +198,11 @@ class AgentSessionProcessor:
 
             text_index = 0
             next_model = False
+            session_finalized = False
             for part_index, part in enumerate(parts):
+                if session_finalized and part.type == "tool_call" and part.tool:
+                    self._event(session_id, "tool_call_ignored", f"工具 {part.tool} 在 finalize 后被忽略", {"tool": part.tool, "arguments": part.arguments or {}})
+                    continue
                 if part.type == "text":
                     content_text = part.content.strip()
                     if content_text and not streaming_part_id:
@@ -237,9 +241,16 @@ class AgentSessionProcessor:
                     part_index=part_index,
                 )
                 if handled is not None:
+                    result_parts = self.repository.list_parts(session_id)
+                    has_summary = any(p.get("type") == "summary" for p in result_parts)
+                    if has_summary:
+                        session_finalized = True
+                        continue
                     return handled
                 next_model = next_model or should_continue
 
+            if session_finalized:
+                return self._with_parts(session_id)
             if next_model or any(part.type == "tool_call" for part in parts):
                 continue
 
@@ -249,17 +260,6 @@ class AgentSessionProcessor:
 
         logger.warning("agent_session.processor legacy prompt reached max iterations: session_id=%s", session_id)
         return self._fallback_summary(session_id, "Agent 达到最大工具轮次，已根据当前执行记录生成总结。")
-
-    async def _run_prompt_legacy_loop_unused(
-        self,
-        session_id: str,
-        content: str,
-        *,
-        session: dict[str, Any],
-        model_call: ModelCall | None = None,
-        stream_model_call: StreamModelCall | None = None,
-    ) -> dict[str, Any]:
-        return self._fallback_summary(session_id, "旧主循环已拆离主入口，仅作为兼容残留保留。")
 
     def _execute_tool_request(
         self,
@@ -530,7 +530,10 @@ class AgentSessionProcessor:
         if part.get("type") == "command":
             payload = part.get("payload") or {}
             tool_name = str(payload.get("tool") or "bash_command")
-            result = self.tools.get(tool_name).execute({"payload": payload}, self._context(session))  # type: ignore[union-attr]
+            tool = self.tools.get(tool_name)
+            if not tool:
+                raise ValueError(f"Unknown tool requested: {tool_name}")
+            result = tool.execute({"payload": payload}, self._context(session))
         else:
             result = self.tools.apply_patch_payload((part.get("payload") or {}).get("payload") or part.get("payload") or {}, self._context(session))
         status = "executed" if result.status == "completed" else "failed"
@@ -1314,7 +1317,7 @@ class AgentSessionProcessor:
     def _classify_task_intent(self, content: str) -> str:
         lowered = content.lower()
         analyze_markers = ("分析", "看看", "排查", "不要写文件", "不写文件", "只读", "解释")
-        develop_markers = ("修改", "新增", "修复", "实现", "增加", "typecheck", "跑测试", "运行测试")
+        develop_markers = ("修改", "新增", "修复", "实现", "增加")
         verify_markers = ("验证", "测试", "检查", "typecheck", "pytest")
         if any(marker in lowered for marker in develop_markers):
             return "develop"

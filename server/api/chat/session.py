@@ -12,11 +12,7 @@ from typing import Any
 from core.storage import (
     APP_DB_PATH,
     ChatRepository,
-    StorageOutboxRepository,
-    dual_write_enabled,
     json_fallback_enabled,
-    process_json_outbox,
-    storage_read_primary,
 )
 
 logger = logging.getLogger(__name__)
@@ -124,7 +120,6 @@ class SessionManager:
         self.storage_path.mkdir(parents=True, exist_ok=True)
         self.db_path = db_path
         self.repository = ChatRepository(db_path)
-        self.outbox = StorageOutboxRepository(db_path)
         self.max_sessions = max_sessions
         self.auto_save = auto_save
         self.max_retries = max_retries
@@ -140,10 +135,7 @@ class SessionManager:
 
     def _bootstrap_sessions(self) -> None:
         loaded_from_sqlite = self._load_sessions_from_sqlite()
-        if loaded_from_sqlite:
-            return
-
-        if json_fallback_enabled():
+        if not loaded_from_sqlite and json_fallback_enabled():
             self._load_sessions_from_json()
 
     def _load_sessions_from_sqlite(self) -> bool:
@@ -195,22 +187,6 @@ class SessionManager:
         self._pending_writes.append({"session_id": session.id, "session": session.to_dict(), "ts": datetime.now().isoformat()})
         return False
 
-    def _enqueue_shadow_write(self, session: Session) -> str:
-        file_path = self.storage_path / f"{session.id}.json"
-        return self.outbox.enqueue(
-            task_type="json_shadow_write",
-            target=str(file_path),
-            payload=session.to_dict(),
-            task_id=f"json_session_{session.id}",
-        )
-
-    def _shadow_write_with_outbox(self, session: Session, retry: bool = True) -> None:
-        task_id = self._enqueue_shadow_write(session)
-        if self._atomic_shadow_write(session, retry=retry):
-            self.outbox.mark_done(task_id)
-        else:
-            self.outbox.mark_failed(task_id, f"Failed to shadow-write session {session.id}")
-
     def replay_pending_writes(self) -> int:
         replayed = 0
         pending = list(self._pending_writes)
@@ -228,8 +204,6 @@ class SessionManager:
     def _save_session(self, session: Session, retry: bool = True) -> None:
         self.repository.save_session(session)
         self._memory_cache[session.id] = session
-        if dual_write_enabled():
-            self._shadow_write_with_outbox(session, retry=retry)
 
     def append_message(self, session_id: str, message: Message) -> bool:
         with self._lock:
@@ -244,8 +218,6 @@ class SessionManager:
             self.repository.update_session_header(session, message_count=session.message_count)
             self._memory_cache[session_id] = session
             self._sessions[session_id] = session
-            if dual_write_enabled():
-                self._shadow_write_with_outbox(session)
             return True
 
     def clear_session_messages(self, session_id: str) -> bool:
@@ -258,8 +230,6 @@ class SessionManager:
             self.repository.update_session_header(session, message_count=0)
             self._memory_cache[session_id] = session
             self._sessions[session_id] = session
-            if dual_write_enabled():
-                self._shadow_write_with_outbox(session)
             return cleared
 
     def replace_session_messages(self, session_id: str, messages: list[dict[str, Any]]) -> bool:
@@ -274,8 +244,6 @@ class SessionManager:
             self.repository.update_session_header(session, message_count=session.message_count)
             self._memory_cache[session_id] = session
             self._sessions[session_id] = session
-            if dual_write_enabled():
-                self._shadow_write_with_outbox(session)
             return True
 
     def update_message(
@@ -313,8 +281,6 @@ class SessionManager:
             self.repository.update_session_header(session, message_count=session.message_count)
             self._memory_cache[session_id] = session
             self._sessions[session_id] = session
-            if dual_write_enabled():
-                self._shadow_write_with_outbox(session)
             return target
 
     def delete_message(self, session_id: str, message_id: str) -> bool:
@@ -334,12 +300,8 @@ class SessionManager:
             self.repository.update_session_header(session, message_count=session.message_count)
             self._memory_cache[session_id] = session
             self._sessions[session_id] = session
-            if dual_write_enabled():
-                self._shadow_write_with_outbox(session)
             return True
 
-    def process_shadow_outbox(self, limit: int = 100) -> dict[str, int]:
-        return process_json_outbox(self.db_path, limit=limit)
 
     def create_session(self, title: str = "New Chat", metadata: dict[str, Any] | None = None) -> Session:
         with self._lock:
@@ -357,13 +319,12 @@ class SessionManager:
             if session_id in self._memory_cache:
                 return self._memory_cache[session_id]
 
-            if storage_read_primary() == "sqlite":
-                payload = self.repository.get_session(session_id)
-                if payload:
-                    session = Session.from_dict(payload)
-                    self._sessions[session.id] = session
-                    self._memory_cache[session.id] = session
-                    return session
+            payload = self.repository.get_session(session_id)
+            if payload:
+                session = Session.from_dict(payload)
+                self._sessions[session.id] = session
+                self._memory_cache[session.id] = session
+                return session
 
             session = self._sessions.get(session_id)
             if session:
@@ -409,27 +370,21 @@ class SessionManager:
 
     def list_sessions(self, limit: int = 20, offset: int = 0) -> list[Session]:
         with self._lock:
-            if storage_read_primary() == "sqlite":
-                sessions: list[Session] = []
-                for row in self.repository.list_sessions(limit=limit, offset=offset):
-                    cached = self._memory_cache.get(row["id"])
-                    if cached:
-                        sessions.append(cached)
-                        continue
-                    payload = self.repository.get_session(row["id"]) or row
-                    session = Session.from_dict(payload)
-                    self._sessions[session.id] = session
-                    self._memory_cache[session.id] = session
-                    sessions.append(session)
-                return sessions
-
-            sorted_sessions = sorted(self._sessions.values(), key=lambda s: s.updated_at, reverse=True)
-            return sorted_sessions[offset : offset + limit]
+            sessions: list[Session] = []
+            for row in self.repository.list_sessions(limit=limit, offset=offset):
+                cached = self._memory_cache.get(row["id"])
+                if cached:
+                    sessions.append(cached)
+                    continue
+                payload = self.repository.get_session(row["id"]) or row
+                session = Session.from_dict(payload)
+                self._sessions[session.id] = session
+                self._memory_cache[session.id] = session
+                sessions.append(session)
+            return sessions
 
     def get_session_count(self) -> int:
-        if storage_read_primary() == "sqlite":
-            return self.repository.count_sessions()
-        return len(self._sessions)
+        return self.repository.count_sessions()
 
     def update_session_metadata(self, session_id: str, metadata: dict[str, Any]) -> bool:
         with self._lock:

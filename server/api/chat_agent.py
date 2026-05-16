@@ -6,7 +6,9 @@ import json
 from fastapi import APIRouter, Depends, Response
 from fastapi.responses import StreamingResponse
 
+from api.agent_sessions import get_agent_session_service
 from api.workflows import get_agent_runtime_service
+from agent_session.service import AgentSessionService
 from agent_runtime.models import WorkflowActionResponse, WorkflowToolCallResponse
 from agent_runtime.service import AgentRuntimeService
 from chat_agent.models import (
@@ -24,18 +26,18 @@ router = APIRouter(prefix="/chat-agent", tags=["Chat Agent"])
 
 def get_chat_agent_service(
     runtime: AgentRuntimeService = Depends(get_agent_runtime_service),
+    agent_sessions: AgentSessionService = Depends(get_agent_session_service),
 ) -> ChatAgentService:
-    return ChatAgentService(runtime)
+    return ChatAgentService(runtime, agent_sessions=agent_sessions)
 
 
-@router.post("/runs", response_model=ChatAgentRunResponse, deprecated=True)
+@router.post("/runs", response_model=ChatAgentRunResponse)
 async def create_chat_agent_run(
     request: ChatAgentRunCreate,
     response: Response,
     service: ChatAgentService = Depends(get_chat_agent_service),
 ):
-    response.headers["X-Agent-Compat-Mode"] = "legacy-workflow"
-    response.headers["Warning"] = '299 - "Deprecated: use /agent-sessions for new chat agent runs"'
+    response.headers["X-Agent-Entrypoint"] = "agent-session"
     return service.create_run(request)
 
 
@@ -55,13 +57,13 @@ async def get_chat_agent_run(
     return service.get_run(run_id)
 
 
-@router.post("/runs/{run_id}/run", response_model=ChatAgentRunResponse, deprecated=True)
+@router.post("/runs/{run_id}/run", response_model=ChatAgentRunResponse)
 async def run_chat_agent_run(
     run_id: str,
     response: Response,
     service: ChatAgentService = Depends(get_chat_agent_service),
 ):
-    response.headers["X-Agent-Compat-Mode"] = "legacy-workflow"
+    response.headers["X-Agent-Entrypoint"] = "agent-session"
     return await service.run(run_id)
 
 
@@ -116,7 +118,11 @@ async def stream_chat_agent_run_events(
         active_statuses = {"created", "running", "planning", "implementing", "reviewing"}
         for tick in range(180):
             for event in service.list_events(run_id):
-                event_id = str(event.payload.get("workflow_event_id") or f"{event.event_type}:{event.message}")
+                event_id = str(
+                    event.payload.get("agent_event_id")
+                    or event.payload.get("workflow_event_id")
+                    or f"{event.event_type}:{event.message}"
+                )
                 if event_id in seen:
                     continue
                 seen.add(event_id)

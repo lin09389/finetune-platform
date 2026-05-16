@@ -335,10 +335,20 @@ class AgentToolExecutor:
 
     @register_tool("delegate_agent")
     def _handle_delegate_agent(self, request, project, workflow_id, step_id, agent_id) -> AgentToolResult:
+        if not request.arguments.get("agent_id"):
+            return AgentToolResult(
+                tool=request.tool, status="failed",
+                error="delegate_agent requires 'agent_id' argument",
+            )
         return AgentToolResult(
-            tool=request.tool, status="completed",
-            summary=f"已批准委派子 Agent：{request.arguments.get('agent_id') or 'unknown'}",
-            payload=request.arguments,
+            tool=request.tool, status="failed",
+            summary="delegate_agent 需要 runtime 委派器执行",
+            error="delegate_agent must be handled by the async runtime delegate path",
+            payload={
+                "agent_id": request.arguments.get("agent_id"),
+                "task": request.arguments.get("task"),
+                "runtime_delegate_required": True,
+            },
         )
 
     @register_tool("finalize")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from ai.gateway import AnthropicMessagesProvider, OpenAICompatibleProvider, get_provider
@@ -14,6 +15,9 @@ from .definitions import RuntimeExecutionContext
 from .tool_loop import AgentToolLoop
 from .tool_models import AgentToolResult
 from .tools import AgentToolExecutor
+
+
+logger = logging.getLogger(__name__)
 
 
 ACTION_ARTIFACT_GUIDE = {
@@ -64,7 +68,8 @@ def parse_agent_output(content: str) -> AgentOutput:
         if not isinstance(parsed, dict):
             raise ValueError("Agent output is not a JSON object")
         return AgentOutput(**parsed)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to parse agent output JSON: {e}. Raw content: {content[:500]}...")
         return AgentOutput(
             summary="模型输出不是可解析的结构化 JSON，需要人工审查。",
             raw_output=content,

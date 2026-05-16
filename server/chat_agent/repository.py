@@ -39,13 +39,23 @@ class ChatAgentRepository:
         pool.safe_execute_script(
             (migrations_dir / "006_chat_agent_runs.sql").read_text(encoding="utf-8")
         )
+        with pool.get_connection() as conn:
+            columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(chat_agent_runs)").fetchall()
+            }
+        if "agent_session_id" not in columns:
+            pool.safe_execute_script(
+                (migrations_dir / "011_chat_agent_sessions.sql").read_text(encoding="utf-8")
+            )
 
     def create_run(
         self,
         *,
         chat_session_id: str | None,
         trigger_message_id: str | None,
-        workflow_id: str,
+        workflow_id: str | None = None,
+        agent_session_id: str | None = None,
         intent_type: str,
         summary: str,
         metadata: dict[str, Any] | None = None,
@@ -56,15 +66,16 @@ class ChatAgentRepository:
             conn.execute(
                 """
                 INSERT INTO chat_agent_runs
-                    (id, chat_session_id, trigger_message_id, workflow_id, status,
+                    (id, chat_session_id, trigger_message_id, workflow_id, agent_session_id, status,
                      intent_type, summary, metadata, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
                     chat_session_id,
                     trigger_message_id,
                     workflow_id,
+                    agent_session_id,
                     "created",
                     intent_type,
                     summary,
@@ -85,9 +96,14 @@ class ChatAgentRepository:
             row = conn.execute("SELECT * FROM chat_agent_runs WHERE workflow_id = ?", (workflow_id,)).fetchone()
         return self._run_from_row(row) if row else None
 
+    def get_run_by_agent_session(self, agent_session_id: str) -> dict[str, Any] | None:
+        with get_db_pool(self.db_path).get_connection() as conn:
+            row = conn.execute("SELECT * FROM chat_agent_runs WHERE agent_session_id = ?", (agent_session_id,)).fetchone()
+        return self._run_from_row(row) if row else None
+
     _RUN_UPDATABLE = {
         "status", "summary", "metadata", "chat_session_id",
-        "trigger_message_id", "workflow_id", "intent_type", "updated_at",
+        "trigger_message_id", "workflow_id", "agent_session_id", "intent_type", "updated_at",
     }
 
     def update_run(self, run_id: str, **fields: Any) -> dict[str, Any]:

@@ -10,9 +10,23 @@ from agent_session.service import AgentSessionService
 from core.config import settings
 
 
+class _MockCloudProvider:
+    def get_default_model(self):
+        return "mock-model"
+
+    async def chat(self, messages, model, api_key):
+        return "mock response"
+
+
+def _mock_resolve_cloud_provider_config(session):
+    return _MockCloudProvider(), "mock-key", session.get("model") or "mock-model"
+
+
 def test_agent_session_langgraph_keeps_streaming_path_on_old_processor(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(settings, "agent_session_langgraph_enabled", True)
+    monkeypatch.setattr("agent_session.service.secure_storage.get", lambda _key: {"api_key": "mock-key"})
     service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_session_langgraph_stream.db")))
+    monkeypatch.setattr(service, "_resolve_cloud_provider_config", _mock_resolve_cloud_provider_config)
     session = service.create_session(AgentSessionCreate(title="stream fallback", project_path=str(Path.cwd()), provider="mock", model="mock-model"))
 
     async def model_call(_messages):

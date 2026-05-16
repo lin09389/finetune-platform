@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import pytest
 
-from agent_runtime.tool_loop import _sanitize_model_output, _looks_like_final_text
+from agent_runtime.tool_loop import _sanitize_model_output
 from agent_runtime.tool_models import AgentToolRequest, AgentToolResult, AgentToolLoopState, AgentToolLoopResponse
 from digital_team.models import AgentOutput
 
@@ -47,28 +47,6 @@ class TestSanitizeModelOutput:
         raw = "This is just plain text with no JSON at all"
         result = _sanitize_model_output(raw)
         assert result == raw
-
-
-class TestLooksLikeFinalText:
-    def test_chinese_final_markers(self):
-        assert _looks_like_final_text("完成：所有步骤已执行") is True
-        assert _looks_like_final_text("总结：代码修改完成") is True
-
-    def test_english_final_markers(self):
-        assert _looks_like_final_text("done with the implementation") is True
-        assert _looks_like_final_text("completed task successfully") is True
-
-    def test_tool_request_not_final(self):
-        assert _looks_like_final_text("propose_patch: modifying main.py") is False
-        assert _looks_like_final_text("read_file to check the code") is False
-
-    def test_short_text_not_final(self):
-        assert _looks_like_final_text("ok") is False
-        assert _looks_like_final_text("") is False
-
-    def test_mixed_final_and_tool_markers(self):
-        text = "完成：propose_patch applied successfully"
-        assert _looks_like_final_text(text) is False
 
 
 class TestAgentToolRequest:

@@ -12,13 +12,31 @@ from agent_session.service import AgentSessionService
 from core.config import settings
 
 
+class _MockCloudProvider:
+    def get_default_model(self):
+        return "mock-model"
+
+    async def chat(self, messages, model, api_key):
+        return "mock response"
+
+
+def _mock_resolve_cloud_provider_config(session):
+    return _MockCloudProvider(), "mock-key", session.get("model") or "mock-model"
+
+
 def _service(tmp_path: Path) -> AgentSessionService:
     return AgentSessionService(AgentSessionRepository(str(tmp_path / f"agent_session_langgraph_streaming_{uuid.uuid4().hex}.db")))
 
 
+def _patch_provider(monkeypatch, service):
+    monkeypatch.setattr(service, "_resolve_cloud_provider_config", _mock_resolve_cloud_provider_config)
+
+
 def test_agent_session_langgraph_streaming_runs_through_graph(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(settings, "agent_session_langgraph_enabled", True)
+    monkeypatch.setattr("agent_session.service.secure_storage.get", lambda _key: {"api_key": "mock-key"})
     service = _service(tmp_path)
+    _patch_provider(monkeypatch, service)
     session = service.create_session(
         AgentSessionCreate(title="langgraph stream", project_path=str(Path.cwd()), provider="mock", model="mock-model")
     )
@@ -76,7 +94,9 @@ def test_agent_session_langgraph_streaming_supports_multi_turn_tool_loop(tmp_pat
     rel = target.relative_to(workspace).as_posix()
 
     monkeypatch.setattr(settings, "agent_session_langgraph_enabled", True)
+    monkeypatch.setattr("agent_session.service.secure_storage.get", lambda _key: {"api_key": "mock-key"})
     service = _service(tmp_path)
+    _patch_provider(monkeypatch, service)
     session = service.create_session(
         AgentSessionCreate(title="streaming tool loop", project_path=str(workspace), provider="mock", model="mock-model")
     )
@@ -114,7 +134,9 @@ def test_agent_session_langgraph_streaming_supports_multi_turn_tool_loop(tmp_pat
 
 def test_agent_session_langgraph_streaming_marks_protocol_only_text(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(settings, "agent_session_langgraph_enabled", True)
+    monkeypatch.setattr("agent_session.service.secure_storage.get", lambda _key: {"api_key": "mock-key"})
     service = _service(tmp_path)
+    _patch_provider(monkeypatch, service)
     session = service.create_session(
         AgentSessionCreate(title="protocol only", project_path=str(Path.cwd()), provider="mock", model="mock-model")
     )
@@ -149,7 +171,9 @@ def test_agent_session_langgraph_streaming_marks_protocol_only_text(tmp_path: Pa
 
 def test_agent_session_langgraph_streaming_falls_back_to_non_stream_within_graph(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(settings, "agent_session_langgraph_enabled", True)
+    monkeypatch.setattr("agent_session.service.secure_storage.get", lambda _key: {"api_key": "mock-key"})
     service = _service(tmp_path)
+    _patch_provider(monkeypatch, service)
     session = service.create_session(
         AgentSessionCreate(title="stream failure", project_path=str(Path.cwd()), provider="mock", model="mock-model")
     )

@@ -757,18 +757,7 @@ class AgentSessionService:
             return self.model_call, None, metadata
 
         if not provider_name:
-            metadata["streaming_diagnostics"] = {
-                "mode": "non_stream",
-                "status": "local_fallback",
-                "provider": "",
-                "model": model_name,
-                "source": "no_cloud_provider",
-                "reason": "未选择云端 provider，使用本地兼容回复。",
-                "fallback_to_non_stream": True,
-            }
-            trace.update({"model_entry": "local_compatibility_fallback", "fallback_used": True, "fallback_reason": "missing_provider"})
-            metadata["execution_trace"] = trace
-            return self._cloud_model_call(session), None, metadata
+            raise AgentSessionCloudError("missing_provider", "没有选择云端模型 provider")
 
         if "_cloud_model_call" in self.__dict__ or "_cloud_stream_model_call" in self.__dict__:
             stream_model_call = self._cloud_stream_model_call(session)
@@ -884,8 +873,7 @@ class AgentSessionService:
                 len(messages),
             )
             if not provider_name:
-                logger.warning("agent_session.cloud model_call fallback: missing provider")
-                return self._local_fallback_model_response(messages, "没有选择云端模型")
+                raise AgentSessionCloudError("missing_provider", "没有选择云端模型 provider")
             provider, api_key, model = self._resolve_cloud_provider_config(session)
             try:
                 response = await provider.chat(

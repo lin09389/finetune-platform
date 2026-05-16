@@ -58,6 +58,9 @@ coverage/
 tmp/
 temp/
 *.tmp
+tmp-*.log
+tmp-*.err.log
+tmp_*.txt
 server/scratch/
 docs/plans/
 COMMIT_PLAN_*.md
@@ -78,6 +81,7 @@ repair_*.py
 scan_*issues*.py
 *encoding*issues*.py
 server/fix_encoding_batch.py
+scripts/maintenance/
 AGENTS.md
 CHANGELOG_2026-04-08.md
 install-pytorch-gpu.bat

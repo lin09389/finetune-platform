@@ -534,18 +534,9 @@ class WorkflowActionService:
         root.mkdir(parents=True, exist_ok=True)
         return root
 
-    def _command_allowed(self, args: list[str]) -> bool:
-        return command_allowed(args)
-
     def _command_root(self, project: dict[str, Any], args: list[str]) -> Path:
         root = self._allowed_root(project)
         return resolve_command_cwd(root, args)
-
-    def _package_has_script(self, root: Path, script: str) -> bool:
-        return package_has_script(root, script)
-
-    def _normalize_executable(self, value: str) -> str:
-        return normalize_executable(value)
 
     def _merge_action_payload(self, action_id: str, action: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
         payload = dict(action.get("payload") or {})

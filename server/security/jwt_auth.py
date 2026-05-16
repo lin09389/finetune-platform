@@ -10,6 +10,7 @@ JWT 认证模块 - 用户身份验证和授权
 """
 import logging
 import os
+import secrets
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -95,41 +96,69 @@ class TokenPayload:
 
 
 class TokenBlacklist:
-    """Token 黑名单"""
+    """Token 黑名单（持久化到 SQLite）"""
 
-    def __init__(self):
-        self._blacklist: dict[str, float] = {}
+    def __init__(self, db_path: str = "data/app.db"):
+        self._db_path = db_path
+        self._ensure_table()
+
+    def _ensure_table(self):
+        from core.db_manager import get_db_pool
+        pool = get_db_pool(self._db_path)
+        with pool.get_connection() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS token_blacklist (
+                    token_jti TEXT PRIMARY KEY,
+                    expires_at REAL NOT NULL,
+                    blacklisted_at TEXT NOT NULL
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_token_blacklist_expires ON token_blacklist(expires_at)")
 
     def add(self, jti: str, expire_time: datetime):
-        self._blacklist[jti] = expire_time.timestamp()
+        from core.db_manager import get_db_pool
+        pool = get_db_pool(self._db_path)
+        with pool.get_connection() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO token_blacklist (token_jti, expires_at, blacklisted_at) VALUES (?, ?, ?)",
+                (jti, expire_time.timestamp(), datetime.now().isoformat()),
+            )
         logger.info(f"Token {jti} 已加入黑名单")
 
     def contains(self, jti: str) -> bool:
-        if jti not in self._blacklist:
+        from core.db_manager import get_db_pool
+        pool = get_db_pool(self._db_path)
+        with pool.get_readonly_connection() as conn:
+            row = conn.execute("SELECT expires_at FROM token_blacklist WHERE token_jti = ?", (jti,)).fetchone()
+        if not row:
             return False
-
-        if time.time() > self._blacklist[jti]:
-            del self._blacklist[jti]
+        if time.time() > row[0]:
+            # 过期条目异步清理
+            self._remove(jti)
             return False
-
         return True
 
+    def _remove(self, jti: str):
+        from core.db_manager import get_db_pool
+        pool = get_db_pool(self._db_path)
+        with pool.get_connection() as conn:
+            conn.execute("DELETE FROM token_blacklist WHERE token_jti = ?", (jti,))
+
     def cleanup(self):
-        current_time = time.time()
-        expired = [
-            jti for jti, exp in self._blacklist.items()
-            if current_time > exp
-        ]
-        for jti in expired:
-            del self._blacklist[jti]
+        from core.db_manager import get_db_pool
+        pool = get_db_pool(self._db_path)
+        with pool.get_connection() as conn:
+            conn.execute("DELETE FROM token_blacklist WHERE expires_at < ?", (time.time(),))
 
     def get_stats(self) -> dict:
+        from core.db_manager import get_db_pool
+        pool = get_db_pool(self._db_path)
+        with pool.get_readonly_connection() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM token_blacklist").fetchone()[0]
+            active = conn.execute("SELECT COUNT(*) FROM token_blacklist WHERE expires_at > ?", (time.time(),)).fetchone()[0]
         return {
-            'total_blacklisted': len(self._blacklist),
-            'active_blacklist': sum(
-                1 for exp in self._blacklist.values()
-                if time.time() < exp
-            )
+            'total_blacklisted': total,
+            'active_blacklist': active,
         }
 
 
@@ -142,26 +171,63 @@ class JWTAuth:
         algorithm: str = "HS256",
         access_token_expire_minutes: int = 30,
         refresh_token_expire_days: int = 7,
-        issuer: str = "finetune-platform"
+        issuer: str = "finetune-platform",
+        db_path: str = "data/app.db",
     ):
         self.secret_key = secret_key or os.environ.get('JWT_SECRET_KEY')
 
         if not self.secret_key:
-            self.secret_key = self._generate_secret()
+            self.secret_key = secrets.token_hex(32)
             logger.warning("使用自动生成的 JWT 密钥，生产环境请设置 JWT_SECRET_KEY 环境变量")
 
         self.algorithm = algorithm
         self.access_token_expire = timedelta(minutes=access_token_expire_minutes)
         self.refresh_token_expire = timedelta(days=refresh_token_expire_days)
         self.issuer = issuer
+        self._db_path = db_path
 
-        self.blacklist = TokenBlacklist()
-        self._users: dict[str, dict] = {}
+        self._ensure_users_table()
+        self.blacklist = TokenBlacklist(db_path)
+        # 内存缓存，实际数据来源为数据库
+        self._users: dict[str, dict] = self._load_users_from_db()
 
         logger.info(f"JWT 认证已初始化，算法：{algorithm}")
 
+    def _ensure_users_table(self):
+        from core.db_manager import get_db_pool
+        pool = get_db_pool(self._db_path)
+        with pool.get_connection() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'user',
+                    permissions TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+
+    def _load_users_from_db(self) -> dict[str, dict]:
+        from core.db_manager import get_db_pool
+        import json as _json
+        pool = get_db_pool(self._db_path)
+        users: dict[str, dict] = {}
+        with pool.get_readonly_connection() as conn:
+            rows = conn.execute("SELECT id, username, password_hash, role, permissions, created_at FROM users").fetchall()
+        for row in rows:
+            users[row[0]] = {
+                'username': row[1],
+                'password': row[2],
+                'role': Role(row[3]),
+                'permissions': _json.loads(row[4]) if row[4] else [],
+                'created_at': row[5],
+            }
+        return users
+
     def _generate_secret(self) -> str:
-        return uuid.uuid4().hex + uuid.uuid4().hex
+        return secrets.token_hex(32)
 
     def _hash_password(self, password: str) -> str:
         return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt(rounds=12)).decode('utf-8')
@@ -176,17 +242,30 @@ class JWTAuth:
         role: Role = Role.USER,
         permissions: list[str] | None = None
     ) -> str | None:
+        import json as _json
         for user in self._users.values():
             if user['username'] == username:
                 return None
 
         user_id = uuid.uuid4().hex[:16]
+        now = datetime.now().isoformat()
+        password_hash = self._hash_password(password)
+        perms = permissions or []
+
+        from core.db_manager import get_db_pool
+        pool = get_db_pool(self._db_path)
+        with pool.get_connection() as conn:
+            conn.execute(
+                "INSERT INTO users (id, username, password_hash, role, permissions, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (user_id, username, password_hash, role.value, _json.dumps(perms), now, now),
+            )
+
         self._users[user_id] = {
             'username': username,
-            'password': self._hash_password(password),
+            'password': password_hash,
             'role': role,
-            'permissions': permissions or [],
-            'created_at': datetime.now().isoformat()
+            'permissions': perms,
+            'created_at': now,
         }
 
         logger.info(f"用户 {username} 已注册，ID: {user_id}")
