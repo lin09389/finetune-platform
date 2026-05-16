@@ -72,10 +72,15 @@ def load_checkpoints_for_task(state: TrainingState, settings: Settings, task_id:
 
 
 def get_latest_checkpoint(state: TrainingState, settings: Settings, task_id: str) -> dict[str, Any] | None:
-    """获取最新有效检查点"""
+    """获取最新有效检查点（优先选择常规检查点，排除异常恢复检查点）"""
     checkpoints = load_checkpoints_for_task(state, settings, task_id)
     valid_checkpoints = [cp for cp in checkpoints if cp.get("valid")]
-    return valid_checkpoints[-1] if valid_checkpoints else None
+    if not valid_checkpoints:
+        return None
+    regular = [cp for cp in valid_checkpoints if "recovery" not in cp.get("name", "")]
+    if regular:
+        return regular[-1]
+    return valid_checkpoints[-1]
 
 
 def cleanup_invalid_checkpoints(
@@ -166,7 +171,7 @@ def compare_checkpoints(
 
 
 def _quick_validate_checkpoint(checkpoint_path: Path) -> bool:
-    """快速验证检查点目录是否包含必要文件"""
+    """快速验证检查点目录是否包含必要文件（模型权重或配置）"""
     required_files = ["pytorch_model.bin", "model.safetensors"]
     has_model_file = any((checkpoint_path / f).exists() for f in required_files)
     has_config = (checkpoint_path / "config.json").exists() or (checkpoint_path / "adapter_config.json").exists()
@@ -235,6 +240,29 @@ def save_checkpoint_metadata(
         logger.warning(f"保存检查点元数据失败：{e}")
 
 
+def _write_minimal_trainer_state(recovery_path: Path, trainer) -> None:
+    """当 trainer.save_state() 失败时，手动写入最小可用的 trainer_state.json"""
+    import json as _json
+
+    state_dict = {}
+    if hasattr(trainer, "state"):
+        for attr in ("global_step", "epoch", "total_flos", "log_history", "best_metric", "best_model_checkpoint"):
+            val = getattr(trainer.state, attr, None)
+            if val is not None:
+                try:
+                    _json.dumps(val)
+                    state_dict[attr] = val
+                except (TypeError, ValueError):
+                    pass
+    state_dict.setdefault("global_step", 0)
+    state_dict["is_recovery"] = True
+
+    trainer_state_path = recovery_path / "trainer_state.json"
+    with open(trainer_state_path, "w", encoding="utf-8") as f:
+        _json.dump(state_dict, f, ensure_ascii=False, indent=2)
+    logger.info(f"已写入最小 trainer_state.json: {trainer_state_path}")
+
+
 def create_recovery_checkpoint(
     trainer,
     output_dir: Path,
@@ -257,7 +285,11 @@ def create_recovery_checkpoint(
         if hasattr(trainer, "save_model"):
             trainer.save_model(str(recovery_path))
         if hasattr(trainer, "save_state"):
-            trainer.save_state(str(recovery_path))
+            try:
+                trainer.save_state(str(recovery_path))
+            except Exception as state_err:
+                logger.warning(f"trainer.save_state() 失败，尝试手动写入最小 trainer_state: {state_err}")
+                _write_minimal_trainer_state(recovery_path, trainer)
 
         save_checkpoint_metadata(
             recovery_path,

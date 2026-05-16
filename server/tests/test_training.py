@@ -61,6 +61,7 @@ class TestTrainingAPI:
             "loading",
             "training",
             "running",
+            "saving",
             "stopping",
             "stopped",
             "completed",
@@ -463,6 +464,9 @@ class TestTrainingReleaseFeatureGuards:
         output_dir = tmp_path / f"train_{task_id[:8]}"
         checkpoint_dir = output_dir / "checkpoints" / "checkpoint-10"
         checkpoint_dir.mkdir(parents=True)
+        (checkpoint_dir / "pytorch_model.bin").write_text("fake")
+        (checkpoint_dir / "config.json").write_text("{}")
+        (checkpoint_dir / "trainer_state.json").write_text('{"global_step": 10}')
 
         settings = get_settings()
         original_outputs_dir = settings.outputs_dir
@@ -531,6 +535,9 @@ class TestTrainingReleaseFeatureGuards:
         output_dir = tmp_path / "nested" / "custom-output"
         checkpoint_dir = output_dir / "checkpoints" / "checkpoint-10"
         checkpoint_dir.mkdir(parents=True)
+        (checkpoint_dir / "pytorch_model.bin").write_text("fake")
+        (checkpoint_dir / "config.json").write_text("{}")
+        (checkpoint_dir / "trainer_state.json").write_text('{"global_step": 10}')
 
         settings = get_settings()
         original_outputs_dir = settings.outputs_dir
