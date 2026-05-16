@@ -26,6 +26,17 @@
   backdrop-filter: none;
 }
 
+.embeddedPanel {
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+  border-left: none;
+  backdrop-filter: none;
+}
+
 .section {
   display: flex;
   flex-direction: column;

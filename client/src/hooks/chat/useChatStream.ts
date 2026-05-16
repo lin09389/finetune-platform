@@ -38,6 +38,7 @@ export interface StreamMetadata {
   };
   rawResponse?: unknown;
   runMetrics?: PlaygroundRunMetrics;
+  contextWarnings?: string[];
 }
 
 export interface ChatSendPayload {
@@ -466,6 +467,7 @@ export function useChatStream(config: StreamConfig = {}) {
           unified_context: result.metadata?.unifiedContext,
           raw_response: result.metadata?.rawResponse,
           run_metrics: result.metadata?.runMetrics,
+          context_warnings: result.metadata?.contextWarnings,
         };
 
         const successStore = useChatStore.getState();
@@ -722,6 +724,7 @@ const throttleMs = 50; // Throttle to ~20fps for better performance during strea
           unified_context: result.metadata?.unifiedContext,
           raw_response: result.metadata?.rawResponse,
           run_metrics: result.metadata?.runMetrics,
+          context_warnings: result.metadata?.contextWarnings,
         };
 
         const successStore = useChatStore.getState();

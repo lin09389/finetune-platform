@@ -8,6 +8,30 @@
   align-items: flex-start;
 }
 
+.agentFlowFirst {
+  margin-bottom: 2px;
+}
+
+.agentFlowMiddle {
+  margin-bottom: 2px;
+}
+
+.agentFlowMiddle .avatarArea {
+  visibility: hidden;
+  height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.agentFlowMiddle .bubble {
+  padding-top: 2px;
+  padding-bottom: 4px;
+}
+
+.agentFlowLast .bubble {
+  padding-bottom: 8px;
+}
+
 .userContainer {
   flex-direction: row-reverse;
 }

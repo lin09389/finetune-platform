@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 interface AgentPhaseIndicatorProps {
   phase: string;
   tool?: string;
+  detail?: string;
   visible: boolean;
 }
 
@@ -15,6 +16,10 @@ const phaseConfig: Record<string, PhaseConfig> = {
   tool_execution: { icon: 'tool', label: '执行工具', sublabel: undefined },
   tool_completed: { icon: 'check', label: '工具完成', sublabel: '准备继续...' },
   model_stream_failed: { icon: 'warning', label: '流式输出失败', sublabel: '正在回退...' },
+  session_interrupted: { icon: 'warning', label: '已中断', sublabel: '用户已停止 Agent 任务' },
+  needs_manual_review: { icon: 'warning', label: '需要人工处理', sublabel: 'Agent 无法自动完成，请检查结果' },
+  waiting_approval: { icon: 'tool', label: '等待审批', sublabel: '需要你确认操作' },
+  connection_lost: { icon: 'warning', label: '连接中断', sublabel: '正在恢复...' },
 };
 
 const toolNameMap: Record<string, string> = {
@@ -85,7 +90,7 @@ function PhaseIcon({ icon }: { icon: string }) {
   }
 }
 
-const AgentPhaseIndicator = React.memo(function AgentPhaseIndicator({ phase, tool, visible }: AgentPhaseIndicatorProps) {
+const AgentPhaseIndicator = React.memo(function AgentPhaseIndicator({ phase, tool, detail, visible }: AgentPhaseIndicatorProps) {
   const [show, setShow] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -118,7 +123,8 @@ const AgentPhaseIndicator = React.memo(function AgentPhaseIndicator({ phase, too
       <span className="agent-phase-text">
         <span className="agent-phase-label">{safeConfig.label}</span>
         {toolLabel && <span className="agent-phase-tool">{toolLabel}</span>}
-        {safeConfig.sublabel && !toolLabel && <span className="agent-phase-sub">{safeConfig.sublabel}</span>}
+        {detail && <span className="agent-phase-detail">{detail}</span>}
+        {safeConfig.sublabel && !toolLabel && !detail && <span className="agent-phase-sub">{safeConfig.sublabel}</span>}
       </span>
     </div>
   );

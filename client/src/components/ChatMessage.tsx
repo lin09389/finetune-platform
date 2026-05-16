@@ -18,7 +18,6 @@ import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import AgentPartMessage from '../components/chat/AgentPartMessage';
-import AgentRunCard from '../components/chat/AgentRunCard';
 import ThinkingProcess from '../components/ThinkingProcess';
 
 const CodePreview = lazy(() => import('../components/CodePreview'));
@@ -43,12 +42,11 @@ interface ChatMessageProps {
   knowledge_sources?: KnowledgeSource[];
   retrieval_info?: RetrievalInfo;
   agent_metadata?: ChatAgentMetadata;
-  onApproveAgentStep?: (stepId: string) => void | Promise<void>;
+  agentFlowPosition?: 'first' | 'middle' | 'last' | 'only' | null;
   onApproveAgentAction?: (actionId: string) => void | Promise<void>;
   onRejectAgentAction?: (actionId: string) => void | Promise<void>;
   onExecuteAgentAction?: (actionId: string) => void | Promise<void>;
   onRefreshAgentRun?: (runId: string) => void | Promise<void>;
-  onOpenAgentDetails?: (url: string) => void;
 }
 
 const customSanitizeSchema = {
@@ -75,12 +73,11 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
     typewriterSpeed = 50,
     knowledge_sources,
     agent_metadata,
-    onApproveAgentStep,
+    agentFlowPosition = null,
     onApproveAgentAction,
     onRejectAgentAction,
     onExecuteAgentAction,
     onRefreshAgentRun,
-    onOpenAgentDetails,
   }) => {
     const [copied, setCopied] = useState(false);
     const [showKnowledgeSources, setShowKnowledgeSources] = useState(false);
@@ -326,7 +323,12 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
 
     return (
       <motion.div
-        className={`${styles.messageContainer} ${isUser ? styles.userContainer : styles.assistantContainer}`}
+        className={`${styles.messageContainer} ${isUser ? styles.userContainer : styles.assistantContainer} ${
+          agentFlowPosition === 'middle' ? styles.agentFlowMiddle
+            : agentFlowPosition === 'last' ? styles.agentFlowLast
+            : agentFlowPosition === 'first' ? styles.agentFlowFirst
+            : ''
+        }`}
         role="article"
         aria-label={isUser ? '用户消息' : 'AI 回复'}
         variants={messageVariants}
@@ -423,17 +425,6 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
                   onRejectAction={onRejectAgentAction}
                   onExecuteAction={onExecuteAgentAction}
                   onRefreshRun={onRefreshAgentRun}
-                />
-              ) : agent_metadata ? (
-                <AgentRunCard
-                  content={content}
-                  metadata={agent_metadata}
-                  onApproveStep={onApproveAgentStep}
-                  onApproveAction={onApproveAgentAction}
-                  onRejectAction={onRejectAgentAction}
-                  onExecuteAction={onExecuteAgentAction}
-                  onRefreshRun={onRefreshAgentRun}
-                  onOpenDetails={onOpenAgentDetails}
                 />
               ) : (
                 <>

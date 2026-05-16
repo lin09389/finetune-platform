@@ -375,11 +375,11 @@ const createAxiosInstance = (): AxiosInstance => {
         connectionPool.release(debounceKey);
       }
 
-      // 处理离线缓冲
-      if (error.message === 'Network Error' || error.code === 'ECONNABORTED' || (error.response && error.response.status >= 500)) {
-         // 只缓冲写操作
+      // 处理离线缓冲（仅网络断开或超时，不含 500 服务端错误；跳过 FormData 因为不可重放）
+      if (error.message === 'Network Error' || error.code === 'ECONNABORTED') {
          const url = String(config?.url || '');
-         const shouldQueue = config && ['post', 'put', 'patch', 'delete'].includes((config.method || '').toLowerCase())
+         const isFormData = config?.data instanceof FormData;
+         const shouldQueue = config && !isFormData && ['post', 'put', 'patch', 'delete'].includes((config.method || '').toLowerCase())
            && !url.includes('/agent-sessions/');
          if (shouldQueue) {
             console.log(`[API] Network error detected, queuing request: ${config.method} ${config.url}`);
@@ -745,19 +745,6 @@ export interface WorkflowObservability {
   recent_events: Array<Record<string, any>>;
 }
 
-export interface ChatAgentRunCreate {
-  chat_session_id?: string;
-  message_id?: string;
-  content: string;
-  template_id?: string;
-  provider?: string;
-  model?: string;
-  agent_id?: string;
-  project_path?: string;
-  autonomy_mode?: 'safe_auto' | 'confirm_all' | 'read_only';
-  force_agent?: boolean;
-}
-
 export interface ChatAgentIntentRequest {
   content: string;
   provider?: string;
@@ -777,52 +764,6 @@ export interface ChatAgentIntentResponse {
   suggested_template_id?: string;
 }
 
-  export interface ChatAgentAcceptanceReport {
-    result: 'passed' | 'partial' | 'blocked' | 'failed';
-    summary: string;
-    completed_items?: string[];
-    changed_files?: string[];
-    commands_run?: string[];
-    verification_result?: string;
-    blocking_reason?: string;
-    next_action?: string;
-  }
-
-  export interface ChatAgentRun {
-  id: string;
-  mode: 'chat' | 'agent';
-  chat_session_id?: string;
-  trigger_message_id?: string;
-  workflow_id?: string;
-  agent_session_id?: string;
-  status: string;
-  intent_type?: string;
-  summary?: string;
-  final_summary?: string;
-  execution_state?: string;
-  execution_state_message?: string;
-  recoverable?: boolean;
-  model_protocol_status?: 'ok' | 'repaired' | 'fallback_summary' | 'needs_manual_review' | string;
-  last_model_output_preview?: string;
-  parse_repair_count?: number;
-    fallback_summary_used?: boolean;
-    acceptance_report?: ChatAgentAcceptanceReport;
-    acceptance_report_source?: 'model' | 'fallback' | string;
-    acceptance_report_raw?: string;
-    details_url?: string;
-  active_agent_id?: string;
-  subagent_runs?: Array<Record<string, any>>;
-  auto_execution_policy?: Record<string, any>;
-  blocked_state?: Record<string, any> | null;
-  workflow?: Workflow;
-  observability?: WorkflowObservability;
-  agent_session?: AgentSession;
-  agent_parts?: AgentPart[];
-  latest_event?: Record<string, any>;
-  latest_tool_call?: WorkflowToolCall;
-  latest_action?: WorkflowAction;
-}
-
 export interface AgentInfo {
   id: string;
   name: string;
@@ -836,15 +777,6 @@ export interface AgentInfo {
   permission_rules?: Array<Record<string, any>>;
   handoff_targets?: string[];
   hidden?: boolean;
-}
-
-export interface ChatAgentRunEvent {
-  event_type: string;
-  run_id: string;
-  workflow_id?: string;
-  agent_session_id?: string;
-  message: string;
-  payload: Record<string, any>;
 }
 
 export interface AgentSessionCreate {
@@ -1007,6 +939,23 @@ export interface AgentSessionApprovalResponse {
   session: AgentSession;
 }
 
+export interface AgentArtifact {
+  id: string;
+  path: string;
+  status: string;
+  summary: string;
+  preview: string;
+  source_part_id: string;
+}
+
+export interface AgentSessionOverview {
+  session: AgentSession;
+  task_plan?: Record<string, any> | null;
+  recent_events: AgentSessionDiagnosticItem[];
+  artifacts: AgentArtifact[];
+  diagnostics: AgentSessionDiagnostics;
+}
+
 export interface AgentSessionEvent {
   id: string;
   session_id: string;
@@ -1112,139 +1061,10 @@ export const deleteWorkflowTemplate = async (templateId: string) => {
   return response.data;
 };
 
-export const createWorkflow = async (payload: WorkflowCreate) => {
-  const response = await apiClient.post('/workflows', payload);
-  return response.data;
-};
-
-export const getWorkflows = async () => {
-  const response = await apiClient.get('/workflows');
-  return response.data;
-};
-
-export const getWorkflow = async (workflowId: string) => {
-  const response = await apiClient.get(`/workflows/${workflowId}`);
-  return response.data;
-};
-
-export const runWorkflow = async (workflowId: string) => {
-  const response = await apiClient.post(`/workflows/${workflowId}/run`);
-  return response.data;
-};
-
-export const approveWorkflowStep = async (
-  stepId: string,
-  payload: { approved?: boolean; comment?: string } = {},
-) => {
-  const response = await apiClient.post(`/workflow-steps/${stepId}/approve`, {
-    approved: payload.approved ?? true,
-    comment: payload.comment,
-  });
-  return response.data;
-};
-
-export const retryWorkflowStep = async (stepId: string) => {
-  const response = await apiClient.post(`/workflow-steps/${stepId}/retry`);
-  return response.data;
-};
-
-export const getWorkflowTimeline = async (workflowId: string) => {
-  const response = await apiClient.get(`/workflows/${workflowId}/timeline`);
-  return response.data;
-};
-
-export const getWorkflowArtifacts = async (workflowId: string) => {
-  const response = await apiClient.get(`/workflows/${workflowId}/artifacts`);
-  return response.data;
-};
-
-export const getWorkflowObservability = async (
-  workflowId: string,
-): Promise<WorkflowObservability> => {
-  const response = await apiClient.get(`/workflows/${workflowId}/observability`);
-  return response.data;
-};
-
-export const getWorkflowStepLogs = async (workflowId: string): Promise<WorkflowStepLog[]> => {
-  const response = await apiClient.get(`/workflows/${workflowId}/step-logs`);
-  return response.data;
-};
-
-export const getWorkflowToolCalls = async (workflowId: string): Promise<WorkflowToolCall[]> => {
-  const response = await apiClient.get(`/workflows/${workflowId}/tool-calls`);
-  return response.data;
-};
-
-export const getWorkflowActions = async (workflowId: string): Promise<WorkflowAction[]> => {
-  const response = await apiClient.get(`/workflows/${workflowId}/actions`);
-  return response.data;
-};
-
-export const approveWorkflowAction = async (actionId: string): Promise<WorkflowAction> => {
-  const response = await apiClient.post(`/workflow-actions/${actionId}/approve`);
-  return response.data;
-};
-
-export const rejectWorkflowAction = async (actionId: string): Promise<WorkflowAction> => {
-  const response = await apiClient.post(`/workflow-actions/${actionId}/reject`);
-  return response.data;
-};
-
-export const executeWorkflowAction = async (actionId: string): Promise<WorkflowAction> => {
-  const response = await apiClient.post(`/workflow-actions/${actionId}/execute`);
-  return response.data;
-};
-
-export const createChatAgentRun = async (payload: ChatAgentRunCreate): Promise<ChatAgentRun> => {
-  const response = await apiClient.post('/chat-agent/runs', payload);
-  return response.data;
-};
-
 export const classifyChatAgentIntent = async (
   payload: ChatAgentIntentRequest,
 ): Promise<ChatAgentIntentResponse> => {
   const response = await apiClient.post('/chat-agent/intent', payload);
-  return response.data;
-};
-
-export const getChatAgentRun = async (runId: string): Promise<ChatAgentRun> => {
-  const response = await apiClient.get(`/chat-agent/runs/${runId}`);
-  return response.data;
-};
-
-export const getChatAgentToolCalls = async (runId: string): Promise<WorkflowToolCall[]> => {
-  const response = await apiClient.get(`/chat-agent/runs/${runId}/tool-calls`);
-  return response.data;
-};
-
-export const runChatAgentRun = async (runId: string): Promise<ChatAgentRun> => {
-  const response = await apiClient.post(`/chat-agent/runs/${runId}/run`);
-  return response.data;
-};
-
-export const approveChatAgentStep = async (
-  stepId: string,
-  payload: { approved?: boolean; comment?: string } = {},
-): Promise<ChatAgentRun> => {
-  const response = await apiClient.post(`/chat-agent/steps/${stepId}/approve`, {
-    approved: payload.approved ?? true,
-    comment: payload.comment,
-  });
-  return response.data;
-};
-
-export const approveChatAgentAction = async (actionId: string): Promise<WorkflowAction> => {
-  const response = await apiClient.post(`/chat-agent/actions/${actionId}/approve`);
-  return response.data;
-};
-
-export const rejectChatAgentAction = async (actionId: string): Promise<WorkflowAction> => {
-  const response = await apiClient.post(`/chat-agent/actions/${actionId}/reject`);
-  return response.data;
-};
-
-export const executeChatAgentAction = async (actionId: string): Promise<WorkflowAction> => {
-  const response = await apiClient.post(`/chat-agent/actions/${actionId}/execute`);
   return response.data;
 };
 
@@ -1280,6 +1100,11 @@ export const getWorkspaceTree = async (params: {
 
 export const getAgentSession = async (sessionId: string): Promise<AgentSession> => {
   const response = await apiClient.get(`/agent-sessions/${sessionId}`);
+  return response.data;
+};
+
+export const getAgentSessionOverview = async (sessionId: string): Promise<AgentSessionOverview> => {
+  const response = await apiClient.get(`/agent-sessions/${sessionId}/overview`);
   return response.data;
 };
 
@@ -1327,36 +1152,6 @@ export const executeAgentAction = async (actionId: string): Promise<AgentSession
 
 export const getAgentSessionEvents = async (sessionId: string): Promise<AgentSessionEvent[]> => {
   const response = await apiClient.get(`/agent-sessions/${sessionId}/events`);
-  return response.data;
-};
-
-export const getWorkflowContext = async (workflowId: string): Promise<WorkflowContextProfile> => {
-  const response = await apiClient.get(`/workflows/${workflowId}/context`);
-  return response.data;
-};
-
-export const updateWorkflowContext = async (
-  workflowId: string,
-  payload: Omit<WorkflowContextProfile, 'workflow_id' | 'created_at' | 'updated_at'>,
-): Promise<WorkflowContextProfile> => {
-  const response = await apiClient.put(`/workflows/${workflowId}/context`, payload);
-  return response.data;
-};
-
-export const getWorkflowContextSnapshots = async (
-  workflowId: string,
-): Promise<WorkflowContextSnapshot[]> => {
-  const response = await apiClient.get(`/workflows/${workflowId}/context/snapshots`);
-  return response.data;
-};
-
-export const getWorkflowMemory = async (workflowId: string): Promise<WorkflowMemoryEntry[]> => {
-  const response = await apiClient.get(`/workflows/${workflowId}/memory`);
-  return response.data;
-};
-
-export const revertWorkflowMemory = async (memoryId: string): Promise<WorkflowMemoryEntry> => {
-  const response = await apiClient.post(`/workflow-memory/${memoryId}/revert`);
   return response.data;
 };
 
@@ -1534,13 +1329,23 @@ export const getDatasetList = async () => {
   return response.data;
 };
 
-export const uploadDataset = async (file: File, name?: string, description?: string) => {
+export const uploadDataset = async (
+  file: File,
+  name?: string,
+  description?: string,
+  onUploadProgress?: (percent: number) => void,
+) => {
   const formData = new FormData();
   formData.append('file', file);
   if (name) formData.append('name', name);
   if (description) formData.append('description', description);
   const response = await apiClient.post('/datasets/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
+    onUploadProgress: onUploadProgress
+      ? (e) => {
+          if (e.total) onUploadProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      : undefined,
   });
   return response.data;
 };

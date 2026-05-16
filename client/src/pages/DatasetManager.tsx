@@ -30,6 +30,7 @@ export default function DatasetManager() {
   const navigate = useNavigate();
   const { datasets, setDatasets, removeDataset, addDataset, backendStatus } = useAppStore();
   const [, setLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [previewVisible, setPreviewVisible] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [previewData, setPreviewData] = useState<{
@@ -67,19 +68,15 @@ export default function DatasetManager() {
       if (filePath) {
         try {
           setLoading(true);
+          setUploadProgress(0);
           const fileData = await window.electronAPI.readFile(filePath);
           if (!fileData) {
             throw new Error('无法读取文件');
           }
-          const byteCharacters = atob(fileData.data);
-          const byteNumbers = new Array(byteCharacters.length);
-          for (let i = 0; i < byteCharacters.length; i++) {
-            byteNumbers[i] = byteCharacters.charCodeAt(i);
-          }
-          const byteArray = new Uint8Array(byteNumbers);
+          const byteArray = Uint8Array.from(atob(fileData.data), c => c.charCodeAt(0));
           const blob = new Blob([byteArray]);
           const file = new File([blob], fileData.name, { type: 'application/json' });
-          const result = await uploadDataset(file);
+          const result = await uploadDataset(file, undefined, undefined, setUploadProgress);
           message.success('数据集上传成功');
           addDataset(result);
           fetchDatasets();
@@ -87,6 +84,7 @@ export default function DatasetManager() {
           message.error(error.message || '数据集上传失败');
         } finally {
           setLoading(false);
+          setUploadProgress(null);
         }
       }
     } else {
@@ -99,7 +97,8 @@ export default function DatasetManager() {
     if (!file) return;
     try {
       setLoading(true);
-      const result = await uploadDataset(file);
+      setUploadProgress(0);
+      const result = await uploadDataset(file, undefined, undefined, setUploadProgress);
       message.success('数据集上传成功');
       addDataset(result);
       fetchDatasets();
@@ -107,6 +106,7 @@ export default function DatasetManager() {
       message.error(error.message || '数据集上传失败');
     } finally {
       setLoading(false);
+      setUploadProgress(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -295,6 +295,17 @@ export default function DatasetManager() {
         <div className={styles.dropText}>点击或拖拽上传 JSON / JSONL 数据集</div>
         <div className={styles.dropSubtext}>上传后会自动校验结构、统计样本并计算文件哈希。</div>
       </div>
+
+      {uploadProgress !== null && (
+        <div style={{ padding: '8px 0' }}>
+          <Progress
+            percent={uploadProgress}
+            status={uploadProgress < 100 ? 'active' : 'success'}
+            size="small"
+            format={(percent) => (percent ?? 0) < 100 ? `上传中 ${percent}%` : '处理中...'}
+          />
+        </div>
+      )}
 
       {backendStatus !== 'connected' ? (
         <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>

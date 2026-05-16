@@ -13,9 +13,21 @@ import {
 } from '@ant-design/icons';
 import styles from './HyperparameterPanel.module.css';
 
+interface PreflightCheck {
+  key: string;
+  label: string;
+  status: 'passed' | 'warning' | 'blocked';
+  message: string;
+  detail?: string;
+}
+
 interface PreflightStatus {
   status?: 'ready' | 'warning' | 'blocked';
   summary?: string;
+  checks?: PreflightCheck[];
+  blockers?: string[];
+  warnings?: string[];
+  suggestions?: string[];
 }
 
 interface HyperparameterPanelProps {
@@ -249,6 +261,55 @@ const HyperparameterPanel: React.FC<HyperparameterPanelProps> = ({
             {preflightStatus === 'ready' && <><CheckCircleOutlined /> 预检通过</>}
             {preflightStatus === 'warning' && <><WarningOutlined /> 预检警告</>}
             {preflightStatus === 'blocked' && <><CloseCircleOutlined /> 预检阻塞</>}
+          </div>
+        )}
+
+        {preflightResult?.checks && preflightResult.checks.length > 0 && (
+          <div style={{ marginTop: 8, fontSize: 12, maxHeight: 160, overflowY: 'auto' }}>
+            {preflightResult.checks.map((check) => (
+              <div
+                key={check.key}
+                style={{
+                  padding: '4px 6px',
+                  marginBottom: 4,
+                  borderRadius: 4,
+                  background: check.status === 'blocked'
+                    ? 'rgba(255, 77, 79, 0.08)'
+                    : check.status === 'warning'
+                      ? 'rgba(250, 173, 20, 0.08)'
+                      : 'rgba(0, 255, 194, 0.05)',
+                  borderLeft: `3px solid ${
+                    check.status === 'blocked'
+                      ? 'var(--error)'
+                      : check.status === 'warning'
+                        ? 'var(--warning)'
+                        : 'var(--accent-neon-cyan)'
+                  }`,
+                }}
+              >
+                <div style={{ fontWeight: 500 }}>{check.label}</div>
+                <div style={{ color: 'var(--text-secondary)' }}>{check.message}</div>
+                {check.detail && (
+                  <div style={{ color: 'var(--text-tertiary)', fontSize: 11, marginTop: 2 }}>{check.detail}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {preflightResult?.blockers && preflightResult.blockers.length > 0 && (
+          <div style={{ marginTop: 6, fontSize: 12 }}>
+            {preflightResult.blockers.map((b, i) => (
+              <div key={i} style={{ color: 'var(--error)', padding: '2px 0' }}>
+                <CloseCircleOutlined style={{ marginRight: 4 }} />{b}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {preflightResult?.summary && preflightStatus === 'blocked' && (
+          <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
+            {preflightResult.summary}
           </div>
         )}
         {!preflightStatus && !isTraining && (

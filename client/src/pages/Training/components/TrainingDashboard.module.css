@@ -628,6 +628,12 @@
   to { transform: rotate(360deg); }
 }
 
+@keyframes pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px #00FFC2; }
+  50% { opacity: 0.4; box-shadow: 0 0 2px #00FFC2; }
+}
+
+
 .loadingTitle {
   font-size: 15px;
   font-weight: 600;

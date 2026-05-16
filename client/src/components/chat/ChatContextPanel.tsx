@@ -22,6 +22,7 @@ interface BackendInfo {
 
 interface ChatContextPanelProps {
   mobile?: boolean;
+  embedded?: boolean;
   currentBackend: string;
   backends: BackendInfo[];
   onBackendChange: (backend: string) => void;
@@ -77,6 +78,7 @@ const routingHints: Record<RoutingMode, string> = {
 
 const ChatContextPanel: React.FC<ChatContextPanelProps> = ({
   mobile = false,
+  embedded = false,
   currentBackend,
   backends,
   onBackendChange,
@@ -143,7 +145,10 @@ const ChatContextPanel: React.FC<ChatContextPanelProps> = ({
   };
 
   return (
-    <aside className={`${styles.panel} ${mobile ? styles.mobilePanel : ''}`} aria-label="对话上下文设置">
+    <aside
+      className={`${styles.panel} ${mobile ? styles.mobilePanel : ''} ${embedded ? styles.embeddedPanel : ''}`}
+      aria-label="对话上下文设置"
+    >
       <div className={styles.panelInner}>
         <section className={styles.section}>
           <div className={styles.sectionHeader}>

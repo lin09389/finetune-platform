@@ -383,15 +383,7 @@ export interface ChatMessage {
   agent_metadata?: ChatAgentMetadata;
 }
 
-export type ChatAgentMessageKind =
-  | 'agent_part'
-  | 'agent_run_card'
-  | 'agent_step_update'
-  | 'agent_approval_request'
-  | 'agent_action_proposal'
-  | 'agent_action_execution'
-  | 'agent_final_summary'
-  | 'agent_error';
+export type ChatAgentMessageKind = 'agent_part';
 
 export interface ChatAgentMetadata {
   agent_run_id: string;
@@ -410,6 +402,7 @@ export interface ChatAgentMetadata {
   subagent_runs?: Array<Record<string, unknown>>;
   workflow?: unknown;
   observability?: unknown;
+  legacy_history?: unknown;
   tool_calls?: unknown[];
   permission_pending?: boolean;
   latest_blocked_tool?: string;
@@ -437,6 +430,9 @@ export interface ChatAgentMetadata {
   agent_parts?: unknown[];
   agent_part?: unknown;
   agent_session_state?: unknown;
+  task_plan?: unknown;
+  current_stage_id?: string;
+  current_node_id?: string;
   agent_streaming_diagnostics?: {
     mode?: string;
     status?: string;

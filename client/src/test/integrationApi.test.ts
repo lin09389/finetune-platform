@@ -95,10 +95,4 @@ describe('API service contracts', () => {
     expect(res.data).toBeDefined();
   });
 
-  it('workflow list endpoint returns data', async () => {
-    mockGet.mockResolvedValueOnce({ data: [] });
-    const { default: api } = await import('../services/api');
-    const res = await api.get('/workflows');
-    expect(res.data).toBeDefined();
-  });
 });

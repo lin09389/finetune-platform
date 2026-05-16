@@ -365,6 +365,16 @@
   font-size: 12px;
 }
 
+.agent-phase-detail {
+  color: var(--text-tertiary, rgba(255, 255, 255, 0.45));
+  font-size: 11px;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-left: 4px;
+}
+
 .agent-phase-sub {
   color: var(--text-tertiary, rgba(255, 255, 255, 0.45));
   font-size: 12px;

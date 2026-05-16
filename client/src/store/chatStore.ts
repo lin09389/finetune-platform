@@ -98,7 +98,11 @@ interface ChatStore {
 
   addMessage: (message: Omit<ChatMessage, 'id' | 'timestamp'>) => string;
   updateMessage: (id: string, updates: Partial<ChatMessage>) => void;
+  appendStreamingDelta: (id: string, delta: string) => void;
+  queueMessageUpdate: (id: string, updates: Partial<ChatMessage>) => void;
+  flushMessageUpdates: () => void;
   deleteMessage: (id: string) => Promise<void>;
+  removeLocalMessage: (id: string) => void;
   editMessage: (id: string, content: string) => Promise<void>;
   clearMessages: () => Promise<void>;
   replaceCurrentSessionMessages: (messages: ChatMessage[]) => Promise<ChatMessage[]>;
@@ -193,6 +197,9 @@ function updateSessionSummary(
       : session,
   );
 }
+
+let _pendingMessageUpdates: Record<string, Partial<ChatMessage>> = {};
+let _pendingUpdateRaf: number | null = null;
 
 export const useChatStore = create<ChatStore>()(
   persist(
@@ -393,6 +400,48 @@ export const useChatStore = create<ChatStore>()(
         }));
       },
 
+      appendStreamingDelta: (id, delta) => {
+        set((state) => ({
+          messages: state.messages.map((m) =>
+            m.id === id ? { ...m, content: m.content + delta } : m,
+          ),
+        }));
+      },
+
+      queueMessageUpdate: (id, updates) => {
+        _pendingMessageUpdates[id] = _pendingMessageUpdates[id]
+          ? { ..._pendingMessageUpdates[id], ...updates }
+          : { ...updates };
+        if (!_pendingUpdateRaf) {
+          _pendingUpdateRaf = requestAnimationFrame(() => {
+            _pendingUpdateRaf = null;
+            const pending = { ..._pendingMessageUpdates };
+            _pendingMessageUpdates = {};
+            if (Object.keys(pending).length === 0) return;
+            set((state) => ({
+              messages: state.messages.map((m) =>
+                pending[m.id] ? { ...m, ...pending[m.id] } : m,
+              ),
+            }));
+          });
+        }
+      },
+
+      flushMessageUpdates: () => {
+        if (_pendingUpdateRaf) {
+          cancelAnimationFrame(_pendingUpdateRaf);
+          _pendingUpdateRaf = null;
+        }
+        const pending = { ..._pendingMessageUpdates };
+        _pendingMessageUpdates = {};
+        if (Object.keys(pending).length === 0) return;
+        set((state) => ({
+          messages: state.messages.map((m) =>
+            pending[m.id] ? { ...m, ...pending[m.id] } : m,
+          ),
+        }));
+      },
+
       deleteMessage: async (id) => {
         const { currentSessionId, messages } = get();
         const previousMessages = messages;
@@ -416,6 +465,12 @@ export const useChatStore = create<ChatStore>()(
           });
           throw error;
         }
+      },
+
+      removeLocalMessage: (id) => {
+        set((state) => ({
+          messages: state.messages.filter((m) => m.id !== id),
+        }));
       },
 
       editMessage: async (id, content) => {

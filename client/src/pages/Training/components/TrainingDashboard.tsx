@@ -235,19 +235,64 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
 
   /* ── LOADING / QUEUED ── */
   if (status === 'loading' || status === 'queued') {
+    // elapsed_time 由后端心跳线程每5秒更新一次
+    const elapsedSec = progress?.elapsedTime ? Math.round(progress.elapsedTime) : null;
+    const elapsedLabel =
+      elapsedSec !== null
+        ? elapsedSec >= 60
+          ? `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s`
+          : `${elapsedSec}s`
+        : null;
+
     return (
       <div className={styles.dashboardContainer}>
         <div className={styles.loadingContainer}>
           <div className={styles.loadingSpinner} />
           <div className={styles.loadingTitle}>
-            {status === 'queued' ? '任务已入队' : '正在加载模型...'}
+            {status === 'queued' ? '任务已入队' : '正在初始化训练环境'}
           </div>
+
+          {/* 阶段指示器 */}
+          {currentPhase && status === 'loading' && (
+            <div style={{ marginTop: 12, marginBottom: 4 }}>
+              <PhaseStepper currentPhase={currentPhase} phaseDurations={phaseDurations} />
+            </div>
+          )}
+
+          {/* 后端心跳推送的实时 message */}
           <div className={styles.loadingDesc}>
             {progress?.message ||
               (status === 'queued'
                 ? '资源繁忙。您的任务已入队，将自动开始。'
                 : '正在准备训练环境，请稍候。')}
           </div>
+
+          {/* elapsed time —— 心跳线程驱动，每5s更新 */}
+          {elapsedLabel && status === 'loading' && (
+            <div style={{
+              marginTop: 16,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              fontFamily: 'var(--font-mono)',
+              color: 'rgba(255,255,255,0.35)',
+              fontSize: 12,
+            }}>
+              <span style={{
+                display: 'inline-block',
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: '#00FFC2',
+                boxShadow: '0 0 6px #00FFC2',
+                animation: 'pulse 1.5s ease-in-out infinite',
+              }} />
+              已等待 <span style={{ color: '#00FFC2', fontWeight: 600 }}>{elapsedLabel}</span>
+              &nbsp;· 模型首次加载通常需要 1–5 分钟
+            </div>
+          )}
+
+          {/* 队列位置 */}
           {status === 'queued' && progress?.queuePosition && (
             <div style={{ textAlign: 'center', marginTop: 8 }}>
               <div style={{ fontSize: 28, fontWeight: 700, color: '#00FFC2', fontFamily: 'var(--font-mono)' }}>

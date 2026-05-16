@@ -18,7 +18,6 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   MessageOutlined,
-  PartitionOutlined,
   PlayCircleOutlined,
   QuestionCircleOutlined,
   ThunderboltOutlined,
@@ -107,13 +106,6 @@ const menuGroups: MenuGroup[] = [
         label: '智能记忆',
         description: '三层记忆系统',
       },
-      {
-        key: '/workflows',
-        icon: <PartitionOutlined />,
-        label: '工作流',
-        description: '多 Agent 协作',
-      },
-
       {
         key: '/workspace',
         icon: <AppstoreOutlined />,

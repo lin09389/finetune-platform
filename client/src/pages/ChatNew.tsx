@@ -1,9 +1,7 @@
-import { Button, Collapse, Drawer, Empty, Input, Modal, Select, Spin, Tag, Tree } from 'antd';
-import type { DataNode } from 'antd/es/tree';
+import { Button, Collapse, Drawer, Modal, Tag } from 'antd';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
-import { useNavigate } from 'react-router-dom';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 
 import { useChatStream } from '../hooks/chat/useChatStream';
@@ -17,10 +15,9 @@ import ChatHeader from '../components/chat/ChatHeader';
 import ChatContextPanel from '../components/chat/ChatContextPanel';
 import ChatInput from '../components/chat/ChatInput';
 import AgentPhaseIndicator from '../components/chat/AgentPhaseIndicator';
+import AgentWorkbenchPanel, { WorkbenchEmpty } from '../components/chat/AgentWorkbenchPanel';
 import ChatHistoryDrawer from '../components/ChatHistoryDrawer';
 import ChatMessage from '../components/ChatMessage';
-import WorkflowStepCard from '../components/chat/WorkflowStepCard';
-import ToolEventTimeline from '../components/chat/ToolEventTimeline';
 import MemoryManager from '../components/MemoryManager';
 import APIKeyManager from '../pages/APIKeyManager';
 
@@ -28,29 +25,24 @@ import { useRuntimeContext } from '../runtime/RuntimeContext';
 import {
   API_BASE_URL,
   approveAgentAction,
-  approveChatAgentAction,
-  approveChatAgentStep,
   classifyChatAgentIntent,
   createAgentSession,
   executeAgentAction,
-  executeChatAgentAction,
   getAgentSession,
+  getAgentSessionOverview,
   getPrimaryAgents,
   getSavedCloudProviderData,
   getSavedCloudProviders,
   getWorkflowTemplates,
-  getChatAgentRun,
-  getWorkspaceTree,
   interruptAgentSession,
   listWorkspaces,
   promptAgentSession,
   rejectAgentAction as rejectAgentSessionAction,
-  rejectChatAgentAction,
 } from '../services/api';
-import type { AgentInfo, AgentPart, AgentSession, AgentSessionEvent, ChatAgentRun, SavedCloudProvider, WorkflowAction, WorkflowStep, WorkflowTemplate, WorkspaceSummary, WorkspaceTreeNode } from '../services/api';
+import type { AgentArtifact, AgentInfo, AgentPart, AgentSession, AgentSessionEvent, AgentSessionOverview, SavedCloudProvider, WorkflowTemplate, WorkspaceSummary } from '../services/api';
 import { transitions } from '../theme/animations';
 import { notify } from '../utils/notify';
-import { ArrowDownOutlined, FileOutlined, FolderOpenOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { ArrowDownOutlined } from '@ant-design/icons';
 import styles from './ChatNew.module.css';
 
 interface APIKeyConfig {
@@ -91,21 +83,6 @@ const sectionMotion = {
   transition: { duration: 0.26, ease: [0.16, 1, 0.3, 1] as const },
 };
 
-function toWorkspaceTreeData(nodes: WorkspaceTreeNode[], parentPath = ''): DataNode[] {
-  return nodes.map((node) => {
-    const key = node.path || (parentPath ? `${parentPath}/${node.name}` : node.name);
-    return {
-      key,
-      title: node.name,
-      icon: node.kind === 'folder' ? <FolderOpenOutlined /> : <FileOutlined />,
-      isLeaf: node.kind === 'file',
-      children: node.children ? toWorkspaceTreeData(node.children, key) : undefined,
-    };
-  });
-}
-
-
-
 interface StoredChatScrollState {
   topIndex: number;
   atBottom: boolean;
@@ -113,10 +90,11 @@ interface StoredChatScrollState {
 }
 
 const CHAT_SCROLL_STORAGE_KEY = 'chat_scroll_positions_v1';
-const INTENT_ROUTING_TIMEOUT_MS = 1800;
+const INTENT_ROUTING_TIMEOUT_MS = 8000;
 const CHAT_WORKSPACE_ID_STORAGE_KEY = 'chat_workspace_id_v1';
 const CHAT_PROJECT_PATH_STORAGE_KEY = 'chat_project_path_v1';
 const CHAT_WORKSPACE_EVENT = 'chat-workspace-change';
+const CHAT_SIDE_PANEL_WIDTH_STORAGE_KEY = 'chat_side_panel_width_v1';
 
 const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -197,6 +175,7 @@ const ChatPage: React.FC = () => {
     deleteSession,
     loadSessions,
     deleteMessage,
+    removeLocalMessage,
     clearMessages,
     replaceCurrentSessionMessages,
     updateSettings,
@@ -212,6 +191,7 @@ const ChatPage: React.FC = () => {
     deleteSession: state.deleteSession,
     loadSessions: state.loadSessions,
     deleteMessage: state.deleteMessage,
+    removeLocalMessage: state.removeLocalMessage,
     clearMessages: state.clearMessages,
     replaceCurrentSessionMessages: state.replaceCurrentSessionMessages,
     updateSettings: state.updateSettings,
@@ -258,25 +238,14 @@ const ChatPage: React.FC = () => {
   const [availableWorkspaces, setAvailableWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>(() => localStorage.getItem(CHAT_WORKSPACE_ID_STORAGE_KEY) || '');
   const [workspaceProjectPath, setWorkspaceProjectPath] = useState<string>(() => localStorage.getItem(CHAT_PROJECT_PATH_STORAGE_KEY) || '');
-  const [workspaceTreeData, setWorkspaceTreeData] = useState<DataNode[]>([]);
-  const [workspaceTreeRoot, setWorkspaceTreeRoot] = useState('');
-  const [workspaceTreeLoading, setWorkspaceTreeLoading] = useState(false);
-  const [workspaceTreeTruncated, setWorkspaceTreeTruncated] = useState(false);
-  const [workspaceTreeSearch, setWorkspaceTreeSearch] = useState('');
-  const [workspaceTreeExpandedKeys, setWorkspaceTreeExpandedKeys] = useState<React.Key[]>([]);
   const [workspaceTreeFocusedOnly, setWorkspaceTreeFocusedOnly] = useState(false);
-  const [workflowSteps, setWorkflowSteps] = useState<WorkflowStep[]>([]);
-  const [workflowTitle, setWorkflowTitle] = useState('Workflow Report');
-  const [workflowStatus, setWorkflowStatus] = useState('idle');
-  const [toolEvents, setToolEvents] = useState<Array<{ id: string; toolName: string; status: string; summary?: string; agentId?: string; durationMs?: number; error?: string; stepId?: string }>>([]);
-  const chatAgentStreamsRef = useRef<Record<string, EventSource>>({});
+  const [agentSessionOverview, setAgentSessionOverview] = useState<AgentSessionOverview | null>(null);
   const agentSessionStreamsRef = useRef<Record<string, EventSource>>({});
   const agentSessionStateRef = useRef<Record<string, AgentSession>>({});
-  const refreshedAgentRunsRef = useRef<Set<string>>(new Set());
   const refreshedAgentSessionsRef = useRef<Set<string>>(new Set());
   const streamingDeltaRef = useRef<Record<string, { partId: string; content: string }>>({});
-  const [agentPhase, setAgentPhase] = useState<{ phase: string; tool?: string; visible: boolean }>({ phase: '', visible: false });
-  const navigate = useNavigate();
+  const agentDeltaFlushRef = useRef<{ rafId: number | null; pending: Record<string, string> } | null>(null);
+  const [agentPhase, setAgentPhase] = useState<{ phase: string; tool?: string; detail?: string; visible: boolean }>({ phase: '', visible: false });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -296,6 +265,12 @@ const ChatPage: React.FC = () => {
   }, [messages.length, savedScrollState?.topIndex, shouldRestoreToBottom]);
   const [, setIsAtBottom] = useState(shouldRestoreToBottom);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [sidePanelWidth, setSidePanelWidth] = useState(() => {
+    if (typeof window === 'undefined') return 360;
+    const stored = Number(localStorage.getItem(CHAT_SIDE_PANEL_WIDTH_STORAGE_KEY));
+    return Number.isFinite(stored) && stored >= 280 ? stored : 360;
+  });
+  const [resizingSidePanel, setResizingSidePanel] = useState(false);
   const autoScrollFrameRef = useRef<number | null>(null);
   const pendingAutoScrollRef = useRef(false);
 
@@ -329,6 +304,44 @@ const ChatPage: React.FC = () => {
   useEffect(() => () => {
     saveCurrentScrollState();
   }, [saveCurrentScrollState]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const resizingClassName = styles.resizing;
+    if (!resizingClassName) return;
+    document.body.classList.toggle(resizingClassName, resizingSidePanel);
+    return () => document.body.classList.remove(resizingClassName);
+  }, [resizingSidePanel]);
+
+  const handleSplitterPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = sidePanelWidth;
+    const minSideWidth = 280;
+    const maxSideWidth = Math.max(320, window.innerWidth - 520);
+    setResizingSidePanel(true);
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const nextWidth = Math.min(
+        maxSideWidth,
+        Math.max(minSideWidth, startWidth - (moveEvent.clientX - startX)),
+      );
+      setSidePanelWidth(nextWidth);
+    };
+
+    const handlePointerUp = () => {
+      setResizingSidePanel(false);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+  }, [sidePanelWidth]);
+
+  useEffect(() => {
+    localStorage.setItem(CHAT_SIDE_PANEL_WIDTH_STORAGE_KEY, String(sidePanelWidth));
+  }, [sidePanelWidth]);
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
@@ -475,7 +488,6 @@ const ChatPage: React.FC = () => {
 
   useEffect(() => () => {
     if (autoScrollFrameRef.current !== null) cancelAnimationFrame(autoScrollFrameRef.current);
-    Object.values(chatAgentStreamsRef.current).forEach((source) => source.close());
     Object.values(agentSessionStreamsRef.current).forEach((source) => source.close());
   }, []);
 
@@ -535,47 +547,6 @@ const ChatPage: React.FC = () => {
       cancelled = true;
     };
   }, [selectedWorkspaceId, workspaceProjectPath]);
-
-  const loadWorkspaceTree = useCallback(async () => {
-    setWorkspaceTreeLoading(true);
-    try {
-      const response = await getWorkspaceTree({
-        workspace_id: selectedWorkspaceId || selectedWorkspace?.id || undefined,
-        project_path: workspaceProjectPath.trim() || selectedWorkspace?.local_path || undefined,
-        max_depth: 4,
-        limit: 360,
-      });
-      const treeData = toWorkspaceTreeData(response.nodes);
-      setWorkspaceTreeRoot(response.root);
-      setWorkspaceTreeData(treeData);
-      setWorkspaceTreeTruncated(response.truncated);
-      setWorkspaceTreeExpandedKeys((prev) => {
-        if (prev.length) return prev;
-        const keys: React.Key[] = [];
-        const walk = (nodes: DataNode[]) => {
-          nodes.forEach((node) => {
-            if (node.children?.length) {
-              keys.push(node.key);
-              walk(node.children);
-            }
-          });
-        };
-        walk(treeData);
-        return keys;
-      });
-    } catch {
-      setWorkspaceTreeRoot('');
-      setWorkspaceTreeData([]);
-      setWorkspaceTreeTruncated(false);
-      setWorkspaceTreeExpandedKeys([]);
-    } finally {
-      setWorkspaceTreeLoading(false);
-    }
-  }, [selectedWorkspace?.id, selectedWorkspace?.local_path, selectedWorkspaceId, workspaceProjectPath]);
-
-  useEffect(() => {
-    void loadWorkspaceTree();
-  }, [loadWorkspaceTree]);
 
   useEffect(() => {
     if (!currentSessionId || currentSessionId.startsWith('local_')) return;
@@ -712,23 +683,23 @@ const ChatPage: React.FC = () => {
   const isLikelyAgentGoal = useCallback((content: string) => {
     const text = content.trim().toLowerCase();
     if (!text) return false;
-    if (['不要执行', '只讨论', '只分析', '解释一下', '帮我解释', '什么是', '为什么'].some((keyword) => text.includes(keyword))) {
+    if (['不要执行', '只讨论', '只分析', '解释一下', '帮我解释', '什么是', '为什么',
+      '怎么理解', '怎么用', '是什么意思', '有什么区别', '介绍一下', '帮我看看',
+      '分析一下', '看看代码', '这个代码', '这段代码', '看看逻辑', '怎么实现的',
+      '原理是什么', '怎么工作的', '帮我梳理', '帮我看看代码'].some((keyword) => text.includes(keyword))) {
       return false;
     }
     return [
-      '修改',
-      '新增',
-      '实现',
-      '修复',
-      '重构',
+      '修改代码',
+      '新增功能',
+      '新增接口',
+      '新增页面',
+      '实现功能',
+      '实现接口',
+      '修复bug',
+      '修复报错',
+      '重构代码',
       '优化代码',
-      '给当前项目',
-      '代码里',
-      '页面',
-      '接口',
-      '组件',
-      '后端',
-      '前端',
       '跑测试',
       '运行测试',
       'typecheck',
@@ -736,153 +707,42 @@ const ChatPage: React.FC = () => {
       'npm run',
       '让agent做',
       '自动处理',
-      '补丁',
+      '生成补丁',
+      '写补丁',
       '搜索项目',
       '写脚本',
       '排查报错',
       '排查问题',
       '运行命令',
       '执行补丁',
+      '帮我改',
+      '帮我修',
+      '帮我写',
+      '帮我实现',
+      '帮我新增',
+      '帮我添加',
+      '帮我重构',
+      '改成',
+      '改为',
+      '加个',
+      '加一个',
+      '删掉',
+      '删除',
+      '创建',
+      '新建',
+      '安装',
+      '配置',
+      '部署',
+      '写个',
+      '写一个',
+      '运行',
+      '执行',
+      '启动',
+      '打包',
+      '上传',
+      '更新',
+      '重命名',
     ].some((keyword) => text.includes(keyword));
-  }, []);
-
-  const buildAgentMetadata = useCallback(
-    (run: ChatAgentRun, kind: any, action?: WorkflowAction) => {
-      const toolCalls = run.observability?.tool_calls || [];
-      const workflowMetadata = (run.workflow?.metadata || {}) as Record<string, any>;
-      const blocked = [...toolCalls]
-        .reverse()
-        .find((item) => item.status === 'blocked' || item.permission_decision === 'ask' || item.permission_decision === 'deny');
-      return {
-        agent_run_id: run.id,
-        workflow_id: run.workflow_id,
-        kind,
-        status: action?.status || run.status,
-        step_id: run.workflow?.steps?.find((step) => step.status === 'awaiting_approval')?.step_id,
-        action_id: action?.id,
-        action_type: action?.action_type,
-        can_approve: kind === 'agent_approval_request' || action?.status === 'pending_approval',
-        can_execute: action?.status === 'approved',
-        details_url: run.details_url,
-        active_agent_id: run.active_agent_id || run.workflow?.active_agent_id,
-        subagent_runs: run.subagent_runs || run.observability?.subagent_runs || [],
-        workflow: run.workflow,
-        observability: run.observability,
-        tool_calls: toolCalls,
-        permission_pending: Boolean(
-          toolCalls.some((item) => item.permission_decision === 'ask' && item.status === 'blocked'),
-        ),
-        latest_blocked_tool: blocked?.tool_name,
-        execution_state: run.execution_state || workflowMetadata.execution_state,
-        execution_state_message: run.execution_state_message || workflowMetadata.execution_state_message,
-        final_summary: run.final_summary,
-        recoverable: run.recoverable,
-        model_protocol_status: run.model_protocol_status || workflowMetadata.model_protocol_status,
-        last_model_output_preview: run.last_model_output_preview || workflowMetadata.last_model_output_preview,
-        parse_repair_count: run.parse_repair_count ?? workflowMetadata.parse_repair_count,
-        fallback_summary_used: run.fallback_summary_used ?? workflowMetadata.fallback_summary_used,
-        acceptance_report: run.acceptance_report || workflowMetadata.acceptance_report,
-        acceptance_report_source: run.acceptance_report_source || workflowMetadata.acceptance_report_source,
-        acceptance_report_raw: run.acceptance_report_raw || workflowMetadata.acceptance_report_raw,
-        blocked_state: workflowMetadata.blocked_state || run.blocked_state,
-        autonomy_mode: (run.auto_execution_policy?.mode || workflowMetadata.autonomy_mode || workflowMetadata.auto_execution_policy?.mode || 'safe_auto') as 'safe_auto' | 'confirm_all' | 'read_only',
-        auto_execution_policy: run.auto_execution_policy || workflowMetadata.auto_execution_policy,
-        repair_attempts: workflowMetadata.repair_attempts,
-        max_repair_attempts: workflowMetadata.max_repair_attempts,
-        action,
-        event: run.latest_event,
-        latest_event: run.latest_event,
-        latest_tool_call: run.latest_tool_call,
-        latest_action: run.latest_action,
-      };
-    },
-    [],
-  );
-
-  const workflowStepFromRun = useCallback((run: ChatAgentRun): WorkflowStep | null => {
-    const workflow = run.workflow;
-    if (!workflow) return null;
-    const steps = workflow.steps || [];
-    if (!steps.length) return null;
-    const activeStep = [...steps].reverse().find((step) =>
-      step.status !== 'completed'
-    ) || steps[steps.length - 1];
-    
-    if (!activeStep) return null;
-
-    const latestEvent: any = run.latest_event || {};
-    const latestToolCall: any = run.latest_tool_call || {};
-    const latestAction: any = run.latest_action || {};
-    const problem = run.blocked_state?.summary
-      || run.execution_state_message
-      || activeStep.description
-      || run.summary
-      || run.final_summary
-      || latestEvent?.message
-      || '工作流已启动';
-    const reason = run.blocked_state?.reason
-      || run.execution_state_message
-      || latestEvent?.message
-      || latestToolCall?.result_summary
-      || latestToolCall?.sanitized_model_output
-      || '';
-    const fix = run.acceptance_report?.next_action
-      || latestAction?.title
-      || latestAction?.description
-      || latestToolCall?.result_summary
-      || latestToolCall?.sanitized_model_output
-      || '';
-    return {
-      id: activeStep.id,
-      step_id: activeStep.step_id,
-      workflow_id: activeStep.workflow_id,
-      step_key: activeStep.step_key,
-      agent_id: activeStep.agent_id,
-      legacy_role: activeStep.legacy_role,
-      title: activeStep.title,
-      description: activeStep.description,
-      status: latestEvent?.event_type === 'approval_needed' ? 'waiting_approval' : (run.status || activeStep.status),
-      requires_approval: activeStep.requires_approval,
-      input_data: {
-        latest_event: latestEvent,
-        latest_tool_call: latestToolCall,
-      },
-      output_data: {
-        problem,
-        reason,
-        fix,
-        summary: run.summary || run.final_summary || run.execution_state_message || '',
-      },
-      output: {
-        problem,
-        reason,
-        fix,
-        summary: run.summary || run.final_summary || run.execution_state_message || '',
-      },
-      error: run.blocked_state?.message || run.execution_state_message || undefined,
-    };
-  }, []);
-
-  const workflowStepCards = useMemo(() => {
-    const steps = workflowSteps.length > 0 ? workflowSteps : [];
-    return steps.map((step, index) => (
-      <WorkflowStepCard
-        key={step.id || step.step_id || String(index)}
-        index={index + 1}
-        step={step}
-        active={workflowStatus === 'running' && index === steps.length - 1}
-        toolEvents={toolEvents.filter((event) => event.stepId === step.step_id || event.stepId === step.id)}
-      />
-    ));
-  }, [toolEvents, workflowStatus, workflowSteps]);
-
-  const pushToolEvent = useCallback((event: { id: string; toolName: string; status: string; summary?: string; agentId?: string; durationMs?: number; error?: string; stepId?: string }) => {
-    setToolEvents((prev) => {
-      const nextMap = new Map<string, typeof event>();
-      for (const item of prev) nextMap.set(item.id, item);
-      nextMap.set(event.id, event);
-      return Array.from(nextMap.values()).slice(-12);
-    });
   }, []);
 
   const persistAgentMessages = useCallback(async () => {
@@ -956,6 +816,9 @@ const ChatPage: React.FC = () => {
       can_approve: actionLike && part.status === 'pending',
       can_execute: ['diff', 'command'].includes(part.type) && part.status === 'approved',
       active_agent_id: session.agent_id,
+      task_plan: session.metadata?.task_plan,
+      current_stage_id: session.metadata?.current_stage_id,
+      current_node_id: session.metadata?.current_node_id,
       agent_part: part,
       agent_session_state: (session.metadata as any)?.state,
       agent_session_diagnostics: (session.metadata as any)?.diagnostics,
@@ -998,8 +861,8 @@ const ChatPage: React.FC = () => {
         const existing = state.messages.find((message) => message.agent_metadata?.agent_part_id === part.id);
         const content = part.content || part.title || session.title;
         const metadata = buildAgentPartMetadata(session, part);
-        if (existing) {
-          state.updateMessage(existing.id, {
+if (existing) {
+          state.queueMessageUpdate(existing.id, {
             content,
             isLoading: part.status === 'running',
             agent_metadata: metadata,
@@ -1018,6 +881,7 @@ const ChatPage: React.FC = () => {
       if (placeholder && renderableParts.length) {
         await state.deleteMessage(placeholder.id).catch(() => undefined);
       }
+      state.flushMessageUpdates();
       await persistAgentMessages();
     },
     [buildAgentPartMetadata, persistAgentMessages, rememberAgentSession],
@@ -1037,7 +901,7 @@ const ChatPage: React.FC = () => {
       const metadata = buildAgentPartMetadata(session, part);
       const existing = state.messages.find((message) => message.agent_metadata?.agent_part_id === part.id);
       if (existing) {
-        state.updateMessage(existing.id, {
+        state.queueMessageUpdate(existing.id, {
           content,
           isLoading: part.status === 'running',
           agent_metadata: metadata,
@@ -1054,6 +918,7 @@ const ChatPage: React.FC = () => {
       if (placeholder) {
         await state.deleteMessage(placeholder.id).catch(() => undefined);
       }
+      state.flushMessageUpdates();
       if (options.persist) {
         await persistAgentMessages();
       }
@@ -1100,137 +965,6 @@ const ChatPage: React.FC = () => {
     [ensureAgentSessionSnapshot, upsertAgentSessionPartMessage],
   );
 
-  const upsertAgentMessages = useCallback(
-    async (run: ChatAgentRun) => {
-      if (!run.workflow_id) return;
-      const state = useChatStore.getState();
-      const current = state.messages;
-      const existingRun = current.find(
-        (message) => message.agent_metadata?.agent_run_id === run.id && message.agent_metadata.kind === 'agent_run_card',
-      );
-      const runContent = run.summary || `Agent 状态：${run.status}`;
-      if (existingRun) {
-        state.updateMessage(existingRun.id, {
-          content: runContent,
-          isLoading: false,
-          agent_metadata: buildAgentMetadata(run, 'agent_run_card'),
-        });
-      } else {
-        state.addMessage({
-          role: 'assistant',
-          content: runContent,
-          agent_metadata: buildAgentMetadata(run, 'agent_run_card'),
-        });
-      }
-
-      const waitingStep = run.workflow?.steps?.find((step) => step.status === 'awaiting_approval');
-      if (waitingStep) {
-        const existingApproval = useChatStore
-          .getState()
-          .messages.find((message) => message.agent_metadata?.step_id === waitingStep.step_id);
-        const content = waitingStep.output?.summary || waitingStep.output_data?.summary || `等待审批：${waitingStep.title}`;
-        if (existingApproval) {
-          state.updateMessage(existingApproval.id, {
-            content,
-            agent_metadata: buildAgentMetadata(run, 'agent_approval_request'),
-          });
-        } else {
-          state.addMessage({
-            role: 'assistant',
-            content,
-            agent_metadata: buildAgentMetadata(run, 'agent_approval_request'),
-          });
-        }
-      }
-
-      for (const action of run.observability?.actions || []) {
-        const existingAction = useChatStore
-          .getState()
-          .messages.find((message) => message.agent_metadata?.action_id === action.id);
-        const content = `${action.action_type === 'patch' ? '补丁建议' : '命令建议'}：${action.title}`;
-        const kind = action.executions?.length ? 'agent_action_execution' : 'agent_action_proposal';
-        if (existingAction) {
-          state.updateMessage(existingAction.id, {
-            content,
-            agent_metadata: buildAgentMetadata(run, kind, action),
-          });
-        } else {
-          state.addMessage({
-            role: 'assistant',
-            content,
-            agent_metadata: buildAgentMetadata(run, kind, action),
-          });
-        }
-      }
-
-      await persistAgentMessages();
-    },
-    [buildAgentMetadata, persistAgentMessages],
-  );
-
-  const startChatAgentStream = useCallback(
-    (runId: string) => {
-      chatAgentStreamsRef.current[runId]?.close();
-      const source = new EventSource(`${API_BASE_URL}/chat-agent/runs/${runId}/events/stream`);
-      chatAgentStreamsRef.current[runId] = source;
-      source.addEventListener('chat_agent_event', async () => {
-        const run = await getChatAgentRun(runId).catch(() => null);
-        if (run) {
-          const nextWorkflowStep = workflowStepFromRun(run);
-          if (nextWorkflowStep) {
-            setWorkflowTitle(run.workflow?.title || (run as any).title || 'Workflow Report');
-            setWorkflowStatus(run.status || run.execution_state || 'running');
-            setWorkflowSteps((prev) => {
-              const nextMap = new Map<string, WorkflowStep>();
-              for (const step of prev) {
-                nextMap.set(`${step.workflow_id}:${step.step_id || step.id}`, step);
-              }
-              nextMap.set(`${nextWorkflowStep.workflow_id}:${nextWorkflowStep.step_id || nextWorkflowStep.id}`, nextWorkflowStep);
-              return Array.from(nextMap.values()).sort((a, b) => {
-                const aActive = a.status === 'running' || a.status === 'waiting_approval' || a.status === 'blocked';
-                const bActive = b.status === 'running' || b.status === 'waiting_approval' || b.status === 'blocked';
-                if (aActive !== bActive) return aActive ? 1 : -1;
-                return String(a.step_id || a.id).localeCompare(String(b.step_id || b.id));
-              });
-            });
-          }
-          const latestToolCall = run.latest_tool_call;
-          if (latestToolCall?.tool_name) {
-            pushToolEvent({
-              id: `${run.id}:${latestToolCall.id || latestToolCall.tool_name}:${latestToolCall.status || 'pending'}`,
-              toolName: latestToolCall.tool_name,
-              status: latestToolCall.status || 'pending',
-              summary: latestToolCall.result_summary || latestToolCall.sanitized_model_output || latestToolCall.raw_model_output,
-              agentId: run.active_agent_id || run.workflow?.active_agent_id,
-              durationMs: latestToolCall.duration_ms,
-              error: latestToolCall.error,
-              stepId: latestToolCall.step_id,
-            });
-          }
-          for (const toolCall of run.observability?.tool_calls || []) {
-            if (!toolCall?.tool_name) continue;
-            pushToolEvent({
-              id: `${run.id}:${toolCall.id || toolCall.tool_name}:${toolCall.status || 'pending'}`,
-              toolName: toolCall.tool_name,
-              status: toolCall.status || 'pending',
-              summary: toolCall.result_summary || toolCall.sanitized_model_output || toolCall.raw_model_output,
-              agentId: toolCall.agent_id || run.active_agent_id || run.workflow?.active_agent_id,
-              durationMs: toolCall.duration_ms,
-              error: toolCall.error,
-              stepId: toolCall.step_id,
-            });
-          }
-          await upsertAgentMessages(run);
-        }
-      });
-      source.onerror = () => {
-        source.close();
-        delete chatAgentStreamsRef.current[runId];
-      };
-    },
-    [upsertAgentMessages],
-  );
-
   const startAgentSessionStream = useCallback(
     (sessionId: string) => {
       agentSessionStreamsRef.current[sessionId]?.close();
@@ -1246,6 +980,16 @@ const ChatPage: React.FC = () => {
           const snapshot = chunk.session_snapshot;
           if (snapshot) {
             await upsertAgentSessionMessage(snapshot as AgentSession);
+          }
+          if (agentDeltaFlushRef.current?.rafId) {
+            cancelAnimationFrame(agentDeltaFlushRef.current.rafId);
+            const pending = agentDeltaFlushRef.current.pending;
+            agentDeltaFlushRef.current = null;
+            for (const [msgId, pendingDelta] of Object.entries(pending)) {
+              useChatStore.getState().appendStreamingDelta(msgId, pendingDelta);
+            }
+          } else {
+            agentDeltaFlushRef.current = null;
           }
           source.close();
           delete agentSessionStreamsRef.current[sessionId];
@@ -1267,37 +1011,82 @@ const ChatPage: React.FC = () => {
           const phaseStr = chunk.phase || (chunk.payload?.phase as string) || '';
           if (phaseStr === 'model_thinking') {
             setAgentPhase({ phase: 'model_thinking', visible: true });
-          } else if (phaseStr === 'tool_execution') {
-            setAgentPhase({ phase: 'tool_execution', tool: chunk.tool || (chunk.payload?.tool as string | undefined), visible: true });
-          } else if (phaseStr === 'tool_completed') {
-            setAgentPhase({ phase: 'tool_completed', tool: chunk.tool || (chunk.payload?.tool as string | undefined), visible: true });
+} else if (phaseStr === 'tool_execution') {
+              setAgentPhase({ phase: 'tool_execution', tool: chunk.tool || (chunk.payload?.tool as string | undefined), detail: (chunk.payload?.detail as string | undefined), visible: true });
+            } else if (phaseStr === 'tool_completed') {
+              setAgentPhase({ phase: 'tool_completed', tool: chunk.tool || (chunk.payload?.tool as string | undefined), detail: (chunk.payload?.detail as string | undefined), visible: true });
             setTimeout(() => setAgentPhase((prev) => prev.phase === 'tool_completed' ? { ...prev, visible: false } : prev), 1500);
           } else {
             setAgentPhase({ phase: phaseStr, visible: true });
           }
           return;
         }
+        const flushAgentDeltas = () => {
+          if (agentDeltaFlushRef.current) {
+            if (agentDeltaFlushRef.current.rafId) {
+              cancelAnimationFrame(agentDeltaFlushRef.current.rafId);
+            }
+            const pending = { ...agentDeltaFlushRef.current.pending };
+            agentDeltaFlushRef.current.pending = {};
+            agentDeltaFlushRef.current.rafId = null;
+            for (const [msgId, pendingDelta] of Object.entries(pending)) {
+              useChatStore.getState().appendStreamingDelta(msgId, pendingDelta);
+            }
+          }
+        };
         if (chunk.chunk_type === 'part_start') {
+          flushAgentDeltas();
           setAgentPhase({ phase: 'model_streaming', visible: false });
         }
         if (part) {
           if (chunk.chunk_type === 'part_delta' && (chunk.delta !== undefined || chunk.content !== undefined)) {
             streamingDeltaRef.current[part.id] = { partId: part.id, content: (chunk.content || part.content || '') as string };
+            const deltaText = (chunk.delta || '') as string;
+            const found = useChatStore.getState().messages.find((m) => m.agent_metadata?.agent_part_id === part.id);
+            if (found && deltaText) {
+              if (!agentDeltaFlushRef.current) {
+                agentDeltaFlushRef.current = { rafId: null, pending: {} };
+              }
+              const flush = agentDeltaFlushRef.current;
+              flush.pending[found.id] = (flush.pending[found.id] || '') + deltaText;
+              if (!flush.rafId) {
+                flush.rafId = requestAnimationFrame(() => {
+                  const pending = { ...flush.pending };
+                  flush.pending = {};
+                  flush.rafId = null;
+                  for (const [msgId, pendingDelta] of Object.entries(pending)) {
+                    useChatStore.getState().appendStreamingDelta(msgId, pendingDelta);
+                  }
+                });
+              }
+            } else if (found) {
+              useChatStore.getState().queueMessageUpdate(found.id, {
+                content: (chunk.content || part.content || '') as string,
+                isLoading: part.status === 'running',
+                agent_metadata: buildAgentPartMetadata(mergeAgentSessionPart(sessionId, part, {
+                  status: sessionStatus || undefined,
+                  agent_id: agentId || undefined,
+                  updated_at: chunk.created_at,
+                }), part),
+              });
+            }
+          } else {
+            flushAgentDeltas();
+            const shouldPersist = chunk.chunk_type !== 'part_start';
+            await upsertAgentSessionPartMessage(
+              sessionId,
+              part,
+              {
+                status: sessionStatus || undefined,
+                agent_id: agentId || undefined,
+                updated_at: chunk.created_at,
+              },
+              { persist: shouldPersist },
+            );
           }
-          const shouldPersist = chunk.chunk_type !== 'part_delta' && chunk.chunk_type !== 'part_start';
-          await upsertAgentSessionPartMessage(
-            sessionId,
-            part,
-            {
-              status: sessionStatus || undefined,
-              agent_id: agentId || undefined,
-              updated_at: chunk.created_at,
-            },
-            { persist: shouldPersist },
-          );
         }
         if (chunk.chunk_type === 'tool_call') {
-          setAgentPhase({ phase: 'tool_execution', tool: chunk.tool || (chunk.payload?.tool as string | undefined), visible: true });
+          setAgentPhase({ phase: 'tool_execution', tool: chunk.tool || (chunk.payload?.tool as string | undefined), detail: (chunk.payload?.detail as string | undefined), visible: true });
         } else if (chunk.chunk_type === 'tool_result' || chunk.chunk_type === 'summary' || chunk.chunk_type === 'action') {
           setAgentPhase((prev) => ({ ...prev, visible: false }));
         } else if (chunk.chunk_type === 'error') {
@@ -1307,14 +1096,39 @@ const ChatPage: React.FC = () => {
       source.addEventListener('agent_session_event', (e: MessageEvent) => {
         try { void handleChunk(JSON.parse((e as MessageEvent).data) as AgentSessionEvent); } catch { /* ignore */ }
       });
+      source.addEventListener('agent_session_done', () => {
+        useChatStore.getState().flushMessageUpdates();
+        getAgentSession(sessionId)
+          .then((session) => upsertAgentSessionMessage(session))
+          .catch(() => undefined);
+        source.close();
+        delete agentSessionStreamsRef.current[sessionId];
+      });
       source.onerror = () => {
+        if (agentDeltaFlushRef.current?.rafId) {
+          cancelAnimationFrame(agentDeltaFlushRef.current.rafId);
+          const pending = agentDeltaFlushRef.current.pending;
+          agentDeltaFlushRef.current = null;
+          for (const [msgId, pendingDelta] of Object.entries(pending)) {
+            useChatStore.getState().appendStreamingDelta(msgId, pendingDelta);
+          }
+        } else {
+          agentDeltaFlushRef.current = null;
+        }
+        useChatStore.getState().flushMessageUpdates();
         Object.keys(streamingDeltaRef.current).forEach((key) => {
           if (key.startsWith('agp_')) delete streamingDeltaRef.current[key];
         });
-        setAgentPhase({ phase: '', visible: false });
+        setAgentPhase({ phase: 'connection_lost', visible: true });
         getAgentSession(sessionId)
-          .then((session) => upsertAgentSessionMessage(session))
-          .catch(() => appendAgentSessionError('Agent 事件流连接中断，暂时无法读取最新执行 transcript。', { id: sessionId }));
+          .then((session) => {
+            upsertAgentSessionMessage(session);
+            setAgentPhase({ phase: '', visible: false });
+          })
+          .catch(() => {
+            appendAgentSessionError('Agent 事件流连接中断，暂时无法读取最新执行 transcript。', { id: sessionId });
+            setAgentPhase({ phase: '', visible: false });
+          });
         source.close();
         delete agentSessionStreamsRef.current[sessionId];
       };
@@ -1331,15 +1145,7 @@ const ChatPage: React.FC = () => {
           .filter((sessionId): sessionId is string => Boolean(sessionId)),
       ),
     );
-    const runIds = Array.from(
-      new Set(
-        messages
-          .filter((message) => !message.agent_metadata?.agent_session_id)
-          .map((message) => message.agent_metadata?.agent_run_id)
-          .filter((runId): runId is string => Boolean(runId)),
-      ),
-    );
-    if (!runIds.length && !agentSessionIds.length) return;
+    if (!agentSessionIds.length) return;
 
     agentSessionIds.forEach((sessionId) => {
       const refreshKey = `${currentSessionId}:session:${sessionId}`;
@@ -1349,26 +1155,13 @@ const ChatPage: React.FC = () => {
       }
     });
 
-    runIds.forEach((runId) => {
-      const refreshKey = `${currentSessionId}:${runId}`;
-      if (!refreshedAgentRunsRef.current.has(refreshKey)) {
-        refreshedAgentRunsRef.current.add(refreshKey);
-        getChatAgentRun(runId)
-          .then(async (run) => {
-            await upsertAgentMessages(run);
-          })
-          .catch(() => {
-            refreshedAgentRunsRef.current.delete(refreshKey);
-          });
-      }
-    });
-  }, [currentSessionId, messages, startAgentSessionStream, upsertAgentMessages]);
+  }, [currentSessionId, messages, startAgentSessionStream]);
 
   const handleAgentWorkflow = useCallback(
     async (
       content: string,
       forceAgent = false,
-      options: { agentId?: string; templateId?: string; reason?: string; mode?: 'agent' | 'workflow' } = {},
+      options: { agentId?: string; templateId?: string; reason?: string; mode?: 'agent' | 'workflow'; skipUserMessage?: boolean } = {},
     ) => {
       const goal = content.trim();
       if (!goal) return false;
@@ -1380,7 +1173,9 @@ const ChatPage: React.FC = () => {
         sessionId = session.id;
       }
 
-      addMessage({ role: 'user', content: goal });
+      if (!options.skipUserMessage) {
+        addMessage({ role: 'user', content: goal });
+      }
       console.log('[Agent] Starting workflow creation...', { content, options });
       setCreatingWorkflow(true);
       setRoutingIntent(false);
@@ -1389,18 +1184,22 @@ const ChatPage: React.FC = () => {
         const workspaceContext = selectedWorkspaceLabel !== '未选择工作区'
           ? ` · ${selectedWorkspaceLabel}`
           : '';
-        const session = await createAgentSession({
-          chat_session_id: sessionId && !sessionId.startsWith('local_') ? sessionId : undefined,
-          agent_id: options.agentId || selectedPrimaryAgent || 'build',
-          title:
-            options.mode === 'workflow'
-              ? `${goal.slice(0, 26) || 'Workflow Run'}${workspaceContext}`.slice(0, 64)
-              : `${goal.slice(0, 26) || 'Agent Task'}${workspaceContext}`.slice(0, 64),
-          project_path: effectiveProjectPath || undefined,
-          provider: cloudAIConfig?.provider || undefined,
-          model: selectedCloudModel || cloudAIConfig?.model || undefined,
-          autonomy_mode: autonomyMode,
-        });
+        const session = await withTimeout(
+          createAgentSession({
+            chat_session_id: sessionId && !sessionId.startsWith('local_') ? sessionId : undefined,
+            agent_id: options.agentId || selectedPrimaryAgent || 'build',
+            title:
+              options.mode === 'workflow'
+                ? `${goal.slice(0, 26) || 'Workflow Run'}${workspaceContext}`.slice(0, 64)
+                : `${goal.slice(0, 26) || 'Agent Task'}${workspaceContext}`.slice(0, 64),
+            project_path: effectiveProjectPath || undefined,
+            provider: cloudAIConfig?.provider || undefined,
+            model: selectedCloudModel || cloudAIConfig?.model || undefined,
+            autonomy_mode: autonomyMode,
+          }),
+          15000,
+          'create_session_timeout',
+        );
         agentSession = session;
 
         if (options.reason) {
@@ -1411,20 +1210,25 @@ const ChatPage: React.FC = () => {
           : '';
         await upsertAgentSessionMessage(session, options.reason ? `${options.reason} ${workspacePrefix}${goal}` : `${workspacePrefix}${goal}`);
         startAgentSessionStream(session.id);
-        const started = await promptAgentSession(session.id, {
-          content: goal,
-          provider: cloudAIConfig?.provider || undefined,
-          model: selectedCloudModel || cloudAIConfig?.model || undefined,
-        });
+        const started = await withTimeout(
+          promptAgentSession(session.id, {
+            content: goal,
+            provider: cloudAIConfig?.provider || undefined,
+            model: selectedCloudModel || cloudAIConfig?.model || undefined,
+          }),
+          15000,
+          'prompt_session_timeout',
+        );
         await upsertAgentSessionMessage(started);
-        notify.success('Agent 已开始工作');
         return true;
       } catch (error: any) {
-        const detail =
-          error?.response?.data?.detail?.message ||
-          error?.response?.data?.detail ||
-          error?.message ||
-          'Agent 工作启动失败';
+        const isTimeout = error?.message === 'create_session_timeout' || error?.message === 'prompt_session_timeout';
+        const detail = isTimeout
+          ? '服务器响应超时，请稍后重试'
+          : error?.response?.data?.detail?.message ||
+            error?.response?.data?.detail ||
+            error?.message ||
+            'Agent 工作启动失败';
         const fallback = `${options.mode === 'workflow' ? 'Workflow 运行启动失败' : 'Agent 工作启动失败'}：${detail}`;
         notify.error(fallback);
         await appendAgentSessionError(fallback, agentSession || {
@@ -1466,6 +1270,8 @@ const ChatPage: React.FC = () => {
       isAutoScrollEnabledRef.current = true;
       setTimeout(() => scrollToBottom(true, true), 100);
 
+      let tempUserId: string | undefined;
+      let tempLoadingId: string | undefined;
       const shouldPreferWorkflow = routingMode !== 'chat';
 
       if (routingMode === 'agent' || shouldPreferWorkflow) {
@@ -1476,6 +1282,8 @@ const ChatPage: React.FC = () => {
 
         if (routingMode === 'auto') {
           console.log('[Routing] Classifying intent via Cloud AI...');
+          tempUserId = addMessage({ role: 'user', content: content.trim() });
+          tempLoadingId = addMessage({ role: 'assistant', content: '', isLoading: true });
           setRoutingIntent(true);
           try {
             const intent = await withTimeout(
@@ -1493,6 +1301,7 @@ const ChatPage: React.FC = () => {
             );
             console.log('[Routing] Intent classification result:', intent);
             if (intent.mode === 'workflow') {
+              removeLocalMessage(tempLoadingId!);
               setRoutingIntent(false);
               const handledByWorkflow = await handleAgentWorkflow(content, true, {
                 agentId: intent.suggested_agent_id || selectedPrimaryAgent || 'build',
@@ -1501,10 +1310,12 @@ const ChatPage: React.FC = () => {
                   ? `云端判断需要 Workflow Run：${intent.reason}`
                   : `已识别为流程编排任务，启动 Workflow Run：${intent.reason}`,
                 mode: 'workflow',
+                skipUserMessage: true,
               });
               if (handledByWorkflow) return;
             }
             if (intent.mode === 'agent') {
+              removeLocalMessage(tempLoadingId!);
               setRoutingIntent(false);
               const handledByAgent = await handleAgentWorkflow(content, true, {
                 agentId: intent.suggested_agent_id || selectedPrimaryAgent || 'build',
@@ -1513,6 +1324,7 @@ const ChatPage: React.FC = () => {
                   ? `云端判断需要 Agent Task：${intent.reason}`
                   : `已识别为开发任务，启动 Agent Task：${intent.reason}`,
                 mode: 'agent',
+                skipUserMessage: true,
               });
               if (handledByAgent) return;
             }
@@ -1521,13 +1333,16 @@ const ChatPage: React.FC = () => {
             }
           } catch (error) {
             if (isLikelyAgentGoal(content)) {
+              removeLocalMessage(tempLoadingId!);
               setRoutingIntent(false);
               const handledByAgent = await handleAgentWorkflow(content, true, {
                 reason: '意图判断失败，已按本地规则启动 Agent Task。',
                 mode: 'agent',
+                skipUserMessage: true,
               });
               if (handledByAgent) return;
             }
+            removeLocalMessage(tempLoadingId!);
             notify.info('意图判断失败，已按普通对话处理。');
           } finally {
             setRoutingIntent(false);
@@ -1535,6 +1350,8 @@ const ChatPage: React.FC = () => {
         }
       }
 
+      if (tempUserId) removeLocalMessage(tempUserId);
+      if (tempLoadingId) removeLocalMessage(tempLoadingId);
       if (useCloudAI && cloudAIConfig) {
         await sendCloudMessage(
           { prompt: content },
@@ -1552,10 +1369,13 @@ const ChatPage: React.FC = () => {
       }
     },
     [
+      addMessage,
       cloudAIConfig,
       currentSessionId,
+      deleteMessage,
       handleAgentWorkflow,
       isLikelyAgentGoal,
+      removeLocalMessage,
       routingMode,
       scrollToBottom,
       selectedCloudModel,
@@ -1677,47 +1497,13 @@ const ChatPage: React.FC = () => {
     [],
   );
 
-  const refreshAgentRunByAction = useCallback(
-    async (actionId: string) => {
-      const message = useChatStore
-        .getState()
-        .messages.find((item) => item.agent_metadata?.action_id === actionId);
-      const runId = message?.agent_metadata?.agent_run_id;
-      if (!runId) return;
-      const run = await getChatAgentRun(runId);
-      await upsertAgentMessages(run);
-    },
-    [upsertAgentMessages],
-  );
-
   const handleRefreshAgentRun = useCallback(
     async (runId: string) => {
-      const sessionMessage = useChatStore.getState().messages.find((item) => item.agent_metadata?.agent_session_id === runId);
-      if (sessionMessage) {
-        const session = await getAgentSession(runId);
-        await upsertAgentSessionMessage(session);
-        return;
-      }
-      const run = await getChatAgentRun(runId);
-      await upsertAgentMessages(run);
-      if (run.recoverable && ['created', 'running', 'planning', 'implementing', 'reviewing'].includes(run.status)) {
-        startChatAgentStream(run.id);
-      }
+      const session = await getAgentSession(runId);
+      await upsertAgentSessionMessage(session);
     },
-    [startChatAgentStream, upsertAgentMessages, upsertAgentSessionMessage],
+    [upsertAgentSessionMessage],
   );
-
-  const findAgentRunIdByStep = useCallback((stepId: string) => {
-    return useChatStore
-      .getState()
-      .messages.find((item) => item.agent_metadata?.step_id === stepId)?.agent_metadata?.agent_run_id;
-  }, []);
-
-  const findAgentRunIdByAction = useCallback((actionId: string) => {
-    return useChatStore
-      .getState()
-      .messages.find((item) => item.agent_metadata?.action_id === actionId)?.agent_metadata?.agent_run_id;
-  }, []);
 
   const findAgentSessionIdByAction = useCallback((actionId: string) => {
     return useChatStore
@@ -1726,73 +1512,35 @@ const ChatPage: React.FC = () => {
       ?.agent_metadata?.agent_session_id;
   }, []);
 
-  const handleApproveAgentStep = useCallback(
-    async (stepId: string) => {
-      const runId = findAgentRunIdByStep(stepId);
-      if (runId) {
-        startChatAgentStream(runId);
-      }
-      const run = await approveChatAgentStep(stepId, { approved: true });
-      await upsertAgentMessages(run);
-      startChatAgentStream(run.id);
-    },
-    [findAgentRunIdByStep, startChatAgentStream, upsertAgentMessages],
-  );
-
   const handleApproveAgentAction = useCallback(
     async (actionId: string) => {
       const sessionId = findAgentSessionIdByAction(actionId);
-      if (sessionId) {
-        const response = await approveAgentAction(actionId);
-        await upsertAgentSessionMessage(response.session);
-        return;
-      }
-      const runId = findAgentRunIdByAction(actionId);
-      if (runId) {
-        startChatAgentStream(runId);
-      }
-      await approveChatAgentAction(actionId);
-      await refreshAgentRunByAction(actionId);
+      if (!sessionId) return;
+      const response = await approveAgentAction(actionId);
+      await upsertAgentSessionMessage(response.session);
     },
-    [findAgentRunIdByAction, findAgentSessionIdByAction, refreshAgentRunByAction, startChatAgentStream, upsertAgentSessionMessage],
+    [findAgentSessionIdByAction, upsertAgentSessionMessage],
   );
 
   const handleRejectAgentAction = useCallback(
     async (actionId: string) => {
       const sessionId = findAgentSessionIdByAction(actionId);
-      if (sessionId) {
-        const response = await rejectAgentSessionAction(actionId);
-        await upsertAgentSessionMessage(response.session);
-        return;
-      }
-      await rejectChatAgentAction(actionId);
-      await refreshAgentRunByAction(actionId);
+      if (!sessionId) return;
+      const response = await rejectAgentSessionAction(actionId);
+      await upsertAgentSessionMessage(response.session);
     },
-    [findAgentSessionIdByAction, refreshAgentRunByAction, upsertAgentSessionMessage],
+    [findAgentSessionIdByAction, upsertAgentSessionMessage],
   );
 
   const handleExecuteAgentAction = useCallback(
     async (actionId: string) => {
       const sessionId = findAgentSessionIdByAction(actionId);
-      if (sessionId) {
-        const response = await executeAgentAction(actionId);
-        await upsertAgentSessionMessage(response.session);
-        notify.success(response.part.status === 'executed' ? '动作已执行' : '动作执行完成');
-        return;
-      }
-      const runId = findAgentRunIdByAction(actionId);
-      if (runId) {
-        startChatAgentStream(runId);
-      }
-      const action = await executeChatAgentAction(actionId);
-      await refreshAgentRunByAction(actionId);
-      if (action.status === 'failed') {
-        notify.error('动作执行失败，已在聊天卡片中展示输出');
-      } else {
-        notify.success('动作已执行');
-      }
+      if (!sessionId) return;
+      const response = await executeAgentAction(actionId);
+      await upsertAgentSessionMessage(response.session);
+      notify.success(response.part.status === 'executed' ? '动作已执行' : '动作执行完成');
     },
-    [findAgentRunIdByAction, findAgentSessionIdByAction, refreshAgentRunByAction, startChatAgentStream, upsertAgentSessionMessage],
+    [findAgentSessionIdByAction, upsertAgentSessionMessage],
   );
 
   const handleRetry = useCallback(
@@ -1962,6 +1710,7 @@ const ChatPage: React.FC = () => {
         <AgentPhaseIndicator
           phase={agentPhase.phase}
           tool={agentPhase.tool}
+          detail={agentPhase.detail}
           visible={agentPhase.visible}
         />
       </div>
@@ -2028,48 +1777,44 @@ const ChatPage: React.FC = () => {
     ? selectedCloudModel || '未选择模型'
     : settings.modelId || '未选择模型';
   const agentOptions = primaryAgents.map((agent) => ({ value: agent.id, label: agent.name }));
+  const latestAgentMetadata = useMemo(
+    () => [...messages].reverse().find((message) => message.agent_metadata)?.agent_metadata,
+    [messages],
+  );
+  const latestAgentSessionId = latestAgentMetadata?.agent_session_id;
+  const latestAgentSessionMessages = useMemo(
+    () => messages.filter((message) => message.agent_metadata?.agent_session_id === latestAgentSessionId),
+    [latestAgentSessionId, messages],
+  );
+  const latestAgentParts = latestAgentSessionMessages
+    .map((message) => message.agent_metadata?.agent_part as AgentPart | undefined)
+    .filter((part): part is AgentPart => Boolean(part));
+  const latestAgentStatus = latestAgentMetadata?.status || 'idle';
+  useEffect(() => {
+    if (!latestAgentSessionId) {
+      setAgentSessionOverview(null);
+      return;
+    }
+    let cancelled = false;
+    getAgentSessionOverview(latestAgentSessionId)
+      .then((overview) => {
+        if (!cancelled) setAgentSessionOverview(overview);
+      })
+      .catch(() => {
+        if (!cancelled) setAgentSessionOverview(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [latestAgentSessionId, messages]);
 
   const agentFileSummaries = useMemo(() => {
-    const seen = new Map<string, number>();
-    const items: Array<{ id: string; path: string; status: string; summary: string; preview: string; depth: number }> = [];
-
     const depthOf = (path: string) => path.replace(/\\/g, '/').split('/').filter(Boolean).length;
-
-    for (const message of messages) {
-      const metadata = message.agent_metadata;
-      if (!metadata || metadata.kind !== 'agent_part' || (metadata.agent_part as any)?.type !== 'diff') continue;
-      const part: any = metadata.agent_part;
-      const payload = part?.payload || {};
-      const files = Array.isArray(payload.changed_files)
-        ? payload.changed_files
-        : Array.isArray(payload.files)
-          ? payload.files.map((file: any) => file?.path || file?.file_path).filter(Boolean)
-          : [];
-      const diffSource = payload.diff || payload.payload?.diff || payload.file_changes || payload.payload?.file_changes;
-      const diffText = typeof diffSource === 'string' ? diffSource : JSON.stringify(diffSource || payload, null, 2);
-      const summary = part.title || part.content || payload.policy_reason || '文件变更';
-      const fileEntries = Array.isArray(diffSource)
-        ? diffSource
-        : files.map((path: string) => ({ path, status: part.status || 'modified', summary, diff: diffText }));
-
-      for (const entry of fileEntries) {
-        const path = String(entry?.path || entry?.file_path || entry?.filename || entry?.name || '').trim();
-        if (!path) continue;
-        const nextIndex = (seen.get(path) || 0) + 1;
-        seen.set(path, nextIndex);
-        items.push({
-          id: `${metadata.agent_part_id || message.id}:${path}:${nextIndex}`,
-          path,
-          status: String(entry?.status || entry?.change_type || entry?.action || part.status || 'modified'),
-          summary: String(entry?.summary || entry?.description || summary),
-          preview: String(entry?.diff || entry?.patch || entry?.content || entry?.after || entry?.before || diffText),
-          depth: depthOf(path),
-        });
-      }
-    }
-
-    return items.slice(-12).sort((a, b) => a.depth - b.depth || a.path.localeCompare(b.path));
-  }, [messages]);
+    return (agentSessionOverview?.artifacts || [])
+      .map((artifact: AgentArtifact) => ({ ...artifact, depth: depthOf(artifact.path) }))
+      .slice(-12)
+      .sort((a, b) => a.depth - b.depth || a.path.localeCompare(b.path));
+  }, [agentSessionOverview?.artifacts]);
 
   const agentFileTree = useMemo(() => {
     type TreeNode = {
@@ -2275,187 +2020,35 @@ const ChatPage: React.FC = () => {
     />
   );
 
-  const filteredWorkspaceTreeData = useMemo(() => {
-    const query = workspaceTreeSearch.trim().toLowerCase();
-    if (!query) return workspaceTreeData;
+  const agentFileTreeStats = useMemo(() => ({
+    files: agentFileSummaries.length,
+    folders: defaultExpandedFolders.size,
+  }), [agentFileSummaries.length, defaultExpandedFolders.size]);
 
-    const filterNodes = (nodes: DataNode[]): DataNode[] =>
-      nodes
-        .map((node) => {
-          const title = String(node.title || '').toLowerCase();
-          const keyText = String(node.key || '').toLowerCase();
-          const matchedChildren = node.children ? filterNodes(node.children) : [];
-          const matches = title.includes(query) || keyText.includes(query);
-          if (matches || matchedChildren.length > 0) {
-            return { ...node, children: matchedChildren.length ? matchedChildren : node.children };
-          }
-          return null;
-        })
-        .filter(Boolean) as DataNode[];
-
-    return filterNodes(workspaceTreeData);
-  }, [workspaceTreeData, workspaceTreeSearch]);
-
-  const workspaceTreeStats = useMemo(() => {
-    const countNodes = (nodes: DataNode[]): { files: number; folders: number } =>
-      nodes.reduce((acc, node) => {
-        const isFolder = Boolean(node.children && node.children.length);
-        if (isFolder) acc.folders += 1;
-        else acc.files += 1;
-        if (node.children) {
-          const childStats = countNodes(node.children);
-          acc.files += childStats.files;
-          acc.folders += childStats.folders;
-        }
-        return acc;
-      }, { files: 0, folders: 0 });
-
-    return countNodes(workspaceTreeData);
-  }, [workspaceTreeData]);
-
-  const workspaceTreeDisplayedStats = useMemo(() => {
-    const countNodes = (nodes: DataNode[]): { files: number; folders: number } =>
-      nodes.reduce((acc, node) => {
-        const isFolder = Boolean(node.children && node.children.length);
-        if (isFolder) acc.folders += 1;
-        else acc.files += 1;
-        if (node.children) {
-          const childStats = countNodes(node.children);
-          acc.files += childStats.files;
-          acc.folders += childStats.folders;
-        }
-        return acc;
-      }, { files: 0, folders: 0 });
-
-    return countNodes(filteredWorkspaceTreeData);
-  }, [filteredWorkspaceTreeData]);
-
-  const expandAllWorkspaceTree = useCallback(() => {
-    const keys: React.Key[] = [];
-    const walk = (nodes: DataNode[]) => {
-      nodes.forEach((node) => {
-        if (node.children?.length) {
-          keys.push(node.key);
-          walk(node.children);
-        }
-      });
-    };
-    walk(workspaceTreeData);
-    setWorkspaceTreeExpandedKeys(keys);
-  }, [workspaceTreeData]);
-
-  const collapseAllWorkspaceTree = useCallback(() => {
-    setWorkspaceTreeExpandedKeys([]);
-  }, []);
-
-  const syncWorkspaceTreeExpandedKeys = useCallback((nodes: DataNode[]) => {
-    const keys: React.Key[] = [];
-    const walk = (list: DataNode[]) => {
-      list.forEach((node) => {
-        if (node.children?.length) {
-          keys.push(node.key);
-          walk(node.children);
-        }
-      });
-    };
-    walk(nodes);
-    setWorkspaceTreeExpandedKeys(keys);
-  }, []);
-
-  useEffect(() => {
-    if (!workspaceTreeSearch.trim()) return;
-    syncWorkspaceTreeExpandedKeys(filteredWorkspaceTreeData);
-  }, [filteredWorkspaceTreeData, syncWorkspaceTreeExpandedKeys, workspaceTreeSearch]);
-
-  const projectPanel = (
-    <motion.div {...sectionMotion} className={styles.projectSidePanel}>
-      <div className={styles.projectSideHeader}>
-        <div>
-          <div className={styles.projectSideKicker}>Project Context</div>
-          <div className={styles.projectSideTitle}>本地项目</div>
-          <div className={styles.projectSideMeta}>
-            <span>{workspaceTreeStats.folders} 个目录</span>
-            <span>{workspaceTreeStats.files} 个文件</span>
-            {workspaceTreeTruncated ? <span>已截断</span> : null}
-          </div>
-        </div>
-        <div className={styles.projectSideActions}>
-          <Button size="small" onClick={() => setWorkspaceTreeSearch('')}>清除搜索</Button>
-          <Button size="small" onClick={expandAllWorkspaceTree}>展开全部</Button>
-          <Button size="small" onClick={collapseAllWorkspaceTree}>折叠全部</Button>
-          <Button size="small" icon={<ReloadOutlined />} onClick={() => void loadWorkspaceTree()} />
-        </div>
-      </div>
-
-      <Select
-        allowClear
-        showSearch
-        optionFilterProp="label"
-        className={styles.projectSideSelect}
-        placeholder="选择工作区"
-        value={selectedWorkspaceId || undefined}
-        options={availableWorkspaces.map((workspace) => ({
-          label: workspace.local_path ? `${workspace.name} · ${workspace.local_path}` : workspace.name,
-          value: workspace.id,
-        }))}
-        onChange={(value) => {
-          const nextId = value || '';
-          setSelectedWorkspaceId(nextId);
-          const selected = availableWorkspaces.find((workspace) => workspace.id === nextId);
-          setWorkspaceProjectPath(selected?.local_path || '');
-        }}
-      />
-
-      <Input
-        className={styles.projectSideInput}
-        value={workspaceProjectPath}
-        placeholder="C:\\Projects\\my-app"
-        onChange={(event) => setWorkspaceProjectPath(event.target.value)}
-        onPressEnter={() => void loadWorkspaceTree()}
-      />
-
-      <Input
-        allowClear
-        prefix={<SearchOutlined />}
-        className={styles.projectSideInput}
-        value={workspaceTreeSearch}
-        placeholder="搜索文件或目录"
-        onChange={(event) => setWorkspaceTreeSearch(event.target.value)}
-      />
-
-      <div className={styles.projectSideStatus}>
-        <Tag color={effectiveProjectPath ? 'green' : 'default'} className={styles.projectSideTag}>
-          {effectiveProjectPath ? '已连接' : '未选择'}
-        </Tag>
-        <span title={workspaceTreeRoot || effectiveProjectPath}>
-          {workspaceTreeRoot || effectiveProjectPath || 'Agent 将使用默认项目根目录'}
-        </span>
-      </div>
-
-      <div className={styles.projectTreeBox}>
-        <Spin spinning={workspaceTreeLoading}>
-          {filteredWorkspaceTreeData.length ? (
-            <Tree
-              showIcon
-              selectable={false}
-              treeData={filteredWorkspaceTreeData}
-              expandedKeys={workspaceTreeExpandedKeys}
-              onExpand={(keys) => setWorkspaceTreeExpandedKeys(keys)}
-              className={styles.projectTree}
-            />
-          ) : (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={workspaceTreeSearch ? '没有匹配文件' : '暂无文件'} />
-          )}
-        </Spin>
-      </div>
-
-      {workspaceTreeTruncated && (
-        <div className={styles.projectTreeHint}>目录较大，当前仅显示部分文件。</div>
-      )}
-    </motion.div>
-  );
-
-  const renderMessageItem = useCallback((index: number, msg: any) => (
+  const renderMessageItem = useCallback((index: number, msg: any) => {
+    const prevMsg = index > 0 ? messages[index - 1] : null;
+    const nextMsg = index < messages.length - 1 ? messages[index + 1] : null;
+    const curSession = msg.agent_metadata?.agent_session_id;
+    const prevSession = prevMsg?.agent_metadata?.agent_session_id;
+    const nextSession = nextMsg?.agent_metadata?.agent_session_id;
+    const curIsPart = msg.agent_metadata?.kind === 'agent_part';
+    const prevIsPart = prevMsg?.agent_metadata?.kind === 'agent_part';
+    const nextIsPart = nextMsg?.agent_metadata?.kind === 'agent_part';
+    let agentFlowPosition: 'first' | 'middle' | 'last' | 'only' | null = null;
+    if (curIsPart && curSession) {
+      const sameSessionPrev = prevIsPart && prevSession === curSession;
+      const sameSessionNext = nextIsPart && nextSession === curSession;
+      if (sameSessionPrev && sameSessionNext) {
+        agentFlowPosition = 'middle';
+      } else if (sameSessionPrev && !sameSessionNext) {
+        agentFlowPosition = 'last';
+      } else if (!sameSessionPrev && sameSessionNext) {
+        agentFlowPosition = 'first';
+      } else {
+        agentFlowPosition = 'only';
+      }
+    }
+    return (
     <ChatMessage
       id={msg.id}
       role={msg.role as 'user' | 'assistant'}
@@ -2473,58 +2066,24 @@ const ChatPage: React.FC = () => {
       knowledge_sources={msg.knowledge_sources}
       retrieval_info={msg.retrieval_info}
       agent_metadata={msg.agent_metadata}
-      onApproveAgentStep={handleApproveAgentStep}
+      agentFlowPosition={agentFlowPosition}
       onApproveAgentAction={handleApproveAgentAction}
       onRejectAgentAction={handleRejectAgentAction}
       onExecuteAgentAction={handleExecuteAgentAction}
       onRefreshAgentRun={handleRefreshAgentRun}
-      onOpenAgentDetails={(url) => navigate(url)}
     />
-  ), [
+    );
+  }, [
     isActivelyStreaming,
     messages.length,
     handleRetry,
     handleEditMessage,
     deleteMessage,
-    handleApproveAgentStep,
     handleApproveAgentAction,
     handleRejectAgentAction,
     handleExecuteAgentAction,
     handleRefreshAgentRun,
-    navigate,
   ]);
-
-  const workflowHeader = (
-    <motion.div
-      initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={prefersReducedMotion ? { duration: 0 } : transitions.base}
-      style={{
-        marginBottom: 16,
-        padding: '18px 20px',
-        borderRadius: 20,
-        border: '1px solid color-mix(in srgb, var(--border-color) 72%, transparent)',
-        background: 'linear-gradient(180deg, color-mix(in srgb, var(--bg-elevated) 96%, transparent), color-mix(in srgb, var(--bg-secondary) 92%, transparent))',
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
-        <div>
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 6 }}>Workflow Run</div>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: 'var(--text-primary)' }}>{workflowTitle}</h2>
-          <div style={{ marginTop: 8, display: 'flex', gap: 10, flexWrap: 'wrap', color: 'var(--text-secondary)', fontSize: 13 }}>
-            <span>Stage：{workflowSteps.length}</span>
-            <span>Node：{workflowSteps.length > 0 ? workflowSteps[workflowSteps.length - 1]?.title || 'bootstrap' : 'bootstrap'}</span>
-            <span>状态：{workflowStatus}</span>
-            <span>模式：{routingMode === 'agent' ? 'Agent Task' : routingMode === 'auto' ? 'Workflow Run' : 'Chat'}</span>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Tag color="blue" style={{ borderRadius: 999, marginInlineEnd: 0 }}>Workflow Run</Tag>
-          <Tag color="geekblue" style={{ borderRadius: 999, marginInlineEnd: 0 }}>{activeModeLabel}</Tag>
-        </div>
-      </div>
-    </motion.div>
-  );
 
   const filePanel = (
     <motion.div
@@ -2538,8 +2097,8 @@ const ChatPage: React.FC = () => {
           <div className={styles.agentFilePanelKicker}>Agent Files</div>
           <div className={styles.agentFilePanelTitle}>变更文件</div>
           <div className={styles.agentFilePanelMeta}>
-            <span>{workspaceTreeDisplayedStats.files} 个文件</span>
-            <span>{workspaceTreeDisplayedStats.folders} 个目录</span>
+            <span>{agentFileTreeStats.files} 个文件</span>
+            <span>{agentFileTreeStats.folders} 个目录</span>
             {workspaceTreeFocusedOnly ? <span>聚焦模式</span> : null}
           </div>
         </div>
@@ -2551,8 +2110,8 @@ const ChatPage: React.FC = () => {
         <Button size="small" onClick={() => setWorkspaceTreeFocusedOnly((value) => !value)}>
           {workspaceTreeFocusedOnly ? '显示全部' : '只看变更'}
         </Button>
-        <Button size="small" onClick={expandAllWorkspaceTree}>展开全部</Button>
-        <Button size="small" onClick={collapseAllWorkspaceTree}>折叠全部</Button>
+        <Button size="small" onClick={() => setExpandedFolders(new Set(defaultExpandedFolders))}>展开全部</Button>
+        <Button size="small" onClick={() => setExpandedFolders(new Set())}>折叠全部</Button>
       </div>
       {agentFileSummaries.length > 0 ? (
         <div className={styles.agentFileList}>
@@ -2563,6 +2122,73 @@ const ChatPage: React.FC = () => {
       )}
     </motion.div>
   );
+
+  const workbenchRunPanel = (
+    <div style={{ display: 'grid', gap: 12 }}>
+      <div className={styles.projectSidePanel}>
+        <div className={styles.projectSideHeader}>
+          <div>
+            <div className={styles.projectSideKicker}>Current Run</div>
+            <div className={styles.projectSideTitle}>{latestAgentMetadata?.active_agent_id || selectedPrimaryAgent || 'build'}</div>
+          </div>
+          <Tag color={latestAgentStatus === 'completed' ? 'success' : latestAgentStatus === 'failed' ? 'error' : latestAgentStatus.includes('waiting') ? 'warning' : 'processing'}>
+            {latestAgentStatus}
+          </Tag>
+        </div>
+        <div className={styles.projectSideStatus}>
+          <span>{latestAgentMetadata?.execution_state_message || latestAgentMetadata?.final_summary || '等待新的 Agent 任务。'}</span>
+        </div>
+      </div>
+      {latestAgentParts.length > 0 ? (
+        <div className={styles.projectSidePanel}>
+          <div className={styles.projectSideTitle}>最近动作</div>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {latestAgentParts.slice(-4).reverse().map((part) => (
+              <div key={part.id} className={styles.agentFileCardBody} style={{ padding: 0 }}>
+                <div className={styles.agentFileCardTop}>
+                  <span className={styles.agentFilePath} style={{ paddingLeft: 0 }}>{part.title || part.type}</span>
+                  <Tag className={styles.agentFileStatus}>{part.status || 'pending'}</Tag>
+                </div>
+                {part.content ? <div className={styles.agentFileSummary} style={{ paddingLeft: 0 }}>{part.content}</div> : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <WorkbenchEmpty description="Agent 启动后，这里会显示最近动作与当前阻塞。" />
+      )}
+    </div>
+  );
+
+  const workbenchProgressPanel = latestAgentParts.length > 0 ? (
+    <div style={{ display: 'grid', gap: 10 }}>
+      {latestAgentParts.slice(-8).map((part) => (
+        <div key={part.id} className={styles.projectSidePanel}>
+          <div className={styles.projectSideHeader}>
+            <div className={styles.projectSideTitle}>{part.title || part.type}</div>
+            <Tag>{part.status || 'pending'}</Tag>
+          </div>
+          {part.content ? <div className={styles.agentFileSummary} style={{ paddingLeft: 0 }}>{part.content}</div> : null}
+        </div>
+      ))}
+    </div>
+  ) : agentSessionOverview?.recent_events?.length ? (
+    <div style={{ display: 'grid', gap: 10 }}>
+      {agentSessionOverview.recent_events.slice(-8).map((event) => (
+        <div key={event.id} className={styles.projectSidePanel}>
+          <div className={styles.projectSideHeader}>
+            <div className={styles.projectSideTitle}>{event.event_type || 'event'}</div>
+            <Tag>{event.created_at || 'recent'}</Tag>
+          </div>
+          {event.message ? <div className={styles.agentFileSummary} style={{ paddingLeft: 0 }}>{event.message}</div> : null}
+        </div>
+      ))}
+    </div>
+  ) : (
+    <WorkbenchEmpty description="执行开始后，这里会展示阶段、节点和工具调用。" />
+  );
+
+  const workbenchArtifactsPanel = filePanel;
 
   return (
     <div
@@ -2589,40 +2215,7 @@ const ChatPage: React.FC = () => {
             onScroll={enableVirtualScroll ? undefined : handleScroll}
           >
             <MotionList className={styles.messagesInner} stagger={0.04}>
-              <MotionItem variant="scale">{workflowHeader}</MotionItem>
-              {workflowSteps.length > 0 && (
-                <MotionItem>
-                  <div style={{ marginBottom: 18 }}>
-                    {workflowStepCards}
-                  </div>
-                </MotionItem>
-              )}
-              {toolEvents.length > 0 && (
-                <MotionItem>
-                  <ToolEventTimeline events={toolEvents} />
-                </MotionItem>
-              )}
-              {workflowSteps.length > 0 ? (
-                <>
-                  {messages.length > 0 && (
-                    <MotionList stagger={0.03} style={{ marginTop: 10 }}>
-                      {messages.map((msg, index) => (
-                        <React.Fragment key={msg.id}>
-                          {renderMessageItem(index, msg)}
-                        </React.Fragment>
-                      ))}
-                    </MotionList>
-                  )}
-                  <MotionItem>
-                    <AgentPhaseIndicator
-                      phase={agentPhase.phase}
-                      tool={agentPhase.tool}
-                      visible={agentPhase.visible}
-                    />
-                  </MotionItem>
-                  <div ref={messagesEndRef} style={{ height: 1 }} />
-                </>
-              ) : messages.length === 0 ? (
+              {messages.length === 0 ? (
                 <motion.div
                   initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -2688,6 +2281,7 @@ const ChatPage: React.FC = () => {
                     <AgentPhaseIndicator
                       phase={agentPhase.phase}
                       tool={agentPhase.tool}
+                      detail={agentPhase.detail}
                       visible={agentPhase.visible}
                     />
                   </MotionItem>
@@ -2749,11 +2343,24 @@ const ChatPage: React.FC = () => {
         </main>
 
         {isDesktop && (
-          <div className={styles.sidePanels}>
-            <div className={styles.projectPanelSlot}>{projectPanel}</div>
-            <div className={styles.contextSidePanel}>{contextPanel}</div>
-            <div className={styles.fileSidePanel}>{filePanel}</div>
-          </div>
+          <>
+            <div
+              className={`${styles.splitter} ${resizingSidePanel ? styles.splitterDragging : ''}`}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整聊天区和工具区宽度"
+              onPointerDown={handleSplitterPointerDown}
+            />
+            <div className={styles.sidePanels} style={{ flex: `0 0 ${sidePanelWidth}px` }}>
+            <AgentWorkbenchPanel
+              changedFiles={agentFileSummaries.length}
+              runContent={workbenchRunPanel}
+              configContent={React.cloneElement(contextPanel, { embedded: true })}
+              progressContent={workbenchProgressPanel}
+              artifactsContent={workbenchArtifactsPanel}
+            />
+            </div>
+          </>
         )}
       </div>
 

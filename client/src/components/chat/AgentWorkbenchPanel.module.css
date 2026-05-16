@@ -1,0 +1,53 @@
+.panel {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--bg-secondary) 74%, transparent);
+}
+
+.tabs {
+  min-height: 0;
+  flex: 1;
+  padding: 0 16px 16px;
+}
+
+.tabs :global(.ant-tabs-nav) {
+  margin-bottom: 12px;
+  padding-top: 12px;
+}
+
+.tabs :global(.ant-tabs-content-holder),
+.tabs :global(.ant-tabs-content),
+.tabs :global(.ant-tabs-tabpane) {
+  min-height: 0;
+  height: 100%;
+}
+
+.tabs :global(.ant-tabs-tab) {
+  padding-inline: 0;
+}
+
+.tabLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.tabLabel em {
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  padding: 0 4px;
+  background: var(--accent-primary);
+  color: #fff;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 16px;
+}
+
+.emptyWrap {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+}
