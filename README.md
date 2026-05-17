@@ -18,6 +18,31 @@ Finetune Platform 当前主线正在收口为面向 AI 应用开发者的本地�
 
 推荐第一次试用时先使用小模型和 5-20 条样例数据，确认数据准备、评估和部署接入流程跑通后，再扩大训练规模。
 
+## 5月10日后更新摘要（2026-05-10 ～ 2026-05-17）
+
+以下内容已结合 `2026-05-10` 之后的提交整理：
+
+- **Agent Session 主线强化**
+  - 扩展工具链与命令策略，增强 LangGraph 流式执行与 fallback 路径。
+  - Agent 运行状态与事件处理进一步收敛，审批与执行链路更稳定。
+  - 新增/增强多项后端测试（tool registry、policy、streaming、processor）。
+
+- **Chat 与前端交互重构**
+  - 聊天界面由旧 Workflow 视图转向 Agent Workbench 面板。
+  - Agent 卡片与代码操作体验改进，诊断信息与交互反馈更清晰。
+  - `chat-agent` 路由收敛为 `chat | agent`，移除旧 workflow 依赖 UI 路径。
+
+- **训练链路稳定性提升**
+  - 训练引擎 pipeline、loader、callback 进行了连续重构和兼容性修复。
+  - 增强 `saving` 阶段兼容、checkpoint 校验、异步清理与状态流一致性。
+  - 补充训练相关测试，覆盖事件、清理、状态与验证逻辑。
+
+- **架构清理与迁移**
+  - 删除 legacy 包：`agent_runtime_legacy/`、`workflow_templates/`、`digital_team/`、`agent_kernel/`。
+  - 生产代码引用迁移到 `agent_session.*` 与 `ai.*`。
+  - 增加 `012_drop_legacy_tables.sql` 以及备份脚本 `scripts/dump_legacy_tables.py`。
+  - 增加守护测试 `server/tests/test_no_legacy_imports.py`，防止旧包引用回归。
+
 ## 🌟 特性亮点
 
 ## Capability Tiers
@@ -36,14 +61,14 @@ Experimental 模块会在页面内显示实时状态、依赖要求和受限原�
 - 📈 **训练监测**：训练状态、SSE 进度流、断点续训、训练历史
 - 🤖 **推理与评估**：本地推理、Ollama 集成、流式输出、评估 run 与人工评分
 - 🧩 **Chat + Agent**：Chat Session、Chat Agent 意图路由、Agent Session、审批门控动作执行
-- 🛠️ **Workflow Runtime**：多 Agent 工作流、观测、事件流、动作审批与执行
+- 🛠️ **Agent Session Runtime**：多阶段 Agent Session、事件流、动作审批与执行
 - 🗂️ **Workspace / Context / Memory**：项目上下文检索、工作区管理、记忆与知识库能力
 
 ### 工程化增强
 - ✅ **LangGraph Agent Session**：Graph-first 执行、审批恢复、事件诊断
 - 🔒 **安全约束**：路径白名单、命令 allowlist、上传校验、速率限制
-- 📝 **结构化日志与状态诊断**：便于定位训练、推理、Agent、Workflow 链路问题
-- 🧪 **测试覆盖**：pytest + vitest，覆盖 chat-agent、agent-session、workflow、evaluation 等关键链路
+- 📝 **结构化日志与状态诊断**：便于定位训练、推理、Agent Session 链路问题
+- 🧪 **测试覆盖**：pytest + vitest，覆盖 chat-agent、agent-session、training、evaluation 等关键链路
 - 🐳 **Docker / Ollama**：本地 API、前端、Ollama 模式的快速启动路径
 
 ## 🏗️ 当前架构
@@ -56,8 +81,8 @@ Experimental 模块会在页面内显示实时状态、依赖要求和受限原�
    包含 Chat Session、ChatNew UI、流式消息、上下文面板。
 3. `Agent Surface`
    包含 Chat Agent 意图路由、Agent Session、LangGraph 执行、审批门控动作。
-4. `Workflow / Workspace Surface`
-   包含多 Agent Workflow Runtime、观测页、工作区文件与上下文能力。
+4. `Workspace Surface`
+   包含工作区文件、上下文检索与本地开发协作能力。
 
 核心后端目录现在以这些模块为主：
 
@@ -65,8 +90,8 @@ Experimental 模块会在页面内显示实时状态、依赖要求和受限原�
 server/
 ├── api/                       # FastAPI 路由
 ├── agent_session/             # Agent Session、LangGraph、工具、审批恢复
-├── agent_runtime/             # 多 Agent workflow runtime
-├── chat_agent/                # 聊天意图 -> agent/workflow 路由
+├── agent_runtime/             # 运行时基础能力（已去除 legacy 旧链路）
+├── chat_agent/                # 聊天意图 -> chat/agent 路由
 ├── context/                   # 项目上下文扫描与检索
 ├── memory/                    # 记忆系统
 ├── rag/                       # 知识库 / 向量检索
@@ -243,10 +268,10 @@ python scripts/validate_training_v2_flow.py --base-url http://127.0.0.1:8010 --a
 ```
 finetune-platform/
 ├── server/                     # 后端服务
-│   ├── api/                    # 设备 / 模型 / 数据集 / 训练 / 推理 / chat-agent / workflows
+│   ├── api/                    # 设备 / 模型 / 数据集 / 训练 / 推理 / chat-agent
 │   ├── agent_session/          # Agent Session 与 LangGraph 执行链
-│   ├── agent_runtime/          # Workflow Runtime
-│   ├── chat_agent/             # chat -> agent/workflow 编排
+│   ├── agent_runtime/          # 运行时基础能力
+│   ├── chat_agent/             # chat -> agent 编排
 │   ├── context/                # 项目上下文
 │   ├── memory/                 # 记忆系统
 │   ├── rag/                    # 知识库
@@ -294,8 +319,7 @@ finetune-platform/
 - `ProjectContext`：项目上下文扫描与检索
 - `MemoryPage`：记忆与上下文存储能力
 - `WorkspaceManager`：工作区、文件与本地开发协作能力
-- `ChatNew`：新版聊天主界面，包含会话、路由、上下文面板、Agent / Workflow 运行卡片
-- `Workflows`：多 Agent workflow 观测、审批与事件流
+- `ChatNew`：新版聊天主界面，包含会话、路由、上下文面板、Agent 运行卡片
 - `APIKeyManager`：云模型 API Key 管理
 
 下面这些页面目前更适合按实验性能力理解：
@@ -307,26 +331,24 @@ finetune-platform/
 - `ActionRecorder`：Action Recorder
 - `SharedChat`：共享聊天视图
 - `DesignSystem`：设计系统展示
-- `DigitalTeam`：历史页面，当前不应视为主线能力
 
 ## 💬 Chat 页面主能力
 
 `ChatNew` 现在是最重要的统一入口，不只是一个“发消息的页面”。它同时承担了：
 
 - `Chat Session`：多会话历史、消息列表、会话切换、消息删除与清空
-- `Routing`：支持 `auto / chat / agent` 路由模式，自动判断当前请求应该走普通聊天、Agent Task 还是 Workflow Run
+- `Routing`：支持 `auto / chat / agent` 路由模式，自动判断当前请求应该走普通聊天还是 Agent Task
 - `Cloud Model`：支持云模型开关、Provider / Model 选择、API Key 管理入口
-- `Workspace Binding`：可绑定工作区与项目路径，让聊天、agent、workflow 都落在同一项目上下文里
-- `Context Panel`：查看和调整路由模式、主 Agent、Workflow Template、Autonomy Mode、工作区与上下文信息
+- `Workspace Binding`：可绑定工作区与项目路径，让聊天和 Agent Task 落在同一项目上下文里
+- `Context Panel`：查看和调整路由模式、主 Agent、Autonomy Mode、工作区与上下文信息
 - `Agent Run Cards`：在同一个聊天流里展示 agent session、动作审批、执行结果、阶段状态
-- `Workflow Timeline`：在聊天页直接展示 workflow steps、tool events、当前状态与活跃节点
 - `Memory / Context`：从聊天页侧边能力进入记忆管理、上下文信息与 API Key 配置
 
 所以更准确地说，当前项目的使用路径不是“先聊天，再单独去 agent 页面”，而是：
-`先在 ChatNew 发起需求 -> 再根据路由结果进入 chat / agent / workflow 三种执行形态`。
+`先在 ChatNew 发起需求 -> 再根据路由结果进入 chat / agent 两种执行形态`。
 
 同时也需要明确一点：
-当前 `agent` 模块已经能完成只读任务、单文件小补丁、动作审批与基础 workflow 观测，但整体仍然比较粗糙，还不应该被理解成“稳定成熟的通用开发代理”。
+当前 `agent` 模块已经能完成只读任务、单文件小补丁与动作审批，但整体仍然比较粗糙，还不应该被理解成“稳定成熟的通用开发代理”。
 更合适的预期是：
 
 - 它适合做小范围、可观察、可审批的本地任务
@@ -335,25 +357,25 @@ finetune-platform/
 
 如果你在评估当前项目，请把 `agent` 理解为“正在快速收口中的核心 Beta 能力”，而不是已经完全产品化的终态。
 
-## 🧭 第一次上手 Chat / Agent / Workflow
+## 🧭 第一次上手 Chat / Agent
 
 如果你第一次想体验现在项目里的主链路，推荐把 `ChatNew` 当成第一入口，按这个顺序：
 
 1. 先启动后端和前端，确认 `http://localhost:5173` 与 `http://localhost:8010/docs` 都能打开。
-2. 进入 `ChatNew`，先看右侧或抽屉式的 `Context Panel`，确认当前 `routing mode`、主 Agent、Workflow Template、Autonomy Mode、Workspace 都符合你的预期。
+2. 进入 `ChatNew`，先看右侧或抽屉式的 `Context Panel`，确认当前 `routing mode`、主 Agent、Autonomy Mode、Workspace 都符合你的预期。
 3. 先发送一条普通问题，比如“帮我解释一下 LoRA 和 QLoRA 的区别”，确认它会走普通 `chat` 路由，而不是误判成 agent。
 4. 再发送一条明确的开发型目标，比如“读取当前项目的 package.json 和 server/main.py，然后总结项目结构”，确认它会从聊天流中创建 `Agent Session`，并在卡片里展示执行过程。
 5. 如果要体验动作审批，再发送一个明确的小改动目标，例如“只修改某个测试文件中的一个字符串”，观察聊天流里的 Agent 卡片进入 `waiting_approval`，然后执行 `approve / execute`。
-6. 最后进入 `Workflows` 页面看 observability，确认能看到 steps、tool events、actions、recent events，以及动作从 `pending -> approved -> executed` 的状态变化。
+6. 在聊天页的 Agent 运行卡片中确认事件与动作状态变化（`pending -> approved -> executed`）。
 7. 如果你只是想验证当前链路是否健康，优先做“只读任务”与“单文件小补丁任务”，不要一开始就让 agent 做跨模块重构。
 
 一个比较稳妥的第一次体验路径是：
 
 - 在 `ChatNew` 里先完成普通聊天验证
 - 再用同一个页面发起只读 Agent 任务
-- 观察 `AgentRunCard / AgentPartMessage / WorkflowStepCard`
+- 观察 `AgentRunCard / AgentPartMessage`
 - 再发起一个单文件 patch 任务并审批执行
-- 最后到 `Workflows` 页面看观测与事件流
+- 在聊天页直接完成观测与审批闭环
 
 ## 🔌 API 端点
 
@@ -394,7 +416,7 @@ finetune-platform/
 - `GET /chat/sessions/{id}/messages` - 获取消息列表
 
 ### Chat Agent / Agent Session
-- `POST /chat-agent/intent` - 判断消息应走 `chat / agent / workflow`
+- `POST /chat-agent/intent` - 判断消息应走 `chat / agent`
 - `POST /chat-agent/runs` - 创建 Chat Agent run
 - `GET /chat-agent/runs/{run_id}/events/stream` - Chat Agent 事件流
 - `POST /agent-sessions` - 创建 Agent Session
@@ -403,13 +425,6 @@ finetune-platform/
 - `POST /agent-actions/{action_id}/approve` - 批准动作
 - `POST /agent-actions/{action_id}/reject` - 拒绝动作
 - `POST /agent-actions/{action_id}/execute` - 执行动作
-
-### Workflows
-- `GET /workflows` - 工作流列表
-- `GET /workflows/{workflow_id}/observability` - 工作流观测
-- `GET /workflows/{workflow_id}/events/stream` - 工作流事件流
-- `POST /workflow-actions/{action_id}/approve` - 批准 workflow 动作
-- `POST /workflow-actions/{action_id}/execute` - 执行 workflow 动作
 
 ### Evaluation / Deployment
 - `POST /evaluation/runs` - 创建评估 run
