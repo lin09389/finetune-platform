@@ -7,17 +7,30 @@ from training_engine.schemas import TrainingConfigInput
 logger = get_logger(__name__)
 
 
-def estimate_training_total_steps(train_size: int, batch_size: int, epochs: int) -> int:
-    """估算训练总步数，避免小数据集出现 0 步。"""
+def estimate_training_total_steps(
+    train_size: int,
+    batch_size: int,
+    epochs: int,
+    gradient_accumulation: int = 1,
+) -> int:
+    """估算训练总步数（优化器步数），避免小数据集出现 0 步。
+
+    HuggingFace Trainer 的 global_step 是优化器步数，每 gradient_accumulation 个
+    前向批次触发一次。此函数与 Trainer 行为保持一致，返回真实的优化器步数。
+    """
     if train_size <= 0:
         raise ValueError("训练集为空，无法开始训练")
     if batch_size <= 0:
         raise ValueError("batch_size 必须大于 0")
     if epochs <= 0:
         raise ValueError("epochs 必须大于 0")
+    gradient_accumulation = max(1, gradient_accumulation)
 
     steps_per_epoch = max(1, (train_size + batch_size - 1) // batch_size)
-    return steps_per_epoch * epochs
+    optimizer_steps_per_epoch = max(
+        1, (steps_per_epoch + gradient_accumulation - 1) // gradient_accumulation
+    )
+    return optimizer_steps_per_epoch * epochs
 
 
 def apply_precision_preset(config: TrainingConfigInput) -> TrainingConfigInput:

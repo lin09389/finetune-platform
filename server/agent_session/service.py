@@ -14,7 +14,7 @@ from typing import Any
 from fastapi import BackgroundTasks
 from fastapi import HTTPException
 
-from agent_kernel.providers import resolve_saved_provider
+from ai.providers import resolve_saved_provider
 from core.config import settings
 from core.db_manager import run_sync
 from security.encryption import secure_storage

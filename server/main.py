@@ -39,7 +39,6 @@ from api.deployment import router as deployment
 from api.device import router as device
 
 from api.evaluation import router as evaluation
-from api.workflows import router as workflows
 from api.chat.routes import router as chat
 from api.agents import router as agents
 from api.chat_branch import router as chat_branch
@@ -493,7 +492,6 @@ app.include_router(knowledge, prefix="/knowledge", tags=["Knowledge"])
 app.include_router(knowledge, prefix="/v2/knowledge", tags=["Knowledge v2"])
 app.include_router(workspace, prefix="/workspace", tags=["Workspace"])
 
-app.include_router(workflows, tags=["Workflows"])
 app.include_router(chat_agent)
 app.include_router(agent_sessions)
 app.include_router(agent_session_permissions)
@@ -577,8 +575,6 @@ async def api_info():
             "Inference service with backend switching",
             "Chat sessions and knowledge retrieval",
             "Workspace and local AI tooling",
-
-            "Multi-agent workflow orchestration",
         ],
         "capability_tiers": {
             "ga": [
@@ -595,8 +591,6 @@ async def api_info():
                 "memory",
                 "model_center",
                 "workspace",
-                "workflows",
-
             ],
             "experimental": [
                 "cua",
@@ -618,8 +612,6 @@ async def api_info():
             "runtime": "/runtime/bootstrap",
             "memory": "/memory",
             "workspace": "/workspace",
-            "workflows": "/workflows",
-
             "context": "/context",
             "model_center": "/model-center",
             "experimental": {

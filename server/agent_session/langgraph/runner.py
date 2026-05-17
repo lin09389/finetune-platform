@@ -8,7 +8,7 @@ import logging
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.types import Command
 
-from agent_kernel.langgraph.checkpoint import get_checkpoint_db_path
+from .checkpoint import get_checkpoint_db_path
 
 from .graph_builder import build_agent_session_graph
 from .nodes import AgentSessionLangGraphRuntime

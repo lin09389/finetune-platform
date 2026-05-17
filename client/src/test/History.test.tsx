@@ -1,6 +1,10 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import History from '../pages/History';
+
+const renderHistory = (props?: { mode?: 'history' | 'compare' }) =>
+  render(<MemoryRouter><History {...(props ?? {})} /></MemoryRouter>);
 
 const mockUseAppStore = vi.hoisted(() => vi.fn());
 const mockGetTrainingHistory = vi.hoisted(() => vi.fn());
@@ -170,7 +174,7 @@ describe('History page', () => {
   });
 
   it('loads history records on mount', async () => {
-    render(<History />);
+    renderHistory();
 
     await waitFor(() => {
       expect(mockGetTrainingHistory).toHaveBeenCalled();
@@ -179,7 +183,7 @@ describe('History page', () => {
   });
 
   it('can render as the training comparison module', async () => {
-    render(<History mode="compare" />);
+    renderHistory({ mode: 'compare' });
 
     expect(screen.getByText('训练对比')).toBeInTheDocument();
     await waitFor(() => {
@@ -256,7 +260,7 @@ describe('History page', () => {
     });
     mockGetTrainingHistory.mockResolvedValue(records);
 
-    render(<History mode="compare" />);
+    renderHistory({ mode: 'compare' });
 
     await waitFor(() => {
       expect(screen.getAllByRole('button', { name: /移出对比/ })).toHaveLength(2);
@@ -294,7 +298,7 @@ describe('History page', () => {
   });
 
   it('loads checkpoints when opening record detail', async () => {
-    render(<History />);
+    renderHistory();
 
     fireEvent.click(screen.getAllByRole('button', { name: /详情/ })[0]!);
 
@@ -305,7 +309,7 @@ describe('History page', () => {
   });
 
   it('resumes training from a checkpoint', async () => {
-    render(<History />);
+    renderHistory();
 
     fireEvent.click(screen.getAllByRole('button', { name: /详情/ })[0]!);
 
@@ -329,7 +333,7 @@ describe('History page', () => {
   }, 15000);
 
   it('merges and exports a LoRA adapter from record detail', async () => {
-    render(<History />);
+    renderHistory();
 
     fireEvent.click(screen.getAllByRole('button', { name: /详情/ })[0]!);
 
@@ -361,7 +365,7 @@ describe('History page', () => {
   }, 15000);
 
   it('compares two training records with metric curves and config differences', async () => {
-    render(<History />);
+    renderHistory();
 
     const addButtons = screen.getAllByRole('button', { name: /加入对比/ });
     fireEvent.click(addButtons[0]!);
@@ -404,7 +408,7 @@ describe('History page', () => {
       ),
     );
 
-    render(<History />);
+    renderHistory();
 
     const addButtons = screen.getAllByRole('button', { name: /加入对比/ });
     fireEvent.click(addButtons[0]!);
@@ -422,7 +426,7 @@ describe('History page', () => {
   }, 15000);
 
   it('exports the selected comparison as a markdown report', async () => {
-    render(<History />);
+    renderHistory();
 
     const addButtons = screen.getAllByRole('button', { name: /加入对比/ });
     fireEvent.click(addButtons[0]!);
@@ -449,7 +453,7 @@ describe('History page', () => {
   }, 15000);
 
   it('exports the selected comparison as a csv report', async () => {
-    render(<History />);
+    renderHistory();
 
     const addButtons = screen.getAllByRole('button', { name: /加入对比/ });
     fireEvent.click(addButtons[0]!);

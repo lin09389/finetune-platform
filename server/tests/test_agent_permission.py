@@ -1,4 +1,4 @@
-from agent_runtime_legacy.permission import PermissionAction, PermissionRule, evaluate
+from agent_session.permission import PermissionAction, PermissionRule, evaluate
 
 
 def test_permission_last_rule_wins():

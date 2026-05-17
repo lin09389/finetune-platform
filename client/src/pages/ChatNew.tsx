@@ -33,13 +33,12 @@ import {
   getPrimaryAgents,
   getSavedCloudProviderData,
   getSavedCloudProviders,
-  getWorkflowTemplates,
   interruptAgentSession,
   listWorkspaces,
   promptAgentSession,
   rejectAgentAction as rejectAgentSessionAction,
 } from '../services/api';
-import type { AgentArtifact, AgentInfo, AgentPart, AgentSession, AgentSessionEvent, AgentSessionOverview, SavedCloudProvider, WorkflowTemplate, WorkspaceSummary } from '../services/api';
+import type { AgentArtifact, AgentInfo, AgentPart, AgentSession, AgentSessionEvent, AgentSessionOverview, SavedCloudProvider, WorkspaceSummary } from '../services/api';
 import { transitions } from '../theme/animations';
 import { notify } from '../utils/notify';
 import { ArrowDownOutlined } from '@ant-design/icons';
@@ -217,8 +216,6 @@ const ChatPage: React.FC = () => {
   const setCloudProviders = (providers: SavedCloudProvider[]) => setCloudConfig({ providers: providers as any });
   const selectedCloudModel = cloudConfig.selectedModel;
   const setSelectedCloudModel = (model: string) => setCloudConfig({ selectedModel: model });
-  const [workflowTemplates, setWorkflowTemplates] = useState<WorkflowTemplate[]>([]);
-  const [selectedWorkflowTemplate, setSelectedWorkflowTemplate] = useState('software_delivery');
   const [primaryAgents, setPrimaryAgents] = useState<AgentInfo[]>([]);
   const [selectedPrimaryAgent, setSelectedPrimaryAgent] = useState('build');
   const [routingMode, setRoutingMode] = useState<'auto' | 'chat' | 'agent'>(
@@ -234,7 +231,7 @@ const ChatPage: React.FC = () => {
     },
   );
   const [routingIntent, setRoutingIntent] = useState(false);
-  const [creatingWorkflow, setCreatingWorkflow] = useState(false);
+  const [creatingAgentSession, setCreatingAgentSession] = useState(false);
   const [availableWorkspaces, setAvailableWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>(() => localStorage.getItem(CHAT_WORKSPACE_ID_STORAGE_KEY) || '');
   const [workspaceProjectPath, setWorkspaceProjectPath] = useState<string>(() => localStorage.getItem(CHAT_PROJECT_PATH_STORAGE_KEY) || '');
@@ -276,7 +273,8 @@ const ChatPage: React.FC = () => {
 
   const saveCurrentScrollState = useCallback(
     (overrides?: Partial<StoredChatScrollState>) => {
-      if (!currentSessionId || messages.length === 0) return;
+      if (!currentSessionId || currentSessionId.startsWith('local_')) return;
+      if (messages.length === 0) return;
       persistScrollState(currentSessionId, {
         topIndex: clampMessageIndex(visibleRangeStartRef.current, messages.length),
         atBottom: isAutoScrollEnabledRef.current,
@@ -475,7 +473,6 @@ const ChatPage: React.FC = () => {
       refreshInference(),
       loadSessions(),
       loadCloudAIConfig(),
-      loadWorkflowTemplates(),
       loadPrimaryAgents(),
       refreshKnowledge(),
     ]).then((results) => {
@@ -655,28 +652,18 @@ const ChatPage: React.FC = () => {
     }
   };
 
-  const loadWorkflowTemplates = async () => {
-    try {
-      const templates = await getWorkflowTemplates();
-      setWorkflowTemplates(templates || []);
-      if (!templates?.some((template: WorkflowTemplate) => template.id === selectedWorkflowTemplate)) {
-        setSelectedWorkflowTemplate('software_delivery');
-      }
-    } catch {
-      setWorkflowTemplates([]);
-    }
-  };
-
   const loadPrimaryAgents = async () => {
     try {
       const agents = await getPrimaryAgents();
       setPrimaryAgents(agents || []);
       const saved = localStorage.getItem('chat_primary_agent') || 'build';
-      const fallback = agents?.some((agent) => agent.id === saved) ? saved : agents?.[0]?.id || 'build';
-      setSelectedPrimaryAgent(fallback);
+      if (agents?.some((a: AgentInfo) => a.id === saved)) {
+        setSelectedPrimaryAgent(saved);
+      } else if (agents?.[0]?.id) {
+        setSelectedPrimaryAgent(agents[0].id);
+      }
     } catch {
       setPrimaryAgents([]);
-      setSelectedPrimaryAgent('build');
     }
   };
 
@@ -1157,11 +1144,11 @@ if (existing) {
 
   }, [currentSessionId, messages, startAgentSessionStream]);
 
-  const handleAgentWorkflow = useCallback(
+  const handleAgentSession = useCallback(
     async (
       content: string,
       forceAgent = false,
-      options: { agentId?: string; templateId?: string; reason?: string; mode?: 'agent' | 'workflow'; skipUserMessage?: boolean } = {},
+      options: { agentId?: string; reason?: string; mode?: 'agent'; skipUserMessage?: boolean } = {},
     ) => {
       const goal = content.trim();
       if (!goal) return false;
@@ -1176,8 +1163,8 @@ if (existing) {
       if (!options.skipUserMessage) {
         addMessage({ role: 'user', content: goal });
       }
-      console.log('[Agent] Starting workflow creation...', { content, options });
-      setCreatingWorkflow(true);
+      console.log('[Agent] Starting agent session...', { content, options });
+      setCreatingAgentSession(true);
       setRoutingIntent(false);
       let agentSession: AgentSession | undefined;
       try {
@@ -1189,9 +1176,9 @@ if (existing) {
             chat_session_id: sessionId && !sessionId.startsWith('local_') ? sessionId : undefined,
             agent_id: options.agentId || selectedPrimaryAgent || 'build',
             title:
-              options.mode === 'workflow'
-                ? `${goal.slice(0, 26) || 'Workflow Run'}${workspaceContext}`.slice(0, 64)
-                : `${goal.slice(0, 26) || 'Agent Task'}${workspaceContext}`.slice(0, 64),
+              options.mode === 'agent'
+                ? `${goal.slice(0, 26) || 'Agent Task'}${workspaceContext}`.slice(0, 64)
+                : '',
             project_path: effectiveProjectPath || undefined,
             provider: cloudAIConfig?.provider || undefined,
             model: selectedCloudModel || cloudAIConfig?.model || undefined,
@@ -1229,7 +1216,7 @@ if (existing) {
             error?.response?.data?.detail ||
             error?.message ||
             'Agent 工作启动失败';
-        const fallback = `${options.mode === 'workflow' ? 'Workflow 运行启动失败' : 'Agent 工作启动失败'}：${detail}`;
+        const fallback = `Agent 工作启动失败：${detail}`;
         notify.error(fallback);
         await appendAgentSessionError(fallback, agentSession || {
           id: sessionId ? `agent_error_${sessionId}_${Date.now()}` : undefined,
@@ -1242,7 +1229,7 @@ if (existing) {
         });
         return true;
       } finally {
-        setCreatingWorkflow(false);
+        setCreatingAgentSession(false);
       }
     },
     [
@@ -1272,11 +1259,11 @@ if (existing) {
 
       let tempUserId: string | undefined;
       let tempLoadingId: string | undefined;
-      const shouldPreferWorkflow = routingMode !== 'chat';
+      const shouldPreferAgent = routingMode !== 'chat';
 
-      if (routingMode === 'agent' || shouldPreferWorkflow) {
+      if (routingMode === 'agent' || shouldPreferAgent) {
         if (routingMode === 'agent') {
-          const handledByAgent = await handleAgentWorkflow(content, true, { reason: '已按 Agent 模式启动 Build Agent。', mode: 'agent' });
+          const handledByAgent = await handleAgentSession(content, true, { reason: '已按 Agent 模式启动 Build Agent。', mode: 'agent' });
           if (handledByAgent) return;
         }
 
@@ -1292,7 +1279,6 @@ if (existing) {
                 provider: cloudAIConfig?.provider || undefined,
                 model: selectedCloudModel || cloudAIConfig?.model || undefined,
                 agent_id: selectedPrimaryAgent || 'build',
-                template_id: selectedWorkflowTemplate || 'software_delivery',
                 chat_session_id: currentSessionId && !currentSessionId.startsWith('local_') ? currentSessionId : undefined,
                 routing_mode: 'auto',
               }),
@@ -1300,26 +1286,11 @@ if (existing) {
               'intent_routing_timeout',
             );
             console.log('[Routing] Intent classification result:', intent);
-            if (intent.mode === 'workflow') {
-              removeLocalMessage(tempLoadingId!);
-              setRoutingIntent(false);
-              const handledByWorkflow = await handleAgentWorkflow(content, true, {
-                agentId: intent.suggested_agent_id || selectedPrimaryAgent || 'build',
-                templateId: intent.suggested_template_id || selectedWorkflowTemplate || 'software_delivery',
-                reason: intent.source === 'cloud'
-                  ? `云端判断需要 Workflow Run：${intent.reason}`
-                  : `已识别为流程编排任务，启动 Workflow Run：${intent.reason}`,
-                mode: 'workflow',
-                skipUserMessage: true,
-              });
-              if (handledByWorkflow) return;
-            }
             if (intent.mode === 'agent') {
               removeLocalMessage(tempLoadingId!);
               setRoutingIntent(false);
-              const handledByAgent = await handleAgentWorkflow(content, true, {
+              const handledByAgent = await handleAgentSession(content, true, {
                 agentId: intent.suggested_agent_id || selectedPrimaryAgent || 'build',
-                templateId: intent.suggested_template_id || selectedWorkflowTemplate || 'software_delivery',
                 reason: intent.source === 'cloud'
                   ? `云端判断需要 Agent Task：${intent.reason}`
                   : `已识别为开发任务，启动 Agent Task：${intent.reason}`,
@@ -1335,7 +1306,7 @@ if (existing) {
             if (isLikelyAgentGoal(content)) {
               removeLocalMessage(tempLoadingId!);
               setRoutingIntent(false);
-              const handledByAgent = await handleAgentWorkflow(content, true, {
+              const handledByAgent = await handleAgentSession(content, true, {
                 reason: '意图判断失败，已按本地规则启动 Agent Task。',
                 mode: 'agent',
                 skipUserMessage: true,
@@ -1373,38 +1344,17 @@ if (existing) {
       cloudAIConfig,
       currentSessionId,
       deleteMessage,
-      handleAgentWorkflow,
+      handleAgentSession,
       isLikelyAgentGoal,
       removeLocalMessage,
       routingMode,
       scrollToBottom,
       selectedCloudModel,
       selectedPrimaryAgent,
-      selectedWorkflowTemplate,
       sendCloudMessage,
       sendMessage,
       useCloudAI,
     ],
-  );
-
-  const handleCreateWorkflow = useCallback(
-    async (content: string) => {
-      const goal = content.trim();
-      if (!goal) {
-        notify.warning('请先输入 Agent 目标');
-        return;
-      }
-
-      setCreatingWorkflow(true);
-      try {
-        await handleAgentWorkflow(goal, true);
-      } catch (error: any) {
-        notify.error(error?.response?.data?.detail || 'Agent 工作启动失败');
-      } finally {
-        setCreatingWorkflow(false);
-      }
-    },
-    [handleAgentWorkflow],
   );
 
   const handleStopCurrentRun = useCallback(async () => {
@@ -1429,15 +1379,6 @@ if (existing) {
       notify.error(detail);
     }
   }, [activeAgentSessionIds, stopStream, upsertAgentSessionMessage]);
-
-  const workflowTemplateOptions = useMemo(
-    () =>
-      (workflowTemplates.length
-        ? workflowTemplates
-        : [{ id: 'software_delivery', name: 'AI 软件交付流程' } as WorkflowTemplate]
-      ).map((template) => ({ value: template.id, label: template.name })),
-    [workflowTemplates],
-  );
 
   const selectedCloudProvider = useMemo(
     () => cloudProviders.find((provider) => provider.provider === cloudAIConfig?.provider),
@@ -1769,10 +1710,10 @@ if (existing) {
   const activeModeLabel = routingMode === 'agent'
     ? 'Agent Task'
     : routingMode === 'auto' && routingIntent
-      ? 'Workflow Run 路由中'
+      ? 'Agent Task 路由中'
       : routingMode === 'chat'
         ? 'Chat'
-        : 'Workflow Run';
+        : 'Agent Task';
   const activeModelLabel = useCloudAI
     ? selectedCloudModel || '未选择模型'
     : settings.modelId || '未选择模型';
@@ -2011,10 +1952,7 @@ if (existing) {
       routing={routingIntent}
       autonomyMode={autonomyMode}
       onAutonomyModeChange={setAutonomyMode}
-      workflowTemplateOptions={workflowTemplateOptions}
-      selectedWorkflowTemplate={selectedWorkflowTemplate}
-      onWorkflowTemplateChange={setSelectedWorkflowTemplate}
-      creatingWorkflow={creatingWorkflow}
+      creatingAgentSession={creatingAgentSession}
       isLoading={isLoading}
       isStreaming={isActivelyStreaming}
     />
@@ -2227,7 +2165,7 @@ if (existing) {
                     今天想处理点什么？
                   </h3>
                   <p className={styles.emptyDesc}>
-                    普通问题会停留在 Chat，开发任务会进入 Agent Task，多步骤编排则会进入 Workflow Run。
+                    普通问题会停留在 Chat，开发任务会进入 Agent Task。
                   </p>
                   
                   <div className={styles.starterSuggestions}>
@@ -2335,7 +2273,6 @@ if (existing) {
             isStreaming={isActivelyStreaming || isAgentSessionRunning}
             modelId={useCloudAI ? selectedCloudModel : settings.modelId}
             agentModeAvailable={primaryAgents.length > 0}
-            onCreateWorkflow={handleCreateWorkflow}
             routingMode={routingMode}
             routing={routingIntent}
             autonomyMode={autonomyMode}
@@ -2407,10 +2344,7 @@ if (existing) {
           routing={routingIntent}
           autonomyMode={autonomyMode}
           onAutonomyModeChange={setAutonomyMode}
-          workflowTemplateOptions={workflowTemplateOptions}
-          selectedWorkflowTemplate={selectedWorkflowTemplate}
-          onWorkflowTemplateChange={setSelectedWorkflowTemplate}
-          creatingWorkflow={creatingWorkflow}
+          creatingAgentSession={creatingAgentSession}
           isLoading={isLoading}
           isStreaming={isActivelyStreaming}
         />

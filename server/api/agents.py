@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from agent_kernel.agent_registry import AgentRegistry
+from agent_session.agent_registry import AgentRegistry
 
 router = APIRouter(prefix="/agents", tags=["Agents"])
 _registry: AgentRegistry | None = None

@@ -26,7 +26,6 @@ interface ChatInputProps {
   maxLength?: number;
   showModelInfo?: boolean;
   agentModeAvailable?: boolean;
-  onCreateWorkflow?: (content: string) => Promise<void>;
   routingMode?: 'auto' | 'chat' | 'agent';
   routing?: boolean;
   autonomyMode?: 'none' | 'semi' | 'full' | 'safe_auto' | 'confirm_all' | 'read_only';

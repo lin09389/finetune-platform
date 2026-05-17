@@ -108,7 +108,7 @@ class TrainingQueue:
 
         self._history: dict[str, TrainingTask] = {}
 
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._history_lock = threading.Lock()
 
         self._worker_running = False
@@ -276,15 +276,17 @@ class TrainingQueue:
     def _save_state(self):
         """P1-3: 原子写入状态到文件"""
         try:
+            with self._lock:
+                running_snapshot = {
+                    task_id: task.to_dict()
+                    for task_id, task in self._running_tasks.items()
+                }
             state = {
                 "history": {
                     task_id: task.to_dict()
                     for task_id, task in self._history.items()
                 },
-                "running": {
-                    task_id: task.to_dict()
-                    for task_id, task in self._running_tasks.items()
-                }
+                "running": running_snapshot,
             }
 
             self.state_file.parent.mkdir(parents=True, exist_ok=True)

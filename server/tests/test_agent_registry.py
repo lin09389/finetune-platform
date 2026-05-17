@@ -1,4 +1,4 @@
-from agent_runtime_legacy.agent_registry import AgentRegistry
+from agent_session.agent_registry import AgentRegistry
 
 
 def test_builtin_agents_load_and_primary_filter():
@@ -7,8 +7,8 @@ def test_builtin_agents_load_and_primary_filter():
     agents = {agent.id for agent in registry.list_agents()}
     primary = {agent.id for agent in registry.list_primary_agents()}
 
-    assert {"build", "plan", "explore", "review"} <= agents
-    assert {"build", "plan"} <= primary
+    assert {"build", "explore", "review"} <= agents
+    assert "build" in primary
     assert "explore" not in primary
 
 

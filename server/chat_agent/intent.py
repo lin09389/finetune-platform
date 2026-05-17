@@ -4,11 +4,11 @@ import json
 import re
 from typing import Any, Literal
 
-from agent_kernel.providers import resolve_saved_provider
+from ai.providers import resolve_saved_provider
 from security.encryption import secure_storage
 
 
-IntentMode = Literal["chat", "agent", "workflow"]
+IntentMode = Literal["chat", "agent"]
 IntentSource = Literal["local_rule", "cloud", "fallback", "manual"]
 
 
@@ -69,18 +69,6 @@ class ChatAgentIntentClassifier:
         "更新",
         "重命名",
     )
-    workflow_keywords = (
-        "workflow",
-        "工作流",
-        "编排",
-        "分阶段",
-        "stage",
-        "node",
-        "流程",
-        "审批流",
-        "任务流",
-        "多阶段",
-    )
     discussion_only_keywords = (
         "不要执行", "只讨论", "只分析", "解释一下", "帮我解释", "什么是", "为什么",
         "怎么理解", "怎么用", "是什么意思", "有什么区别", "介绍一下", "帮我看看",
@@ -96,8 +84,6 @@ class ChatAgentIntentClassifier:
             return False, "empty"
         if any(keyword in text for keyword in self.discussion_only_keywords):
             return False, "chat"
-        if any(keyword in text for keyword in self.workflow_keywords):
-            return True, "workflow_work"
         if any(keyword in text for keyword in self.agent_keywords):
             return True, "agent_work"
         return False, "chat"
@@ -110,17 +96,15 @@ class ChatAgentIntentClassifier:
         provider: str | None = None,
         model: str | None = None,
         agent_id: str | None = None,
-        template_id: str | None = None,
     ) -> dict[str, Any]:
         agent_id = agent_id or "build"
-        template_id = template_id or "software_delivery"
 
         if routing_mode == "chat":
-            return self._decision("chat", 1.0, "用户选择普通对话模式。", "manual", None, template_id)
+            return self._decision("chat", 1.0, "用户选择普通对话模式。", "manual", None)
         if routing_mode == "agent":
-            return self._decision("agent", 1.0, "用户选择 Agent 工作模式。", "manual", agent_id, template_id)
+            return self._decision("agent", 1.0, "用户选择 Agent 工作模式。", "manual", agent_id)
 
-        local = self._local_route(content, agent_id, template_id)
+        local = self._local_route(content, agent_id)
         if local is not None:
             return local
 
@@ -130,7 +114,6 @@ class ChatAgentIntentClassifier:
                 provider=provider,
                 model=model,
                 agent_id=agent_id,
-                template_id=template_id,
             )
         except Exception as exc:
             is_agent, reason = self.classify(content)
@@ -140,24 +123,20 @@ class ChatAgentIntentClassifier:
                 f"云端意图判断失败，已用本地规则回退：{exc}",
                 "fallback",
                 agent_id if is_agent else None,
-                template_id,
             )
 
     def _local_route(
         self,
         content: str,
         agent_id: str,
-        template_id: str,
     ) -> dict[str, Any] | None:
         text = content.strip().lower()
         if not text:
-            return self._decision("chat", 1.0, "空输入按普通对话处理。", "local_rule", None, template_id)
+            return self._decision("chat", 1.0, "空输入按普通对话处理。", "local_rule", None)
         if any(keyword in text for keyword in self.discussion_only_keywords):
-            return self._decision("chat", 0.92, "本地规则识别为解释或讨论类问题。", "local_rule", None, template_id)
-        if any(keyword in text for keyword in self.workflow_keywords):
-            return self._decision("workflow", 0.9, "本地规则识别为流程编排、阶段控制或多步骤任务。", "local_rule", agent_id, template_id)
+            return self._decision("chat", 0.92, "本地规则识别为解释或讨论类问题。", "local_rule", None)
         if any(keyword in text for keyword in self.agent_keywords):
-            return self._decision("agent", 0.9, "本地规则识别为开发、修改、测试或执行类目标。", "local_rule", agent_id, template_id)
+            return self._decision("agent", 0.9, "本地规则识别为开发、修改、测试或执行类目标。", "local_rule", agent_id)
         return None
 
     async def _cloud_route(
@@ -167,7 +146,6 @@ class ChatAgentIntentClassifier:
         provider: str | None,
         model: str | None,
         agent_id: str,
-        template_id: str,
     ) -> dict[str, Any]:
         provider_id, key_data = self._resolve_provider_data(provider)
         api_key = key_data.get("api_key", "")
@@ -185,24 +163,22 @@ class ChatAgentIntentClassifier:
                     "role": "system",
                     "content": (
                         "你是一个意图分类器。判断用户输入应该走哪条路径，只输出一个 JSON 对象。\n\n"
-                        "三种模式：\n"
+                        "两种模式：\n"
                         "- chat：用户在讨论、提问、咨询，不需要修改任何文件或执行任何命令\n"
-                        "- agent：用户需要执行具体操作（修改文件、运行命令、创建代码等）\n"
-                        "- workflow：用户需要多步骤编排、审批流、分阶段执行\n\n"
+                        "- agent：用户需要执行具体操作（修改文件、运行命令、创建代码等）\n\n"
                         "判断规则：\n"
                         "1. 如果用户在问「是什么」「为什么」「怎么理解」「有什么区别」→ chat\n"
                         "2. 如果用户在问「怎么做」但没有明确要求你去执行 → chat\n"
                         "3. 如果用户说「帮我改」「帮我修」「帮我写」「帮我实现」「帮我新增」「帮我添加」→ agent\n"
                         "4. 如果用户说「修改XX文件」「修复XX bug」「运行测试」「生成补丁」→ agent\n"
-                        "5. 如果用户说「不要执行」「只讨论」「只分析」「解释一下」→ chat\n"
-                        "6. 如果涉及多阶段编排、审批流 → workflow\n\n"
+                        "5. 如果用户说「不要执行」「只讨论」「只分析」「解释一下」→ chat\n\n"
                         "示例：\n"
-                        "用户：「这个函数的作用是什么」→ {\"mode\":\"chat\",\"confidence\":0.95,\"reason\":\"询问代码功能\",\"suggested_agent_id\":null,\"suggested_template_id\":null}\n"
-                        "用户：「帮我修复登录页面的 bug」→ {\"mode\":\"agent\",\"confidence\":0.92,\"reason\":\"要求修复bug\",\"suggested_agent_id\":\"build\",\"suggested_template_id\":\"software_delivery\"}\n"
-                        "用户：「这段代码的性能瓶颈在哪」→ {\"mode\":\"chat\",\"confidence\":0.9,\"reason\":\"性能分析讨论\",\"suggested_agent_id\":null,\"suggested_template_id\":null}\n"
-                        "用户：「帮我优化这段代码的性能」→ {\"mode\":\"agent\",\"confidence\":0.88,\"reason\":\"要求优化代码\",\"suggested_agent_id\":\"build\",\"suggested_template_id\":\"software_delivery\"}\n"
-                        "用户：「运行 npm run typecheck 看看有没有问题」→ {\"mode\":\"agent\",\"confidence\":0.9,\"reason\":\"要求运行命令\",\"suggested_agent_id\":\"build\",\"suggested_template_id\":\"software_delivery\"}\n"
-                        "用户：「什么是 LoRA 微调」→ {\"mode\":\"chat\",\"confidence\":0.95,\"reason\":\"概念解释\",\"suggested_agent_id\":null,\"suggested_template_id\":null}\n\n"
+                        "用户：「这个函数的作用是什么」→ {\"mode\":\"chat\",\"confidence\":0.95,\"reason\":\"询问代码功能\",\"suggested_agent_id\":null}\n"
+                        "用户：「帮我修复登录页面的 bug」→ {\"mode\":\"agent\",\"confidence\":0.92,\"reason\":\"要求修复bug\",\"suggested_agent_id\":\"build\"}\n"
+                        "用户：「这段代码的性能瓶颈在哪」→ {\"mode\":\"chat\",\"confidence\":0.9,\"reason\":\"性能分析讨论\",\"suggested_agent_id\":null}\n"
+                        "用户：「帮我优化这段代码的性能」→ {\"mode\":\"agent\",\"confidence\":0.88,\"reason\":\"要求优化代码\",\"suggested_agent_id\":\"build\"}\n"
+                        "用户：「运行 npm run typecheck 看看有没有问题」→ {\"mode\":\"agent\",\"confidence\":0.9,\"reason\":\"要求运行命令\",\"suggested_agent_id\":\"build\"}\n"
+                        "用户：「什么是 LoRA 微调」→ {\"mode\":\"chat\",\"confidence\":0.95,\"reason\":\"概念解释\",\"suggested_agent_id\":null}\n\n"
                         "严格要求：只输出 JSON，不要输出任何其他文字、markdown 或代码块标记。"
                     ),
                 },
@@ -210,10 +186,10 @@ class ChatAgentIntentClassifier:
                     "role": "user",
                     "content": (
                         f"用户输入：{content}\n\n"
-                        f"默认 agent_id: {agent_id}\n默认 template_id: {template_id}\n\n"
+                        f"默认 agent_id: {agent_id}\n\n"
                         "请判断用户意图，输出 JSON：\n"
-                        "{\"mode\": \"chat|agent|workflow\", \"confidence\": 0.0-1.0, \"reason\": \"判断原因\", "
-                        "\"suggested_agent_id\": \"字符串或null\", \"suggested_template_id\": \"字符串或null\"}"
+                        "{\"mode\": \"chat|agent\", \"confidence\": 0.0-1.0, \"reason\": \"判断原因\", "
+                        "\"suggested_agent_id\": \"字符串或null\"}"
                     ),
                 },
             ],
@@ -225,7 +201,6 @@ class ChatAgentIntentClassifier:
         raw_text = str(response.get("content") or "")
         parsed = self._try_parse_json_object(raw_text)
         if parsed is None:
-            # 解析失败时，用关键词兜底判断（不上报为错误）
             is_agent, reason = self.classify(content)
             return self._decision(
                 "agent" if is_agent else "chat",
@@ -233,11 +208,9 @@ class ChatAgentIntentClassifier:
                 f"云端返回非 JSON，已用本地规则兜底判断。原始响应：{raw_text[:80]}",
                 "fallback",
                 agent_id if is_agent else None,
-                template_id,
             )
         mode = parsed.get("mode")
-        if mode not in {"chat", "agent", "workflow"}:
-            # mode 字段非法时也做兜底
+        if mode not in {"chat", "agent"}:
             is_agent, _ = self.classify(content)
             return self._decision(
                 "agent" if is_agent else "chat",
@@ -245,19 +218,16 @@ class ChatAgentIntentClassifier:
                 f"云端返回 mode 无效（{mode!r}），已用本地规则兜底。",
                 "fallback",
                 agent_id if is_agent else None,
-                template_id,
             )
 
         confidence = self._safe_confidence(parsed.get("confidence"))
         suggested_agent = parsed.get("suggested_agent_id") or (agent_id if mode == "agent" else None)
-        suggested_template = parsed.get("suggested_template_id") or template_id
         return self._decision(
             mode,
             confidence,
             str(parsed.get("reason") or "云端模型完成意图判断。"),
             "cloud",
             str(suggested_agent) if suggested_agent else None,
-            str(suggested_template) if suggested_template else None,
         )
 
     def _resolve_provider_data(self, provider: str | None) -> tuple[str, dict[str, Any]]:
@@ -326,7 +296,6 @@ class ChatAgentIntentClassifier:
         reason: str,
         source: IntentSource,
         suggested_agent_id: str | None,
-        suggested_template_id: str | None,
     ) -> dict[str, Any]:
         return {
             "mode": mode,
@@ -334,5 +303,4 @@ class ChatAgentIntentClassifier:
             "reason": reason,
             "source": source,
             "suggested_agent_id": suggested_agent_id,
-            "suggested_template_id": suggested_template_id,
         }

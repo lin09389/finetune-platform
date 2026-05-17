@@ -129,18 +129,6 @@ class TestInferenceFlow:
         assert resp.status_code == 200
 
 
-class TestWorkflowEndpoints:
-    """Integration: workflow runtime and observability."""
-
-    def test_workflow_list(self):
-        resp = client.get("/workflows")
-        assert resp.status_code == 404
-
-    def test_workflow_observability_not_found(self):
-        resp = client.get("/workflows/nonexistent-workflow-id/observability")
-        assert resp.status_code == 404
-
-
 class TestContextEndpoints:
     """Integration: context scanning and retrieval."""
 

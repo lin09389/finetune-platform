@@ -15,6 +15,5 @@ class ChatAgentService:
             provider=request.provider,
             model=request.model,
             agent_id=request.agent_id,
-            template_id=request.template_id,
         )
         return ChatAgentIntentResponse(**decision)

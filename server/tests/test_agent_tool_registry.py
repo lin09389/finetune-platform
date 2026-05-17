@@ -5,7 +5,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
 
-from agent_runtime_legacy.command_policy import command_allowed, normalize_command
+from agent_session.command_policy import command_allowed, normalize_command
 from agent_session.tools import AgentToolRegistry
 
 
@@ -99,7 +99,7 @@ def test_dev_server_tool_lifecycle(monkeypatch):
         def kill(self):
             self._returncode = -9
 
-    monkeypatch.setattr("agent_session.tools.subprocess.Popen", FakeProcess)
+    monkeypatch.setattr("agent_session.dev_server_tools.subprocess.Popen", FakeProcess)
 
     context = {"project_path": str(workspace), "session": {"id": "test-dev-server"}}
     payload = {"command": ["npm", "run", "dev"], "server_url": "http://localhost:5173"}

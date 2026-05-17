@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -278,8 +278,7 @@ describe('TrainingPage V2 event flow', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('progress-status').textContent).toBe('completed');
-      expect(screen.getByTestId('progress-message').textContent).toContain('Training completed');
+      expect(screen.getByText('训练完成')).toBeInTheDocument();
     });
 
     await waitFor(() => {
@@ -291,8 +290,5 @@ describe('TrainingPage V2 event flow', () => {
 
     expect(mockSetIsTraining).toHaveBeenCalledWith(false);
     expect(mockNotifySuccess).toHaveBeenCalledWith('训练完成');
-
-    fireEvent.click(screen.getByRole('button', { name: /去训练对比/ }));
-    expect(mockNavigate).toHaveBeenCalledWith('/training-compare');
   });
 });

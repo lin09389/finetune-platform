@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from agent_kernel.command_policy import command_allowed, normalize_command
+from .command_policy import command_allowed, normalize_command
 
 
 AUTONOMY_SAFE_AUTO = "safe_auto"

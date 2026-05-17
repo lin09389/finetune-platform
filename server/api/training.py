@@ -717,13 +717,18 @@ async def start_swift_training(config: TrainingConfigInput):
     )
 
     log_dir = output_path / "logs"
-    success = swift_backend.start_training(swift_config, log_dir, record_id)
-    if not success:
-        raise HTTPException(status_code=500, detail="Failed to start SWIFT training")
-
-    state.add_to_history(record)
-    asyncio.create_task(_monitor_swift_training(record_id, state, record, swift_backend))
-    return TrainingRecordResponse(**record.model_dump())
+    if not state.try_claim_training_slot():
+        raise HTTPException(status_code=400, detail="Training already in progress")
+    try:
+        success = swift_backend.start_training(swift_config, log_dir, record_id)
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to start SWIFT training")
+        state.add_to_history_sync(record)
+        asyncio.create_task(_monitor_swift_training(record_id, state, record, swift_backend))
+        return TrainingRecordResponse(**record.model_dump())
+    except Exception:
+        state.queue_training_state(False)
+        raise
 
 
 async def _monitor_swift_training(
@@ -1033,15 +1038,21 @@ async def resume_training(task_id: str, checkpoint_name: str):
     if not dataset_file:
         raise HTTPException(status_code=404, detail=f"Dataset file not found in: {config.dataset_id}")
 
-    return _start_training_task(
-        config=config,
-        state=state,
-        settings=settings,
-        model_path=model_path,
-        dataset_file=dataset_file,
-        use_queue=False,
-        priority="normal",
-    )
+    if not state.try_claim_training_slot():
+        raise HTTPException(status_code=400, detail="Training already in progress")
+    try:
+        return _start_training_task(
+            config=config,
+            state=state,
+            settings=settings,
+            model_path=model_path,
+            dataset_file=dataset_file,
+            use_queue=False,
+            priority="normal",
+        )
+    except Exception:
+        state.queue_training_state(False)
+        raise
 
 
 @router.post("/check-resources", response_model=ResourceCheckResponse)
@@ -1243,16 +1254,7 @@ async def start_training(
                 detail=f"配置验证失败：{'; '.join(validation_result.errors)}"
             )
 
-        model_size_gb = 4.0
-        if "13B" in config.model_id or "14B" in config.model_id:
-            model_size_gb = 8.0
-        elif "3B" in config.model_id:
-            model_size_gb = 2.0
-        elif "1.5B" in config.model_id or "1B" in config.model_id:
-            model_size_gb = 1.0
-
-        if config.method == "qlora" and config.quantization == 4:
-            model_size_gb *= 0.6
+        model_size_gb = estimate_preflight_required_vram(config)
 
         resource_check = pre_training_resource_check(
             required_vram_gb=model_size_gb,
@@ -1284,15 +1286,21 @@ async def start_training(
             if "max_seq_length" in recommended:
                 config.max_seq_length = recommended["max_seq_length"]
 
-    return _start_training_task(
-        config=config,
-        state=state,
-        settings=settings,
-        model_path=model_path,
-        dataset_file=dataset_file,
-        use_queue=use_queue,
-        priority=priority,
-    )
+    if not state.try_claim_training_slot():
+        raise HTTPException(status_code=400, detail="Training already in progress")
+    try:
+        return _start_training_task(
+            config=config,
+            state=state,
+            settings=settings,
+            model_path=model_path,
+            dataset_file=dataset_file,
+            use_queue=use_queue,
+            priority=priority,
+        )
+    except Exception:
+        state.queue_training_state(False)
+        raise
 
 
 @router.get("/queue/status")
@@ -1368,8 +1376,8 @@ def _queue_training_progress(state, *, status: str, message: str, **kwargs: Any)
                 kind="progress_updated",
                 payload={"status": status, "message": message, **kwargs},
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"V2 事件发布失败（_queue_training_progress）：{e}")
 _estimate_training_total_steps = estimate_training_total_steps
 _validate_release_supported_features = validate_release_supported_features
 _handle_training_failure = handle_training_failure

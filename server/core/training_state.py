@@ -243,6 +243,17 @@ class TrainingState:
         """设置训练状态"""
         self.queue_training_state(value)
 
+    def try_claim_training_slot(self) -> bool:
+        """原子性地检查并占用训练槽位。
+        返回 True 表示占位成功（之前未在训练）；返回 False 表示已有训练在运行。
+        与 is_training() + queue_training_state(True) 分离调用相比，消除了 TOCTOU 竞态。
+        """
+        with self._lock:
+            if self._is_training:
+                return False
+            self._is_training = True
+            return True
+
     def request_stop(self):
         """请求停止当前训练任务。"""
         with self._lock:

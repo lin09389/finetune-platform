@@ -240,13 +240,6 @@ async function streamSse(
         continue;
       }
 
-      if (parsed.type === 'workflow_event') {
-        metadata = mergeMetadata(metadata, {
-          raw_response: parsed.workflow_event,
-        });
-        continue;
-      }
-
       if (parsed.type === 'done') {
         continue;
       }

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from agent_runtime_legacy.command_policy import command_allowed, detect_project_commands, normalize_command, resolve_command_cwd
+from agent_session.command_policy import command_allowed, detect_project_commands, normalize_command, resolve_command_cwd
 
 
 def test_detect_project_commands_finds_npm_and_pytest(tmp_path: Path):

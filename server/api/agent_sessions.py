@@ -14,13 +14,8 @@ from agent_session.models import (
     AgentSessionCreate,
     AgentSessionOverviewResponse,
     AgentSessionResponse,
-    LegacyAgentHistoryResponse,
 )
-from agent_session.legacy_history import LegacyAgentHistoryService
 from agent_session.service import AgentSessionService
-from agent_runtime_legacy.service import AgentRuntimeService
-from agent_runtime_legacy.read_service import LegacyWorkflowReadService
-from api.workflows import get_agent_runtime_service
 from core.config import settings
 from core.db_manager import run_sync
 from security.auth_middleware import get_current_user_optional
@@ -31,12 +26,6 @@ router = APIRouter(prefix="/agent-sessions", tags=["Agent Sessions"])
 
 def get_agent_session_service() -> AgentSessionService:
     return AgentSessionService()
-
-
-def get_legacy_workflow_read_service(
-    runtime: AgentRuntimeService = Depends(get_agent_runtime_service),
-) -> LegacyWorkflowReadService:
-    return LegacyWorkflowReadService(runtime.repository)
 
 
 async def get_agent_session_user(
@@ -61,15 +50,6 @@ async def create_agent_session(
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
     return await run_sync(service.create_session, request)
-
-
-@router.get("/legacy-workflows/{workflow_id}", response_model=LegacyAgentHistoryResponse)
-async def get_legacy_workflow_history(
-    workflow_id: str,
-    reader: LegacyWorkflowReadService = Depends(get_legacy_workflow_read_service),
-    current_user: TokenPayload = Depends(get_agent_session_user),
-):
-    return await run_sync(LegacyAgentHistoryService(reader).get_workflow_history, workflow_id)
 
 
 @router.get("/{session_id}", response_model=AgentSessionResponse)

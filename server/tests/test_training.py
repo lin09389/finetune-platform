@@ -504,6 +504,12 @@ class TestTrainingReleaseFeatureGuards:
             def is_training(self):
                 return False
 
+            def try_claim_training_slot(self):
+                return True
+
+            def queue_training_state(self, value):
+                pass
+
             def get_history(self):
                 return [history_record]
 
@@ -574,6 +580,12 @@ class TestTrainingReleaseFeatureGuards:
         class FakeState:
             def is_training(self):
                 return False
+
+            def try_claim_training_slot(self):
+                return True
+
+            def queue_training_state(self, value):
+                pass
 
             def get_history(self):
                 return [history_record]
@@ -790,6 +802,12 @@ class TestTrainingReleaseFeatureGuards:
         class FakeState:
             def is_training(self):
                 return False
+
+            def try_claim_training_slot(self):
+                return True
+
+            def queue_training_state(self, value):
+                pass
 
         captured = {}
 

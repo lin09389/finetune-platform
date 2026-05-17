@@ -56,10 +56,7 @@ interface ChatContextPanelProps {
   routing: boolean;
   autonomyMode: AutonomyMode;
   onAutonomyModeChange: (mode: AutonomyMode) => void;
-  workflowTemplateOptions: { value: string; label: string }[];
-  selectedWorkflowTemplate: string;
-  onWorkflowTemplateChange: (templateId: string) => void;
-  creatingWorkflow: boolean;
+  creatingAgentSession: boolean;
   isLoading: boolean;
   isStreaming: boolean;
 }
@@ -71,7 +68,7 @@ const autonomyLabels: Record<AutonomyMode, string> = {
 };
 
 const routingHints: Record<RoutingMode, string> = {
-  auto: '普通问题走 Chat，开发任务自动交给 Agent Task，复杂任务可升级为 Workflow Run。',
+  auto: '普通问题走 Chat，开发任务自动交给 Agent Task。',
   chat: '只进行普通对话，不触发 Agent Task。',
   agent: '直接按项目任务进入 Agent Task。',
 };
@@ -112,14 +109,11 @@ const ChatContextPanel: React.FC<ChatContextPanelProps> = ({
   routing,
   autonomyMode,
   onAutonomyModeChange,
-  workflowTemplateOptions,
-  selectedWorkflowTemplate,
-  onWorkflowTemplateChange,
-  creatingWorkflow,
+  creatingAgentSession,
   isLoading,
   isStreaming,
 }) => {
-  const busy = isLoading || isStreaming || creatingWorkflow || routing;
+  const busy = isLoading || isStreaming || creatingAgentSession || routing;
   const backendOptions = backends.map((backend) => ({
     value: backend.id,
     label: backend.available ? backend.name : `${backend.name} (不可用)`,
@@ -313,19 +307,6 @@ const ChatContextPanel: React.FC<ChatContextPanelProps> = ({
               onChange={(mode) => onAutonomyModeChange(mode as AutonomyMode)}
               disabled={busy}
             />
-          )}
-
-          {workflowTemplateOptions.length > 1 && (
-            <div className={styles.field}>
-              <span className={styles.label}>Agent 任务模板</span>
-              <Select
-                className={styles.select}
-                value={selectedWorkflowTemplate}
-                options={workflowTemplateOptions}
-                onChange={onWorkflowTemplateChange}
-                disabled={busy}
-              />
-            </div>
           )}
         </section>
 

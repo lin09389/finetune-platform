@@ -132,8 +132,6 @@ const routes = [
   { path: '/knowledge', element: <KnowledgeBase /> },
   { path: '/workspace', element: <WorkspaceManager /> },
   { path: '/memory', element: <MemoryPage /> },
-  { path: '/workflows', element: <Navigate to="/chat" replace /> },
-
   { path: '/modelhub', element: <ModelHub /> },
   { path: '/inference', element: <Inference /> },
   { path: '/evaluation', element: <Evaluation /> },

@@ -7,8 +7,8 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.types import interrupt
 
-from agent_kernel.execution_context import RuntimeExecutionContext
-from agent_kernel.langgraph.provider_adapter import get_chat_model
+from ..execution_context import RuntimeExecutionContext
+from .provider_adapter import get_chat_model
 
 from ..parser import parse_agent_response
 from ..state import ensure_session_state, record_command, record_diff, set_phase
@@ -470,7 +470,7 @@ class AgentSessionLangGraphRuntime:
             return self._parse_model_output(raw, session_id=str(session["id"]))
 
         context = RuntimeExecutionContext(
-            workflow_id=session["id"],
+            session_id=session["id"],
             goal=str((session.get("metadata") or {}).get("current_goal") or session.get("title") or ""),
             project_path=session.get("project_path"),
             provider=str(session.get("provider") or ""),

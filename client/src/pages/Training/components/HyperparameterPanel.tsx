@@ -165,7 +165,7 @@ const HyperparameterPanel: React.FC<HyperparameterPanelProps> = ({
             <Select
               className={styles.deepSelect}
               placeholder="选择数据集..."
-              options={datasets.map(d => ({ value: d.id, label: `${d.name} (${d.samples.toLocaleString()})` }))}
+              options={datasets.map(d => ({ value: d.id, label: `${d.name} (${(d.samples ?? 0).toLocaleString()})` }))}
               showSearch
               filterOption={(input, option) =>
                 String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())

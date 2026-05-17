@@ -11,6 +11,7 @@ from .gateway import (
     get_provider,
     list_providers,
 )
+from .providers import resolve_saved_provider
 
 __all__ = [
     "get_provider",
@@ -21,4 +22,5 @@ __all__ = [
     "MinimaxProvider",
     "GLMProvider",
     "PROVIDERS",
+    "resolve_saved_provider",
 ]

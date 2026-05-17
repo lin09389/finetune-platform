@@ -693,14 +693,8 @@ def _load_model_and_tokenizer_internal(config: ModelLoadConfig):
             _check_vram_before_load(config)
             config.quantization_config = _build_quantization_config(config)
 
-            import concurrent.futures
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-                model_future = executor.submit(_load_base_model, config)
-                tokenizer_future = executor.submit(_load_tokenizer, config)
-
-                model = model_future.result()
-                tokenizer = tokenizer_future.result()
+            tokenizer = _load_tokenizer(config)
+            model = _load_base_model(config)
 
             model = _prepare_model_for_training(model, config)
 

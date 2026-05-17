@@ -33,7 +33,6 @@ const mockGetPerformanceStats = vi.hoisted(() => vi.fn());
 const mockGetPerformanceRecommendations = vi.hoisted(() => vi.fn());
 const mockGetSavedCloudProviders = vi.hoisted(() => vi.fn());
 const mockGetSavedCloudProviderData = vi.hoisted(() => vi.fn());
-const mockGetWorkflowTemplates = vi.hoisted(() => vi.fn());
 const mockGetPrimaryAgents = vi.hoisted(() => vi.fn());
 const mockCreateEvaluationRun = vi.hoisted(() => vi.fn());
 const mockScoreEvaluationCase = vi.hoisted(() => vi.fn());
@@ -122,7 +121,6 @@ vi.mock('../services/api', () => ({
   getPerformanceRecommendations: mockGetPerformanceRecommendations,
   getSavedCloudProviders: mockGetSavedCloudProviders,
   getSavedCloudProviderData: mockGetSavedCloudProviderData,
-  getWorkflowTemplates: mockGetWorkflowTemplates,
   getPrimaryAgents: mockGetPrimaryAgents,
   streamInference: vi.fn(),
   streamGenerate: vi.fn(),
@@ -140,6 +138,13 @@ vi.mock('../store/chatStore', () => ({
       useMemory: false,
     },
     isLoading: false,
+    cloudConfig: {
+      useCloudAI: false,
+      config: null,
+      providers: [],
+      selectedModel: '',
+    },
+    setCloudConfig: vi.fn(),
     createSession: mockCreateSession,
     loadSession: vi.fn(),
     deleteSession: mockDeleteSession,
@@ -560,7 +565,6 @@ describe('GA smoke pages', () => {
     mockGetPerformanceRecommendations.mockResolvedValue({ recommendations: [] });
     mockGetSavedCloudProviders.mockResolvedValue({ keys: [] });
     mockGetSavedCloudProviderData.mockResolvedValue({});
-    mockGetWorkflowTemplates.mockResolvedValue([]);
     mockGetPrimaryAgents.mockResolvedValue([]);
 
     mockFetch.mockImplementation((url: string) => {
@@ -695,7 +699,7 @@ describe('GA smoke pages', () => {
       ['/evaluation?scenario=qa_assistant&base_model=base-model&test_dataset_id=dataset-1&training_task_id=train-1&run_inference=true'],
     );
 
-    expect(screen.getByText('创建评估任务')).toBeInTheDocument();
+    expect(screen.getByText('评估实验室')).toBeInTheDocument();
     expect(screen.getByText('当前评估对象')).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByDisplayValue('base-model')).toBeInTheDocument();

@@ -4,8 +4,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from core.agent_run_state import AgentRunStateSnapshot
-
 
 AgentSessionStatus = Literal[
     "idle",
@@ -127,21 +125,6 @@ class AgentSessionOverviewResponse(BaseModel):
     recent_events: list[dict[str, Any]] = Field(default_factory=list)
     artifacts: list[AgentArtifactResponse] = Field(default_factory=list)
     diagnostics: dict[str, Any] = Field(default_factory=dict)
-
-
-class LegacyAgentHistoryResponse(BaseModel):
-    id: str
-    source_runtime: Literal["workflow_legacy", "workflow_langgraph"]
-    title: str
-    goal: str
-    summary: str = ""
-    state: AgentRunStateSnapshot
-    timeline: list[dict[str, Any]] = Field(default_factory=list)
-    artifacts: list[dict[str, Any]] = Field(default_factory=list)
-    observability: dict[str, Any] = Field(default_factory=dict)
-    metadata: dict[str, Any] = Field(default_factory=dict)
-    created_at: str | None = None
-    updated_at: str | None = None
 
 
 AgentSessionResponse.model_rebuild()

@@ -245,7 +245,6 @@ const createAxiosInstance = (): AxiosInstance => {
     '/digital-team/templates',
     '/model-center/suggestions',
     '/model-center/source',
-    '/workflows/templates'
   ];
 
   instance.interceptors.request.use(
@@ -519,249 +518,21 @@ export const getDigitalTeamArtifacts = async (projectId: string) => {
   return response.data;
 };
 
-// Workflow APIs
-export interface WorkflowCreate {
-  title: string;
-  goal: string;
-  template_id?: string;
-  project_path?: string;
-  chat_session_id?: string;
-  include_project_context?: boolean;
-  include_chat_context?: boolean;
-  include_memory?: boolean;
-  max_context_chars?: number;
-  provider?: string;
-  model?: string;
-  autonomy_mode?: 'safe_auto' | 'confirm_all' | 'read_only';
-  approval_mode?: string;
-}
-
-export interface WorkflowAgentConfig {
-  agent_id: string;
-  name: string;
-  description?: string;
-  system_prompt: string;
-  output_requirements?: string;
-}
-
-export interface WorkflowStepConfig {
-  step_key: string;
-  agent_id: string;
-  title: string;
-  description?: string;
-  artifact_type: string;
-  requires_approval: boolean;
-  sort_order?: number;
-}
-
-export interface WorkflowTemplatePayload {
-  id: string;
-  name: string;
-  description?: string;
-  default_provider?: string;
-  default_model?: string;
-  default_approval_mode?: string;
-  is_enabled?: boolean;
-  agents: WorkflowAgentConfig[];
-  steps: WorkflowStepConfig[];
-}
-
-export interface WorkflowStep {
-  id: string;
-  step_id: string;
-  workflow_id: string;
-  step_key: string;
-  agent_id: string;
-  legacy_role: string;
-  title: string;
-  description: string;
-  status: string;
-  requires_approval: boolean;
-  input_data?: Record<string, any>;
-  output_data?: Record<string, any>;
-  output?: Record<string, any>;
-  error?: string;
-}
-
-export interface Workflow {
-  id: string;
-  workflow_id: string;
-  title: string;
-  goal: string;
-  template_id: string;
-  legacy_template_id: string;
-  project_path?: string;
-  provider: string;
-  model?: string;
-  approval_mode: string;
-  status: string;
-  current_stage?: string;
-  created_at: string;
-  updated_at: string;
-  completed_at?: string;
-  metadata?: Record<string, any>;
-  active_agent_id?: string;
-  steps: WorkflowStep[];
-}
-
-export interface WorkflowContextProfile {
-  workflow_id: string;
-  project_path?: string;
-  chat_session_id?: string;
-  include_project_context: boolean;
-  include_chat_context: boolean;
-  include_memory: boolean;
-  max_context_chars: number;
-  metadata?: Record<string, any>;
-  created_at?: string;
-  updated_at?: string;
-}
-
-export interface WorkflowContextSnapshot {
-  id: string;
-  workflow_id: string;
-  step_id?: string;
-  step_key?: string;
-  context_type: string;
-  content: string;
-  sources: Array<Record<string, any>>;
-  char_count: number;
-  created_at: string;
-}
-
-export interface WorkflowMemoryEntry {
-  id: string;
-  workflow_id: string;
-  source_step_id?: string;
-  memory_type: string;
-  memory_key: string;
-  memory_value: Record<string, any>;
-  content: string;
-  confidence: number;
-  status: string;
-  external_memory_id?: string;
-  created_at: string;
-  updated_at: string;
-  reverted_at?: string;
-}
-
-export interface WorkflowStepLog {
-  id: string;
-  workflow_id: string;
-  step_id?: string;
-  step_key?: string;
-  agent_id?: string;
-  status: string;
-  provider?: string;
-  model?: string;
-  input_summary?: string;
-  output_summary?: string;
-  error?: string;
-  started_at?: string;
-  completed_at?: string;
-  duration_ms?: number;
-  metadata?: Record<string, any>;
-  created_at: string;
-}
-
-export interface WorkflowToolCall {
-  id: string;
-  workflow_id: string;
-  step_id?: string;
-  agent_id?: string;
-  tool_name: string;
-  arguments: Record<string, any>;
-  status: 'running' | 'completed' | 'failed' | string;
-  result_summary?: string;
-  result_payload?: Record<string, any>;
-  permission_decision?: 'allow' | 'deny' | 'ask';
-  blocked_reason?: string;
-  replay_of_call_id?: string;
-  trace_id?: string;
-  raw_model_output?: string;
-  sanitized_model_output?: string;
-  parse_error?: string;
-  protocol_repair_attempted?: boolean;
-  error?: string;
-  started_at?: string;
-  completed_at?: string;
-  duration_ms?: number;
-  created_at: string;
-}
-
-export interface WorkflowActionExecution {
-  id: string;
-  action_id: string;
-  workflow_id: string;
-  status: string;
-  stdout?: string;
-  stderr?: string;
-  exit_code?: number;
-  duration_ms?: number;
-  error?: string;
-  failure_summary?: string;
-  created_at: string;
-}
-
-export interface WorkflowAction {
-  id: string;
-  workflow_id: string;
-  step_id?: string;
-  action_type: 'patch' | 'command' | string;
-  title: string;
-  description?: string;
-  payload: Record<string, any>;
-  status: string;
-  created_by?: string;
-  execution_mode?: 'auto' | 'approval_required' | string;
-  policy_decision?: 'auto' | 'approval_required' | 'blocked' | string;
-  policy_reason?: string;
-  risk_level?: 'low' | 'medium' | 'high' | string;
-  auto_executed_at?: string;
-  execution_state?: string;
-  changed_files?: string[];
-  applied_hunks?: number;
-  patch_summaries?: Array<Record<string, any>>;
-  failure_summary?: string;
-  approved_at?: string;
-  rejected_at?: string;
-  executed_at?: string;
-  created_at: string;
-  updated_at: string;
-  executions?: WorkflowActionExecution[];
-}
-
-export interface WorkflowObservability {
-  workflow_id: string;
-  status: string;
-  current_stage?: string;
-  active_agent_id?: string;
-  subagent_runs?: Array<Record<string, any>>;
-  auto_execution_policy?: Record<string, any>;
-  blocked_state?: Record<string, any> | null;
-  step_logs: WorkflowStepLog[];
-  tool_calls?: WorkflowToolCall[];
-  actions: WorkflowAction[];
-  recent_events: Array<Record<string, any>>;
-}
-
 export interface ChatAgentIntentRequest {
   content: string;
   provider?: string;
   model?: string;
   agent_id?: string;
-  template_id?: string;
   chat_session_id?: string;
   routing_mode?: 'auto' | 'chat' | 'agent';
 }
 
 export interface ChatAgentIntentResponse {
-  mode: 'chat' | 'agent' | 'workflow';
+  mode: 'chat' | 'agent';
   confidence: number;
   reason: string;
   source: 'local_rule' | 'cloud' | 'fallback' | 'manual';
   suggested_agent_id?: string;
-  suggested_template_id?: string;
 }
 
 export interface AgentInfo {
@@ -990,44 +761,6 @@ export interface AgentSessionEvent {
   session_snapshot?: AgentSession;
 }
 
-export interface WorkflowTemplate {
-  id: string;
-  name: string;
-  description: string;
-  legacy_template_id: string;
-  is_builtin: boolean;
-  is_enabled: boolean;
-  default_provider?: string;
-  default_model?: string;
-  default_approval_mode?: string;
-  agents: Array<WorkflowAgentConfig & { id?: string }>;
-  steps: Array<{
-    key: string;
-    step_key: string;
-    agent_id: string;
-    legacy_role: string;
-    title: string;
-    description: string;
-    artifact_type: string;
-    requires_approval: boolean;
-    sort_order?: number;
-  }>;
-}
-
-export const getWorkflowTemplates = async () => {
-  const url = '/workflows/templates';
-  const cacheKey = url;
-  const cached = getCacheMap.get(cacheKey);
-  
-  if (cached && Date.now() - cached.timestamp < GET_CACHE_TTL && cached.promise) {
-    return cached.promise;
-  }
-
-  const promise = apiClient.get(url).then(res => responseData(res));
-  getCacheMap.set(cacheKey, { timestamp: Date.now(), data: null, promise });
-  return promise;
-};
-
 export const getAgents = async (): Promise<AgentInfo[]> => {
   const response = await apiClient.get('/agents');
   return response.data;
@@ -1040,24 +773,6 @@ export const getPrimaryAgents = async (): Promise<AgentInfo[]> => {
 
 export const getAgent = async (agentId: string): Promise<AgentInfo> => {
   const response = await apiClient.get(`/agents/${agentId}`);
-  return response.data;
-};
-
-export const createWorkflowTemplate = async (payload: WorkflowTemplatePayload) => {
-  const response = await apiClient.post('/workflows/templates', payload);
-  return response.data;
-};
-
-export const updateWorkflowTemplate = async (
-  templateId: string,
-  payload: Omit<WorkflowTemplatePayload, 'id'>,
-) => {
-  const response = await apiClient.put(`/workflows/templates/${templateId}`, payload);
-  return response.data;
-};
-
-export const deleteWorkflowTemplate = async (templateId: string) => {
-  const response = await apiClient.delete(`/workflows/templates/${templateId}`);
   return response.data;
 };
 

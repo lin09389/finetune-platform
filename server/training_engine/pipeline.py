@@ -171,10 +171,25 @@ class TrainingPipeline:
         """执行完整训练流水线"""
         try:
             self._phase_setup()
+            if self._stop_requested:
+                self._handle_stop()
+                return
             self._phase_load_model()
+            if self._stop_requested:
+                self._handle_stop()
+                return
             self._phase_load_dataset()
+            if self._stop_requested:
+                self._handle_stop()
+                return
             self._phase_build_trainer()
+            if self._stop_requested:
+                self._handle_stop()
+                return
             self._phase_train()
+            # _phase_train 内部已调用 _handle_stop；跳过 _phase_save 避免 status 被改写为 completed
+            if self._stop_requested:
+                return
             self._phase_save()
         except RecoverableError:
             raise
@@ -263,7 +278,8 @@ class TrainingPipeline:
         logger.info(f"模型加载完成，耗时 {elapsed_total:.1f}s")
 
         if self._check_stop():
-            raise UnrecoverableError("Training stopped after model load")
+            # 由 run() 的 phase 间守卫调用 _handle_stop，这里仅 return
+            return
 
         self.ctx.model = self.post_processor.process(self.ctx.model, self.ctx.config)
         self.bus.publish_event(phase=TrainingPhase.LOAD_MODEL, kind="model_loaded", payload={
@@ -275,12 +291,12 @@ class TrainingPipeline:
     def _handle_load_model_error(self, error: Exception) -> None:
         import torch
         if isinstance(error, torch.cuda.OutOfMemoryError):
-            raise RecoverableError(f"加载模型时 OOM: {error}")
+            raise RecoverableError(f"加载模型时 OOM: {error}") from error
         if isinstance(error, FileNotFoundError):
-            raise UnrecoverableError(f"模型文件丢失：{error}")
+            raise UnrecoverableError(f"模型文件丢失：{error}") from error
         error_str = str(error)
         if "CUDA" in error_str or "memory" in error_str.lower():
-            raise RecoverableError(f"GPU 错误：{error}")
+            raise RecoverableError(f"GPU 错误：{error}") from error
         raise
 
     def _phase_load_dataset(self) -> None:
@@ -321,15 +337,16 @@ class TrainingPipeline:
             )
         except FileNotFoundError as e:
             _stop_ds_hb.set()
-            raise UnrecoverableError(f"数据集文件丢失：{e}")
+            raise UnrecoverableError(f"数据集文件丢失：{e}") from e
         except Exception as e:
             _stop_ds_hb.set()
-            raise UnrecoverableError(f"数据集格式错误：{e}")
+            raise UnrecoverableError(f"数据集格式错误：{e}") from e
         finally:
             _stop_ds_hb.set()
 
         if self._check_stop():
-            raise UnrecoverableError("Training stopped after dataset load")
+            # 由 run() 的 phase 间守卫调用 _handle_stop，这里仅 return
+            return
 
         self.bus.publish_event(phase=TrainingPhase.LOAD_DATASET, kind="dataset_loaded", payload={
             "dataset_path": self.ctx.dataset_path,
@@ -357,6 +374,7 @@ class TrainingPipeline:
                 train_size=len(dataset["train"]),
                 batch_size=config.batch_size,
                 epochs=config.epochs,
+                gradient_accumulation=config.gradient_accumulation,
             )
         except ValueError as e:
             raise UnrecoverableError(str(e))
@@ -465,7 +483,7 @@ class TrainingPipeline:
         data_collator = DataCollatorForSeq2Seq(
             tokenizer=tokenizer,
             padding=True,
-            max_length=config.max_seq_length,
+            max_length=None,
             pad_to_multiple_of=8,
             label_pad_token_id=-100,
             return_tensors="pt",
@@ -546,17 +564,27 @@ class TrainingPipeline:
             config.dataloader_persistent_workers if config.dataloader_num_workers > 0 else False
         )
         if os.name == "nt" and dataloader_num_workers > 0:
-            try:
-                import torch.multiprocessing as mp
-                mp.set_start_method("spawn", force=True)
-                logger.info(
-                    f"Windows 环境已设置 multiprocessing start_method=spawn，"
-                    f"保留 dataloader_num_workers={dataloader_num_workers}"
-                )
-            except Exception as e:
+            import threading as _threading
+            if _threading.current_thread() is _threading.main_thread():
+                try:
+                    import torch.multiprocessing as mp
+                    mp.set_start_method("spawn", force=True)
+                    logger.info(
+                        f"Windows 环境已设置 multiprocessing start_method=spawn，"
+                        f"保留 dataloader_num_workers={dataloader_num_workers}"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Windows 环境 multiprocessing spawn 设置失败({e})，"
+                        f"dataloader_num_workers 从 {dataloader_num_workers} 降为 0"
+                    )
+                    dataloader_num_workers = 0
+                    dataloader_persistent_workers = False
+                    dataloader_pin_memory = False
+            else:
                 logger.warning(
-                    f"Windows 环境 multiprocessing spawn 设置失败({e})，"
-                    f"dataloader_num_workers 从 {dataloader_num_workers} 降为 0"
+                    f"Windows 非主线程无法安全调用 mp.set_start_method，"
+                    f"dataloader_num_workers 从 {dataloader_num_workers} 自动降为 0"
                 )
                 dataloader_num_workers = 0
                 dataloader_persistent_workers = False
@@ -602,12 +630,15 @@ class TrainingPipeline:
             import torch
             if isinstance(e, torch.cuda.OutOfMemoryError):
                 train_exception = RecoverableError(f"训练时 OOM: {e}")
+                train_exception.__cause__ = e
             elif isinstance(e, KeyboardInterrupt):
                 train_exception = UnrecoverableError("用户中断训练")
+                train_exception.__cause__ = e
             else:
                 error_str = str(e)
                 if "CUDA" in error_str or "memory" in error_str.lower() or "NCCL" in error_str:
                     train_exception = RecoverableError(f"GPU 错误：{e}")
+                    train_exception.__cause__ = e
 
         # 检查是否是用户主动停止
         if self._stop_requested:

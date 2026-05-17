@@ -389,7 +389,6 @@ export interface ChatAgentMetadata {
   agent_run_id: string;
   agent_session_id?: string;
   agent_part_id?: string;
-  workflow_id?: string;
   kind: ChatAgentMessageKind;
   status: string;
   step_id?: string;
@@ -400,9 +399,7 @@ export interface ChatAgentMetadata {
   details_url?: string;
   active_agent_id?: string;
   subagent_runs?: Array<Record<string, unknown>>;
-  workflow?: unknown;
   observability?: unknown;
-  legacy_history?: unknown;
   tool_calls?: unknown[];
   permission_pending?: boolean;
   latest_blocked_tool?: string;

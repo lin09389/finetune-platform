@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from agent_runtime_legacy.patch_engine import SafePatchEngine, MAX_PATCH_FILES, MAX_FILE_CHARS, MAX_DIFF_CHARS
+from agent_session.patch_engine import SafePatchEngine, MAX_PATCH_FILES, MAX_FILE_CHARS, MAX_DIFF_CHARS
 
 
 @pytest.fixture

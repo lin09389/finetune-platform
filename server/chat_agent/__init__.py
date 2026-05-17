@@ -1,4 +1,4 @@
-"""Legacy chat-agent facade for workflow-backed runs.
+"""Chat-agent intent classifier and orchestrator.
 
-New chat tasks should use agent_session instead.
+Routes chat messages into either a normal chat reply or an agent_session run.
 """

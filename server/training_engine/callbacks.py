@@ -43,25 +43,22 @@ def queue_training_progress(
             hub = get_training_event_hub_v2()
             payload = {"status": status, "message": message, **kwargs}
             hub.publish(task_id=task_id, phase=phase, kind="progress_updated", payload=payload)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"V2 事件发布失败（queue_training_progress）：{e}")
 
 
 class ProgressCallback:
     """训练进度回调 - 与 HuggingFace Trainer 集成"""
 
-    _ws_manager = None
-    _ws_manager_loaded = False
-
     def _get_ws_manager(self):
-        if not ProgressCallback._ws_manager_loaded:
+        if not self._ws_manager_loaded:
             try:
                 from api.training import get_ws_manager
-                ProgressCallback._ws_manager = get_ws_manager()
+                self._ws_manager = get_ws_manager()
             except Exception:
                 pass
-            ProgressCallback._ws_manager_loaded = True
-        return ProgressCallback._ws_manager
+            self._ws_manager_loaded = True
+        return self._ws_manager
 
     def __init__(
         self,
@@ -76,6 +73,8 @@ class ProgressCallback:
         train_logger: TrainingLogger = None,
         event_loop=None,
     ):
+        self._ws_manager = None
+        self._ws_manager_loaded = False
         self.total_steps = total_steps
         self.start_time = start_time
         self.state = state
@@ -202,8 +201,8 @@ class ProgressCallback:
                 status="running",
                 message=f"Checkpoint saved at step {state.global_step}",
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"WebSocket checkpoint 事件推送失败：{e}")
 
     def on_evaluate(self, args, state, control, **kwargs):
         pass

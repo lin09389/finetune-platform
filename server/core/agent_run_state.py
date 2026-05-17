@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 
-RuntimeKind = Literal["workflow_legacy", "workflow_langgraph", "agent_session"]
+RuntimeKind = Literal["agent_session"]
 CanonicalRunStatus = Literal[
     "idle",
     "running",
@@ -32,29 +32,6 @@ class AgentRunStateSnapshot(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-def workflow_state_snapshot(project: dict[str, Any], *, runtime_kind: RuntimeKind = "workflow_legacy") -> AgentRunStateSnapshot:
-    metadata = dict(project.get("metadata") or {})
-    raw_status = str(project.get("status") or "draft")
-    raw_phase = str(metadata.get("execution_state") or project.get("current_stage") or raw_status)
-    status = _canonical_workflow_status(raw_status, raw_phase)
-    blocked_state = metadata.get("blocked_state") if isinstance(metadata.get("blocked_state"), dict) else None
-    return AgentRunStateSnapshot(
-        runtime_kind=runtime_kind,
-        status=status,
-        phase=raw_phase,
-        current_stage=project.get("current_stage"),
-        current_node=str(metadata.get("step_id") or "") or None,
-        active_agent_id=metadata.get("active_agent_id"),
-        blocked_state=blocked_state,
-        recoverable=status in {"running", "blocked"},
-        terminal=status in {"completed", "failed", "interrupted"},
-        latest_error=_latest_error(metadata, blocked_state),
-        raw_status=raw_status,
-        raw_phase=raw_phase,
-        metadata=metadata,
-    )
-
-
 def agent_session_state_snapshot(session: dict[str, Any]) -> AgentRunStateSnapshot:
     metadata = dict(session.get("metadata") or {})
     nested_state = dict(metadata.get("state") or {})
@@ -77,18 +54,6 @@ def agent_session_state_snapshot(session: dict[str, Any]) -> AgentRunStateSnapsh
         raw_phase=raw_phase,
         metadata=metadata,
     )
-
-
-def _canonical_workflow_status(raw_status: str, raw_phase: str) -> CanonicalRunStatus:
-    if raw_status == "completed":
-        return "completed"
-    if raw_status == "failed":
-        return "failed"
-    if raw_status in {"awaiting_approval", "needs_manual_review"} or raw_phase in {"waiting_approval", "waiting_permission", "needs_manual_review"}:
-        return "blocked"
-    if raw_status in {"draft", "created"}:
-        return "idle"
-    return "running"
 
 
 def _canonical_session_status(raw_status: str, raw_phase: str) -> CanonicalRunStatus:
