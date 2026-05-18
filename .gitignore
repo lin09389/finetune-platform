@@ -85,7 +85,6 @@ scripts/maintenance/
 AGENTS.md
 CHANGELOG_2026-04-08.md
 install-pytorch-gpu.bat
-start.ps1
 start.py
 verify.ps1
 
