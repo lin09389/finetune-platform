@@ -3,18 +3,32 @@
   min-height: 0;
   height: 100%;
   flex-direction: column;
+  overflow: hidden;
   background: color-mix(in srgb, var(--bg-secondary) 74%, transparent);
 }
 
 .tabs {
   min-height: 0;
   flex: 1;
+  overflow: hidden;
   padding: 0 16px 16px;
 }
 
 .tabs :global(.ant-tabs-nav) {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   margin-bottom: 12px;
   padding-top: 12px;
+  padding-bottom: 10px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--bg-secondary) 94%, transparent) 0%,
+      color-mix(in srgb, var(--bg-secondary) 88%, transparent) 72%,
+      transparent 100%
+    );
+  backdrop-filter: blur(12px);
 }
 
 .tabs :global(.ant-tabs-content-holder),
@@ -22,6 +36,33 @@
 .tabs :global(.ant-tabs-tabpane) {
   min-height: 0;
   height: 100%;
+}
+
+.tabs :global(.ant-tabs-content-holder) {
+  overflow: hidden;
+}
+
+.tabs :global(.ant-tabs-tabpane) {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.tabs :global(.ant-tabs-tabpane)::-webkit-scrollbar {
+  width: 6px;
+}
+
+.tabs :global(.ant-tabs-tabpane)::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tabs :global(.ant-tabs-tabpane)::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--border-color) 92%, transparent);
+  border-radius: 999px;
+}
+
+.tabs :global(.ant-tabs-tabpane)::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-tertiary) 72%, var(--border-color));
 }
 
 .tabs :global(.ant-tabs-tab) {
