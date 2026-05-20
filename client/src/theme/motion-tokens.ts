@@ -35,6 +35,8 @@ export const springs = {
   bouncy: { type: 'spring' as const, stiffness: 500, damping: 20 },
   // 强力按压反馈
   tap: { type: 'spring' as const, stiffness: 400, damping: 17 },
+  // 3D 倾斜专用：极高阻尼，顺滑无回弹，模拟重物理惯性
+  tilt: { type: 'spring' as const, stiffness: 120, damping: 25, mass: 1 },
 };
 
 /**
@@ -49,6 +51,7 @@ export const transitions = {
   springBase: springs.base as Transition,
   springGentle: springs.gentle as Transition,
   springBouncy: springs.bouncy as Transition,
+  springTilt: springs.tilt as Transition,
 };
 
 /**

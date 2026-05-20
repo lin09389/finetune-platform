@@ -1,5 +1,5 @@
 import { App as AntApp, ConfigProvider, Layout, theme as antdTheme } from 'antd';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, LazyMotion, domMax } from 'framer-motion';
 import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 
@@ -356,9 +356,11 @@ function AppContent() {
 function App() {
   return (
     <ThemeProvider>
-      <RuntimeContextProvider>
-        <AppContent />
-      </RuntimeContextProvider>
+      <LazyMotion features={domMax} strict={false}>
+        <RuntimeContextProvider>
+          <AppContent />
+        </RuntimeContextProvider>
+      </LazyMotion>
     </ThemeProvider>
   );
 }

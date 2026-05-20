@@ -244,8 +244,8 @@ export default function ModelManager() {
   ];
 
   return (
-    <MotionList className={styles.container} stagger={0.08}>
-      <MotionItem>
+    <MotionList layout className={styles.container} stagger={0.08}>
+      <MotionItem layout>
         <PageHeader
           title="模型管理"
           icon={<DatabaseOutlined />}
@@ -284,7 +284,7 @@ export default function ModelManager() {
         />
       </MotionItem>
 
-      <MotionItem>
+      <MotionItem layout>
         <div className={`${glassStyles.glassCard} ${styles.tableCard}`}>
           {backendStatus !== 'connected' ? (
             <Empty

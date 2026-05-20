@@ -76,6 +76,8 @@
   font-weight: var(--font-bold);
   color: var(--text-primary);
   line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
 }
 
 .progressSub {

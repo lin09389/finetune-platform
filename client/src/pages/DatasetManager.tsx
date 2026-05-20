@@ -221,7 +221,7 @@ export default function DatasetManager() {
     const healthPercentage = Math.min(100, Math.max(10, (record.samples / 5000) * 100));
 
     return (
-      <MotionItem key={record.id}>
+      <MotionItem layout key={record.id}>
         <div className={styles.bentoCard}>
           <div className={styles.cardHeader}>
             <h3 className={styles.cardTitle}>{record.name}</h3>
@@ -312,7 +312,7 @@ export default function DatasetManager() {
           后端服务未连接，请先启动服务。
         </div>
       ) : (
-        <MotionList className={styles.bentoGrid} stagger={0.08}>
+        <MotionList layout className={styles.bentoGrid} stagger={0.08}>
           {datasets.map(renderDatasetCard)}
         </MotionList>
       )}

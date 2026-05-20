@@ -535,19 +535,19 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
                 <XAxis
                   dataKey="step"
                   stroke="rgba(255,255,255,0.1)"
-                  tick={{ fill: 'rgba(255,255,255,0.25)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)' }}
+                  tick={{ fill: 'rgba(255,255,255,0.25)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)', style: { fontVariantNumeric: 'tabular-nums' } }}
                   axisLine={{ stroke: 'rgba(255,255,255,0.06)' }}
                 />
                 <YAxis
                   yAxisId="left"
                   stroke="transparent"
-                  tick={{ fill: 'rgba(255, 107, 107, 0.5)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)' }}
+                  tick={{ fill: 'rgba(255, 107, 107, 0.5)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)', style: { fontVariantNumeric: 'tabular-nums' } }}
                 />
                 <YAxis
                   yAxisId="right"
                   orientation="right"
                   stroke="transparent"
-                  tick={{ fill: 'rgba(0, 255, 194, 0.5)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)' }}
+                  tick={{ fill: 'rgba(0, 255, 194, 0.5)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)', style: { fontVariantNumeric: 'tabular-nums' } }}
                 />
                 <RechartsTooltip
                   contentStyle={{
@@ -558,6 +558,7 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
                     fontSize: 11,
                     boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
                     padding: '10px 14px',
+                    fontVariantNumeric: 'tabular-nums',
                   }}
                   labelStyle={{ color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}
                 />
@@ -613,12 +614,12 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
                 <XAxis
                   dataKey="step"
                   stroke="rgba(255,255,255,0.1)"
-                  tick={{ fill: 'rgba(255,255,255,0.25)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)' }}
+                  tick={{ fill: 'rgba(255,255,255,0.25)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)', style: { fontVariantNumeric: 'tabular-nums' } }}
                   axisLine={{ stroke: 'rgba(255,255,255,0.06)' }}
                 />
                 <YAxis
                   stroke="transparent"
-                  tick={{ fill: 'rgba(123, 97, 255, 0.5)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)' }}
+                  tick={{ fill: 'rgba(123, 97, 255, 0.5)', fontSize: 10, fontFamily: 'var(--font-mono, monospace)', style: { fontVariantNumeric: 'tabular-nums' } }}
                 />
                 <RechartsTooltip
                   contentStyle={{
@@ -629,6 +630,7 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
                     fontSize: 11,
                     boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
                     padding: '10px 14px',
+                    fontVariantNumeric: 'tabular-nums',
                   }}
                   labelStyle={{ color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}
                 />

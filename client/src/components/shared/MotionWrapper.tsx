@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { m } from 'framer-motion';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   containerVariants,
@@ -16,9 +16,10 @@ interface MotionListProps {
   stagger?: number;
   className?: string;
   style?: React.CSSProperties;
+  layout?: boolean | "position" | "size";
 }
 
-export function MotionList({ children, stagger = 0.07, className, style }: MotionListProps) {
+export function MotionList({ children, stagger = 0.07, className, style, layout }: MotionListProps) {
   const { skip } = useMotion();
   if (skip)
     return (
@@ -27,7 +28,8 @@ export function MotionList({ children, stagger = 0.07, className, style }: Motio
       </div>
     );
   return (
-    <motion.div
+    <m.div
+      layout={layout}
       className={className}
       style={style}
       variants={containerVariants(stagger)}
@@ -35,7 +37,7 @@ export function MotionList({ children, stagger = 0.07, className, style }: Motio
       animate="show"
     >
       {children}
-    </motion.div>
+    </m.div>
   );
 }
 
@@ -50,6 +52,8 @@ interface MotionItemProps {
   className?: string;
   style?: React.CSSProperties;
   onClick?: () => void;
+  layout?: boolean | "position" | "size";
+  layoutId?: string;
 }
 
 const variantMap = {
@@ -64,6 +68,8 @@ export function MotionItem({
   className,
   style,
   onClick,
+  layout,
+  layoutId,
 }: MotionItemProps) {
   const { skip } = useMotion();
   if (skip)
@@ -73,7 +79,9 @@ export function MotionItem({
       </div>
     );
   return (
-    <motion.div
+    <m.div
+      layout={layout}
+      layoutId={layoutId}
       className={className}
       style={style}
       variants={variantMap[variant]}
@@ -82,7 +90,7 @@ export function MotionItem({
       whileTap={onClick ? { scale: 0.99 } : undefined}
     >
       {children}
-    </motion.div>
+    </m.div>
   );
 }
 
@@ -95,9 +103,11 @@ interface MotionCardProps {
   style?: React.CSSProperties;
   onClick?: () => void;
   lift?: boolean; // 是否启用 hover 上浮
+  layout?: boolean | "position" | "size";
+  layoutId?: string;
 }
 
-export function MotionCard({ children, className, style, onClick, lift = false }: MotionCardProps) {
+export function MotionCard({ children, className, style, onClick, lift = false, layout, layoutId }: MotionCardProps) {
   const { skip } = useMotion();
   if (skip)
     return (
@@ -106,7 +116,9 @@ export function MotionCard({ children, className, style, onClick, lift = false }
       </div>
     );
   return (
-    <motion.div
+    <m.div
+      layout={layout}
+      layoutId={layoutId}
       className={className}
       style={style}
       variants={itemVariants}
@@ -118,7 +130,7 @@ export function MotionCard({ children, className, style, onClick, lift = false }
       transition={{ duration: 0.15 }}
     >
       {children}
-    </motion.div>
+    </m.div>
   );
 }
 
@@ -158,7 +170,7 @@ export function CountUp({
     startValRef.current = display;
     startRef.current = null;
 
-    const animate = (ts: number) => {
+    const animateNum = (ts: number) => {
       if (startRef.current === null) startRef.current = ts;
       const elapsed = ts - startRef.current;
       const progress = Math.min(elapsed / (duration * 1000), 1);
@@ -166,19 +178,20 @@ export function CountUp({
       const eased = 1 - Math.pow(1 - progress, 4);
       setDisplay(startValRef.current + (value - startValRef.current) * eased);
       if (progress < 1) {
-        frameRef.current = requestAnimationFrame(animate);
+        frameRef.current = requestAnimationFrame(animateNum);
       } else {
         setDisplay(value);
       }
     };
 
-    frameRef.current = requestAnimationFrame(animate);
+    frameRef.current = requestAnimationFrame(animateNum);
     return () => cancelAnimationFrame(frameRef.current);
   }, [value]);
 
   const formatted = display.toFixed(decimals);
+  const combinedClassName = `${className || ''} tabular-nums`.trim();
   return (
-    <span className={className} style={style}>
+    <span className={combinedClassName} style={style}>
       {prefix}
       {formatted}
       {suffix}
@@ -194,9 +207,11 @@ interface FadeInSectionProps {
   delay?: number;
   className?: string;
   style?: React.CSSProperties;
+  layout?: boolean | "position" | "size";
+  layoutId?: string;
 }
 
-export function FadeInSection({ children, delay = 0, className, style }: FadeInSectionProps) {
+export function FadeInSection({ children, delay = 0, className, style, layout, layoutId }: FadeInSectionProps) {
   const { skip } = useMotion();
   if (skip)
     return (
@@ -205,7 +220,9 @@ export function FadeInSection({ children, delay = 0, className, style }: FadeInS
       </div>
     );
   return (
-    <motion.div
+    <m.div
+      layout={layout}
+      layoutId={layoutId}
       className={className}
       style={style}
       initial={{ opacity: 0, y: 16, filter: 'blur(4px)' }}
@@ -213,7 +230,7 @@ export function FadeInSection({ children, delay = 0, className, style }: FadeInS
       transition={{ delay, duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
     >
       {children}
-    </motion.div>
+    </m.div>
   );
 }
 
@@ -237,7 +254,7 @@ export function MotionButton({ children, className, style, onClick, disabled }: 
       </div>
     );
   return (
-    <motion.div
+    <m.div
       className={className}
       style={style}
       onClick={onClick}
@@ -246,6 +263,6 @@ export function MotionButton({ children, className, style, onClick, disabled }: 
       transition={{ type: 'spring', stiffness: 400, damping: 20 }}
     >
       {children}
-    </motion.div>
+    </m.div>
   );
 }

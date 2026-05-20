@@ -42,8 +42,15 @@ const LossChart: React.FC<LossChartProps> = ({ data }) => {
               fontSize={10}
               tickLine={false}
               axisLine={false}
+              tick={{ fill: 'var(--text-tertiary)', fontSize: 10, style: { fontVariantNumeric: 'tabular-nums' } }}
             />
-            <YAxis stroke="var(--text-tertiary)" fontSize={10} tickLine={false} axisLine={false} />
+            <YAxis
+              stroke="var(--text-tertiary)"
+              fontSize={10}
+              tickLine={false}
+              axisLine={false}
+              tick={{ fill: 'var(--text-tertiary)', fontSize: 10, style: { fontVariantNumeric: 'tabular-nums' } }}
+            />
             <Tooltip
               contentStyle={{
                 background: 'var(--bg-elevated)',
@@ -52,6 +59,7 @@ const LossChart: React.FC<LossChartProps> = ({ data }) => {
                 boxShadow: 'var(--shadow-lg)',
                 fontSize: '12px',
                 color: 'var(--text-primary)',
+                fontVariantNumeric: 'tabular-nums',
               }}
               labelStyle={{ fontWeight: 700, marginBottom: 4 }}
               cursor={{ stroke: 'var(--accent-primary)', strokeWidth: 1, strokeDasharray: '4 4' }}

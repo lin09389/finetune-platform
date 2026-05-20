@@ -1480,3 +1480,18 @@ body,
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* ============================================
+   等宽数字排版 (Tabular Nums) — 消除数据抖动
+   ============================================ */
+.tabular-nums {
+  font-variant-numeric: tabular-nums !important;
+  font-feature-settings: "tnum" !important;
+}
+
+/* 全局注入 Ant Design 的数据展示组件，确保所有原生数值展示等宽 */
+.ant-statistic-content-value,
+.ant-progress-text {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
