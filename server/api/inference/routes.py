@@ -323,23 +323,32 @@ async def _build_unified_context_payload(
     Any | None,
 ]:
     from api.types import MemoryContextInfo, UnifiedContextInfo
-    from context.unified_manager import ContextOptions, get_unified_context_manager
+    from context.builder import get_context_builder
+    from context.budget import ContextBuildOptions
 
-    context_manager = get_unified_context_manager()
-    context_options = ContextOptions(
+    max_context_tokens = max(
+        512,
+        int(request.options.num_ctx or 0)
+        - int(request.options.max_tokens or 0)
+        - int(request.options.num_keep or 0),
+    )
+    context_options = ContextBuildOptions(
         use_memory=request.memory.enabled and request.memory.auto_retrieve,
         use_knowledge=request.knowledge.use_knowledge,
         use_project_context=request.context.use_context,
+        max_context_tokens=max_context_tokens,
+        reserved_output_tokens=int(request.options.max_tokens or 0),
+        max_total_sources=10,
         memory_top_k=request.memory.top_k,
         memory_include_types=request.memory.include_types,
         knowledge_collection_id=request.knowledge.collection_id,
         knowledge_top_k=request.knowledge.top_k,
         knowledge_auto_retrieve=request.knowledge.auto_retrieve,
         project_path=request.context.project_path,
-        project_max_length=request.context.max_context_length,
+        project_max_tokens=request.context.max_context_length,
     )
 
-    unified_context = await context_manager.build_context(
+    unified_context = await get_context_builder().build(
         query=last_user_message or "",
         user_id=request.session.user_id,
         session_id=request.session.session_id,
@@ -382,12 +391,16 @@ async def _build_unified_context_payload(
                 context_preview=unified_context.context_text[:200] if unified_context.context_text else "",
             )
 
+        context_payload = unified_context.to_dict()
         unified_context_info = UnifiedContextInfo(
             total_sources=unified_context.total_sources,
             memory_count=unified_context.memory_count,
             knowledge_count=unified_context.knowledge_count,
             project_count=unified_context.project_count,
             retrieval_time=unified_context.retrieval_time,
+            budget=context_payload.get("budget"),
+            warnings=getattr(unified_context, "warnings", None) or None,
+            trace=context_payload.get("trace"),
         )
 
     return (
@@ -1013,14 +1026,12 @@ async def chat(request: ChatRequest):
 
         if request.memory.enabled and request.memory.auto_extract and last_user_message:
             try:
-                from context.unified_manager import get_unified_context_manager
+                from memory.service import extract_and_store_memory
 
-                context_manager = get_unified_context_manager()
-                await context_manager.extract_and_store_memory(
+                await extract_and_store_memory(
                     message=last_user_message,
                     role="user",
                     user_id=request.session.user_id,
-                    session_id=request.session.session_id
                 )
             except Exception as e:
                 logger.warning(f"记忆提取失败: {e}")
@@ -1239,14 +1250,12 @@ async def chat_stream(request: ChatRequest):
                 duration_ms = int((time.time() - started_at) * 1000)
                 if request.memory.enabled and request.memory.auto_extract and last_user_message:
                     try:
-                        from context.unified_manager import get_unified_context_manager
+                        from memory.service import extract_and_store_memory
 
-                        manager = get_unified_context_manager()
-                        await manager.extract_and_store_memory(
+                        await extract_and_store_memory(
                             message=last_user_message,
                             role="user",
                             user_id=request.session.user_id,
-                            session_id=request.session.session_id,
                         )
                     except Exception as memory_error:
                         logger.warning(f"流式聊天记忆提取失败: {memory_error}")

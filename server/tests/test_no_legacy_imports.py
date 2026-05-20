@@ -6,6 +6,9 @@ Deleted packages:
   - workflow_templates
   - digital_team
   - agent_kernel
+  - context.unified_manager
+  - context.manager / context.compressor / context.context_retriever
+  - api.memory_new
 """
 from __future__ import annotations
 
@@ -21,6 +24,11 @@ BANNED_PREFIXES = (
     "workflow_templates",
     "digital_team",
     "agent_kernel",
+    "context.unified_manager",
+    "context.manager",
+    "context.compressor",
+    "context.context_retriever",
+    "api.memory_new",
 )
 
 EXCLUDED_DIRS = {

@@ -54,7 +54,7 @@ from api.heartbeat import router as heartbeat
 from api.inference import router as inference
 from api.inference_engine import router as inference_engine
 from api.knowledge import router as knowledge
-from api.memory_new import router as memory
+from api.memory import router as memory
 from api.mcp import router as mcp
 from api.model_center import router as model_center
 from api.models import router as models
@@ -213,8 +213,9 @@ async def lifespan(app: FastAPI):
 
     try:
         logger.info("???????...")
-        from memory.memory_service import MemoryService
-        MemoryService()
+        from memory.memory_service import get_memory_service
+
+        get_memory_service()
         logger.info("????????")
     except Exception as e:
         logger.warning(f"Memory service init failed: {e}")

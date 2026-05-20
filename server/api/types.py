@@ -75,6 +75,9 @@ class UnifiedContextInfo(BaseModel):
     knowledge_count: int = Field(default=0, description="知识库数量")
     project_count: int = Field(default=0, description="项目上下文数量")
     retrieval_time: float = Field(default=0, description="检索耗时(秒)")
+    budget: dict[str, Any] | None = Field(default=None, description="上下文 token 预算")
+    warnings: list[str] | None = Field(default=None, description="上下文构建警告")
+    trace: dict[str, Any] | None = Field(default=None, description="上下文选择审计轨迹")
 
 
 class MemoryContextInfo(BaseModel):

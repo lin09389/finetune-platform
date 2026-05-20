@@ -299,7 +299,8 @@ async def _build_cloud_context(request: CloudChatRequest) -> tuple[list[dict[str
     context_options = request.context or {}
     session_options = request.session or {}
 
-    from context.unified_manager import ContextOptions, get_unified_context_manager
+    from context.builder import get_context_builder
+    from context.budget import ContextBuildOptions
 
     project_path = context_options.get("project_path")
     use_project_context = bool(context_options.get("use_context", False))
@@ -316,22 +317,27 @@ async def _build_cloud_context(request: CloudChatRequest) -> tuple[list[dict[str
         except Exception as _e:
             logger.warning(f"查找已注册项目失败: {_e}")
 
-    manager = get_unified_context_manager()
-    unified_context = await manager.build_context(
+    max_context_tokens = max(
+        512,
+        int(context_options.get("max_context_tokens") or 4096) - int(request.max_tokens or 0),
+    )
+    unified_context = await get_context_builder().build(
         query=last_user_message,
         user_id=session_options.get("user_id", "default"),
         session_id=session_options.get("session_id"),
-        options=ContextOptions(
+        options=ContextBuildOptions(
             use_memory=bool(memory_options.get("enabled", True) and memory_options.get("auto_retrieve", True)),
             use_knowledge=bool(knowledge_options.get("use_knowledge", False)),
             use_project_context=use_project_context,
+            max_context_tokens=max_context_tokens,
+            reserved_output_tokens=int(request.max_tokens or 0),
             memory_top_k=int(memory_options.get("top_k", 3)),
             memory_include_types=memory_options.get("include_types"),
             knowledge_collection_id=knowledge_options.get("collection_id"),
             knowledge_top_k=int(knowledge_options.get("top_k", 5)),
             knowledge_auto_retrieve=bool(knowledge_options.get("auto_retrieve", True)),
             project_path=project_path,
-            project_max_length=int(context_options.get("max_context_length", 1500)),
+            project_max_tokens=int(context_options.get("max_context_length", 1500)),
         ),
     )
 
@@ -369,12 +375,16 @@ async def _build_cloud_context(request: CloudChatRequest) -> tuple[list[dict[str
                 "context_preview": unified_context.context_text[:200] if unified_context.context_text else "",
             }
 
+        context_payload = unified_context.to_dict()
         metadata["unified_context"] = {
             "total_sources": unified_context.total_sources,
             "memory_count": unified_context.memory_count,
             "knowledge_count": unified_context.knowledge_count,
             "project_count": unified_context.project_count,
             "retrieval_time": unified_context.retrieval_time,
+            "budget": context_payload.get("budget"),
+            "warnings": getattr(unified_context, "warnings", None) or None,
+            "trace": context_payload.get("trace"),
         }
 
     if use_project_context and unified_context.project_count == 0:
@@ -573,15 +583,13 @@ async def cloud_chat_stream(request: CloudChatRequest):
             )
             if request.memory and request.memory.get("enabled", True) and request.memory.get("auto_extract", True) and last_user_message:
                 try:
-                    from context.unified_manager import get_unified_context_manager
+                    from memory.service import extract_and_store_memory
 
-                    manager = get_unified_context_manager()
                     session_options = request.session or {}
-                    await manager.extract_and_store_memory(
+                    await extract_and_store_memory(
                         message=last_user_message,
                         role="user",
                         user_id=session_options.get("user_id", "default"),
-                        session_id=session_options.get("session_id"),
                     )
                 except Exception as memory_error:
                     logger.warning(f"cloud chat memory extraction failed: {memory_error}")

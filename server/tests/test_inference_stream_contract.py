@@ -126,7 +126,7 @@ def test_chat_stream_injects_rag_context_and_emits_sources(monkeypatch):
     scheduler = _FakeScheduler(backend)
     monkeypatch.setattr(inference_routes, "get_scheduler", lambda: scheduler)
 
-    unified_manager_module = importlib.import_module("context.unified_manager")
+    builder_module = importlib.import_module("context.builder")
 
     class FakeKnowledgeSource:
         id = "chunk-1"
@@ -143,21 +143,57 @@ def test_chat_stream_injects_rag_context_and_emits_sources(monkeypatch):
         knowledge_retrieval_time = 0.01
         context_text = "RAG context from the knowledge base."
         knowledge_sources = [FakeKnowledgeSource()]
+        warnings = []
 
         def build_system_prompt(self, base_prompt):
             return f"{base_prompt}\n\n【参考资料】\nRAG context from the knowledge base."
 
-    class FakeContextManager:
-        async def build_context(self, query, user_id, session_id, options):
+        def to_dict(self):
+            return {
+                "budget": {
+                    "max_tokens": 512,
+                    "reserved_tokens": 32,
+                    "used_tokens": 12,
+                    "dropped_tokens": 0,
+                    "dropped_sources": [],
+                },
+                "trace": {
+                    "decisions": [
+                        {
+                            "source_id": "chunk-1",
+                            "kind": "knowledge",
+                            "selected": True,
+                            "reason": "test fixture",
+                            "score": 0.91,
+                            "importance": 0.7,
+                            "tokens": 12,
+                            "rank": 1,
+                            "dropped_reason": None,
+                            "conflict_ids": [],
+                        }
+                    ],
+                    "conflicts": [],
+                    "prompt_artifact": {
+                        "system_prompt": self.build_system_prompt("你是一个有帮助的 AI 助手。"),
+                        "prompt_hash": "test",
+                        "token_count": 12,
+                        "context_text": self.context_text,
+                        "section_ids": ["knowledge"],
+                    },
+                },
+            }
+
+    class FakeContextBuilder:
+        async def build(self, query, user_id, session_id, options):
             assert query == "use docs"
             assert options.use_knowledge is True
             assert options.knowledge_collection_id == "project-docs"
             return FakeUnifiedContext()
 
     monkeypatch.setattr(
-        unified_manager_module,
-        "get_unified_context_manager",
-        lambda: FakeContextManager(),
+        builder_module,
+        "get_context_builder",
+        lambda: FakeContextBuilder(),
     )
 
     client = TestClient(app)
@@ -181,6 +217,9 @@ def test_chat_stream_injects_rag_context_and_emits_sources(monkeypatch):
     body = response.text
     assert '"knowledge_sources"' in body
     assert '"source": "guide.md"' in body
+    assert '"trace"' in body
+    assert '"decisions"' in body
+    assert '"prompt_artifact"' in body
     assert backend.calls, "backend.chat_stream should be called"
     messages, _ = backend.calls[0]
     assert messages[0]["role"] == "system"

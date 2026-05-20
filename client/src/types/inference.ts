@@ -72,6 +72,9 @@ export interface UnifiedContextInfo {
   knowledge_count: number;
   project_count: number;
   retrieval_time: number;
+  budget?: Record<string, unknown>;
+  warnings?: string[];
+  trace?: Record<string, unknown>;
 }
 
 export interface BackendInfo {

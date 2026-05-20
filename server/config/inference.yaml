@@ -80,27 +80,10 @@ knowledge:
       - "性能"
 
 memory:
-  short_term:
-    max_messages: 50
-    max_tokens: 4000
-    summary_threshold: 30
-  
   long_term:
     max_memories: 1000
     embedding_model: "shibing624/text2vec-base-chinese"
     similarity_threshold: 0.7
-  
-  knowledge_graph:
-    enabled: true
-    max_entities: 500
-    max_relations: 1000
-    entity_types:
-      - "person"
-      - "organization"
-      - "location"
-      - "event"
-      - "concept"
-      - "product"
 
 chat:
   context_window:

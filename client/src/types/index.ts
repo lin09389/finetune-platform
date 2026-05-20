@@ -301,6 +301,9 @@ export interface PlaygroundCandidate {
     knowledge_count: number;
     project_count?: number;
     retrieval_time: number;
+    budget?: Record<string, unknown>;
+    warnings?: string[];
+    trace?: Record<string, unknown>;
   };
   run_metrics?: PlaygroundRunMetrics;
 }
@@ -345,6 +348,9 @@ export interface PlaygroundSnapshot {
     knowledge_count: number;
     project_count?: number;
     retrieval_time: number;
+    budget?: Record<string, unknown>;
+    warnings?: string[];
+    trace?: Record<string, unknown>;
   };
   experiment_config: PlaygroundExperimentConfig;
   run_metrics?: PlaygroundRunMetrics;

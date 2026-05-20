@@ -11,19 +11,19 @@ import styles from './MemoryPage.module.css';
 
 const tiers = [
   {
-    icon: '⚡',
-    name: '工作记忆',
-    desc: '当前对话上下文，实时感知用户意图，会话结束后自动清除。',
-  },
-  {
-    icon: '🧠',
-    name: '短期记忆',
-    desc: '近期交互摘要，跨会话保留重要信息，定期压缩归档。',
-  },
-  {
     icon: '🗄️',
     name: '长期记忆',
-    desc: '语义化知识图谱，持久存储核心知识；对外集成能力仍在持续收口。',
+    desc: '保存用户偏好、项目事实和长期设定，可被聊天上下文按需检索。',
+  },
+  {
+    icon: '🔎',
+    name: '上下文检索',
+    desc: '记忆只提供候选结果，最终上下文由统一 context builder 拼装。',
+  },
+  {
+    icon: '🧹',
+    name: '可治理数据',
+    desc: '支持查看、搜索、编辑、删除和导入导出，避免记忆系统继续膨胀。',
   },
 ];
 
@@ -41,14 +41,14 @@ export default function MemoryPage() {
           <div>
             <h2 className={styles.headerTitle}>智能记忆系统</h2>
             <p className={styles.headerSubtitle}>
-              Beta 能力：三级记忆架构已可试用，但跨能力集成和外部接入仍在持续收口
+              长期用户记忆已收口为独立数据源，RAG、项目上下文和聊天拼装由 context 层统一负责
             </p>
           </div>
         </div>
 
-        {/* 三层记忆架构说明 */}
+        {/* 记忆边界说明 */}
         <div className={styles.tiersCard}>
-          <div className={styles.sectionTitle}>记忆层级</div>
+          <div className={styles.sectionTitle}>当前边界</div>
           <div className={styles.tiersGrid}>
             {tiers.map((tier) => (
               <div key={tier.name} className={styles.tierItem}>
@@ -65,7 +65,7 @@ export default function MemoryPage() {
           <div className={styles.actionInfo}>
             <div className={styles.actionTitle}>记忆管理</div>
             <div className={styles.actionDesc}>
-              查看、编辑、删除各层记忆条目，管理知识图谱节点与关联关系
+              查看、搜索、创建、编辑、删除长期记忆条目
             </div>
           </div>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setMemoryManagerOpen(true)}>
