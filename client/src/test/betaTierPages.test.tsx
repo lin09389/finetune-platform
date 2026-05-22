@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -80,7 +81,11 @@ describe('beta tier page copy', () => {
   });
 
   it('shows beta capability framing on WorkspaceManager', async () => {
-    render(<WorkspaceManager />);
+    render(
+      <MemoryRouter>
+        <WorkspaceManager />
+      </MemoryRouter>
+    );
 
     await waitFor(() => {
       expect(screen.getByText(/Beta 能力：管理知识库工作空间/i)).toBeInTheDocument();

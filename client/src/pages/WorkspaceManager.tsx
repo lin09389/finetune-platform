@@ -1,8 +1,9 @@
-import { DeleteOutlined, EditOutlined, FolderOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
-import { App, Badge, Button, Form, Input, Modal, Tag } from 'antd';
+import { ArrowRightOutlined, CheckOutlined, DeleteOutlined, EditOutlined, FolderOpenOutlined, FolderOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { App, Badge, Button, Form, Input, Modal, Space, Tag, Tooltip } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
-import { API_BASE_URL } from '../services/api';
+import { API_BASE_URL, browseFolderBackend } from '../services/api';
 import { appModal } from '../utils/modal';
 import styles from './WorkspaceManager.module.css';
 
@@ -33,7 +34,11 @@ function normalizePath(value: string | undefined | null) {
 
 export default function WorkspaceManager() {
   const { message } = App.useApp();
+  const navigate = useNavigate();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(
+    () => localStorage.getItem('chat_workspace_id_v1') || ''
+  );
   const [modalVisible, setModalVisible] = useState(false);
   const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null);
   const [form] = Form.useForm();
@@ -58,6 +63,39 @@ export default function WorkspaceManager() {
     }
     return { status: 'warning' as const, text: '路径已被修改，保存后将覆盖当前绑定。' };
   }, [editingWorkspace, editingWorkspacePath, normalizedPath, selectedWorkspace]);
+
+  useEffect(() => {
+    const handleWorkspaceChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ workspaceId?: string; projectPath?: string }>).detail || {};
+      if (detail.workspaceId) {
+        setActiveWorkspaceId(detail.workspaceId);
+      }
+    };
+    window.addEventListener('chat-workspace-change', handleWorkspaceChange);
+    return () => window.removeEventListener('chat-workspace-change', handleWorkspaceChange);
+  }, []);
+
+  const handleSelectActiveWorkspace = (ws: Workspace) => {
+    localStorage.setItem('chat_workspace_id_v1', ws.id);
+    localStorage.setItem('chat_project_path_v1', ws.local_path || '');
+    setActiveWorkspaceId(ws.id);
+
+    // Dispatch custom event for real-time synchronization with Chat page
+    const event = new CustomEvent('chat-workspace-change', {
+      detail: { workspaceId: ws.id, projectPath: ws.local_path || '' }
+    });
+    window.dispatchEvent(event);
+    message.success(`已切换活动工作空间为：${ws.name}`);
+  };
+
+  const handleOpenFolder = (path: string | undefined | null) => {
+    if (!path) return;
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.openFolder) {
+      void (window as any).electronAPI.openFolder(path);
+      return;
+    }
+    message.info('浏览器模式无法直接打开本地目录，请手动打开文件夹。');
+  };
 
   useEffect(() => {
     void loadWorkspaces();
@@ -157,6 +195,28 @@ export default function WorkspaceManager() {
     setModalVisible(true);
   };
 
+  const handleBrowseFolder = async () => {
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.selectFolder) {
+      const folder: string | null = await (window as any).electronAPI.selectFolder(
+        form.getFieldValue('local_path') || undefined,
+      );
+      if (folder) form.setFieldValue('local_path', folder);
+      return;
+    }
+
+    try {
+      const res = await browseFolderBackend(form.getFieldValue('local_path') || undefined);
+      if (res.status === 'success' && res.path) {
+        form.setFieldValue('local_path', res.path);
+        message.success('选择路径成功');
+      } else if (res.status === 'error') {
+        message.warning(`文件夹选择失败: ${res.message || '请手动输入路径'}`);
+      }
+    } catch {
+      message.error('无法激活文件夹选择，请手动输入路径');
+    }
+  };
+
   const quickFillActivePath = () => {
     if (selectedWorkspace?.local_path) {
       form.setFieldValue('local_path', selectedWorkspace.local_path);
@@ -207,72 +267,135 @@ export default function WorkspaceManager() {
           </div>
           {workspaces.length > 0 ? (
             <div className={styles.wsGrid}>
-              {workspaces.map((ws) => (
-                <div key={ws.id} className={styles.wsCard}>
-                  <div className={styles.wsCardTitle}>
-                    <FolderOutlined className={styles.wsIcon} />
-                    <span>{ws.name}</span>
-                    <Badge count={ws.vector_count} size="small" color="blue" />
+              {workspaces.map((ws) => {
+                const isActive = activeWorkspaceId === ws.id;
+                return (
+                  <div
+                    key={ws.id}
+                    className={`${styles.wsCard} ${isActive ? styles.wsCardActive : ''}`}
+                    onClick={(e) => {
+                      // Avoid triggering selection when action buttons are clicked
+                      if (
+                        (e.target as HTMLElement).closest('button') ||
+                        (e.target as HTMLElement).closest('.ant-popconfirm') ||
+                        (e.target as HTMLElement).closest('.ant-modal')
+                      ) {
+                        return;
+                      }
+                      handleSelectActiveWorkspace(ws);
+                    }}
+                    title="点击可设为当前活动工作空间"
+                  >
+                    <div className={styles.wsCardTitle}>
+                      <FolderOutlined className={styles.wsIcon} />
+                      <span>{ws.name}</span>
+                      <Badge count={ws.vector_count} size="small" color="blue" />
+                    </div>
+                    <div className={styles.wsDesc}>{ws.description || '暂无描述'}</div>
+                    {ws.local_path ? (
+                      <div className={styles.wsTime}>本地路径：{ws.local_path}</div>
+                    ) : (
+                      <div className={styles.wsTime}>未绑定本地目录</div>
+                    )}
+                    {isActive && (
+                      <Tag color="green" style={{ marginTop: 8, borderRadius: 999 }}>
+                        当前活动工作区
+                      </Tag>
+                    )}
+                    <div className={styles.wsMetaRow}>
+                      <span
+                        style={{
+                          fontSize: 12,
+                          color: 'var(--accent-blue)',
+                          background: 'rgba(22,119,255,0.1)',
+                          padding: '1px 8px',
+                          borderRadius: 4,
+                        }}
+                      >
+                        {ws.document_count} 文档
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 12,
+                          color: '#06b6d4',
+                          background: 'rgba(6,182,212,0.1)',
+                          padding: '1px 8px',
+                          borderRadius: 4,
+                        }}
+                      >
+                        {ws.vector_count} 向量
+                      </span>
+                    </div>
+                    <div className={styles.wsTime}>
+                      创建于：{new Date(ws.created_at).toLocaleDateString('zh-CN')}
+                    </div>
+                    <div className={styles.wsActions}>
+                      {isActive ? (
+                        <Button
+                          type="primary"
+                          size="small"
+                          icon={<ArrowRightOutlined />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate('/chat');
+                          }}
+                          className={styles.primaryActionBtn}
+                        >
+                          进入 Chat 编程
+                        </Button>
+                      ) : (
+                        <Button
+                          type="dashed"
+                          size="small"
+                          icon={<CheckOutlined />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectActiveWorkspace(ws);
+                          }}
+                        >
+                          设为活动
+                        </Button>
+                      )}
+                      {ws.local_path && (
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<FolderOpenOutlined />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenFolder(ws.local_path);
+                          }}
+                        >
+                          打开文件夹
+                        </Button>
+                      )}
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<EditOutlined />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openModal(ws);
+                        }}
+                      >
+                        编辑
+                      </Button>
+                      <Button
+                        type="text"
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDelete(ws.id);
+                        }}
+                      >
+                        删除
+                      </Button>
+                    </div>
                   </div>
-                  <div className={styles.wsDesc}>{ws.description || '暂无描述'}</div>
-                  {ws.local_path ? (
-                    <div className={styles.wsTime}>本地路径：{ws.local_path}</div>
-                  ) : (
-                    <div className={styles.wsTime}>未绑定本地目录</div>
-                  )}
-                  {selectedWorkspace?.id === ws.id && (
-                    <Tag color="green" style={{ marginTop: 8, borderRadius: 999 }}>
-                      当前已选中
-                    </Tag>
-                  )}
-                  <div className={styles.wsMetaRow}>
-                    <span
-                      style={{
-                        fontSize: 12,
-                        color: 'var(--accent-blue)',
-                        background: 'rgba(22,119,255,0.1)',
-                        padding: '1px 8px',
-                        borderRadius: 4,
-                      }}
-                    >
-                      {ws.document_count} 文档
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 12,
-                        color: '#06b6d4',
-                        background: 'rgba(6,182,212,0.1)',
-                        padding: '1px 8px',
-                        borderRadius: 4,
-                      }}
-                    >
-                      {ws.vector_count} 向量
-                    </span>
-                  </div>
-                  <div className={styles.wsTime}>
-                    创建于：{new Date(ws.created_at).toLocaleDateString('zh-CN')}
-                  </div>
-                  <div className={styles.wsActions}>
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={<EditOutlined />}
-                      onClick={() => openModal(ws)}
-                    >
-                      编辑
-                    </Button>
-                    <Button
-                      type="text"
-                      size="small"
-                      danger
-                      icon={<DeleteOutlined />}
-                      onClick={() => handleDelete(ws.id)}
-                    >
-                      删除
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className={styles.emptyState}>
@@ -324,7 +447,16 @@ export default function WorkspaceManager() {
                     : pathState.status
               }
             >
-              <Input placeholder="例如：C:\\Projects\\my-app" />
+              <Space.Compact style={{ width: '100%' }}>
+                <Form.Item name="local_path" noStyle>
+                  <Input placeholder="例如：C:\\Projects\\my-app" />
+                </Form.Item>
+                <Tooltip title="选择本地项目文件夹">
+                  <Button icon={<FolderOpenOutlined />} onClick={() => void handleBrowseFolder()}>
+                    浏览
+                  </Button>
+                </Tooltip>
+              </Space.Compact>
             </Form.Item>
             <div className={styles.modalFooterHint}>
               <span>保存后会用于 Agent 的 `project_path`，请确保目录真实存在且在允许范围内。</span>

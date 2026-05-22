@@ -82,14 +82,32 @@
     transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
     border-color 180ms cubic-bezier(0.16, 1, 0.3, 1),
     box-shadow 180ms cubic-bezier(0.16, 1, 0.3, 1);
-  cursor: default;
+  cursor: pointer;
   will-change: transform;
 }
 
 .wsCard:hover {
-  border-color: var(--border-hover);
-  box-shadow: var(--shadow-sm);
-  transform: translateY(-2px);
+  border-color: var(--accent-blue, #1677ff);
+  box-shadow: 0 6px 20px rgba(22, 119, 255, 0.08);
+  transform: translateY(-3px);
+}
+
+.wsCardActive {
+  border-color: var(--accent-blue, #1677ff) !important;
+  background: rgba(22, 119, 255, 0.04) !important;
+  box-shadow: 0 8px 24px rgba(22, 119, 255, 0.12) !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.wsCardActive::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #1677ff, #06b6d4);
 }
 
 .wsCardTitle {

@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import WorkspaceManager from '../pages/WorkspaceManager';
 
 const mockFetch = vi.fn();
@@ -58,22 +59,28 @@ describe('WorkspaceManager', () => {
     });
   });
 
+  const renderComponent = () => render(
+    <MemoryRouter>
+      <WorkspaceManager />
+    </MemoryRouter>
+  );
+
   it('fetches workspace list on mount', async () => {
-    render(<WorkspaceManager />);
+    renderComponent();
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith('http://localhost:8000/workspace/workspaces');
     });
   });
 
   it('renders workspace name', async () => {
-    render(<WorkspaceManager />);
+    renderComponent();
     await waitFor(() => {
       expect(screen.getByText('Test Workspace')).toBeInTheDocument();
     });
   });
 
   it('shows create button', async () => {
-    render(<WorkspaceManager />);
+    renderComponent();
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith('http://localhost:8000/workspace/workspaces');
     });
@@ -81,7 +88,7 @@ describe('WorkspaceManager', () => {
   });
 
   it('opens modal when clicking create button', async () => {
-    render(<WorkspaceManager />);
+    renderComponent();
     fireEvent.click(screen.getByTestId('workspace-create-primary'));
     await waitFor(() => {
       expect(screen.getByRole('dialog')).toBeInTheDocument();
@@ -89,7 +96,7 @@ describe('WorkspaceManager', () => {
   });
 
   it('triggers delete flow', async () => {
-    render(<WorkspaceManager />);
+    renderComponent();
     await waitFor(() => {
       expect(screen.getByText('Test Workspace')).toBeInTheDocument();
     });
