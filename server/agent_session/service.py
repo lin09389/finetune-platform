@@ -5,7 +5,6 @@ import json
 import logging
 import os
 import re
-import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +19,8 @@ from core.db_manager import run_sync
 from security.encryption import secure_storage
 from workspace.local_paths import get_allowed_workspace_roots
 
+from .approval import action_approval_decision, action_execute_decision, is_langgraph_resume_enabled, permission_decision
+from .events import AgentSessionEventBus
 from .langgraph import AgentSessionGraphRunner
 from .models import (
     AgentArtifactResponse,
@@ -28,22 +29,19 @@ from .models import (
     AgentSessionOverviewResponse,
     AgentSessionResponse,
 )
-from .processor import AgentSessionProcessor, ModelCall, StreamModelCall
+from .processor import AgentSessionProcessor
+from .provider import AgentSessionCloudError, AgentSessionProviderResolver, ModelCall, StreamModelCall
 from .repository import AgentSessionRepository
+from .runtime import AgentSessionRuntime
 from .state import ensure_session_state, record_fallback_summary, set_phase
 
 logger = logging.getLogger(__name__)
 
 
-class AgentSessionCloudError(RuntimeError):
-    def __init__(self, code: str, message: str):
-        super().__init__(message)
-        self.code = code
-
-
 class AgentSessionService:
-    _event_queues: dict[str, list[asyncio.Queue[dict[str, Any]]]] = {}
-    _event_lock = threading.Lock()
+    _event_bus = AgentSessionEventBus()
+    _event_queues = AgentSessionEventBus._queues
+    _event_lock = AgentSessionEventBus._lock
 
     def __init__(
         self,
@@ -54,61 +52,22 @@ class AgentSessionService:
         self.repository = repository or AgentSessionRepository()
         self.processor = processor or AgentSessionProcessor(self.repository, event_callback=self._notify_event)
         self.model_call = model_call
+        self.provider = AgentSessionProviderResolver(storage=secure_storage, provider_resolver=resolve_saved_provider)
+        self.runtime = AgentSessionRuntime()
         self._graph_runner: AgentSessionGraphRunner | bool | None = None
         self._graph_runner_error: str | None = None
 
     ACTIVE_STATUSES = {"running", "verifying", "repairing", "waiting_approval", "waiting_permission"}
-    TERMINAL_STATUSES = {"completed", "failed", "interrupted", "needs_manual_review", "waiting_approval", "waiting_permission"}
+    TERMINAL_STATUSES = {"completed", "failed", "interrupted", "needs_manual_review"}
 
     def subscribe_events(self, session_id: str) -> asyncio.Queue[dict[str, Any]]:
-        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=512)
-        with AgentSessionService._event_lock:
-            if session_id not in AgentSessionService._event_queues:
-                AgentSessionService._event_queues[session_id] = []
-            AgentSessionService._event_queues[session_id].append(queue)
-        return queue
+        return self._event_bus.subscribe(session_id)
 
     def unsubscribe_events(self, session_id: str, queue: asyncio.Queue[dict[str, Any]]) -> None:
-        with AgentSessionService._event_lock:
-            queues = AgentSessionService._event_queues.get(session_id)
-            if queues:
-                try:
-                    queues.remove(queue)
-                except ValueError:
-                    pass
-                if not queues:
-                    AgentSessionService._event_queues.pop(session_id, None)
+        self._event_bus.unsubscribe(session_id, queue)
 
     def _notify_event(self, session_id: str, event: dict[str, Any]) -> None:
-        with AgentSessionService._event_lock:
-            queues = list(AgentSessionService._event_queues.get(session_id, []))
-        for q in queues:
-            try:
-                q.put_nowait(event)
-            except asyncio.QueueFull:
-                logger.warning("agent_session event queue full for session %s, dropping event", session_id)
-            except Exception:
-                pass
-            if not queues:
-                AgentSessionService._event_queues.pop(session_id, None)
-
-    def _notify_event(self, session_id: str, event: dict[str, Any]) -> None:
-        queues = AgentSessionService._event_queues.get(session_id)
-        if not queues:
-            return
-        dead: list[asyncio.Queue[dict[str, Any]]] = []
-        for q in queues:
-            try:
-                q.put_nowait(event)
-            except asyncio.QueueFull:
-                logger.warning("agent_session event queue full for session %s, dropping event", session_id)
-            except Exception:
-                dead.append(q)
-        for q in dead:
-            try:
-                queues.remove(q)
-            except ValueError:
-                pass
+        self._event_bus.notify(session_id, event)
 
     def _default_project_path(self) -> str:
         base_dir = settings.base_dir.resolve()
@@ -209,73 +168,33 @@ class AgentSessionService:
             session = self.repository.get_session(session_id) or session
 
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        try:
-            model_call, stream_model_call, metadata = self._resolve_prompt_model_calls(session, metadata)
-        except AgentSessionCloudError as exc:
-            result = self._record_agent_chain_failure(
-                session_id,
-                exc.code,
-                str(exc),
-                provider=session.get("provider") or request.provider,
-                model=session.get("model") or request.model,
-            )
-            return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
+        if self._has_custom_processor_prompt():
+            model_call = self.model_call
+            stream_model_call = None
+        else:
+            try:
+                model_call, stream_model_call, metadata = self._resolve_prompt_model_calls(session, metadata)
+            except AgentSessionCloudError as exc:
+                result = self._record_agent_chain_failure(
+                    session_id,
+                    exc.code,
+                    str(exc),
+                    provider=session.get("provider") or request.provider,
+                    model=session.get("model") or request.model,
+                )
+                return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
         self.repository.update_session(session_id, metadata=metadata)
         session = self.repository.get_session(session_id) or session
 
         try:
-            if self._has_custom_processor_prompt():
-                logger.info("agent_session prompt routed to custom processor prompt: session_id=%s", session_id)
-                result = await self.processor.prompt(
-                    session_id,
-                    request.content,
-                    model_call=model_call,
-                    stream_model_call=stream_model_call,
-                )
-            else:
-                runner = await self._get_graph_runner()
-                if runner is not None:
-                    initial_state = self._build_langgraph_initial_state(session_id, request.content)
-                    logger.info(
-                        "agent_session prompt routed to LangGraph: session_id=%s provider=%s model=%s stream=%s",
-                        session_id,
-                        session.get("provider") or "",
-                        session.get("model") or "",
-                        bool(stream_model_call),
-                    )
-                    try:
-                        await runner.run_prompt(
-                            initial_state,
-                            model_call=model_call,
-                            stream_model_call=stream_model_call,
-                        )
-                        result = self.repository.get_session(session_id) or session
-                        result["parts"] = self.repository.list_parts(session_id)
-                    except Exception as exc:
-                        logger.exception("agent_session LangGraph prompt failed")
-                        self._record_langgraph_fallback(session_id, str(exc))
-                        result = self.record_prompt_failure(session_id, exc)
-                else:
-                    graph_error = self._graph_runner_error if settings.agent_session_langgraph_enabled else None
-                    if graph_error:
-                        self._record_langgraph_fallback(session_id, graph_error)
-                        result = self._record_agent_chain_failure(
-                            session_id,
-                            "langgraph_init_failed",
-                            f"LangGraph 初始化失败，已停止执行，未回退到旧 processor：{graph_error}",
-                            provider=session.get("provider"),
-                            model=session.get("model"),
-                        )
-                        return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
-                    logger.info(
-                        "agent_session prompt routed to processor fallback: session_id=%s provider=%s model=%s stream=%s graph_error=%s",
-                        session_id,
-                        session.get("provider") or "",
-                        session.get("model") or "",
-                        bool(stream_model_call),
-                        bool(graph_error),
-                    )
-                    result = await self.processor.prompt(session_id, request.content, model_call=model_call, stream_model_call=stream_model_call)
+            result = await self.runtime.run_prompt(
+                self,
+                session_id,
+                request.content,
+                session,
+                model_call=model_call,
+                stream_model_call=stream_model_call,
+            )
         except Exception as exc:
             result = self.record_prompt_failure(session_id, exc)
 
@@ -404,7 +323,7 @@ class AgentSessionService:
             payload={"summary": message, "fallback": False, "error": str(exc)[:1200]},
         )
         self.repository.update_session(session_id, status="needs_manual_review", metadata=metadata)
-        self.repository.add_event(
+        self.processor._event(
             session_id,
             "session_failed",
             message,
@@ -431,14 +350,14 @@ class AgentSessionService:
             raise ValueError("Agent part not found")
         session = self.repository.get_session(part["session_id"]) or {}
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        if settings.agent_session_langgraph_enabled and metadata.get("runtime") == "langgraph":
+        if is_langgraph_resume_enabled(settings.agent_session_langgraph_enabled, metadata):
             runner = await self._get_graph_runner()
             if runner is None:
                 logger.warning("LangGraph runner unavailable for permission resume, using processor fallback")
                 return await run_sync(self.approve_permission, part_id, approved)
             model_call = self.model_call or self._cloud_model_call(session)
             stream_model_call = self._resolve_stream_model_call(session)
-            decision = {"interrupt_kind": "permission_request", "part_id": part_id, "approved": approved}
+            decision = permission_decision(part_id, approved)
             self._record_resume_decision(part["session_id"], decision)
             if approved:
                 await runner.resume(
@@ -466,7 +385,7 @@ class AgentSessionService:
             raise ValueError("Agent part not found")
         session = self.repository.get_session(part["session_id"]) or {}
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        if settings.agent_session_langgraph_enabled and metadata.get("runtime") == "langgraph":
+        if is_langgraph_resume_enabled(settings.agent_session_langgraph_enabled, metadata):
             result = self.processor.approve_part(part_id, approved)
             if approved:
                 return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
@@ -476,7 +395,7 @@ class AgentSessionService:
                 return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
             model_call = self.model_call or self._cloud_model_call(session)
             stream_model_call = self._resolve_stream_model_call(session)
-            decision = {"interrupt_kind": "action_approval", "part_id": part_id, "approved": approved}
+            decision = action_approval_decision(part_id, approved)
             self._record_resume_decision(part["session_id"], decision)
             await runner.resume(
                 part["session_id"],
@@ -496,14 +415,16 @@ class AgentSessionService:
             raise ValueError("Agent part not found")
         session = self.repository.get_session(part["session_id"]) or {}
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        if settings.agent_session_langgraph_enabled and metadata.get("runtime") == "langgraph":
+        if part.get("type") == "command":
+            return await run_sync(self.execute_action, part_id)
+        if is_langgraph_resume_enabled(settings.agent_session_langgraph_enabled, metadata):
             runner = await self._get_graph_runner()
             if runner is None:
                 raise RuntimeError("LangGraph is not available for this session")
             if self.model_call is None and not session.get("provider"):
                 self._record_resume_decision(
                     part["session_id"],
-                    {"interrupt_kind": "action_approval", "part_id": part_id, "decision": "executed"},
+                    action_execute_decision(part_id),
                 )
                 await runner.runtime.action_exec_node({"session_id": part["session_id"], "pending_part_id": part_id})
                 updated_part = self.repository.get_part(part_id) or part
@@ -512,7 +433,7 @@ class AgentSessionService:
                 return self.get_session(part["session_id"])
             model_call = self.model_call or self._cloud_model_call(session)
             stream_model_call = self._resolve_stream_model_call(session)
-            decision = {"interrupt_kind": "action_approval", "part_id": part_id, "decision": "executed"}
+            decision = action_execute_decision(part_id)
             self._record_resume_decision(part["session_id"], decision)
             await runner.execute_action_and_resume(
                 part_id,
@@ -522,6 +443,26 @@ class AgentSessionService:
             )
             return self.get_session(part["session_id"])
         return await run_sync(self.execute_action, part_id)
+
+    def record_hunk_decision(
+        self,
+        action_id: str,
+        file_path: str,
+        hunk_index: int,
+        decision: str,
+    ) -> dict:
+        """Store a per-hunk accept/reject decision inside the action part payload."""
+        part = self.repository.get_part(action_id)
+        if not part:
+            raise ValueError(f"Action not found: {action_id}")
+        if part.get("type") != "diff":
+            raise ValueError("Hunk decisions only apply to diff actions")
+        payload = dict(part.get("payload") or {})
+        decisions = dict(payload.get("hunk_decisions") or {})
+        decisions[f"{file_path}:{hunk_index}"] = decision
+        payload["hunk_decisions"] = decisions
+        self.repository.update_part(action_id, payload=payload)
+        return self.repository.get_part(action_id) or {}
 
     def list_events(self, session_id: str, since_event_id: str | None = None) -> list[dict[str, Any]]:
         return self.repository.list_events_after(session_id, since_event_id)
@@ -534,7 +475,7 @@ class AgentSessionService:
         payload_part = payload.get("part")
         event_type = str(event.get("event_type") or "")
         computed_part = payload_part if isinstance(payload_part, dict) else None
-        if computed_part is None:
+        if computed_part is None or event_type == "part_delta":
             computed_part = self._stream_part_snapshot(event, payload)
         chunk_type = payload_chunk_type if isinstance(payload_chunk_type, str) else self._stream_chunk_type(event_type, payload, computed_part)
         return {
@@ -622,8 +563,13 @@ class AgentSessionService:
             return None
         if event_type in {"part_delta", "model_stream_started", "model_stream_failed"}:
             part_type = str(payload.get("part_type") or (stored_part or {}).get("type") or "text")
-            status = str(payload.get("status") or (stored_part or {}).get("status") or ("failed" if event_type == "model_stream_failed" else "running"))
+            if event_type == "part_delta":
+                status = str(payload.get("status") or (stored_part or {}).get("status") or "running")
+            else:
+                status = str(payload.get("status") or (stored_part or {}).get("status") or ("failed" if event_type == "model_stream_failed" else "running"))
             stored_payload = dict((stored_part or {}).get("payload") or {})
+            if isinstance(payload.get("payload"), dict):
+                stored_payload.update(payload.get("payload") or {})
             if payload.get("streaming"):
                 stored_payload["streaming"] = True
             return {
@@ -669,7 +615,9 @@ class AgentSessionService:
             return "summary"
         if event_type == "permission_asked":
             return "permission_request"
-        if event_type in {"action_proposed", "action_approved", "action_rejected", "action_executed", "action_failed", "command_completed", "command_failed"}:
+        if event_type == "command_output":
+            return "part_delta"
+        if event_type in {"action_proposed", "action_approved", "action_rejected", "action_executed", "action_failed", "command_started", "command_completed", "command_failed"}:
             return "action"
         if event_type in {"model_stream_failed", "session_failed", "session_blocked", "session_interrupted"}:
             return "error"
@@ -903,22 +851,7 @@ class AgentSessionService:
         return self._cloud_model_call(session), stream_model_call, metadata
 
     def _resolve_cloud_provider_config(self, session: dict[str, Any]):
-        provider_name = str(session.get("provider") or "")
-        if not provider_name:
-            raise AgentSessionCloudError("missing_provider", "没有选择云端模型 provider")
-        key_data = secure_storage.get(f"cloud_{provider_name}_key") or {}
-        if not isinstance(key_data, dict):
-            raise AgentSessionCloudError("invalid_provider_config", f"{provider_name} 的云端配置格式无效")
-        api_key = str(key_data.get("api_key") or "")
-        if not api_key:
-            raise AgentSessionCloudError("missing_api_key", f"未配置 {provider_name} 的 API Key")
-        provider = resolve_saved_provider(provider_name, key_data)
-        if provider is None:
-            raise AgentSessionCloudError("unsupported_provider", f"不支持的云端服务商：{provider_name}")
-        model = str(session.get("model") or key_data.get("default_model") or provider.get_default_model() or "")
-        if not model:
-            raise AgentSessionCloudError("missing_model", f"未配置 {provider_name} 的默认模型")
-        return provider, api_key, model
+        return self.provider.resolve_cloud_provider_config(session)
 
     def _record_agent_chain_failure(
         self,
@@ -959,7 +892,7 @@ class AgentSessionService:
             payload={"summary": message, "error_code": code, "fallback": False},
         )
         self.repository.update_session(session_id, status="needs_manual_review", metadata=metadata)
-        self.repository.add_event(
+        self.processor._event(
             session_id,
             "agent_chain_failed",
             message,
@@ -978,90 +911,10 @@ class AgentSessionService:
         return result
 
     def _cloud_model_call(self, session: dict[str, Any]) -> ModelCall:
-        async def call(messages: list[dict[str, str]]) -> str:
-            provider_name = session.get("provider")
-            logger.info(
-                "agent_session.cloud model_call enter: session_id=%s provider=%s model=%s message_count=%s",
-                session.get("id") or "",
-                provider_name or "",
-                session.get("model") or "",
-                len(messages),
-            )
-            if not provider_name:
-                raise AgentSessionCloudError("missing_provider", "没有选择云端模型 provider")
-            provider, api_key, model = self._resolve_cloud_provider_config(session)
-            try:
-                response = await provider.chat(
-                    messages=messages,
-                    model=model,
-                    api_key=api_key,
-                    temperature=0.2,
-                    max_tokens=2400,
-                )
-            except Exception as exc:
-                message = str(exc).replace('"', "'")[:600]
-                logger.exception(
-                    "agent_session.cloud model_call failed: session_id=%s provider=%s model=%s",
-                    session.get("id") or "",
-                    provider_name,
-                    model,
-                )
-                raise AgentSessionCloudError("cloud_model_call_failed", f"云端模型调用失败：{message}") from exc
-            logger.info(
-                "agent_session.cloud model_call success: session_id=%s provider=%s model=%s content_length=%s",
-                session.get("id") or "",
-                provider_name,
-                model,
-                len(str(response.get("content", ""))),
-            )
-            return response.get("content", "")
-
-        return call
+        return self.provider.cloud_model_call(session)
 
     def _cloud_stream_model_call(self, session: dict[str, Any]):
-        provider_name = session.get("provider")
-        provider, api_key, model = self._resolve_cloud_provider_config(session)
-
-        async def stream(messages: list[dict[str, str]]):
-            logger.info(
-                "agent_session.cloud chat_stream enter: session_id=%s provider=%s model=%s message_count=%s",
-                session.get("id") or "",
-                provider_name,
-                model,
-                len(messages),
-            )
-            try:
-                async for chunk in provider.chat_stream(
-                    messages=messages,
-                    model=model,
-                    api_key=api_key,
-                    temperature=0.2,
-                    max_tokens=2400,
-                ):
-                    if isinstance(chunk, dict):
-                        logger.debug(
-                            "agent_session.cloud chat_stream chunk: session_id=%s provider=%s keys=%s",
-                            session.get("id") or "",
-                            provider_name,
-                            sorted(chunk.keys()),
-                        )
-                    yield chunk
-                logger.info(
-                    "agent_session.cloud chat_stream exit: session_id=%s provider=%s model=%s",
-                    session.get("id") or "",
-                    provider_name,
-                    model,
-                )
-            except Exception:
-                logger.exception(
-                    "agent_session.cloud chat_stream failed: session_id=%s provider=%s model=%s",
-                    session.get("id") or "",
-                    provider_name,
-                    model,
-                )
-                raise
-
-        return stream
+        return self.provider.cloud_stream_model_call(session)
 
     def _local_fallback_model_response(self, messages: list[dict[str, str]], reason: str) -> str:
         latest_user = next((item.get("content", "") for item in reversed(messages) if item.get("role") == "user"), "")

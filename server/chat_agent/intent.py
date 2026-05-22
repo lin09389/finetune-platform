@@ -16,6 +16,7 @@ class ChatAgentIntentClassifier:
     """Small deterministic classifier for routing chat messages into agent work."""
 
     agent_keywords = (
+        # 明确指向项目代码修改的词组
         "修改代码",
         "新增功能",
         "新增接口",
@@ -26,11 +27,13 @@ class ChatAgentIntentClassifier:
         "修复报错",
         "重构代码",
         "优化代码",
+        # 测试 / 工具命令
         "跑测试",
         "运行测试",
         "typecheck",
         "pytest",
         "npm run",
+        # agent 操作
         "让agent做",
         "自动处理",
         "生成补丁",
@@ -41,6 +44,7 @@ class ChatAgentIntentClassifier:
         "排查问题",
         "运行命令",
         "执行补丁",
+        # 帮我+动词（带项目意图）
         "帮我改",
         "帮我修",
         "帮我写",
@@ -48,32 +52,20 @@ class ChatAgentIntentClassifier:
         "帮我新增",
         "帮我添加",
         "帮我重构",
+        # 明确的修改指令
         "改成",
         "改为",
         "加个",
         "加一个",
-        "删掉",
-        "删除",
-        "创建",
-        "新建",
-        "安装",
-        "配置",
-        "部署",
-        "写个",
-        "写一个",
-        "运行",
-        "执行",
-        "启动",
-        "打包",
-        "上传",
-        "更新",
-        "重命名",
     )
     discussion_only_keywords = (
         "不要执行", "只讨论", "只分析", "解释一下", "帮我解释", "什么是", "为什么",
         "怎么理解", "怎么用", "是什么意思", "有什么区别", "介绍一下", "帮我看看",
         "分析一下", "看看代码", "这个代码", "这段代码", "看看逻辑", "怎么实现的",
         "原理是什么", "怎么工作的", "帮我梳理", "帮我看看代码",
+        # 示例 / demo 类请求应走普通对话
+        "示例", "例子", "demo", "演示", "sample", "写一个例子", "给个例子",
+        "给我一个例子", "给我示例", "给我一段", "怎么写", "如何写",
     )
 
     def classify(self, content: str, force_agent: bool = False) -> tuple[bool, str]:

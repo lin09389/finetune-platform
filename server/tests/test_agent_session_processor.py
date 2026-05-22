@@ -176,9 +176,49 @@ def test_command_before_detect_gets_guidance_and_continues(tmp_path: Path):
         shutil.rmtree(run_dir, ignore_errors=True)
 
 
-def test_run_dev_server_requires_approval(tmp_path: Path):
+def test_safe_auto_run_dev_server_auto_executes(tmp_path: Path, monkeypatch):
     service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_dev_server.db")))
     session = service.create_session(AgentSessionCreate(title="dev server", project_path=str(Path.cwd())))
+
+    class FakeProcess:
+        pid = 456
+
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(
+        "agent_session.dev_server_tools.subprocess.Popen",
+        lambda *args, **kwargs: FakeProcess(),
+    )
+
+    responses = iter(
+        [
+            {"tool": "run_dev_server", "arguments": {"payload": {"command": ["npm", "run", "dev"], "server_url": "http://localhost:5173"}}},
+            {"tool": "finalize", "arguments": {"summary": "开发服务器已启动。"}},
+        ]
+    )
+
+    async def model_call(_messages):
+        return json.dumps(next(responses), ensure_ascii=False)
+
+    service.model_call = model_call
+    service.processor.max_iterations = 4
+    result = asyncio.run(service.prompt(session.id, AgentPromptRequest(content="启动前端开发服务器")))
+    command = next(part for part in result.parts if part.type == "command")
+
+    assert result.status == "completed"
+    assert command.status == "completed"
+    assert command.payload["tool"] == "run_dev_server"
+    assert command.payload["server_url"] == "http://localhost:5173"
+    assert command.payload["execution_mode"] == "auto"
+    assert command.payload["pid"] == 456
+
+
+def test_confirm_all_run_dev_server_requires_approval(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agent_dev_server_confirm.db")))
+    session = service.create_session(
+        AgentSessionCreate(title="dev server", project_path=str(Path.cwd()), autonomy_mode="confirm_all")
+    )
     responses = iter(
         [
             {"tool": "run_dev_server", "arguments": {"payload": {"command": ["npm", "run", "dev"], "server_url": "http://localhost:5173"}}},

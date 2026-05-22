@@ -133,3 +133,25 @@ def test_parse_tool_calls_wrapper_and_json_string_arguments():
     assert len(parts) == 1
     assert parts[0].tool == "read"
     assert parts[0].arguments == {"path": "server/main.py"}
+
+
+def test_parse_dsml_tool_calls_without_leaking_protocol_text():
+    raw = """
+<｜｜DSML｜｜tool_calls>
+<｜｜DSML｜｜invoke name="glob">
+<｜｜DSML｜｜parameter name="pattern" string="true">server/**/*.py</｜｜DSML｜｜parameter>
+</｜｜DSML｜｜invoke>
+<｜｜DSML｜｜invoke name="search">
+<｜｜DSML｜｜parameter name="pattern" string="true">def .*(</｜｜DSML｜｜parameter>
+<｜｜DSML｜｜parameter name="path" string="true">server</｜｜DSML｜｜parameter>
+<｜｜DSML｜｜parameter name="max_matches" string="true">20</｜｜DSML｜｜parameter>
+</｜｜DSML｜｜invoke>
+</｜｜DSML｜｜tool_calls>
+""".strip()
+
+    parts = parse_agent_response(raw)
+
+    assert [part.type for part in parts] == ["tool_call", "tool_call"]
+    assert [part.tool for part in parts] == ["glob", "search"]
+    assert parts[0].arguments == {"path_glob": "server/**/*.py"}
+    assert parts[1].arguments == {"query": "def .*(", "path_glob": "server/**/*", "limit": 20}

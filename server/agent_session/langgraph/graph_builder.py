@@ -9,6 +9,8 @@ from .state import AgentSessionGraphState
 def _after_model(state: AgentSessionGraphState) -> str:
     if state.get("pending_tool_calls"):
         return "tool_exec"
+    if str(state.get("execution_state") or "") == "running":
+        return "model_call"
     return "finalize"
 
 
@@ -55,7 +57,7 @@ def build_agent_session_graph(*, repository, processor, model_call=None, checkpo
     graph.add_edge(START, "bootstrap")
     graph.add_edge("bootstrap", "plan")
     graph.add_edge("plan", "model_call")
-    graph.add_conditional_edges("model_call", _after_model, {"tool_exec": "tool_exec", "finalize": "finalize"})
+    graph.add_conditional_edges("model_call", _after_model, {"tool_exec": "tool_exec", "model_call": "model_call", "finalize": "finalize"})
     graph.add_conditional_edges(
         "tool_exec",
         _after_tool_exec,

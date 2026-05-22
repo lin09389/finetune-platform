@@ -125,3 +125,20 @@ def test_agent_session_overview_collects_artifacts_and_recent_events(tmp_path: P
     assert overview.artifacts[0].path == "client/src/App.tsx"
     assert overview.artifacts[0].preview == "@@ sample diff @@"
     assert overview.recent_events[-1]["event_type"] == "action_executed"
+
+
+def test_notify_event_removes_dead_queues(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    repository = AgentSessionRepository(str(tmp_path / "dead_queue.db"))
+    service = AgentSessionService(repository)
+    session = service.create_session(AgentSessionCreate(title="dead-queue", project_path=str(Path.cwd())))
+
+    queue = service.subscribe_events(session.id)
+
+    def _raise(_event):
+        raise RuntimeError("dead queue")
+
+    monkeypatch.setattr(queue, "put_nowait", _raise)
+
+    service._notify_event(session.id, {"event_type": "test"})
+
+    assert service._event_queues.get(session.id) is None

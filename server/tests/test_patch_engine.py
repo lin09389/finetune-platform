@@ -72,6 +72,37 @@ class TestApplyFileWrites:
         })
         assert "src/main.py" in result.changed_files
 
+    def test_existing_file_requires_old_string_for_safe_replacement(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        with pytest.raises(HTTPException) as exc_info:
+            engine.apply_payload({
+                "file_path": "src/main.py",
+                "new_string": "print('overwrite')\n",
+            })
+        assert exc_info.value.status_code == 400
+        assert "require old_string" in exc_info.value.detail
+
+    def test_file_path_shorthand_can_create_new_file(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        result = engine.apply_payload({
+            "file_path": "src/new_file.py",
+            "new_string": "print('new')\n",
+            "create": True,
+        })
+        assert "src/new_file.py" in result.changed_files
+        assert (workspace / "src" / "new_file.py").read_text() == "print('new')\n"
+
+    def test_file_path_shorthand_cannot_bypass_existing_file_with_create_flag(self, workspace: Path):
+        engine = SafePatchEngine(workspace)
+        with pytest.raises(HTTPException) as exc_info:
+            engine.apply_payload({
+                "file_path": "src/main.py",
+                "new_string": "print('overwrite')\n",
+                "create": True,
+            })
+        assert exc_info.value.status_code == 400
+        assert "require old_string" in exc_info.value.detail
+
     def test_too_many_files(self, workspace: Path):
         engine = SafePatchEngine(workspace)
         with pytest.raises(HTTPException) as exc_info:

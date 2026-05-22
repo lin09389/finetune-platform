@@ -12,9 +12,9 @@ AUTONOMY_SAFE_AUTO = "safe_auto"
 AUTONOMY_CONFIRM_ALL = "confirm_all"
 AUTONOMY_READ_ONLY = "read_only"
 AUTONOMY_MODES = {AUTONOMY_SAFE_AUTO, AUTONOMY_CONFIRM_ALL, AUTONOMY_READ_ONLY}
-SAFE_PATCH_MAX_FILES = 3
-SAFE_PATCH_MAX_LINES_PER_FILE = 120
-SAFE_PATCH_MAX_TOTAL_LINES = 240
+SAFE_PATCH_MAX_FILES = 6
+SAFE_PATCH_MAX_LINES_PER_FILE = 200
+SAFE_PATCH_MAX_TOTAL_LINES = 600
 
 
 def evaluate_agent_action_policy(
@@ -42,8 +42,15 @@ def evaluate_agent_action_policy(
             return _policy("blocked", "high", str(exc.detail))
         if not command_allowed(argv):
             return _policy("blocked", "high", "命令不在白名单内，已阻断")
-        if payload.get("long_running") or tool_name == "run_dev_server" or (len(argv) >= 3 and argv[0].lower() == "npm" and argv[1].lower() == "run" and argv[2].lower() == "dev"):
-            return _policy("approval_required", "medium", "开发服务器是长运行命令，需人工审批后启动")
+        is_dev_server = tool_name == "run_dev_server" or (
+            len(argv) >= 3 and argv[0].lower() == "npm" and argv[1].lower() == "run" and argv[2].lower() == "dev"
+        )
+        if is_dev_server:
+            if mode == AUTONOMY_CONFIRM_ALL:
+                return _policy("approval_required", "medium", "确认模式已开启，开发服务器需人工审批后启动")
+            return _policy("auto", "medium", "开发服务器命令已按安全自动模式启动")
+        if payload.get("long_running"):
+            return _policy("approval_required", "medium", "长运行命令需人工审批后启动")
         if len(argv) > 8:
             return _policy("approval_required", "medium", "命令参数较长，需人工审批")
         if mode == AUTONOMY_CONFIRM_ALL:
@@ -54,7 +61,7 @@ def evaluate_agent_action_policy(
         files = payload.get("files") or payload.get("file_changes") or []
         if not isinstance(files, list) or not files:
             return _policy("approval_required", "medium", "补丁未包含可识别文件，需人工审批")
-        if len(files) > 6:
+        if len(files) > SAFE_PATCH_MAX_FILES:
             return _policy("approval_required", "medium", "补丁文件数量超出自动执行策略，需人工审批")
 
         safety = _evaluate_file_safety(files)
@@ -111,7 +118,7 @@ def _is_low_risk_safe_prefix(files: list[Any], safe_prefixes: tuple[str, ...]) -
     for item in files:
         relative_path = str(item.get("path") or item.get("file_path") or "").replace("\\", "/")
         content = str(item.get("content") or "")
-        if not relative_path.startswith(safe_prefixes) and not relative_path.endswith(".md"):
+        if not relative_path.startswith(safe_prefixes) and not relative_path.endswith((".md", ".txt")):
             return False
         if len(content.splitlines()) > SAFE_PATCH_MAX_LINES_PER_FILE:
             return False
@@ -119,7 +126,7 @@ def _is_low_risk_safe_prefix(files: list[Any], safe_prefixes: tuple[str, ...]) -
 
 
 def _evaluate_source_policy(files: list[Any], touched_paths: set[str]) -> dict[str, str]:
-    allowed_suffixes = {".py", ".ts", ".tsx", ".css", ".md"}
+    allowed_suffixes = {".py", ".ts", ".tsx", ".css", ".md", ".txt"}
     total_lines = 0
     multi_file_requires_approval = len(files) > SAFE_PATCH_MAX_FILES
     for item in files:
@@ -132,7 +139,8 @@ def _evaluate_source_policy(files: list[Any], touched_paths: set[str]) -> dict[s
         total_lines += line_count
         if line_count > SAFE_PATCH_MAX_LINES_PER_FILE:
             return _policy("approval_required", "medium", f"单文件源码补丁超过 {SAFE_PATCH_MAX_LINES_PER_FILE} 行，需人工审批")
-        if relative_path not in touched_paths:
+        is_new_file = bool(item.get("create") or item.get("new_file"))
+        if not is_new_file and relative_path not in touched_paths:
             return _policy("approval_required", "medium", "源码文件未在同一轮被读取或搜索命中，需人工审批")
     if total_lines > SAFE_PATCH_MAX_TOTAL_LINES:
         return _policy("approval_required", "medium", f"源码补丁总行数超过 {SAFE_PATCH_MAX_TOTAL_LINES} 行，需人工审批")

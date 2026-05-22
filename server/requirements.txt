@@ -44,6 +44,7 @@ pytesseract>=0.3.10
 pynput==1.7.6
 pyautogui>=0.9.54
 pywin32>=305; sys_platform == 'win32'
+pywinpty>=2.0.13; sys_platform == 'win32'
 
 # Testing
 pytest==7.4.3

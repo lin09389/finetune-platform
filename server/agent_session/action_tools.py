@@ -15,7 +15,16 @@ from .tool_types import ToolResult
 class ActionToolsMixin(ToolHostProtocol):
     def _patch(self, args: dict[str, Any], context: dict[str, Any]) -> ToolResult:
         payload = args.get("payload") if isinstance(args.get("payload"), dict) else args
-        return ToolResult("completed", "已生成补丁建议", self._normalize_tool_payload({"payload": payload, "diff": payload.get("diff"), "files": payload.get("files") or []}))
+        files = list(payload.get("files") or payload.get("file_changes") or [])
+        if not files and payload.get("file_path"):
+            files = [{
+                "path": str(payload["file_path"]),
+                "content": str(payload.get("new_string") or ""),
+                "old_string": str(payload.get("old_string") or ""),
+                "create": bool(payload.get("create") or payload.get("new_file")),
+                "patch_mode": "string_replace",
+            }]
+        return ToolResult("completed", "已生成补丁建议", self._normalize_tool_payload({"payload": payload, "diff": payload.get("diff"), "files": files}))
 
     def _command(self, args: dict[str, Any], context: dict[str, Any]) -> ToolResult:
         payload = args.get("payload") if isinstance(args.get("payload"), dict) else args
@@ -63,6 +72,22 @@ class ActionToolsMixin(ToolHostProtocol):
             payload["next_action"] = command_failure
         return ToolResult("completed", "已读取最近执行结果", payload)
 
+    def apply_patch_payload_with_decisions(self, payload: dict[str, Any], context: dict[str, Any], hunk_decisions: dict[str, str]) -> "ToolResult":
+        """Like apply_patch_payload but filters hunks based on hunk_decisions mapping."""
+        diff = str(payload.get("diff") or "")
+        if not diff or not hunk_decisions:
+            return self.apply_patch_payload(payload, context)
+        root = self._root(context)
+        rejected_keys = {k for k, v in hunk_decisions.items() if v == "rejected"}
+        try:
+            result = SafePatchEngine(root).apply_partial_diff(diff, rejected_keys)
+            return ToolResult(
+                "completed",
+                result.stdout,
+                self._normalize_tool_payload({"changed_files": result.changed_files, "applied_hunks": len(result.summaries), "patch_summaries": result.summaries}),
+            )
+        except Exception as exc:
+            return ToolResult("failed", "部分补丁执行失败", self._normalize_tool_payload({}), str(exc))
     def apply_patch_payload(self, payload: dict[str, Any], context: dict[str, Any]) -> ToolResult:
         root = self._root(context)
         try:

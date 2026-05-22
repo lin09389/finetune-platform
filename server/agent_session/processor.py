@@ -5,10 +5,12 @@ import logging
 import re
 import time
 from collections.abc import AsyncGenerator
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from .policy import evaluate_agent_action_policy
 from .parser import parse_agent_response
+from .command_policy import command_allowed, normalize_command, resolve_command_cwd, summarize_failure
 from .repository import AgentSessionRepository
 from .state import (
     DEFAULT_MAX_REPAIR_ATTEMPTS,
@@ -20,6 +22,7 @@ from .state import (
     record_repair_attempt,
     set_phase,
 )
+from .terminal_manager import terminal_manager, terminal_result_payload
 from .tools import AgentToolRegistry
 
 
@@ -232,7 +235,8 @@ class AgentSessionProcessor:
                     metadata = set_phase(self._ensure_metadata(self.repository.get_session(session_id) or session), "completed")
                     self.repository.update_session(session_id, status="completed", metadata=metadata)
                     self._event(session_id, "summary_completed", summary_text, {"part_id": summary_part["id"]})
-                    return self._with_parts(session_id)
+                    session_finalized = True
+                    continue
                 if part.type != "tool_call" or not part.tool:
                     continue
                 handled, should_continue = self._execute_tool_request(
@@ -423,7 +427,7 @@ class AgentSessionProcessor:
         self.repository.update_part(call_part["id"], status=result.status)
 
         if tool_name == "patch":
-            patch_payload = dict(result.payload.get("payload") or {})
+            patch_payload = dict(result.payload)
             policy = evaluate_agent_action_policy(session, "diff", patch_payload, set(metadata.get("touched_paths") or []))
             part_payload = dict(result.payload)
             part_payload.update(policy)
@@ -530,14 +534,13 @@ class AgentSessionProcessor:
             raise ValueError("Only approved action parts can be executed")
         session = self.repository.get_session(part["session_id"]) or {}
         if part.get("type") == "command":
-            payload = part.get("payload") or {}
-            tool_name = str(payload.get("tool") or "bash_command")
-            tool = self.tools.get(tool_name)
-            if not tool:
-                raise ValueError(f"Unknown tool requested: {tool_name}")
-            result = tool.execute({"payload": payload}, self._context(session))
+            self._start_command_terminal(session, part)
+            return self._with_parts(part["session_id"])
         else:
-            result = self.tools.apply_patch_payload((part.get("payload") or {}).get("payload") or part.get("payload") or {}, self._context(session))
+            outer_payload = dict(part.get("payload") or {})
+            hunk_decisions = {k: str(v) for k, v in (outer_payload.pop("hunk_decisions", None) or {}).items()}
+            raw_payload = outer_payload.get("payload") or outer_payload
+            result = self.tools.apply_patch_payload_with_decisions(raw_payload, self._context(session), hunk_decisions)
         status = "executed" if result.status == "completed" else "failed"
         payload = dict(part.get("payload") or {})
         payload.update(result.payload)
@@ -551,6 +554,69 @@ class AgentSessionProcessor:
         self.repository.update_session(part["session_id"], status="completed" if status == "executed" else "failed", metadata=metadata)
         self._event(part["session_id"], "action_executed" if status == "executed" else "action_failed", result.summary, {"part_id": part_id, **result.payload})
         return self._with_parts(part["session_id"])
+
+    def _start_command_terminal(self, session: dict[str, Any], part: dict[str, Any]) -> None:
+        payload = dict(part.get("payload") or {})
+        command = normalize_command(payload.get("command"))
+        if not command_allowed(command):
+            raise ValueError("Command is not allowlisted")
+        root = Path(str(session.get("project_path") or Path.cwd())).resolve()
+        command_root = resolve_command_cwd(root, command)
+        timeout_seconds = int(payload.get("timeout_seconds") or 120)
+
+        def on_exit(terminal_session: Any) -> None:
+            result_payload = terminal_result_payload(terminal_session)
+            current_part = self.repository.get_part(part["id"]) or part
+            final_payload = dict(current_part.get("payload") or {})
+            final_payload.update(result_payload)
+            exit_code = terminal_session.exit_code if terminal_session.exit_code is not None else 1
+            status = "executed" if exit_code == 0 else "failed"
+            failure = result_payload.get("failure_summary") or summarize_failure(terminal_session.stdout, terminal_session.stderr)
+            summary = "命令执行完成" if status == "executed" else failure or "命令执行失败"
+            self.repository.update_part(part["id"], status=status, payload=final_payload, content=summary)
+            metadata = record_command(
+                self._ensure_metadata(self.repository.get_session(part["session_id"]) or session),
+                part["id"],
+                None if status == "executed" else summary,
+            )
+            metadata = set_phase(metadata, "completed" if status == "executed" else "failed")
+            self.repository.update_session(part["session_id"], status="completed" if status == "executed" else "failed", metadata=metadata)
+            self._event(part["session_id"], "action_executed" if status == "executed" else "action_failed", summary, {"part_id": part["id"], **final_payload})
+
+        def on_output(terminal_session: Any, data: str) -> None:
+            self._event(
+                part["session_id"],
+                "command_output",
+                "",
+                {"part_id": part["id"], "terminal_id": terminal_session.id, "delta": data},
+            )
+
+        terminal_session = terminal_manager.start(
+            part_id=part["id"],
+            session_id=part["session_id"],
+            command=command,
+            cwd=command_root,
+            timeout_seconds=timeout_seconds,
+            on_output=on_output,
+            on_exit=on_exit,
+        )
+        running_payload = {
+            **payload,
+            "terminal_id": terminal_session.id,
+            "interactive": terminal_session.interactive,
+            "command": command,
+            "cwd": str(command_root),
+        }
+        current_part = self.repository.get_part(part["id"]) or part
+        if current_part.get("status") in {"executed", "failed"}:
+            current_payload = dict(current_part.get("payload") or {})
+            current_payload.update({k: v for k, v in running_payload.items() if k not in current_payload})
+            self.repository.update_part(part["id"], payload=current_payload)
+            return
+        self.repository.update_part(part["id"], status="running", payload=running_payload, content="命令正在交互式终端中运行")
+        metadata = set_phase(self._ensure_metadata(self.repository.get_session(part["session_id"]) or session), "verifying")
+        self.repository.update_session(part["session_id"], status="verifying", metadata=metadata)
+        self._event(part["session_id"], "command_started", "命令已在交互式终端中启动", {"part_id": part["id"], **running_payload})
 
     def _initial_messages(self, session: dict[str, Any], content: str) -> list[dict[str, str]]:
         tool_names = [tool.name for tool in self.tools.list()]
@@ -570,6 +636,8 @@ class AgentSessionProcessor:
                     "你可以输出两种内容：\n"
                     "1. 自然语言说明（简短描述你要做什么）\n"
                     "2. JSON 工具调用（执行具体操作）\n\n"
+                    "JSON 工具请求必须是一个 JSON 对象，例如：\n"
+                    '{"tool":"工具名","arguments":{...}}\n\n'
                     "工具调用格式，直接输出 JSON，不要用 markdown 代码块包裹：\n"
                     '{"tool": "工具名", "arguments": {"参数名": "参数值"}}\n\n'
                     "如果需要一次调用多个工具，输出 JSON 数组：\n"
@@ -666,11 +734,11 @@ class AgentSessionProcessor:
                 last_flush_time = now
                 chars_since_flush = 0
 
-        self.repository.update_part(text_part["id"], content=accumulated)
+        self.repository.update_part(text_part["id"], status="completed", content=accumulated)
         self._event(session_id, "part_delta", "", {
             "part_id": text_part["id"], "part_type": "text",
             "delta": "", "content": accumulated,
-            "status": "running", "streaming": True,
+            "status": "completed", "streaming": False,
         })
         self._event(
             session_id, "model_stream_completed", "流式输出完成",
@@ -725,6 +793,11 @@ class AgentSessionProcessor:
                 content=summary_text or raw.strip(),
                 payload={"streaming": True, "converted_from_text": True, "summary": summary_text or raw.strip()},
             )
+            self._event(session_id, "part_delta", "", {
+                "part_id": streaming_part_id, "part_type": "summary",
+                "delta": "", "content": summary_text or raw.strip(),
+                "status": "completed", "streaming": False,
+            })
             return "summary"
 
         if has_tool_calls:
@@ -743,6 +816,11 @@ class AgentSessionProcessor:
                     content=finalize_summary or raw.strip(),
                     payload={"streaming": True, "converted_from_text": True, "summary": finalize_summary or raw.strip()},
                 )
+                self._event(session_id, "part_delta", "", {
+                    "part_id": streaming_part_id, "part_type": "summary",
+                    "delta": "", "content": finalize_summary or raw.strip(),
+                    "status": "completed", "streaming": False,
+                })
                 return "summary"
             if has_finalize and natural_text.strip():
                 self.repository.update_part(
@@ -751,6 +829,11 @@ class AgentSessionProcessor:
                     content=finalize_summary or natural_text.strip(),
                     payload={"streaming": True, "converted_from_text": True, "summary": finalize_summary or natural_text.strip()},
                 )
+                self._event(session_id, "part_delta", "", {
+                    "part_id": streaming_part_id, "part_type": "summary",
+                    "delta": "", "content": finalize_summary or natural_text.strip(),
+                    "status": "completed", "streaming": False,
+                })
                 return "summary"
             self.repository.update_part(
                 streaming_part_id, status="completed",
@@ -758,9 +841,20 @@ class AgentSessionProcessor:
                 content=natural_text.strip(),
                 payload={"streaming": True, "protocol_only": not bool(natural_text.strip())},
             )
+            self._event(session_id, "part_delta", "", {
+                "part_id": streaming_part_id, "part_type": "text",
+                "delta": "", "content": natural_text.strip(),
+                "status": "completed", "streaming": False,
+                "payload": {"protocol_only": not bool(natural_text.strip())},
+            })
             return "text"
 
         self.repository.update_part(streaming_part_id, status="completed", title="说明", content=raw.strip())
+        self._event(session_id, "part_delta", "", {
+            "part_id": streaming_part_id, "part_type": "text",
+            "delta": "", "content": raw.strip(),
+            "status": "completed", "streaming": False,
+        })
         return "text"
 
     async def _fallback_model_call(self, _messages: list[dict[str, str]]) -> str:
@@ -835,15 +929,30 @@ class AgentSessionProcessor:
 
         metadata = set_phase(self._ensure_metadata(self.repository.get_session(session_id) or session), "verifying")
         self.repository.update_session(session_id, status="verifying", metadata=metadata)
-        result = tool.execute({"payload": command_payload}, self._context(session))
         payload = dict(part_payload)
-        payload.update(result.payload)
-        part = self.repository.add_part(session_id, "command", status=result.status, title=title, content=result.summary if result.status == "completed" else result.error, payload=payload)
-        metadata = record_command(self._ensure_metadata(self.repository.get_session(session_id) or session), part["id"], None if result.status == "completed" else result.error or result.summary)
+        command = normalize_command(command_payload.get("command"))
+        if not command_allowed(command):
+            part = self.repository.add_part(session_id, "command", status="failed", title=title, content="command is not allowlisted", payload={**payload, "command": command})
+            metadata = record_command(self._ensure_metadata(self.repository.get_session(session_id) or session), part["id"], "command is not allowlisted")
+            self.repository.update_session(session_id, status="failed", metadata=set_phase(metadata, "failed"))
+            self._event(session_id, "command_failed", "command is not allowlisted", {"part_id": part["id"], "command": command})
+            return self._stop_with_summary(session_id, "needs_manual_review", "command is not allowlisted", part_id=part["id"])
+        command_root = resolve_command_cwd(Path(str(session.get("project_path") or Path.cwd())).resolve(), command)
+        part = self.repository.add_part(session_id, "command", status="running", title=title, content="命令正在交互式终端中运行", payload={**payload, "command": command, "cwd": str(command_root)})
+        self._start_command_terminal(session, part)
+        terminal_id = str((self.repository.get_part(part["id"]) or {}).get("payload", {}).get("terminal_id") or "")
+        if terminal_id:
+            terminal_manager.wait(terminal_id, float(command_payload.get("timeout_seconds") or 120) + 5)
+        completed_part = self.repository.get_part(part["id"]) or part
+        payload = dict(completed_part.get("payload") or {})
+        result_status = "completed" if completed_part.get("status") == "executed" else "failed"
+        result_summary = str(completed_part.get("content") or ("命令执行完成" if result_status == "completed" else "命令执行失败"))
+        result_error = None if result_status == "completed" else result_summary
+        metadata = record_command(self._ensure_metadata(self.repository.get_session(session_id) or session), part["id"], result_error)
         self.repository.update_session(session_id, metadata=metadata)
-        self._event(session_id, "command_completed" if result.status == "completed" else "command_failed", result.summary, {"part_id": part["id"], **payload})
-        observation = self._compact_observation("bash_command", result.status, result.summary, payload, result.error)
-        if result.status == "completed":
+        self._event(session_id, "command_completed" if result_status == "completed" else "command_failed", result_summary, {"part_id": part["id"], **payload})
+        observation = self._compact_observation("bash_command", result_status, result_summary, payload, result_error)
+        if result_status == "completed":
             messages.append({"role": "assistant", "content": raw})
             guidance = (
                 "开发服务器已启动。优先调用 http_probe 确认 localhost 可访问，再用 read_local_page 或 browser_validate_page 做页面验证；完成后用 finalize 总结 server_url。"
@@ -870,7 +979,7 @@ class AgentSessionProcessor:
             )
             messages.append({"role": "user", "content": "工具结果：\n" + json.dumps({**observation, "guidance": failure_guidance}, ensure_ascii=False)})
             return None
-        detail = result.error or result.summary or "已达到最大修复次数。"
+        detail = result_error or result_summary or "已达到最大修复次数。"
         return self._stop_with_summary(session_id, "needs_manual_review", f"验证失败，已达到最大修复次数。{detail}", part_id=part["id"])
 
     def _stop_with_summary(self, session_id: str, status: str, summary: str, *, part_id: str | None = None) -> dict[str, Any]:

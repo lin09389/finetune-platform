@@ -29,6 +29,10 @@ def parse_agent_response(raw: str) -> list[ModelOutputPart]:
         if parts:
             return parts
 
+    dsml_parts = _parse_dsml_parts(text)
+    if dsml_parts:
+        return dsml_parts
+
     parts: list[ModelOutputPart] = []
     cursor = 0
     found_json = False
@@ -89,6 +93,81 @@ def _normalize_arguments(value: Any) -> dict[str, Any]:
     return {}
 
 
+def _normalize_tool_name(value: str) -> str:
+    aliases = {
+        "bash": "bash_command",
+        "command": "bash_command",
+        "shell": "bash_command",
+        "read_file": "read",
+        "search_code": "search",
+        "list_files": "glob",
+    }
+    name = value.strip()
+    return aliases.get(name, name)
+
+
+def _normalize_tool_arguments(tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    args = dict(arguments)
+    if tool == "glob" and "pattern" in args and "path_glob" not in args:
+        args["path_glob"] = args.pop("pattern")
+    if tool == "search":
+        if "pattern" in args and "query" not in args:
+            args["query"] = args.pop("pattern")
+        if "path" in args and "path_glob" not in args:
+            raw_path = str(args.pop("path") or "").strip()
+            args["path_glob"] = f"{raw_path}/**/*" if raw_path and not any(ch in raw_path for ch in "*?[") else raw_path
+        if "max_matches" in args and "limit" not in args:
+            try:
+                args["limit"] = int(args.pop("max_matches"))
+            except Exception:
+                args.pop("max_matches", None)
+    return args
+
+
+def _parse_dsml_parts(text: str) -> list[ModelOutputPart]:
+    marker = r"[|｜]{2}DSML[|｜]{2}"
+    invoke_re = re.compile(
+        rf"<{marker}invoke\s+name=[\"']([^\"']+)[\"'][^>]*>([\s\S]*?)</{marker}invoke>",
+        re.IGNORECASE,
+    )
+    param_re = re.compile(
+        rf"<{marker}parameter\s+name=[\"']([^\"']+)[\"'][^>]*>([\s\S]*?)</{marker}parameter>",
+        re.IGNORECASE,
+    )
+    parts: list[ModelOutputPart] = []
+    cursor = 0
+    found = False
+    for match in invoke_re.finditer(text):
+        before = text[cursor:match.start()].strip()
+        before = re.sub(rf"</?{marker}tool_calls[^>]*>", "", before, flags=re.IGNORECASE).strip()
+        if before:
+            parts.append(ModelOutputPart("text", content=before, payload={"parsed_from": "dsml_text"}))
+        tool = _normalize_tool_name(match.group(1))
+        args: dict[str, Any] = {}
+        for param in param_re.finditer(match.group(2)):
+            name = param.group(1).strip()
+            value = param.group(2).strip()
+            parsed_value = _parse_json(value)
+            args[name] = parsed_value if parsed_value is not None else value
+        parts.append(
+            ModelOutputPart(
+                "tool_call",
+                tool=tool,
+                arguments=_normalize_tool_arguments(tool, args),
+                payload={"parsed_from": "dsml"},
+            )
+        )
+        found = True
+        cursor = match.end()
+    if not found:
+        return []
+    after = text[cursor:].strip()
+    after = re.sub(rf"</?{marker}tool_calls[^>]*>", "", after, flags=re.IGNORECASE).strip()
+    if after:
+        parts.append(ModelOutputPart("text", content=after, payload={"parsed_from": "dsml_text"}))
+    return parts
+
+
 def _parts_from_json(value: Any) -> list[ModelOutputPart]:
     if isinstance(value, list):
         parts: list[ModelOutputPart] = []
@@ -115,6 +194,7 @@ def _parts_from_json(value: Any) -> list[ModelOutputPart]:
     if not tool and block_type in {"tool_use", "tool_call", "function_call"}:
         tool = value.get("name") or value.get("tool_name")
     if tool:
+        tool = _normalize_tool_name(str(tool))
         arguments = (
             value.get("arguments")
             or value.get("args")
@@ -126,8 +206,8 @@ def _parts_from_json(value: Any) -> list[ModelOutputPart]:
         return [
             ModelOutputPart(
                 "tool_call",
-                tool=str(tool),
-                arguments=_normalize_arguments(arguments),
+                tool=tool,
+                arguments=_normalize_tool_arguments(tool, _normalize_arguments(arguments)),
                 payload={"parsed_from": "json"},
             )
         ]

@@ -371,3 +371,109 @@ async def get_workspace_tree(
     budget = {"remaining": limit}
     nodes = _build_tree(root, root, depth=0, max_depth=max_depth, budget=budget)
     return WorkspaceTreeResponse(root=str(root), nodes=nodes, truncated=budget["remaining"] <= 0)
+
+
+@router.get("/browse-folder")
+async def browse_folder(initial_path: str | None = None):
+    """Open a native OS directory chooser dialog and return the selected path."""
+    import platform
+    import subprocess
+    import os
+    import queue
+    import threading
+
+    # Try Windows PowerShell first
+    if platform.system() == "Windows":
+        try:
+            if initial_path:
+                # Normalise and escape single quotes for PowerShell single-quoted string literal
+                escaped_path = os.path.abspath(initial_path).replace("'", "''")
+                init_path_setter = f"$initial_path = '{escaped_path}'"
+            else:
+                init_path_setter = "$initial_path = $null"
+
+            ps_code = f"""
+            Add-Type -AssemblyName System.Windows.Forms
+            {init_path_setter}
+            $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+            $dialog.Description = "Select Workspace Folder"
+            $dialog.ShowNewFolderButton = $true
+            if ($initial_path -and (Test-Path $initial_path)) {{
+                $dialog.SelectedPath = $initial_path
+            }}
+            $form = New-Object System.Windows.Forms.Form
+            $form.TopMost = $true
+            $form.Width = 1
+            $form.Height = 1
+            $form.ShowInTaskbar = $false
+            $form.WindowState = [System.Windows.Forms.FormWindowState]::Minimized
+            $form.Show()
+            $form.Activate()
+            $result = $dialog.ShowDialog($form)
+            $form.Dispose()
+            if ($result -eq [System.Windows.Forms.DialogResult]::OK) {{
+                Write-Output $dialog.SelectedPath
+            }}
+            """
+            cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_code]
+            
+            # Hide flashing console window on Windows
+            startupinfo = None
+            if hasattr(subprocess, "STARTUPINFO"):
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = subprocess.SW_HIDE
+
+            # Run powershell with a generous 120s timeout
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                startupinfo=startupinfo,
+                timeout=120.0
+            )
+
+            if result.returncode == 0:
+                selected_path = result.stdout.strip()
+                if selected_path:
+                    return {"status": "success", "path": selected_path}
+                else:
+                    return {"status": "cancelled", "path": None, "message": "用户取消了文件夹选择"}
+            else:
+                logger.warning("PowerShell folder dialog failed (returncode %d): %s", result.returncode, result.stderr)
+        except Exception as exc:
+            logger.warning("PowerShell folder dialog failed: %s", exc)
+
+    # Cross-platform fallback: Tkinter thread dialog
+    logger.info("Falling back to Tkinter dialog for folder selection")
+    q = queue.Queue()
+
+    def picker_thread(q_out, init_dir):
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+            
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            folder = filedialog.askdirectory(initialdir=init_dir, parent=root)
+            root.destroy()
+            if folder:
+                q_out.put({"status": "success", "path": folder})
+            else:
+                q_out.put({"status": "cancelled", "path": None, "message": "用户取消了文件夹选择"})
+        except Exception as e:
+            q_out.put({"status": "error", "message": str(e)})
+
+    t = threading.Thread(target=picker_thread, args=(q, initial_path))
+    t.start()
+    t.join(timeout=60.0)
+
+    if t.is_alive():
+        return {"status": "timeout", "path": None, "message": "文件夹选择超时"}
+
+    try:
+        res = q.get_nowait()
+        return res
+    except queue.Empty:
+        return {"status": "error", "path": None, "message": "无法激活文件夹选择，请手动输入路径"}

@@ -111,33 +111,8 @@ class AgentSessionLangGraphRuntime:
 
         execution_state = "running" if tool_calls else "completed"
         final_summary = summary_text
-        if not tool_calls and not final_summary:
-            stripped = raw.strip()
-            if stripped:
-                if self.processor._looks_like_final_text(stripped):
-                    final_summary = stripped
-                else:
-                    result = self.processor._stop_with_summary(
-                        session["id"],
-                        "needs_manual_review",
-                        "模型没有按 JSON 工具协议输出，已停止等待人工处理。",
-                    )
-                    summary = self._latest_summary(session["id"], result) or stripped
-                    return {
-                        "pending_tool_calls": [],
-                        "final_summary": summary,
-                        "execution_state": "needs_manual_review",
-                        "iterations": iterations + 1,
-                        "last_model_raw": raw,
-                        "streaming_enabled": bool(self._invocation_context(state["session_id"]).get("stream_model_call")),
-                        "streaming_part_id": streaming_part_id,
-                        "streaming_failed": streaming_failed,
-                        "last_stream_error": stream_error,
-                        "streaming_raw": raw if streaming_part_id else "",
-                        "node_results": list(state.get("node_results") or []),
-                    }
         if streaming_finalized_type == "summary":
-            final_summary = summary_text or final_summary or raw.strip() or "任务已完成。"
+            final_summary = summary_text or self._latest_summary(session["id"]) or raw.strip() or "任务已完成。"
             metadata = set_phase(self.processor._ensure_metadata(self._session(session["id"])), "completed")
             self.repository.update_session(session["id"], status="completed", metadata=metadata)
             self.processor._event(
@@ -148,6 +123,45 @@ class AgentSessionLangGraphRuntime:
             )
             execution_state = "completed"
             tool_calls = []
+        if not tool_calls and not final_summary:
+            stripped = raw.strip()
+            if stripped:
+                if streaming_finalized_type == "text":
+                    pass  # streaming already surfaced the content; finalize_node will mark completion
+                elif self.processor._looks_like_final_text(stripped):
+                    final_summary = stripped
+                else:
+                    result = self.processor._handle_protocol_miss(session["id"], raw, messages)
+                    status = str((result or {}).get("status") or "")
+                    if result is None:
+                        return {
+                            "messages": messages,
+                            "pending_tool_calls": [],
+                            "final_summary": None,
+                            "execution_state": "running",
+                            "iterations": iterations + 1,
+                            "last_model_raw": raw,
+                            "streaming_enabled": bool(self._invocation_context(state["session_id"]).get("stream_model_call")),
+                            "streaming_part_id": streaming_part_id,
+                            "streaming_failed": streaming_failed,
+                            "last_stream_error": stream_error,
+                            "streaming_raw": raw if streaming_part_id else "",
+                            "node_results": list(state.get("node_results") or []),
+                        }
+                    summary = self._latest_summary(session["id"], result) or stripped
+                    return {
+                        "pending_tool_calls": [],
+                        "final_summary": summary,
+                        "execution_state": status or "needs_manual_review",
+                        "iterations": iterations + 1,
+                        "last_model_raw": raw,
+                        "streaming_enabled": bool(self._invocation_context(state["session_id"]).get("stream_model_call")),
+                        "streaming_part_id": streaming_part_id,
+                        "streaming_failed": streaming_failed,
+                        "last_stream_error": stream_error,
+                        "streaming_raw": raw if streaming_part_id else "",
+                        "node_results": list(state.get("node_results") or []),
+                    }
         node_results = list(state.get("node_results") or [])
         if current_stage_id or current_node_id:
             node_results.append(
@@ -212,6 +226,16 @@ class AgentSessionLangGraphRuntime:
                         "execution_state": "waiting_approval",
                         "node_results": node_results,
                     }
+                if status == "completed":
+                    for ignored in pending_tool_calls[index + 1:]:
+                        ignored_tool = str(ignored.get("name") or "")
+                        if ignored_tool:
+                            self.processor._event(
+                                session_id,
+                                "tool_call_ignored",
+                                f"工具 {ignored_tool} 在 finalize 后被忽略",
+                                {"tool": ignored_tool, "arguments": ignored.get("args") or {}},
+                            )
                 node_results.append({"stage_id": current_stage_id, "node_id": current_node_id, "kind": "tool_call", "status": status or "completed", "summary": self._latest_summary(session_id, handled)})
                 return {
                     "messages": messages,
@@ -344,7 +368,8 @@ class AgentSessionLangGraphRuntime:
             self.processor._event(session["id"], "action_executed" if status == "executed" else "action_failed", result.summary, {"part_id": part_id, **result.payload})
             return {"pending_part_id": None, "execution_state": "running" if status == "executed" else "needs_manual_review", "final_summary": result.summary if status == "executed" else result.error}
 
-        patch_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
+        inner = payload.get("payload") if isinstance(payload.get("payload"), dict) else {}
+        patch_payload = payload if (payload.get("files") or payload.get("file_changes") or payload.get("diff")) else (inner or payload)
         result = self.processor.tools.apply_patch_payload(patch_payload, self.processor._context(session))
         status = "executed" if result.status == "completed" else "failed"
         payload.update(result.payload)

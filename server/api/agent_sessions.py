@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -22,6 +23,12 @@ from security.auth_middleware import get_current_user_optional
 from security.jwt_auth import Role, TokenPayload
 
 router = APIRouter(prefix="/agent-sessions", tags=["Agent Sessions"])
+
+
+def _session_status(session: Any) -> str | None:
+    if isinstance(session, dict):
+        return session.get("status")
+    return getattr(session, "status", None)
 
 
 def get_agent_session_service() -> AgentSessionService:
@@ -146,8 +153,9 @@ async def stream_agent_session_events(
                 last_heartbeat = time.monotonic()
 
             session = await run_sync(service.get_session, session_id)
-            if session and session.get("status") in AgentSessionService.TERMINAL_STATUSES and len(seen) > (1 if since_event_id else 0):
-                yield f"event: agent_session_done\ndata: {json.dumps({'status': session.get('status')}, ensure_ascii=False)}\n\n"
+            status = _session_status(session)
+            if status in AgentSessionService.TERMINAL_STATUSES and len(seen) > (1 if since_event_id else 0):
+                yield f"event: agent_session_done\ndata: {json.dumps({'status': status}, ensure_ascii=False)}\n\n"
                 return
 
             while True:
@@ -159,8 +167,9 @@ async def stream_agent_session_events(
                         yield ": heartbeat\n\n"
                         last_heartbeat = now
                     session = await run_sync(service.get_session, session_id)
-                    if session and session.get("status") in AgentSessionService.TERMINAL_STATUSES:
-                        yield f"event: agent_session_done\ndata: {json.dumps({'status': session.get('status')}, ensure_ascii=False)}\n\n"
+                    status = _session_status(session)
+                    if status in AgentSessionService.TERMINAL_STATUSES:
+                        yield f"event: agent_session_done\ndata: {json.dumps({'status': status}, ensure_ascii=False)}\n\n"
                         break
                     continue
 
@@ -181,6 +190,56 @@ async def stream_agent_session_events(
             service.unsubscribe_events(session_id, queue)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.get("/{session_id}/artifacts/{artifact_id}/original")
+async def get_artifact_original(
+    session_id: str,
+    artifact_id: str,
+    service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+) -> str | None:
+    """Retrieve the original content of a modified artifact before changes were applied."""
+    from pathlib import Path
+    try:
+        session = await run_sync(service.get_session, session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Agent session not found")
+        
+        parts = artifact_id.split(":")
+        if len(parts) < 2:
+            raise HTTPException(status_code=400, detail="Invalid artifact ID format")
+        
+        # The file path is everything after part_id and before the seen_count
+        file_path = ":".join(parts[1:-1]) if len(parts) > 2 else parts[1]
+        
+        project_path = session.get("project_path")
+        if not project_path:
+            raise HTTPException(status_code=400, detail="Session has no project path configured")
+            
+        target_path = Path(project_path).resolve() / file_path
+        
+        # Path safety verification
+        try:
+            resolved_target = target_path.resolve()
+            resolved_project = Path(project_path).resolve()
+            if not resolved_target.is_relative_to(resolved_project):
+                raise HTTPException(status_code=403, detail="Access denied: target path is outside project root")
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid target path")
+            
+        if not target_path.exists() or not target_path.is_file():
+            return None
+            
+        try:
+            return target_path.read_text(encoding="utf-8", errors="ignore")
+        except Exception as read_exc:
+            raise HTTPException(status_code=500, detail=f"Failed to read file: {read_exc}")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
 
 
 permission_router = APIRouter(tags=["Agent Sessions"])
@@ -249,6 +308,23 @@ async def reject_agent_action(
     if not part:
         raise HTTPException(status_code=404, detail="Action part not found")
     return AgentApprovalResponse(part=part, session=session)
+
+
+@action_router.post("/agent-actions/{action_id}/hunk-decision")
+async def record_hunk_decision(
+    action_id: str,
+    body: dict,
+    service: AgentSessionService = Depends(get_agent_session_service),
+) -> dict:
+    """Record an accept/reject decision for a single hunk in a diff action."""
+    file_path = str(body.get("file_path") or "")
+    hunk_index = int(body.get("hunk_index") or 0)
+    decision = str(body.get("decision") or "accepted")
+    if decision not in {"accepted", "rejected"}:
+        from fastapi import HTTPException as _H
+        raise _H(status_code=422, detail="decision must be 'accepted' or 'rejected'")
+    part = await run_sync(service.record_hunk_decision, action_id, file_path, hunk_index, decision)
+    return {"action_id": action_id, "file_path": file_path, "hunk_index": hunk_index, "decision": decision, "part_id": part.get("id")}
 
 
 @action_router.post("/agent-actions/{action_id}/execute", response_model=AgentApprovalResponse)

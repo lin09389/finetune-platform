@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import BackgroundTasks
 
 from agent_session.models import AgentPromptRequest, AgentSessionCreate
+from agent_session.terminal_manager import TerminalSession
 from agent_session.repository import AgentSessionRepository
 from agent_session.service import AgentSessionService
 from agent_session.state import ensure_session_state
@@ -16,6 +17,13 @@ from agent_session.state import ensure_session_state
 
 def _service(tmp_path: Path) -> AgentSessionService:
     return AgentSessionService(AgentSessionRepository(str(tmp_path / f"agent-streaming-{uuid.uuid4().hex}.db")))
+
+
+def test_waiting_statuses_are_active_not_terminal():
+    assert "waiting_approval" in AgentSessionService.ACTIVE_STATUSES
+    assert "waiting_permission" in AgentSessionService.ACTIVE_STATUSES
+    assert "waiting_approval" not in AgentSessionService.TERMINAL_STATUSES
+    assert "waiting_permission" not in AgentSessionService.TERMINAL_STATUSES
 
 
 def test_prompt_starts_background_run_without_waiting_for_processor(tmp_path: Path):
@@ -193,3 +201,78 @@ def test_approve_action_async_marks_part_approved_in_langgraph_mode(tmp_path: Pa
 
     assert approved_command.status == "approved"
     assert calls["resume"] == 0
+
+
+def test_execute_command_action_starts_terminal_and_returns_running(tmp_path: Path, monkeypatch):
+    service = _service(tmp_path)
+    session = service.create_session(AgentSessionCreate(title="terminal", project_path=str(Path.cwd())))
+    command = service.repository.add_part(
+        session.id,
+        "command",
+        status="approved",
+        title="验证命令",
+        content="等待执行",
+        payload={"command": ["npm", "run", "typecheck"]},
+    )
+
+    class FakeTerminalManager:
+        def start(self, *, part_id, session_id, command, cwd, timeout_seconds=120, on_output=None, on_exit=None):
+            return TerminalSession(
+                id="agt_fake",
+                part_id=part_id,
+                session_id=session_id,
+                command=command,
+                cwd=str(cwd),
+                interactive=True,
+            )
+
+    monkeypatch.setattr("agent_session.processor.terminal_manager", FakeTerminalManager())
+
+    executed = asyncio.run(service.execute_action_async(command["id"]))
+    updated = next(part for part in executed.parts if part.id == command["id"])
+
+    assert updated.status == "running"
+    assert updated.payload["terminal_id"] == "agt_fake"
+    assert updated.payload["interactive"] is True
+    assert updated.payload["command"] == ["npm", "run", "typecheck"]
+
+
+def test_terminal_exit_callback_updates_command_part(tmp_path: Path, monkeypatch):
+    service = _service(tmp_path)
+    session = service.create_session(AgentSessionCreate(title="terminal exit", project_path=str(Path.cwd())))
+    command = service.repository.add_part(
+        session.id,
+        "command",
+        status="approved",
+        title="验证命令",
+        content="等待执行",
+        payload={"command": ["npm", "run", "typecheck"]},
+    )
+    captured: dict[str, TerminalSession] = {}
+
+    class FakeTerminalManager:
+        def start(self, *, part_id, session_id, command, cwd, timeout_seconds=120, on_output=None, on_exit=None):
+            terminal = TerminalSession(
+                id="agt_done",
+                part_id=part_id,
+                session_id=session_id,
+                command=command,
+                cwd=str(cwd),
+                interactive=False,
+            )
+            terminal.stdout = "ok\n"
+            terminal.exit_code = 0
+            captured["terminal"] = terminal
+            if on_exit:
+                on_exit(terminal)
+            return terminal
+
+    monkeypatch.setattr("agent_session.processor.terminal_manager", FakeTerminalManager())
+
+    executed = asyncio.run(service.execute_action_async(command["id"]))
+    updated = next(part for part in executed.parts if part.id == command["id"])
+
+    assert updated.status == "executed"
+    assert updated.payload["terminal_id"] == "agt_done"
+    assert updated.payload["stdout"] == "ok\n"
+    assert updated.payload["exit_code"] == 0

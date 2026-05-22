@@ -36,6 +36,14 @@ class SafePatchEngine:
         if payload.get("format") == "unified_diff" or payload.get("diff"):
             return self.apply_unified_diff(str(payload.get("diff") or ""))
         files = payload.get("files") or payload.get("file_changes") or []
+        if not files and payload.get("file_path"):
+            files = [{
+                "path": str(payload["file_path"]),
+                "content": str(payload.get("new_string") or ""),
+                "old_string": str(payload.get("old_string") or ""),
+                "create": bool(payload.get("create") or payload.get("new_file")),
+                "patch_mode": "string_replace",
+            }]
         return self.apply_file_writes(files)
 
     def apply_file_writes(self, files: Any) -> PatchApplyResult:
@@ -49,14 +57,27 @@ class SafePatchEngine:
                 raise HTTPException(status_code=400, detail="Each patch file must be an object")
             relative_path = item.get("path") or item.get("file_path")
             content = item.get("content")
+            old_string = str(item.get("old_string") or "")
+            create_requested = bool(item.get("create") or item.get("new_file"))
+            patch_mode = str(item.get("patch_mode") or "")
             if not relative_path or content is None:
                 raise HTTPException(status_code=400, detail="Each patch file requires path and content")
-            content_text = str(content)
-            if len(content_text) > MAX_FILE_CHARS:
-                raise HTTPException(status_code=400, detail="Patch file content is too large")
             target = self._safe_path(str(relative_path))
             self._backup_file(target)
             before = target.read_text(encoding="utf-8", errors="ignore") if target.exists() else ""
+            if old_string:
+                if old_string not in before:
+                    raise HTTPException(status_code=400, detail=f"old_string not found in file: {relative_path}")
+                content_text = before.replace(old_string, str(content), 1)
+            else:
+                if before and patch_mode == "string_replace":
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Existing file patches require old_string for safe replacement: {relative_path}",
+                    )
+                content_text = str(content)
+            if len(content_text) > MAX_FILE_CHARS:
+                raise HTTPException(status_code=400, detail="Patch file content is too large")
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content_text, encoding="utf-8")
             rel = target.relative_to(self.root).as_posix()
@@ -210,6 +231,47 @@ class SafePatchEngine:
         else:
             self._backup[key] = None
 
+    def apply_partial_diff(self, diff: str, rejected_keys: set[str]) -> "PatchApplyResult":
+        """Apply a unified diff, skipping hunks whose key (filePath:hunkIndex) is in rejected_keys."""
+        if not diff.strip():
+            raise HTTPException(status_code=400, detail="Unified diff payload is empty")
+        if len(diff) > MAX_DIFF_CHARS:
+            raise HTTPException(status_code=400, detail="Unified diff is too large")
+        if "Binary files " in diff or "\nrename from " in diff or "\nrename to " in diff:
+            raise HTTPException(status_code=400, detail="Binary or rename patches are not supported")
+        file_patches = self._parse_unified_diff(diff)
+        global_hunk_idx = 0
+        result = PatchApplyResult()
+        for patch in file_patches:
+            new_path = patch["new_path"]
+            accepted_hunks = []
+            for hunk in patch["hunks"]:
+                key = f"{new_path}:{global_hunk_idx}"
+                if key not in rejected_keys:
+                    accepted_hunks.append(hunk)
+                global_hunk_idx += 1
+            if not accepted_hunks:
+                continue
+            target = self._safe_path(new_path)
+            self._backup_file(target)
+            if patch["old_path"] == "/dev/null":
+                original_lines: list[str] = []
+            else:
+                if not target.exists():
+                    raise HTTPException(status_code=400, detail=f"Patch target does not exist: {new_path}")
+                original_lines = target.read_text(encoding="utf-8", errors="ignore").splitlines()
+            new_lines = self._apply_hunks(original_lines, accepted_hunks, new_path)
+            new_text = "\n".join(new_lines)
+            if original_lines or diff.endswith("\n"):
+                new_text += "\n"
+            if len(new_text) > MAX_FILE_CHARS:
+                raise HTTPException(status_code=400, detail="Patched file content is too large")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(new_text, encoding="utf-8")
+            rel = target.relative_to(self.root).as_posix()
+            result.changed_files.append(rel)
+            result.summaries.append({"path": rel, "accepted_hunks": len(accepted_hunks), "mode": "partial_unified_diff"})
+        return result
     def rollback(self) -> list[str]:
         restored: list[str] = []
         for path_str, original_content in self._backup.items():
