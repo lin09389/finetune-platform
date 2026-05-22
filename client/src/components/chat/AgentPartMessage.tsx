@@ -15,6 +15,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
 import type { AgentPart } from '../../services/api';
 import type { ChatAgentMetadata } from '../../types';
+import AgentTerminal from './AgentTerminal';
 import styles from './AgentPartMessage.module.css';
 
 interface AgentPartMessageProps {
@@ -55,6 +56,72 @@ function stringify(value: unknown) {
 function commandText(payload?: Record<string, any>) {
   const command = payload?.command || payload?.payload?.command;
   return Array.isArray(command) ? command.join(' ') : stringify(command);
+}
+
+function asAgentParts(value: unknown): AgentPart[] {
+  return Array.isArray(value) ? value.filter((item): item is AgentPart => Boolean(item && typeof item === 'object' && 'type' in item)) : [];
+}
+
+function processStats(parts: AgentPart[]) {
+  const actionable = parts.filter((item) => ['diff', 'command', 'permission'].includes(item.type));
+  const approved = actionable.filter((item) => ['approved', 'executed', 'completed'].includes(item.status || '')).length;
+  const commands = parts.filter((item) => item.type === 'command' && ['completed', 'executed'].includes(item.status || '')).length;
+  const patches = parts.filter((item) => item.type === 'diff' && item.status === 'executed').length;
+  const pending = actionable.filter((item) => item.status === 'pending').length;
+  const failed = parts.filter((item) => ['failed', 'blocked'].includes(item.status || '')).length;
+  return { approved, commands, patches, pending, failed };
+}
+
+function contextStats(payload?: Record<string, any>) {
+  const source = payload?.payload && typeof payload.payload === 'object' ? { ...payload, ...payload.payload } : payload || {};
+  return {
+    files: Array.isArray(source.files) ? source.files.length : 0,
+    matches: Array.isArray(source.matches) ? source.matches.length : 0,
+    symbols: Array.isArray(source.symbols) ? source.symbols.length : 0,
+    commands: Array.isArray(source.commands) ? source.commands.length : 0,
+  };
+}
+
+function ProcessStrip({ parts, currentPart }: { parts?: AgentPart[]; currentPart?: AgentPart }) {
+  const stats = processStats(parts?.length ? parts : currentPart ? [currentPart] : []);
+  const items: Array<{ label: string; tone?: 'ok' | 'warn' | 'err' }> = [];
+  if (stats.approved) items.push({ label: `已批准 ${stats.approved} 项请求`, tone: 'ok' });
+  if (stats.patches) items.push({ label: `已执行 ${stats.patches} 个补丁`, tone: 'ok' });
+  if (stats.commands) items.push({ label: `已运行 ${stats.commands} 条命令`, tone: 'ok' });
+  if (stats.pending) items.push({ label: '自动审核中', tone: 'warn' });
+  if (!stats.pending && (stats.approved || stats.patches || stats.commands)) items.push({ label: '自动审核已批准', tone: 'ok' });
+  if (stats.failed) items.push({ label: `${stats.failed} 项需要处理`, tone: 'err' });
+  if (!items.length) return null;
+  return (
+    <div className={styles.processStrip}>
+      {items.map((item) => (
+        <span key={item.label} className={styles.processPill} data-tone={item.tone || 'ok'}>
+          {item.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ToolResultStrip({ part, payload }: { part: AgentPart; payload: Record<string, any> }) {
+  const stats = contextStats(payload);
+  const command = commandText(payload);
+  const chips: string[] = [];
+  if (stats.files) chips.push(`读取 ${stats.files} 个文件`);
+  if (stats.matches) chips.push(`找到 ${stats.matches} 条匹配`);
+  if (stats.symbols) chips.push(`命中 ${stats.symbols} 个符号`);
+  if (stats.commands) chips.push(`识别 ${stats.commands} 个验证命令`);
+  if (command) chips.push(command);
+  if (!chips.length && part.content) chips.push(part.content);
+  return (
+    <div className={styles.eventLine}>
+      <span className={styles.eventDot} data-status={part.status || 'completed'} />
+      <span className={styles.eventTitle}>{partTitle(part, '工具结果')}</span>
+      {chips.slice(0, 4).map((chip) => (
+        <span key={chip} className={styles.eventChip}>{chip}</span>
+      ))}
+    </div>
+  );
 }
 
 function changedFiles(payload?: Record<string, any>) {
@@ -194,6 +261,7 @@ const AgentPartMessage = React.memo(({
   }
 
   const payload = part.payload || {};
+  const sessionParts = asAgentParts(metadata.agent_parts);
   const diagnostics = metadata.agent_session_diagnostics;
   const streamingDiagnostics = metadata.agent_streaming_diagnostics;
   const status = part.status || metadata.status || 'completed';
@@ -309,6 +377,7 @@ const AgentPartMessage = React.memo(({
           </Typography.Text>
         )}
         <MarkdownBody>{part.content || content}</MarkdownBody>
+        <ProcessStrip parts={sessionParts} currentPart={part} />
         {diagnosticBlock}
         {onRefreshRun && (
           <Button size="small" type="text" icon={<ReloadOutlined />} onClick={() => onRefreshRun(metadata.agent_run_id)}>
@@ -379,7 +448,7 @@ const AgentPartMessage = React.memo(({
           <Space>
             {canApprove && (
               <Button size="small" type="primary" onClick={() => onApproveAction?.(metadata.action_id!)}>
-                批准
+                批准并执行
               </Button>
             )}
             {canApprove && (
@@ -423,7 +492,16 @@ const AgentPartMessage = React.memo(({
           </Typography.Text>
         )}
         {diagnosticBlock}
-        {(payload.stdout || payload.stderr || payload.exit_code !== undefined) && (
+        {payload.terminal_id && ['running', 'executed', 'failed'].includes(status) ? (
+          <AgentTerminal
+            terminalId={String(payload.terminal_id)}
+            running={status === 'running'}
+            stdout={payload.stdout}
+            stderr={payload.stderr}
+            exitCode={payload.exit_code}
+          />
+        ) : null}
+        {!payload.terminal_id && (payload.stdout || payload.stderr || payload.exit_code !== undefined) && (
           <Collapse
             ghost
             size="small"
@@ -444,7 +522,7 @@ const AgentPartMessage = React.memo(({
           <Space>
             {canApprove && (
               <Button size="small" type="primary" onClick={() => onApproveAction?.(metadata.action_id!)}>
-                批准
+                批准并执行
               </Button>
             )}
             {canApprove && (
@@ -477,36 +555,45 @@ const AgentPartMessage = React.memo(({
     );
   }
 
-  const isRunningTool = part.type === 'tool_call' && status === 'running';
+  if (part.type === 'tool_call' || part.type === 'tool_result') {
+    return shell(
+      <Space direction="vertical" size={6} style={{ width: '100%' }}>
+        <ToolResultStrip part={part} payload={payload} />
+        {diagnosticBlock}
+        {payload.failure_summary && <Typography.Text type="danger">{payload.failure_summary}</Typography.Text>}
+        {payload.server_url && (
+          <Typography.Link href={payload.server_url} target="_blank" rel="noreferrer">
+            {payload.server_url}
+          </Typography.Link>
+        )}
+      </Space>,
+    );
+  }
 
   return shell(
     <Space direction="vertical" size={4} style={{ width: '100%' }}>
       <Space wrap>
         {icon}
-        {isRunningTool && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}><span className="typing-dot" /><span className="typing-dot" style={{ animationDelay: '0.2s' }} /><span className="typing-dot" style={{ animationDelay: '0.4s' }} /></span>}
         <Typography.Text>{partTitle(part, content)}</Typography.Text>
         {status !== 'completed' && <Tag color={statusColor[status] || 'default'}>{statusLabel[status] || status}</Tag>}
       </Space>
-      {part.type === 'tool_result' && payload && Object.keys(payload).length > 0 && (
-        <Space direction="vertical" size={4} style={{ width: '100%' }}>
-          {Array.isArray(payload.files) && payload.files.length > 0 && (
-            <Space wrap>
-              {payload.files.slice(0, 8).map((file: any) => (
-                <Tag key={String(file)}>{String(file)}</Tag>
-              ))}
-            </Space>
+      {(canApprove || canExecute) && (
+        <Space>
+          {canApprove && (
+            <Button size="small" type="primary" onClick={() => onApproveAction?.(metadata.action_id!)}>
+              {part.type === 'permission' ? '批准' : '批准并执行'}
+            </Button>
           )}
-          {payload.server_url && (
-            <Typography.Link href={payload.server_url} target="_blank" rel="noreferrer">
-              {payload.server_url}
-            </Typography.Link>
+          {canApprove && (
+            <Button size="small" onClick={() => onRejectAction?.(metadata.action_id!)}>
+              拒绝
+            </Button>
           )}
-          {payload.failure_summary && <Typography.Text type="danger">{payload.failure_summary}</Typography.Text>}
-          <Collapse
-            ghost
-            size="small"
-            items={[{ key: 'payload', label: '查看结果详情', children: <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{stringify(payload)}</pre> }]}
-          />
+          {canExecute && (
+            <Button size="small" type="primary" onClick={() => onExecuteAction?.(metadata.action_id!)}>
+              执行
+            </Button>
+          )}
         </Space>
       )}
     </Space>,

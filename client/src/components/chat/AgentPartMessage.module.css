@@ -18,6 +18,88 @@
   color: var(--text-secondary);
 }
 
+.processStrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+}
+
+.processPill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.processPill[data-tone='ok'] {
+  border-color: color-mix(in srgb, var(--accent-success, #52c41a) 34%, transparent);
+  color: color-mix(in srgb, var(--accent-success, #52c41a) 86%, var(--text-primary));
+  background: color-mix(in srgb, var(--accent-success, #52c41a) 9%, transparent);
+}
+
+.processPill[data-tone='warn'] {
+  border-color: color-mix(in srgb, var(--accent-warning, #faad14) 42%, transparent);
+  color: color-mix(in srgb, var(--accent-warning, #faad14) 86%, var(--text-primary));
+  background: color-mix(in srgb, var(--accent-warning, #faad14) 10%, transparent);
+}
+
+.processPill[data-tone='err'] {
+  border-color: color-mix(in srgb, var(--accent-danger, #ff4d4f) 40%, transparent);
+  color: color-mix(in srgb, var(--accent-danger, #ff4d4f) 86%, var(--text-primary));
+  background: color-mix(in srgb, var(--accent-danger, #ff4d4f) 9%, transparent);
+}
+
+.eventLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.eventDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent-primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-primary) 12%, transparent);
+}
+
+.eventDot[data-status='failed'],
+.eventDot[data-status='blocked'] {
+  background: var(--accent-danger, #ff4d4f);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-danger, #ff4d4f) 12%, transparent);
+}
+
+.eventTitle {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.eventChip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 320px;
+  min-height: 22px;
+  padding: 1px 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .stagePanel {
   display: grid;
   gap: 8px;

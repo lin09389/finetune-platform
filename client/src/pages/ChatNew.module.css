@@ -18,10 +18,11 @@
 .mainChatPane {
   position: relative;
   min-width: 0;
-  flex: 1;
+  flex: 0 0 380px;
   display: flex;
   flex-direction: column;
   background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+  transition: flex-basis 0.2s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.18s ease;
 }
 
 .sidePanels {
@@ -31,6 +32,119 @@
   min-height: 0;
   height: 100%;
   overflow: hidden;
+  transition: flex-basis 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.agentIdeWorkspace {
+  flex: 1 1 0;
+  min-width: 360px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid color-mix(in srgb, var(--border-color) 76%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--border-color) 76%, transparent);
+  background: radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--accent-primary) 10%, transparent), transparent 32%), color-mix(in srgb, var(--bg-base) 92%, transparent);
+}
+
+.agentIdeHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated) 82%, transparent);
+  flex: 0 0 auto;
+}
+
+.agentIdeKicker {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.agentIdeTitle {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.agentIdeTag {
+  margin-inline-end: 0;
+  border-radius: 999px;
+}
+
+.agentIdePath {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  max-width: 320px;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  transition: color 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.agentIdePath:hover {
+  color: var(--accent-primary, #1677ff);
+  transform: translateY(-0.5px);
+}
+
+.agentIdePathText {
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agentIdePath:hover .agentIdePathText {
+  text-decoration: underline;
+}
+
+:global(.light-theme) .agentIdePath { color: rgba(0, 0, 0, 0.45); }
+:global(.light-theme) .agentIdePath:hover { color: var(--accent-primary, #1677ff); }
+
+.agentIdePathEmpty {
+  margin-top: 3px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.22);
+  font-style: italic;
+}
+
+:global(.light-theme) .agentIdePathEmpty { color: rgba(0, 0, 0, 0.25); }
+
+.agentIdePathEdit {
+  padding: 6px 12px;
+  background: color-mix(in srgb, var(--bg-elevated) 95%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+  flex: 0 0 auto;
+}
+
+.agentIdeBody {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(180px, 23%) minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.agentIdeTreePane {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-right: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+  background: color-mix(in srgb, var(--bg-secondary) 76%, transparent);
+}
+
+.agentIdeEditorPane {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #1e1e1e;
 }
 
 .splitter {
@@ -55,6 +169,50 @@
 .splitterDragging::before {
   width: 2px;
   background: color-mix(in srgb, var(--accent-primary) 72%, var(--border-color));
+}
+
+.splitterCollapsed {
+  flex: 0 0 20px;
+  cursor: default;
+  background: color-mix(in srgb, var(--bg-elevated) 60%, transparent);
+}
+
+.splitterCollapsed::before {
+  width: 1px;
+}
+
+.splitterToggleBtn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 18px;
+  height: 36px;
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 90%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated) 90%, transparent);
+  color: var(--text-tertiary);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.14s, color 0.14s;
+}
+
+.splitter:hover .splitterToggleBtn,
+.splitterCollapsed .splitterToggleBtn {
+  opacity: 1;
+}
+
+.splitterToggleBtn:hover {
+  background: color-mix(in srgb, var(--accent-primary) 18%, var(--bg-elevated));
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--accent-primary) 50%, transparent);
 }
 
 .resizing {
@@ -678,6 +836,94 @@
   .messagesInner {
     padding-bottom: 132px;
   }
+}
+
+/* ── Slim IDE file tree (left panel in artifacts tab) ──────── */
+
+.slimFilePanel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.slimFilePanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  flex-shrink: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
+}
+
+.slimFileCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent-primary);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  font-style: normal;
+}
+
+.slimFileList {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 4px 8px;
+  display: grid;
+  gap: 3px;
+  align-content: start;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-hover) transparent;
+}
+
+.slimFileList::-webkit-scrollbar {
+  width: 3px;
+}
+
+.slimFileList::-webkit-scrollbar-thumb {
+  background: var(--border-hover);
+  border-radius: 999px;
+}
+
+/* Compact card overrides inside slim panel */
+.slimFileList .agentFileCard,
+.slimFileList :global([class*="agentFileCard"]) {
+  border-radius: 8px;
+}
+
+/* Clickable file card variant */
+.agentFileCardClickable {
+  cursor: pointer;
+  outline: none;
+}
+
+.agentFileCardClickable:hover {
+  border-color: color-mix(in srgb, var(--accent-primary) 50%, var(--border-color));
+  background: color-mix(in srgb, var(--accent-primary) 5%, var(--bg-base));
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+}
+
+.agentFileCardClickable:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.agentFileCardClickable:active {
+  transform: translateY(0);
+  box-shadow: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -17,6 +17,11 @@ const getApiBaseUrl = () => {
 export const API_BASE_URL = getApiBaseUrl();
 console.log('[API] Base URL:', API_BASE_URL);
 
+export const getAgentTerminalWebSocketUrl = (terminalId: string): string => {
+  const base = API_BASE_URL.replace(/^http/i, 'ws').replace(/\/$/, '');
+  return `${base}/agent-terminals/${encodeURIComponent(terminalId)}/ws`;
+};
+
 // ==================== Connection Pool ====================
 
 interface ConnectionPoolEntry {
@@ -813,6 +818,13 @@ export const getWorkspaceTree = async (params: {
   return response.data;
 };
 
+export const browseFolderBackend = async (initialPath?: string): Promise<{ status: string; path: string | null; message?: string }> => {
+  const response = await apiClient.get('/workspace/browse-folder', {
+    params: { initial_path: initialPath }
+  });
+  return response.data;
+};
+
 export const getAgentSession = async (sessionId: string): Promise<AgentSession> => {
   const response = await apiClient.get(`/agent-sessions/${sessionId}`);
   return response.data;
@@ -822,6 +834,29 @@ export const getAgentSessionOverview = async (sessionId: string): Promise<AgentS
   const response = await apiClient.get(`/agent-sessions/${sessionId}/overview`);
   return response.data;
 };
+
+export const getArtifactOriginal = async (
+  sessionId: string,
+  artifactId: string
+): Promise<string | null> => {
+  const response = await apiClient.get(`/agent-sessions/${sessionId}/artifacts/${artifactId}/original`);
+  return response.data;
+};
+
+export const recordHunkDecision = async (
+  actionId: string,
+  filePath: string,
+  hunkIndex: number,
+  decision: 'accepted' | 'rejected'
+): Promise<any> => {
+  const response = await apiClient.post(`/agent-actions/${actionId}/hunk-decision`, {
+    file_path: filePath,
+    hunk_index: hunkIndex,
+    decision,
+  });
+  return response.data;
+};
+
 
 export const promptAgentSession = async (
   sessionId: string,

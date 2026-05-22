@@ -1,4 +1,4 @@
-import { Button, Collapse, Drawer, Modal, Tag } from 'antd';
+import { Button, Drawer, Input, Modal, Tag, Tooltip } from 'antd';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
@@ -16,6 +16,9 @@ import ChatContextPanel from '../components/chat/ChatContextPanel';
 import ChatInput from '../components/chat/ChatInput';
 import AgentPhaseIndicator from '../components/chat/AgentPhaseIndicator';
 import AgentWorkbenchPanel, { WorkbenchEmpty } from '../components/chat/AgentWorkbenchPanel';
+import AgentWorkspaceEditor from '../components/chat/AgentWorkspaceEditor';
+import { parseDiffHunks } from '../utils/diffHunks';
+import type { OpenedFile } from '../components/chat/AgentWorkspaceEditor';
 import ChatHistoryDrawer from '../components/ChatHistoryDrawer';
 import ChatMessage from '../components/ChatMessage';
 import MemoryManager from '../components/MemoryManager';
@@ -25,9 +28,12 @@ import { useRuntimeContext } from '../runtime/RuntimeContext';
 import {
   API_BASE_URL,
   approveAgentAction,
+  approveAgentPermission,
   classifyChatAgentIntent,
   createAgentSession,
   executeAgentAction,
+  getArtifactOriginal,
+  recordHunkDecision,
   getAgentSession,
   getAgentSessionOverview,
   getPrimaryAgents,
@@ -35,13 +41,15 @@ import {
   getSavedCloudProviders,
   interruptAgentSession,
   listWorkspaces,
+  browseFolderBackend,
   promptAgentSession,
   rejectAgentAction as rejectAgentSessionAction,
+  rejectAgentPermission,
 } from '../services/api';
 import type { AgentArtifact, AgentInfo, AgentPart, AgentSession, AgentSessionEvent, AgentSessionOverview, SavedCloudProvider, WorkspaceSummary } from '../services/api';
 import { transitions } from '../theme/animations';
 import { notify } from '../utils/notify';
-import { ArrowDownOutlined } from '@ant-design/icons';
+import { ArrowDownOutlined, FolderOpenOutlined } from '@ant-design/icons';
 import styles from './ChatNew.module.css';
 
 interface APIKeyConfig {
@@ -94,6 +102,17 @@ const CHAT_WORKSPACE_ID_STORAGE_KEY = 'chat_workspace_id_v1';
 const CHAT_PROJECT_PATH_STORAGE_KEY = 'chat_project_path_v1';
 const CHAT_WORKSPACE_EVENT = 'chat-workspace-change';
 const CHAT_SIDE_PANEL_WIDTH_STORAGE_KEY = 'chat_side_panel_width_v1';
+const CHAT_PANE_WIDTH_STORAGE_KEY = 'chat_chat_pane_width_v1';
+const CHAT_SIDE_PANEL_OPEN_STORAGE_KEY = 'chat_side_panel_open_v1';
+const CHAT_PANEL_OPEN_STORAGE_KEY = 'chat_chat_panel_open_v1';
+
+const resolveArtifactStatus = (statusRaw: string): OpenedFile['status'] => {
+  const s = statusRaw.toLowerCase();
+  if (/add|new|create|新增/.test(s)) return 'added';
+  if (/delete|remove|removed|删除/.test(s)) return 'deleted';
+  if (/modify|update|change|edit|fix|modified|修改/.test(s)) return 'modified';
+  return 'unknown';
+};
 
 const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -235,7 +254,6 @@ const ChatPage: React.FC = () => {
   const [availableWorkspaces, setAvailableWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>(() => localStorage.getItem(CHAT_WORKSPACE_ID_STORAGE_KEY) || '');
   const [workspaceProjectPath, setWorkspaceProjectPath] = useState<string>(() => localStorage.getItem(CHAT_PROJECT_PATH_STORAGE_KEY) || '');
-  const [workspaceTreeFocusedOnly, setWorkspaceTreeFocusedOnly] = useState(false);
   const [agentSessionOverview, setAgentSessionOverview] = useState<AgentSessionOverview | null>(null);
   const agentSessionStreamsRef = useRef<Record<string, EventSource>>({});
   const agentSessionStateRef = useRef<Record<string, AgentSession>>({});
@@ -268,6 +286,23 @@ const ChatPage: React.FC = () => {
     return Number.isFinite(stored) && stored >= 280 ? stored : 360;
   });
   const [resizingSidePanel, setResizingSidePanel] = useState(false);
+  const [chatPaneWidth, setChatPaneWidth] = useState(() => {
+    if (typeof window === 'undefined') return 380;
+    const stored = Number(localStorage.getItem(CHAT_PANE_WIDTH_STORAGE_KEY));
+    return Number.isFinite(stored) && stored >= 240 ? stored : 380;
+  });
+  const [resizingChatPane, setResizingChatPane] = useState(false);
+  const [sidePanelOpen, setSidePanelOpen] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return localStorage.getItem(CHAT_SIDE_PANEL_OPEN_STORAGE_KEY) !== '0';
+  });
+  const [chatPanelOpen, setChatPanelOpen] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return localStorage.getItem(CHAT_PANEL_OPEN_STORAGE_KEY) !== '0';
+  });
+  const [showPathEdit, setShowPathEdit] = useState(false);
+  const [openedFiles, setOpenedFiles] = useState<OpenedFile[]>([]);
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   const autoScrollFrameRef = useRef<number | null>(null);
   const pendingAutoScrollRef = useRef(false);
 
@@ -307,9 +342,9 @@ const ChatPage: React.FC = () => {
     if (typeof document === 'undefined') return;
     const resizingClassName = styles.resizing;
     if (!resizingClassName) return;
-    document.body.classList.toggle(resizingClassName, resizingSidePanel);
+    document.body.classList.toggle(resizingClassName, resizingSidePanel || resizingChatPane);
     return () => document.body.classList.remove(resizingClassName);
-  }, [resizingSidePanel]);
+  }, [resizingSidePanel, resizingChatPane]);
 
   const handleSplitterPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -318,16 +353,20 @@ const ChatPage: React.FC = () => {
     const minSideWidth = 280;
     const maxSideWidth = Math.max(320, window.innerWidth - 520);
     setResizingSidePanel(true);
+    let pendingX = startX;
+    let rafId: number | null = null;
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
-      const nextWidth = Math.min(
-        maxSideWidth,
-        Math.max(minSideWidth, startWidth - (moveEvent.clientX - startX)),
-      );
-      setSidePanelWidth(nextWidth);
+      pendingX = moveEvent.clientX;
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        setSidePanelWidth(Math.min(maxSideWidth, Math.max(minSideWidth, startWidth - (pendingX - startX))));
+      });
     };
 
     const handlePointerUp = () => {
+      if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
       setResizingSidePanel(false);
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
@@ -340,6 +379,48 @@ const ChatPage: React.FC = () => {
   useEffect(() => {
     localStorage.setItem(CHAT_SIDE_PANEL_WIDTH_STORAGE_KEY, String(sidePanelWidth));
   }, [sidePanelWidth]);
+
+  useEffect(() => {
+    localStorage.setItem(CHAT_PANE_WIDTH_STORAGE_KEY, String(chatPaneWidth));
+  }, [chatPaneWidth]);
+
+  useEffect(() => {
+    localStorage.setItem(CHAT_SIDE_PANEL_OPEN_STORAGE_KEY, sidePanelOpen ? '1' : '0');
+  }, [sidePanelOpen]);
+
+  useEffect(() => {
+    localStorage.setItem(CHAT_PANEL_OPEN_STORAGE_KEY, chatPanelOpen ? '1' : '0');
+  }, [chatPanelOpen]);
+
+  const handleChatSplitterPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = chatPaneWidth;
+    const minChatWidth = 240;
+    const maxChatWidth = Math.max(280, window.innerWidth - 720);
+    setResizingChatPane(true);
+    let pendingX = startX;
+    let rafId: number | null = null;
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      pendingX = moveEvent.clientX;
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        setChatPaneWidth(Math.min(maxChatWidth, Math.max(minChatWidth, startWidth + (pendingX - startX))));
+      });
+    };
+
+    const handlePointerUp = () => {
+      if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+      setResizingChatPane(false);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+  }, [chatPaneWidth]);
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
@@ -670,65 +751,26 @@ const ChatPage: React.FC = () => {
   const isLikelyAgentGoal = useCallback((content: string) => {
     const text = content.trim().toLowerCase();
     if (!text) return false;
-    if (['不要执行', '只讨论', '只分析', '解释一下', '帮我解释', '什么是', '为什么',
+    if ([
+      '不要执行', '只讨论', '只分析', '解释一下', '帮我解释', '什么是', '为什么',
       '怎么理解', '怎么用', '是什么意思', '有什么区别', '介绍一下', '帮我看看',
       '分析一下', '看看代码', '这个代码', '这段代码', '看看逻辑', '怎么实现的',
-      '原理是什么', '怎么工作的', '帮我梳理', '帮我看看代码'].some((keyword) => text.includes(keyword))) {
+      '原理是什么', '怎么工作的', '帮我梳理', '帮我看看代码',
+      '示例', '例子', 'demo', '演示', 'sample', '怎么写', '如何写',
+    ].some((keyword) => text.includes(keyword))) {
       return false;
     }
     return [
-      '修改代码',
-      '新增功能',
-      '新增接口',
-      '新增页面',
-      '实现功能',
-      '实现接口',
-      '修复bug',
-      '修复报错',
-      '重构代码',
-      '优化代码',
-      '跑测试',
-      '运行测试',
-      'typecheck',
-      'pytest',
-      'npm run',
-      '让agent做',
-      '自动处理',
-      '生成补丁',
-      '写补丁',
-      '搜索项目',
-      '写脚本',
-      '排查报错',
-      '排查问题',
-      '运行命令',
-      '执行补丁',
-      '帮我改',
-      '帮我修',
-      '帮我写',
-      '帮我实现',
-      '帮我新增',
-      '帮我添加',
-      '帮我重构',
-      '改成',
-      '改为',
-      '加个',
-      '加一个',
-      '删掉',
-      '删除',
-      '创建',
-      '新建',
-      '安装',
-      '配置',
-      '部署',
-      '写个',
-      '写一个',
-      '运行',
-      '执行',
-      '启动',
-      '打包',
-      '上传',
-      '更新',
-      '重命名',
+      '修改代码', '新增功能', '新增接口', '新增页面',
+      '实现功能', '实现接口', '修复bug', '修复报错',
+      '重构代码', '优化代码',
+      '跑测试', '运行测试', 'typecheck', 'pytest', 'npm run',
+      '让agent做', '自动处理', '生成补丁', '写补丁',
+      '搜索项目', '写脚本', '排查报错', '排查问题',
+      '运行命令', '执行补丁',
+      '帮我改', '帮我修', '帮我写', '帮我实现',
+      '帮我新增', '帮我添加', '帮我重构',
+      '改成', '改为', '加个', '加一个',
     ].some((keyword) => text.includes(keyword));
   }, []);
 
@@ -807,6 +849,7 @@ const ChatPage: React.FC = () => {
       current_stage_id: session.metadata?.current_stage_id,
       current_node_id: session.metadata?.current_node_id,
       agent_part: part,
+      agent_parts: session.parts,
       agent_session_state: (session.metadata as any)?.state,
       agent_session_diagnostics: (session.metadata as any)?.diagnostics,
       agent_streaming_diagnostics: (session.metadata as any)?.streaming_diagnostics,
@@ -1086,7 +1129,13 @@ if (existing) {
       source.addEventListener('agent_session_done', () => {
         useChatStore.getState().flushMessageUpdates();
         getAgentSession(sessionId)
-          .then((session) => upsertAgentSessionMessage(session))
+          .then((session) => {
+            upsertAgentSessionMessage(session);
+            if (!session.parts?.length && ['running', 'verifying', 'repairing'].includes(session.status)) {
+              appendAgentSessionError('Agent 事件流已中断，后端可能仍在运行旧代码或连接被服务端关闭。请重启后端后重试。', session);
+            }
+            setAgentPhase({ phase: '', visible: false });
+          })
           .catch(() => undefined);
         source.close();
         delete agentSessionStreamsRef.current[sessionId];
@@ -1446,42 +1495,55 @@ if (existing) {
     [upsertAgentSessionMessage],
   );
 
-  const findAgentSessionIdByAction = useCallback((actionId: string) => {
+  const findAgentMetadataByAction = useCallback((actionId: string) => {
     return useChatStore
       .getState()
       .messages.find((item) => item.agent_metadata?.action_id === actionId && item.agent_metadata?.agent_session_id)
-      ?.agent_metadata?.agent_session_id;
+      ?.agent_metadata;
   }, []);
 
   const handleApproveAgentAction = useCallback(
     async (actionId: string) => {
-      const sessionId = findAgentSessionIdByAction(actionId);
-      if (!sessionId) return;
-      const response = await approveAgentAction(actionId);
-      await upsertAgentSessionMessage(response.session);
+      const metadata = findAgentMetadataByAction(actionId);
+      if (!metadata?.agent_session_id) return;
+      if (metadata.action_type === 'permission') {
+        const response = await approveAgentPermission(actionId);
+        await upsertAgentSessionMessage(response.session);
+        notify.success('权限已批准');
+        return;
+      }
+      const approved = await approveAgentAction(actionId);
+      await upsertAgentSessionMessage(approved.session);
+      if (metadata.action_type === 'patch' || metadata.action_type === 'command') {
+        const executed = await executeAgentAction(actionId);
+        await upsertAgentSessionMessage(executed.session);
+        notify.success(executed.part.status === 'executed' ? '已批准并执行' : '动作执行完成');
+      }
     },
-    [findAgentSessionIdByAction, upsertAgentSessionMessage],
+    [findAgentMetadataByAction, upsertAgentSessionMessage],
   );
 
   const handleRejectAgentAction = useCallback(
     async (actionId: string) => {
-      const sessionId = findAgentSessionIdByAction(actionId);
-      if (!sessionId) return;
-      const response = await rejectAgentSessionAction(actionId);
+      const metadata = findAgentMetadataByAction(actionId);
+      if (!metadata?.agent_session_id) return;
+      const response = metadata.action_type === 'permission'
+        ? await rejectAgentPermission(actionId)
+        : await rejectAgentSessionAction(actionId);
       await upsertAgentSessionMessage(response.session);
     },
-    [findAgentSessionIdByAction, upsertAgentSessionMessage],
+    [findAgentMetadataByAction, upsertAgentSessionMessage],
   );
 
   const handleExecuteAgentAction = useCallback(
     async (actionId: string) => {
-      const sessionId = findAgentSessionIdByAction(actionId);
-      if (!sessionId) return;
+      const metadata = findAgentMetadataByAction(actionId);
+      if (!metadata?.agent_session_id || metadata.action_type === 'permission') return;
       const response = await executeAgentAction(actionId);
       await upsertAgentSessionMessage(response.session);
       notify.success(response.part.status === 'executed' ? '动作已执行' : '动作执行完成');
     },
-    [findAgentSessionIdByAction, upsertAgentSessionMessage],
+    [findAgentMetadataByAction, upsertAgentSessionMessage],
   );
 
   const handleRetry = useCallback(
@@ -1710,10 +1772,10 @@ if (existing) {
   const activeModeLabel = routingMode === 'agent'
     ? 'Agent Task'
     : routingMode === 'auto' && routingIntent
-      ? 'Agent Task 路由中'
+      ? '正在判断'
       : routingMode === 'chat'
         ? 'Chat'
-        : 'Agent Task';
+        : '智能路由';
   const activeModelLabel = useCloudAI
     ? selectedCloudModel || '未选择模型'
     : settings.modelId || '未选择模型';
@@ -1844,6 +1906,144 @@ if (existing) {
     });
   }, []);
 
+  const handlePickFolder = useCallback(async () => {
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.selectFolder) {
+      const folder: string | null = await (window as any).electronAPI.selectFolder(workspaceProjectPath || undefined);
+      if (folder) { setWorkspaceProjectPath(folder); setShowPathEdit(false); }
+      return;
+    }
+
+    try {
+      const res = await browseFolderBackend(workspaceProjectPath || undefined);
+      if (res.status === 'success' && res.path) {
+        setWorkspaceProjectPath(res.path);
+        setShowPathEdit(false);
+        notify.success('选择路径成功');
+      } else {
+        setShowPathEdit((prev) => !prev);
+        notify.info('本地选择器不可用，已开启手动输入');
+      }
+    } catch {
+      setShowPathEdit((prev) => !prev);
+      notify.info('本地选择器不可用，已开启手动输入');
+    }
+  }, [workspaceProjectPath]);
+
+  const handlePathClick = useCallback(() => {
+    if (!effectiveProjectPath) return;
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.openFolder) {
+      void (window as any).electronAPI.openFolder(effectiveProjectPath);
+      notify.success('正在打开本地文件夹...');
+    } else {
+      setShowPathEdit((prev) => !prev);
+      notify.info('浏览器模式已激活路径输入，请手动打开/更改。');
+    }
+  }, [effectiveProjectPath]);
+
+  const handleOpenFile = useCallback((artifact: (typeof agentFileSummaries)[number]) => {
+    const name = artifact.path.replace(/\\/g, '/').split('/').pop() || artifact.path;
+    const status = resolveArtifactStatus(artifact.status);
+    const hunks = status === 'modified' && artifact.preview
+      ? parseDiffHunks(artifact.path, artifact.preview)
+      : undefined;
+    const fileEntry: OpenedFile = {
+      path: artifact.path,
+      name,
+      content: artifact.preview || '',
+      status,
+      hunks,
+      actionId: artifact.source_part_id || undefined,
+    };
+    setOpenedFiles((prev) => {
+      const existingIdx = prev.findIndex((f) => f.path === artifact.path);
+      if (existingIdx >= 0) {
+        const next = [...prev];
+        const existing = next[existingIdx];
+        if (existing) {
+          next[existingIdx] = { ...existing, content: fileEntry.content, status: fileEntry.status, hunks: fileEntry.hunks ?? existing.hunks, actionId: fileEntry.actionId ?? existing.actionId };
+        }
+        return next;
+      }
+      return [...prev, fileEntry];
+    });
+    setActiveFilePath(artifact.path);
+    if (status === 'modified' && latestAgentSessionId) {
+      void getArtifactOriginal(latestAgentSessionId, artifact.id).then((original: string | null) => {
+        if (original === null) return;
+        setOpenedFiles((prev) => prev.map((file) => (
+          file.path === artifact.path ? { ...file, original } : file
+        )));
+      });
+    }
+  }, [latestAgentSessionId]);
+
+  const handleAcceptHunk = useCallback((filePath: string, hunkId: string) => {
+    setOpenedFiles((prev) => {
+      const file = prev.find((f) => f.path === filePath);
+      if (!file) return prev;
+      if (file.actionId) {
+        const hunkIndex = parseInt(hunkId.split(':').pop() ?? '0', 10);
+        void recordHunkDecision(file.actionId, filePath, hunkIndex, 'accepted');
+      }
+      return prev.map((f) => {
+        if (f.path !== filePath) return f;
+        return { ...f, hunks: (f.hunks ?? []).map((h) => h.id === hunkId ? { ...h, status: 'accepted' as const } : h) };
+      });
+    });
+  }, []);
+
+  const handleRejectHunk = useCallback((filePath: string, hunkId: string) => {
+    setOpenedFiles((prev) => {
+      const file = prev.find((f) => f.path === filePath);
+      if (!file) return prev;
+      if (file.actionId) {
+        const hunkIndex = parseInt(hunkId.split(':').pop() ?? '0', 10);
+        void recordHunkDecision(file.actionId, filePath, hunkIndex, 'rejected');
+      }
+      return prev.map((f) => {
+        if (f.path !== filePath) return f;
+        return { ...f, hunks: (f.hunks ?? []).map((h) => h.id === hunkId ? { ...h, status: 'rejected' as const } : h) };
+      });
+    });
+  }, []);
+
+  const handleAcceptAll = useCallback((filePath: string) => {
+    setOpenedFiles((prev) => prev.map((f) => {
+      if (f.path !== filePath) return f;
+      if (f.actionId) {
+        (f.hunks ?? []).filter((h) => h.status === 'pending').forEach((h) => {
+          const hunkIndex = parseInt(h.id.split(':').pop() ?? '0', 10);
+          void recordHunkDecision(f.actionId!, filePath, hunkIndex, 'accepted');
+        });
+      }
+      return { ...f, hunks: (f.hunks ?? []).map((h) => h.status === 'pending' ? { ...h, status: 'accepted' as const } : h) };
+    }));
+  }, []);
+
+  const handleRejectAll = useCallback((filePath: string) => {
+    setOpenedFiles((prev) => prev.map((f) => {
+      if (f.path !== filePath) return f;
+      if (f.actionId) {
+        (f.hunks ?? []).filter((h) => h.status === 'pending').forEach((h) => {
+          const hunkIndex = parseInt(h.id.split(':').pop() ?? '0', 10);
+          void recordHunkDecision(f.actionId!, filePath, hunkIndex, 'rejected');
+        });
+      }
+      return { ...f, hunks: (f.hunks ?? []).map((h) => h.status === 'pending' ? { ...h, status: 'rejected' as const } : h) };
+    }));
+  }, []);
+
+  const handleCloseEditorTab = useCallback((closedPath: string) => {
+    setOpenedFiles((prev) => prev.filter((f) => f.path !== closedPath));
+    setActiveFilePath((current) => {
+      if (current !== closedPath) return current;
+      const remaining = openedFiles.filter((f) => f.path !== closedPath);
+      if (remaining.length === 0) return null;
+      const idx = openedFiles.findIndex((f) => f.path === closedPath);
+      return remaining[Math.min(idx, remaining.length - 1)]?.path ?? null;
+    });
+  }, [openedFiles]);
+
   const renderTreeNode = useCallback((node: typeof agentFileTree, depth = 0): React.ReactNode => {
     if (node.kind === 'file' && node.file) {
       const file = node.file;
@@ -1855,9 +2055,16 @@ if (existing) {
           : /modify|update|change|edit|fix|modified|修改/.test(statusLower)
             ? 'processing'
             : 'default';
-      const relativePath = file.path.replace(/\\/g, '/');
       return (
-        <div key={node.path} className={styles.agentFileCard} style={{ ['--file-depth' as any]: String(depth) }}>
+        <div
+          key={node.path}
+          className={`${styles.agentFileCard} ${styles.agentFileCardClickable}`}
+          style={{ ['--file-depth' as any]: String(depth) }}
+          onClick={() => handleOpenFile(file)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => e.key === 'Enter' && handleOpenFile(file)}
+        >
           <div className={styles.agentFileTreeRow}>
             <div className={styles.agentFileTreeLine} aria-hidden="true">
               <span className={styles.agentFileTreeBranch} />
@@ -1865,22 +2072,10 @@ if (existing) {
             </div>
             <div className={styles.agentFileCardBody}>
               <div className={styles.agentFileCardTop}>
-                <div>
-                  <div className={styles.agentFilePath}>{node.name}</div>
-                  <div className={styles.agentFilePathHint}>{relativePath}</div>
-                </div>
+                <div className={styles.agentFilePath}>{node.name}</div>
                 <Tag className={styles.agentFileStatus} color={statusTone}>{file.status || 'modified'}</Tag>
               </div>
               <div className={styles.agentFileSummary}>{file.summary}</div>
-              <Collapse
-                ghost
-                size="small"
-                items={[{
-                  key: `${file.id}:preview`,
-                  label: '代码预览',
-                  children: <pre className={styles.agentFilePreview}>{file.preview}</pre>,
-                }]}
-              />
             </div>
           </div>
         </div>
@@ -1915,7 +2110,7 @@ if (existing) {
     }
 
     return null;
-  }, [expandedFolders, toggleFolder]);
+  }, [expandedFolders, handleOpenFile, toggleFolder]);
 
   const contextPanel = (
     <ChatContextPanel
@@ -1957,11 +2152,6 @@ if (existing) {
       isStreaming={isActivelyStreaming}
     />
   );
-
-  const agentFileTreeStats = useMemo(() => ({
-    files: agentFileSummaries.length,
-    folders: defaultExpandedFolders.size,
-  }), [agentFileSummaries.length, defaultExpandedFolders.size]);
 
   const renderMessageItem = useCallback((index: number, msg: any) => {
     const prevMsg = index > 0 ? messages[index - 1] : null;
@@ -2023,43 +2213,36 @@ if (existing) {
     handleRefreshAgentRun,
   ]);
 
-  const filePanel = (
-    <motion.div
-      initial={prefersReducedMotion ? false : { opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={prefersReducedMotion ? { duration: 0 } : transitions.base}
-      className={styles.agentFilePanel}
-    >
-      <div className={styles.agentFilePanelHeader}>
-        <div>
-          <div className={styles.agentFilePanelKicker}>Agent Files</div>
-          <div className={styles.agentFilePanelTitle}>变更文件</div>
-          <div className={styles.agentFilePanelMeta}>
-            <span>{agentFileTreeStats.files} 个文件</span>
-            <span>{agentFileTreeStats.folders} 个目录</span>
-            {workspaceTreeFocusedOnly ? <span>聚焦模式</span> : null}
-          </div>
-        </div>
-        <Tag color={agentFileSummaries.length ? 'processing' : 'default'} className={styles.agentFilePanelTag}>
-          {agentFileSummaries.length ? `${agentFileSummaries.length} 个文件` : '暂无变更'}
-        </Tag>
-      </div>
-      <div className={styles.agentFileToolbar}>
-        <Button size="small" onClick={() => setWorkspaceTreeFocusedOnly((value) => !value)}>
-          {workspaceTreeFocusedOnly ? '显示全部' : '只看变更'}
-        </Button>
-        <Button size="small" onClick={() => setExpandedFolders(new Set(defaultExpandedFolders))}>展开全部</Button>
-        <Button size="small" onClick={() => setExpandedFolders(new Set())}>折叠全部</Button>
+  const slimFilePanel = useMemo(() => (
+    <div className={styles.slimFilePanel}>
+      <div className={styles.slimFilePanelHeader}>
+        <span>变更文件</span>
+        {agentFileSummaries.length > 0 && (
+          <span className={styles.slimFileCount}>{agentFileSummaries.length}</span>
+        )}
       </div>
       {agentFileSummaries.length > 0 ? (
-        <div className={styles.agentFileList}>
+        <div className={styles.slimFileList}>
           {renderTreeNode(agentFileTree)}
         </div>
       ) : (
-        <div className={styles.agentFileEmpty}>当 Agent 产生补丁或文件修改时，这里会显示最近的变更摘要与预览。</div>
+        <div className={styles.agentFileEmpty}>暂无变更文件</div>
       )}
-    </motion.div>
-  );
+    </div>
+  ), [agentFileSummaries, agentFileTree, renderTreeNode]);
+
+  const editorContent = useMemo(() => (
+    <AgentWorkspaceEditor
+      openedFiles={openedFiles}
+      activeFilePath={activeFilePath}
+      onTabChange={setActiveFilePath}
+      onTabClose={handleCloseEditorTab}
+      onAcceptHunk={handleAcceptHunk}
+      onRejectHunk={handleRejectHunk}
+      onAcceptAll={handleAcceptAll}
+      onRejectAll={handleRejectAll}
+    />
+  ), [openedFiles, activeFilePath, handleCloseEditorTab, handleAcceptHunk, handleRejectHunk, handleAcceptAll, handleRejectAll]);
 
   const workbenchRunPanel = (
     <div style={{ display: 'grid', gap: 12 }}>
@@ -2098,6 +2281,58 @@ if (existing) {
     </div>
   );
 
+  const agentIdeWorkspace = (
+    <section className={styles.agentIdeWorkspace} style={{ flex: '1 1 0', minWidth: 0 }} aria-label="AI 编程工作区">
+      <div className={styles.agentIdeHeader}>
+        <div style={{ minWidth: 0 }}>
+          <div className={styles.agentIdeKicker}>Agent IDE</div>
+          <div className={styles.agentIdeTitle}>代码审阅与补丁确认</div>
+          {effectiveProjectPath ? (
+            <div
+              className={styles.agentIdePath}
+              title={typeof window !== 'undefined' && (window as any).electronAPI ? '点击打开本地文件夹' : '点击编辑项目路径'}
+              onClick={handlePathClick}
+            >
+              <FolderOpenOutlined style={{ fontSize: 10, opacity: 0.7 }} />
+              <span className={styles.agentIdePathText}>{effectiveProjectPath}</span>
+            </div>
+          ) : (
+            <div className={styles.agentIdePathEmpty}>未绑定工作区目录</div>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flex: '0 0 auto' }}>
+          <Tooltip title={typeof window !== 'undefined' && (window as any).electronAPI ? '选择本地项目文件夹' : '手动输入项目路径'}>
+            <Button size="small" icon={<FolderOpenOutlined />} onClick={() => void handlePickFolder()}>
+              {effectiveProjectPath ? '更换' : '选择文件夹'}
+            </Button>
+          </Tooltip>
+          <Tag color={openedFiles.length ? 'processing' : 'default'} className={styles.agentIdeTag}>
+            {openedFiles.length ? `${openedFiles.length} opened` : 'No file opened'}
+          </Tag>
+        </div>
+      </div>
+      {showPathEdit && (
+        <div className={styles.agentIdePathEdit}>
+          <Input
+            size="small"
+            prefix={<FolderOpenOutlined style={{ opacity: 0.5 }} />}
+            placeholder="例如：C:\\Projects\\my-app"
+            value={workspaceProjectPath}
+            onChange={(e) => setWorkspaceProjectPath(e.target.value)}
+            onPressEnter={() => setShowPathEdit(false)}
+            autoFocus
+            suffix={
+              <Button type="link" size="small" style={{ height: 20, padding: 0 }} onClick={() => setShowPathEdit(false)}>确认</Button>
+            }
+          />
+        </div>
+      )}
+      <div className={styles.agentIdeBody}>
+        <aside className={styles.agentIdeTreePane}>{slimFilePanel}</aside>
+        <main className={styles.agentIdeEditorPane}>{editorContent}</main>
+      </div>
+    </section>
+  );
   const workbenchProgressPanel = latestAgentParts.length > 0 ? (
     <div style={{ display: 'grid', gap: 10 }}>
       {latestAgentParts.slice(-8).map((part) => (
@@ -2126,7 +2361,6 @@ if (existing) {
     <WorkbenchEmpty description="执行开始后，这里会展示阶段、节点和工具调用。" />
   );
 
-  const workbenchArtifactsPanel = filePanel;
 
   return (
     <div
@@ -2145,7 +2379,7 @@ if (existing) {
         activeModelLabel={activeModelLabel}
       />
       <div className={styles.chatWorkspace}>
-        <main className={styles.mainChatPane}>
+        <main className={styles.mainChatPane} style={{ flex: `0 0 ${chatPaneWidth}px`, minWidth: 0, ...(isDesktop && !chatPanelOpen ? { flexBasis: 0, overflow: 'hidden', opacity: 0, pointerEvents: 'none' } : {}) }}>
           <motion.div
             {...sectionMotion}
             className={styles.chatMessagesArea}
@@ -2280,23 +2514,57 @@ if (existing) {
         </main>
 
         {isDesktop && (
+          <div
+            className={`${styles.splitter} ${resizingChatPane && chatPanelOpen ? styles.splitterDragging : ''} ${!chatPanelOpen ? styles.splitterCollapsed : ''}`}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="调整聊天区和 IDE 工作区宽度"
+            onPointerDown={chatPanelOpen ? handleChatSplitterPointerDown : undefined}
+          >
+            <button
+              type="button"
+              className={styles.splitterToggleBtn}
+              onClick={() => setChatPanelOpen((o) => !o)}
+              aria-label={chatPanelOpen ? '收起左侧对话栏' : '展开左侧对话栏'}
+              title={chatPanelOpen ? '收起左侧对话栏' : '展开左侧对话栏'}
+            >
+              {chatPanelOpen ? '‹' : '›'}
+            </button>
+          </div>
+        )}
+        {isDesktop && agentIdeWorkspace}
+
+        {isDesktop && (
           <>
             <div
-              className={`${styles.splitter} ${resizingSidePanel ? styles.splitterDragging : ''}`}
+              className={`${styles.splitter} ${resizingSidePanel && sidePanelOpen ? styles.splitterDragging : ''} ${!sidePanelOpen ? styles.splitterCollapsed : ''}`}
               role="separator"
               aria-orientation="vertical"
               aria-label="调整聊天区和工具区宽度"
-              onPointerDown={handleSplitterPointerDown}
-            />
-            <div className={styles.sidePanels} style={{ flex: `0 0 ${sidePanelWidth}px` }}>
-            <AgentWorkbenchPanel
-              changedFiles={agentFileSummaries.length}
-              runContent={workbenchRunPanel}
-              configContent={React.cloneElement(contextPanel, { embedded: true })}
-              progressContent={workbenchProgressPanel}
-              artifactsContent={workbenchArtifactsPanel}
-            />
+              onPointerDown={sidePanelOpen ? handleSplitterPointerDown : undefined}
+            >
+              <button
+                type="button"
+                className={styles.splitterToggleBtn}
+                onClick={() => setSidePanelOpen((o) => !o)}
+                aria-label={sidePanelOpen ? '收起右侧面板' : '展开右侧面板'}
+                title={sidePanelOpen ? '收起右侧面板' : '展开右侧面板'}
+              >
+                {sidePanelOpen ? '›' : '‹'}
+              </button>
             </div>
+            {sidePanelOpen && (
+              <div className={styles.sidePanels} style={{ flex: `0 0 ${sidePanelWidth}px` }}>
+                <AgentWorkbenchPanel
+                  changedFiles={agentFileSummaries.length}
+                  runContent={workbenchRunPanel}
+                  configContent={React.cloneElement(contextPanel, { embedded: true })}
+                  progressContent={workbenchProgressPanel}
+                  fileTreeContent={slimFilePanel}
+                  editorContent={<WorkbenchEmpty description="主编辑器已提升到中央 Agent IDE 工作区。" />}
+                />
+              </div>
+            )}
           </>
         )}
       </div>

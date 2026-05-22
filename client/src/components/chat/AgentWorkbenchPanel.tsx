@@ -5,7 +5,8 @@ import {
   PlayCircleOutlined,
 } from '@ant-design/icons';
 import { Empty, Tabs } from 'antd';
-import React from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import React, { useState } from 'react';
 import styles from './AgentWorkbenchPanel.module.css';
 
 interface AgentWorkbenchPanelProps {
@@ -13,7 +14,8 @@ interface AgentWorkbenchPanelProps {
   runContent: React.ReactNode;
   configContent: React.ReactNode;
   progressContent: React.ReactNode;
-  artifactsContent: React.ReactNode;
+  fileTreeContent: React.ReactNode;
+  editorContent: React.ReactNode;
 }
 
 const AgentWorkbenchPanel: React.FC<AgentWorkbenchPanelProps> = ({
@@ -21,8 +23,10 @@ const AgentWorkbenchPanel: React.FC<AgentWorkbenchPanelProps> = ({
   runContent,
   configContent,
   progressContent,
-  artifactsContent,
+  fileTreeContent,
+  editorContent,
 }) => {
+  const [fileTreeCollapsed, setFileTreeCollapsed] = useState(false);
   const tabItems = [
     {
       key: 'run',
@@ -63,7 +67,36 @@ const AgentWorkbenchPanel: React.FC<AgentWorkbenchPanelProps> = ({
           {changedFiles > 0 ? <em>{changedFiles}</em> : null}
         </span>
       ),
-      children: artifactsContent,
+      children: (
+        <div className={styles.artifactsIde}>
+          <AnimatePresence initial={false}>
+            {!fileTreeCollapsed && (
+              <motion.div
+                key="file-tree"
+                className={styles.artifactsFileTree}
+                initial={{ width: 0, opacity: 0 }}
+                animate={{ width: 200, opacity: 1 }}
+                exit={{ width: 0, opacity: 0 }}
+                transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              >
+                {fileTreeContent}
+              </motion.div>
+            )}
+          </AnimatePresence>
+          <button
+            type="button"
+            className={`${styles.treeToggleBtn} ${fileTreeCollapsed ? styles.treeToggleBtnCollapsed : ''}`}
+            onClick={() => setFileTreeCollapsed((v) => !v)}
+            title={fileTreeCollapsed ? '展开文件树' : '折叠文件树'}
+            aria-label={fileTreeCollapsed ? '展开文件树' : '折叠文件树'}
+          >
+            {fileTreeCollapsed ? '›' : '‹'}
+          </button>
+          <div className={styles.artifactsEditor}>
+            {editorContent}
+          </div>
+        </div>
+      ),
     },
   ];
 
