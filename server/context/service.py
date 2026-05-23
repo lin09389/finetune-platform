@@ -1,12 +1,18 @@
 """
 项目上下文服务
-封装项目扫描、索引、检索的完整流程
+封装项目扫描、索引、检索、@ mention 和轻量依赖拓扑扩展。
 """
+import hashlib
 import logging
+import re
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
-from .models import ContextResult, ProjectInfo
+from .code_indexer import CodeIndexer as RichCodeIndexer
+from .models import ContextResult, FileInfo, ProjectInfo
 from .project_scanner import ProjectScanner
+from .symbol_extractor import get_symbol_extractor
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +61,10 @@ class ContextService:
         self.projects: dict[str, ProjectInfo] = {}
         self.scanner = ProjectScanner()
         self.indexer = CodeIndexer(embedder=embedder, vector_store=vector_store)
+        self.code_indexer = RichCodeIndexer(embedder=embedder, vector_store=vector_store)
+        self.symbol_extractor = get_symbol_extractor()
         self.retriever = None
+        self.project_indexes: dict[str, dict[str, Any]] = {}
 
     def scan_project(self, project_path: str) -> ProjectInfo:
         """扫描项目"""
@@ -69,11 +78,14 @@ class ContextService:
         force_reindex: bool = False
     ) -> dict[str, Any]:
         """索引项目"""
-        if project_path not in self.projects:
+        project_path = str(Path(project_path).expanduser().resolve())
+        if project_path not in self.projects or force_reindex:
             self.scan_project(project_path)
 
         project_info = self.projects[project_path]
-        return self.indexer.index_project(project_info, force_reindex)
+        indexed = self._build_lightweight_index(project_info)
+        legacy = self.indexer.index_project(project_info, force_reindex)
+        return {**legacy, **indexed}
 
     def retrieve(
         self,
@@ -86,8 +98,26 @@ class ContextService:
             return self.retriever.retrieve(query, top_k)
 
         results = []
-        if project_path and project_path in self.projects:
-            project_info = self.projects[project_path]
+        normalized_project_path = str(Path(project_path).expanduser().resolve()) if project_path else None
+        if normalized_project_path and normalized_project_path not in self.project_indexes:
+            self.index_project(normalized_project_path)
+        index = self.project_indexes.get(normalized_project_path or "")
+        if index:
+            mentions = self.search_mentions(query=query, project_path=normalized_project_path, limit=top_k)
+            for item in mentions:
+                results.append(ContextResult(
+                    type=item["type"],
+                    path=item.get("path"),
+                    source_file=Path(str(item.get("path") or "")).name or item.get("label"),
+                    relevance=float(item.get("score") or 0),
+                    score=float(item.get("score") or 0),
+                    content=item.get("content") or item.get("detail") or "",
+                    symbols=[],
+                ))
+            return results
+
+        if normalized_project_path and normalized_project_path in self.projects:
+            project_info = self.projects[normalized_project_path]
             for file_info in project_info.key_files[:top_k]:
                 results.append(ContextResult(
                     type="file",
@@ -99,6 +129,182 @@ class ContextService:
                     symbols=file_info.symbols
                 ))
         return results
+
+    def search_mentions(
+        self,
+        query: str,
+        project_path: str | None = None,
+        kinds: list[str] | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """返回 @ mention 候选：文件、符号和 API endpoint。"""
+        project_path = self._resolve_project_path(project_path)
+        if not project_path:
+            return []
+        if project_path not in self.project_indexes:
+            self.index_project(project_path)
+        index = self.project_indexes.get(project_path, {})
+        allowed = set(kinds or ["file", "symbol", "endpoint"])
+        q = query.strip()
+        candidates: list[dict[str, Any]] = []
+        if "file" in allowed:
+            for rel_path, file_data in (index.get("files") or {}).items():
+                score = self._score_mention(q, rel_path, Path(rel_path).name)
+                if score is None:
+                    continue
+                candidates.append({
+                    "id": f"file:{rel_path}",
+                    "type": "file",
+                    "label": Path(rel_path).name,
+                    "path": rel_path,
+                    "detail": rel_path,
+                    "score": score,
+                    "source": "index",
+                    "content": file_data.get("summary") or file_data.get("content_preview") or "",
+                })
+        if "symbol" in allowed:
+            for symbol in index.get("symbols") or []:
+                label = str(symbol.get("name") or "")
+                score = self._score_mention(q, label, str(symbol.get("file_path") or ""))
+                if score is None:
+                    continue
+                path = symbol.get("file_path")
+                candidates.append({
+                    "id": f"symbol:{path}:{label}:{symbol.get('line')}",
+                    "type": "symbol",
+                    "label": label,
+                    "path": path,
+                    "line": symbol.get("line"),
+                    "detail": f"{symbol.get('type')} · {path}",
+                    "score": score + 0.08,
+                    "source": "index",
+                    "content": symbol.get("docstring") or "",
+                })
+        if "endpoint" in allowed:
+            for endpoint in index.get("endpoints") or []:
+                label = str(endpoint.get("label") or endpoint.get("route") or "")
+                score = self._score_mention(q, label, str(endpoint.get("path") or ""))
+                if score is None:
+                    continue
+                candidates.append({
+                    **endpoint,
+                    "id": f"endpoint:{endpoint.get('method')}:{endpoint.get('route')}:{endpoint.get('path')}:{endpoint.get('line')}",
+                    "type": "endpoint",
+                    "score": score + 0.12,
+                    "source": "index",
+                })
+        candidates.sort(key=lambda item: float(item.get("score") or 0), reverse=True)
+        return candidates[: max(1, min(limit, 50))]
+
+    def refresh_file(self, project_path: str | None, file_path: str) -> dict[str, Any]:
+        """文件保存或 patch 后增量刷新单文件索引。"""
+        raw_file = Path(file_path).expanduser()
+        initial_project = str(Path(project_path).expanduser().resolve()) if project_path else None
+        resolved_file = (
+            (Path(initial_project) / raw_file).resolve()
+            if initial_project and not raw_file.is_absolute()
+            else raw_file.resolve()
+        )
+        resolved_project = self._resolve_project_path(initial_project, file_path=resolved_file)
+        if not resolved_project:
+            return {"refreshed": False, "reason": "project_not_found"}
+        project_root = Path(resolved_project)
+        if resolved_project not in self.project_indexes:
+            self.index_project(resolved_project)
+        try:
+            rel_path = resolved_file.relative_to(project_root).as_posix()
+        except ValueError:
+            return {"refreshed": False, "reason": "outside_project"}
+        index = self.project_indexes.setdefault(resolved_project, self._empty_index(resolved_project))
+        if not resolved_file.exists() or resolved_file.is_dir():
+            index.get("files", {}).pop(rel_path, None)
+            index["symbols"] = [s for s in index.get("symbols", []) if s.get("file_path") != rel_path]
+            index["endpoints"] = [e for e in index.get("endpoints", []) if e.get("path") != rel_path]
+            self._rebuild_dependency_graph(resolved_project)
+            return {"refreshed": True, "path": rel_path, "removed": True}
+        file_data = self._index_one_file(project_root, resolved_file)
+        if not file_data:
+            return {"refreshed": False, "path": rel_path, "reason": "unsupported_or_empty"}
+        index["files"][rel_path] = file_data
+        index["symbols"] = [s for s in index.get("symbols", []) if s.get("file_path") != rel_path]
+        index["symbols"].extend(symbol.model_dump() for symbol in file_data.get("symbols", []))
+        index["endpoints"] = [e for e in index.get("endpoints", []) if e.get("path") != rel_path]
+        index["endpoints"].extend(file_data.get("endpoints", []))
+        index["updated_at"] = datetime.now().isoformat()
+        self._rebuild_dependency_graph(resolved_project)
+        self._sync_project_files(resolved_project)
+        return {"refreshed": True, "path": rel_path, "symbols": len(file_data.get("symbols", []))}
+
+    def refresh_changed_files(self, project_path: str | None, changed_files: list[str]) -> dict[str, Any]:
+        refreshed = []
+        for path in changed_files:
+            result = self.refresh_file(project_path, path)
+            if result.get("refreshed"):
+                refreshed.append(result.get("path") or path)
+        return {"refreshed_files": refreshed, "count": len(refreshed)}
+
+    def expand_deep_context(
+        self,
+        active_context: dict[str, Any] | None,
+        explicit_context: list[dict[str, Any]] | None,
+        project_path: str | None = None,
+        max_items: int = 6,
+    ) -> list[dict[str, Any]]:
+        """基于 active/@ context 扩展一圈 import/reverse import/符号引用依赖。"""
+        resolved_project = self._resolve_project_path(project_path, file_path=active_context.get("file_path") if isinstance(active_context, dict) else None)
+        if not resolved_project:
+            return []
+        if resolved_project not in self.project_indexes:
+            self.index_project(resolved_project)
+        index = self.project_indexes.get(resolved_project, {})
+        graph = index.get("dependency_graph") or {}
+        seed_paths = self._extract_seed_paths(resolved_project, active_context, explicit_context)
+        seed_symbols = [
+            str(item.get("label"))
+            for item in explicit_context or []
+            if isinstance(item, dict) and item.get("type") == "symbol" and item.get("label")
+        ]
+        related: list[dict[str, Any]] = []
+        seen: set[str] = set(seed_paths)
+        for path in seed_paths:
+            for relation, rel_paths in (
+                ("imports", (graph.get("imports") or {}).get(path, [])),
+                ("imported_by", (graph.get("reverse_imports") or {}).get(path, [])),
+            ):
+                for rel_path in rel_paths:
+                    if rel_path in seen:
+                        continue
+                    file_data = (index.get("files") or {}).get(rel_path)
+                    if not file_data:
+                        continue
+                    seen.add(rel_path)
+                    related.append({
+                        "type": "file",
+                        "relation": relation,
+                        "path": rel_path,
+                        "label": Path(rel_path).name,
+                        "content": file_data.get("summary") or file_data.get("content_preview") or "",
+                    })
+                    if len(related) >= max_items:
+                        return related
+        for symbol in seed_symbols:
+            for ref in (graph.get("symbol_references") or {}).get(symbol, []):
+                rel_path = ref.get("path")
+                key = f"{symbol}:{rel_path}:{ref.get('line')}"
+                if not rel_path or key in seen:
+                    continue
+                seen.add(key)
+                related.append({
+                    "type": "symbol_reference",
+                    "relation": "references",
+                    "label": symbol,
+                    "path": rel_path,
+                    "line": ref.get("line"),
+                    "content": ref.get("line_text") or "",
+                })
+                if len(related) >= max_items:
+                    return related
+        return related
 
     def get_context_for_chat(
         self,
@@ -142,6 +348,7 @@ class ContextService:
         if project_path in self.projects:
             del self.projects[project_path]
             self.indexer.remove_project(project_path)
+            self.project_indexes.pop(project_path, None)
             return True
         return False
 
@@ -159,8 +366,266 @@ class ContextService:
             "tech_stack": [project_info.tech_stack.language] if project_info.tech_stack else [],
             "files_count": len(project_info.files),
             "total_lines": sum(f.line_count for f in project_info.files),
-            "index_stats": index_stats,
+            "index_stats": {
+                **index_stats,
+                **(self.project_indexes.get(project_path, {}).get("summary") or {}),
+            },
         }
+
+    def _build_lightweight_index(self, project_info: ProjectInfo) -> dict[str, Any]:
+        project_root = Path(project_info.path).expanduser().resolve()
+        index = self._empty_index(str(project_root))
+        for file_path in self._iter_code_files(project_root):
+            file_data = self._index_one_file(project_root, file_path)
+            if not file_data:
+                continue
+            rel_path = file_data["path"]
+            index["files"][rel_path] = file_data
+            index["symbols"].extend(symbol.model_dump() for symbol in file_data.get("symbols", []))
+            index["endpoints"].extend(file_data.get("endpoints", []))
+        index["summary"] = {
+            "files_indexed": len(index["files"]),
+            "symbols_indexed": len(index["symbols"]),
+            "endpoints_indexed": len(index["endpoints"]),
+            "indexed_at": index["updated_at"],
+        }
+        self.project_indexes[str(project_root)] = index
+        self._rebuild_dependency_graph(str(project_root))
+        self._sync_project_files(str(project_root))
+        return index["summary"]
+
+    def _empty_index(self, project_path: str) -> dict[str, Any]:
+        return {
+            "project_path": project_path,
+            "files": {},
+            "symbols": [],
+            "endpoints": [],
+            "dependency_graph": {"imports": {}, "reverse_imports": {}, "symbol_references": {}},
+            "updated_at": datetime.now().isoformat(),
+            "summary": {},
+        }
+
+    def _iter_code_files(self, project_root: Path):
+        for ext in self.code_indexer.config["supported_extensions"]:
+            for file_path in project_root.glob(f"**/*{ext}"):
+                if not self.code_indexer._should_ignore(file_path):
+                    yield file_path
+
+    def _index_one_file(self, project_root: Path, file_path: Path) -> dict[str, Any] | None:
+        try:
+            if file_path.stat().st_size > self.code_indexer.config["max_file_size"]:
+                return None
+            content = file_path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            return None
+        if not content.strip():
+            return None
+        rel_path = file_path.relative_to(project_root).as_posix()
+        symbols = self.symbol_extractor.extract(str(file_path), content)
+        for symbol in symbols:
+            symbol.file_path = rel_path
+        return {
+            "path": rel_path,
+            "name": file_path.name,
+            "size": file_path.stat().st_size,
+            "lines": content.count("\n") + 1,
+            "language": self.code_indexer._detect_language(file_path),
+            "symbols": symbols,
+            "summary": self.code_indexer._generate_summary(content, symbols),
+            "content_preview": content[:2000],
+            "imports": self._extract_imports(content, rel_path),
+            "endpoints": self._extract_endpoints(content, rel_path),
+            "updated_at": datetime.fromtimestamp(file_path.stat().st_mtime).isoformat(),
+        }
+
+    def _extract_imports(self, content: str, rel_path: str) -> list[str]:
+        imports: list[str] = []
+        for pattern in [
+            r"^\s*import\s+.*?\s+from\s+['\"](.+?)['\"]",
+            r"^\s*import\s+['\"](.+?)['\"]",
+            r"^\s*from\s+([\w.]+)\s+import\s+",
+        ]:
+            for match in re.finditer(pattern, content, re.MULTILINE):
+                imports.append(str(match.group(1)))
+        return imports[:80]
+
+    def _extract_endpoints(self, content: str, rel_path: str) -> list[dict[str, Any]]:
+        endpoints: list[dict[str, Any]] = []
+        patterns = []
+        if rel_path.endswith(".py"):
+            patterns.append(re.compile(r"@(?:router|app)\.(get|post|put|patch|delete)\(\s*['\"]([^'\"]+)['\"]", re.MULTILINE))
+        elif Path(rel_path).suffix.lower() in {".js", ".jsx", ".ts", ".tsx"}:
+            patterns.append(re.compile(r"\b(?:app|router)\.(get|post|put|patch|delete)\(\s*['\"]([^'\"]+)['\"]", re.MULTILINE))
+        seen: set[tuple[str, str, int]] = set()
+        for pattern in patterns:
+            for match in pattern.finditer(content):
+                line = content[:match.start()].count("\n") + 1
+                method = match.group(1).upper()
+                route = match.group(2)
+                key = (method, route, line)
+                if key in seen:
+                    continue
+                seen.add(key)
+                endpoints.append({
+                    "type": "endpoint",
+                    "label": f"{method} {route}",
+                    "method": method,
+                    "route": route,
+                    "path": rel_path,
+                    "line": line,
+                    "detail": f"{method} {route} · {rel_path}",
+                    "content": self._line_excerpt(content, line),
+                })
+        return endpoints
+
+    def _rebuild_dependency_graph(self, project_path: str) -> None:
+        index = self.project_indexes.get(project_path)
+        if not index:
+            return
+        files = index.get("files") or {}
+        imports: dict[str, list[str]] = {}
+        reverse: dict[str, list[str]] = {}
+        for rel_path, file_data in files.items():
+            resolved = [
+                dep for dep in (
+                    self._resolve_import_to_path(rel_path, raw, files)
+                    for raw in file_data.get("imports") or []
+                )
+                if dep
+            ]
+            imports[rel_path] = list(dict.fromkeys(resolved))
+            for dep in imports[rel_path]:
+                reverse.setdefault(dep, []).append(rel_path)
+        symbol_refs: dict[str, list[dict[str, Any]]] = {}
+        symbol_names = [str(s.get("name")) for s in index.get("symbols") or [] if s.get("name")]
+        for rel_path, file_data in files.items():
+            content = str(file_data.get("content_preview") or "")
+            lines = content.splitlines()
+            for symbol in symbol_names[:500]:
+                pattern = re.compile(rf"(?<![\w$]){re.escape(symbol)}(?![\w$])")
+                for idx, line in enumerate(lines, start=1):
+                    if pattern.search(line):
+                        symbol_refs.setdefault(symbol, []).append({
+                            "path": rel_path,
+                            "line": idx,
+                            "line_text": line.strip()[:240],
+                        })
+                        break
+        index["dependency_graph"] = {
+            "imports": imports,
+            "reverse_imports": reverse,
+            "symbol_references": symbol_refs,
+        }
+
+    def _resolve_import_to_path(self, from_path: str, raw: str, files: dict[str, Any]) -> str | None:
+        if not raw:
+            return None
+        candidates: list[str] = []
+        if raw.startswith("."):
+            base = Path(from_path).parent
+            normalized = (base / raw).as_posix()
+            candidates.extend([normalized, *[f"{normalized}{ext}" for ext in [".ts", ".tsx", ".js", ".jsx", ".py"]]])
+            candidates.extend([f"{normalized}/index{ext}" for ext in [".ts", ".tsx", ".js", ".jsx"]])
+        else:
+            normalized = raw.replace(".", "/")
+            candidates.extend([normalized, *[f"{normalized}{ext}" for ext in [".py", ".ts", ".tsx", ".js", ".jsx"]]])
+        for candidate in candidates:
+            clean = candidate.replace("\\", "/").lstrip("/")
+            if clean in files:
+                return clean
+        return None
+
+    def _extract_seed_paths(
+        self,
+        project_path: str,
+        active_context: dict[str, Any] | None,
+        explicit_context: list[dict[str, Any]] | None,
+    ) -> list[str]:
+        root = Path(project_path)
+        seeds: list[str] = []
+        for raw in [active_context.get("file_path") if isinstance(active_context, dict) else None]:
+            rel = self._to_relative_path(root, raw)
+            if rel:
+                seeds.append(rel)
+        for item in explicit_context or []:
+            if isinstance(item, dict):
+                rel = self._to_relative_path(root, item.get("path"))
+                if rel:
+                    seeds.append(rel)
+        return list(dict.fromkeys(seeds))
+
+    def _to_relative_path(self, root: Path, raw: Any) -> str | None:
+        if not raw:
+            return None
+        value = str(raw).replace("\\", "/")
+        try:
+            path = Path(value)
+            if path.is_absolute():
+                return path.resolve().relative_to(root).as_posix()
+        except Exception:
+            pass
+        return value.lstrip("/") if value else None
+
+    def _resolve_project_path(self, project_path: str | None, file_path: Any | None = None) -> str | None:
+        if project_path:
+            return str(Path(project_path).expanduser().resolve())
+        if file_path:
+            path = Path(str(file_path)).expanduser().resolve()
+            for known in self.projects.keys() | self.project_indexes.keys():
+                try:
+                    path.relative_to(Path(known))
+                    return known
+                except ValueError:
+                    continue
+        if self.projects:
+            return next(iter(self.projects.keys()))
+        if self.project_indexes:
+            return next(iter(self.project_indexes.keys()))
+        return None
+
+    def _score_mention(self, query: str, label: str, detail: str = "") -> float | None:
+        if not query:
+            return 0.25
+        q = query.lower()
+        target = f"{label} {detail}".lower()
+        if q in label.lower():
+            return 1.0 - min(label.lower().index(q), 20) / 100
+        if q in target:
+            return 0.75
+        pos = 0
+        score = 0.0
+        for char in q:
+            found = target.find(char, pos)
+            if found < 0:
+                return None
+            score += 1.0 / (1 + max(0, found - pos))
+            pos = found + 1
+        return min(0.7, score / max(1, len(q)))
+
+    def _line_excerpt(self, content: str, line: int, radius: int = 2) -> str:
+        lines = content.splitlines()
+        start = max(0, line - radius - 1)
+        end = min(len(lines), line + radius)
+        return "\n".join(lines[start:end])[:1200]
+
+    def _sync_project_files(self, project_path: str) -> None:
+        project = self.projects.get(project_path)
+        index = self.project_indexes.get(project_path)
+        if not project or not index:
+            return
+        files = []
+        for rel_path, data in (index.get("files") or {}).items():
+            files.append(FileInfo(
+                path=rel_path,
+                name=data.get("name") or Path(rel_path).name,
+                size=int(data.get("size") or 0),
+                line_count=int(data.get("lines") or 0),
+                language=data.get("language") or "text",
+                symbols=data.get("symbols") or [],
+                summary=data.get("summary"),
+                updated_at=data.get("updated_at"),
+            ))
+        project.files = files
 
 
 _service_instance: ContextService | None = None

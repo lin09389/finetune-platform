@@ -49,6 +49,21 @@ class RetrieveResponse(BaseModel):
     project_info: dict[str, Any] | None = None
 
 
+class MentionRequest(BaseModel):
+    query: str = ""
+    project_path: str | None = None
+    path: str | None = None
+    kinds: list[str] | None = None
+    limit: int = Field(default=20, ge=1, le=50)
+
+
+class MentionResponse(BaseModel):
+    success: bool
+    mentions: list[dict[str, Any]] = Field(default_factory=list)
+    project_info: dict[str, Any] | None = None
+    indexed_at: str | None = None
+
+
 class RemoveRequest(BaseModel):
     project_path: str | None = None
     path: str | None = None
@@ -222,6 +237,30 @@ async def retrieve_context(request: RetrieveRequest, service: ContextService = D
     except Exception as e:
         logger.error("retrieve context failed: %s", e, exc_info=True)
         return RetrieveResponse(success=False, context=[], project_info=None)
+
+
+@router.post("/mentions", response_model=MentionResponse)
+async def mention_context(request: MentionRequest, service: ContextService = Depends(get_context_service)):
+    try:
+        project_path = request.project_path or request.path
+        mentions = service.search_mentions(
+            query=request.query,
+            project_path=project_path,
+            kinds=request.kinds,
+            limit=request.limit,
+        )
+        resolved_project = service._resolve_project_path(project_path)
+        project_info = service.projects.get(resolved_project).model_dump() if resolved_project in service.projects else None
+        index = service.project_indexes.get(resolved_project or "") or {}
+        return MentionResponse(
+            success=True,
+            mentions=mentions,
+            project_info=project_info,
+            indexed_at=index.get("updated_at"),
+        )
+    except Exception as e:
+        logger.error("mention context failed: %s", e, exc_info=True)
+        return MentionResponse(success=False, mentions=[], project_info=None, indexed_at=None)
 
 
 @router.get("/projects")
