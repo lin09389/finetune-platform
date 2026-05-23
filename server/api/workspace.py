@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from core.config import settings
 from rag.vector_store import get_vector_store
-from workspace.local_paths import normalize_local_workspace_path
+from workspace.local_paths import normalize_local_workspace_path, get_allowed_workspace_roots
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +163,7 @@ def _resolve_workspace_path(workspace_id: str | None = None, project_path: str |
     return Path(_default_project_path()).resolve()
 
 
-def _is_ignored_tree_entry(path: Path) -> bool:
+def _is_ignored_tree_entry(name: str) -> bool:
     ignored_names = {
         ".git",
         ".hg",
@@ -179,8 +180,13 @@ def _is_ignored_tree_entry(path: Path) -> bool:
         "dist",
         "build",
         "coverage",
+        ".idea",
+        ".vscode",
+        ".next",
+        ".nuxt",
+        "out",
     }
-    return path.name in ignored_names
+    return name in ignored_names
 
 
 def _build_tree(
@@ -195,28 +201,38 @@ def _build_tree(
         return []
 
     try:
-        entries = [entry for entry in path.iterdir() if not _is_ignored_tree_entry(entry)]
+        # Using os.scandir is significantly faster than Path.iterdir
+        # because it pre-fetches file/folder attributes in a single OS system call
+        # avoiding hundreds of slow stat calls, particularly on Windows.
+        with os.scandir(path) as it:
+            entries = [entry for entry in it if not _is_ignored_tree_entry(entry.name)]
     except OSError:
         return []
 
-    entries.sort(key=lambda item: (item.is_file(), item.name.lower()))
+    # Sort entries: directories first, then files, sorted alphabetically (case-insensitive)
+    entries.sort(key=lambda item: (item.is_file(follow_symlinks=False), item.name.lower()))
     nodes: list[WorkspaceTreeNode] = []
+
     for entry in entries:
         if budget["remaining"] <= 0:
             break
         budget["remaining"] -= 1
-        rel_path = entry.relative_to(root).as_posix()
-        if entry.is_dir():
+
+        # Calculate a safe relative path
+        rel_path = os.path.relpath(entry.path, root).replace("\\", "/")
+
+        if entry.is_dir(follow_symlinks=False):
             nodes.append(
                 WorkspaceTreeNode(
                     name=entry.name,
                     path=rel_path,
                     kind="folder",
-                    children=_build_tree(entry, root, depth=depth + 1, max_depth=max_depth, budget=budget),
+                    children=_build_tree(Path(entry.path), root, depth=depth + 1, max_depth=max_depth, budget=budget),
                 )
             )
-        elif entry.is_file():
+        elif entry.is_file(follow_symlinks=False):
             nodes.append(WorkspaceTreeNode(name=entry.name, path=rel_path, kind="file"))
+
     return nodes
 
 
@@ -261,12 +277,16 @@ async def list_workspaces():
     default_workspace = _default_workspace_payload()
     default_path = default_workspace["local_path"]
     has_default_path = False
+    has_registered_default = False
     for workspace in workspaces.values():
         if workspace.get("local_path") == default_path:
             has_default_path = True
+        if workspace.get("status") == "default" and workspace.get("local_path"):
+            has_registered_default = True
         result.append(_refresh_workspace_counts(workspace))
-    if not has_default_path:
+    if not has_default_path and not has_registered_default:
         result.insert(0, Workspace(**default_workspace))
+    result.sort(key=lambda item: 0 if item.status == "default" else 1)
     _persist_workspaces()
     return result
 
@@ -477,3 +497,94 @@ async def browse_folder(initial_path: str | None = None):
         return res
     except queue.Empty:
         return {"status": "error", "path": None, "message": "无法激活文件夹选择，请手动输入路径"}
+
+
+# ── Workspace file read / write ────────────────────────────────────────────────
+
+class FileWriteRequest(BaseModel):
+    """Request payload for writing a file."""
+
+    file_path: str = Field(..., description="Absolute path to the file to write")
+    content: str = Field(..., description="New text content of the file")
+    workspace_id: str | None = Field(default=None, description="Workspace ID for sandbox validation")
+    project_path: str | None = Field(default=None, description="Project root for sandbox validation")
+
+
+def _validate_file_path_in_workspace(file_path: str, workspace_id: str | None, project_path: str | None) -> Path:
+    """Resolve the file path and assert it lives inside an allowed workspace root."""
+    try:
+        resolved = Path(file_path).expanduser().resolve()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid file path: {exc}") from exc
+
+    # Build allowed roots: from project_path hint, from workspace metadata, from env
+    extra_roots: set[Path] = set()
+    if project_path:
+        extra_roots.add(Path(project_path).expanduser().resolve())
+    if workspace_id:
+        ws = workspaces.get(workspace_id)
+        if ws and ws.get("local_path"):
+            extra_roots.add(Path(ws["local_path"]).expanduser().resolve())
+    extra_roots.add(Path(_default_project_path()).resolve())
+
+    allowed_roots = get_allowed_workspace_roots(extra_roots)
+    if not allowed_roots:
+        raise HTTPException(status_code=400, detail="No allowed workspace roots configured")
+
+    for root in allowed_roots:
+        try:
+            resolved.relative_to(root)
+            return resolved  # inside this root – OK
+        except ValueError:
+            continue
+
+    raise HTTPException(
+        status_code=403,
+        detail=f"File path is outside all allowed workspace roots: {file_path}",
+    )
+
+
+@router.get("/read-file")
+async def read_workspace_file(
+    file_path: str,
+    workspace_id: str | None = None,
+    project_path: str | None = None,
+):
+    """Read a text file from the local workspace and return its content."""
+    resolved = _validate_file_path_in_workspace(file_path, workspace_id, project_path)
+    if not resolved.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    if not resolved.is_file():
+        raise HTTPException(status_code=400, detail="Path is not a file")
+
+    try:
+        content = resolved.read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:
+        logger.error("Failed to read workspace file %s: %s", resolved, exc)
+        raise HTTPException(status_code=500, detail=f"Failed to read file: {exc}") from exc
+
+    return {"path": str(resolved), "content": content}
+
+
+@router.post("/write-file")
+async def write_workspace_file(data: FileWriteRequest):
+    """Write text content to a file in the local workspace (creates the file if absent)."""
+    resolved = _validate_file_path_in_workspace(data.file_path, data.workspace_id, data.project_path)
+    if resolved.is_dir():
+        raise HTTPException(status_code=400, detail="Path is a directory, not a file")
+
+    try:
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        resolved.write_text(data.content, encoding="utf-8")
+    except Exception as exc:
+        logger.error("Failed to write workspace file %s: %s", resolved, exc)
+        raise HTTPException(status_code=500, detail=f"Failed to write file: {exc}") from exc
+
+    logger.info("Workspace file written: %s", resolved)
+    context_refresh = None
+    try:
+        from context.service import get_context_service
+        context_refresh = get_context_service().refresh_file(data.project_path, str(resolved))
+    except Exception as exc:
+        logger.warning("Failed to refresh context index for %s: %s", resolved, exc)
+    return {"status": "saved", "path": str(resolved), "context_refresh": context_refresh}
