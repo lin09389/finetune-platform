@@ -27,6 +27,13 @@ interface AgentPartMessageProps {
   onRefreshRun?: (runId: string) => void | Promise<void>;
 }
 
+const SILENT_TOOLS = new Set([
+  'read', 'read_file', 'search', 'search_code', 'glob', 'list_files',
+  'collect_context', 'inspect_project', 'detect_project_commands',
+  'read_execution', 'read_execution_result', 'summarize_test_results',
+  'collect_test_failures', 'http_probe', 'get_server_status',
+]);
+
 const statusLabel: Record<string, string> = {
   pending: '等待确认',
   running: '进行中',
@@ -556,6 +563,44 @@ const AgentPartMessage = React.memo(({
   }
 
   if (part.type === 'tool_call' || part.type === 'tool_result') {
+    // 只读工具静默折叠
+    const toolName = payload?.tool || '';
+    if (
+      SILENT_TOOLS.has(toolName) &&
+      !isProblem
+    ) {
+      const silentIcon = toolName.includes('search') || toolName === 'glob' || toolName === 'list_files'
+        ? '🔍'
+        : toolName.includes('read') || toolName === 'collect_context' || toolName === 'inspect_project'
+        ? '📄'
+        : toolName.includes('test') || toolName.includes('execution')
+        ? '🧪'
+        : '⚙️';
+      const silentLabel = part.type === 'tool_call' && status === 'running'
+        ? partTitle(part, content) + '...'
+        : partTitle(part, content);
+      return (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '3px 0',
+          color: 'var(--text-secondary, rgba(255,255,255,0.45))',
+          fontSize: 12,
+        }}>
+          <span>{silentIcon}</span>
+          <span style={{ opacity: 0.7 }}>{silentLabel}</span>
+          {status === 'running' && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+              <span className="typing-dot" />
+              <span className="typing-dot" style={{ animationDelay: '0.2s' }} />
+              <span className="typing-dot" style={{ animationDelay: '0.4s' }} />
+            </span>
+          )}
+        </div>
+      );
+    }
+
     return shell(
       <Space direction="vertical" size={6} style={{ width: '100%' }}>
         <ToolResultStrip part={part} payload={payload} />

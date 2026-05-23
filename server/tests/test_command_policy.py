@@ -31,6 +31,8 @@ def test_detect_project_commands_finds_npm_and_pytest(tmp_path: Path):
 
 def test_command_allowlist_and_shell_rejection():
     assert command_allowed(["npm", "run", "typecheck"]) is True
+    assert normalize_command(["npm", "--prefix", "client", "run", "typecheck"]) == ["npm", "run", "typecheck"]
+    assert command_allowed(normalize_command(["npm", "--prefix", "client", "run", "typecheck"])) is True
     assert command_allowed(["npm", "run", "build"]) is True
     assert command_allowed(["npm", "run", "lint"]) is True
     assert command_allowed(["npx", "vitest", "run", "client/src/test"]) is True

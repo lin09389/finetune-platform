@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import shutil
 import subprocess
 import threading
 import time
@@ -24,6 +25,15 @@ def _decode(data: bytes | str) -> str:
     if isinstance(data, str):
         return data
     return data.decode("utf-8", errors="replace")
+
+
+def _launch_command(command: list[str]) -> list[str]:
+    if not command:
+        return command
+    resolved = shutil.which(command[0])
+    if resolved:
+        return [resolved, *command[1:]]
+    return command
 
 
 @dataclass
@@ -248,7 +258,7 @@ class AgentTerminalManager:
         except Exception:
             return False
         try:
-            command_line = subprocess.list2cmdline(session.command)
+            command_line = subprocess.list2cmdline(_launch_command(session.command))
             pty = PtyProcess.spawn(command_line, cwd=session.cwd, dimensions=(30, 100))
             session._pty = pty
             session.interactive = True
@@ -298,7 +308,7 @@ class AgentTerminalManager:
             creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         try:
             process = subprocess.Popen(
-                session.command,
+                _launch_command(session.command),
                 cwd=session.cwd,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,

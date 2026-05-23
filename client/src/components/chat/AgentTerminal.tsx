@@ -1,4 +1,4 @@
-import { DisconnectOutlined, PauseCircleOutlined } from '@ant-design/icons';
+import { ArrowsAltOutlined, DisconnectOutlined, PauseCircleOutlined, ShrinkOutlined } from '@ant-design/icons';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
@@ -25,6 +25,7 @@ const AgentTerminal: React.FC<AgentTerminalProps> = ({ terminalId, running, stdo
   const socketRef = useRef<WebSocket | null>(null);
   const [state, setState] = useState<TerminalState>(running ? 'connecting' : 'closed');
   const [interactive, setInteractive] = useState<boolean>(false);
+  const [expanded, setExpanded] = useState<boolean>(Boolean(running));
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -118,6 +119,11 @@ const AgentTerminal: React.FC<AgentTerminalProps> = ({ terminalId, running, stdo
     };
   }, [terminalId, running]);
 
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => fitRef.current?.fit());
+    return () => cancelAnimationFrame(frame);
+  }, [expanded]);
+
   const interrupt = () => {
     const socket = socketRef.current;
     if (socket?.readyState === WebSocket.OPEN) {
@@ -136,14 +142,20 @@ const AgentTerminal: React.FC<AgentTerminalProps> = ({ terminalId, running, stdo
           </Tag>
         </Space>
         {running ? (
-          <Button size="small" icon={<PauseCircleOutlined />} onClick={interrupt}>
-            Ctrl+C
-          </Button>
+          <Space size={4}>
+            <Button size="small" type="text" icon={expanded ? <ShrinkOutlined /> : <ArrowsAltOutlined />} onClick={() => setExpanded((value) => !value)} />
+            <Button size="small" icon={<PauseCircleOutlined />} onClick={interrupt}>
+              Ctrl+C
+            </Button>
+          </Space>
         ) : (
-          <DisconnectOutlined className={styles.closedIcon} />
+          <Space size={4}>
+            <Button size="small" type="text" icon={expanded ? <ShrinkOutlined /> : <ArrowsAltOutlined />} onClick={() => setExpanded((value) => !value)} />
+            <DisconnectOutlined className={styles.closedIcon} />
+          </Space>
         )}
       </div>
-      <div ref={containerRef} className={styles.terminalBody} />
+      <div ref={containerRef} className={`${styles.terminalBody} ${expanded ? styles.terminalBodyExpanded : ''}`} />
     </div>
   );
 };

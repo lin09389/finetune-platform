@@ -143,6 +143,10 @@ async def stream_agent_session_events(
 
         queue = service.subscribe_events(session_id)
         try:
+            snapshot = await run_sync(service.build_session_snapshot_chunk, session_id)
+            yield f"event: agent_session_event\ndata: {json.dumps(snapshot, ensure_ascii=False)}\n\n"
+            last_heartbeat = time.monotonic()
+
             for event in await run_sync(service.list_events, session_id, since_id):
                 if event.get("id") in seen:
                     continue

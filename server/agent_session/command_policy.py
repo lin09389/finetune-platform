@@ -63,6 +63,19 @@ def normalize_command(command: Any) -> list[str]:
             raise HTTPException(status_code=400, detail=f"Command argument too long (max {MAX_ARG_LENGTH} chars)")
         if any(ch in arg for ch in ("$", "\n", "\r")):
             raise HTTPException(status_code=400, detail="Command argument contains forbidden characters")
+    args = normalize_npm_prefix_command(args)
+    return args
+
+
+def normalize_npm_prefix_command(args: list[str]) -> list[str]:
+    if len(args) >= 5 and normalize_executable(args[0]) == "npm" and args[1].lower() == "--prefix":
+        prefix = args[2].replace("\\", "/").strip("/")
+        if prefix not in {"client", "."}:
+            raise HTTPException(status_code=400, detail="npm --prefix is only allowed for the client workspace")
+        if args[3].lower() == "run":
+            return ["npm", "run", args[4], *args[5:]]
+        if args[3].lower() == "test":
+            return ["npm", "test", *args[4:]]
     return args
 
 
