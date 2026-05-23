@@ -1,6 +1,7 @@
 """Chat sharing endpoints backed by the canonical session store."""
 
 import hashlib
+import html
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -162,23 +163,26 @@ async def get_share_html(share_id: str):
     for message in share.messages:
         role = "User" if message.get("role") == "user" else "Assistant"
         role_class = "user-message" if message.get("role") == "user" else "assistant-message"
+        safe_content = html.escape(message.get("content", ""))
+        safe_time = html.escape(message.get("timestamp", ""))
         message_blocks.append(
             f"""
             <div class="message {role_class}">
                 <div class="role">{role}</div>
-                <div class="content">{message.get("content", "")}</div>
-                <div class="time">{message.get("timestamp", "")}</div>
+                <div class="content">{safe_content}</div>
+                <div class="time">{safe_time}</div>
             </div>
             """
         )
 
-    html = f"""
+    safe_title = html.escape(share.title)
+    html_doc = f"""
     <!DOCTYPE html>
     <html lang="zh-CN">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>{share.title}</title>
+        <title>{safe_title}</title>
         <style>
             body {{
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -238,9 +242,9 @@ async def get_share_html(share_id: str):
     </head>
     <body>
         <div class="header">
-            <div class="title">{share.title}</div>
+            <div class="title">{safe_title}</div>
             <div class="meta">
-                Shared at {share.created_at} | Views {share.view_count}
+                Shared at {html.escape(str(share.created_at))} | Views {share.view_count}
             </div>
         </div>
         <div class="messages">
@@ -250,7 +254,7 @@ async def get_share_html(share_id: str):
     </html>
     """
 
-    return HTMLResponse(content=html)
+    return HTMLResponse(content=html_doc)
 
 
 @router.get("/{share_id}/markdown", response_class=PlainTextResponse)

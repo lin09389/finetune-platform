@@ -602,7 +602,11 @@ async def get_models_stats():
 async def delete_model(model_id: str):
     """删除模型"""
     models_dir = get_models_dir()
-    model_path = models_dir / model_id
+    model_path = (models_dir / model_id).resolve()
+
+    # 路径遍历防护
+    if not model_path.is_relative_to(models_dir.resolve()):
+        raise HTTPException(status_code=400, detail="无效的模型 ID")
 
     if not model_path.exists():
         raise HTTPException(status_code=404, detail="模型不存在")
@@ -619,7 +623,7 @@ async def delete_model(model_id: str):
         return {"message": "Model deleted successfully"}
     except Exception as e:
         logger.error(f"删除模型失败：{e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="删除失败")
 
 
 @router.get("/{model_id}")

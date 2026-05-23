@@ -543,10 +543,8 @@ class TableStore:
                     parts.append(f"\"{col}\" {op_upper} ?")
                     params.append(val)
             return " AND ".join(parts), params
-        # str 模式：仅允许简单列名条件，禁止分号
-        if ";" in str(where):
-            raise ValueError("Semicolon not allowed in WHERE clause")
-        return str(where), []
+        # str 模式已废弃，强制使用列表模式以确保参数化查询
+        raise ValueError("WHERE 子句必须使用列表格式 [(column, operator, value), ...]，不支持原始字符串")
 
     def _build_order_clause(self, order_by: str | list[tuple[str, str]]) -> str:
         """构建安全的 ORDER BY 子句。"""
@@ -568,14 +566,16 @@ class TableStore:
     def execute_sql(
         self,
         table_id: str,
-        sql: str
+        sql: str,
+        params: list[Any] | None = None,
     ) -> list[dict[str, Any]]:
         """
-        在指定表格上执行 SQL 查询
+        在指定表格上执行参数化 SQL 查询
 
         Args:
             table_id: 表格 ID
-            sql: SQL 查询语句（使用 {table} 作为表名占位符）
+            sql: SQL 查询语句（使用 {table} 作为表名占位符，使用 ? 作为参数占位符）
+            params: 查询参数列表
 
         Returns:
             查询结果
@@ -584,6 +584,12 @@ class TableStore:
             raise ValueError(f"表格不存在：{table_id}")
 
         db_table_name = self._get_table_name(table_id)
+
+        # 验证表名安全性
+        import re as _re
+        if not _re.match(r'^[A-Za-z_][A-Za-z0-9_]*$', db_table_name):
+            raise ValueError(f"不安全的表名: {db_table_name}")
+
         actual_sql = sql.replace("{table}", db_table_name)
 
         sql_upper = actual_sql.strip().upper()
@@ -592,12 +598,16 @@ class TableStore:
                 raise ValueError(f"DDL statement ({keyword}) not allowed in execute_sql, use dedicated methods")
 
         # 仅允许 SELECT 语句，阻止 INSERT/UPDATE/DELETE 等写操作
-        if not sql_upper.startswith("SELECT"):
+        # 使用 lstrip() 去除前导空白和注释
+        sql_stripped = actual_sql.strip()
+        while sql_stripped.startswith("--"):
+            sql_stripped = sql_stripped.split("\n", 1)[-1].strip() if "\n" in sql_stripped else ""
+        if not sql_stripped.upper().startswith("SELECT"):
             raise ValueError("Only SELECT statements are allowed in execute_sql")
 
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(actual_sql)
+            cursor.execute(actual_sql, params or [])
 
             columns = [desc[0] for desc in cursor.description]
             rows = cursor.fetchall()

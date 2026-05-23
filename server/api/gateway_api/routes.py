@@ -1,9 +1,11 @@
 """Gateway REST API routes."""
 
 import logging
+import os
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, WebSocket
+from fastapi import APIRouter, Depends, HTTPException, WebSocket
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from gateway import (
     get_binding_manager,
     get_gateway_server,
@@ -14,6 +16,31 @@ from gateway.agent_isolation import get_isolation_manager
 from gateway.cross_agent import MessagePriority, MessageType, get_cross_agent_communicator
 from gateway.device_auth import DeviceStatus, DeviceType, PermissionLevel, get_device_auth_manager
 from pydantic import BaseModel, Field
+
+security = HTTPBearer(auto_error=False)
+
+
+async def require_admin_auth(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """要求管理员认证"""
+    if os.getenv("ENABLE_AUTH", "false").lower() != "true":
+        return True
+
+    if not credentials:
+        raise HTTPException(status_code=401, detail="需要认证")
+
+    from security.jwt_auth import Role, get_jwt_auth
+    auth = get_jwt_auth()
+    try:
+        payload = auth.verify_token(credentials.credentials)
+        if not auth.has_role(payload, Role.ADMIN):
+            raise HTTPException(status_code=403, detail="需要管理员权限")
+        return True
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Token 无效或已过期")
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/gateway", tags=["Gateway"])
@@ -117,7 +144,10 @@ async def get_gateway_status():
 
 
 @router.post("/devices/register")
-async def register_device(request: DeviceRegisterRequest):
+async def register_device(
+    request: DeviceRegisterRequest,
+    _auth: bool = Depends(require_admin_auth),
+):
     import uuid
 
     auth_manager = get_device_auth_manager()
@@ -196,6 +226,7 @@ async def set_device_permissions(
     allowed_actions: list[str] | None = None,
     denied_actions: list[str] | None = None,
     rate_limit: int | None = None,
+    _auth: bool = Depends(require_admin_auth),
 ):
     auth_manager = get_device_auth_manager()
     ok = auth_manager.set_permissions(

@@ -100,18 +100,64 @@ class CommandExecuteSkill(SkillBase):
         )
 
     async def execute(self, **kwargs) -> SkillResult:
+        import shlex
+
         command = kwargs.get("command")
         timeout = kwargs.get("timeout", 30)
-        shell = kwargs.get("shell", True)
+
+        # 危险命令黑名单
+        DANGEROUS_TOKENS = {
+            "rm", "rmdir", "del", "format", "mkfs", "dd",
+            "chmod", "chown", "chgrp", "sudo", "su",
+            "wget", "curl", "nc", "ncat", "netcat",
+            "python", "python3", "node", "ruby", "perl",
+            "eval", "exec", "source", "bash", "sh", "cmd", "powershell",
+        }
+
+        # Shell 元字符检测
+        SHELL_META = set("&|;`$(){}[]!#~<>")
 
         try:
             start_time = time.time()
 
-            process = await asyncio.create_subprocess_shell(
-                command,
+            # 检测 shell 元字符
+            if any(c in SHELL_META for c in command):
+                return SkillResult(
+                    success=False,
+                    error="命令包含不允许的特殊字符",
+                    error_code="FORBIDDEN_CHARS",
+                )
+
+            # 解析命令
+            try:
+                args = shlex.split(command)
+            except ValueError as e:
+                return SkillResult(
+                    success=False,
+                    error=f"命令解析失败: {str(e)}",
+                    error_code="PARSE_ERROR",
+                )
+
+            if not args:
+                return SkillResult(
+                    success=False,
+                    error="空命令",
+                    error_code="EMPTY_COMMAND",
+                )
+
+            # 检查危险命令
+            cmd_name = args[0].lower()
+            if cmd_name in DANGEROUS_TOKENS:
+                return SkillResult(
+                    success=False,
+                    error=f"不允许执行危险命令: {cmd_name}",
+                    error_code="FORBIDDEN_COMMAND",
+                )
+
+            process = await asyncio.create_subprocess_exec(
+                *args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                shell=shell,
             )
 
             try:
@@ -227,25 +273,74 @@ class CalculatorSkill(SkillBase):
         )
 
     async def execute(self, **kwargs) -> SkillResult:
+        import ast
+        import math
+        import operator
+
         expression = kwargs.get("expression")
 
-        allowed_names = {
+        # 安全的运算符映射
+        SAFE_OPERATORS = {
+            ast.Add: operator.add,
+            ast.Sub: operator.sub,
+            ast.Mult: operator.mul,
+            ast.Div: operator.truediv,
+            ast.FloorDiv: operator.floordiv,
+            ast.Mod: operator.mod,
+            ast.Pow: operator.pow,
+            ast.USub: operator.neg,
+            ast.UAdd: operator.pos,
+        }
+
+        # 安全的函数映射
+        SAFE_FUNCTIONS = {
             "abs": abs,
             "round": round,
             "min": min,
             "max": max,
             "sum": sum,
             "pow": pow,
-            "len": len,
         }
+        for name in dir(math):
+            if not name.startswith("_"):
+                SAFE_FUNCTIONS[name] = getattr(math, name)
+
+        def _safe_eval(node):
+            """递归安全求值 AST 节点"""
+            if isinstance(node, ast.Expression):
+                return _safe_eval(node.body)
+            elif isinstance(node, ast.Constant):
+                if isinstance(node.value, (int, float, complex)):
+                    return node.value
+                raise ValueError(f"不支持的常量类型: {type(node.value)}")
+            elif isinstance(node, ast.BinOp):
+                op_type = type(node.op)
+                if op_type not in SAFE_OPERATORS:
+                    raise ValueError(f"不支持的运算符: {op_type.__name__}")
+                left = _safe_eval(node.left)
+                right = _safe_eval(node.right)
+                return SAFE_OPERATORS[op_type](left, right)
+            elif isinstance(node, ast.UnaryOp):
+                op_type = type(node.op)
+                if op_type not in SAFE_OPERATORS:
+                    raise ValueError(f"不支持的一元运算符: {op_type.__name__}")
+                operand = _safe_eval(node.operand)
+                return SAFE_OPERATORS[op_type](operand)
+            elif isinstance(node, ast.Call):
+                if not isinstance(node.func, ast.Name):
+                    raise ValueError("不支持的函数调用方式")
+                func_name = node.func.id
+                if func_name not in SAFE_FUNCTIONS:
+                    raise ValueError(f"不允许的函数: {func_name}")
+                args = [_safe_eval(arg) for arg in node.args]
+                return SAFE_FUNCTIONS[func_name](*args)
+            else:
+                raise ValueError(f"不支持的表达式类型: {type(node).__name__}")
 
         try:
-            import math
-            for name in dir(math):
-                if not name.startswith("_"):
-                    allowed_names[name] = getattr(math, name)
-
-            result = eval(expression, {"__builtins__": {}}, allowed_names)
+            # 解析为 AST，只允许表达式
+            tree = ast.parse(expression, mode='eval')
+            result = _safe_eval(tree)
 
             return SkillResult(
                 success=True,
@@ -256,9 +351,15 @@ class CalculatorSkill(SkillBase):
                 },
             )
 
-        except Exception as e:
+        except (ValueError, TypeError, ZeroDivisionError, OverflowError) as e:
             return SkillResult(
                 success=False,
                 error=f"计算失败: {str(e)}",
+                error_code="CALC_ERROR",
+            )
+        except Exception as e:
+            return SkillResult(
+                success=False,
+                error=f"表达式格式错误: {str(e)}",
                 error_code="CALC_ERROR",
             )

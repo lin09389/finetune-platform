@@ -18,10 +18,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from core.config import get_settings
 
-os.environ["CURL_CA_BUNDLE"] = ""
-os.environ["REQUESTS_CA_BUNDLE"] = ""
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-ssl._create_default_https_context = ssl._create_unverified_context
+# SSL 验证仅在开发环境禁用，生产环境保持启用
+if os.getenv("ENV", "production").lower() in ("development", "dev", "debug"):
+    os.environ["CURL_CA_BUNDLE"] = ""
+    os.environ["REQUESTS_CA_BUNDLE"] = ""
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    ssl._create_default_https_context = ssl._create_unverified_context
 
 logger = logging.getLogger(__name__)
 
@@ -199,35 +201,48 @@ def download_model_from_huggingface(task_id: str, repo_id: str, revision: str):
 
         logger.info(f"开始从 HuggingFace 下载模型: {repo_id} -> {local_dir}")
 
-        download_script = f'''
+        download_script = '''
 import os
+import json
 import ssl
 import urllib3
 urllib3.disable_warnings()
 os.environ['CURL_CA_BUNDLE'] = ''
 os.environ['REQUESTS_CA_BUNDLE'] = ''
-os.environ['HF_ENDPOINT'] = '{endpoint}'
 ssl._create_default_https_context = ssl._create_unverified_context
 
 from huggingface_hub import snapshot_download
+
+config = json.loads(os.environ.get('HF_DOWNLOAD_CONFIG', '{}'))
 snapshot_download(
-    repo_id='{repo_id}',
-    revision='{revision}',
-    local_dir='{local_dir}',
+    repo_id=config['repo_id'],
+    revision=config.get('revision', 'master'),
+    local_dir=config['local_dir'],
     resume_download=True,
     force_download=False,
-    endpoint='{endpoint}',
+    endpoint=config.get('endpoint', ''),
     max_workers=4,
 )
 print('DOWNLOAD_SUCCESS')
 '''
+
+        import json as _json
+        download_config = _json.dumps({
+            "repo_id": repo_id,
+            "revision": revision,
+            "local_dir": str(local_dir),
+            "endpoint": endpoint,
+        })
+        env = os.environ.copy()
+        env["HF_DOWNLOAD_CONFIG"] = download_config
 
         result = subprocess.run(
             [sys.executable, '-c', download_script],
             capture_output=True,
             text=True,
             timeout=3600,
-            cwd=str(MODELS_DIR.parent)
+            cwd=str(MODELS_DIR.parent),
+            env=env,
         )
 
         if 'DOWNLOAD_SUCCESS' in result.stdout:
@@ -540,7 +555,11 @@ async def delete_local_model(model_id: str):
     """删除本地模型"""
     import shutil
 
-    model_path = MODELS_DIR / model_id
+    model_path = (MODELS_DIR / model_id).resolve()
+
+    # 路径遍历防护：确保解析后的路径在 MODELS_DIR 下
+    if not model_path.is_relative_to(MODELS_DIR.resolve()):
+        raise HTTPException(status_code=400, detail="无效的模型 ID")
 
     if not model_path.exists():
         raise HTTPException(status_code=404, detail="模型不存在")
@@ -551,7 +570,7 @@ async def delete_local_model(model_id: str):
         return {"message": "删除成功", "model_id": model_id}
     except Exception as e:
         logger.error(f"删除模型失败：{e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"删除失败：{str(e)}")
+        raise HTTPException(status_code=500, detail="删除失败")
 
 
 @router.get("/suggestions")

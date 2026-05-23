@@ -107,7 +107,11 @@ async def upload_file(
         )
 
     temp_dir = tempfile.mkdtemp()
-    temp_file_path = os.path.join(temp_dir, file.filename)
+    # 路径遍历防护：清理文件名
+    safe_name = os.path.basename(file.filename).replace("\x00", "")
+    if not safe_name or safe_name in (".", ".."):
+        safe_name = "uploaded_file"
+    temp_file_path = os.path.join(temp_dir, safe_name)
 
     try:
         content = await file.read()

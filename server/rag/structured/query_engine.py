@@ -30,6 +30,7 @@ class NLQueryContext(BaseModel):
 class SQLGenerationResult(BaseModel):
     """SQL 生成结果"""
     sql: str = Field(..., description="生成的 SQL")
+    params: list[Any] = Field(default_factory=list, description="参数化查询的参数")
     explanation: str = Field(default="", description="SQL 解释")
     confidence: float = Field(default=0.0, ge=0.0, le=1.0, description="置信度")
     tables_used: list[str] = Field(default_factory=list, description="使用的表")
@@ -237,33 +238,55 @@ class QueryEngine:
             if numeric_cols:
                 select_columns = f"SUM({numeric_cols[0]}) as total"
 
+        # 获取表的实际列名用于验证
+        all_columns = set()
+        text_cols = self._get_text_columns(table_name)
+        numeric_cols = self._get_numeric_columns(table_name)
+        all_columns.update(text_cols)
+        all_columns.update(numeric_cols)
+
+        # 安全标识符验证
+        import re as _re
+        SAFE_IDENTIFIER = _re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+
+        params: list[Any] = []
+
         filter_patterns = [
-            (r"等于\s*['\"]?(\w+)['\"]?", "= '{}'"),
-            (r"是\s*['\"]?(\w+)['\"]?", "= '{}'"),
-            (r"大于\s*(\d+)", "> {}"),
-            (r"小于\s*(\d+)", "< {}"),
-            (r"包含\s*['\"]?(\w+)['\"]?", "LIKE '%{}%'"),
+            (r"等于\s*['\"]?(\w+)['\"]?", "= ?"),
+            (r"是\s*['\"]?(\w+)['\"]?", "= ?"),
+            (r"大于\s*(\d+)", "> ?"),
+            (r"小于\s*(\d+)", "< ?"),
+            (r"包含\s*['\"]?(\w+)['\"]?", "LIKE ?"),
         ]
 
         for pattern, template in filter_patterns:
             match = re.search(pattern, question_lower)
             if match:
                 value = match.group(1)
-                text_cols = self._get_text_columns(table_name)
                 if text_cols:
-                    where_clause = f" WHERE {text_cols[0]} {template.format(value)}"
+                    col_name = text_cols[0]
+                    if not SAFE_IDENTIFIER.match(col_name):
+                        continue
+                    if "LIKE" in template:
+                        params.append(f"%{value}%")
+                    else:
+                        params.append(value)
+                    where_clause = f" WHERE {col_name} {template}"
                 break
 
         if any(word in question_lower for word in ["排序", "排列", "order"]):
             sort_match = re.search(r"按\s*(\w+)\s*(升序|降序|asc|desc)?", question_lower)
             if sort_match:
                 sort_col = sort_match.group(1)
-                sort_dir = "DESC" if sort_match.group(2) in ["降序", "desc"] else "ASC"
-                order_clause = f" ORDER BY {sort_col} {sort_dir}"
+                # 验证排序列名是否在表的实际列中
+                if sort_col in all_columns and SAFE_IDENTIFIER.match(sort_col):
+                    sort_dir = "DESC" if sort_match.group(2) in ["降序", "desc"] else "ASC"
+                    order_clause = f" ORDER BY {sort_col} {sort_dir}"
 
         limit_match = re.search(r"前\s*(\d+)\s*(条|个)?", question_lower)
         if limit_match:
-            limit_clause = f" LIMIT {limit_match.group(1)}"
+            limit_val = min(int(limit_match.group(1)), 1000)  # 限制最大返回行数
+            limit_clause = f" LIMIT {limit_val}"
         elif "前" in question_lower or "top" in question_lower:
             limit_clause = " LIMIT 10"
 
@@ -271,6 +294,7 @@ class QueryEngine:
 
         return SQLGenerationResult(
             sql=sql,
+            params=params,
             explanation=f"基于规则生成的查询，查询表 {table_name}",
             confidence=0.6,
             tables_used=[table_name],
