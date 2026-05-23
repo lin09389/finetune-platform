@@ -129,28 +129,58 @@ class TrainingValidator:
                 return
 
             import json
-            with open(dataset_file, encoding='utf-8') as f:
-                content = f.read()
-                try:
-                    data = json.loads(content)
+            is_jsonl = dataset_file.suffix == ".jsonl"
 
-                    if isinstance(data, list) and len(data) > 0:
-                        first_item = data[0]
+            if is_jsonl:
+                MAX_VALIDATE_LINES = 5
+                first_item = None
+                line_errors = []
+                with open(dataset_file, encoding='utf-8') as f:
+                    for i, line in enumerate(f):
+                        if i >= MAX_VALIDATE_LINES:
+                            break
+                        line = line.strip()
+                        if not line:
+                            continue
                         try:
-                            detect_dataset_sample_format(first_item)
-                        except ValueError as e:
-                            result.errors.append(str(e))
-                    elif isinstance(data, list):
-                        result.errors.append("数据集至少需要包含一条样本")
-                    elif isinstance(data, dict):
-                        try:
-                            detect_dataset_sample_format(data)
-                        except ValueError as e:
-                            result.errors.append(str(e))
-                    else:
-                        result.errors.append("数据集根节点必须是 JSON 对象或对象数组")
-                except json.JSONDecodeError as e:
-                    result.errors.append(f"JSON 格式错误：{e}")
+                            item = json.loads(line)
+                            if first_item is None:
+                                first_item = item
+                        except json.JSONDecodeError as e:
+                            line_errors.append(f"Line {i + 1}: {e}")
+
+                if line_errors:
+                    result.errors.append(f"JSONL 格式错误（前 {MAX_VALIDATE_LINES} 行）：{'; '.join(line_errors)}")
+                elif first_item is None:
+                    result.errors.append("数据集至少需要包含一条样本")
+                else:
+                    try:
+                        detect_dataset_sample_format(first_item)
+                    except ValueError as e:
+                        result.errors.append(str(e))
+            else:
+                with open(dataset_file, encoding='utf-8') as f:
+                    content = f.read()
+                    try:
+                        data = json.loads(content)
+
+                        if isinstance(data, list) and len(data) > 0:
+                            first_item = data[0]
+                            try:
+                                detect_dataset_sample_format(first_item)
+                            except ValueError as e:
+                                result.errors.append(str(e))
+                        elif isinstance(data, list):
+                            result.errors.append("数据集至少需要包含一条样本")
+                        elif isinstance(data, dict):
+                            try:
+                                detect_dataset_sample_format(data)
+                            except ValueError as e:
+                                result.errors.append(str(e))
+                        else:
+                            result.errors.append("数据集根节点必须是 JSON 对象或对象数组")
+                    except json.JSONDecodeError as e:
+                        result.errors.append(f"JSON 格式错误：{e}")
         except Exception as e:
             result.errors.append(f"数据集验证失败：{e}")
 

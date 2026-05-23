@@ -221,6 +221,7 @@ class ProgressCallback:
 
         self.current_step = state.global_step
         self.current_epoch = state.epoch
+        self.state.update_heartbeat()
 
         loss = kwargs.get("loss", 0.0)
         if loss and float(loss) > 0:

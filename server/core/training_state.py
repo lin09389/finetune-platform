@@ -129,6 +129,7 @@ class TrainingState:
         self._history_file = history_file
         self._history_cache: list[TrainingRecord] | None = None
         self._history_dirty = False
+        self._last_heartbeat: float = 0.0
 
         self._update_queue: Queue = Queue()
         self._worker_thread: threading.Thread | None = None
@@ -160,7 +161,7 @@ class TrainingState:
                 logger.error(f"处理状态更新失败：{e}")
 
     def _periodic_cleanup(self):
-        """P1-6: 定期清理已完成任务引用"""
+        """P1-6: 定期清理已完成任务引用 + 检测训练线程存活状态"""
         now = datetime.now().timestamp()
         if now - self._last_cleanup_time < self.TASK_CLEANUP_INTERVAL:
             return
@@ -181,12 +182,31 @@ class TrainingState:
                     if task_id in self._training_tasks:
                         del self._training_tasks[task_id]
 
-            if len(self._training_tasks) > 20:
-                active_tasks = {
-                    k: v for k, v in self._training_tasks.items()
-                    if v.is_alive()
-                }
+            # 始终清理死亡线程（移除 >20 门控）
+            active_tasks = {
+                k: v for k, v in self._training_tasks.items()
+                if v.is_alive()
+            }
+            dead_count = len(self._training_tasks) - len(active_tasks)
+            if dead_count > 0:
+                logger.warning(f"清理 {dead_count} 个已终止的训练任务线程")
                 self._training_tasks = active_tasks
+
+            # 检测训练状态异常：_is_training=True 但无存活线程
+            if self._is_training and len(self._training_tasks) == 0:
+                stale_heartbeat = (
+                    self._last_heartbeat > 0
+                    and (now - self._last_heartbeat) > 300
+                )
+                if stale_heartbeat or self._last_heartbeat == 0:
+                    logger.warning(
+                        "检测到训练状态异常：_is_training=True 但无活跃线程，"
+                        f"最后心跳: {self._last_heartbeat}, "
+                        f"距上次心跳: {now - self._last_heartbeat:.0f}s。"
+                        "自动重置训练状态。"
+                    )
+                    self._is_training = False
+                    self._stop_requested = False
 
     def _process_update(self, update: StateUpdate):
         """处理状态更新"""
@@ -287,6 +307,11 @@ class TrainingState:
     def update_progress(self, **kwargs):
         """更新训练进度"""
         self.queue_progress_update(**kwargs)
+
+    def update_heartbeat(self):
+        """更新心跳时间戳（由 ProgressCallback.on_step_end 调用）"""
+        with self._lock:
+            self._last_heartbeat = datetime.now().timestamp()
 
     def register_training_task(self, task_id: str, thread: threading.Thread):
         """注册训练任务"""
@@ -389,7 +414,8 @@ class TrainingState:
 
     def load_history(self) -> list[TrainingRecord]:
         """加载历史记录"""
-        return self._load_history_internal()
+        with self._lock:
+            return self._load_history_internal()
 
     def save_history(self, records: list[TrainingRecord]):
         """保存历史记录"""
@@ -401,7 +427,8 @@ class TrainingState:
 
     def get_history(self) -> list[TrainingRecord]:
         """获取历史记录"""
-        return self._load_history_internal()
+        with self._lock:
+            return self._load_history_internal()
 
     def get_status(self) -> dict[str, Any]:
         """获取完整状态"""

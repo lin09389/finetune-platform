@@ -67,6 +67,8 @@ class _StoredEvent:
 class TrainingEventHubV2:
     """Thread-safe in-memory event hub with replay support."""
 
+    MAX_LATEST_TASKS = 200
+
     def __init__(self, max_events: int = 8000):
         self._lock = threading.Lock()
         self._events: deque[_StoredEvent] = deque(maxlen=max_events)
@@ -95,6 +97,14 @@ class TrainingEventHubV2:
             )
             self._events.append(_StoredEvent(sequence=sequence, event=event))
             self._latest_by_task[task_id] = event
+            if len(self._latest_by_task) > self.MAX_LATEST_TASKS:
+                sorted_tasks = sorted(
+                    self._latest_by_task.items(),
+                    key=lambda item: item[1].sequence,
+                )
+                to_remove = len(sorted_tasks) - self.MAX_LATEST_TASKS // 2
+                for key, _ in sorted_tasks[:to_remove]:
+                    del self._latest_by_task[key]
             return event
 
     def list_since(self, sequence: int = 0, task_id: str | None = None) -> list[TrainingEventV2]:

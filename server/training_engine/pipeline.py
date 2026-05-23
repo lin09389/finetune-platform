@@ -617,6 +617,46 @@ class TrainingPipeline:
             elapsed_time=0.0, eta=0.0,
         )
 
+        # 训练看门狗：检测 on_step_end 停止触发的卡死
+        import threading as _wd_threading
+        import time as _wd_time
+
+        STALL_TIMEOUT_SECONDS = 300
+        _watchdog_stop = _wd_threading.Event()
+
+        def _training_watchdog() -> None:
+            while not _watchdog_stop.wait(30):
+                with self.ctx.state._lock:
+                    last_hb = self.ctx.state._last_heartbeat
+                if last_hb > 0:
+                    elapsed_since_hb = _wd_time.time() - last_hb
+                    if elapsed_since_hb > STALL_TIMEOUT_SECONDS:
+                        progress = self.ctx.state.get_progress()
+                        logger.warning(
+                            f"训练可能卡死：{elapsed_since_hb:.0f}s 无进度更新 "
+                            f"(阈值: {STALL_TIMEOUT_SECONDS}s)。"
+                            f"当前 step={progress.step}/{progress.total_steps}"
+                        )
+                        self.bus.publish_event(
+                            phase=TrainingPhase.TRAIN,
+                            kind="training_stall_detected",
+                            payload={
+                                "stall_seconds": elapsed_since_hb,
+                                "current_step": progress.step,
+                                "total_steps": progress.total_steps,
+                            },
+                        )
+                        if elapsed_since_hb > STALL_TIMEOUT_SECONDS * 2:
+                            logger.error(
+                                f"训练卡死超时 ({elapsed_since_hb:.0f}s)，自动触发停止"
+                            )
+                            self.ctx.state.request_stop()
+                            _watchdog_stop.set()
+
+        self.ctx.state.update_heartbeat()
+        _watchdog_thread = _wd_threading.Thread(target=_training_watchdog, daemon=True)
+        _watchdog_thread.start()
+
         train_exception = None
         try:
             self.ctx.trainer.train(
@@ -639,6 +679,8 @@ class TrainingPipeline:
                 if "CUDA" in error_str or "memory" in error_str.lower() or "NCCL" in error_str:
                     train_exception = RecoverableError(f"GPU 错误：{e}")
                     train_exception.__cause__ = e
+        finally:
+            _watchdog_stop.set()
 
         # 检查是否是用户主动停止
         if self._stop_requested:
@@ -795,6 +837,14 @@ class TrainingPipeline:
             self.ctx.state.unregister_training_task(self.ctx.task_id)
             logger.debug(f"已注销训练任务线程：{self.ctx.task_id}")
 
+        # 关闭训练日志记录器，释放文件句柄
+        train_logger = getattr(self.ctx, "train_logger", None)
+        if train_logger:
+            try:
+                train_logger.close()
+            except Exception as e:
+                logger.warning(f"关闭训练日志记录器失败：{e}")
+
         # 【优化】将耗时的清理操作放到后台线程执行，不阻塞训练线程退出
         import threading
         model = self.ctx.model
@@ -816,9 +866,13 @@ class TrainingPipeline:
         cleanup_thread = threading.Thread(
             target=_async_cleanup,
             args=(model, tokenizer, trainer),
-            daemon=True,
+            daemon=False,
         )
         cleanup_thread.start()
+        try:
+            cleanup_thread.join(timeout=30)
+        except Exception as e:
+            logger.warning(f"等待清理线程完成超时：{e}")
 
     @property
     def current_phase(self) -> str:

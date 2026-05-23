@@ -65,6 +65,12 @@ def handle_training_failure(state: TrainingState, record: TrainingRecord, error:
     state.add_to_history_sync(record)
     logger.info(f"训练失败记录已保存：{record.id}")
 
+    if train_logger:
+        try:
+            train_logger.close()
+        except Exception:
+            pass
+
 
 def finalize_stop_requested(
     state: TrainingState,
