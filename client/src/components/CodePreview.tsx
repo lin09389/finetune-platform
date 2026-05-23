@@ -114,11 +114,12 @@ const CodePreview: React.FC<CodePreviewProps> = ({
   maxHeight = 500,
   className = '',
   title,
+  collapsible = false,
 }) => {
   const [selectedLanguage] = useState<string>('auto');
   const [detectedLanguage, setDetectedLanguage] = useState<string>('text');
   const [copied, setCopied] = useState(false);
-  const [collapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => collapsible && code.split('\n').length > 10);
   const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const [highlightedCode, setHighlightedCode] = useState('');
   const [isVisible, setIsVisible] = useState(false);
@@ -361,6 +362,16 @@ const CodePreview: React.FC<CodePreviewProps> = ({
             </Space>
             
             <Space size={4}>
+              {collapsible && (
+                <Button
+                  type="text"
+                  size="small"
+                  onClick={() => setCollapsed((c) => !c)}
+                  style={{ color: 'var(--text-primary)', fontSize: 12, display: 'flex', alignItems: 'center', paddingInline: 6, fontWeight: 600 }}
+                >
+                  {collapsed ? '展开代码' : '折叠代码'}
+                </Button>
+              )}
               <Tooltip title={copied ? '已复制' : '复制代码'}>
                 <Button
                   type="text"

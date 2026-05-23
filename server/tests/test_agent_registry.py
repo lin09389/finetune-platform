@@ -19,6 +19,6 @@ def test_build_agent_lets_action_policy_gate_patch_and_command():
 
     assert rules["tool.propose_patch"] == "allow"
     assert rules["tool.propose_command"] == "allow"
-    assert "必须提出对应的 `propose_patch`" in build.system_prompt
+    assert "必须提交对应的补丁" in build.system_prompt
     assert "只分析" in build.system_prompt
 

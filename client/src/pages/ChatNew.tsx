@@ -121,6 +121,13 @@ const resolveArtifactStatus = (statusRaw: string): OpenedFile['status'] => {
   return 'unknown';
 };
 
+const getChangedFilesFromPayload = (payload?: Record<string, any>) => {
+  const files = payload?.changed_files || payload?.payload?.changed_files || payload?.files || payload?.payload?.files || [];
+  if (!Array.isArray(files)) return [];
+  return files.map((item: any) => (typeof item === 'string' ? item : item?.path || item?.file_path)).filter(Boolean) as string[];
+};
+
+
 const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -310,6 +317,7 @@ const ChatPage: React.FC = () => {
   const [showPathEdit, setShowPathEdit] = useState(false);
   const [openedFiles, setOpenedFiles] = useState<OpenedFile[]>([]);
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
+  const lastAutoOpenedPartIdRef = useRef<string | null>(null);
   const activeFileContext = useAppStore((state) => state.activeFileContext);
   const setActiveFileContext = useAppStore((state) => state.setActiveFileContext);
   const [explicitContextMentions, setExplicitContextMentions] = useState<ExplicitContextMention[]>([]);
@@ -1138,12 +1146,16 @@ if (existing) {
           } else {
             agentDeltaFlushRef.current = null;
           }
-          source.close();
-          delete agentSessionStreamsRef.current[sessionId];
-          Object.keys(streamingDeltaRef.current).forEach((key) => {
-            if (key.startsWith('agp_')) delete streamingDeltaRef.current[key];
-          });
-          setAgentPhase({ phase: '', visible: false });
+          
+          const isTerminal = ['completed', 'failed', 'needs_manual_review', 'interrupted'].includes(sessionStatus || '');
+          if (isTerminal) {
+            source.close();
+            delete agentSessionStreamsRef.current[sessionId];
+            Object.keys(streamingDeltaRef.current).forEach((key) => {
+              if (key.startsWith('agp_')) delete streamingDeltaRef.current[key];
+            });
+            setAgentPhase({ phase: '', visible: false });
+          }
           return;
         }
 
@@ -1947,6 +1959,77 @@ if (existing) {
     }
   }, [latestAgentParts]);
 
+  // 自动将最新待审批的或正在修改的变动文件在右侧编辑器中聚焦并打开（编辑器焦点跟随 + 实时流式 Diff）
+  useEffect(() => {
+    for (let i = latestAgentParts.length - 1; i >= 0; i--) {
+      const part = latestAgentParts[i];
+      if (part && part.type === 'diff') {
+        const files = getChangedFilesFromPayload(part.payload);
+        const firstFile = files[0];
+        if (firstFile) {
+          const name = firstFile.replace(/\\/g, '/').split('/').pop() || firstFile;
+          const preview = part.content || '';
+          const status = resolveArtifactStatus(part.status || 'modified');
+          const hunks = preview ? parseDiffHunks(firstFile, preview) : undefined;
+          
+          const fileEntry: OpenedFile = {
+            path: firstFile,
+            name,
+            content: preview,
+            status,
+            hunks,
+            actionId: part.id || undefined,
+          };
+
+          setOpenedFiles((prev) => {
+            const existingIdx = prev.findIndex((f) => f.path === firstFile);
+            if (existingIdx >= 0) {
+              const next = [...prev];
+              const existing = next[existingIdx];
+              if (existing) {
+                // If it is the same file and has different preview content or status, update it!
+                if (existing.content !== fileEntry.content || existing.status !== fileEntry.status) {
+                  next[existingIdx] = {
+                    ...existing,
+                    content: fileEntry.content,
+                    status: fileEntry.status,
+                    hunks: fileEntry.hunks ?? existing.hunks,
+                    actionId: fileEntry.actionId ?? existing.actionId,
+                  };
+                  return next;
+                }
+              }
+              return prev; // No change, keep identity
+            }
+            return [...prev, fileEntry];
+          });
+
+          // 只有在 Part ID 发生改变时，才强制切换 Tab 聚焦，避免在同一个文件流式渲染期间强行覆盖用户的手动 Tab 切换
+          if (lastAutoOpenedPartIdRef.current !== part.id) {
+            lastAutoOpenedPartIdRef.current = part.id;
+            setActiveFilePath(firstFile);
+          }
+
+          // 获取原始文件内容以用于 DiffEditor 比对
+          if (status === 'modified' && latestAgentSessionId && part.id) {
+            const matchedArtifact = agentSessionOverview?.artifacts?.find(
+              (art) => art.source_part_id === part.id && art.path === firstFile
+            );
+            if (matchedArtifact) {
+              void getArtifactOriginal(latestAgentSessionId, matchedArtifact.id).then((original: string | null) => {
+                if (original === null) return;
+                setOpenedFiles((prev) => prev.map((file) => (
+                  file.path === firstFile ? { ...file, original } : file
+                )));
+              });
+            }
+          }
+        }
+        break;
+      }
+    }
+  }, [latestAgentParts, latestAgentSessionId, agentSessionOverview?.artifacts]);
+
 
   useEffect(() => {
     if (!latestAgentSessionId) {
@@ -2445,8 +2528,7 @@ if (existing) {
       isStreaming={
         isActivelyStreaming && index === messages.length - 1 && msg.role === 'assistant'
       }
-      enableTypewriter={true}
-      typewriterSpeed={90}
+      enableTypewriter={false}
       onRetry={handleRetry}
       onEdit={handleEditMessage}
       onDelete={deleteMessage}

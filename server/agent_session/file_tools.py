@@ -102,9 +102,41 @@ class FileToolsMixin(ToolHostProtocol):
         inferred_reads, inferred_queries = self._infer_context_targets(root, goal) if should_infer_targets else ([], [])
         reads = list(dict.fromkeys([*explicit_reads, *inferred_reads]))
         queries = list(dict.fromkeys([*explicit_queries, *inferred_queries]))
-        for query in queries[:8]:
-            result = self._search({"query": query, "limit": 10, "path_glob": args.get("path_glob") or "**/*"}, context)
-            matches.extend(result.payload.get("matches") or [])
+        
+        # 优化：采用单次扫描与文件缓存对多个查询进行批量检索，避免多次遍历磁盘带来的严重 I/O 阻塞
+        if queries:
+            lowered_queries = [q.lower() for q in queries[:8]]
+            scanned = 0
+            candidate_files_list = list(self._candidate_files(root))
+            query_matches = {q: [] for q in lowered_queries}
+            path_glob = args.get("path_glob") or "**/*"
+            
+            for path in candidate_files_list:
+                scanned += 1
+                if scanned > 3000:
+                    break
+                if path_glob and not path.match(path_glob):
+                    continue
+                rel = path.relative_to(root).as_posix()
+                try:
+                    content = path.read_text(encoding="utf-8", errors="ignore")
+                    lowered_content = content.lower()
+                except Exception:
+                    continue
+                
+                for lq in lowered_queries:
+                    if len(query_matches[lq]) >= 10:
+                        continue
+                    if lq in lowered_content:
+                        lines = content.splitlines()
+                        for line_no, line in enumerate(lines, 1):
+                            if lq in line.lower():
+                                query_matches[lq].append({"path": rel, "line": line_no, "preview": line.strip()[:300]})
+                                if len(query_matches[lq]) >= 10:
+                                    break
+            for lq in lowered_queries:
+                matches.extend(query_matches[lq])
+        
         should_expand_symbols = bool(explicit_symbols) or bool(queries) or not explicit_reads
         symbols = self._infer_symbol_candidates(goal, queries, reads, explicit_symbols) if should_expand_symbols else []
         symbol_hits: list[dict[str, Any]] = []
