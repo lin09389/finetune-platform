@@ -58,6 +58,58 @@ class AgentSessionService:
         self._graph_runner_error: str | None = None
 
     ACTIVE_STATUSES = {"running", "verifying", "repairing", "waiting_approval", "waiting_permission"}
+
+    @staticmethod
+    def _format_deep_context(request: AgentPromptRequest, project_path: str | None = None) -> str:
+        sections: list[str] = []
+        active_context = request.active_context or {}
+        if active_context:
+            cursor = active_context.get("cursor") or {}
+            selection = active_context.get("selection") or {}
+            lines = [
+                f"Current file: {active_context.get('file_path') or 'unknown'}",
+                f"Cursor: line {cursor.get('line', 1)}, column {cursor.get('column', 1)}",
+            ]
+            selected_text = str(selection.get("text") or "").strip() if isinstance(selection, dict) else ""
+            if selected_text:
+                lines.append("Selected code:\n```text\n" + selected_text[:4000] + "\n```")
+            else:
+                preview = str(active_context.get("content_preview") or "").strip()
+                if preview:
+                    lines.append("File preview:\n```text\n" + preview[:4000] + "\n```")
+            sections.append("\n".join(lines))
+
+        mention_lines: list[str] = []
+        for item in request.explicit_context or []:
+            label = item.get("label") or item.get("path") or "context"
+            kind = item.get("type") or "context"
+            path = item.get("path")
+            line = item.get("line")
+            location = f"{path or ''}{':' + str(line) if line else ''}".strip()
+            mention_lines.append(f"- @{label} ({kind}) {location}".strip())
+            content = str(item.get("content") or "").strip()
+            if content:
+                mention_lines.append(f"  context: {content[:1200]}")
+        if mention_lines:
+            sections.append("Explicit @ context:\n" + "\n".join(mention_lines))
+        try:
+            from context.service import get_context_service
+            related = get_context_service().expand_deep_context(
+                request.active_context,
+                request.explicit_context,
+                project_path,
+            )
+            if related:
+                sections.append(
+                    "Dependency topology expansion:\n"
+                    + "\n".join(
+                        f"- {item.get('relation')}: {item.get('path')} {':' + str(item.get('line')) if item.get('line') else ''}\n  {str(item.get('content') or '')[:800]}"
+                        for item in related
+                    )
+                )
+        except Exception:
+            logger.debug("failed to expand agent deep context topology", exc_info=True)
+        return "Deep Context Retrieval:\n" + "\n\n".join(sections) if sections else ""
     TERMINAL_STATUSES = {"completed", "failed", "interrupted", "needs_manual_review"}
 
     def subscribe_events(self, session_id: str) -> asyncio.Queue[dict[str, Any]]:
@@ -168,6 +220,17 @@ class AgentSessionService:
             session = self.repository.get_session(session_id) or session
 
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        deep_context = self._format_deep_context(request, session.get("project_path"))
+        prompt_content = (
+            f"{request.content}\n\n{deep_context}"
+            if deep_context
+            else request.content
+        )
+        if deep_context:
+            metadata["deep_context"] = {
+                "active_context": request.active_context,
+                "explicit_context": request.explicit_context,
+            }
         if self._has_custom_processor_prompt():
             model_call = self.model_call
             stream_model_call = None
@@ -190,7 +253,7 @@ class AgentSessionService:
             result = await self.runtime.run_prompt(
                 self,
                 session_id,
-                request.content,
+                prompt_content,
                 session,
                 model_call=model_call,
                 stream_model_call=stream_model_call,
@@ -226,6 +289,11 @@ class AgentSessionService:
         metadata["background_run"] = True
         metadata["last_prompt_started_at"] = now
         metadata["current_goal"] = request.content
+        if request.active_context or request.explicit_context:
+            metadata["deep_context"] = {
+                "active_context": request.active_context,
+                "explicit_context": request.explicit_context,
+            }
         metadata = set_phase(metadata, "running")
         session = self.repository.update_session(
             session_id,

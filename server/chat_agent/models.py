@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -12,6 +12,8 @@ class ChatAgentIntentRequest(BaseModel):
     agent_id: str | None = None
     chat_session_id: str | None = None
     routing_mode: Literal["auto", "chat", "agent"] = "auto"
+    active_context: dict[str, Any] | None = None
+    explicit_context: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ChatAgentIntentResponse(BaseModel):

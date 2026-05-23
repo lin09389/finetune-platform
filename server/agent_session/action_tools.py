@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import subprocess
 from typing import Any
 
@@ -10,6 +11,8 @@ from .patch_engine import SafePatchEngine
 
 from .tool_host import ToolHostProtocol
 from .tool_types import ToolResult
+
+logger = logging.getLogger(__name__)
 
 
 class ActionToolsMixin(ToolHostProtocol):
@@ -81,6 +84,7 @@ class ActionToolsMixin(ToolHostProtocol):
         rejected_keys = {k for k, v in hunk_decisions.items() if v == "rejected"}
         try:
             result = SafePatchEngine(root).apply_partial_diff(diff, rejected_keys)
+            self._refresh_context_index(root, result.changed_files)
             return ToolResult(
                 "completed",
                 result.stdout,
@@ -92,6 +96,7 @@ class ActionToolsMixin(ToolHostProtocol):
         root = self._root(context)
         try:
             result = SafePatchEngine(root).apply_payload(payload)
+            self._refresh_context_index(root, result.changed_files)
             return ToolResult(
                 "completed",
                 result.stdout,
@@ -99,6 +104,13 @@ class ActionToolsMixin(ToolHostProtocol):
             )
         except Exception as exc:
             return ToolResult("failed", "补丁执行失败", self._normalize_tool_payload({}), str(exc))
+
+    def _refresh_context_index(self, root: Any, changed_files: list[str]) -> None:
+        try:
+            from context.service import get_context_service
+            get_context_service().refresh_changed_files(str(root), changed_files)
+        except Exception:
+            logger.debug("context index refresh after patch failed", exc_info=True)
 
     def _part_snapshot(self, part: dict[str, Any] | None) -> dict[str, Any] | None:
         if not part:

@@ -276,3 +276,19 @@ def test_terminal_exit_callback_updates_command_part(tmp_path: Path, monkeypatch
     assert updated.payload["terminal_id"] == "agt_done"
     assert updated.payload["stdout"] == "ok\n"
     assert updated.payload["exit_code"] == 0
+
+
+def test_terminal_manager_runs_windows_cmd_shims(tmp_path: Path):
+    from agent_session.terminal_manager import terminal_manager
+
+    terminal = terminal_manager.start(
+        part_id="agp_cmd_shim",
+        session_id="ags_cmd_shim",
+        command=["npm", "--version"],
+        cwd=Path.cwd(),
+        timeout_seconds=20,
+    )
+    terminal_manager.wait(terminal.id, 25)
+
+    assert terminal.exit_code == 0
+    assert terminal.stdout.strip()

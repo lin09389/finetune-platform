@@ -54,6 +54,8 @@ class ProjectContextOptions(BaseModel):
     use_context: bool = Field(default=False, description="是否使用项目上下文")
     project_path: str | None = Field(default=None, description="项目路径")
     max_context_length: int = Field(default=1500, description="最大上下文长度")
+    active_context: dict[str, Any] | None = Field(default=None, description="当前编辑器文件/光标/选区上下文")
+    explicit_context: list[dict[str, Any]] = Field(default_factory=list, description="@ 显式绑定的文件或符号上下文")
 
 
 class MemoryOptions(BaseModel):

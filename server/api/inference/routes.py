@@ -311,6 +311,46 @@ def _inject_system_prompt_dict(messages: list[dict[str, str]], system_prompt: st
     return [{"role": "system", "content": system_prompt}, *messages]
 
 
+def _format_deep_context(active_context: dict[str, Any] | None, explicit_context: list[dict[str, Any]] | None) -> str:
+    sections: list[str] = []
+    if active_context:
+        file_path = active_context.get("file_path") or "unknown"
+        cursor = active_context.get("cursor") or {}
+        selection = active_context.get("selection") or {}
+        lines = [
+            f"Current file: {file_path}",
+            f"Cursor: line {cursor.get('line', 1)}, column {cursor.get('column', 1)}",
+        ]
+        selected_text = str(selection.get("text") or "").strip()
+        if selected_text:
+            lines.append(
+                "Selected code:\n```text\n"
+                + selected_text[:4000]
+                + "\n```"
+            )
+        else:
+            preview = str(active_context.get("content_preview") or "").strip()
+            if preview:
+                lines.append("File preview:\n```text\n" + preview[:4000] + "\n```")
+        sections.append("\n".join(lines))
+    mention_lines = []
+    for item in explicit_context or []:
+        label = item.get("label") or item.get("path") or "context"
+        kind = item.get("type") or "context"
+        path = item.get("path")
+        line = item.get("line")
+        location = f"{path or ''}{':' + str(line) if line else ''}".strip()
+        mention_lines.append(f"- @{label} ({kind}) {location}".strip())
+        content = str(item.get("content") or "").strip()
+        if content:
+            mention_lines.append(f"  context: {content[:1200]}")
+    if mention_lines:
+        sections.append("Explicit @ context:\n" + "\n".join(mention_lines))
+    if not sections:
+        return ""
+    return "Deep Context Retrieval:\n" + "\n\n".join(sections)
+
+
 async def _build_unified_context_payload(
     request: ChatRequest,
     last_user_message: str | None,
@@ -402,6 +442,29 @@ async def _build_unified_context_payload(
             warnings=getattr(unified_context, "warnings", None) or None,
             trace=context_payload.get("trace"),
         )
+
+    deep_context_text = _format_deep_context(
+        request.context.active_context,
+        request.context.explicit_context,
+    )
+    if deep_context_text:
+        try:
+            from context.service import get_context_service
+            related = get_context_service().expand_deep_context(
+                request.context.active_context,
+                request.context.explicit_context,
+                request.context.project_path,
+            )
+            if related:
+                related_lines = [
+                    f"- {item.get('relation')}: {item.get('path')} {':' + str(item.get('line')) if item.get('line') else ''}\n  {str(item.get('content') or '')[:800]}"
+                    for item in related
+                ]
+                deep_context_text = f"{deep_context_text}\n\nDependency topology expansion:\n" + "\n".join(related_lines)
+        except Exception:
+            logger.debug("failed to expand deep context topology", exc_info=True)
+    if deep_context_text:
+        system_prompt = f"{system_prompt or '你是一个有帮助的 AI 助手。'}\n\n{deep_context_text}"
 
     return (
         system_prompt,

@@ -67,6 +67,8 @@ class AgentPromptRequest(BaseModel):
     content: str
     provider: str | None = None
     model: str | None = None
+    active_context: dict[str, Any] | None = None
+    explicit_context: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AgentSessionResponse(BaseModel):

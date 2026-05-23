@@ -141,6 +141,45 @@ def _sse_json(payload: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
+def _format_deep_context(context_options: dict[str, Any]) -> str:
+    active_context = context_options.get("active_context") if isinstance(context_options, dict) else None
+    explicit_context = context_options.get("explicit_context") if isinstance(context_options, dict) else None
+    sections: list[str] = []
+    if isinstance(active_context, dict):
+        file_path = active_context.get("file_path") or "unknown"
+        cursor = active_context.get("cursor") or {}
+        selection = active_context.get("selection") or {}
+        lines = [
+            f"Current file: {file_path}",
+            f"Cursor: line {cursor.get('line', 1)}, column {cursor.get('column', 1)}",
+        ]
+        selected_text = str(selection.get("text") or "").strip() if isinstance(selection, dict) else ""
+        if selected_text:
+            lines.append("Selected code:\n```text\n" + selected_text[:4000] + "\n```")
+        else:
+            preview = str(active_context.get("content_preview") or "").strip()
+            if preview:
+                lines.append("File preview:\n```text\n" + preview[:4000] + "\n```")
+        sections.append("\n".join(lines))
+    mention_lines: list[str] = []
+    if isinstance(explicit_context, list):
+        for item in explicit_context:
+            if not isinstance(item, dict):
+                continue
+            label = item.get("label") or item.get("path") or "context"
+            kind = item.get("type") or "context"
+            path = item.get("path")
+            line = item.get("line")
+            location = f"{path or ''}{':' + str(line) if line else ''}".strip()
+            mention_lines.append(f"- @{label} ({kind}) {location}".strip())
+            content = str(item.get("content") or "").strip()
+            if content:
+                mention_lines.append(f"  context: {content[:1200]}")
+    if mention_lines:
+        sections.append("Explicit @ context:\n" + "\n".join(mention_lines))
+    return "Deep Context Retrieval:\n" + "\n\n".join(sections) if sections else ""
+
+
 def _custom_provider_ids() -> list[str]:
     index = secure_storage.get("cloud_custom_provider_index") or {}
     ids = index.get("providers", [])
@@ -392,6 +431,32 @@ async def _build_cloud_context(request: CloudChatRequest) -> tuple[list[dict[str
             "project_context_unavailable" if not project_path
             else "project_context_no_results"
         )
+
+    deep_context_text = _format_deep_context(context_options)
+    if deep_context_text:
+        try:
+            from context.service import get_context_service
+            related = get_context_service().expand_deep_context(
+                context_options.get("active_context"),
+                context_options.get("explicit_context") or [],
+                project_path,
+            )
+            if related:
+                related_lines = [
+                    f"- {item.get('relation')}: {item.get('path')} {':' + str(item.get('line')) if item.get('line') else ''}\n  {str(item.get('content') or '')[:800]}"
+                    for item in related
+                ]
+                deep_context_text = f"{deep_context_text}\n\nDependency topology expansion:\n" + "\n".join(related_lines)
+        except Exception:
+            logger.debug("failed to expand cloud deep context topology", exc_info=True)
+        system_prompt = f"{request.system_prompt or '你是一个有帮助的 AI 助手。'}\n\n{deep_context_text}"
+        if messages and messages[0].get("role") == "system":
+            messages[0]["content"] = f"{system_prompt}\n\n{messages[0].get('content', '')}".strip()
+        else:
+            messages.insert(0, {"role": "system", "content": system_prompt})
+        metadata.setdefault("unified_context", {})
+        metadata["unified_context"]["explicit_context_count"] = len(context_options.get("explicit_context") or [])
+        metadata["unified_context"]["has_active_context"] = bool(context_options.get("active_context"))
 
     if request.system_prompt and (
         not messages or messages[0].get("role") != "system"
