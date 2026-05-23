@@ -154,6 +154,7 @@ const routes = [
 function AppContent() {
   const { message, modal } = AntApp.useApp();
   const location = useLocation();
+  const isChatRoute = location.pathname === '/chat';
   const { setBackendUrl, setBackendStatus, sidebarCollapsed } = useAppStore(useShallow(state => ({
     setBackendUrl: state.setBackendUrl,
     setBackendStatus: state.setBackendStatus,
@@ -313,18 +314,21 @@ function AppContent() {
               background: 'transparent',
             }}
           >
-            <HeaderBar />
+            {!isChatRoute && <HeaderBar />}
             <Content
               className="app-content"
               style={{
-                margin: isMobile
-                  ? '12px 10px 76px'
-                  : useCompactNav
-                    ? '16px 14px 84px'
-                    : '16px 24px 24px 24px', // Added top margin for floating header space
+                margin: isChatRoute
+                  ? 0
+                  : isMobile
+                    ? '12px 10px 76px'
+                    : useCompactNav
+                      ? '16px 14px 84px'
+                      : '16px 24px 24px 24px',
                 padding: 0,
-                minHeight: 'calc(100vh - 56px - 40px)',
-                borderRadius: '16px', // Rounded corners for content area
+                height: isChatRoute ? '100vh' : undefined,
+                minHeight: isChatRoute ? '100vh' : 'calc(100vh - 56px - 40px)',
+                borderRadius: isChatRoute ? 0 : '16px', // Rounded corners for content area
                 overflow: 'hidden', // Contain content
               }}
             >

@@ -8,6 +8,7 @@ import { useChatStream } from '../hooks/chat/useChatStream';
 import { useResponsive } from '../hooks/useResponsive';
 import { useShallow } from 'zustand/react/shallow';
 import { useChatStore } from '../store/chatStore';
+import { useAppStore } from '../store/appStore';
 import { useTheme } from '../theme';
 import { appModal } from '../utils/modal';
 
@@ -17,6 +18,9 @@ import ChatInput from '../components/chat/ChatInput';
 import AgentPhaseIndicator from '../components/chat/AgentPhaseIndicator';
 import AgentWorkbenchPanel, { WorkbenchEmpty } from '../components/chat/AgentWorkbenchPanel';
 import AgentWorkspaceEditor from '../components/chat/AgentWorkspaceEditor';
+import AgentTerminal from '../components/chat/AgentTerminal';
+import QuickFileOpener, { flattenFileNodes } from '../components/chat/QuickFileOpener';
+import { getFileIcon, isTextIcon } from '../utils/fileIcons';
 import { parseDiffHunks } from '../utils/diffHunks';
 import type { OpenedFile } from '../components/chat/AgentWorkspaceEditor';
 import ChatHistoryDrawer from '../components/ChatHistoryDrawer';
@@ -42,11 +46,14 @@ import {
   interruptAgentSession,
   listWorkspaces,
   browseFolderBackend,
+  getWorkspaceTree,
+  readWorkspaceFile,
+  writeWorkspaceFile,
   promptAgentSession,
   rejectAgentAction as rejectAgentSessionAction,
   rejectAgentPermission,
 } from '../services/api';
-import type { AgentArtifact, AgentInfo, AgentPart, AgentSession, AgentSessionEvent, AgentSessionOverview, SavedCloudProvider, WorkspaceSummary } from '../services/api';
+import type { ActiveFileContext, AgentArtifact, AgentInfo, AgentPart, AgentSession, AgentSessionEvent, AgentSessionOverview, ExplicitContextMention, SavedCloudProvider, WorkspaceSummary, WorkspaceTreeNode } from '../services/api';
 import { transitions } from '../theme/animations';
 import { notify } from '../utils/notify';
 import { ArrowDownOutlined, FolderOpenOutlined } from '@ant-design/icons';
@@ -303,7 +310,34 @@ const ChatPage: React.FC = () => {
   const [showPathEdit, setShowPathEdit] = useState(false);
   const [openedFiles, setOpenedFiles] = useState<OpenedFile[]>([]);
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
+  const activeFileContext = useAppStore((state) => state.activeFileContext);
+  const setActiveFileContext = useAppStore((state) => state.setActiveFileContext);
+  const [explicitContextMentions, setExplicitContextMentions] = useState<ExplicitContextMention[]>([]);
+
+  // ── Dual-mode file tree: 'agent' = Agent's changed files, 'workspace' = full file tree ──
+  const [fileTreeMode, setFileTreeMode] = useState<'agent' | 'workspace'>('agent');
+  const [workspaceTreeNodes, setWorkspaceTreeNodes] = useState<WorkspaceTreeNode[]>([]);
+  const [workspaceTreeRoot, setWorkspaceTreeRoot] = useState<string>('');
+  const [workspaceTreeLoading, setWorkspaceTreeLoading] = useState(false);
+  const [wsExpandedFolders, setWsExpandedFolders] = useState<Set<string>>(new Set());
+  const workspaceFileNodes = useMemo(() => flattenFileNodes(workspaceTreeNodes), [workspaceTreeNodes]);
+
+  // ── Integrated terminal dock ──────────────────────────────────────────────────
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
+  const [terminalHeight, setTerminalHeight] = useState(() => {
+    if (typeof window === 'undefined') return 240;
+    const stored = Number(localStorage.getItem('terminal_dock_height'));
+    return Number.isFinite(stored) && stored >= 120 ? stored : 240;
+  });
+  const [resizingTerminal, setResizingTerminal] = useState(false);
+
+  // ── Ctrl+P Quick File Opener ──────────────────────────────────────────────────
+  const [quickOpenVisible, setQuickOpenVisible] = useState(false);
+  const [recentPaths, setRecentPaths] = useState<string[]>([]);
+
   const autoScrollFrameRef = useRef<number | null>(null);
+
   const pendingAutoScrollRef = useRef(false);
 
   const saveCurrentScrollState = useCallback(
@@ -340,11 +374,17 @@ const ChatPage: React.FC = () => {
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
-    const resizingClassName = styles.resizing;
-    if (!resizingClassName) return;
-    document.body.classList.toggle(resizingClassName, resizingSidePanel || resizingChatPane);
-    return () => document.body.classList.remove(resizingClassName);
-  }, [resizingSidePanel, resizingChatPane]);
+    const resizingColClass = styles.resizing;
+    const resizingRowClass = 'resizingTerminal';
+    if (resizingColClass) {
+      document.body.classList.toggle(resizingColClass, resizingSidePanel || resizingChatPane);
+    }
+    document.body.classList.toggle(resizingRowClass, resizingTerminal);
+    return () => {
+      if (resizingColClass) document.body.classList.remove(resizingColClass);
+      document.body.classList.remove(resizingRowClass);
+    };
+  }, [resizingSidePanel, resizingChatPane, resizingTerminal]);
 
   const handleSplitterPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -421,6 +461,70 @@ const ChatPage: React.FC = () => {
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
   }, [chatPaneWidth]);
+
+  useEffect(() => {
+    localStorage.setItem('terminal_dock_height', String(terminalHeight));
+  }, [terminalHeight]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+        e.preventDefault();
+        setQuickOpenVisible(true);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  const handleTerminalSplitterPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = terminalHeight;
+    const minHeight = 120;
+    const maxHeight = Math.max(180, window.innerHeight * 0.6);
+    setResizingTerminal(true);
+    let pendingY = startY;
+    let rafId: number | null = null;
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      pendingY = moveEvent.clientY;
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        setTerminalHeight(Math.min(maxHeight, Math.max(minHeight, startHeight - (pendingY - startY))));
+      });
+    };
+
+    const handlePointerUp = () => {
+      if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+      setResizingTerminal(false);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+  }, [terminalHeight]);
+
+  const handleBreadcrumbClick = useCallback((_segment: string, fullPath: string) => {
+    setFileTreeMode('workspace');
+    let relPath = fullPath;
+    const root = workspaceTreeRoot.replace(/\\/g, '/');
+    if (relPath.startsWith(root)) {
+      relPath = relPath.slice(root.length).replace(/^\//, '');
+    }
+    const parts = relPath.split('/').filter(Boolean);
+    setWsExpandedFolders((prev) => {
+      const next = new Set(prev);
+      let cumulative = '';
+      for (const p of parts) {
+        cumulative = cumulative ? `${cumulative}/${p}` : p;
+        next.add(cumulative);
+      }
+      return next;
+    });
+  }, [workspaceTreeRoot]);
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
@@ -956,6 +1060,19 @@ if (existing) {
     [buildAgentPartMetadata, mergeAgentSessionPart, persistAgentMessages],
   );
 
+  const scheduleAgentSessionRefresh = useCallback(
+    (sessionId: string, delays = [1000, 3000, 6000]) => {
+      delays.forEach((delay) => {
+        window.setTimeout(() => {
+          getAgentSession(sessionId)
+            .then((session) => upsertAgentSessionMessage(session))
+            .catch(() => undefined);
+        }, delay);
+      });
+    },
+    [upsertAgentSessionMessage],
+  );
+
   const appendAgentSessionError = useCallback(
     async (content: string, session?: Partial<AgentSession> & { id?: string }) => {
       const now = new Date().toISOString();
@@ -1122,6 +1239,14 @@ if (existing) {
         } else if (chunk.chunk_type === 'error') {
           setAgentPhase({ phase: 'model_thinking_fallback', visible: true });
         }
+
+        const shouldRefreshSnapshot =
+          chunk.chunk_type === 'action' || sessionStatus === 'waiting_approval' || sessionStatus === 'waiting_permission';
+        if (shouldRefreshSnapshot) {
+          getAgentSession(sessionId)
+            .then((session) => upsertAgentSessionMessage(session))
+            .catch(() => undefined);
+        }
       };
       source.addEventListener('agent_session_event', (e: MessageEvent) => {
         try { void handleChunk(JSON.parse((e as MessageEvent).data) as AgentSessionEvent); } catch { /* ignore */ }
@@ -1193,6 +1318,15 @@ if (existing) {
 
   }, [currentSessionId, messages, startAgentSessionStream]);
 
+  const buildDeepContextPayload = useCallback(() => ({
+    active_context: activeFileContext,
+    explicit_context: explicitContextMentions,
+  }), [activeFileContext, explicitContextMentions]);
+
+  const handleActiveEditorContextChange = useCallback((context: ActiveFileContext | null) => {
+    setActiveFileContext(context);
+  }, [setActiveFileContext]);
+
   const handleAgentSession = useCallback(
     async (
       content: string,
@@ -1251,11 +1385,13 @@ if (existing) {
             content: goal,
             provider: cloudAIConfig?.provider || undefined,
             model: selectedCloudModel || cloudAIConfig?.model || undefined,
+            ...buildDeepContextPayload(),
           }),
           15000,
           'prompt_session_timeout',
         );
         await upsertAgentSessionMessage(started);
+        scheduleAgentSessionRefresh(session.id);
         return true;
       } catch (error: any) {
         const isTimeout = error?.message === 'create_session_timeout' || error?.message === 'prompt_session_timeout';
@@ -1284,6 +1420,7 @@ if (existing) {
     [
       addMessage,
       autonomyMode,
+      buildDeepContextPayload,
       cloudAIConfig?.model,
       cloudAIConfig?.provider,
       createSession,
@@ -1294,6 +1431,7 @@ if (existing) {
       selectedCloudModel,
       selectedPrimaryAgent,
       selectedWorkspaceLabel,
+      scheduleAgentSessionRefresh,
       startAgentSessionStream,
       upsertAgentSessionMessage,
     ],
@@ -1330,6 +1468,7 @@ if (existing) {
                 agent_id: selectedPrimaryAgent || 'build',
                 chat_session_id: currentSessionId && !currentSessionId.startsWith('local_') ? currentSessionId : undefined,
                 routing_mode: 'auto',
+                ...buildDeepContextPayload(),
               }),
               INTENT_ROUTING_TIMEOUT_MS,
               'intent_routing_timeout',
@@ -1374,7 +1513,7 @@ if (existing) {
       if (tempLoadingId) removeLocalMessage(tempLoadingId);
       if (useCloudAI && cloudAIConfig) {
         await sendCloudMessage(
-          { prompt: content },
+          { prompt: content, deepContext: buildDeepContextPayload() },
           {
             provider: cloudAIConfig.provider,
             apiKey: cloudAIConfig.api_key,
@@ -1385,12 +1524,13 @@ if (existing) {
           },
         );
       } else {
-        await sendMessage({ prompt: content });
+        await sendMessage({ prompt: content, deepContext: buildDeepContextPayload() });
       }
     },
     [
       addMessage,
       cloudAIConfig,
+      buildDeepContextPayload,
       currentSessionId,
       deleteMessage,
       handleAgentSession,
@@ -1793,6 +1933,21 @@ if (existing) {
     .map((message) => message.agent_metadata?.agent_part as AgentPart | undefined)
     .filter((part): part is AgentPart => Boolean(part));
   const latestAgentStatus = latestAgentMetadata?.status || 'idle';
+
+  // Auto-detect running terminal from command parts and show dock
+  useEffect(() => {
+    for (let i = latestAgentParts.length - 1; i >= 0; i--) {
+      const part = latestAgentParts[i];
+      if (part?.type === 'command' && part.payload?.terminal_id) {
+        const tid = String(part.payload.terminal_id);
+        setActiveTerminalId(tid);
+        if (part.status === 'running') setTerminalOpen(true);
+        break;
+      }
+    }
+  }, [latestAgentParts]);
+
+
   useEffect(() => {
     if (!latestAgentSessionId) {
       setAgentSessionOverview(null);
@@ -1977,6 +2132,97 @@ if (existing) {
     }
   }, [latestAgentSessionId]);
 
+  // ── Load workspace file tree when mode switches to 'workspace' ────────────────
+  const loadWorkspaceTree = useCallback(async (projectPath: string) => {
+    if (!projectPath) return;
+    setWorkspaceTreeLoading(true);
+    try {
+      const result = await getWorkspaceTree({
+        project_path: projectPath,
+        max_depth: 4,
+        limit: 400,
+      });
+      setWorkspaceTreeNodes(result.nodes);
+      setWorkspaceTreeRoot(result.root);
+      // Auto-expand top-level folders
+      const topFolders = new Set<string>();
+      for (const node of result.nodes) {
+        if (node.kind === 'folder') topFolders.add(node.path);
+      }
+      setWsExpandedFolders(topFolders);
+    } catch (err) {
+      notify.error('加载工作区文件树失败');
+    } finally {
+      setWorkspaceTreeLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (fileTreeMode === 'workspace' && effectiveProjectPath) {
+      void loadWorkspaceTree(effectiveProjectPath);
+    }
+  }, [fileTreeMode, effectiveProjectPath, loadWorkspaceTree]);
+
+  // ── Open a file from the workspace disk tree ─────────────────────────────────
+  const handleOpenWorkspaceFile = useCallback(async (node: WorkspaceTreeNode) => {
+    if (node.kind !== 'file') return;
+    const absPath = workspaceTreeRoot
+      ? `${workspaceTreeRoot}/${node.path}`.replace(/\\/g, '/')
+      : node.path;
+    // Already open - just switch focus
+    const existing = openedFiles.find((f) => f.path === absPath);
+    if (existing) {
+      setActiveFilePath(absPath);
+      setRecentPaths((prev) => {
+        const next = [absPath, ...prev.filter((p) => p !== absPath)];
+        return next.slice(0, 10);
+      });
+      return;
+    }
+
+    try {
+      const result = await readWorkspaceFile({
+        file_path: absPath,
+        project_path: effectiveProjectPath || undefined,
+      });
+      const fileName = node.name;
+      const newFile: OpenedFile = {
+        path: absPath,
+        name: fileName,
+        content: result.content,
+        status: 'unknown',
+        fromDisk: true,
+      };
+      setOpenedFiles((prev) => [...prev, newFile]);
+      setActiveFilePath(absPath);
+      setRecentPaths((prev) => {
+        const next = [absPath, ...prev.filter((p) => p !== absPath)];
+        return next.slice(0, 10);
+      });
+    } catch (err: any) {
+      notify.error(`打开文件失败: ${err?.response?.data?.detail || err?.message || '未知错误'}`);
+    }
+  }, [openedFiles, workspaceTreeRoot, effectiveProjectPath]);
+
+  // ── Save file back to disk ────────────────────────────────────────────────────
+  const handleSaveFile = useCallback(async (filePath: string, content: string) => {
+    try {
+      await writeWorkspaceFile({
+        file_path: filePath,
+        content,
+        project_path: effectiveProjectPath || undefined,
+      });
+      notify.success(`已保存: ${filePath.split('/').pop() || filePath}`);
+    } catch (err: any) {
+      notify.error(`保存失败: ${err?.response?.data?.detail || err?.message || '未知错误'}`);
+      throw err;
+    }
+  }, [effectiveProjectPath]);
+
+  // ── Auto-detect terminal_id from latest agent parts ──────────────────────────
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+
+
   const handleAcceptHunk = useCallback((filePath: string, hunkId: string) => {
     setOpenedFiles((prev) => {
       const file = prev.find((f) => f.path === filePath);
@@ -2055,6 +2301,8 @@ if (existing) {
           : /modify|update|change|edit|fix|modified|修改/.test(statusLower)
             ? 'processing'
             : 'default';
+      const icon = getFileIcon(node.name);
+      const isText = isTextIcon(icon.icon);
       return (
         <div
           key={node.path}
@@ -2072,7 +2320,15 @@ if (existing) {
             </div>
             <div className={styles.agentFileCardBody}>
               <div className={styles.agentFileCardTop}>
-                <div className={styles.agentFilePath}>{node.name}</div>
+                <div className={styles.agentFilePath} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span
+                    className={isText ? styles.iconBadge : styles.iconEmoji}
+                    style={{ ['--icon-color' as any]: icon.color }}
+                  >
+                    {icon.icon}
+                  </span>
+                  <span>{node.name}</span>
+                </div>
                 <Tag className={styles.agentFileStatus} color={statusTone}>{file.status || 'modified'}</Tag>
               </div>
               <div className={styles.agentFileSummary}>{file.summary}</div>
@@ -2095,6 +2351,9 @@ if (existing) {
               onClick={() => toggleFolder(node.path)}
             >
               <span className={`${styles.agentFolderChevron} ${isExpanded ? styles.agentFolderChevronOpen : ''}`}>▸</span>
+              <span className={styles.agentFolderEmoji} style={{ marginRight: '4px', fontSize: '14px' }}>
+                {isExpanded ? '📂' : '📁'}
+              </span>
               <span className={styles.agentFolderName}>{node.name}</span>
               <Tag className={styles.agentFolderTag}>{childrenCount}</Tag>
               <Tag className={styles.agentFolderSubTag}>{fileCount} files</Tag>
@@ -2213,36 +2472,173 @@ if (existing) {
     handleRefreshAgentRun,
   ]);
 
-  const slimFilePanel = useMemo(() => (
-    <div className={styles.slimFilePanel}>
-      <div className={styles.slimFilePanelHeader}>
-        <span>变更文件</span>
-        {agentFileSummaries.length > 0 && (
-          <span className={styles.slimFileCount}>{agentFileSummaries.length}</span>
+  const slimFilePanel = useMemo(() => {
+    const renderWsNode = (node: WorkspaceTreeNode, depth = 0): React.ReactNode => {
+      if (node.kind === 'file') {
+        const icon = getFileIcon(node.name);
+        const isText = isTextIcon(icon.icon);
+        return (
+          <div
+            key={node.path}
+            className={`${styles.agentFileCard} ${styles.agentFileCardClickable}`}
+            style={{ ['--file-depth' as any]: String(depth), margin: '0 4px 3px' }}
+            onClick={() => void handleOpenWorkspaceFile(node)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => e.key === 'Enter' && void handleOpenWorkspaceFile(node)}
+          >
+            <div className={styles.agentFileCardBody} style={{ padding: '8px 8px 8px 0' }}>
+              <div className={styles.agentFileCardTop}>
+                <div className={styles.agentFilePath} style={{ paddingLeft: `${depth * 10}px`, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span
+                    className={isText ? styles.iconBadge : styles.iconEmoji}
+                    style={{ ['--icon-color' as any]: icon.color }}
+                  >
+                    {icon.icon}
+                  </span>
+                  <span>{node.name}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+      if (node.kind === 'folder') {
+        const isExpanded = wsExpandedFolders.has(node.path);
+        return (
+          <div key={node.path} className={styles.agentFolderGroup} style={{ ['--folder-depth' as any]: String(depth) }}>
+            <button
+              type="button"
+              className={styles.agentFolderRow}
+              onClick={() => setWsExpandedFolders((prev) => { const next = new Set(prev); if (next.has(node.path)) next.delete(node.path); else next.add(node.path); return next; })}
+            >
+              <span className={`${styles.agentFolderChevron} ${isExpanded ? styles.agentFolderChevronOpen : ''}`}>▸</span>
+              <span className={styles.agentFolderEmoji} style={{ marginRight: '4px', fontSize: '14px' }}>
+                {isExpanded ? '📂' : '📁'}
+              </span>
+              <span className={styles.agentFolderName}>{node.name}</span>
+            </button>
+            {isExpanded && node.children && (
+              <div className={styles.agentFolderChildren}>
+                {node.children.map((child) => renderWsNode(child, depth + 1))}
+              </div>
+            )}
+          </div>
+        );
+      }
+      return null;
+    };
+
+    return (
+      <div className={styles.slimFilePanel}>
+        <div className={styles.slimFilePanelHeader}>
+          <div className={styles.fileTreeToggle}>
+            <button
+              type="button"
+              className={`${styles.fileTreeToggleBtn} ${fileTreeMode === 'agent' ? styles.fileTreeToggleBtnActive : ''}`}
+              onClick={() => setFileTreeMode('agent')}
+            >变更</button>
+            <button
+              type="button"
+              className={`${styles.fileTreeToggleBtn} ${fileTreeMode === 'workspace' ? styles.fileTreeToggleBtnActive : ''}`}
+              onClick={() => { setFileTreeMode('workspace'); }}
+            >工作区</button>
+          </div>
+          {fileTreeMode === 'agent' && agentFileSummaries.length > 0 && (
+            <span className={styles.slimFileCount}>{agentFileSummaries.length}</span>
+          )}
+          {fileTreeMode === 'workspace' && (
+            <button
+              type="button"
+              className={styles.fileTreeRefreshBtn}
+              onClick={() => void loadWorkspaceTree(effectiveProjectPath)}
+              disabled={workspaceTreeLoading}
+              title="刷新文件树"
+            >↺</button>
+          )}
+        </div>
+        {fileTreeMode === 'agent' ? (
+          agentFileSummaries.length > 0 ? (
+            <div className={styles.slimFileList}>
+              {renderTreeNode(agentFileTree)}
+            </div>
+          ) : (
+            <div className={styles.agentFileEmpty}>暂无变更文件</div>
+          )
+        ) : (
+          workspaceTreeLoading ? (
+            <div className={styles.agentFileEmpty}>正在加载文件树…</div>
+          ) : workspaceTreeNodes.length > 0 ? (
+            <div className={styles.slimFileList}>
+              {workspaceTreeNodes.map((node) => renderWsNode(node))}
+            </div>
+          ) : (
+            <div className={styles.agentFileEmpty}>
+              {effectiveProjectPath ? '文件树为空或无法访问' : '请先选择工作区目录'}
+            </div>
+          )
         )}
       </div>
-      {agentFileSummaries.length > 0 ? (
-        <div className={styles.slimFileList}>
-          {renderTreeNode(agentFileTree)}
-        </div>
-      ) : (
-        <div className={styles.agentFileEmpty}>暂无变更文件</div>
-      )}
-    </div>
-  ), [agentFileSummaries, agentFileTree, renderTreeNode]);
+    );
+  }, [
+    agentFileSummaries, agentFileTree, renderTreeNode,
+    fileTreeMode, workspaceTreeNodes, workspaceTreeLoading, wsExpandedFolders,
+    effectiveProjectPath, handleOpenWorkspaceFile, loadWorkspaceTree,
+  ]);
 
   const editorContent = useMemo(() => (
-    <AgentWorkspaceEditor
-      openedFiles={openedFiles}
-      activeFilePath={activeFilePath}
-      onTabChange={setActiveFilePath}
-      onTabClose={handleCloseEditorTab}
-      onAcceptHunk={handleAcceptHunk}
-      onRejectHunk={handleRejectHunk}
-      onAcceptAll={handleAcceptAll}
-      onRejectAll={handleRejectAll}
-    />
-  ), [openedFiles, activeFilePath, handleCloseEditorTab, handleAcceptHunk, handleRejectHunk, handleAcceptAll, handleRejectAll]);
+    <div className={styles.editorWithTerminal}>
+      <div className={styles.editorPaneMain}>
+        <AgentWorkspaceEditor
+          openedFiles={openedFiles}
+          activeFilePath={activeFilePath}
+          onTabChange={setActiveFilePath}
+          onTabClose={handleCloseEditorTab}
+          onActiveContextChange={handleActiveEditorContextChange}
+          onAcceptHunk={handleAcceptHunk}
+          onRejectHunk={handleRejectHunk}
+          onAcceptAll={handleAcceptAll}
+          onRejectAll={handleRejectAll}
+          onSave={handleSaveFile}
+          activeTerminalId={activeTerminalId}
+          onToggleTerminal={() => setTerminalOpen((o) => !o)}
+          terminalOpen={terminalOpen}
+          workspaceRoot={workspaceTreeRoot}
+          onBreadcrumbClick={handleBreadcrumbClick}
+        />
+      </div>
+      {terminalOpen && activeTerminalId && (
+        <div
+          className={styles.terminalDock}
+          style={{ height: terminalHeight, minHeight: 120, maxHeight: '60%' }}
+        >
+          <div
+            className={`${styles.terminalDockResizer} ${resizingTerminal ? styles.terminalDockResizerActive : ''}`}
+            onPointerDown={handleTerminalSplitterPointerDown}
+          />
+          <div className={styles.terminalDockBar}>
+            <span className={styles.terminalDockTitle}>▷ Terminal</span>
+            <button
+              type="button"
+              className={styles.terminalDockClose}
+              onClick={() => setTerminalOpen(false)}
+              aria-label="关闭终端"
+            >×</button>
+          </div>
+          <AgentTerminal
+            terminalId={activeTerminalId}
+            running={latestAgentStatus === 'running'}
+          />
+        </div>
+      )}
+    </div>
+  ), [
+    openedFiles, activeFilePath, handleCloseEditorTab,
+    handleAcceptHunk, handleRejectHunk, handleAcceptAll, handleRejectAll,
+    handleSaveFile, handleActiveEditorContextChange, activeTerminalId, terminalOpen, latestAgentStatus,
+    workspaceTreeRoot, handleBreadcrumbClick, terminalHeight, resizingTerminal,
+    handleTerminalSplitterPointerDown,
+  ]);
 
   const workbenchRunPanel = (
     <div style={{ display: 'grid', gap: 12 }}>
@@ -2367,17 +2763,19 @@ if (existing) {
       className={styles.chatContainer}
       style={isMobile ? { height: 'calc(100vh - 64px)' } : undefined}
     >
-      <ChatHeader
-        onNewChat={() => createSession()}
-        onOpenHistory={() => setHistoryOpen(true)}
-        onOpenMemory={() => setMemoryManagerOpen(true)}
-        onOpenContextPanel={() => setContextPanelOpen(true)}
-        onClearChat={handleClearChat}
-        onExportChat={handleExportChat}
-        messageCount={messages.length}
-        activeModeLabel={activeModeLabel}
-        activeModelLabel={activeModelLabel}
-      />
+      <div style={{ display: 'none' }}>
+        <ChatHeader
+          onNewChat={() => createSession()}
+          onOpenHistory={() => setHistoryOpen(true)}
+          onOpenMemory={() => setMemoryManagerOpen(true)}
+          onOpenContextPanel={() => setContextPanelOpen(true)}
+          onClearChat={handleClearChat}
+          onExportChat={handleExportChat}
+          messageCount={messages.length}
+          activeModeLabel={activeModeLabel}
+          activeModelLabel={activeModelLabel}
+        />
+      </div>
       <div className={styles.chatWorkspace}>
         <main className={styles.mainChatPane} style={{ flex: `0 0 ${chatPaneWidth}px`, minWidth: 0, ...(isDesktop && !chatPanelOpen ? { flexBasis: 0, overflow: 'hidden', opacity: 0, pointerEvents: 'none' } : {}) }}>
           <motion.div
@@ -2502,6 +2900,7 @@ if (existing) {
             onSend={handleSend}
             onStop={handleStopCurrentRun}
             onClear={handleClearChat}
+            onNewChat={() => createSession()}
             disabled={!settings.modelId && !useCloudAI}
             loading={isLoading}
             isStreaming={isActivelyStreaming || isAgentSessionRunning}
@@ -2510,6 +2909,11 @@ if (existing) {
             routingMode={routingMode}
             routing={routingIntent}
             autonomyMode={autonomyMode}
+            workspaceFiles={workspaceFileNodes}
+            projectPath={effectiveProjectPath || undefined}
+            selectedMentions={explicitContextMentions}
+            onMentionsChange={setExplicitContextMentions}
+            activeFileContext={activeFileContext}
           />
         </main>
 
@@ -2663,6 +3067,15 @@ if (existing) {
           initialConfig={cloudAIConfig}
         />
       </Modal>
+
+      <QuickFileOpener
+        open={quickOpenVisible}
+        onClose={() => setQuickOpenVisible(false)}
+        nodes={workspaceTreeNodes}
+        rootPath={workspaceTreeRoot}
+        onSelectFile={handleOpenWorkspaceFile}
+        recentPaths={recentPaths}
+      />
     </div>
   );
 };

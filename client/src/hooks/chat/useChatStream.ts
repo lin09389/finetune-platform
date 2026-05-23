@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { API_BASE_URL } from '../../services/api';
+import type { ActiveFileContext, ExplicitContextMention } from '../../services/api';
 import { persistChatRunToSession } from '../../services/chatSessionApi';
 import { generateTitleCloud, generateTitleLocal } from '../../services/api';
 import { useChatStore } from '../../store/chatStore';
@@ -46,6 +47,10 @@ export interface ChatSendPayload {
   systemPrompt?: string;
   responseFormat?: 'text' | 'json';
   attachments?: PlaygroundAttachment[];
+  deepContext?: {
+    active_context?: ActiveFileContext | null;
+    explicit_context?: ExplicitContextMention[];
+  };
   knowledgeOverride?: { enabled: boolean; collectionId?: string };
   memoryOverride?: { enabled: boolean };
   parameterOverrides?: {
@@ -377,6 +382,8 @@ export function useChatStream(config: StreamConfig = {}) {
           use_context: currentState.settings.useProjectContext,
           project_path: currentState.settings.projectPath,
           max_context_length: 1500,
+          active_context: payload.deepContext?.active_context ?? null,
+          explicit_context: payload.deepContext?.explicit_context ?? [],
         },
       };
 
@@ -481,6 +488,7 @@ export function useChatStream(config: StreamConfig = {}) {
             const persisted = await persistChatRunToSession(sessionId, prompt, result.content, {
               userMetadata: {
                 message_id: userMessageId,
+                deep_context: payload.deepContext,
               },
               assistantMetadata,
             });
@@ -620,6 +628,8 @@ export function useChatStream(config: StreamConfig = {}) {
           use_context: currentState.settings.useProjectContext,
           project_path: currentState.settings.projectPath,
           max_context_length: 1500,
+          active_context: payload.deepContext?.active_context ?? null,
+          explicit_context: payload.deepContext?.explicit_context ?? [],
         },
       };
 
@@ -738,6 +748,7 @@ const throttleMs = 50; // Throttle to ~20fps for better performance during strea
             const persisted = await persistChatRunToSession(sessionId, prompt, result.content, {
               userMetadata: {
                 message_id: userMessageId,
+                deep_context: payload.deepContext,
               },
               assistantMetadata,
             });

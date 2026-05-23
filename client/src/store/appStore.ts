@@ -7,6 +7,7 @@ import type {
   TrainingProgress,
   TrainingRecord,
 } from '../types';
+import type { ActiveFileContext } from '../services/api';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -22,6 +23,7 @@ interface AppState {
   themeMode: ThemeMode;
   actualTheme: 'light' | 'dark';
   sidebarCollapsed: boolean;
+  activeFileContext: ActiveFileContext | null;
 
   setBackendUrl: (url: string) => void;
   setBackendStatus: (status: 'connected' | 'disconnected' | 'checking') => void;
@@ -41,6 +43,7 @@ interface AppState {
   setThemeMode: (mode: ThemeMode) => void;
   setActualTheme: (theme: 'light' | 'dark') => void;
   toggleSidebar: () => void;
+  setActiveFileContext: (context: ActiveFileContext | null) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -57,6 +60,7 @@ export const useAppStore = create<AppState>()(
       themeMode: 'system',
       actualTheme: 'light',
       sidebarCollapsed: false,
+      activeFileContext: null,
 
       setBackendUrl: (url) => set({ backendUrl: url }),
       setBackendStatus: (status) => set({ backendStatus: status }),
@@ -86,6 +90,7 @@ export const useAppStore = create<AppState>()(
       setThemeMode: (mode) => set({ themeMode: mode }),
       setActualTheme: (theme) => set({ actualTheme: theme }),
       toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+      setActiveFileContext: (context) => set({ activeFileContext: context }),
     }),
     {
       name: 'finetune-storage',

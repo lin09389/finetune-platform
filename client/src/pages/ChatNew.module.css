@@ -1,13 +1,12 @@
 .chatContainer {
   position: relative;
-  height: calc(100vh - 72px);
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: transparent;
-  border-radius: var(--radius-xl);
+  border-radius: 0;
   overflow: hidden;
 }
-
 .chatWorkspace {
   min-height: 0;
   flex: 1;
@@ -937,4 +936,216 @@
   .wsCard:hover {
     transform: none;
   }
+}
+
+/* ── Editor + Terminal vertical layout ──────────────────────────────────────── */
+
+.editorWithTerminal {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.editorPaneMain {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Bottom-docked Terminal ─────────────────────────────────────────────────── */
+
+.terminalDock {
+  position: relative;
+  flex: 0 0 auto;
+  height: 240px;
+  min-height: 180px;
+  max-height: 50%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-top: 1px solid rgba(115, 226, 167, 0.25);
+  background: #090d12;
+  animation: slideUpIn 0.2s ease-out;
+}
+
+@keyframes slideUpIn {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+.terminalDockBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  background: #111820;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex: 0 0 auto;
+}
+
+.terminalDockTitle {
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(115, 226, 167, 0.8);
+  letter-spacing: 0.5px;
+  font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+}
+
+.terminalDockClose {
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.14s, color 0.14s;
+}
+
+.terminalDockClose:hover {
+  background: rgba(255, 77, 79, 0.2);
+  color: rgba(255, 120, 120, 0.9);
+}
+
+/* ── Dual-mode file tree toggle ─────────────────────────────────────────────── */
+
+.fileTreeToggle {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.fileTreeToggleBtn {
+  height: 20px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.42);
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.14s, color 0.14s;
+}
+
+.fileTreeToggleBtn:hover {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.fileTreeToggleBtnActive {
+  background: rgba(22, 119, 255, 0.22);
+  color: rgba(140, 195, 255, 0.95);
+}
+
+.fileTreeRefreshBtn {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.14s, transform 0.2s;
+}
+
+.fileTreeRefreshBtn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.72);
+  transform: rotate(180deg);
+}
+
+.fileTreeRefreshBtn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+:global(.light-theme) .fileTreeToggle {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+:global(.light-theme) .fileTreeToggleBtn {
+  color: rgba(0, 0, 0, 0.42);
+}
+
+:global(.light-theme) .fileTreeToggleBtn:hover {
+  color: rgba(0, 0, 0, 0.72);
+}
+
+:global(.light-theme) .fileTreeToggleBtnActive {
+  background: rgba(22, 119, 255, 0.14);
+  color: rgba(22, 119, 255, 0.9);
+}
+
+/* ── Resizable Terminal Dock & Splitter ──────────────────────────────────── */
+
+.terminalDockResizer {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: row-resize;
+  z-index: 100;
+  background: transparent;
+  transition: background-color 0.2s ease;
+}
+
+.terminalDockResizer:hover,
+.terminalDockResizerActive {
+  background-color: var(--accent-primary, #1677ff) !important;
+}
+
+/* ── Body-level Drag cursors ────────────────────────────────────────────── */
+
+:global(body.resizingTerminal) {
+  cursor: row-resize !important;
+  user-select: none !important;
+}
+
+:global(body.resizingTerminal) * {
+  cursor: row-resize !important;
+  user-select: none !important;
+}
+
+/* ── File type icons & badges in workspace/agent tree lists ─────────────── */
+
+.iconEmoji {
+  font-size: 14px;
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+  line-height: 1;
+}
+
+.iconBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 16px;
+  border-radius: 3px;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: -0.3px;
+  flex-shrink: 0;
+  color: var(--icon-color, #8c8c8c);
+  background: color-mix(in srgb, var(--icon-color, #8c8c8c) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--icon-color, #8c8c8c) 30%, transparent);
+  font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
 }

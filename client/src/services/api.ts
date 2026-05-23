@@ -530,6 +530,8 @@ export interface ChatAgentIntentRequest {
   agent_id?: string;
   chat_session_id?: string;
   routing_mode?: 'auto' | 'chat' | 'agent';
+  active_context?: ActiveFileContext | null;
+  explicit_context?: ExplicitContextMention[];
 }
 
 export interface ChatAgentIntentResponse {
@@ -607,6 +609,75 @@ export interface AgentPromptRequest {
   content: string;
   provider?: string;
   model?: string;
+  active_context?: ActiveFileContext | null;
+  explicit_context?: ExplicitContextMention[];
+}
+
+export interface ActiveFileContext {
+  file_path?: string;
+  language?: string;
+  cursor?: {
+    line: number;
+    column: number;
+  };
+  selection?: {
+    start_line: number;
+    start_column: number;
+    end_line: number;
+    end_column: number;
+    text?: string;
+  } | null;
+  content_preview?: string;
+  updated_at?: string;
+}
+
+export interface ExplicitContextMention {
+  id: string;
+  type: 'file' | 'symbol' | 'endpoint';
+  label: string;
+  path?: string;
+  line?: number;
+  source?: 'workspace' | 'semantic';
+  content?: string;
+}
+
+export interface ContextRetrieveResult {
+  type: string;
+  path?: string | null;
+  source_file?: string | null;
+  relevance?: number;
+  score?: number;
+  summary?: string | null;
+  content?: string | null;
+  symbols?: Array<{
+    type: string;
+    name: string;
+    line: number;
+    file_path?: string | null;
+    docstring?: string | null;
+    parameters?: string[] | null;
+  }>;
+}
+
+export interface ContextRetrieveResponse {
+  success: boolean;
+  context: ContextRetrieveResult[];
+  project_info?: Record<string, any> | null;
+}
+
+export interface ContextMention extends ExplicitContextMention {
+  detail?: string;
+  method?: string;
+  route?: string;
+  score?: number;
+  related?: Array<Record<string, any>>;
+}
+
+export interface ContextMentionResponse {
+  success: boolean;
+  mentions: ContextMention[];
+  project_info?: Record<string, any> | null;
+  indexed_at?: string | null;
 }
 
 export interface AgentPart {
@@ -788,6 +859,31 @@ export const classifyChatAgentIntent = async (
   return response.data;
 };
 
+export const retrieveProjectContext = async (payload: {
+  query: string;
+  project_path?: string;
+  path?: string;
+  top_k?: number;
+}): Promise<ContextRetrieveResponse> => {
+  const response = await apiClient.post('/context/retrieve', payload, {
+    suppressErrorLogging: true,
+  } as any);
+  return response.data;
+};
+
+export const searchContextMentions = async (payload: {
+  query?: string;
+  project_path?: string;
+  path?: string;
+  kinds?: Array<'file' | 'symbol' | 'endpoint'>;
+  limit?: number;
+}): Promise<ContextMentionResponse> => {
+  const response = await apiClient.post('/context/mentions', payload, {
+    suppressErrorLogging: true,
+  } as any);
+  return response.data;
+};
+
 export const createAgentSession = async (payload: AgentSessionCreate): Promise<AgentSession> => {
   const response = await apiClient.post('/agent-sessions', payload);
   return response.data;
@@ -824,6 +920,26 @@ export const browseFolderBackend = async (initialPath?: string): Promise<{ statu
   });
   return response.data;
 };
+
+export const readWorkspaceFile = async (params: {
+  file_path: string;
+  workspace_id?: string;
+  project_path?: string;
+}): Promise<{ path: string; content: string }> => {
+  const response = await apiClient.get('/workspace/read-file', { params });
+  return response.data;
+};
+
+export const writeWorkspaceFile = async (payload: {
+  file_path: string;
+  content: string;
+  workspace_id?: string;
+  project_path?: string;
+}): Promise<{ status: string; path: string }> => {
+  const response = await apiClient.post('/workspace/write-file', payload);
+  return response.data;
+};
+
 
 export const getAgentSession = async (sessionId: string): Promise<AgentSession> => {
   const response = await apiClient.get(`/agent-sessions/${sessionId}`);

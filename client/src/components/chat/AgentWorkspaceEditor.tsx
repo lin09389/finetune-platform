@@ -2,6 +2,8 @@ import Editor, { DiffEditor } from "@monaco-editor/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "../../theme";
 import type { DiffHunk } from "../../utils/diffHunks";
+import { getFileIcon, isTextIcon } from "../../utils/fileIcons";
+import type { ActiveFileContext } from "../../services/api";
 import styles from "./AgentWorkspaceEditor.module.css";
 
 export type { DiffHunk };
@@ -15,6 +17,8 @@ export interface OpenedFile {
   language?: string;
   hunks?: DiffHunk[];
   actionId?: string;
+  /** Whether the file was loaded from disk (user-browsed) vs. an agent artifact */
+  fromDisk?: boolean;
 }
 
 export interface AgentWorkspaceEditorProps {
@@ -26,6 +30,18 @@ export interface AgentWorkspaceEditorProps {
   onRejectHunk?: (filePath: string, hunkId: string) => void | Promise<void>;
   onAcceptAll?: (filePath: string) => void;
   onRejectAll?: (filePath: string) => void;
+  /** Called when user saves a file (Ctrl+S or save button). Receives path and new content. */
+  onSave?: (filePath: string, content: string) => void | Promise<void>;
+  /** Active agent terminal_id, if any – shows terminal toggle hint in toolbar */
+  activeTerminalId?: string | null;
+  /** Called when user clicks the terminal toggle button */
+  onToggleTerminal?: () => void;
+  terminalOpen?: boolean;
+  /** Workspace root absolute path */
+  workspaceRoot?: string;
+  /** Callback when a breadcrumb segment is clicked */
+  onBreadcrumbClick?: (segment: string, fullPath: string) => void;
+  onActiveContextChange?: (context: ActiveFileContext | null) => void;
 }
 
 const EXT_LANGUAGE_MAP: Record<string, string> = {
@@ -43,32 +59,174 @@ const getLanguage = (path: string): string => {
   return EXT_LANGUAGE_MAP[ext] ?? "plaintext";
 };
 
-const STATUS_DOT_COLOR: Record<OpenedFile["status"], string> = {
-  added: "#52c41a", deleted: "#ff4d4f", modified: "#1677ff", unknown: "#8c8c8c",
-};
 
-const MONACO_OPTIONS = {
-  readOnly: true, fontSize: 12, minimap: { enabled: false },
+
+const MONACO_READONLY_OPTIONS = {
+  readOnly: true, fontSize: 13, minimap: { enabled: false },
   scrollBeyondLastLine: false, wordWrap: "on" as const,
   lineNumbers: "on" as const, glyphMargin: false, folding: true,
   renderLineHighlight: "none" as const, overviewRulerLanes: 0,
+  fontFamily: '"Cascadia Code", "JetBrains Mono", "Fira Code", Consolas, monospace',
+  fontLigatures: true,
 };
 
-const MONACO_DIFF_OPTIONS = { ...MONACO_OPTIONS, renderSideBySide: true, enableSplitViewResizing: true };
+const MONACO_EDITABLE_OPTIONS = {
+  ...MONACO_READONLY_OPTIONS,
+  readOnly: false,
+  cursorBlinking: "smooth" as const,
+  suggestOnTriggerCharacters: true,
+  quickSuggestions: true,
+  renderLineHighlight: "line" as const,
+};
+
+const MONACO_DIFF_OPTIONS = { ...MONACO_READONLY_OPTIONS, renderSideBySide: true, enableSplitViewResizing: true };
 
 const AgentWorkspaceEditor: React.FC<AgentWorkspaceEditorProps> = ({
   openedFiles, activeFilePath, onTabChange, onTabClose,
   onAcceptHunk, onRejectHunk, onAcceptAll, onRejectAll,
+  onSave, onToggleTerminal, terminalOpen, activeTerminalId,
+  workspaceRoot, onBreadcrumbClick, onActiveContextChange,
 }) => {
   const { theme } = useTheme();
   const monacoTheme = theme === "dark" ? "vs-dark" : "light";
   const diffEditorRef = useRef<any>(null);
+  const editorRef = useRef<any>(null);
+  const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
 
   const activeFile = useMemo(
     () => openedFiles.find((f) => f.path === activeFilePath) ?? openedFiles[0] ?? null,
     [openedFiles, activeFilePath],
   );
   const showDiff = activeFile?.status === "modified" && typeof activeFile?.original === "string";
+
+  // In diff-review mode the editor is always read-only; for normal files allow editing
+  const isEditableMode = Boolean(activeFile && !showDiff);
+
+  const handleEditorMount = useCallback((editor: any) => {
+    editorRef.current = editor;
+    const emitContext = () => {
+      const file = activeFileRef.current;
+      if (!file) {
+        onActiveContextChange?.(null);
+        return;
+      }
+      const position = editor.getPosition?.();
+      const selection = editor.getSelection?.();
+      const model = editor.getModel?.();
+      const selectedText = selection && model ? model.getValueInRange(selection) : "";
+      const content = model?.getValue?.() ?? file.content ?? "";
+      onActiveContextChange?.({
+        file_path: file.path,
+        language: file.language ?? getLanguage(file.path),
+        cursor: {
+          line: position?.lineNumber || 1,
+          column: position?.column || 1,
+        },
+        selection: selection && selectedText
+          ? {
+              start_line: selection.startLineNumber,
+              start_column: selection.startColumn,
+              end_line: selection.endLineNumber,
+              end_column: selection.endColumn,
+              text: selectedText.slice(0, 4000),
+            }
+          : null,
+        content_preview: content.slice(0, 4000),
+        updated_at: new Date().toISOString(),
+      });
+    };
+    editor.onDidChangeCursorPosition((e: any) => {
+      setCursorPos({ line: e.position.lineNumber, col: e.position.column });
+      emitContext();
+    });
+    editor.onDidChangeCursorSelection(emitContext);
+    emitContext();
+  }, [onActiveContextChange]);
+
+  const breadcrumbs = useMemo(() => {
+    if (!activeFile) return [];
+    let path = activeFile.path.replace(/\\/g, '/');
+    if (workspaceRoot) {
+      const root = workspaceRoot.replace(/\\/g, '/');
+      if (path.startsWith(root)) {
+        path = path.slice(root.length).replace(/^\//, '');
+      }
+    }
+    return path.split('/').filter(Boolean);
+  }, [activeFile, workspaceRoot]);
+
+  const handleBreadcrumbClick = useCallback((index: number) => {
+    if (!activeFile || !onBreadcrumbClick) return;
+    let path = activeFile.path.replace(/\\/g, '/');
+    let isRelative = false;
+    if (workspaceRoot) {
+      const root = workspaceRoot.replace(/\\/g, '/');
+      if (path.startsWith(root)) {
+        path = path.slice(root.length).replace(/^\//, '');
+        isRelative = true;
+      }
+    }
+    const parts = path.split('/').filter(Boolean);
+    const subParts = parts.slice(0, index + 1);
+    const cumulativePath = isRelative && workspaceRoot
+      ? `${workspaceRoot}/${subParts.join('/')}`.replace(/\\/g, '/')
+      : subParts.join('/');
+
+    onBreadcrumbClick(parts[index]!, cumulativePath);
+  }, [activeFile, workspaceRoot, onBreadcrumbClick]);
+
+  useEffect(() => {
+    setCursorPos({ line: 1, col: 1 });
+    if (!activeFile) {
+      onActiveContextChange?.(null);
+      return;
+    }
+    onActiveContextChange?.({
+      file_path: activeFile.path,
+      language: activeFile.language ?? getLanguage(activeFile.path),
+      cursor: { line: 1, column: 1 },
+      selection: null,
+      content_preview: (activeFile.content ?? "").slice(0, 4000),
+      updated_at: new Date().toISOString(),
+    });
+  }, [activeFile, activeFilePath, onActiveContextChange]);
+
+  // Track dirty (unsaved) content for the active file
+  const [dirtyContent, setDirtyContent] = useState<Record<string, string>>({});
+  const [savingPath, setSavingPath] = useState<string | null>(null);
+
+  // Reset dirty state when active file changes
+  useEffect(() => {
+    // no-op: dirty content persists per path until saved or tab closed
+  }, [activeFile?.path]);
+
+  const currentContent = activeFile
+    ? (dirtyContent[activeFile.path] ?? activeFile.content ?? "")
+    : "";
+
+  const isDirty = activeFile ? (activeFile.path in dirtyContent) : false;
+
+  const handleEditorChange = useCallback((value: string | undefined) => {
+    if (!activeFile) return;
+    setDirtyContent((prev) => ({ ...prev, [activeFile.path]: value ?? "" }));
+  }, [activeFile]);
+
+  const handleSave = useCallback(async () => {
+    if (!activeFile || !onSave) return;
+    const content = dirtyContent[activeFile.path] ?? activeFile.content ?? "";
+    setSavingPath(activeFile.path);
+    try {
+      await onSave(activeFile.path, content);
+      // Clear dirty state after successful save
+      setDirtyContent((prev) => {
+        const next = { ...prev };
+        delete next[activeFile.path];
+        return next;
+      });
+    } finally {
+      setSavingPath(null);
+    }
+  }, [activeFile, dirtyContent, onSave]);
 
   const hunks: DiffHunk[] = activeFile?.hunks ?? [];
   const [currentHunkIdx, setCurrentHunkIdx] = useState(0);
@@ -84,20 +242,33 @@ const AgentWorkspaceEditor: React.FC<AgentWorkspaceEditorProps> = ({
   const onRejectHunkRef = useRef(onRejectHunk);
   const onAcceptAllRef  = useRef(onAcceptAll);
   const onRejectAllRef  = useRef(onRejectAll);
+  const onSaveRef       = useRef(onSave);
   const currentHunkRef  = useRef(currentHunk);
   const activeFileRef   = useRef(activeFile);
   const hunksLenRef     = useRef(hunks.length);
+  const isEditableModeRef = useRef(isEditableMode);
   useEffect(() => { onAcceptHunkRef.current  = onAcceptHunk; });
   useEffect(() => { onRejectHunkRef.current  = onRejectHunk; });
   useEffect(() => { onAcceptAllRef.current   = onAcceptAll;  });
   useEffect(() => { onRejectAllRef.current   = onRejectAll;  });
+  useEffect(() => { onSaveRef.current        = onSave;       });
   useEffect(() => { currentHunkRef.current   = currentHunk;  });
   useEffect(() => { activeFileRef.current    = activeFile;   });
   useEffect(() => { hunksLenRef.current      = hunks.length; });
+  useEffect(() => { isEditableModeRef.current = isEditableMode; });
 
   /* ── Global keyboard shortcuts ──────────────────────────── */
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Ctrl+S / Cmd+S → save
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        const af = activeFileRef.current;
+        if (af && onSaveRef.current && isEditableModeRef.current) {
+          void handleSave();
+        }
+        return;
+      }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const tag = (document.activeElement as HTMLElement)?.tagName?.toLowerCase();
       if (tag === "input" || tag === "textarea") return;
@@ -113,7 +284,7 @@ const AgentWorkspaceEditor: React.FC<AgentWorkspaceEditorProps> = ({
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, []);
+  }, [handleSave]);
 
   /* ── Scroll DiffEditor to current hunk line ─────────────── */
   useEffect(() => {
@@ -135,6 +306,13 @@ const AgentWorkspaceEditor: React.FC<AgentWorkspaceEditorProps> = ({
     [onTabClose],
   );
 
+  const language = activeFile ? (activeFile.language ?? getLanguage(activeFile.path)) : "plaintext";
+
+  const hunksProgress = useMemo(() => {
+    if (hunks.length === 0) return null;
+    return `✓${acceptedCount} ✗${rejectedCount} pending${pendingCount}`;
+  }, [hunks.length, acceptedCount, rejectedCount, pendingCount]);
+
   return (
     <div className={styles.editorWrap}>
       {/* ── Tab bar ────────────────────────────────────────── */}
@@ -142,15 +320,25 @@ const AgentWorkspaceEditor: React.FC<AgentWorkspaceEditorProps> = ({
         {openedFiles.map((file) => {
           const isActive = file.path === activeFile?.path;
           const hasPending = file.hunks?.some((h) => h.status === "pending") ?? false;
+          const fileIsDirty = file.path in dirtyContent;
+          const icon = getFileIcon(file.name);
+          const isText = isTextIcon(icon.icon);
           return (
             <div key={file.path} role="tab" aria-selected={isActive} tabIndex={isActive ? 0 : -1}
               className={`${styles.tab} ${isActive ? styles.tabActive : ""}`}
               onClick={() => onTabChange(file.path)}
               onKeyDown={(e) => handleTabKeyDown(e, file.path)}
             >
-              <span className={styles.tabDot} style={{ background: STATUS_DOT_COLOR[file.status] }} aria-hidden="true" />
+              <span
+                className={isText ? styles.iconBadge : styles.iconEmoji}
+                style={{ ['--icon-color' as any]: icon.color }}
+                aria-hidden="true"
+              >
+                {icon.icon}
+              </span>
               <span className={styles.tabName} title={file.path}>{file.name}</span>
-              {hasPending && <span className={styles.tabPendingDot} title="有待确认的 hunk" aria-hidden="true" />}
+              {hasPending && <span className={styles.tabPendingDot} title="有待确认时的 hunk" aria-hidden="true" />}
+              {fileIsDirty && <span className={styles.tabDirtyDot} title="未保存修改" aria-hidden="true" />}
               <span className={styles.tabClose} role="button" aria-label={`关闭 ${file.name}`} tabIndex={-1}
                 onClick={(e) => { e.stopPropagation(); onTabClose(file.path); }}
                 onKeyDown={(e) => handleCloseKeyDown(e, file.path)}
@@ -163,16 +351,41 @@ const AgentWorkspaceEditor: React.FC<AgentWorkspaceEditorProps> = ({
       {/* ── Review toolbar ─────────────────────────────────── */}
       <div className={styles.reviewToolbar}>
         <div className={styles.reviewMeta}>
-          <span className={styles.reviewKicker}>AI Code Review</span>
+          <span className={styles.reviewKicker}>
+            {showDiff ? "AI Code Review" : isEditableMode ? "Editor" : "Preview"}
+          </span>
           <span className={styles.reviewTitle}>{activeFile ? activeFile.path : "等待选择变更文件"}</span>
         </div>
         <div className={styles.reviewRight}>
+          {/* Editable mode indicator */}
+          {isEditableMode && (
+            <span className={`${styles.modeIndicator} ${isDirty ? styles.modeIndicatorDirty : styles.modeIndicatorClean}`}>
+              {isDirty ? "● 未保存" : "✓ 已保存"}
+            </span>
+          )}
+          {showDiff && (
+            <span className={styles.modeIndicatorReview}>REVIEW MODE</span>
+          )}
+          {/* Review stats */}
           {hunks.length > 0 && (
             <div className={styles.reviewStats}>
               {pendingCount > 0 && <span className={styles.statPending}>{pendingCount} pending</span>}
               {acceptedCount > 0 && <span className={styles.statAccepted}>✓ {acceptedCount}</span>}
               {rejectedCount > 0 && <span className={styles.statRejected}>✗ {rejectedCount}</span>}
             </div>
+          )}
+          {/* Save button */}
+          {isEditableMode && onSave && isDirty && (
+            <button
+              type="button"
+              className={`${styles.bulkBtn} ${styles.saveBtn}`}
+              onClick={() => void handleSave()}
+              disabled={savingPath === activeFile?.path}
+              title="保存文件 (Ctrl+S)"
+              aria-label="保存文件"
+            >
+              {savingPath === activeFile?.path ? "保存中..." : "↓ 保存"}
+            </button>
           )}
           {pendingCount > 0 && activeFile && (
             <div className={styles.reviewBulkActions}>
@@ -186,8 +399,43 @@ const AgentWorkspaceEditor: React.FC<AgentWorkspaceEditorProps> = ({
               </button>
             </div>
           )}
+          {/* Terminal toggle */}
+          {(activeTerminalId || onToggleTerminal) && (
+            <button
+              type="button"
+              className={`${styles.bulkBtn} ${terminalOpen ? styles.terminalBtnActive : styles.terminalBtn}`}
+              onClick={onToggleTerminal}
+              title={terminalOpen ? "隐藏终端" : "显示终端"}
+              aria-label={terminalOpen ? "隐藏终端" : "显示终端"}
+            >
+              {terminalOpen ? "▽ 终端" : "▷ 终端"}
+            </button>
+          )}
         </div>
       </div>
+
+      {/* ── Breadcrumb path ────────────────────────────────── */}
+      {activeFile && (
+        <div className={styles.breadcrumb} role="navigation" aria-label="文件路径面包屑">
+          <span className={styles.breadcrumbRootIcon}>📁</span>
+          {breadcrumbs.map((segment, index) => {
+            const isLast = index === breadcrumbs.length - 1;
+            return (
+              <React.Fragment key={index}>
+                {index > 0 && <span className={styles.breadcrumbSep}>/</span>}
+                <button
+                  type="button"
+                  className={`${styles.breadcrumbSeg} ${isLast ? styles.breadcrumbSegLast : ""}`}
+                  disabled={isLast || !onBreadcrumbClick}
+                  onClick={() => handleBreadcrumbClick(index)}
+                >
+                  {segment}
+                </button>
+              </React.Fragment>
+            );
+          })}
+        </div>
+      )}
 
       {/* ── Hunk navigator ─────────────────────────────────── */}
       {hunks.length > 0 && (
@@ -227,7 +475,7 @@ const AgentWorkspaceEditor: React.FC<AgentWorkspaceEditorProps> = ({
             <path d="M16 18l8 6-8 6M27 30h6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" strokeOpacity=".55" />
           </svg>
           <span className={styles.emptyTitle}>暂无打开的文件</span>
-          <span className={styles.emptyHint}>点击左侧文件树中的变更文件即可在此查看代码</span>
+          <span className={styles.emptyHint}>点击左侧文件树中的文件即可在此查看或编辑代码</span>
         </div>
       ) : showDiff ? (
         <div className={styles.monacoWrap}>
@@ -237,9 +485,45 @@ const AgentWorkspaceEditor: React.FC<AgentWorkspaceEditorProps> = ({
         </div>
       ) : (
         <div className={styles.monacoWrap}>
-          <Editor height="100%" value={activeFile.content ?? ""}
+          <Editor
+            height="100%"
+            value={currentContent}
             language={activeFile.language ?? getLanguage(activeFile.path)}
-            theme={monacoTheme} options={MONACO_OPTIONS} />
+            theme={monacoTheme}
+            options={isEditableMode ? MONACO_EDITABLE_OPTIONS : MONACO_READONLY_OPTIONS}
+            onChange={handleEditorChange}
+            onMount={handleEditorMount}
+          />
+        </div>
+      )}
+
+      {/* ── Status Bar ──────────────────────────────────────── */}
+      {activeFile && (
+        <div className={styles.statusBar}>
+          <div className={styles.statusBarLeft}>
+            <span className={styles.statusBarItem} title="光标位置">
+              Ln {cursorPos.line}, Col {cursorPos.col}
+            </span>
+            <span className={styles.statusBarSep} />
+            <span className={styles.statusBarItem} title="文件编码">
+              UTF-8
+            </span>
+            <span className={styles.statusBarSep} />
+            <span className={styles.statusBarItem} title="行尾符">
+              LF
+            </span>
+            <span className={styles.statusBarSep} />
+            <span className={styles.statusBarItem} style={{ textTransform: "uppercase" }} title="语言">
+              {language}
+            </span>
+          </div>
+          <div className={styles.statusBarRight}>
+            {hunksProgress && (
+              <span className={styles.statusBarItem} title="Review Hunk 进度">
+                Hunks: {hunksProgress}
+              </span>
+            )}
+          </div>
         </div>
       )}
     </div>
