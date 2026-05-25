@@ -262,12 +262,6 @@ def training_thread(
                 task_id=record.id,
                 event_loop=event_loop,
             )
-            # 延迟绑定 ws_manager 以避免循环导入
-            try:
-                from api.training import get_ws_manager
-                bus._ws_manager = get_ws_manager()
-            except Exception:
-                pass
 
             # 使用策略驱动的 Pipeline 执行训练
             with TrainingPipeline(

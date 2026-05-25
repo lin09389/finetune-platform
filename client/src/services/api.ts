@@ -1370,6 +1370,38 @@ export const subscribeTrainingProgress = (
   };
 };
 
+export const subscribeTrainingLogs = (
+  taskId: string,
+  onLine: (line: string) => void,
+  onError?: (error: Error) => void,
+  history: number = 50,
+) => {
+  const params = new URLSearchParams();
+  params.set('history', String(history));
+  const eventSource = new EventSource(
+    `${API_BASE_URL}/training/logs/stream/${encodeURIComponent(taskId)}?${params.toString()}`,
+  );
+
+  eventSource.onmessage = (event) => {
+    try {
+      const parsed = JSON.parse(event.data);
+      const line = typeof parsed === 'string'
+        ? parsed
+        : parsed?.line ?? parsed?.message ?? parsed?.content ?? '';
+      if (line) onLine(String(line));
+    } catch {
+      if (event.data) onLine(event.data);
+    }
+  };
+
+  eventSource.onerror = () => {
+    eventSource.close();
+    onError?.(new Error('Training log stream disconnected'));
+  };
+
+  return () => eventSource.close();
+};
+
 export interface TrainingEventV2 {
   event_id: string;
   version: 'v2';

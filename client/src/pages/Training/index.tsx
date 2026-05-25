@@ -14,11 +14,6 @@ import { getDatasetList, getModelList, type TrainingEventV2 } from '../../servic
 import {
   checkTrainingResources,
   checkTrainingPreflight,
-  getTrainingCheckpoints,
-  getTrainingFailureAnalytics,
-  getTrainingHistory,
-  getTrainingOverviewV2,
-  getTrainingRecoveryOptions,
   getTrainingStatus,
   getTrainingTaskMetricsV2,
   resumeTraining,
@@ -28,24 +23,12 @@ import {
   subscribeTrainingProgress,
 } from '../../services/trainingApi';
 import { useAppStore } from '../../store/appStore';
-import type {
-  Checkpoint,
-  TrainingProgress as TrainingProgressType,
-  TrainingRecord,
-} from '../../types';
+import type { TrainingProgress as TrainingProgressType } from '../../types';
 import { notify } from '../../utils/notify';
 import { appModal } from '../../utils/modal';
 import HyperparameterPanel from './components/HyperparameterPanel';
 import TrainingDashboard from './components/TrainingDashboard';
-import {
-  buildResumeConfigDiff,
-  buildRuntimeTrainingGuardrail,
-  buildTrainingFailureAnalytics,
-  buildTrainingPreflightFingerprint,
-  diagnoseTrainingFailure,
-  type TrainingFailureAnalytics,
-  type TrainingFailureDiagnosis,
-} from './trainingInsights';
+import { buildTrainingPreflightFingerprint } from './trainingInsights';
 import { useTrainingEventStreamV2 } from './useTrainingEventStreamV2';
 import layoutStyles from './Training.module.css';
 
@@ -75,40 +58,11 @@ interface PreflightResult {
   device_name?: string;
 }
 
-interface ResumeOption {
-  taskId: string;
-  status: 'failed' | 'stopped';
-  modelName: string;
-  datasetName: string;
-  startTime: string;
-  checkpoints: Checkpoint[];
-  latestCheckpointName: string;
-  config: Record<string, any>;
-  reason?: string;
-}
-
-interface TrainingOverviewV2 {
-  queue?: {
-    queue_size?: number;
-    running_count?: number;
-    max_queue_size?: number;
-  };
-  resource_signals?: {
-    suspected_vram_pressure_count?: number;
-    long_context_failure_count?: number;
-    unquantized_failure_count?: number;
-  };
-}
-
 const getErrorMessage = (error: any, fallback: string) =>
   error?.response?.data?.detail?.message ||
   error?.response?.data?.detail ||
   error?.message ||
   fallback;
-
-// Unused Button removed to resolve warning
-
-// TrainingCompareAction removed as it was unused
 
 const TrainingPage: React.FC = () => {
   const navigate = useNavigate();
@@ -123,8 +77,8 @@ const TrainingPage: React.FC = () => {
     setModels,
     setDatasets,
   } = useAppStore();
-  const { actions, derived, observed } = useRuntimeContext();
-  const { setTrainingSelection, syncInferenceSelection } = actions;
+  const { actions } = useRuntimeContext();
+  const { setTrainingSelection } = actions;
   const [form] = Form.useForm();
   const searchParamString = searchParams.toString();
   const [progress, setProgress] = useState<TrainingProgressType | null>(null);
@@ -134,7 +88,6 @@ const TrainingPage: React.FC = () => {
   >('idle');
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const [lastV2EventAt, setLastV2EventAt] = useState<number>(0);
-  const [_trainingOverview, setTrainingOverview] = useState<TrainingOverviewV2 | null>(null);
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
   const [backendTraining, setBackendTraining] = useState(false);
@@ -144,21 +97,12 @@ const TrainingPage: React.FC = () => {
   const [preflightResult, setPreflightResult] = useState<PreflightResult | null>(null);
   const [preflightChecking, setPreflightChecking] = useState(false);
   const [preflightFingerprint, setPreflightFingerprint] = useState<string | null>(null);
-  const [resumeOptions, setResumeOptions] = useState<ResumeOption[]>([]);
-  const [selectedResumeTaskId, setSelectedResumeTaskId] = useState<string | null>(null);
-  const [selectedResumeCheckpointName, setSelectedResumeCheckpointName] = useState<string | null>(
-    null,
-  );
-  const [_resumeLoading, setResumeLoading] = useState(false);
-  const [resumeStarting, setResumeStarting] = useState(false);
-  const [_failureDiagnosis, setFailureDiagnosis] = useState<TrainingFailureDiagnosis | null>(null);
-  const [_failureAnalytics, setFailureAnalytics] = useState<TrainingFailureAnalytics | null>(null);
 
   const [useSwift, setUseSwift] = useState(false);
-  const [swiftAvailable, _setSwiftAvailable] = useState(false);
+  const swiftAvailable = false;
   const [precisionPreset, setPrecisionPreset] = useState<'max' | 'balanced' | 'fast'>('balanced');
   const [memoryPreset, setMemoryPreset] = useState<'auto' | '6gb' | '8gb' | '12gb'>('auto');
-  const [useFlashAttn, _setUseFlashAttn] = useState(false);
+  const useFlashAttn = false;
   const [quantizationBit, setQuantizationBit] = useState<4 | 8 | 0>(4);
   const [configCollapsed, setConfigCollapsed] = useState(false);
   const [gradientAccumulation, setGradientAccumulation] = useState<number>(16);
@@ -225,78 +169,6 @@ const TrainingPage: React.FC = () => {
     useSwift,
   ]);
 
-  const resolveTrainingRecoveryState = useCallback(async () => {
-    if (backendStatus !== 'connected') {
-      setResumeOptions([]);
-      setSelectedResumeTaskId(null);
-      setSelectedResumeCheckpointName(null);
-      setFailureAnalytics(null);
-      return;
-    }
-
-    setResumeLoading(true);
-    try {
-      const [recoveryPayload, analyticsPayload] = await Promise.all([
-        getTrainingRecoveryOptions(6).catch(() => null),
-        getTrainingFailureAnalytics().catch(() => null),
-      ]);
-
-      if (analyticsPayload) {
-        setFailureAnalytics(analyticsPayload);
-      } else {
-        const fallbackHistory: TrainingRecord[] = await getTrainingHistory();
-        setFailureAnalytics(buildTrainingFailureAnalytics(fallbackHistory));
-      }
-
-      let nextOptions: ResumeOption[] = [];
-      if (recoveryPayload && Array.isArray(recoveryPayload.options)) {
-        nextOptions = recoveryPayload.options;
-      } else {
-        const history: TrainingRecord[] = await getTrainingHistory();
-        const failedOrStopped = (
-          history.filter(
-            (record) => record.status === 'failed' || record.status === 'stopped',
-          ) as Array<TrainingRecord & { status: 'failed' | 'stopped' }>
-        ).sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
-
-        for (const record of failedOrStopped.slice(0, 6)) {
-          const checkpoints: Checkpoint[] = await getTrainingCheckpoints(record.id);
-          if (!Array.isArray(checkpoints) || checkpoints.length === 0) continue;
-
-          const sortedCheckpoints = checkpoints.slice().sort((a, b) => b.step - a.step);
-          const latestCheckpoint = sortedCheckpoints[0];
-          if (!latestCheckpoint) continue;
-          nextOptions.push({
-            taskId: record.id,
-            status: record.status,
-            modelName: record.modelName,
-            datasetName: record.datasetName,
-            startTime: record.startTime,
-            checkpoints: sortedCheckpoints,
-            latestCheckpointName: latestCheckpoint.name,
-            config: record.config || {},
-            reason:
-              record.status === 'failed'
-                ? '最近一次失败任务存在可恢复检查点'
-                : '最近一次停止任务存在可恢复检查点',
-          });
-        }
-      }
-
-      setResumeOptions(nextOptions);
-      setSelectedResumeTaskId(nextOptions[0]?.taskId || null);
-      setSelectedResumeCheckpointName(nextOptions[0]?.latestCheckpointName || null);
-    } catch (error) {
-      console.error('Failed to resolve training recovery state:', error);
-      setResumeOptions([]);
-      setSelectedResumeTaskId(null);
-      setSelectedResumeCheckpointName(null);
-      setFailureAnalytics(null);
-    } finally {
-      setResumeLoading(false);
-    }
-  }, [backendStatus]);
-
   const applyIncomingProgress = useCallback(
     (nextProgress: any, source: 'v1' | 'v2') => {
       setProgress(nextProgress);
@@ -342,29 +214,25 @@ const TrainingPage: React.FC = () => {
       else if (nextProgress.status === 'saving') setTrainingStatus('saving');
       else if (nextProgress.status === 'completed') {
         setTrainingStatus('completed');
-        setFailureDiagnosis(null);
         setIsTraining(false);
         setCurrentPhase('');
-        void resolveTrainingRecoveryState();
         notify.success('训练完成');
       } else if (nextProgress.status === 'failed' || nextProgress.status === 'stopped') {
         setTrainingStatus(nextProgress.status === 'failed' ? 'failed' : 'idle');
         setIsTraining(false);
         setCurrentPhase('');
         if (nextProgress.status === 'failed') {
-          setFailureDiagnosis(diagnoseTrainingFailure(nextProgress.message));
           notify.error(nextProgress.message || '训练失败');
         } else {
           notify.warning('训练已停止');
         }
-        void resolveTrainingRecoveryState();
       }
 
       if (source === 'v2') {
         setLastV2EventAt(Date.now());
       }
     },
-    [resolveTrainingRecoveryState, setIsTraining],
+    [setIsTraining],
   );
 
   const lastV2EventAtRef = useRef<number>(0);
@@ -374,7 +242,6 @@ const TrainingPage: React.FC = () => {
 
   const checkTrainingStatus = useCallback(async () => {
     const recentV2Signal = Date.now() - lastV2EventAtRef.current < 20000;
-    if (recentV2Signal) return;
     try {
       const data = await getTrainingStatus();
       setBackendTraining(data.is_training);
@@ -382,21 +249,21 @@ const TrainingPage: React.FC = () => {
         setCurrentTaskId(data.record.id);
       }
       if (data.progress) {
-        setProgress(data.progress);
+        // Don't overwrite progress if V2 stream is actively sending data
+        if (!recentV2Signal) {
+          setProgress(data.progress);
+        }
         if (data.progress.status === 'stopping') {
           setTrainingStatus('stopping');
           setIsTraining(true);
         } else if (data.progress.status === 'failed') {
           setTrainingStatus('failed');
-          setFailureDiagnosis(diagnoseTrainingFailure(data.progress.message));
           setIsTraining(false);
         } else if (data.progress.status === 'completed') {
           setTrainingStatus('completed');
-          setFailureDiagnosis(null);
           setIsTraining(false);
         } else if (data.progress.status === 'stopped') {
           setTrainingStatus('idle');
-          setFailureDiagnosis(null);
           setIsTraining(false);
         } else if (data.progress.status === 'saving') {
           setTrainingStatus('saving');
@@ -422,59 +289,10 @@ const TrainingPage: React.FC = () => {
   }, [syncTrainingCatalog]);
 
   useEffect(() => {
-    if (backendStatus !== 'connected') {
-      setTrainingOverview(null);
-      return;
-    }
-
-    let mounted = true;
-    const fetchOverview = async () => {
-      try {
-        const data = await getTrainingOverviewV2();
-        if (mounted) setTrainingOverview(data);
-      } catch (error) {
-        console.error('Failed to load v2 overview:', error);
-      }
-    };
-
-    void fetchOverview();
-    const timer = setInterval(fetchOverview, 10000);
-    return () => {
-      mounted = false;
-      clearInterval(timer);
-    };
-  }, [backendStatus]);
-
-  useEffect(() => {
-    void resolveTrainingRecoveryState();
-  }, [resolveTrainingRecoveryState]);
-
-  useEffect(() => {
-    if (!selectedResumeTaskId) {
-      setSelectedResumeCheckpointName(null);
-      return;
-    }
-
-    const selectedOption = resumeOptions.find((option) => option.taskId === selectedResumeTaskId);
-    if (!selectedOption) {
-      setSelectedResumeCheckpointName(null);
-      return;
-    }
-
-    const checkpointExists = selectedOption.checkpoints.some(
-      (checkpoint) => checkpoint.name === selectedResumeCheckpointName,
-    );
-    if (!checkpointExists) {
-      setSelectedResumeCheckpointName(selectedOption.latestCheckpointName);
-    }
-  }, [resumeOptions, selectedResumeCheckpointName, selectedResumeTaskId]);
-
-  useEffect(() => {
     if (isTraining && backendStatus === 'connected') {
       const shouldUseLegacySse = Date.now() - lastV2EventAtRef.current > 8000;
       if (!shouldUseLegacySse) return;
       setTrainingStatus('training');
-      setFailureDiagnosis(null);
       setChartData([]);
       unsubscribeRef.current = subscribeTrainingProgress(
         (nextProgress: any) => {
@@ -662,7 +480,6 @@ const TrainingPage: React.FC = () => {
     setStarting(true);
     setTrainingStatus('loading');
     setChartData([]);
-    setFailureDiagnosis(null);
 
     try {
       const config = buildTrainingConfig(values);
@@ -675,9 +492,6 @@ const TrainingPage: React.FC = () => {
       setIsTraining(true);
       addTrainingRecord(result);
       setCurrentTaskId(result.id);
-      setResumeOptions([]);
-      setSelectedResumeTaskId(null);
-      setSelectedResumeCheckpointName(null);
       notify.success('训练任务已提交');
     } catch (error: any) {
       setTrainingStatus('idle');
@@ -694,6 +508,21 @@ const TrainingPage: React.FC = () => {
       notify.info('已发送停止请求，等待当前步骤安全退出');
     } catch (error) {
       notify.error(getErrorMessage(error, '停止训练失败'));
+    }
+  };
+
+  const handleResumeTraining = async (taskId: string, checkpointName: string) => {
+    try {
+      setTrainingStatus('loading');
+      const result = await resumeTraining(taskId, checkpointName);
+      setIsTraining(true);
+      addTrainingRecord(result);
+      setCurrentTaskId(result.id);
+      setChartData([]);
+      notify.success('已从检查点恢复训练');
+    } catch (error: any) {
+      setTrainingStatus('idle');
+      notify.error(getErrorMessage(error, '恢复训练失败'));
     }
   };
 
@@ -769,87 +598,6 @@ const TrainingPage: React.FC = () => {
     }
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _handleApplyPreflightRecommendation = () => {
-    if (!preflightResult?.recommended_config) return;
-
-    const recommended = preflightResult.recommended_config;
-    const mappedValues: Record<string, any> = {};
-
-    if (recommended.method !== undefined) {
-      mappedValues.method = recommended.method;
-    }
-    if (recommended.batch_size !== undefined) {
-      mappedValues.batchSize = recommended.batch_size;
-    }
-    if (recommended.max_seq_length !== undefined) {
-      mappedValues.maxSeqLength = recommended.max_seq_length;
-    }
-    if (recommended.rank !== undefined) {
-      mappedValues.rank = recommended.rank;
-    }
-    if (recommended.alpha !== undefined) {
-      mappedValues.alpha = recommended.alpha;
-    }
-    if (recommended.learning_rate !== undefined) {
-      mappedValues.learningRate = recommended.learning_rate;
-    }
-    if (recommended.epochs !== undefined) {
-      mappedValues.epochs = recommended.epochs;
-    }
-    if (recommended.gradient_accumulation !== undefined) {
-      setGradientAccumulation(Number(recommended.gradient_accumulation) || gradientAccumulation);
-    }
-    if (recommended.quantization !== undefined) {
-      const nextQuantization = Number(recommended.quantization);
-      if (nextQuantization === 0 || nextQuantization === 4 || nextQuantization === 8) {
-        setQuantizationBit(nextQuantization);
-      }
-    }
-
-    if (Object.keys(mappedValues).length > 0) {
-      form.setFieldsValue(mappedValues);
-    }
-
-    setPreflightResult(null);
-    setPreflightFingerprint(null);
-    notify.info('已应用预检推荐配置，请重新执行训练前预检。');
-  };
-
-  const buildPreflightRecommendationDiff = () => {
-    if (!preflightResult?.recommended_config) return [];
-
-    const values = form.getFieldsValue();
-    const recommended = preflightResult.recommended_config;
-    const candidates = [
-      { key: 'method', label: '微调方法', current: values.method || 'qlora' },
-      { key: 'batch_size', label: '批大小', current: values.batchSize ?? 1 },
-      { key: 'max_seq_length', label: '最大序列长度', current: values.maxSeqLength ?? 512 },
-      { key: 'rank', label: 'LoRA 秩', current: values.rank ?? 8 },
-      { key: 'alpha', label: 'LoRA 缩放系数', current: values.alpha ?? 16 },
-      { key: 'learning_rate', label: '学习率', current: values.learningRate ?? 5e-5 },
-      { key: 'epochs', label: '训练轮数', current: values.epochs ?? 3 },
-      { key: 'gradient_accumulation', label: '梯度累积', current: gradientAccumulation },
-      { key: 'quantization', label: '量化策略', current: quantizationBit },
-    ];
-
-    return candidates
-      .filter((item) => recommended[item.key] !== undefined)
-      .map((item) => {
-        const nextValue = recommended[item.key];
-        return {
-          label: item.label,
-          current: item.current,
-          next: nextValue,
-          changed: String(item.current) !== String(nextValue),
-        };
-      });
-  };
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _preflightRecommendationDiff = buildPreflightRecommendationDiff();
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const _handleApplyConservativePreset = () => {
     form.setFieldsValue({
       method: 'qlora',
@@ -863,82 +611,6 @@ const TrainingPage: React.FC = () => {
     setMemoryPreset('6gb');
     notify.info('已应用保守训练建议，请重新执行训练前预检。');
   };
-
-  const selectedResumeOption =
-    resumeOptions.find((option) => option.taskId === selectedResumeTaskId) || null;
-  const selectedResumeCheckpoint =
-    selectedResumeOption?.checkpoints.find(
-      (checkpoint) => checkpoint.name === selectedResumeCheckpointName,
-    ) || null;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _resumeConfigDiff = buildResumeConfigDiff(
-    {
-      ...form.getFieldsValue(),
-      gradientAccumulation,
-      quantization: quantizationBit,
-    },
-    selectedResumeOption?.config,
-  );
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _runtimeTrainingGuardrail = buildRuntimeTrainingGuardrail(
-    derived.trainingSignal?.phase || 'idle',
-    observed.training?.progressMessage,
-  );
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _handleResumeFromSelectedCheckpoint = async () => {
-    if (!selectedResumeOption || !selectedResumeCheckpoint || resumeStarting || isTraining) return;
-
-    setResumeStarting(true);
-    try {
-      const result = await resumeTraining(
-        selectedResumeOption.taskId,
-        selectedResumeCheckpoint.name,
-      );
-      setIsTraining(true);
-      setTrainingStatus('loading');
-      addTrainingRecord(result);
-      setCurrentTaskId(result.id);
-      notify.success(`已从 ${selectedResumeCheckpoint.name} 恢复训练`);
-    } catch (error: any) {
-      notify.error(getErrorMessage(error, '从最近检查点恢复失败'));
-    } finally {
-      setResumeStarting(false);
-    }
-  };
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _handleUseActiveModel = () => {
-    if (!derived.activeModelId) {
-      notify.warning('当前运行上下文里还没有可复用的活跃模型');
-      return;
-    }
-
-    form.setFieldsValue({ modelId: derived.activeModelId });
-    notify.success('已将当前活跃模型带入训练配置');
-  };
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _handlePromoteTrainingModel = () => {
-    const selectedModelId = form.getFieldValue('modelId');
-    if (!selectedModelId) {
-      notify.warning('请先在训练配置里选择一个基座模型');
-      return;
-    }
-
-    syncInferenceSelection({
-      backend: derived.activeBackend === 'ollama' ? 'ollama' : 'huggingface',
-      modelId: selectedModelId,
-    });
-    notify.success('当前训练基座模型已同步到平台活跃推理上下文');
-  };
-  void _handleApplyPreflightRecommendation;
-  void _preflightRecommendationDiff;
-  void _resumeConfigDiff;
-  void _runtimeTrainingGuardrail;
-  void _handleResumeFromSelectedCheckpoint;
-  void _handleUseActiveModel;
-  void _handlePromoteTrainingModel;
 
   const statusLabels: Record<typeof trainingStatus, string> = {
     idle: '待命',
@@ -1083,6 +755,8 @@ const TrainingPage: React.FC = () => {
                 phaseDurations={phaseDurations}
                 currentPhase={currentPhase}
                 retryCount={retryCount}
+                currentTaskId={currentTaskId}
+                onResume={handleResumeTraining}
               />
             </div>
           </div>

@@ -9,11 +9,8 @@ const mockUseAppStore = vi.hoisted(() => vi.fn());
 const mockUseRuntimeContext = vi.hoisted(() => vi.fn());
 const mockGetTrainingStatus = vi.hoisted(() => vi.fn());
 const mockCheckTrainingResources = vi.hoisted(() => vi.fn());
-const mockGetTrainingFailureAnalytics = vi.hoisted(() => vi.fn());
 const mockGetTrainingHistory = vi.hoisted(() => vi.fn());
 const mockGetTrainingCheckpoints = vi.hoisted(() => vi.fn());
-const mockGetTrainingRecoveryOptions = vi.hoisted(() => vi.fn());
-const mockGetTrainingOverviewV2 = vi.hoisted(() => vi.fn());
 const mockResumeTraining = vi.hoisted(() => vi.fn());
 const mockSubscribeTrainingProgress = vi.hoisted(() => vi.fn(() => vi.fn()));
 const mockSubscribeTrainingEventsV2 = vi.hoisted(() => vi.fn(() => vi.fn()));
@@ -82,12 +79,9 @@ vi.mock('../utils/notify', () => ({
 
 vi.mock('../services/trainingApi', () => ({
   checkTrainingResources: mockCheckTrainingResources,
-  getTrainingFailureAnalytics: mockGetTrainingFailureAnalytics,
   getTrainingStatus: mockGetTrainingStatus,
   getTrainingHistory: mockGetTrainingHistory,
   getTrainingCheckpoints: mockGetTrainingCheckpoints,
-  getTrainingRecoveryOptions: mockGetTrainingRecoveryOptions,
-  getTrainingOverviewV2: mockGetTrainingOverviewV2,
   resumeTraining: mockResumeTraining,
   startTraining: vi.fn(),
   stopTraining: vi.fn(),
@@ -232,10 +226,6 @@ vi.mock('../pages/Training/components/ProgressPanel', () => ({
   default: () => <div>Mock Progress Panel</div>,
 }));
 
-vi.mock('../pages/Training/components/LossChart', () => ({
-  default: () => <div>Mock Loss Chart</div>,
-}));
-
 vi.mock('../components/SwiftChecker', () => {
   function MockSwiftChecker({ onStatusChange }: { onStatusChange: (status: { available: boolean }) => void }) {
     React.useEffect(() => {
@@ -245,10 +235,6 @@ vi.mock('../components/SwiftChecker', () => {
   }
   return { default: MockSwiftChecker };
 });
-
-vi.mock('../components/TrainingChart', () => ({
-  default: () => <div>Mock Training Chart</div>,
-}));
 
 vi.mock('react-virtuoso', () => {
   function MockVirtuoso({
@@ -452,40 +438,8 @@ describe('GA smoke pages', () => {
       recommended_config: {},
       device_name: 'Mock GPU',
     });
-    mockGetTrainingFailureAnalytics.mockResolvedValue({
-      totalRuns: 0,
-      failedRuns: 0,
-      stoppedRuns: 0,
-      completedRuns: 0,
-      failureRate: 0,
-      failureRate7d: 0,
-      failureRate14d: 0,
-      failedRuns7d: 0,
-      failedRuns14d: 0,
-      totalRuns7d: 0,
-      totalRuns14d: 0,
-      suspectedVramPressureCount: 0,
-      longContextFailureCount: 0,
-      unquantizedFailureCount: 0,
-      topFailedModels: [],
-      topFailedDatasets: [],
-      topFailedMethods: [],
-      recentFailures: [],
-    });
     mockGetTrainingHistory.mockResolvedValue([]);
     mockGetTrainingCheckpoints.mockResolvedValue([]);
-    mockGetTrainingRecoveryOptions.mockResolvedValue({
-      generatedAt: new Date().toISOString(),
-      options: [],
-    });
-    mockGetTrainingOverviewV2.mockResolvedValue({
-      queue: { queue_size: 0, running_count: 0, max_queue_size: 4 },
-      resource_signals: {
-        suspected_vram_pressure_count: 0,
-        long_context_failure_count: 0,
-        unquantized_failure_count: 0,
-      },
-    });
     mockResumeTraining.mockResolvedValue({
       id: 'resume-task-1',
       modelName: 'mock-model',

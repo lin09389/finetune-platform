@@ -90,26 +90,6 @@ vi.mock('../services/trainingApi', () => ({
     warnings: [],
     recommended_config: {},
   }),
-  getTrainingFailureAnalytics: vi.fn().mockResolvedValue({
-    totalRuns: 0,
-    failedRuns: 0,
-    stoppedRuns: 0,
-    completedRuns: 0,
-    failureRate: 0,
-    failureRate7d: 0,
-    failureRate14d: 0,
-    failedRuns7d: 0,
-    failedRuns14d: 0,
-    totalRuns7d: 0,
-    totalRuns14d: 0,
-    suspectedVramPressureCount: 0,
-    longContextFailureCount: 0,
-    unquantizedFailureCount: 0,
-    topFailedModels: [],
-    topFailedDatasets: [],
-    topFailedMethods: [],
-    recentFailures: [],
-  }),
   getTrainingStatus: vi.fn().mockResolvedValue({
     is_training: false,
     record: null,
@@ -128,15 +108,6 @@ vi.mock('../services/trainingApi', () => ({
   }),
   getTrainingHistory: vi.fn().mockResolvedValue([]),
   getTrainingCheckpoints: vi.fn().mockResolvedValue([]),
-  getTrainingRecoveryOptions: vi.fn().mockResolvedValue({ generatedAt: '', options: [] }),
-  getTrainingOverviewV2: vi.fn().mockResolvedValue({
-    queue: { queue_size: 0, running_count: 0, max_queue_size: 10 },
-    resource_signals: {
-      suspected_vram_pressure_count: 0,
-      long_context_failure_count: 0,
-      unquantized_failure_count: 0,
-    },
-  }),
   getTrainingTaskMetricsV2: vi.fn().mockResolvedValue({ items: [], next_cursor: 0 }),
   resumeTraining: vi.fn(),
   startTraining: vi.fn(),
@@ -238,18 +209,8 @@ vi.mock('../components/SwiftChecker', () => ({
   default: () => <div data-testid="swift-checker">swift</div>,
 }));
 
-vi.mock('../components/TrainingChart', () => ({
-  default: () => <div data-testid="training-chart">chart</div>,
-}));
-
 vi.mock('../pages/Training/components/ConfigForm', () => ({
   default: () => <div data-testid="config-form">config</div>,
-}));
-
-vi.mock('../pages/Training/components/LossChart', () => ({
-  default: ({ data }: { data: Array<{ step: number }> }) => (
-    <div data-testid="loss-chart">{data.length}</div>
-  ),
 }));
 
 vi.mock('../pages/Training/components/ProgressPanel', () => ({
