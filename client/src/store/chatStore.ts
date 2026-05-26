@@ -445,6 +445,8 @@ export const useChatStore = create<ChatStore>()(
       deleteMessage: async (id) => {
         const { currentSessionId, messages } = get();
         const previousMessages = messages;
+        const targetMessage = messages.find((m) => m.id === id);
+
         set((state) => ({
           messages: state.messages.filter((m) => m.id !== id),
           sessions: state.currentSessionId
@@ -453,9 +455,17 @@ export const useChatStore = create<ChatStore>()(
               })
             : state.sessions,
         }));
+
         if (!currentSessionId || currentSessionId.startsWith('local_')) {
           return;
         }
+
+        // Skip backend API call for purely local/pending placeholder messages
+        const agentPartId = targetMessage?.agent_metadata?.agent_part_id;
+        if (typeof agentPartId === 'string' && agentPartId.endsWith(':pending')) {
+          return;
+        }
+
         try {
           await deleteChatSessionMessage(currentSessionId, id);
         } catch (error) {

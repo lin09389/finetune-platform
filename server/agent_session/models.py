@@ -19,6 +19,7 @@ AgentSessionStatus = Literal[
 ]
 AgentPartType = Literal["text", "tool_call", "tool_result", "diff", "command", "permission", "summary", "error"]
 AgentPartStatus = Literal["pending", "running", "completed", "failed", "blocked", "approved", "executed"]
+AgentHitlDecisionType = Literal["approve", "edit", "reject", "respond"]
 TaskStageStatus = Literal["pending", "running", "blocked", "completed", "failed", "waiting_approval"]
 TaskNodeStatus = Literal["pending", "running", "blocked", "completed", "failed", "waiting_approval"]
 
@@ -69,6 +70,21 @@ class AgentPromptRequest(BaseModel):
     model: str | None = None
     active_context: dict[str, Any] | None = None
     explicit_context: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AgentHitlEditedAction(BaseModel):
+    name: str
+    args: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentHitlDecision(BaseModel):
+    type: AgentHitlDecisionType
+    message: str | None = None
+    edited_action: AgentHitlEditedAction | None = None
+
+
+class AgentHitlDecisionRequest(BaseModel):
+    decisions: list[AgentHitlDecision]
 
 
 class AgentSessionResponse(BaseModel):

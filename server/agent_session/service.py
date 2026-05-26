@@ -4,24 +4,24 @@ import asyncio
 import json
 import logging
 import os
-import re
 import uuid
 from datetime import datetime
 from pathlib import Path
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi import BackgroundTasks
 from fastapi import HTTPException
 
-from ai.providers import resolve_saved_provider
+from context.deepagents import build_deepagents_context_pack
 from core.config import settings
 from core.db_manager import run_sync
-from security.encryption import secure_storage
 from workspace.local_paths import get_allowed_workspace_roots
 
-from .approval import action_approval_decision, action_execute_decision, is_langgraph_resume_enabled, permission_decision
+from .agent_registry import AgentRegistry
+from .approval import action_approval_decision, action_execute_decision, permission_decision, permission_decisions
+from .deepagents_runtime import DeepAgentsSessionRunner
 from .events import AgentSessionEventBus
-from .langgraph import AgentSessionGraphRunner
 from .models import (
     AgentArtifactResponse,
     AgentPromptRequest,
@@ -29,13 +29,11 @@ from .models import (
     AgentSessionOverviewResponse,
     AgentSessionResponse,
 )
-from .processor import AgentSessionProcessor
-from .provider import AgentSessionCloudError, AgentSessionProviderResolver, ModelCall, StreamModelCall
 from .repository import AgentSessionRepository
-from .runtime import AgentSessionRuntime
 from .state import ensure_session_state, record_fallback_summary, set_phase
 
 logger = logging.getLogger(__name__)
+ModelCall = Callable[[list[dict[str, str]]], Awaitable[str]]
 
 
 class AgentSessionService:
@@ -46,70 +44,21 @@ class AgentSessionService:
     def __init__(
         self,
         repository: AgentSessionRepository | None = None,
-        processor: AgentSessionProcessor | None = None,
+        processor: Any | None = None,
         model_call: ModelCall | None = None,
     ):
+        _ = processor
         self.repository = repository or AgentSessionRepository()
-        self.processor = processor or AgentSessionProcessor(self.repository, event_callback=self._notify_event)
         self.model_call = model_call
-        self.provider = AgentSessionProviderResolver(storage=secure_storage, provider_resolver=resolve_saved_provider)
-        self.runtime = AgentSessionRuntime()
-        self._graph_runner: AgentSessionGraphRunner | bool | None = None
-        self._graph_runner_error: str | None = None
+        self.agent_registry = AgentRegistry()
+        self.deepagents_runner = DeepAgentsSessionRunner(
+            repository=self.repository,
+            notify_event=self._notify_event,
+            model_call=self.model_call,
+        )
 
     ACTIVE_STATUSES = {"running", "verifying", "repairing", "waiting_approval", "waiting_permission"}
 
-    @staticmethod
-    def _format_deep_context(request: AgentPromptRequest, project_path: str | None = None) -> str:
-        sections: list[str] = []
-        active_context = request.active_context or {}
-        if active_context:
-            cursor = active_context.get("cursor") or {}
-            selection = active_context.get("selection") or {}
-            lines = [
-                f"Current file: {active_context.get('file_path') or 'unknown'}",
-                f"Cursor: line {cursor.get('line', 1)}, column {cursor.get('column', 1)}",
-            ]
-            selected_text = str(selection.get("text") or "").strip() if isinstance(selection, dict) else ""
-            if selected_text:
-                lines.append("Selected code:\n```text\n" + selected_text[:4000] + "\n```")
-            else:
-                preview = str(active_context.get("content_preview") or "").strip()
-                if preview:
-                    lines.append("File preview:\n```text\n" + preview[:4000] + "\n```")
-            sections.append("\n".join(lines))
-
-        mention_lines: list[str] = []
-        for item in request.explicit_context or []:
-            label = item.get("label") or item.get("path") or "context"
-            kind = item.get("type") or "context"
-            path = item.get("path")
-            line = item.get("line")
-            location = f"{path or ''}{':' + str(line) if line else ''}".strip()
-            mention_lines.append(f"- @{label} ({kind}) {location}".strip())
-            content = str(item.get("content") or "").strip()
-            if content:
-                mention_lines.append(f"  context: {content[:1200]}")
-        if mention_lines:
-            sections.append("Explicit @ context:\n" + "\n".join(mention_lines))
-        try:
-            from context.service import get_context_service
-            related = get_context_service().expand_deep_context(
-                request.active_context,
-                request.explicit_context,
-                project_path,
-            )
-            if related:
-                sections.append(
-                    "Dependency topology expansion:\n"
-                    + "\n".join(
-                        f"- {item.get('relation')}: {item.get('path')} {':' + str(item.get('line')) if item.get('line') else ''}\n  {str(item.get('content') or '')[:800]}"
-                        for item in related
-                    )
-                )
-        except Exception:
-            logger.debug("failed to expand agent deep context topology", exc_info=True)
-        return "Deep Context Retrieval:\n" + "\n\n".join(sections) if sections else ""
     TERMINAL_STATUSES = {"completed", "failed", "interrupted", "needs_manual_review"}
 
     def subscribe_events(self, session_id: str) -> asyncio.Queue[dict[str, Any]]:
@@ -120,6 +69,25 @@ class AgentSessionService:
 
     def _notify_event(self, session_id: str, event: dict[str, Any]) -> None:
         self._event_bus.notify(session_id, event)
+
+    def _event(self, session_id: str, event_type: str, message: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        enriched = dict(payload or {})
+        enriched.setdefault("session_id", session_id)
+        part_id = enriched.get("part_id")
+        part = enriched.get("part") if isinstance(enriched.get("part"), dict) else None
+        if part is None and isinstance(part_id, str) and part_id.startswith("agp_"):
+            part = self.repository.get_part(part_id)
+            if part:
+                enriched["part"] = part
+        if part:
+            enriched.setdefault("part_type", part.get("type"))
+            enriched.setdefault("status", part.get("status"))
+            enriched.setdefault("summary", part.get("content") or part.get("title") or message)
+        enriched.setdefault("summary", message)
+        enriched.setdefault("chunk_type", self._stream_chunk_type(event_type, enriched, part))
+        event = self.repository.add_event(session_id, event_type, message, enriched)
+        self._notify_event(session_id, event)
+        return event
 
     def _default_project_path(self) -> str:
         base_dir = settings.base_dir.resolve()
@@ -141,47 +109,34 @@ class AgentSessionService:
             raise ValueError(f"project_path must be inside the workspace. Allowed roots: {allowed}")
         return str(resolved)
 
-    async def _get_graph_runner(self) -> AgentSessionGraphRunner | None:
-        if not settings.agent_session_langgraph_enabled:
-            logger.info("agent_session LangGraph disabled by config; using processor fallback")
-            return None
-        if self._graph_runner is None:
-            try:
-                logger.info("agent_session LangGraph initialization started")
-                self._graph_runner = AgentSessionGraphRunner(
-                    repository=self.repository,
-                    processor=self.processor,
-                    model_call=self.model_call,
-                )
-                await self._graph_runner.get_graph()
-                self._graph_runner_error = None
-                logger.info("agent_session LangGraph initialization succeeded")
-            except Exception as exc:
-                logger.warning("agent_session LangGraph init failed, falling back to processor: %s", exc)
-                self._graph_runner = False
-                self._graph_runner_error = str(exc)
-        elif self._graph_runner is False:
-            logger.warning("agent_session LangGraph previously failed to initialize: %s", self._graph_runner_error or "unknown error")
-        return self._graph_runner or None
-
     def create_session(self, request: AgentSessionCreate) -> AgentSessionResponse:
         try:
             project_path = self._validate_project_path(request.project_path)
+            provider, model = self._resolve_session_model_defaults(request.agent_id, request.provider, request.model)
             session = self.repository.create_session(
                 {
                     "chat_session_id": request.chat_session_id,
                     "agent_id": request.agent_id,
                     "title": request.title or "Agent Session",
                     "project_path": project_path,
-                    "provider": request.provider,
-                    "model": request.model,
-                    "metadata": {"autonomy_mode": request.autonomy_mode or "safe_auto"},
+                    "provider": provider,
+                    "model": model,
+                    "metadata": {
+                        "autonomy_mode": request.autonomy_mode or "safe_auto",
+                        "deepagents_interrupt_on": True,
+                    },
                 }
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         session["parts"] = []
         return AgentSessionResponse(**self._attach_recovery_diagnostics(session))
+
+    def _resolve_session_model_defaults(self, agent_id: str, provider: str | None, model: str | None) -> tuple[str | None, str | None]:
+        if provider and model:
+            return provider, model
+        agent = self.agent_registry.get(agent_id)
+        return provider or (agent.default_provider if agent else None), model or (agent.default_model if agent else None)
 
     def get_session(self, session_id: str) -> AgentSessionResponse:
         session = self.repository.get_session(session_id)
@@ -220,44 +175,48 @@ class AgentSessionService:
             session = self.repository.get_session(session_id) or session
 
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        deep_context = self._format_deep_context(request, session.get("project_path"))
-        prompt_content = (
-            f"{request.content}\n\n{deep_context}"
-            if deep_context
-            else request.content
+        context_pack = await build_deepagents_context_pack(
+            goal=request.content,
+            active_context=request.active_context,
+            explicit_context=request.explicit_context,
+            project_path=session.get("project_path"),
+            session_id=session_id,
         )
-        if deep_context:
+        prompt_content = context_pack.prompt
+        if context_pack.has_files:
             metadata["deep_context"] = {
                 "active_context": request.active_context,
                 "explicit_context": request.explicit_context,
+                "context_engineering": context_pack.metadata,
             }
-        if self._has_custom_processor_prompt():
-            model_call = self.model_call
-            stream_model_call = None
-        else:
-            try:
-                model_call, stream_model_call, metadata = self._resolve_prompt_model_calls(session, metadata)
-            except AgentSessionCloudError as exc:
-                result = self._record_agent_chain_failure(
-                    session_id,
-                    exc.code,
-                    str(exc),
-                    provider=session.get("provider") or request.provider,
-                    model=session.get("model") or request.model,
-                )
-                return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
+        trace = dict(metadata.get("execution_trace") or {})
+        trace.update(
+            {
+                "provider": str(session.get("provider") or ""),
+                "model": str(session.get("model") or ""),
+                "model_entry": "injected_model_call" if self.model_call is not None else "deepagents_init_chat_model",
+                "fallback_used": False,
+                "last_graph_error": None,
+                "last_model_error": None,
+            }
+        )
+        metadata["execution_trace"] = trace
+        if self.model_call is not None:
+            metadata["streaming_diagnostics"] = {
+                "mode": "non_stream",
+                "status": "disabled",
+                "source": "injected_model_call",
+                "reason": "测试或自定义 model_call 未提供 stream_model_call",
+                "fallback_to_non_stream": True,
+            }
+        metadata["runtime"] = "deepagents"
+        metadata["deepagents_thread_id"] = f"agent_session:{session_id}:deepagents"
         self.repository.update_session(session_id, metadata=metadata)
         session = self.repository.get_session(session_id) or session
 
         try:
-            result = await self.runtime.run_prompt(
-                self,
-                session_id,
-                prompt_content,
-                session,
-                model_call=model_call,
-                stream_model_call=stream_model_call,
-            )
+            self.deepagents_runner.model_call = self.model_call
+            result = await self.deepagents_runner.run_prompt(session_id, prompt_content, context_files=context_pack.files)
         except Exception as exc:
             result = self.record_prompt_failure(session_id, exc)
 
@@ -391,7 +350,7 @@ class AgentSessionService:
             payload={"summary": message, "fallback": False, "error": str(exc)[:1200]},
         )
         self.repository.update_session(session_id, status="needs_manual_review", metadata=metadata)
-        self.processor._event(
+        self._event(
             session_id,
             "session_failed",
             message,
@@ -410,42 +369,38 @@ class AgentSessionService:
         return result
 
     def approve_permission(self, part_id: str, approved: bool) -> AgentSessionResponse:
-        return AgentSessionResponse(**self._attach_recovery_diagnostics(self.processor.approve_part(part_id, approved)))
+        part = self.repository.get_part(part_id)
+        if not part:
+            raise ValueError("Agent part not found")
+        return AgentSessionResponse(**self._attach_recovery_diagnostics(self._approve_deepagents_action(part, approved)))
 
     async def approve_permission_async(self, part_id: str, approved: bool) -> AgentSessionResponse:
+        return await self.decide_permission_async(part_id, [{"type": "approve" if approved else "reject"}])
+
+    async def decide_permission_async(self, part_id: str, decisions: list[dict[str, Any]]) -> AgentSessionResponse:
         part = self.repository.get_part(part_id)
         if not part:
             raise ValueError("Agent part not found")
         session = self.repository.get_session(part["session_id"]) or {}
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        if is_langgraph_resume_enabled(settings.agent_session_langgraph_enabled, metadata):
-            runner = await self._get_graph_runner()
-            if runner is None:
-                logger.warning("LangGraph runner unavailable for permission resume, using processor fallback")
-                return await run_sync(self.approve_permission, part_id, approved)
-            model_call = self.model_call or self._cloud_model_call(session)
-            stream_model_call = self._resolve_stream_model_call(session)
-            decision = permission_decision(part_id, approved)
+        if metadata.get("runtime") == "deepagents":
+            normalized_decisions = self._validate_hitl_decisions(part, decisions)
+            result = self._decide_deepagents_permission(part, normalized_decisions)
+            self.deepagents_runner.model_call = self.model_call
+            decision = permission_decisions(part_id, normalized_decisions)
             self._record_resume_decision(part["session_id"], decision)
-            if approved:
-                await runner.resume(
-                    part["session_id"],
-                    decision,
-                    model_call=model_call,
-                    stream_model_call=stream_model_call,
-                )
-            else:
-                await runner.resume(
-                    part["session_id"],
-                    decision,
-                    model_call=model_call,
-                    stream_model_call=stream_model_call,
-                )
+            if self.deepagents_runner.model_call is not None or session.get("provider"):
+                await self.deepagents_runner.resume(part["session_id"], decision)
             return self.get_session(part["session_id"])
-        return await run_sync(self.approve_permission, part_id, approved)
+        if len(decisions) != 1:
+            raise ValueError("Legacy permission approvals accept exactly one decision")
+        return await run_sync(self.approve_permission, part_id, decisions[0].get("type") == "approve")
 
     def approve_action(self, part_id: str, approved: bool) -> AgentSessionResponse:
-        return AgentSessionResponse(**self._attach_recovery_diagnostics(self.processor.approve_part(part_id, approved)))
+        part = self.repository.get_part(part_id)
+        if not part:
+            raise ValueError("Agent part not found")
+        return AgentSessionResponse(**self._attach_recovery_diagnostics(self._approve_deepagents_action(part, approved)))
 
     async def approve_action_async(self, part_id: str, approved: bool) -> AgentSessionResponse:
         part = self.repository.get_part(part_id)
@@ -453,29 +408,26 @@ class AgentSessionService:
             raise ValueError("Agent part not found")
         session = self.repository.get_session(part["session_id"]) or {}
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        if is_langgraph_resume_enabled(settings.agent_session_langgraph_enabled, metadata):
-            result = self.processor.approve_part(part_id, approved)
-            if approved:
-                return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
-            runner = await self._get_graph_runner()
-            if runner is None:
-                logger.warning("LangGraph runner unavailable for action resume, using processor fallback")
-                return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
-            model_call = self.model_call or self._cloud_model_call(session)
-            stream_model_call = self._resolve_stream_model_call(session)
+        if metadata.get("runtime") == "deepagents":
+            result = self._approve_deepagents_action(part, approved)
+            self.deepagents_runner.model_call = self.model_call
             decision = action_approval_decision(part_id, approved)
             self._record_resume_decision(part["session_id"], decision)
-            await runner.resume(
-                part["session_id"],
-                decision,
-                model_call=model_call,
-                stream_model_call=stream_model_call,
-            )
+            if self.deepagents_runner.model_call is not None or session.get("provider"):
+                await self.deepagents_runner.resume(part["session_id"], decision)
+            elif approved:
+                self.deepagents_runner.execute_action(part_id)
+                self._complete_local_action_session(part["session_id"], self._local_action_completion_summary(self.repository.get_part(part_id) or part))
             return self.get_session(part["session_id"])
-        return await run_sync(self.approve_action, part_id, approved)
+        result = self._approve_deepagents_action(part, approved)
+        return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
 
     def execute_action(self, part_id: str) -> AgentSessionResponse:
-        return AgentSessionResponse(**self._attach_recovery_diagnostics(self.processor.execute_part(part_id)))
+        result = self.deepagents_runner.execute_action(part_id)
+        updated_part = self.repository.get_part(part_id)
+        if updated_part and str(updated_part.get("status") or "") == "executed":
+            self._complete_local_action_session(updated_part["session_id"], self._local_action_completion_summary(updated_part))
+        return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
 
     async def execute_action_async(self, part_id: str) -> AgentSessionResponse:
         part = self.repository.get_part(part_id)
@@ -483,34 +435,148 @@ class AgentSessionService:
             raise ValueError("Agent part not found")
         session = self.repository.get_session(part["session_id"]) or {}
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        if part.get("type") == "command":
-            return await run_sync(self.execute_action, part_id)
-        if is_langgraph_resume_enabled(settings.agent_session_langgraph_enabled, metadata):
-            runner = await self._get_graph_runner()
-            if runner is None:
-                raise RuntimeError("LangGraph is not available for this session")
-            if self.model_call is None and not session.get("provider"):
-                self._record_resume_decision(
-                    part["session_id"],
-                    action_execute_decision(part_id),
-                )
-                await runner.runtime.action_exec_node({"session_id": part["session_id"], "pending_part_id": part_id})
-                updated_part = self.repository.get_part(part_id) or part
-                if str(updated_part.get("status") or "") == "executed":
-                    self._complete_local_action_session(part["session_id"], self._local_action_completion_summary(updated_part))
-                return self.get_session(part["session_id"])
-            model_call = self.model_call or self._cloud_model_call(session)
-            stream_model_call = self._resolve_stream_model_call(session)
+        if metadata.get("runtime") == "deepagents":
+            if part.get("type") not in {"diff", "command"}:
+                raise ValueError("Only action parts can be executed")
+            self.deepagents_runner.model_call = self.model_call
+            self.deepagents_runner.execute_action(part_id)
             decision = action_execute_decision(part_id)
             self._record_resume_decision(part["session_id"], decision)
-            await runner.execute_action_and_resume(
-                part_id,
-                decision,
-                model_call=model_call,
-                stream_model_call=stream_model_call,
-            )
+            if self.deepagents_runner.model_call is not None or session.get("provider"):
+                await self.deepagents_runner.resume(part["session_id"], decision)
+            else:
+                self._complete_local_action_session(part["session_id"], self._local_action_completion_summary(self.repository.get_part(part_id) or part))
             return self.get_session(part["session_id"])
+        if part.get("type") == "command":
+            return await run_sync(self.execute_action, part_id)
         return await run_sync(self.execute_action, part_id)
+
+    def _approve_deepagents_action(self, part: dict[str, Any], approved: bool) -> dict[str, Any]:
+        session_id = str(part.get("session_id") or "")
+        if not session_id:
+            raise ValueError("Agent part session not found")
+        session = self.repository.get_session(session_id) or {}
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        if not approved:
+            updated = self.repository.update_part(part["id"], status="blocked")
+            metadata = set_phase(metadata, "failed")
+            self.repository.update_session(session_id, status="failed", metadata=metadata)
+            event = self.repository.add_event(
+                session_id,
+                "action_rejected",
+                "动作已拒绝",
+                {
+                    "session_id": session_id,
+                    "part_id": part["id"],
+                    "part_type": part.get("type"),
+                    "status": "blocked",
+                    "runtime": "deepagents",
+                    "part": updated,
+                },
+            )
+            self._notify_event(session_id, event)
+            result = self.repository.get_session(session_id) or session
+            result["parts"] = self.repository.list_parts(session_id)
+            return result
+
+        updated = self.repository.update_part(part["id"], status="approved")
+        metadata = set_phase(metadata, "waiting_approval")
+        self.repository.update_session(session_id, status="waiting_approval", metadata=metadata)
+        event = self.repository.add_event(
+            session_id,
+            "action_approved",
+            "动作已批准",
+            {
+                "session_id": session_id,
+                "part_id": part["id"],
+                "part_type": part.get("type"),
+                "status": "approved",
+                "runtime": "deepagents",
+                "part": updated,
+            },
+        )
+        self._notify_event(session_id, event)
+        result = self.repository.get_session(session_id) or session
+        result["parts"] = self.repository.list_parts(session_id)
+        return result
+
+    def _decide_deepagents_permission(self, part: dict[str, Any], decisions: list[dict[str, Any]]) -> dict[str, Any]:
+        session_id = str(part.get("session_id") or "")
+        if not session_id:
+            raise ValueError("Agent part session not found")
+        session = self.repository.get_session(session_id) or {}
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        payload = dict(part.get("payload") or {})
+        payload["decisions"] = decisions
+        payload["decided_at"] = datetime.now().isoformat()
+        updated = self.repository.update_part(part["id"], status="approved", payload=payload)
+        metadata = set_phase(metadata, "running")
+        metadata["pending_deepagents_interrupt"] = None
+        self.repository.update_session(session_id, status="running", metadata=metadata)
+        event = self.repository.add_event(
+            session_id,
+            "permission_decided",
+            "HITL 决策已提交，Agent 正在继续执行。",
+            {
+                "session_id": session_id,
+                "part_id": part["id"],
+                "part_type": part.get("type"),
+                "status": "approved",
+                "runtime": "deepagents",
+                "decisions": decisions,
+                "part": updated,
+            },
+        )
+        self._notify_event(session_id, event)
+        result = self.repository.get_session(session_id) or session
+        result["parts"] = self.repository.list_parts(session_id)
+        return result
+
+    def _validate_hitl_decisions(self, part: dict[str, Any], decisions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if part.get("type") != "permission":
+            raise ValueError("HITL decisions only apply to permission parts")
+        if part.get("status") != "pending":
+            raise ValueError("Permission part is not pending")
+        payload = dict(part.get("payload") or {})
+        action_requests = payload.get("action_requests") if isinstance(payload.get("action_requests"), list) else []
+        actions = payload.get("actions") if isinstance(payload.get("actions"), list) else []
+        action_count = len(action_requests) or len(actions) or 1
+        if len(decisions) != action_count:
+            raise ValueError(f"Expected {action_count} HITL decision(s), got {len(decisions)}")
+
+        normalized: list[dict[str, Any]] = []
+        for index, raw_decision in enumerate(decisions):
+            if not isinstance(raw_decision, dict):
+                raise ValueError("Each HITL decision must be an object")
+            decision_type = str(raw_decision.get("type") or "").strip()
+            if decision_type not in {"approve", "edit", "reject", "respond"}:
+                raise ValueError(f"Unsupported HITL decision type: {decision_type}")
+            action = actions[index] if index < len(actions) and isinstance(actions[index], dict) else {}
+            allowed = action.get("allowed_decisions") or payload.get("allowed_decisions") or ["approve", "edit", "reject", "respond"]
+            allowed_set = {str(item) for item in allowed} if isinstance(allowed, (list, tuple)) else {"approve", "reject"}
+            if decision_type not in allowed_set:
+                raise ValueError(f"Decision '{decision_type}' is not allowed for action {index + 1}")
+
+            decision: dict[str, Any] = {"type": decision_type}
+            message = str(raw_decision.get("message") or "").strip()
+            if decision_type in {"reject", "respond"}:
+                if decision_type == "respond" and not message:
+                    raise ValueError("Respond decisions require a message")
+                if message:
+                    decision["message"] = message
+            if decision_type == "edit":
+                edited_action = raw_decision.get("edited_action") or raw_decision.get("editedAction")
+                if not isinstance(edited_action, dict):
+                    raise ValueError("Edit decisions require edited_action")
+                name = str(edited_action.get("name") or "").strip()
+                args = edited_action.get("args")
+                if not name:
+                    raise ValueError("edited_action.name is required")
+                if not isinstance(args, dict):
+                    raise ValueError("edited_action.args must be an object")
+                decision["edited_action"] = {"name": name, "args": dict(args)}
+            normalized.append(decision)
+        return normalized
 
     def record_hunk_decision(
         self,
@@ -859,68 +925,6 @@ class AgentSessionService:
             return value
         return value[:limit].rstrip() + "...[truncated]"
 
-    def _resolve_prompt_model_calls(
-        self,
-        session: dict[str, Any],
-        metadata: dict[str, Any],
-    ) -> tuple[ModelCall, StreamModelCall | None, dict[str, Any]]:
-        provider_name = str(session.get("provider") or "")
-        model_name = str(session.get("model") or "")
-        trace = {
-            **dict(metadata.get("execution_trace") or {}),
-            "provider": provider_name,
-            "model": model_name,
-            "fallback_used": False,
-            "last_graph_error": None,
-            "last_model_error": None,
-        }
-
-        if self.model_call is not None:
-            metadata["streaming_diagnostics"] = {
-                "mode": "non_stream",
-                "status": "disabled",
-                "source": "injected_model_call",
-                "reason": "测试或自定义 model_call 未提供 stream_model_call",
-                "fallback_to_non_stream": True,
-            }
-            trace.update({"model_entry": "injected_model_call", "runtime": metadata.get("runtime") or "pending"})
-            metadata["execution_trace"] = trace
-            return self.model_call, None, metadata
-
-        if not provider_name:
-            raise AgentSessionCloudError("missing_provider", "没有选择云端模型 provider")
-
-        if "_cloud_model_call" in self.__dict__ or "_cloud_stream_model_call" in self.__dict__:
-            stream_model_call = self._cloud_stream_model_call(session)
-            metadata["streaming_diagnostics"] = {
-                "mode": "chat_stream",
-                "status": "configured",
-                "provider": provider_name,
-                "model": model_name,
-                "source": "injected_cloud_call",
-                "fallback_to_non_stream": False,
-            }
-            trace.update({"model_entry": "chat_stream", "cloud_config_status": "injected"})
-            metadata["execution_trace"] = trace
-            return self._cloud_model_call(session), stream_model_call, metadata
-
-        _provider, _api_key, resolved_model = self._resolve_cloud_provider_config(session)
-        stream_model_call = self._cloud_stream_model_call(session)
-        metadata["streaming_diagnostics"] = {
-            "mode": "chat_stream",
-            "status": "configured",
-            "provider": provider_name,
-            "model": resolved_model,
-            "source": "cloud_provider",
-            "fallback_to_non_stream": False,
-        }
-        trace.update({"model": resolved_model, "model_entry": "chat_stream", "cloud_config_status": "ready"})
-        metadata["execution_trace"] = trace
-        return self._cloud_model_call(session), stream_model_call, metadata
-
-    def _resolve_cloud_provider_config(self, session: dict[str, Any]):
-        return self.provider.resolve_cloud_provider_config(session)
-
     def _record_agent_chain_failure(
         self,
         session_id: str,
@@ -960,7 +964,7 @@ class AgentSessionService:
             payload={"summary": message, "error_code": code, "fallback": False},
         )
         self.repository.update_session(session_id, status="needs_manual_review", metadata=metadata)
-        self.processor._event(
+        self._event(
             session_id,
             "agent_chain_failed",
             message,
@@ -977,93 +981,6 @@ class AgentSessionService:
         result = self.repository.get_session(session_id) or session
         result["parts"] = self.repository.list_parts(session_id)
         return result
-
-    def _cloud_model_call(self, session: dict[str, Any]) -> ModelCall:
-        return self.provider.cloud_model_call(session)
-
-    def _cloud_stream_model_call(self, session: dict[str, Any]):
-        return self.provider.cloud_stream_model_call(session)
-
-    def _local_fallback_model_response(self, messages: list[dict[str, str]], reason: str) -> str:
-        latest_user = next((item.get("content", "") for item in reversed(messages) if item.get("role") == "user"), "")
-        transcript = "\n".join(item.get("content", "") for item in messages[-6:])
-        if "工具结果" in latest_user or "工具结果" in transcript:
-            observation = self._extract_latest_tool_observation(latest_user or transcript)
-            changed_files = list((observation or {}).get("changed_files") or [])
-            if changed_files:
-                changed_text = "、".join(str(path) for path in changed_files[:5])
-                return json.dumps(
-                    {
-                        "tool": "finalize",
-                        "arguments": {
-                            "summary": f"已完成本地动作执行兜底。原因：{reason}。补丁已执行并写入文件：{changed_text}。"
-                        },
-                    },
-                    ensure_ascii=False,
-                )
-            command = (observation or {}).get("command")
-            if command:
-                command_text = " ".join(command) if isinstance(command, list) else str(command)
-                return json.dumps(
-                    {
-                        "tool": "finalize",
-                        "arguments": {
-                            "summary": f"已完成本地动作执行兜底。原因：{reason}。命令已执行：{command_text}。"
-                        },
-                    },
-                    ensure_ascii=False,
-                )
-            return json.dumps(
-                {
-                    "tool": "finalize",
-                    "arguments": {
-                        "summary": f"已完成本地只读兜底流程。原因：{reason}。已根据工具结果生成总结；未写入文件，也未执行命令。"
-                    },
-                },
-                ensure_ascii=False,
-            )
-
-        explicit_files = self._extract_requested_files(transcript)
-        read_only = any(marker in transcript for marker in ("不要写文件", "不写文件", "只读", "读取", "看看", "分析"))
-        if explicit_files and read_only:
-            return (
-                "云端模型暂不可用，我先按本地只读规则读取你明确指定的文件。\n"
-                + json.dumps(
-                    [{"tool": "read", "arguments": {"path": path}} for path in explicit_files[:6]],
-                    ensure_ascii=False,
-                )
-            )
-        return json.dumps(
-            {
-                "tool": "finalize",
-                "arguments": {
-                    "summary": f"Agent 无法调用云端模型，已安全停止。原因：{reason}。未写入文件，也未执行命令。"
-                },
-            },
-            ensure_ascii=False,
-        )
-
-    @staticmethod
-    def _extract_requested_files(text: str) -> list[str]:
-        files: list[str] = []
-        for token in re.findall(r"[\w./\\-]+\.(?:py|ts|tsx|css|md|json)", text):
-            normalized = token.strip("`'\"，。,；;：:（）()[]{}").replace("\\", "/")
-            if normalized and normalized not in files:
-                files.append(normalized)
-        return files
-
-    @staticmethod
-    def _extract_latest_tool_observation(text: str) -> dict[str, Any]:
-        marker = "工具结果："
-        if marker not in text:
-            return {}
-        segment = text.split(marker)[-1].strip()
-        if not segment:
-            return {}
-        try:
-            return dict(json.loads(segment))
-        except Exception:
-            return {}
 
     @staticmethod
     def _local_action_completion_summary(part: dict[str, Any]) -> str:
@@ -1095,59 +1012,7 @@ class AgentSessionService:
             payload={"summary": summary, "fallback": True, "source": "local_action_completion"},
         )
         self.repository.update_session(session_id, status="completed", metadata=metadata)
-        self.processor._event(session_id, "summary_completed", summary, {"fallback": True, "source": "local_action_completion"})
-
-    def _build_langgraph_initial_state(self, session_id: str, prompt: str) -> dict[str, Any]:
-        session = self.repository.get_session(session_id)
-        if not session:
-            raise ValueError("Agent session not found")
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        metadata["runtime"] = "langgraph"
-        metadata["checkpoint"] = "sqlite"
-        metadata["fallback_reason"] = None
-        metadata["last_graph_error"] = None
-        metadata["last_resume_decision"] = None
-        metadata["execution_trace"] = {
-            **dict(metadata.get("execution_trace") or {}),
-            "runtime": "langgraph",
-            "provider": session.get("provider") or "",
-            "model": session.get("model") or "",
-            "status": "running",
-            "fallback_used": False,
-            "last_graph_error": None,
-            "last_model_error": None,
-        }
-        self.repository.update_session(session_id, metadata=metadata)
-        return {
-            "session_id": session_id,
-            "prompt": prompt,
-            "messages": [],
-            "pending_tool_calls": [],
-            "tool_results": [],
-            "pending_part_id": None,
-            "pending_permission_call": None,
-            "final_summary": None,
-            "phase": metadata.get("current_phase") or "running",
-            "repair_attempts": int(metadata.get("repair_attempts") or 0),
-            "protocol_repair_count": int(metadata.get("protocol_repair_count") or 0),
-            "execution_state": "created",
-            "iterations": 0,
-            "last_model_raw": "",
-            "streaming_enabled": False,
-            "streaming_part_id": None,
-            "streaming_failed": False,
-            "last_stream_error": None,
-            "streaming_raw": "",
-        }
-
-    def _record_langgraph_fallback(self, session_id: str, reason: str) -> None:
-        session = self.repository.get_session(session_id)
-        if not session:
-            return
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        metadata["fallback_reason"] = reason[:600]
-        metadata["last_graph_error"] = reason[:600]
-        self.repository.update_session(session_id, metadata=metadata)
+        self._event(session_id, "summary_completed", summary, {"fallback": True, "source": "local_action_completion"})
 
     def _record_resume_decision(self, session_id: str, decision: dict[str, Any]) -> None:
         session = self.repository.get_session(session_id)
@@ -1157,16 +1022,3 @@ class AgentSessionService:
         metadata["last_resume_decision"] = dict(decision)
         self.repository.update_session(session_id, metadata=metadata)
 
-    def _resolve_stream_model_call(self, session: dict[str, Any]) -> StreamModelCall | None:
-        if self.model_call is not None:
-            return None
-        try:
-            return self._cloud_stream_model_call(session)
-        except (ValueError, TypeError, AgentSessionCloudError):
-            return None
-
-    def _has_custom_processor_prompt(self) -> bool:
-        if "prompt" in getattr(self.processor, "__dict__", {}):
-            return True
-        prompt_func = getattr(self.processor.prompt, "__func__", None)
-        return prompt_func is not None and prompt_func is not AgentSessionProcessor.prompt

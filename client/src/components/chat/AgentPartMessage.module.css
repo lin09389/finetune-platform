@@ -100,6 +100,75 @@
   white-space: nowrap;
 }
 
+.approvalInline {
+  display: grid;
+  gap: 8px;
+  max-width: 760px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent-warning, #faad14) 22%, var(--border-color));
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent-warning, #faad14) 7%, transparent), transparent),
+    color-mix(in srgb, var(--bg-elevated) 94%, transparent);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.025);
+}
+
+.approvalInline[data-status='approved'],
+.approvalInline[data-status='completed'] {
+  border-color: color-mix(in srgb, var(--accent-success, #52c41a) 20%, var(--border-color));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent-success, #52c41a) 6%, transparent), transparent),
+    color-mix(in srgb, var(--bg-elevated) 94%, transparent);
+}
+
+.approvalHeader {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.approvalPulse {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--accent-warning, #faad14);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent-warning, #faad14) 13%, transparent);
+}
+
+.approvalInline[data-status='approved'] .approvalPulse,
+.approvalInline[data-status='completed'] .approvalPulse {
+  background: var(--accent-success, #52c41a);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent-success, #52c41a) 12%, transparent);
+}
+
+.approvalCopy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.approvalStatusTag {
+  margin-inline-end: 0;
+  border-radius: 999px;
+}
+
+.approvalDetails :global(.ant-collapse-header) {
+  padding: 2px 0 !important;
+  color: var(--text-secondary) !important;
+  font-size: 12px;
+}
+
+.approvalDetails :global(.ant-collapse-content-box) {
+  padding: 4px 0 0 !important;
+}
+
+.approvalActions {
+  padding-top: 2px;
+}
+
 .stagePanel {
   display: grid;
   gap: 8px;

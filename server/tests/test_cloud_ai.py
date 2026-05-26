@@ -217,6 +217,32 @@ def test_cloud_chat_stream_single_large_chunk_stays_valid_sse(monkeypatch):
     assert "data: [DONE]" in body
 
 
+def test_project_chat_requires_explicit_context_flag(monkeypatch):
+    import importlib
+
+    cloud_chat = importlib.import_module("api.cloud_chat")
+    from api.cloud_chat import CloudChatRequest
+
+    monkeypatch.setattr(cloud_chat, "can_use_deepagents_project_chat", lambda *_args: True)
+
+    request = CloudChatRequest(
+        provider="mock",
+        api_key="test-key",
+        model="mock-cloud-model",
+        messages=[{"role": "user", "content": "explain this project"}],
+        stream=True,
+    )
+
+    context = {"use_context": True, "project_path": "/tmp/project"}
+
+    assert cloud_chat._should_use_deepagents_project_chat(request, "mock-cloud-model", context) is False
+    assert cloud_chat._should_use_deepagents_project_chat(
+        request,
+        "mock-cloud-model",
+        {**context, "project_chat": True},
+    ) is True
+
+
 def test_provider_stream_probe_persists_success_metadata(monkeypatch):
     import asyncio
     import importlib

@@ -936,10 +936,10 @@ async def get_recovery_options(limit: int = Query(default=6, ge=1, le=20)):
             continue
         resumable_checkpoints = [
             cp for cp in checkpoints
-            if cp.get("valid") and "recovery-exception" not in cp.get("name", "")
+            if cp.get("valid", True) and "recovery-exception" not in cp.get("name", "")
         ]
         all_resumable = resumable_checkpoints or [
-            cp for cp in checkpoints if cp.get("valid")
+            cp for cp in checkpoints if cp.get("valid", True)
         ]
         if not all_resumable:
             continue

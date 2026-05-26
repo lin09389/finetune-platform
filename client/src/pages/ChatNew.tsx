@@ -1,4 +1,4 @@
-import { Button, Drawer, Input, Modal, Tag, Tooltip } from 'antd';
+import { Button, Drawer, Input, Modal, Tag, Tooltip, Typography } from 'antd';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
@@ -35,6 +35,7 @@ import {
   approveAgentPermission,
   classifyChatAgentIntent,
   createAgentSession,
+  decideAgentPermission,
   executeAgentAction,
   getArtifactOriginal,
   recordHunkDecision,
@@ -53,7 +54,7 @@ import {
   rejectAgentAction as rejectAgentSessionAction,
   rejectAgentPermission,
 } from '../services/api';
-import type { ActiveFileContext, AgentArtifact, AgentInfo, AgentPart, AgentSession, AgentSessionEvent, AgentSessionOverview, ExplicitContextMention, SavedCloudProvider, WorkspaceSummary, WorkspaceTreeNode } from '../services/api';
+import type { ActiveFileContext, AgentArtifact, AgentHitlDecision, AgentInfo, AgentPart, AgentSession, AgentSessionEvent, AgentSessionOverview, ExplicitContextMention, SavedCloudProvider, WorkspaceSummary, WorkspaceTreeNode } from '../services/api';
 import { transitions } from '../theme/animations';
 import { notify } from '../utils/notify';
 import { ArrowDownOutlined, FolderOpenOutlined } from '@ant-design/icons';
@@ -66,6 +67,57 @@ interface APIKeyConfig {
   model?: string;
   group_id?: string;
   base_url?: string;
+}
+
+type HitlDecisionType = AgentHitlDecision['type'];
+
+interface HitlDecisionDraft {
+  type: HitlDecisionType;
+  message: string;
+  editedArgs: string;
+  error?: string;
+}
+
+const AGENT_MODEL_PROVIDER_ALIASES: Record<string, string> = {
+  anthropic: 'anthropic',
+  baseten: 'baseten',
+  deepseek: 'deepseek',
+  fireworks: 'fireworks',
+  'google-genai': 'google_genai',
+  google_genai: 'google_genai',
+  'google-vertexai': 'google_vertexai',
+  google_vertexai: 'google_vertexai',
+  ollama: 'ollama',
+  openai: 'openai',
+  openrouter: 'openrouter',
+};
+
+function resolveAgentModelConfig(params: {
+  useCloudAI: boolean;
+  cloudConfig: APIKeyConfig | null;
+  selectedCloudModel?: string;
+  localBackend?: string;
+  localModel?: string;
+}): { provider: string; model: string } {
+  const rawProvider = (params.useCloudAI ? params.cloudConfig?.provider || '' : params.localBackend || '').trim();
+  const rawModel = (params.useCloudAI ? params.selectedCloudModel || params.cloudConfig?.model || '' : params.localModel || '').trim();
+  if (!rawModel) {
+    throw new Error('Agent 需要先选择一个支持工具调用的模型。');
+  }
+  const colonIndex = rawModel.indexOf(':');
+  if (colonIndex > 0) {
+    const prefix = rawModel.slice(0, colonIndex);
+    const model = rawModel.slice(colonIndex + 1);
+    const provider = AGENT_MODEL_PROVIDER_ALIASES[prefix];
+    if (provider && model) {
+      return { provider, model };
+    }
+  }
+  const provider = AGENT_MODEL_PROVIDER_ALIASES[rawProvider];
+  if (!provider) {
+    throw new Error(`Agent 现在只支持官方 DeepAgents 模型 provider:model。当前服务商 ${rawProvider || '未选择'} 不能用于 Agent。`);
+  }
+  return { provider, model: rawModel };
 }
 
 const STARTER_IDEAS = [
@@ -318,6 +370,7 @@ const ChatPage: React.FC = () => {
   const [openedFiles, setOpenedFiles] = useState<OpenedFile[]>([]);
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   const lastAutoOpenedPartIdRef = useRef<string | null>(null);
+  const [hitlDecisionDrafts, setHitlDecisionDrafts] = useState<Record<number, HitlDecisionDraft>>({});
   const activeFileContext = useAppStore((state) => state.activeFileContext);
   const setActiveFileContext = useAppStore((state) => state.setActiveFileContext);
   const [explicitContextMentions, setExplicitContextMentions] = useState<ExplicitContextMention[]>([]);
@@ -370,6 +423,12 @@ const ChatPage: React.FC = () => {
     ? `${selectedWorkspace.name}${selectedWorkspace.local_path ? ` · ${selectedWorkspace.local_path}` : ''}`
     : '未选择工作区';
   const effectiveProjectPath = (workspaceProjectPath.trim() || selectedWorkspace?.local_path || '').trim();
+  useEffect(() => {
+    if (settings.projectPath !== effectiveProjectPath) {
+      updateSettings({ projectPath: effectiveProjectPath });
+    }
+  }, [effectiveProjectPath, settings.projectPath, updateSettings]);
+
   useEffect(() => {
     setIsAtBottom(shouldRestoreToBottom);
     isAutoScrollEnabledRef.current = shouldRestoreToBottom;
@@ -592,7 +651,7 @@ const ChatPage: React.FC = () => {
   });
 
   const activeAgentSessionIds = useMemo(() => {
-    const activeStatuses = new Set(['running', 'verifying', 'repairing', 'waiting_approval', 'waiting_permission']);
+    const stoppableStatuses = new Set(['running', 'verifying', 'repairing']);
     return Array.from(
       new Set(
         messages
@@ -600,7 +659,7 @@ const ChatPage: React.FC = () => {
             const metadata = message.agent_metadata;
             return Boolean(
               metadata?.agent_session_id &&
-              (activeStatuses.has(metadata.status || '') || message.isLoading),
+              (stoppableStatuses.has(metadata.status || '') || (message.isLoading && metadata.status !== 'waiting_approval' && metadata.status !== 'waiting_permission')),
             );
           })
           .map((message) => message.agent_metadata?.agent_session_id)
@@ -884,6 +943,25 @@ const ChatPage: React.FC = () => {
       '帮我新增', '帮我添加', '帮我重构',
       '改成', '改为', '加个', '加一个',
     ].some((keyword) => text.includes(keyword));
+  }, []);
+
+  const isReadOnlyProjectDiscussion = useCallback((content: string) => {
+    const text = content.trim().toLowerCase();
+    if (!text) return false;
+    const actionKeywords = [
+      '修改', '改代码', '新增', '添加', '实现', '修复', '重构', '优化代码',
+      '跑测试', '运行测试', '执行', '运行命令', '安装', '写入', '编辑',
+      '生成补丁', '写补丁', 'apply patch', 'pytest', 'npm run', 'typecheck',
+    ];
+    if (actionKeywords.some((keyword) => text.includes(keyword))) {
+      return false;
+    }
+    const projectKeywords = [
+      '这个项目', '当前项目', '项目结构', '项目代码', '项目里',
+      '检查一下', '检查下', '看一下项目', '看看项目', '分析一下项目',
+      '分析项目', '梳理项目', '理解项目', '项目问题', '深度问题',
+    ];
+    return projectKeywords.some((keyword) => text.includes(keyword));
   }, []);
 
   const persistAgentMessages = useCallback(async () => {
@@ -1363,6 +1441,13 @@ if (existing) {
       setRoutingIntent(false);
       let agentSession: AgentSession | undefined;
       try {
+        const agentModel = resolveAgentModelConfig({
+          useCloudAI,
+          cloudConfig: cloudAIConfig,
+          selectedCloudModel,
+          localBackend: settings.backend,
+          localModel: settings.modelId,
+        });
         const workspaceContext = selectedWorkspaceLabel !== '未选择工作区'
           ? ` · ${selectedWorkspaceLabel}`
           : '';
@@ -1375,8 +1460,8 @@ if (existing) {
                 ? `${goal.slice(0, 26) || 'Agent Task'}${workspaceContext}`.slice(0, 64)
                 : '',
             project_path: effectiveProjectPath || undefined,
-            provider: cloudAIConfig?.provider || undefined,
-            model: selectedCloudModel || cloudAIConfig?.model || undefined,
+            provider: agentModel.provider,
+            model: agentModel.model,
             autonomy_mode: autonomyMode,
           }),
           15000,
@@ -1395,8 +1480,8 @@ if (existing) {
         const started = await withTimeout(
           promptAgentSession(session.id, {
             content: goal,
-            provider: cloudAIConfig?.provider || undefined,
-            model: selectedCloudModel || cloudAIConfig?.model || undefined,
+            provider: agentModel.provider,
+            model: agentModel.model,
             ...buildDeepContextPayload(),
           }),
           15000,
@@ -1420,8 +1505,8 @@ if (existing) {
           chat_session_id: sessionId && !sessionId.startsWith('local_') ? sessionId : undefined,
           agent_id: options.agentId || selectedPrimaryAgent || 'build',
           title: `${goal.slice(0, 26) || 'Agent Session'}${selectedWorkspaceLabel !== '未选择工作区' ? ` · ${selectedWorkspaceLabel}` : ''}`.slice(0, 64),
-          provider: cloudAIConfig?.provider || undefined,
-          model: selectedCloudModel || cloudAIConfig?.model || undefined,
+          provider: undefined,
+          model: undefined,
           metadata: { autonomy_mode: autonomyMode },
         });
         return true;
@@ -1445,7 +1530,10 @@ if (existing) {
       selectedWorkspaceLabel,
       scheduleAgentSessionRefresh,
       startAgentSessionStream,
+      settings.backend,
+      settings.modelId,
       upsertAgentSessionMessage,
+      useCloudAI,
     ],
   );
 
@@ -1458,7 +1546,8 @@ if (existing) {
 
       let tempUserId: string | undefined;
       let tempLoadingId: string | undefined;
-      const shouldPreferAgent = routingMode !== 'chat';
+      const readOnlyProjectDiscussion = isReadOnlyProjectDiscussion(content);
+      const shouldPreferAgent = routingMode === 'agent' || (routingMode === 'auto' && !readOnlyProjectDiscussion);
 
       if (routingMode === 'agent' || shouldPreferAgent) {
         if (routingMode === 'agent') {
@@ -1524,13 +1613,14 @@ if (existing) {
       if (tempUserId) removeLocalMessage(tempUserId);
       if (tempLoadingId) removeLocalMessage(tempLoadingId);
       if (useCloudAI && cloudAIConfig) {
+        const effectiveCloudModel = selectedCloudModel || cloudAIConfig.model || '';
         await sendCloudMessage(
           { prompt: content, deepContext: buildDeepContextPayload() },
           {
             provider: cloudAIConfig.provider,
             apiKey: cloudAIConfig.api_key,
             keyId: cloudAIConfig.key_id,
-            model: selectedCloudModel,
+            model: effectiveCloudModel,
             groupId: cloudAIConfig.group_id,
             baseUrl: cloudAIConfig.base_url,
           },
@@ -1547,6 +1637,7 @@ if (existing) {
       deleteMessage,
       handleAgentSession,
       isLikelyAgentGoal,
+      isReadOnlyProjectDiscussion,
       removeLocalMessage,
       routingMode,
       scrollToBottom,
@@ -1658,12 +1749,21 @@ if (existing) {
     async (actionId: string) => {
       const metadata = findAgentMetadataByAction(actionId);
       if (!metadata?.agent_session_id) return;
-      if (metadata.action_type === 'permission') {
-        const response = await approveAgentPermission(actionId);
-        await upsertAgentSessionMessage(response.session);
-        notify.success('权限已批准');
-        return;
-      }
+        if (metadata.action_type === 'permission') {
+          const part = metadata.agent_part as AgentPart | undefined;
+          const payload = (part?.payload || {}) as Record<string, any>;
+          const actionCount = Array.isArray(payload.action_requests) && payload.action_requests.length > 0
+            ? payload.action_requests.length
+            : Array.isArray(payload.actions) && payload.actions.length > 0
+              ? payload.actions.length
+              : 1;
+          const response = actionCount > 1
+            ? await decideAgentPermission(actionId, Array.from({ length: actionCount }, () => ({ type: 'approve' })))
+            : await approveAgentPermission(actionId);
+          await upsertAgentSessionMessage(response.session);
+          notify.success('已允许 Agent 继续执行');
+          return;
+        }
       const approved = await approveAgentAction(actionId);
       await upsertAgentSessionMessage(approved.session);
       if (metadata.action_type === 'patch' || metadata.action_type === 'command') {
@@ -1686,6 +1786,135 @@ if (existing) {
     },
     [findAgentMetadataByAction, upsertAgentSessionMessage],
   );
+
+  const pendingApproval = useMemo(() => {
+    return [...messages]
+      .reverse()
+      .map((message) => message.agent_metadata)
+      .find((metadata) => metadata?.can_approve && metadata.action_id && metadata.status === 'pending') || null;
+  }, [messages]);
+  const pendingApprovalPart = pendingApproval?.agent_part as AgentPart | undefined;
+  const pendingApprovalPayload = useMemo(
+    () => (pendingApprovalPart?.payload || {}) as Record<string, any>,
+    [pendingApprovalPart?.payload],
+  );
+  const pendingApprovalActions = useMemo(() => {
+    const actions = Array.isArray(pendingApprovalPayload.actions) ? pendingApprovalPayload.actions : [];
+    if (actions.length > 0) {
+      return actions.map((action: Record<string, any>, index: number) => ({
+        index,
+        name: String(action.name || `tool_${index + 1}`),
+        args: action.args && typeof action.args === 'object' ? action.args : {},
+        description: String(action.description || ''),
+        allowedDecisions: Array.isArray(action.allowed_decisions)
+          ? action.allowed_decisions.map(String)
+          : ['approve', 'reject'],
+      }));
+    }
+    const actionRequests = Array.isArray(pendingApprovalPayload.action_requests)
+      ? pendingApprovalPayload.action_requests
+      : [];
+    if (actionRequests.length > 0) {
+      return actionRequests.map((action: Record<string, any>, index: number) => ({
+        index,
+        name: String(action.name || `tool_${index + 1}`),
+        args: action.args && typeof action.args === 'object' ? action.args : {},
+        description: String(action.description || ''),
+        allowedDecisions: Array.isArray(pendingApprovalPayload.allowed_decisions)
+          ? pendingApprovalPayload.allowed_decisions.map(String)
+          : ['approve', 'reject'],
+      }));
+    }
+    return pendingApproval?.action_id
+      ? [{
+          index: 0,
+          name: String(pendingApprovalPayload.tool || pendingApprovalPayload.action?.name || 'tool'),
+          args: pendingApprovalPayload.args || pendingApprovalPayload.action?.args || {},
+          description: '',
+          allowedDecisions: Array.isArray(pendingApprovalPayload.allowed_decisions)
+            ? pendingApprovalPayload.allowed_decisions.map(String)
+            : ['approve', 'reject'],
+        }]
+      : [];
+  }, [pendingApproval?.action_id, pendingApprovalPayload]);
+
+  useEffect(() => {
+    if (!pendingApproval?.action_id) {
+      setHitlDecisionDrafts({});
+      return;
+    }
+    setHitlDecisionDrafts((current) => {
+      const next: Record<number, HitlDecisionDraft> = {};
+      pendingApprovalActions.forEach((action) => {
+        const existing = current[action.index];
+        const defaultType = (action.allowedDecisions.includes('approve') ? 'approve' : action.allowedDecisions[0] || 'approve') as HitlDecisionType;
+        next[action.index] = existing || {
+          type: defaultType,
+          message: '',
+          editedArgs: JSON.stringify(action.args || {}, null, 2),
+        };
+      });
+      return next;
+    });
+  }, [pendingApproval?.action_id, pendingApprovalActions]);
+
+  const updateHitlDecisionDraft = useCallback((index: number, updates: Partial<HitlDecisionDraft>) => {
+    setHitlDecisionDrafts((current) => ({
+      ...current,
+      [index]: { ...(current[index] || { type: 'approve', message: '', editedArgs: '{}' }), error: undefined, ...updates },
+    }));
+  }, []);
+
+  const buildHitlDecisions = useCallback((): AgentHitlDecision[] | null => {
+    const decisions: AgentHitlDecision[] = [];
+    for (const action of pendingApprovalActions) {
+      const draft = hitlDecisionDrafts[action.index];
+      if (!draft) return null;
+      if (draft.type === 'approve') {
+        decisions.push({ type: 'approve' });
+      } else if (draft.type === 'reject') {
+        decisions.push({ type: 'reject', ...(draft.message.trim() ? { message: draft.message.trim() } : {}) });
+      } else if (draft.type === 'respond') {
+        if (!draft.message.trim()) {
+          updateHitlDecisionDraft(action.index, { error: 'Respond requires a message.' });
+          return null;
+        }
+        decisions.push({ type: 'respond', message: draft.message.trim() });
+      } else if (draft.type === 'edit') {
+        try {
+          const args = JSON.parse(draft.editedArgs || '{}');
+          if (!args || typeof args !== 'object' || Array.isArray(args)) {
+            throw new Error('Edited args must be a JSON object.');
+          }
+          decisions.push({ type: 'edit', edited_action: { name: action.name, args } });
+        } catch (error) {
+          updateHitlDecisionDraft(action.index, {
+            error: error instanceof Error ? error.message : 'Edited args must be valid JSON.',
+          });
+          return null;
+        }
+      }
+    }
+    return decisions;
+  }, [hitlDecisionDrafts, pendingApprovalActions, updateHitlDecisionDraft]);
+
+  const handleSubmitHitlDecisions = useCallback(async () => {
+    if (!pendingApproval?.action_id) return;
+    const decisions = buildHitlDecisions();
+    if (!decisions) return;
+    const response = await decideAgentPermission(pendingApproval.action_id, decisions);
+    await upsertAgentSessionMessage(response.session);
+    notify.success('HITL 决策已提交，Agent 正在继续执行');
+  }, [buildHitlDecisions, pendingApproval?.action_id, upsertAgentSessionMessage]);
+
+  const handleRejectAllHitlDecisions = useCallback(async () => {
+    if (!pendingApproval?.action_id || !pendingApprovalActions.length) return;
+    const response = await decideAgentPermission(
+      pendingApproval.action_id,
+      pendingApprovalActions.map(() => ({ type: 'reject' })),
+    );
+    await upsertAgentSessionMessage(response.session);
+  }, [pendingApproval?.action_id, pendingApprovalActions, upsertAgentSessionMessage]);
 
   const handleExecuteAgentAction = useCallback(
     async (actionId: string) => {
@@ -2978,25 +3207,110 @@ if (existing) {
             )}
           </AnimatePresence>
 
-          <ChatInput
-            onSend={handleSend}
-            onStop={handleStopCurrentRun}
-            onClear={handleClearChat}
-            onNewChat={() => createSession()}
-            disabled={!settings.modelId && !useCloudAI}
-            loading={isLoading}
-            isStreaming={isActivelyStreaming || isAgentSessionRunning}
-            modelId={useCloudAI ? selectedCloudModel : settings.modelId}
-            agentModeAvailable={primaryAgents.length > 0}
-            routingMode={routingMode}
-            routing={routingIntent}
-            autonomyMode={autonomyMode}
-            workspaceFiles={workspaceFileNodes}
-            projectPath={effectiveProjectPath || undefined}
-            selectedMentions={explicitContextMentions}
-            onMentionsChange={setExplicitContextMentions}
-            activeFileContext={activeFileContext}
-          />
+          <div className={styles.composerAnchor}>
+            <AnimatePresence>
+              {pendingApproval?.action_id && (
+                <motion.div
+                  key={pendingApproval.action_id}
+                  className={styles.approvalPopover}
+                  initial={prefersReducedMotion ? false : { opacity: 0, y: 14, scale: 0.985 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.985 }}
+                  transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <div className={styles.approvalPopoverHeader}>
+                    <span className={styles.approvalTerminalIcon}>›_</span>
+                    <Typography.Text strong>
+                      Review {pendingApprovalActions.length || 1} agent action{pendingApprovalActions.length === 1 ? '' : 's'}
+                    </Typography.Text>
+                  </div>
+                  <div className={styles.approvalBatchList}>
+                    {pendingApprovalActions.map((action) => {
+                      const draft = hitlDecisionDrafts[action.index] || {
+                        type: 'approve' as HitlDecisionType,
+                        message: '',
+                        editedArgs: JSON.stringify(action.args || {}, null, 2),
+                      };
+                      return (
+                        <div className={styles.approvalActionCard} key={`${pendingApproval.action_id}-${action.index}`}>
+                          <div className={styles.approvalActionHeader}>
+                            <span className={styles.approvalKeycap}>{action.index + 1}</span>
+                            <Typography.Text code>{action.name}</Typography.Text>
+                          </div>
+                          <pre className={styles.approvalArgs}>{JSON.stringify(action.args || {}, null, 2)}</pre>
+                          <div className={styles.approvalChoices}>
+                            {(['approve', 'edit', 'reject', 'respond'] as HitlDecisionType[])
+                              .filter((type) => action.allowedDecisions.includes(type))
+                              .map((type) => (
+                                <button
+                                  type="button"
+                                  key={type}
+                                  className={draft.type === type ? styles.approvalChoicePrimary : styles.approvalChoice}
+                                  onClick={() => updateHitlDecisionDraft(action.index, { type })}
+                                >
+                                  {type}
+                                </button>
+                              ))}
+                          </div>
+                          {draft.type === 'edit' && (
+                            <Input.TextArea
+                              className={styles.approvalTextarea}
+                              value={draft.editedArgs}
+                              autoSize={{ minRows: 3, maxRows: 8 }}
+                              onChange={(event) => updateHitlDecisionDraft(action.index, { editedArgs: event.target.value })}
+                            />
+                          )}
+                          {(draft.type === 'reject' || draft.type === 'respond') && (
+                            <Input.TextArea
+                              className={styles.approvalTextarea}
+                              value={draft.message}
+                              placeholder={draft.type === 'respond' ? 'Reply returned as the tool result' : 'Optional feedback for the agent'}
+                              autoSize={{ minRows: 2, maxRows: 5 }}
+                              onChange={(event) => updateHitlDecisionDraft(action.index, { message: event.target.value })}
+                            />
+                          )}
+                          {draft.error && <Typography.Text type="danger">{draft.error}</Typography.Text>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className={styles.approvalFooter}>
+                    <Button
+                      size="small"
+                      type="text"
+                      disabled={!pendingApprovalActions.every((action) => action.allowedDecisions.includes('reject'))}
+                      onClick={() => void handleRejectAllHitlDecisions()}
+                    >
+                      Reject all
+                    </Button>
+                    <Button size="small" type="primary" onClick={() => void handleSubmitHitlDecisions()}>
+                      Submit decisions ↵
+                    </Button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <ChatInput
+              onSend={handleSend}
+              onStop={handleStopCurrentRun}
+              onClear={handleClearChat}
+              onNewChat={() => createSession()}
+              disabled={!settings.modelId && !useCloudAI}
+              loading={isLoading}
+              isStreaming={isActivelyStreaming || isAgentSessionRunning}
+              modelId={useCloudAI ? selectedCloudModel : settings.modelId}
+              agentModeAvailable={primaryAgents.length > 0}
+              routingMode={routingMode}
+              routing={routingIntent}
+              autonomyMode={autonomyMode}
+              workspaceFiles={workspaceFileNodes}
+              projectPath={effectiveProjectPath || undefined}
+              selectedMentions={explicitContextMentions}
+              onMentionsChange={setExplicitContextMentions}
+              activeFileContext={activeFileContext}
+            />
+          </div>
         </main>
 
         {isDesktop && (

@@ -562,6 +562,47 @@ const AgentPartMessage = React.memo(({
     );
   }
 
+  if (part.type === 'permission') {
+    const actionRequests = Array.isArray(payload.action_requests) ? payload.action_requests : [];
+    const request = actionRequests[0] || {};
+    const toolName = payload.tool || request.name || 'tool';
+    const args = payload.args || request.args || {};
+    return (
+      <div className={styles.approvalInline} data-status={status}>
+        <div className={styles.approvalHeader}>
+          <span className={styles.approvalPulse} />
+          <div className={styles.approvalCopy}>
+            <Typography.Text strong>等待你确认</Typography.Text>
+            <Typography.Text type="secondary">
+              准备继续执行 <Typography.Text code>{String(toolName)}</Typography.Text>
+            </Typography.Text>
+          </div>
+          <Tag color={statusColor[status] || 'warning'} className={styles.approvalStatusTag}>
+            {statusLabel[status] || status}
+          </Tag>
+        </div>
+        {Object.keys(args || {}).length > 0 ? (
+          <Collapse
+            ghost
+            size="small"
+            className={styles.approvalDetails}
+            items={[{
+              key: 'args',
+              label: '参数',
+              children: <pre style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{stringify(args)}</pre>,
+            }]}
+          />
+        ) : null}
+        {diagnosticBlock}
+        {canApprove && (
+          <Typography.Text type="secondary">
+            请在输入框上方的审批面板中提交本轮 HITL 决策。
+          </Typography.Text>
+        )}
+      </div>
+    );
+  }
+
   if (part.type === 'tool_call' || part.type === 'tool_result') {
     // 只读工具静默折叠
     const toolName = payload?.tool || '';
@@ -626,7 +667,7 @@ const AgentPartMessage = React.memo(({
         <Space>
           {canApprove && (
             <Button size="small" type="primary" onClick={() => onApproveAction?.(metadata.action_id!)}>
-              {part.type === 'permission' ? '批准' : '批准并执行'}
+              批准并执行
             </Button>
           )}
           {canApprove && (

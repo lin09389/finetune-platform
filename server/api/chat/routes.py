@@ -7,7 +7,7 @@ from api.chat_branch import get_next_message_tree_metadata, register_branch_mess
 from core.db_manager import run_sync
 
 from .context import get_context_manager
-from .session import get_session_manager
+from .session import Message, get_session_manager
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -176,12 +176,7 @@ async def send_message(session_id: str, request: SendMessageRequest):
         raise HTTPException(status_code=404, detail="Session not found")
 
     message_metadata, current_branch_id = get_next_message_tree_metadata(session, request.metadata)
-    message = await run_sync(
-        session.add_message,
-        role=request.role,
-        content=request.content,
-        metadata=message_metadata,
-    )
+    message = Message(role=request.role, content=request.content, metadata=message_metadata)
     register_branch_message(session, current_branch_id, message.id)
     await run_sync(session_manager.append_message, session_id, message)
 

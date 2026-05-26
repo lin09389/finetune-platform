@@ -1,111 +1,100 @@
-"""Permission evaluation for agent tool calls."""
+"""Official DeepAgents filesystem permission profiles."""
 
 from __future__ import annotations
 
-import fnmatch
-from enum import Enum
-from typing import Any
-
-from pydantic import BaseModel, Field
+from typing import Literal
 
 
-class PermissionAction(str, Enum):
-    ALLOW = "allow"
-    DENY = "deny"
-    ASK = "ask"
+FilesystemPermissionProfile = Literal["build", "readonly", "deny_all"]
+
+SENSITIVE_WORKSPACE_PATTERNS = (
+    "/workspace/.env",
+    "/workspace/.env.*",
+    "/workspace/**/.env",
+    "/workspace/**/.env.*",
+)
+WORKSPACE_PATTERN = "/workspace/**"
+INTERNAL_READ_PATTERNS = (
+    "/context/**",
+    "/large_tool_results/**",
+    "/conversation_history/**",
+)
+FALLBACK_PATTERN = "/**"
 
 
-class PermissionRule(BaseModel):
-    permission: str = Field(default="*")
-    pattern: str = Field(default="*")
-    action: PermissionAction = PermissionAction.ASK
+def filesystem_permission_profile_for_agent(agent_id: str | None) -> FilesystemPermissionProfile:
+    if agent_id == "build":
+        return "build"
+    if agent_id in {"explore", "review", "project_chat"}:
+        return "readonly"
+    return "deny_all"
 
 
-def evaluate(permission: str, pattern: str, ruleset: list[PermissionRule]) -> PermissionAction:
-    """Evaluate permission with last rule wins semantics."""
-    for rule in reversed(ruleset):
-        if _match(permission, rule.permission) and _match(pattern, rule.pattern):
-            return rule.action
-    return PermissionAction.ASK
+def build_filesystem_permissions(profile: FilesystemPermissionProfile):
+    """Build ordered official DeepAgents FilesystemPermission rules.
 
+    DeepAgents evaluates filesystem permission rules in declaration order and
+    defaults to allow when no rule matches. Keep the final deny route-scoped so
+    the middleware remains compatible with execute-capable CompositeBackend.
+    """
 
-def _match(text: str, pattern: str) -> bool:
-    if pattern == "*":
-        return True
-    return fnmatch.fnmatch(text, pattern)
+    from deepagents import FilesystemPermission
 
+    rules = [
+        FilesystemPermission(
+            operations=["read", "write"],
+            paths=list(SENSITIVE_WORKSPACE_PATTERNS),
+            mode="deny",
+        )
+    ]
 
-def from_config(config: dict[str, Any]) -> list[PermissionRule]:
-    rules: list[PermissionRule] = []
-    for key, value in config.items():
-        if isinstance(value, str):
-            rules.append(PermissionRule(permission=key, pattern="*", action=PermissionAction(value)))
-            continue
-        if isinstance(value, dict):
-            for pattern, action in value.items():
-                rules.append(PermissionRule(permission=key, pattern=str(pattern), action=PermissionAction(str(action))))
+    if profile == "build":
+        rules.append(
+            FilesystemPermission(
+                operations=["read", "write"],
+                paths=[WORKSPACE_PATTERN],
+                mode="allow",
+            )
+        )
+    elif profile == "readonly":
+        rules.append(
+            FilesystemPermission(
+                operations=["read"],
+                paths=[WORKSPACE_PATTERN],
+                mode="allow",
+            )
+        )
+
+    if profile in {"build", "readonly"}:
+        rules.append(
+            FilesystemPermission(
+                operations=["read"],
+                paths=list(INTERNAL_READ_PATTERNS),
+                mode="allow",
+            )
+        )
+
+    rules.append(
+        FilesystemPermission(
+            operations=["read", "write"],
+            paths=[FALLBACK_PATTERN],
+            mode="deny",
+        )
+    )
     return rules
 
 
-def default_rules_for_agent(agent_id: str) -> list[PermissionRule]:
-    if agent_id == "planner":
-        return from_config(
-            {
-                "tool.list_files": "allow",
-                "tool.search_code": "allow",
-                "tool.read_file": "allow",
-                "tool.inspect_project": "allow",
-                "tool.detect_project_commands": "allow",
-                "tool.get_git_status": "allow",
-                "tool.get_git_diff": "allow",
-                "tool.list_changed_files": "allow",
-                "tool.read_execution_result": "allow",
-                "tool.read_test_failures": "allow",
-                "tool.delegate_agent": "allow",
-                "tool.propose_patch": "deny",
-                "tool.propose_command": "deny",
-                "tool.finalize": "allow",
-            }
-        )
-    if agent_id == "implementer":
-        return from_config(
-            {
-                "tool.list_files": "allow",
-                "tool.search_code": "allow",
-                "tool.read_file": "allow",
-                "tool.inspect_project": "allow",
-                "tool.detect_project_commands": "allow",
-                "tool.get_git_status": "allow",
-                "tool.get_git_diff": "allow",
-                "tool.list_changed_files": "allow",
-                "tool.read_execution_result": "allow",
-                "tool.read_test_failures": "allow",
-                "tool.delegate_agent": "allow",
-                "tool.propose_patch": "allow",
-                "tool.propose_command": "allow",
-                "tool.finalize": "allow",
-            }
-        )
-    if agent_id == "reviewer":
-        return from_config(
-            {
-                "tool.list_files": "allow",
-                "tool.search_code": "allow",
-                "tool.read_file": "allow",
-                "tool.inspect_project": "allow",
-                "tool.detect_project_commands": "allow",
-                "tool.get_git_status": "allow",
-                "tool.get_git_diff": "allow",
-                "tool.list_changed_files": "allow",
-                "tool.read_execution_result": "allow",
-                "tool.read_test_failures": "allow",
-                "tool.delegate_agent": "deny",
-                "tool.propose_patch": "deny",
-                "tool.propose_command": "allow",
-                "tool.finalize": "allow",
-            }
-        )
-    return from_config({"*": "ask"})
+def filesystem_permissions_for_agent(agent_id: str | None):
+    return build_filesystem_permissions(filesystem_permission_profile_for_agent(agent_id))
 
 
-__all__ = ["PermissionAction", "PermissionRule", "evaluate", "from_config", "default_rules_for_agent"]
+__all__ = [
+    "FilesystemPermissionProfile",
+    "SENSITIVE_WORKSPACE_PATTERNS",
+    "WORKSPACE_PATTERN",
+    "INTERNAL_READ_PATTERNS",
+    "FALLBACK_PATTERN",
+    "build_filesystem_permissions",
+    "filesystem_permission_profile_for_agent",
+    "filesystem_permissions_for_agent",
+]

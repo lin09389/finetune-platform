@@ -1,76 +1,105 @@
 from __future__ import annotations
 
-import logging
+import os
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-from core.config import settings
 
-logger = logging.getLogger(__name__)
+EPHEMERAL_BACKEND_ROUTES = ("/context/", "/large_tool_results/", "/conversation_history/")
+WORKSPACE_BACKEND_ROUTE = "/workspace/"
+FALLBACK_STATE_BACKEND_ROUTE = "/"
 
 
-class AgentSessionRuntime:
-    """Prompt runtime router for LangGraph and processor execution paths."""
+@dataclass(frozen=True)
+class DeepAgentRuntimeConfig:
+    model: Any
+    project_path: str
+    system_prompt: str
+    memory: list[str]
+    checkpointer: Any
+    interrupt_on: dict[str, Any] | None = None
+    permissions: list[Any] | None = None
+    tools: list[Any] | None = None
 
-    async def run_prompt(
-        self,
-        service: Any,
-        session_id: str,
-        content: str,
-        session: dict[str, Any],
-        *,
-        model_call: Any,
-        stream_model_call: Any,
-    ) -> dict[str, Any]:
-        if service._has_custom_processor_prompt():
-            logger.info("agent_session prompt routed to custom processor prompt: session_id=%s", session_id)
-            return await service.processor.prompt(
-                session_id,
-                content,
-                model_call=model_call,
-                stream_model_call=stream_model_call,
-            )
 
-        runner = await service._get_graph_runner()
-        if runner is not None:
-            initial_state = service._build_langgraph_initial_state(session_id, content)
-            logger.info(
-                "agent_session prompt routed to LangGraph: session_id=%s provider=%s model=%s stream=%s",
-                session_id,
-                session.get("provider") or "",
-                session.get("model") or "",
-                bool(stream_model_call),
-            )
-            try:
-                await runner.run_prompt(
-                    initial_state,
-                    model_call=model_call,
-                    stream_model_call=stream_model_call,
-                )
-                result = service.repository.get_session(session_id) or session
-                result["parts"] = service.repository.list_parts(session_id)
-                return result
-            except Exception as exc:
-                logger.exception("agent_session LangGraph prompt failed")
-                service._record_langgraph_fallback(session_id, str(exc))
-                return service.record_prompt_failure(session_id, exc)
+def build_deep_agent_runtime(config: DeepAgentRuntimeConfig) -> Any:
+    """Build the official DeepAgents runtime for an AgentSession."""
 
-        graph_error = service._graph_runner_error if settings.agent_session_langgraph_enabled else None
-        if graph_error:
-            service._record_langgraph_fallback(session_id, graph_error)
-            return service._record_agent_chain_failure(
-                session_id,
-                "langgraph_init_failed",
-                f"LangGraph 初始化失败，已停止执行，未回退到旧 processor：{graph_error}",
-                provider=session.get("provider"),
-                model=session.get("model"),
-            )
+    from deepagents import create_deep_agent
 
-        logger.info(
-            "agent_session prompt routed to processor fallback: session_id=%s provider=%s model=%s stream=%s graph_error=%s",
-            session_id,
-            session.get("provider") or "",
-            session.get("model") or "",
-            bool(stream_model_call),
-            bool(graph_error),
-        )
-        return await service.processor.prompt(session_id, content, model_call=model_call, stream_model_call=stream_model_call)
+    return create_deep_agent(
+        model=config.model,
+        tools=config.tools or [],
+        system_prompt=config.system_prompt,
+        backend=build_deepagents_backend(config.project_path),
+        memory=config.memory,
+        permissions=config.permissions,
+        interrupt_on=config.interrupt_on,
+        checkpointer=config.checkpointer,
+    )
+
+
+def build_deepagents_backend(project_path: str) -> Any:
+    """Build a CompositeBackend that separates project files from agent state.
+
+    The default backend must support execute, because CompositeBackend delegates
+    execute to its default backend. Internal DeepAgents paths are routed to
+    StateBackend so offloaded results and conversation history do not pollute
+    the user's project directory.
+    """
+
+    from deepagents.backends import CompositeBackend, LocalShellBackend, StateBackend
+
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key.upper() in {"PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "SYSTEMDRIVE", "COMSPEC", "TEMP", "TMP"}
+    }
+    project_backend = LocalShellBackend(
+        root_dir=str(Path(project_path).resolve()),
+        virtual_mode=True,
+        timeout=120,
+        max_output_bytes=100_000,
+        env=env,
+        inherit_env=False,
+    )
+    return CompositeBackend(
+        default=project_backend,
+        routes={
+            WORKSPACE_BACKEND_ROUTE: project_backend,
+            **{route: StateBackend() for route in EPHEMERAL_BACKEND_ROUTES},
+            FALLBACK_STATE_BACKEND_ROUTE: StateBackend(),
+        },
+    )
+
+
+def resolve_interrupt_on(metadata: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Read optional DeepAgents HITL interrupt configuration from session metadata."""
+
+    raw = dict(metadata or {}).get("deepagents_interrupt_on")
+    if raw is True:
+        return {"write_file": True, "edit_file": True, "execute": True}
+    if isinstance(raw, dict):
+        return raw
+    return None
+
+
+def memory_files_for_project(project_path: str) -> list[str]:
+    agents_file = Path(project_path) / "AGENTS.md"
+    if agents_file.exists() and agents_file.is_file():
+        return ["/workspace/AGENTS.md"]
+    return []
+
+
+__all__ = [
+    "DeepAgentRuntimeConfig",
+    "EPHEMERAL_BACKEND_ROUTES",
+    "FALLBACK_STATE_BACKEND_ROUTE",
+    "WORKSPACE_BACKEND_ROUTE",
+    "build_deep_agent_runtime",
+    "build_deepagents_backend",
+    "memory_files_for_project",
+    "resolve_interrupt_on",
+]
+

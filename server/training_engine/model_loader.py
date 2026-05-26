@@ -160,6 +160,9 @@ def _estimate_model_params(model_path: str) -> float:
     import json
     from pathlib import Path
 
+    if not model_path or not str(model_path).strip():
+        return 2.73e9
+
     model_dir = Path(model_path)
 
     config_file = model_dir / "config.json"

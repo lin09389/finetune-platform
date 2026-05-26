@@ -7,6 +7,7 @@
   border-radius: 0;
   overflow: hidden;
 }
+
 .chatWorkspace {
   min-height: 0;
   flex: 1;
@@ -22,6 +23,180 @@
   flex-direction: column;
   background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
   transition: flex-basis 0.2s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.18s ease;
+}
+
+.composerAnchor {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 130;
+  pointer-events: none;
+}
+
+.approvalPopover {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 96px;
+  width: min(560px, calc(100% - 32px));
+  margin: 0 auto;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  pointer-events: auto;
+  border: 1px solid color-mix(in srgb, var(--border-color) 84%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg-elevated) 97%, white);
+  box-shadow: 0 22px 70px rgba(15, 23, 42, 0.18), 0 5px 18px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.approvalPopover::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  width: 16px;
+  height: 16px;
+  transform: translateX(-50%) rotate(45deg);
+  border-right: 1px solid color-mix(in srgb, var(--border-color) 84%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 84%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated) 97%, white);
+}
+
+.approvalPopoverHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.approvalTerminalIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.approvalCommand {
+  min-height: 44px;
+  padding: 12px 14px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.approvalChoices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.approvalChoice,
+.approvalChoicePrimary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: auto;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.approvalBatchList {
+  display: grid;
+  gap: 10px;
+  max-height: min(52vh, 520px);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.approvalActionCard {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+
+.approvalActionHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.approvalArgs {
+  max-height: 120px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.approvalTextarea {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.approvalChoice:hover,
+.approvalChoicePrimary {
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-primary);
+}
+
+.approvalChoicePrimary {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border-color) 80%, transparent);
+}
+
+.approvalKeycap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--text-primary) 9%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.approvalFooter {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
 }
 
 .sidePanels {

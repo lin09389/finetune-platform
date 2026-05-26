@@ -1,6 +1,6 @@
-"""LangGraph checkpointer factory.
+"""DeepAgents checkpointer factory.
 
-The LangGraph checkpoint store uses its own SQLite file so workflow/session
+The DeepAgents checkpoint store uses its own SQLite file so workflow/session
 execution does not contend with the application's main state database.
 """
 

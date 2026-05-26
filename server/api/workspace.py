@@ -218,8 +218,19 @@ def _build_tree(
             break
         budget["remaining"] -= 1
 
-        # Calculate a safe relative path
-        rel_path = os.path.relpath(entry.path, root).replace("\\", "/")
+        # Calculate a safe relative path, protecting against Windows reserved device names (e.g. NUL)
+        # or cross-drive symlink ValueError.
+        try:
+            if entry.name.upper() in {
+                "CON", "PRN", "AUX", "NUL",
+                "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+                "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+            }:
+                continue
+            rel_path = os.path.relpath(entry.path, root).replace("\\", "/")
+        except ValueError as exc:
+            logger.warning("Skipping entry in tree build due to mount/path error: %s (%s)", entry.path, exc)
+            continue
 
         if entry.is_dir(follow_symlinks=False):
             nodes.append(

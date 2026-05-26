@@ -51,7 +51,7 @@ class AgentRegistry:
         raw["id"] = raw.get("id") or raw.get("name") or path.stem
         raw["name"] = raw.get("name") or raw["id"]
         raw["system_prompt"] = prompt
-        raw["permission_rules"] = self._parse_permissions(raw.pop("permission", {}))
+        raw.pop("permission", None)
         raw["tools"] = list(raw.get("tools") or [])
         raw["handoff_targets"] = list(raw.get("handoff_targets") or [])
         return AgentDefinition(**raw)
@@ -109,17 +109,5 @@ class AgentRegistry:
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
             return value[1:-1]
         return value
-
-    def _parse_permissions(self, config: dict[str, Any]) -> list[dict[str, Any]]:
-        rules: list[dict[str, Any]] = []
-        for permission, value in config.items():
-            if isinstance(value, str):
-                rules.append({"permission": permission, "pattern": "*", "action": value})
-                continue
-            if isinstance(value, dict):
-                for pattern, action in value.items():
-                    rules.append({"permission": permission, "pattern": str(pattern), "action": str(action)})
-        return rules
-
 
 __all__ = ["AgentRegistry"]

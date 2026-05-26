@@ -105,6 +105,8 @@ class Settings(BaseSettings):
     stream_flush_interval_ms: int = Field(default=8, ge=1, le=1000, description="流式输出刷新间隔 (毫秒)")
     enable_backpressure: bool = Field(default=True, description="启用背压控制")
     agent_session_langgraph_enabled: bool = Field(default=True, description="是否启用 agent_session LangGraph 主路径")
+    agent_cloud_model_timeout_seconds: int = Field(default=180, ge=10, le=900, description="Agent 云端模型请求超时（秒）")
+    agent_cloud_model_max_retries: int = Field(default=2, ge=0, le=10, description="Agent 云端模型请求最大重试次数")
 
     intent_route_chat_threshold: float = Field(default=0.45, ge=0, le=1, description="意图路由 chat 阈值")
     intent_route_tool_threshold: float = Field(default=0.75, ge=0, le=1, description="意图路由 tool 阈值")
