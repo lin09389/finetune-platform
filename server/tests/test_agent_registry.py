@@ -12,13 +12,16 @@ def test_builtin_agents_load_and_primary_filter():
     assert "explore" not in primary
 
 
-def test_build_agent_lets_action_policy_gate_patch_and_command():
+def test_build_agent_allows_official_harness_edit_and_execute_tools():
     registry = AgentRegistry()
     build = registry.require("build")
-    rules = {rule["permission"]: rule["action"] for rule in build.permission_rules}
 
-    assert rules["tool.propose_patch"] == "allow"
-    assert rules["tool.propose_command"] == "allow"
-    assert "必须提出对应的 `propose_patch`" in build.system_prompt
+    assert "write_file" in build.tools
+    assert "edit_file" in build.tools
+    assert "execute" in build.tools
+    assert not hasattr(build, "permission_rules")
+    assert build.default_provider == "openai"
+    assert build.default_model == "gpt-4o"
+    assert "官方 sandbox execute" in build.system_prompt
     assert "只分析" in build.system_prompt
 

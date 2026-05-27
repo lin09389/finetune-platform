@@ -18,6 +18,8 @@ from pydantic import BaseModel, Field
 
 from ai.gateway import AnthropicMessagesProvider, OpenAICompatibleProvider, get_provider, list_providers
 from api.types import KnowledgeSource, MemoryContextInfo, UnifiedContextInfo
+from agent_session.project_chat import DeepAgentsProjectChatRunner, ProjectChatResult, can_use_deepagents_project_chat
+from context.deepagents import build_deepagents_context_pack
 from security.audit_log import audit_logger
 from security.encryption import secure_storage
 
@@ -180,6 +182,94 @@ def _format_deep_context(context_options: dict[str, Any]) -> str:
     return "Deep Context Retrieval:\n" + "\n\n".join(sections) if sections else ""
 
 
+def _last_user_text(messages: list[dict[str, Any]]) -> str:
+    last_user_message = next((msg.get("content", "") for msg in reversed(messages) if msg.get("role") == "user"), "")
+    if isinstance(last_user_message, list):
+        return next(
+            (
+                str(part.get("text", ""))
+                for part in last_user_message
+                if isinstance(part, dict) and part.get("type") == "text"
+            ),
+            "",
+        )
+    return str(last_user_message or "")
+
+
+def _should_use_deepagents_project_chat(request: CloudChatRequest, model: str, context_options: dict[str, Any]) -> bool:
+    project_path = str(context_options.get("project_path") or "").strip()
+    if not project_path:
+        return False
+    if not bool(context_options.get("use_context", False)):
+        return False
+    if context_options.get("project_chat") is not True:
+        return False
+    return can_use_deepagents_project_chat(request.provider, model)
+
+
+async def _build_project_chat_context_files(
+    *,
+    goal: str,
+    context_options: dict[str, Any],
+    project_path: str,
+    session_options: dict[str, Any],
+) -> tuple[str, dict[str, str], dict[str, Any]]:
+    pack = await build_deepagents_context_pack(
+        goal=goal,
+        active_context=context_options.get("active_context"),
+        explicit_context=context_options.get("explicit_context") or [],
+        project_path=project_path,
+        session_id=session_options.get("session_id"),
+        user_id=session_options.get("user_id", "default"),
+    )
+    return pack.prompt, pack.files, pack.metadata
+
+
+async def _try_project_chat(
+    request: CloudChatRequest,
+    *,
+    model: str,
+    api_key: str | None,
+    base_url: str | None,
+) -> ProjectChatResult | None:
+    context_options = request.context or {}
+    session_options = request.session or {}
+    project_path = str(context_options.get("project_path") or "").strip()
+    if not _should_use_deepagents_project_chat(request, model, context_options):
+        return None
+    goal = _last_user_text(request.messages)
+    if not goal:
+        return None
+    try:
+        prompt, context_files, pack_metadata = await _build_project_chat_context_files(
+            goal=goal,
+            context_options=context_options,
+            project_path=project_path,
+            session_options=session_options,
+        )
+        messages = [dict(message) for message in request.messages]
+        for message in reversed(messages):
+            if message.get("role") == "user":
+                message["content"] = prompt
+                break
+        runner = DeepAgentsProjectChatRunner(
+            provider=request.provider,
+            model=model,
+            project_path=project_path,
+            metadata={
+                "api_key": api_key,
+                "base_url": base_url,
+                "model_params": request.extra_params or {},
+            },
+        )
+        result = await runner.run(messages, context_files=context_files)
+        result.metadata["deep_context"] = pack_metadata
+        return result
+    except Exception:
+        logger.debug("DeepAgents project chat unavailable; falling back to regular cloud chat", exc_info=True)
+        return None
+
+
 def _custom_provider_ids() -> list[str]:
     index = secure_storage.get("cloud_custom_provider_index") or {}
     ids = index.get("providers", [])
@@ -241,6 +331,14 @@ def _resolve_provider_instance(
     base_url: str = "",
     version: str = "",
 ):
+    # Sanitize DeepSeek base URL if it contains the invalid /anthropic path
+    if base_url and "api.deepseek.com" in base_url and "/anthropic" in base_url:
+        base_url = base_url.replace("/anthropic", "")
+    if key_data and "base_url" in key_data and key_data["base_url"]:
+        if "api.deepseek.com" in key_data["base_url"] and "/anthropic" in key_data["base_url"]:
+            key_data = dict(key_data)
+            key_data["base_url"] = key_data["base_url"].replace("/anthropic", "")
+
     provider_instance = get_provider(
         provider_id,
         group_id=group_id or key_data.get("group_id", ""),
@@ -516,6 +614,41 @@ async def cloud_chat(request: CloudChatRequest):
             raise HTTPException(status_code=400, detail=f"不支持的服务商：{request.provider}")
 
         model = request.model or key_data.get("default_model") or provider.get_default_model()
+        project_chat = await _try_project_chat(request, model=model, api_key=api_key, base_url=base_url)
+        if project_chat is not None:
+            audit_logger.log(
+                action="cloud_chat",
+                params={
+                    "provider": request.provider,
+                    "model": model,
+                    "message_count": len(request.messages),
+                    "project_chat": True,
+                },
+                result={"success": True},
+            )
+            unified_context = {
+                "total_sources": 0,
+                "memory_count": 0,
+                "knowledge_count": 0,
+                "project_count": len(project_chat.metadata.get("project_chat_tools") or []),
+                "retrieval_time": 0,
+                "trace": {
+                    "mode": "deepagents_project_chat",
+                    "readonly": True,
+                    "root": project_chat.metadata.get("project_chat_root"),
+                    "tools": project_chat.metadata.get("project_chat_tools") or [],
+                    "deep_context": project_chat.metadata.get("deep_context"),
+                },
+            }
+            return CloudChatResponse(
+                success=True,
+                content=project_chat.content,
+                provider=request.provider,
+                model=model,
+                unified_context=UnifiedContextInfo(**unified_context),
+                raw_response={"project_chat": True, "readonly": True, "tools": project_chat.metadata.get("project_chat_tools") or []},
+                duration_ms=int((time.time() - start_time) * 1000),
+            )
         messages, metadata = await _build_cloud_context(request)
 
         response = await provider.chat(
@@ -602,6 +735,47 @@ async def cloud_chat_stream(request: CloudChatRequest):
                 return
 
             model = request.model or key_data.get("default_model") or provider.get_default_model()
+            context_options = request.context or {}
+            session_options = request.session or {}
+            project_path = str(context_options.get("project_path") or "").strip()
+            if _should_use_deepagents_project_chat(request, model, context_options):
+                try:
+                    goal = _last_user_text(request.messages)
+                    prompt, context_files, pack_metadata = await _build_project_chat_context_files(
+                        goal=goal,
+                        context_options=context_options,
+                        project_path=project_path,
+                        session_options=session_options,
+                    )
+                    messages = [dict(message) for message in request.messages]
+                    for message in reversed(messages):
+                        if message.get("role") == "user":
+                            message["content"] = prompt
+                            break
+                    runner = DeepAgentsProjectChatRunner(
+                        provider=request.provider,
+                        model=model,
+                        project_path=project_path,
+                        metadata={
+                            "api_key": api_key,
+                            "base_url": base_url,
+                            "model_params": request.extra_params or {},
+                        },
+                    )
+                    yield f"data: {_sse_json({'type': 'metadata', 'model': model, 'backend': 'cloud', 'project_chat': True, 'project_chat_readonly': True, 'deep_context': pack_metadata})}\n\n"
+                    yield ": stream-ready\n\n"
+                    async for event in runner.astream_events(messages, context_files=context_files):
+                        if event.get("type") == "text_delta":
+                            yield f"data: {json.dumps({'type': 'text_delta', 'content': event.get('content', '')}, ensure_ascii=False)}\n\n"
+                        elif event.get("type") == "metadata":
+                            yield f"data: {_sse_json({'type': 'metadata', 'model': model, 'backend': 'cloud', **event})}\n\n"
+                    yield f"data: {json.dumps({'type': 'metadata', 'model': model, 'backend': 'cloud', 'duration_ms': int((time.time() - start_time) * 1000)}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+                    yield "data: [DONE]\n\n"
+                    return
+                except Exception as project_chat_error:
+                    logger.debug("DeepAgents project chat stream unavailable; falling back to regular cloud stream: %s", project_chat_error, exc_info=True)
+
             messages, metadata = await _build_cloud_context(request)
             if metadata:
                 yield f"data: {_sse_json({'type': 'metadata', 'model': model, 'backend': 'cloud', **metadata})}\n\n"

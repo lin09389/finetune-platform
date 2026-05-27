@@ -470,12 +470,27 @@ const AgentWorkspaceEditor: React.FC<AgentWorkspaceEditorProps> = ({
       {/* ── Editor area ────────────────────────────────────── */}
       {!activeFile ? (
         <div className={styles.emptyState} aria-label="编辑器空状态">
-          <svg className={styles.emptyIcon} viewBox="0 0 48 48" fill="none" aria-hidden="true">
-            <rect x="6" y="6" width="36" height="36" rx="4" stroke="currentColor" strokeWidth="2" strokeOpacity=".35" />
-            <path d="M16 18l8 6-8 6M27 30h6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" strokeOpacity=".55" />
-          </svg>
-          <span className={styles.emptyTitle}>暂无打开的文件</span>
-          <span className={styles.emptyHint}>点击左侧文件树中的文件即可在此查看或编辑代码</span>
+          <div className={styles.emptyStateContainer}>
+            <div className={styles.emptyIllustration} aria-hidden="true">
+              <div className={styles.emptyIllustrationHeader}>
+                <div className={styles.emptyIllustrationDot} />
+                <div className={styles.emptyIllustrationDot} />
+                <div className={styles.emptyIllustrationDot} />
+              </div>
+              <div className={styles.emptyIllustrationLines}>
+                <div className={styles.emptyIllustrationLine} />
+                <div className={styles.emptyIllustrationLine} />
+                <div className={styles.emptyIllustrationLine} />
+                <div className={styles.emptyIllustrationLine} />
+                <div className={styles.emptyIllustrationLine} />
+              </div>
+              <div className={styles.emptyIllustrationCursor} />
+            </div>
+            <h3 className={styles.emptyTitle}>暂无打开的文件</h3>
+            <p className={styles.emptyHint}>
+              点击左侧文件树中的文件，或等 AI Agent 自动生成补丁文件以在此查看与编辑代码。
+            </p>
+          </div>
         </div>
       ) : showDiff ? (
         <div className={styles.monacoWrap}>

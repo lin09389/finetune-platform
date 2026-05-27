@@ -12,11 +12,10 @@ class AgentDefinition(BaseModel):
     mode: str = "all"
     system_prompt: str = ""
     output_requirements: str = ""
-    default_provider: str = "minimax"
+    default_provider: str = "openai"
     default_model: str | None = None
     max_iterations: int = 6
     tools: list[str] = Field(default_factory=list)
-    permission_rules: list[dict[str, Any]] = Field(default_factory=list)
     handoff_targets: list[str] = Field(default_factory=list)
     hidden: bool = False
 

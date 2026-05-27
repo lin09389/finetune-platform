@@ -80,6 +80,11 @@ def normalize_npm_prefix_command(args: list[str]) -> list[str]:
 
 
 def command_allowed(args: list[str]) -> bool:
+    # 允许执行以 temp_ 开头并以 .py 结尾的临时 Python 脚本
+    if len(args) >= 2 and normalize_executable(args[0]) == "python":
+        script_name = args[1].lower()
+        if script_name.startswith("temp_") and script_name.endswith(".py"):
+            return True
     lowered = tuple(normalize_executable(item) if index == 0 else item.lower() for index, item in enumerate(args))
     return any(lowered[: len(prefix)] == prefix for prefix in COMMAND_ALLOWLIST)
 

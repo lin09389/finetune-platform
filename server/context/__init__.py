@@ -24,6 +24,7 @@ from context.service import (
 )
 from context.budget import ContextBuildOptions, estimate_tokens
 from context.builder import ContextBuilder, get_context_builder
+from context.deepagents import DeepAgentsContextPack, build_deepagents_context_pack
 from context.pack import (
     ContextBudget,
     ContextBuildResult,
@@ -54,6 +55,8 @@ __all__ = [
     "ContextBuildOptions",
     "ContextBuildResult",
     "estimate_tokens",
+    "DeepAgentsContextPack",
+    "build_deepagents_context_pack",
     "ProjectInfo",
     "FileInfo",
     "SymbolInfo",

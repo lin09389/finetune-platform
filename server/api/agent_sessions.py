@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from agent_session.models import (
     AgentApprovalResponse,
     AgentEventResponse,
+    AgentHitlDecisionRequest,
     AgentPromptRequest,
     AgentSessionCreate,
     AgentSessionOverviewResponse,
@@ -276,6 +277,26 @@ async def reject_agent_permission(
         session = await service.approve_permission_async(permission_id, False)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    part = next((item for item in session.parts if item.id == permission_id), None)
+    if not part:
+        raise HTTPException(status_code=404, detail="Permission part not found")
+    return AgentApprovalResponse(part=part, session=session)
+
+
+@permission_router.post("/agent-permissions/{permission_id}/decide", response_model=AgentApprovalResponse)
+async def decide_agent_permission(
+    permission_id: str,
+    request: AgentHitlDecisionRequest,
+    service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    try:
+        decisions = [decision.model_dump(exclude_none=True) for decision in request.decisions]
+        session = await service.decide_permission_async(permission_id, decisions)
+    except ValueError as exc:
+        message = str(exc)
+        status_code = 404 if "not found" in message.lower() else 422
+        raise HTTPException(status_code=status_code, detail=message) from exc
     part = next((item for item in session.parts if item.id == permission_id), None)
     if not part:
         raise HTTPException(status_code=404, detail="Permission part not found")

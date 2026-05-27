@@ -552,7 +552,6 @@ export interface AgentInfo {
   default_model?: string;
   max_iterations?: number;
   tools?: string[];
-  permission_rules?: Array<Record<string, any>>;
   handoff_targets?: string[];
   hidden?: boolean;
 }
@@ -786,6 +785,12 @@ export interface AgentSessionApprovalResponse {
   session: AgentSession;
 }
 
+export type AgentHitlDecision =
+  | { type: 'approve' }
+  | { type: 'reject'; message?: string }
+  | { type: 'respond'; message: string }
+  | { type: 'edit'; edited_action: { name: string; args: Record<string, any> } };
+
 export interface AgentArtifact {
   id: string;
   path: string;
@@ -998,6 +1003,14 @@ export const rejectAgentPermission = async (
   permissionId: string,
 ): Promise<AgentSessionApprovalResponse> => {
   const response = await apiClient.post(`/agent-permissions/${permissionId}/reject`);
+  return response.data;
+};
+
+export const decideAgentPermission = async (
+  permissionId: string,
+  decisions: AgentHitlDecision[],
+): Promise<AgentSessionApprovalResponse> => {
+  const response = await apiClient.post(`/agent-permissions/${permissionId}/decide`, { decisions });
   return response.data;
 };
 
@@ -1376,30 +1389,58 @@ export const subscribeTrainingLogs = (
   onError?: (error: Error) => void,
   history: number = 50,
 ) => {
-  const params = new URLSearchParams();
-  params.set('history', String(history));
-  const eventSource = new EventSource(
-    `${API_BASE_URL}/training/logs/stream/${encodeURIComponent(taskId)}?${params.toString()}`,
-  );
+  let eventSource: EventSource | null = null;
+  let retryCount = 0;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let isManualClose = false;
+  const maxRetries = 5;
+  const baseDelay = 2000;
+  let suppressHistory = false;
 
-  eventSource.onmessage = (event) => {
-    try {
-      const parsed = JSON.parse(event.data);
-      const line = typeof parsed === 'string'
-        ? parsed
-        : parsed?.line ?? parsed?.message ?? parsed?.content ?? '';
-      if (line) onLine(String(line));
-    } catch {
-      if (event.data) onLine(event.data);
-    }
+  const connect = () => {
+    const url = suppressHistory
+      ? `${API_BASE_URL}/training/logs/stream/${encodeURIComponent(taskId)}?history=0`
+      : `${API_BASE_URL}/training/logs/stream/${encodeURIComponent(taskId)}?history=${history}`;
+    eventSource = new EventSource(url);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        // Batched format: {"lines": ["line1", "line2", ...]}
+        if (Array.isArray(data.lines)) {
+          for (const line of data.lines) onLine(line);
+        } else if (data.line) {
+          onLine(data.line);
+        }
+        retryCount = 0;
+      } catch {
+        // ignore parse errors
+      }
+    };
+
+    eventSource.onerror = () => {
+      if (isManualClose) return;
+      eventSource?.close();
+      eventSource = null;
+
+      if (retryCount < maxRetries) {
+        const delay = Math.min(baseDelay * Math.pow(2, retryCount), 30000);
+        retryCount++;
+        suppressHistory = true;
+        retryTimer = setTimeout(connect, delay);
+      } else {
+        if (onError) onError(new Error('Log stream disconnected: max retries reached'));
+      }
+    };
   };
 
-  eventSource.onerror = () => {
-    eventSource.close();
-    onError?.(new Error('Training log stream disconnected'));
-  };
+  connect();
 
-  return () => eventSource.close();
+  return () => {
+    isManualClose = true;
+    if (retryTimer) clearTimeout(retryTimer);
+    eventSource?.close();
+  };
 };
 
 export interface TrainingEventV2 {

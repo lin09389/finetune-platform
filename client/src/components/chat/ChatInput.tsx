@@ -287,25 +287,49 @@ const ChatInput: React.FC<ChatInputProps> = ({
             )}
           </div>
 
-          <TextArea
-            ref={textareaRef}
-            placeholder={placeholder}
-            value={value}
-            onChange={(e) => {
-              setValue(e.target.value);
-              updateMentionQuery(e.target.value, e.target.selectionStart ?? e.target.value.length);
-            }}
-            onKeyDown={handleKeyDown}
-            onKeyUp={(e) => updateMentionQuery(e.currentTarget.value, e.currentTarget.selectionStart ?? e.currentTarget.value.length)}
-            onClick={(e) => updateMentionQuery(e.currentTarget.value, e.currentTarget.selectionStart ?? e.currentTarget.value.length)}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
-            autoSize={{ minRows: 1, maxRows: 6 }}
-            disabled={disabled || loading}
-            maxLength={maxLength}
-            variant="borderless"
-            className={styles.textarea}
-          />
+          <div className={styles.inputAreaBody}>
+            {(activeFileContext?.file_path || selectedMentions.length > 0) && (
+              <div className={styles.contextChips} aria-label="已绑定上下文">
+                {activeFileContext?.file_path && (
+                  <span className={`${styles.contextChip} ${styles.contextChipPassive}`} title={activeFileContext.file_path}>
+                    📄 {activeFileContext.file_path.split(/[\\/]/).pop()}
+                    {activeFileContext.cursor ? `:${activeFileContext.cursor.line}` : ''}
+                  </span>
+                )}
+                {selectedMentions.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={styles.contextChip}
+                    onClick={() => onMentionsChange?.(selectedMentions.filter((mention) => mention.id !== item.id))}
+                    title="移除此上下文"
+                  >
+                    📄 {item.label} <span className={styles.contextChipClose}>×</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <TextArea
+              ref={textareaRef}
+              placeholder={placeholder}
+              value={value}
+              onChange={(e) => {
+                setValue(e.target.value);
+                updateMentionQuery(e.target.value, e.target.selectionStart ?? e.target.value.length);
+              }}
+              onKeyDown={handleKeyDown}
+              onKeyUp={(e) => updateMentionQuery(e.currentTarget.value, e.currentTarget.selectionStart ?? e.currentTarget.value.length)}
+              onClick={(e) => updateMentionQuery(e.currentTarget.value, e.currentTarget.selectionStart ?? e.currentTarget.value.length)}
+              onFocus={() => setIsFocused(true)}
+              onBlur={() => setIsFocused(false)}
+              autoSize={{ minRows: 1, maxRows: 6 }}
+              disabled={disabled || loading}
+              maxLength={maxLength}
+              variant="borderless"
+              className={styles.textarea}
+            />
+          </div>
 
           <div className={styles.rightActions}>
             {showModelInfo && modelId && !isMobile && (
@@ -377,28 +401,6 @@ const ChatInput: React.FC<ChatInputProps> = ({
                   {item.detail && <span className={styles.mentionDetail}>{item.detail}</span>}
                 </span>
                 {item.line && <span className={styles.mentionLine}>:{item.line}</span>}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {(activeFileContext?.file_path || selectedMentions.length > 0) && (
-          <div className={styles.contextChips} aria-label="已绑定上下文">
-            {activeFileContext?.file_path && (
-              <span className={`${styles.contextChip} ${styles.contextChipPassive}`} title={activeFileContext.file_path}>
-                当前: {activeFileContext.file_path.split(/[\\/]/).pop()}
-                {activeFileContext.cursor ? `:${activeFileContext.cursor.line}` : ''}
-              </span>
-            )}
-            {selectedMentions.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={styles.contextChip}
-                onClick={() => onMentionsChange?.(selectedMentions.filter((mention) => mention.id !== item.id))}
-                title="移除此上下文"
-              >
-                @{item.label}
               </button>
             ))}
           </div>
