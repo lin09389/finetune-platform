@@ -4,16 +4,14 @@ import {
   checkTrainingResources as checkRawTrainingResources,
   checkTrainingPreflight as checkRawTrainingPreflight,
   getTrainingCheckpoints as getRawTrainingCheckpoints,
-  getTrainingFailureAnalytics as getRawTrainingFailureAnalytics,
   getTrainingHistory as getRawTrainingHistory,
-  getTrainingOverviewV2 as getRawTrainingOverviewV2,
-  getTrainingRecoveryOptions as getRawTrainingRecoveryOptions,
   getTrainingTaskMetricsV2 as getRawTrainingTaskMetricsV2,
   resumeTraining as resumeRawTraining,
   startSwiftTraining as startRawSwiftTraining,
   startTraining as startRawTraining,
   stopTraining,
   subscribeTrainingEventsV2 as subscribeRawTrainingEventsV2,
+  subscribeTrainingLogs as subscribeRawTrainingLogs,
   subscribeTrainingProgress as subscribeRawTrainingProgress,
   type TrainingEventV2,
 } from './api';
@@ -140,53 +138,6 @@ export const getTrainingHistory = async () => {
 export const getTrainingCheckpoints = async (trainingId: string) =>
   getRawTrainingCheckpoints(trainingId);
 
-export const getTrainingRecoveryOptions = async (limit: number = 6) => {
-  const data = await getRawTrainingRecoveryOptions(limit);
-  const options = Array.isArray(data?.options)
-    ? data.options.map((option: any) => ({
-        taskId: option.taskId ?? option.task_id ?? '',
-        status: option.status,
-        modelName: option.modelName ?? option.model_name ?? '',
-        datasetName: option.datasetName ?? option.dataset_name ?? '',
-        startTime: option.startTime ?? option.start_time ?? '',
-        checkpoints: Array.isArray(option.checkpoints) ? option.checkpoints : [],
-        latestCheckpointName: option.latestCheckpointName ?? option.latest_checkpoint_name ?? '',
-        config: option.config ?? {},
-        reason: option.reason,
-      }))
-    : [];
-
-  return {
-    generatedAt: data?.generatedAt ?? data?.generated_at ?? '',
-    options,
-  };
-};
-
-export const getTrainingFailureAnalytics = async () => {
-  const data = await getRawTrainingFailureAnalytics();
-  return {
-    totalRuns: data?.totalRuns ?? data?.total_runs ?? 0,
-    failedRuns: data?.failedRuns ?? data?.failed_runs ?? 0,
-    stoppedRuns: data?.stoppedRuns ?? data?.stopped_runs ?? 0,
-    completedRuns: data?.completedRuns ?? data?.completed_runs ?? 0,
-    failureRate: data?.failureRate ?? data?.failure_rate ?? 0,
-    failureRate7d: data?.failureRate7d ?? data?.failure_rate_7d ?? 0,
-    failureRate14d: data?.failureRate14d ?? data?.failure_rate_14d ?? 0,
-    failedRuns7d: data?.failedRuns7d ?? data?.failed_runs_7d ?? 0,
-    failedRuns14d: data?.failedRuns14d ?? data?.failed_runs_14d ?? 0,
-    totalRuns7d: data?.totalRuns7d ?? data?.total_runs_7d ?? 0,
-    totalRuns14d: data?.totalRuns14d ?? data?.total_runs_14d ?? 0,
-    suspectedVramPressureCount:
-      data?.suspectedVramPressureCount ?? data?.suspected_vram_pressure_count ?? 0,
-    longContextFailureCount: data?.longContextFailureCount ?? data?.long_context_failure_count ?? 0,
-    unquantizedFailureCount: data?.unquantizedFailureCount ?? data?.unquantized_failure_count ?? 0,
-    topFailedModels: data?.topFailedModels ?? data?.top_failed_models ?? [],
-    topFailedDatasets: data?.topFailedDatasets ?? data?.top_failed_datasets ?? [],
-    topFailedMethods: data?.topFailedMethods ?? data?.top_failed_methods ?? [],
-    recentFailures: data?.recentFailures ?? data?.recent_failures ?? [],
-  };
-};
-
 export const resumeTraining = async (trainingId: string, checkpoint: string) =>
   normalizeTrainingRecord(await resumeRawTraining(trainingId, checkpoint));
 
@@ -199,13 +150,18 @@ export const subscribeTrainingProgress = (
     onError,
   );
 
+export const subscribeTrainingLogs = (
+  taskId: string,
+  onLine: (line: string) => void,
+  onError?: (error: Error) => void,
+  history?: number,
+) => subscribeRawTrainingLogs(taskId, onLine, onError, history);
+
 export const subscribeTrainingEventsV2 = (
   options: { taskId?: string; lastEventId?: string; heartbeatTimeoutMs?: number },
   onEvent: (event: TrainingEventV2) => void,
   onError?: (error: Error) => void,
 ) => subscribeRawTrainingEventsV2(options, onEvent, onError);
-
-export const getTrainingOverviewV2 = async () => getRawTrainingOverviewV2();
 
 export const getTrainingTaskMetricsV2 = async (
   taskId: string,

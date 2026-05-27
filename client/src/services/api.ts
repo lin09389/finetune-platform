@@ -1399,8 +1399,8 @@ export const subscribeTrainingLogs = (
 
   const connect = () => {
     const url = suppressHistory
-      ? `${API_BASE_URL}/training/logs/stream/${taskId}?history=0`
-      : `${API_BASE_URL}/training/logs/stream/${taskId}?history=${history}`;
+      ? `${API_BASE_URL}/training/logs/stream/${encodeURIComponent(taskId)}?history=0`
+      : `${API_BASE_URL}/training/logs/stream/${encodeURIComponent(taskId)}?history=${history}`;
     eventSource = new EventSource(url);
 
     eventSource.onmessage = (event) => {

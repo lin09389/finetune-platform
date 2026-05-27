@@ -50,16 +50,6 @@ def queue_training_progress(
 class ProgressCallback:
     """训练进度回调 - 与 HuggingFace Trainer 集成"""
 
-    def _get_ws_manager(self):
-        if not self._ws_manager_loaded:
-            try:
-                from api.training import get_ws_manager
-                self._ws_manager = get_ws_manager()
-            except Exception:
-                pass
-            self._ws_manager_loaded = True
-        return self._ws_manager
-
     def __init__(
         self,
         total_steps: int,
@@ -73,8 +63,6 @@ class ProgressCallback:
         train_logger: TrainingLogger = None,
         event_loop=None,
     ):
-        self._ws_manager = None
-        self._ws_manager_loaded = False
         self.total_steps = total_steps
         self.start_time = start_time
         self.state = state
@@ -97,9 +85,6 @@ class ProgressCallback:
 
         self._vram_update_interval = max(5, self.update_interval * 3)
         self._last_vram_step = -1
-
-        self._ws_push_interval = max(3, self.update_interval * 2)
-        self._last_ws_push_step = -1
 
         self._eta_window_size = 10
         self._eta_history = []
@@ -333,39 +318,6 @@ class ProgressCallback:
                 }
             )
 
-        ws_manager = self._get_ws_manager()
-        if ws_manager is not None:
-            should_push_ws = (
-                self.current_step <= 1
-                or self.current_step >= self.total_steps
-                or (self.current_step - self._last_ws_push_step) >= self._ws_push_interval
-            )
-            if should_push_ws:
-                self._last_ws_push_step = self.current_step
-                try:
-                    progress_data = {
-                        "epoch": int(self.current_epoch) + 1,
-                        "step": self.current_step,
-                        "total_steps": self.total_steps,
-                        "loss": self.current_loss,
-                        "lr": float(lr),
-                        "vram_used": vram,
-                        "elapsed_time": elapsed,
-                        "eta": eta,
-                        "status": "running",
-                        "message": f"Training epoch {int(self.current_epoch) + 1}/{self.config.epochs}",
-                        "grad_norm": grad_norm,
-                        "speed": self._steps_per_second,
-                        "samples_per_sec": samples_per_sec,
-                    }
-                    if self._event_loop and not self._event_loop.is_closed():
-                        asyncio.run_coroutine_threadsafe(
-                            ws_manager.broadcast_progress(self.record.id, progress_data),
-                            self._event_loop
-                        )
-                except Exception as e:
-                    logger.debug(f"WebSocket 推送进度失败：{e}")
-
     def on_train_end(self, args, state, control, **kwargs):
         final_elapsed = (datetime.now() - self.start_time).total_seconds()
         final_lr = float(getattr(args, "learning_rate", self.config.learning_rate))
@@ -376,28 +328,6 @@ class ProgressCallback:
                 "elapsed_time": final_elapsed,
                 "total_steps": self.total_steps,
             })
-
-        ws_manager = self._get_ws_manager()
-        if ws_manager is not None:
-            try:
-                completion_data = {
-                    "loss": self.current_loss,
-                    "lr": final_lr,
-                    "elapsed_time": final_elapsed,
-                    "total_steps": self.total_steps
-                }
-                if self._event_loop and not self._event_loop.is_closed():
-                    # 保持向后兼容：保留 training_completed，同时新增 saving_model 事件
-                    asyncio.run_coroutine_threadsafe(
-                        ws_manager.broadcast_event(self.record.id, "saving_model", completion_data),
-                        self._event_loop
-                    )
-                    asyncio.run_coroutine_threadsafe(
-                        ws_manager.broadcast_event(self.record.id, "training_completed", completion_data),
-                        self._event_loop
-                    )
-            except Exception as e:
-                logger.debug(f"WebSocket 推送完成事件失败：{e}")
 
         queue_training_progress(
             self.state,

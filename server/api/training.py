@@ -16,7 +16,6 @@ import json
 import threading
 import uuid
 from collections.abc import Mapping
-from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -79,131 +78,6 @@ from services.training.orchestrator import start_training_task, resolve_dataset_
 logger = get_logger(__name__)
 
 router = APIRouter()
-
-
-# ============================================================================
-# WebSocket 管理器（保留在路由层，因为与推送相关）
-# ============================================================================
-class TrainingWebSocketManager:
-    """训练 WebSocket 管理器 - 实时推送训练进度"""
-
-    CONNECTION_TIMEOUT = 300
-    HEARTBEAT_INTERVAL = 30
-    SEND_TIMEOUT = 10
-
-    def __init__(self):
-        self._connections: dict[str, list[WebSocket]] = {}
-        self._connection_times: dict[str, dict[WebSocket, float]] = {}
-        self._async_lock = asyncio.Lock()
-
-    async def connect(self, task_id: str, websocket: WebSocket):
-        await websocket.accept()
-        async with self._async_lock:
-            if task_id not in self._connections:
-                self._connections[task_id] = []
-                self._connection_times[task_id] = {}
-            self._connections[task_id].append(websocket)
-            self._connection_times[task_id][websocket] = asyncio.get_event_loop().time()
-            logger.info(f"WebSocket 连接：task_id={task_id}, 连接数={len(self._connections[task_id])}")
-
-    async def disconnect(self, task_id: str, websocket: WebSocket):
-        async with self._async_lock:
-            if task_id in self._connections:
-                with suppress(ValueError):
-                    self._connections[task_id].remove(websocket)
-                if task_id in self._connection_times and websocket in self._connection_times[task_id]:
-                    del self._connection_times[task_id][websocket]
-                if not self._connections[task_id]:
-                    del self._connections[task_id]
-                    if task_id in self._connection_times:
-                        del self._connection_times[task_id]
-                    logger.info(f"WebSocket 断开：task_id={task_id}")
-
-    async def broadcast(self, task_id: str, data: dict[str, Any]):
-        # Lock内只复制连接列表，释放锁后逐一发送
-        async with self._async_lock:
-            if task_id not in self._connections:
-                return
-            targets = list(self._connections[task_id])
-            conn_times = dict(self._connection_times.get(task_id, {}))
-
-        message = json.dumps(data)
-        disconnected = []
-        current_time = asyncio.get_event_loop().time()
-
-        for websocket in targets:
-            try:
-                conn_time = conn_times.get(websocket, 0)
-                if current_time - conn_time > self.CONNECTION_TIMEOUT:
-                    logger.warning(f"WebSocket 连接超时：task_id={task_id}")
-                    disconnected.append(websocket)
-                    continue
-                try:
-                    await asyncio.wait_for(
-                        websocket.send_text(message),
-                        timeout=self.SEND_TIMEOUT
-                    )
-                except asyncio.TimeoutError:
-                    logger.warning(f"WebSocket 发送超时：task_id={task_id}")
-                    disconnected.append(websocket)
-            except Exception as e:
-                logger.warning(f"WebSocket 发送失败：{e}")
-                disconnected.append(websocket)
-
-        # 回收断开的连接
-        if disconnected:
-            async with self._async_lock:
-                for ws in disconnected:
-                    try:
-                        if task_id in self._connections and ws in self._connections[task_id]:
-                            self._connections[task_id].remove(ws)
-                        if task_id in self._connection_times and ws in self._connection_times.get(task_id, {}):
-                            del self._connection_times[task_id][ws]
-                    except Exception as e:
-                        logger.debug(f"清理断开的 WebSocket 连接失败：{e}")
-
-                if task_id in self._connections and not self._connections[task_id]:
-                    del self._connections[task_id]
-                    if task_id in self._connection_times:
-                        del self._connection_times[task_id]
-
-    async def broadcast_progress(self, task_id: str, progress: dict[str, Any]):
-        await self.broadcast(task_id, {"type": "progress", "data": progress})
-
-    async def broadcast_event(self, task_id: str, event_type: str, data: dict[str, Any]):
-        await self.broadcast(task_id, {"type": "event", "event": event_type, "data": data})
-
-    async def cleanup_stale_connections(self):
-        async with self._async_lock:
-            current_time = asyncio.get_event_loop().time()
-            tasks_to_cleanup = []
-            for task_id, conn_times in list(self._connection_times.items()):
-                stale_websockets = [
-                    ws for ws, conn_time in conn_times.items()
-                    if current_time - conn_time > self.CONNECTION_TIMEOUT
-                ]
-                for ws in stale_websockets:
-                    try:
-                        if task_id in self._connections and ws in self._connections[task_id]:
-                            self._connections[task_id].remove(ws)
-                        del conn_times[ws]
-                    except Exception as e:
-                        logger.debug(f"清理超时 WebSocket 连接失败：{e}")
-                if task_id in self._connections and not self._connections[task_id]:
-                    tasks_to_cleanup.append(task_id)
-            for task_id in tasks_to_cleanup:
-                self._connections.pop(task_id, None)
-                self._connection_times.pop(task_id, None)
-
-
-_ws_manager: TrainingWebSocketManager | None = None
-
-
-def get_ws_manager() -> TrainingWebSocketManager:
-    global _ws_manager
-    if _ws_manager is None:
-        _ws_manager = TrainingWebSocketManager()
-    return _ws_manager
 
 
 # ============================================================================
@@ -525,97 +399,6 @@ async def get_history():
     return [TrainingRecordResponse(**r.model_dump()) for r in enriched]
 
 
-@router.websocket("/ws/{task_id}")
-async def training_websocket(websocket: WebSocket, task_id: str):
-    """训练进度 WebSocket 推送"""
-    ws_manager = get_ws_manager()
-    await ws_manager.connect(task_id, websocket)
-    try:
-        while True:
-            data = await websocket.receive_text()
-            try:
-                msg = json.loads(data)
-                if msg.get("type") == "ping":
-                    await websocket.send_text(json.dumps({"type": "pong"}))
-            except json.JSONDecodeError:
-                pass
-    except WebSocketDisconnect:
-        await ws_manager.disconnect(task_id, websocket)
-    except Exception as e:
-        logger.error(f"WebSocket 错误：{e}")
-        await ws_manager.disconnect(task_id, websocket)
-
-
-@router.get("/metrics/{task_id}")
-async def get_training_metrics(task_id: str):
-    """获取训练指标数据"""
-    settings = get_settings()
-    output_dir = settings.outputs_dir_resolved / f"train_{task_id[:8]}"
-    metrics_file = output_dir / "metrics.jsonl"
-
-    if not metrics_file.exists():
-        return {"task_id": task_id, "metrics": [], "summary": {"total_steps": 0, "final_loss": 0, "elapsed_time": 0}}
-
-    metrics = []
-    try:
-        with open(metrics_file, encoding='utf-8') as f:
-            for line in f:
-                try:
-                    metric = json.loads(line.strip())
-                    metrics.append(metric)
-                except json.JSONDecodeError:
-                    continue
-    except Exception as e:
-        logger.error(f"读取指标文件失败：{e}")
-
-    summary = {
-        "total_steps": metrics[-1]["step"] if metrics else 0,
-        "final_loss": metrics[-1].get("loss", 0) if metrics else 0,
-        "elapsed_time": metrics[-1].get("elapsed_time", 0) if metrics else 0
-    }
-    return {"task_id": task_id, "metrics": metrics, "summary": summary}
-
-
-@router.get("/chart-data/{task_id}")
-async def get_chart_data(task_id: str):
-    """获取图表数据"""
-    settings = get_settings()
-    output_dir = settings.outputs_dir_resolved / f"train_{task_id[:8]}"
-    metrics_file = output_dir / "metrics.jsonl"
-
-    if not metrics_file.exists():
-        return {
-            "loss_chart": {"labels": [], "data": []},
-            "lr_chart": {"labels": [], "data": []},
-            "vram_chart": {"labels": [], "data": []}
-        }
-
-    labels = []
-    loss_data = []
-    lr_data = []
-    vram_data = []
-
-    try:
-        with open(metrics_file, encoding='utf-8') as f:
-            for line in f:
-                try:
-                    metric = json.loads(line.strip())
-                    labels.append(metric.get("step", 0))
-                    loss_data.append(metric.get("loss", 0))
-                    lr_data.append(metric.get("lr", 0))
-                    vram_data.append(metric.get("vram_used", 0))
-                except Exception:
-                    continue
-    except Exception as e:
-        logger.error(f"读取图表数据失败：{e}")
-
-    return {
-        "loss_chart": {"labels": labels, "data": loss_data, "name": "Loss"},
-        "lr_chart": {"labels": labels, "data": lr_data, "name": "Learning Rate"},
-        "vram_chart": {"labels": labels, "data": vram_data, "name": "VRAM Usage (GB)"}
-    }
-
-
 @router.get("/status")
 async def get_status():
     """获取训练状态"""
@@ -786,11 +569,6 @@ async def _monitor_swift_training(
                     elapsed_time=progress.get("elapsed_time", 0.0),
                     eta=0.0,
                 )
-                try:
-                    ws_manager = get_ws_manager()
-                    asyncio.create_task(ws_manager.broadcast_progress(task_id, {**progress, "status": "running"}))
-                except Exception as e:
-                    logger.debug(f"WebSocket 推送失败：{e}")
 
         elif current_status == "completed":
             logger.info(f"SWIFT 训练完成：{task_id}")
@@ -806,13 +584,6 @@ async def _monitor_swift_training(
             record.total_steps = int(last_progress.get("step", 0))
             sync_training_record_metadata(record)
             enrich_record_metrics(record)
-            try:
-                ws_manager = get_ws_manager()
-                asyncio.create_task(ws_manager.broadcast_event(task_id, "training_completed", {
-                    "framework": "swift", "output_path": record.output_path
-                }))
-            except Exception as e:
-                logger.debug(f"WebSocket 推送失败：{e}")
             state.add_to_history_sync(record)
             swift_backend.cleanup()
             break
@@ -831,13 +602,6 @@ async def _monitor_swift_training(
             record.total_steps = int(last_progress.get("step", 0))
             sync_training_record_metadata(record)
             enrich_record_metrics(record)
-            try:
-                ws_manager = get_ws_manager()
-                asyncio.create_task(ws_manager.broadcast_event(task_id, "training_failed", {
-                    "framework": "swift", "error": error_msg[:500]
-                }))
-            except Exception as e:
-                logger.debug(f"WebSocket 推送失败：{e}")
             state.add_to_history_sync(record)
             swift_backend.cleanup()
             break
@@ -845,42 +609,6 @@ async def _monitor_swift_training(
         elif current_status == "stopped":
             logger.info(f"SWIFT 训练已停止：{task_id}")
             break
-
-
-@router.post("/swift/stop")
-async def stop_swift_training():
-    """停止 SWIFT 训练"""
-    from backends.swift_backend import get_swift_backend
-    swift_backend = get_swift_backend()
-    status = swift_backend.get_training_status()
-    if status.get("status") != "running":
-        raise HTTPException(status_code=400, detail="No SWIFT training in progress")
-    success = swift_backend.stop_training()
-    if success:
-        training_state = get_training_context().state
-        training_state.queue_training_state(False)
-        _queue_training_progress(training_state, status="stopped", message="SWIFT training stopped by user")
-        return {"message": "SWIFT training stopped"}
-    raise HTTPException(status_code=500, detail="Failed to stop SWIFT training")
-
-
-@router.get("/swift/progress")
-async def get_swift_progress():
-    """获取 SWIFT 训练进度"""
-    from backends.swift_backend import get_swift_backend
-    swift_backend = get_swift_backend()
-    status = swift_backend.get_training_status()
-    progress = swift_backend.parse_training_progress()
-    return {**status, **progress}
-
-
-@router.get("/swift/logs/{task_id}")
-async def get_swift_logs(task_id: str, lines: int = Query(default=50, ge=1, le=200)):
-    """获取 SWIFT 训练日志"""
-    from backends.swift_backend import get_swift_backend
-    swift_backend = get_swift_backend()
-    log_lines = swift_backend.get_log_tail(lines)
-    return {"task_id": task_id, "lines": log_lines, "count": len(log_lines)}
 
 
 @router.get("/checkpoints/{task_id}")
@@ -978,6 +706,63 @@ async def get_failure_analytics():
     state = get_training_context().state
     records = state.get_history()
     return build_failure_analytics_payload(records)
+
+
+@router.get("/logs/stream/{task_id}")
+async def stream_training_logs(task_id: str, history: int = Query(default=50, ge=0, le=500)):
+    """SSE 流式传输训练日志"""
+    state = get_training_context().state
+    settings = get_settings()
+    log_path = resolve_training_output_dir(state, settings, task_id) / "training.log"
+
+    async def log_generator():
+        try:
+            # 发送历史行（批量发送，减少 SSE 消息数）
+            if log_path.exists() and history > 0:
+                try:
+                    with open(log_path, encoding="utf-8") as f:
+                        lines = f.readlines()
+                    tail = lines[-history:]
+                    if tail:
+                        yield f"data: {json.dumps({'lines': [l.rstrip() for l in tail]})}\n\n"
+                except Exception:
+                    pass
+
+            # 流式跟踪新增行（200ms 轮询 + 每 5s 心跳保活）
+            last_size = log_path.stat().st_size if log_path.exists() else 0
+            heartbeat_counter = 0
+            while True:
+                await asyncio.sleep(0.2)
+                heartbeat_counter += 1
+                # 每 5 秒发送 SSE 注释作为 keep-alive
+                if heartbeat_counter >= 25:
+                    heartbeat_counter = 0
+                    yield ": keepalive\n\n"
+                if not log_path.exists():
+                    continue
+                try:
+                    current_size = log_path.stat().st_size
+                    if current_size > last_size:
+                        with open(log_path, encoding="utf-8") as f:
+                            f.seek(last_size)
+                            new_data = f.read()
+                        last_size = current_size
+                        new_lines = new_data.splitlines()
+                        if new_lines:
+                            yield f"data: {json.dumps({'lines': new_lines})}\n\n"
+                    elif current_size < last_size:
+                        # 文件被截断或轮转
+                        last_size = 0
+                except Exception:
+                    await asyncio.sleep(1.0)
+        except asyncio.CancelledError:
+            pass
+
+    return StreamingResponse(
+        log_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/resume/{task_id}/{checkpoint_name}")
@@ -1391,8 +1176,6 @@ _load_checkpoints_for_task = load_checkpoints_for_task
 # ============================================================================
 __all__ = [
     "router",
-    "TrainingWebSocketManager",
-    "get_ws_manager",
     "TrainingConfigInput",
     "TrainingProgressResponse",
     "TrainingRecordResponse",

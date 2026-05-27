@@ -1,7 +1,7 @@
 """
 统一训练事件总线
 
-将 TrainingState 进度更新、TrainingEventHubV2 事件发布、WebSocket 推送
+将 TrainingState 进度更新、TrainingEventHubV2 事件发布
 统一到一个入口，消除模块间对具体事件实现的直接依赖。
 """
 from __future__ import annotations
@@ -30,7 +30,7 @@ class TrainingEvent:
 
 class TrainingEventBus:
     """
-    训练事件总线 - 统一封装状态更新、V2 事件、WebSocket 推送
+    训练事件总线 - 统一封装状态更新、V2 事件
 
     使用方式:
         bus = TrainingEventBus(state, task_id="xxx")
@@ -43,12 +43,10 @@ class TrainingEventBus:
         state: TrainingState,
         task_id: str,
         event_loop: asyncio.AbstractEventLoop | None = None,
-        ws_manager=None,
     ):
         self.state = state
         self.task_id = task_id
         self._event_loop = event_loop
-        self._ws_manager = ws_manager
         self._hub = get_training_event_hub_v2()
         self._subscribers: list[Callable[[TrainingEvent], None]] = []
 
@@ -68,7 +66,7 @@ class TrainingEventBus:
         message: str,
         **kwargs: Any,
     ) -> None:
-        """统一发布训练进度（同时更新 TrainingState + V2 Hub + WebSocket）"""
+        """统一发布训练进度（同时更新 TrainingState + V2 Hub）"""
         self.state.queue_progress_update(status=status, message=message, **kwargs)
 
         phase = normalize_phase_v2(status)
@@ -88,7 +86,6 @@ class TrainingEventBus:
             payload={"status": status, "message": message, **kwargs},
         )
         self._notify_subscribers(event)
-        self._try_push_ws("progress", {**kwargs, "status": status, "message": message})
 
     def publish_event(
         self,
@@ -96,7 +93,7 @@ class TrainingEventBus:
         kind: str,
         payload: dict[str, Any] | None = None,
     ) -> None:
-        """发布通用事件（同时更新 V2 Hub + WebSocket）"""
+        """发布通用事件（同时更新 V2 Hub）"""
         self._hub.publish(
             task_id=self.task_id,
             phase=phase,
@@ -111,7 +108,6 @@ class TrainingEventBus:
             payload=payload or {},
         )
         self._notify_subscribers(event)
-        self._try_push_ws(kind, payload or {})
 
     def publish_training_state(self, is_training: bool) -> None:
         """发布训练状态变更"""
@@ -123,25 +119,6 @@ class TrainingEventBus:
                 cb(event)
             except Exception as e:
                 logger.debug(f"事件订阅者回调失败：{e}")
-
-    def _try_push_ws(self, event_type: str, data: dict[str, Any]) -> None:
-        if self._ws_manager is None or self._event_loop is None:
-            return
-        try:
-            if self._event_loop.is_closed():
-                return
-            if event_type == "progress":
-                asyncio.run_coroutine_threadsafe(
-                    self._ws_manager.broadcast_progress(self.task_id, data),
-                    self._event_loop,
-                )
-            else:
-                asyncio.run_coroutine_threadsafe(
-                    self._ws_manager.broadcast_event(self.task_id, event_type, data),
-                    self._event_loop,
-                )
-        except Exception as e:
-            logger.debug(f"WebSocket 推送失败：{e}")
 
 
 class _NullState:
@@ -164,7 +141,6 @@ class NullTrainingEventBus(TrainingEventBus):
         self.state = _NullState()
         self.task_id = "null"
         self._event_loop = None
-        self._ws_manager = None
         self._hub = _NullHub()
         self._subscribers = []
 

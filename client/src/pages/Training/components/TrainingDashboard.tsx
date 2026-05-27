@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Area, AreaChart,
   Tooltip as RechartsTooltip, ResponsiveContainer,
@@ -12,6 +12,16 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Tag } from 'antd';
 import styles from './TrainingDashboard.module.css';
 import type { TrainingProgress as TrainingProgressType } from '../../../types';
+import { getTrainingCheckpoints, subscribeTrainingLogs } from '../../../services/trainingApi';
+
+interface CheckpointInfo {
+  name: string;
+  path: string;
+  step: number;
+  created: string;
+  metadata: Record<string, any>;
+  valid: boolean;
+}
 
 interface TrainingDashboardProps {
   progress: TrainingProgressType | null;
@@ -24,6 +34,8 @@ interface TrainingDashboardProps {
   phaseDurations?: Record<string, number>;
   currentPhase?: string;
   retryCount?: number;
+  currentTaskId?: string | null;
+  onResume?: (taskId: string, checkpointName: string) => void;
 }
 
 /* ── Animated Metric Value ── */
@@ -43,24 +55,59 @@ const AnimatedValue = ({ value, className }: { value: string; className?: string
 );
 
 /* ── Terminal with Syntax Highlighting ── */
-const TerminalStream = ({ logs = [] }: { logs: string[] }) => {
+const highlightLog = (log: string) =>
+  log
+    .replace(/\[METRIC\]/g, `<span class="${styles.tokenMetric}">[METRIC]</span>`)
+    .replace(/\[ERROR\]/g, `<span class="${styles.tokenError}">[ERROR]</span>`)
+    .replace(/\[WARN\]/g, `<span class="${styles.tokenWarn}">[WARN]</span>`)
+    .replace(/\[STATE\]/g, `<span class="${styles.tokenState}">[STATE]</span>`)
+    .replace(/\[VRAM\]/g, `<span class="${styles.tokenMetric}">[VRAM]</span>`)
+    .replace(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/g, `<span class="${styles.tokenTime}">$1</span>`)
+    .replace(/(\|\s*(?:INFO|WARNING|ERROR|DEBUG)\s*\|)/g, (match) => {
+      if (match.includes('ERROR')) return `<span class="${styles.tokenError}">${match}</span>`;
+      if (match.includes('WARN')) return `<span class="${styles.tokenWarn}">${match}</span>`;
+      return `<span class="${styles.tokenState}">${match}</span>`;
+    })
+    .replace(/(\[\d{2}:\d{2}:\d{2}\])/g, `<span class="${styles.tokenTime}">$1</span>`);
+
+const TerminalStream = React.memo(({ logs = [] }: { logs: string[] }) => {
   const terminalRef = useRef<HTMLDivElement>(null);
+  const htmlCache = useRef<Map<string, string>>(new Map());
+  const counterRef = useRef(0);
+  const keysRef = useRef<number[]>([]);
+
+  // Build stable keys: reuse existing keys for unchanged lines, assign new ones for appended lines
+  const prevLen = keysRef.current.length;
+  if (logs.length > prevLen) {
+    for (let i = prevLen; i < logs.length; i++) {
+      keysRef.current[i] = ++counterRef.current;
+    }
+  } else if (logs.length < prevLen) {
+    keysRef.current.length = logs.length;
+  }
+
+  // Pre-compute highlighted HTML for new lines only (cached for unchanged lines)
+  const htmls: string[] = new Array(logs.length);
+  for (let i = 0; i < logs.length; i++) {
+    const log = logs[i]!;
+    let cached = htmlCache.current.get(log);
+    if (cached === undefined) {
+      cached = highlightLog(log);
+      // Cap cache size at 300 entries
+      if (htmlCache.current.size > 300) {
+        const first = htmlCache.current.keys().next().value;
+        if (first !== undefined) htmlCache.current.delete(first);
+      }
+      htmlCache.current.set(log, cached);
+    }
+    htmls[i] = cached;
+  }
 
   useEffect(() => {
     if (terminalRef.current) {
       terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
     }
-  }, [logs]);
-
-  const highlightLog = (log: string) => {
-    return log
-      .replace(/\[METRIC\]/g, `<span class="${styles.tokenMetric}">[METRIC]</span>`)
-      .replace(/\[ERROR\]/g, `<span class="${styles.tokenError}">[ERROR]</span>`)
-      .replace(/\[WARN\]/g, `<span class="${styles.tokenWarn}">[WARN]</span>`)
-      .replace(/\[STATE\]/g, `<span class="${styles.tokenState}">[STATE]</span>`)
-      .replace(/\[VRAM\]/g, `<span class="${styles.tokenMetric}">[VRAM]</span>`)
-      .replace(/(\[\d{2}:\d{2}:\d{2}\])/g, `<span class="${styles.tokenTime}">$1</span>`);
-  };
+  }, [logs.length]);
 
   return (
     <div className={styles.terminalContainer}>
@@ -75,11 +122,11 @@ const TerminalStream = ({ logs = [] }: { logs: string[] }) => {
       </div>
       <div className={styles.terminalBody} ref={terminalRef}>
         {logs.length > 0 ? (
-          logs.map((log, i) => (
+          logs.map((_, i) => (
             <div
-              key={i}
+              key={keysRef.current[i]}
               className={styles.logLine}
-              dangerouslySetInnerHTML={{ __html: highlightLog(log) }}
+              dangerouslySetInnerHTML={{ __html: htmls[i] ?? '' }}
             />
           ))
         ) : (
@@ -88,7 +135,7 @@ const TerminalStream = ({ logs = [] }: { logs: string[] }) => {
       </div>
     </div>
   );
-};
+});
 
 /* ── Pulse Gauge for VRAM ── */
 const PulseGauge = ({ value, label }: { value: number; label: string }) => (
@@ -194,6 +241,67 @@ const PhaseStepper = ({ currentPhase, phaseDurations }: { currentPhase?: string;
   );
 };
 
+/* ── Checkpoints Section ── */
+const CheckpointsSection = ({
+  checkpoints,
+  currentTaskId,
+  status,
+  onResume,
+}: {
+  checkpoints: CheckpointInfo[];
+  currentTaskId?: string | null;
+  status: TrainingDashboardProps['status'];
+  onResume?: (taskId: string, checkpointName: string) => void;
+}) => (
+  <div className={styles.snapshotLibrary}>
+    <div className={styles.snapshotHeader}>
+      <SaveOutlined style={{ fontSize: 12 }} />
+      <span>检查点库 (Checkpoints)</span>
+    </div>
+    <div className={styles.snapshotGrid}>
+      {checkpoints.length === 0 ? (
+        <div className={styles.snapshotEmpty}>
+          {status === 'training' || status === 'loading'
+            ? '检查点将在训练过程中自动保存...'
+            : '暂无检查点'}
+        </div>
+      ) : (
+        checkpoints.map((cp) => (
+          <div
+            key={cp.name}
+            className={styles.snapshotCard}
+            style={!cp.valid ? { opacity: 0.5 } : undefined}
+          >
+            <div className={styles.snapshotStep}>
+              步数 {cp.step}
+              {!cp.valid && <span style={{ marginLeft: 6, fontSize: 10, color: '#ff6b6b' }}>无效</span>}
+            </div>
+            <div className={styles.snapshotMetrics}>
+              {cp.metadata?.loss != null ? `Loss: ${Number(cp.metadata.loss).toFixed(4)}` : '--'}
+            </div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>
+              {cp.metadata?.saved_at
+                ? new Date(cp.metadata.saved_at).toLocaleString()
+                : cp.created
+                ? new Date(cp.created).toLocaleString()
+                : ''}
+            </div>
+            {onResume && currentTaskId && cp.valid && (status === 'idle' || status === 'completed' || status === 'failed') && (
+              <button
+                className={styles.resultBtn}
+                style={{ marginTop: 6, fontSize: 11, padding: '4px 10px' }}
+                onClick={() => onResume(currentTaskId, cp.name)}
+              >
+                从此恢复
+              </button>
+            )}
+          </div>
+        ))
+      )}
+    </div>
+  </div>
+);
+
 /* ── Main Dashboard ── */
 const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
   progress,
@@ -206,15 +314,83 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
   phaseDurations,
   currentPhase,
   retryCount,
+  currentTaskId,
+  onResume,
 }) => {
-  const fakeLogs = progress
-    ? [
-        `[${new Date().toLocaleTimeString()}] Training step ${progress.step}/${progress.totalSteps || '?'}`,
-        `[METRIC] Loss: ${progress.loss?.toFixed(4) ?? '--'} | LR: ${progress.lr?.toExponential(2) ?? '--'}`,
-        `[VRAM] Usage: ${progress.vramUsed?.toFixed(2) ?? '--'} GB`,
-        ...(progress.message ? [`[STATE] ${progress.message}`] : []),
-      ]
-    : [];
+  const [checkpoints, setCheckpoints] = useState<CheckpointInfo[]>([]);
+  const [logs, setLogs] = useState<string[]>([]);
+  const logsRef = useRef<string[]>([]);
+  const logBufferRef = useRef<string[]>([]);
+  const logFlushTimerRef = useRef<number | null>(null);
+
+  // Fetch real checkpoints (with in-flight guard)
+  const checkpointsInFlightRef = useRef(false);
+  const fetchCheckpoints = useCallback(async () => {
+    if (!currentTaskId || checkpointsInFlightRef.current) { if (!currentTaskId) setCheckpoints([]); return; }
+    checkpointsInFlightRef.current = true;
+    try {
+      const data = await getTrainingCheckpoints(currentTaskId);
+      if (Array.isArray(data)) setCheckpoints(data);
+    } catch { /* ignore */ } finally {
+      checkpointsInFlightRef.current = false;
+    }
+  }, [currentTaskId]);
+
+  useEffect(() => {
+    fetchCheckpoints();
+    if (currentTaskId && (status === 'training' || status === 'loading' || status === 'saving')) {
+      const timer = setInterval(fetchCheckpoints, 10000);
+      return () => clearInterval(timer);
+    }
+  }, [currentTaskId, status, fetchCheckpoints]);
+
+  // Stream real training logs (batched updates)
+  useEffect(() => {
+    if (!currentTaskId || (status !== 'training' && status !== 'loading')) {
+      return;
+    }
+    const unsub = subscribeTrainingLogs(
+      currentTaskId,
+      (line: string) => {
+        logBufferRef.current.push(line);
+        if (logFlushTimerRef.current === null) {
+          logFlushTimerRef.current = requestAnimationFrame(() => {
+            logFlushTimerRef.current = null;
+            const buf = logBufferRef.current;
+            if (buf.length === 0) return;
+            logBufferRef.current = [];
+            const updated = [...logsRef.current, ...buf].slice(-200);
+            logsRef.current = updated;
+            setLogs(updated);
+          });
+        }
+      },
+      undefined,
+      50,
+    );
+    return () => {
+      unsub();
+      if (logFlushTimerRef.current !== null) {
+        cancelAnimationFrame(logFlushTimerRef.current);
+        logFlushTimerRef.current = null;
+      }
+      // Flush remaining buffer
+      const buf = logBufferRef.current;
+      if (buf.length > 0) {
+        logBufferRef.current = [];
+        const updated = [...logsRef.current, ...buf].slice(-200);
+        logsRef.current = updated;
+        setLogs(updated);
+      }
+    };
+  }, [currentTaskId, status]);
+
+  // Reset logs when task changes
+  useEffect(() => {
+    logsRef.current = [];
+    logBufferRef.current = [];
+    setLogs([]);
+  }, [currentTaskId]);
 
   const pct = progress?.totalSteps
     ? Math.round((progress.step / progress.totalSteps) * 100)
@@ -370,6 +546,7 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
               </button>
             </div>
           )}
+          <CheckpointsSection checkpoints={checkpoints} currentTaskId={currentTaskId} status={status} onResume={onResume} />
         </div>
       </div>
     );
@@ -408,6 +585,7 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
               </button>
             </div>
           )}
+          <CheckpointsSection checkpoints={checkpoints} currentTaskId={currentTaskId} status={status} onResume={onResume} />
         </div>
       </div>
     );
@@ -649,34 +827,10 @@ const TrainingDashboard: React.FC<TrainingDashboardProps> = ({
         )}
 
         {/* Terminal */}
-        <TerminalStream logs={fakeLogs} />
+        <TerminalStream logs={logs} />
 
         {/* Checkpoints */}
-        <div className={styles.snapshotLibrary}>
-          <div className={styles.snapshotHeader}>
-            <SaveOutlined style={{ fontSize: 12 }} />
-            <span>检查点库 (Checkpoints)</span>
-          </div>
-          <div className={styles.snapshotGrid}>
-            {chartData.length === 0 ? (
-              <div className={styles.snapshotEmpty}>暂无检查点</div>
-            ) : (
-              [1, 2, 3]
-                .filter((i) => i * 500 <= (progress?.step || 0))
-                .map((i) => (
-                  <div key={i} className={styles.snapshotCard}>
-                    <div className={styles.snapshotStep}>步数 {i * 500}</div>
-                    <div className={styles.snapshotMetrics}>
-                      {(1.5 - i * 0.2).toFixed(4)}
-                    </div>
-                  </div>
-                ))
-            )}
-            {chartData.length > 0 && ![1, 2, 3].some((i) => i * 500 <= (progress?.step || 0)) && (
-              <div className={styles.snapshotEmpty}>将在 500 步时自动保存...</div>
-            )}
-          </div>
-        </div>
+        <CheckpointsSection checkpoints={checkpoints} currentTaskId={currentTaskId} status={status} onResume={onResume} />
       </div>
     </div>
   );
