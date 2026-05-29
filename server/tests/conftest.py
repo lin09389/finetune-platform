@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import inspect
 from pathlib import Path
 
 # Ensure tests run with predictable local defaults before app imports settings.
@@ -13,3 +14,28 @@ os.environ.setdefault("ALLOWED_ORIGINS", "*")
 SERVER_ROOT = Path(__file__).resolve().parents[1]
 if str(SERVER_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVER_ROOT))
+
+
+def _patch_starlette_testclient_for_httpx_028() -> None:
+    """Allow Starlette 0.35 TestClient to run with httpx 0.28 in this test env."""
+
+    try:
+        import httpx
+    except Exception:
+        return
+    if "app" in inspect.signature(httpx.Client.__init__).parameters:
+        return
+    if getattr(httpx.Client.__init__, "_finetune_platform_patched", False):
+        return
+
+    original_init = httpx.Client.__init__
+
+    def patched_init(self, *args, **kwargs):
+        kwargs.pop("app", None)
+        return original_init(self, *args, **kwargs)
+
+    patched_init._finetune_platform_patched = True
+    httpx.Client.__init__ = patched_init
+
+
+_patch_starlette_testclient_for_httpx_028()
