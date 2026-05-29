@@ -149,7 +149,7 @@ def _context_pack_index_text(pack: ContextPack) -> str:
         f"- used_tokens: {pack.budget.used_tokens}",
         "",
         "## Files",
-        "- `/context/retrieval/memory.md`: durable user/platform memory when present",
+        "- `/context/retrieval/memory.md`: file-memory index/snippets only; read full files from `/memories/`, `/agent-memory/`, or `/policies/` when needed",
         "- `/context/retrieval/knowledge.md`: retrieved RAG/reference material when present",
         "- `/context/retrieval/project.md`: project/codebase context when present",
         "",
@@ -164,6 +164,8 @@ def _context_sources_text(pack: ContextPack, kind: str) -> str:
     if not sources:
         return ""
     title = {"memory": "Memory Context", "knowledge": "Knowledge Context", "project": "Project Context"}.get(kind, kind.title())
+    if kind == "memory":
+        return _memory_sources_index_text(sources)
     parts = [f"# {title}"]
     for index, source in enumerate(sources, 1):
         source_path = f"\npath: `{source.path}`" if source.path else ""
@@ -173,6 +175,36 @@ def _context_sources_text(pack: ContextPack, kind: str) -> str:
                 f"## Source {index}: {source.source}",
                 f"score: {source.score}",
                 f"tokens: {source.tokens}{source_path}",
+                "",
+                "```text",
+                source.content.strip(),
+                "```",
+            ]
+        )
+    return "\n".join(parts).strip() + "\n"
+
+
+def _memory_sources_index_text(sources: list[Any]) -> str:
+    parts = [
+        "# Memory Context Index",
+        "",
+        "These are file-memory snippets. For full durable memory, read the referenced files from `/memories/`, `/agent-memory/`, or `/policies/`.",
+    ]
+    for index, source in enumerate(sources, 1):
+        path = source.metadata.get("memory_path") or source.path or ""
+        scope = source.metadata.get("scope") or "user"
+        namespace = source.metadata.get("namespace") or ""
+        version = source.metadata.get("version")
+        updated_at = source.metadata.get("updated_at") or ""
+        parts.extend(
+            [
+                "",
+                f"## Memory File {index}: `{path}`",
+                f"- scope: `{scope}`",
+                f"- namespace: `{namespace}`",
+                f"- score: {source.score}",
+                f"- version: {version if version is not None else 'unknown'}",
+                f"- updated_at: {updated_at}",
                 "",
                 "```text",
                 source.content.strip(),

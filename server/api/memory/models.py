@@ -1,68 +1,55 @@
-"""
-记忆 API 数据模型
-"""
-from datetime import datetime
-from enum import Enum
-from typing import Any
+"""DeepAgents-style file memory API models."""
+
+from __future__ import annotations
+
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-
-class MemoryType(str, Enum):
-    """记忆类型"""
-    PERSONAL = "personal"
-    PREFERENCE = "preference"
-    PROJECT = "project"
-    SKILL = "skill"
-    HABIT = "habit"
-    HISTORY = "history"
-    KNOWLEDGE = "knowledge"
+MemoryScopeLiteral = Literal["user", "agent", "org"]
 
 
-class MemoryItem(BaseModel):
-    """记忆项"""
-    id: str = Field(..., description="记忆ID")
-    content: str = Field(..., description="记忆内容")
-    type: MemoryType = Field(default=MemoryType.KNOWLEDGE, description="记忆类型")
-    importance: float = Field(default=0.5, ge=0, le=1, description="重要性")
-    source: str = Field(default="api", description="来源")
-    created_at: datetime = Field(default_factory=datetime.now, description="创建时间")
-    updated_at: datetime = Field(default_factory=datetime.now, description="更新时间")
-    access_count: int = Field(default=0, description="访问次数")
-    metadata: dict[str, Any] = Field(default_factory=dict, description="元数据")
-    vector_state: str = Field(default="pending", description="向量索引状态")
-    storage_mode: str = Field(default="text_only", description="检索存储模式")
+class MemoryFileResponse(BaseModel):
+    id: str
+    path: str
+    relative_path: str
+    scope: MemoryScopeLiteral
+    namespace: str
+    content: str
+    writable: bool
+    version: int
+    updated_at: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class MemoryCreateRequest(BaseModel):
-    """创建记忆请求"""
-    content: str = Field(..., description="记忆内容")
-    memory_type: MemoryType = Field(default=MemoryType.KNOWLEDGE, description="记忆类型")
-    importance: float = Field(default=0.5, ge=0, le=1, description="重要性")
-    metadata: dict[str, Any] = Field(default_factory=dict, description="元数据")
-
-
-class MemoryUpdateRequest(BaseModel):
-    """更新记忆请求"""
-    content: str | None = Field(default=None, description="记忆内容")
-    importance: float | None = Field(default=None, ge=0, le=1, description="重要性")
-    metadata: dict[str, Any] | None = Field(default=None, description="元数据")
+class MemoryFileUpdateRequest(BaseModel):
+    content: str = Field(..., description="Markdown memory file content")
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class MemorySearchRequest(BaseModel):
-    """搜索记忆请求"""
-    query: str = Field(..., description="查询文本")
-    top_k: int = Field(default=5, ge=1, le=20, description="返回数量")
-    memory_type: MemoryType | None = Field(default=None, description="记忆类型过滤")
+    query: str = Field(..., min_length=1)
+    scope: MemoryScopeLiteral | None = None
+    namespace: str | None = None
+    user_id: str = "default"
+    top_k: int = Field(default=5, ge=1, le=50)
 
 
-class MemorySearchResult(BaseModel):
-    """搜索结果"""
-    id: str
-    content: str
-    type: MemoryType
-    importance: float
-    relevance: float = Field(default=0.0, description="相关性分数")
-    created_at: datetime
-    vector_state: str = Field(default="pending", description="向量索引状态")
-    storage_mode: str = Field(default="text_only", description="检索存储模式")
+class MemorySearchResultResponse(BaseModel):
+    file_id: str
+    path: str
+    scope: MemoryScopeLiteral
+    namespace: str
+    snippet: str
+    score: float
+    updated_at: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class MemoryConsolidateRequest(BaseModel):
+    user_id: str = "default"
+    session_id: str | None = None
+
+
+class MemoryMigrateRequest(BaseModel):
+    user_id: str = "default"

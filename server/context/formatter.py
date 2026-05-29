@@ -48,7 +48,9 @@ class ContextFormatter:
             lines = []
             for index, source in enumerate(sources, 1):
                 preview = self._preview(source.content, 220)
-                lines.append(f"{index}. [{source.source_type}] {preview}")
+                path = source.metadata.get("memory_path") or source.path
+                prefix = f"{path}: " if path else f"[{source.source_type}] "
+                lines.append(f"{index}. {prefix}{preview}")
             return "\n".join(lines)
 
         if kind == "knowledge":

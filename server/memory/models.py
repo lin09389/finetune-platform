@@ -1,13 +1,20 @@
-"""
-记忆数据模型
-"""
-from dataclasses import dataclass
+"""File-backed long-term memory models."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from typing import Any
+
+
+class MemoryScope(str, Enum):
+    USER = "user"
+    AGENT = "agent"
+    ORG = "org"
 
 
 class MemoryType(str, Enum):
-    """记忆类型"""
     PERSONAL = "personal"
     PREFERENCE = "preference"
     PROJECT = "project"
@@ -39,9 +46,55 @@ MEMORY_TYPE_LABELS = {
 }
 
 
+@dataclass(frozen=True)
+class MemoryFileMeta:
+    scope: MemoryScope
+    namespace: str
+    path: str
+    writable: bool
+    updated_at: str
+    version: int = 1
+    checksum: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class MemoryFile:
+    id: str
+    path: str
+    scope: MemoryScope
+    namespace: str
+    content: str
+    writable: bool
+    version: int
+    updated_at: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class MemorySearchResult:
+    file_id: str
+    path: str
+    scope: MemoryScope
+    namespace: str
+    snippet: str
+    score: float
+    updated_at: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class EpisodeEvent:
+    session_id: str
+    role: str
+    content: str
+    created_at: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+# Compatibility shape used by older internal callers and tests.
 @dataclass
 class Memory:
-    """记忆数据结构"""
     id: str
     content: str
     memory_type: MemoryType
@@ -52,30 +105,28 @@ class Memory:
     access_count: int = 0
     embedding: list[float] | None = None
 
-    def to_dict(self) -> dict:
-        """转换为字典"""
+    def to_dict(self) -> dict[str, Any]:
         return {
-            'id': self.id,
-            'content': self.content,
-            'type': self.memory_type.value,
-            'importance': self.importance,
-            'source': self.source,
-            'created_at': self.created_at.isoformat(),
-            'last_accessed': self.last_accessed.isoformat(),
-            'access_count': self.access_count
+            "id": self.id,
+            "content": self.content,
+            "type": self.memory_type.value,
+            "importance": self.importance,
+            "source": self.source,
+            "created_at": self.created_at.isoformat(),
+            "last_accessed": self.last_accessed.isoformat(),
+            "access_count": self.access_count,
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'Memory':
-        """从字典创建"""
+    def from_dict(cls, data: dict[str, Any]) -> "Memory":
         return cls(
-            id=data['id'],
-            content=data['content'],
-            memory_type=MemoryType(data['type']),
-            importance=data.get('importance', 0.5),
-            source=data.get('source', 'unknown'),
-            created_at=datetime.fromisoformat(data['created_at']) if isinstance(data.get('created_at'), str) else data.get('created_at', datetime.now()),
-            last_accessed=datetime.fromisoformat(data['last_accessed']) if isinstance(data.get('last_accessed'), str) else data.get('last_accessed', datetime.now()),
-            access_count=data.get('access_count', 0),
-            embedding=data.get('embedding')
+            id=data["id"],
+            content=data["content"],
+            memory_type=MemoryType(data["type"]),
+            importance=data.get("importance", 0.5),
+            source=data.get("source", "unknown"),
+            created_at=datetime.fromisoformat(data["created_at"]) if isinstance(data.get("created_at"), str) else data.get("created_at", datetime.now()),
+            last_accessed=datetime.fromisoformat(data["last_accessed"]) if isinstance(data.get("last_accessed"), str) else data.get("last_accessed", datetime.now()),
+            access_count=data.get("access_count", 0),
+            embedding=data.get("embedding"),
         )

@@ -18,14 +18,47 @@ from context.retrievers.project import ProjectRetriever
 
 
 class FakeMemoryService:
-    def recall(self, query, user_id, top_k, memory_type=None):
+    def search_files(self, query, *, scope, namespace, user_id, top_k):
         assert query == "query"
+        assert scope == "user"
+        assert namespace == "u1"
         assert user_id == "u1"
         assert top_k == 2
+        return [
+            {
+                "file_id": "file-pref",
+                "path": "/memories/preferences.md",
+                "scope": "user",
+                "namespace": "u1",
+                "snippet": "用户喜欢简洁回答",
+                "score": 0.9,
+                "version": 3,
+                "updated_at": "2026-05-27T00:00:00+00:00",
+                "metadata": {"owner": "profile"},
+            },
+            {
+                "file_id": "file-fact",
+                "path": "/memories/facts.md",
+                "scope": "user",
+                "namespace": "u1",
+                "snippet": "用户使用 Windows",
+                "score": 0.7,
+                "version": 1,
+                "updated_at": "2026-05-27T00:00:00+00:00",
+                "metadata": {},
+            },
+        ]
+
+    def recall(self, query, user_id, top_k, memory_type=None):
+        raise AssertionError("search_files should be preferred over legacy recall")
+
+
+class LegacyMemoryService:
+    def recall(self, query, user_id, top_k, memory_type=None):
         assert memory_type == "preference"
         return [
             {
-                "id": "mem-1",
+                "id": "mem-legacy",
                 "content": "用户喜欢简洁回答",
                 "type": "preference",
                 "relevance": 0.9,
@@ -93,10 +126,27 @@ async def test_retrievers_return_context_sources():
 
     assert memory.sources[0].kind == "memory"
     assert memory.sources[0].memory_type == "preference"
+    assert memory.sources[0].path == "/memories/preferences.md"
+    assert memory.sources[0].metadata["source_type"] == "file_memory"
+    assert memory.sources[0].metadata["scope"] == "user"
+    assert memory.sources[0].metadata["namespace"] == "u1"
+    assert memory.sources[0].metadata["version"] == 3
+    assert len(memory.sources) == 1
     assert knowledge.sources[0].kind == "knowledge"
     assert knowledge.sources[0].source == "guide.md"
     assert project.sources[0].kind == "project"
     assert project.sources[0].path == "C:/repo"
+
+
+@pytest.mark.asyncio
+async def test_memory_retriever_keeps_legacy_recall_fallback():
+    options = ContextBuildOptions(memory_top_k=2, memory_include_types=["preference"])
+
+    memory = await MemoryRetriever(LegacyMemoryService()).retrieve("query", "u1", "s1", options)
+
+    assert memory.sources[0].id == "mem-legacy"
+    assert memory.sources[0].memory_type == "preference"
+    assert memory.sources[0].metadata["source_type"] == "long_term_memory"
 
 
 class FakeRetriever(BaseContextRetriever):

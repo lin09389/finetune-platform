@@ -1,114 +1,86 @@
-"""Long-term memory service tests."""
+"""Filesystem-backed memory service tests."""
 
+from __future__ import annotations
+
+import json
 from pathlib import Path
 
 import pytest
 
 from core.storage import MemoryRepository
 from memory import memory_service as memory_module
+from memory.memory_service import MemoryService, decode_file_id
 
 
 @pytest.fixture
 def service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     db_path = tmp_path / "app.db"
-
     monkeypatch.setattr(memory_module, "MemoryRepository", lambda: MemoryRepository(str(db_path)))
-    monkeypatch.setattr(
-        "rag.embedder.get_embedder",
-        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("embedding disabled")),
-    )
-
-    service = memory_module.MemoryService(vector_db_path=str(tmp_path / "vectors"))
-    service._embedding_available = False
-    service.embedder = None
-    service.vector_store = None
-    return service
+    return MemoryService(root_dir=tmp_path / "deep_memory")
 
 
-def test_store_memory_writes_to_sqlite(service):
-    memory_id = service._store_memory(
-        "default",
+def test_namespace_isolation(service: MemoryService):
+    alice = service.list_files("user", "alice")
+    bob = service.list_files("user", "bob")
+
+    assert alice[0]["namespace"] == "alice"
+    assert bob[0]["namespace"] == "bob"
+    assert {file["id"] for file in alice}.isdisjoint({file["id"] for file in bob})
+
+
+def test_org_policy_is_read_only(service: MemoryService):
+    policy = service.list_files("org", "default-org")[0]
+
+    with pytest.raises(PermissionError):
+        service.update_file(policy["id"], "# Changed\n")
+
+
+def test_file_write_increments_version_and_checksum(service: MemoryService):
+    file = next(item for item in service.list_files("user", "default") if item["relative_path"] == "preferences.md")
+    updated = service.update_file(file["id"], file["content"] + "- 用户偏好：回答简洁\n")
+
+    assert updated["version"] == file["version"] + 1
+    scope, namespace, relative_path = decode_file_id(updated["id"])
+    path = service.store._resolve_file_path(scope, namespace, relative_path)
+    meta = json.loads(path.with_name(f"{path.name}.meta.json").read_text(encoding="utf-8"))
+    assert meta["checksum"]
+
+
+def test_search_finds_memory_files(service: MemoryService):
+    file = next(item for item in service.list_files("user", "default") if item["relative_path"] == "projects.md")
+    service.update_file(file["id"], file["content"] + "- 项目使用 DeepAgents 文件记忆\n")
+
+    results = service.search_files("DeepAgents 文件", scope="user", namespace="default")
+
+    assert results
+    assert results[0]["path"].endswith("projects.md")
+    assert "DeepAgents" in results[0]["snippet"]
+
+
+def test_migrate_from_items_is_idempotent(service: MemoryService):
+    service.repository.create(
         {
-            "content": "用户喜欢低显存 LoRA 微调流程",
+            "id": "legacy-1",
+            "user_id": "default",
+            "content": "用户喜欢 QLoRA",
             "type": "preference",
             "importance": 0.8,
             "source": "test",
-        },
+        }
     )
 
-    memory = service.get_memory(memory_id, increment_access=False)
+    first = service.migrate_from_items("default")
+    second = service.migrate_from_items("default")
 
-    assert memory is not None
-    assert memory["content"] == "用户喜欢低显存 LoRA 微调流程"
-    assert memory["type"] == "preference"
-    assert memory["vector_state"] == "failed"
-
-
-def test_recall_uses_text_fallback_when_vectors_are_disabled(service):
-    service._store_memory(
-        "default",
-        {
-            "content": "SQLite durable memory search",
-            "type": "knowledge",
-            "importance": 0.7,
-            "source": "test",
-        },
-    )
-
-    results = service.recall("durable memory", user_id="default", top_k=5)
-
-    assert len(results) == 1
-    assert results[0]["content"] == "SQLite durable memory search"
-    assert results[0]["storage_mode"] == "text_only"
+    assert first["migrated"] == 1
+    assert second["migrated"] == 0
+    assert second["skipped"] == 1
 
 
-def test_forget_hides_memory_from_get_list_and_search(service):
-    memory_id = service._store_memory(
-        "default",
-        {
-            "content": "临时测试记忆",
-            "type": "knowledge",
-            "importance": 0.5,
-            "source": "test",
-        },
-    )
+def test_episode_jsonl_order_is_stable(service: MemoryService):
+    service.consolidator.record_episode("default", "s1", "user", "第一条")
+    service.consolidator.record_episode("default", "s1", "assistant", "第二条")
 
-    assert service.forget("default", memory_id) is True
-    assert service.get_memory(memory_id, increment_access=False) is None
-    assert service.list_memories("default") == []
-    assert service.recall("临时测试", user_id="default") == []
+    episodes = service.list_episodes("default", "s1")
 
-
-def test_update_content_marks_vector_state(service):
-    memory_id = service._store_memory(
-        "default",
-        {
-            "content": "旧内容",
-            "type": "knowledge",
-            "importance": 0.5,
-            "source": "test",
-        },
-    )
-
-    updated = service.update_memory(memory_id, user_id="default", content="新内容")
-
-    assert updated is not None
-    assert updated["content"] == "新内容"
-    assert updated["vector_state"] == "failed"
-    assert updated["storage_mode"] == "text_only"
-
-
-def test_get_stats_reports_total_memories(service):
-    service._store_memory(
-        "default",
-        {
-            "content": "统计测试",
-            "type": "knowledge",
-            "importance": 0.5,
-            "source": "test",
-        },
-    )
-
-    stats = service.get_stats("default")
-
-    assert stats["total_memories"] == 1
+    assert [event["content"] for event in episodes] == ["第一条", "第二条"]
