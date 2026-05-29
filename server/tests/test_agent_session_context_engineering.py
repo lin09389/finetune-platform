@@ -48,6 +48,20 @@ async def test_context_pack_splits_retrieval_context_by_kind(monkeypatch):
                 query="解释项目",
                 sources=[
                     ContextSource(id="memory:1", kind="memory", content="用户偏好：回答要简洁", score=0.9, tokens=12),
+                    ContextSource(
+                        id="memory:2",
+                        kind="memory",
+                        content="用户偏好：使用 Windows PowerShell",
+                        score=0.85,
+                        tokens=12,
+                        metadata={
+                            "memory_path": "/memories/preferences.md",
+                            "path": "/memories/preferences.md",
+                            "scope": "user",
+                            "namespace": "default",
+                            "version": 2,
+                        },
+                    ),
                     ContextSource(id="project:1", kind="project", content="server/agent_session/service.py 负责会话", score=0.8, tokens=18, metadata={"path": "server/agent_session/service.py"}),
                     ContextSource(id="knowledge:1", kind="knowledge", content="DeepAgents 使用文件系统管理长上下文", score=0.7, tokens=16),
                 ],
@@ -69,6 +83,9 @@ async def test_context_pack_splits_retrieval_context_by_kind(monkeypatch):
     assert "/context/retrieval/project.md" in pack.files
     assert "/context/retrieval/knowledge.md" in pack.files
     assert "用户偏好" in pack.files["/context/retrieval/memory.md"]
+    assert "/memories/preferences.md" in pack.files["/context/retrieval/memory.md"]
+    assert "file-memory snippets" in pack.files["/context/retrieval/memory.md"]
+    assert "read full files" in pack.files["/context/retrieval/index.md"]
     assert "server/agent_session/service.py" in pack.files["/context/retrieval/project.md"]
 
 

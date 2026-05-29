@@ -19,6 +19,9 @@ INTERNAL_READ_PATTERNS = (
     "/large_tool_results/**",
     "/conversation_history/**",
 )
+USER_MEMORY_PATTERN = "/memories/**"
+AGENT_MEMORY_PATTERN = "/agent-memory/**"
+ORG_POLICY_PATTERN = "/policies/**"
 FALLBACK_PATTERN = "/**"
 
 
@@ -66,6 +69,28 @@ def build_filesystem_permissions(profile: FilesystemPermissionProfile):
         )
 
     if profile in {"build", "readonly"}:
+        memory_operations = ["read", "write"] if profile == "build" else ["read"]
+        rules.append(
+            FilesystemPermission(
+                operations=memory_operations,
+                paths=[USER_MEMORY_PATTERN, AGENT_MEMORY_PATTERN],
+                mode="allow",
+            )
+        )
+        rules.append(
+            FilesystemPermission(
+                operations=["write"],
+                paths=[ORG_POLICY_PATTERN],
+                mode="deny",
+            )
+        )
+        rules.append(
+            FilesystemPermission(
+                operations=["read"],
+                paths=[ORG_POLICY_PATTERN],
+                mode="allow",
+            )
+        )
         rules.append(
             FilesystemPermission(
                 operations=["read"],
@@ -93,6 +118,9 @@ __all__ = [
     "SENSITIVE_WORKSPACE_PATTERNS",
     "WORKSPACE_PATTERN",
     "INTERNAL_READ_PATTERNS",
+    "USER_MEMORY_PATTERN",
+    "AGENT_MEMORY_PATTERN",
+    "ORG_POLICY_PATTERN",
     "FALLBACK_PATTERN",
     "build_filesystem_permissions",
     "filesystem_permission_profile_for_agent",

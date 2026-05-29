@@ -4,7 +4,6 @@ API 模块初始化文件
 """
 from importlib import import_module
 
-from api.agent_sessions import action_router as agent_session_actions
 from api.agent_sessions import permission_router as agent_session_permissions
 from api.agent_sessions import router as agent_sessions
 from api.agents import router as agents
@@ -32,7 +31,6 @@ deployment_router = deployment.router
 evaluation_router = evaluation.router
 
 __all__ = [
-    "agent_session_actions",
     "agent_session_permissions",
     "agent_sessions",
     "agents",

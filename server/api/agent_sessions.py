@@ -248,7 +248,6 @@ async def get_artifact_original(
 
 
 permission_router = APIRouter(tags=["Agent Sessions"])
-action_router = APIRouter(tags=["Agent Sessions"])
 
 
 @permission_router.post("/agent-permissions/{permission_id}/approve", response_model=AgentApprovalResponse)
@@ -300,69 +299,4 @@ async def decide_agent_permission(
     part = next((item for item in session.parts if item.id == permission_id), None)
     if not part:
         raise HTTPException(status_code=404, detail="Permission part not found")
-    return AgentApprovalResponse(part=part, session=session)
-
-
-@action_router.post("/agent-actions/{action_id}/approve", response_model=AgentApprovalResponse)
-async def approve_agent_action(
-    action_id: str,
-    service: AgentSessionService = Depends(get_agent_session_service),
-    current_user: TokenPayload = Depends(get_agent_session_user),
-):
-    try:
-        session = await service.approve_action_async(action_id, True)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    part = next((item for item in session.parts if item.id == action_id), None)
-    if not part:
-        raise HTTPException(status_code=404, detail="Action part not found")
-    return AgentApprovalResponse(part=part, session=session)
-
-
-@action_router.post("/agent-actions/{action_id}/reject", response_model=AgentApprovalResponse)
-async def reject_agent_action(
-    action_id: str,
-    service: AgentSessionService = Depends(get_agent_session_service),
-    current_user: TokenPayload = Depends(get_agent_session_user),
-):
-    try:
-        session = await service.approve_action_async(action_id, False)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    part = next((item for item in session.parts if item.id == action_id), None)
-    if not part:
-        raise HTTPException(status_code=404, detail="Action part not found")
-    return AgentApprovalResponse(part=part, session=session)
-
-
-@action_router.post("/agent-actions/{action_id}/hunk-decision")
-async def record_hunk_decision(
-    action_id: str,
-    body: dict,
-    service: AgentSessionService = Depends(get_agent_session_service),
-) -> dict:
-    """Record an accept/reject decision for a single hunk in a diff action."""
-    file_path = str(body.get("file_path") or "")
-    hunk_index = int(body.get("hunk_index") or 0)
-    decision = str(body.get("decision") or "accepted")
-    if decision not in {"accepted", "rejected"}:
-        from fastapi import HTTPException as _H
-        raise _H(status_code=422, detail="decision must be 'accepted' or 'rejected'")
-    part = await run_sync(service.record_hunk_decision, action_id, file_path, hunk_index, decision)
-    return {"action_id": action_id, "file_path": file_path, "hunk_index": hunk_index, "decision": decision, "part_id": part.get("id")}
-
-
-@action_router.post("/agent-actions/{action_id}/execute", response_model=AgentApprovalResponse)
-async def execute_agent_action(
-    action_id: str,
-    service: AgentSessionService = Depends(get_agent_session_service),
-    current_user: TokenPayload = Depends(get_agent_session_user),
-):
-    try:
-        session = await service.execute_action_async(action_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    part = next((item for item in session.parts if item.id == action_id), None)
-    if not part:
-        raise HTTPException(status_code=404, detail="Action part not found")
     return AgentApprovalResponse(part=part, session=session)

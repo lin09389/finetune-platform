@@ -9,14 +9,14 @@ from typing import Any, Sequence
 
 from langgraph.types import Command
 
+from .deepagents_compat import patch_torch_pytree_for_transformers
 from .deepagents_events import DeepAgentsEventMapper
 from .execution_context import RuntimeExecutionContext
 from .deepagents_checkpoint import get_checkpoint_db_path
 from .model_adapter import get_chat_model
-from .patch_engine import SafePatchEngine
 from .permission import filesystem_permissions_for_agent
-from .runtime import DeepAgentRuntimeConfig, build_deep_agent_runtime, memory_files_for_project, resolve_interrupt_on
-from .state import ensure_session_state, record_command, record_diff, set_phase
+from .runtime import DeepAgentRuntimeConfig, build_deep_agent_runtime, memory_files_for_project, resolve_interrupt_on, resolve_skill_sources
+from .state import ensure_session_state, set_phase
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,7 @@ def deepagents_thread_id(session_id: str) -> str:
 
 def _load_create_deep_agent() -> Any:
     try:
+        patch_torch_pytree_for_transformers()
         from deepagents import create_deep_agent
     except Exception as exc:  # pragma: no cover - depends on optional runtime dependency
         raise DeepAgentsUnavailable(f"DeepAgents is not installed or failed to import: {exc}") from exc
@@ -190,42 +191,14 @@ class DeepAgentsSessionRunner:
         self.repository.update_session(session_id, status="completed", metadata=metadata)
         return self._with_parts(session_id)
 
-    def execute_action(self, part_id: str) -> dict[str, Any]:
-        part = self.repository.get_part(part_id)
-        if not part:
-            raise ValueError("Agent part not found")
-        if part.get("status") == "executed":
-            return self._with_parts(part["session_id"])
-        if part.get("type") not in {"diff", "command"} or part.get("status") != "approved":
-            raise ValueError("Only approved action parts can be executed")
-        session = self.repository.get_session(part["session_id"]) or {}
-        payload = dict(part.get("payload") or {})
-        if part.get("type") == "diff":
-            result_payload, content, ok = self._execute_patch(session, payload)
-            metadata = record_diff(ensure_session_state(dict(session.get("metadata") or {})), part_id, result_payload.get("changed_files") or [])
-        else:
-            result_payload, content, ok = {}, "命令动作已下线：请使用 DeepAgents 官方 execute 工具。", False
-            metadata = record_command(ensure_session_state(dict(session.get("metadata") or {})), part_id, content)
-        status = "executed" if ok else "failed"
-        payload.update({"execution_result": result_payload, **result_payload})
-        updated = self.repository.update_part(part_id, status=status, content=content, payload=payload)
-        metadata = set_phase(metadata, "completed" if ok else "failed")
-        self.repository.update_session(part["session_id"], status="running" if ok else "failed", metadata=metadata)
-        event_type = "action_executed" if ok else "action_failed"
-        event = self.repository.add_event(
-            part["session_id"],
-            event_type,
-            content,
-            {"session_id": part["session_id"], "part_id": part_id, "part_type": part.get("type"), "status": status, "part": updated, **result_payload},
-        )
-        self.notify_event(part["session_id"], event)
-        return self._with_parts(part["session_id"])
-
     async def _build_graph(self, session: dict[str, Any], prompt: str) -> Any:
         _load_create_deep_agent()
         session_id = str(session.get("id"))
         project_path = str(session.get("project_path") or Path.cwd())
         metadata = dict(session.get("metadata") or {})
+        agent_id = str(session.get("agent_id") or "build")
+        user_id = str(metadata.get("user_id") or metadata.get("memory_user_id") or "default")
+        org_id = str(metadata.get("org_id") or "default-org")
         context = RuntimeExecutionContext(
             session_id=session_id,
             goal=prompt,
@@ -246,8 +219,12 @@ class DeepAgentsSessionRunner:
                 tools=[],
                 system_prompt=self._system_prompt(),
                 project_path=project_path,
-                memory=memory_files_for_project(project_path),
-                permissions=filesystem_permissions_for_agent(str(session.get("agent_id") or "")),
+                user_id=user_id,
+                agent_id=agent_id,
+                org_id=org_id,
+                memory=memory_files_for_project(project_path, user_id=user_id, agent_id=agent_id, org_id=org_id),
+                skills=resolve_skill_sources(project_path, user_id=user_id, agent_id=agent_id, org_id=org_id),
+                permissions=filesystem_permissions_for_agent(agent_id),
                 interrupt_on=resolve_interrupt_on(metadata),
                 checkpointer=await self._get_checkpointer(),
             )
@@ -269,16 +246,6 @@ class DeepAgentsSessionRunner:
             if hasattr(self._checkpointer, "setup"):
                 await self._checkpointer.setup()
         return self._checkpointer
-
-    def _execute_patch(self, session: dict[str, Any], payload: dict[str, Any]) -> tuple[dict[str, Any], str, bool]:
-        root = Path(str(session.get("project_path") or Path.cwd())).resolve()
-        raw_payload = payload.get("payload") if isinstance(payload.get("payload"), dict) else payload
-        try:
-            result = SafePatchEngine(root).apply_payload(raw_payload)
-            result_payload = {"changed_files": result.changed_files, "patch_summaries": result.summaries}
-            return result_payload, result.stdout or "补丁执行完成", True
-        except Exception as exc:
-            return {}, f"补丁执行失败：{exc}", False
 
     def _with_parts(self, session_id: str) -> dict[str, Any]:
         session = self.repository.get_session(session_id) or {}
@@ -316,11 +283,15 @@ class DeepAgentsSessionRunner:
             "文件操作使用 DeepAgents harness 内置的 ls/read_file/glob/grep/write_file/edit_file。"
             "项目文件位于 `/workspace/`；DeepAgents 内部文件和上下文文件位于状态后端，"
             "包括 /context/、/large_tool_results/ 和 /conversation_history/。"
+            "长期记忆位于 `/memories/`，Agent 自身记忆位于 `/agent-memory/`，"
+            "组织策略位于只读的 `/policies/`。"
             "读取或修改项目文件时必须使用 `/workspace/...` 路径。"
             "用户当前任务相关的大上下文会作为 /context/ 下的虚拟文件传入，"
             "你需要按需读取 /context/task.md、/context/editor/active-file.md、"
             "/context/mentions/ 或 /context/retrieval/ 下的文件，"
             "不要把这些文件完整复述给用户。"
+            "Skills 使用 DeepAgents 官方 Skills System 加载；你需要先依据 skills 列表匹配任务，"
+            "只在适用时读取对应 SKILL.md 和其中引用的附属文件，不要把全部 skill 内容塞进主上下文。"
             "需要运行测试、安装依赖或调用 CLI 时，直接使用官方 sandbox execute 工具；"
             "命令不需要平台白名单审批。"
             "执行命令前优先说明意图，执行后根据 execute 输出继续判断。"

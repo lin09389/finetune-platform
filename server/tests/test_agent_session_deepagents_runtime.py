@@ -136,9 +136,11 @@ def test_deepagents_runtime_passes_no_custom_tools(monkeypatch, tmp_path: Path):
         captured["interrupt_on"] = config.interrupt_on
         captured["project_path"] = config.project_path
         captured["permissions"] = config.permissions
+        captured["skills"] = config.skills
         return object()
 
     monkeypatch.setattr("agent_session.deepagents_runtime.build_deep_agent_runtime", fake_build_runtime)
+    monkeypatch.setattr("agent_session.deepagents_runtime._load_create_deep_agent", lambda: object())
 
     async def model_call(_messages):
         return json.dumps({"type": "final", "content": "ok"}, ensure_ascii=False)
@@ -162,6 +164,7 @@ def test_deepagents_runtime_passes_no_custom_tools(monkeypatch, tmp_path: Path):
     assert captured["interrupt_on"] is None
     assert captured["project_path"] == str(tmp_path)
     assert captured["permissions"]
+    assert "/skills/builtin/" in captured["skills"]
 
 
 def test_deepagents_backend_routes_internal_files_to_state_backend(tmp_path: Path):
@@ -291,3 +294,89 @@ def test_agent_session_hitl_decision_validation_rejects_bad_batches(tmp_path: Pa
 
     with pytest.raises(ValueError, match="Expected 1 HITL decision"):
         asyncio.run(service.decide_permission_async(part["id"], [{"type": "respond", "message": "A"}, {"type": "respond", "message": "B"}]))
+
+
+def test_agent_session_response_includes_deepagents_ui_state(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="ui state", project_path=str(Path.cwd())))
+    service.repository.add_part(
+        session.id,
+        "tool_call",
+        status="completed",
+        title="read_file",
+        content="Reading file",
+        payload={"tool": "read_file", "args": {"file_path": "/workspace/a.py"}},
+    )
+    service.repository.add_part(
+        session.id,
+        "tool_result",
+        status="completed",
+        title="read_file result",
+        content="File content",
+        payload={"tool": "read_file"},
+    )
+    permission = service.repository.add_part(
+        session.id,
+        "permission",
+        status="pending",
+        title="Confirm edit",
+        content="Confirm edit",
+        payload={
+            "official_hitl": True,
+            "actions": [
+                {
+                    "name": "edit_file",
+                    "args": {"file_path": "/workspace/a.py"},
+                    "allowed_decisions": ["approve", "edit", "reject"],
+                }
+            ],
+        },
+    )
+    service.repository.add_part(
+        session.id,
+        "summary",
+        status="completed",
+        title="Final",
+        content="Done",
+        payload={},
+    )
+    service.repository.update_session(session.id, status="waiting_approval", metadata={"runtime": "deepagents"})
+
+    result = service.get_session(session.id)
+    ui_state = result.metadata["ui_state"]
+
+    assert [item["type"] for item in ui_state["timeline"]] == ["tool_call", "tool_result", "permission", "summary"]
+    assert ui_state["pending_permission"]["part_id"] == permission["id"]
+    assert ui_state["pending_permission"]["actions"][0]["name"] == "edit_file"
+    assert ui_state["latest"]["permission"]["id"] == permission["id"]
+    assert result.metadata["diagnostics"]["latest_action"]["id"] == permission["id"]
+
+
+def test_agent_session_ui_state_marks_legacy_actions_read_only(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="legacy ui", project_path=str(Path.cwd())))
+    diff = service.repository.add_part(
+        session.id,
+        "diff",
+        status="pending",
+        title="Old patch",
+        content="legacy patch",
+        payload={"changed_files": ["a.py"]},
+    )
+    command = service.repository.add_part(
+        session.id,
+        "command",
+        status="approved",
+        title="Old command",
+        content="legacy command",
+        payload={"command": ["pytest"]},
+    )
+
+    result = service.get_session(session.id)
+    ui_state = result.metadata["ui_state"]
+    items = {item["id"]: item for item in ui_state["timeline"]}
+
+    assert items[diff["id"]]["legacy"] is True
+    assert items[command["id"]]["legacy"] is True
+    assert ui_state["pending_permission"] is None
+    assert result.metadata["diagnostics"]["latest_action"] is None

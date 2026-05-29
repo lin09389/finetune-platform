@@ -10,6 +10,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .deepagents_compat import patch_torch_pytree_for_transformers
+
+
+patch_torch_pytree_for_transformers()
+
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from core.config import settings

@@ -19,7 +19,7 @@ from core.db_manager import run_sync
 from workspace.local_paths import get_allowed_workspace_roots
 
 from .agent_registry import AgentRegistry
-from .approval import action_approval_decision, action_execute_decision, permission_decision, permission_decisions
+from .approval import permission_decisions
 from .deepagents_runtime import DeepAgentsSessionRunner
 from .events import AgentSessionEventBus
 from .models import (
@@ -396,61 +396,6 @@ class AgentSessionService:
             raise ValueError("Legacy permission approvals accept exactly one decision")
         return await run_sync(self.approve_permission, part_id, decisions[0].get("type") == "approve")
 
-    def approve_action(self, part_id: str, approved: bool) -> AgentSessionResponse:
-        part = self.repository.get_part(part_id)
-        if not part:
-            raise ValueError("Agent part not found")
-        return AgentSessionResponse(**self._attach_recovery_diagnostics(self._approve_deepagents_action(part, approved)))
-
-    async def approve_action_async(self, part_id: str, approved: bool) -> AgentSessionResponse:
-        part = self.repository.get_part(part_id)
-        if not part:
-            raise ValueError("Agent part not found")
-        session = self.repository.get_session(part["session_id"]) or {}
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        if metadata.get("runtime") == "deepagents":
-            result = self._approve_deepagents_action(part, approved)
-            self.deepagents_runner.model_call = self.model_call
-            decision = action_approval_decision(part_id, approved)
-            self._record_resume_decision(part["session_id"], decision)
-            if self.deepagents_runner.model_call is not None or session.get("provider"):
-                await self.deepagents_runner.resume(part["session_id"], decision)
-            elif approved:
-                self.deepagents_runner.execute_action(part_id)
-                self._complete_local_action_session(part["session_id"], self._local_action_completion_summary(self.repository.get_part(part_id) or part))
-            return self.get_session(part["session_id"])
-        result = self._approve_deepagents_action(part, approved)
-        return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
-
-    def execute_action(self, part_id: str) -> AgentSessionResponse:
-        result = self.deepagents_runner.execute_action(part_id)
-        updated_part = self.repository.get_part(part_id)
-        if updated_part and str(updated_part.get("status") or "") == "executed":
-            self._complete_local_action_session(updated_part["session_id"], self._local_action_completion_summary(updated_part))
-        return AgentSessionResponse(**self._attach_recovery_diagnostics(result))
-
-    async def execute_action_async(self, part_id: str) -> AgentSessionResponse:
-        part = self.repository.get_part(part_id)
-        if not part:
-            raise ValueError("Agent part not found")
-        session = self.repository.get_session(part["session_id"]) or {}
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        if metadata.get("runtime") == "deepagents":
-            if part.get("type") not in {"diff", "command"}:
-                raise ValueError("Only action parts can be executed")
-            self.deepagents_runner.model_call = self.model_call
-            self.deepagents_runner.execute_action(part_id)
-            decision = action_execute_decision(part_id)
-            self._record_resume_decision(part["session_id"], decision)
-            if self.deepagents_runner.model_call is not None or session.get("provider"):
-                await self.deepagents_runner.resume(part["session_id"], decision)
-            else:
-                self._complete_local_action_session(part["session_id"], self._local_action_completion_summary(self.repository.get_part(part_id) or part))
-            return self.get_session(part["session_id"])
-        if part.get("type") == "command":
-            return await run_sync(self.execute_action, part_id)
-        return await run_sync(self.execute_action, part_id)
-
     def _approve_deepagents_action(self, part: dict[str, Any], approved: bool) -> dict[str, Any]:
         session_id = str(part.get("session_id") or "")
         if not session_id:
@@ -578,26 +523,6 @@ class AgentSessionService:
             normalized.append(decision)
         return normalized
 
-    def record_hunk_decision(
-        self,
-        action_id: str,
-        file_path: str,
-        hunk_index: int,
-        decision: str,
-    ) -> dict:
-        """Store a per-hunk accept/reject decision inside the action part payload."""
-        part = self.repository.get_part(action_id)
-        if not part:
-            raise ValueError(f"Action not found: {action_id}")
-        if part.get("type") != "diff":
-            raise ValueError("Hunk decisions only apply to diff actions")
-        payload = dict(part.get("payload") or {})
-        decisions = dict(payload.get("hunk_decisions") or {})
-        decisions[f"{file_path}:{hunk_index}"] = decision
-        payload["hunk_decisions"] = decisions
-        self.repository.update_part(action_id, payload=payload)
-        return self.repository.get_part(action_id) or {}
-
     def list_events(self, session_id: str, since_event_id: str | None = None) -> list[dict[str, Any]]:
         return self.repository.list_events_after(session_id, since_event_id)
 
@@ -674,7 +599,9 @@ class AgentSessionService:
         events = self.repository.list_events(session_id) if session_id else []
         metadata = ensure_session_state(dict(hydrated.get("metadata") or {}))
         diagnostics = self._build_diagnostics(hydrated, parts, events, metadata)
+        ui_state = self._build_ui_state(hydrated, parts, diagnostics, metadata)
         metadata["diagnostics"] = diagnostics
+        metadata["ui_state"] = ui_state
         metadata["latest_event"] = diagnostics.get("latest_event")
         metadata["latest_tool_call"] = diagnostics.get("latest_tool_call")
         metadata["latest_tool_result"] = diagnostics.get("latest_tool_result")
@@ -775,7 +702,7 @@ class AgentSessionService:
         latest_event = events[-1] if events else None
         latest_tool_call = self._latest_part(parts, {"tool_call"})
         latest_tool_result = self._latest_part(parts, {"tool_result"})
-        latest_action = self._latest_part(parts, {"diff", "command", "permission"})
+        latest_action = self._latest_part(parts, {"permission"})
         latest_command = self._latest_part(parts, {"command"})
         latest_summary = self._latest_part(parts, {"summary"})
         latest_error = self._latest_part(parts, {"error"})
@@ -801,6 +728,112 @@ class AgentSessionService:
             "stop_reason": stop_reason,
             "next_action": next_action,
             "refresh_safe": True,
+        }
+
+    def _build_ui_state(
+        self,
+        session: dict[str, Any],
+        parts: list[dict[str, Any]],
+        diagnostics: dict[str, Any],
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        latest = {
+            "tool_call": self._compact_part(self._latest_part(parts, {"tool_call"})),
+            "tool_result": self._compact_part(self._latest_part(parts, {"tool_result"})),
+            "summary": self._compact_part(self._latest_part(parts, {"summary"})),
+            "error": self._compact_part(self._latest_part(parts, {"error"})),
+            "permission": self._compact_part(self._latest_part(parts, {"permission"})),
+        }
+        artifacts = []
+        for artifact in self._build_artifacts(parts):
+            item = artifact.model_dump() if hasattr(artifact, "model_dump") else artifact.dict()
+            item["source"] = "legacy_diff"
+            artifacts.append(item)
+        return {
+            "session_id": session.get("id"),
+            "agent_id": session.get("agent_id"),
+            "status": session.get("status"),
+            "timeline": [self._ui_timeline_item(part) for part in parts],
+            "pending_permission": self._pending_permission_ui(parts),
+            "latest": latest,
+            "artifacts": artifacts,
+            "status_text": {
+                "current_phase": diagnostics.get("current_phase") or metadata.get("current_phase"),
+                "stop_reason": diagnostics.get("stop_reason"),
+                "next_action": diagnostics.get("next_action"),
+            },
+        }
+
+    @staticmethod
+    def _ui_timeline_item(part: dict[str, Any]) -> dict[str, Any]:
+        payload = part.get("payload") if isinstance(part.get("payload"), dict) else {}
+        tool = payload.get("tool") or payload.get("name")
+        if not tool and isinstance(payload.get("action"), dict):
+            tool = payload["action"].get("name")
+        if not tool and isinstance(payload.get("action_requests"), list) and payload["action_requests"]:
+            first = payload["action_requests"][0]
+            if isinstance(first, dict):
+                tool = first.get("name")
+        return {
+            "id": part.get("id"),
+            "part_id": part.get("id"),
+            "session_id": part.get("session_id"),
+            "type": part.get("type"),
+            "status": part.get("status"),
+            "title": part.get("title"),
+            "content": part.get("content"),
+            "tool": tool,
+            "created_at": part.get("created_at"),
+            "updated_at": part.get("updated_at"),
+            "payload": payload,
+            "legacy": str(part.get("type") or "") in {"diff", "command"},
+        }
+
+    @classmethod
+    def _pending_permission_ui(cls, parts: list[dict[str, Any]]) -> dict[str, Any] | None:
+        part = cls._latest_part(parts, {"permission"})
+        if not part or part.get("status") != "pending":
+            return None
+        payload = part.get("payload") if isinstance(part.get("payload"), dict) else {}
+        actions = payload.get("actions") if isinstance(payload.get("actions"), list) else []
+        if not actions:
+            requests = payload.get("action_requests") if isinstance(payload.get("action_requests"), list) else []
+            if requests:
+                actions = requests
+        if not actions:
+            action_payload = payload.get("action") if isinstance(payload.get("action"), dict) else {}
+            actions = [
+                {
+                    "name": payload.get("tool") or action_payload.get("name") or "tool",
+                    "args": payload.get("args") or action_payload.get("args") or {},
+                    "allowed_decisions": payload.get("allowed_decisions") or ["approve", "reject"],
+                }
+            ]
+        normalized_actions = []
+        for index, action in enumerate(actions):
+            action = action if isinstance(action, dict) else {}
+            allowed = action.get("allowed_decisions") or payload.get("allowed_decisions") or ["approve", "reject"]
+            normalized_actions.append(
+                {
+                    "index": index,
+                    "name": str(action.get("name") or f"tool_{index + 1}"),
+                    "args": action.get("args") if isinstance(action.get("args"), dict) else {},
+                    "description": str(action.get("description") or ""),
+                    "allowed_decisions": [str(item) for item in allowed] if isinstance(allowed, list) else ["approve", "reject"],
+                }
+            )
+        return {
+            "part_id": part.get("id"),
+            "status": part.get("status"),
+            "title": part.get("title"),
+            "content": part.get("content"),
+            "actions": normalized_actions,
+            "allowed_decisions": sorted({decision for action in normalized_actions for decision in action.get("allowed_decisions", [])}),
+            "decisions_payload": {
+                "action_requests": payload.get("action_requests") or [],
+                "actions": payload.get("actions") or [],
+                "allowed_decisions": payload.get("allowed_decisions") or [],
+            },
         }
 
     @staticmethod
@@ -981,38 +1014,6 @@ class AgentSessionService:
         result = self.repository.get_session(session_id) or session
         result["parts"] = self.repository.list_parts(session_id)
         return result
-
-    @staticmethod
-    def _local_action_completion_summary(part: dict[str, Any]) -> str:
-        payload = dict(part.get("payload") or {})
-        changed_files = [str(path) for path in payload.get("changed_files") or [] if path]
-        if str(part.get("type") or "") == "diff":
-            if changed_files:
-                return f"已执行补丁并完成。修改文件：{'、'.join(changed_files[:5])}。"
-            return "已执行补丁并完成。"
-        command = payload.get("command")
-        if isinstance(command, list):
-            command_text = " ".join(str(item) for item in command)
-        else:
-            command_text = str(command or "")
-        if command_text:
-            return f"已执行命令并完成：{command_text}。"
-        return "已执行动作并完成。"
-
-    def _complete_local_action_session(self, session_id: str, summary: str) -> None:
-        session = self.repository.get_session(session_id) or {}
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        metadata = set_phase(metadata, "completed")
-        self.repository.add_part(
-            session_id,
-            "summary",
-            status="completed",
-            title="最终结果",
-            content=summary,
-            payload={"summary": summary, "fallback": True, "source": "local_action_completion"},
-        )
-        self.repository.update_session(session_id, status="completed", metadata=metadata)
-        self._event(session_id, "summary_completed", summary, {"fallback": True, "source": "local_action_completion"})
 
     def _record_resume_decision(self, session_id: str, decision: dict[str, Any]) -> None:
         session = self.repository.get_session(session_id)
