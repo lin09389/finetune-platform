@@ -430,6 +430,8 @@ export interface ChatAgentMetadata {
   latest_event?: unknown;
   latest_tool_call?: unknown;
   latest_action?: unknown;
+  ui_state?: unknown;
+  ui_item?: unknown;
   agent_parts?: unknown[];
   agent_part?: unknown;
   agent_session_state?: unknown;

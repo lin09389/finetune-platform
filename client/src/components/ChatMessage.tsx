@@ -43,9 +43,6 @@ interface ChatMessageProps {
   retrieval_info?: RetrievalInfo;
   agent_metadata?: ChatAgentMetadata;
   agentFlowPosition?: 'first' | 'middle' | 'last' | 'only' | null;
-  onApproveAgentAction?: (actionId: string) => void | Promise<void>;
-  onRejectAgentAction?: (actionId: string) => void | Promise<void>;
-  onExecuteAgentAction?: (actionId: string) => void | Promise<void>;
   onRefreshAgentRun?: (runId: string) => void | Promise<void>;
 }
 
@@ -74,9 +71,6 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
     knowledge_sources,
     agent_metadata,
     agentFlowPosition = null,
-    onApproveAgentAction,
-    onRejectAgentAction,
-    onExecuteAgentAction,
     onRefreshAgentRun,
   }) => {
     const [copied, setCopied] = useState(false);
@@ -421,9 +415,6 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
                 <AgentPartMessage
                   content={content}
                   metadata={agent_metadata}
-                  onApproveAction={onApproveAgentAction}
-                  onRejectAction={onRejectAgentAction}
-                  onExecuteAction={onExecuteAgentAction}
                   onRefreshRun={onRefreshAgentRun}
                 />
               ) : (

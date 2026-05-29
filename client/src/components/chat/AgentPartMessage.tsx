@@ -21,9 +21,6 @@ import styles from './AgentPartMessage.module.css';
 interface AgentPartMessageProps {
   content: string;
   metadata: ChatAgentMetadata;
-  onApproveAction?: (actionId: string) => void | Promise<void>;
-  onRejectAction?: (actionId: string) => void | Promise<void>;
-  onExecuteAction?: (actionId: string) => void | Promise<void>;
   onRefreshRun?: (runId: string) => void | Promise<void>;
 }
 
@@ -257,9 +254,6 @@ function MarkdownBody({ children }: { children: string }) {
 const AgentPartMessage = React.memo(({
   content,
   metadata,
-  onApproveAction,
-  onRejectAction,
-  onExecuteAction,
   onRefreshRun,
 }: AgentPartMessageProps) => {
   const part = metadata.agent_part as AgentPart | undefined;
@@ -274,8 +268,8 @@ const AgentPartMessage = React.memo(({
   const status = part.status || metadata.status || 'completed';
   const files = changedFiles(payload);
   const diffItems = extractFileDiffs(payload);
-  const canApprove = Boolean(metadata.can_approve && metadata.action_id);
-  const canExecute = Boolean(metadata.can_execute && metadata.action_id);
+  const canApprove = false;
+  const canExecute = false;
   const isProblem = ['failed', 'blocked'].includes(status);
   const icon =
     part.type === 'tool_call' || part.type === 'tool_result' ? (
@@ -410,6 +404,7 @@ const AgentPartMessage = React.memo(({
           {icon}
           <Typography.Text strong>{partTitle(part, content)}</Typography.Text>
           <Tag color={statusColor[status] || 'default'}>{statusLabel[status] || status}</Tag>
+          <Tag>历史记录/只读</Tag>
           {payload.execution_mode === 'auto' || payload.policy_decision === 'auto' ? <Tag color="green">安全自动</Tag> : null}
           {payload.risk_level ? <Tag>{payload.risk_level}</Tag> : null}
         </Space>
@@ -451,25 +446,6 @@ const AgentPartMessage = React.memo(({
             </div>
           </div>
         )}
-        {(canApprove || canExecute) && (
-          <Space>
-            {canApprove && (
-              <Button size="small" type="primary" onClick={() => onApproveAction?.(metadata.action_id!)}>
-                批准并执行
-              </Button>
-            )}
-            {canApprove && (
-              <Button size="small" onClick={() => onRejectAction?.(metadata.action_id!)}>
-                拒绝
-              </Button>
-            )}
-            {canExecute && (
-              <Button size="small" type="primary" onClick={() => onExecuteAction?.(metadata.action_id!)}>
-                执行
-              </Button>
-            )}
-          </Space>
-        )}
       </Space>,
     );
   }
@@ -481,6 +457,7 @@ const AgentPartMessage = React.memo(({
           {icon}
           <Typography.Text code>{commandText(payload) || part.title || '验证命令'}</Typography.Text>
           <Tag color={statusColor[status] || 'default'}>{statusLabel[status] || status}</Tag>
+          <Tag>历史记录/只读</Tag>
           {payload.execution_mode === 'auto' || payload.policy_decision === 'auto' ? <Tag color="green">安全自动</Tag> : null}
           {payload.risk_level ? <Tag>{payload.risk_level}</Tag> : null}
           {repairAttempt(payload, metadata) ? <Tag color="orange">修复尝试 {repairAttempt(payload, metadata)}</Tag> : null}
@@ -524,25 +501,6 @@ const AgentPartMessage = React.memo(({
               },
             ]}
           />
-        )}
-        {(canApprove || canExecute) && (
-          <Space>
-            {canApprove && (
-              <Button size="small" type="primary" onClick={() => onApproveAction?.(metadata.action_id!)}>
-                批准并执行
-              </Button>
-            )}
-            {canApprove && (
-              <Button size="small" onClick={() => onRejectAction?.(metadata.action_id!)}>
-                拒绝
-              </Button>
-            )}
-            {canExecute && (
-              <Button size="small" type="primary" onClick={() => onExecuteAction?.(metadata.action_id!)}>
-                执行
-              </Button>
-            )}
-          </Space>
         )}
       </Space>,
     );
@@ -663,25 +621,6 @@ const AgentPartMessage = React.memo(({
         <Typography.Text>{partTitle(part, content)}</Typography.Text>
         {status !== 'completed' && <Tag color={statusColor[status] || 'default'}>{statusLabel[status] || status}</Tag>}
       </Space>
-      {(canApprove || canExecute) && (
-        <Space>
-          {canApprove && (
-            <Button size="small" type="primary" onClick={() => onApproveAction?.(metadata.action_id!)}>
-              批准并执行
-            </Button>
-          )}
-          {canApprove && (
-            <Button size="small" onClick={() => onRejectAction?.(metadata.action_id!)}>
-              拒绝
-            </Button>
-          )}
-          {canExecute && (
-            <Button size="small" type="primary" onClick={() => onExecuteAction?.(metadata.action_id!)}>
-              执行
-            </Button>
-          )}
-        </Space>
-      )}
     </Space>,
   );
 });

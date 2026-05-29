@@ -1,4 +1,4 @@
-import { Button, Drawer, Input, Modal, Tag, Tooltip, Typography } from 'antd';
+import { Button, Drawer, Input, Modal, Tag, Tooltip } from 'antd';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
@@ -6,6 +6,7 @@ import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 
 import { useChatStream } from '../hooks/chat/useChatStream';
 import { useResponsive } from '../hooks/useResponsive';
+import { useOperation } from '../hooks/useOperation';
 import { useShallow } from 'zustand/react/shallow';
 import { useChatStore } from '../store/chatStore';
 import { useAppStore } from '../store/appStore';
@@ -15,6 +16,7 @@ import { appModal } from '../utils/modal';
 import ChatHeader from '../components/chat/ChatHeader';
 import ChatContextPanel from '../components/chat/ChatContextPanel';
 import ChatInput from '../components/chat/ChatInput';
+import HitlApprovalPanel from '../components/chat/HitlApprovalPanel';
 import AgentPhaseIndicator from '../components/chat/AgentPhaseIndicator';
 import AgentWorkbenchPanel, { WorkbenchEmpty } from '../components/chat/AgentWorkbenchPanel';
 import AgentWorkspaceEditor from '../components/chat/AgentWorkspaceEditor';
@@ -27,18 +29,15 @@ import ChatHistoryDrawer from '../components/ChatHistoryDrawer';
 import ChatMessage from '../components/ChatMessage';
 import MemoryManager from '../components/MemoryManager';
 import APIKeyManager from '../pages/APIKeyManager';
+import { getAgentSessionUiState } from '../hooks/chat/useAgentSessionViewModel';
 
 import { useRuntimeContext } from '../runtime/RuntimeContext';
 import {
   API_BASE_URL,
-  approveAgentAction,
-  approveAgentPermission,
   classifyChatAgentIntent,
   createAgentSession,
   decideAgentPermission,
-  executeAgentAction,
   getArtifactOriginal,
-  recordHunkDecision,
   getAgentSession,
   getAgentSessionOverview,
   getPrimaryAgents,
@@ -51,8 +50,6 @@ import {
   readWorkspaceFile,
   writeWorkspaceFile,
   promptAgentSession,
-  rejectAgentAction as rejectAgentSessionAction,
-  rejectAgentPermission,
 } from '../services/api';
 import type { ActiveFileContext, AgentArtifact, AgentHitlDecision, AgentInfo, AgentPart, AgentSession, AgentSessionEvent, AgentSessionOverview, ExplicitContextMention, SavedCloudProvider, WorkspaceSummary, WorkspaceTreeNode } from '../services/api';
 import { transitions } from '../theme/animations';
@@ -67,15 +64,6 @@ interface APIKeyConfig {
   model?: string;
   group_id?: string;
   base_url?: string;
-}
-
-type HitlDecisionType = AgentHitlDecision['type'];
-
-interface HitlDecisionDraft {
-  type: HitlDecisionType;
-  message: string;
-  editedArgs: string;
-  error?: string;
 }
 
 const AGENT_MODEL_PROVIDER_ALIASES: Record<string, string> = {
@@ -234,6 +222,7 @@ const persistScrollState = (
 const ChatPage: React.FC = () => {
   useTheme();
   const { isMobile, isDesktop } = useResponsive();
+  const operation = useOperation();
   const prefersReducedMotion = useReducedMotion();
   const runtime = useRuntimeContext();
   const { actions, derived, observed } = runtime;
@@ -370,7 +359,6 @@ const ChatPage: React.FC = () => {
   const [openedFiles, setOpenedFiles] = useState<OpenedFile[]>([]);
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   const lastAutoOpenedPartIdRef = useRef<string | null>(null);
-  const [hitlDecisionDrafts, setHitlDecisionDrafts] = useState<Record<number, HitlDecisionDraft>>({});
   const activeFileContext = useAppStore((state) => state.activeFileContext);
   const setActiveFileContext = useAppStore((state) => state.setActiveFileContext);
   const [explicitContextMentions, setExplicitContextMentions] = useState<ExplicitContextMention[]>([]);
@@ -1022,7 +1010,9 @@ const ChatPage: React.FC = () => {
   }, [ensureAgentSessionSnapshot]);
 
   const buildAgentPartMetadata = useCallback((session: AgentSession, part: any) => {
-    const actionLike = ['diff', 'permission', 'command'].includes(part.type);
+    const uiState = getAgentSessionUiState(session);
+    const uiItem = uiState.timeline.find((item) => item.part_id === part.id || item.id === part.id);
+    const actionLike = part.type === 'permission' && uiState.pending_permission?.part_id === part.id;
     const summaryPart = part.type === 'summary' ? part : [...(session.parts || [])].reverse().find((item) => item.type === 'summary');
     return {
       agent_run_id: session.id,
@@ -1031,9 +1021,11 @@ const ChatPage: React.FC = () => {
       kind: 'agent_part' as const,
       status: part.status || session.status,
       action_id: actionLike ? part.id : undefined,
-      action_type: part.type === 'diff' ? 'patch' : part.type,
+      action_type: part.type,
       can_approve: actionLike && part.status === 'pending',
-      can_execute: ['diff', 'command'].includes(part.type) && part.status === 'approved',
+      can_execute: false,
+      ui_state: uiState,
+      ui_item: uiItem,
       active_agent_id: session.agent_id,
       task_plan: session.metadata?.task_plan,
       current_stage_id: session.metadata?.current_stage_id,
@@ -1655,7 +1647,7 @@ if (existing) {
       return;
     }
 
-    try {
+    await operation.run(async () => {
       await Promise.all(
         activeAgentSessionIds.map(async (sessionId) => {
           const session = await interruptAgentSession(sessionId);
@@ -1665,12 +1657,13 @@ if (existing) {
         }),
       );
       setAgentPhase({ phase: '', visible: false });
-      notify.info('已中断 Agent 任务');
-    } catch (error: any) {
-      const detail = error?.response?.data?.detail || error?.message || '中断 Agent 失败';
-      notify.error(detail);
-    }
-  }, [activeAgentSessionIds, stopStream, upsertAgentSessionMessage]);
+    }, {
+      key: 'stop-agent-runs',
+      loadingText: '正在中断 Agent 任务...',
+      successText: '已中断 Agent 任务',
+      errorText: '中断 Agent',
+    });
+  }, [activeAgentSessionIds, operation, stopStream, upsertAgentSessionMessage]);
 
   const selectedCloudProvider = useMemo(
     () => cloudProviders.find((provider) => provider.provider === cloudAIConfig?.provider),
@@ -1738,194 +1731,19 @@ if (existing) {
     [upsertAgentSessionMessage],
   );
 
-  const findAgentMetadataByAction = useCallback((actionId: string) => {
-    return useChatStore
-      .getState()
-      .messages.find((item) => item.agent_metadata?.action_id === actionId && item.agent_metadata?.agent_session_id)
-      ?.agent_metadata;
-  }, []);
-
-  const handleApproveAgentAction = useCallback(
-    async (actionId: string) => {
-      const metadata = findAgentMetadataByAction(actionId);
-      if (!metadata?.agent_session_id) return;
-        if (metadata.action_type === 'permission') {
-          const part = metadata.agent_part as AgentPart | undefined;
-          const payload = (part?.payload || {}) as Record<string, any>;
-          const actionCount = Array.isArray(payload.action_requests) && payload.action_requests.length > 0
-            ? payload.action_requests.length
-            : Array.isArray(payload.actions) && payload.actions.length > 0
-              ? payload.actions.length
-              : 1;
-          const response = actionCount > 1
-            ? await decideAgentPermission(actionId, Array.from({ length: actionCount }, () => ({ type: 'approve' })))
-            : await approveAgentPermission(actionId);
-          await upsertAgentSessionMessage(response.session);
-          notify.success('已允许 Agent 继续执行');
-          return;
-        }
-      const approved = await approveAgentAction(actionId);
-      await upsertAgentSessionMessage(approved.session);
-      if (metadata.action_type === 'patch' || metadata.action_type === 'command') {
-        const executed = await executeAgentAction(actionId);
-        await upsertAgentSessionMessage(executed.session);
-        notify.success(executed.part.status === 'executed' ? '已批准并执行' : '动作执行完成');
-      }
-    },
-    [findAgentMetadataByAction, upsertAgentSessionMessage],
-  );
-
-  const handleRejectAgentAction = useCallback(
-    async (actionId: string) => {
-      const metadata = findAgentMetadataByAction(actionId);
-      if (!metadata?.agent_session_id) return;
-      const response = metadata.action_type === 'permission'
-        ? await rejectAgentPermission(actionId)
-        : await rejectAgentSessionAction(actionId);
-      await upsertAgentSessionMessage(response.session);
-    },
-    [findAgentMetadataByAction, upsertAgentSessionMessage],
-  );
-
   const pendingApproval = useMemo(() => {
     return [...messages]
       .reverse()
       .map((message) => message.agent_metadata)
-      .find((metadata) => metadata?.can_approve && metadata.action_id && metadata.status === 'pending') || null;
+      .map((metadata) => (metadata?.ui_state as any)?.pending_permission)
+      .find((permission) => permission?.part_id) || null;
   }, [messages]);
-  const pendingApprovalPart = pendingApproval?.agent_part as AgentPart | undefined;
-  const pendingApprovalPayload = useMemo(
-    () => (pendingApprovalPart?.payload || {}) as Record<string, any>,
-    [pendingApprovalPart?.payload],
-  );
-  const pendingApprovalActions = useMemo(() => {
-    const actions = Array.isArray(pendingApprovalPayload.actions) ? pendingApprovalPayload.actions : [];
-    if (actions.length > 0) {
-      return actions.map((action: Record<string, any>, index: number) => ({
-        index,
-        name: String(action.name || `tool_${index + 1}`),
-        args: action.args && typeof action.args === 'object' ? action.args : {},
-        description: String(action.description || ''),
-        allowedDecisions: Array.isArray(action.allowed_decisions)
-          ? action.allowed_decisions.map(String)
-          : ['approve', 'reject'],
-      }));
-    }
-    const actionRequests = Array.isArray(pendingApprovalPayload.action_requests)
-      ? pendingApprovalPayload.action_requests
-      : [];
-    if (actionRequests.length > 0) {
-      return actionRequests.map((action: Record<string, any>, index: number) => ({
-        index,
-        name: String(action.name || `tool_${index + 1}`),
-        args: action.args && typeof action.args === 'object' ? action.args : {},
-        description: String(action.description || ''),
-        allowedDecisions: Array.isArray(pendingApprovalPayload.allowed_decisions)
-          ? pendingApprovalPayload.allowed_decisions.map(String)
-          : ['approve', 'reject'],
-      }));
-    }
-    return pendingApproval?.action_id
-      ? [{
-          index: 0,
-          name: String(pendingApprovalPayload.tool || pendingApprovalPayload.action?.name || 'tool'),
-          args: pendingApprovalPayload.args || pendingApprovalPayload.action?.args || {},
-          description: '',
-          allowedDecisions: Array.isArray(pendingApprovalPayload.allowed_decisions)
-            ? pendingApprovalPayload.allowed_decisions.map(String)
-            : ['approve', 'reject'],
-        }]
-      : [];
-  }, [pendingApproval?.action_id, pendingApprovalPayload]);
 
-  useEffect(() => {
-    if (!pendingApproval?.action_id) {
-      setHitlDecisionDrafts({});
-      return;
-    }
-    setHitlDecisionDrafts((current) => {
-      const next: Record<number, HitlDecisionDraft> = {};
-      pendingApprovalActions.forEach((action) => {
-        const existing = current[action.index];
-        const defaultType = (action.allowedDecisions.includes('approve') ? 'approve' : action.allowedDecisions[0] || 'approve') as HitlDecisionType;
-        next[action.index] = existing || {
-          type: defaultType,
-          message: '',
-          editedArgs: JSON.stringify(action.args || {}, null, 2),
-        };
-      });
-      return next;
-    });
-  }, [pendingApproval?.action_id, pendingApprovalActions]);
-
-  const updateHitlDecisionDraft = useCallback((index: number, updates: Partial<HitlDecisionDraft>) => {
-    setHitlDecisionDrafts((current) => ({
-      ...current,
-      [index]: { ...(current[index] || { type: 'approve', message: '', editedArgs: '{}' }), error: undefined, ...updates },
-    }));
-  }, []);
-
-  const buildHitlDecisions = useCallback((): AgentHitlDecision[] | null => {
-    const decisions: AgentHitlDecision[] = [];
-    for (const action of pendingApprovalActions) {
-      const draft = hitlDecisionDrafts[action.index];
-      if (!draft) return null;
-      if (draft.type === 'approve') {
-        decisions.push({ type: 'approve' });
-      } else if (draft.type === 'reject') {
-        decisions.push({ type: 'reject', ...(draft.message.trim() ? { message: draft.message.trim() } : {}) });
-      } else if (draft.type === 'respond') {
-        if (!draft.message.trim()) {
-          updateHitlDecisionDraft(action.index, { error: 'Respond requires a message.' });
-          return null;
-        }
-        decisions.push({ type: 'respond', message: draft.message.trim() });
-      } else if (draft.type === 'edit') {
-        try {
-          const args = JSON.parse(draft.editedArgs || '{}');
-          if (!args || typeof args !== 'object' || Array.isArray(args)) {
-            throw new Error('Edited args must be a JSON object.');
-          }
-          decisions.push({ type: 'edit', edited_action: { name: action.name, args } });
-        } catch (error) {
-          updateHitlDecisionDraft(action.index, {
-            error: error instanceof Error ? error.message : 'Edited args must be valid JSON.',
-          });
-          return null;
-        }
-      }
-    }
-    return decisions;
-  }, [hitlDecisionDrafts, pendingApprovalActions, updateHitlDecisionDraft]);
-
-  const handleSubmitHitlDecisions = useCallback(async () => {
-    if (!pendingApproval?.action_id) return;
-    const decisions = buildHitlDecisions();
-    if (!decisions) return;
-    const response = await decideAgentPermission(pendingApproval.action_id, decisions);
+  const handleSubmitHitlDecisions = useCallback(async (permissionId: string, decisions: AgentHitlDecision[]) => {
+    const response = await decideAgentPermission(permissionId, decisions);
     await upsertAgentSessionMessage(response.session);
     notify.success('HITL 决策已提交，Agent 正在继续执行');
-  }, [buildHitlDecisions, pendingApproval?.action_id, upsertAgentSessionMessage]);
-
-  const handleRejectAllHitlDecisions = useCallback(async () => {
-    if (!pendingApproval?.action_id || !pendingApprovalActions.length) return;
-    const response = await decideAgentPermission(
-      pendingApproval.action_id,
-      pendingApprovalActions.map(() => ({ type: 'reject' })),
-    );
-    await upsertAgentSessionMessage(response.session);
-  }, [pendingApproval?.action_id, pendingApprovalActions, upsertAgentSessionMessage]);
-
-  const handleExecuteAgentAction = useCallback(
-    async (actionId: string) => {
-      const metadata = findAgentMetadataByAction(actionId);
-      if (!metadata?.agent_session_id || metadata.action_type === 'permission') return;
-      const response = await executeAgentAction(actionId);
-      await upsertAgentSessionMessage(response.session);
-      notify.success(response.part.status === 'executed' ? '动作已执行' : '动作执行完成');
-    },
-    [findAgentMetadataByAction, upsertAgentSessionMessage],
-  );
+  }, [upsertAgentSessionMessage]);
 
   const handleRetry = useCallback(
     (messageId: string) => {
@@ -2539,10 +2357,6 @@ if (existing) {
     setOpenedFiles((prev) => {
       const file = prev.find((f) => f.path === filePath);
       if (!file) return prev;
-      if (file.actionId) {
-        const hunkIndex = parseInt(hunkId.split(':').pop() ?? '0', 10);
-        void recordHunkDecision(file.actionId, filePath, hunkIndex, 'accepted');
-      }
       return prev.map((f) => {
         if (f.path !== filePath) return f;
         return { ...f, hunks: (f.hunks ?? []).map((h) => h.id === hunkId ? { ...h, status: 'accepted' as const } : h) };
@@ -2554,10 +2368,6 @@ if (existing) {
     setOpenedFiles((prev) => {
       const file = prev.find((f) => f.path === filePath);
       if (!file) return prev;
-      if (file.actionId) {
-        const hunkIndex = parseInt(hunkId.split(':').pop() ?? '0', 10);
-        void recordHunkDecision(file.actionId, filePath, hunkIndex, 'rejected');
-      }
       return prev.map((f) => {
         if (f.path !== filePath) return f;
         return { ...f, hunks: (f.hunks ?? []).map((h) => h.id === hunkId ? { ...h, status: 'rejected' as const } : h) };
@@ -2568,12 +2378,6 @@ if (existing) {
   const handleAcceptAll = useCallback((filePath: string) => {
     setOpenedFiles((prev) => prev.map((f) => {
       if (f.path !== filePath) return f;
-      if (f.actionId) {
-        (f.hunks ?? []).filter((h) => h.status === 'pending').forEach((h) => {
-          const hunkIndex = parseInt(h.id.split(':').pop() ?? '0', 10);
-          void recordHunkDecision(f.actionId!, filePath, hunkIndex, 'accepted');
-        });
-      }
       return { ...f, hunks: (f.hunks ?? []).map((h) => h.status === 'pending' ? { ...h, status: 'accepted' as const } : h) };
     }));
   }, []);
@@ -2581,12 +2385,6 @@ if (existing) {
   const handleRejectAll = useCallback((filePath: string) => {
     setOpenedFiles((prev) => prev.map((f) => {
       if (f.path !== filePath) return f;
-      if (f.actionId) {
-        (f.hunks ?? []).filter((h) => h.status === 'pending').forEach((h) => {
-          const hunkIndex = parseInt(h.id.split(':').pop() ?? '0', 10);
-          void recordHunkDecision(f.actionId!, filePath, hunkIndex, 'rejected');
-        });
-      }
       return { ...f, hunks: (f.hunks ?? []).map((h) => h.status === 'pending' ? { ...h, status: 'rejected' as const } : h) };
     }));
   }, []);
@@ -2765,9 +2563,6 @@ if (existing) {
       retrieval_info={msg.retrieval_info}
       agent_metadata={msg.agent_metadata}
       agentFlowPosition={agentFlowPosition}
-      onApproveAgentAction={handleApproveAgentAction}
-      onRejectAgentAction={handleRejectAgentAction}
-      onExecuteAgentAction={handleExecuteAgentAction}
       onRefreshAgentRun={handleRefreshAgentRun}
     />
     );
@@ -2777,9 +2572,6 @@ if (existing) {
     handleRetry,
     handleEditMessage,
     deleteMessage,
-    handleApproveAgentAction,
-    handleRejectAgentAction,
-    handleExecuteAgentAction,
     handleRefreshAgentRun,
   ]);
 
@@ -3208,88 +3000,11 @@ if (existing) {
           </AnimatePresence>
 
           <div className={styles.composerAnchor}>
-            <AnimatePresence>
-              {pendingApproval?.action_id && (
-                <motion.div
-                  key={pendingApproval.action_id}
-                  className={styles.approvalPopover}
-                  initial={prefersReducedMotion ? false : { opacity: 0, y: 14, scale: 0.985 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.985 }}
-                  transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-                >
-                  <div className={styles.approvalPopoverHeader}>
-                    <span className={styles.approvalTerminalIcon}>›_</span>
-                    <Typography.Text strong>
-                      Review {pendingApprovalActions.length || 1} agent action{pendingApprovalActions.length === 1 ? '' : 's'}
-                    </Typography.Text>
-                  </div>
-                  <div className={styles.approvalBatchList}>
-                    {pendingApprovalActions.map((action) => {
-                      const draft = hitlDecisionDrafts[action.index] || {
-                        type: 'approve' as HitlDecisionType,
-                        message: '',
-                        editedArgs: JSON.stringify(action.args || {}, null, 2),
-                      };
-                      return (
-                        <div className={styles.approvalActionCard} key={`${pendingApproval.action_id}-${action.index}`}>
-                          <div className={styles.approvalActionHeader}>
-                            <span className={styles.approvalKeycap}>{action.index + 1}</span>
-                            <Typography.Text code>{action.name}</Typography.Text>
-                          </div>
-                          <pre className={styles.approvalArgs}>{JSON.stringify(action.args || {}, null, 2)}</pre>
-                          <div className={styles.approvalChoices}>
-                            {(['approve', 'edit', 'reject', 'respond'] as HitlDecisionType[])
-                              .filter((type) => action.allowedDecisions.includes(type))
-                              .map((type) => (
-                                <button
-                                  type="button"
-                                  key={type}
-                                  className={draft.type === type ? styles.approvalChoicePrimary : styles.approvalChoice}
-                                  onClick={() => updateHitlDecisionDraft(action.index, { type })}
-                                >
-                                  {type}
-                                </button>
-                              ))}
-                          </div>
-                          {draft.type === 'edit' && (
-                            <Input.TextArea
-                              className={styles.approvalTextarea}
-                              value={draft.editedArgs}
-                              autoSize={{ minRows: 3, maxRows: 8 }}
-                              onChange={(event) => updateHitlDecisionDraft(action.index, { editedArgs: event.target.value })}
-                            />
-                          )}
-                          {(draft.type === 'reject' || draft.type === 'respond') && (
-                            <Input.TextArea
-                              className={styles.approvalTextarea}
-                              value={draft.message}
-                              placeholder={draft.type === 'respond' ? 'Reply returned as the tool result' : 'Optional feedback for the agent'}
-                              autoSize={{ minRows: 2, maxRows: 5 }}
-                              onChange={(event) => updateHitlDecisionDraft(action.index, { message: event.target.value })}
-                            />
-                          )}
-                          {draft.error && <Typography.Text type="danger">{draft.error}</Typography.Text>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                  <div className={styles.approvalFooter}>
-                    <Button
-                      size="small"
-                      type="text"
-                      disabled={!pendingApprovalActions.every((action) => action.allowedDecisions.includes('reject'))}
-                      onClick={() => void handleRejectAllHitlDecisions()}
-                    >
-                      Reject all
-                    </Button>
-                    <Button size="small" type="primary" onClick={() => void handleSubmitHitlDecisions()}>
-                      Submit decisions ↵
-                    </Button>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            <HitlApprovalPanel
+              pendingPermission={pendingApproval}
+              prefersReducedMotion={Boolean(prefersReducedMotion)}
+              onSubmit={handleSubmitHitlDecisions}
+            />
 
             <ChatInput
               onSend={handleSend}
@@ -3439,10 +3154,7 @@ if (existing) {
             });
         }}
         onDeleteSession={(id) => {
-          deleteSession(id).catch((error) => {
-            const message = error instanceof Error ? error.message : '删除会话失败';
-            notify.error(message);
-          });
+          return deleteSession(id);
         }}
       />
 

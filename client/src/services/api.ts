@@ -737,6 +737,54 @@ export interface AgentSessionDiagnostics {
   refresh_safe?: boolean;
 }
 
+export interface AgentSessionUiTimelineItem {
+  id: string;
+  part_id?: string;
+  session_id?: string;
+  type: AgentPart['type'] | string;
+  status?: AgentPart['status'] | string;
+  title?: string;
+  content?: string;
+  tool?: string;
+  created_at?: string;
+  updated_at?: string;
+  payload?: Record<string, any>;
+  legacy?: boolean;
+}
+
+export interface AgentSessionUiPendingPermissionAction {
+  index: number;
+  name: string;
+  args: Record<string, any>;
+  description?: string;
+  allowed_decisions: string[];
+}
+
+export interface AgentSessionUiPendingPermission {
+  part_id: string;
+  status?: string;
+  title?: string;
+  content?: string;
+  actions: AgentSessionUiPendingPermissionAction[];
+  allowed_decisions?: string[];
+  decisions_payload?: Record<string, any>;
+}
+
+export interface AgentSessionUiState {
+  session_id?: string;
+  agent_id?: string;
+  status?: string;
+  timeline: AgentSessionUiTimelineItem[];
+  pending_permission?: AgentSessionUiPendingPermission | null;
+  latest?: Record<string, AgentSessionDiagnosticItem | null | undefined>;
+  artifacts?: Array<AgentArtifact & { source?: string }>;
+  status_text?: {
+    current_phase?: string;
+    stop_reason?: string;
+    next_action?: string;
+  };
+}
+
 export interface AgentSessionStreamingDiagnostics {
   mode?: 'chat_stream' | 'non_stream' | string;
   status?: string;
@@ -774,6 +822,7 @@ export interface AgentSession {
     state?: AgentSessionState;
     diagnostics?: AgentSessionDiagnostics;
     streaming_diagnostics?: AgentSessionStreamingDiagnostics;
+    ui_state?: AgentSessionUiState;
   };
   parts: AgentPart[];
   created_at: string;
@@ -964,21 +1013,6 @@ export const getArtifactOriginal = async (
   return response.data;
 };
 
-export const recordHunkDecision = async (
-  actionId: string,
-  filePath: string,
-  hunkIndex: number,
-  decision: 'accepted' | 'rejected'
-): Promise<any> => {
-  const response = await apiClient.post(`/agent-actions/${actionId}/hunk-decision`, {
-    file_path: filePath,
-    hunk_index: hunkIndex,
-    decision,
-  });
-  return response.data;
-};
-
-
 export const promptAgentSession = async (
   sessionId: string,
   payload: AgentPromptRequest,
@@ -1011,21 +1045,6 @@ export const decideAgentPermission = async (
   decisions: AgentHitlDecision[],
 ): Promise<AgentSessionApprovalResponse> => {
   const response = await apiClient.post(`/agent-permissions/${permissionId}/decide`, { decisions });
-  return response.data;
-};
-
-export const approveAgentAction = async (actionId: string): Promise<AgentSessionApprovalResponse> => {
-  const response = await apiClient.post(`/agent-actions/${actionId}/approve`);
-  return response.data;
-};
-
-export const rejectAgentAction = async (actionId: string): Promise<AgentSessionApprovalResponse> => {
-  const response = await apiClient.post(`/agent-actions/${actionId}/reject`);
-  return response.data;
-};
-
-export const executeAgentAction = async (actionId: string): Promise<AgentSessionApprovalResponse> => {
-  const response = await apiClient.post(`/agent-actions/${actionId}/execute`);
   return response.data;
 };
 
@@ -1404,17 +1423,19 @@ export const subscribeTrainingLogs = (
     eventSource = new EventSource(url);
 
     eventSource.onmessage = (event) => {
+      if (!event.data) return;
       try {
         const data = JSON.parse(event.data);
-        // Batched format: {"lines": ["line1", "line2", ...]}
         if (Array.isArray(data.lines)) {
-          for (const line of data.lines) onLine(line);
-        } else if (data.line) {
-          onLine(data.line);
+          data.lines.forEach((line: unknown) => onLine(String(line)));
+        } else {
+          const line = data.line ?? data.message ?? data.content;
+          if (line !== undefined && line !== null) onLine(String(line));
         }
         retryCount = 0;
       } catch {
-        // ignore parse errors
+        onLine(event.data);
+        retryCount = 0;
       }
     };
 
