@@ -13,6 +13,7 @@ import type { UploadProps } from 'antd/es/upload/interface';
 import { useEffect, useState } from 'react';
 import glassStyles from '../components/shared/GlassCard.module.css';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
+import { useOperation } from '../hooks/useOperation';
 import { useRuntimeContext } from '../runtime/RuntimeContext';
 import { API_BASE_URL } from '../services/api';
 import { notify } from '../utils/notify';
@@ -56,6 +57,7 @@ export default function KnowledgeBase() {
   const runtime = useRuntimeContext();
   const { actions, derived, observed } = runtime;
   const { refreshKnowledge, syncKnowledgeCollection } = actions;
+  const operation = useOperation();
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState<string>('');
@@ -235,22 +237,33 @@ export default function KnowledgeBase() {
     }
   };
 
-  const handleDelete = async (docId: string) => {
-    try {
-      const response = await fetch(
-        `${API_BASE_URL}/knowledge/collections/${collectionId}/documents/${docId}`,
-        { method: 'DELETE' },
-      );
+  const handleDelete = async (doc: DocumentItem) => {
+    await operation.run(
+      async () => {
+        const response = await fetch(
+          `${API_BASE_URL}/knowledge/collections/${collectionId}/documents/${doc.doc_id}`,
+          { method: 'DELETE' },
+        );
 
-      if (response.ok) {
-        notify.success('文档已删除');
-        loadCollectionInfo();
-      } else {
-        notify.error('删除失败');
-      }
-    } catch (error) {
-      notify.error('删除失败');
-    }
+        if (!response.ok) {
+          const error = await response.json().catch(() => null);
+          throw new Error(error?.detail || `删除失败 (${response.status})`);
+        }
+
+        await loadCollectionInfo();
+      },
+      {
+        key: `delete-knowledge-doc:${collectionId}:${doc.doc_id}`,
+        successText: '文档已删除',
+        errorText: '删除文档',
+        confirm: {
+          title: '删除知识库文档？',
+          content: `将从集合 ${collectionId} 中移除「${doc.source}」及其向量索引。`,
+          okText: '删除',
+          tone: 'danger',
+        },
+      },
+    );
   };
 
   return (
@@ -405,7 +418,8 @@ export default function KnowledgeBase() {
                   type="text"
                   danger
                   icon={<DeleteOutlined />}
-                  onClick={() => handleDelete(doc.doc_id)}
+                  loading={operation.isRunning(`delete-knowledge-doc:${collectionId}:${doc.doc_id}`)}
+                  onClick={() => handleDelete(doc)}
                   size="small"
                 >
                   删除

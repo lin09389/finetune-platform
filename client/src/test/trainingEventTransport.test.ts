@@ -94,4 +94,30 @@ describe('training event transport fallback', () => {
     expect(onEvent).toHaveBeenCalledTimes(1);
     unsubscribe();
   });
+
+  it('parses training log stream batches, legacy objects, and plain text', async () => {
+    const { subscribeTrainingLogs } = await import('../services/api');
+    const onLine = vi.fn();
+
+    const unsubscribe = subscribeTrainingLogs('task-logs', onLine, undefined, 25);
+
+    const source = MockEventSource.instances[0];
+    expect(source).toBeDefined();
+    if (!source) throw new Error('expected SSE source instance');
+    expect(source.url).toContain('/training/logs/stream/task-logs?history=25');
+
+    source.onmessage?.({ data: JSON.stringify({ lines: ['first', 'second'] }) } as MessageEvent);
+    source.onmessage?.({ data: JSON.stringify({ line: 'legacy-line' }) } as MessageEvent);
+    source.onmessage?.({ data: JSON.stringify({ message: 'legacy-message' }) } as MessageEvent);
+    source.onmessage?.({ data: 'plain text line' } as MessageEvent);
+
+    expect(onLine).toHaveBeenCalledWith('first');
+    expect(onLine).toHaveBeenCalledWith('second');
+    expect(onLine).toHaveBeenCalledWith('legacy-line');
+    expect(onLine).toHaveBeenCalledWith('legacy-message');
+    expect(onLine).toHaveBeenCalledWith('plain text line');
+    expect(onLine).toHaveBeenCalledTimes(5);
+
+    unsubscribe();
+  });
 });

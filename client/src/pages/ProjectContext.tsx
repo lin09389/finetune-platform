@@ -9,6 +9,7 @@ import {
 import { Button, Input, message, Popconfirm, Progress, Tag } from 'antd';
 import { useEffect, useState } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
+import { useOperation } from '../hooks/useOperation';
 import { API_BASE_URL } from '../services/api';
 import styles from './ProjectContext.module.css';
 
@@ -33,6 +34,7 @@ interface IndexingStatus {
 }
 
 export default function ProjectContext() {
+  const operation = useOperation();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchPath, setSearchPath] = useState('');
@@ -106,22 +108,25 @@ export default function ProjectContext() {
   };
 
   const handleRemoveProject = async (path: string) => {
-    try {
-      const response = await fetch(`${API_BASE}/context/remove`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_path: path }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        message.success('已移除项目索引');
-        loadProjects();
-      } else {
-        message.error('移除失败');
-      }
-    } catch (error) {
-      message.error('操作失败');
-    }
+    await operation.run(
+      async () => {
+        const response = await fetch(`${API_BASE}/context/remove`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ project_path: path }),
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.success) {
+          throw new Error(data?.message || `移除失败 (${response.status})`);
+        }
+        await loadProjects();
+      },
+      {
+        key: `remove-project-index:${path}`,
+        successText: '已移除项目索引',
+        errorText: '移除项目索引',
+      },
+    );
   };
 
   const formatTime = (timeStr?: string) => {
@@ -248,6 +253,7 @@ export default function ProjectContext() {
                   onConfirm={() => handleRemoveProject(project.path)}
                   okText="确定"
                   cancelText="取消"
+                  okButtonProps={{ danger: true, loading: operation.isRunning(`remove-project-index:${project.path}`) }}
                 >
                   <Button size="small" danger icon={<DeleteOutlined />}>
                     移除

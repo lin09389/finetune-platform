@@ -60,6 +60,9 @@ function PageWrapper({ children, locationKey }: { children: React.ReactNode; loc
 
 const LoadingScreen = () => (
   <motion.div
+    role="status"
+    aria-live="polite"
+    aria-label="正在加载 Finetune Platform"
     initial={{ opacity: 0 }}
     animate={{ opacity: 1 }}
     exit={{ opacity: 0 }}
@@ -151,6 +154,34 @@ const routes = [
   { path: '/help', element: <HelpPanel /> },
 ];
 
+const routeTitles: Record<string, string> = {
+  '/dashboard': '概览',
+  '/device': '设备监控',
+  '/models': '模型管理',
+  '/datasets': '数据集',
+  '/training': '训练',
+  '/chat': 'Chat',
+  '/knowledge': '知识库',
+  '/workspace': '工作区',
+  '/memory': '记忆',
+  '/modelhub': '模型中心',
+  '/inference': '推理',
+  '/evaluation': '评估',
+  '/deployment': '部署',
+  '/history': '历史',
+  '/training-compare': '训练对比',
+  '/project-context': '项目上下文',
+  '/cloud-api': 'API Key',
+  '/cua-control': 'CUA 控制',
+  '/cua-recorder': '动作录制',
+  '/mcp': 'MCP 工具',
+  '/gateway': 'Gateway',
+  '/heartbeat': 'Heartbeat',
+  '/design-system': '设计系统',
+  '/feedback': '反馈',
+  '/help': '帮助',
+};
+
 function AppContent() {
   const { message, modal } = AntApp.useApp();
   const location = useLocation();
@@ -165,6 +196,11 @@ function AppContent() {
   const useCompactNav = isMobile || isTablet;
   const [loading, setLoading] = useState(true);
   const disconnectWarnedRef = useRef(false);
+
+  useEffect(() => {
+    const title = routeTitles[location.pathname] || (location.pathname.startsWith('/share/') ? '共享对话' : '工作台');
+    document.title = `${title} · Finetune Platform`;
+  }, [location.pathname]);
 
   useEffect(() => {
     setNotifyAdapter({
@@ -296,6 +332,9 @@ function AppContent() {
       >
         <TechBackground />
         <ContextualToolbar />
+        <a href="#main-content" className="skip-link">
+          跳到主内容
+        </a>
         <Layout
           className="app-shell"
           style={{
@@ -316,7 +355,9 @@ function AppContent() {
           >
             {!isChatRoute && <HeaderBar />}
             <Content
+              id="main-content"
               className="app-content"
+              tabIndex={-1}
               style={{
                 margin: isChatRoute
                   ? 0

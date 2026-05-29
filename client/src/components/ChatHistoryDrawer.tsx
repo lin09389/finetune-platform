@@ -1,6 +1,7 @@
 import { DeleteOutlined, SearchOutlined } from '@ant-design/icons';
-import { Button, Drawer, Empty, Input, List, Space, Tag, Typography, message } from 'antd';
+import { Button, Drawer, Empty, Input, List, Space, Tag, Typography } from 'antd';
 import { useState } from 'react';
+import { useOperation } from '../hooks/useOperation';
 
 interface Session {
   id: string;
@@ -16,9 +17,9 @@ interface ChatHistoryDrawerProps {
   open: boolean;
   onClose: () => void;
   sessions: Session[];
-  onLoadSession: (sessionId: string) => void;
+  onLoadSession: (sessionId: string) => void | Promise<void>;
   onLoadOutcome?: (sessionId: string, outcomeId: string) => void;
-  onDeleteSession: (sessionId: string) => void;
+  onDeleteSession: (sessionId: string) => void | Promise<void>;
 }
 
 const { Text } = Typography;
@@ -36,6 +37,7 @@ const ChatHistoryDrawer: React.FC<ChatHistoryDrawerProps> = ({
   const [selectedOutcomeIndexBySession, setSelectedOutcomeIndexBySession] = useState<
     Record<string, number>
   >({});
+  const operation = useOperation();
 
   const filteredSessions = sessions.filter((session) =>
     session.title.toLowerCase().includes(searchTerm.toLowerCase()),
@@ -135,11 +137,25 @@ const ChatHistoryDrawer: React.FC<ChatHistoryDrawerProps> = ({
                       size="small"
                       danger
                       icon={<DeleteOutlined />}
+                      loading={operation.isRunning(`delete-session:${session.id}`)}
                       onClick={(e) => {
                         e.stopPropagation();
-                        // 点击删除时立刻在本地状态列表中剔除，制造跟手感
-                        onDeleteSession(session.id);
-                        message.success('已删除对话');
+                        void operation.run(
+                          async () => {
+                            await Promise.resolve(onDeleteSession(session.id));
+                          },
+                          {
+                            key: `delete-session:${session.id}`,
+                            successText: '已删除对话',
+                            errorText: '删除对话',
+                            confirm: {
+                              title: '删除这段对话？',
+                              content: '删除后将从历史列表移除，相关消息需要重新生成。',
+                              okText: '删除',
+                              tone: 'danger',
+                            },
+                          },
+                        );
                       }}
                     />,
                   ]}

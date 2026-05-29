@@ -14,6 +14,7 @@ import { Alert, Badge, Button, Form, Input, Modal, Select, Space, Table, Tag, me
 import type { ColumnsType } from 'antd/es/table';
 import { useEffect, useState } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
+import { useOperation } from '../hooks/useOperation';
 import { API_BASE_URL, apiClient } from '../services/api';
 import styles from './GatewayPage.module.css';
 
@@ -66,6 +67,7 @@ interface Agent {
 type TabKey = 'devices' | 'bindings' | 'messages';
 
 export default function GatewayPage() {
+  const operation = useOperation();
   const [devices, setDevices] = useState<Device[]>([]);
   const [bindings, setBindings] = useState<Binding[]>([]);
   const [agents] = useState<Agent[]>([]);
@@ -177,31 +179,49 @@ export default function GatewayPage() {
   };
 
   const handleDeleteDevice = async (deviceId: string) => {
-    try {
-      const response = await apiClient.delete(`/gateway/devices/${deviceId}`);
-      if (!response.data?.success) {
-        message.error(response.data?.message || '删除失败');
-        return;
-      }
-      message.success('设备已删除');
-      fetchGatewayData();
-    } catch (error: any) {
-      message.error(getApiErrorMessage(error, '删除失败'));
-    }
+    await operation.run(
+      async () => {
+        const response = await apiClient.delete(`/gateway/devices/${deviceId}`);
+        if (!response.data?.success) {
+          throw new Error(response.data?.message || '删除失败');
+        }
+        await fetchGatewayData();
+      },
+      {
+        key: `delete-gateway-device:${deviceId}`,
+        successText: '设备已删除',
+        errorText: '删除设备',
+        confirm: {
+          title: '删除 Gateway 设备？',
+          content: `设备 ${deviceId} 将从认证列表中移除。`,
+          okText: '删除',
+          tone: 'danger',
+        },
+      },
+    );
   };
 
   const handleDeleteBinding = async (bindingId: string) => {
-    try {
-      const response = await apiClient.delete(`/gateway/bindings/${bindingId}`);
-      if (!response.data?.success) {
-        message.error(response.data?.message || '删除失败');
-        return;
-      }
-      message.success('绑定规则已删除');
-      fetchGatewayData();
-    } catch (error: any) {
-      message.error(getApiErrorMessage(error, '删除失败'));
-    }
+    await operation.run(
+      async () => {
+        const response = await apiClient.delete(`/gateway/bindings/${bindingId}`);
+        if (!response.data?.success) {
+          throw new Error(response.data?.message || '删除失败');
+        }
+        await fetchGatewayData();
+      },
+      {
+        key: `delete-gateway-binding:${bindingId}`,
+        successText: '绑定规则已删除',
+        errorText: '删除绑定规则',
+        confirm: {
+          title: '删除绑定规则？',
+          content: `规则 ${bindingId} 删除后不会继续参与消息路由。`,
+          okText: '删除',
+          tone: 'danger',
+        },
+      },
+    );
   };
 
   const deviceColumns: ColumnsType<Device> = [
@@ -253,6 +273,7 @@ export default function GatewayPage() {
           type="text"
           danger
           icon={<DeleteOutlined />}
+          loading={operation.isRunning(`delete-gateway-device:${record.id}`)}
           onClick={() => handleDeleteDevice(record.id)}
         />
       ),
@@ -293,6 +314,7 @@ export default function GatewayPage() {
           type="text"
           danger
           icon={<DeleteOutlined />}
+          loading={operation.isRunning(`delete-gateway-binding:${record.id}`)}
           onClick={() => handleDeleteBinding(record.id)}
         />
       ),

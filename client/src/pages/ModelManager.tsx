@@ -26,6 +26,7 @@ import { useEffect, useMemo, useState } from 'react';
 import glassStyles from '../components/shared/GlassCard.module.css';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import PageHeader from '../components/shared/PageHeader';
+import { useOperation } from '../hooks/useOperation';
 import {
   deleteModel,
   downloadModel,
@@ -53,6 +54,7 @@ const quantizeOptions = [
 
 export default function ModelManager() {
   const { models, setModels, removeModel, addModel, backendStatus } = useAppStore();
+  const operation = useOperation();
   const [loading, setLoading] = useState(false);
   const [downloadModalVisible, setDownloadModalVisible] = useState(false);
   const [importModelScopeModalVisible, setImportModelScopeModalVisible] = useState(false);
@@ -136,12 +138,19 @@ export default function ModelManager() {
   };
 
   const handleDelete = async (modelId: string) => {
-    try {
-      await deleteModel(modelId);
-      removeModel(modelId);
-      message.success('模型删除成功');
-    } catch (error) {
-      message.error('删除失败');
+    const deleted = await operation.run(
+      async () => {
+        await deleteModel(modelId);
+        removeModel(modelId);
+        return true;
+      },
+      {
+        key: `delete-model:${modelId}`,
+        successText: '模型删除成功',
+        errorText: '删除模型',
+      },
+    );
+    if (!deleted) {
       fetchModels();
     }
   };
@@ -231,7 +240,7 @@ export default function ModelManager() {
             onConfirm={() => handleDelete(record.id)}
             okText="确定"
             cancelText="取消"
-            okButtonProps={{ danger: true }}
+            okButtonProps={{ danger: true, loading: operation.isRunning(`delete-model:${record.id}`) }}
           >
             <Button type="link" size="small" danger icon={<DeleteOutlined />}>
               删除

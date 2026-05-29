@@ -17,10 +17,11 @@ import {
   Space,
   Tag,
   Typography,
-  message,
 } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
+import { useOperation } from '../hooks/useOperation';
+import { notify } from '../utils/notify';
 import {
   API_BASE_URL,
   getSavedCloudProviderData,
@@ -139,6 +140,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
   const [streamTestingProvider, setStreamTestingProvider] = useState<string>('');
   const [selectedProvider, setSelectedProvider] = useState<string>('');
   const localConfig = useMemo(() => (initialConfig ? null : loadLocalConfig()), [initialConfig]);
+  const operation = useOperation();
 
   const loadSavedKeys = async () => {
     try {
@@ -171,7 +173,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
       });
     } catch (error) {
       console.error('加载供应商配置失败:', error);
-      message.error('加载配置失败');
+      notify.error('加载配置失败');
     }
   };
 
@@ -221,53 +223,54 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
     try {
       values = await form.validateFields();
     } catch {
-      message.warning('请先补齐表单中的必填项');
+      notify.warning('请先补齐表单中的必填项');
       return;
     }
 
     setLoading(true);
     try {
-      const models = splitModels(values.models_text);
-      const provider = values.provider.trim().toLowerCase();
-      const response = await fetch(`${API_BASE_URL}/cloud/api-keys`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      await operation.run(async () => {
+        const models = splitModels(values.models_text);
+        const provider = values.provider.trim().toLowerCase();
+        const response = await fetch(`${API_BASE_URL}/cloud/api-keys`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            provider,
+            api_key: values.api_key?.trim() || '',
+            group_id: values.group_id || undefined,
+            base_url: values.base_url || undefined,
+            name: values.name || provider,
+            note: values.note || undefined,
+            official_url: values.official_url || undefined,
+            interface_format: values.interface_format,
+            default_model: values.default_model || models[0] || undefined,
+            models,
+          }),
+        });
+
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          throw new Error(error.detail || response.statusText);
+        }
+
+        const config: APIKeyConfig = {
           provider,
-          api_key: values.api_key?.trim() || '',
+          api_key: '',
+          model: values.default_model || models[0] || '',
           group_id: values.group_id || undefined,
           base_url: values.base_url || undefined,
-          name: values.name || provider,
-          note: values.note || undefined,
-          official_url: values.official_url || undefined,
-          interface_format: values.interface_format,
-          default_model: values.default_model || models[0] || undefined,
-          models,
-        }),
+        };
+        localStorage.setItem('cloud_ai_config', JSON.stringify(config));
+        onConfigChange?.(config);
+        setSelectedProvider(provider);
+        form.setFieldsValue({ provider, api_key: '' });
+        await loadSavedKeys();
+      }, {
+        key: 'save-provider',
+        successText: '供应商配置已保存',
+        errorText: '保存供应商配置',
       });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        message.error(`保存失败：${error.detail || response.statusText}`);
-        return;
-      }
-
-      const config: APIKeyConfig = {
-        provider,
-        api_key: '',
-        model: values.default_model || models[0] || '',
-        group_id: values.group_id || undefined,
-        base_url: values.base_url || undefined,
-      };
-      localStorage.setItem('cloud_ai_config', JSON.stringify(config));
-      onConfigChange?.(config);
-      setSelectedProvider(provider);
-      form.setFieldsValue({ provider, api_key: '' });
-      message.success('供应商配置已保存');
-      await loadSavedKeys();
-    } catch (error) {
-      console.error('保存供应商配置失败:', error);
-      message.error('保存失败');
     } finally {
       setLoading(false);
     }
@@ -278,27 +281,29 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
     const baseUrl = form.getFieldValue('base_url');
     const groupId = form.getFieldValue('group_id');
     if (!provider) {
-      message.error('请先填写供应商标识');
+      notify.warning('请先填写供应商标识');
       return;
     }
 
     setTesting(true);
     try {
-      const params = new URLSearchParams();
-      if (baseUrl) params.set('base_url', baseUrl);
-      if (groupId) params.set('group_id', groupId);
-      const response = await fetch(`${API_BASE_URL}/cloud/test/${provider}?${params.toString()}`, {
-        method: 'POST',
+      await operation.run(async () => {
+        const params = new URLSearchParams();
+        if (baseUrl) params.set('base_url', baseUrl);
+        if (groupId) params.set('group_id', groupId);
+        const response = await fetch(`${API_BASE_URL}/cloud/test/${provider}?${params.toString()}`, {
+          method: 'POST',
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          throw new Error(data.detail || data.message || '连接测试未通过，请先保存 API Key');
+        }
+        return data;
+      }, {
+        key: 'test-provider',
+        successText: (data: any) => data.message || '连接测试成功',
+        errorText: '连接测试',
       });
-      const data = await response.json();
-      if (response.ok && data.success) {
-        message.success(data.message || '连接测试成功');
-      } else {
-        message.warning(data.detail || data.message || '连接测试未通过，请先保存 API Key');
-      }
-    } catch (error) {
-      console.error('连接测试失败:', error);
-      message.error('连接测试失败');
     } finally {
       setTesting(false);
     }
@@ -310,45 +315,51 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
     const baseUrl = providerOverride ? savedKey?.base_url : form.getFieldValue('base_url');
     const groupId = providerOverride ? undefined : form.getFieldValue('group_id');
     if (!provider) {
-      message.error('请先填写供应商标识');
+      notify.warning('请先填写供应商标识');
       return;
     }
 
     setStreamTestingProvider(provider);
     try {
-      const data = await testCloudProviderStream(provider, {
-        base_url: baseUrl || undefined,
-        group_id: groupId || undefined,
+      await operation.run(async () => {
+        const data = await testCloudProviderStream(provider, {
+          base_url: baseUrl || undefined,
+          group_id: groupId || undefined,
+        });
+        if (!data?.streaming_supported) {
+          throw new Error(data?.message || '流式测试未通过');
+        }
+        await loadSavedKeys();
+        return data;
+      }, {
+        key: `stream-test:${provider}`,
+        successText: (data: any) => `流式测试通过，收到 ${data.streaming_chunks || 0} 个增量片段`,
+        errorText: '流式测试',
       });
-      if (data?.streaming_supported) {
-        message.success(`流式测试通过，收到 ${data.streaming_chunks || 0} 个增量片段`);
-      } else {
-        message.warning(data?.message || '流式测试未通过');
-      }
-      await loadSavedKeys();
-    } catch (error: any) {
-      const detail = error?.response?.data?.detail;
-      const reason = typeof detail === 'object' ? detail.streaming_error || detail.message : detail;
-      message.error(reason || '流式测试失败');
-      await loadSavedKeys();
     } finally {
       setStreamTestingProvider('');
     }
   };
 
   const handleDeleteKey = async (provider: string) => {
-    try {
+    await operation.run(async () => {
       await fetch(`${API_BASE_URL}/cloud/api-keys/${provider}`, { method: 'DELETE' });
-      message.success('已删除');
       if (selectedProvider === provider) {
         setSelectedProvider('');
         form.setFieldsValue(defaultValues);
       }
       await loadSavedKeys();
-    } catch (error) {
-      console.error('删除供应商配置失败:', error);
-      message.error('删除失败');
-    }
+    }, {
+      key: `delete-provider:${provider}`,
+      successText: '已删除供应商配置',
+      errorText: '删除供应商配置',
+      confirm: {
+        title: '删除这个供应商配置？',
+        content: '删除后需要重新填写 API Key 才能继续使用该供应商。',
+        okText: '删除',
+        tone: 'danger',
+      },
+    });
   };
 
   const handleSelectSaved = async (key: APIKeyInfo) => {

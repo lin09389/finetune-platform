@@ -13,6 +13,7 @@ import { useNavigate } from 'react-router-dom';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import PageHeader from '../components/shared/PageHeader';
 import JSONDataEditor from '../components/shared/JSONDataEditor';
+import { useOperation } from '../hooks/useOperation';
 import {
   analyzeDataset,
   deleteDataset,
@@ -29,6 +30,7 @@ import styles from './DatasetManager.module.css';
 export default function DatasetManager() {
   const navigate = useNavigate();
   const { datasets, setDatasets, removeDataset, addDataset, backendStatus } = useAppStore();
+  const operation = useOperation();
   const [, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [previewVisible, setPreviewVisible] = useState(false);
@@ -114,12 +116,19 @@ export default function DatasetManager() {
   };
 
   const handleDelete = async (datasetId: string) => {
-    try {
-      await deleteDataset(datasetId);
-      removeDataset(datasetId);
-      message.success('数据集删除成功');
-    } catch (error) {
-      message.error('删除失败');
+    const deleted = await operation.run(
+      async () => {
+        await deleteDataset(datasetId);
+        removeDataset(datasetId);
+        return true;
+      },
+      {
+        key: `delete-dataset:${datasetId}`,
+        successText: '数据集删除成功',
+        errorText: '删除数据集',
+      },
+    );
+    if (!deleted) {
       fetchDatasets();
     }
   };
@@ -263,6 +272,7 @@ export default function DatasetManager() {
               onConfirm={() => handleDelete(record.id)}
               okText="删除"
               cancelText="取消"
+              okButtonProps={{ danger: true, loading: operation.isRunning(`delete-dataset:${record.id}`) }}
             >
               <button className={`${styles.actionBtn} ${styles.danger}`}>
                 <DeleteOutlined />

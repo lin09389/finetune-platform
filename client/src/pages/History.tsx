@@ -25,6 +25,7 @@ import {
 } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useOperation } from '../hooks/useOperation';
 import {
   CartesianGrid,
   Legend,
@@ -152,6 +153,7 @@ const appendPathSegment = (basePath: string, segment: string) => {
 
 export default function History({ mode = 'history' }: HistoryProps) {
   const navigate = useNavigate();
+  const operation = useOperation();
   const { trainingRecords, setTrainingRecords, removeTrainingRecord, setIsTraining } =
     useAppStore();
   const [mergeForm] = Form.useForm();
@@ -292,8 +294,22 @@ export default function History({ mode = 'history' }: HistoryProps) {
   };
 
   const handleDelete = async (id: string) => {
-    removeTrainingRecord(id);
-    message.success('记录已删除');
+    await operation.run(
+      async () => {
+        removeTrainingRecord(id);
+      },
+      {
+        key: `delete-training-record:${id}`,
+        successText: '记录已删除',
+        errorText: '删除训练记录',
+        confirm: {
+          title: '删除训练记录？',
+          content: `记录 ${id} 将从历史列表中移除。`,
+          okText: '删除',
+          tone: 'danger',
+        },
+      },
+    );
   };
 
   const handleCleanupCheckpoints = async () => {
@@ -912,6 +928,7 @@ export default function History({ mode = 'history' }: HistoryProps) {
             danger
             size="small"
             icon={<DeleteOutlined />}
+            loading={operation.isRunning(`delete-training-record:${record.id}`)}
             onClick={() => void handleDelete(record.id)}
           >
             删除
