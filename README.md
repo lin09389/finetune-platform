@@ -5,7 +5,8 @@
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-green.svg)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-18+-61dafb.svg)](https://reactjs.org)
-[![LangGraph](https://img.shields.io/badge/LangGraph-0.3+-orange.svg)](https://github.com/langchain-ai/langgraph)
+[![DeepAgents](https://img.shields.io/badge/DeepAgents-0.6+-orange.svg)](https://github.com/langchain-ai/deepagents)
+[![LangGraph](https://img.shields.io/badge/LangGraph-1.2+-orange.svg)](https://github.com/langchain-ai/langgraph)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## 产品化试用路径
@@ -24,7 +25,7 @@ Finetune Platform 当前主线是面向 AI 应用开发者的本地模型适配�
 | 级别 | 包含能力 |
 |------|----------|
 | **GA** | 训练、推理、模型管理、数据集、Chat Session、基础知识库 |
-| **Beta** | 项目上下文、智能记忆、模型中心、工作空间、Agent Session |
+| **Beta** | 项目上下文、智能记忆、模型中心、工作空间、Agent Session + DeepAgents |
 | **Experimental** | CUA、Action Recorder、MCP、Heartbeat、Gateway 扩展链路 |
 
 Experimental 模块仅用于受控验证，页面可打开不代表能力已稳定可用。评估平台主能力请优先以 `GA` 路径为准。
@@ -36,9 +37,9 @@ Experimental 模块仅用于受控验证，页面可打开不代表能力已稳�
 - 📦 **模型与数据集管理**：HuggingFace / ModelScope 双源下载、本地管理、数据集上传与统计分析
 - 📈 **训练监测 V2**：SSE 事件流、断点续训、Checkpoint 校验、训练历史、异步清理
 - 🤖 **多后端推理**：HuggingFace / vLLM / LlamaCPP / Ollama 可切换，gRPC 推理服务，流式输出
-- 🧩 **Chat + Agent**：Chat Session、`auto / chat / agent` 路由模式、Agent Session、审批门控动作执行
-- 🛠️ **LangGraph Agent Runtime**：Graph-first 执行、多工具链（文件/命令/符号索引/浏览器/HTTP）、审批恢复、事件诊断
-- 🗂️ **Workspace / Context / Memory**：项目上下文扫描与检索（ChromaDB + sentence-transformers）、工作区文件管理、记忆系统
+- 🧩 **Chat + Agent**：Chat Session、`auto / chat / agent` 路由模式、Agent Session、DeepAgents HITL 审批恢复
+- 🛠️ **DeepAgents Agent Runtime**：官方 `create_deep_agent` 运行时、内置文件系统 / shell 工具、LangGraph checkpoint、事件映射、可刷新恢复
+- 🗂️ **Workspace / Context / Memory**：项目上下文扫描与检索（ChromaDB + sentence-transformers）、DeepAgents 虚拟文件上下文、用户 / Agent / 组织记忆
 - 📄 **文件解析**：PDF / DOCX / XLSX / OCR（Tesseract + RapidOCR）
 
 ### 工程化增强
@@ -59,7 +60,7 @@ Experimental 模块仅用于受控验证，页面可打开不代表能力已稳�
 |------|------|
 | **Finetune Runtime** | 模型、数据集、训练引擎、推理、评估、部署 |
 | **Chat Surface** | Chat Session、ChatNew UI、流式消息、上下文面板、分支与共享 |
-| **Agent Surface** | Chat Agent 意图路由、Agent Session、LangGraph 执行、审批门控 |
+| **Agent Surface** | Chat Agent 意图路由、Agent Session、DeepAgents 执行、HITL 审批门控 |
 | **Workspace Surface** | 工作区文件、项目上下文检索、本地开发协作 |
 
 ### 后端目录结构
@@ -73,15 +74,14 @@ server/
 │   ├── memory_new/            # 记忆 API
 │   ├── knowledge/             # 知识库 API
 │   └── gateway_api/           # Gateway 路由
-├── agent_session/             # Agent Session 核心
-│   ├── langgraph/             # LangGraph 图构建、节点、状态、checkpoint
-│   ├── file_tools.py          # 文件读写工具
-│   ├── browser_tools.py       # 浏览器工具
-│   ├── symbol_index_tools.py  # 符号索引工具
-│   ├── command_policy.py      # 命令安全策略
-│   ├── patch_engine.py        # 代码 patch 引擎
-│   ├── processor.py           # 事件处理器
-│   └── service.py             # Agent Session 服务
+├── agent_session/             # Agent Session 核心（DeepAgents 主运行时）
+│   ├── deepagents_runtime.py  # DeepAgents runner、resume、事件消费
+│   ├── runtime.py             # CompositeBackend、memory、skills、checkpoint 装配
+│   ├── deepagents_events.py   # DeepAgents 事件 -> Agent parts / SSE 映射
+│   ├── permission.py          # DeepAgents 文件系统权限 profile
+│   ├── model_adapter.py       # 官方 LangChain chat model 解析
+│   ├── repository.py          # session / events / parts 持久化
+│   └── service.py             # Agent Session 服务与审批恢复
 ├── ai/                        # 云模型网关
 │   └── gateway.py             # 多 Provider 统一接入
 ├── chat_agent/                # Chat -> Agent 意图路由
@@ -162,8 +162,10 @@ Finetune Platform 2.0 的核心使命是构建一个**数据驱动、具备自�
 | `peft` | 0.18.1 | LoRA/QLoRA 微调 |
 | `accelerate` | 1.13.0 | 训练加速 |
 | `bitsandbytes` | 0.41.3 | INT4/INT8 量化 |
-| `langgraph` | ≥0.3 | Agent 编排框架 |
-| `langchain-core` | ≥0.3 | LangChain 核心 |
+| `deepagents` | ≥0.6.3 | Agent Session 官方执行 harness |
+| `langgraph` | ≥1.2,<1.3 | checkpoint / interrupt / resume 底座 |
+| `langchain` / `langchain-core` | ≥1.3 / ≥1.4 | DeepAgents 模型与工具调用接口 |
+| `langgraph-checkpoint-sqlite` | ≥3.0.3 | Agent Session checkpoint 持久化 |
 | `chromadb` | ≥0.4.22 | 向量数据库 |
 | `sentence-transformers` | 5.2.3 | 文本向量化 |
 | `llama-cpp-python` | ≥0.2.79 | GGUF 推理后端 |
@@ -255,8 +257,9 @@ python scripts/validate_training_v2_flow.py --base-url http://127.0.0.1:8010 --a
 | [CLAUDE.md](CLAUDE.md) | 开发规范与架构约束 |
 | [Docker 部署](docs/notes/DOCKER.md) | 容器化部署、GPU 配置 |
 | [能力真值表](docs/capability-truth-table.md) | 功能成熟度、依赖、失败模式 |
-| [Agent Session 设计](docs/agent_session_migration.md) | LangGraph 设计与迁移说明 |
-| [Chat Agent 验收](docs/chat_agent_real_acceptance.md) | Chat Agent 真实验收记录 |
+| [Agent Session 设计](docs/agent_session_migration.md) | Agent Session 迁移与历史设计记录 |
+| [DeepAgents Smoke 验收](docs/agent_session_real_smoke_acceptance.md) | DeepAgents 主链路真实云端验收清单 |
+| [Chat Agent 验收](docs/chat_agent_real_acceptance.md) | Chat Agent 意图路由验收记录 |
 
 ## 📁 项目结构
 
@@ -264,7 +267,7 @@ python scripts/validate_training_v2_flow.py --base-url http://127.0.0.1:8010 --a
 finetune-platform/
 ├── server/                     # 后端服务（FastAPI + Python）
 │   ├── api/                    # HTTP 路由层
-│   ├── agent_session/          # Agent Session + LangGraph 执行链
+│   ├── agent_session/          # Agent Session + DeepAgents 执行链
 │   ├── ai/                     # 云模型网关（多 Provider）
 │   ├── chat_agent/             # Chat -> Agent 意图路由
 │   ├── context/                # 项目上下文检索
@@ -337,7 +340,6 @@ finetune-platform/
 | `ActionRecorder` | Action Recorder |
 | `SharedChat` | 共享聊天视图 |
 | `DesignSystem` | 设计系统展示 |
-| `DigitalTeam` | 数字团队（过渡中） |
 
 ## 💬 ChatNew 主能力
 
@@ -348,12 +350,23 @@ finetune-platform/
 - **云模型支持**：Provider / Model 选择、API Key 管理
 - **Workspace 绑定**：绑定工作区与项目路径，让 Agent Task 落在正确上下文
 - **Context Panel**：查看路由模式、主 Agent、Autonomy Mode、上下文信息
-- **Agent Run Cards**：在聊天流里展示 Agent Session 阶段、动作审批、执行结果
+- **Agent Run Cards**：在聊天流里展示 Agent Session 阶段、DeepAgents 工具调用、HITL 权限确认、执行结果
 - **会话分支与共享**：支持消息分支和共享聊天链接
 
-使用路径：`ChatNew 发起需求 → 路由判断 → chat（直接回复）或 agent（创建 Agent Session + 审批执行）`
+使用路径：`ChatNew 发起需求 → /chat-agent/intent 判断 → chat（直接回复）或 agent（创建 Agent Session + DeepAgents 后台执行 + HITL 审批恢复）`
 
 > Agent 模块适合小范围、可观察、可审批的本地任务；跨模块大规模重构仍需人工密切介入。
+
+### DeepAgents 重构现状
+
+当前 Agent 主执行链已经收口到 `server/agent_session/`：
+
+- `chat_agent` 只负责意图分类，不再持久化独立 Agent run；真正运行实体统一是 `agent_sessions` 表和 session parts / events。
+- `AgentSessionService` 创建会话时绑定 workspace、provider / model、autonomy mode，并默认开启 `deepagents_interrupt_on`。
+- 每次 prompt 会先经过 `context.deepagents.build_deepagents_context_pack`，把编辑器上下文、显式引用和检索结果作为 `/context/...` 虚拟文件传给 DeepAgents。
+- `DeepAgentsSessionRunner` 使用官方 `create_deep_agent`，通过 `AsyncSqliteSaver` 保存 checkpoint；刷新页面后可通过 session snapshot 和 SSE 补齐状态。
+- DeepAgents backend 使用 `CompositeBackend`：`/workspace/` 指向项目目录，`/context/`、`/large_tool_results/`、`/conversation_history/` 走状态后端，`/memories/`、`/agent-memory/`、`/policies/` 分别接入记忆文件。
+- HITL interrupt 会被映射成 `permission` part，前端通过 `/agent-permissions/{id}/decide` 批准、编辑、拒绝或响应后继续 resume。
 
 ## 🧭 第一次上手 Chat / Agent
 
@@ -361,8 +374,8 @@ finetune-platform/
 2. 进入 `ChatNew`，查看 `Context Panel`，确认路由模式、主 Agent、Workspace 符合预期。
 3. 发一条普通问题（如"解释 LoRA 和 QLoRA 的区别"），确认走 `chat` 路由而不是 agent。
 4. 发一条开发型目标（如"读取 package.json 和 main.py，总结项目结构"），确认创建 Agent Session 并在卡片里展示执行过程。
-5. 发一个小改动目标（如"修改某测试文件中的一个字符串"），观察 Agent 卡片进入 `waiting_approval`，再执行 `approve / execute`。
-6. 确认事件与动作状态变化：`pending → approved → executed`。
+5. 发一个小改动目标（如"修改某测试文件中的一个字符串"），观察 Agent 卡片进入 `waiting_approval`，再通过 HITL 按钮批准或拒绝。
+6. 确认事件与状态变化：`running → waiting_approval → completed / needs_manual_review`。
 
 ## 🔌 API 端点
 
@@ -378,9 +391,9 @@ finetune-platform/
 | 评估 | `/evaluation` | 评估 run、人工评分 |
 | 部署 | `/deployment` | 部署包创建与列表 |
 | Chat | `/chat` | 会话 CRUD、消息管理 |
-| Chat Agent | `/chat-agent` | 意图判断、run 创建、事件流 |
-| Agent Session | `/agent-sessions` | 创建、提交目标、事件流 |
-| Agent Actions | `/agent-actions` | 审批、拒绝、执行动作 |
+| Chat Agent | `/chat-agent` | chat / agent 意图判断 |
+| Agent Session | `/agent-sessions` | 创建、提交目标、事件流、概览、终止 |
+| Agent Permissions | `/agent-permissions` | DeepAgents HITL 审批、拒绝、decide 后 resume |
 | 知识库 | `/knowledge` | RAG 知识库管理 |
 | 记忆 | `/memory` | 记忆存取 |
 | 上下文 | `/context` | 项目上下文扫描检索 |
@@ -407,12 +420,13 @@ GET  /device/info                         # 设备信息
 POST /training/start                      # 启动训练
 GET  /training/v2/events/stream           # SSE 训练事件流 V2
 POST /inference/stream                    # 流式推理
-POST /chat-agent/runs                     # 创建 Chat Agent Run
-GET  /chat-agent/runs/{run_id}/events/stream  # Chat Agent 事件流
+POST /chat-agent/intent                   # 判断当前消息走 chat 还是 agent
 POST /agent-sessions                      # 创建 Agent Session
 POST /agent-sessions/{id}/prompt          # 提交 Agent 目标
-POST /agent-actions/{action_id}/approve   # 批准动作
-POST /agent-actions/{action_id}/execute   # 执行动作
+GET  /agent-sessions/{id}/overview        # 获取 session、timeline、diagnostics、artifacts
+GET  /agent-sessions/{id}/events/stream   # Agent Session SSE 事件流
+POST /agent-sessions/{id}/interrupt       # 中断当前 Agent Session
+POST /agent-permissions/{permission_id}/decide  # DeepAgents HITL 审批后继续执行
 ```
 
 ## 🧪 测试
@@ -452,7 +466,8 @@ npm run test:ui
 | 安全响应头 | `X-Content-Type-Options`、`X-Frame-Options`、`HSTS` 等 |
 | 文件上传校验 | 类型、大小、内容多重验证 |
 | 路径遍历防护 | 工作区路径严格白名单 |
-| 命令策略 | Agent 执行命令的 allowlist + 沙箱约束 |
+| DeepAgents 文件权限 | `.env` 等敏感文件拒绝读写，build / readonly / deny_all profile 分级 |
+| 命令执行边界 | DeepAgents `execute` 通过受限 backend、项目根与超时 / 输出大小限制运行 |
 
 ## 🔧 环境变量配置
 
@@ -500,6 +515,7 @@ MIT License
 
 - [HuggingFace Transformers](https://github.com/huggingface/transformers)
 - [PEFT](https://github.com/huggingface/peft)
+- [DeepAgents](https://github.com/langchain-ai/deepagents)
 - [LangGraph](https://github.com/langchain-ai/langgraph)
 - [FastAPI](https://github.com/tiangolo/fastapi)
 - [React](https://github.com/facebook/react)
