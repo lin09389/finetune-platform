@@ -28,6 +28,7 @@ class DeepAgentRuntimeConfig:
     permissions: list[Any] | None = None
     tools: list[Any] | None = None
     skills: list[str] | None = None
+    subagents: list[dict[str, Any]] | None = None
 
 
 def build_deep_agent_runtime(config: DeepAgentRuntimeConfig) -> Any:
@@ -48,6 +49,7 @@ def build_deep_agent_runtime(config: DeepAgentRuntimeConfig) -> Any:
         ),
         memory=config.memory,
         skills=config.skills or [],
+        subagents=config.subagents or [],
         permissions=config.permissions,
         interrupt_on=config.interrupt_on,
         checkpointer=config.checkpointer,

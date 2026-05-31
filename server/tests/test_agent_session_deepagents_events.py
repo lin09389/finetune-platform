@@ -45,6 +45,26 @@ def test_deepagents_event_mapper_wraps_string_tool_input():
     assert emitted[0]["type"] == "tool_call_started"
 
 
+def test_deepagents_event_mapper_tags_subagent_tool_parts():
+    repo = FakeRepository()
+    emitted = []
+    mapper = DeepAgentsEventMapper(repo, lambda _session_id, event: emitted.append(event), "session-1")
+
+    mapper.handle(
+        {
+            "event": "on_tool_start",
+            "name": "grep",
+            "run_id": "run-1",
+            "metadata": {"lc_agent_name": "explore", "ls_agent_type": "subagent"},
+            "data": {"input": {"pattern": "AgentSession"}},
+        }
+    )
+
+    assert repo.parts[0]["payload"]["agent_name"] == "explore"
+    assert repo.parts[0]["payload"]["agent_role"] == "subagent"
+    assert emitted[0]["payload"]["agent_name"] == "explore"
+
+
 def test_deepagents_event_mapper_accepts_dict_interrupt_payload():
     repo = FakeRepository()
     mapper = DeepAgentsEventMapper(repo, lambda *_args: None, "session-1")

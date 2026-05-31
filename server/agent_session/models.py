@@ -19,6 +19,7 @@ AgentSessionStatus = Literal[
 ]
 AgentPartType = Literal["text", "tool_call", "tool_result", "diff", "command", "permission", "summary", "error"]
 AgentPartStatus = Literal["pending", "running", "completed", "failed", "blocked", "approved", "executed"]
+AgentAsyncTaskStatus = Literal["pending", "running", "completed", "failed", "cancelled"]
 AgentHitlDecisionType = Literal["approve", "edit", "reject", "respond"]
 TaskStageStatus = Literal["pending", "running", "blocked", "completed", "failed", "waiting_approval"]
 TaskNodeStatus = Literal["pending", "running", "blocked", "completed", "failed", "waiting_approval"]
@@ -70,6 +71,43 @@ class AgentPromptRequest(BaseModel):
     model: str | None = None
     active_context: dict[str, Any] | None = None
     explicit_context: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AgentAsyncTaskStartRequest(BaseModel):
+    subagent_type: str
+    description: str
+
+
+class AgentAsyncTaskUpdateRequest(BaseModel):
+    description: str
+
+
+class AgentAsyncTaskCancelRequest(BaseModel):
+    reason: str | None = None
+
+
+class AgentAsyncTaskResponse(BaseModel):
+    task_id: str
+    parent_session_id: str
+    child_session_id: str | None = None
+    previous_child_session_ids: list[str] = Field(default_factory=list)
+    agent_name: str
+    status: AgentAsyncTaskStatus
+    input: dict[str, Any] = Field(default_factory=dict)
+    result: dict[str, Any] = Field(default_factory=dict)
+    error: str | None = None
+    restart_count: int = 0
+    created_at: str
+    updated_at: str
+    started_at: str | None = None
+    completed_at: str | None = None
+    cancelled_at: str | None = None
+    last_checked_at: str | None = None
+
+
+class AgentAsyncTaskListResponse(BaseModel):
+    tasks: list[AgentAsyncTaskResponse] = Field(default_factory=list)
+    status_filter: str = "all"
 
 
 class AgentHitlEditedAction(BaseModel):

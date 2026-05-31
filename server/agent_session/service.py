@@ -20,6 +20,7 @@ from workspace.local_paths import get_allowed_workspace_roots
 
 from .agent_registry import AgentRegistry
 from .approval import permission_decisions
+from .async_subagents import AsyncSubagentService
 from .deepagents_runtime import DeepAgentsSessionRunner
 from .events import AgentSessionEventBus
 from .models import (
@@ -51,10 +52,17 @@ class AgentSessionService:
         self.repository = repository or AgentSessionRepository()
         self.model_call = model_call
         self.agent_registry = AgentRegistry()
+        self.async_subagent_service = AsyncSubagentService(
+            self.repository,
+            self._notify_event,
+            model_call=self.model_call,
+            interrupt_session=self.interrupt_session,
+        )
         self.deepagents_runner = DeepAgentsSessionRunner(
             repository=self.repository,
             notify_event=self._notify_event,
             model_call=self.model_call,
+            async_subagent_service=self.async_subagent_service,
         )
 
     ACTIVE_STATUSES = {"running", "verifying", "repairing", "waiting_approval", "waiting_permission"}
@@ -69,6 +77,35 @@ class AgentSessionService:
 
     def _notify_event(self, session_id: str, event: dict[str, Any]) -> None:
         self._event_bus.notify(session_id, event)
+
+    def _sync_async_service_model_call(self) -> None:
+        self.async_subagent_service.set_model_call(self.model_call)
+        self.deepagents_runner.model_call = self.model_call
+
+    async def start_async_subtask(self, session_id: str, subagent_type: str, description: str) -> dict[str, Any]:
+        self._sync_async_service_model_call()
+        return await self.async_subagent_service.start_task(session_id, subagent_type, description)
+
+    def check_async_subtask(self, session_id: str, task_id: str) -> dict[str, Any]:
+        return self.async_subagent_service.check_task(session_id, task_id)
+
+    def list_async_subtasks(self, session_id: str, status_filter: str | None = None) -> dict[str, Any]:
+        return self.async_subagent_service.list_tasks(session_id, status_filter)
+
+    async def cancel_async_subtask(self, session_id: str, task_id: str, reason: str | None = None) -> dict[str, Any]:
+        self._sync_async_service_model_call()
+        return await self.async_subagent_service.cancel_task(session_id, task_id, reason)
+
+    async def update_async_subtask(self, session_id: str, task_id: str, description: str) -> dict[str, Any]:
+        self._sync_async_service_model_call()
+        return await self.async_subagent_service.update_task(session_id, task_id, description)
+
+    async def recover_async_subtasks(self) -> dict[str, Any]:
+        self._sync_async_service_model_call()
+        return await self.async_subagent_service.recover_running_tasks()
+
+    async def shutdown_async_subtasks(self) -> None:
+        await self.async_subagent_service.shutdown()
 
     def _event(self, session_id: str, event_type: str, message: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         enriched = dict(payload or {})
@@ -215,7 +252,7 @@ class AgentSessionService:
         session = self.repository.get_session(session_id) or session
 
         try:
-            self.deepagents_runner.model_call = self.model_call
+            self._sync_async_service_model_call()
             result = await self.deepagents_runner.run_prompt(session_id, prompt_content, context_files=context_pack.files)
         except Exception as exc:
             result = self.record_prompt_failure(session_id, exc)
@@ -386,7 +423,7 @@ class AgentSessionService:
         if metadata.get("runtime") == "deepagents":
             normalized_decisions = self._validate_hitl_decisions(part, decisions)
             result = self._decide_deepagents_permission(part, normalized_decisions)
-            self.deepagents_runner.model_call = self.model_call
+            self._sync_async_service_model_call()
             decision = permission_decisions(part_id, normalized_decisions)
             self._record_resume_decision(part["session_id"], decision)
             if self.deepagents_runner.model_call is not None or session.get("provider"):
@@ -549,6 +586,11 @@ class AgentSessionService:
             "agent_id": session.get("agent_id"),
             "phase": payload.get("phase"),
             "tool": payload.get("tool"),
+            "agent_name": payload.get("agent_name"),
+            "agent_role": payload.get("agent_role"),
+            "task_id": payload.get("task_id"),
+            "child_session_id": payload.get("child_session_id"),
+            "async_status": payload.get("async_status"),
             "delta": payload.get("delta"),
             "content": payload.get("content"),
             "summary": payload.get("summary") or event.get("message"),
@@ -574,6 +616,11 @@ class AgentSessionService:
             "agent_id": hydrated.get("agent_id"),
             "phase": None,
             "tool": None,
+            "agent_name": None,
+            "agent_role": None,
+            "task_id": None,
+            "child_session_id": None,
+            "async_status": None,
             "delta": None,
             "content": None,
             "summary": None,
@@ -783,6 +830,11 @@ class AgentSessionService:
             "title": part.get("title"),
             "content": part.get("content"),
             "tool": tool,
+            "agent_name": payload.get("agent_name"),
+            "agent_role": payload.get("agent_role"),
+            "task_id": payload.get("task_id"),
+            "child_session_id": payload.get("child_session_id"),
+            "async_status": payload.get("async_status"),
             "created_at": part.get("created_at"),
             "updated_at": part.get("updated_at"),
             "payload": payload,
@@ -857,6 +909,11 @@ class AgentSessionService:
             "policy_decision": payload.get("policy_decision") or payload.get("execution_mode"),
             "risk_level": payload.get("risk_level"),
             "policy_reason": payload.get("policy_reason"),
+            "agent_name": payload.get("agent_name"),
+            "agent_role": payload.get("agent_role"),
+            "task_id": payload.get("task_id"),
+            "child_session_id": payload.get("child_session_id"),
+            "async_status": payload.get("async_status"),
             "changed_files": payload.get("changed_files") or [],
             "exit_code": payload.get("exit_code"),
             "failure_summary": AgentSessionService._truncate(str(payload.get("failure_summary") or ""), 240),

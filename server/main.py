@@ -175,6 +175,15 @@ async def lifespan(app: FastAPI):
     settings.datasets_dir_resolved.mkdir(parents=True, exist_ok=True)
     settings.outputs_dir_resolved.mkdir(parents=True, exist_ok=True)
 
+    try:
+        from api.agent_sessions import get_agent_session_service
+
+        recovered = await get_agent_session_service().recover_async_subtasks()
+        if recovered.get("scheduled") or recovered.get("synchronized"):
+            logger.info("Async subagent recovery complete: %s", recovered)
+    except Exception as e:
+        logger.warning(f"Async subagent recovery failed: {e}")
+
     from core.training_context import init_training_context
     init_training_context(
         settings=settings,
@@ -284,6 +293,14 @@ async def lifespan(app: FastAPI):
         logger.info("TrainingContext 已关闭")
     except Exception as e:
         logger.warning(f"TrainingContext shutdown failed: {e}")
+
+    try:
+        from api.agent_sessions import get_agent_session_service
+
+        await get_agent_session_service().shutdown_async_subtasks()
+        logger.info("Async subagent tasks shutdown complete")
+    except Exception as e:
+        logger.warning(f"Async subagent shutdown failed: {e}")
 
     try:
         from ai.gateway import close_http_clients

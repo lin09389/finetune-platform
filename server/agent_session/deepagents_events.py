@@ -26,7 +26,7 @@ class DeepAgentsEventMapper:
     def handle(self, event: dict[str, Any]) -> None:
         kind = str(event.get("event") or "")
         if kind == "on_chat_model_start":
-            self._start_text_part()
+            self._start_text_part(event)
         elif kind == "on_chat_model_stream":
             self._append_text_delta(event)
         elif kind == "on_chat_model_end":
@@ -38,7 +38,7 @@ class DeepAgentsEventMapper:
         elif kind == "on_chain_stream":
             self._chain_stream(event)
         elif kind == "on_chain_end":
-            self.publish("chain_completed", "DeepAgents 图执行完成。", {"session_id": self.session_id, "runtime": "deepagents"})
+            self.publish("chain_completed", "DeepAgents 图执行完成。", {"session_id": self.session_id, "runtime": "deepagents", **self._agent_context(event)})
 
     def complete_summary(self, content: str) -> dict[str, Any]:
         part = self.repository.add_part(
@@ -63,23 +63,24 @@ class DeepAgentsEventMapper:
         )
         return part
 
-    def _start_text_part(self) -> None:
+    def _start_text_part(self, event: dict[str, Any] | None = None) -> None:
         if self.active_text_part_id:
             return
+        agent_context = self._agent_context(event or {})
         part = self.repository.add_part(
             self.session_id,
             "text",
             status="running",
             title="AI 正在思考...",
             content="",
-            payload={"runtime": "deepagents"},
+            payload={"runtime": "deepagents", **agent_context},
         )
         self.active_text_part_id = part.get("id")
         self.active_text = ""
         self.publish(
             "model_stream_started",
             "AI 正在思考...",
-            {"session_id": self.session_id, "part_id": self.active_text_part_id, "part_type": "text", "part": part},
+            {"session_id": self.session_id, "part_id": self.active_text_part_id, "part_type": "text", "part": part, **agent_context},
         )
 
     def _append_text_delta(self, event: dict[str, Any]) -> None:
@@ -90,7 +91,7 @@ class DeepAgentsEventMapper:
         if not delta:
             return
         if not self.active_text_part_id:
-            self._start_text_part()
+            self._start_text_part(event)
         self.active_text += str(delta)
         part = self.repository.update_part(self.active_text_part_id, content=self.active_text)
         self.publish(
@@ -103,6 +104,7 @@ class DeepAgentsEventMapper:
                 "delta": str(delta),
                 "content": self.active_text,
                 "part": part,
+                **self._agent_context_from_part(part),
             },
         )
 
@@ -113,7 +115,7 @@ class DeepAgentsEventMapper:
         self.publish(
             "model_stream_completed",
             "AI 输出完成。",
-            {"session_id": self.session_id, "part_id": self.active_text_part_id, "part_type": "text", "part": part},
+            {"session_id": self.session_id, "part_id": self.active_text_part_id, "part_type": "text", "part": part, **self._agent_context_from_part(part)},
         )
         self.active_text_part_id = None
         self.active_text = ""
@@ -122,20 +124,21 @@ class DeepAgentsEventMapper:
         name = str(event.get("name") or "tool")
         run_id = str(event.get("run_id") or "")
         payload = self._normalize_tool_input((event.get("data") or {}).get("input"))
+        agent_context = self._agent_context(event)
         part = self.repository.add_part(
             self.session_id,
             "tool_call",
             status="running",
             title=name,
             content=f"正在调用工具：{name}",
-            payload={"tool": name, "input": payload, "runtime": "deepagents", "run_id": run_id},
+            payload={"tool": name, "input": payload, "runtime": "deepagents", "run_id": run_id, **agent_context},
         )
         if run_id:
             self.tool_parts[run_id] = part.get("id")
         self.publish(
             "tool_call_started",
             f"正在调用工具：{name}",
-            {"session_id": self.session_id, "part_id": part.get("id"), "part_type": "tool_call", "tool": name, "part": part},
+            {"session_id": self.session_id, "part_id": part.get("id"), "part_type": "tool_call", "tool": name, "part": part, **agent_context},
         )
 
     def _tool_end(self, event: dict[str, Any]) -> None:
@@ -144,6 +147,7 @@ class DeepAgentsEventMapper:
         output = (event.get("data") or {}).get("output")
         content = getattr(output, "content", output)
         part_id = self.tool_parts.pop(run_id, None)
+        agent_context = self._agent_context(event)
         if part_id:
             part = self.repository.update_part(part_id, status="completed", content=str(content))
         else:
@@ -153,12 +157,13 @@ class DeepAgentsEventMapper:
                 status="completed",
                 title=name,
                 content=str(content),
-                payload={"tool": name, "runtime": "deepagents", "run_id": run_id},
+                payload={"tool": name, "runtime": "deepagents", "run_id": run_id, **agent_context},
             )
+        agent_context = self._agent_context_from_part(part) or agent_context
         self.publish(
             "tool_call_completed",
             f"工具调用完成：{name}",
-            {"session_id": self.session_id, "part_id": part.get("id"), "part_type": part.get("type"), "tool": name, "part": part},
+            {"session_id": self.session_id, "part_id": part.get("id"), "part_type": part.get("type"), "tool": name, "part": part, **agent_context},
         )
 
     def _chain_stream(self, event: dict[str, Any]) -> None:
@@ -195,6 +200,7 @@ class DeepAgentsEventMapper:
         description = str(first_action.get("description") or "工具调用需要确认后继续。")
         if len(actions) > 1:
             description = f"{len(actions)} 个工具调用需要按顺序确认后继续。"
+        agent_context = self._agent_context(event)
         part = self.repository.add_part(
             self.session_id,
             "permission",
@@ -203,6 +209,7 @@ class DeepAgentsEventMapper:
             content=description,
             payload={
                 "runtime": "deepagents",
+                **agent_context,
                 "official_hitl": True,
                 "interrupt": interrupt,
                 "action_requests": action_requests,
@@ -235,8 +242,29 @@ class DeepAgentsEventMapper:
                 "action_count": len(actions),
                 "summary": description,
                 "part": part,
+                **agent_context,
             },
         )
+
+    @staticmethod
+    def _agent_context(event: dict[str, Any]) -> dict[str, Any]:
+        metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+        agent_name = str(metadata.get("lc_agent_name") or metadata.get("agent_name") or "").strip()
+        if agent_name.lower() in {"", "none", "null"}:
+            agent_name = ""
+        role = "subagent" if agent_name or metadata.get("ls_agent_type") == "subagent" else "parent"
+        context: dict[str, Any] = {"agent_role": role}
+        if agent_name:
+            context["agent_name"] = agent_name
+        return context
+
+    @staticmethod
+    def _agent_context_from_part(part: dict[str, Any]) -> dict[str, Any]:
+        payload = part.get("payload") if isinstance(part.get("payload"), dict) else {}
+        context: dict[str, Any] = {"agent_role": payload.get("agent_role") or "parent"}
+        if payload.get("agent_name"):
+            context["agent_name"] = payload.get("agent_name")
+        return context
 
     @staticmethod
     def _extract_interrupt(event: dict[str, Any]) -> dict[str, Any] | None:

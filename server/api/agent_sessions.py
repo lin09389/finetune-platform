@@ -9,6 +9,11 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from agent_session.models import (
+    AgentAsyncTaskCancelRequest,
+    AgentAsyncTaskListResponse,
+    AgentAsyncTaskResponse,
+    AgentAsyncTaskStartRequest,
+    AgentAsyncTaskUpdateRequest,
     AgentApprovalResponse,
     AgentEventResponse,
     AgentHitlDecisionRequest,
@@ -24,6 +29,7 @@ from security.auth_middleware import get_current_user_optional
 from security.jwt_auth import Role, TokenPayload
 
 router = APIRouter(prefix="/agent-sessions", tags=["Agent Sessions"])
+_AGENT_SESSION_SERVICE: AgentSessionService | None = None
 
 
 def _session_status(session: Any) -> str | None:
@@ -33,7 +39,10 @@ def _session_status(session: Any) -> str | None:
 
 
 def get_agent_session_service() -> AgentSessionService:
-    return AgentSessionService()
+    global _AGENT_SESSION_SERVICE
+    if _AGENT_SESSION_SERVICE is None:
+        _AGENT_SESSION_SERVICE = AgentSessionService()
+    return _AGENT_SESSION_SERVICE
 
 
 async def get_agent_session_user(
@@ -111,6 +120,74 @@ async def interrupt_agent_session(
 ):
     try:
         return await run_sync(service.interrupt_session, session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/{session_id}/async-tasks", response_model=AgentAsyncTaskResponse)
+async def start_async_agent_task(
+    session_id: str,
+    request: AgentAsyncTaskStartRequest,
+    service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    try:
+        return await service.start_async_subtask(session_id, request.subagent_type, request.description)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/{session_id}/async-tasks", response_model=AgentAsyncTaskListResponse)
+async def list_async_agent_tasks(
+    session_id: str,
+    status_filter: str | None = None,
+    service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    try:
+        return await run_sync(service.list_async_subtasks, session_id, status_filter)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/{session_id}/async-tasks/{task_id}", response_model=AgentAsyncTaskResponse)
+async def get_async_agent_task(
+    session_id: str,
+    task_id: str,
+    service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    try:
+        return await run_sync(service.check_async_subtask, session_id, task_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.patch("/{session_id}/async-tasks/{task_id}", response_model=AgentAsyncTaskResponse)
+async def update_async_agent_task(
+    session_id: str,
+    task_id: str,
+    request: AgentAsyncTaskUpdateRequest,
+    service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    try:
+        return await service.update_async_subtask(session_id, task_id, request.description)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/{session_id}/async-tasks/{task_id}/cancel", response_model=AgentAsyncTaskResponse)
+async def cancel_async_agent_task(
+    session_id: str,
+    task_id: str,
+    request: AgentAsyncTaskCancelRequest | None = None,
+    service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    try:
+        reason = request.reason if request else None
+        return await service.cancel_async_subtask(session_id, task_id, reason)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

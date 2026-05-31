@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from agent_session.models import AgentPromptRequest, AgentSessionCreate
+from agent_session.async_subagents import AsyncSubagentService
 from agent_session.repository import AgentSessionRepository
 from agent_session.service import AgentSessionService
 from agent_session.deepagents_runtime import DeepAgentsSessionRunner
@@ -128,11 +129,12 @@ def test_agent_session_deepagents_execute_uses_official_hitl_without_whitelist(t
         shutil.rmtree(workspace, ignore_errors=True)
 
 
-def test_deepagents_runtime_passes_no_custom_tools(monkeypatch, tmp_path: Path):
+def test_deepagents_runtime_registers_local_async_tools(monkeypatch, tmp_path: Path):
     captured: dict[str, object] = {}
 
     def fake_build_runtime(config):
         captured["tools"] = config.tools
+        captured["subagents"] = config.subagents
         captured["interrupt_on"] = config.interrupt_on
         captured["project_path"] = config.project_path
         captured["permissions"] = config.permissions
@@ -160,11 +162,236 @@ def test_deepagents_runtime_passes_no_custom_tools(monkeypatch, tmp_path: Path):
     )
 
     assert graph is not None
-    assert captured["tools"] == []
+    assert [tool.name for tool in captured["tools"]] == [
+        "start_async_task",
+        "check_async_task",
+        "list_async_tasks",
+        "update_async_task",
+        "cancel_async_task",
+    ]
+    subagents = captured["subagents"]
+    assert [item["name"] for item in subagents] == ["explore", "review"]
+    assert all(item["model"] is not None for item in subagents)
+    assert all(item["permissions"] for item in subagents)
+    assert all("tools" not in item for item in subagents)
     assert captured["interrupt_on"] is None
     assert captured["project_path"] == str(tmp_path)
     assert captured["permissions"]
     assert "/skills/builtin/" in captured["skills"]
+
+
+def test_agent_session_repository_persists_async_subtasks(tmp_path: Path):
+    repository = AgentSessionRepository(str(tmp_path / "agents.db"))
+    parent = repository.create_session({"agent_id": "build", "title": "parent"})
+    child = repository.create_session({"agent_id": "explore", "title": "child"})
+
+    task = repository.create_subtask(
+        {
+            "parent_session_id": parent["id"],
+            "child_session_id": child["id"],
+            "agent_name": "explore",
+            "status": "running",
+            "input_json": {"description": "inspect code"},
+        }
+    )
+    updated = repository.update_subtask(task["id"], status="completed", result_json={"summary": "done"})
+
+    assert updated["input_json"]["description"] == "inspect code"
+    assert updated["result_json"]["summary"] == "done"
+    assert repository.get_subtask(task["id"])["status"] == "completed"
+    assert [item["id"] for item in repository.list_subtasks(parent["id"])] == [task["id"]]
+    assert repository.list_subtasks(parent["id"], "running") == []
+
+
+def test_local_async_subtask_start_check_and_list(monkeypatch, tmp_path: Path):
+    repository = AgentSessionRepository(str(tmp_path / "agents.db"))
+    parent = repository.create_session({"agent_id": "build", "title": "parent", "project_path": str(tmp_path)})
+    runner = DeepAgentsSessionRunner(
+        repository=repository,
+        notify_event=lambda *_args: None,
+        model_call=lambda _messages: "ok",
+    )
+    scheduled = []
+
+    def fake_create_task(coro):
+        scheduled.append(coro)
+        coro.close()
+        return object()
+
+    monkeypatch.setattr("agent_session.deepagents_runtime.asyncio.create_task", fake_create_task)
+
+    result = asyncio.run(runner.start_async_subtask(parent["id"], "Explore", "inspect code"))
+    task = repository.get_subtask(result["task_id"])
+    child = repository.get_session(result["child_session_id"])
+    listed = runner.list_async_subtasks(parent["id"])
+
+    assert result["status"] == "running"
+    assert task["agent_name"] == "explore"
+    assert child["agent_id"] == "explore"
+    assert scheduled
+    assert listed["tasks"][0]["task_id"] == result["task_id"]
+    assert runner.check_async_subtask(parent["id"], result["task_id"])["status"] == "running"
+    assert any(part["payload"].get("agent_role") == "async_subagent" for part in repository.list_parts(parent["id"]))
+
+
+def test_local_async_subtask_rejects_non_subagent_target(tmp_path: Path):
+    repository = AgentSessionRepository(str(tmp_path / "agents.db"))
+    parent = repository.create_session({"agent_id": "build", "title": "parent", "project_path": str(tmp_path)})
+    runner = DeepAgentsSessionRunner(
+        repository=repository,
+        notify_event=lambda *_args: None,
+        model_call=lambda _messages: "ok",
+    )
+
+    with pytest.raises(ValueError, match="Unknown async subagent type"):
+        asyncio.run(runner.start_async_subtask(parent["id"], "build", "bad target"))
+
+    with pytest.raises(ValueError, match="description is required"):
+        asyncio.run(runner.start_async_subtask(parent["id"], "explore", " "))
+
+
+def test_local_async_subtask_refresh_maps_waiting_permission_to_failed(tmp_path: Path):
+    repository = AgentSessionRepository(str(tmp_path / "agents.db"))
+    parent = repository.create_session({"agent_id": "build", "title": "parent", "project_path": str(tmp_path)})
+    child = repository.create_session(
+        {
+            "agent_id": "explore",
+            "title": "child",
+            "project_path": str(tmp_path),
+            "status": "waiting_permission",
+        }
+    )
+    task = repository.create_subtask(
+        {
+            "parent_session_id": parent["id"],
+            "child_session_id": child["id"],
+            "agent_name": "explore",
+            "status": "running",
+            "input_json": {"description": "inspect code"},
+        }
+    )
+    runner = DeepAgentsSessionRunner(
+        repository=repository,
+        notify_event=lambda *_args: None,
+        model_call=lambda _messages: "ok",
+    )
+
+    result = runner.check_async_subtask(parent["id"], task["id"])
+
+    assert result["status"] == "failed"
+    assert result["result"]["child_status"] == "waiting_permission"
+
+
+def test_local_async_subtask_completion_writes_parent_summary(monkeypatch, tmp_path: Path):
+    repository = AgentSessionRepository(str(tmp_path / "agents.db"))
+    parent = repository.create_session({"agent_id": "build", "title": "parent", "project_path": str(tmp_path)})
+    child = repository.create_session(
+        {"agent_id": "explore", "title": "child", "project_path": str(tmp_path), "status": "running"}
+    )
+    task = repository.create_subtask(
+        {
+            "parent_session_id": parent["id"],
+            "child_session_id": child["id"],
+            "agent_name": "explore",
+            "status": "running",
+            "input_json": {"description": "inspect code"},
+        }
+    )
+
+    async def fake_run_prompt(self, session_id, prompt, *, context_files=None):
+        self.repository.add_part(session_id, "summary", status="completed", title="Final", content="探索完成", payload={})
+        return self.repository.update_session(session_id, status="completed", metadata={})
+
+    monkeypatch.setattr(DeepAgentsSessionRunner, "run_prompt", fake_run_prompt)
+    emitted = []
+    service = AsyncSubagentService(
+        repository,
+        notify_event=lambda _session_id, event: emitted.append(event),
+        model_call=lambda _messages: "ok",
+    )
+
+    asyncio.run(service._run_task(task["id"], child["id"], "inspect code"))
+    updated = repository.get_subtask(task["id"])
+    parent_parts = repository.list_parts(parent["id"])
+
+    assert updated["status"] == "completed"
+    assert updated["result_json"]["summary"] == "探索完成"
+    assert parent_parts[-1]["payload"]["agent_role"] == "async_subagent"
+    assert parent_parts[-1]["payload"]["async_status"] == "completed"
+    assert emitted[-1]["event_type"] == "async_subtask_completed"
+
+
+def test_async_subagent_service_cancel_prevents_stale_child_completion(monkeypatch, tmp_path: Path):
+    repository = AgentSessionRepository(str(tmp_path / "agents.db"))
+    parent = repository.create_session({"agent_id": "build", "title": "parent", "project_path": str(tmp_path)})
+    service = AsyncSubagentService(repository, notify_event=lambda *_args: None, model_call=lambda _messages: "ok")
+
+    def fake_create_task(coro):
+        coro.close()
+        return object()
+
+    monkeypatch.setattr("agent_session.async_subagents.asyncio.create_task", fake_create_task)
+    result = asyncio.run(service.start_task(parent["id"], "explore", "inspect code"))
+    task_id = result["task_id"]
+    child_id = result["child_session_id"]
+
+    cancelled = asyncio.run(service.cancel_task(parent["id"], task_id, "stop it"))
+    asyncio.run(service._run_task(task_id, child_id, "inspect code"))
+    updated = repository.get_subtask(task_id)
+
+    assert cancelled["status"] == "cancelled"
+    assert updated["status"] == "cancelled"
+    assert repository.get_session(child_id)["status"] == "interrupted"
+
+
+def test_async_subagent_service_update_restarts_same_task(monkeypatch, tmp_path: Path):
+    repository = AgentSessionRepository(str(tmp_path / "agents.db"))
+    parent = repository.create_session({"agent_id": "build", "title": "parent", "project_path": str(tmp_path)})
+    service = AsyncSubagentService(repository, notify_event=lambda *_args: None, model_call=lambda _messages: "ok")
+
+    def fake_create_task(coro):
+        coro.close()
+        return object()
+
+    monkeypatch.setattr("agent_session.async_subagents.asyncio.create_task", fake_create_task)
+    started = asyncio.run(service.start_task(parent["id"], "explore", "inspect code"))
+    restarted = asyncio.run(service.update_task(parent["id"], started["task_id"], "inspect again"))
+
+    assert restarted["task_id"] == started["task_id"]
+    assert restarted["child_session_id"] != started["child_session_id"]
+    assert restarted["restart_count"] == 1
+    assert restarted["previous_child_session_ids"] == [started["child_session_id"]]
+    assert restarted["input"]["description"] == "inspect again"
+    assert repository.get_session(started["child_session_id"])["status"] == "interrupted"
+
+
+def test_async_subagent_service_recovers_running_tasks(monkeypatch, tmp_path: Path):
+    repository = AgentSessionRepository(str(tmp_path / "agents.db"))
+    parent = repository.create_session({"agent_id": "build", "title": "parent", "project_path": str(tmp_path)})
+    child = repository.create_session({"agent_id": "explore", "title": "child", "project_path": str(tmp_path), "status": "running"})
+    task = repository.create_subtask(
+        {
+            "parent_session_id": parent["id"],
+            "child_session_id": child["id"],
+            "agent_name": "explore",
+            "status": "running",
+            "input_json": {"description": "inspect code", "subagent_type": "explore", "revision": 1},
+        }
+    )
+    scheduled = []
+
+    def fake_create_task(coro):
+        scheduled.append(coro)
+        coro.close()
+        return object()
+
+    monkeypatch.setattr("agent_session.async_subagents.asyncio.create_task", fake_create_task)
+    service = AsyncSubagentService(repository, notify_event=lambda *_args: None, model_call=lambda _messages: "ok")
+    result = asyncio.run(service.recover_running_tasks())
+
+    assert result["scheduled"] == 1
+    assert scheduled
+    assert repository.get_subtask(task["id"])["status"] == "running"
 
 
 def test_deepagents_backend_routes_internal_files_to_state_backend(tmp_path: Path):

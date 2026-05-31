@@ -7,11 +7,14 @@ import uuid
 from pathlib import Path
 from typing import Any, Sequence
 
+from pydantic import BaseModel, Field
 from langgraph.types import Command
 
+from .agent_registry import AgentRegistry
+from .async_subagents import AsyncSubagentService
 from .deepagents_compat import patch_torch_pytree_for_transformers
 from .deepagents_events import DeepAgentsEventMapper
-from .execution_context import RuntimeExecutionContext
+from .execution_context import AgentDefinition, RuntimeExecutionContext
 from .deepagents_checkpoint import get_checkpoint_db_path
 from .model_adapter import get_chat_model
 from .permission import filesystem_permissions_for_agent
@@ -19,6 +22,33 @@ from .runtime import DeepAgentRuntimeConfig, build_deep_agent_runtime, memory_fi
 from .state import ensure_session_state, set_phase
 
 logger = logging.getLogger(__name__)
+
+class StartAsyncTaskInput(BaseModel):
+    subagent_type: str = Field(
+        description="The async subagent type to run. Use one of the available subagent names."
+    )
+    description: str = Field(description="Detailed task instructions for the async subagent.")
+
+
+class CheckAsyncTaskInput(BaseModel):
+    task_id: str = Field(description="The exact task_id returned by start_async_task.")
+
+
+class ListAsyncTasksInput(BaseModel):
+    status_filter: str | None = Field(
+        default=None,
+        description="Optional status filter: running, completed, failed, pending, or all.",
+    )
+
+
+class UpdateAsyncTaskInput(BaseModel):
+    task_id: str = Field(description="The exact task_id returned by start_async_task.")
+    description: str = Field(description="New task instructions. Updating restarts the async subagent task.")
+
+
+class CancelAsyncTaskInput(BaseModel):
+    task_id: str = Field(description="The exact task_id returned by start_async_task.")
+    reason: str | None = Field(default=None, description="Optional cancellation reason.")
 
 
 class DeepAgentsUnavailable(RuntimeError):
@@ -131,10 +161,19 @@ class CallableToolCallingChatModel:
 
 
 class DeepAgentsSessionRunner:
-    def __init__(self, *, repository: Any, notify_event: Any, model_call: Any = None):
+    def __init__(
+        self,
+        *,
+        repository: Any,
+        notify_event: Any,
+        model_call: Any = None,
+        async_subagent_service: AsyncSubagentService | None = None,
+    ):
         self.repository = repository
         self.notify_event = notify_event
         self.model_call = model_call
+        self.agent_registry = AgentRegistry()
+        self.async_subagent_service = async_subagent_service
         self._checkpointer = None
         self._checkpointer_context = None
         self._checkpointer_loop = None
@@ -216,8 +255,8 @@ class DeepAgentsSessionRunner:
         return build_deep_agent_runtime(
             DeepAgentRuntimeConfig(
                 model=model,
-                tools=[],
-                system_prompt=self._system_prompt(),
+                tools=self._local_async_tools_for_session(session),
+                system_prompt=self._system_prompt(agent_id),
                 project_path=project_path,
                 user_id=user_id,
                 agent_id=agent_id,
@@ -225,10 +264,140 @@ class DeepAgentsSessionRunner:
                 memory=memory_files_for_project(project_path, user_id=user_id, agent_id=agent_id, org_id=org_id),
                 skills=resolve_skill_sources(project_path, user_id=user_id, agent_id=agent_id, org_id=org_id),
                 permissions=filesystem_permissions_for_agent(agent_id),
+                subagents=self._subagents_for_agent(agent_id, model),
                 interrupt_on=resolve_interrupt_on(metadata),
                 checkpointer=await self._get_checkpointer(),
             )
         )
+
+    def _local_async_tools_for_session(self, session: dict[str, Any]) -> list[Any]:
+        agent_id = str(session.get("agent_id") or "build")
+        agent = self.agent_registry.get(agent_id)
+        if not agent or agent.mode == "subagent" or not agent.handoff_targets:
+            return []
+
+        from langchain_core.tools import StructuredTool
+
+        session_id = str(session.get("id"))
+        service = self._async_subagent_service()
+
+        async def start_async_task(subagent_type: str, description: str) -> str:
+            try:
+                result = await service.start_task(session_id, subagent_type, description)
+            except ValueError as exc:
+                result = {"status": "failed", "error": str(exc), "task_id": None}
+            return self._json_tool_result(result)
+
+        async def check_async_task(task_id: str) -> str:
+            try:
+                result = service.check_task(session_id, task_id)
+            except ValueError as exc:
+                result = {"status": "not_found", "task_id": task_id, "error": str(exc)}
+            return self._json_tool_result(result)
+
+        async def list_async_tasks(status_filter: str | None = None) -> str:
+            try:
+                result = service.list_tasks(session_id, status_filter)
+            except ValueError as exc:
+                result = {"tasks": [], "status_filter": status_filter or "all", "error": str(exc)}
+            return self._json_tool_result(result)
+
+        async def update_async_task(task_id: str, description: str) -> str:
+            try:
+                result = await service.update_task(session_id, task_id, description)
+            except ValueError as exc:
+                result = {"status": "failed", "task_id": task_id, "error": str(exc)}
+            return self._json_tool_result(result)
+
+        async def cancel_async_task(task_id: str, reason: str | None = None) -> str:
+            try:
+                result = await service.cancel_task(session_id, task_id, reason)
+            except ValueError as exc:
+                result = {"status": "not_found", "task_id": task_id, "error": str(exc)}
+            return self._json_tool_result(result)
+
+        available = ", ".join(agent.handoff_targets)
+        return [
+            StructuredTool.from_function(
+                coroutine=start_async_task,
+                name="start_async_task",
+                description=(
+                    "Start a local async subagent task. It returns a task_id immediately. "
+                    f"Available subagent types: {available}. Do not immediately check status after starting."
+                ),
+                args_schema=StartAsyncTaskInput,
+            ),
+            StructuredTool.from_function(
+                coroutine=check_async_task,
+                name="check_async_task",
+                description="Check the current status and result for a local async subagent task.",
+                args_schema=CheckAsyncTaskInput,
+            ),
+            StructuredTool.from_function(
+                coroutine=list_async_tasks,
+                name="list_async_tasks",
+                description="List local async subagent tasks for the current parent session.",
+                args_schema=ListAsyncTasksInput,
+            ),
+            StructuredTool.from_function(
+                coroutine=update_async_task,
+                name="update_async_task",
+                description="Restart a local async subagent task with new instructions while preserving its task_id.",
+                args_schema=UpdateAsyncTaskInput,
+            ),
+            StructuredTool.from_function(
+                coroutine=cancel_async_task,
+                name="cancel_async_task",
+                description="Soft-cancel a local async subagent task.",
+                args_schema=CancelAsyncTaskInput,
+            ),
+        ]
+
+    def _async_subagent_service(self) -> AsyncSubagentService:
+        if self.async_subagent_service is None:
+            self.async_subagent_service = AsyncSubagentService(
+                self.repository,
+                self.notify_event,
+                model_call=self.model_call,
+            )
+        self.async_subagent_service.set_model_call(self.model_call)
+        return self.async_subagent_service
+
+    async def start_async_subtask(self, parent_session_id: str, subagent_type: str, description: str) -> dict[str, Any]:
+        return await self._async_subagent_service().start_task(parent_session_id, subagent_type, description)
+
+    def check_async_subtask(self, parent_session_id: str, task_id: str) -> dict[str, Any]:
+        return self._async_subagent_service().check_task(parent_session_id, task_id)
+
+    def list_async_subtasks(self, parent_session_id: str, status_filter: str | None = None) -> dict[str, Any]:
+        return self._async_subagent_service().list_tasks(parent_session_id, status_filter)
+
+    @staticmethod
+    def _json_tool_result(result: dict[str, Any]) -> str:
+        return json.dumps(result, ensure_ascii=False)
+
+    def _subagents_for_agent(self, agent_id: str, model: Any) -> list[dict[str, Any]]:
+        agent = self.agent_registry.get(agent_id)
+        if not agent:
+            return []
+        subagents: list[dict[str, Any]] = []
+        for target_id in agent.handoff_targets:
+            target = self.agent_registry.get(target_id)
+            if target is None:
+                raise ValueError(f"Unknown handoff target '{target_id}' for agent '{agent_id}'")
+            if target.mode != "subagent":
+                raise ValueError(f"Handoff target '{target_id}' for agent '{agent_id}' is not a subagent")
+            subagents.append(self._subagent_spec(target, model))
+        return subagents
+
+    def _subagent_spec(self, agent: AgentDefinition, model: Any) -> dict[str, Any]:
+        return {
+            "name": agent.id,
+            "description": agent.description or agent.name,
+            "system_prompt": agent.system_prompt,
+            "model": model,
+            "permissions": filesystem_permissions_for_agent(agent.id),
+        }
 
     async def _get_checkpointer(self) -> Any:
         loop = asyncio.get_running_loop()
@@ -277,8 +446,21 @@ class DeepAgentsSessionRunner:
         approved = bool(decision.get("approved") or decision.get("decision") == "executed")
         return {"decisions": [{"type": "approve" if approved else "reject"}]}
 
-    def _system_prompt(self) -> str:
-        return (
+    def _system_prompt(self, agent_id: str) -> str:
+        agent = self.agent_registry.get(agent_id)
+        agent_prompt = (agent.system_prompt.strip() + "\n\n") if agent and agent.system_prompt.strip() else ""
+        async_prompt = ""
+        if agent and agent.mode != "subagent" and agent.handoff_targets:
+            available = "、".join(agent.handoff_targets)
+            async_prompt = (
+                "\n\n你还可以启动本地异步子代理任务："
+                f"可用子代理类型是 {available}。"
+                "使用 start_async_task 启动后台只读任务后，必须立刻把完整 task_id 告诉用户并停止，"
+                "不要在同一轮里马上轮询。只有用户要求查看状态或结果时，才使用 check_async_task 或 list_async_tasks。"
+                "用户要求调整或停止异步任务时，使用 update_async_task 或 cancel_async_task。"
+                "不要凭历史消息报告任务状态，必须调用工具获取最新状态。"
+            )
+        return agent_prompt + (
             "你是 Finetune Platform 的代码 Agent。你需要先理解项目，再使用工具完成任务。"
             "文件操作使用 DeepAgents harness 内置的 ls/read_file/glob/grep/write_file/edit_file。"
             "项目文件位于 `/workspace/`；DeepAgents 内部文件和上下文文件位于状态后端，"
@@ -295,6 +477,7 @@ class DeepAgentsSessionRunner:
             "需要运行测试、安装依赖或调用 CLI 时，直接使用官方 sandbox execute 工具；"
             "命令不需要平台白名单审批。"
             "执行命令前优先说明意图，执行后根据 execute 输出继续判断。"
+            + async_prompt
         )
 
 

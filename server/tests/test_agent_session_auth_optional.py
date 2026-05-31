@@ -89,6 +89,60 @@ def test_agent_sessions_allow_registered_local_workspace_path(tmp_path: Path, mo
         app.dependency_overrides.clear()
 
 
+def test_agent_sessions_async_task_rest_lifecycle(tmp_path: Path, monkeypatch):
+    client, service = _client_with_service(tmp_path)
+    workspace = _workspace_root()
+    scheduled = []
+
+    def fake_create_task(coro):
+        scheduled.append(coro)
+        coro.close()
+        return object()
+
+    monkeypatch.setattr("agent_session.async_subagents.asyncio.create_task", fake_create_task)
+    try:
+        session_response = client.post(
+            "/agent-sessions",
+            json={"title": "async tasks", "agent_id": "build", "project_path": str(workspace)},
+        )
+        session_id = session_response.json()["id"]
+
+        started = client.post(
+            f"/agent-sessions/{session_id}/async-tasks",
+            json={"subagent_type": "explore", "description": "inspect code"},
+        )
+        assert started.status_code == 200
+        task = started.json()
+        assert task["status"] == "running"
+        assert scheduled
+
+        listed = client.get(f"/agent-sessions/{session_id}/async-tasks")
+        assert listed.status_code == 200
+        assert listed.json()["tasks"][0]["task_id"] == task["task_id"]
+
+        fetched = client.get(f"/agent-sessions/{session_id}/async-tasks/{task['task_id']}")
+        assert fetched.status_code == 200
+        assert fetched.json()["task_id"] == task["task_id"]
+
+        restarted = client.patch(
+            f"/agent-sessions/{session_id}/async-tasks/{task['task_id']}",
+            json={"description": "inspect again"},
+        )
+        assert restarted.status_code == 200
+        assert restarted.json()["task_id"] == task["task_id"]
+        assert restarted.json()["restart_count"] == 1
+
+        cancelled = client.post(f"/agent-sessions/{session_id}/async-tasks/{task['task_id']}/cancel", json={})
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] == "cancelled"
+
+        other = service.repository.create_session({"agent_id": "build", "title": "other", "project_path": str(workspace)})
+        missing = client.get(f"/agent-sessions/{other['id']}/async-tasks/{task['task_id']}")
+        assert missing.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_agent_sessions_reject_unregistered_external_project_path(tmp_path: Path, monkeypatch):
     external_root = tmp_path / "unregistered-workspace"
     external_root.mkdir(parents=True, exist_ok=True)

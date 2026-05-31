@@ -36,6 +36,16 @@ def _row(row: Any | None) -> dict[str, Any] | None:
     return data
 
 
+def _subtask_row(row: Any | None) -> dict[str, Any] | None:
+    data = _row(row)
+    if data is None:
+        return None
+    for key in ("input_json", "result_json", "previous_child_session_ids"):
+        if key in data:
+            data[key] = _load(data.get(key))
+    return data
+
+
 class AgentSessionRepository:
     def __init__(self, db_path: str = APP_DB_PATH):
         self.db_path = db_path
@@ -78,8 +88,44 @@ class AgentSessionRepository:
                     payload TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS agent_subtasks (
+                    id TEXT PRIMARY KEY,
+                    parent_session_id TEXT NOT NULL,
+                    child_session_id TEXT,
+                    agent_name TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    input_json TEXT NOT NULL DEFAULT '{}',
+                    result_json TEXT NOT NULL DEFAULT '{}',
+                    error TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    last_checked_at TEXT,
+                    started_at TEXT,
+                    completed_at TEXT,
+                    cancelled_at TEXT,
+                    restart_count INTEGER NOT NULL DEFAULT 0,
+                    previous_child_session_ids TEXT NOT NULL DEFAULT '[]'
+                );
                 """
             )
+        self._ensure_subtask_columns()
+
+    def _ensure_subtask_columns(self) -> None:
+        expected = {
+            "started_at": "TEXT",
+            "completed_at": "TEXT",
+            "cancelled_at": "TEXT",
+            "restart_count": "INTEGER NOT NULL DEFAULT 0",
+            "previous_child_session_ids": "TEXT NOT NULL DEFAULT '[]'",
+        }
+        with get_db_pool(self.db_path).get_connection() as conn:
+            rows = conn.execute("PRAGMA table_info(agent_subtasks)").fetchall()
+            existing = {row["name"] for row in rows}
+            for column, definition in expected.items():
+                if column not in existing:
+                    validate_column_names([column])
+                    conn.execute(f"ALTER TABLE agent_subtasks ADD COLUMN {column} {definition}")
 
     def create_session(self, data: dict[str, Any]) -> dict[str, Any]:
         now = _now()
@@ -193,3 +239,92 @@ class AgentSessionRepository:
                 return events[index + 1 :]
         return events
 
+    def create_subtask(self, data: dict[str, Any]) -> dict[str, Any]:
+        now = _now()
+        task_id = data.get("id") or f"agt_{uuid.uuid4().hex}"
+        with get_db_pool(self.db_path).get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO agent_subtasks
+                    (
+                        id, parent_session_id, child_session_id, agent_name, status,
+                        input_json, result_json, error, created_at, updated_at, last_checked_at,
+                        started_at, completed_at, cancelled_at, restart_count, previous_child_session_ids
+                    )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    task_id,
+                    data.get("parent_session_id"),
+                    data.get("child_session_id"),
+                    data.get("agent_name"),
+                    data.get("status") or "pending",
+                    _json(data.get("input_json") or {}),
+                    _json(data.get("result_json") or {}),
+                    data.get("error"),
+                    now,
+                    now,
+                    data.get("last_checked_at"),
+                    data.get("started_at"),
+                    data.get("completed_at"),
+                    data.get("cancelled_at"),
+                    int(data.get("restart_count") or 0),
+                    _json(data.get("previous_child_session_ids") or []),
+                ),
+            )
+        return self.get_subtask(task_id) or {}
+
+    _SUBTASK_UPDATABLE = {
+        "child_session_id",
+        "status",
+        "input_json",
+        "result_json",
+        "error",
+        "updated_at",
+        "last_checked_at",
+        "started_at",
+        "completed_at",
+        "cancelled_at",
+        "restart_count",
+        "previous_child_session_ids",
+    }
+
+    def update_subtask(self, task_id: str, **updates: Any) -> dict[str, Any]:
+        if "input_json" in updates:
+            updates["input_json"] = _json(updates["input_json"])
+        if "result_json" in updates:
+            updates["result_json"] = _json(updates["result_json"])
+        if "previous_child_session_ids" in updates:
+            updates["previous_child_session_ids"] = _json(updates["previous_child_session_ids"])
+        updates["updated_at"] = _now()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            dynamic_update(conn, "agent_subtasks", "id", task_id, updates, self._SUBTASK_UPDATABLE)
+        return self.get_subtask(task_id) or {}
+
+    def get_subtask(self, task_id: str) -> dict[str, Any] | None:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
+            row = conn.execute("SELECT * FROM agent_subtasks WHERE id = ?", (task_id,)).fetchone()
+        return _subtask_row(row)
+
+    def list_subtasks(self, parent_session_id: str, status_filter: str | None = None) -> list[dict[str, Any]]:
+        query = "SELECT * FROM agent_subtasks WHERE parent_session_id = ?"
+        params: tuple[Any, ...] = (parent_session_id,)
+        if status_filter and status_filter != "all":
+            query += " AND status = ?"
+            params = (parent_session_id, status_filter)
+        query += " ORDER BY created_at ASC, rowid ASC"
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [_subtask_row(row) or {} for row in rows]
+
+    def list_all_subtasks(self, statuses: set[str] | None = None) -> list[dict[str, Any]]:
+        query = "SELECT * FROM agent_subtasks"
+        params: tuple[Any, ...] = ()
+        if statuses:
+            placeholders = ", ".join("?" for _ in statuses)
+            query += f" WHERE status IN ({placeholders})"
+            params = tuple(sorted(statuses))
+        query += " ORDER BY created_at ASC, rowid ASC"
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [_subtask_row(row) or {} for row in rows]
