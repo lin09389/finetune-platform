@@ -19,6 +19,7 @@ import ChatInput from '../components/chat/ChatInput';
 import HitlApprovalPanel from '../components/chat/HitlApprovalPanel';
 import AgentPhaseIndicator from '../components/chat/AgentPhaseIndicator';
 import AgentWorkbenchPanel, { WorkbenchEmpty } from '../components/chat/AgentWorkbenchPanel';
+import AgentAsyncTasksPanel from '../components/chat/AgentAsyncTasksPanel';
 import AgentWorkspaceEditor from '../components/chat/AgentWorkspaceEditor';
 import AgentTerminal from '../components/chat/AgentTerminal';
 import QuickFileOpener, { flattenFileNodes } from '../components/chat/QuickFileOpener';
@@ -3075,6 +3076,12 @@ if (existing) {
                   runContent={workbenchRunPanel}
                   configContent={React.cloneElement(contextPanel, { embedded: true })}
                   progressContent={workbenchProgressPanel}
+                  asyncTasksContent={(
+                    <AgentAsyncTasksPanel
+                      sessionId={latestAgentSessionId}
+                      refreshKey={agentSessionOverview?.session?.updated_at || messages.length}
+                    />
+                  )}
                   fileTreeContent={slimFilePanel}
                   editorContent={<WorkbenchEmpty description="主编辑器已提升到中央 Agent IDE 工作区。" />}
                 />

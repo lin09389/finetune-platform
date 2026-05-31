@@ -3,6 +3,7 @@ import {
   ControlOutlined,
   FileTextOutlined,
   PlayCircleOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { Empty, Tabs } from 'antd';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -14,6 +15,7 @@ interface AgentWorkbenchPanelProps {
   runContent: React.ReactNode;
   configContent: React.ReactNode;
   progressContent: React.ReactNode;
+  asyncTasksContent: React.ReactNode;
   fileTreeContent: React.ReactNode;
   editorContent: React.ReactNode;
 }
@@ -23,6 +25,7 @@ const AgentWorkbenchPanel: React.FC<AgentWorkbenchPanelProps> = ({
   runContent,
   configContent,
   progressContent,
+  asyncTasksContent,
   fileTreeContent,
   editorContent,
 }) => {
@@ -57,6 +60,16 @@ const AgentWorkbenchPanel: React.FC<AgentWorkbenchPanelProps> = ({
         </span>
       ),
       children: progressContent,
+    },
+    {
+      key: 'async-tasks',
+      label: (
+        <span className={styles.tabLabel}>
+          <ThunderboltOutlined />
+          子任务
+        </span>
+      ),
+      children: asyncTasksContent,
     },
     {
       key: 'artifacts',

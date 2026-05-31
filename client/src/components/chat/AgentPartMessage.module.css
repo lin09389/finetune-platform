@@ -25,6 +25,31 @@
   align-items: center;
 }
 
+.subagentBadgeRow {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+}
+
+.subagentTag,
+.subagentPill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  margin-inline-end: 0;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent-primary, #1677ff) 24%, var(--border-color));
+  background: color-mix(in srgb, var(--accent-primary, #1677ff) 8%, transparent);
+  color: color-mix(in srgb, var(--accent-primary, #1677ff) 82%, var(--text-primary));
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.subagentPill {
+  padding: 1px 8px;
+}
+
 .processPill {
   display: inline-flex;
   align-items: center;

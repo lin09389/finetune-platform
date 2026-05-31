@@ -746,6 +746,11 @@ export interface AgentSessionUiTimelineItem {
   title?: string;
   content?: string;
   tool?: string;
+  agent_name?: string;
+  agent_role?: string;
+  task_id?: string;
+  child_session_id?: string;
+  async_status?: string;
   created_at?: string;
   updated_at?: string;
   payload?: Record<string, any>;
@@ -857,6 +862,32 @@ export interface AgentSessionOverview {
   diagnostics: AgentSessionDiagnostics;
 }
 
+export type AgentAsyncTaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface AgentAsyncTask {
+  task_id: string;
+  parent_session_id: string;
+  child_session_id?: string | null;
+  previous_child_session_ids: string[];
+  agent_name: string;
+  status: AgentAsyncTaskStatus;
+  input: Record<string, any>;
+  result: Record<string, any>;
+  error?: string | null;
+  restart_count: number;
+  created_at: string;
+  updated_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  cancelled_at?: string | null;
+  last_checked_at?: string | null;
+}
+
+export interface AgentAsyncTaskListResponse {
+  tasks: AgentAsyncTask[];
+  status_filter: string;
+}
+
 export interface AgentSessionEvent {
   id: string;
   session_id: string;
@@ -884,6 +915,11 @@ export interface AgentSessionEvent {
   agent_id?: string;
   phase?: string;
   tool?: string;
+  agent_name?: string;
+  agent_role?: string;
+  task_id?: string;
+  child_session_id?: string;
+  async_status?: string;
   delta?: string;
   content?: string;
   summary?: string;
@@ -1023,6 +1059,47 @@ export const promptAgentSession = async (
 
 export const interruptAgentSession = async (sessionId: string): Promise<AgentSession> => {
   const response = await apiClient.post(`/agent-sessions/${sessionId}/interrupt`);
+  return response.data;
+};
+
+export const startAgentAsyncTask = async (
+  sessionId: string,
+  payload: { subagent_type: string; description: string },
+): Promise<AgentAsyncTask> => {
+  const response = await apiClient.post(`/agent-sessions/${sessionId}/async-tasks`, payload);
+  return response.data;
+};
+
+export const listAgentAsyncTasks = async (
+  sessionId: string,
+  statusFilter?: string,
+): Promise<AgentAsyncTaskListResponse> => {
+  const response = await apiClient.get(`/agent-sessions/${sessionId}/async-tasks`, {
+    params: statusFilter && statusFilter !== 'all' ? { status_filter: statusFilter } : undefined,
+  });
+  return response.data;
+};
+
+export const getAgentAsyncTask = async (sessionId: string, taskId: string): Promise<AgentAsyncTask> => {
+  const response = await apiClient.get(`/agent-sessions/${sessionId}/async-tasks/${taskId}`);
+  return response.data;
+};
+
+export const updateAgentAsyncTask = async (
+  sessionId: string,
+  taskId: string,
+  payload: { description: string },
+): Promise<AgentAsyncTask> => {
+  const response = await apiClient.patch(`/agent-sessions/${sessionId}/async-tasks/${taskId}`, payload);
+  return response.data;
+};
+
+export const cancelAgentAsyncTask = async (
+  sessionId: string,
+  taskId: string,
+  payload?: { reason?: string },
+): Promise<AgentAsyncTask> => {
+  const response = await apiClient.post(`/agent-sessions/${sessionId}/async-tasks/${taskId}/cancel`, payload || {});
   return response.data;
 };
 

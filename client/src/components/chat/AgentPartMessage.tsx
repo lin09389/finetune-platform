@@ -57,6 +57,16 @@ function stringify(value: unknown) {
   return JSON.stringify(value, null, 2);
 }
 
+function agentLabel(value?: unknown) {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) return '';
+  return raw
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 function commandText(payload?: Record<string, any>) {
   const command = payload?.command || payload?.payload?.command;
   return Array.isArray(command) ? command.join(' ') : stringify(command);
@@ -110,6 +120,7 @@ function ProcessStrip({ parts, currentPart }: { parts?: AgentPart[]; currentPart
 function ToolResultStrip({ part, payload }: { part: AgentPart; payload: Record<string, any> }) {
   const stats = contextStats(payload);
   const command = commandText(payload);
+  const subagentLabel = agentLabel(payload.agent_name);
   const chips: string[] = [];
   if (stats.files) chips.push(`读取 ${stats.files} 个文件`);
   if (stats.matches) chips.push(`找到 ${stats.matches} 条匹配`);
@@ -120,6 +131,7 @@ function ToolResultStrip({ part, payload }: { part: AgentPart; payload: Record<s
   return (
     <div className={styles.eventLine}>
       <span className={styles.eventDot} data-status={part.status || 'completed'} />
+      {subagentLabel ? <span className={styles.subagentPill}>{subagentLabel}</span> : null}
       <span className={styles.eventTitle}>{partTitle(part, '工具结果')}</span>
       {chips.slice(0, 4).map((chip) => (
         <span key={chip} className={styles.eventChip}>{chip}</span>
@@ -266,6 +278,10 @@ const AgentPartMessage = React.memo(({
   const diagnostics = metadata.agent_session_diagnostics;
   const streamingDiagnostics = metadata.agent_streaming_diagnostics;
   const status = part.status || metadata.status || 'completed';
+  const subagentLabel = agentLabel(payload.agent_name);
+  const subagentBadge = subagentLabel ? <Tag className={styles.subagentTag}>{subagentLabel}</Tag> : null;
+  const asyncStatus = typeof payload.async_status === 'string' ? payload.async_status : '';
+  const asyncStatusTag = asyncStatus ? <Tag color={statusColor[asyncStatus] || (asyncStatus === 'running' ? 'processing' : 'default')}>{statusLabel[asyncStatus] || asyncStatus}</Tag> : null;
   const files = changedFiles(payload);
   const diffItems = extractFileDiffs(payload);
   const canApprove = false;
@@ -351,6 +367,7 @@ const AgentPartMessage = React.memo(({
 
     return (
       <Space direction="vertical" size={4} style={{ width: '100%' }} className={styles.naturalPart}>
+        {subagentBadge ? <div className={styles.subagentBadgeRow}>{subagentBadge}</div> : null}
         <MarkdownBody>{displayText}</MarkdownBody>
         {isStreaming && <span className={styles.streamingCursor} />}
         {isStreaming && streamingDiagnostics?.mode && (
@@ -367,8 +384,9 @@ const AgentPartMessage = React.memo(({
       <div className={styles.summaryPart}>
         <Space className={styles.summaryHeader} wrap>
           {icon}
-          <Typography.Text strong>最终结果</Typography.Text>
-          <Tag color="success">已完成</Tag>
+          {subagentBadge}
+          <Typography.Text strong>{payload.agent_role === 'async_subagent' ? '异步子任务' : '最终结果'}</Typography.Text>
+          {asyncStatusTag || <Tag color="success">已完成</Tag>}
           {streamingDiagnostics?.fallback_to_non_stream ? <Tag color="warning">流式回退</Tag> : null}
           {streamingDiagnostics?.mode === 'chat_stream' && !streamingDiagnostics?.fallback_to_non_stream ? <Tag color="processing">流式</Tag> : null}
         </Space>
@@ -402,6 +420,7 @@ const AgentPartMessage = React.memo(({
       <Space direction="vertical" size={10} style={{ width: '100%' }}>
         <Space wrap>
           {icon}
+          {subagentBadge}
           <Typography.Text strong>{partTitle(part, content)}</Typography.Text>
           <Tag color={statusColor[status] || 'default'}>{statusLabel[status] || status}</Tag>
           <Tag>历史记录/只读</Tag>
@@ -455,6 +474,7 @@ const AgentPartMessage = React.memo(({
       <Space direction="vertical" size={8} style={{ width: '100%' }}>
         <Space wrap>
           {icon}
+          {subagentBadge}
           <Typography.Text code>{commandText(payload) || part.title || '验证命令'}</Typography.Text>
           <Tag color={statusColor[status] || 'default'}>{statusLabel[status] || status}</Tag>
           <Tag>历史记录/只读</Tag>
@@ -531,6 +551,7 @@ const AgentPartMessage = React.memo(({
           <span className={styles.approvalPulse} />
           <div className={styles.approvalCopy}>
             <Typography.Text strong>等待你确认</Typography.Text>
+            {subagentBadge}
             <Typography.Text type="secondary">
               准备继续执行 <Typography.Text code>{String(toolName)}</Typography.Text>
             </Typography.Text>
@@ -588,6 +609,7 @@ const AgentPartMessage = React.memo(({
           fontSize: 12,
         }}>
           <span>{silentIcon}</span>
+          {subagentLabel ? <span className={styles.subagentPill}>{subagentLabel}</span> : null}
           <span style={{ opacity: 0.7 }}>{silentLabel}</span>
           {status === 'running' && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
@@ -618,6 +640,7 @@ const AgentPartMessage = React.memo(({
     <Space direction="vertical" size={4} style={{ width: '100%' }}>
       <Space wrap>
         {icon}
+        {subagentBadge}
         <Typography.Text>{partTitle(part, content)}</Typography.Text>
         {status !== 'completed' && <Tag color={statusColor[status] || 'default'}>{statusLabel[status] || status}</Tag>}
       </Space>
