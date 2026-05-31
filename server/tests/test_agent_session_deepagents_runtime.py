@@ -195,12 +195,24 @@ def test_agent_session_repository_persists_async_subtasks(tmp_path: Path):
         }
     )
     updated = repository.update_subtask(task["id"], status="completed", result_json={"summary": "done"})
+    event = repository.add_subtask_event(
+        task["id"],
+        parent["id"],
+        "completed",
+        "done",
+        child_session_id=child["id"],
+        status="completed",
+        payload={"summary": "done"},
+    )
 
     assert updated["input_json"]["description"] == "inspect code"
     assert updated["result_json"]["summary"] == "done"
     assert repository.get_subtask(task["id"])["status"] == "completed"
     assert [item["id"] for item in repository.list_subtasks(parent["id"])] == [task["id"]]
     assert repository.list_subtasks(parent["id"], "running") == []
+    assert repository.list_subtask_events(task["id"])[0]["payload"]["summary"] == "done"
+    assert repository.list_parent_subtask_events(parent["id"])[0]["id"] == event["id"]
+    assert repository.summarize_subtask_metrics(parent["id"])["event_count"] == 1
 
 
 def test_local_async_subtask_start_check_and_list(monkeypatch, tmp_path: Path):
@@ -226,11 +238,15 @@ def test_local_async_subtask_start_check_and_list(monkeypatch, tmp_path: Path):
     listed = runner.list_async_subtasks(parent["id"])
 
     assert result["status"] == "running"
+    assert result["health_status"] == "waiting"
+    assert result["diagnostics"]["last_event_type"] == "scheduled"
     assert task["agent_name"] == "explore"
     assert child["agent_id"] == "explore"
     assert scheduled
     assert listed["tasks"][0]["task_id"] == result["task_id"]
     assert runner.check_async_subtask(parent["id"], result["task_id"])["status"] == "running"
+    assert runner.list_async_subtask_events(parent["id"], result["task_id"])[-1]["event_type"] == "scheduled"
+    assert runner.get_async_subtask_metrics(parent["id"])["total"] == 1
     assert any(part["payload"].get("agent_role") == "async_subagent" for part in repository.list_parts(parent["id"]))
 
 
@@ -316,6 +332,7 @@ def test_local_async_subtask_completion_writes_parent_summary(monkeypatch, tmp_p
 
     assert updated["status"] == "completed"
     assert updated["result_json"]["summary"] == "探索完成"
+    assert service.task_events(parent["id"], task["id"])[-1]["event_type"] == "completed"
     assert parent_parts[-1]["payload"]["agent_role"] == "async_subagent"
     assert parent_parts[-1]["payload"]["async_status"] == "completed"
     assert emitted[-1]["event_type"] == "async_subtask_completed"
@@ -341,6 +358,7 @@ def test_async_subagent_service_cancel_prevents_stale_child_completion(monkeypat
 
     assert cancelled["status"] == "cancelled"
     assert updated["status"] == "cancelled"
+    assert service.task_events(parent["id"], task_id)[-1]["event_type"] == "stale_child_ignored"
     assert repository.get_session(child_id)["status"] == "interrupted"
 
 

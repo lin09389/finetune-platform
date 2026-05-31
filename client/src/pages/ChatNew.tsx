@@ -311,6 +311,7 @@ const ChatPage: React.FC = () => {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>(() => localStorage.getItem(CHAT_WORKSPACE_ID_STORAGE_KEY) || '');
   const [workspaceProjectPath, setWorkspaceProjectPath] = useState<string>(() => localStorage.getItem(CHAT_PROJECT_PATH_STORAGE_KEY) || '');
   const [agentSessionOverview, setAgentSessionOverview] = useState<AgentSessionOverview | null>(null);
+  const [asyncTaskRefreshKey, setAsyncTaskRefreshKey] = useState(0);
   const agentSessionStreamsRef = useRef<Record<string, EventSource>>({});
   const agentSessionStateRef = useRef<Record<string, AgentSession>>({});
   const refreshedAgentSessionsRef = useRef<Set<string>>(new Set());
@@ -1250,6 +1251,9 @@ if (existing) {
             setAgentPhase({ phase: phaseStr, visible: true });
           }
           return;
+        }
+        if (chunk.chunk_type === 'async_task') {
+          setAsyncTaskRefreshKey((value) => value + 1);
         }
         const flushAgentDeltas = () => {
           if (agentDeltaFlushRef.current) {
@@ -3079,7 +3083,7 @@ if (existing) {
                   asyncTasksContent={(
                     <AgentAsyncTasksPanel
                       sessionId={latestAgentSessionId}
-                      refreshKey={agentSessionOverview?.session?.updated_at || messages.length}
+                      refreshKey={`${agentSessionOverview?.session?.updated_at || messages.length}:${asyncTaskRefreshKey}`}
                     />
                   )}
                   fileTreeContent={slimFilePanel}

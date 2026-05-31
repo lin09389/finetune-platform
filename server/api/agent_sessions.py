@@ -5,12 +5,14 @@ import json
 import time
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from agent_session.models import (
     AgentAsyncTaskCancelRequest,
+    AgentAsyncTaskEventResponse,
     AgentAsyncTaskListResponse,
+    AgentAsyncTaskMetricsResponse,
     AgentAsyncTaskResponse,
     AgentAsyncTaskStartRequest,
     AgentAsyncTaskUpdateRequest,
@@ -150,6 +152,31 @@ async def list_async_agent_tasks(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/{session_id}/async-tasks/metrics", response_model=AgentAsyncTaskMetricsResponse)
+async def get_async_agent_task_metrics(
+    session_id: str,
+    service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    try:
+        return await run_sync(service.get_async_subtask_metrics, session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/{session_id}/async-tasks/events", response_model=list[AgentAsyncTaskEventResponse])
+async def list_async_agent_task_events(
+    session_id: str,
+    limit: int = Query(default=100, ge=1, le=500),
+    service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    try:
+        return await run_sync(service.list_async_subtask_events, session_id, None, limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/{session_id}/async-tasks/{task_id}", response_model=AgentAsyncTaskResponse)
 async def get_async_agent_task(
     session_id: str,
@@ -159,6 +186,20 @@ async def get_async_agent_task(
 ):
     try:
         return await run_sync(service.check_async_subtask, session_id, task_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/{session_id}/async-tasks/{task_id}/events", response_model=list[AgentAsyncTaskEventResponse])
+async def list_single_async_agent_task_events(
+    session_id: str,
+    task_id: str,
+    limit: int = Query(default=100, ge=1, le=500),
+    service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    try:
+        return await run_sync(service.list_async_subtask_events, session_id, task_id, limit)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

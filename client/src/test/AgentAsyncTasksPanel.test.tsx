@@ -4,6 +4,8 @@ import AgentAsyncTasksPanel from '../components/chat/AgentAsyncTasksPanel';
 
 const apiMocks = vi.hoisted(() => ({
   listAgentAsyncTasks: vi.fn(),
+  getAgentAsyncTaskMetrics: vi.fn(),
+  listAgentAsyncTaskEvents: vi.fn(),
   startAgentAsyncTask: vi.fn(),
   cancelAgentAsyncTask: vi.fn(),
   updateAgentAsyncTask: vi.fn(),
@@ -42,6 +44,10 @@ describe('AgentAsyncTasksPanel', () => {
           status: 'running',
           input: { description: 'inspect code' },
           result: {},
+          diagnostics: { last_event_type: 'started', warnings: [] },
+          duration_ms: 1200,
+          queue_wait_ms: 100,
+          health_status: 'waiting',
           restart_count: 0,
           created_at: '2026-01-01T00:00:00',
           updated_at: '2026-01-01T00:00:00',
@@ -55,12 +61,41 @@ describe('AgentAsyncTasksPanel', () => {
           status: 'completed',
           input: { description: 'review code' },
           result: { summary: 'done' },
+          diagnostics: { last_event_type: 'completed', warnings: [] },
+          duration_ms: 2400,
+          queue_wait_ms: 50,
+          health_status: 'ok',
           restart_count: 0,
           created_at: '2026-01-01T00:00:00',
           updated_at: '2026-01-01T00:00:00',
         },
       ],
     });
+    apiMocks.getAgentAsyncTaskMetrics.mockResolvedValue({
+      total: 2,
+      by_status: { running: 1, completed: 1 },
+      running: 1,
+      failed: 0,
+      cancelled: 0,
+      completed: 1,
+      attention: 0,
+      recovery_count: 0,
+      event_count: 2,
+      last_event: null,
+    });
+    apiMocks.listAgentAsyncTaskEvents.mockResolvedValue([
+      {
+        id: 'aste_1',
+        task_id: 'agt_1',
+        parent_session_id: 'ags_parent',
+        child_session_id: 'ags_child',
+        event_type: 'started',
+        status: 'running',
+        message: 'started',
+        payload: {},
+        created_at: '2026-01-01T00:00:00',
+      },
+    ]);
   });
 
   it('renders async task statuses and available actions', async () => {
@@ -70,6 +105,8 @@ describe('AgentAsyncTasksPanel', () => {
     expect(screen.getByText('review code')).toBeInTheDocument();
     expect(screen.getByText('运行中')).toBeInTheDocument();
     expect(screen.getByText('完成')).toBeInTheDocument();
+    expect(screen.getByText('事件 started')).toBeInTheDocument();
+    expect(screen.getByText('健康')).toBeInTheDocument();
     expect(screen.getByText('取消')).toBeInTheDocument();
     expect(screen.getAllByText('重启').length).toBeGreaterThan(0);
   });

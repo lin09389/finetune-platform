@@ -24,6 +24,23 @@ def _now() -> str:
     return datetime.now().isoformat()
 
 
+def _parse_time(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def _elapsed_ms(start: Any, end: Any) -> int | None:
+    start_dt = _parse_time(start)
+    end_dt = _parse_time(end)
+    if not start_dt or not end_dt:
+        return None
+    return max(0, int((end_dt - start_dt).total_seconds() * 1000))
+
+
 class AsyncSubagentService:
     _tasks: dict[str, asyncio.Task[Any]] = {}
     _tasks_lock = asyncio.Lock()
@@ -65,6 +82,7 @@ class AsyncSubagentService:
                 "previous_child_session_ids": [],
             }
         )
+        self._record_subtask_event(task, "created", f"{target.name} 子任务已创建。", notify_parent=False)
         child = self._create_child_session(parent, target, task["id"], 1)
         task = self.repository.update_subtask(
             task["id"],
@@ -74,7 +92,13 @@ class AsyncSubagentService:
             error=None,
         )
         self._publish_parent_part(parent_session_id, task, "running", f"{target.name} 子任务已启动。", "async_subtask_started")
-        await self._schedule_task(task["id"], str(child.get("id")), description)
+        scheduled = await self._schedule_task(task["id"], str(child.get("id")), description)
+        self._record_subtask_event(
+            task,
+            "scheduled" if scheduled else "schedule_skipped",
+            "异步子任务已进入本地调度器。",
+            notify_parent=False,
+        )
         return self.task_response(task)
 
     def check_task(self, parent_session_id: str, task_id: str) -> dict[str, Any]:
@@ -148,7 +172,13 @@ class AsyncSubagentService:
             cancelled_at=None,
         )
         self._publish_parent_part(parent_session_id, updated, "running", f"{target.name} 子任务已重启。", "async_subtask_restarted")
-        await self._schedule_task(updated["id"], str(child.get("id")), description)
+        scheduled = await self._schedule_task(updated["id"], str(child.get("id")), description)
+        self._record_subtask_event(
+            updated,
+            "scheduled" if scheduled else "schedule_skipped",
+            "重启后的异步子任务已进入本地调度器。",
+            notify_parent=False,
+        )
         return self.task_response(updated, include_result=True)
 
     async def recover_running_tasks(self) -> dict[str, Any]:
@@ -157,22 +187,39 @@ class AsyncSubagentService:
         for task in self.repository.list_all_subtasks(statuses={"pending", "running"}):
             refreshed = self._refresh_from_child(task)
             if refreshed.get("status") in ASYNC_SUBTASK_TERMINAL_STATUSES:
+                self._record_subtask_event(refreshed, "recovery_skipped", "异步子任务已是终态，恢复流程跳过。", notify_parent=False)
                 synchronized += 1
                 continue
             child_session_id = str(refreshed.get("child_session_id") or "")
             description = str((refreshed.get("input_json") or {}).get("description") or "")
             if not child_session_id or not description:
-                self.repository.update_subtask(
+                failed = self.repository.update_subtask(
                     refreshed["id"],
                     status="failed",
                     error="Async subtask cannot be recovered because child session or description is missing.",
                     completed_at=_now(),
                 )
+                self._record_subtask_event(failed, "recovery_failed", "异步子任务缺少 child session 或描述，无法恢复。", notify_parent=False)
                 synchronized += 1
                 continue
             if await self._schedule_task(refreshed["id"], child_session_id, description, recovered=True):
+                self._record_subtask_event(refreshed, "recovered", "异步子任务已在服务启动时重新调度。", payload={"recovered": True})
                 scheduled += 1
         return {"scheduled": scheduled, "synchronized": synchronized}
+
+    def task_events(self, parent_session_id: str, task_id: str, limit: int | None = None) -> list[dict[str, Any]]:
+        self._require_task(parent_session_id, task_id)
+        events = self.repository.list_subtask_events(task_id)
+        return events[-limit:] if limit else events
+
+    def parent_events(self, parent_session_id: str, limit: int | None = None) -> list[dict[str, Any]]:
+        self._require_parent(parent_session_id)
+        events = self.repository.list_parent_subtask_events(parent_session_id)
+        return events[-limit:] if limit else events
+
+    def metrics(self, parent_session_id: str) -> dict[str, Any]:
+        self._require_parent(parent_session_id)
+        return self.repository.summarize_subtask_metrics(parent_session_id)
 
     async def shutdown(self) -> None:
         async with self._tasks_lock:
@@ -203,7 +250,16 @@ class AsyncSubagentService:
         async with semaphore:
             task = self.repository.get_subtask(task_id)
             if not task or task.get("child_session_id") != child_session_id or task.get("status") != "running":
+                if task:
+                    self._record_subtask_event(
+                        task,
+                        "stale_child_ignored",
+                        "旧 child session 结果已忽略。",
+                        payload={"child_session_id": child_session_id},
+                        notify_parent=False,
+                    )
                 return
+            self._record_subtask_event(task, "started", "异步子任务开始执行。", payload={"recovered": recovered}, notify_parent=False)
             try:
                 from .deepagents_runtime import DeepAgentsSessionRunner
 
@@ -216,6 +272,14 @@ class AsyncSubagentService:
                 result = await child_runner.run_prompt(child_session_id, description)
                 fresh = self.repository.get_subtask(task_id)
                 if not fresh or fresh.get("child_session_id") != child_session_id or fresh.get("status") != "running":
+                    if fresh:
+                        self._record_subtask_event(
+                            fresh,
+                            "stale_child_ignored",
+                            "旧 child session 完成结果已忽略。",
+                            payload={"child_session_id": child_session_id},
+                            notify_parent=False,
+                        )
                     return
                 status = "completed" if result.get("status") == "completed" else "failed"
                 summary = self._latest_summary(child_session_id) or f"子任务状态：{result.get('status')}"
@@ -239,6 +303,14 @@ class AsyncSubagentService:
             except Exception as exc:
                 fresh = self.repository.get_subtask(task_id)
                 if not fresh or fresh.get("child_session_id") != child_session_id or fresh.get("status") != "running":
+                    if fresh:
+                        self._record_subtask_event(
+                            fresh,
+                            "stale_child_ignored",
+                            "旧 child session 异常结果已忽略。",
+                            payload={"child_session_id": child_session_id},
+                            notify_parent=False,
+                        )
                     return
                 updated = self.repository.update_subtask(task_id, status="failed", error=str(exc)[:1200], completed_at=_now())
                 self._publish_parent_part(
@@ -307,21 +379,25 @@ class AsyncSubagentService:
         child_status = str((child or {}).get("status") or "")
         if child_status == "completed":
             summary = self._latest_summary(str(task.get("child_session_id"))) or "异步子任务已完成。"
-            return self.repository.update_subtask(
+            updated = self.repository.update_subtask(
                 task["id"],
                 status="completed",
                 result_json={"summary": summary, "child_status": child_status},
                 completed_at=_now(),
             )
+            self._record_subtask_event(updated, "completed", summary)
+            return updated
         if child_status in CHILD_FAILURE_STATUSES:
             summary = self._latest_summary(str(task.get("child_session_id"))) or f"子任务状态：{child_status}"
-            return self.repository.update_subtask(
+            updated = self.repository.update_subtask(
                 task["id"],
                 status="failed",
                 result_json={"summary": summary, "child_status": child_status},
                 error=summary,
                 completed_at=_now(),
             )
+            self._record_subtask_event(updated, "failed", summary)
+            return updated
         return task
 
     def _interrupt_child(self, child_session_id: str, reason: str) -> None:
@@ -338,6 +414,8 @@ class AsyncSubagentService:
     def _publish_parent_part(self, parent_session_id: str, task: dict[str, Any], status: str, content: str, event_type: str) -> None:
         if not parent_session_id:
             return
+        short_event_type = event_type.removeprefix("async_subtask_")
+        self._record_subtask_event(task, short_event_type, content, status=status, notify_parent=False)
         payload = {
             "runtime": "deepagents",
             "task_id": task.get("id"),
@@ -345,6 +423,8 @@ class AsyncSubagentService:
             "agent_name": task.get("agent_name"),
             "agent_role": "async_subagent",
             "async_status": status,
+            "health_status": self._health_status(task),
+            "chunk_type": "async_task",
         }
         part = self.repository.add_part(
             parent_session_id,
@@ -370,6 +450,52 @@ class AsyncSubagentService:
         )
         self.notify_event(parent_session_id, event)
 
+    def _record_subtask_event(
+        self,
+        task: dict[str, Any],
+        event_type: str,
+        message: str,
+        *,
+        status: str | None = None,
+        payload: dict[str, Any] | None = None,
+        notify_parent: bool = True,
+    ) -> dict[str, Any]:
+        parent_session_id = str(task.get("parent_session_id") or "")
+        event = self.repository.add_subtask_event(
+            str(task.get("id") or ""),
+            parent_session_id,
+            event_type,
+            message,
+            child_session_id=task.get("child_session_id"),
+            status=status or task.get("status"),
+            payload={
+                "agent_name": task.get("agent_name"),
+                "restart_count": task.get("restart_count") or 0,
+                "health_status": self._health_status(task),
+                **(payload or {}),
+            },
+        )
+        if notify_parent and parent_session_id:
+            parent_event = self.repository.add_event(
+                parent_session_id,
+                f"async_subtask_{event_type}",
+                message,
+                {
+                    "session_id": parent_session_id,
+                    "task_id": task.get("id"),
+                    "child_session_id": task.get("child_session_id"),
+                    "agent_name": task.get("agent_name"),
+                    "agent_role": "async_subagent",
+                    "async_status": status or task.get("status"),
+                    "health_status": self._health_status(task),
+                    "chunk_type": "async_task",
+                    "subtask_event": event,
+                    "summary": message,
+                },
+            )
+            self.notify_event(parent_session_id, parent_event)
+        return event
+
     def _latest_summary(self, session_id: str) -> str:
         for part in reversed(self.repository.list_parts(session_id)):
             if part.get("type") == "summary" and part.get("content"):
@@ -383,11 +509,13 @@ class AsyncSubagentService:
             raise ValueError(f"Invalid async task status filter: {status_filter}")
         return normalized
 
-    @staticmethod
-    def task_response(task: dict[str, Any], *, include_result: bool = False) -> dict[str, Any]:
+    def task_response(self, task: dict[str, Any], *, include_result: bool = False) -> dict[str, Any]:
         result = task.get("result_json") or {}
         if not include_result and task.get("status") not in ASYNC_SUBTASK_TERMINAL_STATUSES:
             result = {}
+        events = self.repository.list_subtask_events(str(task.get("id") or ""))
+        tail_events = events[-20:] if include_result else []
+        diagnostics = self._task_diagnostics(task, events)
         return {
             "task_id": task.get("id"),
             "parent_session_id": task.get("parent_session_id"),
@@ -405,4 +533,59 @@ class AsyncSubagentService:
             "completed_at": task.get("completed_at"),
             "cancelled_at": task.get("cancelled_at"),
             "last_checked_at": task.get("last_checked_at"),
+            "diagnostics": diagnostics,
+            "events": tail_events,
+            "duration_ms": self._duration_ms(task),
+            "queue_wait_ms": _elapsed_ms(task.get("created_at"), task.get("started_at")),
+            "health_status": self._health_status(task),
         }
+
+    def _task_diagnostics(self, task: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
+        child_session_id = str(task.get("child_session_id") or "")
+        child = self.repository.get_session(child_session_id) if child_session_id else None
+        last = events[-1] if events else None
+        warnings: list[str] = []
+        status = str(task.get("status") or "")
+        if status == "failed" and task.get("error"):
+            warnings.append(str(task.get("error")))
+        if status in {"pending", "running"} and not child_session_id:
+            warnings.append("缺少 child session，任务可能无法执行。")
+        return {
+            "last_event_type": (last or {}).get("event_type"),
+            "last_event_at": (last or {}).get("created_at"),
+            "recovery_count": sum(1 for event in events if event.get("event_type") == "recovered"),
+            "restart_count": int(task.get("restart_count") or 0),
+            "child_status": (child or {}).get("status"),
+            "registry_state": self._registry_state(str(task.get("id") or "")),
+            "warnings": warnings,
+        }
+
+    @classmethod
+    def _registry_state(cls, task_id: str) -> str:
+        task = cls._tasks.get(task_id)
+        if task is None:
+            return "idle"
+        if hasattr(task, "done") and task.done():
+            return "done"
+        return "scheduled"
+
+    @staticmethod
+    def _duration_ms(task: dict[str, Any]) -> int | None:
+        start = task.get("started_at") or task.get("created_at")
+        end = task.get("completed_at") or task.get("cancelled_at")
+        if not end and task.get("status") in {"pending", "running"}:
+            end = _now()
+        return _elapsed_ms(start, end)
+
+    @staticmethod
+    def _health_status(task: dict[str, Any]) -> str:
+        status = str(task.get("status") or "")
+        if status == "completed":
+            return "ok"
+        if status == "cancelled":
+            return "cancelled"
+        if status == "failed":
+            return "failed"
+        if status in {"pending", "running"}:
+            return "waiting"
+        return "attention"

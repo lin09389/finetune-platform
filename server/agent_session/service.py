@@ -92,6 +92,14 @@ class AgentSessionService:
     def list_async_subtasks(self, session_id: str, status_filter: str | None = None) -> dict[str, Any]:
         return self.async_subagent_service.list_tasks(session_id, status_filter)
 
+    def list_async_subtask_events(self, session_id: str, task_id: str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
+        if task_id:
+            return self.async_subagent_service.task_events(session_id, task_id, limit)
+        return self.async_subagent_service.parent_events(session_id, limit)
+
+    def get_async_subtask_metrics(self, session_id: str) -> dict[str, Any]:
+        return self.async_subagent_service.metrics(session_id)
+
     async def cancel_async_subtask(self, session_id: str, task_id: str, reason: str | None = None) -> dict[str, Any]:
         self._sync_async_service_model_call()
         return await self.async_subagent_service.cancel_task(session_id, task_id, reason)
@@ -591,6 +599,7 @@ class AgentSessionService:
             "task_id": payload.get("task_id"),
             "child_session_id": payload.get("child_session_id"),
             "async_status": payload.get("async_status"),
+            "health_status": payload.get("health_status"),
             "delta": payload.get("delta"),
             "content": payload.get("content"),
             "summary": payload.get("summary") or event.get("message"),
@@ -707,6 +716,8 @@ class AgentSessionService:
 
     @staticmethod
     def _stream_chunk_type(event_type: str, payload: dict[str, Any], part: dict[str, Any] | None) -> str:
+        if event_type.startswith("async_subtask_") or payload.get("agent_role") == "async_subagent":
+            return "async_task"
         if event_type == "phase_change":
             return "phase"
         if event_type == "model_stream_started":

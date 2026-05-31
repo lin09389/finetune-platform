@@ -372,6 +372,15 @@ class DeepAgentsSessionRunner:
     def list_async_subtasks(self, parent_session_id: str, status_filter: str | None = None) -> dict[str, Any]:
         return self._async_subagent_service().list_tasks(parent_session_id, status_filter)
 
+    def list_async_subtask_events(self, parent_session_id: str, task_id: str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
+        service = self._async_subagent_service()
+        if task_id:
+            return service.task_events(parent_session_id, task_id, limit)
+        return service.parent_events(parent_session_id, limit)
+
+    def get_async_subtask_metrics(self, parent_session_id: str) -> dict[str, Any]:
+        return self._async_subagent_service().metrics(parent_session_id)
+
     @staticmethod
     def _json_tool_result(result: dict[str, Any]) -> str:
         return json.dumps(result, ensure_ascii=False)

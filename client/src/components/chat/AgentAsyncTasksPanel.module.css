@@ -22,6 +22,33 @@
   gap: 8px;
 }
 
+.metricsRow {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.metricsRow > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 76%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-elevated) 78%, transparent);
+}
+
+.metricsRow strong {
+  font-size: 15px;
+  line-height: 1.1;
+}
+
+.metricsRow span {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
 .taskItem {
   display: flex;
   flex-direction: column;
@@ -66,6 +93,12 @@
   gap: 6px;
 }
 
+.warningText {
+  color: var(--color-error, #cf1322);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .createForm,
 .restartForm {
   display: flex;
@@ -75,4 +108,26 @@
 
 .drawerBody {
   min-height: 360px;
+}
+
+.eventList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.eventItem {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+  border-radius: 8px;
+}
+
+.eventHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }

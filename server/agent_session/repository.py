@@ -46,6 +46,15 @@ def _subtask_row(row: Any | None) -> dict[str, Any] | None:
     return data
 
 
+def _subtask_event_row(row: Any | None) -> dict[str, Any] | None:
+    data = _row(row)
+    if data is None:
+        return None
+    if "payload_json" in data:
+        data["payload"] = _load(data.pop("payload_json"))
+    return data
+
+
 class AgentSessionRepository:
     def __init__(self, db_path: str = APP_DB_PATH):
         self.db_path = db_path
@@ -107,9 +116,29 @@ class AgentSessionRepository:
                     restart_count INTEGER NOT NULL DEFAULT 0,
                     previous_child_session_ids TEXT NOT NULL DEFAULT '[]'
                 );
+
+                CREATE TABLE IF NOT EXISTS agent_subtask_events (
+                    id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL,
+                    parent_session_id TEXT NOT NULL,
+                    child_session_id TEXT,
+                    event_type TEXT NOT NULL,
+                    status TEXT,
+                    message TEXT NOT NULL,
+                    payload_json TEXT NOT NULL DEFAULT '{}',
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_agent_subtask_events_task_created
+                    ON agent_subtask_events(task_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_agent_subtask_events_parent_created
+                    ON agent_subtask_events(parent_session_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_agent_subtask_events_type
+                    ON agent_subtask_events(event_type);
                 """
             )
         self._ensure_subtask_columns()
+        self._ensure_subtask_event_columns()
 
     def _ensure_subtask_columns(self) -> None:
         expected = {
@@ -126,6 +155,27 @@ class AgentSessionRepository:
                 if column not in existing:
                     validate_column_names([column])
                     conn.execute(f"ALTER TABLE agent_subtasks ADD COLUMN {column} {definition}")
+
+    def _ensure_subtask_event_columns(self) -> None:
+        expected = {
+            "child_session_id": "TEXT",
+            "status": "TEXT",
+            "payload_json": "TEXT NOT NULL DEFAULT '{}'",
+        }
+        with get_db_pool(self.db_path).get_connection() as conn:
+            rows = conn.execute("PRAGMA table_info(agent_subtask_events)").fetchall()
+            existing = {row["name"] for row in rows}
+            for column, definition in expected.items():
+                if column not in existing:
+                    validate_column_names([column])
+                    conn.execute(f"ALTER TABLE agent_subtask_events ADD COLUMN {column} {definition}")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_agent_subtask_events_task_created ON agent_subtask_events(task_id, created_at)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_agent_subtask_events_parent_created ON agent_subtask_events(parent_session_id, created_at)"
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_subtask_events_type ON agent_subtask_events(event_type)")
 
     def create_session(self, data: dict[str, Any]) -> dict[str, Any]:
         now = _now()
@@ -328,3 +378,74 @@ class AgentSessionRepository:
         with get_db_pool(self.db_path).get_readonly_connection() as conn:
             rows = conn.execute(query, params).fetchall()
         return [_subtask_row(row) or {} for row in rows]
+
+    def add_subtask_event(
+        self,
+        task_id: str,
+        parent_session_id: str,
+        event_type: str,
+        message: str,
+        *,
+        child_session_id: str | None = None,
+        status: str | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        event_id = f"aste_{uuid.uuid4().hex}"
+        now = _now()
+        with get_db_pool(self.db_path).get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO agent_subtask_events
+                    (id, task_id, parent_session_id, child_session_id, event_type, status, message, payload_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (event_id, task_id, parent_session_id, child_session_id, event_type, status, message, _json(payload or {}), now),
+            )
+        return self.get_subtask_event(event_id) or {}
+
+    def get_subtask_event(self, event_id: str) -> dict[str, Any] | None:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
+            row = conn.execute("SELECT * FROM agent_subtask_events WHERE id = ?", (event_id,)).fetchone()
+        return _subtask_event_row(row)
+
+    def list_subtask_events(self, task_id: str, limit: int | None = None) -> list[dict[str, Any]]:
+        query = "SELECT * FROM agent_subtask_events WHERE task_id = ? ORDER BY created_at ASC, rowid ASC"
+        params: tuple[Any, ...] = (task_id,)
+        if limit is not None:
+            query += " LIMIT ?"
+            params = (task_id, max(1, int(limit)))
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [_subtask_event_row(row) or {} for row in rows]
+
+    def list_parent_subtask_events(self, parent_session_id: str, limit: int | None = None) -> list[dict[str, Any]]:
+        query = "SELECT * FROM agent_subtask_events WHERE parent_session_id = ? ORDER BY created_at ASC, rowid ASC"
+        params: tuple[Any, ...] = (parent_session_id,)
+        if limit is not None:
+            query += " LIMIT ?"
+            params = (parent_session_id, max(1, int(limit)))
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [_subtask_event_row(row) or {} for row in rows]
+
+    def summarize_subtask_metrics(self, parent_session_id: str) -> dict[str, Any]:
+        tasks = self.list_subtasks(parent_session_id)
+        events = self.list_parent_subtask_events(parent_session_id)
+        by_status: dict[str, int] = {}
+        for task in tasks:
+            status = str(task.get("status") or "unknown")
+            by_status[status] = by_status.get(status, 0) + 1
+        attention = sum(1 for task in tasks if str(task.get("status") or "") in {"failed"})
+        recovery_count = sum(1 for event in events if str(event.get("event_type") or "") == "recovered")
+        return {
+            "total": len(tasks),
+            "by_status": by_status,
+            "running": by_status.get("running", 0),
+            "failed": by_status.get("failed", 0),
+            "cancelled": by_status.get("cancelled", 0),
+            "completed": by_status.get("completed", 0),
+            "attention": attention,
+            "recovery_count": recovery_count,
+            "event_count": len(events),
+            "last_event": events[-1] if events else None,
+        }

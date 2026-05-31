@@ -20,6 +20,7 @@ AgentSessionStatus = Literal[
 AgentPartType = Literal["text", "tool_call", "tool_result", "diff", "command", "permission", "summary", "error"]
 AgentPartStatus = Literal["pending", "running", "completed", "failed", "blocked", "approved", "executed"]
 AgentAsyncTaskStatus = Literal["pending", "running", "completed", "failed", "cancelled"]
+AgentAsyncTaskHealthStatus = Literal["ok", "waiting", "attention", "failed", "cancelled"]
 AgentHitlDecisionType = Literal["approve", "edit", "reject", "respond"]
 TaskStageStatus = Literal["pending", "running", "blocked", "completed", "failed", "waiting_approval"]
 TaskNodeStatus = Literal["pending", "running", "blocked", "completed", "failed", "waiting_approval"]
@@ -103,11 +104,41 @@ class AgentAsyncTaskResponse(BaseModel):
     completed_at: str | None = None
     cancelled_at: str | None = None
     last_checked_at: str | None = None
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
+    events: list[dict[str, Any]] = Field(default_factory=list)
+    duration_ms: int | None = None
+    queue_wait_ms: int | None = None
+    health_status: AgentAsyncTaskHealthStatus = "waiting"
 
 
 class AgentAsyncTaskListResponse(BaseModel):
     tasks: list[AgentAsyncTaskResponse] = Field(default_factory=list)
     status_filter: str = "all"
+
+
+class AgentAsyncTaskEventResponse(BaseModel):
+    id: str
+    task_id: str
+    parent_session_id: str
+    child_session_id: str | None = None
+    event_type: str
+    status: str | None = None
+    message: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    created_at: str
+
+
+class AgentAsyncTaskMetricsResponse(BaseModel):
+    total: int = 0
+    by_status: dict[str, int] = Field(default_factory=dict)
+    running: int = 0
+    failed: int = 0
+    cancelled: int = 0
+    completed: int = 0
+    attention: int = 0
+    recovery_count: int = 0
+    event_count: int = 0
+    last_event: dict[str, Any] | None = None
 
 
 class AgentHitlEditedAction(BaseModel):

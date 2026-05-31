@@ -881,11 +881,41 @@ export interface AgentAsyncTask {
   completed_at?: string | null;
   cancelled_at?: string | null;
   last_checked_at?: string | null;
+  diagnostics?: Record<string, any>;
+  events?: AgentAsyncTaskEvent[];
+  duration_ms?: number | null;
+  queue_wait_ms?: number | null;
+  health_status?: 'ok' | 'waiting' | 'attention' | 'failed' | 'cancelled';
 }
 
 export interface AgentAsyncTaskListResponse {
   tasks: AgentAsyncTask[];
   status_filter: string;
+}
+
+export interface AgentAsyncTaskEvent {
+  id: string;
+  task_id: string;
+  parent_session_id: string;
+  child_session_id?: string | null;
+  event_type: string;
+  status?: string | null;
+  message: string;
+  payload: Record<string, any>;
+  created_at: string;
+}
+
+export interface AgentAsyncTaskMetrics {
+  total: number;
+  by_status: Record<string, number>;
+  running: number;
+  failed: number;
+  cancelled: number;
+  completed: number;
+  attention: number;
+  recovery_count: number;
+  event_count: number;
+  last_event?: AgentAsyncTaskEvent | null;
 }
 
 export interface AgentSessionEvent {
@@ -905,6 +935,7 @@ export interface AgentSessionEvent {
     | 'action'
     | 'summary'
     | 'error'
+    | 'async_task'
     | 'tool'
     | 'event'
     | 'session_snapshot';
@@ -920,6 +951,7 @@ export interface AgentSessionEvent {
   task_id?: string;
   child_session_id?: string;
   async_status?: string;
+  health_status?: string;
   delta?: string;
   content?: string;
   summary?: string;
@@ -1082,6 +1114,23 @@ export const listAgentAsyncTasks = async (
 
 export const getAgentAsyncTask = async (sessionId: string, taskId: string): Promise<AgentAsyncTask> => {
   const response = await apiClient.get(`/agent-sessions/${sessionId}/async-tasks/${taskId}`);
+  return response.data;
+};
+
+export const getAgentAsyncTaskMetrics = async (sessionId: string): Promise<AgentAsyncTaskMetrics> => {
+  const response = await apiClient.get(`/agent-sessions/${sessionId}/async-tasks/metrics`);
+  return response.data;
+};
+
+export const listAgentAsyncTaskEvents = async (
+  sessionId: string,
+  taskId?: string,
+  limit = 100,
+): Promise<AgentAsyncTaskEvent[]> => {
+  const suffix = taskId ? `/${taskId}/events` : '/events';
+  const response = await apiClient.get(`/agent-sessions/${sessionId}/async-tasks${suffix}`, {
+    params: { limit },
+  });
   return response.data;
 };
 
