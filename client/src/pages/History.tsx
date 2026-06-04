@@ -1004,7 +1004,7 @@ export default function History({ mode = 'history' }: HistoryProps) {
         <div className={`${glassStyles.glassCard} ${styles.tableCard}`}>
           <Table
             columns={columns}
-            dataSource={trainingRecords}
+            dataSource={sortRecentFirst(trainingRecords)}
             rowKey="id"
             rowSelection={{
               selectedRowKeys: compareIds,
