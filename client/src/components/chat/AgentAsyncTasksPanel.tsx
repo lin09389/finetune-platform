@@ -7,22 +7,15 @@ import {
   RetweetOutlined,
 } from '@ant-design/icons';
 import { Button, Drawer, Empty, Input, Modal, Select, Space, Tag, Typography } from 'antd';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  cancelAgentAsyncTask,
-  getAgentAsyncTaskMetrics,
-  getAgentSession,
   listAgentAsyncTaskEvents,
-  listAgentAsyncTasks,
-  startAgentAsyncTask,
-  updateAgentAsyncTask,
   type AgentAsyncTask,
   type AgentAsyncTaskEvent,
   type AgentAsyncTaskMetrics,
-  type AgentSession,
 } from '../../services/api';
 import { notify } from '../../utils/notify';
-import AgentSessionTimeline from './AgentSessionTimeline';
+import { AgentChildSessionDetail } from './AgentChildSessionDrawer';
 import styles from './AgentAsyncTasksPanel.module.css';
 
 const statusOptions = [
@@ -81,74 +74,77 @@ function formatDuration(ms?: number | null) {
 
 interface AgentAsyncTasksPanelProps {
   sessionId?: string | null;
-  refreshKey?: string | number;
+  tasks: AgentAsyncTask[];
+  metrics: AgentAsyncTaskMetrics | null;
+  loading: boolean;
+  statusFilter: string;
+  focusedTaskId?: string | null;
+  expandedTaskId?: string | null;
+  onStatusFilterChange: (filter: string) => void;
+  onExpandedTaskChange?: (taskId: string | null) => void;
+  onRefresh: () => void | Promise<void>;
+  onStartTask: (payload: { subagent_type: string; description: string }) => void | Promise<void>;
+  onCancelTask: (taskId: string, payload?: { reason?: string }) => void | Promise<void>;
+  onRestartTask: (taskId: string, payload: { description: string }) => void | Promise<void>;
 }
 
-export default function AgentAsyncTasksPanel({ sessionId, refreshKey }: AgentAsyncTasksPanelProps) {
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [tasks, setTasks] = useState<AgentAsyncTask[]>([]);
-  const [loading, setLoading] = useState(false);
+export default function AgentAsyncTasksPanel({
+  sessionId,
+  tasks,
+  metrics,
+  loading,
+  statusFilter,
+  focusedTaskId,
+  expandedTaskId,
+  onStatusFilterChange,
+  onExpandedTaskChange,
+  onRefresh,
+  onStartTask,
+  onCancelTask,
+  onRestartTask,
+}: AgentAsyncTasksPanelProps) {
   const [subagentType, setSubagentType] = useState('explore');
   const [description, setDescription] = useState('');
+  const [createOpen, setCreateOpen] = useState(false);
   const [activeTask, setActiveTask] = useState<AgentAsyncTask | null>(null);
   const [restartDescription, setRestartDescription] = useState('');
-  const [childSession, setChildSession] = useState<AgentSession | null>(null);
-  const [childOpen, setChildOpen] = useState(false);
-  const [metrics, setMetrics] = useState<AgentAsyncTaskMetrics | null>(null);
+  const [localExpandedTaskId, setLocalExpandedTaskId] = useState<string | null>(null);
   const [eventsOpen, setEventsOpen] = useState(false);
   const [taskEvents, setTaskEvents] = useState<AgentAsyncTaskEvent[]>([]);
   const [eventsTask, setEventsTask] = useState<AgentAsyncTask | null>(null);
+  const taskRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const isExpandedControlled = expandedTaskId !== undefined;
+  const currentExpandedTaskId = isExpandedControlled ? expandedTaskId : localExpandedTaskId;
+  const setExpandedTaskId = onExpandedTaskChange ?? setLocalExpandedTaskId;
 
   const canCreate = Boolean(sessionId && description.trim());
 
-  const loadTasks = useCallback(async () => {
-    if (!sessionId) {
-      setTasks([]);
-      return;
-    }
-    setLoading(true);
-    try {
-      const [response, nextMetrics] = await Promise.all([
-        listAgentAsyncTasks(sessionId, statusFilter),
-        getAgentAsyncTaskMetrics(sessionId),
-      ]);
-      setTasks(response.tasks);
-      setMetrics(nextMetrics);
-    } catch (error) {
-      notify.error('异步子任务加载失败');
-    } finally {
-      setLoading(false);
-    }
-  }, [sessionId, statusFilter]);
-
   useEffect(() => {
-    void loadTasks();
-  }, [loadTasks, refreshKey]);
+    if (!focusedTaskId) return;
+    const node = taskRefs.current[focusedTaskId];
+    node?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+    if (tasks.some((task) => task.task_id === focusedTaskId)) {
+      setExpandedTaskId(focusedTaskId);
+    }
+  }, [focusedTaskId, setExpandedTaskId, tasks]);
 
   const handleCreate = async () => {
     if (!sessionId || !canCreate) return;
-    setLoading(true);
     try {
-      await startAgentAsyncTask(sessionId, { subagent_type: subagentType, description: description.trim() });
+      await onStartTask({ subagent_type: subagentType, description: description.trim() });
       setDescription('');
-      await loadTasks();
+      setCreateOpen(false);
     } catch (error) {
       notify.error('异步子任务启动失败');
-    } finally {
-      setLoading(false);
     }
   };
 
   const handleCancel = async (task: AgentAsyncTask) => {
     if (!sessionId) return;
-    setLoading(true);
     try {
-      await cancelAgentAsyncTask(sessionId, task.task_id, { reason: '用户在任务面板取消。' });
-      await loadTasks();
+      await onCancelTask(task.task_id, { reason: '用户在任务面板取消。' });
     } catch (error) {
       notify.error('异步子任务取消失败');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -159,28 +155,18 @@ export default function AgentAsyncTasksPanel({ sessionId, refreshKey }: AgentAsy
 
   const handleRestart = async () => {
     if (!sessionId || !activeTask || !restartDescription.trim()) return;
-    setLoading(true);
     try {
-      await updateAgentAsyncTask(sessionId, activeTask.task_id, { description: restartDescription.trim() });
+      await onRestartTask(activeTask.task_id, { description: restartDescription.trim() });
       setActiveTask(null);
       setRestartDescription('');
-      await loadTasks();
     } catch (error) {
       notify.error('异步子任务重启失败');
-    } finally {
-      setLoading(false);
     }
   };
 
-  const openChildSession = async (task: AgentAsyncTask) => {
+  const toggleChildSession = (task: AgentAsyncTask) => {
     if (!task.child_session_id) return;
-    setChildOpen(true);
-    setChildSession(null);
-    try {
-      setChildSession(await getAgentSession(task.child_session_id));
-    } catch (error) {
-      notify.error('子会话加载失败');
-    }
+    setExpandedTaskId(currentExpandedTaskId === task.task_id ? null : task.task_id);
   };
 
   const openTaskEvents = async (task: AgentAsyncTask) => {
@@ -201,30 +187,35 @@ export default function AgentAsyncTasksPanel({ sessionId, refreshKey }: AgentAsy
 
   return (
     <div className={styles.panel}>
-      <div className={styles.createForm}>
-        <Space.Compact block>
-          <Select value={subagentType} options={agentOptions} onChange={setSubagentType} style={{ width: 112 }} />
-          <Button type="primary" icon={<PlusOutlined />} disabled={!canCreate} loading={loading} onClick={handleCreate}>
-            创建
-          </Button>
-        </Space.Compact>
-        <Input.TextArea
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-          rows={3}
-          placeholder="输入子任务目标"
-        />
-      </div>
-
       <div className={styles.toolbar}>
         <Select
           className={styles.toolbarSelect}
           value={statusFilter}
           options={statusOptions}
-          onChange={setStatusFilter}
+          onChange={onStatusFilterChange}
         />
-        <Button icon={<ReloadOutlined />} loading={loading} onClick={loadTasks} />
+        <Button icon={<PlusOutlined />} onClick={() => setCreateOpen((value) => !value)}>
+          新建子任务
+        </Button>
+        <Button aria-label="刷新异步子任务" icon={<ReloadOutlined />} loading={loading} onClick={() => void onRefresh()} />
       </div>
+
+      {createOpen ? (
+        <div className={styles.createForm}>
+          <Space.Compact block>
+            <Select value={subagentType} options={agentOptions} onChange={setSubagentType} style={{ width: 112 }} />
+            <Button type="primary" icon={<PlusOutlined />} disabled={!canCreate} loading={loading} onClick={handleCreate}>
+              创建
+            </Button>
+          </Space.Compact>
+          <Input.TextArea
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            rows={3}
+            placeholder="输入子任务目标"
+          />
+        </div>
+      ) : null}
 
       <div className={styles.metricsRow}>
         <div><strong>{metrics?.total ?? tasks.length}</strong><span>总数</span></div>
@@ -237,8 +228,15 @@ export default function AgentAsyncTasksPanel({ sessionId, refreshKey }: AgentAsy
       <div className={styles.taskList}>
         {tasks.length === 0 ? (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无异步子任务" />
-        ) : tasks.map((task) => (
-          <div key={task.task_id} className={styles.taskItem}>
+        ) : tasks.map((task) => {
+          const isExpanded = currentExpandedTaskId === task.task_id;
+          return (
+          <div
+            key={task.task_id}
+            ref={(node) => { taskRefs.current[task.task_id] = node; }}
+            className={`${styles.taskItem} ${focusedTaskId === task.task_id ? styles.taskItemFocused : ''} ${isExpanded ? styles.taskItemExpanded : ''}`}
+            data-focused={focusedTaskId === task.task_id ? 'true' : undefined}
+          >
             <div className={styles.taskHeader}>
               <Typography.Text strong className={styles.taskTitle} ellipsis>
                 {task.agent_name}
@@ -260,9 +258,11 @@ export default function AgentAsyncTasksPanel({ sessionId, refreshKey }: AgentAsy
               <div className={styles.warningText}>{String(task.diagnostics.warnings[0])}</div>
             ) : null}
             <div className={styles.taskActions}>
-              <Button size="small" icon={<ReloadOutlined />} onClick={loadTasks}>刷新</Button>
+              <Button size="small" icon={<ReloadOutlined />} onClick={() => void onRefresh()}>刷新</Button>
               {task.child_session_id ? (
-                <Button size="small" icon={<EyeOutlined />} onClick={() => openChildSession(task)}>详情</Button>
+                <Button size="small" icon={<EyeOutlined />} type={isExpanded ? 'primary' : 'default'} onClick={() => toggleChildSession(task)}>
+                  {isExpanded ? '收起详情' : '展开详情'}
+                </Button>
               ) : null}
               <Button size="small" icon={<HistoryOutlined />} onClick={() => openTaskEvents(task)}>事件</Button>
               {['pending', 'running'].includes(task.status) ? (
@@ -270,8 +270,23 @@ export default function AgentAsyncTasksPanel({ sessionId, refreshKey }: AgentAsy
               ) : null}
               <Button size="small" icon={<RetweetOutlined />} onClick={() => openRestart(task)}>重启</Button>
             </div>
+            {isExpanded && task.child_session_id ? (
+              <div className={styles.inlineDetail}>
+                <div className={styles.inlineDetailHeader}>
+                  <Typography.Text strong>子会话详情</Typography.Text>
+                  <div className={styles.taskMeta}>
+                    <span>Agent {task.agent_name}</span>
+                    <span>状态 {statusLabel[task.status] || task.status}</span>
+                    <span>任务 {task.task_id}</span>
+                    <span>子会话 {task.child_session_id}</span>
+                  </div>
+                </div>
+                <AgentChildSessionDetail childSessionId={task.child_session_id} onDecisionSubmitted={onRefresh} />
+              </div>
+            ) : null}
           </div>
-        ))}
+        );
+        })}
       </div>
 
       <Modal
@@ -291,18 +306,6 @@ export default function AgentAsyncTasksPanel({ sessionId, refreshKey }: AgentAsy
           />
         </div>
       </Modal>
-
-      <Drawer
-        title="子会话详情"
-        width={560}
-        open={childOpen}
-        onClose={() => setChildOpen(false)}
-        destroyOnHidden
-      >
-        <div className={styles.drawerBody}>
-          {childSession ? <AgentSessionTimeline session={childSession} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} />}
-        </div>
-      </Drawer>
 
       <Drawer
         title={`子任务事件${eventsTask ? ` · ${eventsTask.agent_name}` : ''}`}

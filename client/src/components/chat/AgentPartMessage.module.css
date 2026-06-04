@@ -18,6 +18,40 @@
   color: var(--text-secondary);
 }
 
+.asyncSummaryPart {
+  border-left-color: color-mix(in srgb, var(--accent-primary, #1677ff) 72%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent-primary, #1677ff) 7%, transparent), color-mix(in srgb, var(--bg-elevated) 96%, transparent));
+}
+
+.asyncTaskMetaRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.asyncTaskMetaRow span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  max-width: 260px;
+  padding: 1px 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asyncTaskActions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
 .processStrip {
   display: flex;
   flex-wrap: wrap;

@@ -11,25 +11,41 @@ import React, { useState } from 'react';
 import styles from './AgentWorkbenchPanel.module.css';
 
 interface AgentWorkbenchPanelProps {
+  activeKey?: string;
   changedFiles: number;
   runContent: React.ReactNode;
   configContent: React.ReactNode;
   progressContent: React.ReactNode;
   asyncTasksContent: React.ReactNode;
+  inspectorContent?: React.ReactNode;
   fileTreeContent: React.ReactNode;
   editorContent: React.ReactNode;
+  onActiveKeyChange?: (key: string) => void;
 }
 
 const AgentWorkbenchPanel: React.FC<AgentWorkbenchPanelProps> = ({
+  activeKey,
   changedFiles,
   runContent,
   configContent,
   progressContent,
   asyncTasksContent,
+  inspectorContent,
   fileTreeContent,
   editorContent,
+  onActiveKeyChange,
 }) => {
   const [fileTreeCollapsed, setFileTreeCollapsed] = useState(false);
+  const [internalActiveKey, setInternalActiveKey] = useState('run');
+  const resolvedActiveKey = activeKey ?? internalActiveKey;
+
+  const handleTabChange = (key: string) => {
+    if (activeKey === undefined) {
+      setInternalActiveKey(key);
+    }
+    onActiveKeyChange?.(key);
+  };
+
   const tabItems = [
     {
       key: 'run',
@@ -50,6 +66,16 @@ const AgentWorkbenchPanel: React.FC<AgentWorkbenchPanelProps> = ({
         </span>
       ),
       children: configContent,
+    },
+    {
+      key: 'inspector',
+      label: (
+        <span className={styles.tabLabel}>
+          <ApartmentOutlined />
+          检查器
+        </span>
+      ),
+      children: inspectorContent || runContent,
     },
     {
       key: 'progress',
@@ -115,7 +141,7 @@ const AgentWorkbenchPanel: React.FC<AgentWorkbenchPanelProps> = ({
 
   return (
     <aside className={styles.panel} aria-label="Agent 工具区">
-      <Tabs className={styles.tabs} defaultActiveKey="run" items={tabItems} />
+      <Tabs className={styles.tabs} activeKey={resolvedActiveKey} onChange={handleTabChange} items={tabItems} />
     </aside>
   );
 };

@@ -59,6 +59,18 @@
   background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
 }
 
+.taskItemFocused {
+  border-color: color-mix(in srgb, var(--accent-primary) 58%, var(--border-color));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 8%, transparent), transparent),
+    color-mix(in srgb, var(--bg-elevated) 94%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-primary) 18%, transparent);
+}
+
+.taskItemExpanded {
+  border-color: color-mix(in srgb, var(--accent-primary) 42%, var(--border-color));
+}
+
 .taskHeader {
   display: flex;
   align-items: center;
@@ -91,6 +103,23 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.inlineDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 220px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 76%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-base) 86%, transparent);
+}
+
+.inlineDetailHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .warningText {

@@ -21,6 +21,13 @@ interface HitlApprovalPanelProps {
 
 const DECISION_TYPES: HitlDecisionType[] = ['approve', 'edit', 'reject', 'respond'];
 
+const DECISION_LABELS: Record<HitlDecisionType, string> = {
+  approve: '批准',
+  reject: '拒绝',
+  edit: '修改参数',
+  respond: '回复',
+};
+
 export default function HitlApprovalPanel({
   pendingPermission,
   prefersReducedMotion = false,
@@ -74,7 +81,7 @@ export default function HitlApprovalPanel({
         decisions.push({ type: 'reject', ...(draft.message.trim() ? { message: draft.message.trim() } : {}) });
       } else if (draft.type === 'respond') {
         if (!draft.message.trim()) {
-          updateDraft(action.index, { error: 'Respond requires a message.' });
+          updateDraft(action.index, { error: '回复需要填写内容。' });
           return null;
         }
         decisions.push({ type: 'respond', message: draft.message.trim() });
@@ -82,12 +89,12 @@ export default function HitlApprovalPanel({
         try {
           const args = JSON.parse(draft.editedArgs || '{}');
           if (!args || typeof args !== 'object' || Array.isArray(args)) {
-            throw new Error('Edited args must be a JSON object.');
+            throw new Error('修改参数必须是 JSON 对象。');
           }
           decisions.push({ type: 'edit', edited_action: { name: action.name, args } });
         } catch (error) {
           updateDraft(action.index, {
-            error: error instanceof Error ? error.message : 'Edited args must be valid JSON.',
+            error: error instanceof Error ? error.message : '修改参数必须是有效 JSON。',
           });
           return null;
         }
@@ -105,7 +112,7 @@ export default function HitlApprovalPanel({
     try {
       await onSubmit(pendingPermission.part_id, decisions);
     } catch (error) {
-      setSubmissionError(error instanceof Error ? error.message : 'Failed to submit decisions.');
+      setSubmissionError(error instanceof Error ? error.message : '提交决策失败。');
     } finally {
       setSubmitting(false);
     }
@@ -118,7 +125,7 @@ export default function HitlApprovalPanel({
     try {
       await onSubmit(pendingPermission.part_id, actions.map(() => ({ type: 'reject' })));
     } catch (error) {
-      setSubmissionError(error instanceof Error ? error.message : 'Failed to reject actions.');
+      setSubmissionError(error instanceof Error ? error.message : '全部拒绝失败。');
     } finally {
       setSubmitting(false);
     }
@@ -138,7 +145,7 @@ export default function HitlApprovalPanel({
           <div className={styles.approvalPopoverHeader}>
             <span className={styles.approvalTerminalIcon}>›_</span>
             <Typography.Text strong>
-              Review {actions.length || 1} agent action{actions.length === 1 ? '' : 's'}
+              确认 {actions.length || 1} 个 Agent 动作
             </Typography.Text>
           </div>
           <div className={styles.approvalBatchList}>
@@ -166,7 +173,7 @@ export default function HitlApprovalPanel({
                           disabled={submitting}
                           onClick={() => updateDraft(action.index, { type })}
                         >
-                          {type}
+                          {DECISION_LABELS[type]}
                         </button>
                       ))}
                   </div>
@@ -183,7 +190,7 @@ export default function HitlApprovalPanel({
                     <Input.TextArea
                       className={styles.approvalTextarea}
                       value={draft.message}
-                      placeholder={draft.type === 'respond' ? 'Reply returned as the tool result' : 'Optional feedback for the agent'}
+                      placeholder={draft.type === 'respond' ? '作为工具结果返回给 Agent 的回复' : '可选：给 Agent 的反馈'}
                       autoSize={{ minRows: 2, maxRows: 5 }}
                       disabled={submitting}
                       onChange={(event) => updateDraft(action.index, { message: event.target.value })}
@@ -203,10 +210,10 @@ export default function HitlApprovalPanel({
               loading={submitting}
               onClick={() => void rejectAll()}
             >
-              Reject all
+              全部拒绝
             </Button>
             <Button size="small" type="primary" loading={submitting} onClick={() => void submit()}>
-              Submit decisions ↵
+              提交决策
             </Button>
           </div>
         </motion.div>

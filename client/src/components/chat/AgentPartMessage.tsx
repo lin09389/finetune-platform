@@ -2,6 +2,7 @@ import {
   CheckCircleOutlined,
   CodeOutlined,
   ExclamationCircleOutlined,
+  EyeOutlined,
   FileTextOutlined,
   LinkOutlined,
   PlayCircleOutlined,
@@ -22,6 +23,7 @@ interface AgentPartMessageProps {
   content: string;
   metadata: ChatAgentMetadata;
   onRefreshRun?: (runId: string) => void | Promise<void>;
+  onOpenAsyncTask?: (taskId: string, childSessionId?: string, options?: { expandDetail?: boolean }) => void;
 }
 
 const SILENT_TOOLS = new Set([
@@ -267,6 +269,7 @@ const AgentPartMessage = React.memo(({
   content,
   metadata,
   onRefreshRun,
+  onOpenAsyncTask,
 }: AgentPartMessageProps) => {
   const part = metadata.agent_part as AgentPart | undefined;
   if (!part) {
@@ -282,6 +285,12 @@ const AgentPartMessage = React.memo(({
   const subagentBadge = subagentLabel ? <Tag className={styles.subagentTag}>{subagentLabel}</Tag> : null;
   const asyncStatus = typeof payload.async_status === 'string' ? payload.async_status : '';
   const asyncStatusTag = asyncStatus ? <Tag color={statusColor[asyncStatus] || (asyncStatus === 'running' ? 'processing' : 'default')}>{statusLabel[asyncStatus] || asyncStatus}</Tag> : null;
+  const isAsyncSubagentSummary = payload.agent_role === 'async_subagent';
+  const asyncTaskId = typeof payload.task_id === 'string' ? payload.task_id : '';
+  const asyncChildSessionId = typeof payload.child_session_id === 'string' ? payload.child_session_id : undefined;
+  const childStatus = typeof payload.child_status === 'string' ? payload.child_status : '';
+  const hasPendingPermission = payload.has_pending_permission === true;
+  const asyncNeedsAttention = hasPendingPermission || childStatus === 'waiting_permission' || childStatus === 'waiting_approval';
   const files = changedFiles(payload);
   const diffItems = extractFileDiffs(payload);
   const canApprove = false;
@@ -381,12 +390,12 @@ const AgentPartMessage = React.memo(({
 
   if (part.type === 'summary') {
     return (
-      <div className={styles.summaryPart}>
+      <div className={`${styles.summaryPart} ${isAsyncSubagentSummary ? styles.asyncSummaryPart : ''}`}>
         <Space className={styles.summaryHeader} wrap>
           {icon}
           {subagentBadge}
           <Typography.Text strong>{payload.agent_role === 'async_subagent' ? '异步子任务' : '最终结果'}</Typography.Text>
-          {asyncStatusTag || <Tag color="success">已完成</Tag>}
+          {asyncNeedsAttention ? <Tag color="warning">等待确认</Tag> : asyncStatusTag || <Tag color="success">已完成</Tag>}
           {streamingDiagnostics?.fallback_to_non_stream ? <Tag color="warning">流式回退</Tag> : null}
           {streamingDiagnostics?.mode === 'chat_stream' && !streamingDiagnostics?.fallback_to_non_stream ? <Tag color="processing">流式</Tag> : null}
         </Space>
@@ -394,6 +403,25 @@ const AgentPartMessage = React.memo(({
           <Typography.Text type="secondary">
             流式未生效，已回退非流式：{streamingDiagnostics.error || streamingDiagnostics.reason || 'provider 未返回流式增量'}
           </Typography.Text>
+        )}
+        {isAsyncSubagentSummary && (
+          <div className={styles.asyncTaskMetaRow}>
+            {asyncTaskId ? <span>任务 {asyncTaskId}</span> : null}
+            {asyncChildSessionId ? <span>子会话 {asyncChildSessionId}</span> : null}
+            {subagentLabel ? <span>{subagentLabel}</span> : null}
+            <div className={styles.asyncTaskActions}>
+              {onOpenAsyncTask && asyncTaskId ? (
+                <Button
+                  size="small"
+                  type={asyncNeedsAttention ? 'primary' : 'default'}
+                  icon={<EyeOutlined />}
+                  onClick={() => onOpenAsyncTask(asyncTaskId, asyncChildSessionId, { expandDetail: true })}
+                >
+                  {asyncNeedsAttention ? '处理确认' : '查看任务'}
+                </Button>
+              ) : null}
+            </div>
+          </div>
         )}
         <MarkdownBody>{part.content || content}</MarkdownBody>
         <ProcessStrip parts={sessionParts} currentPart={part} />

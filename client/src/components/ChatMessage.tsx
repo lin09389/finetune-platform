@@ -44,6 +44,7 @@ interface ChatMessageProps {
   agent_metadata?: ChatAgentMetadata;
   agentFlowPosition?: 'first' | 'middle' | 'last' | 'only' | null;
   onRefreshAgentRun?: (runId: string) => void | Promise<void>;
+  onOpenAsyncTask?: (taskId: string, childSessionId?: string, options?: { expandDetail?: boolean }) => void;
 }
 
 const customSanitizeSchema = {
@@ -72,6 +73,7 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
     agent_metadata,
     agentFlowPosition = null,
     onRefreshAgentRun,
+    onOpenAsyncTask,
   }) => {
     const [copied, setCopied] = useState(false);
     const [showKnowledgeSources, setShowKnowledgeSources] = useState(false);
@@ -416,6 +418,7 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
                   content={content}
                   metadata={agent_metadata}
                   onRefreshRun={onRefreshAgentRun}
+                  onOpenAsyncTask={onOpenAsyncTask}
                 />
               ) : (
                 <>
