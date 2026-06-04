@@ -5,6 +5,10 @@ import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 
 import { useChatStream } from '../hooks/chat/useChatStream';
+import { useAgentAsyncTasks } from '../hooks/chat/useAgentAsyncTasks';
+import { useAgentWorkspace } from '../hooks/chat/useAgentWorkspace';
+import { useAgentWorkspaceNextActionRouter } from '../hooks/chat/useAgentWorkspaceNextActionRouter';
+import { useAgentWorkspaceSelection } from '../hooks/chat/useAgentWorkspaceSelection';
 import { useResponsive } from '../hooks/useResponsive';
 import { useOperation } from '../hooks/useOperation';
 import { useShallow } from 'zustand/react/shallow';
@@ -18,8 +22,9 @@ import ChatContextPanel from '../components/chat/ChatContextPanel';
 import ChatInput from '../components/chat/ChatInput';
 import HitlApprovalPanel from '../components/chat/HitlApprovalPanel';
 import AgentPhaseIndicator from '../components/chat/AgentPhaseIndicator';
-import AgentWorkbenchPanel, { WorkbenchEmpty } from '../components/chat/AgentWorkbenchPanel';
-import AgentAsyncTasksPanel from '../components/chat/AgentAsyncTasksPanel';
+import { WorkbenchEmpty } from '../components/chat/AgentWorkbenchPanel';
+import AgentWorkspaceStatusBar from '../components/chat/AgentWorkspaceStatusBar';
+import AgentWorkspaceContainer from '../components/chat/AgentWorkspaceContainer';
 import AgentWorkspaceEditor from '../components/chat/AgentWorkspaceEditor';
 import AgentTerminal from '../components/chat/AgentTerminal';
 import QuickFileOpener, { flattenFileNodes } from '../components/chat/QuickFileOpener';
@@ -311,9 +316,10 @@ const ChatPage: React.FC = () => {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>(() => localStorage.getItem(CHAT_WORKSPACE_ID_STORAGE_KEY) || '');
   const [workspaceProjectPath, setWorkspaceProjectPath] = useState<string>(() => localStorage.getItem(CHAT_PROJECT_PATH_STORAGE_KEY) || '');
   const [agentSessionOverview, setAgentSessionOverview] = useState<AgentSessionOverview | null>(null);
-  const [asyncTaskRefreshKey, setAsyncTaskRefreshKey] = useState(0);
+  const [workbenchActiveTab, setWorkbenchActiveTab] = useState('run');
   const agentSessionStreamsRef = useRef<Record<string, EventSource>>({});
   const agentSessionStateRef = useRef<Record<string, AgentSession>>({});
+  const agentWorkspaceRefreshRef = useRef<(() => Promise<void>) | null>(null);
   const refreshedAgentSessionsRef = useRef<Set<string>>(new Set());
   const streamingDeltaRef = useRef<Record<string, { partId: string; content: string }>>({});
   const agentDeltaFlushRef = useRef<{ rafId: number | null; pending: Record<string, string> } | null>(null);
@@ -1252,8 +1258,8 @@ if (existing) {
           }
           return;
         }
-        if (chunk.chunk_type === 'async_task') {
-          setAsyncTaskRefreshKey((value) => value + 1);
+        if (['part_complete', 'part_snapshot', 'status', 'summary', 'error', 'async_task', 'done'].includes(String(chunk.chunk_type || ''))) {
+          void agentWorkspaceRefreshRef.current?.();
         }
         const flushAgentDeltas = () => {
           if (agentDeltaFlushRef.current) {
@@ -1997,6 +2003,44 @@ if (existing) {
     .map((message) => message.agent_metadata?.agent_part as AgentPart | undefined)
     .filter((part): part is AgentPart => Boolean(part));
   const latestAgentStatus = latestAgentMetadata?.status || 'idle';
+  const workspaceAgentId = agentSessionOverview?.session?.agent_id || latestAgentMetadata?.active_agent_id || '';
+  const workspaceAgentName = primaryAgents.find((agent) => agent.id === workspaceAgentId)?.name || workspaceAgentId || '';
+  const agentWorkspace = useAgentWorkspace(latestAgentSessionId);
+  const workspaceSelection = useAgentWorkspaceSelection(agentWorkspace.workspace);
+  const asyncTasks = useAgentAsyncTasks(agentWorkspace);
+
+  useEffect(() => {
+    agentWorkspaceRefreshRef.current = agentWorkspace.refresh;
+    return () => {
+      if (agentWorkspaceRefreshRef.current === agentWorkspace.refresh) {
+        agentWorkspaceRefreshRef.current = null;
+      }
+    };
+  }, [agentWorkspace.refresh]);
+
+  const openAgentInspector = useCallback(() => {
+    setSidePanelOpen(true);
+    setWorkbenchActiveTab('inspector');
+  }, []);
+
+  const handleOpenAsyncTask = useCallback((taskId?: string, childSessionId?: string, options?: { expandDetail?: boolean }) => {
+    if (taskId) {
+      asyncTasks.focusTask(taskId);
+      workspaceSelection.selectAsyncTask(taskId, childSessionId, options);
+      if (options?.expandDetail) {
+        asyncTasks.expandTask(taskId);
+      }
+    } else {
+      workspaceSelection.selectRun();
+    }
+    openAgentInspector();
+  }, [asyncTasks, openAgentInspector, workspaceSelection]);
+
+  const handleRunWorkspaceNextAction = useAgentWorkspaceNextActionRouter({
+    agentWorkspace,
+    workspaceSelection,
+    openInspector: openAgentInspector,
+  });
 
   // Auto-detect running terminal from command parts and show dock
   useEffect(() => {
@@ -2231,6 +2275,7 @@ if (existing) {
   }, [effectiveProjectPath]);
 
   const handleOpenFile = useCallback((artifact: (typeof agentFileSummaries)[number]) => {
+    workspaceSelection.selectFile(artifact.path);
     const name = artifact.path.replace(/\\/g, '/').split('/').pop() || artifact.path;
     const status = resolveArtifactStatus(artifact.status);
     const hunks = status === 'modified' && artifact.preview
@@ -2265,7 +2310,7 @@ if (existing) {
         )));
       });
     }
-  }, [latestAgentSessionId]);
+  }, [latestAgentSessionId, workspaceSelection]);
 
   // ── Load workspace file tree when mode switches to 'workspace' ────────────────
   const loadWorkspaceTree = useCallback(async (projectPath: string) => {
@@ -2338,6 +2383,21 @@ if (existing) {
       notify.error(`打开文件失败: ${err?.response?.data?.detail || err?.message || '未知错误'}`);
     }
   }, [openedFiles, workspaceTreeRoot, effectiveProjectPath]);
+
+  const handleOpenWorkspacePath = useCallback(async (path: string) => {
+    const normalized = path.replace(/\\/g, '/').replace(/^\/workspace\//, '');
+    const node = workspaceFileNodes.find((item) => {
+      if (item.kind !== 'file') return false;
+      const itemPath = item.path.replace(/\\/g, '/');
+      return itemPath === normalized || itemPath.endsWith(`/${normalized}`) || path.replace(/\\/g, '/') === itemPath;
+    });
+    if (!node) {
+      notify.warning('当前文件树中未找到该文件，请先刷新工作区文件树。');
+      setFileTreeMode('workspace');
+      return;
+    }
+    await handleOpenWorkspaceFile(node);
+  }, [handleOpenWorkspaceFile, workspaceFileNodes]);
 
   // ── Save file back to disk ────────────────────────────────────────────────────
   const handleSaveFile = useCallback(async (filePath: string, content: string) => {
@@ -2569,6 +2629,7 @@ if (existing) {
       agent_metadata={msg.agent_metadata}
       agentFlowPosition={agentFlowPosition}
       onRefreshAgentRun={handleRefreshAgentRun}
+      onOpenAsyncTask={handleOpenAsyncTask}
     />
     );
   }, [
@@ -2578,6 +2639,7 @@ if (existing) {
     handleEditMessage,
     deleteMessage,
     handleRefreshAgentRun,
+    handleOpenAsyncTask,
   ]);
 
   const slimFilePanel = useMemo(() => {
@@ -2590,10 +2652,19 @@ if (existing) {
             key={node.path}
             className={`${styles.agentFileCard} ${styles.agentFileCardClickable}`}
             style={{ ['--file-depth' as any]: String(depth), margin: '0 4px 3px' }}
-            onClick={() => void handleOpenWorkspaceFile(node)}
+            onClick={() => {
+              workspaceSelection.selectFile(node.path);
+              void handleOpenWorkspaceFile(node);
+            }}
+            onFocus={() => workspaceSelection.selectFile(node.path)}
             role="button"
             tabIndex={0}
-            onKeyDown={(e) => e.key === 'Enter' && void handleOpenWorkspaceFile(node)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                workspaceSelection.selectFile(node.path);
+                void handleOpenWorkspaceFile(node);
+              }
+            }}
           >
             <div className={styles.agentFileCardBody} style={{ padding: '8px 8px 8px 0' }}>
               <div className={styles.agentFileCardTop}>
@@ -2691,7 +2762,7 @@ if (existing) {
   }, [
     agentFileSummaries, agentFileTree, renderTreeNode,
     fileTreeMode, workspaceTreeNodes, workspaceTreeLoading, wsExpandedFolders,
-    effectiveProjectPath, handleOpenWorkspaceFile, loadWorkspaceTree,
+    effectiveProjectPath, handleOpenWorkspaceFile, loadWorkspaceTree, workspaceSelection,
   ]);
 
   const editorContent = useMemo(() => (
@@ -2884,6 +2955,14 @@ if (existing) {
           activeModelLabel={activeModelLabel}
         />
       </div>
+      {isDesktop && latestAgentSessionId && (
+        <AgentWorkspaceStatusBar
+          agentName={workspaceAgentName}
+          sessionStatus={latestAgentStatus}
+          asyncMetrics={agentWorkspace.workspace?.async_tasks.metrics ?? null}
+          onOpenAsyncTasks={() => handleOpenAsyncTask()}
+        />
+      )}
       <div className={styles.chatWorkspace}>
         <main className={styles.mainChatPane} style={{ flex: `0 0 ${chatPaneWidth}px`, minWidth: 0, ...(isDesktop && !chatPanelOpen ? { flexBasis: 0, overflow: 'hidden', opacity: 0, pointerEvents: 'none' } : {}) }}>
           <motion.div
@@ -3075,19 +3154,21 @@ if (existing) {
             </div>
             {sidePanelOpen && (
               <div className={styles.sidePanels} style={{ flex: `0 0 ${sidePanelWidth}px` }}>
-                <AgentWorkbenchPanel
+                <AgentWorkspaceContainer
+                  activeKey={workbenchActiveTab}
+                  onActiveKeyChange={setWorkbenchActiveTab}
                   changedFiles={agentFileSummaries.length}
                   runContent={workbenchRunPanel}
                   configContent={React.cloneElement(contextPanel, { embedded: true })}
                   progressContent={workbenchProgressPanel}
-                  asyncTasksContent={(
-                    <AgentAsyncTasksPanel
-                      sessionId={latestAgentSessionId}
-                      refreshKey={`${agentSessionOverview?.session?.updated_at || messages.length}:${asyncTaskRefreshKey}`}
-                    />
-                  )}
                   fileTreeContent={slimFilePanel}
-                  editorContent={<WorkbenchEmpty description="主编辑器已提升到中央 Agent IDE 工作区。" />}
+                  agentWorkspace={agentWorkspace}
+                  asyncTasks={asyncTasks}
+                  workspaceSelection={workspaceSelection}
+                  sessionId={latestAgentSessionId}
+                  onSubmitPermission={handleSubmitHitlDecisions}
+                  onOpenFile={handleOpenWorkspacePath}
+                  onRunNextAction={handleRunWorkspaceNextAction}
                 />
               </div>
             )}
@@ -3195,6 +3276,7 @@ if (existing) {
         onSelectFile={handleOpenWorkspaceFile}
         recentPaths={recentPaths}
       />
+
     </div>
   );
 };
