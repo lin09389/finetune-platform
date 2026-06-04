@@ -143,6 +143,98 @@ def test_agent_sessions_async_task_rest_lifecycle(tmp_path: Path, monkeypatch):
         app.dependency_overrides.clear()
 
 
+def test_agent_session_workspace_read_model_returns_deepagents_view(tmp_path: Path):
+    client, service = _client_with_service(tmp_path)
+    workspace = _workspace_root()
+    try:
+        session_response = client.post(
+            "/agent-sessions",
+            json={"title": "workspace view", "agent_id": "build", "project_path": str(workspace)},
+        )
+        session_id = session_response.json()["id"]
+        diff_part = service.repository.add_part(
+            session_id,
+            "diff",
+            status="pending",
+            title="修改文件",
+            content="准备修改",
+            payload={
+                "changed_files": ["/workspace/app.py"],
+                "file_changes": [
+                    {
+                        "path": "/workspace/app.py",
+                        "status": "modified",
+                        "summary": "更新入口",
+                        "diff": "@@ patch",
+                    }
+                ],
+            },
+        )
+        service.repository.add_part(
+            session_id,
+            "command",
+            status="completed",
+            title="验证命令",
+            content="ok",
+            payload={"command": ["npm", "run", "typecheck"], "exit_code": 0, "stdout": "x" * 1400},
+        )
+        service.repository.add_event(session_id, "status", "running", {"part_id": diff_part["id"]})
+        child = service.repository.create_session(
+            {
+                "agent_id": "explore",
+                "title": "child",
+                "project_path": str(workspace),
+                "status": "waiting_permission",
+                "metadata": {"ui_state": {"pending_permission": {"part_id": "part_permission", "actions": []}}},
+            }
+        )
+        service.repository.create_subtask(
+            {
+                "parent_session_id": session_id,
+                "child_session_id": child["id"],
+                "agent_name": "explore",
+                "status": "running",
+                "input_json": {"description": "inspect code"},
+                "result_json": {"summary": "关键发现：入口在 /workspace/app.py。结论：结构清晰。"},
+            }
+        )
+        service.repository.create_subtask(
+            {
+                "parent_session_id": session_id,
+                "child_session_id": child["id"],
+                "agent_name": "review",
+                "status": "completed",
+                "input_json": {"description": "review code"},
+                "result_json": {"summary": "有条件通过。风险列表：缺少回归测试。验证建议：运行 npm test。"},
+            }
+        )
+
+        response = client.get(f"/agent-sessions/{session_id}/workspace")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["session"]["id"] == session_id
+        assert body["timeline"]
+        assert body["async_tasks"]["metrics"]["total"] == 2
+        assert body["async_tasks"]["tasks"][0]["status"] == "running"
+        assert body["async_tasks"]["tasks"][0]["child_status"] == "waiting_permission"
+        assert body["async_tasks"]["tasks"][0]["has_pending_permission"] is True
+        assert body["async_tasks"]["tasks"][0]["pending_permission_part_id"] == "part_permission"
+        artifact_types = {artifact["artifact_type"] for artifact in body["artifacts"]}
+        assert {"file_change", "command_result", "test_result", "subtask_result", "findings", "risks"}.issubset(artifact_types)
+        command_artifact = next(artifact for artifact in body["artifacts"] if artifact["artifact_type"] == "command_result")
+        assert len(command_artifact["payload"]["stdout"]) < 1300
+        assert command_artifact["payload"]["stdout"].endswith("...")
+        assert body["changed_files"][0]["path"] == "/workspace/app.py"
+        action_types = {action["action_type"] for action in body["next_actions"]}
+        assert {"resolve_permission", "review_risks", "inspect_file"}.issubset(action_types)
+        assert "restart_failed_task" not in action_types
+        assert body["next_actions"][0]["priority"] == "high"
+        assert body["recent_events"][0]["event_type"] == "status"
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_agent_sessions_reject_unregistered_external_project_path(tmp_path: Path, monkeypatch):
     external_root = tmp_path / "unregistered-workspace"
     external_root.mkdir(parents=True, exist_ok=True)
