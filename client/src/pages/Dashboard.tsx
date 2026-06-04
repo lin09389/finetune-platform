@@ -16,7 +16,7 @@ import {
   ApiOutlined,
   InfoCircleOutlined,
 } from '@ant-design/icons';
-import { Button, Empty, Progress, Space, Table, Tag } from 'antd';
+import { Button, Empty, Table, Tag } from 'antd';
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -33,18 +33,6 @@ import { useAppStore } from '../store/appStore';
 import type { TrainingRecord } from '../types';
 import { useRuntimeContext } from '../runtime/RuntimeContext';
 import styles from './Dashboard.module.css';
-
-interface StatCardProps {
-  title: string;
-  value: number;
-  total?: number;
-  suffix?: string;
-  prefix?: React.ReactNode;
-  color: string;
-  icon: React.ReactNode;
-  progress?: number;
-  delay?: number;
-}
 
 // 动画配置
 const containerVariants = {
@@ -68,82 +56,6 @@ const itemVariants = {
       ease: [0.16, 1, 0.3, 1] as const,
     },
   },
-};
-
-const StatCard: React.FC<StatCardProps> = ({
-  title,
-  value,
-  total,
-  suffix = '',
-  prefix,
-  color,
-  icon,
-  progress,
-}) => {
-  return (
-    <GlassHoverCard className={styles.statCard} tilt3D={false}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div
-            style={{
-              fontSize: 'var(--text-xs)',
-              color: 'var(--text-tertiary)',
-              marginBottom: 'var(--space-3)',
-              fontWeight: 'var(--font-semibold)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-            }}
-          >
-            {title}
-          </div>
-          <div className={styles.statValue}>
-            {prefix}
-            <CountUp value={value} decimals={0} />
-            {total !== undefined && (
-              <span className={styles.statTotal}>
-                / {Math.round(total)} {suffix}
-              </span>
-            )}
-            {total === undefined && suffix && <span className={styles.statTotal}>{suffix}</span>}
-          </div>
-        </div>
-        <div
-          className={styles.statIcon}
-          style={{
-            background: color,
-            color: '#fff',
-            boxShadow: `0 4px 12px ${color}40`,
-          }}
-        >
-          {icon}
-        </div>
-      </div>
-
-      {progress !== undefined && (
-        <div style={{ marginTop: 'var(--space-4)' }}>
-          <Progress
-            percent={progress}
-            strokeColor={color}
-            trailColor="var(--border-color)"
-            size={{ height: 3 }}
-            showInfo={false}
-            style={{ margin: 0 }}
-          />
-          <div
-            style={{
-              fontSize: 'var(--text-xs)',
-              color: 'var(--text-tertiary)',
-              marginTop: 'var(--space-2)',
-              textAlign: 'right',
-              fontWeight: 'var(--font-medium)',
-            }}
-          >
-            {progress}% 已使用
-          </div>
-        </div>
-      )}
-    </GlassHoverCard>
-  );
 };
 
 export default function Dashboard() {
@@ -255,37 +167,37 @@ export default function Dashboard() {
   const chainSteps = [
     {
       title: '后端连接',
-      value: backendStatus === 'connected' ? '已连接' : '未连接',
+      value: backendStatus === 'connected' ? '已就绪' : '未就绪',
       ready: backendStatus === 'connected',
       action: () => navigate('/device'),
     },
     {
-      title: '模型',
-      value: `${Math.max(models.length, inference.availableModelCount)} 个`,
+      title: '大模型资产',
+      value: `${Math.max(models.length, inference.availableModelCount)} 个模型`,
       ready: models.length > 0 || inference.availableModelCount > 0,
       action: () => navigate('/models'),
     },
     {
-      title: '数据集',
-      value: `${datasets.length} 个`,
+      title: '数据集就绪',
+      value: `${datasets.length} 个数据集`,
       ready: datasets.length > 0,
       action: () => navigate('/datasets'),
     },
     {
-      title: '训练结果',
-      value: `${completedTrainings.length} 个完成`,
+      title: '微调训练',
+      value: `${completedTrainings.length} 次成功`,
       ready: completedTrainings.length > 0,
       action: () => navigate('/history'),
     },
     {
-      title: '可评估产物',
-      value: `${evaluationReadyTrainings.length} 个`,
+      title: '评估与对比',
+      value: `${evaluationReadyTrainings.length} 个产物`,
       ready: evaluationReadyTrainings.length > 0,
       action: () => navigate('/evaluation'),
     },
     {
-      title: '部署包',
-      value: `${deploymentPackageCount} 个`,
+      title: '快捷部署',
+      value: `${deploymentPackageCount} 个包`,
       ready: deploymentPackageCount > 0,
       action: () => navigate('/deployment'),
     },
@@ -324,7 +236,7 @@ export default function Dashboard() {
     suggestions.push({
       title: 'Ollama 未启动',
       desc: '本地推理不可用，可切换 HuggingFace 或查看 Docker Ollama 说明',
-      type: 'info',
+      type: 'warning',
     });
   }
   if (suggestions.length === 0) {
@@ -508,32 +420,44 @@ export default function Dashboard() {
     {
       title: '准备模型',
       icon: <FolderOutlined />,
-      color: 'var(--success)',
+      color: '#10b981', // emerald
       onClick: () => navigate('/models'),
       description: '下载或导入大语言模型，支持 GGUF、Safetensors、PyTorch 等格式。',
     },
     {
       title: '上传数据集',
       icon: <DatabaseOutlined />,
-      color: 'var(--warning)',
+      color: '#f59e0b', // amber
       onClick: () => navigate('/datasets'),
       description: '上传并分析训练数据集，支持 JSON / JSONL 格式文件。',
     },
     {
       title: '开始训练',
       icon: <RocketOutlined />,
-      color: 'var(--accent-primary)',
+      color: '#6366f1', // indigo
       onClick: () => navigate('/training'),
       description: '按问答或结构化输出目标创建微调任务。',
     },
     {
       title: '评估与部署',
       icon: <ApiOutlined />,
-      color: 'var(--info)',
+      color: '#3b82f6', // blue
       onClick: () => navigate('/evaluation'),
       description: '对比 base 与微调模型输出，再生成应用接入示例。',
     },
   ];
+
+  const formatValue = (val: number) => Number(val.toFixed(1));
+  
+  const vramTotal = formatValue(deviceInfo?.vram_total || 0);
+  const vramFree = deviceInfo?.vram_free !== undefined ? deviceInfo.vram_free : vramTotal;
+  const vramUsed = formatValue(Math.max(0, vramTotal - vramFree));
+  const vramPercent = vramTotal > 0 ? Math.min(100, Math.round((vramUsed / vramTotal) * 100)) : 0;
+
+  const memTotal = formatValue(deviceInfo?.memory_total || 0);
+  const memFree = deviceInfo?.memory_free !== undefined ? deviceInfo.memory_free : memTotal;
+  const memUsed = formatValue(Math.max(0, memTotal - memFree));
+  const memPercent = memTotal > 0 ? Math.min(100, Math.round((memUsed / memTotal) * 100)) : 0;
 
   return (
     <AnimatedLayout animationKey="dashboard">
@@ -579,94 +503,178 @@ export default function Dashboard() {
           </GlassCard>
         ) : (
           <motion.div variants={containerVariants} initial="hidden" animate="show">
-            {/* 环境监控概览 */}
+            {/* Bento Grid 硬件与系统监控 */}
             <div className={styles.bentoGrid}>
-              <div className={styles['span-2']}>
-                <motion.div variants={itemVariants}>
-                  <StatCard
-                    title="GPU 显存"
-                    value={deviceInfo?.vram_free || 0}
-                    total={deviceInfo?.vram_total || 0}
-                    suffix="GB"
-                    color="var(--accent-primary)"
-                    icon={<ThunderboltOutlined />}
-                    progress={Math.round(
-                      (((deviceInfo?.vram_total || 1) - (deviceInfo?.vram_free || 0)) /
-                        (deviceInfo?.vram_total || 1)) *
-                        100,
-                    )}
-                  />
-                </motion.div>
-              </div>
-
-              <div className={styles['span-2']}>
-                <motion.div variants={itemVariants}>
-                  <StatCard
-                    title="系统内存"
-                    value={deviceInfo?.memory_free || 0}
-                    total={deviceInfo?.memory_total || 0}
-                    suffix="GB"
-                    color="var(--accent-secondary)"
-                    icon={<DatabaseOutlined />}
-                    progress={Math.round(
-                      (((deviceInfo?.memory_total || 1) - (deviceInfo?.memory_free || 0)) /
-                        (deviceInfo?.memory_total || 1)) *
-                        100,
-                    )}
-                  />
-                </motion.div>
-              </div>
-
-              <div className={styles['span-2']}>
-                <motion.div variants={itemVariants}>
-                  <StatCard
-                    title="可用模型"
-                    value={inference.availableModelCount}
-                    color="var(--success)"
-                    icon={<FolderOutlined />}
-                  />
-                </motion.div>
-              </div>
-
-              <div className={styles['span-2']}>
-                <motion.div variants={itemVariants}>
-                  <StatCard
-                    title="数据集"
-                    value={datasets.length}
-                    color="var(--warning)"
-                    icon={<CloudOutlined />}
-                  />
-                </motion.div>
-              </div>
               
-              <div className={styles['span-2']}>
-                <motion.div variants={itemVariants}>
-                  <StatCard
-                    title="Ollama"
-                    value={inference.ollamaAvailable ? 1 : 0}
-                    suffix={inference.ollamaAvailable ? '已启动' : '未启动'}
-                    color={inference.ollamaAvailable ? "var(--success)" : "var(--text-tertiary)"}
-                    icon={<ApiOutlined />}
-                  />
+              {/* Card 1: 硬件设备控制台 */}
+              <div className={styles['span-6']}>
+                <motion.div variants={itemVariants} style={{ height: '100%' }}>
+                  <GlassHoverCard className={styles.statCard} tilt3D={true}>
+                    <div className={styles.deviceConsole}>
+                      <div className={styles.deviceTitleArea}>
+                        <span className={styles.sectionTitle} style={{ marginBottom: 0 }}>
+                          <DesktopOutlined style={{ color: 'var(--accent-neon-cyan, #00d8a5)' }} />
+                          硬件设备控制台
+                        </span>
+                      </div>
+                      
+                      <div className={styles.deviceMetricsGrid}>
+                        {/* VRAM Meter */}
+                        <div className={styles.metricProgressArea}>
+                          <div className={styles.metricHeader}>
+                            <span className={styles.metricTitle}>GPU 显存占用</span>
+                            <span className={styles.metricValue}>
+                              <CountUp value={vramUsed} decimals={1} />
+                              <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500 }}>
+                                 / {vramTotal} GB
+                              </span>
+                            </span>
+                          </div>
+                          <div className={styles.metricBarContainer}>
+                            <div 
+                              className={styles.metricBarFill}
+                              style={{ 
+                                width: `${vramPercent}%`,
+                                background: 'var(--gradient-brand)'
+                              }}
+                            />
+                          </div>
+                          <span style={{ fontSize: 11, color: 'var(--text-tertiary)', textAlign: 'right' }}>
+                            已占用 {vramPercent}%
+                          </span>
+                        </div>
+
+                        {/* System Memory Meter */}
+                        <div className={styles.metricProgressArea}>
+                          <div className={styles.metricHeader}>
+                            <span className={styles.metricTitle}>系统内存占用</span>
+                            <span className={styles.metricValue}>
+                              <CountUp value={memUsed} decimals={1} />
+                              <span style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500 }}>
+                                 / {memTotal} GB
+                              </span>
+                            </span>
+                          </div>
+                          <div className={styles.metricBarContainer}>
+                            <div 
+                              className={styles.metricBarFill}
+                              style={{ 
+                                width: `${memPercent}%`,
+                                background: 'var(--accent-secondary)'
+                              }}
+                            />
+                          </div>
+                          <span style={{ fontSize: 11, color: 'var(--text-tertiary)', textAlign: 'right' }}>
+                            已占用 {memPercent}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </GlassHoverCard>
                 </motion.div>
               </div>
 
-              <div className={styles['span-2']}>
-                <motion.div variants={itemVariants}>
-                  <StatCard
-                    title="存储健康"
-                    value={storageReady ? 1 : 0}
-                    suffix={storageStatusLabel}
-                    color={storageReady ? "var(--info)" : "var(--text-tertiary)"}
-                    icon={<DatabaseOutlined />}
-                  />
+              {/* Card 2: 运行服务矩阵 */}
+              <div className={styles['span-3']}>
+                <motion.div variants={itemVariants} style={{ height: '100%' }}>
+                  <GlassHoverCard className={styles.statCard} tilt3D={true}>
+                    <div className={styles.servicesMatrix}>
+                      <span className={styles.sectionTitle} style={{ marginBottom: 'var(--space-2)' }}>
+                        <ApiOutlined style={{ color: 'var(--accent-secondary)' }} />
+                        运行服务矩阵
+                      </span>
+                      <div className={styles.servicesGrid}>
+                        {/* Service Item 1: Backend */}
+                        <div className={styles.serviceItem}>
+                          <span className={styles.serviceName}>
+                            <ThunderboltOutlined style={{ fontSize: 12 }} />
+                            API 核心服务
+                          </span>
+                          <div className={styles.serviceStatusArea}>
+                            <span className={styles.serviceStatusLabel}>
+                              {backendStatus === 'connected' ? '已就绪' : '未连接'}
+                            </span>
+                            <span className={`${styles.ledIndicator} ${backendStatus === 'connected' ? styles.healthy : styles.error}`} />
+                          </div>
+                        </div>
+
+                        {/* Service Item 2: Ollama */}
+                        <div className={styles.serviceItem}>
+                          <span className={styles.serviceName}>
+                            <CloudOutlined style={{ fontSize: 12 }} />
+                            Ollama 实例
+                          </span>
+                          <div className={styles.serviceStatusArea}>
+                            <span className={styles.serviceStatusLabel}>
+                              {inference.ollamaAvailable ? '活跃' : '离线'}
+                            </span>
+                            <span className={`${styles.ledIndicator} ${inference.ollamaAvailable ? styles.healthy : styles.warning}`} />
+                          </div>
+                        </div>
+
+                        {/* Service Item 3: Storage */}
+                        <div className={styles.serviceItem}>
+                          <span className={styles.serviceName}>
+                            <DatabaseOutlined style={{ fontSize: 12 }} />
+                            存储健康
+                          </span>
+                          <div className={styles.serviceStatusArea}>
+                            <span className={styles.serviceStatusLabel}>
+                              {storageStatusLabel}
+                            </span>
+                            <span className={`${styles.ledIndicator} ${storageReady ? styles.healthy : styles.error}`} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </GlassHoverCard>
                 </motion.div>
               </div>
+
+              {/* Card 3: 平台资产仓 */}
+              <div className={styles['span-3']}>
+                <motion.div variants={itemVariants} style={{ height: '100%' }}>
+                  <GlassHoverCard className={styles.statCard} tilt3D={true}>
+                    <div className={styles.assetStatusCard}>
+                      <span className={styles.sectionTitle}>
+                        <FolderOutlined style={{ color: 'var(--warning)' }} />
+                        平台资产仓
+                      </span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                        <div className={styles.assetStats}>
+                          <div>
+                            <span className={styles.assetTitle}>可用模型</span>
+                            <div className={styles.assetMainNumber} style={{ background: 'var(--gradient-brand)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                              <CountUp value={inference.availableModelCount} />
+                            </div>
+                          </div>
+                          <button onClick={() => navigate('/models')} className={styles.assetActionBtn}>
+                            管理 <ArrowRightOutlined style={{ fontSize: 10 }} />
+                          </button>
+                        </div>
+                        <div style={{ height: 1, background: 'var(--border-color)' }} />
+                        <div className={styles.assetStats}>
+                          <div>
+                            <span className={styles.assetTitle}>导入数据集</span>
+                            <div className={styles.assetMainNumber} style={{ background: 'var(--gradient-warm)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                              <CountUp value={datasets.length} />
+                            </div>
+                          </div>
+                          <button onClick={() => navigate('/datasets')} className={styles.assetActionBtn}>
+                            导入 <ArrowRightOutlined style={{ fontSize: 10 }} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </GlassHoverCard>
+                </motion.div>
+              </div>
+
             </div>
 
-            {/* 工程闭环健康 */}
+            {/* 工程闭环健康 - 虚线与流光折线可视化图 */}
             <motion.div variants={itemVariants} style={{ marginBottom: 'var(--space-8)' }}>
-              <GlassCard intensity="medium" noHover>
+              <GlassCard intensity="medium" noHover className={styles.pipelineCard}>
                 <div className={styles.historyHeader}>
                   <span className={styles.sectionTitle} style={{ marginBottom: 0 }}>
                     <CheckCircleOutlined style={{ color: 'var(--success)' }} />
@@ -676,49 +684,34 @@ export default function Dashboard() {
                     color={chainHealthPercent >= 80 ? 'success' : chainHealthPercent >= 50 ? 'warning' : 'default'}
                     style={{ borderRadius: 'var(--radius-sm)', fontWeight: 700 }}
                   >
-                    {readyStepCount}/{chainSteps.length} 就绪
+                    {readyStepCount}/{chainSteps.length} 节点就绪 ({chainHealthPercent}%)
                   </Tag>
                 </div>
-                <Progress
-                  percent={chainHealthPercent}
-                  strokeColor={chainHealthPercent >= 80 ? 'var(--success)' : 'var(--warning)'}
-                  trailColor="var(--border-color)"
-                  style={{ marginTop: 'var(--space-4)', marginBottom: 'var(--space-5)' }}
-                />
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-                    gap: 12,
-                  }}
-                >
-                  {chainSteps.map((step) => (
-                    <button
-                      key={step.title}
-                      type="button"
-                      onClick={step.action}
-                      style={{
-                        textAlign: 'left',
-                        border: '1px solid var(--border-color)',
-                        background: 'var(--bg-secondary)',
-                        borderRadius: 'var(--radius-md)',
-                        padding: '12px 14px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <Space direction="vertical" size={4}>
-                        <Tag color={step.ready ? 'success' : 'default'} style={{ margin: 0 }}>
-                          {step.ready ? '就绪' : '待补齐'}
-                        </Tag>
-                        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
-                          {step.title}
-                        </span>
-                        <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
-                          {step.value}
-                        </span>
-                      </Space>
-                    </button>
-                  ))}
+                
+                <div className={styles.pipelineFlowTrack}>
+                  <div className={styles.pipelineLineBackground} />
+                  {chainHealthPercent > 0 && <div className={styles.pipelineLaserFlow} />}
+                  
+                  <div className={styles.pipelineNodes}>
+                    {chainSteps.map((step, idx) => {
+                      const isReady = step.ready;
+                      return (
+                        <button
+                          key={step.title}
+                          type="button"
+                          onClick={step.action}
+                          className={`${styles.pipelineNode} ${isReady ? styles.nodeReady : styles.nodePending}`}
+                        >
+                          <div className={styles.nodeIndicator}>
+                            {idx + 1}
+                            {isReady && <span className={styles.nodeBadge}>✓</span>}
+                          </div>
+                          <div className={styles.nodeTitle}>{step.title}</div>
+                          <div className={styles.nodeValue}>{step.value}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </GlassCard>
             </motion.div>
@@ -791,7 +784,8 @@ export default function Dashboard() {
                         </div>
                       </GlassCard>
                     </motion.div>
-                )})}
+                  );
+                })}
               </div>
             </div>
 
@@ -812,11 +806,15 @@ export default function Dashboard() {
                         className={styles.quickActionCard}
                         onClick={action.onClick}
                         tilt3D={true}
+                        style={{
+                          '--spotlight-color': `${action.color}15`,
+                          '--spotlight-border': `${action.color}35`,
+                        } as React.CSSProperties}
                       >
                         <div
                           className={styles.quickActionIcon}
                           style={{
-                            background: `${action.color}15`,
+                            background: `${action.color}12`,
                             color: action.color,
                             border: `1px solid ${action.color}25`,
                           }}
@@ -896,3 +894,4 @@ export default function Dashboard() {
     </AnimatedLayout>
   );
 }
+

@@ -8,12 +8,13 @@ import {
   ThunderboltOutlined,
   ExclamationCircleOutlined,
 } from '@ant-design/icons';
-import { Button, Col, Progress, Row, Spin, Tag } from 'antd';
+import { Button, Spin, Tag } from 'antd';
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { GlassHoverCard, NeonProgressRing } from '../components/motion';
+import { CountUp } from '../components/shared/MotionWrapper';
 import AnimatedLayout from '../components/shared/AnimatedLayout';
-import GlassCard from '../components/shared/GlassCard';
 import PageHeader from '../components/shared/PageHeader';
 import { getDeviceInfo } from '../services/api';
 import { useAppStore } from '../store/appStore';
@@ -72,7 +73,7 @@ export default function DeviceInfo() {
   const getPlatformIcon = (platform: string) => {
     switch (platform) {
       case 'cuda':
-        return <ThunderboltOutlined style={{ color: 'var(--success)' }} />;
+        return <ThunderboltOutlined style={{ color: 'var(--accent-neon-cyan, #00d8a5)' }} />;
       case 'mac':
         return <AppleOutlined style={{ color: 'var(--text-primary)' }} />;
       default:
@@ -128,6 +129,8 @@ export default function DeviceInfo() {
     );
   }
 
+  const formatValue = (val: number) => Number(val.toFixed(1));
+
   return (
     <AnimatedLayout animationKey="device-info">
       <div className={styles.container}>
@@ -150,7 +153,7 @@ export default function DeviceInfo() {
         />
 
         {error && (
-          <motion.div initial="hidden" animate="show" variants={itemVariants}>
+          <motion.div initial="hidden" animate="show" variants={itemVariants} style={{ marginTop: 'var(--space-6)' }}>
             <div
               style={{
                 padding: '16px 20px',
@@ -172,10 +175,12 @@ export default function DeviceInfo() {
 
         {deviceInfo && (
           <motion.div variants={containerVariants} initial="hidden" animate="show">
-            <Row gutter={[24, 24]}>
-              <Col xs={24} lg={8}>
+            <div className={styles.deviceGrid}>
+              
+              {/* Card 1: 计算平台 */}
+              <div className={styles['span-4']}>
                 <motion.div variants={itemVariants} style={{ height: '100%' }}>
-                  <GlassCard intensity="low" className={styles.card}>
+                  <GlassHoverCard className={styles.statCard} tilt3D={true}>
                     <div className={styles.cardHeader}>
                       <div className={styles.cardTitle}>计算平台</div>
                       <Tag
@@ -193,7 +198,7 @@ export default function DeviceInfo() {
                       <div className={styles.platformName}>
                         {getPlatformName(deviceInfo.platform)}
                       </div>
-                      <div className={styles.deviceName}>{deviceInfo.device_name}</div>
+                      {/* 不显示设备名称 */}
                     </div>
 
                     <div className={styles.metricsRow}>
@@ -220,114 +225,124 @@ export default function DeviceInfo() {
                         </div>
                       )}
                     </div>
-                  </GlassCard>
+                  </GlassHoverCard>
                 </motion.div>
-              </Col>
+              </div>
 
-              <Col xs={24} lg={8}>
+              {/* Card 2: GPU 显存 */}
+              <div className={styles['span-4']}>
                 <motion.div variants={itemVariants} style={{ height: '100%' }}>
-                  <GlassCard intensity="low" className={styles.card}>
+                  <GlassHoverCard className={styles.statCard} tilt3D={true}>
                     <div className={styles.cardHeader}>
                       <div className={styles.cardTitle}>GPU 显存 (VRAM)</div>
                       <ThunderboltOutlined style={{ color: 'var(--accent-primary)', fontSize: 16 }} />
                     </div>
                     <div className={styles.progressWrapper}>
-                      <Progress
-                        type="dashboard"
-                        percent={
-                          deviceInfo.vram_total
-                            ? Math.round((deviceInfo.vram_used / deviceInfo.vram_total) * 100)
-                            : 0
-                        }
-                        format={(percent) => (
+                      <div className={styles.progressGlow} style={{ background: 'var(--accent-primary)' }}></div>
+                      <div className={styles.progressContent}>
+                        <NeonProgressRing
+                          percent={
+                            deviceInfo.vram_total
+                              ? Math.round((deviceInfo.vram_used / deviceInfo.vram_total) * 100)
+                              : 0
+                          }
+                          color="var(--accent-neon-cyan, #00FFC2)"
+                          glowColor="rgba(0, 255, 194, 0.3)"
+                        >
                           <div className={styles.progressText}>
-                            <span className={styles.progressPercent}>{percent}%</span>
+                            <span className={styles.progressPercent}>
+                              {deviceInfo.vram_total ? Math.round((deviceInfo.vram_used / deviceInfo.vram_total) * 100) : 0}%
+                            </span>
                             <span className={styles.progressSub}>已使用</span>
                           </div>
-                        )}
-                        strokeColor={{ '0%': 'var(--accent-primary)', '100%': 'var(--warning)' }}
-                        size={160}
-                        strokeWidth={8}
-                        gapDegree={90}
-                      />
-                      <div className={styles.metricsGrid}>
-                        <div className={styles.metricBox}>
-                          <div className={styles.metricBoxLabel}>已用显存</div>
-                          <div className={styles.metricBoxValue}>
-                            {(deviceInfo.vram_used || 0).toFixed(1)} <span className={styles.unit}>GB</span>
+                        </NeonProgressRing>
+                        <div className={styles.metricsGrid} style={{ marginTop: 24 }}>
+                          <div className={styles.metricBox}>
+                            <div className={styles.metricBoxLabel}>已用显存</div>
+                            <div className={styles.metricBoxValue}>
+                              <CountUp value={formatValue(deviceInfo.vram_used || 0)} decimals={1} /> 
+                              <span className={styles.unit}>GB</span>
+                            </div>
                           </div>
-                        </div>
-                        <div className={styles.metricBox}>
-                          <div className={styles.metricBoxLabel}>可用显存</div>
-                          <div className={styles.metricBoxValue} style={{ color: 'var(--success)' }}>
-                            {(deviceInfo.vram_free || 0).toFixed(1)} <span className={styles.unit}>GB</span>
+                          <div className={styles.metricBox}>
+                            <div className={styles.metricBoxLabel}>可用显存</div>
+                            <div className={styles.metricBoxValue} style={{ color: 'var(--success)' }}>
+                              <CountUp value={formatValue(deviceInfo.vram_free || 0)} decimals={1} /> 
+                              <span className={styles.unit}>GB</span>
+                            </div>
                           </div>
-                        </div>
-                        <div className={styles.metricBox} style={{ gridColumn: 'span 2' }}>
-                          <div className={styles.metricBoxLabel}>总容量</div>
-                          <div className={styles.metricBoxValue}>
-                            {(deviceInfo.vram_total || 0).toFixed(1)} <span className={styles.unit}>GB</span>
+                          <div className={styles.metricBox} style={{ gridColumn: 'span 2' }}>
+                            <div className={styles.metricBoxLabel}>总容量</div>
+                            <div className={styles.metricBoxValue}>
+                              <CountUp value={formatValue(deviceInfo.vram_total || 0)} decimals={1} /> 
+                              <span className={styles.unit}>GB</span>
+                            </div>
                           </div>
                         </div>
                       </div>
                     </div>
-                  </GlassCard>
+                  </GlassHoverCard>
                 </motion.div>
-              </Col>
+              </div>
 
-              <Col xs={24} lg={8}>
+              {/* Card 3: 系统内存 */}
+              <div className={styles['span-4']}>
                 <motion.div variants={itemVariants} style={{ height: '100%' }}>
-                  <GlassCard intensity="low" className={styles.card}>
+                  <GlassHoverCard className={styles.statCard} tilt3D={true}>
                     <div className={styles.cardHeader}>
                       <div className={styles.cardTitle}>系统内存 (RAM)</div>
                       <DesktopOutlined style={{ color: 'var(--accent-secondary)', fontSize: 16 }} />
                     </div>
                     <div className={styles.progressWrapper}>
-                      <Progress
-                        type="dashboard"
-                        percent={Math.round(
-                          ((deviceInfo.memory_used || 0) / (deviceInfo.memory_total || 1)) * 100,
-                        )}
-                        format={(percent) => (
+                      <div className={styles.progressGlow} style={{ background: 'var(--accent-secondary)' }}></div>
+                      <div className={styles.progressContent}>
+                        <NeonProgressRing
+                          percent={Math.round(
+                            ((deviceInfo.memory_used || 0) / (deviceInfo.memory_total || 1)) * 100,
+                          )}
+                          color="var(--accent-neon-purple, #9D00FF)"
+                          glowColor="rgba(157, 0, 255, 0.3)"
+                        >
                           <div className={styles.progressText}>
-                            <span className={styles.progressPercent}>{percent}%</span>
+                            <span className={`${styles.progressPercent} ${styles.ramGlow}`}>
+                              {Math.round(((deviceInfo.memory_used || 0) / (deviceInfo.memory_total || 1)) * 100)}%
+                            </span>
                             <span className={styles.progressSub}>已使用</span>
                           </div>
-                        )}
-                        strokeColor={{ '0%': 'var(--accent-secondary)', '100%': 'var(--warning)' }}
-                        size={160}
-                        strokeWidth={8}
-                        gapDegree={90}
-                      />
-                      <div className={styles.metricsGrid}>
-                        <div className={styles.metricBox}>
-                          <div className={styles.metricBoxLabel}>已用内存</div>
-                          <div className={styles.metricBoxValue}>
-                            {(deviceInfo.memory_used || 0).toFixed(1)} <span className={styles.unit}>GB</span>
+                        </NeonProgressRing>
+                        <div className={styles.metricsGrid} style={{ marginTop: 24 }}>
+                          <div className={styles.metricBox}>
+                            <div className={styles.metricBoxLabel}>已用内存</div>
+                            <div className={styles.metricBoxValue}>
+                              <CountUp value={formatValue(deviceInfo.memory_used || 0)} decimals={1} /> 
+                              <span className={styles.unit}>GB</span>
+                            </div>
                           </div>
-                        </div>
-                        <div className={styles.metricBox}>
-                          <div className={styles.metricBoxLabel}>可用内存</div>
-                          <div className={styles.metricBoxValue} style={{ color: 'var(--success)' }}>
-                            {(deviceInfo.memory_free || 0).toFixed(1)} <span className={styles.unit}>GB</span>
+                          <div className={styles.metricBox}>
+                            <div className={styles.metricBoxLabel}>可用内存</div>
+                            <div className={styles.metricBoxValue} style={{ color: 'var(--success)' }}>
+                              <CountUp value={formatValue(deviceInfo.memory_free || 0)} decimals={1} /> 
+                              <span className={styles.unit}>GB</span>
+                            </div>
                           </div>
-                        </div>
-                        <div className={styles.metricBox} style={{ gridColumn: 'span 2' }}>
-                          <div className={styles.metricBoxLabel}>总容量</div>
-                          <div className={styles.metricBoxValue}>
-                            {(deviceInfo.memory_total || 0).toFixed(1)} <span className={styles.unit}>GB</span>
+                          <div className={styles.metricBox} style={{ gridColumn: 'span 2' }}>
+                            <div className={styles.metricBoxLabel}>总容量</div>
+                            <div className={styles.metricBoxValue}>
+                              <CountUp value={formatValue(deviceInfo.memory_total || 0)} decimals={1} /> 
+                              <span className={styles.unit}>GB</span>
+                            </div>
                           </div>
                         </div>
                       </div>
                     </div>
-                  </GlassCard>
+                  </GlassHoverCard>
                 </motion.div>
-              </Col>
+              </div>
 
               {/* 显存建议卡片 */}
-              <Col xs={24}>
+              <div className={styles['span-12']}>
                 <motion.div variants={itemVariants}>
-                  <GlassCard intensity="low" className={styles.card}>
+                  <GlassHoverCard className={styles.statCard} tilt3D={false}>
                     <div className={styles.cardHeader} style={{ borderBottom: 'none', paddingBottom: 0 }}>
                       <div className={styles.cardTitle}>微调配置建议</div>
                     </div>
@@ -385,10 +400,11 @@ export default function DeviceInfo() {
                         </div>
                       );
                     })()}
-                  </GlassCard>
+                  </GlassHoverCard>
                 </motion.div>
-              </Col>
-            </Row>
+              </div>
+
+            </div>
           </motion.div>
         )}
       </div>
