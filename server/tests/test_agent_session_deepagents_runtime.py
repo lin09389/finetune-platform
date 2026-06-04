@@ -266,7 +266,7 @@ def test_local_async_subtask_rejects_non_subagent_target(tmp_path: Path):
         asyncio.run(runner.start_async_subtask(parent["id"], "explore", " "))
 
 
-def test_local_async_subtask_refresh_maps_waiting_permission_to_failed(tmp_path: Path):
+def test_local_async_subtask_refresh_keeps_waiting_permission_running(tmp_path: Path):
     repository = AgentSessionRepository(str(tmp_path / "agents.db"))
     parent = repository.create_session({"agent_id": "build", "title": "parent", "project_path": str(tmp_path)})
     child = repository.create_session(
@@ -275,6 +275,7 @@ def test_local_async_subtask_refresh_maps_waiting_permission_to_failed(tmp_path:
             "title": "child",
             "project_path": str(tmp_path),
             "status": "waiting_permission",
+            "metadata": {"ui_state": {"pending_permission": {"part_id": "part_permission", "actions": []}}},
         }
     )
     task = repository.create_subtask(
@@ -294,8 +295,13 @@ def test_local_async_subtask_refresh_maps_waiting_permission_to_failed(tmp_path:
 
     result = runner.check_async_subtask(parent["id"], task["id"])
 
-    assert result["status"] == "failed"
+    assert result["status"] == "running"
     assert result["result"]["child_status"] == "waiting_permission"
+    parent_event = repository.list_events(parent["id"])[-1]
+    assert parent_event["event_type"] == "async_subtask_waiting_permission"
+    assert parent_event["payload"]["child_status"] == "waiting_permission"
+    assert parent_event["payload"]["has_pending_permission"] is True
+    assert parent_event["payload"]["pending_permission_part_id"] == "part_permission"
 
 
 def test_local_async_subtask_completion_writes_parent_summary(monkeypatch, tmp_path: Path):
@@ -335,6 +341,8 @@ def test_local_async_subtask_completion_writes_parent_summary(monkeypatch, tmp_p
     assert service.task_events(parent["id"], task["id"])[-1]["event_type"] == "completed"
     assert parent_parts[-1]["payload"]["agent_role"] == "async_subagent"
     assert parent_parts[-1]["payload"]["async_status"] == "completed"
+    assert parent_parts[-1]["payload"]["child_status"] == "completed"
+    assert parent_parts[-1]["payload"]["has_pending_permission"] is False
     assert emitted[-1]["event_type"] == "async_subtask_completed"
 
 

@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 
 ASYNC_SUBTASK_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
 ASYNC_SUBTASK_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
-CHILD_FAILURE_STATUSES = {"failed", "interrupted", "needs_manual_review", "waiting_approval", "waiting_permission"}
+CHILD_WAITING_STATUSES = {"waiting_approval", "waiting_permission"}
+CHILD_FAILURE_STATUSES = {"failed", "interrupted", "needs_manual_review"}
 
 NotifyEvent = Callable[[str, dict[str, Any]], None]
 InterruptSession = Callable[[str, str | None], Any]
@@ -387,6 +388,13 @@ class AsyncSubagentService:
             )
             self._record_subtask_event(updated, "completed", summary)
             return updated
+        if child_status in CHILD_WAITING_STATUSES:
+            summary = self._latest_summary(str(task.get("child_session_id"))) or f"子任务状态：{child_status}"
+            result_json = dict(task.get("result_json") or {})
+            result_json.update({"summary": summary, "child_status": child_status})
+            updated = self.repository.update_subtask(task["id"], status="running", result_json=result_json, error=None)
+            self._record_subtask_event(updated, "waiting_permission", summary)
+            return updated
         if child_status in CHILD_FAILURE_STATUSES:
             summary = self._latest_summary(str(task.get("child_session_id"))) or f"子任务状态：{child_status}"
             updated = self.repository.update_subtask(
@@ -416,6 +424,7 @@ class AsyncSubagentService:
             return
         short_event_type = event_type.removeprefix("async_subtask_")
         self._record_subtask_event(task, short_event_type, content, status=status, notify_parent=False)
+        child_state = self._child_state_payload(task)
         payload = {
             "runtime": "deepagents",
             "task_id": task.get("id"),
@@ -423,6 +432,7 @@ class AsyncSubagentService:
             "agent_name": task.get("agent_name"),
             "agent_role": "async_subagent",
             "async_status": status,
+            **child_state,
             "health_status": self._health_status(task),
             "chunk_type": "async_task",
         }
@@ -472,10 +482,12 @@ class AsyncSubagentService:
                 "agent_name": task.get("agent_name"),
                 "restart_count": task.get("restart_count") or 0,
                 "health_status": self._health_status(task),
+                **self._child_state_payload(task),
                 **(payload or {}),
             },
         )
         if notify_parent and parent_session_id:
+            child_state = self._child_state_payload(task)
             parent_event = self.repository.add_event(
                 parent_session_id,
                 f"async_subtask_{event_type}",
@@ -487,6 +499,7 @@ class AsyncSubagentService:
                     "agent_name": task.get("agent_name"),
                     "agent_role": "async_subagent",
                     "async_status": status or task.get("status"),
+                    **child_state,
                     "health_status": self._health_status(task),
                     "chunk_type": "async_task",
                     "subtask_event": event,
@@ -495,6 +508,26 @@ class AsyncSubagentService:
             )
             self.notify_event(parent_session_id, parent_event)
         return event
+
+    def _child_state_payload(self, task: dict[str, Any]) -> dict[str, Any]:
+        child_session_id = str(task.get("child_session_id") or "")
+        result = task.get("result_json") or {}
+        child = self.repository.get_session(child_session_id) if child_session_id else None
+        child_status = str((child or {}).get("status") or result.get("child_status") or "")
+        metadata = dict((child or {}).get("metadata") or {})
+        ui_state = metadata.get("ui_state") if isinstance(metadata.get("ui_state"), dict) else {}
+        pending_permission = ui_state.get("pending_permission") if isinstance(ui_state, dict) else None
+        pending_permission_part_id = (
+            pending_permission.get("part_id")
+            if isinstance(pending_permission, dict)
+            else None
+        )
+        has_pending_permission = bool(pending_permission) or child_status in {"waiting_permission", "waiting_approval"}
+        return {
+            "child_status": child_status or None,
+            "has_pending_permission": has_pending_permission,
+            "pending_permission_part_id": pending_permission_part_id,
+        }
 
     def _latest_summary(self, session_id: str) -> str:
         for part in reversed(self.repository.list_parts(session_id)):
@@ -516,6 +549,7 @@ class AsyncSubagentService:
         events = self.repository.list_subtask_events(str(task.get("id") or ""))
         tail_events = events[-20:] if include_result else []
         diagnostics = self._task_diagnostics(task, events)
+        child_state = self._child_state_payload(task)
         return {
             "task_id": task.get("id"),
             "parent_session_id": task.get("parent_session_id"),
@@ -538,6 +572,7 @@ class AsyncSubagentService:
             "duration_ms": self._duration_ms(task),
             "queue_wait_ms": _elapsed_ms(task.get("created_at"), task.get("started_at")),
             "health_status": self._health_status(task),
+            **child_state,
         }
 
     def _task_diagnostics(self, task: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:

@@ -109,6 +109,9 @@ class AgentAsyncTaskResponse(BaseModel):
     duration_ms: int | None = None
     queue_wait_ms: int | None = None
     health_status: AgentAsyncTaskHealthStatus = "waiting"
+    child_status: str | None = None
+    has_pending_permission: bool = False
+    pending_permission_part_id: str | None = None
 
 
 class AgentAsyncTaskListResponse(BaseModel):
@@ -204,6 +207,55 @@ class AgentArtifactResponse(BaseModel):
     summary: str
     preview: str = ""
     source_part_id: str
+
+
+class AgentWorkspaceArtifact(BaseModel):
+    id: str
+    artifact_type: str
+    title: str
+    summary: str = ""
+    payload: dict[str, Any] = Field(default_factory=dict)
+    source_part_id: str | None = None
+    source_task_id: str | None = None
+    producer_agent: str | None = None
+    created_at: str | None = None
+
+
+class AgentWorkspaceChangedFile(BaseModel):
+    path: str
+    status: str = "modified"
+    summary: str = ""
+    source_part_id: str | None = None
+
+
+class AgentWorkspaceAsyncTasks(BaseModel):
+    tasks: list[AgentAsyncTaskResponse] = Field(default_factory=list)
+    metrics: AgentAsyncTaskMetricsResponse = Field(default_factory=AgentAsyncTaskMetricsResponse)
+
+
+class AgentWorkspaceNextAction(BaseModel):
+    id: str
+    action_type: str
+    title: str
+    summary: str = ""
+    priority: str = "low"
+    source_artifact_id: str | None = None
+    source_task_id: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentWorkspaceResponse(BaseModel):
+    session: AgentSessionResponse
+    status_text: dict[str, Any] = Field(default_factory=dict)
+    timeline: list[dict[str, Any]] = Field(default_factory=list)
+    pending_permission: dict[str, Any] | None = None
+    task_plan: dict[str, Any] | None = None
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
+    async_tasks: AgentWorkspaceAsyncTasks = Field(default_factory=AgentWorkspaceAsyncTasks)
+    artifacts: list[AgentWorkspaceArtifact] = Field(default_factory=list)
+    changed_files: list[AgentWorkspaceChangedFile] = Field(default_factory=list)
+    next_actions: list[AgentWorkspaceNextAction] = Field(default_factory=list)
+    recent_events: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AgentSessionOverviewResponse(BaseModel):

@@ -751,6 +751,9 @@ export interface AgentSessionUiTimelineItem {
   task_id?: string;
   child_session_id?: string;
   async_status?: string;
+  child_status?: string;
+  has_pending_permission?: boolean;
+  pending_permission_part_id?: string | null;
   created_at?: string;
   updated_at?: string;
   payload?: Record<string, any>;
@@ -886,6 +889,9 @@ export interface AgentAsyncTask {
   duration_ms?: number | null;
   queue_wait_ms?: number | null;
   health_status?: 'ok' | 'waiting' | 'attention' | 'failed' | 'cancelled';
+  child_status?: string | null;
+  has_pending_permission?: boolean;
+  pending_permission_part_id?: string | null;
 }
 
 export interface AgentAsyncTaskListResponse {
@@ -916,6 +922,83 @@ export interface AgentAsyncTaskMetrics {
   recovery_count: number;
   event_count: number;
   last_event?: AgentAsyncTaskEvent | null;
+}
+
+export interface AgentWorkspaceArtifact {
+  id: string;
+  artifact_type:
+    | 'file_change'
+    | 'subtask_result'
+    | 'command_result'
+    | 'run_summary'
+    | 'findings'
+    | 'risks'
+    | 'test_result'
+    | string;
+  title: string;
+  summary: string;
+  payload: Record<string, any>;
+  source_part_id?: string | null;
+  source_task_id?: string | null;
+  producer_agent?: string | null;
+  created_at?: string | null;
+}
+
+export interface AgentWorkspaceChangedFile {
+  path: string;
+  status: string;
+  summary: string;
+  source_part_id?: string | null;
+}
+
+export type AgentWorkspaceNextActionType =
+  | 'resolve_permission'
+  | 'review_risks'
+  | 'run_tests'
+  | 'start_explore'
+  | 'start_review'
+  | 'continue_build'
+  | 'inspect_file'
+  | 'restart_failed_task';
+
+export interface AgentWorkspaceNextAction {
+  id: string;
+  action_type: AgentWorkspaceNextActionType;
+  title: string;
+  summary: string;
+  priority: 'high' | 'medium' | 'low';
+  source_artifact_id?: string | null;
+  source_task_id?: string | null;
+  payload: Record<string, any>;
+}
+
+export interface AgentWorkspaceRecentEvent {
+  id?: string;
+  event_type?: string;
+  message?: string;
+  created_at?: string;
+  payload?: Record<string, any>;
+}
+
+export interface AgentWorkspace {
+  session: AgentSession;
+  status_text: {
+    current_phase?: string;
+    stop_reason?: string;
+    next_action?: string;
+  };
+  timeline: AgentSessionUiTimelineItem[];
+  pending_permission?: AgentSessionUiPendingPermission | null;
+  task_plan?: Record<string, any> | null;
+  diagnostics: AgentSessionDiagnostics & Record<string, any>;
+  async_tasks: {
+    tasks: AgentAsyncTask[];
+    metrics: AgentAsyncTaskMetrics;
+  };
+  artifacts: AgentWorkspaceArtifact[];
+  changed_files: AgentWorkspaceChangedFile[];
+  next_actions: AgentWorkspaceNextAction[];
+  recent_events: AgentWorkspaceRecentEvent[];
 }
 
 export interface AgentSessionEvent {
@@ -1070,6 +1153,11 @@ export const getAgentSession = async (sessionId: string): Promise<AgentSession> 
 
 export const getAgentSessionOverview = async (sessionId: string): Promise<AgentSessionOverview> => {
   const response = await apiClient.get(`/agent-sessions/${sessionId}/overview`);
+  return response.data;
+};
+
+export const getAgentWorkspace = async (sessionId: string): Promise<AgentWorkspace> => {
+  const response = await apiClient.get(`/agent-sessions/${sessionId}/workspace`);
   return response.data;
 };
 

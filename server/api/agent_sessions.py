@@ -23,6 +23,7 @@ from agent_session.models import (
     AgentSessionCreate,
     AgentSessionOverviewResponse,
     AgentSessionResponse,
+    AgentWorkspaceResponse,
 )
 from agent_session.service import AgentSessionService
 from core.config import settings
@@ -91,6 +92,18 @@ async def get_agent_session_overview(
 ):
     try:
         return await run_sync(service.get_overview, session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/{session_id}/workspace", response_model=AgentWorkspaceResponse)
+async def get_agent_session_workspace(
+    session_id: str,
+    service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    try:
+        return await run_sync(service.get_workspace, session_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

@@ -29,9 +29,11 @@ from .models import (
     AgentSessionCreate,
     AgentSessionOverviewResponse,
     AgentSessionResponse,
+    AgentWorkspaceResponse,
 )
 from .repository import AgentSessionRepository
 from .state import ensure_session_state, record_fallback_summary, set_phase
+from .workspace_view import AgentWorkspaceViewService
 
 logger = logging.getLogger(__name__)
 ModelCall = Callable[[list[dict[str, str]]], Awaitable[str]]
@@ -64,6 +66,7 @@ class AgentSessionService:
             model_call=self.model_call,
             async_subagent_service=self.async_subagent_service,
         )
+        self.workspace_view_service = AgentWorkspaceViewService(self)
 
     ACTIVE_STATUSES = {"running", "verifying", "repairing", "waiting_approval", "waiting_permission"}
 
@@ -201,6 +204,9 @@ class AgentSessionService:
             artifacts=self._build_artifacts(session.parts),
             diagnostics=diagnostics,
         )
+
+    def get_workspace(self, session_id: str) -> AgentWorkspaceResponse:
+        return self.workspace_view_service.get_workspace(session_id)
 
     async def prompt(self, session_id: str, request: AgentPromptRequest) -> AgentSessionResponse:
         session = self.repository.get_session(session_id)
