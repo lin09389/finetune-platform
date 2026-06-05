@@ -4,6 +4,7 @@ import {
   FileTextOutlined,
   PlayCircleOutlined,
   ThunderboltOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons';
 import { Empty, Tabs } from 'antd';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -17,6 +18,10 @@ interface AgentWorkbenchPanelProps {
   configContent: React.ReactNode;
   progressContent: React.ReactNode;
   asyncTasksContent: React.ReactNode;
+  planContent?: React.ReactNode;
+  artifactLedgerContent?: React.ReactNode;
+  approvalsContent?: React.ReactNode;
+  runtimeContent?: React.ReactNode;
   inspectorContent?: React.ReactNode;
   fileTreeContent: React.ReactNode;
   editorContent: React.ReactNode;
@@ -30,6 +35,10 @@ const AgentWorkbenchPanel: React.FC<AgentWorkbenchPanelProps> = ({
   configContent,
   progressContent,
   asyncTasksContent,
+  planContent,
+  artifactLedgerContent,
+  approvalsContent,
+  runtimeContent,
   inspectorContent,
   fileTreeContent,
   editorContent,
@@ -47,6 +56,57 @@ const AgentWorkbenchPanel: React.FC<AgentWorkbenchPanelProps> = ({
   };
 
   const tabItems = [
+    {
+      key: 'plan',
+      label: (
+        <span className={styles.tabLabel}>
+          <UnorderedListOutlined />
+          计划
+        </span>
+      ),
+      children: planContent || runContent,
+    },
+    {
+      key: 'artifacts',
+      label: (
+        <span className={styles.tabLabel}>
+          <FileTextOutlined />
+          产物
+          {changedFiles > 0 ? <em>{changedFiles}</em> : null}
+        </span>
+      ),
+      children: artifactLedgerContent || runContent,
+    },
+    {
+      key: 'subagents',
+      label: (
+        <span className={styles.tabLabel}>
+          <ThunderboltOutlined />
+          子任务
+        </span>
+      ),
+      children: asyncTasksContent,
+    },
+    {
+      key: 'approvals',
+      label: (
+        <span className={styles.tabLabel}>
+          <ControlOutlined />
+          确认
+        </span>
+      ),
+      children: approvalsContent || inspectorContent || runContent,
+    },
+    {
+      key: 'runtime',
+      label: (
+        <span className={styles.tabLabel}>
+          <ApartmentOutlined />
+          运行时
+        </span>
+      ),
+      children: runtimeContent || runContent,
+    },
     {
       key: 'run',
       label: (
@@ -92,17 +152,17 @@ const AgentWorkbenchPanel: React.FC<AgentWorkbenchPanelProps> = ({
       label: (
         <span className={styles.tabLabel}>
           <ThunderboltOutlined />
-          子任务
+          旧子任务
         </span>
       ),
       children: asyncTasksContent,
     },
     {
-      key: 'artifacts',
+      key: 'files',
       label: (
         <span className={styles.tabLabel}>
           <FileTextOutlined />
-          产物
+          文件
           {changedFiles > 0 ? <em>{changedFiles}</em> : null}
         </span>
       ),

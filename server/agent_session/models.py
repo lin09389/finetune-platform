@@ -209,11 +209,37 @@ class AgentArtifactResponse(BaseModel):
     source_part_id: str
 
 
+class AgentTodoItem(BaseModel):
+    id: str
+    title: str
+    status: Literal["pending", "in_progress", "completed", "blocked"] = "pending"
+    summary: str = ""
+    owner_agent: str | None = None
+    source: str = "workspace"
+    linked_artifact_id: str | None = None
+    linked_task_id: str | None = None
+
+
+class AgentWorkspacePlan(BaseModel):
+    todos: list[AgentTodoItem] = Field(default_factory=list)
+    source: str = "empty"
+    updated_at: str | None = None
+
+
+class AgentWorkspaceSource(BaseModel):
+    kind: str
+    id: str | None = None
+    label: str | None = None
+
+
 class AgentWorkspaceArtifact(BaseModel):
     id: str
     artifact_type: str
+    type: str | None = None
     title: str
     summary: str = ""
+    status: str = "ready"
+    source: AgentWorkspaceSource | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
     source_part_id: str | None = None
     source_task_id: str | None = None
@@ -244,18 +270,45 @@ class AgentWorkspaceNextAction(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class AgentWorkspaceMount(BaseModel):
+    path: str
+    kind: str
+    label: str
+    writable: bool = False
+    description: str = ""
+
+
+class AgentWorkspaceSkillSource(BaseModel):
+    name: str
+    virtual_path: str
+    priority: int = 0
+    available: bool = True
+
+
+class AgentWorkspaceRuntimeContext(BaseModel):
+    workspace_root: str | None = None
+    vfs_mounts: list[AgentWorkspaceMount] = Field(default_factory=list)
+    skill_sources: list[AgentWorkspaceSkillSource] = Field(default_factory=list)
+    memory_files: list[str] = Field(default_factory=list)
+
+
 class AgentWorkspaceResponse(BaseModel):
     session: AgentSessionResponse
     status_text: dict[str, Any] = Field(default_factory=dict)
     timeline: list[dict[str, Any]] = Field(default_factory=list)
     pending_permission: dict[str, Any] | None = None
     task_plan: dict[str, Any] | None = None
+    plan: AgentWorkspacePlan = Field(default_factory=AgentWorkspacePlan)
+    todos: list[AgentTodoItem] = Field(default_factory=list)
     diagnostics: dict[str, Any] = Field(default_factory=dict)
     async_tasks: AgentWorkspaceAsyncTasks = Field(default_factory=AgentWorkspaceAsyncTasks)
     artifacts: list[AgentWorkspaceArtifact] = Field(default_factory=list)
     changed_files: list[AgentWorkspaceChangedFile] = Field(default_factory=list)
     next_actions: list[AgentWorkspaceNextAction] = Field(default_factory=list)
     recent_events: list[dict[str, Any]] = Field(default_factory=list)
+    runtime: AgentWorkspaceRuntimeContext = Field(default_factory=AgentWorkspaceRuntimeContext)
+    vfs_mounts: list[AgentWorkspaceMount] = Field(default_factory=list)
+    skill_sources: list[AgentWorkspaceSkillSource] = Field(default_factory=list)
 
 
 class AgentSessionOverviewResponse(BaseModel):

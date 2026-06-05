@@ -74,8 +74,8 @@ def test_child_pending_permission_generates_resolution_action():
 def test_conditional_or_failed_risks_generate_review_action():
     actions = _plan(
         artifacts=[
-            _artifact("risks", "risks_conditional", summary="缺少测试", payload={"verdict": "conditional"}),
-            _artifact("risks", "risks_fail", summary="阻塞风险", payload={"verdict": "fail"}),
+            _artifact("risk", "risks_conditional", summary="缺少测试", payload={"verdict": "conditional"}),
+            _artifact("risk", "risks_fail", summary="阻塞风险", payload={"verdict": "fail"}),
         ]
     )
 
@@ -103,7 +103,7 @@ def test_file_change_with_test_result_does_not_generate_run_tests_suggestion():
 
 def test_findings_without_review_task_generates_start_review():
     actions = _plan(
-        artifacts=[_artifact("findings", "findings_1", summary="入口在 app.py", source_task_id="task_explore")],
+        artifacts=[_artifact("finding", "findings_1", summary="入口在 app.py", source_task_id="task_explore")],
         tasks=[{"task_id": "task_explore", "agent_name": "explore", "status": "completed"}],
     )
 
@@ -114,7 +114,7 @@ def test_findings_without_review_task_generates_start_review():
 
 def test_existing_review_task_suppresses_start_review():
     actions = _plan(
-        artifacts=[_artifact("findings", "findings_1", summary="入口在 app.py")],
+        artifacts=[_artifact("finding", "findings_1", summary="入口在 app.py")],
         tasks=[{"task_id": "task_review", "agent_name": "review", "status": "running"}],
     )
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .models import AgentWorkspaceArtifact, AgentWorkspaceChangedFile
+from .models import AgentWorkspaceArtifact, AgentWorkspaceChangedFile, AgentWorkspaceSource
 
 MAX_PAYLOAD_TEXT = 1200
 TEST_COMMAND_HINTS = ("test", "pytest", "vitest", "typecheck", "tsc", "lint", "coverage")
@@ -55,7 +55,7 @@ class AgentArtifactExtractor:
                     )
                 )
             artifacts.append(
-                AgentWorkspaceArtifact(
+                self._artifact(
                     id=f"file_change:{source_part_id}:{path}",
                     artifact_type="file_change",
                     title=path or "文件变更",
@@ -66,6 +66,7 @@ class AgentArtifactExtractor:
                         "preview": getattr(item, "preview", "") or "",
                     },
                     source_part_id=source_part_id or None,
+                    status=status,
                 )
             )
         return artifacts, changed_files
@@ -83,9 +84,9 @@ class AgentArtifactExtractor:
             return self._extract_command_artifacts(part_id, title, content, payload, agent_name, created_at)
         if part_type == "summary":
             return [
-                AgentWorkspaceArtifact(
+                self._artifact(
                     id=f"run_summary:{part_id}",
-                    artifact_type="run_summary",
+                    artifact_type="summary",
                     title=title or "运行摘要",
                     summary=content[:240],
                     payload=payload,
@@ -118,7 +119,7 @@ class AgentArtifactExtractor:
             "stderr": stderr,
         }
         artifacts = [
-            AgentWorkspaceArtifact(
+            self._artifact(
                 id=f"command_result:{part_id}",
                 artifact_type="command_result",
                 title=command_text,
@@ -131,7 +132,7 @@ class AgentArtifactExtractor:
         ]
         if self._looks_like_test_command(command_text):
             artifacts.append(
-                AgentWorkspaceArtifact(
+                self._artifact(
                     id=f"test_result:{part_id}",
                     artifact_type="test_result",
                     title=command_text,
@@ -149,7 +150,7 @@ class AgentArtifactExtractor:
         result = dict(task.get("result") or {})
         summary = str(result.get("summary") or task.get("error") or "")
         task_id = str(task.get("task_id") or "")
-        base = AgentWorkspaceArtifact(
+        base = self._artifact(
             id=f"subtask_result:{task_id}",
             artifact_type="subtask_result",
             title=f"{agent_name or 'subagent'} 子任务",
@@ -173,9 +174,9 @@ class AgentArtifactExtractor:
         result = dict(task.get("result") or {})
         items = self._items_from_result(result, fallback_title="探索发现", fallback_summary=summary)
         files = self._files_from_text(summary)
-        return AgentWorkspaceArtifact(
+        return self._artifact(
             id=f"findings:{task.get('task_id')}",
-            artifact_type="findings",
+            artifact_type="finding",
             title="探索发现",
             summary=summary[:240],
             payload={"items": items, "files_examined": files},
@@ -187,9 +188,9 @@ class AgentArtifactExtractor:
     def _risks_artifact(self, task: dict[str, Any], summary: str) -> AgentWorkspaceArtifact:
         result = dict(task.get("result") or {})
         items = self._items_from_result(result, fallback_title="审查风险", fallback_summary=summary, risk=True)
-        return AgentWorkspaceArtifact(
+        return self._artifact(
             id=f"risks:{task.get('task_id')}",
-            artifact_type="risks",
+            artifact_type="risk",
             title="审查风险",
             summary=summary[:240],
             payload={"verdict": self._verdict(summary), "items": items},
@@ -225,6 +226,41 @@ class AgentArtifactExtractor:
         if files:
             item["files"] = files
         return [item]
+
+    @staticmethod
+    def _artifact(
+        *,
+        id: str,
+        artifact_type: str,
+        title: str,
+        summary: str = "",
+        status: str = "ready",
+        payload: dict[str, Any] | None = None,
+        source_part_id: str | None = None,
+        source_task_id: str | None = None,
+        producer_agent: str | None = None,
+        created_at: str | None = None,
+    ) -> AgentWorkspaceArtifact:
+        if source_part_id:
+            source = AgentWorkspaceSource(kind="part", id=source_part_id, label="Agent part")
+        elif source_task_id:
+            source = AgentWorkspaceSource(kind="task", id=source_task_id, label=producer_agent or "Subagent task")
+        else:
+            source = AgentWorkspaceSource(kind="workspace", label="Workspace")
+        return AgentWorkspaceArtifact(
+            id=id,
+            artifact_type=artifact_type,
+            type=artifact_type,
+            title=title,
+            summary=summary,
+            status=status,
+            source=source,
+            payload=payload or {},
+            source_part_id=source_part_id,
+            source_task_id=source_task_id,
+            producer_agent=producer_agent,
+            created_at=created_at,
+        )
 
     @staticmethod
     def _files_from_text(text: str) -> list[str]:

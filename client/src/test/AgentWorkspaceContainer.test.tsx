@@ -34,6 +34,28 @@ function workspace(): AgentWorkspace {
     timeline: [],
     pending_permission: null,
     task_plan: null,
+    plan: {
+      source: 'metadata',
+      updated_at: '2026-01-01T00:00:00',
+      todos: [
+        {
+          id: 'todo_1',
+          title: 'Read project',
+          status: 'in_progress',
+          summary: 'Inspect files',
+          source: 'metadata',
+        },
+      ],
+    },
+    todos: [
+      {
+        id: 'todo_1',
+        title: 'Read project',
+        status: 'in_progress',
+        summary: 'Inspect files',
+        source: 'metadata',
+      },
+    ],
     diagnostics: {},
     async_tasks: {
       tasks: [{
@@ -66,10 +88,52 @@ function workspace(): AgentWorkspace {
         last_event: null,
       },
     },
-    artifacts: [],
+    artifacts: [{
+      id: 'artifact_1',
+      artifact_type: 'finding',
+      type: 'finding',
+      title: 'Key finding',
+      summary: 'Project entry found',
+      status: 'ready',
+      source: { kind: 'task', id: 'agt_1', label: 'explore' },
+      payload: {},
+      source_task_id: 'agt_1',
+      producer_agent: 'explore',
+      created_at: '2026-01-01T00:00:00',
+    }],
     changed_files: [],
     next_actions: [],
     recent_events: [],
+    runtime: {
+      workspace_root: 'C:/workspace',
+      vfs_mounts: [{
+        path: '/workspace/',
+        kind: 'workspace',
+        label: 'Project workspace',
+        writable: true,
+        description: 'Project files',
+      }],
+      skill_sources: [{
+        name: 'builtin',
+        virtual_path: '/skills/builtin/',
+        priority: 10,
+        available: true,
+      }],
+      memory_files: ['/memories/user.md'],
+    },
+    vfs_mounts: [{
+      path: '/workspace/',
+      kind: 'workspace',
+      label: 'Project workspace',
+      writable: true,
+      description: 'Project files',
+    }],
+    skill_sources: [{
+      name: 'builtin',
+      virtual_path: '/skills/builtin/',
+      priority: 10,
+      available: true,
+    }],
   };
 }
 
@@ -132,5 +196,11 @@ describe('AgentWorkspaceContainer', () => {
     expect(screen.getByTestId('inspector')).toHaveTextContent('ags_parent');
     rerender(<AgentWorkspaceContainer activeKey="async-tasks" {...props} />);
     expect(screen.getByTestId('async-tasks')).toHaveTextContent('1:1');
+    rerender(<AgentWorkspaceContainer activeKey="plan" {...props} />);
+    expect(screen.getByText('Read project')).toBeInTheDocument();
+    rerender(<AgentWorkspaceContainer activeKey="artifacts" {...props} />);
+    expect(screen.getByText('Key finding')).toBeInTheDocument();
+    rerender(<AgentWorkspaceContainer activeKey="runtime" {...props} />);
+    expect(screen.getByText('/workspace/')).toBeInTheDocument();
   });
 });

@@ -927,6 +927,12 @@ export interface AgentAsyncTaskMetrics {
 export interface AgentWorkspaceArtifact {
   id: string;
   artifact_type:
+    | 'summary'
+    | 'finding'
+    | 'risk'
+    | 'decision'
+    | 'question'
+    | 'research_note'
     | 'file_change'
     | 'subtask_result'
     | 'command_result'
@@ -935,8 +941,15 @@ export interface AgentWorkspaceArtifact {
     | 'risks'
     | 'test_result'
     | string;
+  type?: string | null;
   title: string;
   summary: string;
+  status?: string;
+  source?: {
+    kind: string;
+    id?: string | null;
+    label?: string | null;
+  } | null;
   payload: Record<string, any>;
   source_part_id?: string | null;
   source_task_id?: string | null;
@@ -980,6 +993,45 @@ export interface AgentWorkspaceRecentEvent {
   payload?: Record<string, any>;
 }
 
+export interface AgentTodoItem {
+  id: string;
+  title: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'blocked';
+  summary: string;
+  owner_agent?: string | null;
+  source: string;
+  linked_artifact_id?: string | null;
+  linked_task_id?: string | null;
+}
+
+export interface AgentWorkspacePlan {
+  todos: AgentTodoItem[];
+  source: string;
+  updated_at?: string | null;
+}
+
+export interface AgentWorkspaceMount {
+  path: string;
+  kind: string;
+  label: string;
+  writable: boolean;
+  description: string;
+}
+
+export interface AgentWorkspaceSkillSource {
+  name: string;
+  virtual_path: string;
+  priority: number;
+  available: boolean;
+}
+
+export interface AgentWorkspaceRuntimeContext {
+  workspace_root?: string | null;
+  vfs_mounts: AgentWorkspaceMount[];
+  skill_sources: AgentWorkspaceSkillSource[];
+  memory_files: string[];
+}
+
 export interface AgentWorkspace {
   session: AgentSession;
   status_text: {
@@ -990,6 +1042,8 @@ export interface AgentWorkspace {
   timeline: AgentSessionUiTimelineItem[];
   pending_permission?: AgentSessionUiPendingPermission | null;
   task_plan?: Record<string, any> | null;
+  plan?: AgentWorkspacePlan;
+  todos?: AgentTodoItem[];
   diagnostics: AgentSessionDiagnostics & Record<string, any>;
   async_tasks: {
     tasks: AgentAsyncTask[];
@@ -999,6 +1053,9 @@ export interface AgentWorkspace {
   changed_files: AgentWorkspaceChangedFile[];
   next_actions: AgentWorkspaceNextAction[];
   recent_events: AgentWorkspaceRecentEvent[];
+  runtime?: AgentWorkspaceRuntimeContext;
+  vfs_mounts?: AgentWorkspaceMount[];
+  skill_sources?: AgentWorkspaceSkillSource[];
 }
 
 export interface AgentSessionEvent {

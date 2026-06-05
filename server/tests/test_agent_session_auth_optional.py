@@ -220,9 +220,16 @@ def test_agent_session_workspace_read_model_returns_deepagents_view(tmp_path: Pa
         assert body["async_tasks"]["tasks"][0]["child_status"] == "waiting_permission"
         assert body["async_tasks"]["tasks"][0]["has_pending_permission"] is True
         assert body["async_tasks"]["tasks"][0]["pending_permission_part_id"] == "part_permission"
+        assert body["todos"] == []
+        assert body["plan"]["todos"] == []
+        assert any(mount["path"] == "/workspace/" for mount in body["vfs_mounts"])
+        assert body["runtime"]["workspace_root"] == body["session"]["project_path"]
+        assert isinstance(body["skill_sources"], list)
         artifact_types = {artifact["artifact_type"] for artifact in body["artifacts"]}
-        assert {"file_change", "command_result", "test_result", "subtask_result", "findings", "risks"}.issubset(artifact_types)
+        assert {"file_change", "command_result", "test_result", "subtask_result", "finding", "risk"}.issubset(artifact_types)
         command_artifact = next(artifact for artifact in body["artifacts"] if artifact["artifact_type"] == "command_result")
+        assert command_artifact["type"] == "command_result"
+        assert command_artifact["source"]["kind"] == "part"
         assert len(command_artifact["payload"]["stdout"]) < 1300
         assert command_artifact["payload"]["stdout"].endswith("...")
         assert body["changed_files"][0]["path"] == "/workspace/app.py"
@@ -249,5 +256,33 @@ def test_agent_sessions_reject_unregistered_external_project_path(tmp_path: Path
         )
         assert response.status_code == 400
         assert "project_path must be inside the workspace" in str(response.json())
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_agent_session_workspace_normalizes_metadata_todos(tmp_path: Path):
+    client, service = _client_with_service(tmp_path)
+    try:
+        session = service.repository.create_session(
+            {
+                "agent_id": "build",
+                "title": "todo workspace",
+                "project_path": str(tmp_path),
+                "metadata": {
+                    "todos": [
+                        {"id": "todo_1", "title": "Read project", "status": "in_progress", "agent": "build"},
+                        {"id": "todo_2", "title": "Summarize findings", "status": "done"},
+                    ]
+                },
+            }
+        )
+
+        response = client.get(f"/agent-sessions/{session['id']}/workspace")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["plan"]["source"] == "metadata"
+        assert [todo["status"] for todo in body["todos"]] == ["in_progress", "completed"]
+        assert body["todos"][0]["owner_agent"] == "build"
     finally:
         app.dependency_overrides.clear()

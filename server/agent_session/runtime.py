@@ -140,6 +140,85 @@ def build_deepagents_backend(
     )
 
 
+def describe_deepagents_mounts(project_path: str, *, agent_id: str = "build") -> list[dict[str, Any]]:
+    """Return a reader-facing summary of the virtual filesystem routes."""
+
+    skill_mounts = [
+        {
+            "path": source.virtual_path,
+            "kind": "skills",
+            "label": f"Skills: {source.name}",
+            "writable": False,
+            "description": "DeepAgents skill source mounted read-only for progressive disclosure.",
+        }
+        for source in resolve_skill_source_specs(project_path, agent_id=agent_id)
+    ]
+    return [
+        {
+            "path": "/workspace/",
+            "kind": "workspace",
+            "label": "Project workspace",
+            "writable": True,
+            "description": "Current project files mounted through the DeepAgents filesystem backend.",
+        },
+        {
+            "path": "/memories/",
+            "kind": "memory",
+            "label": "User memory",
+            "writable": True,
+            "description": "Long-lived user memory files available to the agent.",
+        },
+        {
+            "path": "/agent-memory/",
+            "kind": "memory",
+            "label": "Agent memory",
+            "writable": True,
+            "description": "Agent-scoped memory files.",
+        },
+        {
+            "path": "/policies/",
+            "kind": "policy",
+            "label": "Policies",
+            "writable": False,
+            "description": "Organization or workspace policy files.",
+        },
+        {
+            "path": "/context/",
+            "kind": "context",
+            "label": "Task context",
+            "writable": False,
+            "description": "Ephemeral task context files assembled for the current prompt.",
+        },
+        {
+            "path": "/large_tool_results/",
+            "kind": "ephemeral",
+            "label": "Large tool results",
+            "writable": False,
+            "description": "Offloaded large tool outputs from DeepAgents.",
+        },
+        {
+            "path": "/conversation_history/",
+            "kind": "ephemeral",
+            "label": "Conversation history",
+            "writable": False,
+            "description": "DeepAgents conversation history summaries.",
+        },
+        *skill_mounts,
+    ]
+
+
+def describe_skill_sources(project_path: str, *, agent_id: str = "build") -> list[dict[str, Any]]:
+    return [
+        {
+            "name": source.name,
+            "virtual_path": source.virtual_path,
+            "priority": source.priority,
+            "available": source.path.exists() and source.path.is_dir(),
+        }
+        for source in resolve_skill_source_specs(project_path, agent_id=agent_id)
+    ]
+
+
 def resolve_interrupt_on(metadata: dict[str, Any] | None) -> dict[str, Any] | None:
     """Read optional DeepAgents HITL interrupt configuration from session metadata."""
 
@@ -178,6 +257,8 @@ __all__ = [
     "WORKSPACE_BACKEND_ROUTE",
     "build_deep_agent_runtime",
     "build_deepagents_backend",
+    "describe_deepagents_mounts",
+    "describe_skill_sources",
     "memory_files_for_project",
     "resolve_skill_sources",
     "resolve_interrupt_on",

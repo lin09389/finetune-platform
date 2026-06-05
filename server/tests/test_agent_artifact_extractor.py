@@ -47,6 +47,8 @@ def test_artifact_extractor_derives_file_changes_and_command_results():
     assert {"file_change", "command_result", "test_result"}.issubset(artifact_types)
     assert changed_files[0].path == "/workspace/app.py"
     command_artifact = next(artifact for artifact in artifacts if artifact.artifact_type == "command_result")
+    assert command_artifact.type == "command_result"
+    assert command_artifact.source and command_artifact.source.kind == "part"
     assert command_artifact.payload["stdout"].endswith("...")
     test_artifact = next(artifact for artifact in artifacts if artifact.artifact_type == "test_result")
     assert test_artifact.payload["passed"] is True
@@ -84,11 +86,11 @@ def test_artifact_extractor_derives_findings_risks_and_subtask_results():
     artifacts, _ = extractor.extract([], tasks, [])
 
     artifact_types = [artifact.artifact_type for artifact in artifacts]
-    assert "findings" in artifact_types
-    assert "risks" in artifact_types
+    assert "finding" in artifact_types
+    assert "risk" in artifact_types
     assert "subtask_result" in artifact_types
-    findings = next(artifact for artifact in artifacts if artifact.artifact_type == "findings")
+    findings = next(artifact for artifact in artifacts if artifact.artifact_type == "finding")
     assert findings.payload["items"][0]["files"] == ["/workspace/src/app.py"]
-    risks = next(artifact for artifact in artifacts if artifact.artifact_type == "risks")
+    risks = next(artifact for artifact in artifacts if artifact.artifact_type == "risk")
     assert risks.payload["verdict"] == "conditional"
     assert risks.payload["items"][0]["severity"] == "low"

@@ -11,6 +11,8 @@ from .models import (
 
 PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 ACTIVE_REVIEW_STATUSES = {"pending", "running", "completed"}
+RISK_TYPES = {"risk", "risks"}
+FINDING_TYPES = {"finding", "findings"}
 
 
 class AgentOrchestrationPlanner:
@@ -68,7 +70,7 @@ class AgentOrchestrationPlanner:
     def _risk_actions(self, artifacts: list[AgentWorkspaceArtifact]) -> list[AgentWorkspaceNextAction]:
         actions: list[AgentWorkspaceNextAction] = []
         for artifact in artifacts:
-            if artifact.artifact_type != "risks":
+            if artifact.artifact_type not in RISK_TYPES:
                 continue
             verdict = str(artifact.payload.get("verdict") or "").lower()
             if verdict not in {"fail", "conditional"}:
@@ -117,7 +119,7 @@ class AgentOrchestrationPlanner:
             and str(task.get("status") or "") in ACTIVE_REVIEW_STATUSES
             for task in tasks
         )
-        findings = [artifact for artifact in artifacts if artifact.artifact_type == "findings"]
+        findings = [artifact for artifact in artifacts if artifact.artifact_type in FINDING_TYPES]
 
         if findings and not has_review_task:
             artifact = findings[-1]

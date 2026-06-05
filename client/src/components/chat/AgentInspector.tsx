@@ -151,6 +151,15 @@ export default function AgentInspector({
         <Stat label="待处理" value={workspace.async_tasks.metrics.attention} />
         <Stat label="产物" value={workspace.artifacts.length} />
       </div>
+      {workspace.runtime ? (
+        <div className={styles.artifactList}>
+          <div className={styles.sectionTitle}>Runtime Context</div>
+          <InfoRow label="Workspace" value={workspace.runtime.workspace_root || '未绑定'} />
+          <InfoRow label="VFS mounts" value={String(workspace.runtime.vfs_mounts.length)} />
+          <InfoRow label="Skills" value={String(workspace.runtime.skill_sources.length)} />
+          <InfoRow label="Memory files" value={String(workspace.runtime.memory_files.length)} />
+        </div>
+      ) : null}
       <NextActions actions={workspace.next_actions || []} onRunNextAction={onRunNextAction} />
       {workspace.recent_events.length > 0 ? (
         <div className={styles.eventList}>
@@ -205,7 +214,7 @@ function ArtifactDetail({ artifact, onOpenFile }: { artifact: AgentWorkspaceArti
     </>
   );
 
-  if (artifact.artifact_type === 'findings') {
+  if (artifact.artifact_type === 'finding' || artifact.artifact_type === 'findings') {
     return (
       <div className={styles.inspector}>
         <Header icon={<FileTextOutlined />} title={artifact.title} tag="findings" />
@@ -218,7 +227,7 @@ function ArtifactDetail({ artifact, onOpenFile }: { artifact: AgentWorkspaceArti
     );
   }
 
-  if (artifact.artifact_type === 'risks') {
+  if (artifact.artifact_type === 'risk' || artifact.artifact_type === 'risks') {
     return (
       <div className={styles.inspector}>
         <Header icon={<CodeOutlined />} title={artifact.title} tag={String(payload.verdict || 'risks')} />

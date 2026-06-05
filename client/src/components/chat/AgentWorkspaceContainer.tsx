@@ -4,7 +4,10 @@ import type { UseAgentAsyncTasksResult } from '../../hooks/chat/useAgentAsyncTas
 import type { UseAgentWorkspaceResult } from '../../hooks/chat/useAgentWorkspace';
 import type { UseAgentWorkspaceSelectionResult } from '../../hooks/chat/useAgentWorkspaceSelection';
 import AgentAsyncTasksPanel from './AgentAsyncTasksPanel';
+import AgentArtifactLedger from './AgentArtifactLedger';
 import AgentInspector from './AgentInspector';
+import AgentPlanPanel from './AgentPlanPanel';
+import AgentRuntimePanel from './AgentRuntimePanel';
 import AgentWorkbenchPanel, { WorkbenchEmpty } from './AgentWorkbenchPanel';
 
 interface AgentWorkspaceContainerProps {
@@ -48,6 +51,27 @@ export default function AgentWorkspaceContainer({
       runContent={runContent}
       configContent={configContent}
       progressContent={progressContent}
+      planContent={<AgentPlanPanel plan={agentWorkspace.workspace?.plan ?? null} />}
+      artifactLedgerContent={(
+        <AgentArtifactLedger
+          artifacts={agentWorkspace.workspace?.artifacts ?? []}
+          onSelectArtifact={workspaceSelection.selectArtifact}
+          onOpenFile={onOpenFile}
+        />
+      )}
+      approvalsContent={agentWorkspace.workspace?.pending_permission ? (
+        <AgentInspector
+          workspace={agentWorkspace.workspace}
+          selection={{ type: 'permission', permissionPartId: agentWorkspace.workspace.pending_permission.part_id }}
+          onSubmitPermission={onSubmitPermission}
+          onRefresh={agentWorkspace.refresh}
+          onOpenFile={onOpenFile}
+          onRunNextAction={onRunNextAction}
+        />
+      ) : (
+        <WorkbenchEmpty description="暂无待确认动作。" />
+      )}
+      runtimeContent={<AgentRuntimePanel runtime={agentWorkspace.workspace?.runtime ?? null} />}
       inspectorContent={(
         <AgentInspector
           workspace={agentWorkspace.workspace}
