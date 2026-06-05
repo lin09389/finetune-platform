@@ -26,43 +26,130 @@
   letter-spacing: -0.01em;
 }
 
-.tableCard {
-  padding: 24px;
-  border-radius: 16px;
+/* 核心布局：Bento 网格 */
+.contentArea {
   flex: 1;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 24px;
+  padding-right: 8px; /* 为滚动条留点空间 */
+}
+
+/* 隐藏部分滚动条，或者美化滚动条 */
+.contentArea::-webkit-scrollbar {
+  width: 6px;
+}
+.contentArea::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+.modelGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 24px;
+  align-content: start;
+}
+
+/* 模型独立卡片样式 */
+.modelCard {
+  padding: 20px;
+  border-radius: 16px;
   display: flex;
   flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
-.tableCard :global(.ant-table-wrapper) {
-  flex: 1;
-  overflow: auto;
+.modelCardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
 }
 
-/* 覆盖 Ant Design 表格的基础样式，使其融入毛玻璃背景 */
-.tableCard :global(.ant-table) {
-  background: transparent;
+.modelName {
+  font-size: var(--text-lg);
+  font-weight: var(--font-bold);
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.3;
+  word-break: break-word;
 }
 
-.tableCard :global(.ant-table-thead > tr > th) {
-  background: transparent;
-  border-bottom: 1px solid var(--border-color);
-  color: var(--text-tertiary);
-  font-weight: var(--font-semibold);
+.modelTypeTag {
+  flex-shrink: 0;
+  text-shadow: 0 0 8px currentColor;
+}
+
+.modelPath {
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  word-break: break-all;
+  opacity: 0.8;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0;
+}
+
+.modelMetrics {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.metricItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.metricLabel {
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  transition: background 0.3s;
+  color: var(--text-tertiary);
+  letter-spacing: 0.05em;
+  font-weight: var(--font-semibold);
 }
 
-.tableCard :global(.ant-table-tbody > tr > td) {
-  border-bottom: 1px solid var(--border-color);
-  transition: background 0.3s;
+.metricValue {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  font-weight: var(--font-medium);
+  font-family: var(--font-mono);
 }
 
-.tableCard :global(.ant-table-tbody > tr:hover > td) {
-  background: var(--bg-hover);
+.vramValue {
+  color: var(--accent-neon-cyan, #00FFC2);
+  text-shadow: 0 0 10px rgba(0, 255, 194, 0.3);
+}
+
+.modelActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: auto; /* Push to bottom */
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+/* 霓虹侧边条（根据模型类型变化颜色） */
+.neonStripe {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--stripe-color, var(--text-tertiary));
+  box-shadow: 0 0 12px var(--stripe-color, var(--text-tertiary));
+  opacity: 0.8;
 }
 
 .modalDescription {

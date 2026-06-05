@@ -18,11 +18,11 @@ import {
   Progress,
   Select,
   Space,
-  Table,
   Tabs,
   Tag,
 } from 'antd';
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import GlassCard from '../components/shared/GlassCard';
 import glassStyles from '../components/shared/GlassCard.module.css';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import PageHeader from '../components/shared/PageHeader';
@@ -34,7 +34,6 @@ import {
   importModelFromModelScope,
 } from '../services/api';
 import { useAppStore } from '../store/appStore';
-import type { ModelInfo } from '../types';
 import styles from './ModelManager.module.css';
 
 const popularModels = [
@@ -162,95 +161,19 @@ export default function ModelManager() {
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   };
 
-  const columns = [
-    {
-      title: '模型名称',
-      dataIndex: 'name',
-      key: 'name',
-      render: (text: string, record: ModelInfo) => (
-        <Space key={record.id}>
-          {text}
-          {record.quantized && <Tag color="blue">INT{record.quantized}</Tag>}
-        </Space>
-      ),
-    },
-    {
-      title: '路径',
-      dataIndex: 'path',
-      key: 'path',
-      ellipsis: true,
-    },
-    {
-      title: '大小',
-      dataIndex: 'size',
-      key: 'size',
-      render: (size: number) => formatSize(size),
-      width: 100,
-    },
-    {
-      title: '类型',
-      dataIndex: 'type',
-      key: 'type',
-      render: (type: string) => (
-        <Tag
-          color={
-            type === 'base'
-              ? 'default'
-              : type === 'lora'
-                ? 'green'
-                : type === 'merged'
-                  ? 'orange'
-                  : 'default'
-          }
-        >
-          {type === 'base'
-            ? '基础模型'
-            : type === 'lora'
-              ? 'LoRA'
-              : type === 'merged'
-                ? '已合并'
-                : type}
-        </Tag>
-      ),
-      width: 100,
-    },
-    {
-      title: '下载时间',
-      dataIndex: 'createdAt',
-      key: 'createdAt',
-      render: (date: string) => new Date(date).toLocaleString('zh-CN'),
-      width: 170,
-    },
-    {
-      title: '操作',
-      key: 'action',
-      render: (_: unknown, record: ModelInfo) => (
-        <Space key={record.id}>
-          <Button
-            type="link"
-            size="small"
-            icon={<FolderOpenOutlined />}
-            onClick={() => window.electronAPI?.openFolder(record.path)}
-          >
-            打开
-          </Button>
-          <Popconfirm
-            title="确认删除此模型?"
-            description="删除后需要重新下载"
-            onConfirm={() => handleDelete(record.id)}
-            okText="确定"
-            cancelText="取消"
-            okButtonProps={{ danger: true, loading: operation.isRunning(`delete-model:${record.id}`) }}
-          >
-            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-              删除
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
-      width: 150,
-    },
-  ];
+  const getModelStripeColor = (type: string) => {
+    if (type === 'lora') return 'var(--accent-neon-cyan, #00FFC2)';
+    if (type === 'merged') return 'var(--accent-neon-purple, #9D00FF)';
+    return 'var(--accent-primary, #6366f1)';
+  };
+
+  const getRecommendedVram = (bytes: number, quantized?: number) => {
+    if (bytes < 2 * 1024 * 1024 * 1024) return '4GB+';
+    if (quantized === 4) return '6GB+';
+    if (quantized === 8) return '10GB+';
+    if (bytes > 10 * 1024 * 1024 * 1024) return '24GB+';
+    return '16GB+';
+  };
 
   return (
     <MotionList layout className={styles.container} stagger={0.08}>
@@ -293,46 +216,120 @@ export default function ModelManager() {
         />
       </MotionItem>
 
-      <MotionItem layout>
-        <div className={`${glassStyles.glassCard} ${styles.tableCard}`}>
-          {backendStatus !== 'connected' ? (
+      <MotionItem layout className={styles.contentArea}>
+        {backendStatus !== 'connected' ? (
+          <div className={glassStyles.glassCard} style={{ padding: 40, textAlign: 'center' }}>
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
               description="后端服务未连接，请先启动应用"
-              style={{ margin: 'auto' }}
             />
-          ) : (
-            <Table
-              columns={columns}
-              dataSource={filteredModels}
-              rowKey="id"
-              loading={loading}
-              locale={{
-                emptyText: (
-                  <Empty
-                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    description={
-                      <div>
-                        <div>暂无模型</div>
-                        <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>
-                          点击下载模型开始使用
-                        </div>
-                      </div>
-                    }
-                  >
-                    <Button
-                      type="primary"
-                      icon={<DownloadOutlined />}
-                      onClick={() => setDownloadModalVisible(true)}
+          </div>
+        ) : filteredModels.length === 0 ? (
+          <div className={glassStyles.glassCard} style={{ padding: 40, textAlign: 'center' }}>
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={
+                <div>
+                  <div>暂无模型</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 8 }}>
+                    点击右上角下载或导入模型开始使用
+                  </div>
+                </div>
+              }
+            >
+              <Button
+                type="primary"
+                icon={<DownloadOutlined />}
+                onClick={() => setDownloadModalVisible(true)}
+              >
+                下载模型
+              </Button>
+            </Empty>
+          </div>
+        ) : (
+          <div className={styles.modelGrid}>
+            {filteredModels.map((model) => (
+              <GlassCard key={model.id} className={styles.modelCard}>
+                <div
+                  className={styles.neonStripe}
+                  style={{ '--stripe-color': getModelStripeColor(model.type) } as React.CSSProperties}
+                />
+                
+                <div className={styles.modelCardHeader}>
+                  <h3 className={styles.modelName}>{model.name}</h3>
+                  <div className={styles.modelTypeTag}>
+                    <Tag
+                      color={
+                        model.type === 'base'
+                          ? 'blue'
+                          : model.type === 'lora'
+                            ? 'cyan'
+                            : model.type === 'merged'
+                              ? 'purple'
+                              : 'default'
+                      }
+                      style={{ margin: 0, border: 'none' }}
                     >
-                      下载模型
+                      {model.type === 'base'
+                        ? '基础模型'
+                        : model.type === 'lora'
+                          ? 'LoRA'
+                          : model.type === 'merged'
+                            ? '已合并'
+                            : model.type}
+                    </Tag>
+                  </div>
+                </div>
+
+                <p className={styles.modelPath} title={model.path}>
+                  {model.path}
+                </p>
+
+                <div className={styles.modelMetrics}>
+                  <div className={styles.metricItem}>
+                    <span className={styles.metricLabel}>大小</span>
+                    <span className={styles.metricValue}>{formatSize(model.size)}</span>
+                  </div>
+                  <div className={styles.metricItem}>
+                    <span className={styles.metricLabel}>量化</span>
+                    <span className={styles.metricValue}>
+                      {model.quantized ? `INT${model.quantized}` : '无'}
+                    </span>
+                  </div>
+                  <div className={styles.metricItem}>
+                    <span className={styles.metricLabel}>推荐显存</span>
+                    <span className={`${styles.metricValue} ${styles.vramValue}`}>
+                      {getRecommendedVram(model.size, model.quantized)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className={styles.modelActions}>
+                  <Button
+                    type="text"
+                    icon={<FolderOpenOutlined />}
+                    onClick={() => window.electronAPI?.openFolder(model.path)}
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    打开
+                  </Button>
+                  <Popconfirm
+                    title="确认删除此模型?"
+                    description="删除后需要重新下载"
+                    onConfirm={() => handleDelete(model.id)}
+                    okText="确定"
+                    cancelText="取消"
+                    okButtonProps={{ danger: true, loading: operation.isRunning(`delete-model:${model.id}`) }}
+                  >
+                    <Button type="text" danger icon={<DeleteOutlined />}>
+                      删除
                     </Button>
-                  </Empty>
-                ),
-              }}
-            />
-          )}
-        </div>
+                  </Popconfirm>
+                </div>
+              </GlassCard>
+            ))}
+          </div>
+        )}
       </MotionItem>
 
       <Modal
