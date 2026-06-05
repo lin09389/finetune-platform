@@ -803,6 +803,12 @@ class StorageOutboxRepository:
         return task_id
 
     def list_ready(self, task_type: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+        """Atomically claim ready tasks to prevent duplicate execution by concurrent workers.
+
+        Uses a two-step approach: first SELECT candidate IDs, then UPDATE them
+        to 'processing' status atomically. Only returns tasks that were
+        successfully claimed by this worker.
+        """
         now = _utcnow()
         params: list[Any] = []
         where = "status IN ('pending', 'retry') AND (next_retry_at IS NULL OR next_retry_at <= ?)"
@@ -812,14 +818,39 @@ class StorageOutboxRepository:
             params.append(task_type)
         params.append(limit)
         with get_db_pool(self.db_path).get_connection() as conn:
-            rows = conn.execute(
+            # Step 1: Find candidate task IDs
+            candidate_rows = conn.execute(
                 f"""
-                SELECT * FROM storage_outbox
+                SELECT id FROM storage_outbox
                 WHERE {where}
                 ORDER BY created_at ASC
                 LIMIT ?
                 """,
                 tuple(params),
+            ).fetchall()
+            if not candidate_rows:
+                return []
+
+            candidate_ids = [row["id"] for row in candidate_rows]
+            placeholders = ",".join("?" for _ in candidate_ids)
+
+            # Step 2: Atomically claim tasks by transitioning status to 'processing'
+            conn.execute(
+                f"""
+                UPDATE storage_outbox
+                SET status = 'processing', updated_at = ?
+                WHERE id IN ({placeholders}) AND status IN ('pending', 'retry')
+                """,
+                (now, *candidate_ids),
+            )
+
+            # Step 3: Fetch only the tasks that were successfully claimed
+            rows = conn.execute(
+                f"""
+                SELECT * FROM storage_outbox
+                WHERE id IN ({placeholders}) AND status = 'processing'
+                """,
+                tuple(candidate_ids),
             ).fetchall()
         return [self._row_to_task(row) for row in rows]
 
@@ -1541,24 +1572,34 @@ def check_storage(db_path: str = APP_DB_PATH, initialize: bool = True) -> dict[s
 
 
 def backup_storage(db_path: str = APP_DB_PATH, backup_dir: str | Path = BACKUP_DIR) -> dict[str, Any]:
+    """使用 sqlite3.backup API 创建一致性备份，安全兼容 WAL 模式。"""
     init_storage(db_path)
-    checkpoint = checkpoint_storage(db_path)
     source = Path(db_path)
     backup_root = Path(backup_dir)
     backup_root.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     destination = backup_root / f"app-{timestamp}.db"
-    shutil.copy2(source, destination)
+
+    # 使用 sqlite3 Backup API 而非 shutil.copy2，确保 WAL 一致性
+    src_conn = sqlite3.connect(db_path, timeout=10.0)
+    try:
+        dst_conn = sqlite3.connect(str(destination))
+        try:
+            src_conn.backup(dst_conn)
+        finally:
+            dst_conn.close()
+    finally:
+        src_conn.close()
+
     return {
         "backup_path": str(destination),
         "size_bytes": destination.stat().st_size,
-        "checkpoint": checkpoint,
         "integrity": check_storage(str(destination), initialize=False),
     }
 
 
 def backup_all(backup_dir: str | Path = BACKUP_DIR) -> dict[str, Any]:
-    """备份所有数据库文件到带时间戳的子目录。"""
+    """使用 sqlite3.backup API 备份所有数据库文件到带时间戳的子目录。"""
     backup_root = Path(backup_dir)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     dest_dir = backup_root / timestamp
@@ -1578,9 +1619,17 @@ def backup_all(backup_dir: str | Path = BACKUP_DIR) -> dict[str, Any]:
             results["skipped"].append(db_path)
             continue
         try:
-            checkpoint_storage(db_path)
             dest = dest_dir / source.name
-            shutil.copy2(source, dest)
+            # 使用 sqlite3 Backup API 确保 WAL 模式下的一致性
+            src_conn = sqlite3.connect(db_path, timeout=10.0)
+            try:
+                dst_conn = sqlite3.connect(str(dest))
+                try:
+                    src_conn.backup(dst_conn)
+                finally:
+                    dst_conn.close()
+            finally:
+                src_conn.close()
             results["backed_up"].append({"source": db_path, "dest": str(dest), "size_bytes": dest.stat().st_size})
         except Exception as e:
             results["errors"].append({"source": db_path, "error": str(e)})

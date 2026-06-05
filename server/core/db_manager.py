@@ -67,7 +67,9 @@ class DatabaseConnectionPool:
         self._db_path = str(Path(db_path or "data/app.db"))
         self._max_connections = max_connections
         self._connections: List[sqlite3.Connection] = []
+        self._active_connections: set[int] = set()  # 追踪借出连接的 id
         self._connections_lock = threading.Lock()
+        self._closed = False  # 池是否已关闭
         logger.info(f"数据库多路连接池已初始化：{self._db_path} (Max: {self._max_connections})")
 
     def _create_connection(self) -> sqlite3.Connection:
@@ -75,7 +77,10 @@ class DatabaseConnectionPool:
         global _global_connection_count
         with _global_connection_lock:
             if _global_connection_count >= _MAX_GLOBAL_CONNECTIONS:
-                logger.warning("全局连接数已达上限 (%d)", _MAX_GLOBAL_CONNECTIONS)
+                raise RuntimeError(
+                    f"全局 SQLite 连接数已达硬上限 ({_MAX_GLOBAL_CONNECTIONS})，"
+                    "拒绝创建新连接以防止资源耗尽。"
+                )
             _global_connection_count += 1
         Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(
@@ -102,12 +107,14 @@ class DatabaseConnectionPool:
             return False
 
     def _return_connection(self, conn: sqlite3.Connection) -> None:
-        """安全地将连接归还到池中，或在池满/连接损坏时关闭"""
+        """安全地将连接归还到池中，或在池满/连接损坏/池已关闭时物理关闭"""
+        conn_id = id(conn)
         with self._connections_lock:
-            if len(self._connections) < self._max_connections:
+            self._active_connections.discard(conn_id)
+            if not self._closed and len(self._connections) < self._max_connections:
                 self._connections.append(conn)
                 return
-        # 池满，物理关闭
+        # 池满或池已关闭，物理关闭连接
         global _global_connection_count
         try:
             conn.close()
@@ -133,12 +140,19 @@ class DatabaseConnectionPool:
         while True:
             conn = None
             with self._connections_lock:
+                if self._closed:
+                    raise RuntimeError("连接池已关闭，无法获取连接")
                 if self._connections:
                     conn = self._connections.pop()
             if conn is None:
-                return self._create_connection()
+                conn = self._create_connection()
+                with self._connections_lock:
+                    self._active_connections.add(id(conn))
+                return conn
             # 健康检查
             if self._check_connection(conn):
+                with self._connections_lock:
+                    self._active_connections.add(id(conn))
                 return conn
             # 连接已损坏，物理关闭并继续尝试
             self._destroy_connection(conn)
@@ -211,31 +225,52 @@ class DatabaseConnectionPool:
 
         与 ``conn.executescript()`` 不同，本方法：
         1. 在独立的连接上执行，不干扰池中的其他事务。
-        2. 通过 sqlite3.connect + isolation_level=None 实现 autocommit，
-           DDL 语句（CREATE TABLE IF NOT EXISTS 等）天然具备幂等性。
+        2. 使用显式 BEGIN/COMMIT 包裹整个脚本，确保多语句 DDL 的原子性。
+           如果中途报错，已执行的 DDL 将被 ROLLBACK。
         3. 不会隐式 COMMIT 调用者的当前事务。
 
         注意：此方法主要用于 schema migration / ensure_schema。
         """
         conn = self._acquire_connection()
         try:
-            # executescript 在 isolation_level=None (autocommit) 下会
-            # 隐式提交之前的事务，但由于我们在此之前没有开启任何事务，
-            # 这里是安全的。
-            conn.executescript(sql)
+            # 使用显式事务包裹，确保多条 DDL 的原子性。
+            # 不使用 executescript（它会隐式 COMMIT），改用逐条执行。
+            conn.execute("BEGIN")
+            for statement in sql.split(";"):
+                statement = statement.strip()
+                if statement:
+                    conn.execute(statement)
+            conn.execute("COMMIT")
         except Exception as e:
             logger.error(f"执行 SQL 脚本失败：{e}")
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
             self._destroy_connection(conn)
             raise
         else:
             self._return_connection(conn)
 
     def close_all(self):
-        """关闭所有闲置连接"""
+        """关闭所有闲置连接，并标记池为已关闭。
+
+        标记 ``_closed = True`` 后，所有借出中的连接在归还时将被物理关闭
+        而不是重新放入池中，从而防止资源泄漏。
+        """
         global _global_connection_count
         with self._connections_lock:
+            self._closed = True
             connections = self._connections[:]
             self._connections.clear()
+            active_count = len(self._active_connections)
+
+        if active_count > 0:
+            logger.warning(
+                "关闭连接池时仍有 %d 个借出中的活跃连接，"
+                "它们将在归还时被物理关闭",
+                active_count,
+            )
 
         for conn in connections:
             try:
@@ -245,7 +280,7 @@ class DatabaseConnectionPool:
 
         with _global_connection_lock:
             _global_connection_count = max(0, _global_connection_count - len(connections))
-        logger.debug("数据库连接池中所有连接已物理关闭")
+        logger.debug("数据库连接池中所有闲置连接已物理关闭")
 
     def execute_query(self, query: str, params: tuple = ()):
         """执行查询并返回所有结果"""
@@ -276,6 +311,14 @@ class DatabaseConnectionPool:
             return cursor.rowcount
 
 
+def _serialize_value(value: Any) -> Any:
+    """将 dict/list 类型的值自动序列化为 JSON 字符串，防止 SQLite InterfaceError。"""
+    if isinstance(value, (dict, list)):
+        import json
+        return json.dumps(value, ensure_ascii=False)
+    return value
+
+
 def dynamic_update(
     conn: "sqlite3.Connection",
     table: str,
@@ -290,6 +333,7 @@ def dynamic_update(
     - 列名经过 validate_column_names 白名单校验。
     - 值使用 ? 参数化占位符。
     - 表名和主键列名经过正则校验。
+    - dict/list 类型的值会自动序列化为 JSON 字符串。
 
     返回受影响的行数。
     """
@@ -300,7 +344,7 @@ def dynamic_update(
     validate_column_names(fields.keys(), allowed)
     assignments = ", ".join(f"{k} = ?" for k in fields)
     sql = f"UPDATE {table} SET {assignments} WHERE {pk_col} = ?"
-    values = list(fields.values()) + [pk_val]
+    values = [_serialize_value(v) for v in fields.values()] + [pk_val]
     return conn.execute(sql, values).rowcount
 
 
@@ -319,7 +363,8 @@ def get_db_pool(db_path: str = None) -> DatabaseConnectionPool:
     db_path = str(Path(db_path))
 
     with _pool_lock:
-        if db_path not in _db_pools:
+        pool = _db_pools.get(db_path)
+        if pool is None or getattr(pool, "_closed", False):
             _db_pools[db_path] = DatabaseConnectionPool(db_path)
         return _db_pools[db_path]
 
@@ -336,10 +381,11 @@ def init_db_pool(db_path: str) -> DatabaseConnectionPool:
 def close_all_pools():
     """关闭所有数据库连接池"""
     global _db_pools
-    for db_path, pool in _db_pools.items():
+    pools = list(_db_pools.items())
+    _db_pools.clear()
+    for db_path, pool in pools:
         pool.close_all()
         logger.info(f"已关闭数据库连接池：{db_path}")
-    _db_pools.clear()
 
 
 @contextmanager
