@@ -6,6 +6,7 @@ from .artifact_extractor import AgentArtifactExtractor
 from .models import (
     AgentAsyncTaskMetricsResponse,
     AgentAsyncTaskResponse,
+    AgentExecutionTimelineItem,
     AgentTodoItem,
     AgentWorkspaceAsyncTasks,
     AgentWorkspaceMount,
@@ -37,6 +38,7 @@ class AgentWorkspaceViewService:
         artifacts, changed_files = self.artifact_extractor.extract(session.parts, tasks, overview.artifacts)
         plan = self._extract_plan(session, ui_state)
         runtime = self._runtime_context(session, metadata)
+        execution_timeline = self._execution_timeline(getattr(session, "parts", []) or [])
         next_actions = self.orchestration_planner.plan(
             session=session,
             artifacts=artifacts,
@@ -61,6 +63,7 @@ class AgentWorkspaceViewService:
             artifacts=artifacts,
             changed_files=changed_files,
             next_actions=next_actions,
+            execution_timeline=execution_timeline,
             recent_events=list(overview.recent_events or []),
             runtime=runtime,
             vfs_mounts=runtime.vfs_mounts,
@@ -91,6 +94,99 @@ class AgentWorkspaceViewService:
             return AgentWorkspacePlan(todos=todos, source="write_todos", updated_at=getattr(session, "updated_at", None))
 
         return AgentWorkspacePlan(todos=[], source="empty", updated_at=getattr(session, "updated_at", None))
+
+    def _execution_timeline(self, parts: list[Any]) -> list[AgentExecutionTimelineItem]:
+        items: list[AgentExecutionTimelineItem] = []
+        for part in parts:
+            part_type = str(getattr(part, "type", "") or "")
+            item_type = self._execution_item_type(part_type)
+            if not item_type:
+                continue
+            payload = dict(getattr(part, "payload", None) or {})
+            part_id = str(getattr(part, "id", "") or "")
+            title = str(getattr(part, "title", None) or self._tool_name(payload) or self._execution_title(item_type))
+            summary = str(getattr(part, "content", None) or payload.get("summary") or payload.get("message") or "")[:300]
+            duration_ms = payload.get("duration_ms") or payload.get("elapsed_ms")
+            try:
+                duration = int(duration_ms) if duration_ms is not None else None
+            except (TypeError, ValueError):
+                duration = None
+            items.append(
+                AgentExecutionTimelineItem(
+                    id=f"exec:{part_id}",
+                    type=item_type,
+                    title=title,
+                    status=getattr(part, "status", None),
+                    summary=summary,
+                    source_part_id=part_id,
+                    created_at=getattr(part, "created_at", None),
+                    duration_ms=duration,
+                    payload_excerpt=self._payload_excerpt(payload),
+                )
+            )
+        return items
+
+    @staticmethod
+    def _execution_item_type(part_type: str) -> str | None:
+        if part_type in {"tool_call", "tool_result", "command", "permission", "summary", "error"}:
+            return part_type
+        return None
+
+    @staticmethod
+    def _execution_title(item_type: str) -> str:
+        return {
+            "tool_call": "Tool call",
+            "tool_result": "Tool result",
+            "command": "Command",
+            "permission": "Permission",
+            "summary": "Summary",
+            "error": "Error",
+        }.get(item_type, item_type)
+
+    @staticmethod
+    def _tool_name(payload: dict[str, Any]) -> str:
+        tool = payload.get("tool") or payload.get("name")
+        if not tool and isinstance(payload.get("action"), dict):
+            tool = payload["action"].get("name")
+        if not tool and isinstance(payload.get("action_requests"), list) and payload["action_requests"]:
+            first = payload["action_requests"][0]
+            if isinstance(first, dict):
+                tool = first.get("name")
+        command = payload.get("command")
+        if not tool and command:
+            tool = " ".join(str(item) for item in command) if isinstance(command, list) else str(command)
+        return str(tool or "")
+
+    @staticmethod
+    def _payload_excerpt(payload: dict[str, Any]) -> dict[str, Any]:
+        keys = (
+            "tool",
+            "name",
+            "command",
+            "exit_code",
+            "args",
+            "arguments",
+            "action",
+            "action_requests",
+            "stdout",
+            "stderr",
+            "error",
+            "message",
+        )
+        excerpt: dict[str, Any] = {}
+        for key in keys:
+            if key not in payload:
+                continue
+            value = payload[key]
+            if isinstance(value, str):
+                excerpt[key] = value[:500] + ("..." if len(value) > 500 else "")
+            elif isinstance(value, list):
+                excerpt[key] = value[:5]
+            elif isinstance(value, dict):
+                excerpt[key] = {str(k): v for k, v in list(value.items())[:10]}
+            else:
+                excerpt[key] = value
+        return excerpt
 
     def _todos_from_parts(self, parts: list[Any]) -> list[AgentTodoItem]:
         for part in reversed(parts):

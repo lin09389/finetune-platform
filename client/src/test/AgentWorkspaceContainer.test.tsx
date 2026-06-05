@@ -32,7 +32,17 @@ function workspace(): AgentWorkspace {
     },
     status_text: {},
     timeline: [],
-    pending_permission: null,
+    pending_permission: {
+      part_id: 'part_permission',
+      status: 'pending',
+      title: 'edit_file',
+      actions: [{
+        index: 0,
+        name: 'edit_file',
+        args: { file_path: '/workspace/app.py' },
+        allowed_decisions: ['approve', 'reject'],
+      }],
+    },
     task_plan: null,
     plan: {
       source: 'metadata',
@@ -71,6 +81,9 @@ function workspace(): AgentWorkspace {
         duration_ms: null,
         queue_wait_ms: null,
         health_status: 'waiting',
+        child_status: 'waiting_permission',
+        has_pending_permission: true,
+        pending_permission_part_id: 'child_permission',
         restart_count: 0,
         created_at: '2026-01-01T00:00:00',
         updated_at: '2026-01-01T00:00:00',
@@ -103,6 +116,17 @@ function workspace(): AgentWorkspace {
     }],
     changed_files: [],
     next_actions: [],
+    execution_timeline: [{
+      id: 'exec:part_tool',
+      type: 'tool_call',
+      title: 'read_file',
+      status: 'completed',
+      summary: 'Read file',
+      source_part_id: 'part_tool',
+      created_at: '2026-01-01T00:00:00',
+      duration_ms: null,
+      payload_excerpt: { tool: 'read_file' },
+    }],
     recent_events: [],
     runtime: {
       workspace_root: 'C:/workspace',
@@ -191,15 +215,19 @@ describe('AgentWorkspaceContainer', () => {
       onOpenFile: vi.fn(),
       onRunNextAction: vi.fn(),
     };
-    const { rerender } = render(<AgentWorkspaceContainer activeKey="inspector" {...props} />);
+    const { rerender } = render(<AgentWorkspaceContainer activeKey="execution" {...props} />);
 
     expect(screen.getByTestId('inspector')).toHaveTextContent('ags_parent');
-    rerender(<AgentWorkspaceContainer activeKey="async-tasks" {...props} />);
+    rerender(<AgentWorkspaceContainer activeKey="subagents" {...props} />);
     expect(screen.getByTestId('async-tasks')).toHaveTextContent('1:1');
     rerender(<AgentWorkspaceContainer activeKey="plan" {...props} />);
     expect(screen.getByText('Read project')).toBeInTheDocument();
     rerender(<AgentWorkspaceContainer activeKey="artifacts" {...props} />);
     expect(screen.getByText('Key finding')).toBeInTheDocument();
+    rerender(<AgentWorkspaceContainer activeKey="approvals" {...props} />);
+    expect(screen.getByText('Approval Inbox')).toBeInTheDocument();
+    rerender(<AgentWorkspaceContainer activeKey="execution" {...props} />);
+    expect(screen.getByText('Execution Console')).toBeInTheDocument();
     rerender(<AgentWorkspaceContainer activeKey="runtime" {...props} />);
     expect(screen.getByText('/workspace/')).toBeInTheDocument();
   });

@@ -16,6 +16,7 @@ interface HitlDecisionDraft {
 interface HitlApprovalPanelProps {
   pendingPermission?: AgentSessionUiPendingPermission | null;
   prefersReducedMotion?: boolean;
+  presentation?: 'popover' | 'panel';
   onSubmit: (permissionId: string, decisions: AgentHitlDecision[]) => void | Promise<void>;
 }
 
@@ -31,6 +32,7 @@ const DECISION_LABELS: Record<HitlDecisionType, string> = {
 export default function HitlApprovalPanel({
   pendingPermission,
   prefersReducedMotion = false,
+  presentation = 'popover',
   onSubmit,
 }: HitlApprovalPanelProps) {
   const [drafts, setDrafts] = useState<Record<number, HitlDecisionDraft>>({});
@@ -136,7 +138,7 @@ export default function HitlApprovalPanel({
       {pendingPermission?.part_id && (
         <motion.div
           key={pendingPermission.part_id}
-          className={styles.approvalPopover}
+          className={presentation === 'panel' ? `${styles.approvalPopover} ${styles.approvalPanel}` : styles.approvalPopover}
           initial={prefersReducedMotion ? false : { opacity: 0, y: 14, scale: 0.985 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.985 }}

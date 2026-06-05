@@ -7,12 +7,14 @@ interface UseAgentWorkspaceNextActionRouterOptions {
   agentWorkspace: UseAgentWorkspaceResult;
   workspaceSelection: UseAgentWorkspaceSelectionResult;
   openInspector: () => void;
+  openWorkbenchTab?: (tab: string) => void;
 }
 
 export function useAgentWorkspaceNextActionRouter({
   agentWorkspace,
   workspaceSelection,
   openInspector,
+  openWorkbenchTab,
 }: UseAgentWorkspaceNextActionRouterOptions) {
   return useCallback(async (action: AgentWorkspaceNextAction) => {
     openInspector();
@@ -23,6 +25,7 @@ export function useAgentWorkspaceNextActionRouter({
     }
 
     if (action.action_type === 'resolve_permission') {
+      openWorkbenchTab?.('approvals');
       const permissionPartId = String(action.payload?.permission_part_id || '');
       const taskId = String(action.payload?.task_id || action.source_task_id || '');
       if (permissionPartId) {
@@ -36,16 +39,19 @@ export function useAgentWorkspaceNextActionRouter({
     }
 
     if (action.action_type === 'review_risks' && action.source_artifact_id) {
+      openWorkbenchTab?.('artifacts');
       workspaceSelection.selectArtifact(action.source_artifact_id);
       return;
     }
 
     if (action.action_type === 'inspect_file' && action.payload?.path) {
+      openWorkbenchTab?.('files');
       workspaceSelection.selectFile(String(action.payload.path));
       return;
     }
 
     if (action.action_type === 'restart_failed_task') {
+      openWorkbenchTab?.('subagents');
       const taskId = String(action.payload?.task_id || action.source_task_id || '');
       if (taskId) {
         selectTask(taskId, action, workspaceSelection);
@@ -54,7 +60,7 @@ export function useAgentWorkspaceNextActionRouter({
     }
 
     workspaceSelection.selectRun();
-  }, [agentWorkspace, openInspector, workspaceSelection]);
+  }, [agentWorkspace, openInspector, openWorkbenchTab, workspaceSelection]);
 }
 
 function selectTask(

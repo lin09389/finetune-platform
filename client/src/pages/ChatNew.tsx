@@ -329,7 +329,7 @@ const ChatPage: React.FC = () => {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>(() => localStorage.getItem(CHAT_WORKSPACE_ID_STORAGE_KEY) || '');
   const [workspaceProjectPath, setWorkspaceProjectPath] = useState<string>(() => localStorage.getItem(CHAT_PROJECT_PATH_STORAGE_KEY) || '');
   const [agentSessionOverview, setAgentSessionOverview] = useState<AgentSessionOverview | null>(null);
-  const [workbenchActiveTab, setWorkbenchActiveTab] = useState('run');
+  const [workbenchActiveTab, setWorkbenchActiveTab] = useState('execution');
   const agentSessionStreamsRef = useRef<Record<string, EventSource>>({});
   const agentSessionStateRef = useRef<Record<string, AgentSession>>({});
   const agentWorkspaceRefreshRef = useRef<(() => Promise<void>) | null>(null);
@@ -2077,7 +2077,7 @@ if (existing) {
 
   const openAgentInspector = useCallback(() => {
     setSidePanelOpen(true);
-    setWorkbenchActiveTab('inspector');
+    setWorkbenchActiveTab('execution');
   }, []);
 
   const handleOpenAsyncTask = useCallback((taskId?: string, childSessionId?: string, options?: { expandDetail?: boolean }) => {
@@ -2090,13 +2090,18 @@ if (existing) {
     } else {
       workspaceSelection.selectRun();
     }
-    openAgentInspector();
-  }, [asyncTasks, openAgentInspector, workspaceSelection]);
+    setSidePanelOpen(true);
+    setWorkbenchActiveTab('subagents');
+  }, [asyncTasks, workspaceSelection]);
 
   const handleRunWorkspaceNextAction = useAgentWorkspaceNextActionRouter({
     agentWorkspace,
     workspaceSelection,
     openInspector: openAgentInspector,
+    openWorkbenchTab: (tab) => {
+      setSidePanelOpen(true);
+      setWorkbenchActiveTab(tab);
+    },
   });
 
   // Auto-detect running terminal from command parts and show dock

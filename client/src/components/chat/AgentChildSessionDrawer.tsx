@@ -87,6 +87,7 @@ export function AgentChildSessionDetail({
           </div>
           <HitlApprovalPanel
             pendingPermission={pendingPermission}
+            presentation="panel"
             onSubmit={handleHitlDecisions}
           />
           <AgentSessionTimeline

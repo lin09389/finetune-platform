@@ -179,6 +179,46 @@ def test_agent_session_workspace_read_model_returns_deepagents_view(tmp_path: Pa
             content="ok",
             payload={"command": ["npm", "run", "typecheck"], "exit_code": 0, "stdout": "x" * 1400},
         )
+        service.repository.add_part(
+            session_id,
+            "tool_call",
+            status="completed",
+            title="read_file",
+            content="读取文件",
+            payload={"tool": "read_file", "args": {"file_path": "/workspace/app.py"}},
+        )
+        service.repository.add_part(
+            session_id,
+            "tool_result",
+            status="completed",
+            title="read_file result",
+            content="文件内容",
+            payload={"tool": "read_file", "stdout": "print('hello')"},
+        )
+        service.repository.add_part(
+            session_id,
+            "permission",
+            status="approved",
+            title="edit_file",
+            content="已批准",
+            payload={"action": {"name": "edit_file", "args": {"file_path": "/workspace/app.py"}}},
+        )
+        service.repository.add_part(
+            session_id,
+            "summary",
+            status="completed",
+            title="总结",
+            content="执行完成",
+            payload={},
+        )
+        service.repository.add_part(
+            session_id,
+            "error",
+            status="failed",
+            title="错误",
+            content="工具失败",
+            payload={"error": "boom"},
+        )
         service.repository.add_event(session_id, "status", "running", {"part_id": diff_part["id"]})
         child = service.repository.create_session(
             {
@@ -239,6 +279,11 @@ def test_agent_session_workspace_read_model_returns_deepagents_view(tmp_path: Pa
         assert "restart_failed_task" not in action_types
         assert body["next_actions"][0]["priority"] == "high"
         assert body["recent_events"][0]["event_type"] == "status"
+        execution_types = {item["type"] for item in body["execution_timeline"]}
+        assert {"command", "tool_call", "tool_result", "permission", "summary", "error"}.issubset(execution_types)
+        tool_call = next(item for item in body["execution_timeline"] if item["type"] == "tool_call")
+        assert tool_call["source_part_id"]
+        assert tool_call["payload_excerpt"]["tool"] == "read_file"
     finally:
         app.dependency_overrides.clear()
 

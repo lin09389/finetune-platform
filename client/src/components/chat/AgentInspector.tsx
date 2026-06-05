@@ -87,7 +87,7 @@ export default function AgentInspector({
     return (
       <div className={styles.inspector}>
         <Header icon={<CodeOutlined />} title="权限确认" tag="等待确认" />
-        <HitlApprovalPanel pendingPermission={workspace.pending_permission} onSubmit={async (permissionId, decisions) => {
+        <HitlApprovalPanel pendingPermission={workspace.pending_permission} presentation="panel" onSubmit={async (permissionId, decisions) => {
           await onSubmitPermission?.(permissionId, decisions);
         }} />
       </div>
@@ -129,11 +129,16 @@ export default function AgentInspector({
 
   if (selection.type === 'timeline_item') {
     const item = workspace.timeline.find((entry) => entry.id === selection.itemId || entry.part_id === selection.partId);
+    const executionItem = workspace.execution_timeline?.find((entry) => entry.id === selection.itemId || entry.source_part_id === selection.partId);
+    const part = workspace.session.parts.find((entry) => entry.id === (selection.partId || executionItem?.source_part_id));
+    const detail = item || executionItem;
     return (
       <div className={styles.inspector}>
-        <Header icon={<ApartmentOutlined />} title={item?.title || item?.type || 'Timeline'} tag={item?.status || 'item'} />
-        {item?.content ? <Typography.Paragraph className={styles.summary}>{item.content}</Typography.Paragraph> : null}
-        <pre className={styles.payload}>{JSON.stringify(item?.payload || item || {}, null, 2)}</pre>
+        <Header icon={<ApartmentOutlined />} title={detail?.title || detail?.type || 'Timeline'} tag={detail?.status || 'item'} />
+        {(item?.content || executionItem?.summary) ? (
+          <Typography.Paragraph className={styles.summary}>{item?.content || executionItem?.summary}</Typography.Paragraph>
+        ) : null}
+        <pre className={styles.payload}>{JSON.stringify(part?.payload || item?.payload || executionItem?.payload_excerpt || detail || {}, null, 2)}</pre>
       </div>
     );
   }

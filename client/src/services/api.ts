@@ -994,6 +994,32 @@ export interface AgentWorkspaceRecentEvent {
   payload?: Record<string, any>;
 }
 
+export interface AgentExecutionTimelineItem {
+  id: string;
+  type: 'tool_call' | 'tool_result' | 'command' | 'permission' | 'summary' | 'error';
+  title: string;
+  status?: string | null;
+  summary: string;
+  source_part_id: string;
+  created_at?: string | null;
+  duration_ms?: number | null;
+  payload_excerpt: Record<string, any>;
+}
+
+export interface AgentApprovalInboxItem {
+  id: string;
+  scope: 'parent' | 'child';
+  session_id: string;
+  task_id?: string | null;
+  child_session_id?: string | null;
+  permission_part_id: string;
+  title: string;
+  status?: string | null;
+  actions_count: number;
+  actions: AgentSessionUiPendingPermission['actions'];
+  updated_at?: string | null;
+}
+
 export interface AgentTodoItem {
   id: string;
   title: string;
@@ -1054,6 +1080,7 @@ export interface AgentWorkspace {
   artifacts: AgentWorkspaceArtifact[];
   changed_files: AgentWorkspaceChangedFile[];
   next_actions: AgentWorkspaceNextAction[];
+  execution_timeline?: AgentExecutionTimelineItem[];
   recent_events: AgentWorkspaceRecentEvent[];
   runtime?: AgentWorkspaceRuntimeContext;
   vfs_mounts?: AgentWorkspaceMount[];

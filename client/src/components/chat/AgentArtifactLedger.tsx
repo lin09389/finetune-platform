@@ -7,6 +7,8 @@ interface AgentArtifactLedgerProps {
   artifacts: AgentWorkspaceArtifact[];
   onSelectArtifact?: (artifactId: string) => void;
   onOpenFile?: (path: string) => void | Promise<void>;
+  onSelectSourcePart?: (partId: string) => void;
+  onSelectSourceTask?: (taskId: string) => void;
 }
 
 const typeLabel: Record<string, string> = {
@@ -29,6 +31,8 @@ export default function AgentArtifactLedger({
   artifacts,
   onSelectArtifact,
   onOpenFile,
+  onSelectSourcePart,
+  onSelectSourceTask,
 }: AgentArtifactLedgerProps) {
   const [typeFilter, setTypeFilter] = useState('all');
   const options = useMemo(() => {
@@ -77,6 +81,8 @@ export default function AgentArtifactLedger({
               </div>
               <Space size={6}>
                 {path ? <Button size="small" onClick={() => void onOpenFile?.(path)}>打开文件</Button> : null}
+                {artifact.source_part_id ? <Button size="small" onClick={() => onSelectSourcePart?.(artifact.source_part_id!)}>来源</Button> : null}
+                {artifact.source_task_id ? <Button size="small" onClick={() => onSelectSourceTask?.(artifact.source_task_id!)}>任务</Button> : null}
                 <Button size="small" onClick={() => onSelectArtifact?.(artifact.id)}>详情</Button>
               </Space>
             </div>

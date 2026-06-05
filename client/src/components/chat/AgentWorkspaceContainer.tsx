@@ -3,12 +3,15 @@ import type { AgentHitlDecision, AgentWorkspaceNextAction } from '../../services
 import type { UseAgentAsyncTasksResult } from '../../hooks/chat/useAgentAsyncTasks';
 import type { UseAgentWorkspaceResult } from '../../hooks/chat/useAgentWorkspace';
 import type { UseAgentWorkspaceSelectionResult } from '../../hooks/chat/useAgentWorkspaceSelection';
+import AgentApprovalInbox from './AgentApprovalInbox';
 import AgentAsyncTasksPanel from './AgentAsyncTasksPanel';
 import AgentArtifactLedger from './AgentArtifactLedger';
+import AgentExecutionTimeline from './AgentExecutionTimeline';
 import AgentInspector from './AgentInspector';
 import AgentPlanPanel from './AgentPlanPanel';
 import AgentRuntimePanel from './AgentRuntimePanel';
 import AgentWorkbenchPanel, { WorkbenchEmpty } from './AgentWorkbenchPanel';
+import styles from './AgentWorkspacePanels.module.css';
 
 interface AgentWorkspaceContainerProps {
   activeKey: string;
@@ -43,6 +46,20 @@ export default function AgentWorkspaceContainer({
   onOpenFile,
   onRunNextAction,
 }: AgentWorkspaceContainerProps) {
+  const selectTask = (taskId: string) => {
+    const task = agentWorkspace.workspace?.async_tasks.tasks.find((item) => item.task_id === taskId);
+    workspaceSelection.selectAsyncTask(taskId, task?.child_session_id || undefined);
+    onActiveKeyChange('subagents');
+  };
+  const selectArtifact = (artifactId: string) => {
+    workspaceSelection.selectArtifact(artifactId);
+    onActiveKeyChange('artifacts');
+  };
+  const selectExecutionPart = (partId: string) => {
+    workspaceSelection.selectTimelineItem(`exec:${partId}`, partId);
+    onActiveKeyChange('execution');
+  };
+
   return (
     <AgentWorkbenchPanel
       activeKey={activeKey}
@@ -51,25 +68,55 @@ export default function AgentWorkspaceContainer({
       runContent={runContent}
       configContent={configContent}
       progressContent={progressContent}
-      planContent={<AgentPlanPanel plan={agentWorkspace.workspace?.plan ?? null} />}
-      artifactLedgerContent={(
-        <AgentArtifactLedger
-          artifacts={agentWorkspace.workspace?.artifacts ?? []}
-          onSelectArtifact={workspaceSelection.selectArtifact}
-          onOpenFile={onOpenFile}
+      planContent={(
+        <AgentPlanPanel
+          plan={agentWorkspace.workspace?.plan ?? null}
+          onSelectTask={selectTask}
+          onSelectArtifact={selectArtifact}
         />
       )}
-      approvalsContent={agentWorkspace.workspace?.pending_permission ? (
-        <AgentInspector
+      artifactLedgerContent={(
+        <div className={styles.splitPanel}>
+          <AgentArtifactLedger
+            artifacts={agentWorkspace.workspace?.artifacts ?? []}
+            onSelectArtifact={selectArtifact}
+            onOpenFile={onOpenFile}
+            onSelectSourcePart={selectExecutionPart}
+            onSelectSourceTask={selectTask}
+          />
+          <AgentInspector
+            workspace={agentWorkspace.workspace}
+            selection={workspaceSelection.selection}
+            onSubmitPermission={onSubmitPermission}
+            onRefresh={agentWorkspace.refresh}
+            onOpenFile={onOpenFile}
+            onRunNextAction={onRunNextAction}
+          />
+        </div>
+      )}
+      approvalsContent={(
+        <AgentApprovalInbox
           workspace={agentWorkspace.workspace}
-          selection={{ type: 'permission', permissionPartId: agentWorkspace.workspace.pending_permission.part_id }}
           onSubmitPermission={onSubmitPermission}
           onRefresh={agentWorkspace.refresh}
-          onOpenFile={onOpenFile}
-          onRunNextAction={onRunNextAction}
+          onSelectAsyncTask={selectTask}
         />
-      ) : (
-        <WorkbenchEmpty description="暂无待确认动作。" />
+      )}
+      executionContent={(
+        <div className={styles.splitPanel}>
+          <AgentExecutionTimeline
+            items={agentWorkspace.workspace?.execution_timeline ?? []}
+            onSelectItem={(item) => selectExecutionPart(item.source_part_id)}
+          />
+          <AgentInspector
+            workspace={agentWorkspace.workspace}
+            selection={workspaceSelection.selection}
+            onSubmitPermission={onSubmitPermission}
+            onRefresh={agentWorkspace.refresh}
+            onOpenFile={onOpenFile}
+            onRunNextAction={onRunNextAction}
+          />
+        </div>
       )}
       runtimeContent={<AgentRuntimePanel runtime={agentWorkspace.workspace?.runtime ?? null} sessionId={sessionId} />}
       inspectorContent={(

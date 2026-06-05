@@ -53,6 +53,14 @@
   -webkit-backdrop-filter: blur(18px);
 }
 
+.approvalPanel {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  margin: 0;
+  box-shadow: none;
+}
+
 .approvalPopover::after {
   content: "";
   position: absolute;
@@ -64,6 +72,10 @@
   border-right: 1px solid color-mix(in srgb, var(--border-color) 84%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--border-color) 84%, transparent);
   background: color-mix(in srgb, var(--bg-elevated) 97%, white);
+}
+
+.approvalPopover.approvalPanel::after {
+  display: none;
 }
 
 .approvalPopoverHeader {

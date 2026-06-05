@@ -1,4 +1,4 @@
-import { Empty, Progress, Tag, Typography } from 'antd';
+import { Button, Empty, Progress, Tag, Typography } from 'antd';
 import type { AgentTodoItem, AgentWorkspacePlan } from '../../services/api';
 import styles from './AgentWorkspacePanels.module.css';
 
@@ -18,9 +18,11 @@ const statusColor: Record<AgentTodoItem['status'], string> = {
 
 interface AgentPlanPanelProps {
   plan?: AgentWorkspacePlan | null;
+  onSelectTask?: (taskId: string) => void;
+  onSelectArtifact?: (artifactId: string) => void;
 }
 
-export default function AgentPlanPanel({ plan }: AgentPlanPanelProps) {
+export default function AgentPlanPanel({ plan, onSelectTask, onSelectArtifact }: AgentPlanPanelProps) {
   const todos = plan?.todos ?? [];
   const completed = todos.filter((todo) => todo.status === 'completed').length;
   const percent = todos.length ? Math.round((completed / todos.length) * 100) : 0;
@@ -51,7 +53,11 @@ export default function AgentPlanPanel({ plan }: AgentPlanPanelProps) {
                 {todo.linked_task_id ? <span>task {todo.linked_task_id}</span> : null}
               </div>
             </div>
-            <Tag color={statusColor[todo.status]}>{statusLabel[todo.status]}</Tag>
+            <div className={styles.tagRow}>
+              {todo.linked_task_id ? <Button size="small" onClick={() => onSelectTask?.(todo.linked_task_id!)}>任务</Button> : null}
+              {todo.linked_artifact_id ? <Button size="small" onClick={() => onSelectArtifact?.(todo.linked_artifact_id!)}>产物</Button> : null}
+              <Tag color={statusColor[todo.status]}>{statusLabel[todo.status]}</Tag>
+            </div>
           </div>
         ))}
       </div>

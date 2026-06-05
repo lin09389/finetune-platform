@@ -271,6 +271,18 @@ class AgentWorkspaceNextAction(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class AgentExecutionTimelineItem(BaseModel):
+    id: str
+    type: Literal["tool_call", "tool_result", "command", "permission", "summary", "error"]
+    title: str
+    status: str | None = None
+    summary: str = ""
+    source_part_id: str
+    created_at: str | None = None
+    duration_ms: int | None = None
+    payload_excerpt: dict[str, Any] = Field(default_factory=dict)
+
+
 class AgentWorkspaceMount(BaseModel):
     path: str
     kind: str
@@ -307,6 +319,7 @@ class AgentWorkspaceResponse(BaseModel):
     artifacts: list[AgentWorkspaceArtifact] = Field(default_factory=list)
     changed_files: list[AgentWorkspaceChangedFile] = Field(default_factory=list)
     next_actions: list[AgentWorkspaceNextAction] = Field(default_factory=list)
+    execution_timeline: list[AgentExecutionTimelineItem] = Field(default_factory=list)
     recent_events: list[dict[str, Any]] = Field(default_factory=list)
     runtime: AgentWorkspaceRuntimeContext = Field(default_factory=AgentWorkspaceRuntimeContext)
     vfs_mounts: list[AgentWorkspaceMount] = Field(default_factory=list)

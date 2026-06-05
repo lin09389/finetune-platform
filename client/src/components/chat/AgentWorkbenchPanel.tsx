@@ -21,6 +21,7 @@ interface AgentWorkbenchPanelProps {
   planContent?: React.ReactNode;
   artifactLedgerContent?: React.ReactNode;
   approvalsContent?: React.ReactNode;
+  executionContent?: React.ReactNode;
   runtimeContent?: React.ReactNode;
   inspectorContent?: React.ReactNode;
   fileTreeContent: React.ReactNode;
@@ -38,6 +39,7 @@ const AgentWorkbenchPanel: React.FC<AgentWorkbenchPanelProps> = ({
   planContent,
   artifactLedgerContent,
   approvalsContent,
+  executionContent,
   runtimeContent,
   inspectorContent,
   fileTreeContent,
@@ -45,7 +47,7 @@ const AgentWorkbenchPanel: React.FC<AgentWorkbenchPanelProps> = ({
   onActiveKeyChange,
 }) => {
   const [fileTreeCollapsed, setFileTreeCollapsed] = useState(false);
-  const [internalActiveKey, setInternalActiveKey] = useState('run');
+  const [internalActiveKey, setInternalActiveKey] = useState('execution');
   const resolvedActiveKey = activeKey ?? internalActiveKey;
 
   const handleTabChange = (key: string) => {
@@ -65,6 +67,26 @@ const AgentWorkbenchPanel: React.FC<AgentWorkbenchPanelProps> = ({
         </span>
       ),
       children: planContent || runContent,
+    },
+    {
+      key: 'approvals',
+      label: (
+        <span className={styles.tabLabel}>
+          <ControlOutlined />
+          确认
+        </span>
+      ),
+      children: approvalsContent || inspectorContent || runContent,
+    },
+    {
+      key: 'execution',
+      label: (
+        <span className={styles.tabLabel}>
+          <PlayCircleOutlined />
+          执行
+        </span>
+      ),
+      children: executionContent || progressContent || runContent,
     },
     {
       key: 'artifacts',
@@ -88,16 +110,6 @@ const AgentWorkbenchPanel: React.FC<AgentWorkbenchPanelProps> = ({
       children: asyncTasksContent,
     },
     {
-      key: 'approvals',
-      label: (
-        <span className={styles.tabLabel}>
-          <ControlOutlined />
-          确认
-        </span>
-      ),
-      children: approvalsContent || inspectorContent || runContent,
-    },
-    {
       key: 'runtime',
       label: (
         <span className={styles.tabLabel}>
@@ -105,57 +117,7 @@ const AgentWorkbenchPanel: React.FC<AgentWorkbenchPanelProps> = ({
           运行时
         </span>
       ),
-      children: runtimeContent || runContent,
-    },
-    {
-      key: 'run',
-      label: (
-        <span className={styles.tabLabel}>
-          <PlayCircleOutlined />
-          运行
-        </span>
-      ),
-      children: runContent,
-    },
-    {
-      key: 'config',
-      label: (
-        <span className={styles.tabLabel}>
-          <ControlOutlined />
-          配置
-        </span>
-      ),
-      children: configContent,
-    },
-    {
-      key: 'inspector',
-      label: (
-        <span className={styles.tabLabel}>
-          <ApartmentOutlined />
-          检查器
-        </span>
-      ),
-      children: inspectorContent || runContent,
-    },
-    {
-      key: 'progress',
-      label: (
-        <span className={styles.tabLabel}>
-          <ApartmentOutlined />
-          进度
-        </span>
-      ),
-      children: progressContent,
-    },
-    {
-      key: 'async-tasks',
-      label: (
-        <span className={styles.tabLabel}>
-          <ThunderboltOutlined />
-          旧子任务
-        </span>
-      ),
-      children: asyncTasksContent,
+      children: runtimeContent || configContent || runContent,
     },
     {
       key: 'files',

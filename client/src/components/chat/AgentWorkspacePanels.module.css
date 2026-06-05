@@ -8,6 +8,21 @@
   overflow: auto;
 }
 
+.splitPanel {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(260px, 0.9fr);
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.splitPanel > * {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
 .panelHeader {
   display: flex;
   align-items: flex-start;
@@ -25,7 +40,9 @@
 .todoList,
 .artifactList,
 .mountList,
-.compactList {
+.compactList,
+.approvalList,
+.timelineList {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -87,6 +104,88 @@
 
 .compactItem {
   align-items: center;
+}
+
+.approvalItem {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-elevated) 94%, transparent);
+}
+
+.approvalSummary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.approvalSummary > div:first-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.timelineItem {
+  display: flex;
+  width: 100%;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.timelineItem:hover .timelineBody {
+  border-color: color-mix(in srgb, var(--accent-primary) 38%, var(--border-color));
+}
+
+.timelineRail {
+  width: 3px;
+  border-radius: 999px;
+  background: var(--border-color);
+}
+
+.timelineRail[data-type='tool_call'],
+.timelineRail[data-type='command'] {
+  background: var(--accent-primary);
+}
+
+.timelineRail[data-type='permission'] {
+  background: var(--warning);
+}
+
+.timelineRail[data-type='error'] {
+  background: var(--danger);
+}
+
+.timelineRail[data-type='summary'] {
+  background: var(--success);
+}
+
+.timelineBody {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-elevated) 94%, transparent);
+}
+
+.timelineTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }
 
 .memoryPreview {
