@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from api.chat.session import Session, get_session_manager
 from core.storage import ChatShareRepository, json_fallback_enabled
+from core.db_manager import run_sync
 
 router = APIRouter(prefix="/chat/share", tags=["chat-share"])
 
@@ -111,7 +112,7 @@ def _ensure_not_expired(share: SharedChat) -> None:
 
 @router.post("", response_model=ShareResponse)
 async def create_share(request: CreateShareRequest):
-    session = _get_session(request.session_id)
+    session = await run_sync(_get_session, request.session_id)
     share_id = hashlib.sha256(
         f"{request.session_id}:{datetime.now().isoformat()}".encode()
     ).hexdigest()[:12]
@@ -131,7 +132,7 @@ async def create_share(request: CreateShareRequest):
         expires_at=expires_at,
         is_public=request.is_public,
     )
-    save_share(share)
+    await run_sync(save_share, share)
 
     return ShareResponse(
         share_id=share_id,
@@ -142,18 +143,18 @@ async def create_share(request: CreateShareRequest):
 
 @router.get("/{share_id}", response_model=SharedChat)
 async def get_share(share_id: str):
-    share = load_share(share_id)
+    share = await run_sync(load_share, share_id)
     if not share:
         raise HTTPException(status_code=404, detail="Share not found")
 
     _ensure_not_expired(share)
-    share.view_count = share_repository.increment_view_count(share.share_id)
+    share.view_count = await run_sync(share_repository.increment_view_count, share.share_id)
     return share
 
 
 @router.get("/{share_id}/html", response_class=HTMLResponse)
 async def get_share_html(share_id: str):
-    share = load_share(share_id)
+    share = await run_sync(load_share, share_id)
     if not share:
         raise HTTPException(status_code=404, detail="Share not found")
 
@@ -259,7 +260,7 @@ async def get_share_html(share_id: str):
 
 @router.get("/{share_id}/markdown", response_class=PlainTextResponse)
 async def export_markdown(share_id: str):
-    share = load_share(share_id)
+    share = await run_sync(load_share, share_id)
     if not share:
         raise HTTPException(status_code=404, detail="Share not found")
 
@@ -277,11 +278,17 @@ async def export_markdown(share_id: str):
 
 @router.delete("/{share_id}")
 async def delete_share(share_id: str):
-    file_path = get_share_file(share_id)
-    deleted = share_repository.delete_share(share_id)
-    if not deleted and not file_path.exists():
+    def _delete_share_sync():
+        file_path = get_share_file(share_id)
+        deleted = share_repository.delete_share(share_id)
+        if not deleted and not file_path.exists():
+            return False
+        if file_path.exists():
+            file_path.unlink()
+        return True
+
+    success = await run_sync(_delete_share_sync)
+    if not success:
         raise HTTPException(status_code=404, detail="Share not found")
 
-    if file_path.exists():
-        file_path.unlink()
     return {"success": True, "message": "Share deleted"}

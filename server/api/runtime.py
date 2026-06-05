@@ -25,6 +25,7 @@ from core.storage import (
     migrate_json_state,
     process_storage_outbox,
 )
+from core.db_manager import run_sync
 from memory.memory_service import get_memory_service
 
 training_routes = importlib.import_module("api.training")
@@ -214,14 +215,14 @@ async def get_runtime_storage_status():
     return {
         "schema_version": "runtime.storage.status.v1",
         "generated_at": datetime.now().isoformat(),
-        "storage": get_storage_status(),
+        "storage": await run_sync(get_storage_status),
     }
 
 
 @router.post("/storage/reconcile")
 async def reconcile_runtime_storage(limit: int = 100):
     """Trigger one memory vector reconciliation pass."""
-    result = get_memory_service().reconcile_vectors(limit=limit)
+    result = await run_sync(get_memory_service().reconcile_vectors, limit=limit)
     return {
         "schema_version": "runtime.storage.reconcile.v1",
         "generated_at": datetime.now().isoformat(),
@@ -232,7 +233,7 @@ async def reconcile_runtime_storage(limit: int = 100):
 @router.post("/storage/outbox/process")
 async def process_runtime_storage_outbox(limit: int = 100):
     """Process pending JSON shadow-write and vector outbox tasks once."""
-    result = process_storage_outbox(limit=limit)
+    result = await run_sync(process_storage_outbox, limit=limit)
     return {
         "schema_version": "runtime.storage.outbox.process.v1",
         "generated_at": datetime.now().isoformat(),
@@ -246,7 +247,7 @@ async def checkpoint_runtime_storage():
     return {
         "schema_version": "runtime.storage.checkpoint.v1",
         "generated_at": datetime.now().isoformat(),
-        "result": checkpoint_storage(),
+        "result": await run_sync(checkpoint_storage),
     }
 
 
@@ -256,7 +257,7 @@ async def migrate_runtime_storage_json():
     return {
         "schema_version": "runtime.storage.migrate_json.v1",
         "generated_at": datetime.now().isoformat(),
-        "result": migrate_json_state(),
+        "result": await run_sync(migrate_json_state),
     }
 
 
@@ -266,7 +267,7 @@ async def check_runtime_storage():
     return {
         "schema_version": "runtime.storage.check.v1",
         "generated_at": datetime.now().isoformat(),
-        "result": check_storage(),
+        "result": await run_sync(check_storage),
     }
 
 
@@ -276,5 +277,5 @@ async def backup_runtime_storage():
     return {
         "schema_version": "runtime.storage.backup.v1",
         "generated_at": datetime.now().isoformat(),
-        "result": backup_storage(),
+        "result": await run_sync(backup_storage),
     }

@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from core.config import settings
+from core.db_manager import run_sync
 from rag.vector_store import get_vector_store
 from workspace.local_paths import normalize_local_workspace_path, get_allowed_workspace_roots
 
@@ -144,6 +145,11 @@ def _refresh_workspace_counts(workspace: dict[str, Any]) -> Workspace:
     return Workspace(**workspace)
 
 
+async def _refresh_workspace_counts_async(workspace: dict[str, Any]) -> Workspace:
+    """Async-safe wrapper that offloads vector store I/O to a thread."""
+    return await run_sync(_refresh_workspace_counts, workspace)
+
+
 def _resolve_workspace_path(workspace_id: str | None = None, project_path: str | None = None) -> Path:
     if project_path and project_path.strip():
         try:
@@ -271,11 +277,14 @@ async def create_workspace(data: WorkspaceCreate):
         "status": "active",
     }
 
-    vector_store = get_vector_store()
-    vector_store.get_or_create_collection(collection_name)
+    def _create_collection():
+        vector_store = get_vector_store()
+        vector_store.get_or_create_collection(collection_name)
+
+    await run_sync(_create_collection)
 
     workspaces[workspace_id] = workspace
-    _persist_workspaces()
+    await run_sync(_persist_workspaces)
 
     logger.info("Workspace created: %s (%s)", workspace_id, data.name)
     return Workspace(**workspace)
@@ -294,11 +303,11 @@ async def list_workspaces():
             has_default_path = True
         if workspace.get("status") == "default" and workspace.get("local_path"):
             has_registered_default = True
-        result.append(_refresh_workspace_counts(workspace))
+        result.append(await _refresh_workspace_counts_async(workspace))
     if not has_default_path and not has_registered_default:
         result.insert(0, Workspace(**default_workspace))
     result.sort(key=lambda item: 0 if item.status == "default" else 1)
-    _persist_workspaces()
+    await run_sync(_persist_workspaces)
     return result
 
 
@@ -312,8 +321,8 @@ async def list_workspaces_compat():
 async def get_workspace(workspace_id: str):
     """Get workspace details."""
     workspace = _ensure_workspace_exists(workspace_id)
-    refreshed = _refresh_workspace_counts(workspace)
-    _persist_workspaces()
+    refreshed = await _refresh_workspace_counts_async(workspace)
+    await run_sync(_persist_workspaces)
     return refreshed
 
 
@@ -333,7 +342,7 @@ async def update_workspace(workspace_id: str, data: WorkspaceUpdate):
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     workspace["updated_at"] = datetime.now().isoformat()
-    _persist_workspaces()
+    await run_sync(_persist_workspaces)
 
     return Workspace(**workspace)
 
@@ -345,13 +354,16 @@ async def delete_workspace(workspace_id: str):
     collection_name = workspace.get("vector_collection_name", workspace_id)
 
     try:
-        vector_store = get_vector_store()
-        vector_store.delete_collection(collection_name)
+        def _delete_collection():
+            vector_store = get_vector_store()
+            vector_store.delete_collection(collection_name)
+
+        await run_sync(_delete_collection)
     except Exception as exc:
         logger.error("Failed to delete vector collection %s: %s", collection_name, exc)
 
     del workspaces[workspace_id]
-    _persist_workspaces()
+    await run_sync(_persist_workspaces)
 
     logger.info("Workspace deleted: %s", workspace_id)
     return {"message": "Deleted successfully", "workspace_id": workspace_id}
@@ -362,15 +374,19 @@ async def get_workspace_stats(workspace_id: str):
     """Get workspace statistics."""
     workspace = _ensure_workspace_exists(workspace_id)
     collection_name = workspace.get("vector_collection_name", workspace_id)
-    vector_store = get_vector_store()
 
     try:
-        stats = vector_store.get_collection_stats(collection_name)
-        documents = vector_store.list_documents(collection_name)
+        def _fetch_stats():
+            vector_store = get_vector_store()
+            stats = vector_store.get_collection_stats(collection_name)
+            documents = vector_store.list_documents(collection_name)
+            return stats, documents
+
+        stats, documents = await run_sync(_fetch_stats)
         workspace["vector_count"] = stats.get("count", 0)
         workspace["document_count"] = len(documents)
         workspace["updated_at"] = datetime.now().isoformat()
-        _persist_workspaces()
+        await run_sync(_persist_workspaces)
 
         return {
             "workspace_id": workspace_id,
