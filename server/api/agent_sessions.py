@@ -19,6 +19,7 @@ from agent_session.models import (
     AgentApprovalResponse,
     AgentEventResponse,
     AgentHitlDecisionRequest,
+    AgentMemoryFileResponse,
     AgentPromptRequest,
     AgentSessionCreate,
     AgentSessionOverviewResponse,
@@ -104,6 +105,31 @@ async def get_agent_session_workspace(
 ):
     try:
         return await run_sync(service.get_workspace, session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/{session_id}/memory-files", response_model=list[AgentMemoryFileResponse])
+async def list_agent_session_memory_files(
+    session_id: str,
+    service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    try:
+        return await run_sync(service.list_memory_files, session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/{session_id}/memory-file", response_model=AgentMemoryFileResponse)
+async def read_agent_session_memory_file(
+    session_id: str,
+    path: str = Query(..., min_length=1),
+    service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    try:
+        return await run_sync(service.read_memory_file, session_id, path)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

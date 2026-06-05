@@ -46,6 +46,7 @@ import {
   getArtifactOriginal,
   getAgentSession,
   getAgentSessionOverview,
+  getAgentSkills,
   getPrimaryAgents,
   getSavedCloudProviderData,
   getSavedCloudProviders,
@@ -57,7 +58,7 @@ import {
   writeWorkspaceFile,
   promptAgentSession,
 } from '../services/api';
-import type { ActiveFileContext, AgentArtifact, AgentHitlDecision, AgentInfo, AgentPart, AgentSession, AgentSessionEvent, AgentSessionOverview, ExplicitContextMention, SavedCloudProvider, WorkspaceSummary, WorkspaceTreeNode } from '../services/api';
+import type { ActiveFileContext, AgentArtifact, AgentHitlDecision, AgentInfo, AgentPart, AgentSession, AgentSessionEvent, AgentSessionOverview, AgentSkillSource, ExplicitContextMention, SavedCloudProvider, WorkspaceSummary, WorkspaceTreeNode } from '../services/api';
 import { transitions } from '../theme/animations';
 import { notify } from '../utils/notify';
 import { ArrowDownOutlined, FolderOpenOutlined } from '@ant-design/icons';
@@ -158,6 +159,7 @@ const CHAT_SIDE_PANEL_WIDTH_STORAGE_KEY = 'chat_side_panel_width_v1';
 const CHAT_PANE_WIDTH_STORAGE_KEY = 'chat_chat_pane_width_v1';
 const CHAT_SIDE_PANEL_OPEN_STORAGE_KEY = 'chat_side_panel_open_v1';
 const CHAT_PANEL_OPEN_STORAGE_KEY = 'chat_chat_panel_open_v1';
+const CHAT_AGENT_SKILL_SOURCES_STORAGE_KEY = 'chat_agent_skill_sources_v1';
 
 const resolveArtifactStatus = (statusRaw: string): OpenedFile['status'] => {
   const s = statusRaw.toLowerCase();
@@ -298,6 +300,17 @@ const ChatPage: React.FC = () => {
   const setSelectedCloudModel = (model: string) => setCloudConfig({ selectedModel: model });
   const [primaryAgents, setPrimaryAgents] = useState<AgentInfo[]>([]);
   const [selectedPrimaryAgent, setSelectedPrimaryAgent] = useState('build');
+  const [agentSkillSources, setAgentSkillSources] = useState<AgentSkillSource[]>([]);
+  const [selectedSkillSources, setSelectedSkillSources] = useState<string[]>(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(CHAT_AGENT_SKILL_SOURCES_STORAGE_KEY) || 'null');
+      return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
+  const [skillsInitialized, setSkillsInitialized] = useState(() => localStorage.getItem(CHAT_AGENT_SKILL_SOURCES_STORAGE_KEY) !== null);
+  const [skillsLoading, setSkillsLoading] = useState(false);
   const [routingMode, setRoutingMode] = useState<'auto' | 'chat' | 'agent'>(
     () => {
       const saved = localStorage.getItem('chat_routing_mode');
@@ -424,6 +437,32 @@ const ChatPage: React.FC = () => {
       updateSettings({ projectPath: effectiveProjectPath });
     }
   }, [effectiveProjectPath, settings.projectPath, updateSettings]);
+
+  const loadAgentSkills = useCallback(async () => {
+    setSkillsLoading(true);
+    try {
+      const registry = await getAgentSkills({
+        project_path: effectiveProjectPath || undefined,
+        agent_id: selectedPrimaryAgent || 'build',
+      });
+      const sources = registry.sources || [];
+      setAgentSkillSources(sources);
+      setSelectedSkillSources((current) => {
+        const available = new Set(sources.filter((source) => source.available).map((source) => source.virtual_path));
+        if (!skillsInitialized) {
+          return sources
+            .filter((source) => source.available && source.enabled_by_default)
+            .map((source) => source.virtual_path);
+        }
+        return current.filter((source) => available.has(source));
+      });
+      setSkillsInitialized(true);
+    } catch {
+      setAgentSkillSources([]);
+    } finally {
+      setSkillsLoading(false);
+    }
+  }, [effectiveProjectPath, selectedPrimaryAgent, skillsInitialized]);
 
   useEffect(() => {
     setIsAtBottom(shouldRestoreToBottom);
@@ -722,6 +761,7 @@ const ChatPage: React.FC = () => {
       loadSessions(),
       loadCloudAIConfig(),
       loadPrimaryAgents(),
+      loadAgentSkills(),
       refreshKnowledge(),
     ]).then((results) => {
       const failed = results.filter((r) => r.status === 'rejected');
@@ -729,7 +769,7 @@ const ChatPage: React.FC = () => {
         console.warn(`${failed.length} init requests failed`);
       }
     });
-  }, [loadSessions, refreshInference, refreshKnowledge]);
+  }, [loadAgentSkills, loadSessions, refreshInference, refreshKnowledge]);
 
   useEffect(() => () => {
     if (autoScrollFrameRef.current !== null) cancelAnimationFrame(autoScrollFrameRef.current);
@@ -739,6 +779,11 @@ const ChatPage: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('chat_primary_agent', selectedPrimaryAgent);
   }, [selectedPrimaryAgent]);
+
+  useEffect(() => {
+    if (!skillsInitialized) return;
+    localStorage.setItem(CHAT_AGENT_SKILL_SOURCES_STORAGE_KEY, JSON.stringify(selectedSkillSources));
+  }, [selectedSkillSources, skillsInitialized]);
 
   useEffect(() => {
     localStorage.setItem('chat_routing_mode', routingMode);
@@ -755,6 +800,10 @@ const ChatPage: React.FC = () => {
   useEffect(() => {
     localStorage.setItem(CHAT_PROJECT_PATH_STORAGE_KEY, workspaceProjectPath);
   }, [workspaceProjectPath]);
+
+  useEffect(() => {
+    void loadAgentSkills();
+  }, [loadAgentSkills]);
 
   useEffect(() => {
     const handleWorkspaceChange = (event: Event) => {
@@ -1466,6 +1515,7 @@ if (existing) {
             provider: agentModel.provider,
             model: agentModel.model,
             autonomy_mode: autonomyMode,
+            enabled_skill_sources: skillsInitialized ? selectedSkillSources : null,
           }),
           15000,
           'create_session_timeout',
@@ -1530,7 +1580,9 @@ if (existing) {
       effectiveProjectPath,
       selectedCloudModel,
       selectedPrimaryAgent,
+      selectedSkillSources,
       selectedWorkspaceLabel,
+      skillsInitialized,
       scheduleAgentSessionRefresh,
       startAgentSessionStream,
       settings.backend,
@@ -1990,6 +2042,11 @@ if (existing) {
     ? selectedCloudModel || '未选择模型'
     : settings.modelId || '未选择模型';
   const agentOptions = primaryAgents.map((agent) => ({ value: agent.id, label: agent.name }));
+  const skillSourceOptions = agentSkillSources.map((source) => ({
+    value: source.virtual_path,
+    label: `${source.name}${source.skills.length ? ` (${source.skills.length})` : ''}`,
+    disabled: !source.available,
+  }));
   const latestAgentMetadata = useMemo(
     () => [...messages].reverse().find((message) => message.agent_metadata)?.agent_metadata,
     [messages],
@@ -2576,6 +2633,13 @@ if (existing) {
       agentOptions={agentOptions}
       selectedAgent={selectedPrimaryAgent}
       onAgentChange={setSelectedPrimaryAgent}
+      skillSourceOptions={skillSourceOptions}
+      selectedSkillSources={selectedSkillSources}
+      onSkillSourcesChange={(sources) => {
+        setSkillsInitialized(true);
+        setSelectedSkillSources(sources);
+      }}
+      skillsLoading={skillsLoading}
       routingMode={routingMode}
       onRoutingModeChange={setRoutingMode}
       routing={routingIntent}
@@ -3214,6 +3278,13 @@ if (existing) {
           agentOptions={agentOptions}
           selectedAgent={selectedPrimaryAgent}
           onAgentChange={setSelectedPrimaryAgent}
+          skillSourceOptions={skillSourceOptions}
+          selectedSkillSources={selectedSkillSources}
+          onSkillSourcesChange={(sources) => {
+            setSkillsInitialized(true);
+            setSelectedSkillSources(sources);
+          }}
+          skillsLoading={skillsLoading}
           routingMode={routingMode}
           onRoutingModeChange={setRoutingMode}
           routing={routingIntent}

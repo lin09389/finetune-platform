@@ -10,6 +10,7 @@ from agent_session.service import AgentSessionService
 from api.agent_sessions import get_agent_session_service
 from core.config import settings
 from main import app
+from memory.memory_service import reset_memory_service
 from workspace import local_paths as workspace_local_paths
 
 
@@ -286,3 +287,69 @@ def test_agent_session_workspace_normalizes_metadata_todos(tmp_path: Path):
         assert body["todos"][0]["owner_agent"] == "build"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_agent_session_skill_sources_can_be_disabled_for_session(tmp_path: Path):
+    client, _ = _client_with_service(tmp_path)
+    workspace = _workspace_root()
+    try:
+        registry = client.get("/agents/skills", params={"project_path": str(workspace), "agent_id": "build"})
+        assert registry.status_code == 200
+        assert any(source["virtual_path"] == "/skills/builtin/" for source in registry.json()["sources"])
+
+        session_response = client.post(
+            "/agent-sessions",
+            json={
+                "title": "skills disabled",
+                "agent_id": "build",
+                "project_path": str(workspace),
+                "enabled_skill_sources": [],
+            },
+        )
+        assert session_response.status_code == 200
+        session_id = session_response.json()["id"]
+
+        workspace_response = client.get(f"/agent-sessions/{session_id}/workspace")
+
+        assert workspace_response.status_code == 200
+        body = workspace_response.json()
+        builtin = next(source for source in body["skill_sources"] if source["virtual_path"] == "/skills/builtin/")
+        assert builtin["available"] is True
+        assert builtin["enabled"] is False
+        assert all(mount["kind"] != "skills" for mount in body["vfs_mounts"])
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_agent_session_memory_files_are_listed_and_read_only_readable(tmp_path: Path):
+    reset_memory_service(tmp_path / "memory")
+    client, service = _client_with_service(tmp_path)
+    try:
+        session = service.repository.create_session(
+            {
+                "agent_id": "build",
+                "title": "memory files",
+                "project_path": str(tmp_path),
+                "metadata": {"user_id": "alice"},
+            }
+        )
+
+        files_response = client.get(f"/agent-sessions/{session['id']}/memory-files")
+        assert files_response.status_code == 200
+        paths = {file["path"] for file in files_response.json()}
+        assert "/memories/user.md" in paths
+        assert "/memories/project.md" in paths
+        assert "/agent-memory/agent.md" in paths
+
+        file_response = client.get(
+            f"/agent-sessions/{session['id']}/memory-file",
+            params={"path": "/memories/user.md"},
+        )
+
+        assert file_response.status_code == 200
+        body = file_response.json()
+        assert body["path"] == "/memories/user.md"
+        assert "# User Memory" in body["content"]
+    finally:
+        app.dependency_overrides.clear()
+        reset_memory_service()

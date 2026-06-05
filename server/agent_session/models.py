@@ -64,6 +64,7 @@ class AgentSessionCreate(BaseModel):
     provider: str | None = None
     model: str | None = None
     autonomy_mode: str | None = None
+    enabled_skill_sources: list[str] | None = None
 
 
 class AgentPromptRequest(BaseModel):
@@ -283,6 +284,7 @@ class AgentWorkspaceSkillSource(BaseModel):
     virtual_path: str
     priority: int = 0
     available: bool = True
+    enabled: bool = True
 
 
 class AgentWorkspaceRuntimeContext(BaseModel):
@@ -309,6 +311,39 @@ class AgentWorkspaceResponse(BaseModel):
     runtime: AgentWorkspaceRuntimeContext = Field(default_factory=AgentWorkspaceRuntimeContext)
     vfs_mounts: list[AgentWorkspaceMount] = Field(default_factory=list)
     skill_sources: list[AgentWorkspaceSkillSource] = Field(default_factory=list)
+
+
+class AgentSkillManifestResponse(BaseModel):
+    name: str
+    description: str = ""
+    virtual_skill_file: str | None = None
+    allowed_tools: list[str] = Field(default_factory=list)
+
+
+class AgentSkillSourceResponse(BaseModel):
+    name: str
+    virtual_path: str
+    priority: int = 0
+    available: bool = True
+    enabled_by_default: bool = True
+    skills: list[AgentSkillManifestResponse] = Field(default_factory=list)
+
+
+class AgentSkillRegistryResponse(BaseModel):
+    sources: list[AgentSkillSourceResponse] = Field(default_factory=list)
+
+
+class AgentMemoryFileResponse(BaseModel):
+    id: str
+    path: str
+    relative_path: str
+    scope: str
+    namespace: str
+    content: str
+    writable: bool = False
+    version: int = 1
+    updated_at: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class AgentSessionOverviewResponse(BaseModel):

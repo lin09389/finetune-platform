@@ -18,7 +18,7 @@ from .execution_context import AgentDefinition, RuntimeExecutionContext
 from .deepagents_checkpoint import get_checkpoint_db_path
 from .model_adapter import get_chat_model
 from .permission import filesystem_permissions_for_agent
-from .runtime import DeepAgentRuntimeConfig, build_deep_agent_runtime, memory_files_for_project, resolve_interrupt_on, resolve_skill_sources
+from .runtime import DeepAgentRuntimeConfig, build_deep_agent_runtime, memory_files_for_project, resolve_enabled_skill_sources, resolve_interrupt_on
 from .state import ensure_session_state, set_phase
 
 logger = logging.getLogger(__name__)
@@ -238,6 +238,9 @@ class DeepAgentsSessionRunner:
         agent_id = str(session.get("agent_id") or "build")
         user_id = str(metadata.get("user_id") or metadata.get("memory_user_id") or "default")
         org_id = str(metadata.get("org_id") or "default-org")
+        enabled_skill_sources = metadata.get("enabled_skill_sources")
+        if enabled_skill_sources is not None and not isinstance(enabled_skill_sources, list):
+            enabled_skill_sources = None
         context = RuntimeExecutionContext(
             session_id=session_id,
             goal=prompt,
@@ -262,7 +265,14 @@ class DeepAgentsSessionRunner:
                 agent_id=agent_id,
                 org_id=org_id,
                 memory=memory_files_for_project(project_path, user_id=user_id, agent_id=agent_id, org_id=org_id),
-                skills=resolve_skill_sources(project_path, user_id=user_id, agent_id=agent_id, org_id=org_id),
+                skills=resolve_enabled_skill_sources(
+                    project_path,
+                    user_id=user_id,
+                    agent_id=agent_id,
+                    org_id=org_id,
+                    enabled_skill_sources=enabled_skill_sources,
+                ),
+                enabled_skill_sources=enabled_skill_sources,
                 permissions=filesystem_permissions_for_agent(agent_id),
                 subagents=self._subagents_for_agent(agent_id, model),
                 interrupt_on=resolve_interrupt_on(metadata),

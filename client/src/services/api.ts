@@ -564,6 +564,7 @@ export interface AgentSessionCreate {
   provider?: string;
   model?: string;
   autonomy_mode?: 'safe_auto' | 'confirm_all' | 'read_only';
+  enabled_skill_sources?: string[] | null;
 }
 
 export interface WorkspaceSummary {
@@ -1023,6 +1024,7 @@ export interface AgentWorkspaceSkillSource {
   virtual_path: string;
   priority: number;
   available: boolean;
+  enabled?: boolean;
 }
 
 export interface AgentWorkspaceRuntimeContext {
@@ -1056,6 +1058,39 @@ export interface AgentWorkspace {
   runtime?: AgentWorkspaceRuntimeContext;
   vfs_mounts?: AgentWorkspaceMount[];
   skill_sources?: AgentWorkspaceSkillSource[];
+}
+
+export interface AgentSkillManifest {
+  name: string;
+  description: string;
+  virtual_skill_file?: string | null;
+  allowed_tools: string[];
+}
+
+export interface AgentSkillSource {
+  name: string;
+  virtual_path: string;
+  priority: number;
+  available: boolean;
+  enabled_by_default: boolean;
+  skills: AgentSkillManifest[];
+}
+
+export interface AgentSkillRegistry {
+  sources: AgentSkillSource[];
+}
+
+export interface AgentMemoryFile {
+  id: string;
+  path: string;
+  relative_path: string;
+  scope: string;
+  namespace: string;
+  content: string;
+  writable: boolean;
+  version: number;
+  updated_at?: string | null;
+  metadata: Record<string, any>;
 }
 
 export interface AgentSessionEvent {
@@ -1151,6 +1186,14 @@ export const createAgentSession = async (payload: AgentSessionCreate): Promise<A
   return response.data;
 };
 
+export const getAgentSkills = async (params?: {
+  project_path?: string;
+  agent_id?: string;
+}): Promise<AgentSkillRegistry> => {
+  const response = await apiClient.get('/agents/skills', { params });
+  return response.data;
+};
+
 export const listWorkspaces = async (): Promise<WorkspaceSummary[]> => {
   const response = await apiClient.get('/workspace/workspaces');
   return Array.isArray(response.data) ? response.data : response.data?.workspaces || [];
@@ -1215,6 +1258,16 @@ export const getAgentSessionOverview = async (sessionId: string): Promise<AgentS
 
 export const getAgentWorkspace = async (sessionId: string): Promise<AgentWorkspace> => {
   const response = await apiClient.get(`/agent-sessions/${sessionId}/workspace`);
+  return response.data;
+};
+
+export const listAgentMemoryFiles = async (sessionId: string): Promise<AgentMemoryFile[]> => {
+  const response = await apiClient.get(`/agent-sessions/${sessionId}/memory-files`);
+  return response.data;
+};
+
+export const readAgentMemoryFile = async (sessionId: string, path: string): Promise<AgentMemoryFile> => {
+  const response = await apiClient.get(`/agent-sessions/${sessionId}/memory-file`, { params: { path } });
   return response.data;
 };
 

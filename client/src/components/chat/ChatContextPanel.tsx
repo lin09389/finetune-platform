@@ -51,6 +51,10 @@ interface ChatContextPanelProps {
   agentOptions: { value: string; label: string }[];
   selectedAgent: string;
   onAgentChange: (agentId: string) => void;
+  skillSourceOptions?: { value: string; label: string; disabled?: boolean }[];
+  selectedSkillSources?: string[];
+  onSkillSourcesChange?: (sources: string[]) => void;
+  skillsLoading?: boolean;
   routingMode: RoutingMode;
   onRoutingModeChange: (mode: RoutingMode) => void;
   routing: boolean;
@@ -104,6 +108,10 @@ const ChatContextPanel: React.FC<ChatContextPanelProps> = ({
   agentOptions,
   selectedAgent,
   onAgentChange,
+  skillSourceOptions = [],
+  selectedSkillSources = [],
+  onSkillSourcesChange,
+  skillsLoading = false,
   routingMode,
   onRoutingModeChange,
   routing,
@@ -291,6 +299,23 @@ const ChatContextPanel: React.FC<ChatContextPanelProps> = ({
                 options={agentOptions}
                 onChange={onAgentChange}
                 disabled={busy}
+              />
+            </div>
+          )}
+
+          {agentModeAvailable && routingMode !== 'chat' && (
+            <div className={styles.field}>
+              <span className={styles.label}>Skills</span>
+              <Select
+                mode="multiple"
+                className={styles.select}
+                value={selectedSkillSources}
+                options={skillSourceOptions}
+                onChange={(sources) => onSkillSourcesChange?.(sources)}
+                disabled={busy || !onSkillSourcesChange}
+                loading={skillsLoading}
+                placeholder="自动挂载可用 Skills"
+                maxTagCount="responsive"
               />
             </div>
           )}

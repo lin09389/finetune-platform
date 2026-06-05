@@ -25,6 +25,7 @@ from .deepagents_runtime import DeepAgentsSessionRunner
 from .events import AgentSessionEventBus
 from .models import (
     AgentArtifactResponse,
+    AgentMemoryFileResponse,
     AgentPromptRequest,
     AgentSessionCreate,
     AgentSessionOverviewResponse,
@@ -161,6 +162,7 @@ class AgentSessionService:
         try:
             project_path = self._validate_project_path(request.project_path)
             provider, model = self._resolve_session_model_defaults(request.agent_id, request.provider, request.model)
+            enabled_skill_sources = self._normalize_enabled_skill_sources(request.enabled_skill_sources)
             session = self.repository.create_session(
                 {
                     "chat_session_id": request.chat_session_id,
@@ -172,6 +174,7 @@ class AgentSessionService:
                     "metadata": {
                         "autonomy_mode": request.autonomy_mode or "safe_auto",
                         "deepagents_interrupt_on": True,
+                        "enabled_skill_sources": enabled_skill_sources,
                     },
                 }
             )
@@ -207,6 +210,60 @@ class AgentSessionService:
 
     def get_workspace(self, session_id: str) -> AgentWorkspaceResponse:
         return self.workspace_view_service.get_workspace(session_id)
+
+    def list_memory_files(self, session_id: str) -> list[AgentMemoryFileResponse]:
+        session = self.get_session(session_id)
+        metadata = dict(session.metadata or {})
+        user_id = str(metadata.get("user_id") or metadata.get("memory_user_id") or "default")
+        agent_id = str(session.agent_id or "build")
+        org_id = str(metadata.get("org_id") or "default-org")
+        from memory.memory_service import get_memory_service
+
+        service = get_memory_service()
+        files = [
+            *service.list_files("user", user_id),
+            *service.list_files("agent", agent_id),
+            *service.list_files("org", org_id),
+        ]
+        return [AgentMemoryFileResponse(**file) for file in files]
+
+    def read_memory_file(self, session_id: str, path: str) -> AgentMemoryFileResponse:
+        session = self.get_session(session_id)
+        metadata = dict(session.metadata or {})
+        user_id = str(metadata.get("user_id") or metadata.get("memory_user_id") or "default")
+        agent_id = str(session.agent_id or "build")
+        org_id = str(metadata.get("org_id") or "default-org")
+        scope, namespace, relative_path = self._resolve_memory_file_path(path, user_id=user_id, agent_id=agent_id, org_id=org_id)
+        from memory.memory_service import get_memory_service
+
+        try:
+            file = get_memory_service().store.read_file_by_path(scope, namespace, relative_path)
+        except (FileNotFoundError, ValueError) as exc:
+            raise ValueError("Memory file not found") from exc
+        return AgentMemoryFileResponse(**file)
+
+    @staticmethod
+    def _normalize_enabled_skill_sources(enabled_skill_sources: list[str] | None) -> list[str] | None:
+        if enabled_skill_sources is None:
+            return None
+        return [source for source in (str(item).strip() for item in enabled_skill_sources) if source]
+
+    @staticmethod
+    def _resolve_memory_file_path(
+        path: str,
+        *,
+        user_id: str,
+        agent_id: str,
+        org_id: str,
+    ) -> tuple[str, str, str]:
+        normalized = path.strip().replace("\\", "/")
+        if normalized.startswith("/memories/"):
+            return "user", user_id, normalized.removeprefix("/memories/").lstrip("/")
+        if normalized.startswith("/agent-memory/"):
+            return "agent", agent_id, normalized.removeprefix("/agent-memory/").lstrip("/")
+        if normalized.startswith("/policies/"):
+            return "org", org_id, normalized.removeprefix("/policies/").lstrip("/")
+        raise ValueError("Unsupported memory path")
 
     async def prompt(self, session_id: str, request: AgentPromptRequest) -> AgentSessionResponse:
         session = self.repository.get_session(session_id)

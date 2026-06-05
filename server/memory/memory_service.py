@@ -32,11 +32,13 @@ DEFAULT_ORG_ID = "default-org"
 DEFAULT_MEMORY_ROOT = Path("data/deep_memory")
 
 USER_MEMORY_FILES = {
+    "user.md": "# User Memory\n\n",
+    "project.md": "# Project Memory\n\n",
     "preferences.md": "# Preferences\n\n",
     "facts.md": "# Facts\n\n",
     "projects.md": "# Projects\n\n",
 }
-AGENT_MEMORY_FILES = {"AGENTS.md": "# Agent Memory\n\n"}
+AGENT_MEMORY_FILES = {"agent.md": "# Agent Memory\n\n", "AGENTS.md": "# Agent Memory\n\n"}
 ORG_POLICY_FILES = {"compliance.md": "# Compliance Policies\n\n"}
 
 TYPE_TO_FILE = {

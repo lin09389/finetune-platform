@@ -179,13 +179,24 @@ class AgentWorkspaceViewService:
         agent_id = str(getattr(session, "agent_id", None) or "build")
         user_id = str(metadata.get("user_id") or metadata.get("memory_user_id") or "default")
         org_id = str(metadata.get("org_id") or "default-org")
+        enabled_skill_sources = metadata.get("enabled_skill_sources")
+        if enabled_skill_sources is not None and not isinstance(enabled_skill_sources, list):
+            enabled_skill_sources = None
         vfs_mounts = [
             AgentWorkspaceMount(**item)
-            for item in describe_deepagents_mounts(project_path or ".", agent_id=agent_id)
+            for item in describe_deepagents_mounts(
+                project_path or ".",
+                agent_id=agent_id,
+                enabled_skill_sources=enabled_skill_sources,
+            )
         ]
         skill_sources = [
             AgentWorkspaceSkillSource(**item)
-            for item in describe_skill_sources(project_path or ".", agent_id=agent_id)
+            for item in describe_skill_sources(
+                project_path or ".",
+                agent_id=agent_id,
+                enabled_skill_sources=enabled_skill_sources,
+            )
         ]
         try:
             memory_files = memory_files_for_project(project_path or ".", user_id=user_id, agent_id=agent_id, org_id=org_id)

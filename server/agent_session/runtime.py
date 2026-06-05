@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .deepagents_compat import patch_torch_pytree_for_transformers
-from skills import resolve_skill_source_specs, resolve_skill_sources
+from skills import resolve_skill_source_specs, resolve_skill_sources, scan_skill_manifests
 
 
 EPHEMERAL_BACKEND_ROUTES = ("/context/", "/large_tool_results/", "/conversation_history/")
@@ -28,6 +28,7 @@ class DeepAgentRuntimeConfig:
     permissions: list[Any] | None = None
     tools: list[Any] | None = None
     skills: list[str] | None = None
+    enabled_skill_sources: list[str] | None = None
     subagents: list[dict[str, Any]] | None = None
 
 
@@ -46,6 +47,7 @@ def build_deep_agent_runtime(config: DeepAgentRuntimeConfig) -> Any:
             user_id=config.user_id,
             agent_id=config.agent_id,
             org_id=config.org_id,
+            enabled_skill_sources=config.enabled_skill_sources,
         ),
         memory=config.memory,
         skills=config.skills or [],
@@ -62,6 +64,7 @@ def build_deepagents_backend(
     user_id: str = "default",
     agent_id: str = "build",
     org_id: str = "default-org",
+    enabled_skill_sources: list[str] | None = None,
 ) -> Any:
     """Build a CompositeBackend that separates project files from agent state.
 
@@ -124,7 +127,7 @@ def build_deepagents_backend(
             env=env,
             inherit_env=False,
         )
-        for source in resolve_skill_source_specs(project_path, agent_id=agent_id)
+        for source in resolve_enabled_skill_source_specs(project_path, agent_id=agent_id, enabled_skill_sources=enabled_skill_sources)
     }
     return CompositeBackend(
         default=project_backend,
@@ -140,7 +143,12 @@ def build_deepagents_backend(
     )
 
 
-def describe_deepagents_mounts(project_path: str, *, agent_id: str = "build") -> list[dict[str, Any]]:
+def describe_deepagents_mounts(
+    project_path: str,
+    *,
+    agent_id: str = "build",
+    enabled_skill_sources: list[str] | None = None,
+) -> list[dict[str, Any]]:
     """Return a reader-facing summary of the virtual filesystem routes."""
 
     skill_mounts = [
@@ -151,7 +159,7 @@ def describe_deepagents_mounts(project_path: str, *, agent_id: str = "build") ->
             "writable": False,
             "description": "DeepAgents skill source mounted read-only for progressive disclosure.",
         }
-        for source in resolve_skill_source_specs(project_path, agent_id=agent_id)
+        for source in resolve_enabled_skill_source_specs(project_path, agent_id=agent_id, enabled_skill_sources=enabled_skill_sources)
     ]
     return [
         {
@@ -207,16 +215,90 @@ def describe_deepagents_mounts(project_path: str, *, agent_id: str = "build") ->
     ]
 
 
-def describe_skill_sources(project_path: str, *, agent_id: str = "build") -> list[dict[str, Any]]:
+def describe_skill_sources(
+    project_path: str,
+    *,
+    agent_id: str = "build",
+    enabled_skill_sources: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    enabled = _enabled_skill_source_set(enabled_skill_sources)
     return [
         {
             "name": source.name,
             "virtual_path": source.virtual_path,
             "priority": source.priority,
             "available": source.path.exists() and source.path.is_dir(),
+            "enabled": enabled is None or source.virtual_path in enabled or source.name in enabled,
         }
         for source in resolve_skill_source_specs(project_path, agent_id=agent_id)
     ]
+
+
+def describe_skill_registry(project_path: str, *, agent_id: str = "build") -> dict[str, Any]:
+    sources = resolve_skill_source_specs(project_path, agent_id=agent_id)
+    manifests = scan_skill_manifests(sources)
+    by_source: dict[str, list[dict[str, Any]]] = {source.virtual_path: [] for source in sources}
+    for manifest in manifests:
+        source_path = manifest.source.virtual_path if manifest.source else ""
+        by_source.setdefault(source_path, []).append(
+            {
+                "name": manifest.name,
+                "description": manifest.description,
+                "virtual_skill_file": manifest.virtual_skill_file,
+                "allowed_tools": manifest.allowed_tools,
+            }
+        )
+    return {
+        "sources": [
+            {
+                "name": source.name,
+                "virtual_path": source.virtual_path,
+                "priority": source.priority,
+                "available": source.path.exists() and source.path.is_dir(),
+                "enabled_by_default": True,
+                "skills": by_source.get(source.virtual_path, []),
+            }
+            for source in sources
+        ]
+    }
+
+
+def resolve_enabled_skill_source_specs(
+    project_path: str,
+    *,
+    agent_id: str = "build",
+    enabled_skill_sources: list[str] | None = None,
+) -> list[Any]:
+    sources = resolve_skill_source_specs(project_path, agent_id=agent_id)
+    enabled = _enabled_skill_source_set(enabled_skill_sources)
+    if enabled is None:
+        return sources
+    return [source for source in sources if source.virtual_path in enabled or source.name in enabled]
+
+
+def resolve_enabled_skill_sources(
+    project_path: str,
+    *,
+    user_id: str = "default",
+    agent_id: str = "build",
+    org_id: str = "default-org",
+    enabled_skill_sources: list[str] | None = None,
+) -> list[str]:
+    _ = user_id, org_id
+    return [
+        source.virtual_path
+        for source in resolve_enabled_skill_source_specs(
+            project_path,
+            agent_id=agent_id,
+            enabled_skill_sources=enabled_skill_sources,
+        )
+    ]
+
+
+def _enabled_skill_source_set(enabled_skill_sources: list[str] | None) -> set[str] | None:
+    if enabled_skill_sources is None:
+        return None
+    return {str(item).strip() for item in enabled_skill_sources if str(item).strip()}
 
 
 def resolve_interrupt_on(metadata: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -258,8 +340,11 @@ __all__ = [
     "build_deep_agent_runtime",
     "build_deepagents_backend",
     "describe_deepagents_mounts",
+    "describe_skill_registry",
     "describe_skill_sources",
     "memory_files_for_project",
+    "resolve_enabled_skill_sources",
+    "resolve_enabled_skill_source_specs",
     "resolve_skill_sources",
     "resolve_interrupt_on",
 ]

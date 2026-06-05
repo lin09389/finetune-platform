@@ -71,7 +71,7 @@ export default function AgentWorkspaceContainer({
       ) : (
         <WorkbenchEmpty description="暂无待确认动作。" />
       )}
-      runtimeContent={<AgentRuntimePanel runtime={agentWorkspace.workspace?.runtime ?? null} />}
+      runtimeContent={<AgentRuntimePanel runtime={agentWorkspace.workspace?.runtime ?? null} sessionId={sessionId} />}
       inspectorContent={(
         <AgentInspector
           workspace={agentWorkspace.workspace}

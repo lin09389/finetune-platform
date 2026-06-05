@@ -1,15 +1,36 @@
-import { Empty, Tag, Typography } from 'antd';
+import { Button, Empty, Spin, Tag, Typography } from 'antd';
+import { useState } from 'react';
+import { readAgentMemoryFile, type AgentMemoryFile } from '../../services/api';
 import type { AgentWorkspaceRuntimeContext } from '../../services/api';
 import styles from './AgentWorkspacePanels.module.css';
 
 interface AgentRuntimePanelProps {
   runtime?: AgentWorkspaceRuntimeContext | null;
+  sessionId?: string | null;
 }
 
-export default function AgentRuntimePanel({ runtime }: AgentRuntimePanelProps) {
+export default function AgentRuntimePanel({ runtime, sessionId }: AgentRuntimePanelProps) {
+  const [selectedMemoryFile, setSelectedMemoryFile] = useState<AgentMemoryFile | null>(null);
+  const [loadingMemoryPath, setLoadingMemoryPath] = useState<string | null>(null);
+  const [memoryError, setMemoryError] = useState('');
+
   if (!runtime) {
     return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无运行时上下文" />;
   }
+
+  const openMemoryFile = async (path: string) => {
+    if (!sessionId) return;
+    setLoadingMemoryPath(path);
+    setMemoryError('');
+    try {
+      const file = await readAgentMemoryFile(sessionId, path);
+      setSelectedMemoryFile(file);
+    } catch (error: any) {
+      setMemoryError(error?.response?.data?.detail || error?.message || '读取 memory 文件失败');
+    } finally {
+      setLoadingMemoryPath(null);
+    }
+  };
 
   return (
     <div className={styles.panel}>
@@ -46,7 +67,10 @@ export default function AgentRuntimePanel({ runtime }: AgentRuntimePanelProps) {
               <div key={source.virtual_path} className={styles.compactItem}>
                 <span>{source.name}</span>
                 <Typography.Text code>{source.virtual_path}</Typography.Text>
-                <Tag color={source.available ? 'success' : 'default'}>{source.available ? '可用' : '未挂载'}</Tag>
+                <div className={styles.tagRow}>
+                  <Tag color={source.available ? 'success' : 'default'}>{source.available ? '可用' : '未挂载'}</Tag>
+                  <Tag color={source.enabled === false ? 'default' : 'processing'}>{source.enabled === false ? '未启用' : '已启用'}</Tag>
+                </div>
               </div>
             ))}
           </div>
@@ -60,12 +84,36 @@ export default function AgentRuntimePanel({ runtime }: AgentRuntimePanelProps) {
         {runtime.memory_files.length ? (
           <div className={styles.compactList}>
             {runtime.memory_files.map((path) => (
-              <Typography.Text key={path} code>{path}</Typography.Text>
+              <div key={path} className={styles.compactItem}>
+                <Typography.Text code>{path}</Typography.Text>
+                <Button
+                  size="small"
+                  disabled={!sessionId}
+                  loading={loadingMemoryPath === path}
+                  onClick={() => void openMemoryFile(path)}
+                >
+                  查看
+                </Button>
+              </div>
             ))}
           </div>
         ) : (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无 memory 文件" />
         )}
+        {loadingMemoryPath ? <Spin size="small" /> : null}
+        {memoryError ? <Typography.Text type="danger">{memoryError}</Typography.Text> : null}
+        {selectedMemoryFile ? (
+          <div className={styles.memoryPreview}>
+            <div className={styles.panelHeader}>
+              <div>
+                <Typography.Text strong>{selectedMemoryFile.path}</Typography.Text>
+                <Typography.Text type="secondary">version {selectedMemoryFile.version}</Typography.Text>
+              </div>
+              <Tag color={selectedMemoryFile.writable ? 'processing' : 'default'}>{selectedMemoryFile.writable ? '可写' : '只读'}</Tag>
+            </div>
+            <pre>{selectedMemoryFile.content || '(empty)'}</pre>
+          </div>
+        ) : null}
       </section>
     </div>
   );
