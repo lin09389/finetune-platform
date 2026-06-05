@@ -4,6 +4,7 @@
 """
 import logging
 import re
+import threading
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from pathlib import Path
@@ -57,6 +58,8 @@ class DatabaseConnector(ABC):
         self.config = config
         self._connection = None
         self._pool = None
+        self._tx_conn = None
+        self._in_transaction = False
 
     @abstractmethod
     def connect(self) -> bool:
@@ -107,14 +110,38 @@ class DatabaseConnector(ABC):
         """获取表数据样本"""
         pass
 
+    @abstractmethod
+    def _begin_transaction(self) -> None:
+        """开启事务（子类实现）"""
+        pass
+
+    @abstractmethod
+    def _commit_transaction(self) -> None:
+        """提交事务（子类实现）"""
+        pass
+
+    @abstractmethod
+    def _rollback_transaction(self) -> None:
+        """回滚事务（子类实现）"""
+        pass
+
     @contextmanager
     def transaction(self):
-        """事务上下文管理器"""
+        """事务上下文管理器，提供真正的 BEGIN/COMMIT/ROLLBACK 语义。"""
+        self._begin_transaction()
+        self._in_transaction = True
         try:
             yield self
+            self._commit_transaction()
         except Exception as e:
-            logger.error(f"事务失败：{e}")
+            logger.error(f"事务失败，正在回滚：{e}")
+            try:
+                self._rollback_transaction()
+            except Exception as rb_err:
+                logger.error(f"事务回滚失败：{rb_err}")
             raise
+        finally:
+            self._in_transaction = False
 
     def test_connection(self) -> dict[str, Any]:
         """测试连接"""
@@ -161,7 +188,11 @@ class DatabaseConnector(ABC):
 
 
 class SQLiteConnector(DatabaseConnector):
-    """SQLite 数据库连接器"""
+    """SQLite 数据库连接器（线程安全）"""
+
+    def __init__(self, config: ConnectionConfig):
+        super().__init__(config)
+        self._lock = threading.Lock()
 
     @staticmethod
     def _validate_table_name(name: str) -> str:
@@ -190,43 +221,67 @@ class SQLiteConnector(DatabaseConnector):
 
     def disconnect(self) -> bool:
         """断开连接"""
-        if self._connection:
-            self._connection.close()
-            self._connection = None
-            logger.info("SQLite 连接已关闭")
+        with self._lock:
+            if self._connection:
+                self._connection.close()
+                self._connection = None
+                logger.info("SQLite 连接已关闭")
         return True
 
     def is_connected(self) -> bool:
         """检查连接状态"""
         return self._connection is not None
 
+    def _begin_transaction(self) -> None:
+        with self._lock:
+            if not self._connection:
+                self.connect()
+            self._connection.execute("BEGIN")
+
+    def _commit_transaction(self) -> None:
+        with self._lock:
+            if self._connection:
+                self._connection.commit()
+
+    def _rollback_transaction(self) -> None:
+        with self._lock:
+            if self._connection:
+                self._connection.rollback()
+
     def execute(
         self,
         sql: str,
         params: dict[str, Any] | tuple | None = None
     ) -> QueryResult:
-        """执行 SQL"""
+        """执行 SQL（线程安全）。
+
+        在事务上下文 (transaction()) 外部调用时自动 COMMIT；
+        在事务上下文内部调用时不单独 COMMIT，由事务统一管理。
+        """
         import time
 
         start_time = time.time()
         result = QueryResult()
 
         try:
-            if not self._connection:
-                self.connect()
+            with self._lock:
+                if not self._connection:
+                    self.connect()
 
-            cursor = self._connection.cursor()
+                cursor = self._connection.cursor()
 
-            if params:
-                cursor.execute(sql, params)
-            else:
-                cursor.execute(sql)
+                if params:
+                    cursor.execute(sql, params)
+                else:
+                    cursor.execute(sql)
 
-            self._connection.commit()
+                # 仅在非事务模式下自动提交
+                if not self._in_transaction:
+                    self._connection.commit()
 
-            result.success = True
-            result.affected_rows = cursor.rowcount
-            result.execution_time_ms = (time.time() - start_time) * 1000
+                result.success = True
+                result.affected_rows = cursor.rowcount
+                result.execution_time_ms = (time.time() - start_time) * 1000
 
         except Exception as e:
             result.success = False
@@ -241,34 +296,35 @@ class SQLiteConnector(DatabaseConnector):
         params: dict[str, Any] | tuple | None = None,
         limit: int | None = None
     ) -> QueryResult:
-        """执行查询"""
+        """执行查询（线程安全）"""
         import time
 
         start_time = time.time()
         result = QueryResult()
 
         try:
-            if not self._connection:
-                self.connect()
+            with self._lock:
+                if not self._connection:
+                    self.connect()
 
-            if limit:
-                sql = f"{sql} LIMIT ?"
-                if params is None:
-                    params = (limit,)
-                elif isinstance(params, tuple):
-                    params = params + (limit,)
+                if limit:
+                    sql = f"{sql} LIMIT ?"
+                    if params is None:
+                        params = (limit,)
+                    elif isinstance(params, tuple):
+                        params = params + (limit,)
+                    else:
+                        params = tuple(params.values()) + (limit,)
+
+                cursor = self._connection.cursor()
+
+                if params:
+                    cursor.execute(sql, params)
                 else:
-                    params = tuple(params.values()) + (limit,)
+                    cursor.execute(sql)
 
-            cursor = self._connection.cursor()
-
-            if params:
-                cursor.execute(sql, params)
-            else:
-                cursor.execute(sql)
-
-            columns = [desc[0] for desc in cursor.description] if cursor.description else []
-            rows = cursor.fetchall()
+                columns = [desc[0] for desc in cursor.description] if cursor.description else []
+                rows = cursor.fetchall()
 
             result.success = True
             result.columns = columns
@@ -414,6 +470,9 @@ class PostgreSQLConnector(DatabaseConnector):
         """获取连接"""
         if not self._pool:
             self.connect()
+        if self._in_transaction and self._tx_conn is not None:
+            yield self._tx_conn
+            return
 
         conn = None
         try:
@@ -424,12 +483,30 @@ class PostgreSQLConnector(DatabaseConnector):
             if conn:
                 self._pool.putconn(conn)
 
+    def _begin_transaction(self) -> None:
+        if not self._pool:
+            self.connect()
+        self._tx_conn = self._pool.getconn()
+        self._tx_conn.autocommit = False
+
+    def _commit_transaction(self) -> None:
+        if self._tx_conn:
+            self._tx_conn.commit()
+            self._pool.putconn(self._tx_conn)
+            self._tx_conn = None
+
+    def _rollback_transaction(self) -> None:
+        if self._tx_conn:
+            self._tx_conn.rollback()
+            self._pool.putconn(self._tx_conn)
+            self._tx_conn = None
+
     def execute(
         self,
         sql: str,
         params: dict[str, Any] | tuple | None = None
     ) -> QueryResult:
-        """执行 SQL"""
+        """执行 SQL。在事务上下文外自动提交；在事务上下文内由事务统一管理。"""
         import time
 
         start_time = time.time()
@@ -444,7 +521,8 @@ class PostgreSQLConnector(DatabaseConnector):
                 else:
                     cursor.execute(sql)
 
-                conn.commit()
+                if not self._in_transaction:
+                    conn.commit()
 
                 result.success = True
                 result.affected_rows = cursor.rowcount
@@ -636,6 +714,9 @@ class MySQLConnector(DatabaseConnector):
         """获取连接"""
         if not self._pool:
             self.connect()
+        if self._in_transaction and self._tx_conn is not None:
+            yield self._tx_conn
+            return
 
         conn = None
         try:
@@ -645,12 +726,30 @@ class MySQLConnector(DatabaseConnector):
             if conn:
                 conn.close()
 
+    def _begin_transaction(self) -> None:
+        if not self._pool:
+            self.connect()
+        self._tx_conn = self._pool.get_connection()
+        self._tx_conn.begin()
+
+    def _commit_transaction(self) -> None:
+        if self._tx_conn:
+            self._tx_conn.commit()
+            self._tx_conn.close()
+            self._tx_conn = None
+
+    def _rollback_transaction(self) -> None:
+        if self._tx_conn:
+            self._tx_conn.rollback()
+            self._tx_conn.close()
+            self._tx_conn = None
+
     def execute(
         self,
         sql: str,
         params: dict[str, Any] | tuple | None = None
     ) -> QueryResult:
-        """执行 SQL"""
+        """执行 SQL。在事务上下文外自动提交；在事务上下文内由事务统一管理。"""
         import time
 
         start_time = time.time()
@@ -665,7 +764,8 @@ class MySQLConnector(DatabaseConnector):
                 else:
                     cursor.execute(sql)
 
-                conn.commit()
+                if not self._in_transaction:
+                    conn.commit()
 
                 result.success = True
                 result.affected_rows = cursor.rowcount

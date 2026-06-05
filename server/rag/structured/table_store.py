@@ -443,9 +443,14 @@ class TableStore:
         insert_sql = f"INSERT INTO {db_table_name} ({column_names}) VALUES ({placeholders})"
 
         with self._db() as conn:
-            for row in rows:
-                values = [row.get(col) for col in columns]
-                conn.execute(insert_sql, values)
+            all_values = [[row.get(col) for col in columns] for row in rows]
+            conn.execute("BEGIN")
+            try:
+                conn.executemany(insert_sql, all_values)
+                conn.execute("COMMIT")
+            except Exception:
+                conn.execute("ROLLBACK")
+                raise
 
             row = conn.execute(f"SELECT COUNT(*) FROM {db_table_name}").fetchone()
             new_count = row["count"] if isinstance(row, sqlite3.Row) else row[0]
