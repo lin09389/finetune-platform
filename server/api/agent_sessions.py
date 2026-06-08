@@ -70,7 +70,10 @@ async def create_agent_session(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
-    return await run_sync(service.create_session, request)
+    try:
+        return await run_sync(service.create_session, request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/{session_id}", response_model=AgentSessionResponse)
@@ -151,6 +154,8 @@ async def prompt_agent_session(
             return await run_sync(service.record_prompt_failure, session_id, exc)
         except ValueError as value_exc:
             raise HTTPException(status_code=404, detail=str(value_exc)) from value_exc
+        except Exception:
+            raise HTTPException(status_code=500, detail=f"Prompt failed: {exc}") from exc
 
 
 @router.post("/{session_id}/interrupt", response_model=AgentSessionResponse)
@@ -293,7 +298,7 @@ async def stream_agent_session_events(
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
     async def event_stream():
-        seen: set[str] = {since_event_id} if since_event_id else set()
+        seen = {since_event_id: True} if since_event_id else {}
         since_id = since_event_id
         last_heartbeat = time.monotonic()
         heartbeat_interval = 15.0
@@ -308,7 +313,9 @@ async def stream_agent_session_events(
             for event in await run_sync(service.list_events, session_id, since_id):
                 if event.get("id") in seen:
                     continue
-                seen.add(event["id"])
+                if len(seen) >= 1000:
+                    seen.pop(next(iter(seen)))
+                seen[event["id"]] = True
                 since_id = event["id"]
                 chunk = await run_sync(service.build_stream_chunk, event)
                 yield f"event: agent_session_event\ndata: {json.dumps(chunk, ensure_ascii=False)}\n\n"
@@ -338,7 +345,9 @@ async def stream_agent_session_events(
                 event_id = event.get("id", "")
                 if event_id in seen:
                     continue
-                seen.add(event_id)
+                if len(seen) >= 1000:
+                    seen.pop(next(iter(seen)))
+                seen[event_id] = True
                 since_id = event_id
                 chunk = await run_sync(service.build_stream_chunk, event)
                 yield f"event: agent_session_event\ndata: {json.dumps(chunk, ensure_ascii=False)}\n\n"
@@ -351,7 +360,11 @@ async def stream_agent_session_events(
         finally:
             service.unsubscribe_events(session_id, queue)
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"}
+    )
 
 
 @router.get("/{session_id}/artifacts/{artifact_id}/original")
@@ -360,7 +373,7 @@ async def get_artifact_original(
     artifact_id: str,
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
-) -> str | None:
+) -> str:
     """Retrieve the original content of a modified artifact before changes were applied."""
     from pathlib import Path
     try:
@@ -387,11 +400,13 @@ async def get_artifact_original(
             resolved_project = Path(project_path).resolve()
             if not resolved_target.is_relative_to(resolved_project):
                 raise HTTPException(status_code=403, detail="Access denied: target path is outside project root")
+        except HTTPException:
+            raise
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid target path")
             
         if not target_path.exists() or not target_path.is_file():
-            return None
+            raise HTTPException(status_code=404, detail="File not found")
             
         try:
             return target_path.read_text(encoding="utf-8", errors="ignore")
@@ -403,18 +418,22 @@ async def get_artifact_original(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-
 permission_router = APIRouter(tags=["Agent Sessions"])
-
 
 @permission_router.post("/agent-permissions/{permission_id}/approve", response_model=AgentApprovalResponse)
 async def approve_agent_permission(
     permission_id: str,
+    background_tasks: BackgroundTasks,
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
     try:
-        session = await service.approve_permission_async(permission_id, True)
+        session = await run_sync(
+            service.start_permission_resume_background,
+            permission_id,
+            [{"type": "approve"}],
+            background_tasks,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     part = next((item for item in session.parts if item.id == permission_id), None)
@@ -426,11 +445,17 @@ async def approve_agent_permission(
 @permission_router.post("/agent-permissions/{permission_id}/reject", response_model=AgentApprovalResponse)
 async def reject_agent_permission(
     permission_id: str,
+    background_tasks: BackgroundTasks,
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
     try:
-        session = await service.approve_permission_async(permission_id, False)
+        session = await run_sync(
+            service.start_permission_resume_background,
+            permission_id,
+            [{"type": "reject"}],
+            background_tasks,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     part = next((item for item in session.parts if item.id == permission_id), None)
@@ -443,12 +468,18 @@ async def reject_agent_permission(
 async def decide_agent_permission(
     permission_id: str,
     request: AgentHitlDecisionRequest,
+    background_tasks: BackgroundTasks,
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
     try:
         decisions = [decision.model_dump(exclude_none=True) for decision in request.decisions]
-        session = await service.decide_permission_async(permission_id, decisions)
+        session = await run_sync(
+            service.start_permission_resume_background,
+            permission_id,
+            decisions,
+            background_tasks,
+        )
     except ValueError as exc:
         message = str(exc)
         status_code = 404 if "not found" in message.lower() else 422

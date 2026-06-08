@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+import sqlite3
 import uuid
 from pathlib import Path
 
 import pytest
+from fastapi import BackgroundTasks
 
 from agent_session.models import AgentPromptRequest, AgentSessionCreate
 from agent_session.async_subagents import AsyncSubagentService
@@ -480,10 +482,200 @@ def test_agent_session_deepagents_interrupt_creates_permission_card(tmp_path: Pa
 
         approved = asyncio.run(service.approve_permission_async(permission.id, True))
 
-        assert approved.status == "completed"
+        assert approved.status == "running"
+        assert target.read_text(encoding="utf-8") == "hello\n"
+        decision = approved.metadata["last_resume_decision"]
+
+        asyncio.run(service._resume_permission_background(session.id, decision))
+
+        completed = service.get_session(session.id)
+        assert completed.status == "completed"
         assert target.read_text(encoding="utf-8") == "hi\n"
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
+
+
+def test_agent_session_permission_resume_is_queued_for_http_approval(tmp_path: Path):
+    workspace = Path.cwd() / "tmp" / f"deepagents-background-hitl-{uuid.uuid4().hex[:8]}"
+    workspace.mkdir()
+    try:
+        target = workspace / "hello.txt"
+        target.write_text("hello\n", encoding="utf-8")
+        service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+        session = service.create_session(AgentSessionCreate(title="deepagents background hitl", project_path=str(workspace)))
+
+        responses = iter(
+            [
+                json.dumps(
+                    {
+                        "tool": "edit_file",
+                        "arguments": {
+                            "file_path": "/workspace/hello.txt",
+                            "old_string": "hello\n",
+                            "new_string": "hi\n",
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                json.dumps({"type": "final", "content": "已完成。"}, ensure_ascii=False),
+            ]
+        )
+
+        async def model_call(_messages):
+            return next(responses)
+
+        service.model_call = model_call
+        result = asyncio.run(service.prompt(session.id, AgentPromptRequest(content="把 hello 改成 hi")))
+        permission = next(part for part in result.parts if part.type == "permission")
+
+        background_tasks = BackgroundTasks()
+        queued = service.start_permission_resume_background(
+            permission.id,
+            [{"type": "approve"}],
+            background_tasks,
+        )
+
+        assert queued.status == "running"
+        assert target.read_text(encoding="utf-8") == "hello\n"
+        assert len(background_tasks.tasks) == 1
+
+        asyncio.run(background_tasks())
+
+        completed = service.get_session(session.id)
+        assert completed.status == "completed"
+        assert target.read_text(encoding="utf-8") == "hi\n"
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
+
+
+def test_agent_session_permission_background_resume_failure_is_recorded(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="resume failure", project_path=str(Path.cwd())))
+    service.repository.update_session(session.id, provider="mock", model="mock-model", metadata={"runtime": "deepagents"})
+    part = service.repository.add_part(
+        session.id,
+        "permission",
+        status="pending",
+        title="Confirm tool",
+        content="Confirm tool",
+        payload={
+            "official_hitl": True,
+            "action_requests": [{"name": "edit_file", "args": {"file_path": "/a.py"}}],
+            "actions": [{"name": "edit_file", "args": {"file_path": "/a.py"}, "allowed_decisions": ["approve", "reject"]}],
+        },
+    )
+
+    queued = asyncio.run(service.decide_permission_async(part["id"], [{"type": "approve"}]))
+    assert queued.status == "running"
+
+    async def failing_resume(_session_id, _decision):
+        raise RuntimeError("resume exploded")
+
+    service.deepagents_runner.resume = failing_resume
+    asyncio.run(service._resume_permission_background(session.id, queued.metadata["last_resume_decision"]))
+
+    failed = service.get_session(session.id)
+    assert failed.status == "needs_manual_review"
+    assert any(part.type == "summary" and "resume exploded" in part.content for part in failed.parts)
+
+
+def test_agent_session_prompt_background_failure_fallback_marks_terminal(tmp_path: Path, caplog):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="prompt fallback", project_path=str(Path.cwd())))
+    service.repository.update_session(session.id, status="running", metadata={"runtime": "deepagents", "active_prompt_id": "prompt-1"})
+
+    async def failing_prompt(_session_id, _request):
+        raise RuntimeError("prompt exploded")
+
+    def failing_record(_session_id, _exc):
+        raise RuntimeError("database locked")
+
+    service.prompt = failing_prompt
+    service.record_prompt_failure = failing_record
+
+    caplog.set_level("ERROR")
+    asyncio.run(service._run_prompt_background(session.id, AgentPromptRequest(content="run"), "prompt-1"))
+
+    failed = service.get_session(session.id)
+    assert failed.status == "needs_manual_review"
+    assert "prompt exploded" in failed.metadata["latest_error"]
+    assert any("Failed to record Agent background failure" in record.message for record in caplog.records)
+
+
+def test_agent_session_background_failure_fallback_retries_locked_writes(tmp_path: Path, monkeypatch):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="locked fallback", project_path=str(Path.cwd())))
+    service.repository.update_session(session.id, status="running", metadata={"runtime": "deepagents"})
+    attempts = {"count": 0}
+    original_update_session = service.repository.update_session
+
+    def flaky_update_session(session_id: str, **updates):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise sqlite3.OperationalError("database is locked")
+        return original_update_session(session_id, **updates)
+
+    monkeypatch.setattr(service.repository, "update_session", flaky_update_session)
+
+    service._record_background_failure_fallback(session.id, RuntimeError("prompt exploded"), RuntimeError("record failed"))
+
+    failed = service.get_session(session.id)
+    assert attempts["count"] >= 2
+    assert failed.status == "needs_manual_review"
+    assert "prompt exploded" in failed.metadata["latest_error"]
+
+
+def test_agent_session_restart_recovery_marks_stale_running_sessions(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    running = service.create_session(AgentSessionCreate(title="stale running", project_path=str(Path.cwd())))
+    completed = service.create_session(AgentSessionCreate(title="completed", project_path=str(Path.cwd())))
+    service.repository.update_session(running.id, status="running", metadata={"runtime": "deepagents"})
+    service.repository.update_session(completed.id, status="completed", metadata={"runtime": "deepagents"})
+
+    recovered = service.recover_active_sessions_after_restart()
+
+    assert recovered["recovered"] == 1
+    stale = service.get_session(running.id)
+    done = service.get_session(completed.id)
+    assert stale.status == "needs_manual_review"
+    assert stale.metadata["recovered_after_restart"] is True
+    assert any(part.type == "summary" and "服务重启" in part.content for part in stale.parts)
+    assert done.status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_async_subtask_cancel_cancels_registered_task(tmp_path: Path):
+    repository = AgentSessionRepository(str(tmp_path / "agents.db"))
+    parent = repository.create_session({"agent_id": "build", "title": "parent", "status": "running", "metadata": {}})
+    child = repository.create_session({"agent_id": "review", "title": "child", "status": "running", "metadata": {}})
+    subtask = repository.create_subtask(
+        {
+            "parent_session_id": parent["id"],
+            "child_session_id": child["id"],
+            "agent_name": "review",
+            "status": "running",
+            "input_json": {"description": "review"},
+        }
+    )
+    service = AsyncSubagentService(repository, lambda *_args: None)
+    cancelled = asyncio.Event()
+
+    async def long_running():
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    task = asyncio.create_task(long_running())
+    await asyncio.sleep(0)
+    service._tasks[subtask["id"]] = task
+
+    result = await service.cancel_task(parent["id"], subtask["id"])
+
+    assert result["status"] == "cancelled"
+    assert task.cancelled()
+    assert cancelled.is_set()
 
 
 def test_agent_session_hitl_decision_validation_accepts_edit_and_respond(tmp_path: Path):
@@ -523,6 +715,58 @@ def test_agent_session_hitl_decision_validation_accepts_edit_and_respond(tmp_pat
     assert updated.status == "approved"
     assert updated.payload["decisions"][0]["edited_action"]["args"]["file_path"] == "/b.py"
     assert updated.payload["decisions"][1]["message"] == "Blue."
+
+
+def test_agent_session_hitl_decision_cannot_be_recorded_twice(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="hitl race", project_path=str(Path.cwd())))
+    service.repository.update_session(session.id, provider=None, model=None, metadata={"runtime": "deepagents"})
+    part = service.repository.add_part(
+        session.id,
+        "permission",
+        status="pending",
+        title="Confirm tool",
+        content="Confirm tool",
+        payload={
+            "official_hitl": True,
+            "action_requests": [{"name": "edit_file", "args": {"file_path": "/a.py"}}],
+            "actions": [{"name": "edit_file", "args": {"file_path": "/a.py"}, "allowed_decisions": ["approve", "reject"]}],
+        },
+    )
+
+    first = asyncio.run(service.decide_permission_async(part["id"], [{"type": "approve"}]))
+    assert first.status == "running"
+
+    with pytest.raises(ValueError, match="not pending"):
+        asyncio.run(service.decide_permission_async(part["id"], [{"type": "approve"}]))
+
+
+@pytest.mark.asyncio
+async def test_agent_session_interrupt_cancels_running_prompt_task(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="interrupt task", project_path=str(Path.cwd())))
+    service.repository.update_session(session.id, status="running", metadata={"runtime": "deepagents", "active_prompt_id": "prompt-1"})
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def waiting_prompt(_session_id, _request):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    service.prompt = waiting_prompt
+    task = asyncio.create_task(service._run_prompt_background(session.id, AgentPromptRequest(content="run"), "prompt-1"))
+    await started.wait()
+
+    interrupted = service.interrupt_session(session.id)
+    await asyncio.wait_for(cancelled.wait(), timeout=2)
+    await asyncio.wait_for(task, timeout=2)
+
+    assert interrupted.status == "interrupted"
+    assert service.get_session(session.id).status == "interrupted"
 
 
 def test_agent_session_hitl_decision_validation_rejects_bad_batches(tmp_path: Path):
@@ -603,6 +847,62 @@ def test_agent_session_response_includes_deepagents_ui_state(tmp_path: Path):
     assert ui_state["pending_permission"]["actions"][0]["name"] == "edit_file"
     assert ui_state["latest"]["permission"]["id"] == permission["id"]
     assert result.metadata["diagnostics"]["latest_action"]["id"] == permission["id"]
+
+
+def test_agent_session_stream_snapshot_uses_model_stream_completed_payload(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="stream completion", project_path=str(Path.cwd())))
+    part = service.repository.add_part(
+        session.id,
+        "text",
+        status="running",
+        title="AI 正在思考...",
+        content="old",
+        payload={"streaming": True},
+    )
+
+    snapshot = service._stream_part_snapshot(
+        {"session_id": session.id, "event_type": "model_stream_completed", "created_at": "now", "message": "done"},
+        {
+            "session_id": session.id,
+            "part_id": part["id"],
+            "part_type": "text",
+            "part": {**part, "status": "completed", "content": "new", "payload": {"streaming": False}},
+        },
+    )
+
+    assert snapshot["status"] == "completed"
+    assert snapshot["content"] == "new"
+    assert snapshot["payload"]["streaming"] is False
+
+
+def test_async_subtask_metrics_uses_sql_aggregation_without_loading_all_events(tmp_path: Path, monkeypatch):
+    repository = AgentSessionRepository(str(tmp_path / "agents.db"))
+    parent = repository.create_session({"agent_id": "build", "title": "parent", "status": "running", "metadata": {}})
+    task = repository.create_subtask(
+        {
+            "parent_session_id": parent["id"],
+            "child_session_id": "child-1",
+            "agent_name": "review",
+            "status": "running",
+            "input_json": {"description": "review"},
+        }
+    )
+    repository.add_subtask_event(task["id"], parent["id"], "recovered", "Recovered")
+    repository.add_subtask_event(task["id"], parent["id"], "started", "Started")
+
+    def fail_if_full_event_load(*_args, **_kwargs):
+        raise AssertionError("metrics should not load full event history")
+
+    monkeypatch.setattr(repository, "list_parent_subtask_events", fail_if_full_event_load)
+
+    metrics = repository.summarize_subtask_metrics(parent["id"])
+
+    assert metrics["total"] == 1
+    assert metrics["running"] == 1
+    assert metrics["event_count"] == 2
+    assert metrics["recovery_count"] == 1
+    assert metrics["last_event"]["event_type"] == "started"
 
 
 def test_agent_session_ui_state_marks_legacy_actions_read_only(tmp_path: Path):

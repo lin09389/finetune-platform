@@ -420,6 +420,7 @@ class CrossAgentCommunicator:
         """收集多个 Agent 的结果"""
         results = {}
         tasks = []
+        pending_agent_ids = []
 
         for agent_id in agent_ids:
             spawned = self._spawned_agents.get(agent_id)
@@ -427,10 +428,11 @@ class CrossAgentCommunicator:
                 results[agent_id] = spawned.result
             elif agent_id in self._message_queues:
                 tasks.append(self._collect_agent_result(agent_id, timeout))
+                pending_agent_ids.append(agent_id)
 
         if tasks:
             task_results = await asyncio.gather(*tasks, return_exceptions=True)
-            for agent_id, result in zip(agent_ids, task_results, strict=False):
+            for agent_id, result in zip(pending_agent_ids, task_results, strict=False):
                 if not isinstance(result, Exception):
                     results[agent_id] = result
 

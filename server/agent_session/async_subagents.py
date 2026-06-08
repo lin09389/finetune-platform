@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import suppress
 from datetime import datetime
 from typing import Any, Awaitable, Callable
 
@@ -43,11 +44,6 @@ def _elapsed_ms(start: Any, end: Any) -> int | None:
 
 
 class AsyncSubagentService:
-    _tasks: dict[str, asyncio.Task[Any]] = {}
-    _tasks_lock = asyncio.Lock()
-    _semaphore: asyncio.Semaphore | None = None
-    _semaphore_loop: asyncio.AbstractEventLoop | None = None
-
     def __init__(
         self,
         repository: AgentSessionRepository,
@@ -57,6 +53,10 @@ class AsyncSubagentService:
         interrupt_session: InterruptSession | None = None,
         max_concurrency: int = 2,
     ):
+        self._tasks: dict[str, asyncio.Task[Any]] = {}
+        self._tasks_lock = asyncio.Lock()
+        self._semaphore: asyncio.Semaphore | None = None
+        self._semaphore_loop: asyncio.AbstractEventLoop | None = None
         self.repository = repository
         self.notify_event = notify_event
         self.model_call = model_call
@@ -129,6 +129,7 @@ class AsyncSubagentService:
         child_session_id = str(task.get("child_session_id") or "")
         if child_session_id:
             self._interrupt_child(child_session_id, message)
+        await self._cancel_registered_task(task_id)
         result_json = dict(task.get("result_json") or {})
         result_json.update({"summary": message, "child_status": "interrupted"})
         updated = self.repository.update_subtask(
@@ -153,6 +154,7 @@ class AsyncSubagentService:
         old_child_id = str(task.get("child_session_id") or "")
         if old_child_id and task.get("status") not in ASYNC_SUBTASK_TERMINAL_STATUSES:
             self._interrupt_child(old_child_id, "异步子任务已重启，旧子会话停止。")
+            await self._cancel_registered_task(task_id)
 
         previous = list(task.get("previous_child_session_ids") or [])
         if old_child_id:
@@ -232,6 +234,15 @@ class AsyncSubagentService:
         awaitables = [task for task in tasks if hasattr(task, "__await__")]
         if awaitables:
             await asyncio.gather(*awaitables, return_exceptions=True)
+
+    async def _cancel_registered_task(self, task_id: str) -> None:
+        async with self._tasks_lock:
+            task = self._tasks.pop(task_id, None)
+        if task is None or not hasattr(task, "cancel") or task.done():
+            return
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
     async def _schedule_task(self, task_id: str, child_session_id: str, description: str, *, recovered: bool = False) -> bool:
         async with self._tasks_lock:
@@ -324,10 +335,10 @@ class AsyncSubagentService:
 
     def _semaphore_for_loop(self) -> asyncio.Semaphore:
         loop = asyncio.get_running_loop()
-        if self.__class__._semaphore is None or self.__class__._semaphore_loop is not loop:
-            self.__class__._semaphore = asyncio.Semaphore(self.max_concurrency)
-            self.__class__._semaphore_loop = loop
-        return self.__class__._semaphore
+        if self._semaphore is None or self._semaphore_loop is not loop:
+            self._semaphore = asyncio.Semaphore(self.max_concurrency)
+            self._semaphore_loop = loop
+        return self._semaphore
 
     def _create_child_session(self, parent: dict[str, Any], target: AgentDefinition, task_id: str, revision: int) -> dict[str, Any]:
         return self.repository.create_session(
@@ -595,9 +606,8 @@ class AsyncSubagentService:
             "warnings": warnings,
         }
 
-    @classmethod
-    def _registry_state(cls, task_id: str) -> str:
-        task = cls._tasks.get(task_id)
+    def _registry_state(self, task_id: str) -> str:
+        task = self._tasks.get(task_id)
         if task is None:
             return "idle"
         if hasattr(task, "done") and task.done():

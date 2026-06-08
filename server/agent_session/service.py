@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -38,6 +39,7 @@ from .workspace_view import AgentWorkspaceViewService
 
 logger = logging.getLogger(__name__)
 ModelCall = Callable[[list[dict[str, str]]], Awaitable[str]]
+PromptTaskRecord = tuple[asyncio.AbstractEventLoop, asyncio.Task[Any]]
 
 
 class AgentSessionService:
@@ -68,6 +70,8 @@ class AgentSessionService:
             async_subagent_service=self.async_subagent_service,
         )
         self.workspace_view_service = AgentWorkspaceViewService(self)
+        self._prompt_tasks: dict[str, PromptTaskRecord] = {}
+        self._prompt_tasks_lock = threading.Lock()
 
     ACTIVE_STATUSES = {"running", "verifying", "repairing", "waiting_approval", "waiting_permission"}
 
@@ -116,6 +120,22 @@ class AgentSessionService:
         self._sync_async_service_model_call()
         return await self.async_subagent_service.recover_running_tasks()
 
+    def recover_active_sessions_after_restart(self) -> dict[str, Any]:
+        sessions = self.repository.list_sessions_by_status({"running", "verifying", "repairing"})
+        recovered = 0
+        failed = 0
+        for session in sessions:
+            session_id = str(session.get("id") or "")
+            if not session_id:
+                continue
+            try:
+                self._mark_session_lost_after_restart(session)
+                recovered += 1
+            except Exception:
+                failed += 1
+                logger.exception("Failed to mark stale Agent session after restart: %s", session_id)
+        return {"recovered": recovered, "failed": failed, "session_ids": [str(item.get("id")) for item in sessions if item.get("id")]}
+
     async def shutdown_async_subtasks(self) -> None:
         await self.async_subagent_service.shutdown()
 
@@ -153,33 +173,31 @@ class AgentSessionService:
             raise ValueError("project_path must be a directory")
         default_root = Path(self._default_project_path()).resolve()
         allowed_roots = get_allowed_workspace_roots({default_root, settings.base_dir.resolve(), Path.cwd().resolve()})
+
         if not any(resolved == allowed or resolved.is_relative_to(allowed) for allowed in allowed_roots):
             allowed = ", ".join(sorted(str(path) for path in allowed_roots))
             raise ValueError(f"project_path must be inside the workspace. Allowed roots: {allowed}")
         return str(resolved)
 
     def create_session(self, request: AgentSessionCreate) -> AgentSessionResponse:
-        try:
-            project_path = self._validate_project_path(request.project_path)
-            provider, model = self._resolve_session_model_defaults(request.agent_id, request.provider, request.model)
-            enabled_skill_sources = self._normalize_enabled_skill_sources(request.enabled_skill_sources)
-            session = self.repository.create_session(
-                {
-                    "chat_session_id": request.chat_session_id,
-                    "agent_id": request.agent_id,
-                    "title": request.title or "Agent Session",
-                    "project_path": project_path,
-                    "provider": provider,
-                    "model": model,
-                    "metadata": {
-                        "autonomy_mode": request.autonomy_mode or "safe_auto",
-                        "deepagents_interrupt_on": True,
-                        "enabled_skill_sources": enabled_skill_sources,
-                    },
-                }
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        project_path = self._validate_project_path(request.project_path)
+        provider, model = self._resolve_session_model_defaults(request.agent_id, request.provider, request.model)
+        enabled_skill_sources = self._normalize_enabled_skill_sources(request.enabled_skill_sources)
+        session = self.repository.create_session(
+            {
+                "chat_session_id": request.chat_session_id,
+                "agent_id": request.agent_id,
+                "title": request.title or "Agent Session",
+                "project_path": project_path,
+                "provider": provider,
+                "model": model,
+                "metadata": {
+                    "autonomy_mode": request.autonomy_mode or "safe_auto",
+                    "deepagents_interrupt_on": True,
+                    "enabled_skill_sources": enabled_skill_sources,
+                },
+            }
+        )
         session["parts"] = []
         return AgentSessionResponse(**self._attach_recovery_diagnostics(session))
 
@@ -380,6 +398,11 @@ class AgentSessionService:
         return AgentSessionResponse(**self._attach_recovery_diagnostics(session))
 
     async def _run_prompt_background(self, session_id: str, request: AgentPromptRequest, prompt_id: str) -> None:
+        loop = asyncio.get_running_loop()
+        current_task = asyncio.current_task()
+        if current_task is not None:
+            with self._prompt_tasks_lock:
+                self._prompt_tasks[session_id] = (loop, current_task)
         try:
             await self.prompt(session_id, request)
             session = self.repository.get_session(session_id)
@@ -389,12 +412,20 @@ class AgentSessionService:
                     metadata["last_prompt_completed_at"] = datetime.now().isoformat()
                     metadata["active_prompt_id"] = None
                     self.repository.update_session(session_id, metadata=metadata)
+        except asyncio.CancelledError:
+            session = self.repository.get_session(session_id)
+            if session and str(session.get("status") or "") not in self.TERMINAL_STATUSES:
+                self.interrupt_session(session_id, "Agent 后台任务已取消。")
         except Exception as exc:
             try:
                 self.record_prompt_failure(session_id, exc)
-            except Exception:
-                # Background task failures must never escape into the server loop.
-                pass
+            except Exception as failure_exc:
+                self._record_background_failure_fallback(session_id, exc, failure_exc)
+        finally:
+            with self._prompt_tasks_lock:
+                record = self._prompt_tasks.get(session_id)
+                if record and record[1] is current_task:
+                    self._prompt_tasks.pop(session_id, None)
 
     def interrupt_session(self, session_id: str, reason: str | None = None) -> AgentSessionResponse:
         session = self.repository.get_session(session_id)
@@ -404,6 +435,7 @@ class AgentSessionService:
             return self.get_session(session_id)
 
         message = reason or "用户已中断 Agent 任务。"
+        self._cancel_prompt_task(session_id)
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
         metadata = set_phase(metadata, "interrupted")
         metadata["interrupt_requested"] = True
@@ -442,6 +474,16 @@ class AgentSessionService:
             {"session_id": session_id, "status": "interrupted", "summary": message, "interrupted": True},
         )
         return self.get_session(session_id)
+
+    def _cancel_prompt_task(self, session_id: str) -> None:
+        with self._prompt_tasks_lock:
+            record = self._prompt_tasks.get(session_id)
+        if not record:
+            return
+        loop, task = record
+        if task.done():
+            return
+        loop.call_soon_threadsafe(task.cancel)
 
     def record_prompt_failure(self, session_id: str, exc: Exception) -> dict[str, Any]:
         session = self.repository.get_session(session_id)
@@ -485,24 +527,55 @@ class AgentSessionService:
     async def approve_permission_async(self, part_id: str, approved: bool) -> AgentSessionResponse:
         return await self.decide_permission_async(part_id, [{"type": "approve" if approved else "reject"}])
 
-    async def decide_permission_async(self, part_id: str, decisions: list[dict[str, Any]]) -> AgentSessionResponse:
+    def _record_permission_decision(self, part_id: str, decisions: list[dict[str, Any]]) -> tuple[AgentSessionResponse, dict[str, Any] | None]:
         part = self.repository.get_part(part_id)
         if not part:
             raise ValueError("Agent part not found")
         session = self.repository.get_session(part["session_id"]) or {}
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        if metadata.get("runtime") == "deepagents":
-            normalized_decisions = self._validate_hitl_decisions(part, decisions)
-            result = self._decide_deepagents_permission(part, normalized_decisions)
+        if metadata.get("runtime") != "deepagents":
+            if len(decisions) != 1:
+                raise ValueError("Legacy permission approvals accept exactly one decision")
+            return self.approve_permission(part_id, decisions[0].get("type") == "approve"), None
+
+        normalized_decisions = self._validate_hitl_decisions(part, decisions)
+        result = self._decide_deepagents_permission(part, normalized_decisions)
+        self._sync_async_service_model_call()
+        decision = permission_decisions(part_id, normalized_decisions)
+        self._record_resume_decision(part["session_id"], decision)
+        session = self.repository.get_session(part["session_id"]) or result
+        session["parts"] = self.repository.list_parts(part["session_id"])
+        return AgentSessionResponse(**self._attach_recovery_diagnostics(session)), decision
+
+    def start_permission_resume_background(
+        self,
+        part_id: str,
+        decisions: list[dict[str, Any]],
+        background_tasks: BackgroundTasks,
+    ) -> AgentSessionResponse:
+        response, decision = self._record_permission_decision(part_id, decisions)
+        if decision is not None and (self.deepagents_runner.model_call is not None or response.provider):
+            background_tasks.add_task(self._resume_permission_background, response.id, decision)
+        return response
+
+    async def _resume_permission_background(self, session_id: str, decision: dict[str, Any]) -> None:
+        try:
             self._sync_async_service_model_call()
-            decision = permission_decisions(part_id, normalized_decisions)
-            self._record_resume_decision(part["session_id"], decision)
-            if self.deepagents_runner.model_call is not None or session.get("provider"):
-                await self.deepagents_runner.resume(part["session_id"], decision)
-            return self.get_session(part["session_id"])
-        if len(decisions) != 1:
-            raise ValueError("Legacy permission approvals accept exactly one decision")
-        return await run_sync(self.approve_permission, part_id, decisions[0].get("type") == "approve")
+            await self.deepagents_runner.resume(session_id, decision)
+        except asyncio.CancelledError as exc:
+            try:
+                self.record_prompt_failure(session_id, RuntimeError(f"权限审批后的 Agent 恢复执行被取消：{exc}"))
+            except Exception as failure_exc:
+                self._record_background_failure_fallback(session_id, exc, failure_exc)
+        except Exception as exc:
+            try:
+                self.record_prompt_failure(session_id, exc)
+            except Exception as failure_exc:
+                self._record_background_failure_fallback(session_id, exc, failure_exc)
+
+    async def decide_permission_async(self, part_id: str, decisions: list[dict[str, Any]]) -> AgentSessionResponse:
+        response, _decision = await run_sync(self._record_permission_decision, part_id, decisions)
+        return response
 
     def _approve_deepagents_action(self, part: dict[str, Any], approved: bool) -> dict[str, Any]:
         session_id = str(part.get("session_id") or "")
@@ -553,6 +626,83 @@ class AgentSessionService:
         result["parts"] = self.repository.list_parts(session_id)
         return result
 
+    def _record_background_failure_fallback(self, session_id: str, original_exc: Exception, failure_exc: Exception) -> None:
+        logger.exception(
+            "Failed to record Agent background failure for session %s after original error: %s",
+            session_id,
+            original_exc,
+            exc_info=failure_exc,
+        )
+        try:
+            def write_failure() -> None:
+                session = self.repository.get_session(session_id)
+                if not session:
+                    return
+                message = (
+                    "Agent 后台任务失败，且标准失败记录也失败。"
+                    f"原始错误：{str(original_exc)[:500]}；记录错误：{str(failure_exc)[:500]}"
+                )
+                metadata = self._ensure_failed_metadata(session, message)
+                self.repository.update_session(session_id, status="needs_manual_review", metadata=metadata)
+                event = self.repository.add_event(
+                    session_id,
+                    "session_failed",
+                    message,
+                    {
+                        "session_id": session_id,
+                        "status": "needs_manual_review",
+                        "summary": message,
+                        "error": message,
+                        "fallback": True,
+                        "record_failure_error": str(failure_exc)[:1000],
+                    },
+                )
+                self._notify_event(session_id, event)
+
+            self.repository.run_write_with_retry(write_failure)
+        except Exception:
+            logger.exception("Failed to apply minimal Agent failure fallback for session %s", session_id)
+
+    def _mark_session_lost_after_restart(self, session: dict[str, Any]) -> None:
+        session_id = str(session.get("id") or "")
+        if not session_id:
+            return
+        message = "Agent 后台任务在服务重启或进程退出时中断，已停止自动执行。请查看 transcript 后重新发起。"
+
+        def write_recovery() -> None:
+            current = self.repository.get_session(session_id) or session
+            if str(current.get("status") or "") not in {"running", "verifying", "repairing"}:
+                return
+            metadata = self._ensure_failed_metadata(current, message)
+            metadata["recovered_after_restart"] = True
+            summary = self.repository.add_part(
+                session_id,
+                "summary",
+                status="completed",
+                title="执行已中断",
+                content=message,
+                payload={"summary": message, "fallback": True, "recovered_after_restart": True},
+            )
+            self.repository.update_session(session_id, status="needs_manual_review", metadata=metadata)
+            event = self.repository.add_event(
+                session_id,
+                "session_failed",
+                message,
+                {
+                    "session_id": session_id,
+                    "part_id": summary.get("id"),
+                    "part_type": "summary",
+                    "status": "needs_manual_review",
+                    "summary": message,
+                    "error": message,
+                    "fallback": True,
+                    "recovered_after_restart": True,
+                },
+            )
+            self._notify_event(session_id, event)
+
+        self.repository.run_write_with_retry(write_recovery)
+
     def _decide_deepagents_permission(self, part: dict[str, Any], decisions: list[dict[str, Any]]) -> dict[str, Any]:
         session_id = str(part.get("session_id") or "")
         if not session_id:
@@ -562,7 +712,9 @@ class AgentSessionService:
         payload = dict(part.get("payload") or {})
         payload["decisions"] = decisions
         payload["decided_at"] = datetime.now().isoformat()
-        updated = self.repository.update_part(part["id"], status="approved", payload=payload)
+        updated = self.repository.update_part_if_status(part["id"], "pending", status="approved", payload=payload)
+        if not updated:
+            raise ValueError("Permission part is not pending")
         metadata = set_phase(metadata, "running")
         metadata["pending_deepagents_interrupt"] = None
         self.repository.update_session(session_id, status="running", metadata=metadata)
@@ -727,7 +879,8 @@ class AgentSessionService:
         metadata["latest_action"] = diagnostics.get("latest_action")
         metadata["latest_command"] = diagnostics.get("latest_command")
         metadata["latest_summary"] = diagnostics.get("latest_summary")
-        metadata["latest_error"] = diagnostics.get("latest_error")
+        state = dict(metadata.get("state") or {})
+        metadata["latest_error"] = diagnostics.get("latest_error") or metadata.get("latest_error") or state.get("latest_error")
         metadata["stop_reason"] = diagnostics.get("stop_reason")
         metadata["next_action"] = diagnostics.get("next_action")
         hydrated["metadata"] = metadata
@@ -739,26 +892,33 @@ class AgentSessionService:
         event_type = str(event.get("event_type") or "")
         part_id = payload.get("part_id")
         stored_part = self.repository.get_part(str(part_id)) if isinstance(part_id, str) and part_id.startswith("agp_") else None
+        payload_part = payload.get("part") if isinstance(payload.get("part"), dict) else {}
         if stored_part is None and not part_id:
             return None
-        if event_type in {"part_delta", "model_stream_started", "model_stream_failed"}:
+        if event_type in {"part_delta", "model_stream_started", "model_stream_completed", "model_stream_failed"}:
             part_type = str(payload.get("part_type") or (stored_part or {}).get("type") or "text")
             if event_type == "part_delta":
                 status = str(payload.get("status") or (stored_part or {}).get("status") or "running")
+            elif event_type == "model_stream_completed":
+                status = str(payload.get("status") or payload_part.get("status") or (stored_part or {}).get("status") or "completed")
             else:
                 status = str(payload.get("status") or (stored_part or {}).get("status") or ("failed" if event_type == "model_stream_failed" else "running"))
             stored_payload = dict((stored_part or {}).get("payload") or {})
             if isinstance(payload.get("payload"), dict):
                 stored_payload.update(payload.get("payload") or {})
+            if isinstance(payload_part.get("payload"), dict):
+                stored_payload.update(payload_part.get("payload") or {})
             if payload.get("streaming"):
                 stored_payload["streaming"] = True
+            elif event_type == "model_stream_completed":
+                stored_payload["streaming"] = False
             return {
                 "id": str(part_id or ""),
                 "session_id": session_id,
                 "type": part_type,
                 "status": status,
-                "title": (stored_part or {}).get("title") or ("流式输出失败" if event_type == "model_stream_failed" else "生成中"),
-                "content": str(payload.get("content") or (stored_part or {}).get("content") or ""),
+                "title": payload_part.get("title") or (stored_part or {}).get("title") or ("流式输出失败" if event_type == "model_stream_failed" else "生成中"),
+                "content": str(payload.get("content") or payload_part.get("content") or (stored_part or {}).get("content") or ""),
                 "payload": stored_payload,
                 "created_at": (stored_part or {}).get("created_at") or event.get("created_at"),
                 "updated_at": event.get("created_at"),

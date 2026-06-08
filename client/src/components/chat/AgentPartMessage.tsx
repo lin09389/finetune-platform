@@ -1,6 +1,7 @@
 import {
   CheckCircleOutlined,
   CodeOutlined,
+  EditOutlined,
   ExclamationCircleOutlined,
   EyeOutlined,
   FileTextOutlined,
@@ -74,20 +75,6 @@ function commandText(payload?: Record<string, any>) {
   return Array.isArray(command) ? command.join(' ') : stringify(command);
 }
 
-function asAgentParts(value: unknown): AgentPart[] {
-  return Array.isArray(value) ? value.filter((item): item is AgentPart => Boolean(item && typeof item === 'object' && 'type' in item)) : [];
-}
-
-function processStats(parts: AgentPart[]) {
-  const actionable = parts.filter((item) => ['diff', 'command', 'permission'].includes(item.type));
-  const approved = actionable.filter((item) => ['approved', 'executed', 'completed'].includes(item.status || '')).length;
-  const commands = parts.filter((item) => item.type === 'command' && ['completed', 'executed'].includes(item.status || '')).length;
-  const patches = parts.filter((item) => item.type === 'diff' && item.status === 'executed').length;
-  const pending = actionable.filter((item) => item.status === 'pending').length;
-  const failed = parts.filter((item) => ['failed', 'blocked'].includes(item.status || '')).length;
-  return { approved, commands, patches, pending, failed };
-}
-
 function contextStats(payload?: Record<string, any>) {
   const source = payload?.payload && typeof payload.payload === 'object' ? { ...payload, ...payload.payload } : payload || {};
   return {
@@ -98,58 +85,10 @@ function contextStats(payload?: Record<string, any>) {
   };
 }
 
-function ProcessStrip({ parts, currentPart }: { parts?: AgentPart[]; currentPart?: AgentPart }) {
-  const stats = processStats(parts?.length ? parts : currentPart ? [currentPart] : []);
-  const items: Array<{ label: string; tone?: 'ok' | 'warn' | 'err' }> = [];
-  if (stats.approved) items.push({ label: `已批准 ${stats.approved} 项请求`, tone: 'ok' });
-  if (stats.patches) items.push({ label: `已执行 ${stats.patches} 个补丁`, tone: 'ok' });
-  if (stats.commands) items.push({ label: `已运行 ${stats.commands} 条命令`, tone: 'ok' });
-  if (stats.pending) items.push({ label: '自动审核中', tone: 'warn' });
-  if (!stats.pending && (stats.approved || stats.patches || stats.commands)) items.push({ label: '自动审核已批准', tone: 'ok' });
-  if (stats.failed) items.push({ label: `${stats.failed} 项需要处理`, tone: 'err' });
-  if (!items.length) return null;
-  return (
-    <div className={styles.processStrip}>
-      {items.map((item) => (
-        <span key={item.label} className={styles.processPill} data-tone={item.tone || 'ok'}>
-          {item.label}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function ToolResultStrip({ part, payload }: { part: AgentPart; payload: Record<string, any> }) {
-  const stats = contextStats(payload);
-  const command = commandText(payload);
-  const subagentLabel = agentLabel(payload.agent_name);
-  const chips: string[] = [];
-  if (stats.files) chips.push(`读取 ${stats.files} 个文件`);
-  if (stats.matches) chips.push(`找到 ${stats.matches} 条匹配`);
-  if (stats.symbols) chips.push(`命中 ${stats.symbols} 个符号`);
-  if (stats.commands) chips.push(`识别 ${stats.commands} 个验证命令`);
-  if (command) chips.push(command);
-  if (!chips.length && part.content) chips.push(part.content);
-  return (
-    <div className={styles.eventLine}>
-      <span className={styles.eventDot} data-status={part.status || 'completed'} />
-      {subagentLabel ? <span className={styles.subagentPill}>{subagentLabel}</span> : null}
-      <span className={styles.eventTitle}>{partTitle(part, '工具结果')}</span>
-      {chips.slice(0, 4).map((chip) => (
-        <span key={chip} className={styles.eventChip}>{chip}</span>
-      ))}
-    </div>
-  );
-}
-
 function changedFiles(payload?: Record<string, any>) {
   const files = payload?.changed_files || payload?.payload?.changed_files || payload?.files || payload?.payload?.files || [];
   if (!Array.isArray(files)) return [];
   return files.map((item: any) => (typeof item === 'string' ? item : item?.path || item?.file_path)).filter(Boolean);
-}
-
-function repairAttempt(payload?: Record<string, any>, metadata?: ChatAgentMetadata) {
-  return payload?.repair_attempt ?? payload?.state?.repair_attempts ?? metadata?.repair_attempts;
 }
 
 function normalizeFileStatus(value?: string) {
@@ -209,6 +148,64 @@ function partTitle(part: AgentPart, fallback: string) {
   if (part.type === 'command') return commandText(part.payload) || part.title || '验证命令';
   if (part.type === 'summary') return part.content || fallback;
   return part.content || part.title || fallback;
+}
+
+function toolEventText(part: AgentPart, payload?: Record<string, any>) {
+  const stats = contextStats(payload);
+  const command = commandText(payload);
+  const toolName = stringify(payload?.tool || payload?.name || payload?.payload?.tool);
+  const chips: string[] = [];
+  if (stats.files) chips.push(`读取 ${stats.files} 个文件`);
+  if (stats.matches) chips.push(`找到 ${stats.matches} 条匹配`);
+  if (stats.symbols) chips.push(`命中 ${stats.symbols} 个符号`);
+  if (stats.commands) chips.push(`识别 ${stats.commands} 个验证命令`);
+  if (command) chips.push(command);
+  if (!chips.length && part.content) chips.push(part.content);
+  if (chips.length) return chips.slice(0, 2).join('，');
+  return partTitle(part, toolName || '工具');
+}
+
+function toolEventIcon(toolName?: string) {
+  const name = (toolName || '').toLowerCase();
+  if (name.includes('search') || name === 'glob' || name === 'list_files') return <SearchOutlined />;
+  if (name.includes('read') || name.includes('context') || name.includes('inspect')) return <FileTextOutlined />;
+  if (name.includes('test') || name.includes('execution')) return <PlayCircleOutlined />;
+  return <CodeOutlined />;
+}
+
+function fileEditLabel(part: AgentPart, payload?: Record<string, any>) {
+  const files = changedFiles(payload);
+  const fileLabel = files.length === 1
+    ? files[0]
+    : files.length > 1
+      ? `${files.length} 个文件`
+      : part.title || '文件';
+  const additions = Number(payload?.additions ?? payload?.payload?.additions ?? payload?.added_lines ?? 0);
+  const deletions = Number(payload?.deletions ?? payload?.payload?.deletions ?? payload?.removed_lines ?? 0);
+  return { fileLabel, additions, deletions };
+}
+
+function commandStatusText(part: AgentPart, payload?: Record<string, any>) {
+  const command = commandText(payload);
+  if (command) return command;
+  const count = Number(payload?.commands_count ?? payload?.payload?.commands_count ?? 0);
+  if (count > 0) return `${count} 条命令`;
+  return part.title || part.content || '命令';
+}
+
+function TranscriptStatusLine({
+  icon,
+  children,
+}: {
+  icon: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className={styles.transcriptStatusLine}>
+      <span className={styles.transcriptStatusIcon}>{icon}</span>
+      <span className={styles.transcriptStatusText}>{children}</span>
+    </div>
+  );
 }
 
 function looksLikeProtocolText(value?: string) {
@@ -277,14 +274,10 @@ const AgentPartMessage = React.memo(({
   }
 
   const payload = part.payload || {};
-  const sessionParts = asAgentParts(metadata.agent_parts);
   const diagnostics = metadata.agent_session_diagnostics;
-  const streamingDiagnostics = metadata.agent_streaming_diagnostics;
   const status = part.status || metadata.status || 'completed';
   const subagentLabel = agentLabel(payload.agent_name);
   const subagentBadge = subagentLabel ? <Tag className={styles.subagentTag}>{subagentLabel}</Tag> : null;
-  const asyncStatus = typeof payload.async_status === 'string' ? payload.async_status : '';
-  const asyncStatusTag = asyncStatus ? <Tag color={statusColor[asyncStatus] || (asyncStatus === 'running' ? 'processing' : 'default')}>{statusLabel[asyncStatus] || asyncStatus}</Tag> : null;
   const isAsyncSubagentSummary = payload.agent_role === 'async_subagent';
   const asyncTaskId = typeof payload.task_id === 'string' ? payload.task_id : '';
   const asyncChildSessionId = typeof payload.child_session_id === 'string' ? payload.child_session_id : undefined;
@@ -375,35 +368,21 @@ const AgentPartMessage = React.memo(({
     }
 
     return (
-      <Space direction="vertical" size={4} style={{ width: '100%' }} className={styles.naturalPart}>
-        {subagentBadge ? <div className={styles.subagentBadgeRow}>{subagentBadge}</div> : null}
+      <div className={styles.transcriptBlock}>
         <MarkdownBody>{displayText}</MarkdownBody>
         {isStreaming && <span className={styles.streamingCursor} />}
-        {isStreaming && streamingDiagnostics?.mode && (
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            {streamingDiagnostics.mode === 'chat_stream' ? '流式输出中' : '非流式输出'}
-          </Typography.Text>
-        )}
-      </Space>
+      </div>
     );
   }
 
   if (part.type === 'summary') {
     return (
-      <div className={`${styles.summaryPart} ${isAsyncSubagentSummary ? styles.asyncSummaryPart : ''}`}>
-        <Space className={styles.summaryHeader} wrap>
-          {icon}
-          {subagentBadge}
-          <Typography.Text strong>{payload.agent_role === 'async_subagent' ? '异步子任务' : '最终结果'}</Typography.Text>
-          {asyncNeedsAttention ? <Tag color="warning">等待确认</Tag> : asyncStatusTag || <Tag color="success">已完成</Tag>}
-          {streamingDiagnostics?.fallback_to_non_stream ? <Tag color="warning">流式回退</Tag> : null}
-          {streamingDiagnostics?.mode === 'chat_stream' && !streamingDiagnostics?.fallback_to_non_stream ? <Tag color="processing">流式</Tag> : null}
-        </Space>
-        {streamingDiagnostics?.fallback_to_non_stream && (
-          <Typography.Text type="secondary">
-            流式未生效，已回退非流式：{streamingDiagnostics.error || streamingDiagnostics.reason || 'provider 未返回流式增量'}
-          </Typography.Text>
-        )}
+      <div className={styles.transcriptBlock}>
+        {isAsyncSubagentSummary ? (
+          <TranscriptStatusLine icon={<CheckCircleOutlined />}>
+            已完成 {subagentLabel || '子任务'}
+          </TranscriptStatusLine>
+        ) : null}
         {isAsyncSubagentSummary && (
           <div className={styles.asyncTaskMetaRow}>
             {asyncTaskId ? <span>任务 {asyncTaskId}</span> : null}
@@ -424,8 +403,6 @@ const AgentPartMessage = React.memo(({
           </div>
         )}
         <MarkdownBody>{part.content || content}</MarkdownBody>
-        <ProcessStrip parts={sessionParts} currentPart={part} />
-        {diagnosticBlock}
         {onRefreshRun && (
           <Button size="small" type="text" icon={<ReloadOutlined />} onClick={() => onRefreshRun(metadata.agent_run_id)}>
             刷新状态
@@ -444,24 +421,19 @@ const AgentPartMessage = React.memo(({
       added: entries.filter((item) => /新增|add|create|new/i.test(item.status)).length,
       removed: entries.filter((item) => /删除|remove|delete/i.test(item.status)).length,
     };
-    return shell(
-      <Space direction="vertical" size={10} style={{ width: '100%' }}>
-        <Space wrap>
-          {icon}
-          {subagentBadge}
-          <Typography.Text strong>{partTitle(part, content)}</Typography.Text>
-          <Tag color={statusColor[status] || 'default'}>{statusLabel[status] || status}</Tag>
-          <Tag>历史记录/只读</Tag>
-          {payload.execution_mode === 'auto' || payload.policy_decision === 'auto' ? <Tag color="green">安全自动</Tag> : null}
-          {payload.risk_level ? <Tag>{payload.risk_level}</Tag> : null}
-        </Space>
+    const { fileLabel, additions, deletions } = fileEditLabel(part, payload);
+    return (
+      <div className={styles.transcriptEventBlock}>
+        <TranscriptStatusLine icon={<EditOutlined />}>
+          {status === 'running' ? '正在编辑' : '已编辑'}{' '}
+          <span className={styles.transcriptFileName}>{fileLabel}</span>
+          {additions > 0 ? <span className={styles.transcriptAdd}> +{additions}</span> : null}
+          {deletions > 0 ? <span className={styles.transcriptDel}> -{deletions}</span> : null}
+        </TranscriptStatusLine>
         {payload.policy_reason && <Typography.Text type="secondary">{payload.policy_reason}</Typography.Text>}
         {diagnosticBlock}
-        {repairAttempt(payload, metadata) ? (
-          <Tag color="orange">修复尝试 {repairAttempt(payload, metadata)}/{metadata.max_repair_attempts || payload.max_repair_attempts || 1}</Tag>
-        ) : null}
         {(stats.total > 0 || files.length > 0) && (
-          <div className={styles.diffOverview}>
+          <div className={styles.transcriptDiffDetails}>
             <div className={styles.diffOverviewHeader}>
               <Typography.Text strong>变更文件</Typography.Text>
               <Typography.Text type="secondary" className={styles.diffOverviewMeta}>
@@ -493,23 +465,17 @@ const AgentPartMessage = React.memo(({
             </div>
           </div>
         )}
-      </Space>,
+      </div>
     );
   }
 
   if (part.type === 'command') {
-    return shell(
-      <Space direction="vertical" size={8} style={{ width: '100%' }}>
-        <Space wrap>
-          {icon}
-          {subagentBadge}
-          <Typography.Text code>{commandText(payload) || part.title || '验证命令'}</Typography.Text>
-          <Tag color={statusColor[status] || 'default'}>{statusLabel[status] || status}</Tag>
-          <Tag>历史记录/只读</Tag>
-          {payload.execution_mode === 'auto' || payload.policy_decision === 'auto' ? <Tag color="green">安全自动</Tag> : null}
-          {payload.risk_level ? <Tag>{payload.risk_level}</Tag> : null}
-          {repairAttempt(payload, metadata) ? <Tag color="orange">修复尝试 {repairAttempt(payload, metadata)}</Tag> : null}
-        </Space>
+    return (
+      <div className={styles.transcriptEventBlock}>
+        <TranscriptStatusLine icon={<PlayCircleOutlined />}>
+          {status === 'running' ? '正在运行' : '已运行'} {commandStatusText(part, payload)}
+          {payload.duration_ms ? `，已持续 ${Math.round(Number(payload.duration_ms) / 1000)}s` : ''}
+        </TranscriptStatusLine>
         {payload.server_url && (
           <Space size={6}>
             <LinkOutlined />
@@ -550,7 +516,7 @@ const AgentPartMessage = React.memo(({
             ]}
           />
         )}
-      </Space>,
+      </div>
     );
   }
 
@@ -611,36 +577,18 @@ const AgentPartMessage = React.memo(({
   }
 
   if (part.type === 'tool_call' || part.type === 'tool_result') {
-    // 只读工具静默折叠
     const toolName = payload?.tool || '';
-    if (
-      SILENT_TOOLS.has(toolName) &&
-      !isProblem
-    ) {
-      const silentIcon = toolName.includes('search') || toolName === 'glob' || toolName === 'list_files'
-        ? '🔍'
-        : toolName.includes('read') || toolName === 'collect_context' || toolName === 'inspect_project'
-        ? '📄'
-        : toolName.includes('test') || toolName.includes('execution')
-        ? '🧪'
-        : '⚙️';
-      const silentLabel = part.type === 'tool_call' && status === 'running'
-        ? partTitle(part, content) + '...'
-        : partTitle(part, content);
+    if (SILENT_TOOLS.has(toolName) && !isProblem) {
       return (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '3px 0',
-          color: 'var(--text-secondary, rgba(255,255,255,0.45))',
-          fontSize: 12,
-        }}>
-          <span>{silentIcon}</span>
-          {subagentLabel ? <span className={styles.subagentPill}>{subagentLabel}</span> : null}
-          <span style={{ opacity: 0.7 }}>{silentLabel}</span>
+        <div className={styles.transcriptEventBlock}>
+          <TranscriptStatusLine icon={toolEventIcon(toolName)}>
+            {part.type === 'tool_call' && status === 'running' ? '正在' : '已'}
+            {toolName.includes('search') || toolName === 'glob' || toolName === 'list_files' ? '搜索网页' : '处理上下文'}
+            {subagentLabel ? <span className={styles.transcriptSubagent}> {subagentLabel}</span> : null}
+            {toolEventText(part, payload) ? `：${toolEventText(part, payload)}` : ''}
+          </TranscriptStatusLine>
           {status === 'running' && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            <span className={styles.transcriptTyping}>
               <span className="typing-dot" />
               <span className="typing-dot" style={{ animationDelay: '0.2s' }} />
               <span className="typing-dot" style={{ animationDelay: '0.4s' }} />
@@ -650,9 +598,12 @@ const AgentPartMessage = React.memo(({
       );
     }
 
-    return shell(
-      <Space direction="vertical" size={6} style={{ width: '100%' }}>
-        <ToolResultStrip part={part} payload={payload} />
+    return (
+      <div className={styles.transcriptEventBlock}>
+        <TranscriptStatusLine icon={toolEventIcon(toolName)}>
+          {part.type === 'tool_call' && status === 'running' ? '正在运行' : '已运行'} {toolEventText(part, payload)}
+          {subagentLabel ? <span className={styles.transcriptSubagent}> {subagentLabel}</span> : null}
+        </TranscriptStatusLine>
         {diagnosticBlock}
         {payload.failure_summary && <Typography.Text type="danger">{payload.failure_summary}</Typography.Text>}
         {payload.server_url && (
@@ -660,7 +611,7 @@ const AgentPartMessage = React.memo(({
             {payload.server_url}
           </Typography.Link>
         )}
-      </Space>,
+      </div>
     );
   }
 

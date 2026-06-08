@@ -84,7 +84,7 @@ describe('AgentPartMessage terminal rendering', () => {
       />,
     );
 
-    expect(screen.getByText('异步子任务')).toBeInTheDocument();
+    expect(screen.getByText('已完成 Explore')).toBeInTheDocument();
     expect(screen.getByText('任务 ast_123')).toBeInTheDocument();
     expect(screen.getByText('子会话 ags_child')).toBeInTheDocument();
 
@@ -118,7 +118,7 @@ describe('AgentPartMessage terminal rendering', () => {
 
     render(<AgentPartMessage content="" metadata={metadata(part)} onOpenAsyncTask={onOpenAsyncTask} />);
 
-    expect(screen.getByText('等待确认')).toBeInTheDocument();
+    expect(screen.getByText('已完成 Review')).toBeInTheDocument();
     fireEvent.click(screen.getByText('处理确认'));
 
     expect(onOpenAsyncTask).toHaveBeenCalledWith('ast_wait', 'ags_child_wait', { expandDetail: true });

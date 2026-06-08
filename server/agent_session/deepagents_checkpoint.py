@@ -37,6 +37,13 @@ async def get_checkpointer() -> AsyncSqliteSaver:
     if _cached_checkpointer is None:
         _cached_checkpointer_context = AsyncSqliteSaver.from_conn_string(get_checkpoint_db_path())
         _cached_checkpointer = await _cached_checkpointer_context.__aenter__()
+        conn = getattr(_cached_checkpointer, "conn", None) or getattr(_cached_checkpointer, "connection", None)
+        if conn is not None:
+            busy_timeout = int(os.environ.get("LANGGRAPH_SQLITE_BUSY_TIMEOUT", os.environ.get("SQLITE_BUSY_TIMEOUT", "30000")))
+            await conn.execute(f"PRAGMA busy_timeout = {busy_timeout}")
+            await conn.execute("PRAGMA journal_mode = WAL")
+            await conn.execute("PRAGMA synchronous = NORMAL")
+            await conn.commit()
     return _cached_checkpointer
 
 

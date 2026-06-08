@@ -346,10 +346,88 @@
   font-size: 13px;
 }
 
+.transcriptBlock {
+  width: 100%;
+  max-width: 1080px;
+  padding: 0;
+}
+
+.transcriptEventBlock {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  max-width: 1080px;
+  padding: 4px 0 12px;
+  color: var(--text-secondary);
+}
+
+.transcriptStatusLine {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 26px;
+  color: color-mix(in srgb, var(--text-secondary) 80%, transparent);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.transcriptStatusIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  color: color-mix(in srgb, var(--text-secondary) 74%, transparent);
+}
+
+.transcriptStatusText {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.transcriptFileName {
+  color: color-mix(in srgb, var(--accent-primary) 84%, var(--text-primary));
+  font-weight: 500;
+}
+
+.transcriptAdd {
+  color: #16a34a;
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+.transcriptDel {
+  color: #dc2626;
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+.transcriptSubagent {
+  color: var(--text-tertiary);
+  font-size: 0.92em;
+}
+
+.transcriptTyping {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding-left: 27px;
+  color: var(--text-tertiary);
+}
+
+.transcriptDiffDetails {
+  display: grid;
+  gap: 10px;
+  margin-left: 27px;
+  padding: 10px 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 58%, transparent);
+}
+
 .readableMarkdown {
   color: var(--text-primary);
-  font-size: 16px;
-  line-height: 1.82;
+  font-size: 18px;
+  line-height: 1.78;
   letter-spacing: 0;
 }
 
@@ -365,7 +443,7 @@
 }
 
 .paragraph {
-  margin: 0 0 14px;
+  margin: 0 0 28px;
 }
 
 .list {
@@ -389,12 +467,12 @@
 
 .inlineCode {
   display: inline-block;
-  padding: 1px 7px;
+  padding: 1px 8px;
   border-radius: 7px;
-  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-primary);
   font-family: var(--font-mono);
-  font-size: 0.9em;
+  font-size: 0.86em;
   line-height: 1.55;
   vertical-align: baseline;
 }
@@ -445,8 +523,16 @@
 
 @media (max-width: 640px) {
   .readableMarkdown {
-    font-size: 15px;
+    font-size: 16px;
     line-height: 1.76;
+  }
+
+  .transcriptStatusLine {
+    font-size: 13px;
+  }
+
+  .transcriptDiffDetails {
+    margin-left: 0;
   }
 
   .list {

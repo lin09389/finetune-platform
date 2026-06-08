@@ -169,7 +169,18 @@ class SessionStore:
         return session
 
     def get_session(self, session_id: str, include_messages: bool = True) -> ChatSession | None:
-        return self._sessions.get(session_id)
+        session = self._sessions.get(session_id)
+        if session is None or include_messages:
+            return session
+        return ChatSession(
+            id=session.id,
+            metadata=session.metadata,
+            messages=[],
+            created_at=session.created_at,
+            updated_at=session.updated_at,
+            message_count=session.message_count,
+            total_tokens=session.total_tokens,
+        )
 
     def update_session(self, session_id: str, **updates) -> bool:
         session = self._sessions.get(session_id)

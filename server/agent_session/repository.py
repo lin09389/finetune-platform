@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+import logging
+import sqlite3
+import time
 import uuid
 from datetime import datetime
 from typing import Any
 
 from core.db_manager import get_db_pool, validate_column_names, dynamic_update
 from core.storage import APP_DB_PATH
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -208,6 +213,33 @@ class AgentSessionRepository:
             row = conn.execute("SELECT * FROM agent_sessions WHERE id = ?", (session_id,)).fetchone()
         return _row(row)
 
+    def run_write_with_retry(self, operation, *, attempts: int = 5, base_delay: float = 0.05) -> Any:
+        last_exc: Exception | None = None
+        for attempt in range(max(1, attempts)):
+            try:
+                return operation()
+            except sqlite3.OperationalError as exc:
+                last_exc = exc
+                if "locked" not in str(exc).lower() or attempt >= attempts - 1:
+                    raise
+                delay = base_delay * (2 ** attempt)
+                logger.warning("SQLite write locked; retrying AgentSessionRepository write in %.2fs", delay)
+                time.sleep(delay)
+        if last_exc:
+            raise last_exc
+        return operation()
+
+    def list_sessions_by_status(self, statuses: set[str]) -> list[dict[str, Any]]:
+        if not statuses:
+            return []
+        placeholders = ", ".join("?" for _ in statuses)
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM agent_sessions WHERE status IN ({placeholders}) ORDER BY updated_at ASC",
+                tuple(sorted(statuses)),
+            ).fetchall()
+        return [_row(row) or {} for row in rows]
+
     _SESSION_UPDATABLE = {"status", "title", "project_path", "provider", "model", "metadata", "updated_at"}
 
     def update_session(self, session_id: str, **updates: Any) -> dict[str, Any]:
@@ -249,6 +281,20 @@ class AgentSessionRepository:
         with get_db_pool(self.db_path).get_connection() as conn:
             dynamic_update(conn, "agent_parts", "id", part_id, updates, self._PART_UPDATABLE)
         return self.get_part(part_id) or {}
+
+    def update_part_if_status(self, part_id: str, expected_status: str, **updates: Any) -> dict[str, Any] | None:
+        if "payload" in updates:
+            updates["payload"] = _json(updates["payload"])
+        updates["updated_at"] = _now()
+        validate_column_names(updates.keys(), self._PART_UPDATABLE)
+        assignments = ", ".join(f"{key} = ?" for key in updates)
+        values = list(updates.values()) + [part_id, expected_status]
+        with get_db_pool(self.db_path).get_connection() as conn:
+            changed = conn.execute(
+                f"UPDATE agent_parts SET {assignments} WHERE id = ? AND status = ?",
+                values,
+            ).rowcount
+        return self.get_part(part_id) if changed else None
 
     def get_part(self, part_id: str) -> dict[str, Any] | None:
         with get_db_pool(self.db_path).get_readonly_connection() as conn:
@@ -429,16 +475,30 @@ class AgentSessionRepository:
         return [_subtask_event_row(row) or {} for row in rows]
 
     def summarize_subtask_metrics(self, parent_session_id: str) -> dict[str, Any]:
-        tasks = self.list_subtasks(parent_session_id)
-        events = self.list_parent_subtask_events(parent_session_id)
-        by_status: dict[str, int] = {}
-        for task in tasks:
-            status = str(task.get("status") or "unknown")
-            by_status[status] = by_status.get(status, 0) + 1
-        attention = sum(1 for task in tasks if str(task.get("status") or "") in {"failed"})
-        recovery_count = sum(1 for event in events if str(event.get("event_type") or "") == "recovered")
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
+            status_rows = conn.execute(
+                "SELECT status, COUNT(*) AS count FROM agent_subtasks WHERE parent_session_id = ? GROUP BY status",
+                (parent_session_id,),
+            ).fetchall()
+            event_row = conn.execute(
+                "SELECT COUNT(*) AS count FROM agent_subtask_events WHERE parent_session_id = ?",
+                (parent_session_id,),
+            ).fetchone()
+            recovery_row = conn.execute(
+                "SELECT COUNT(*) AS count FROM agent_subtask_events WHERE parent_session_id = ? AND event_type = 'recovered'",
+                (parent_session_id,),
+            ).fetchone()
+            last_event_row = conn.execute(
+                "SELECT * FROM agent_subtask_events WHERE parent_session_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                (parent_session_id,),
+            ).fetchone()
+        by_status = {str(row["status"] or "unknown"): int(row["count"] or 0) for row in status_rows}
+        total = sum(by_status.values())
+        attention = by_status.get("failed", 0)
+        event_count = int(event_row["count"] if event_row else 0)
+        recovery_count = int(recovery_row["count"] if recovery_row else 0)
         return {
-            "total": len(tasks),
+            "total": total,
             "by_status": by_status,
             "running": by_status.get("running", 0),
             "failed": by_status.get("failed", 0),
@@ -446,6 +506,6 @@ class AgentSessionRepository:
             "completed": by_status.get("completed", 0),
             "attention": attention,
             "recovery_count": recovery_count,
-            "event_count": len(events),
-            "last_event": events[-1] if events else None,
+            "event_count": event_count,
+            "last_event": _subtask_event_row(last_event_row),
         }

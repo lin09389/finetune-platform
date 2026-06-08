@@ -323,6 +323,7 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
           agentFlowPosition === 'middle' ? styles.agentFlowMiddle
             : agentFlowPosition === 'last' ? styles.agentFlowLast
             : agentFlowPosition === 'first' ? styles.agentFlowFirst
+            : agentFlowPosition === 'only' ? styles.agentFlowOnly
             : ''
         }`}
         role="article"
@@ -368,9 +369,8 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
           ) : (
             <motion.div
               className={styles.markdownContent}
-              initial={isAssistant && isStreaming ? { opacity: 0, y: 4 } : false}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+              initial={false}
+              animate={false}
             >
               {isUser ? (
                 isEditing ? (

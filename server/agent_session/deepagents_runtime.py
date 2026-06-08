@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import uuid
 from pathlib import Path
 from typing import Any, Sequence
@@ -106,6 +107,10 @@ class CallableToolCallingChatModel:
                         role = "tool"
                     content = message.content if isinstance(message.content, str) else json.dumps(message.content, ensure_ascii=False)
                     converted.append({"role": role, "content": content})
+
+                if converted and converted[-1]["role"] == "assistant" and not converted[-1]["content"].strip():
+                    converted.pop()
+
                 raw = await self.model_call(converted)
                 return ChatResult(generations=[ChatGeneration(message=self._to_ai_message(str(raw)))])
 
@@ -179,56 +184,70 @@ class DeepAgentsSessionRunner:
         self._checkpointer_loop = None
 
     async def run_prompt(self, session_id: str, prompt: str, *, context_files: dict[str, str] | None = None) -> dict[str, Any]:
-        session = self.repository.get_session(session_id)
-        if not session:
-            raise ValueError("Agent session not found")
-        graph = await self._build_graph(session, prompt)
-        config = {"configurable": {"thread_id": deepagents_thread_id(session_id)}}
-        mapper = DeepAgentsEventMapper(self.repository, self.notify_event, session_id)
-        mapper.session_started()
-        last_summary = ""
+        try:
+            session = self.repository.get_session(session_id)
+            if not session:
+                raise ValueError("Agent session not found")
+            graph = await self._build_graph(session, prompt)
+            config = {"configurable": {"thread_id": deepagents_thread_id(session_id)}}
+            mapper = DeepAgentsEventMapper(self.repository, self.notify_event, session_id)
+            mapper.session_started()
+            last_summary = ""
 
-        payload: dict[str, Any] = {"messages": prompt}
-        if context_files:
-            payload["files"] = context_files
-        async for event in graph.astream_events(payload, config=config, version="v2"):
-            mapper.handle(event)
-            summary = self._extract_summary(event)
-            if summary:
-                last_summary = summary
+            payload: dict[str, Any] = {"messages": prompt}
+            if context_files:
+                payload["files"] = context_files
+            async for event in graph.astream_events(payload, config=config, version="v2"):
+                mapper.handle(event)
+                summary = self._extract_summary(event)
+                if summary:
+                    last_summary = summary
+                if self._is_interrupted(session_id):
+                    return self._with_parts(session_id)
 
-        session = self.repository.get_session(session_id) or session
-        if self._has_pending_permission(session_id):
+            session = self.repository.get_session(session_id) or session
+            if self._is_interrupted(session_id):
+                return self._with_parts(session_id)
+            if self._has_pending_permission(session_id):
+                return self._with_parts(session_id)
+            metadata = ensure_session_state(dict(session.get("metadata") or {}))
+            metadata = set_phase(metadata, "completed")
+            summary = last_summary or "DeepAgents 执行完成。"
+            mapper.complete_summary(summary)
+            self.repository.update_session(session_id, status="completed", metadata=metadata)
             return self._with_parts(session_id)
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        metadata = set_phase(metadata, "completed")
-        summary = last_summary or "DeepAgents 执行完成。"
-        mapper.complete_summary(summary)
-        self.repository.update_session(session_id, status="completed", metadata=metadata)
-        return self._with_parts(session_id)
+        finally:
+            await self._close_checkpointer()
 
     async def resume(self, session_id: str, decision: dict[str, Any]) -> dict[str, Any]:
-        session = self.repository.get_session(session_id)
-        if not session:
-            raise ValueError("Agent session not found")
-        prompt = str((session.get("metadata") or {}).get("current_goal") or "继续执行。")
-        graph = await self._build_graph(session, prompt)
-        mapper = DeepAgentsEventMapper(self.repository, self.notify_event, session_id)
-        config = {"configurable": {"thread_id": deepagents_thread_id(session_id)}}
-        last_summary = ""
-        async for event in graph.astream_events(Command(resume=self._resume_payload(decision)), config=config, version="v2"):
-            mapper.handle(event)
-            summary = self._extract_summary(event)
-            if summary:
-                last_summary = summary
-        session = self.repository.get_session(session_id) or session
-        if self._has_pending_permission(session_id):
+        try:
+            session = self.repository.get_session(session_id)
+            if not session:
+                raise ValueError("Agent session not found")
+            prompt = str((session.get("metadata") or {}).get("current_goal") or "继续执行。")
+            graph = await self._build_graph(session, prompt)
+            mapper = DeepAgentsEventMapper(self.repository, self.notify_event, session_id)
+            config = {"configurable": {"thread_id": deepagents_thread_id(session_id)}}
+            last_summary = ""
+            async for event in graph.astream_events(Command(resume=self._resume_payload(decision)), config=config, version="v2"):
+                mapper.handle(event)
+                summary = self._extract_summary(event)
+                if summary:
+                    last_summary = summary
+                if self._is_interrupted(session_id):
+                    return self._with_parts(session_id)
+            session = self.repository.get_session(session_id) or session
+            if self._is_interrupted(session_id):
+                return self._with_parts(session_id)
+            if self._has_pending_permission(session_id):
+                return self._with_parts(session_id)
+            metadata = ensure_session_state(dict(session.get("metadata") or {}))
+            metadata = set_phase(metadata, "completed")
+            mapper.complete_summary(last_summary or "DeepAgents 已继续执行并完成。")
+            self.repository.update_session(session_id, status="completed", metadata=metadata)
             return self._with_parts(session_id)
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        metadata = set_phase(metadata, "completed")
-        mapper.complete_summary(last_summary or "DeepAgents 已继续执行并完成。")
-        self.repository.update_session(session_id, status="completed", metadata=metadata)
-        return self._with_parts(session_id)
+        finally:
+            await self._close_checkpointer()
 
     async def _build_graph(self, session: dict[str, Any], prompt: str) -> Any:
         _load_create_deep_agent()
@@ -430,10 +449,35 @@ class DeepAgentsSessionRunner:
 
             self._checkpointer_context = AsyncSqliteSaver.from_conn_string(get_checkpoint_db_path())
             self._checkpointer = await self._checkpointer_context.__aenter__()
+            await self._configure_checkpointer_sqlite(self._checkpointer)
             self._checkpointer_loop = loop
             if hasattr(self._checkpointer, "setup"):
                 await self._checkpointer.setup()
         return self._checkpointer
+
+    async def _configure_checkpointer_sqlite(self, checkpointer: Any) -> None:
+        conn = getattr(checkpointer, "conn", None)
+        if conn is None:
+            conn = getattr(checkpointer, "connection", None)
+        if conn is None:
+            return
+        busy_timeout = int(os.environ.get("LANGGRAPH_SQLITE_BUSY_TIMEOUT", os.environ.get("SQLITE_BUSY_TIMEOUT", "30000")))
+        try:
+            await conn.execute(f"PRAGMA busy_timeout = {busy_timeout}")
+            await conn.execute("PRAGMA journal_mode = WAL")
+            await conn.execute("PRAGMA synchronous = NORMAL")
+            await conn.commit()
+        except Exception:
+            logger.warning("Failed to configure DeepAgents checkpoint SQLite pragmas", exc_info=True)
+
+    async def _close_checkpointer(self) -> None:
+        if self._checkpointer_context is not None:
+            try:
+                await self._checkpointer_context.__aexit__(None, None, None)
+            except Exception:
+                logger.debug("Failed to close DeepAgents checkpointer", exc_info=True)
+            self._checkpointer_context = None
+            self._checkpointer = None
 
     def _with_parts(self, session_id: str) -> dict[str, Any]:
         session = self.repository.get_session(session_id) or {}
@@ -445,6 +489,11 @@ class DeepAgentsSessionRunner:
             part.get("type") == "permission" and part.get("status") == "pending"
             for part in self.repository.list_parts(session_id)
         )
+
+    def _is_interrupted(self, session_id: str) -> bool:
+        session = self.repository.get_session(session_id) or {}
+        metadata = dict(session.get("metadata") or {})
+        return str(session.get("status") or "") == "interrupted" or bool(metadata.get("interrupt_requested"))
 
     def _extract_summary(self, event: dict[str, Any]) -> str:
         if str(event.get("event") or "") not in {"on_chain_end", "on_chat_model_end"}:

@@ -178,11 +178,15 @@ async def lifespan(app: FastAPI):
     try:
         from api.agent_sessions import get_agent_session_service
 
-        recovered = await get_agent_session_service().recover_async_subtasks()
+        agent_session_service = get_agent_session_service()
+        recovered_sessions = agent_session_service.recover_active_sessions_after_restart()
+        if recovered_sessions.get("recovered") or recovered_sessions.get("failed"):
+            logger.info("Agent session restart recovery complete: %s", recovered_sessions)
+        recovered = await agent_session_service.recover_async_subtasks()
         if recovered.get("scheduled") or recovered.get("synchronized"):
             logger.info("Async subagent recovery complete: %s", recovered)
     except Exception as e:
-        logger.warning(f"Async subagent recovery failed: {e}")
+        logger.warning(f"Agent session recovery failed: {e}")
 
     from core.training_context import init_training_context
     init_training_context(

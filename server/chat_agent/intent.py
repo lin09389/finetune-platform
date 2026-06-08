@@ -74,10 +74,12 @@ class ChatAgentIntentClassifier:
             return True, "manual_agent"
         if not text:
             return False, "empty"
-        if any(keyword in text for keyword in self.discussion_only_keywords):
+        if any(kw in text for kw in ("不要执行", "不要修改", "只讨论", "只分析")):
             return False, "chat"
         if any(keyword in text for keyword in self.agent_keywords):
             return True, "agent_work"
+        if any(keyword in text for keyword in self.discussion_only_keywords):
+            return False, "chat"
         return False, "chat"
 
     async def route(
@@ -125,10 +127,12 @@ class ChatAgentIntentClassifier:
         text = content.strip().lower()
         if not text:
             return self._decision("chat", 1.0, "空输入按普通对话处理。", "local_rule", None)
-        if any(keyword in text for keyword in self.discussion_only_keywords):
-            return self._decision("chat", 0.92, "本地规则识别为解释或讨论类问题。", "local_rule", None)
+        if any(kw in text for kw in ("不要执行", "不要修改", "只讨论", "只分析")):
+            return self._decision("chat", 0.95, "本地规则识别为明确拒绝执行。", "local_rule", None)
         if any(keyword in text for keyword in self.agent_keywords):
             return self._decision("agent", 0.9, "本地规则识别为开发、修改、测试或执行类目标。", "local_rule", agent_id)
+        if any(keyword in text for keyword in self.discussion_only_keywords):
+            return self._decision("chat", 0.92, "本地规则识别为解释或讨论类问题。", "local_rule", None)
         return None
 
     async def _cloud_route(

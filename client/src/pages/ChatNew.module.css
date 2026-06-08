@@ -3,9 +3,274 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: transparent;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 94%, #0b0f16), color-mix(in srgb, var(--bg-secondary) 96%, #0b0f16));
   border-radius: 0;
   overflow: hidden;
+}
+
+.agentTopChrome {
+  flex: 0 0 auto;
+  min-height: 58px;
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(210px, 0.8fr) minmax(300px, 1fr) minmax(420px, 1.1fr);
+  align-items: center;
+  gap: 14px;
+  padding: 8px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-color) 76%, transparent);
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.agentBrandBlock {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.agentMark {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 34%, var(--border-color));
+  border-radius: 8px;
+  color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
+}
+
+.agentBrandText {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.agentBrandText strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agentBrandEyebrow,
+.agentRunLabel {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.agentRunStrip {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(110px, 0.8fr) auto minmax(140px, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-elevated) 72%, transparent);
+}
+
+.agentRunIdentity {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.agentRunIdentity strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agentRunTag,
+.agentModeTag,
+.agentModelTag {
+  margin-inline-end: 0;
+  border-radius: 8px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agentRunProgress {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.agentRunProgress span {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.agentTopActions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.agentTopActions :global(.ant-btn) {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-elevated) 76%, transparent);
+}
+
+
+.toolDockPanel {
+  position: fixed;
+  top: 78px;
+  right: 48px;
+  z-index: 120;
+  width: 300px;
+  min-height: 272px;
+  display: grid;
+  gap: 4px;
+  padding: 11px 10px 10px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg-elevated) 96%, white 2%);
+  color: var(--text-primary);
+  box-shadow: 0 18px 44px color-mix(in srgb, black 10%, transparent);
+}
+
+.toolDockPanelHeader,
+.toolDockFooter,
+.toolDockPrimaryRow,
+.toolDockGridRows button,
+.toolDockActionRow {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.toolDockPanelHeader {
+  justify-content: space-between;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.toolDockPanelHeader button {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.toolDockPanelHeader button:hover {
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  color: var(--text-primary);
+}
+
+.toolDockPrimaryRow,
+.toolDockGridRows button,
+.toolDockActionRow {
+  width: 100%;
+  border: 0;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.toolDockPrimaryRow {
+  justify-content: space-between;
+  padding: 2px 0;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.toolDockPrimaryRow span,
+.toolDockGridRows button span,
+.toolDockActionRow span {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.toolDockPrimaryRow strong {
+  color: var(--accent-primary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.toolDockGridRows {
+  display: grid;
+  gap: 2px;
+}
+
+.toolDockGridRows button {
+  justify-content: space-between;
+  min-height: 27px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 13px;
+}
+
+.toolDockGridRows button:hover,
+.toolDockRowActive {
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+}
+
+.toolDockGridRows button em {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.toolDockActionRow {
+  justify-content: flex-start;
+  gap: 7px;
+  min-height: 30px;
+  padding: 6px 8px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.toolDockActionRow:hover {
+  background: color-mix(in srgb, var(--accent-primary) 11%, var(--text-primary) 6%);
+}
+
+.toolDockFooter {
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 1px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+  color: var(--text-tertiary);
+  font-size: 11px;
 }
 
 .chatWorkspace {
@@ -13,6 +278,67 @@
   flex: 1;
   display: flex;
   overflow: hidden;
+  border-top: 1px solid color-mix(in srgb, white 3%, transparent);
+}
+
+.activityRail {
+  flex: 0 0 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 7px;
+  border-right: 1px solid color-mix(in srgb, var(--border-color) 76%, transparent);
+  background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
+}
+
+.activityRailTop,
+.activityRailBottom {
+  display: grid;
+  gap: 8px;
+}
+
+.activityButton {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+.activityButton:hover,
+.activityButtonActive {
+  border-color: color-mix(in srgb, var(--accent-primary) 26%, var(--border-color));
+  background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
+  color: var(--text-primary);
+}
+
+.activityButton:hover {
+  transform: translateY(-1px);
+}
+
+.activityBadge {
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent-primary);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 16px;
+  box-shadow: 0 0 0 2px var(--bg-secondary);
 }
 
 .mainChatPane {
@@ -22,6 +348,7 @@
   display: flex;
   flex-direction: column;
   background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
   transition: flex-basis 0.2s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.18s ease;
 }
 
@@ -214,22 +541,23 @@
 .sidePanels {
   display: flex;
   flex-direction: column;
-  min-width: 280px;
+  min-width: 300px;
   min-height: 0;
   height: 100%;
   overflow: hidden;
+  background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
   transition: flex-basis 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .agentIdeWorkspace {
   flex: 1 1 0;
-  min-width: 360px;
+  min-width: 520px;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   border-left: 1px solid color-mix(in srgb, var(--border-color) 76%, transparent);
   border-right: 1px solid color-mix(in srgb, var(--border-color) 76%, transparent);
-  background: radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--accent-primary) 10%, transparent), transparent 32%), color-mix(in srgb, var(--bg-base) 92%, transparent);
+  background: color-mix(in srgb, var(--bg-primary) 92%, #0b0f16);
 }
 
 .agentIdeHeader {
@@ -237,10 +565,15 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 12px;
+  min-height: 52px;
+  padding: 8px 12px;
   border-bottom: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
-  background: color-mix(in srgb, var(--bg-elevated) 82%, transparent);
+  background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
   flex: 0 0 auto;
+}
+
+.agentIdeHeader > div:first-child {
+  min-width: 0;
 }
 
 .agentIdeKicker {
@@ -253,7 +586,7 @@
 
 .agentIdeTitle {
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -323,14 +656,14 @@
   min-height: 0;
   overflow: hidden;
   border-right: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
-  background: color-mix(in srgb, var(--bg-secondary) 76%, transparent);
+  background: color-mix(in srgb, var(--bg-secondary) 92%, transparent);
 }
 
 .agentIdeEditorPane {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: #1e1e1e;
+  background: #111318;
 }
 
 .splitter {
@@ -451,11 +784,11 @@
   display: grid;
   gap: 10px;
   width: 100%;
-  padding: 14px;
-  border-radius: 18px;
-  border: 1px solid color-mix(in srgb, var(--accent-primary) 12%, var(--border-color));
-  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-elevated) 96%, transparent), color-mix(in srgb, var(--bg-secondary) 92%, transparent));
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.04);
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 74%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated) 72%, transparent);
+  box-shadow: none;
 }
 
 .projectSideHeader {
@@ -511,6 +844,145 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.workflowOutputPanel {
+  display: grid;
+  gap: 12px;
+}
+
+.workflowOutputHero,
+.workflowOutputSection,
+.workflowOutputItem,
+.workflowOutputFile {
+  border: 1px solid color-mix(in srgb, var(--border-color) 74%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-elevated) 72%, transparent);
+}
+
+.workflowOutputHero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+}
+
+.workflowOutputKicker {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.workflowOutputTitle {
+  margin-top: 2px;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.workflowOutputSection {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.workflowOutputSectionTitle {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.workflowOutputList {
+  display: grid;
+  gap: 8px;
+}
+
+.workflowOutputItem {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+}
+
+.workflowOutputItemHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workflowOutputItemHead strong {
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.workflowOutputText {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.68;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.workflowOutputCode,
+.workflowOutputPre {
+  display: block;
+  margin: 0;
+  overflow: auto;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.workflowOutputCode {
+  padding: 6px 8px;
+  white-space: nowrap;
+}
+
+.workflowOutputPre {
+  max-height: 220px;
+  padding: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.workflowOutputFile {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 8px;
+  padding: 10px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workflowOutputFile:hover {
+  border-color: color-mix(in srgb, var(--accent-primary) 40%, var(--border-color));
+  background: color-mix(in srgb, var(--accent-primary) 7%, var(--bg-elevated));
+}
+
+.workflowOutputFile span {
+  min-width: 0;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.workflowOutputFile em {
+  grid-column: 1 / -1;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.55;
 }
 
 .projectSideTag {
@@ -843,17 +1315,20 @@
 .chatMessagesArea {
   flex: 1;
   overflow-y: auto;
-  padding: 24px 28px 0;
+  padding: 28px 36px 0;
   display: flex;
   flex-direction: column;
+  background: var(--bg-primary);
+  overflow-anchor: none;
 }
 
 .messagesInner {
-  max-width: 940px;
+  max-width: 1080px;
   width: 100%;
   margin: 0 auto;
   flex: 1;
   padding-bottom: 200px; /* Increased padding for the floating input area */
+  overflow-anchor: none;
 }
 
 .emptyState {
@@ -861,74 +1336,91 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   color: var(--text-tertiary);
-  padding: 60px 20px;
-  transform: translateY(-5vh);
+  padding: min(13vh, 118px) 20px 24px;
 }
 
 .emptyKicker {
-  margin-bottom: 20px;
-  padding: 6px 14px;
+  margin-bottom: 18px;
+  padding: 5px 12px;
   border-radius: 999px;
-  color: var(--accent-primary);
+  color: var(--text-secondary);
   font-size: 13px;
-  font-weight: 600;
-  background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent-primary) 20%, transparent);
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
+  font-weight: 650;
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color) 86%, transparent);
+  letter-spacing: 0;
 }
 
 .emptyTitle {
-  margin: 0 0 16px;
+  margin: 0 0 12px;
   color: var(--text-primary);
-  font-size: 32px;
+  font-size: 34px;
   font-weight: 800;
-  letter-spacing: -0.5px;
+  letter-spacing: 0;
   text-align: center;
+  max-width: 520px;
+  line-height: 1.12;
 }
 
 .emptyDesc {
   color: var(--text-secondary);
   text-align: center;
-  max-width: 600px;
-  margin-bottom: 48px;
-  font-size: 16px;
-  line-height: 1.7;
-  opacity: 0.85;
+  max-width: 440px;
+  margin-bottom: 32px;
+  font-size: 15px;
+  line-height: 1.65;
+  opacity: 0.78;
 }
 
 .starterSuggestions {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
+  grid-template-columns: 1fr;
+  gap: 8px;
   width: 100%;
-  max-width: 640px;
+  max-width: 460px;
 }
 
 .starterBtn {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-color);
-  border-radius: 16px;
-  padding: 20px;
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color) 74%, transparent);
+  border-radius: 8px;
+  padding: 12px 14px;
   font-size: 15px;
   color: var(--text-primary);
   text-align: left;
   cursor: pointer;
   transition: all 0.24s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  box-shadow: none;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 12px;
+  row-gap: 2px;
   will-change: transform;
 }
 
+.starterBtnIcon {
+  grid-row: 1 / span 2;
+  align-self: center;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--bg-primary) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+  font-size: 17px;
+  line-height: 1;
+}
+
 .starterBtn:hover {
-  background: var(--bg-secondary);
-  border-color: var(--accent-primary);
-  transform: translateY(-3px);
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
+  background: color-mix(in srgb, var(--accent-primary) 5%, var(--bg-primary));
+  border-color: color-mix(in srgb, var(--accent-primary) 32%, var(--border-color));
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.06);
 }
 
 .starterBtnTitle {
@@ -940,7 +1432,7 @@
 .starterBtnDesc {
   font-size: 13px;
   color: var(--text-tertiary);
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 @media (max-width: 640px) {
@@ -966,7 +1458,48 @@
   background: var(--text-tertiary);
 }
 
+@media (max-width: 1280px) {
+  .agentTopChrome {
+    grid-template-columns: minmax(190px, 0.7fr) minmax(240px, 1fr) minmax(340px, 1fr);
+  }
+
+  .toolDockPanel {
+    right: 32px;
+    width: 286px;
+    min-height: 260px;
+  }
+}
+
+@media (max-width: 1500px) {
+  .agentIdeWorkspace {
+    min-width: 420px;
+  }
+}
+
 @media (max-width: 992px) {
+  .agentTopChrome {
+    grid-template-columns: minmax(0, 1fr) auto;
+    min-height: 54px;
+    padding: 8px 10px;
+  }
+
+  .agentRunStrip {
+    display: none;
+  }
+
+  .agentTopActions {
+    gap: 4px;
+  }
+
+  .toolDockPanel {
+    display: none;
+  }
+
+  .agentModeTag,
+  .agentModelTag {
+    display: none;
+  }
+
   .chatContainer {
     border-radius: var(--radius-lg);
   }
@@ -1016,7 +1549,7 @@
   }
 
   .chatMessagesArea {
-    padding: 16px 16px 0;
+    padding: 18px 18px 0;
   }
 
   .messagesInner {

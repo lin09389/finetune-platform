@@ -27,7 +27,7 @@ COMMAND_ALLOWLIST = (
     ("python", "-m", "py_compile"),
 )
 
-FORBIDDEN_TOKENS = {"|", "&&", "||", ";", ">", ">>", "<", "`", "$", "(", ")", "{", "}", "\n", "\r"}
+FORBIDDEN_TOKENS = {"|", "&", ";", ">", "<", "`", "$", "(", ")", "{", "}", "\n", "\r"}
 DESTRUCTIVE = {"rm", "del", "erase", "rmdir", "move", "mv", "git", "curl", "wget", "bash", "sh", "powershell", "cmd", "python3", "python2"}
 MAX_ARG_LENGTH = 256
 MAX_ARGS_COUNT = 20
@@ -56,7 +56,7 @@ def normalize_command(command: Any) -> list[str]:
         raise HTTPException(status_code=400, detail=f"Command has too many arguments (max {MAX_ARGS_COUNT})")
     if normalize_executable(args[0]) in DESTRUCTIVE:
         raise HTTPException(status_code=400, detail="Destructive commands are not allowed")
-    if any(str(item) in FORBIDDEN_TOKENS for item in args):
+    if any(any(token in str(item) for token in FORBIDDEN_TOKENS) for item in args):
         raise HTTPException(status_code=400, detail="Shell operators are not allowed in commands")
     for arg in args:
         if len(arg) > MAX_ARG_LENGTH:

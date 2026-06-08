@@ -504,6 +504,10 @@ class ConversationManager:
         Returns:
             目标分支的消息列表
         """
+        from_branch = self._branches.get(from_branch_id)
+        if not from_branch or from_branch.session_id != session_id:
+            raise ValueError(f"当前分支不存在或不属于该会话: {from_branch_id}")
+
         to_branch = self._branches.get(to_branch_id)
         if not to_branch or to_branch.session_id != session_id:
             raise ValueError(f"目标分支不存在或不属于该会话: {to_branch_id}")

@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import shutil
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -82,8 +83,10 @@ class ProactiveTask:
 
 
 class TaskExecutor:
-    def __init__(self, workspace_path: Path | None = None):
+    def __init__(self, workspace_path: Path | None = None, max_results: int = 1000, result_retention_days: int = 7):
         self._workspace_path = workspace_path
+        self._max_results = max_results
+        self._result_retention_days = result_retention_days
         self._tasks: dict[str, ProactiveTask] = {}
         self._results: dict[str, TaskResult] = {}
         self._handlers: dict[TaskType, Callable] = {}
@@ -131,13 +134,22 @@ class TaskExecutor:
             "failed_tasks": failed,
         }
 
-    def clear_old_results(self, days: int = 7) -> int:
+    def clear_old_results(self, days: int = 7, max_results: int | None = None) -> int:
         cutoff = datetime.now() - timedelta(days=days)
         removable = [
             task_id
             for task_id, result in self._results.items()
             if (result.completed_at or result.started_at) < cutoff
         ]
+        if max_results is not None and len(self._results) - len(removable) > max_results:
+            remaining = [
+                (task_id, result)
+                for task_id, result in self._results.items()
+                if task_id not in removable
+            ]
+            remaining.sort(key=lambda item: item[1].completed_at or item[1].started_at)
+            overflow = len(remaining) - max_results
+            removable.extend(task_id for task_id, _ in remaining[:overflow])
         for task_id in removable:
             self._results.pop(task_id, None)
         return len(removable)
@@ -145,13 +157,18 @@ class TaskExecutor:
     async def execute(self, task_type: TaskType, params: dict[str, Any] | None = None) -> TaskResult:
         params = params or {}
         task = ProactiveTask(
-            id=f"task_{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
+            id=f"task_{uuid.uuid4().hex}",
             name=task_type.value,
             task_type=task_type,
             config=params,
+            metadata={"transient": True},
         )
         self.add_task(task)
-        return await self.execute_task(task.id)
+        try:
+            return await self.execute_task(task.id)
+        finally:
+            self.remove_task(task.id)
+            self.clear_old_results(days=self._result_retention_days, max_results=self._max_results)
 
     async def execute_task(self, task_id: str) -> TaskResult:
         task = self._tasks.get(task_id)

@@ -36,10 +36,10 @@ import ChatMessage from '../components/ChatMessage';
 import MemoryManager from '../components/MemoryManager';
 import APIKeyManager from '../pages/APIKeyManager';
 import { getAgentSessionUiState } from '../hooks/chat/useAgentSessionViewModel';
+import { buildAgentSessionStreamUrl, getAgentStreamRetryDelay } from '../utils/agentSessionStream';
 
 import { useRuntimeContext } from '../runtime/RuntimeContext';
 import {
-  API_BASE_URL,
   classifyChatAgentIntent,
   createAgentSession,
   decideAgentPermission,
@@ -85,6 +85,12 @@ const AGENT_MODEL_PROVIDER_ALIASES: Record<string, string> = {
   ollama: 'ollama',
   openai: 'openai',
   openrouter: 'openrouter',
+};
+
+type AgentStreamRetryState = {
+  attempt: number;
+  timer: ReturnType<typeof setTimeout> | null;
+  lastEventId: string;
 };
 
 function resolveAgentModelConfig(params: {
@@ -331,9 +337,10 @@ const ChatPage: React.FC = () => {
   const [agentSessionOverview, setAgentSessionOverview] = useState<AgentSessionOverview | null>(null);
   const [workbenchActiveTab, setWorkbenchActiveTab] = useState('execution');
   const agentSessionStreamsRef = useRef<Record<string, EventSource>>({});
+  const agentSessionStreamRetryRef = useRef<Record<string, AgentStreamRetryState>>({});
+  const startAgentSessionStreamRef = useRef<((sessionId: string, fromRetry?: boolean) => void) | null>(null);
   const agentSessionStateRef = useRef<Record<string, AgentSession>>({});
   const agentWorkspaceRefreshRef = useRef<(() => Promise<void>) | null>(null);
-  const refreshedAgentSessionsRef = useRef<Set<string>>(new Set());
   const streamingDeltaRef = useRef<Record<string, { partId: string; content: string }>>({});
   const agentDeltaFlushRef = useRef<{ rafId: number | null; pending: Record<string, string> } | null>(null);
   const [agentPhase, setAgentPhase] = useState<{ phase: string; tool?: string; detail?: string; visible: boolean }>({ phase: '', visible: false });
@@ -639,7 +646,7 @@ const ChatPage: React.FC = () => {
   const scrollToBottom = useCallback((smooth: boolean = true, force: boolean = false) => {
     if (!force && !isAutoScrollEnabledRef.current) return;
     if (messages.length === 0) return;
-    
+
     if (autoScrollFrameRef.current !== null) {
       cancelAnimationFrame(autoScrollFrameRef.current);
       autoScrollFrameRef.current = null;
@@ -774,6 +781,11 @@ const ChatPage: React.FC = () => {
   useEffect(() => () => {
     if (autoScrollFrameRef.current !== null) cancelAnimationFrame(autoScrollFrameRef.current);
     Object.values(agentSessionStreamsRef.current).forEach((source) => source.close());
+    Object.values(agentSessionStreamRetryRef.current).forEach((retryState) => {
+      if (retryState.timer) clearTimeout(retryState.timer);
+    });
+    agentSessionStreamsRef.current = {};
+    agentSessionStreamRetryRef.current = {};
   }, []);
 
   useEffect(() => {
@@ -822,16 +834,19 @@ const ChatPage: React.FC = () => {
         const workspaces = await listWorkspaces();
         if (cancelled) return;
         setAvailableWorkspaces(workspaces);
-        const selected =
-          workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ||
-          workspaces.find((workspace) => workspace.status === 'default' && workspace.local_path) ||
-          workspaces.find((workspace) => workspace.local_path);
-        if (!selectedWorkspaceId && selected?.id) {
-          setSelectedWorkspaceId(selected.id);
-        }
-        if (selected?.local_path && !workspaceProjectPath.trim()) {
-          setWorkspaceProjectPath(selected.local_path);
-        }
+
+        const defaultWorkspace = workspaces.find((w) => w.status === 'default' && w.local_path) || workspaces.find((w) => w.local_path);
+
+        setSelectedWorkspaceId((currentId) => {
+          if (!currentId && defaultWorkspace?.id) return defaultWorkspace.id;
+          return currentId;
+        });
+
+        setWorkspaceProjectPath((currentPath) => {
+          if (!currentPath.trim() && defaultWorkspace?.local_path) return defaultWorkspace.local_path;
+          return currentPath;
+        });
+
       } catch {
         if (!cancelled) setAvailableWorkspaces([]);
       }
@@ -840,7 +855,7 @@ const ChatPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [selectedWorkspaceId, workspaceProjectPath]);
+  }, []);
 
   useEffect(() => {
     if (!currentSessionId || currentSessionId.startsWith('local_')) return;
@@ -1247,13 +1262,57 @@ if (existing) {
     [ensureAgentSessionSnapshot, upsertAgentSessionPartMessage],
   );
 
+  const callbacksRef = useRef({
+    ensureAgentSessionSnapshot,
+    upsertAgentSessionMessage,
+    upsertAgentSessionPartMessage,
+    appendAgentSessionError,
+  });
+  useEffect(() => {
+    callbacksRef.current = {
+      ensureAgentSessionSnapshot,
+      upsertAgentSessionMessage,
+      upsertAgentSessionPartMessage,
+      appendAgentSessionError,
+    };
+  }, [ensureAgentSessionSnapshot, upsertAgentSessionMessage, upsertAgentSessionPartMessage, appendAgentSessionError]);
+
+  const clearAgentSessionRetry = useCallback((sessionId: string) => {
+    const retryState = agentSessionStreamRetryRef.current[sessionId];
+    if (retryState?.timer) {
+      clearTimeout(retryState.timer);
+      retryState.timer = null;
+    }
+  }, []);
+
+  const closeAgentSessionStream = useCallback((sessionId: string, clearRetry = true) => {
+    agentSessionStreamsRef.current[sessionId]?.close();
+    delete agentSessionStreamsRef.current[sessionId];
+    if (clearRetry) {
+      clearAgentSessionRetry(sessionId);
+      delete agentSessionStreamRetryRef.current[sessionId];
+    }
+  }, [clearAgentSessionRetry]);
+
   const startAgentSessionStream = useCallback(
-    (sessionId: string) => {
-      agentSessionStreamsRef.current[sessionId]?.close();
-      const source = new EventSource(`${API_BASE_URL}/agent-sessions/${sessionId}/events/stream`);
+    (sessionId: string, fromRetry = false) => {
+      closeAgentSessionStream(sessionId, false);
+      const retryState = agentSessionStreamRetryRef.current[sessionId] || { attempt: 0, timer: null, lastEventId: '' };
+      retryState.timer = null;
+      if (!fromRetry) retryState.attempt = 0;
+      agentSessionStreamRetryRef.current[sessionId] = retryState;
+      const source = new EventSource(buildAgentSessionStreamUrl(sessionId, retryState.lastEventId));
       console.log('[Agent] EventSource connected:', sessionId);
       agentSessionStreamsRef.current[sessionId] = source;
+      const markStreamHealthy = () => {
+        retryState.attempt = 0;
+        setAgentPhase((prev) => prev.phase === 'connection_lost' ? { phase: '', visible: false } : prev);
+      };
       const handleChunk = async (chunk: AgentSessionEvent) => {
+        if (typeof chunk.id === 'string' && chunk.id) {
+          retryState.lastEventId = chunk.id;
+        }
+        markStreamHealthy();
         const part = chunk.part || undefined;
         const sessionStatus = chunk.session_status;
         const agentId = chunk.agent_id;
@@ -1261,7 +1320,7 @@ if (existing) {
         if (chunk.chunk_type === 'session_snapshot') {
           const snapshot = chunk.session_snapshot;
           if (snapshot) {
-            await upsertAgentSessionMessage(snapshot as AgentSession);
+            await callbacksRef.current.upsertAgentSessionMessage(snapshot as AgentSession);
           }
           if (agentDeltaFlushRef.current?.rafId) {
             cancelAnimationFrame(agentDeltaFlushRef.current.rafId);
@@ -1273,11 +1332,10 @@ if (existing) {
           } else {
             agentDeltaFlushRef.current = null;
           }
-          
+
           const isTerminal = ['completed', 'failed', 'needs_manual_review', 'interrupted'].includes(sessionStatus || '');
           if (isTerminal) {
-            source.close();
-            delete agentSessionStreamsRef.current[sessionId];
+            closeAgentSessionStream(sessionId);
             Object.keys(streamingDeltaRef.current).forEach((key) => {
               if (key.startsWith('agp_')) delete streamingDeltaRef.current[key];
             });
@@ -1287,7 +1345,7 @@ if (existing) {
         }
 
         if (sessionStatus || agentId) {
-          ensureAgentSessionSnapshot(sessionId, {
+          callbacksRef.current.ensureAgentSessionSnapshot(sessionId, {
             status: sessionStatus || undefined,
             agent_id: agentId || undefined,
             updated_at: chunk.created_at,
@@ -1362,7 +1420,7 @@ if (existing) {
           } else {
             flushAgentDeltas();
             const shouldPersist = chunk.chunk_type !== 'part_start';
-            await upsertAgentSessionPartMessage(
+            await callbacksRef.current.upsertAgentSessionPartMessage(
               sessionId,
               part,
               {
@@ -1386,7 +1444,7 @@ if (existing) {
           chunk.chunk_type === 'action' || sessionStatus === 'waiting_approval' || sessionStatus === 'waiting_permission';
         if (shouldRefreshSnapshot) {
           getAgentSession(sessionId)
-            .then((session) => upsertAgentSessionMessage(session))
+            .then((session) => callbacksRef.current.upsertAgentSessionMessage(session))
             .catch(() => undefined);
         }
       };
@@ -1397,15 +1455,14 @@ if (existing) {
         useChatStore.getState().flushMessageUpdates();
         getAgentSession(sessionId)
           .then((session) => {
-            upsertAgentSessionMessage(session);
+            callbacksRef.current.upsertAgentSessionMessage(session);
             if (!session.parts?.length && ['running', 'verifying', 'repairing'].includes(session.status)) {
-              appendAgentSessionError('Agent 事件流已中断，后端可能仍在运行旧代码或连接被服务端关闭。请重启后端后重试。', session);
+              callbacksRef.current.appendAgentSessionError('Agent 事件流已中断，后端可能仍在运行旧代码或连接被服务端关闭。请重启后端后重试。', session);
             }
             setAgentPhase({ phase: '', visible: false });
           })
           .catch(() => undefined);
-        source.close();
-        delete agentSessionStreamsRef.current[sessionId];
+        closeAgentSessionStream(sessionId);
       });
       source.onerror = () => {
         if (agentDeltaFlushRef.current?.rafId) {
@@ -1425,22 +1482,38 @@ if (existing) {
         setAgentPhase({ phase: 'connection_lost', visible: true });
         getAgentSession(sessionId)
           .then((session) => {
-            upsertAgentSessionMessage(session);
-            setAgentPhase({ phase: '', visible: false });
+            callbacksRef.current.upsertAgentSessionMessage(session);
+            if (['completed', 'failed', 'needs_manual_review', 'interrupted'].includes(session.status)) {
+              closeAgentSessionStream(sessionId);
+              setAgentPhase({ phase: '', visible: false });
+            }
           })
           .catch(() => {
-            appendAgentSessionError('Agent 事件流连接中断，暂时无法读取最新执行 transcript。', { id: sessionId });
-            setAgentPhase({ phase: '', visible: false });
+            console.warn('[Agent] Failed to refresh session after stream error:', sessionId);
           });
-        source.close();
-        delete agentSessionStreamsRef.current[sessionId];
+        closeAgentSessionStream(sessionId, false);
+        if (!retryState.timer) {
+          const delay = getAgentStreamRetryDelay(retryState.attempt);
+          retryState.attempt += 1;
+          retryState.timer = setTimeout(() => {
+            retryState.timer = null;
+            startAgentSessionStreamRef.current?.(sessionId, true);
+          }, delay);
+        }
       };
     },
-    [appendAgentSessionError, ensureAgentSessionSnapshot, upsertAgentSessionMessage, upsertAgentSessionPartMessage],
+    [closeAgentSessionStream],
   );
 
   useEffect(() => {
-    if (!currentSessionId || currentSessionId.startsWith('local_') || messages.length === 0) return;
+    startAgentSessionStreamRef.current = startAgentSessionStream;
+  }, [startAgentSessionStream]);
+
+  useEffect(() => {
+    if (!currentSessionId || currentSessionId.startsWith('local_')) {
+      Object.keys(agentSessionStreamsRef.current).forEach((sessionId) => closeAgentSessionStream(sessionId));
+      return;
+    }
     const agentSessionIds = Array.from(
       new Set(
         messages
@@ -1448,17 +1521,29 @@ if (existing) {
           .filter((sessionId): sessionId is string => Boolean(sessionId)),
       ),
     );
+
+    // Close streams that are no longer in the active messages list
+    const activeIdsSet = new Set(agentSessionIds);
+    Object.keys(agentSessionStreamsRef.current).forEach((sessionId) => {
+      if (!activeIdsSet.has(sessionId)) {
+        closeAgentSessionStream(sessionId);
+      }
+    });
+    Object.keys(agentSessionStreamRetryRef.current).forEach((sessionId) => {
+      if (!activeIdsSet.has(sessionId)) {
+        closeAgentSessionStream(sessionId);
+      }
+    });
+
     if (!agentSessionIds.length) return;
 
     agentSessionIds.forEach((sessionId) => {
-      const refreshKey = `${currentSessionId}:session:${sessionId}`;
-      if (!refreshedAgentSessionsRef.current.has(refreshKey)) {
-        refreshedAgentSessionsRef.current.add(refreshKey);
+      if (!agentSessionStreamsRef.current[sessionId]) {
         startAgentSessionStream(sessionId);
       }
     });
 
-  }, [currentSessionId, messages, startAgentSessionStream]);
+  }, [currentSessionId, messages, startAgentSessionStream, closeAgentSessionStream]);
 
   const buildDeepContextPayload = useCallback(() => ({
     active_context: activeFileContext,
@@ -1506,7 +1591,7 @@ if (existing) {
         const session = await withTimeout(
           createAgentSession({
             chat_session_id: sessionId && !sessionId.startsWith('local_') ? sessionId : undefined,
-            agent_id: options.agentId || selectedPrimaryAgent || 'build',
+            agent_id: options?.agentId || selectedPrimaryAgent || 'build',
             title:
               options.mode === 'agent'
                 ? `${goal.slice(0, 26) || 'Agent Task'}${workspaceContext}`.slice(0, 64)
@@ -1556,7 +1641,7 @@ if (existing) {
         await appendAgentSessionError(fallback, agentSession || {
           id: sessionId ? `agent_error_${sessionId}_${Date.now()}` : undefined,
           chat_session_id: sessionId && !sessionId.startsWith('local_') ? sessionId : undefined,
-          agent_id: options.agentId || selectedPrimaryAgent || 'build',
+          agent_id: options?.agentId || selectedPrimaryAgent || 'build',
           title: `${goal.slice(0, 26) || 'Agent Session'}${selectedWorkspaceLabel !== '未选择工作区' ? ` · ${selectedWorkspaceLabel}` : ''}`.slice(0, 64),
           provider: undefined,
           model: undefined,
@@ -2129,7 +2214,7 @@ if (existing) {
           const preview = part.content || '';
           const status = resolveArtifactStatus(part.status || 'modified');
           const hunks = preview ? parseDiffHunks(firstFile, preview) : undefined;
-          
+
           const fileEntry: OpenedFile = {
             path: firstFile,
             name,
@@ -2189,6 +2274,10 @@ if (existing) {
   }, [latestAgentParts, latestAgentSessionId, agentSessionOverview?.artifacts]);
 
 
+  const latestAgentPartsSignature = useMemo(() => {
+    return latestAgentParts.map(p => `${p.id}:${p.status}:${p.updated_at || ''}`).join(',');
+  }, [latestAgentParts]);
+
   useEffect(() => {
     if (!latestAgentSessionId) {
       setAgentSessionOverview(null);
@@ -2205,7 +2294,7 @@ if (existing) {
     return () => {
       cancelled = true;
     };
-  }, [latestAgentSessionId, messages]);
+  }, [latestAgentSessionId, latestAgentPartsSignature, latestAgentStatus]);
 
   const agentFileSummaries = useMemo(() => {
     const depthOf = (path: string) => path.replace(/\\/g, '/').split('/').filter(Boolean).length;
@@ -3055,7 +3144,7 @@ if (existing) {
                   <p className={styles.emptyDesc}>
                     普通问题会停留在 Chat，开发任务会进入 Agent Task。
                   </p>
-                  
+
                   <div className={styles.starterSuggestions}>
                     {STARTER_IDEAS.map((idea, i) => (
                       <motion.button

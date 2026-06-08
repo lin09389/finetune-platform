@@ -20,6 +20,7 @@ interface AgentWorkspaceContainerProps {
   runContent: React.ReactNode;
   configContent: React.ReactNode;
   progressContent: React.ReactNode;
+  outputContent?: React.ReactNode;
   fileTreeContent: React.ReactNode;
   agentWorkspace: UseAgentWorkspaceResult;
   asyncTasks: UseAgentAsyncTasksResult;
@@ -37,6 +38,7 @@ export default function AgentWorkspaceContainer({
   runContent,
   configContent,
   progressContent,
+  outputContent,
   fileTreeContent,
   agentWorkspace,
   asyncTasks,
@@ -77,13 +79,16 @@ export default function AgentWorkspaceContainer({
       )}
       artifactLedgerContent={(
         <div className={styles.splitPanel}>
-          <AgentArtifactLedger
-            artifacts={agentWorkspace.workspace?.artifacts ?? []}
-            onSelectArtifact={selectArtifact}
-            onOpenFile={onOpenFile}
-            onSelectSourcePart={selectExecutionPart}
-            onSelectSourceTask={selectTask}
-          />
+          <div style={{ display: 'grid', gap: 12, minWidth: 0 }}>
+            {outputContent}
+            <AgentArtifactLedger
+              artifacts={agentWorkspace.workspace?.artifacts ?? []}
+              onSelectArtifact={selectArtifact}
+              onOpenFile={onOpenFile}
+              onSelectSourcePart={selectExecutionPart}
+              onSelectSourceTask={selectTask}
+            />
+          </div>
           <AgentInspector
             workspace={agentWorkspace.workspace}
             selection={workspaceSelection.selection}

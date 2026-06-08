@@ -421,6 +421,26 @@ class TestCrossAgentCommunicator:
         assert message is not None
         assert message.payload["content"] == "Hello"
 
+    @pytest.mark.asyncio
+    async def test_collect_results_preserves_pending_agent_mapping(self, communicator, monkeypatch):
+        """测试部分 Agent 已完成时，待收集结果不会错配"""
+        communicator._spawned_agents["agent_1"] = Mock(
+            status="completed",
+            result={"result": "agent_1_spawn_result"},
+        )
+        communicator.register_agent("agent_2")
+
+        async def fake_collect_agent_result(agent_id, timeout):
+            assert agent_id == "agent_2"
+            return {"result": "result_from_queue_for_agent_2"}
+
+        monkeypatch.setattr(communicator, "_collect_agent_result", fake_collect_agent_result)
+
+        results = await communicator.collect_results(["agent_1", "agent_2"], timeout=1)
+
+        assert results["agent_1"] == {"result": "agent_1_spawn_result"}
+        assert results["agent_2"] == {"result": "result_from_queue_for_agent_2"}
+
     def test_merge_results_combine(self, communicator):
         """测试合并结果 - combine 策略"""
         results = {

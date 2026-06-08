@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import asyncio
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
 from agent_session.terminal_manager import terminal_manager
@@ -32,6 +33,8 @@ async def agent_terminal_websocket(
         while True:
             message = await queue.get()
             await websocket.send_text(json.dumps(message, ensure_ascii=False))
+            if message.get("type") in {"exit", "error"}:
+                break
 
     async def receive_loop() -> None:
         while True:
@@ -45,7 +48,12 @@ async def agent_terminal_websocket(
             if message_type == "input":
                 terminal_manager.write(terminal_id, str(message.get("data") or ""))
             elif message_type == "resize":
-                terminal_manager.resize(terminal_id, int(message.get("cols") or 100), int(message.get("rows") or 30))
+                try:
+                    cols = int(message.get("cols") or 100)
+                    rows = int(message.get("rows") or 30)
+                    terminal_manager.resize(terminal_id, cols, rows)
+                except (ValueError, TypeError):
+                    pass
             elif message_type == "interrupt":
                 terminal_manager.interrupt(terminal_id)
             elif message_type == "terminate":
@@ -54,15 +62,16 @@ async def agent_terminal_websocket(
                 await websocket.send_text(json.dumps({"type": "error", "message": "Unsupported terminal message"}, ensure_ascii=False))
 
     try:
-        import asyncio
-
         sender = asyncio.create_task(send_loop())
         receiver = asyncio.create_task(receive_loop())
         done, pending = await asyncio.wait({sender, receiver}, return_when=asyncio.FIRST_COMPLETED)
         for task in pending:
             task.cancel()
         for task in done:
-            task.result()
+            try:
+                task.result()
+            except Exception:
+                pass
     except WebSocketDisconnect:
         pass
     finally:

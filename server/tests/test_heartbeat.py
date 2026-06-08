@@ -317,6 +317,24 @@ class TestTaskExecutor:
         assert "old_task" not in executor._results
         assert "new_task" in executor._results
 
+    @pytest.mark.asyncio
+    async def test_execute_transient_task_does_not_accumulate_tasks_or_results(self):
+        """测试一次性执行不会无限累积任务和结果"""
+        executor = TaskExecutor(max_results=2)
+
+        first = await executor.execute(TaskType.CHECK, {"target": "first"})
+        second = await executor.execute(TaskType.CHECK, {"target": "second"})
+        third = await executor.execute(TaskType.CHECK, {"target": "third"})
+
+        assert first.status == TaskStatus.COMPLETED
+        assert second.status == TaskStatus.COMPLETED
+        assert third.status == TaskStatus.COMPLETED
+        assert executor.get_stats()["total_tasks"] == 0
+        assert len(executor.get_all_results()) == 2
+        assert first.task_id not in executor._results
+        assert second.task_id in executor._results
+        assert third.task_id in executor._results
+
 
 class TestTaskTypes:
     """任务类型测试"""
