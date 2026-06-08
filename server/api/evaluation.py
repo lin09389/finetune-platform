@@ -5,22 +5,43 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+import re
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
+from contextlib import asynccontextmanager
+import aiofiles
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.config import get_settings
 
 router = APIRouter()
 
-_run_locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+class RefCountedLock:
+    def __init__(self):
+        self.lock = asyncio.Lock()
+        self.count = 0
 
-def _get_run_lock(run_id: str) -> asyncio.Lock:
-    return _run_locks[run_id]
+_run_locks: dict[str, RefCountedLock] = {}
+_run_events: dict[str, asyncio.Event] = {}
+
+@asynccontextmanager
+async def _get_run_lock(run_id: str):
+    if run_id not in _run_locks:
+        _run_locks[run_id] = RefCountedLock()
+    lock_obj = _run_locks[run_id]
+    lock_obj.count += 1
+    try:
+        async with lock_obj.lock:
+            yield
+    finally:
+        lock_obj.count -= 1
+        if lock_obj.count == 0:
+            _run_locks.pop(run_id, None)
 
 
 Scenario = Literal["qa_assistant", "structured_extraction"]
@@ -51,6 +72,12 @@ class EvaluationRunRequest(BaseModel):
     max_tokens: int = Field(default=512, ge=1, le=4096)
     temperature: float = Field(default=0.2, ge=0, le=2)
     max_cases: int = Field(default=20, ge=1, le=100)
+    judge_model: str | None = Field(default=None, description="The strong model to use for LLM-as-a-judge.")
+
+
+class JudgeRequest(BaseModel):
+    judge_model: str = Field(description="用于独立裁判任务的模型名称")
+    backend: str = Field(default="huggingface", description="推理引擎后端类型")
 
 
 class EvaluationScoreRequest(BaseModel):
@@ -147,122 +174,161 @@ def _build_prompt(case: dict[str, Any], scenario: Scenario) -> str:
     return prompt
 
 
-async def _ensure_huggingface_model_loaded(model: str) -> None:
-    """Load a local HuggingFace model path/name before calling the shared chat route."""
-    from api.inference.scheduler import get_scheduler
-
-    backend = await get_scheduler().get_backend("huggingface")
-    current_model = getattr(backend, "_current_model_name", None)
-    is_loaded = bool(getattr(backend, "_is_loaded", False))
-    if is_loaded and current_model == model:
-        return
-
-    if is_loaded:
-        await backend.unload_model()
-
-    loaded = await backend.load_model(model)
-    if not loaded:
-        raise RuntimeError(f"HuggingFace 模型加载失败：{model}")
-    setattr(backend, "_current_model_name", model)
-
-
-async def run_model_inference(
+async def run_model_inference_batch(
     *,
     model: str,
-    prompt: str,
+    prompts: list[str],
     backend: str,
     max_tokens: int,
     temperature: float,
     response_format: str | None = None,
-) -> str:
-    """Run one inference call through the existing chat route."""
-    if backend == "huggingface":
-        await _ensure_huggingface_model_loaded(model)
-
-    from api.inference.routes import chat as inference_chat
-    from api.types import (
-        ChatRequest,
-        InferenceOptions,
-        MemoryOptions,
-        Message,
-        MessageRole,
-        ProjectContextOptions,
-        KnowledgeRetrievalOptions,
-        SessionOptions,
-    )
+    lora_adapter: str | None = None,
+) -> list[str]:
+    """Run batch inference call directly via the ModelScheduler."""
+    from api.inference.scheduler import get_scheduler
+    from api.inference.backends.base import GenerationConfig
 
     try:
-        response = await inference_chat(
-            ChatRequest(
-                model=model,
-                messages=[Message(role=MessageRole.USER, content=prompt)],
-                options=InferenceOptions(
-                    backend=backend,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                ),
-                response_format=response_format,
-                format=response_format,
-                memory=MemoryOptions(enabled=False, auto_extract=False, auto_retrieve=False),
-                knowledge=KnowledgeRetrievalOptions(use_knowledge=False, auto_retrieve=False),
-                context=ProjectContextOptions(use_context=False),
-                session=SessionOptions(user_id="evaluation"),
-            )
-        )
-        
-        if response.raw_response and response.raw_response.get("finish_reason") == "error":
-            err_msg = response.raw_response.get("error") or "未知推理错误"
-            raise RuntimeError(f"模型推理失败: {err_msg}")
-            
-        if not response.message.content and response.raw_response and response.raw_response.get("finish_reason") not in ("stop", "length"):
-            raise RuntimeError(f"模型推理异常终止: finish_reason={response.raw_response.get('finish_reason')}")
+        scheduler = get_scheduler()
+        backend_instance = await scheduler.get_backend(backend)
+        leased_model = None
 
-        return response.message.content or ""
+        if backend != "cloud":
+            model_path = scheduler.resolve_model_path(model, backend) if hasattr(scheduler, "resolve_model_path") else model
+            if hasattr(scheduler, "acquire_model"):
+                leased_model = await scheduler.acquire_model(
+                    model,
+                    model_path,
+                    backend,
+                    num_ctx=max_tokens * 2,
+                    num_batch=512,
+                    max_tokens=max_tokens,
+                    lora_adapter=lora_adapter,
+                )
+                if leased_model is None:
+                    raise RuntimeError(f"模型加载失败: {model}")
+
+        if hasattr(backend_instance, "model_name") and model:
+            backend_instance.model_name = model
+
+        messages_list = [[{"role": "user", "content": prompt}] for prompt in prompts]
+        config = GenerationConfig(
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
+        try:
+            if hasattr(backend_instance, "chat_batch"):
+                try:
+                    responses = await backend_instance.chat_batch(messages_list, config)
+                    return [r.text if hasattr(r, "text") else str(r) for r in responses]
+                except NotImplementedError:
+                    pass
+
+            # Fallback for non-batch backends
+            sem = asyncio.Semaphore(10)
+            async def _single(msgs):
+                async with sem:
+                    response = await backend_instance.chat(msgs, config)
+                    return response.text if hasattr(response, "text") else str(response)
+
+            return await asyncio.gather(*(_single(msgs) for msgs in messages_list))
+
+        finally:
+            if leased_model is not None and hasattr(scheduler, "release_model"):
+                await scheduler.release_model(model)
+
     except Exception as exc:
         raise RuntimeError(str(exc))
 
 
-def _merge_adapter_for_evaluation(request: EvaluationRunRequest, run_id: str) -> dict[str, Any]:
-    """Create a merged model artifact for adapter-only evaluation."""
-    if not request.adapter_path:
-        raise ValueError("缺少 adapter_path")
+async def run_model_inference_batch_with_retry(
+    max_retries: int = 2,
+    **kwargs,
+) -> list[str]:
+    """Run batch inference with automatic retry."""
+    for attempt in range(max_retries + 1):
+        try:
+            return await run_model_inference_batch(**kwargs)
+        except Exception as exc:
+            if attempt == max_retries:
+                raise
+            await asyncio.sleep(2 ** attempt)
 
-    from api.models import (
-        _artifact_output_dir,
-        _export_merged_lora_model,
-        _model_path_or_404,
-        _resolve_adapter_candidate,
-        _write_export_manifest,
-    )
-    from core.utils import safe_filename
 
-    model_path = _model_path_or_404(request.base_model)
-    adapter_path = _resolve_adapter_candidate(request.adapter_path)
-    if adapter_path is None:
-        raise ValueError("未找到可用的 LoRA adapter")
+async def _run_llm_judge_batch(
+    judge_model: str,
+    backend: str,
+    prompts: list[str],
+    base_outputs: list[str],
+    finetuned_outputs: list[str],
+    expected_outputs: list[str | None],
+) -> list[Literal["good", "neutral", "bad"]]:
+    judge_prompts = []
+    for p, b_out, f_out, e_out in zip(prompts, base_outputs, finetuned_outputs, expected_outputs):
+        judge_prompts.append(f"""请作为一名严谨的大模型评估专家，对两个模型的回答质量进行对比。
+原始问题：
+{p}
 
-    output_name = safe_filename(f"{request.base_model}-eval-{run_id}")
-    output_dir = _artifact_output_dir("evaluation-merged", output_name)
+参考答案：
+{e_out or "无"}
 
-    if not (output_dir / "config.json").exists():
-        _export_merged_lora_model(model_path, adapter_path, output_dir)
-        _write_export_manifest(
-            output_dir=output_dir,
-            model_id=request.base_model,
-            source_path=model_path,
-            target_format="lora-merged-evaluation",
-            extra={
-                "adapter_path": str(adapter_path),
-                "evaluation_run_id": run_id,
-                "implementation": "evaluation.auto_merge_adapter",
-            },
+基础模型回答：
+{b_out}
+
+微调模型回答：
+{f_out}
+
+请评估“微调模型”相较于“基础模型”是否更好地回答了问题（或者在没有基础模型时，微调模型自身是否回答完美）。
+只允许输出三个单词之一，不要有任何其他字符：
+good - 微调模型明显更好，或完美回答了问题
+neutral - 两者差不多，或者各有千秋
+bad - 微调模型明显更差，或者存在严重事实错误
+
+输出：""")
+
+    try:
+        results = await run_model_inference_batch_with_retry(
+            max_retries=1,
+            model=judge_model,
+            prompts=judge_prompts,
+            backend=backend,
+            max_tokens=10,
+            temperature=0.1,
         )
+        scores: list[Literal["good", "neutral", "bad"]] = []
+        for result in results:
+            result_lower = result.strip().lower()
+            if re.search(r'\bgood\b', result_lower):
+                scores.append("good")
+            elif re.search(r'\bbad\b', result_lower):
+                scores.append("bad")
+            else:
+                scores.append("neutral")
+        return scores
+    except Exception as exc:
+        raise RuntimeError(str(exc))
+        return "neutral"
+    except Exception:
+        return "neutral"
 
-    return {
-        "merged_model_path": str(output_dir),
-        "adapter_path": str(adapter_path),
-        "backend": "huggingface",
-    }
+
+async def _flush_progress(run_id: str, case_payloads: list[dict[str, Any]]):
+    """Safely flush current cases to disk during an ongoing run."""
+    try:
+        async with _get_run_lock(run_id):
+            path = _run_path(run_id)
+            if not path.exists():
+                return
+            async with aiofiles.open(path, "r", encoding="utf-8") as f:
+                payload = json.loads(await f.read())
+            payload["cases"] = case_payloads
+            async with aiofiles.open(path, "w", encoding="utf-8") as f:
+                await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
+        if run_id in _run_events:
+            _run_events[run_id].set()
+    except Exception:
+        pass
 
 
 async def _populate_inference_outputs(
@@ -275,58 +341,199 @@ async def _populate_inference_outputs(
     adapter_merge: dict[str, Any] | None = None
     finetuned_model = request.finetuned_model
     finetuned_backend = request.backend
+    lora_adapter = None
 
-    if request.run_inference and not finetuned_model and request.adapter_path and request.auto_merge_adapter:
-        try:
-            adapter_merge = _merge_adapter_for_evaluation(request, run_id)
-            finetuned_model = adapter_merge["merged_model_path"]
-            finetuned_backend = adapter_merge["backend"]
-            warnings.append("已自动合并 adapter，并使用 HuggingFace 后端运行微调模型评估。")
-        except Exception as exc:
-            warnings.append(f"adapter 自动合并失败：{exc}")
+    if request.run_inference and not finetuned_model and request.adapter_path:
+        finetuned_model = request.base_model
+        finetuned_backend = "huggingface"
+        lora_adapter = request.adapter_path
+        request.backend = "huggingface" # 强制基础模型也使用 HuggingFace 保证对比公平性
+        warnings.append("已采用动态加载方式挂载 adapter，并使用 HuggingFace 后端进行基础/微调模型评估。")
+        adapter_merge = {
+            "merged_model_path": request.base_model,
+            "adapter_path": request.adapter_path,
+            "backend": "huggingface"
+        }
 
     if request.run_inference:
-        # Phase 1: Run all base model inferences to avoid model thrashing
-        for case in case_payloads:
-            if not case.get("base_output"):
-                prompt = _build_prompt(case, request.scenario)
+        batch_size = 8
+        chunks = [case_payloads[i:i+batch_size] for i in range(0, len(case_payloads), batch_size)]
+
+        # 限制并发 chunk 的数量（防止并发启动太多 batch）
+        chunk_sem = asyncio.Semaphore(3)
+
+        async def evaluate_batch_base(chunk: list[dict[str, Any]]):
+            async with chunk_sem:
+                unprocessed = [c for c in chunk if not c.get("base_output")]
+                if not unprocessed:
+                    return
+                prompts = [_build_prompt(c, request.scenario) for c in unprocessed]
                 try:
-                    case["base_output"] = await run_model_inference(
+                    outputs = await run_model_inference_batch_with_retry(
+                        max_retries=2,
                         model=request.base_model,
-                        prompt=prompt,
+                        prompts=prompts,
                         backend=request.backend,
                         max_tokens=request.max_tokens,
                         temperature=request.temperature,
                         response_format=response_format,
                     )
+                    for c, out in zip(unprocessed, outputs):
+                        c["base_output"] = out
                 except Exception as exc:
-                    case["base_output_error"] = str(exc)
-                    warnings.append(f"基础模型推理失败：{exc}")
+                    for c in unprocessed:
+                        c["base_output_error"] = str(exc)
+                    warnings.append(f"基础模型批处理推理失败：{exc}")
 
-        # Phase 2: Run all finetuned model inferences
+                # Incremental flush
+                await _flush_progress(run_id, case_payloads)
+
+        # Phase 1: Run all base model inferences concurrently in batches
+        await asyncio.gather(*(evaluate_batch_base(chunk) for chunk in chunks))
+
+        # Phase 2: Run all finetuned model inferences concurrently in batches
         if finetuned_model:
-            for case in case_payloads:
-                if not case.get("finetuned_output"):
-                    prompt = _build_prompt(case, request.scenario)
+            async def evaluate_batch_finetuned(chunk: list[dict[str, Any]]):
+                async with chunk_sem:
+                    unprocessed = [c for c in chunk if not c.get("finetuned_output")]
+                    if not unprocessed:
+                        return
+                    prompts = [_build_prompt(c, request.scenario) for c in unprocessed]
                     try:
-                        case["finetuned_output"] = await run_model_inference(
+                        outputs = await run_model_inference_batch_with_retry(
+                            max_retries=2,
                             model=finetuned_model,
-                            prompt=prompt,
+                            prompts=prompts,
                             backend=finetuned_backend,
                             max_tokens=request.max_tokens,
                             temperature=request.temperature,
                             response_format=response_format,
+                            lora_adapter=lora_adapter,
                         )
+                        for c, out in zip(unprocessed, outputs):
+                            c["finetuned_output"] = out
                     except Exception as exc:
-                        case["finetuned_output_error"] = str(exc)
-                        warnings.append(f"微调模型推理失败：{exc}")
+                        for c in unprocessed:
+                            c["finetuned_output_error"] = str(exc)
+                        warnings.append(f"微调模型批处理推理失败：{exc}")
+
+                    # Incremental flush
+                    await _flush_progress(run_id, case_payloads)
+
+            await asyncio.gather(*(evaluate_batch_finetuned(chunk) for chunk in chunks))
+
         elif request.adapter_path:
             warnings.append("仅提供 adapter_path，但未能生成 merged model，本次未运行微调模型推理。")
             for case in case_payloads:
                 if not case.get("finetuned_output"):
                     case["finetuned_output_error"] = "adapter 自动合并未成功，且未提供 finetuned_model。"
 
+        # Phase 3 is decoupled to _run_judge_task
+
     return warnings, adapter_merge
+
+async def _run_judge_task(run_id: str, judge_model: str, backend: str, scenario: str = "qa_assistant", force_rejudge: bool = False):
+    """独立的后台判卷任务"""
+    try:
+        path = _run_path(run_id)
+        if not path.exists():
+            return
+
+        async with _get_run_lock(run_id):
+            async with aiofiles.open(path, "r", encoding="utf-8") as f:
+                payload = json.loads(await f.read())
+
+            payload["status"] = "running"
+            async with aiofiles.open(path, "w", encoding="utf-8") as f:
+                await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
+        if run_id in _run_events:
+            _run_events[run_id].set()
+
+        case_payloads = payload.get("cases", [])
+        if force_rejudge:
+            for case in case_payloads:
+                if "human_score" in case and case["human_score"].get("notes") == "LLM Auto Evaluated":
+                    del case["human_score"]
+
+        batch_size = 8
+        chunk_sem = asyncio.Semaphore(10)
+        warnings = payload.get("warnings", [])
+
+        if scenario == "qa_assistant":
+            async def evaluate_batch_judge(chunk_indices: list[int]):
+                async with chunk_sem:
+                    unprocessed_indices = []
+                    prompts, base_outs, finetuned_outs, expected_outs = [], [], [], []
+                    for i in chunk_indices:
+                        case = case_payloads[i]
+                        if case.get("human_score"):
+                            continue
+                        f_out = case.get("finetuned_output")
+                        b_out = case.get("base_output", "")
+                        if f_out and not case.get("finetuned_output_error"):
+                            unprocessed_indices.append(i)
+                            prompts.append(_build_prompt(case, scenario))
+                            base_outs.append(b_out)
+                            finetuned_outs.append(f_out)
+                            expected_outs.append(case.get("expected_output"))
+
+                    if not unprocessed_indices:
+                        return
+
+                    try:
+                        scores = await _run_llm_judge_batch(
+                            judge_model=judge_model,
+                            backend=backend,
+                            prompts=prompts,
+                            base_outputs=base_outs,
+                            finetuned_outputs=finetuned_outs,
+                            expected_outputs=expected_outs,
+                        )
+                        for i, score in zip(unprocessed_indices, scores):
+                            case_payloads[i]["human_score"] = {
+                                "case_index": i,
+                                "score": score,
+                                "notes": "LLM Auto Evaluated",
+                                "updated_at": datetime.now().isoformat(),
+                            }
+                    except Exception as exc:
+                        warnings.append(f"LLM 裁判批处理执行失败：{exc}")
+
+                    # Incremental flush
+                    await _flush_progress(run_id, case_payloads)
+
+            chunk_indices_list = [list(range(i, min(i+batch_size, len(case_payloads)))) for i in range(0, len(case_payloads), batch_size)]
+            await asyncio.gather(*(evaluate_batch_judge(idx_list) for idx_list in chunk_indices_list))
+
+        async with _get_run_lock(run_id):
+            async with aiofiles.open(path, "r", encoding="utf-8") as f:
+                payload = json.loads(await f.read())
+            payload["cases"] = case_payloads
+            # 重新计算指标
+            metrics, failed_cases = _compute_metrics(scenario, case_payloads)
+            payload["metrics"] = metrics
+            payload["failed_cases"] = failed_cases
+            if warnings:
+                payload["warnings"] = warnings
+                payload["status"] = "completed_with_warnings"
+            else:
+                payload["status"] = "completed"
+            async with aiofiles.open(path, "w", encoding="utf-8") as f:
+                await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
+        if run_id in _run_events:
+            _run_events[run_id].set()
+
+    except Exception as exc:
+        async with _get_run_lock(run_id):
+            if path.exists():
+                async with aiofiles.open(path, "r", encoding="utf-8") as f:
+                    payload = json.loads(await f.read())
+                payload["status"] = "failed"
+                payload["error"] = f"裁判引擎执行异常: {str(exc)}"
+                async with aiofiles.open(path, "w", encoding="utf-8") as f:
+                    await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
+        if run_id in _run_events:
+            _run_events[run_id].set()
 
 
 def _load_cases_from_dataset(dataset_id: str | None, limit: int = 100) -> list[EvaluationCase]:
@@ -371,9 +578,20 @@ def _load_cases_from_dataset(dataset_id: str | None, limit: int = 100) -> list[E
             assistant_message = next((message for message in reversed(messages) if message.get("role") in {"assistant", "gpt"}), {})
             prompt = str(user_message.get("content") or "")
             expected = assistant_message.get("content")
+        elif isinstance(item.get("conversations"), list):
+            conversations = [conv for conv in item["conversations"] if isinstance(conv, dict)]
+            user_message = next((conv for conv in conversations if conv.get("from") in {"human", "user"}), {})
+            assistant_message = next((conv for conv in reversed(conversations) if conv.get("from") in {"gpt", "assistant"}), {})
+            prompt = str(user_message.get("value") or "")
+            expected = assistant_message.get("value")
         else:
-            prompt = str(item.get("question") or item.get("instruction") or item.get("input") or item.get("text") or "")
-            expected = item.get("answer") or item.get("output")
+            prompt = str(item.get("question") or item.get("instruction") or item.get("input") or item.get("text") or item.get("description") or "")
+            expected = item.get("answer") or item.get("output") or item.get("code")
+
+        prompt = prompt.strip()
+        if not prompt:
+            continue
+
         cases.append(EvaluationCase(
             prompt=prompt,
             expected_output=expected,
@@ -385,19 +603,19 @@ def _load_cases_from_dataset(dataset_id: str | None, limit: int = 100) -> list[E
 async def _run_evaluation_task(request: EvaluationRunRequest, run_id: str, case_payloads: list[dict[str, Any]]):
     try:
         async with _get_run_lock(run_id):
-            with open(_run_path(run_id), "r", encoding="utf-8") as f:
-                payload = json.load(f)
+            async with aiofiles.open(_run_path(run_id), "r", encoding="utf-8") as f:
+                payload = json.loads(await f.read())
             payload["status"] = "running"
-            with open(_run_path(run_id), "w", encoding="utf-8") as f:
-                json.dump(payload, f, ensure_ascii=False, indent=2)
+            async with aiofiles.open(_run_path(run_id), "w", encoding="utf-8") as f:
+                await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
 
         inference_warnings, adapter_merge = await _populate_inference_outputs(request, case_payloads, run_id)
         metrics, failed_cases = _compute_metrics(request.scenario, case_payloads)
         status = "completed_with_warnings" if inference_warnings else "completed"
 
         async with _get_run_lock(run_id):
-            with open(_run_path(run_id), "r", encoding="utf-8") as f:
-                payload = json.load(f)
+            async with aiofiles.open(_run_path(run_id), "r", encoding="utf-8") as f:
+                payload = json.loads(await f.read())
 
             payload["status"] = status
             payload["finetuned_model"] = request.finetuned_model or (adapter_merge or {}).get("merged_model_path")
@@ -409,16 +627,44 @@ async def _run_evaluation_task(request: EvaluationRunRequest, run_id: str, case_
             payload["metrics"] = metrics
             payload["failed_cases"] = failed_cases
 
-            with open(_run_path(run_id), "w", encoding="utf-8") as f:
-                json.dump(payload, f, ensure_ascii=False, indent=2)
+            async with aiofiles.open(_run_path(run_id), "w", encoding="utf-8") as f:
+                await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
+
+        # 抛出后台裁判任务
+        if request.scenario == "qa_assistant" and request.judge_model:
+            asyncio.create_task(_run_judge_task(run_id, request.judge_model, request.backend, request.scenario, force_rejudge=False))
+        elif run_id in _run_events:
+            _run_events[run_id].set()
+
     except Exception as exc:
         async with _get_run_lock(run_id):
-            with open(_run_path(run_id), "r", encoding="utf-8") as f:
-                payload = json.load(f)
+            async with aiofiles.open(_run_path(run_id), "r", encoding="utf-8") as f:
+                payload = json.loads(await f.read())
             payload["status"] = "failed"
             payload["error"] = str(exc)
-            with open(_run_path(run_id), "w", encoding="utf-8") as f:
-                json.dump(payload, f, ensure_ascii=False, indent=2)
+            async with aiofiles.open(_run_path(run_id), "w", encoding="utf-8") as f:
+                await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+@router.get("/runs")
+async def list_evaluation_runs():
+    eval_dir = _evaluation_dir()
+    runs = []
+    for path in eval_dir.glob("*.json"):
+        try:
+            async with aiofiles.open(path, encoding="utf-8") as f:
+                payload = json.loads(await f.read())
+                runs.append({
+                    "run_id": payload.get("run_id"),
+                    "status": payload.get("status"),
+                    "scenario": payload.get("scenario"),
+                    "base_model": payload.get("base_model"),
+                    "created_at": payload.get("created_at"),
+                })
+        except Exception:
+            continue
+    runs.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+    return runs
 
 
 @router.post("/runs")
@@ -454,8 +700,8 @@ async def create_evaluation_run(request: EvaluationRunRequest, background_tasks:
         "human_scores": [],
     }
 
-    with open(_run_path(run_id), "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    async with aiofiles.open(_run_path(run_id), "w", encoding="utf-8") as f:
+        await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
 
     background_tasks.add_task(_run_evaluation_task, request, run_id, case_payloads)
 
@@ -468,8 +714,92 @@ async def get_evaluation_run(run_id: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="评估任务不存在")
     async with _get_run_lock(run_id):
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
+        async with aiofiles.open(path, encoding="utf-8") as f:
+            return json.loads(await f.read())
+
+
+@router.get("/runs/{run_id}/stream")
+async def stream_evaluation_run(run_id: str):
+    """SSE endpoint for streaming evaluation progress updates."""
+    path = _run_path(run_id)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="评估任务不存在")
+
+    async def event_generator():
+        last_cases_str = ""
+        event = _run_events.setdefault(run_id, asyncio.Event())
+
+        try:
+            while True:
+                if not path.exists():
+                    break
+
+                try:
+                    async with _get_run_lock(run_id):
+                        async with aiofiles.open(path, "r", encoding="utf-8") as f:
+                            payload = json.loads(await f.read())
+                except Exception:
+                    await asyncio.sleep(1.0)
+                    continue
+
+                status = payload.get("status")
+                cases = payload.get("cases", [])
+                cases_str = json.dumps(cases, ensure_ascii=False)
+
+                if cases_str != last_cases_str:
+                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    last_cases_str = cases_str
+
+                if status in ("completed", "completed_with_warnings", "failed"):
+                    if cases_str == last_cases_str:
+                        yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    break
+
+                event.clear()
+                try:
+                    await asyncio.wait_for(event.wait(), timeout=3.0)
+                except asyncio.TimeoutError:
+                    pass
+        finally:
+            _run_events.pop(run_id, None)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+@router.post("/runs/{run_id}/judge")
+async def trigger_rejudge(run_id: str, request: JudgeRequest, background_tasks: BackgroundTasks):
+    """独立的判卷触发接口，随时重置裁判打分"""
+    path = _run_path(run_id)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="评估任务不存在")
+
+    async with _get_run_lock(run_id):
+        async with aiofiles.open(path, encoding="utf-8") as f:
+            payload = json.loads(await f.read())
+
+        if payload.get("scenario") != "qa_assistant":
+            raise HTTPException(status_code=400, detail="只有 qa_assistant 场景支持模型判卷")
+
+        if payload.get("status") in ("running", "pending"):
+            raise HTTPException(status_code=400, detail="任务仍在运行中，无法触发裁判模型。")
+
+        payload["status"] = "running"
+        async with aiofiles.open(path, "w", encoding="utf-8") as f:
+            await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
+
+    if run_id in _run_events:
+        _run_events[run_id].set()
+
+    background_tasks.add_task(_run_judge_task, run_id, request.judge_model, request.backend, "qa_assistant", True)
+    return {"message": "裁判模型后台任务已启动", "run_id": run_id}
 
 
 @router.post("/runs/{run_id}/score")
@@ -478,9 +808,9 @@ async def score_evaluation_case(run_id: str, request: EvaluationScoreRequest):
         path = _run_path(run_id)
         if not path.exists():
             raise HTTPException(status_code=404, detail="评估任务不存在")
-        with open(path, encoding="utf-8") as f:
-            payload = json.load(f)
-            
+        async with aiofiles.open(path, encoding="utf-8") as f:
+            payload = json.loads(await f.read())
+
         cases = payload.get("cases", [])
         if request.case_index < 0 or request.case_index >= len(cases):
             raise HTTPException(status_code=400, detail="case_index 超出范围")
@@ -497,7 +827,7 @@ async def score_evaluation_case(run_id: str, request: EvaluationScoreRequest):
         payload["human_scores"] = [case["human_score"] for case in cases if case.get("human_score")]
         payload["metrics"], payload["failed_cases"] = _compute_metrics(payload["scenario"], cases)
 
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+        async with aiofiles.open(path, "w", encoding="utf-8") as f:
+            await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
 
         return payload

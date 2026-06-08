@@ -143,6 +143,40 @@ class InferenceBackend(ABC):
         """
         pass
 
+    async def generate_batch(
+        self,
+        prompts: list[str],
+        config: GenerationConfig = None
+    ) -> list[GenerationResult]:
+        """
+        批量生成文本 (可选实现)
+
+        Args:
+            prompts: 输入提示列表
+            config: 生成配置
+
+        Returns:
+            生成结果列表
+        """
+        raise NotImplementedError("Batch generation is not implemented for this backend.")
+
+    async def chat_batch(
+        self,
+        messages_list: list[list[dict[str, str]]],
+        config: GenerationConfig = None
+    ) -> list[GenerationResult]:
+        """
+        批量对话生成 (可选实现)
+
+        Args:
+            messages_list: 多个消息列表的批次
+            config: 生成配置
+
+        Returns:
+            生成结果列表
+        """
+        raise NotImplementedError("Batch chat is not implemented for this backend.")
+
     @abstractmethod
     async def chat_stream(
         self,

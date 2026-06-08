@@ -543,6 +543,7 @@ async def generate(request: GenerateRequest):
                     num_ctx=request.options.num_ctx,
                     num_batch=request.options.num_batch,
                     max_tokens=request.options.max_tokens,
+                    lora_adapter=getattr(request.options, "lora_adapter", None),
                 )
                 if leased_model is None:
                     raise HTTPException(status_code=503, detail=f"模型加载失败: {request.model}")
@@ -696,6 +697,7 @@ async def generate_stream(request: GenerateRequest):
                     num_ctx=request.options.num_ctx,
                     num_batch=request.options.num_batch,
                     max_tokens=request.options.max_tokens,
+                    lora_adapter=getattr(request.options, "lora_adapter", None),
                 )
                 if leased_model is None:
                     raise HTTPException(status_code=503, detail=f"模型加载失败: {request.model}")
@@ -890,6 +892,7 @@ async def chat(request: ChatRequest):
                     num_ctx=request.options.num_ctx,
                     num_batch=request.options.num_batch,
                     max_tokens=request.options.max_tokens,
+                    lora_adapter=getattr(request.options, "lora_adapter", None),
                 )
                 if leased_model is None:
                     raise HTTPException(status_code=503, detail=f"模型加载失败: {request.model}")
@@ -1175,6 +1178,7 @@ async def chat_stream(request: ChatRequest):
                     num_ctx=request.options.num_ctx,
                     num_batch=request.options.num_batch,
                     max_tokens=request.options.max_tokens,
+                    lora_adapter=getattr(request.options, "lora_adapter", None),
                 )
                 if leased_model is None:
                     raise HTTPException(status_code=503, detail=f"模型加载失败: {model_name}")

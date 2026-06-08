@@ -96,6 +96,17 @@ class HuggingFaceBackend(InferenceBackend):
                 except Exception as bt_err:
                     logger.debug(f"BetterTransformer not applicable: {bt_err}")
 
+            # --- Dynamic PEFT Adapter Loading ---
+            adapter_path = runtime_policy.get("lora_adapter")
+            if adapter_path:
+                try:
+                    from peft import PeftModel
+                    logger.info(f"Dynamically loading LoRA adapter from {adapter_path}")
+                    self._model = PeftModel.from_pretrained(self._model, adapter_path)
+                except Exception as peft_err:
+                    logger.error(f"Failed to load LoRA adapter {adapter_path}: {peft_err}")
+                    raise
+
             self._is_loaded = True
             logger.info(f"HuggingFace model loaded: {model_name}")
 
@@ -157,6 +168,10 @@ class HuggingFaceBackend(InferenceBackend):
             input_ids = self._tokenizer.encode(prompt, return_tensors="pt").to(self._model.device)
             prompt_tokens = len(input_ids[0])
 
+            pad_token_id = self._tokenizer.eos_token_id
+            if isinstance(pad_token_id, list):
+                pad_token_id = pad_token_id[0]
+
             def _generate_sync():
                 # inference_mode is faster than no_grad — less autograd bookkeeping
                 with torch.inference_mode():
@@ -168,7 +183,7 @@ class HuggingFaceBackend(InferenceBackend):
                         top_k=config.top_k,
                         repetition_penalty=config.repetition_penalty,
                         do_sample=config.temperature > 0,
-                        pad_token_id=self._tokenizer.eos_token_id
+                        pad_token_id=pad_token_id
                     )
 
             outputs = await asyncio.to_thread(_generate_sync)
@@ -210,14 +225,18 @@ class HuggingFaceBackend(InferenceBackend):
             return
 
         config = config or GenerationConfig()
-        
+
         import torch
         from transformers import TextIteratorStreamer
         from threading import Thread
 
         input_ids = self._tokenizer.encode(prompt, return_tensors="pt").to(self._model.device)
         streamer = TextIteratorStreamer(self._tokenizer, skip_prompt=True, skip_special_tokens=True)
-        
+
+        pad_token_id = self._tokenizer.eos_token_id
+        if isinstance(pad_token_id, list):
+            pad_token_id = pad_token_id[0]
+
         generation_kwargs = dict(
             inputs=input_ids,
             max_new_tokens=config.max_tokens,
@@ -227,12 +246,21 @@ class HuggingFaceBackend(InferenceBackend):
             repetition_penalty=config.repetition_penalty,
             do_sample=config.temperature > 0,
             streamer=streamer,
-            pad_token_id=self._tokenizer.eos_token_id
+            pad_token_id=pad_token_id
         )
 
         def _stream_generate():
-            with torch.inference_mode():
-                self._model.generate(**generation_kwargs)
+            try:
+                with torch.inference_mode():
+                    self._model.generate(**generation_kwargs)
+            except Exception as e:
+                logger.error(f"HuggingFace stream generation failed: {e}")
+                # Stop the streamer to prevent the API from hanging forever
+                if hasattr(streamer, 'text_queue'):
+                    streamer.text_queue.put(f"\n[Generation Error: {str(e)}]")
+            finally:
+                if hasattr(streamer, 'end'):
+                    streamer.end()
 
         thread = Thread(target=_stream_generate)
         thread.start()
@@ -271,6 +299,100 @@ class HuggingFaceBackend(InferenceBackend):
         prompt = self._format_chat_prompt(messages)
         return await self.generate(prompt, config)
 
+    async def generate_batch(
+        self,
+        prompts: list[str],
+        config: GenerationConfig = None
+    ) -> list[GenerationResult]:
+        """批量生成文本"""
+        if not self._is_loaded:
+            return [GenerationResult(
+                text="", tokens_generated=0, finish_reason="error", model="", metadata={"error": "Model not loaded"}
+            ) for _ in prompts]
+
+        config = config or GenerationConfig()
+        start_time = time.time()
+
+        try:
+            import torch
+
+            # 必须使用左侧填充，以保证生成时最后的 token 对齐
+            self._tokenizer.padding_side = "left"
+            if self._tokenizer.pad_token is None:
+                self._tokenizer.pad_token = self._tokenizer.eos_token
+
+            inputs = self._tokenizer.batch_encode_plus(
+                prompts,
+                return_tensors="pt",
+                padding=True
+            ).to(self._model.device)
+
+            input_ids = inputs["input_ids"]
+            attention_mask = inputs["attention_mask"]
+            prompt_tokens_list = [len(ids[ids != self._tokenizer.pad_token_id]) for ids in input_ids]
+
+            pad_token_id = self._tokenizer.eos_token_id
+            if isinstance(pad_token_id, list):
+                pad_token_id = pad_token_id[0]
+
+            def _generate_batch_sync():
+                with torch.inference_mode():
+                    return self._model.generate(
+                        input_ids,
+                        attention_mask=attention_mask,
+                        max_new_tokens=config.max_tokens,
+                        temperature=config.temperature,
+                        top_p=config.top_p,
+                        top_k=config.top_k,
+                        repetition_penalty=config.repetition_penalty,
+                        do_sample=config.temperature > 0,
+                        pad_token_id=pad_token_id
+                    )
+
+            outputs = await asyncio.to_thread(_generate_batch_sync)
+
+            results = []
+            latency_ms = (time.time() - start_time) * 1000
+
+            for i, output_ids in enumerate(outputs):
+                input_len = len(input_ids[i])
+                generated_ids = output_ids[input_len:]
+                new_text = self._tokenizer.decode(generated_ids, skip_special_tokens=True)
+                tokens_generated = len(generated_ids)
+                prompt_tokens = prompt_tokens_list[i]
+
+                results.append(GenerationResult(
+                    text=new_text,
+                    tokens_generated=tokens_generated,
+                    finish_reason="stop",
+                    model="huggingface",
+                    prompt_tokens=prompt_tokens,
+                    total_tokens=prompt_tokens + tokens_generated,
+                    latency_ms=latency_ms
+                ))
+
+            return results
+
+        except Exception as e:
+            logger.error(f"HuggingFace batch generation failed: {e}")
+            return [GenerationResult(
+                text="", tokens_generated=0, finish_reason="error", model="huggingface", metadata={"error": str(e)}
+            ) for _ in prompts]
+
+    async def chat_batch(
+        self,
+        messages_list: list[list[dict[str, str]]],
+        config: GenerationConfig = None
+    ) -> list[GenerationResult]:
+        """批量对话生成"""
+        if not self._is_loaded:
+            return [GenerationResult(
+                text="", tokens_generated=0, finish_reason="error", model="", metadata={"error": "Model not loaded"}
+            ) for _ in messages_list]
+
+        prompts = [self._format_chat_prompt(messages) for messages in messages_list]
+        return await self.generate_batch(prompts, config)
+
     async def chat_stream(
         self,
         messages: list[dict[str, str]],
@@ -282,7 +404,7 @@ class HuggingFaceBackend(InferenceBackend):
             return
 
         prompt = self._format_chat_prompt(messages)
-        
+
         async for new_text in self.generate_stream(prompt, config):
             yield new_text
 

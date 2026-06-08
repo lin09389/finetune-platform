@@ -61,6 +61,7 @@ def build_runtime_policy(
         "max_batch_wait_ms": settings.max_batch_wait_ms,
         "warmup_prompt": options.get("warmup_prompt", "请用一句话介绍你自己。"),
         "warmup_enabled": backend != "cloud",
+        "lora_adapter": options.get("lora_adapter"),
         "torch_dtype": "float16" if hardware_profile["accelerator"] == "gpu" else "float32",
         "device_map": "auto",
         "load_in_8bit": quant_type == QuantizationType.INT8,

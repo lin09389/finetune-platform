@@ -2372,6 +2372,11 @@ export const createEvaluationRun = async (payload: any) => {
   return response.data;
 };
 
+export const getEvaluationRuns = async () => {
+  const response = await apiClient.get('/evaluation/runs');
+  return response.data;
+};
+
 export const getEvaluationRun = async (runId: string) => {
   const response = await apiClient.get(`/evaluation/runs/${runId}`);
   return response.data;
@@ -2587,12 +2592,16 @@ export const mergeLora = async (
 // Health check
 export const checkBackendHealth = async () => {
   try {
-    const response = await apiClient.get('/health', { suppressErrorLogging: true } as any);
-    if (response.status === 200) {
-      processOfflineQueue();
-      return true;
-    }
-    return false;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 5000);
+    const response = await fetch(`${API_BASE_URL}/health`, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    window.clearTimeout(timeoutId);
+    if (!response.ok) return false;
+    processOfflineQueue();
+    return true;
   } catch {
     return false;
   }

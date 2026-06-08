@@ -256,21 +256,39 @@ class ModelScheduler:
         **kwargs,
     ) -> ModelInfo | None:
         """获取模型租约，确保模型已真实加载。"""
-        async with self._load_lock:
-            success = await self._ensure_model_loaded(
-                model_name=model_name,
-                model_path=model_path,
-                backend=backend,
-                **kwargs,
-            )
-            if not success:
-                return None
+        acquired_info = None
+        try:
+            async with self._load_lock:
+                success = await self._ensure_model_loaded(
+                    model_name=model_name,
+                    model_path=model_path,
+                    backend=backend,
+                    **kwargs,
+                )
+                if not success:
+                    return None
 
-            model_info = self._models[model_name]
-            model_info.ref_count += 1
-            model_info.last_used = datetime.now()
-            self._stats["active_leases"] += 1
-            return model_info
+                model_info = self._models[model_name]
+                model_info.ref_count += 1
+                model_info.last_used = datetime.now()
+                self._stats["active_leases"] += 1
+                acquired_info = model_info
+                return model_info
+        except asyncio.CancelledError:
+            # 如果在获取到租约后被取消，必须同步回滚
+            if acquired_info:
+                acquired_info.ref_count -= 1
+                if self._stats["active_leases"] > 0:
+                    self._stats["active_leases"] -= 1
+
+                if acquired_info.ref_count == 0:
+                    # 异步通知其他等待的协程
+                    async def _notify():
+                        async with self._release_cond:
+                            self._release_cond.notify_all()
+                    # 把通知推入后台任务
+                    asyncio.create_task(_notify())
+            raise
 
     async def unload_model(self, model_name: str, force: bool = False) -> bool:
         """
@@ -297,6 +315,14 @@ class ModelScheduler:
         if model_info.ref_count > 0 and not force:
             logger.warning(f"模型仍有引用，无法卸载: {model_name}")
             return False
+
+        if force and model_info.ref_count > 0:
+            logger.warning(f"强制卸载被占用的模型: {model_name} (引用计数: {model_info.ref_count})")
+            if self._stats["active_leases"] >= model_info.ref_count:
+                self._stats["active_leases"] -= model_info.ref_count
+            else:
+                self._stats["active_leases"] = 0
+            model_info.ref_count = 0
 
         try:
             model_info.status = ModelStatus.UNLOADING

@@ -39,7 +39,7 @@ class InferenceOptions(BaseModel):
     num_batch: int = Field(default=512, description="批处理大小")
     num_keep: int = Field(default=0, description="保留 token 数")
     backend: str | None = Field(default=None, description="推理后端类型")
-
+    lora_adapter: str | None = Field(default=None, description="LoRA 适配器路径")
 
 class KnowledgeRetrievalOptions(BaseModel):
     use_knowledge: bool = Field(default=False, description="是否使用知识库检索")

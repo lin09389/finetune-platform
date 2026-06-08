@@ -59,11 +59,12 @@ def test_evaluation_runs_real_inference_when_outputs_missing(tmp_path: Path, mon
     monkeypatch.setattr(evaluation, "get_settings", lambda: settings)
 
     async def fake_inference(**kwargs):
+        prompts = kwargs["prompts"]
         if kwargs["model"] == "base":
-            return "金额是 19.9"
-        return "{\"amount\": 19.9}"
+            return ["金额是 19.9" for _ in prompts]
+        return ["{\"amount\": 19.9}" for _ in prompts]
 
-    monkeypatch.setattr(evaluation, "run_model_inference", fake_inference)
+    monkeypatch.setattr(evaluation, "run_model_inference_batch_with_retry", fake_inference)
     app = FastAPI()
     app.include_router(evaluation.router, prefix="/evaluation")
 
@@ -104,22 +105,15 @@ def test_evaluation_auto_merges_adapter_for_real_inference(tmp_path: Path, monke
     settings = DummySettings(tmp_path)
     monkeypatch.setattr(evaluation, "get_settings", lambda: settings)
 
-    def fake_merge(request, run_id):
-        return {
-            "merged_model_path": str(tmp_path / "outputs" / "evaluation-merged" / run_id),
-            "adapter_path": request.adapter_path,
-            "backend": "huggingface",
-        }
-
     async def fake_inference(**kwargs):
-        if kwargs["model"] == "base":
-            return "金额是 19.9"
+        prompts = kwargs["prompts"]
+        if kwargs.get("lora_adapter") is None:
+            return ["金额是 19.9" for _ in prompts]
         assert kwargs["backend"] == "huggingface"
-        assert "evaluation-merged" in kwargs["model"]
-        return "{\"amount\": 19.9}"
+        assert kwargs["model"] == "base"
+        return ["{\"amount\": 19.9}" for _ in prompts]
 
-    monkeypatch.setattr(evaluation, "_merge_adapter_for_evaluation", fake_merge)
-    monkeypatch.setattr(evaluation, "run_model_inference", fake_inference)
+    monkeypatch.setattr(evaluation, "run_model_inference_batch_with_retry", fake_inference)
     app = FastAPI()
     app.include_router(evaluation.router, prefix="/evaluation")
 
@@ -152,7 +146,7 @@ def test_evaluation_auto_merges_adapter_for_real_inference(tmp_path: Path, monke
 
     assert payload["adapter_merge"]["backend"] == "huggingface"
     assert payload["adapter_merge"]["adapter_path"] == "outputs/train_1/lora_adapter"
-    assert "evaluation-merged" in payload["finetuned_model"]
+    assert payload["finetuned_model"] == "base"
     assert payload["finetuned_outputs"] == ['{"amount": 19.9}']
     assert payload["metrics"]["json_valid_rate"] == 1.0
 

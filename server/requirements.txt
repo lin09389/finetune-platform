@@ -18,8 +18,8 @@ xxhash>=3.0
 
 # PyTorch
 # Install the GPU-specific wheel separately when needed.
-torch==2.1.2
-transformers==4.57.1
+torch==2.2.2
+transformers==4.46.3
 accelerate==1.13.0
 peft==0.18.1
 bitsandbytes==0.41.3
