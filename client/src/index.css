@@ -6,9 +6,9 @@
 :root {
   /* 字体系统 - 极简科技风 */
   --font-sans:
-    'Geist', 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Inter', 'Outfit', 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     'Helvetica Neue', Arial, sans-serif;
-  --font-mono: 'Geist Mono', 'JetBrains Mono', 'Fira Code', Consolas, Monaco, monospace;
+  --font-mono: 'JetBrains Mono', 'Geist Mono', 'Fira Code', Consolas, Monaco, monospace;
 
   /* 字体大小 */
   --text-xs: 0.75rem; /* 12px */
@@ -152,12 +152,12 @@
    深色主题 - 精致黑
    ============================================ */
 .dark-theme {
-  /* 背景色 - 深度石墨 */
-  --bg-primary: #020304;
-  --bg-secondary: #09090b;
-  --bg-elevated: #18181b;
-  --bg-hover: #27272a;
-  --bg-active: #3f3f46;
+  /* 背景色 - 纯粹的深邃黑 (OLED Black) */
+  --bg-primary: #000000;
+  --bg-secondary: #050505;
+  --bg-elevated: #0a0a0c;
+  --bg-hover: #18181b;
+  --bg-active: #27272a;
 
   /* 文字色 */
   --text-primary: #ffffff;
@@ -323,12 +323,13 @@ body::after {
   height: 200vh;
   z-index: -2;
   pointer-events: none;
-  background: 
-    radial-gradient(circle at 20% 30%, var(--accent-primary-light) 0%, transparent 40%),
-    radial-gradient(circle at 80% 70%, rgba(139, 92, 246, 0.08) 0%, transparent 40%),
-    radial-gradient(circle at 50% 10%, rgba(59, 130, 246, 0.05) 0%, transparent 35%);
+  background:
+    radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.15) 0%, transparent 40%),
+    radial-gradient(circle at 90% 70%, rgba(139, 92, 246, 0.12) 0%, transparent 40%),
+    radial-gradient(circle at 50% 10%, rgba(59, 130, 246, 0.1) 0%, transparent 35%),
+    radial-gradient(circle at 30% 80%, rgba(16, 185, 129, 0.08) 0%, transparent 35%);
   animation: ambient-glow 20s ease-in-out infinite alternate;
-  filter: blur(60px);
+  filter: blur(80px);
 }
 
 @keyframes ambient-glow {
@@ -339,15 +340,32 @@ body::after {
 }
 
 .dark-theme body::before {
-  opacity: 0.06;
+  opacity: 0.15;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 60px 60px;
+  background-position: center center;
+  /* Make the grid fade out towards the edges for a deeper look */
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 100%);
 }
 
 .dark-theme body::after {
-  background: 
-    radial-gradient(circle at 20% 30%, rgba(99, 102, 241, 0.15) 0%, transparent 40%),
-    radial-gradient(circle at 80% 70%, rgba(167, 139, 250, 0.12) 0%, transparent 40%),
-    radial-gradient(circle at 40% 80%, rgba(0, 255, 194, 0.05) 0%, transparent 35%);
-  filter: blur(80px);
+  background:
+    radial-gradient(circle at 15% 25%, rgba(99, 102, 241, 0.28) 0%, transparent 45%),
+    radial-gradient(circle at 85% 75%, rgba(139, 92, 246, 0.22) 0%, transparent 45%),
+    radial-gradient(circle at 45% 85%, rgba(0, 216, 165, 0.15) 0%, transparent 40%),
+    radial-gradient(circle at 75% 15%, rgba(236, 72, 153, 0.12) 0%, transparent 40%);
+  filter: blur(140px);
+  animation: ambient-glow 18s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate, pulse-glow 12s ease-in-out infinite alternate;
+  transform: translateZ(0); /* Hardware acceleration */
+  mix-blend-mode: screen;
+}
+
+@keyframes pulse-glow {
+  0% { opacity: 0.5; transform: scale(0.92); }
+  100% { opacity: 1; transform: scale(1.08); }
 }
 
 /* Gradient Text & Neon Utilities */
@@ -473,45 +491,77 @@ body,
   box-shadow: 2px 0 6px rgba(59, 91, 219, 0.3);
 }
 
-/* 卡片样式 - 更克制的风格 */
+/* 卡片样式 - 极致玻璃质感 */
 .ant-card {
-  background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: none;
-  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--radius-xl);
   box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.03),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.5);
-  transition: all var(--transition-base);
+    0 4px 12px rgba(0, 0, 0, 0.03),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  transition: all var(--transition-spring);
+  position: relative;
+  overflow: hidden;
+}
+
+.ant-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.4), rgba(255,255,255,0));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--transition-base);
 }
 
 .ant-card:hover {
   box-shadow:
-    var(--shadow-md),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+    0 12px 32px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  transform: translateY(-2px);
+}
+
+.ant-card:hover::before {
+  opacity: 1;
 }
 
 .dark-theme .ant-card {
-  background: rgba(10, 10, 10, 0.6);
+  background: rgba(10, 10, 12, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.2),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+    0 4px 12px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.dark-theme .ant-card::before {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.5), rgba(157, 0, 255, 0.2), transparent 60%);
 }
 
 .dark-theme .ant-card:hover {
+  background: rgba(18, 18, 22, 0.6);
   box-shadow:
-    0 8px 24px rgba(0, 0, 0, 0.3),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    0 12px 32px rgba(0, 0, 0, 0.5),
+    0 0 20px rgba(99, 102, 241, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  border-color: rgba(99, 102, 241, 0.3);
 }
 
 .ant-card-head {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   background: transparent;
+  padding: 0 20px;
+  min-height: 48px;
 }
 
 .dark-theme .ant-card-head {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .ant-card-body {

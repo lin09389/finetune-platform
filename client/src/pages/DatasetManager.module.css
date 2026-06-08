@@ -15,21 +15,25 @@
   gap: 24px;
 }
 
-.bentoCard {
-  background: var(--glass-bg);
-  border: var(--glass-border);
-  border-radius: 12px;
+.datasetCard {
+  display: flex;
+  flex-direction: column;
   padding: 24px;
-  backdrop-filter: blur(20px);
   position: relative;
-  transition: all 0.3s ease;
   overflow: hidden;
+  height: 100%;
 }
 
-.bentoCard:hover {
-  border-color: rgba(0, 255, 194, 0.4);
-  box-shadow: 0 0 20px rgba(0, 255, 194, 0.1);
-  transform: translateY(-2px);
+.neonStripe {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--stripe-color);
+  box-shadow: 0 0 10px var(--stripe-color), 0 0 20px var(--stripe-color);
+  opacity: 0.8;
+  z-index: 10;
 }
 
 .cardHeader {
@@ -151,14 +155,32 @@
   border-radius: 12px;
   padding: 40px;
   text-align: center;
-  transition: all 0.3s ease;
-  background: rgba(255, 255, 255, 0.02);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  background: var(--glass-bg);
+  backdrop-filter: blur(10px);
   cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.dropzone::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: radial-gradient(circle at center, rgba(0, 255, 194, 0.1) 0%, transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
 }
 
 .dropzone:hover {
   border-color: var(--accent-neon-cyan);
-  background: rgba(0, 255, 194, 0.05);
+  box-shadow: 0 0 30px rgba(0, 255, 194, 0.15);
+  transform: translateY(-2px);
+}
+
+.dropzone:hover::before {
+  opacity: 1;
 }
 
 .dropIcon {

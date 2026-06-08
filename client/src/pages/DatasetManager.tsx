@@ -10,6 +10,7 @@ import {
 import { Drawer, Popconfirm, Progress, Space, Tag, message } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import GlassCard from '../components/shared/GlassCard';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import PageHeader from '../components/shared/PageHeader';
 import JSONDataEditor from '../components/shared/JSONDataEditor';
@@ -226,12 +227,22 @@ export default function DatasetManager() {
     message.info('浏览器模式无法直接打开本地目录，请在桌面端使用此操作。');
   };
 
+  const getDatasetStripeColor = (format: string) => {
+    if (format === 'jsonl') return 'var(--accent-neon-cyan, #00FFC2)';
+    if (format === 'json') return 'var(--accent-neon-purple, #9D00FF)';
+    return 'var(--accent-primary, #6366f1)';
+  };
+
   const renderDatasetCard = (record: DatasetInfo) => {
     const healthPercentage = Math.min(100, Math.max(10, (record.samples / 5000) * 100));
 
     return (
       <MotionItem layout key={record.id}>
-        <div className={styles.bentoCard}>
+        <GlassCard className={styles.datasetCard}>
+          <div
+            className={styles.neonStripe}
+            style={{ '--stripe-color': getDatasetStripeColor(record.format) } as React.CSSProperties}
+          />
           <div className={styles.cardHeader}>
             <h3 className={styles.cardTitle}>{record.name}</h3>
             <span className={`${styles.cardFormat} ${styles[record.format] || ''}`}>
@@ -279,7 +290,7 @@ export default function DatasetManager() {
               </button>
             </Popconfirm>
           </div>
-        </div>
+        </GlassCard>
       </MotionItem>
     );
   };

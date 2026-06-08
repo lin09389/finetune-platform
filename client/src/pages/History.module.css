@@ -23,8 +23,105 @@
   letter-spacing: -0.01em;
 }
 
-.tableCard {
+.historyGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 24px;
+}
+
+.historyCard {
+  display: flex;
+  flex-direction: column;
   padding: 24px;
+  position: relative;
+  overflow: hidden;
+  height: 100%;
+}
+
+.neonStripe {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--stripe-color);
+  box-shadow: 0 0 10px var(--stripe-color), 0 0 20px var(--stripe-color);
+  opacity: 0.8;
+  z-index: 10;
+}
+
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  gap: 12px;
+}
+
+.cardTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  margin: 0;
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.cardSubInfo {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.metricsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.metricItem {
+  flex: 1;
+  min-width: 80px;
+}
+
+.metricLabel {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin-bottom: 4px;
+}
+
+.metricValue {
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.cardActions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.cardActions button {
+  flex: 1;
+}
+
+.checkboxContainer {
+  margin-top: 2px;
+}
+
+.tableCard {
+  padding: 0;
 }
 
 .checkpointItem {

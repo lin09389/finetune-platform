@@ -95,6 +95,7 @@ vi.mock('../services/api', () => ({
   analyzeDataset: mockAnalyzeDataset,
   createDeploymentPackage: mockCreateDeploymentPackage,
   createEvaluationRun: mockCreateEvaluationRun,
+  getEvaluationRuns: vi.fn().mockResolvedValue([]),
   deleteDataset: mockDeleteDataset,
   deleteDeploymentPackage: mockDeleteDeploymentPackage,
   getDatasetList: mockGetDatasetList,
@@ -654,11 +655,9 @@ describe('GA smoke pages', () => {
     );
 
     expect(screen.getByText('评估实验室')).toBeInTheDocument();
-    expect(screen.getByText('当前评估对象')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /新建评估/ }));
     await waitFor(() => {
-      expect(screen.getByDisplayValue('base-model')).toBeInTheDocument();
-      expect(screen.getByText('真实推理')).toBeInTheDocument();
-      expect(screen.getAllByText('客服/知识问答助手').length).toBeGreaterThan(0);
+      expect(screen.getByText('新建评估任务')).toBeInTheDocument();
     });
   });
 

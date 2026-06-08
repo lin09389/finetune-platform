@@ -65,8 +65,8 @@ export const pageVariants: Variants = {
 
 export const buttonVariants: Variants = {
   initial: { scale: 1 },
-  hover: { scale: 1.02, transition: springs.base },
-  tap: { scale: 0.96, transition: springs.tap },
+  hover: { scale: 1.03, y: -2, transition: springs.bouncy },
+  tap: { scale: 0.95, y: 0, transition: springs.tap },
 };
 
 export const fadeVariants: Variants = {

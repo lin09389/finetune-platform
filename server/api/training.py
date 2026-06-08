@@ -13,9 +13,7 @@
 """
 import asyncio
 import json
-import threading
 import uuid
-from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -43,8 +41,6 @@ from training_engine.schemas import (
     ValidationResult,
     TrainingProgressStatus,
     TRAINING_PROGRESS_STATUS_VALUES,
-    RELEASE_EXPERIMENTAL_FEATURE_MESSAGES,
-    SUPPORTED_DATASET_FORMATS,
 )
 from training_engine.errors import RecoverableError, UnrecoverableError
 from training_engine.dataset_formatter import detect_dataset_sample_format
@@ -56,12 +52,9 @@ def _load_checkpoints_for_task(state, settings, task_id):
     return load_checkpoints_for_task(state, settings, task_id)
 from training_engine.config_builder import estimate_training_total_steps, apply_precision_preset, apply_memory_preset
 from training_engine.callbacks import ProgressCallback, queue_training_progress as _base_queue_training_progress
-from training_engine.training_logger import TrainingLogger
-from training_engine.training_thread import training_thread, handle_training_failure, finalize_stop_requested, cleanup_training_resources
+from training_engine.training_thread import handle_training_failure, finalize_stop_requested
 from training_engine.reporter import (
-    build_failure_feedback,
     legacy_progress_from_v2_event,
-    read_latest_metric_point,
     enrich_record_metrics,
     sync_training_record_metadata,
     build_failure_analytics_payload,

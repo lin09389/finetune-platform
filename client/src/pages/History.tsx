@@ -22,9 +22,12 @@ import {
   Table,
   Tag,
   message,
+  Checkbox,
+  Popconfirm,
 } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import GlassCard from '../components/shared/GlassCard';
 import { useOperation } from '../hooks/useOperation';
 import {
   CartesianGrid,
@@ -488,20 +491,6 @@ export default function History({ mode = 'history' }: HistoryProps) {
   const formatLoss = (loss?: number) =>
     loss !== undefined && Number.isFinite(loss) ? loss.toFixed(6) : '-';
 
-  const toggleCompareRecord = (record: TrainingRecord) => {
-    compareSelectionTouchedRef.current = true;
-    setCompareIds((current) => {
-      if (current.includes(record.id)) {
-        return current.filter((id) => id !== record.id);
-      }
-      if (current.length >= 4) {
-        message.warning('最多选择 4 条训练记录进行对比');
-        return current;
-      }
-      return [...current, record.id];
-    });
-  };
-
   const loadAllCompareMetrics = async (taskId: string) => {
     const allItems: TrainingMetricPoint[] = [];
     let cursor = 0;
@@ -866,78 +855,6 @@ export default function History({ mode = 'history' }: HistoryProps) {
     return `${minutes}分 ${remainSeconds}秒`;
   };
 
-  const columns = [
-    {
-      title: '训练 ID',
-      dataIndex: 'id',
-      key: 'id',
-      ellipsis: true,
-    },
-    {
-      title: '模型',
-      dataIndex: 'modelName',
-      key: 'modelName',
-    },
-    {
-      title: '数据集',
-      dataIndex: 'datasetName',
-      key: 'datasetName',
-    },
-    {
-      title: '训练方法',
-      dataIndex: 'method',
-      key: 'method',
-      render: (method: string) => getMethodTag(method),
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: string) => getStatusTag(status),
-    },
-    {
-      title: '开始时间',
-      dataIndex: 'startTime',
-      key: 'startTime',
-      render: (time: string) => new Date(time).toLocaleString('zh-CN'),
-    },
-    {
-      title: '操作',
-      key: 'action',
-      render: (_: unknown, record: TrainingRecord) => (
-        <Space>
-          <Button icon={<EyeOutlined />} size="small" onClick={() => void openDetail(record)}>
-            详情
-          </Button>
-          <Button
-            icon={<FileSearchOutlined />}
-            size="small"
-            disabled={!canOpenEvaluation(record)}
-            onClick={() => openEvaluation(record)}
-          >
-            评估
-          </Button>
-          <Button
-            icon={<LineChartOutlined />}
-            size="small"
-            onClick={() => toggleCompareRecord(record)}
-          >
-            {compareIds.includes(record.id) ? '移出对比' : '加入对比'}
-          </Button>
-          <Button
-            danger
-            size="small"
-            icon={<DeleteOutlined />}
-            loading={operation.isRunning(`delete-training-record:${record.id}`)}
-            onClick={() => void handleDelete(record.id)}
-          >
-            删除
-          </Button>
-        </Space>
-      ),
-    },
-  ];
-
   const compareChartData = buildCompareChartData(selectedCompareRecords);
   const bestLoss = selectedCompareRecords
     .map((record) => getRecordFinalLoss(record))
@@ -1000,28 +917,107 @@ export default function History({ mode = 'history' }: HistoryProps) {
         />
       </MotionItem>
 
-      <MotionItem>
-        <div className={`${glassStyles.glassCard} ${styles.tableCard}`}>
-          <Table
-            columns={columns}
-            dataSource={sortRecentFirst(trainingRecords)}
-            rowKey="id"
-            rowSelection={{
-              selectedRowKeys: compareIds,
-              onChange: (keys) => {
-                compareSelectionTouchedRef.current = true;
-                setCompareIds(keys.map(String).slice(0, maxCompareRecords));
-              },
-              getCheckboxProps: (record: TrainingRecord) => ({
-                disabled:
-                  compareIds.length >= maxCompareRecords && !compareIds.includes(record.id),
-              }),
-            }}
-            loading={loading}
-            pagination={{ pageSize: 10 }}
-            locale={{ emptyText: '暂无训练记录' }}
-          />
-        </div>
+      <MotionItem className={styles.tableCard}>
+        {sortRecentFirst(trainingRecords).length === 0 ? (
+          <div className={glassStyles.glassCard} style={{ padding: 40, textAlign: 'center' }}>
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无训练记录" />
+          </div>
+        ) : (
+          <div className={styles.historyGrid}>
+            {sortRecentFirst(trainingRecords).map((record) => {
+              const finalLoss = record.finalLoss !== undefined && record.finalLoss !== null ? record.finalLoss.toFixed(4) : '-';
+              let stripeColor = 'var(--text-tertiary)';
+              if (record.status === 'completed') stripeColor = 'var(--accent-neon-green, #00FFC2)';
+              else if (record.status === 'running') stripeColor = 'var(--accent-neon-cyan, #00FFFF)';
+              else if (record.status === 'failed') stripeColor = 'var(--accent-neon-red, #FF3366)';
+
+              const isChecked = compareIds.includes(record.id);
+              const isDisabled = compareIds.length >= maxCompareRecords && !isChecked;
+
+              return (
+                <GlassCard key={record.id} className={styles.historyCard}>
+                  <div className={styles.neonStripe} style={{ '--stripe-color': stripeColor } as React.CSSProperties} />
+
+                  <div className={styles.cardHeader}>
+                    <div className={styles.checkboxContainer}>
+                      <Checkbox
+                        checked={isChecked}
+                        disabled={isDisabled}
+                        onChange={(e) => {
+                          compareSelectionTouchedRef.current = true;
+                          if (e.target.checked) {
+                            setCompareIds([...compareIds, record.id].slice(0, maxCompareRecords));
+                          } else {
+                            setCompareIds(compareIds.filter((id) => id !== record.id));
+                          }
+                        }}
+                      />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <h3 className={styles.cardTitle}>{record.modelName || record.id}</h3>
+                      <div className={styles.cardSubInfo}>
+                        {record.datasetName || '无数据集'} · {new Date(record.startTime).toLocaleString('zh-CN')}
+                      </div>
+                    </div>
+                    <div>
+                      {getStatusTag(record.status)}
+                    </div>
+                  </div>
+
+                  <div className={styles.metricsRow}>
+                    <div className={styles.metricItem}>
+                      <div className={styles.metricLabel}>耗时</div>
+                      <div className={styles.metricValue}>
+                        {record.elapsedTime !== undefined && record.elapsedTime !== null
+                          ? formatElapsed(record.elapsedTime)
+                          : calculateDuration(record.startTime, record.endTime)}
+                      </div>
+                    </div>
+                    <div className={styles.metricItem}>
+                      <div className={styles.metricLabel}>Loss</div>
+                      <div className={styles.metricValue}>{finalLoss}</div>
+                    </div>
+                    <div className={styles.metricItem}>
+                      <div className={styles.metricLabel}>方法</div>
+                      <div className={styles.metricValue}>{getMethodTag(record.method)}</div>
+                    </div>
+                  </div>
+
+                  <div className={styles.cardActions}>
+                    <Button
+                      type="text"
+                      icon={<EyeOutlined />}
+                      onClick={() => void openDetail(record)}
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      详情
+                    </Button>
+                    <Button
+                      type="text"
+                      icon={<FileSearchOutlined />}
+                      disabled={!canOpenEvaluation(record)}
+                      onClick={() => openEvaluation(record)}
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      评估
+                    </Button>
+                    <Popconfirm
+                      title="确认删除该历史记录?"
+                      onConfirm={() => void handleDelete(record.id)}
+                      okText="确定"
+                      cancelText="取消"
+                      okButtonProps={{ danger: true, loading: operation.isRunning(`delete-training-record:${record.id}`) }}
+                    >
+                      <Button type="text" danger icon={<DeleteOutlined />}>
+                        删除
+                      </Button>
+                    </Popconfirm>
+                  </div>
+                </GlassCard>
+              );
+            })}
+          </div>
+        )}
       </MotionItem>
 
       <Drawer

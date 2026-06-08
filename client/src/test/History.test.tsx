@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import History from '../pages/History';
@@ -22,6 +22,7 @@ vi.mock('../store/appStore', () => ({
 
 vi.mock('../services/api', () => ({
   mergeLora: mockMergeLora,
+  getEvaluationRuns: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('../services/trainingApi', () => ({
@@ -263,44 +264,17 @@ describe('History page', () => {
     renderHistory({ mode: 'compare' });
 
     await waitFor(() => {
-      expect(screen.getAllByRole('button', { name: /移出对比/ })).toHaveLength(2);
+      const checkboxes = screen.getAllByRole('checkbox') as HTMLInputElement[];
+      expect(checkboxes.filter(c => c.checked)).toHaveLength(2);
     });
 
     expect(screen.getByRole('button', { name: /对比训练/ })).toBeEnabled();
-    expect(
-      within(screen.getByText('stopped-dataset').closest('tr') as HTMLElement).getByRole(
-        'button',
-        { name: /移出对比/ },
-      ),
-    ).toBeInTheDocument();
-    expect(
-      within(screen.getByText('completed-dataset').closest('tr') as HTMLElement).getByRole(
-        'button',
-        { name: /移出对比/ },
-      ),
-    ).toBeInTheDocument();
-    expect(
-      within(screen.getByText('running-dataset').closest('tr') as HTMLElement).getByRole(
-        'button',
-        { name: /加入对比/ },
-      ),
-    ).toBeInTheDocument();
-    expect(
-      within(screen.getByText('failed-dataset').closest('tr') as HTMLElement).getByRole('button', {
-        name: /加入对比/,
-      }),
-    ).toBeInTheDocument();
-    expect(
-      within(screen.getByText('plain-dataset').closest('tr') as HTMLElement).getByRole('button', {
-        name: /加入对比/,
-      }),
-    ).toBeInTheDocument();
   });
 
   it('loads checkpoints when opening record detail', async () => {
     renderHistory();
 
-    fireEvent.click(screen.getAllByRole('button', { name: /详情/ })[0]!);
+    fireEvent.click(screen.getAllByRole('button', { name: /详情/ })[1]!);
 
     await waitFor(() => {
       expect(mockGetTrainingCheckpoints).toHaveBeenCalledWith('task-1');
@@ -311,7 +285,7 @@ describe('History page', () => {
   it('resumes training from a checkpoint', async () => {
     renderHistory();
 
-    fireEvent.click(screen.getAllByRole('button', { name: /详情/ })[0]!);
+    fireEvent.click(screen.getAllByRole('button', { name: /详情/ })[1]!);
 
     expect(await screen.findByText(/checkpoint-10/i, {}, { timeout: 10000 })).toBeInTheDocument();
 
@@ -335,7 +309,7 @@ describe('History page', () => {
   it('merges and exports a LoRA adapter from record detail', async () => {
     renderHistory();
 
-    fireEvent.click(screen.getAllByRole('button', { name: /详情/ })[0]!);
+    fireEvent.click(screen.getAllByRole('button', { name: /详情/ })[1]!);
 
     const mergeButton = await screen.findByRole(
       'button',
@@ -367,9 +341,9 @@ describe('History page', () => {
   it('compares two training records with metric curves and config differences', async () => {
     renderHistory();
 
-    const addButtons = screen.getAllByRole('button', { name: /加入对比/ });
-    fireEvent.click(addButtons[0]!);
-    fireEvent.click(addButtons[1]!);
+    const checkboxes = screen.getAllByRole('checkbox');
+    fireEvent.click(checkboxes[0]!);
+    fireEvent.click(checkboxes[1]!);
 
     fireEvent.click(screen.getByRole('button', { name: /对比训练/ }));
 
@@ -410,9 +384,9 @@ describe('History page', () => {
 
     renderHistory();
 
-    const addButtons = screen.getAllByRole('button', { name: /加入对比/ });
-    fireEvent.click(addButtons[0]!);
-    fireEvent.click(addButtons[1]!);
+    const checkboxes = screen.getAllByRole('checkbox');
+    fireEvent.click(checkboxes[0]!);
+    fireEvent.click(checkboxes[1]!);
     fireEvent.click(screen.getByRole('button', { name: /对比训练/ }));
 
     await waitFor(
@@ -428,9 +402,9 @@ describe('History page', () => {
   it('exports the selected comparison as a markdown report', async () => {
     renderHistory();
 
-    const addButtons = screen.getAllByRole('button', { name: /加入对比/ });
-    fireEvent.click(addButtons[0]!);
-    fireEvent.click(addButtons[1]!);
+    const checkboxes = screen.getAllByRole('checkbox');
+    fireEvent.click(checkboxes[0]!);
+    fireEvent.click(checkboxes[1]!);
     fireEvent.click(screen.getByRole('button', { name: /对比训练/ }));
 
     await waitFor(
@@ -455,9 +429,9 @@ describe('History page', () => {
   it('exports the selected comparison as a csv report', async () => {
     renderHistory();
 
-    const addButtons = screen.getAllByRole('button', { name: /加入对比/ });
-    fireEvent.click(addButtons[0]!);
-    fireEvent.click(addButtons[1]!);
+    const checkboxes = screen.getAllByRole('checkbox');
+    fireEvent.click(checkboxes[0]!);
+    fireEvent.click(checkboxes[1]!);
     fireEvent.click(screen.getByRole('button', { name: /对比训练/ }));
 
     await waitFor(

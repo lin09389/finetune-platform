@@ -4,7 +4,6 @@
 """
 import logging
 import os
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
@@ -201,14 +200,6 @@ class MirrorManager:
     ) -> str:
         """从 HuggingFace 下载"""
         from huggingface_hub import snapshot_download
-
-        progress = DownloadProgress(start_time=time.time())
-
-        def progress_callback(repo_id, repo_type, revision_info, downloaded, total):
-            progress.downloaded_bytes = downloaded
-            progress.total_bytes = total
-            progress.speed_bps = downloaded / (time.time() - progress.start_time) if time.time() > progress.start_time else 0
-            self._notify_progress(progress)
 
         path = snapshot_download(
             repo_id=model_id,

@@ -11,7 +11,6 @@ import json
 import os
 import tempfile
 import threading
-from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import dataclass, field, fields
 from datetime import datetime
