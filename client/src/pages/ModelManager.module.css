@@ -127,7 +127,7 @@
 }
 
 .vramValue {
-  color: var(--accent-neon-cyan, #00FFC2);
+  color: var(--accent-neon-cyan);
   text-shadow: 0 0 10px rgba(0, 255, 194, 0.3);
 }
 
@@ -147,8 +147,8 @@
   top: 0;
   bottom: 0;
   width: 4px;
-  background: var(--stripe-color, var(--text-tertiary));
-  box-shadow: 0 0 12px var(--stripe-color, var(--text-tertiary));
+  background: var(--stripe-color);
+  box-shadow: 0 0 12px var(--stripe-color);
   opacity: 0.8;
 }
 

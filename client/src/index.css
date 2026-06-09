@@ -73,8 +73,8 @@
    浅色主题 - 精致白
    ============================================ */
 .light-theme {
-  /* 背景色 */
-  --bg-primary: #fcfcfc;
+  /* 背景色 - 采用高级冷暖灰白 */
+  --bg-primary: #fafafa;
   --bg-secondary: #ffffff;
   --bg-elevated: #f4f4f5;
   --bg-hover: #f1f1f3;
@@ -142,10 +142,10 @@
   --border-glow: 0 0 16px rgba(99, 102, 241, 0.3), inset 0 0 8px rgba(99, 102, 241, 0.1);
   --bg-pure-black: #ffffff;
   --bg-slate: #f8f9fa;
-  --glass-bg: rgba(255, 255, 255, 0.75);
-  --glass-border: 1px solid rgba(0, 0, 0, 0.08);
-  --spotlight-color: rgba(99, 102, 241, 0.05);
-  --spotlight-border: rgba(99, 102, 241, 0.2);
+  --glass-bg: rgba(255, 255, 255, 0.55);
+  --glass-border: 1px solid rgba(0, 0, 0, 0.05);
+  --spotlight-color: rgba(99, 102, 241, 0.04);
+  --spotlight-border: rgba(99, 102, 241, 0.15);
 }
 
 /* ============================================
@@ -218,13 +218,13 @@
   --accent-neon-cyan: #00FFC2;
   --accent-neon-red: #FF4D4D;
   --accent-neon-purple: #9D00FF;
-  --border-glow: 0 0 16px rgba(129, 140, 248, 0.5), inset 0 0 8px rgba(129, 140, 248, 0.2);
+  --border-glow: 0 0 16px rgba(129, 140, 248, 0.4), inset 0 0 8px rgba(129, 140, 248, 0.15);
   --bg-pure-black: #000000;
   --bg-slate: #020304;
-  --glass-bg: rgba(9, 9, 11, 0.65);
-  --glass-border: 1px solid rgba(255, 255, 255, 0.1);
-  --spotlight-color: rgba(129, 140, 248, 0.1);
-  --spotlight-border: rgba(129, 140, 248, 0.3);
+  --glass-bg: rgba(5, 5, 5, 0.65);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.08);
+  --spotlight-color: rgba(129, 140, 248, 0.15);
+  --spotlight-border: rgba(129, 140, 248, 0.4);
 }
 
 /* ============================================
@@ -493,14 +493,16 @@ body,
 
 /* 卡片样式 - 极致玻璃质感 */
 .ant-card {
-  background: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.5);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid rgba(0, 0, 0, 0.04);
   border-radius: var(--radius-xl);
   box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.03),
-    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    0 4px 12px rgba(0, 0, 0, 0.02),
+    0 1px 2px rgba(0, 0, 0, 0.01),
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 1px 0 0 rgba(255, 255, 255, 0.5);
   transition: all var(--transition-spring);
   position: relative;
   overflow: hidden;
@@ -523,9 +525,12 @@ body,
 
 .ant-card:hover {
   box-shadow:
-    0 12px 32px rgba(0, 0, 0, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+    0 12px 32px rgba(0, 0, 0, 0.06),
+    0 4px 8px rgba(0, 0, 0, 0.02),
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    inset 1px 0 0 rgba(255, 255, 255, 0.6);
   transform: translateY(-2px);
+  border-color: rgba(0, 0, 0, 0.06);
 }
 
 .ant-card:hover::before {
@@ -533,24 +538,28 @@ body,
 }
 
 .dark-theme .ant-card {
-  background: rgba(10, 10, 12, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 10, 12, 0.35);
+  backdrop-filter: blur(32px) saturate(200%);
+  -webkit-backdrop-filter: blur(32px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    0 8px 24px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 1px 0 0 rgba(255, 255, 255, 0.03);
 }
 
 .dark-theme .ant-card::before {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.5), rgba(157, 0, 255, 0.2), transparent 60%);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.6), rgba(157, 0, 255, 0.3), transparent 70%);
 }
 
 .dark-theme .ant-card:hover {
-  background: rgba(18, 18, 22, 0.6);
+  background: rgba(18, 18, 22, 0.5);
   box-shadow:
-    0 12px 32px rgba(0, 0, 0, 0.5),
-    0 0 20px rgba(99, 102, 241, 0.15),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
-  border-color: rgba(99, 102, 241, 0.3);
+    0 16px 40px rgba(0, 0, 0, 0.7),
+    0 0 24px rgba(99, 102, 241, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15),
+    inset 1px 0 0 rgba(255, 255, 255, 0.05);
+  border-color: rgba(99, 102, 241, 0.4);
 }
 
 .ant-card-head {
@@ -578,12 +587,14 @@ body,
 .ant-btn-primary {
   background: var(--accent-primary);
   border-color: var(--accent-primary);
+  color: var(--text-inverse) !important;
   box-shadow: 0 1px 3px rgba(59, 91, 219, 0.25);
 }
 
 .ant-btn-primary:hover {
   background: var(--accent-primary-hover) !important;
   border-color: var(--accent-primary-hover) !important;
+  color: var(--text-inverse) !important;
   box-shadow: 0 2px 8px rgba(59, 91, 219, 0.35);
   transform: translateY(-1px);
 }

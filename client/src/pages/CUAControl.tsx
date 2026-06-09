@@ -200,7 +200,7 @@ export const CUAControl: React.FC = () => {
         </div>
 
         <div className={styles.experimentBanner}>
-          <WarningOutlined style={{ color: '#faad14', flexShrink: 0, marginTop: 2 }} />
+          <WarningOutlined style={{ color: 'var(--warning)', flexShrink: 0, marginTop: 2 }} />
           <p>
             <strong>实验功能与安全提示</strong> — CUA 仍处于实验阶段，并且允许 AI
             直接操作本机。请只在可控环境中使用，并对敏感操作保持人工确认。
@@ -241,7 +241,7 @@ export const CUAControl: React.FC = () => {
           </div>
           <div className={styles.statCard}>
             <div className={styles.statIcon}>
-              <AimOutlined style={{ color: '#818cf8' }} />
+              <AimOutlined style={{ color: 'var(--accent-primary)' }} />
             </div>
             <div className={styles.statInfo}>
               <div className={styles.statLabel}>鼠标位置</div>
@@ -252,7 +252,7 @@ export const CUAControl: React.FC = () => {
           </div>
           <div className={styles.statCard}>
             <div className={styles.statIcon} style={{ background: 'rgba(250,173,20,0.12)' }}>
-              <KeyOutlined style={{ color: '#faad14' }} />
+              <KeyOutlined style={{ color: 'var(--warning)' }} />
             </div>
             <div className={styles.statInfo}>
               <div className={styles.statLabel}>权限级别</div>

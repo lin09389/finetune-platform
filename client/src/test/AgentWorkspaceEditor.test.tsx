@@ -248,6 +248,17 @@ describe("AgentWorkspaceEditor", () => {
     expect(onAcceptHunk).toHaveBeenCalledWith(MODIFIED_FILE.path, HUNKS[0]!.id);
   });
 
+  it("accepts all hunks with Alt+Shift+A", () => {
+    const onAcceptAll = vi.fn();
+    renderEditor({
+      openedFiles: [MODIFIED_FILE],
+      activeFilePath: MODIFIED_FILE.path,
+      onAcceptAll,
+    });
+    fireEvent.keyDown(document, { key: "A", altKey: true, shiftKey: true });
+    expect(onAcceptAll).toHaveBeenCalledWith(MODIFIED_FILE.path);
+  });
+
   it("calls onRejectHunk with the correct arguments", () => {
     const onRejectHunk = vi.fn();
     renderEditor({

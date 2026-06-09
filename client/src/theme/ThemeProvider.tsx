@@ -1,11 +1,13 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 export type Theme = 'light' | 'dark';
+export type ThemeMode = 'light' | 'dark' | 'system';
 
 interface ThemeContextType {
   theme: Theme;
+  themeMode: ThemeMode;
   toggleTheme: () => void;
-  setTheme: (theme: Theme) => void;
+  setTheme: (mode: ThemeMode) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -18,12 +20,12 @@ function getSystemTheme(): Theme {
   return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
 }
 
-function getStoredTheme(): Theme | null {
+function getStoredThemeMode(): ThemeMode | null {
   if (typeof window === 'undefined') return null;
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    if (stored === 'light' || stored === 'dark') {
-      return stored;
+    if (stored === 'light' || stored === 'dark' || stored === 'system') {
+      return stored as ThemeMode;
     }
   } catch {
     console.warn('Failed to read theme from localStorage');
@@ -31,10 +33,10 @@ function getStoredTheme(): Theme | null {
   return null;
 }
 
-function setStoredTheme(theme: Theme): void {
+function setStoredThemeMode(mode: ThemeMode): void {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(THEME_STORAGE_KEY, theme);
+    localStorage.setItem(THEME_STORAGE_KEY, mode);
   } catch {
     console.warn('Failed to save theme to localStorage');
   }
@@ -42,15 +44,20 @@ function setStoredTheme(theme: Theme): void {
 
 interface ThemeProviderProps {
   children: React.ReactNode;
-  defaultTheme?: Theme;
+  defaultTheme?: ThemeMode;
 }
 
 export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children, defaultTheme }) => {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    const stored = getStoredTheme();
+  const [themeMode, setThemeModeState] = useState<ThemeMode>(() => {
+    const stored = getStoredThemeMode();
     if (stored) return stored;
     if (defaultTheme) return defaultTheme;
-    return getSystemTheme();
+    return 'system';
+  });
+
+  const [theme, setThemeState] = useState<Theme>(() => {
+    if (themeMode === 'system') return getSystemTheme();
+    return themeMode;
   });
 
   const [mounted, setMounted] = useState(false);
@@ -82,32 +89,38 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children, defaultT
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
 
     const handleChange = (e: MediaQueryListEvent) => {
-      const stored = getStoredTheme();
-      if (!stored) {
+      if (themeMode === 'system') {
         setThemeState(e.matches ? 'dark' : 'light');
       }
     };
 
     mediaQuery.addEventListener('change', handleChange);
     return () => mediaQuery.removeEventListener('change', handleChange);
-  }, []);
+  }, [themeMode]);
 
-  const setTheme = useCallback((newTheme: Theme) => {
-    setThemeState(newTheme);
-    setStoredTheme(newTheme);
+  const setTheme = useCallback((newMode: ThemeMode) => {
+    setThemeModeState(newMode);
+    setStoredThemeMode(newMode);
+    if (newMode === 'system') {
+      setThemeState(getSystemTheme());
+    } else {
+      setThemeState(newMode);
+    }
   }, []);
 
   const toggleTheme = useCallback(() => {
-    setTheme(theme === 'light' ? 'dark' : 'light');
+    const nextMode = theme === 'light' ? 'dark' : 'light';
+    setTheme(nextMode);
   }, [theme, setTheme]);
 
   const value = useMemo(
     () => ({
       theme,
+      themeMode,
       toggleTheme,
       setTheme,
     }),
-    [theme, toggleTheme, setTheme],
+    [theme, themeMode, toggleTheme, setTheme],
   );
 
   if (!mounted) {

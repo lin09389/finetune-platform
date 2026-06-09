@@ -89,7 +89,7 @@ const ThinkingProcess: React.FC<ThinkingProcessProps> = ({
           gap: 6px;
           padding: 4px 10px;
           font-size: 12px;
-          color: #888;
+          color: var(--text-secondary);
           background: transparent;
           border: 1px solid #ddd;
           border-radius: 6px;
@@ -100,7 +100,7 @@ const ThinkingProcess: React.FC<ThinkingProcessProps> = ({
 
         .toggle-thinking-btn:hover {
           background: #f5f5f5;
-          color: #666;
+          color: var(--text-secondary);
           border-color: #ccc;
         }
 
@@ -114,7 +114,7 @@ const ThinkingProcess: React.FC<ThinkingProcessProps> = ({
         }
 
         .streaming-indicator {
-          color: #52c41a;
+          color: var(--success);
           font-size: 8px;
           animation: pulse 1.5s infinite;
         }
@@ -133,7 +133,7 @@ const ThinkingProcess: React.FC<ThinkingProcessProps> = ({
           padding: 12px;
           font-size: 12px;
           line-height: 1.6;
-          color: #666;
+          color: var(--text-secondary);
           background: #fafafa;
           border-radius: 8px;
           border: 1px solid #f0f0f0;
@@ -147,7 +147,7 @@ const ThinkingProcess: React.FC<ThinkingProcessProps> = ({
         .typing-cursor {
           display: inline-block;
           animation: cursor-blink 1s infinite;
-          color: #1890ff;
+          color: var(--accent-primary);
           font-weight: 300;
           margin-left: 2px;
         }
@@ -160,7 +160,7 @@ const ThinkingProcess: React.FC<ThinkingProcessProps> = ({
         /* 暗色主题 */
         @media (prefers-color-scheme: dark) {
           .toggle-thinking-btn {
-            color: #999;
+            color: var(--text-secondary);
             border-color: #444;
           }
 
@@ -172,7 +172,7 @@ const ThinkingProcess: React.FC<ThinkingProcessProps> = ({
 
           .thinking-content {
             background: #1a1a1a;
-            color: #888;
+            color: var(--text-secondary);
             border-color: #333;
           }
         }

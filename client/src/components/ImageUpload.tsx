@@ -147,7 +147,7 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
       {!previewImage ? (
         <Upload.Dragger {...uploadProps} style={{ padding: 24 }}>
           <p className="ant-upload-drag-icon">
-            <PictureOutlined style={{ fontSize: 48, color: '#1890ff' }} />
+            <PictureOutlined style={{ fontSize: 48, color: 'var(--accent-primary)' }} />
           </p>
           <p className="ant-upload-text">点击或拖拽图片到此区域</p>
           <p className="ant-upload-hint">
@@ -229,7 +229,7 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
                     alignItems: 'center',
                     justifyContent: 'center',
                     height: '100%',
-                    color: '#999',
+                    color: 'var(--text-secondary)',
                   }}
                 >
                   <ScanOutlined style={{ fontSize: 32, marginBottom: 8 }} />

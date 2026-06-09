@@ -30,43 +30,43 @@ const stateConfig: Record<
   }
 > = {
   [ConnectionState.IDLE]: {
-    color: '#8c8c8c',
+    color: 'var(--text-tertiary)',
     status: 'default',
     icon: <PauseCircleOutlined />,
     text: '空闲',
   },
   [ConnectionState.CONNECTING]: {
-    color: '#1890ff',
+    color: 'var(--accent-primary)',
     status: 'processing',
     icon: <LoadingOutlined spin />,
     text: '连接中...',
   },
   [ConnectionState.CONNECTED]: {
-    color: '#52c41a',
+    color: 'var(--success)',
     status: 'success',
     icon: <CheckCircleOutlined />,
     text: '已连接',
   },
   [ConnectionState.STREAMING]: {
-    color: '#1890ff',
+    color: 'var(--accent-primary)',
     status: 'processing',
     icon: <ThunderboltOutlined />,
     text: '接收中',
   },
   [ConnectionState.RECONNECTING]: {
-    color: '#faad14',
+    color: 'var(--warning)',
     status: 'warning',
     icon: <SyncOutlined spin />,
     text: '重连中',
   },
   [ConnectionState.DISCONNECTED]: {
-    color: '#8c8c8c',
+    color: 'var(--text-tertiary)',
     status: 'default',
     icon: <CloseCircleOutlined />,
     text: '已断开',
   },
   [ConnectionState.ERROR]: {
-    color: '#ff4d4f',
+    color: 'var(--error)',
     status: 'error',
     icon: <CloseCircleOutlined />,
     text: '错误',
@@ -100,14 +100,14 @@ export const ConnectionStatus: React.FC<ConnectionStatusProps> = ({
       <Tooltip
         title={
           <Space direction="vertical" size={4}>
-            <Text style={{ color: '#fff' }}>{config.text}</Text>
+            <Text style={{ color: 'var(--text-inverse)' }}>{config.text}</Text>
             {showStats && state.startTime && (
               <>
-                <Text style={{ color: '#fff', fontSize: 12 }}>
+                <Text style={{ color: 'var(--text-inverse)', fontSize: 12 }}>
                   已接收: {formatBytes(state.receivedBytes)}
                 </Text>
-                <Text style={{ color: '#fff', fontSize: 12 }}>分块数: {state.chunksReceived}</Text>
-                <Text style={{ color: '#fff', fontSize: 12 }}>
+                <Text style={{ color: 'var(--text-inverse)', fontSize: 12 }}>分块数: {state.chunksReceived}</Text>
+                <Text style={{ color: 'var(--text-inverse)', fontSize: 12 }}>
                   时长: {formatDuration(state.startTime)}
                 </Text>
               </>
@@ -276,7 +276,7 @@ export const PartialSaveIndicator: React.FC<PartialSaveIndicatorProps> = ({
           padding: '8px 16px',
           background: 'rgba(82, 196, 26, 0.9)',
           borderRadius: 8,
-          color: '#fff',
+          color: 'var(--text-inverse)',
           fontSize: 12,
           display: 'flex',
           alignItems: 'center',

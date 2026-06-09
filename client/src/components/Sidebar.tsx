@@ -165,7 +165,7 @@ const menuItemVariants = {
     transition: {
       delay: i * 0.03,
       duration: 0.3,
-      ease: [0.16, 1, 0.3, 1] as const,
+      ease: [0.23, 1, 0.32, 1] as const,
     },
   }),
 };
@@ -177,7 +177,7 @@ const logoVariants = {
     y: 0,
     transition: {
       duration: 0.4,
-      ease: [0.16, 1, 0.3, 1] as const,
+      ease: [0.23, 1, 0.32, 1] as const,
     },
   },
 };

@@ -53,7 +53,7 @@ const itemVariants = {
     filter: 'blur(0px)',
     transition: {
       duration: 0.4,
-      ease: [0.16, 1, 0.3, 1] as const,
+      ease: [0.23, 1, 0.32, 1] as const,
     },
   },
 };
@@ -420,28 +420,28 @@ export default function Dashboard() {
     {
       title: '准备模型',
       icon: <FolderOutlined />,
-      color: '#10b981', // emerald
+      color: 'var(--success)', // emerald
       onClick: () => navigate('/models'),
       description: '下载或导入大语言模型，支持 GGUF、Safetensors、PyTorch 等格式。',
     },
     {
       title: '上传数据集',
       icon: <DatabaseOutlined />,
-      color: '#f59e0b', // amber
+      color: 'var(--warning)', // amber
       onClick: () => navigate('/datasets'),
       description: '上传并分析训练数据集，支持 JSON / JSONL 格式文件。',
     },
     {
       title: '开始训练',
       icon: <RocketOutlined />,
-      color: '#6366f1', // indigo
+      color: 'var(--accent-primary)', // indigo
       onClick: () => navigate('/training'),
       description: '按问答或结构化输出目标创建微调任务。',
     },
     {
       title: '评估与部署',
       icon: <ApiOutlined />,
-      color: '#3b82f6', // blue
+      color: 'var(--accent-primary)', // blue
       onClick: () => navigate('/evaluation'),
       description: '对比 base 与微调模型输出，再生成应用接入示例。',
     },

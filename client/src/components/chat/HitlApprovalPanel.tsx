@@ -142,7 +142,7 @@ export default function HitlApprovalPanel({
           initial={prefersReducedMotion ? false : { opacity: 0, y: 14, scale: 0.985 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.985 }}
-          transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+          transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.18, ease: [0.23, 1, 0.32, 1] }}
         >
           <div className={styles.approvalPopoverHeader}>
             <span className={styles.approvalTerminalIcon}>›_</span>

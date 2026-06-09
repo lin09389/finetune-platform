@@ -608,7 +608,7 @@
 }
 
 .agentIdePath:hover {
-  color: var(--accent-primary, #1677ff);
+  color: var(--accent-primary);
   transform: translateY(-0.5px);
 }
 
@@ -625,7 +625,7 @@
 }
 
 :global(.light-theme) .agentIdePath { color: rgba(0, 0, 0, 0.45); }
-:global(.light-theme) .agentIdePath:hover { color: var(--accent-primary, #1677ff); }
+:global(.light-theme) .agentIdePath:hover { color: var(--accent-primary); }
 
 .agentIdePathEmpty {
   margin-top: 3px;
@@ -663,7 +663,7 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: #111318;
+  background: var(--glass-bg);
 }
 
 .splitter {
@@ -1120,18 +1120,26 @@
   gap: 8px;
   width: 100%;
   padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color) 50%, transparent);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-elevated) 90%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated) 60%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   color: var(--text-primary);
   cursor: pointer;
   text-align: left;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .agentFolderRow:hover {
-  border-color: color-mix(in srgb, var(--accent-primary) 42%, var(--border-color));
-  background: color-mix(in srgb, var(--accent-primary) 6%, var(--bg-elevated));
-  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent-primary) 60%, transparent);
+  background: color-mix(in srgb, var(--accent-primary) 8%, var(--bg-elevated));
+  transform: translateY(-2px) scale(1.005);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.agentFolderRow:active {
+  transform: translateY(0) scale(0.995);
 }
 
 .agentFolderChevron {
@@ -1168,16 +1176,19 @@
   gap: 0;
   padding: 0;
   border-radius: 14px;
-  border: 1px solid color-mix(in srgb, var(--border-color) 76%, transparent);
-  background: color-mix(in srgb, var(--bg-base) 96%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-color) 40%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-elevated) 80%, transparent), color-mix(in srgb, var(--bg-base) 95%, transparent));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   overflow: hidden;
-  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .agentFileCard:hover {
-  border-color: color-mix(in srgb, var(--accent-primary) 40%, var(--border-color));
-  transform: translateY(-1px);
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.05);
+  border-color: color-mix(in srgb, var(--accent-primary) 60%, transparent);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08), 0 0 0 1px color-mix(in srgb, var(--accent-primary) 20%, transparent);
 }
 
 .agentFileTreeRow {
@@ -1199,7 +1210,8 @@
   bottom: 0;
   left: 50%;
   width: 1px;
-  background: color-mix(in srgb, var(--border-color) 90%, transparent);
+  background: linear-gradient(180deg, var(--border-color) 0%, color-mix(in srgb, var(--border-color) 10%, transparent) 95%, transparent 100%);
+  opacity: 0.6;
 }
 
 .agentFileTreeDot {
@@ -1215,15 +1227,17 @@
 }
 
 .agentFileTreeDot[data-tone='success'] {
-  background: var(--accent-success, #52c41a);
+  background: var(--accent-success);
 }
 
 .agentFileTreeDot[data-tone='error'] {
-  background: var(--accent-danger, #ff4d4f);
+  background: var(--accent-danger);
 }
 
 .agentFileTreeDot[data-tone='processing'] {
-  background: var(--accent-primary, #1677ff);
+  background: var(--accent-primary);
+box-shadow: 0 0 12px var(--accent-primary);
+  animation: agentDotPulse 2s ease-in-out infinite;
 }
 
 .agentFileTreeDot[data-tone='default'] {
@@ -1246,10 +1260,13 @@
 
 .agentFilePath {
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
+  font-family: var(--font-mono, monospace);
+  letter-spacing: -0.3px;
   color: var(--text-primary);
   word-break: break-all;
   padding-left: calc(var(--file-depth, 0) * 10px);
+  position: relative;
 }
 
 .agentFileStatus {
@@ -1417,7 +1434,7 @@
 }
 
 .starterBtn:hover {
-  background: color-mix(in srgb, var(--accent-primary) 5%, var(--bg-primary));
+  background: color-mix(in srgb, var(--accent-primary) 5%, #0b0f16);
   border-color: color-mix(in srgb, var(--accent-primary) 32%, var(--border-color));
   transform: translateY(-1px);
   box-shadow: 0 10px 20px rgba(0, 0, 0, 0.06);
@@ -1686,7 +1703,7 @@
   flex-direction: column;
   overflow: hidden;
   border-top: 1px solid rgba(115, 226, 167, 0.25);
-  background: #090d12;
+  background: var(--bg-secondary);
   animation: slideUpIn 0.2s ease-out;
 }
 
@@ -1700,7 +1717,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 4px 10px;
-  background: #111820;
+  background: var(--bg-secondary);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   flex: 0 0 auto;
 }
@@ -1828,7 +1845,7 @@
 
 .terminalDockResizer:hover,
 .terminalDockResizerActive {
-  background-color: var(--accent-primary, #1677ff) !important;
+  background-color: var(--accent-primary) !important;
 }
 
 /* ── Body-level Drag cursors ────────────────────────────────────────────── */
@@ -1864,8 +1881,8 @@
   font-weight: 900;
   letter-spacing: -0.3px;
   flex-shrink: 0;
-  color: var(--icon-color, #8c8c8c);
-  background: color-mix(in srgb, var(--icon-color, #8c8c8c) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--icon-color, #8c8c8c) 30%, transparent);
+  color: var(--icon-color);
+  background: color-mix(in srgb, var(--icon-color) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--icon-color) 30%, transparent);
   font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
 }

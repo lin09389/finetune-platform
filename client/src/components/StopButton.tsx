@@ -224,7 +224,7 @@ export const StreamingIndicator: React.FC<StreamingIndicatorProps> = ({
           ease: 'easeInOut',
         }}
       >
-        <ThunderboltOutlined style={{ color: '#1890ff', fontSize: 14 }} />
+        <ThunderboltOutlined style={{ color: 'var(--accent-primary)', fontSize: 14 }} />
       </motion.div>
 
       <Text style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{contentLength} 字符</Text>
@@ -268,8 +268,8 @@ export const InterruptedContentBanner: React.FC<InterruptedContentBannerProps> =
     >
       <Space direction="vertical" size={8} style={{ width: '100%' }}>
         <Space>
-          <PauseCircleOutlined style={{ color: '#faad14' }} />
-          <Text strong style={{ color: '#d48806' }}>
+          <PauseCircleOutlined style={{ color: 'var(--warning)' }} />
+          <Text strong style={{ color: 'var(--warning)' }}>
             生成已中断
           </Text>
           <Text type="secondary" style={{ fontSize: 12 }}>

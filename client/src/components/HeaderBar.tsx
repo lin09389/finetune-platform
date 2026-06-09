@@ -1,11 +1,8 @@
 import {
-  LaptopOutlined,
-  MoonOutlined,
   ReloadOutlined,
-  SunOutlined,
   UserOutlined,
 } from '@ant-design/icons';
-import { Avatar, Button, Layout, Select, Space, Tooltip } from 'antd';
+import { Avatar, Button, Layout, Space, Tooltip } from 'antd';
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import { getDeviceInfo } from '../services/api';
@@ -13,15 +10,14 @@ import { useAppStore } from '../store/appStore';
 import { useShallow } from 'zustand/react/shallow';
 import styles from './HeaderBar.module.css';
 import { NotificationPanel, useNotifications } from './NotificationPanel';
+import ThemeToggle from './ThemeToggle';
 
 const { Header } = Layout;
 
 export default function HeaderBar() {
-  const { backendStatus, setDeviceInfo, themeMode, setThemeMode } = useAppStore(useShallow(state => ({
+  const { backendStatus, setDeviceInfo } = useAppStore(useShallow(state => ({
     backendStatus: state.backendStatus,
-    setDeviceInfo: state.setDeviceInfo,
-    themeMode: state.themeMode,
-    setThemeMode: state.setThemeMode
+    setDeviceInfo: state.setDeviceInfo
   })));
   const [loading, setLoading] = useState(false);
   const { notifications, addNotification, markAsRead, markAllAsRead, deleteNotification } =
@@ -61,28 +57,13 @@ export default function HeaderBar() {
     }
   }, [backendStatus]);
 
-  const getThemeIcon = () => {
-    switch (themeMode) {
-      case 'dark':
-        return <MoonOutlined />;
-      case 'light':
-        return <SunOutlined />;
-      default:
-        return <LaptopOutlined />;
-    }
-  };
 
-  const themeItems = [
-    { key: 'light', label: '浅色模式', icon: <SunOutlined /> },
-    { key: 'dark', label: '深色模式', icon: <MoonOutlined /> },
-    { key: 'system', label: '跟随系统', icon: <LaptopOutlined /> },
-  ];
 
   return (
     <motion.div
       initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
     >
       <Header className={styles.header}>
         <Space size="middle" align="center">
@@ -97,15 +78,7 @@ export default function HeaderBar() {
             onDelete={deleteNotification}
           />
 
-          <Select
-            value={themeMode}
-            onChange={(value) => setThemeMode(value)}
-            style={{ width: 104 }}
-            suffixIcon={getThemeIcon()}
-            options={themeItems}
-            variant="borderless"
-            classNames={{ popup: { root: styles.themePopup } }}
-          />
+          <ThemeToggle />
 
           <Tooltip title="刷新设备状态">
             <Button

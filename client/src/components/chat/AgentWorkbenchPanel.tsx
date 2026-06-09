@@ -8,7 +8,7 @@ import {
 } from '@ant-design/icons';
 import { Empty, Tabs } from 'antd';
 import { AnimatePresence, motion } from 'framer-motion';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import styles from './AgentWorkbenchPanel.module.css';
 
 interface AgentWorkbenchPanelProps {
@@ -47,7 +47,45 @@ const AgentWorkbenchPanel: React.FC<AgentWorkbenchPanelProps> = ({
   onActiveKeyChange,
 }) => {
   const [fileTreeCollapsed, setFileTreeCollapsed] = useState(false);
+  const [treeWidth, setTreeWidth] = useState(240);
   const [internalActiveKey, setInternalActiveKey] = useState('execution');
+
+  const startXRef = useRef<number>(0);
+  const startWidthRef = useRef<number>(0);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => {
+      resizeCleanupRef.current?.();
+    };
+  }, []);
+
+  const handleResizeMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    resizeCleanupRef.current?.();
+    startXRef.current = e.clientX;
+    startWidthRef.current = treeWidth;
+
+    const handleMouseMove = (me: MouseEvent) => {
+      const deltaX = me.clientX - startXRef.current;
+      const newWidth = Math.max(120, Math.min(startWidthRef.current + deltaX, 600));
+      setTreeWidth(newWidth);
+    };
+    const handleMouseUp = () => {
+      resizeCleanupRef.current?.();
+    };
+    const cleanup = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      resizeCleanupRef.current = null;
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    resizeCleanupRef.current = cleanup;
+  };
   const resolvedActiveKey = activeKey ?? internalActiveKey;
 
   const handleTabChange = (key: string) => {
@@ -136,17 +174,25 @@ const AgentWorkbenchPanel: React.FC<AgentWorkbenchPanelProps> = ({
                 key="file-tree"
                 className={styles.artifactsFileTree}
                 initial={{ width: 0, opacity: 0 }}
-                animate={{ width: 200, opacity: 1 }}
+                animate={{ width: treeWidth, opacity: 1 }}
                 exit={{ width: 0, opacity: 0 }}
-                transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
               >
                 {fileTreeContent}
               </motion.div>
             )}
           </AnimatePresence>
+          {!fileTreeCollapsed && (
+            <div
+              className={styles.resizer}
+              onMouseDown={handleResizeMouseDown}
+              title="拖拽调整宽度"
+            />
+          )}
           <button
             type="button"
             className={`${styles.treeToggleBtn} ${fileTreeCollapsed ? styles.treeToggleBtnCollapsed : ''}`}
+            style={{ left: fileTreeCollapsed ? '-8px' : `calc(${treeWidth}px - 8px)` }}
             onClick={() => setFileTreeCollapsed((v) => !v)}
             title={fileTreeCollapsed ? '展开文件树' : '折叠文件树'}
             aria-label={fileTreeCollapsed ? '展开文件树' : '折叠文件树'}

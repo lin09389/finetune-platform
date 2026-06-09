@@ -43,23 +43,23 @@ const getFileIcon = (fileName: string): React.ReactNode => {
   const ext = fileName.split('.').pop()?.toLowerCase() || '';
 
   const iconMap: Record<string, React.ReactNode> = {
-    pdf: <FilePdfOutlined style={{ color: '#f5222d' }} />,
-    doc: <FileWordOutlined style={{ color: '#1890ff' }} />,
-    docx: <FileWordOutlined style={{ color: '#1890ff' }} />,
-    xls: <FileExcelOutlined style={{ color: '#52c41a' }} />,
-    xlsx: <FileExcelOutlined style={{ color: '#52c41a' }} />,
-    txt: <FileTextOutlined style={{ color: '#8c8c8c' }} />,
-    md: <FileTextOutlined style={{ color: '#8c8c8c' }} />,
-    png: <FileImageOutlined style={{ color: '#eb2f96' }} />,
-    jpg: <FileImageOutlined style={{ color: '#eb2f96' }} />,
-    jpeg: <FileImageOutlined style={{ color: '#eb2f96' }} />,
-    gif: <FileImageOutlined style={{ color: '#eb2f96' }} />,
-    zip: <FileZipOutlined style={{ color: '#fa8c16' }} />,
-    rar: <FileZipOutlined style={{ color: '#fa8c16' }} />,
-    '7z': <FileZipOutlined style={{ color: '#fa8c16' }} />,
+    pdf: <FilePdfOutlined style={{ color: 'var(--error)' }} />,
+    doc: <FileWordOutlined style={{ color: 'var(--accent-primary)' }} />,
+    docx: <FileWordOutlined style={{ color: 'var(--accent-primary)' }} />,
+    xls: <FileExcelOutlined style={{ color: 'var(--success)' }} />,
+    xlsx: <FileExcelOutlined style={{ color: 'var(--success)' }} />,
+    txt: <FileTextOutlined style={{ color: 'var(--text-tertiary)' }} />,
+    md: <FileTextOutlined style={{ color: 'var(--text-tertiary)' }} />,
+    png: <FileImageOutlined style={{ color: 'var(--accent-tertiary)' }} />,
+    jpg: <FileImageOutlined style={{ color: 'var(--accent-tertiary)' }} />,
+    jpeg: <FileImageOutlined style={{ color: 'var(--accent-tertiary)' }} />,
+    gif: <FileImageOutlined style={{ color: 'var(--accent-tertiary)' }} />,
+    zip: <FileZipOutlined style={{ color: 'var(--warning)' }} />,
+    rar: <FileZipOutlined style={{ color: 'var(--warning)' }} />,
+    '7z': <FileZipOutlined style={{ color: 'var(--warning)' }} />,
   };
 
-  return iconMap[ext] || <FileOutlined style={{ color: '#8c8c8c' }} />;
+  return iconMap[ext] || <FileOutlined style={{ color: 'var(--text-tertiary)' }} />;
 };
 
 const formatFileSize = (bytes: number): string => {

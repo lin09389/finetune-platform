@@ -262,9 +262,9 @@ export default function HeartbeatPage() {
               }}
             >
               {status?.scheduler?.running ? (
-                <PlayCircleOutlined style={{ color: '#4ade80' }} />
+                <PlayCircleOutlined style={{ color: 'var(--success)' }} />
               ) : (
-                <PauseCircleOutlined style={{ color: '#f87171' }} />
+                <PauseCircleOutlined style={{ color: 'var(--error)' }} />
               )}
             </div>
             <div className={styles.statInfo}>

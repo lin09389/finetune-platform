@@ -87,7 +87,7 @@ const ChatHistoryDrawer: React.FC<ChatHistoryDrawerProps> = ({
       <div style={{ padding: 16, borderBottom: '1px solid #f0f0f0' }}>
         <Input
           placeholder="搜索对话..."
-          prefix={<SearchOutlined style={{ color: '#999' }} />}
+          prefix={<SearchOutlined style={{ color: 'var(--text-secondary)' }} />}
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           allowClear
@@ -127,7 +127,7 @@ const ChatHistoryDrawer: React.FC<ChatHistoryDrawerProps> = ({
                     borderRadius: 8,
                     cursor: 'pointer',
                     transition: 'all 0.2s',
-                    background: '#fff',
+                    background: 'var(--text-inverse)',
                     border: '1px solid #f0f0f0',
                   }}
                   actions={[
@@ -188,7 +188,7 @@ const ChatHistoryDrawer: React.FC<ChatHistoryDrawerProps> = ({
                       </div>
                     }
                     description={
-                      <div style={{ fontSize: 12, color: '#999' }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                         {formatDate(session.updated_at || session.created_at)}
                         {session.model_id && (
                           <span style={{ marginLeft: 8 }}>· {session.model_id}</span>

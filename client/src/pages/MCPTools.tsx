@@ -200,7 +200,7 @@ export default function MCPTools() {
     <MotionList className={styles.page} stagger={0.08}>
       <MotionItem>
         <div className={styles.experimentBanner}>
-          <WarningOutlined style={{ color: '#faad14', flexShrink: 0, marginTop: 2 }} />
+          <WarningOutlined style={{ color: 'var(--warning)', flexShrink: 0, marginTop: 2 }} />
           <p>
             <strong>实验功能</strong> — MCP
             服务器接入与工具调用当前仍处于实验阶段，配置和调用结果应以实际服务状态为准。
@@ -267,7 +267,7 @@ export default function MCPTools() {
           </div>
           <div className={styles.statCard}>
             <div className={styles.statIcon} style={{ background: 'rgba(34,197,94,0.12)' }}>
-              <span style={{ color: '#4ade80', fontSize: 13, fontWeight: 700 }}>stdio</span>
+              <span style={{ color: 'var(--success)', fontSize: 13, fontWeight: 700 }}>stdio</span>
             </div>
             <div className={styles.statInfo}>
               <div className={styles.statLabel}>stdio 连接</div>
@@ -278,7 +278,7 @@ export default function MCPTools() {
           </div>
           <div className={styles.statCard}>
             <div className={styles.statIcon} style={{ background: 'rgba(250,173,20,0.12)' }}>
-              <span style={{ color: '#faad14', fontSize: 13, fontWeight: 700 }}>SSE</span>
+              <span style={{ color: 'var(--warning)', fontSize: 13, fontWeight: 700 }}>SSE</span>
             </div>
             <div className={styles.statInfo}>
               <div className={styles.statLabel}>SSE 连接</div>

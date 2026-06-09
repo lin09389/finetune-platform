@@ -110,7 +110,7 @@ export function NeonProgressRing({
           strokeDasharray={circumference}
           initial={{ strokeDashoffset: emptyOffset }}
           animate={{ strokeDashoffset: targetOffset }}
-          transition={{ duration: 1.5, ease: [0.16, 1, 0.3, 1] }}
+          transition={{ duration: 1.5, ease: [0.23, 1, 0.32, 1] }}
           filter={`url(#${glowFilterId})`}
         />
       </svg>

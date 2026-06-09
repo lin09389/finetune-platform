@@ -1,13 +1,17 @@
 import { m, useMotionValue, useReducedMotion, useSpring, useTransform, useMotionTemplate } from 'framer-motion';
 import { useEffect } from 'react';
+import { useTheme } from '../../theme';
 
 export default function TechBackground() {
   const reduceMotion = useReducedMotion();
+  const { theme } = useTheme();
+
+  const isDark = theme === 'dark';
 
   // If accessibility settings prefer reduced motion, render a gorgeous high-fidelity static visual
   if (reduceMotion) {
     return (
-      <div 
+      <div
         style={{
           position: 'fixed',
           inset: 0,
@@ -35,7 +39,9 @@ export default function TechBackground() {
             left: '30%',
             width: '600px',
             height: '600px',
-            background: 'radial-gradient(circle, rgba(99, 102, 241, 0.04) 0%, transparent 70%)',
+            background: isDark
+              ? 'radial-gradient(circle, rgba(99, 102, 241, 0.04) 0%, transparent 70%)'
+              : 'radial-gradient(circle, rgba(56, 189, 248, 0.06) 0%, transparent 70%)',
             filter: 'blur(100px)',
           }}
         />
@@ -73,11 +79,12 @@ export default function TechBackground() {
   const maskImage = useMotionTemplate`radial-gradient(450px circle at ${smoothX}px ${smoothY}px, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 80%)`;
 
   // Compute a highly subtle grid parallax shift for a 3D sense of depth
-  const gridParallaxX = useTransform(smoothX, [0, typeof window !== 'undefined' ? window.innerWidth : 1920], [-8, 8]);
-  const gridParallaxY = useTransform(smoothY, [0, typeof window !== 'undefined' ? window.innerHeight : 1080], [-8, 8]);
+  const parallaxIntensity = isDark ? 16 : 6;
+  const gridParallaxX = useTransform(smoothX, [0, typeof window !== 'undefined' ? window.innerWidth : 1920], [-parallaxIntensity, parallaxIntensity]);
+  const gridParallaxY = useTransform(smoothY, [0, typeof window !== 'undefined' ? window.innerHeight : 1080], [-parallaxIntensity, parallaxIntensity]);
 
   return (
-    <div 
+    <div
       style={{
         position: 'fixed',
         inset: 0,
@@ -91,9 +98,13 @@ export default function TechBackground() {
       <div
         style={{
           position: 'absolute',
-          inset: 0,
-          backgroundImage: `linear-gradient(rgba(255, 255, 255, 0.005) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.005) 1px, transparent 1px)`,
+          inset: '-50px',
+          backgroundImage: isDark
+            ? `linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px)`
+            : `linear-gradient(rgba(0, 0, 0, 0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 0, 0, 0.015) 1px, transparent 1px)`,
           backgroundSize: '40px 40px',
+          maskImage: 'radial-gradient(ellipse at center, black 40%, transparent 100%)',
+          WebkitMaskImage: 'radial-gradient(ellipse at center, black 40%, transparent 100%)',
         }}
       />
 
@@ -101,10 +112,12 @@ export default function TechBackground() {
       <m.div
         style={{
           position: 'absolute',
-          inset: '-20px',
+          inset: '-50px',
           x: gridParallaxX,
           y: gridParallaxY,
-          backgroundImage: `linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px)`,
+          backgroundImage: isDark
+            ? `linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px)`
+            : `linear-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 0, 0, 0.03) 1px, transparent 1px)`,
           backgroundSize: '40px 40px',
           maskImage,
           WebkitMaskImage: maskImage,
@@ -112,9 +125,9 @@ export default function TechBackground() {
         }}
       />
 
-      {/* 3. Floating Organic Glows (Slow-panning Indigo, Cyan, Fuchsia) */}
-      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
-        {/* Glow 1 (Indigo) */}
+      {/* 3. Floating Organic Glows (Slow-panning theme-aware glows) */}
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', mixBlendMode: isDark ? 'screen' : 'multiply', opacity: isDark ? 1 : 0.6 }}>
+        {/* Glow 1 */}
         <m.div
           style={{
             position: 'absolute',
@@ -123,7 +136,9 @@ export default function TechBackground() {
             width: '600px',
             height: '600px',
             borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(99, 102, 241, 0.07) 0%, transparent 70%)',
+            background: isDark
+              ? 'radial-gradient(circle, rgba(99, 102, 241, 0.12) 0%, transparent 70%)'
+              : 'radial-gradient(circle, rgba(167, 139, 250, 0.15) 0%, transparent 70%)',
             filter: 'blur(100px)',
             willChange: 'transform',
           }}
@@ -139,7 +154,7 @@ export default function TechBackground() {
           }}
         />
 
-        {/* Glow 2 (Cyan) */}
+        {/* Glow 2 */}
         <m.div
           style={{
             position: 'absolute',
@@ -148,7 +163,9 @@ export default function TechBackground() {
             width: '500px',
             height: '500px',
             borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(6, 182, 212, 0.05) 0%, transparent 70%)',
+            background: isDark
+              ? 'radial-gradient(circle, rgba(6, 182, 212, 0.1) 0%, transparent 70%)'
+              : 'radial-gradient(circle, rgba(56, 189, 248, 0.12) 0%, transparent 70%)',
             filter: 'blur(100px)',
             willChange: 'transform',
           }}
@@ -164,7 +181,7 @@ export default function TechBackground() {
           }}
         />
 
-        {/* Glow 3 (Fuchsia) */}
+        {/* Glow 3 */}
         <m.div
           style={{
             position: 'absolute',
@@ -173,7 +190,9 @@ export default function TechBackground() {
             width: '550px',
             height: '550px',
             borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(217, 70, 239, 0.04) 0%, transparent 70%)',
+            background: isDark
+              ? 'radial-gradient(circle, rgba(217, 70, 239, 0.08) 0%, transparent 70%)'
+              : 'radial-gradient(circle, rgba(16, 185, 129, 0.08) 0%, transparent 70%)',
             filter: 'blur(110px)',
             willChange: 'transform',
           }}

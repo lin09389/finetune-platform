@@ -96,7 +96,7 @@ export const SwiftChecker: React.FC<SwiftCheckerProps> = ({ onStatusChange }) =>
           </div>
         )}
 
-        {status?.message && <div style={{ fontSize: 12, color: '#888' }}>{status.message}</div>}
+        {status?.message && <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{status.message}</div>}
 
         {!status?.available && (
           <Alert

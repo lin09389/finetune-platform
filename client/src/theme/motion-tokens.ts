@@ -5,21 +5,21 @@ import { Transition, Variants } from 'framer-motion';
  */
 export const duration = {
   instant: 0.1,
-  fast: 0.15,
-  base: 0.2,
-  smooth: 0.3,
-  slow: 0.5,
+  fast: 0.12,
+  base: 0.18,
+  smooth: 0.25,
+  slow: 0.4,
 };
 
 /**
  * 缓动曲线字典
  */
 export const easings = {
-  // 优雅的缓出 (减速)，适合进入动画
-  smoothOut: [0.16, 1, 0.3, 1] as [number, number, number, number],
-  // 缓入 (加速)，适合退出动画
-  smoothIn: [0.55, 0, 1, 0.45] as [number, number, number, number],
-  // 标准缓入缓出
+  // 顶级丝滑指数衰减，极速响应+柔和收尾
+  smoothOut: [0.23, 1, 0.32, 1] as [number, number, number, number],
+  // 快速干脆的退出，不拖泥带水
+  smoothIn: [0.75, 0, 0.25, 1] as [number, number, number, number],
+  // Apple风格标准缓动
   easeInOut: [0.65, 0, 0.35, 1] as [number, number, number, number],
 };
 
@@ -27,16 +27,20 @@ export const easings = {
  * 物理弹簧配置
  */
 export const springs = {
-  // 柔和无回弹
-  gentle: { type: 'spring' as const, stiffness: 200, damping: 25 },
-  // 标准物理感
-  base: { type: 'spring' as const, stiffness: 400, damping: 30 },
-  // Q弹活泼
-  bouncy: { type: 'spring' as const, stiffness: 500, damping: 20 },
-  // 强力按压反馈
-  tap: { type: 'spring' as const, stiffness: 400, damping: 17 },
+  // 柔和无回弹，提升跟手感
+  gentle: { type: 'spring' as const, stiffness: 250, damping: 28 },
+  // 标准物理感，减弱抖动
+  base: { type: 'spring' as const, stiffness: 350, damping: 35 },
+  // 丝滑 Q弹，降低生硬弹跳
+  bouncy: { type: 'spring' as const, stiffness: 450, damping: 22 },
+  // 极具质感的按压反馈
+  tap: { type: 'spring' as const, stiffness: 450, damping: 25 },
   // 3D 倾斜专用：极高阻尼，顺滑无回弹，模拟重物理惯性
   tilt: { type: 'spring' as const, stiffness: 120, damping: 25, mass: 1 },
+  // 极速干脆但无残影抖动
+  snappy: { type: 'spring' as const, stiffness: 600, damping: 35 },
+  // 磁吸效果的反馈
+  magnetic: { type: 'spring' as const, stiffness: 350, damping: 20, mass: 0.6 },
 };
 
 /**
@@ -52,6 +56,8 @@ export const transitions = {
   springGentle: springs.gentle as Transition,
   springBouncy: springs.bouncy as Transition,
   springTilt: springs.tilt as Transition,
+  springSnappy: springs.snappy as Transition,
+  springMagnetic: springs.magnetic as Transition,
 };
 
 /**
@@ -65,8 +71,8 @@ export const pageVariants: Variants = {
 
 export const buttonVariants: Variants = {
   initial: { scale: 1 },
-  hover: { scale: 1.03, y: -2, transition: springs.bouncy },
-  tap: { scale: 0.95, y: 0, transition: springs.tap },
+  hover: { scale: 1.02, y: -1, transition: springs.snappy },
+  tap: { scale: 0.96, y: 0, transition: springs.tap },
 };
 
 export const fadeVariants: Variants = {

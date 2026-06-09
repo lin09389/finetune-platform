@@ -350,7 +350,7 @@ export default function ModelHub() {
                   status={task.status === 'failed' ? 'exception' : 'active'}
                 />
                 {task.error && (
-                  <div style={{ color: '#ff4d4f', fontSize: 12, marginTop: 4 }}>{task.error}</div>
+                  <div style={{ color: 'var(--error)', fontSize: 12, marginTop: 4 }}>{task.error}</div>
                 )}
               </div>
             ))}

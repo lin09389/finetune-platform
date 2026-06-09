@@ -99,6 +99,14 @@ const AgentWorkspaceEditor: React.FC<AgentWorkspaceEditorProps> = ({
   );
   const showDiff = activeFile?.status === "modified" && typeof activeFile?.original === "string";
 
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; path: string } | null>(null);
+  useEffect(() => {
+    const handleClick = () => setContextMenu(null);
+    document.addEventListener("click", handleClick);
+    return () => document.removeEventListener("click", handleClick);
+  }, []);
+
+
   // In diff-review mode the editor is always read-only; for normal files allow editing
   const isEditableMode = Boolean(activeFile && !showDiff);
 
@@ -194,6 +202,7 @@ const AgentWorkspaceEditor: React.FC<AgentWorkspaceEditorProps> = ({
   // Track dirty (unsaved) content for the active file
   const [dirtyContent, setDirtyContent] = useState<Record<string, string>>({});
   const [savingPath, setSavingPath] = useState<string | null>(null);
+  const savingPathRef = useRef<string | null>(null);
 
   // Reset dirty state when active file changes
   useEffect(() => {
@@ -213,8 +222,10 @@ const AgentWorkspaceEditor: React.FC<AgentWorkspaceEditorProps> = ({
 
   const handleSave = useCallback(async () => {
     if (!activeFile || !onSave) return;
+    if (savingPathRef.current === activeFile.path) return;
     const content = dirtyContent[activeFile.path] ?? activeFile.content ?? "";
     setSavingPath(activeFile.path);
+    savingPathRef.current = activeFile.path;
     try {
       await onSave(activeFile.path, content);
       // Clear dirty state after successful save
@@ -225,6 +236,7 @@ const AgentWorkspaceEditor: React.FC<AgentWorkspaceEditorProps> = ({
       });
     } finally {
       setSavingPath(null);
+      savingPathRef.current = null;
     }
   }, [activeFile, dirtyContent, onSave]);
 
@@ -269,18 +281,29 @@ const AgentWorkspaceEditor: React.FC<AgentWorkspaceEditorProps> = ({
         }
         return;
       }
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
       const tag = (document.activeElement as HTMLElement)?.tagName?.toLowerCase();
       if (tag === "input" || tag === "textarea") return;
+
       const hk = currentHunkRef.current;
       const af = activeFileRef.current;
       const len = hunksLenRef.current;
-      if (e.key === "]") { e.preventDefault(); if (len > 0) setCurrentHunkIdx((i) => Math.min(i + 1, len - 1)); }
-      else if (e.key === "[") { e.preventDefault(); if (len > 0) setCurrentHunkIdx((i) => Math.max(i - 1, 0)); }
-      else if (e.key === "a" && hk?.status === "pending" && af) { onAcceptHunkRef.current?.(af.path, hk.id); }
-      else if (e.key === "r" && hk?.status === "pending" && af) { onRejectHunkRef.current?.(af.path, hk.id); }
-      else if (e.key === "A" && af && len > 0) { onAcceptAllRef.current?.(af.path); }
-      else if (e.key === "R" && af && len > 0) { onRejectAllRef.current?.(af.path); }
+      const key = e.key.toLowerCase();
+
+      // Use Alt key for IDE shortcuts to prevent clashes
+      if (e.altKey) {
+        if (e.key === "ArrowDown") { e.preventDefault(); if (len > 0) setCurrentHunkIdx((i) => Math.min(i + 1, len - 1)); }
+        else if (e.key === "ArrowUp") { e.preventDefault(); if (len > 0) setCurrentHunkIdx((i) => Math.max(i - 1, 0)); }
+        else if (key === "a" && hk?.status === "pending" && af) {
+          e.preventDefault();
+          if (e.shiftKey) { onAcceptAllRef.current?.(af.path); }
+          else { onAcceptHunkRef.current?.(af.path, hk.id); }
+        }
+        else if (key === "r" && hk?.status === "pending" && af) {
+          e.preventDefault();
+          if (e.shiftKey) { onRejectAllRef.current?.(af.path); }
+          else { onRejectHunkRef.current?.(af.path, hk.id); }
+        }
+      }
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
@@ -296,7 +319,20 @@ const AgentWorkspaceEditor: React.FC<AgentWorkspaceEditorProps> = ({
   const handleDiffEditorMount = useCallback((editor: any) => { diffEditorRef.current = editor; }, []);
 
   const handleTabKeyDown = useCallback(
-    (e: React.KeyboardEvent, path: string) => { if (e.key === "Enter" || e.key === " ") onTabChange(path); },
+    (e: React.KeyboardEvent, path: string, index: number) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onTabChange(path);
+      } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+        e.preventDefault();
+        const nextTab = document.getElementById(`agent-tab-${index + 1}`);
+        if (nextTab) nextTab.focus();
+      } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const prevTab = document.getElementById(`agent-tab-${index - 1}`);
+        if (prevTab) prevTab.focus();
+      }
+    },
     [onTabChange],
   );
   const handleCloseKeyDown = useCallback(
@@ -317,17 +353,21 @@ const AgentWorkspaceEditor: React.FC<AgentWorkspaceEditorProps> = ({
     <div className={styles.editorWrap}>
       {/* ── Tab bar ────────────────────────────────────────── */}
       <div className={styles.tabBar} role="tablist" aria-label="已打开的文件">
-        {openedFiles.map((file) => {
+        {openedFiles.map((file, index) => {
           const isActive = file.path === activeFile?.path;
           const hasPending = file.hunks?.some((h) => h.status === "pending") ?? false;
           const fileIsDirty = file.path in dirtyContent;
           const icon = getFileIcon(file.name);
           const isText = isTextIcon(icon.icon);
           return (
-            <div key={file.path} role="tab" aria-selected={isActive} tabIndex={isActive ? 0 : -1}
+            <div key={file.path} id={`agent-tab-${index}`} role="tab" aria-selected={isActive} tabIndex={isActive ? 0 : -1}
               className={`${styles.tab} ${isActive ? styles.tabActive : ""}`}
               onClick={() => onTabChange(file.path)}
-              onKeyDown={(e) => handleTabKeyDown(e, file.path)}
+              onKeyDown={(e) => handleTabKeyDown(e, file.path, index)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setContextMenu({ x: e.clientX, y: e.clientY, path: file.path });
+              }}
             >
               <span
                 className={isText ? styles.iconBadge : styles.iconEmoji}
@@ -390,11 +430,11 @@ const AgentWorkspaceEditor: React.FC<AgentWorkspaceEditorProps> = ({
           {pendingCount > 0 && activeFile && (
             <div className={styles.reviewBulkActions}>
               <button type="button" className={`${styles.bulkBtn} ${styles.bulkAcceptBtn}`}
-                onClick={() => onAcceptAll?.(activeFile.path)} aria-label="接受全部 hunk" title="Accept All (Shift+A)">
+                onClick={() => onAcceptAll?.(activeFile.path)} aria-label="接受全部 hunk" title="Accept All (Alt+Shift+A)">
                 ✓ All
               </button>
               <button type="button" className={`${styles.bulkBtn} ${styles.bulkRejectBtn}`}
-                onClick={() => onRejectAll?.(activeFile.path)} aria-label="拒绝全部 hunk" title="Reject All (Shift+R)">
+                onClick={() => onRejectAll?.(activeFile.path)} aria-label="拒绝全部 hunk" title="Reject All (Alt+Shift+R)">
                 ✗ All
               </button>
             </div>
@@ -445,7 +485,7 @@ const AgentWorkspaceEditor: React.FC<AgentWorkspaceEditorProps> = ({
             {currentHunk && (
               <span className={styles.hunkNavStatus} data-status={currentHunk.status}>{currentHunk.status}</span>
             )}
-            <span className={styles.hunkNavHints}>[/] navigate · a/r accept/reject · A/R all</span>
+            <span className={styles.hunkNavHints}>Alt+↑/↓ navigate · Alt+A/R accept/reject · Alt+Shift+A/R all</span>
           </div>
           <div className={styles.hunkNavActions}>
             <button type="button" className={styles.hunkNavBtn}
@@ -458,13 +498,34 @@ const AgentWorkspaceEditor: React.FC<AgentWorkspaceEditorProps> = ({
             <button type="button" className={`${styles.hunkNavBtn} ${styles.hunkAcceptBtn}`}
               disabled={!currentHunk || currentHunk.status !== "pending"}
               onClick={() => currentHunk && onAcceptHunk?.(activeFile!.path, currentHunk.id)} aria-label="接受当前 hunk"
-            >✓ Accept <kbd className={styles.kbdHint}>a</kbd></button>
+            >✓ Accept <kbd className={styles.kbdHint}>Alt+A</kbd></button>
             <button type="button" className={`${styles.hunkNavBtn} ${styles.hunkRejectBtn}`}
               disabled={!currentHunk || currentHunk.status !== "pending"}
               onClick={() => currentHunk && onRejectHunk?.(activeFile!.path, currentHunk.id)} aria-label="拒绝当前 hunk"
-            >✗ Reject <kbd className={styles.kbdHint}>r</kbd></button>
+            >✗ Reject <kbd className={styles.kbdHint}>Alt+R</kbd></button>
           </div>
         </div>
+      )}
+
+      {/* ── Context Menu ───────────────────────────────────── */}
+      {contextMenu && (
+        <ul
+          className={styles.contextMenu}
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <li onClick={() => { onTabClose(contextMenu.path); setContextMenu(null); }}>关闭当前</li>
+          <li onClick={() => {
+            openedFiles.forEach(f => {
+              if (f.path !== contextMenu.path) onTabClose(f.path);
+            });
+            setContextMenu(null);
+          }}>关闭其他</li>
+          <li onClick={() => {
+            openedFiles.forEach(f => onTabClose(f.path));
+            setContextMenu(null);
+          }}>关闭所有</li>
+        </ul>
       )}
 
       {/* ── Editor area ────────────────────────────────────── */}

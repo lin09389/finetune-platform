@@ -812,3 +812,25 @@
 :global(.light-theme) .statusBarSep {
   background: rgba(0, 0, 0, 0.08);
 }
+.contextMenu {
+  position: fixed;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  padding: 4px 0;
+  margin: 0;
+  list-style: none;
+  z-index: 1000;
+  min-width: 140px;
+}
+.contextMenu li {
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.contextMenu li:hover {
+  background: var(--accent-primary);
+  color: #fff;
+}

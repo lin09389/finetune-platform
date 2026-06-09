@@ -198,7 +198,7 @@ const StepProgress: React.FC<StepProgressProps> = memo(({ steps, currentStep }) 
                     borderRadius: '50%',
                     background: config.bgColor,
                     border: `2px solid ${config.borderColor}`,
-                    color: step.status === 'pending' ? config.color : '#fff',
+                    color: step.status === 'pending' ? config.color : 'var(--text-inverse)',
                     flexShrink: 0,
                   }}
                 >

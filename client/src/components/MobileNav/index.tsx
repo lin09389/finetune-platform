@@ -148,7 +148,7 @@ const MobileNav: React.FC = () => {
                   alignItems: 'center',
                   justifyContent: 'center',
                   fontSize: 18,
-                  color: '#fff',
+                  color: 'var(--text-inverse)',
                 }}
               >
                 <ThunderboltOutlined />

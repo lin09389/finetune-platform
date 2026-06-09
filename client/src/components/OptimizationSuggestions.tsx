@@ -38,13 +38,13 @@ interface OptimizationSuggestionsProps {
 const getTypeIcon = (type: string) => {
   switch (type) {
     case 'performance':
-      return <ThunderboltOutlined style={{ color: '#faad14' }} />;
+      return <ThunderboltOutlined style={{ color: 'var(--warning)' }} />;
     case 'memory':
-      return <DashboardOutlined style={{ color: '#1890ff' }} />;
+      return <DashboardOutlined style={{ color: 'var(--accent-primary)' }} />;
     case 'quality':
-      return <SafetyOutlined style={{ color: '#52c41a' }} />;
+      return <SafetyOutlined style={{ color: 'var(--success)' }} />;
     default:
-      return <BulbOutlined style={{ color: '#722ed1' }} />;
+      return <BulbOutlined style={{ color: 'var(--accent-tertiary)' }} />;
   }
 };
 

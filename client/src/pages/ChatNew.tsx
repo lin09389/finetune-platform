@@ -43,6 +43,7 @@ import {
   classifyChatAgentIntent,
   createAgentSession,
   decideAgentPermission,
+  extractApiErrorMessage,
   getArtifactOriginal,
   getAgentSession,
   getAgentSessionOverview,
@@ -147,7 +148,7 @@ const STARTER_IDEAS = [
 const sectionMotion = {
   initial: { opacity: 0, y: 8 },
   animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.26, ease: [0.16, 1, 0.3, 1] as const },
+  transition: { duration: 0.26, ease: [0.23, 1, 0.32, 1] as const },
 };
 
 interface StoredChatScrollState {
@@ -1630,12 +1631,7 @@ if (existing) {
         return true;
       } catch (error: any) {
         const isTimeout = error?.message === 'create_session_timeout' || error?.message === 'prompt_session_timeout';
-        const detail = isTimeout
-          ? '服务器响应超时，请稍后重试'
-          : error?.response?.data?.detail?.message ||
-            error?.response?.data?.detail ||
-            error?.message ||
-            'Agent 工作启动失败';
+        const detail = isTimeout ? '服务器响应超时，请稍后重试' : extractApiErrorMessage(error, 'Agent 工作启动失败');
         const fallback = `Agent 工作启动失败：${detail}`;
         notify.error(fallback);
         await appendAgentSessionError(fallback, agentSession || {
@@ -2531,7 +2527,7 @@ if (existing) {
         return next.slice(0, 10);
       });
     } catch (err: any) {
-      notify.error(`打开文件失败: ${err?.response?.data?.detail || err?.message || '未知错误'}`);
+      notify.error(`打开文件失败: ${extractApiErrorMessage(err, '未知错误')}`);
     }
   }, [openedFiles, workspaceTreeRoot, effectiveProjectPath]);
 
@@ -2560,7 +2556,7 @@ if (existing) {
       });
       notify.success(`已保存: ${filePath.split('/').pop() || filePath}`);
     } catch (err: any) {
-      notify.error(`保存失败: ${err?.response?.data?.detail || err?.message || '未知错误'}`);
+      notify.error(`保存失败: ${extractApiErrorMessage(err, '未知错误')}`);
       throw err;
     }
   }, [effectiveProjectPath]);

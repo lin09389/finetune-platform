@@ -274,7 +274,7 @@ const CheckpointsSection = ({
           >
             <div className={styles.snapshotStep}>
               步数 {cp.step}
-              {!cp.valid && <span style={{ marginLeft: 6, fontSize: 10, color: '#ff6b6b' }}>无效</span>}
+              {!cp.valid && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--error)' }}>无效</span>}
             </div>
             <div className={styles.snapshotMetrics}>
               {cp.metadata?.loss != null ? `Loss: ${Number(cp.metadata.loss).toFixed(4)}` : '--'}

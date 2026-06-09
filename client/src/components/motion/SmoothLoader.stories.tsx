@@ -28,14 +28,14 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {
   args: {
     size: 'md',
-    color: '#3b82f6',
+    color: 'var(--accent-primary)',
   },
 };
 
 export const Small: Story = {
   args: {
     size: 'sm',
-    color: '#10b981',
+    color: 'var(--success)',
   },
 };
 

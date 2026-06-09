@@ -562,7 +562,7 @@ export default function Evaluation() {
                       <Tag color="blue" style={{ marginLeft: 8 }}>{getScenarioLabel(run.scenario)}</Tag>
                     {run.status === 'completed' && run.adapter_merge && (
                       <MotionButton>
-                        <Button icon={<CloudUploadOutlined />} onClick={openDeployment} style={{ background: 'rgba(255, 255, 255, 0.1)', color: '#fff', border: 'none' }}>
+                        <Button icon={<CloudUploadOutlined />} onClick={openDeployment} style={{ background: 'var(--glass-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
                             部署到测试环境
                         </Button>
                       </MotionButton>
@@ -761,7 +761,7 @@ export default function Evaluation() {
             onFinish={handleCreateRun}
         >
             <div style={{ fontWeight: 600, marginBottom: 20, fontSize: 16, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 24, height: 24, background: 'var(--accent-primary)', color: '#000', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>1</div>
+                <div style={{ width: 24, height: 24, background: 'var(--accent-primary)', color: 'var(--text-inverse)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>1</div>
                 模型与场景配置
             </div>
             <Form.Item name="scenario" label="应用目标" rules={[{ required: true }]}>
@@ -831,7 +831,7 @@ export default function Evaluation() {
 
             <div style={{ fontWeight: 600, marginBottom: 20, fontSize: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--accent-primary)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ width: 24, height: 24, background: 'var(--accent-primary)', color: '#000', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>2</div>
+                    <div style={{ width: 24, height: 24, background: 'var(--accent-primary)', color: 'var(--text-inverse)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>2</div>
                     测试内容
                 </div>
                 <Segmented

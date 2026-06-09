@@ -5,7 +5,7 @@ import { useReducedMotion } from 'framer-motion';
 // ====================================================
 
 export const SPRING = { type: 'spring' as const, stiffness: 400, damping: 28 };
-export const EASE_OUT = [0.16, 1, 0.3, 1] as const;
+export const EASE_OUT = [0.23, 1, 0.32, 1] as const;
 
 /** 容器：stagger 子项入场 */
 export const containerVariants = (stagger = 0.07) => ({
@@ -58,7 +58,7 @@ export const rowVariants = (i: number) => ({
 });
 
 /** 数字计数动画配置 */
-export const countTransition = { duration: 1.2, ease: [0.16, 1, 0.3, 1] as const };
+export const countTransition = { duration: 1.2, ease: [0.23, 1, 0.32, 1] as const };
 
 /**
  * useMotion — 返回是否应跳过动画（prefers-reduced-motion）

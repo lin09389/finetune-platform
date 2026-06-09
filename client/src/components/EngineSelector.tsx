@@ -98,7 +98,7 @@ const EngineSelector: React.FC<EngineSelectorProps> = ({
                   {engine.name}
                 </Space>
               </div>
-              <div style={{ fontSize: 12, color: '#999' }}>{engine.description}</div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{engine.description}</div>
               <div style={{ marginTop: 8 }}>
                 {engine.features.map((feature) => (
                   <Tag key={feature} style={{ marginBottom: 4 }}>
@@ -142,7 +142,7 @@ const EngineSelector: React.FC<EngineSelectorProps> = ({
         </Descriptions>
       )}
 
-      <div style={{ marginTop: 16, fontSize: 12, color: '#666' }}>
+      <div style={{ marginTop: 16, fontSize: 12, color: 'var(--text-secondary)' }}>
         <div style={{ marginBottom: 8 }}>
           <strong>引擎说明：</strong>
         </div>

@@ -1,6 +1,6 @@
 import { Button, Empty, Spin, Tag, Typography } from 'antd';
 import { useState } from 'react';
-import { readAgentMemoryFile, type AgentMemoryFile } from '../../services/api';
+import { extractApiErrorMessage, readAgentMemoryFile, type AgentMemoryFile } from '../../services/api';
 import type { AgentWorkspaceRuntimeContext } from '../../services/api';
 import styles from './AgentWorkspacePanels.module.css';
 
@@ -26,7 +26,7 @@ export default function AgentRuntimePanel({ runtime, sessionId }: AgentRuntimePa
       const file = await readAgentMemoryFile(sessionId, path);
       setSelectedMemoryFile(file);
     } catch (error: any) {
-      setMemoryError(error?.response?.data?.detail || error?.message || '读取 memory 文件失败');
+      setMemoryError(extractApiErrorMessage(error, '读取 memory 文件失败'));
     } finally {
       setLoadingMemoryPath(null);
     }

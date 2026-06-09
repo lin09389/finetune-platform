@@ -14,7 +14,7 @@ const pageVariants = {
 
 const pageTransition = {
   duration: 0.3,
-  ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
+  ease: [0.23, 1, 0.32, 1] as [number, number, number, number],
 };
 
 const AnimatedLayout: React.FC<AnimatedLayoutProps> = ({ children, animationKey }) => {

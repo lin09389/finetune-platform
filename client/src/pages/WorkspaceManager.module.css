@@ -25,12 +25,12 @@
   width: 44px;
   height: 44px;
   border-radius: var(--radius-md);
-  background: linear-gradient(135deg, #f59e0b, #f97316);
+  background: linear-gradient(135deg, var(--warning), var(--warning));
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 20px;
-  color: #fff;
+  color: var(--text-primary);
   flex-shrink: 0;
   box-shadow: 0 10px 24px rgba(249, 115, 22, 0.18);
 }
@@ -87,13 +87,13 @@
 }
 
 .wsCard:hover {
-  border-color: var(--accent-blue, #1677ff);
+  border-color: var(--accent-blue);
   box-shadow: 0 6px 20px rgba(22, 119, 255, 0.08);
   transform: translateY(-3px);
 }
 
 .wsCardActive {
-  border-color: var(--accent-blue, #1677ff) !important;
+  border-color: var(--accent-blue) !important;
   background: rgba(22, 119, 255, 0.04) !important;
   box-shadow: 0 8px 24px rgba(22, 119, 255, 0.12) !important;
   position: relative;
@@ -107,7 +107,7 @@
   left: 0;
   right: 0;
   height: 4px;
-  background: linear-gradient(90deg, #1677ff, #06b6d4);
+  background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
 }
 
 .wsCardTitle {
@@ -121,7 +121,7 @@
 }
 
 .wsIcon {
-  color: #1677ff;
+  color: var(--accent-primary);
 }
 
 .wsDesc {

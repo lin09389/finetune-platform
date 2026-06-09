@@ -159,7 +159,7 @@
 
 .btnDanger {
   background: rgba(255, 77, 79, 0.1);
-  color: #f87171;
+  color: var(--error);
   border: 1px solid rgba(255, 77, 79, 0.3);
 }
 
@@ -223,7 +223,7 @@ table.dataTable tbody td {
 
 .tagBlue {
   background: rgba(99, 102, 241, 0.15);
-  color: #818cf8;
+  color: var(--accent-primary);
   border: 1px solid rgba(99, 102, 241, 0.3);
 }
 .tagGray {
@@ -247,11 +247,11 @@ table.dataTable tbody td {
   flex-shrink: 0;
 }
 .dotGreen {
-  background: #4ade80;
+  background: var(--success);
   box-shadow: 0 0 6px rgba(74, 222, 128, 0.5);
 }
 .dotGray {
-  background: #6b7280;
+  background: var(--text-secondary);
 }
 
 /* Switch (disabled view) */
@@ -283,7 +283,7 @@ table.dataTable tbody td {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--bg-elevated);
   top: 3px;
   transition: left 0.2s;
 }
@@ -312,7 +312,7 @@ table.dataTable tbody td {
 }
 
 .progressFillGood {
-  background: #4ade80;
+  background: var(--success);
 }
 
 .progressLabel {
@@ -343,7 +343,7 @@ table.dataTable tbody td {
 }
 .iconBtnDanger:hover {
   background: rgba(255, 77, 79, 0.12);
-  color: #f87171;
+  color: var(--error);
 }
 
 /* Modal */
@@ -434,7 +434,7 @@ table.dataTable tbody td {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--bg-elevated);
   top: 3px;
   left: 3px;
   transition: transform 0.2s;
@@ -461,7 +461,7 @@ table.dataTable tbody td {
 
 .btnPrimary {
   background: var(--primary);
-  color: #fff;
+  color: var(--text-primary);
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -475,7 +475,7 @@ table.dataTable tbody td {
 }
 
 .btnPrimary:hover {
-  background: var(--primary-hover, #5558e8);
+  background: var(--primary-hover);
 }
 
 .closeBtn {

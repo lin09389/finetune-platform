@@ -168,23 +168,23 @@ const FeedbackPanel: React.FC = () => {
   };
 
   const feedbackTypeOptions = [
-    { value: 'positive', label: '正面反馈', icon: <LikeOutlined style={{ color: '#52c41a' }} /> },
+    { value: 'positive', label: '正面反馈', icon: <LikeOutlined style={{ color: 'var(--success)' }} /> },
     {
       value: 'negative',
       label: '负面反馈',
-      icon: <DislikeOutlined style={{ color: '#ff4d4f' }} />,
+      icon: <DislikeOutlined style={{ color: 'var(--error)' }} />,
     },
     { value: 'neutral', label: '中性反馈', icon: <CommentOutlined /> },
-    { value: 'bug_report', label: '错误报告', icon: <BugOutlined style={{ color: '#faad14' }} /> },
+    { value: 'bug_report', label: '错误报告', icon: <BugOutlined style={{ color: 'var(--warning)' }} /> },
     {
       value: 'feature_request',
       label: '功能请求',
-      icon: <BulbOutlined style={{ color: '#1890ff' }} />,
+      icon: <BulbOutlined style={{ color: 'var(--accent-primary)' }} />,
     },
     {
       value: 'improvement',
       label: '改进建议',
-      icon: <BulbOutlined style={{ color: '#722ed1' }} />,
+      icon: <BulbOutlined style={{ color: 'var(--accent-tertiary)' }} />,
     },
   ];
 
@@ -228,14 +228,14 @@ const FeedbackPanel: React.FC = () => {
               <Statistic
                 title="正面反馈"
                 value={stats.positive_count}
-                valueStyle={{ color: '#52c41a' }}
+                valueStyle={{ color: 'var(--success)' }}
               />
             </Col>
             <Col span={4}>
               <Statistic
                 title="负面反馈"
                 value={stats.negative_count}
-                valueStyle={{ color: '#ff4d4f' }}
+                valueStyle={{ color: 'var(--error)' }}
               />
             </Col>
             <Col span={4}>
@@ -395,7 +395,7 @@ const FeedbackPanel: React.FC = () => {
                         title={`${item.action || '通用反馈'} - ${item.rating} 星`}
                         description={item.comment || '无详细内容'}
                       />
-                      <div style={{ fontSize: '12px', color: '#999' }}>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                         {new Date(item.timestamp).toLocaleString()}
                       </div>
                     </List.Item>
@@ -424,7 +424,7 @@ const FeedbackPanel: React.FC = () => {
                         }
                         description={item.comment || `操作: ${item.action}`}
                       />
-                      <div style={{ fontSize: '12px', color: '#999' }}>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                         {new Date(item.timestamp).toLocaleString()}
                       </div>
                     </List.Item>
@@ -448,7 +448,7 @@ const FeedbackPanel: React.FC = () => {
                         title={item.suggestion}
                         description={`相关操作: ${item.action || '无'}`}
                       />
-                      <div style={{ fontSize: '12px', color: '#999' }}>
+                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                         {new Date(item.timestamp).toLocaleString()}
                       </div>
                     </List.Item>

@@ -30,6 +30,7 @@
 .ant-btn-primary {
   background: var(--text-primary);
   border-color: var(--text-primary);
+  color: var(--text-inverse) !important;
   box-shadow: none;
 }
 
@@ -123,12 +124,13 @@
 .ant-btn-dangerous.ant-btn-primary {
   background: var(--error);
   border-color: var(--error);
+  color: #ffffff !important;
 }
 
 .ant-btn-dangerous.ant-btn-primary:hover {
   background: var(--error-dark);
   border-color: var(--error-dark);
-  color: var(--text-inverse);
+  color: #ffffff !important;
 }
 
 .ant-btn-dangerous.ant-btn-default {

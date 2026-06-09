@@ -241,7 +241,7 @@ const SharedChatPage: React.FC = () => {
         style={{
           textAlign: 'center',
           marginTop: 24,
-          color: '#999',
+          color: 'var(--text-secondary)',
           fontSize: 12,
         }}
       >

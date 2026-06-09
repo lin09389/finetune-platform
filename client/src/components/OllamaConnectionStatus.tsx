@@ -26,14 +26,14 @@ export const OllamaConnectionStatus: React.FC<OllamaConnectionStatusProps> = ({
   const getStatusIcon = () => {
     switch (status) {
       case 'connected':
-        return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
+        return <CheckCircleOutlined style={{ color: 'var(--success)' }} />;
       case 'connecting':
-        return <LoadingOutlined style={{ color: '#1890ff' }} />;
+        return <LoadingOutlined style={{ color: 'var(--accent-primary)' }} />;
       case 'error':
-        return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
+        return <CloseCircleOutlined style={{ color: 'var(--error)' }} />;
       case 'disconnected':
       default:
-        return <WarningOutlined style={{ color: '#faad14' }} />;
+        return <WarningOutlined style={{ color: 'var(--warning)' }} />;
     }
   };
 

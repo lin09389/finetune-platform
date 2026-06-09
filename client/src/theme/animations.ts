@@ -1,10 +1,10 @@
 import { Transition, Variants } from 'framer-motion';
 
 export const transitions = {
-  fast: { duration: 0.14, ease: [0.16, 1, 0.3, 1] } as Transition,
-  base: { duration: 0.22, ease: [0.16, 1, 0.3, 1] } as Transition,
-  slow: { duration: 0.34, ease: [0.16, 1, 0.3, 1] } as Transition,
-  slower: { duration: 0.52, ease: [0.16, 1, 0.3, 1] } as Transition,
+  fast: { duration: 0.14, ease: [0.23, 1, 0.32, 1] } as Transition,
+  base: { duration: 0.22, ease: [0.23, 1, 0.32, 1] } as Transition,
+  slow: { duration: 0.34, ease: [0.23, 1, 0.32, 1] } as Transition,
+  slower: { duration: 0.52, ease: [0.23, 1, 0.32, 1] } as Transition,
   spring: { type: 'spring', stiffness: 320, damping: 28 } as Transition,
   springGentle: { type: 'spring', stiffness: 220, damping: 26 } as Transition,
   springBouncy: { type: 'spring', stiffness: 460, damping: 22 } as Transition,
@@ -16,7 +16,7 @@ export const messageVariants: Variants = {
   },
   animate: {
     opacity: 1,
-    transition: { duration: 0.15, ease: [0.16, 1, 0.3, 1] },
+    transition: { duration: 0.15, ease: [0.23, 1, 0.32, 1] },
   },
   exit: {
     opacity: 0,

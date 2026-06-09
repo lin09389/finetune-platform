@@ -165,7 +165,7 @@ const VirtualizedMessageList: React.FC<VirtualizedMessageListProps> = ({
             right: 10,
             float: 'right',
             background: 'rgba(0,0,0,0.6)',
-            color: '#fff',
+            color: 'var(--text-inverse)',
             padding: '4px 8px',
             borderRadius: 4,
             fontSize: 12,

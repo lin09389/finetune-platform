@@ -247,7 +247,6 @@ const createAxiosInstance = (): AxiosInstance => {
 
   // GET 请求白名单（缓存和防并发）
   const CACHEABLE_GET_URLS = [
-    '/digital-team/templates',
     '/model-center/suggestions',
     '/model-center/source',
   ];
@@ -450,77 +449,6 @@ export const requestManager = {
   getActiveRequestCount(): number {
     return connectionPool.getActiveCount();
   },
-};
-
-// Digital Team APIs
-export interface DigitalTeamProjectCreate {
-  title: string;
-  goal: string;
-  template_id?: string;
-  project_path?: string;
-  provider?: string;
-  model?: string;
-  approval_mode?: string;
-}
-
-export const getDigitalTeamTemplates = async () => {
-  const url = '/digital-team/templates';
-  const cacheKey = url;
-  const cached = getCacheMap.get(cacheKey);
-  
-  if (cached && Date.now() - cached.timestamp < GET_CACHE_TTL && cached.promise) {
-    return cached.promise;
-  }
-  
-  const promise = apiClient.get(url).then(res => responseData(res));
-  getCacheMap.set(cacheKey, { timestamp: Date.now(), data: null, promise });
-  return promise;
-};
-
-export const createDigitalTeamProject = async (payload: DigitalTeamProjectCreate) => {
-  const response = await apiClient.post('/digital-team/projects', payload);
-  return response.data;
-};
-
-export const getDigitalTeamProjects = async () => {
-  const response = await apiClient.get('/digital-team/projects');
-  return response.data;
-};
-
-export const getDigitalTeamProject = async (projectId: string) => {
-  const response = await apiClient.get(`/digital-team/projects/${projectId}`);
-  return response.data;
-};
-
-export const runDigitalTeamProject = async (projectId: string) => {
-  const response = await apiClient.post(`/digital-team/projects/${projectId}/run`);
-  return response.data;
-};
-
-export const approveDigitalTeamTask = async (
-  taskId: string,
-  payload: { approved?: boolean; comment?: string } = {},
-) => {
-  const response = await apiClient.post(`/digital-team/tasks/${taskId}/approve`, {
-    approved: payload.approved ?? true,
-    comment: payload.comment,
-  });
-  return response.data;
-};
-
-export const retryDigitalTeamTask = async (taskId: string) => {
-  const response = await apiClient.post(`/digital-team/tasks/${taskId}/retry`);
-  return response.data;
-};
-
-export const getDigitalTeamTimeline = async (projectId: string) => {
-  const response = await apiClient.get(`/digital-team/projects/${projectId}/timeline`);
-  return response.data;
-};
-
-export const getDigitalTeamArtifacts = async (projectId: string) => {
-  const response = await apiClient.get(`/digital-team/projects/${projectId}/artifacts`);
-  return response.data;
 };
 
 export interface ChatAgentIntentRequest {
@@ -1541,6 +1469,23 @@ export const getModelSuggestions = async () => {
 };
 
 const responseData = (res: any) => res.data;
+
+export const extractApiErrorMessage = (error: any, fallback = '请求失败'): string => {
+  const data = error?.response?.data;
+  const candidates = [
+    data?.error?.message,
+    data?.detail?.message,
+    data?.detail,
+    data?.message,
+    error?.message,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  return fallback;
+};
 
 // Get local model list.
 export const getLocalModels = async () => {

@@ -30,14 +30,14 @@ const getTypeConfig = (type: string) => {
   switch (type) {
     case 'success':
       return {
-        color: '#10b981',
+        color: 'var(--success)',
         bgColor: '#d1fae5',
         icon: <CheckCircleOutlined />,
         label: '成功',
       };
     case 'warning':
       return {
-        color: '#f59e0b',
+        color: 'var(--warning)',
         bgColor: '#fef3c7',
         icon: <ExclamationCircleOutlined />,
         label: '警告',
@@ -51,7 +51,7 @@ const getTypeConfig = (type: string) => {
       };
     default:
       return {
-        color: '#3b82f6',
+        color: 'var(--accent-primary)',
         bgColor: '#dbeafe',
         icon: <InfoCircleOutlined />,
         label: '通知',
@@ -265,7 +265,7 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
                         icon={config.icon}
                         style={{
                           background: config.color,
-                          color: '#fff',
+                          color: 'var(--text-inverse)',
                         }}
                       />
                     }

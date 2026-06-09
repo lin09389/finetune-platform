@@ -14,6 +14,8 @@ export interface InteractiveButtonProps extends Omit<HTMLMotionProps<'button'>, 
   variant?: 'primary' | 'secondary' | 'glass' | 'ghost';
   /** 是否禁用 */
   disabled?: boolean;
+  /** 是否启用磁吸效果 */
+  magnetic?: boolean;
 }
 
 /**
@@ -27,6 +29,7 @@ export const InteractiveButton = forwardRef<HTMLButtonElement, InteractiveButton
       ripple = true,
       variant = 'primary',
       disabled = false,
+      magnetic = false,
       className = '',
       ...props
     },
@@ -34,6 +37,17 @@ export const InteractiveButton = forwardRef<HTMLButtonElement, InteractiveButton
   ) => {
     const { getSafeVariants, shouldReduceMotion } = useMotionConfig();
     const [ripples, setRipples] = useState<{ x: number; y: number; id: number }[]>([]);
+
+    // Magnetic effect state
+    const [position, setPosition] = useState({ x: 0, y: 0 });
+    const buttonRef = React.useRef<HTMLButtonElement | null>(null);
+
+    // Merge refs
+    const mergedRef = (node: HTMLButtonElement) => {
+      buttonRef.current = node;
+      if (typeof ref === 'function') ref(node);
+      else if (ref) (ref as React.MutableRefObject<HTMLButtonElement | null>).current = node;
+    };
 
     const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
       if (disabled) return;
@@ -56,6 +70,21 @@ export const InteractiveButton = forwardRef<HTMLButtonElement, InteractiveButton
       onClick?.(e);
     };
 
+    const handleMouseMove = (e: React.MouseEvent<HTMLButtonElement>) => {
+      if (!magnetic || disabled || shouldReduceMotion || !buttonRef.current) return;
+      const { clientX, clientY } = e;
+      const { left, top, width, height } = buttonRef.current.getBoundingClientRect();
+      const x = (clientX - (left + width / 2)) * 0.2;
+      const y = (clientY - (top + height / 2)) * 0.2;
+      setPosition({ x, y });
+    };
+
+    const handleMouseLeave = () => {
+      if (magnetic) {
+        setPosition({ x: 0, y: 0 });
+      }
+    };
+
     // 变体样式映射
     const variantStyles: Record<string, string> = {
       primary: 'bg-accent-primary text-white hover:bg-accent-secondary shadow-md',
@@ -71,14 +100,17 @@ export const InteractiveButton = forwardRef<HTMLButtonElement, InteractiveButton
 
     return (
       <motion.button
-        ref={ref}
+        ref={mergedRef}
         disabled={disabled}
         onClick={handleClick}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        animate={magnetic ? { x: position.x, y: position.y } : undefined}
         variants={getSafeVariants(buttonVariants)}
         initial="initial"
         whileHover={!disabled ? 'hover' : undefined}
         whileTap={!disabled ? 'tap' : undefined}
-        transition={springs.base}
+        transition={magnetic ? springs.magnetic : undefined}
         className={`${baseClasses} ${variantStyles[variant]} ${
           disabled ? disabledClasses : ''
         } ${className}`}

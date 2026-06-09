@@ -3,7 +3,7 @@
   height: calc(100vh - 64px);
   overflow-y: auto;
   background: var(--bg-pure-black);
-  color: #fff;
+  color: var(--text-primary);
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -47,7 +47,7 @@
   font-size: 16px;
   font-weight: 600;
   margin: 0;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .cardFormat {
@@ -140,7 +140,7 @@
 
 .actionBtn:hover {
   background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .actionBtn.danger:hover {
