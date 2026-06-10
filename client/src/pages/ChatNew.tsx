@@ -1,6 +1,6 @@
 import { Button, Drawer, Input, Modal, Tag, Tooltip } from 'antd';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
 
@@ -16,6 +16,8 @@ import { useChatStore } from '../store/chatStore';
 import { useAppStore } from '../store/appStore';
 import { useTheme } from '../theme';
 import { appModal } from '../utils/modal';
+import { useChatScrollPersistence } from './chatNew/useChatScrollPersistence';
+import { useAgentSessionStream } from './chatNew/useAgentSessionStream';
 
 import ChatHeader from '../components/chat/ChatHeader';
 import ChatContextPanel from '../components/chat/ChatContextPanel';
@@ -36,7 +38,6 @@ import ChatMessage from '../components/ChatMessage';
 import MemoryManager from '../components/MemoryManager';
 import APIKeyManager from '../pages/APIKeyManager';
 import { getAgentSessionUiState } from '../hooks/chat/useAgentSessionViewModel';
-import { buildAgentSessionStreamUrl, getAgentStreamRetryDelay } from '../utils/agentSessionStream';
 
 import { useRuntimeContext } from '../runtime/RuntimeContext';
 import {
@@ -59,180 +60,30 @@ import {
   writeWorkspaceFile,
   promptAgentSession,
 } from '../services/api';
-import type { ActiveFileContext, AgentArtifact, AgentHitlDecision, AgentInfo, AgentPart, AgentSession, AgentSessionEvent, AgentSessionOverview, AgentSkillSource, ExplicitContextMention, SavedCloudProvider, WorkspaceSummary, WorkspaceTreeNode } from '../services/api';
+import type { ActiveFileContext, AgentArtifact, AgentHitlDecision, AgentInfo, AgentPart, AgentSession, AgentSessionOverview, AgentSkillSource, ExplicitContextMention, SavedCloudProvider, WorkspaceSummary, WorkspaceTreeNode } from '../services/api';
 import { transitions } from '../theme/animations';
 import { notify } from '../utils/notify';
 import { ArrowDownOutlined, FolderOpenOutlined } from '@ant-design/icons';
 import styles from './ChatNew.module.css';
-
-interface APIKeyConfig {
-  provider: string;
-  api_key?: string;
-  key_id?: string;
-  model?: string;
-  group_id?: string;
-  base_url?: string;
-}
-
-const AGENT_MODEL_PROVIDER_ALIASES: Record<string, string> = {
-  anthropic: 'anthropic',
-  baseten: 'baseten',
-  deepseek: 'deepseek',
-  fireworks: 'fireworks',
-  'google-genai': 'google_genai',
-  google_genai: 'google_genai',
-  'google-vertexai': 'google_vertexai',
-  google_vertexai: 'google_vertexai',
-  ollama: 'ollama',
-  openai: 'openai',
-  openrouter: 'openrouter',
-};
-
-type AgentStreamRetryState = {
-  attempt: number;
-  timer: ReturnType<typeof setTimeout> | null;
-  lastEventId: string;
-};
-
-function resolveAgentModelConfig(params: {
-  useCloudAI: boolean;
-  cloudConfig: APIKeyConfig | null;
-  selectedCloudModel?: string;
-  localBackend?: string;
-  localModel?: string;
-}): { provider: string; model: string } {
-  const rawProvider = (params.useCloudAI ? params.cloudConfig?.provider || '' : params.localBackend || '').trim();
-  const rawModel = (params.useCloudAI ? params.selectedCloudModel || params.cloudConfig?.model || '' : params.localModel || '').trim();
-  if (!rawModel) {
-    throw new Error('Agent 需要先选择一个支持工具调用的模型。');
-  }
-  const colonIndex = rawModel.indexOf(':');
-  if (colonIndex > 0) {
-    const prefix = rawModel.slice(0, colonIndex);
-    const model = rawModel.slice(colonIndex + 1);
-    const provider = AGENT_MODEL_PROVIDER_ALIASES[prefix];
-    if (provider && model) {
-      return { provider, model };
-    }
-  }
-  const provider = AGENT_MODEL_PROVIDER_ALIASES[rawProvider];
-  if (!provider) {
-    throw new Error(`Agent 现在只支持官方 DeepAgents 模型 provider:model。当前服务商 ${rawProvider || '未选择'} 不能用于 Agent。`);
-  }
-  return { provider, model: rawModel };
-}
-
-const STARTER_IDEAS = [
-  {
-    title: '学习与规划',
-    desc: '帮我制定一个深度学习入门计划',
-    icon: '📚'
-  },
-  {
-    title: '模型微调',
-    desc: '如何进行大模型 QLoRA 微调？',
-    icon: '⚡'
-  },
-  {
-    title: '代码助理',
-    desc: '用 Python 写一个分布式爬虫示例',
-    icon: '💻'
-  },
-  {
-    title: '数据分析',
-    desc: '分析当前大语言模型的技术趋势',
-    icon: '📊'
-  }
-];
-
-const sectionMotion = {
-  initial: { opacity: 0, y: 8 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.26, ease: [0.23, 1, 0.32, 1] as const },
-};
-
-interface StoredChatScrollState {
-  topIndex: number;
-  atBottom: boolean;
-  updatedAt: string;
-}
-
-const CHAT_SCROLL_STORAGE_KEY = 'chat_scroll_positions_v1';
-const INTENT_ROUTING_TIMEOUT_MS = 8000;
-const CHAT_WORKSPACE_ID_STORAGE_KEY = 'chat_workspace_id_v1';
-const CHAT_PROJECT_PATH_STORAGE_KEY = 'chat_project_path_v1';
-const CHAT_WORKSPACE_EVENT = 'chat-workspace-change';
-const CHAT_SIDE_PANEL_WIDTH_STORAGE_KEY = 'chat_side_panel_width_v1';
-const CHAT_PANE_WIDTH_STORAGE_KEY = 'chat_chat_pane_width_v1';
-const CHAT_SIDE_PANEL_OPEN_STORAGE_KEY = 'chat_side_panel_open_v1';
-const CHAT_PANEL_OPEN_STORAGE_KEY = 'chat_chat_panel_open_v1';
-const CHAT_AGENT_SKILL_SOURCES_STORAGE_KEY = 'chat_agent_skill_sources_v1';
-
-const resolveArtifactStatus = (statusRaw: string): OpenedFile['status'] => {
-  const s = statusRaw.toLowerCase();
-  if (/add|new|create|新增/.test(s)) return 'added';
-  if (/delete|remove|removed|删除/.test(s)) return 'deleted';
-  if (/modify|update|change|edit|fix|modified|修改/.test(s)) return 'modified';
-  return 'unknown';
-};
-
-const getChangedFilesFromPayload = (payload?: Record<string, any>) => {
-  const files = payload?.changed_files || payload?.payload?.changed_files || payload?.files || payload?.payload?.files || [];
-  if (!Array.isArray(files)) return [];
-  return files.map((item: any) => (typeof item === 'string' ? item : item?.path || item?.file_path)).filter(Boolean) as string[];
-};
-
-
-const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-};
-
-const clampMessageIndex = (index: number, messageCount: number) => {
-  if (messageCount <= 0) return 0;
-  return Math.min(Math.max(index, 0), messageCount - 1);
-};
-
-const readStoredScrollMap = (): Record<string, StoredChatScrollState> => {
-  if (typeof window === 'undefined') return {};
-  try {
-    const raw = localStorage.getItem(CHAT_SCROLL_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object'
-      ? (parsed as Record<string, StoredChatScrollState>)
-      : {};
-  } catch {
-    return {};
-  }
-};
-
-const getStoredScrollState = (sessionId: string | null): StoredChatScrollState | null => {
-  if (!sessionId) return null;
-  return readStoredScrollMap()[sessionId] || null;
-};
-
-const persistScrollState = (
-  sessionId: string | null,
-  scrollState: StoredChatScrollState,
-) => {
-  if (typeof window === 'undefined' || !sessionId) return;
-  const next = {
-    ...readStoredScrollMap(),
-    [sessionId]: scrollState,
-  };
-  localStorage.setItem(CHAT_SCROLL_STORAGE_KEY, JSON.stringify(next));
-};
-
+import {
+  CHAT_AGENT_SKILL_SOURCES_STORAGE_KEY,
+  CHAT_PANEL_OPEN_STORAGE_KEY,
+  CHAT_PANE_WIDTH_STORAGE_KEY,
+  CHAT_PROJECT_PATH_STORAGE_KEY,
+  CHAT_SIDE_PANEL_OPEN_STORAGE_KEY,
+  CHAT_SIDE_PANEL_WIDTH_STORAGE_KEY,
+  CHAT_WORKSPACE_EVENT,
+  CHAT_WORKSPACE_ID_STORAGE_KEY,
+  INTENT_ROUTING_TIMEOUT_MS,
+  STARTER_IDEAS,
+  clampMessageIndex,
+  getChangedFilesFromPayload,
+  resolveArtifactStatus,
+  resolveAgentModelConfig,
+  sectionMotion,
+  withTimeout,
+  type APIKeyConfig,
+} from './chatNew/chatNewUtils';
 
 const ChatPage: React.FC = () => {
   useTheme();
@@ -337,33 +188,26 @@ const ChatPage: React.FC = () => {
   const [workspaceProjectPath, setWorkspaceProjectPath] = useState<string>(() => localStorage.getItem(CHAT_PROJECT_PATH_STORAGE_KEY) || '');
   const [agentSessionOverview, setAgentSessionOverview] = useState<AgentSessionOverview | null>(null);
   const [workbenchActiveTab, setWorkbenchActiveTab] = useState('execution');
-  const agentSessionStreamsRef = useRef<Record<string, EventSource>>({});
-  const agentSessionStreamRetryRef = useRef<Record<string, AgentStreamRetryState>>({});
-  const startAgentSessionStreamRef = useRef<((sessionId: string, fromRetry?: boolean) => void) | null>(null);
   const agentSessionStateRef = useRef<Record<string, AgentSession>>({});
   const agentWorkspaceRefreshRef = useRef<(() => Promise<void>) | null>(null);
-  const streamingDeltaRef = useRef<Record<string, { partId: string; content: string }>>({});
-  const agentDeltaFlushRef = useRef<{ rafId: number | null; pending: Record<string, string> } | null>(null);
   const [agentPhase, setAgentPhase] = useState<{ phase: string; tool?: string; detail?: string; visible: boolean }>({ phase: '', visible: false });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
-  const visibleRangeStartRef = useRef(0);
-  const isAutoScrollEnabledRef = useRef(true);
   const restoredSessionRef = useRef<string | null>(null);
-  const savedScrollState = useMemo(
-    () => getStoredScrollState(currentSessionId),
-    [currentSessionId],
-  );
-  const shouldRestoreToBottom = savedScrollState?.atBottom !== false;
-  const initialTopMostItemIndex = useMemo(() => {
-    if (messages.length === 0) return undefined;
-    if (shouldRestoreToBottom) return messages.length - 1;
-    return clampMessageIndex(savedScrollState?.topIndex ?? messages.length - 1, messages.length);
-  }, [messages.length, savedScrollState?.topIndex, shouldRestoreToBottom]);
-  const [, setIsAtBottom] = useState(shouldRestoreToBottom);
-  const [showScrollButton, setShowScrollButton] = useState(false);
+  const {
+    visibleRangeStartRef,
+    isAutoScrollEnabledRef,
+    showScrollButton,
+    setShowScrollButton,
+    setIsAtBottom,
+    initialTopMostItemIndex,
+    saveCurrentScrollState,
+  } = useChatScrollPersistence({
+    sessionId: currentSessionId,
+    messageCount: messages.length,
+  });
   const [sidePanelWidth, setSidePanelWidth] = useState(() => {
     if (typeof window === 'undefined') return 360;
     const stored = Number(localStorage.getItem(CHAT_SIDE_PANEL_WIDTH_STORAGE_KEY));
@@ -418,20 +262,6 @@ const ChatPage: React.FC = () => {
 
   const pendingAutoScrollRef = useRef(false);
 
-  const saveCurrentScrollState = useCallback(
-    (overrides?: Partial<StoredChatScrollState>) => {
-      if (!currentSessionId || currentSessionId.startsWith('local_')) return;
-      if (messages.length === 0) return;
-      persistScrollState(currentSessionId, {
-        topIndex: clampMessageIndex(visibleRangeStartRef.current, messages.length),
-        atBottom: isAutoScrollEnabledRef.current,
-        updatedAt: new Date().toISOString(),
-        ...overrides,
-      });
-    },
-    [currentSessionId, messages.length],
-  );
-
   const selectedWorkspace = useMemo(
     () => availableWorkspaces.find((workspace) => workspace.id === selectedWorkspaceId) || null,
     [availableWorkspaces, selectedWorkspaceId],
@@ -471,12 +301,6 @@ const ChatPage: React.FC = () => {
       setSkillsLoading(false);
     }
   }, [effectiveProjectPath, selectedPrimaryAgent, skillsInitialized]);
-
-  useEffect(() => {
-    setIsAtBottom(shouldRestoreToBottom);
-    isAutoScrollEnabledRef.current = shouldRestoreToBottom;
-    setShowScrollButton(messages.length > 0 && !shouldRestoreToBottom);
-  }, [currentSessionId, messages.length, shouldRestoreToBottom]);
 
   useEffect(() => () => {
     saveCurrentScrollState();
@@ -781,12 +605,6 @@ const ChatPage: React.FC = () => {
 
   useEffect(() => () => {
     if (autoScrollFrameRef.current !== null) cancelAnimationFrame(autoScrollFrameRef.current);
-    Object.values(agentSessionStreamsRef.current).forEach((source) => source.close());
-    Object.values(agentSessionStreamRetryRef.current).forEach((retryState) => {
-      if (retryState.timer) clearTimeout(retryState.timer);
-    });
-    agentSessionStreamsRef.current = {};
-    agentSessionStreamRetryRef.current = {};
   }, []);
 
   useEffect(() => {
@@ -1278,273 +1096,46 @@ if (existing) {
     };
   }, [ensureAgentSessionSnapshot, upsertAgentSessionMessage, upsertAgentSessionPartMessage, appendAgentSessionError]);
 
-  const clearAgentSessionRetry = useCallback((sessionId: string) => {
-    const retryState = agentSessionStreamRetryRef.current[sessionId];
-    if (retryState?.timer) {
-      clearTimeout(retryState.timer);
-      retryState.timer = null;
-    }
-  }, []);
-
-  const closeAgentSessionStream = useCallback((sessionId: string, clearRetry = true) => {
-    agentSessionStreamsRef.current[sessionId]?.close();
-    delete agentSessionStreamsRef.current[sessionId];
-    if (clearRetry) {
-      clearAgentSessionRetry(sessionId);
-      delete agentSessionStreamRetryRef.current[sessionId];
-    }
-  }, [clearAgentSessionRetry]);
-
-  const startAgentSessionStream = useCallback(
-    (sessionId: string, fromRetry = false) => {
-      closeAgentSessionStream(sessionId, false);
-      const retryState = agentSessionStreamRetryRef.current[sessionId] || { attempt: 0, timer: null, lastEventId: '' };
-      retryState.timer = null;
-      if (!fromRetry) retryState.attempt = 0;
-      agentSessionStreamRetryRef.current[sessionId] = retryState;
-      const source = new EventSource(buildAgentSessionStreamUrl(sessionId, retryState.lastEventId));
-      console.log('[Agent] EventSource connected:', sessionId);
-      agentSessionStreamsRef.current[sessionId] = source;
-      const markStreamHealthy = () => {
-        retryState.attempt = 0;
-        setAgentPhase((prev) => prev.phase === 'connection_lost' ? { phase: '', visible: false } : prev);
-      };
-      const handleChunk = async (chunk: AgentSessionEvent) => {
-        if (typeof chunk.id === 'string' && chunk.id) {
-          retryState.lastEventId = chunk.id;
-        }
-        markStreamHealthy();
-        const part = chunk.part || undefined;
-        const sessionStatus = chunk.session_status;
-        const agentId = chunk.agent_id;
-
-        if (chunk.chunk_type === 'session_snapshot') {
-          const snapshot = chunk.session_snapshot;
-          if (snapshot) {
-            await callbacksRef.current.upsertAgentSessionMessage(snapshot as AgentSession);
-          }
-          if (agentDeltaFlushRef.current?.rafId) {
-            cancelAnimationFrame(agentDeltaFlushRef.current.rafId);
-            const pending = agentDeltaFlushRef.current.pending;
-            agentDeltaFlushRef.current = null;
-            for (const [msgId, pendingDelta] of Object.entries(pending)) {
-              useChatStore.getState().appendStreamingDelta(msgId, pendingDelta);
-            }
-          } else {
-            agentDeltaFlushRef.current = null;
-          }
-
-          const isTerminal = ['completed', 'failed', 'needs_manual_review', 'interrupted'].includes(sessionStatus || '');
-          if (isTerminal) {
-            closeAgentSessionStream(sessionId);
-            Object.keys(streamingDeltaRef.current).forEach((key) => {
-              if (key.startsWith('agp_')) delete streamingDeltaRef.current[key];
-            });
-            setAgentPhase({ phase: '', visible: false });
-          }
-          return;
-        }
-
-        if (sessionStatus || agentId) {
-          callbacksRef.current.ensureAgentSessionSnapshot(sessionId, {
-            status: sessionStatus || undefined,
-            agent_id: agentId || undefined,
-            updated_at: chunk.created_at,
-          });
-        }
-        if (chunk.chunk_type === 'phase') {
-          const phaseStr = chunk.phase || (chunk.payload?.phase as string) || '';
-          if (phaseStr === 'model_thinking') {
-            setAgentPhase({ phase: 'model_thinking', visible: true });
-} else if (phaseStr === 'tool_execution') {
-              setAgentPhase({ phase: 'tool_execution', tool: chunk.tool || (chunk.payload?.tool as string | undefined), detail: (chunk.payload?.detail as string | undefined), visible: true });
-            } else if (phaseStr === 'tool_completed') {
-              setAgentPhase({ phase: 'tool_completed', tool: chunk.tool || (chunk.payload?.tool as string | undefined), detail: (chunk.payload?.detail as string | undefined), visible: true });
-            setTimeout(() => setAgentPhase((prev) => prev.phase === 'tool_completed' ? { ...prev, visible: false } : prev), 1500);
-          } else {
-            setAgentPhase({ phase: phaseStr, visible: true });
-          }
-          return;
-        }
-        if (['part_complete', 'part_snapshot', 'status', 'summary', 'error', 'async_task', 'done'].includes(String(chunk.chunk_type || ''))) {
-          void agentWorkspaceRefreshRef.current?.();
-        }
-        const flushAgentDeltas = () => {
-          if (agentDeltaFlushRef.current) {
-            if (agentDeltaFlushRef.current.rafId) {
-              cancelAnimationFrame(agentDeltaFlushRef.current.rafId);
-            }
-            const pending = { ...agentDeltaFlushRef.current.pending };
-            agentDeltaFlushRef.current.pending = {};
-            agentDeltaFlushRef.current.rafId = null;
-            for (const [msgId, pendingDelta] of Object.entries(pending)) {
-              useChatStore.getState().appendStreamingDelta(msgId, pendingDelta);
-            }
-          }
-        };
-        if (chunk.chunk_type === 'part_start') {
-          flushAgentDeltas();
-          setAgentPhase({ phase: 'model_streaming', visible: false });
-        }
-        if (part) {
-          if (chunk.chunk_type === 'part_delta' && (chunk.delta !== undefined || chunk.content !== undefined)) {
-            streamingDeltaRef.current[part.id] = { partId: part.id, content: (chunk.content || part.content || '') as string };
-            const deltaText = (chunk.delta || '') as string;
-            const found = useChatStore.getState().messages.find((m) => m.agent_metadata?.agent_part_id === part.id);
-            if (found && deltaText) {
-              if (!agentDeltaFlushRef.current) {
-                agentDeltaFlushRef.current = { rafId: null, pending: {} };
-              }
-              const flush = agentDeltaFlushRef.current;
-              flush.pending[found.id] = (flush.pending[found.id] || '') + deltaText;
-              if (!flush.rafId) {
-                flush.rafId = requestAnimationFrame(() => {
-                  const pending = { ...flush.pending };
-                  flush.pending = {};
-                  flush.rafId = null;
-                  for (const [msgId, pendingDelta] of Object.entries(pending)) {
-                    useChatStore.getState().appendStreamingDelta(msgId, pendingDelta);
-                  }
-                });
-              }
-            } else if (found) {
-              useChatStore.getState().queueMessageUpdate(found.id, {
-                content: (chunk.content || part.content || '') as string,
-                isLoading: part.status === 'running',
-                agent_metadata: buildAgentPartMetadata(mergeAgentSessionPart(sessionId, part, {
-                  status: sessionStatus || undefined,
-                  agent_id: agentId || undefined,
-                  updated_at: chunk.created_at,
-                }), part),
-              });
-            }
-          } else {
-            flushAgentDeltas();
-            const shouldPersist = chunk.chunk_type !== 'part_start';
-            await callbacksRef.current.upsertAgentSessionPartMessage(
-              sessionId,
-              part,
-              {
-                status: sessionStatus || undefined,
-                agent_id: agentId || undefined,
-                updated_at: chunk.created_at,
-              },
-              { persist: shouldPersist },
-            );
-          }
-        }
-        if (chunk.chunk_type === 'tool_call') {
-          setAgentPhase({ phase: 'tool_execution', tool: chunk.tool || (chunk.payload?.tool as string | undefined), detail: (chunk.payload?.detail as string | undefined), visible: true });
-        } else if (chunk.chunk_type === 'tool_result' || chunk.chunk_type === 'summary' || chunk.chunk_type === 'action') {
-          setAgentPhase((prev) => ({ ...prev, visible: false }));
-        } else if (chunk.chunk_type === 'error') {
-          setAgentPhase({ phase: 'model_thinking_fallback', visible: true });
-        }
-
-        const shouldRefreshSnapshot =
-          chunk.chunk_type === 'action' || sessionStatus === 'waiting_approval' || sessionStatus === 'waiting_permission';
-        if (shouldRefreshSnapshot) {
-          getAgentSession(sessionId)
-            .then((session) => callbacksRef.current.upsertAgentSessionMessage(session))
-            .catch(() => undefined);
-        }
-      };
-      source.addEventListener('agent_session_event', (e: MessageEvent) => {
-        try { void handleChunk(JSON.parse((e as MessageEvent).data) as AgentSessionEvent); } catch { /* ignore */ }
-      });
-      source.addEventListener('agent_session_done', () => {
-        useChatStore.getState().flushMessageUpdates();
-        getAgentSession(sessionId)
-          .then((session) => {
-            callbacksRef.current.upsertAgentSessionMessage(session);
-            if (!session.parts?.length && ['running', 'verifying', 'repairing'].includes(session.status)) {
-              callbacksRef.current.appendAgentSessionError('Agent 事件流已中断，后端可能仍在运行旧代码或连接被服务端关闭。请重启后端后重试。', session);
-            }
-            setAgentPhase({ phase: '', visible: false });
-          })
-          .catch(() => undefined);
-        closeAgentSessionStream(sessionId);
-      });
-      source.onerror = () => {
-        if (agentDeltaFlushRef.current?.rafId) {
-          cancelAnimationFrame(agentDeltaFlushRef.current.rafId);
-          const pending = agentDeltaFlushRef.current.pending;
-          agentDeltaFlushRef.current = null;
-          for (const [msgId, pendingDelta] of Object.entries(pending)) {
-            useChatStore.getState().appendStreamingDelta(msgId, pendingDelta);
-          }
-        } else {
-          agentDeltaFlushRef.current = null;
-        }
-        useChatStore.getState().flushMessageUpdates();
-        Object.keys(streamingDeltaRef.current).forEach((key) => {
-          if (key.startsWith('agp_')) delete streamingDeltaRef.current[key];
-        });
-        setAgentPhase({ phase: 'connection_lost', visible: true });
-        getAgentSession(sessionId)
-          .then((session) => {
-            callbacksRef.current.upsertAgentSessionMessage(session);
-            if (['completed', 'failed', 'needs_manual_review', 'interrupted'].includes(session.status)) {
-              closeAgentSessionStream(sessionId);
-              setAgentPhase({ phase: '', visible: false });
-            }
-          })
-          .catch(() => {
-            console.warn('[Agent] Failed to refresh session after stream error:', sessionId);
-          });
-        closeAgentSessionStream(sessionId, false);
-        if (!retryState.timer) {
-          const delay = getAgentStreamRetryDelay(retryState.attempt);
-          retryState.attempt += 1;
-          retryState.timer = setTimeout(() => {
-            retryState.timer = null;
-            startAgentSessionStreamRef.current?.(sessionId, true);
-          }, delay);
-        }
-      };
-    },
-    [closeAgentSessionStream],
-  );
+  const agentStream = useAgentSessionStream({
+    enabled: true,
+    getAgentWorkspaceRefresh: () => agentWorkspaceRefreshRef.current,
+    setAgentPhase,
+    buildAgentPartMetadata,
+    mergeAgentSessionPart,
+    ensureAgentSessionSnapshot: (sessionId, overrides) => callbacksRef.current.ensureAgentSessionSnapshot(sessionId, overrides),
+    upsertAgentSessionMessage: (session) => callbacksRef.current.upsertAgentSessionMessage(session),
+    upsertAgentSessionPartMessage: (sessionId, part, overrides, options) => callbacksRef.current.upsertAgentSessionPartMessage(sessionId, part, overrides, options),
+    appendAgentSessionError: (content, session) => callbacksRef.current.appendAgentSessionError(content, session),
+  });
 
   useEffect(() => {
-    startAgentSessionStreamRef.current = startAgentSessionStream;
-  }, [startAgentSessionStream]);
-
-  useEffect(() => {
-    if (!currentSessionId || currentSessionId.startsWith('local_')) {
-      Object.keys(agentSessionStreamsRef.current).forEach((sessionId) => closeAgentSessionStream(sessionId));
-      return;
-    }
-    const agentSessionIds = Array.from(
+    const sessionIds = Array.from(
       new Set(
-        messages
+        (!currentSessionId || currentSessionId.startsWith('local_') ? [] : messages)
           .map((message) => message.agent_metadata?.agent_session_id)
           .filter((sessionId): sessionId is string => Boolean(sessionId)),
       ),
     );
 
-    // Close streams that are no longer in the active messages list
-    const activeIdsSet = new Set(agentSessionIds);
-    Object.keys(agentSessionStreamsRef.current).forEach((sessionId) => {
+    const activeIdsSet = new Set(sessionIds);
+    Object.keys(agentStream.streamsRef.current).forEach((sessionId) => {
       if (!activeIdsSet.has(sessionId)) {
-        closeAgentSessionStream(sessionId);
+        agentStream.closeStream(sessionId);
       }
     });
-    Object.keys(agentSessionStreamRetryRef.current).forEach((sessionId) => {
+    Object.keys(agentStream.retryRef.current).forEach((sessionId) => {
       if (!activeIdsSet.has(sessionId)) {
-        closeAgentSessionStream(sessionId);
+        agentStream.closeStream(sessionId);
       }
     });
 
-    if (!agentSessionIds.length) return;
-
-    agentSessionIds.forEach((sessionId) => {
-      if (!agentSessionStreamsRef.current[sessionId]) {
-        startAgentSessionStream(sessionId);
+    if (!sessionIds.length) return;
+    sessionIds.forEach((sessionId) => {
+      if (!agentStream.streamsRef.current[sessionId]) {
+        agentStream.startStream(sessionId);
       }
     });
-
-  }, [currentSessionId, messages, startAgentSessionStream, closeAgentSessionStream]);
+  }, [agentStream.closeStream, agentStream.retryRef, agentStream.startStream, agentStream.streamsRef, currentSessionId, messages]);
 
   const buildDeepContextPayload = useCallback(() => ({
     active_context: activeFileContext,
@@ -1615,7 +1206,7 @@ if (existing) {
           ? `[${selectedWorkspaceLabel}] `
           : '';
         await upsertAgentSessionMessage(session, options.reason ? `${options.reason} ${workspacePrefix}${goal}` : `${workspacePrefix}${goal}`);
-        startAgentSessionStream(session.id);
+        agentStream.startStream(session.id);
         const started = await withTimeout(
           promptAgentSession(session.id, {
             content: goal,
@@ -1665,7 +1256,7 @@ if (existing) {
       selectedWorkspaceLabel,
       skillsInitialized,
       scheduleAgentSessionRefresh,
-      startAgentSessionStream,
+      agentStream,
       settings.backend,
       settings.modelId,
       upsertAgentSessionMessage,
@@ -1795,8 +1386,7 @@ if (existing) {
       await Promise.all(
         activeAgentSessionIds.map(async (sessionId) => {
           const session = await interruptAgentSession(sessionId);
-          agentSessionStreamsRef.current[sessionId]?.close();
-          delete agentSessionStreamsRef.current[sessionId];
+          agentStream.closeStream(sessionId);
           await upsertAgentSessionMessage(session);
         }),
       );
