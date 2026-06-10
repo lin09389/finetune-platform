@@ -19,6 +19,7 @@ import { appModal } from '../utils/modal';
 import { useChatScrollPersistence } from './chatNew/useChatScrollPersistence';
 import { useAgentSessionStream } from './chatNew/useAgentSessionStream';
 import { useChatLayoutPersistence } from './chatNew/useChatLayoutPersistence';
+import { useCloudModelConfig } from './chatNew/useCloudModelConfig';
 
 import ChatHeader from '../components/chat/ChatHeader';
 import ChatContextPanel from '../components/chat/ChatContextPanel';
@@ -153,6 +154,20 @@ const ChatPage: React.FC = () => {
   const setCloudProviders = (providers: SavedCloudProvider[]) => setCloudConfig({ providers: providers as any });
   const selectedCloudModel = cloudConfig.selectedModel;
   const setSelectedCloudModel = (model: string) => setCloudConfig({ selectedModel: model });
+  const {
+    cloudProviderOptions,
+    cloudModelOptions,
+    handleCloudProviderChange,
+    handleCloudModelChange,
+    handleToggleCloudAI,
+  } = useCloudModelConfig({
+    cloudAIConfig,
+    cloudProviders,
+    setCloudAIConfig,
+    setSelectedCloudModel,
+    setUseCloudAI,
+    openConfigModal: () => setConfigModalOpen(true),
+  });
   const [primaryAgents, setPrimaryAgents] = useState<AgentInfo[]>([]);
   const [selectedPrimaryAgent, setSelectedPrimaryAgent] = useState('build');
   const [agentSkillSources, setAgentSkillSources] = useState<AgentSkillSource[]>([]);
@@ -1263,64 +1278,6 @@ if (existing) {
     });
   }, [activeAgentSessionIds, operation, stopStream, upsertAgentSessionMessage]);
 
-  const selectedCloudProvider = useMemo(
-    () => cloudProviders.find((provider) => provider.provider === cloudAIConfig?.provider),
-    [cloudAIConfig?.provider, cloudProviders],
-  );
-
-  const cloudProviderOptions = useMemo(
-    () =>
-      cloudProviders.map((provider) => ({
-        id: provider.provider,
-        name: `${provider.name || provider.provider} (${provider.provider})`,
-      })),
-    [cloudProviders],
-  );
-
-  const cloudModelOptions = useMemo(() => {
-    const models = selectedCloudProvider?.models?.length
-      ? selectedCloudProvider.models
-      : selectedCloudProvider?.default_model
-        ? [selectedCloudProvider.default_model]
-        : [];
-    return models.map((model) => ({ id: model, name: model }));
-  }, [selectedCloudProvider]);
-
-  const handleCloudProviderChange = useCallback(
-    async (provider: string) => {
-      const selectedProvider = cloudProviders.find((item) => item.provider === provider);
-      if (!selectedProvider) return;
-
-      const keyData = await getSavedCloudProviderData(selectedProvider.id).catch(() => ({}));
-      const models = keyData.models || selectedProvider.models || [];
-      const nextModel = keyData.default_model || selectedProvider.default_model || models[0] || '';
-      const config: APIKeyConfig = {
-        provider: selectedProvider.provider,
-        api_key: '',
-        key_id: selectedProvider.id,
-        model: nextModel,
-        group_id: keyData.group_id || '',
-        base_url: keyData.base_url || '',
-      };
-      setCloudAIConfig(config);
-      setSelectedCloudModel(nextModel);
-      localStorage.setItem('cloud_ai_config', JSON.stringify(config));
-    },
-    [cloudProviders],
-  );
-
-  const handleCloudModelChange = useCallback(
-    (model: string) => {
-      setSelectedCloudModel(model);
-      if (cloudAIConfig) {
-        const nextConfig = { ...cloudAIConfig, model };
-        setCloudAIConfig(nextConfig);
-        localStorage.setItem('cloud_ai_config', JSON.stringify(nextConfig));
-      }
-    },
-    [],
-  );
-
   const handleRefreshAgentRun = useCallback(
     async (runId: string) => {
       const session = await getAgentSession(runId);
@@ -1491,14 +1448,6 @@ if (existing) {
     },
     [setInferenceSelection, settings.backend, updateSettings],
   );
-
-  const handleToggleCloudAI = useCallback(() => {
-    if (!cloudAIConfig?.api_key && !cloudAIConfig?.key_id) {
-      setConfigModalOpen(true);
-      return;
-    }
-    setUseCloudAI((enabled) => !enabled);
-  }, [cloudAIConfig?.api_key, cloudAIConfig?.key_id]);
 
   const handleToggleMemory = useCallback(() => {
     updateSettings({ useMemory: !settings.useMemory });
