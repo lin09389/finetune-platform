@@ -23,6 +23,7 @@ import { useCloudModelConfig } from './chatNew/useCloudModelConfig';
 import { useAgentSessionMessages } from './chatNew/useAgentSessionMessages';
 import { useAgentFileTree } from './chatNew/useAgentFileTree';
 import { useAgentSessionOverview } from './chatNew/useAgentSessionOverview';
+import { useAgentWorkspaceEditorState } from './chatNew/useAgentWorkspaceEditorState';
 
 import ChatHeader from '../components/chat/ChatHeader';
 import ChatContextPanel from '../components/chat/ChatContextPanel';
@@ -237,9 +238,20 @@ const ChatPage: React.FC = () => {
     resizingClassName: styles.resizing,
   });
   const [showPathEdit, setShowPathEdit] = useState(false);
-  const [openedFiles, setOpenedFiles] = useState<OpenedFile[]>([]);
-  const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
-  const lastAutoOpenedPartIdRef = useRef<string | null>(null);
+  const {
+    openedFiles,
+    activeFilePath,
+    setActiveFilePath,
+    upsertOpenedFile,
+    addOpenedFile,
+    setOpenedFileOriginal,
+    focusAutoOpenedPart,
+    handleAcceptHunk,
+    handleRejectHunk,
+    handleAcceptAll,
+    handleRejectAll,
+    handleCloseEditorTab,
+  } = useAgentWorkspaceEditorState();
   const activeFileContext = useAppStore((state) => state.activeFileContext);
   const setActiveFileContext = useAppStore((state) => state.setActiveFileContext);
   const [explicitContextMentions, setExplicitContextMentions] = useState<ExplicitContextMention[]>([]);
@@ -1411,34 +1423,10 @@ const ChatPage: React.FC = () => {
             actionId: part.id || undefined,
           };
 
-          setOpenedFiles((prev) => {
-            const existingIdx = prev.findIndex((f) => f.path === firstFile);
-            if (existingIdx >= 0) {
-              const next = [...prev];
-              const existing = next[existingIdx];
-              if (existing) {
-                // If it is the same file and has different preview content or status, update it!
-                if (existing.content !== fileEntry.content || existing.status !== fileEntry.status) {
-                  next[existingIdx] = {
-                    ...existing,
-                    content: fileEntry.content,
-                    status: fileEntry.status,
-                    hunks: fileEntry.hunks ?? existing.hunks,
-                    actionId: fileEntry.actionId ?? existing.actionId,
-                  };
-                  return next;
-                }
-              }
-              return prev; // No change, keep identity
-            }
-            return [...prev, fileEntry];
-          });
+          upsertOpenedFile(fileEntry);
 
           // 只有在 Part ID 发生改变时，才强制切换 Tab 聚焦，避免在同一个文件流式渲染期间强行覆盖用户的手动 Tab 切换
-          if (lastAutoOpenedPartIdRef.current !== part.id) {
-            lastAutoOpenedPartIdRef.current = part.id;
-            setActiveFilePath(firstFile);
-          }
+          focusAutoOpenedPart(part.id, firstFile);
 
           // 获取原始文件内容以用于 DiffEditor 比对
           if (status === 'modified' && latestAgentSessionId && part.id) {
@@ -1448,9 +1436,7 @@ const ChatPage: React.FC = () => {
             if (matchedArtifact) {
               void getArtifactOriginal(latestAgentSessionId, matchedArtifact.id).then((original: string | null) => {
                 if (original === null) return;
-                setOpenedFiles((prev) => prev.map((file) => (
-                  file.path === firstFile ? { ...file, original } : file
-                )));
+                setOpenedFileOriginal(firstFile, original);
               });
             }
           }
@@ -1458,7 +1444,7 @@ const ChatPage: React.FC = () => {
         break;
       }
     }
-  }, [latestAgentParts, latestAgentSessionId, agentSessionOverview?.artifacts]);
+  }, [agentSessionOverview?.artifacts, focusAutoOpenedPart, latestAgentParts, latestAgentSessionId, setOpenedFileOriginal, upsertOpenedFile]);
   const {
     agentFileSummaries,
     agentFileTree,
@@ -1515,28 +1501,15 @@ const ChatPage: React.FC = () => {
       hunks,
       actionId: artifact.source_part_id || undefined,
     };
-    setOpenedFiles((prev) => {
-      const existingIdx = prev.findIndex((f) => f.path === artifact.path);
-      if (existingIdx >= 0) {
-        const next = [...prev];
-        const existing = next[existingIdx];
-        if (existing) {
-          next[existingIdx] = { ...existing, content: fileEntry.content, status: fileEntry.status, hunks: fileEntry.hunks ?? existing.hunks, actionId: fileEntry.actionId ?? existing.actionId };
-        }
-        return next;
-      }
-      return [...prev, fileEntry];
-    });
+    upsertOpenedFile(fileEntry);
     setActiveFilePath(artifact.path);
     if (status === 'modified' && latestAgentSessionId) {
       void getArtifactOriginal(latestAgentSessionId, artifact.id).then((original: string | null) => {
         if (original === null) return;
-        setOpenedFiles((prev) => prev.map((file) => (
-          file.path === artifact.path ? { ...file, original } : file
-        )));
+        setOpenedFileOriginal(artifact.path, original);
       });
     }
-  }, [latestAgentSessionId, workspaceSelection]);
+  }, [latestAgentSessionId, setOpenedFileOriginal, upsertOpenedFile, workspaceSelection]);
 
   // ── Load workspace file tree when mode switches to 'workspace' ────────────────
   const loadWorkspaceTree = useCallback(async (projectPath: string) => {
@@ -1600,7 +1573,7 @@ const ChatPage: React.FC = () => {
         status: 'unknown',
         fromDisk: true,
       };
-      setOpenedFiles((prev) => [...prev, newFile]);
+      addOpenedFile(newFile);
       setActiveFilePath(absPath);
       setRecentPaths((prev) => {
         const next = [recentPath, ...prev.filter((p) => p !== recentPath)];
@@ -1609,7 +1582,7 @@ const ChatPage: React.FC = () => {
     } catch (err: any) {
       notify.error(`打开文件失败: ${extractApiErrorMessage(err, '未知错误')}`);
     }
-  }, [openedFiles, workspaceTreeRoot, effectiveProjectPath]);
+  }, [addOpenedFile, effectiveProjectPath, openedFiles, workspaceTreeRoot]);
 
   const handleOpenWorkspacePath = useCallback(async (path: string) => {
     const normalized = path.replace(/\\/g, '/').replace(/^\/workspace\//, '');
@@ -1640,57 +1613,6 @@ const ChatPage: React.FC = () => {
       throw err;
     }
   }, [effectiveProjectPath]);
-
-  // ── Auto-detect terminal_id from latest agent parts ──────────────────────────
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-
-
-  const handleAcceptHunk = useCallback((filePath: string, hunkId: string) => {
-    setOpenedFiles((prev) => {
-      const file = prev.find((f) => f.path === filePath);
-      if (!file) return prev;
-      return prev.map((f) => {
-        if (f.path !== filePath) return f;
-        return { ...f, hunks: (f.hunks ?? []).map((h) => h.id === hunkId ? { ...h, status: 'accepted' as const } : h) };
-      });
-    });
-  }, []);
-
-  const handleRejectHunk = useCallback((filePath: string, hunkId: string) => {
-    setOpenedFiles((prev) => {
-      const file = prev.find((f) => f.path === filePath);
-      if (!file) return prev;
-      return prev.map((f) => {
-        if (f.path !== filePath) return f;
-        return { ...f, hunks: (f.hunks ?? []).map((h) => h.id === hunkId ? { ...h, status: 'rejected' as const } : h) };
-      });
-    });
-  }, []);
-
-  const handleAcceptAll = useCallback((filePath: string) => {
-    setOpenedFiles((prev) => prev.map((f) => {
-      if (f.path !== filePath) return f;
-      return { ...f, hunks: (f.hunks ?? []).map((h) => h.status === 'pending' ? { ...h, status: 'accepted' as const } : h) };
-    }));
-  }, []);
-
-  const handleRejectAll = useCallback((filePath: string) => {
-    setOpenedFiles((prev) => prev.map((f) => {
-      if (f.path !== filePath) return f;
-      return { ...f, hunks: (f.hunks ?? []).map((h) => h.status === 'pending' ? { ...h, status: 'rejected' as const } : h) };
-    }));
-  }, []);
-
-  const handleCloseEditorTab = useCallback((closedPath: string) => {
-    setOpenedFiles((prev) => prev.filter((f) => f.path !== closedPath));
-    setActiveFilePath((current) => {
-      if (current !== closedPath) return current;
-      const remaining = openedFiles.filter((f) => f.path !== closedPath);
-      if (remaining.length === 0) return null;
-      const idx = openedFiles.findIndex((f) => f.path === closedPath);
-      return remaining[Math.min(idx, remaining.length - 1)]?.path ?? null;
-    });
-  }, [openedFiles]);
 
   const renderTreeNode = useCallback((node: typeof agentFileTree, depth = 0): React.ReactNode => {
     if (node.kind === 'file' && node.file) {
