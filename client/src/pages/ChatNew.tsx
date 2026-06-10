@@ -22,6 +22,7 @@ import { useChatLayoutPersistence } from './chatNew/useChatLayoutPersistence';
 import { useCloudModelConfig } from './chatNew/useCloudModelConfig';
 import { useAgentSessionMessages } from './chatNew/useAgentSessionMessages';
 import { useAgentFileTree } from './chatNew/useAgentFileTree';
+import { useAgentSessionOverview } from './chatNew/useAgentSessionOverview';
 
 import ChatHeader from '../components/chat/ChatHeader';
 import ChatContextPanel from '../components/chat/ChatContextPanel';
@@ -50,7 +51,6 @@ import {
   extractApiErrorMessage,
   getArtifactOriginal,
   getAgentSession,
-  getAgentSessionOverview,
   getAgentSkills,
   getPrimaryAgents,
   getSavedCloudProviderData,
@@ -63,7 +63,7 @@ import {
   writeWorkspaceFile,
   promptAgentSession,
 } from '../services/api';
-import type { ActiveFileContext, AgentHitlDecision, AgentInfo, AgentPart, AgentSession, AgentSessionOverview, AgentSkillSource, ExplicitContextMention, SavedCloudProvider, WorkspaceSummary, WorkspaceTreeNode } from '../services/api';
+import type { ActiveFileContext, AgentHitlDecision, AgentInfo, AgentPart, AgentSession, AgentSkillSource, ExplicitContextMention, SavedCloudProvider, WorkspaceSummary, WorkspaceTreeNode } from '../services/api';
 import { transitions } from '../theme/animations';
 import { notify } from '../utils/notify';
 import { ArrowDownOutlined, FolderOpenOutlined } from '@ant-design/icons';
@@ -199,7 +199,6 @@ const ChatPage: React.FC = () => {
   const [availableWorkspaces, setAvailableWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>(() => localStorage.getItem(CHAT_WORKSPACE_ID_STORAGE_KEY) || '');
   const [workspaceProjectPath, setWorkspaceProjectPath] = useState<string>(() => localStorage.getItem(CHAT_PROJECT_PATH_STORAGE_KEY) || '');
-  const [agentSessionOverview, setAgentSessionOverview] = useState<AgentSessionOverview | null>(null);
   const [workbenchActiveTab, setWorkbenchActiveTab] = useState('execution');
   const agentWorkspaceRefreshRef = useRef<(() => Promise<void>) | null>(null);
   const [agentPhase, setAgentPhase] = useState<{ phase: string; tool?: string; detail?: string; visible: boolean }>({ phase: '', visible: false });
@@ -1328,6 +1327,11 @@ const ChatPage: React.FC = () => {
     .map((message) => message.agent_metadata?.agent_part as AgentPart | undefined)
     .filter((part): part is AgentPart => Boolean(part));
   const latestAgentStatus = latestAgentMetadata?.status || 'idle';
+  const agentSessionOverview = useAgentSessionOverview({
+    sessionId: latestAgentSessionId,
+    parts: latestAgentParts,
+    status: latestAgentStatus,
+  });
   const workspaceAgentId = agentSessionOverview?.session?.agent_id || latestAgentMetadata?.active_agent_id || '';
   const workspaceAgentName = primaryAgents.find((agent) => agent.id === workspaceAgentId)?.name || workspaceAgentId || '';
   const agentWorkspace = useAgentWorkspace(latestAgentSessionId);
@@ -1455,30 +1459,6 @@ const ChatPage: React.FC = () => {
       }
     }
   }, [latestAgentParts, latestAgentSessionId, agentSessionOverview?.artifacts]);
-
-
-  const latestAgentPartsSignature = useMemo(() => {
-    return latestAgentParts.map(p => `${p.id}:${p.status}:${p.updated_at || ''}`).join(',');
-  }, [latestAgentParts]);
-
-  useEffect(() => {
-    if (!latestAgentSessionId) {
-      setAgentSessionOverview(null);
-      return;
-    }
-    let cancelled = false;
-    getAgentSessionOverview(latestAgentSessionId)
-      .then((overview) => {
-        if (!cancelled) setAgentSessionOverview(overview);
-      })
-      .catch(() => {
-        if (!cancelled) setAgentSessionOverview(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [latestAgentSessionId, latestAgentPartsSignature, latestAgentStatus]);
-
   const {
     agentFileSummaries,
     agentFileTree,
