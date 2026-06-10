@@ -1595,12 +1595,13 @@ const ChatPage: React.FC = () => {
     const absPath = workspaceTreeRoot
       ? `${workspaceTreeRoot}/${node.path}`.replace(/\\/g, '/')
       : node.path;
+    const recentPath = node.path;
     // Already open - just switch focus
     const existing = openedFiles.find((f) => f.path === absPath);
     if (existing) {
       setActiveFilePath(absPath);
       setRecentPaths((prev) => {
-        const next = [absPath, ...prev.filter((p) => p !== absPath)];
+        const next = [recentPath, ...prev.filter((p) => p !== recentPath)];
         return next.slice(0, 10);
       });
       return;
@@ -1622,7 +1623,7 @@ const ChatPage: React.FC = () => {
       setOpenedFiles((prev) => [...prev, newFile]);
       setActiveFilePath(absPath);
       setRecentPaths((prev) => {
-        const next = [absPath, ...prev.filter((p) => p !== absPath)];
+        const next = [recentPath, ...prev.filter((p) => p !== recentPath)];
         return next.slice(0, 10);
       });
     } catch (err: any) {
