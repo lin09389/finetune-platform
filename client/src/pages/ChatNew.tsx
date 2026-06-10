@@ -21,6 +21,7 @@ import { useAgentSessionStream } from './chatNew/useAgentSessionStream';
 import { useChatLayoutPersistence } from './chatNew/useChatLayoutPersistence';
 import { useCloudModelConfig } from './chatNew/useCloudModelConfig';
 import { useAgentSessionMessages } from './chatNew/useAgentSessionMessages';
+import { useAgentFileTree } from './chatNew/useAgentFileTree';
 
 import ChatHeader from '../components/chat/ChatHeader';
 import ChatContextPanel from '../components/chat/ChatContextPanel';
@@ -62,7 +63,7 @@ import {
   writeWorkspaceFile,
   promptAgentSession,
 } from '../services/api';
-import type { ActiveFileContext, AgentArtifact, AgentHitlDecision, AgentInfo, AgentPart, AgentSession, AgentSessionOverview, AgentSkillSource, ExplicitContextMention, SavedCloudProvider, WorkspaceSummary, WorkspaceTreeNode } from '../services/api';
+import type { ActiveFileContext, AgentHitlDecision, AgentInfo, AgentPart, AgentSession, AgentSessionOverview, AgentSkillSource, ExplicitContextMention, SavedCloudProvider, WorkspaceSummary, WorkspaceTreeNode } from '../services/api';
 import { transitions } from '../theme/animations';
 import { notify } from '../utils/notify';
 import { ArrowDownOutlined, FolderOpenOutlined } from '@ant-design/icons';
@@ -1478,100 +1479,12 @@ const ChatPage: React.FC = () => {
     };
   }, [latestAgentSessionId, latestAgentPartsSignature, latestAgentStatus]);
 
-  const agentFileSummaries = useMemo(() => {
-    const depthOf = (path: string) => path.replace(/\\/g, '/').split('/').filter(Boolean).length;
-    return (agentSessionOverview?.artifacts || [])
-      .map((artifact: AgentArtifact) => ({ ...artifact, depth: depthOf(artifact.path) }))
-      .slice(-12)
-      .sort((a, b) => a.depth - b.depth || a.path.localeCompare(b.path));
-  }, [agentSessionOverview?.artifacts]);
-
-  const agentFileTree = useMemo(() => {
-    type TreeNode = {
-      name: string;
-      path: string;
-      kind: 'folder' | 'file';
-      children: TreeNode[];
-      file?: (typeof agentFileSummaries)[number];
-    };
-
-    const root: TreeNode = { name: '', path: '', kind: 'folder', children: [] };
-
-    const insert = (node: TreeNode, segments: string[], file: (typeof agentFileSummaries)[number], fullPath: string): void => {
-      if (segments.length === 0) {
-        node.children.push({ name: file.path.split('/').pop() || file.path, path: fullPath, kind: 'file', children: [], file });
-        return;
-      }
-      const head = segments[0];
-      if (!head) {
-        node.children.push({ name: file.path.split('/').pop() || file.path, path: fullPath, kind: 'file', children: [], file });
-        return;
-      }
-      const rest = segments.slice(1);
-      const childPath = node.path ? `${node.path}/${head}` : head;
-      let child = node.children.find((item) => item.kind === 'folder' && item.name === head) as TreeNode | undefined;
-      if (!child) {
-        child = { name: head, path: childPath, kind: 'folder', children: [] };
-        node.children.push(child);
-      }
-      if (child) {
-        insert(child, rest, file, fullPath);
-      }
-    };
-
-    for (const file of agentFileSummaries) {
-      const normalized = file.path.replace(/\\/g, '/');
-      const segments = normalized.split('/').filter(Boolean);
-      const name = segments.pop() || normalized;
-      insert(root, segments, file, normalized || name);
-    }
-
-    const sortTree = (node: TreeNode): TreeNode => {
-      const children = node.children
-        .map(sortTree)
-        .sort((a, b) => {
-          if (a.kind !== b.kind) return a.kind === 'folder' ? -1 : 1;
-          return a.name.localeCompare(b.name, 'zh-CN');
-        });
-      return { ...node, children };
-    };
-
-    return sortTree(root);
-  }, [agentFileSummaries]);
-
-  const defaultExpandedFolders = useMemo(() => {
-    const folders = new Set<string>();
-    const walk = (node: typeof agentFileTree) => {
-      if (node.kind === 'folder' && node.path) folders.add(node.path);
-      for (const child of node.children || []) walk(child);
-    };
-    walk(agentFileTree);
-    return folders;
-  }, [agentFileTree]);
-
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => defaultExpandedFolders);
-
-  useEffect(() => {
-    setExpandedFolders((prev) => {
-      const next = new Set<string>();
-      for (const path of prev) {
-        if (defaultExpandedFolders.has(path)) next.add(path);
-      }
-      if (next.size === 0) {
-        defaultExpandedFolders.forEach((path) => next.add(path));
-      }
-      return next;
-    });
-  }, [defaultExpandedFolders]);
-
-  const toggleFolder = useCallback((path: string) => {
-    setExpandedFolders((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  }, []);
+  const {
+    agentFileSummaries,
+    agentFileTree,
+    expandedFolders,
+    toggleFolder,
+  } = useAgentFileTree(agentSessionOverview?.artifacts);
 
   const handlePickFolder = useCallback(async () => {
     if (typeof window !== 'undefined' && (window as any).electronAPI?.selectFolder) {
