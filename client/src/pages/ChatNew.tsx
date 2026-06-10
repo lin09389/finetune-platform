@@ -18,6 +18,7 @@ import { useTheme } from '../theme';
 import { appModal } from '../utils/modal';
 import { useChatScrollPersistence } from './chatNew/useChatScrollPersistence';
 import { useAgentSessionStream } from './chatNew/useAgentSessionStream';
+import { useChatLayoutPersistence } from './chatNew/useChatLayoutPersistence';
 
 import ChatHeader from '../components/chat/ChatHeader';
 import ChatContextPanel from '../components/chat/ChatContextPanel';
@@ -67,11 +68,7 @@ import { ArrowDownOutlined, FolderOpenOutlined } from '@ant-design/icons';
 import styles from './ChatNew.module.css';
 import {
   CHAT_AGENT_SKILL_SOURCES_STORAGE_KEY,
-  CHAT_PANEL_OPEN_STORAGE_KEY,
-  CHAT_PANE_WIDTH_STORAGE_KEY,
   CHAT_PROJECT_PATH_STORAGE_KEY,
-  CHAT_SIDE_PANEL_OPEN_STORAGE_KEY,
-  CHAT_SIDE_PANEL_WIDTH_STORAGE_KEY,
   CHAT_WORKSPACE_EVENT,
   CHAT_WORKSPACE_ID_STORAGE_KEY,
   INTENT_ROUTING_TIMEOUT_MS,
@@ -208,25 +205,22 @@ const ChatPage: React.FC = () => {
     sessionId: currentSessionId,
     messageCount: messages.length,
   });
-  const [sidePanelWidth, setSidePanelWidth] = useState(() => {
-    if (typeof window === 'undefined') return 360;
-    const stored = Number(localStorage.getItem(CHAT_SIDE_PANEL_WIDTH_STORAGE_KEY));
-    return Number.isFinite(stored) && stored >= 280 ? stored : 360;
-  });
-  const [resizingSidePanel, setResizingSidePanel] = useState(false);
-  const [chatPaneWidth, setChatPaneWidth] = useState(() => {
-    if (typeof window === 'undefined') return 380;
-    const stored = Number(localStorage.getItem(CHAT_PANE_WIDTH_STORAGE_KEY));
-    return Number.isFinite(stored) && stored >= 240 ? stored : 380;
-  });
-  const [resizingChatPane, setResizingChatPane] = useState(false);
-  const [sidePanelOpen, setSidePanelOpen] = useState(() => {
-    if (typeof window === 'undefined') return true;
-    return localStorage.getItem(CHAT_SIDE_PANEL_OPEN_STORAGE_KEY) !== '0';
-  });
-  const [chatPanelOpen, setChatPanelOpen] = useState(() => {
-    if (typeof window === 'undefined') return true;
-    return localStorage.getItem(CHAT_PANEL_OPEN_STORAGE_KEY) !== '0';
+  const {
+    sidePanelWidth,
+    resizingSidePanel,
+    chatPaneWidth,
+    resizingChatPane,
+    sidePanelOpen,
+    setSidePanelOpen,
+    chatPanelOpen,
+    setChatPanelOpen,
+    terminalHeight,
+    resizingTerminal,
+    handleSplitterPointerDown,
+    handleChatSplitterPointerDown,
+    handleTerminalSplitterPointerDown,
+  } = useChatLayoutPersistence({
+    resizingClassName: styles.resizing,
   });
   const [showPathEdit, setShowPathEdit] = useState(false);
   const [openedFiles, setOpenedFiles] = useState<OpenedFile[]>([]);
@@ -247,12 +241,6 @@ const ChatPage: React.FC = () => {
   // ── Integrated terminal dock ──────────────────────────────────────────────────
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
-  const [terminalHeight, setTerminalHeight] = useState(() => {
-    if (typeof window === 'undefined') return 240;
-    const stored = Number(localStorage.getItem('terminal_dock_height'));
-    return Number.isFinite(stored) && stored >= 120 ? stored : 240;
-  });
-  const [resizingTerminal, setResizingTerminal] = useState(false);
 
   // ── Ctrl+P Quick File Opener ──────────────────────────────────────────────────
   const [quickOpenVisible, setQuickOpenVisible] = useState(false);
@@ -307,100 +295,6 @@ const ChatPage: React.FC = () => {
   }, [saveCurrentScrollState]);
 
   useEffect(() => {
-    if (typeof document === 'undefined') return;
-    const resizingColClass = styles.resizing;
-    const resizingRowClass = 'resizingTerminal';
-    if (resizingColClass) {
-      document.body.classList.toggle(resizingColClass, resizingSidePanel || resizingChatPane);
-    }
-    document.body.classList.toggle(resizingRowClass, resizingTerminal);
-    return () => {
-      if (resizingColClass) document.body.classList.remove(resizingColClass);
-      document.body.classList.remove(resizingRowClass);
-    };
-  }, [resizingSidePanel, resizingChatPane, resizingTerminal]);
-
-  const handleSplitterPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = sidePanelWidth;
-    const minSideWidth = 280;
-    const maxSideWidth = Math.max(320, window.innerWidth - 520);
-    setResizingSidePanel(true);
-    let pendingX = startX;
-    let rafId: number | null = null;
-
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      pendingX = moveEvent.clientX;
-      if (rafId !== null) return;
-      rafId = requestAnimationFrame(() => {
-        rafId = null;
-        setSidePanelWidth(Math.min(maxSideWidth, Math.max(minSideWidth, startWidth - (pendingX - startX))));
-      });
-    };
-
-    const handlePointerUp = () => {
-      if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
-      setResizingSidePanel(false);
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-  }, [sidePanelWidth]);
-
-  useEffect(() => {
-    localStorage.setItem(CHAT_SIDE_PANEL_WIDTH_STORAGE_KEY, String(sidePanelWidth));
-  }, [sidePanelWidth]);
-
-  useEffect(() => {
-    localStorage.setItem(CHAT_PANE_WIDTH_STORAGE_KEY, String(chatPaneWidth));
-  }, [chatPaneWidth]);
-
-  useEffect(() => {
-    localStorage.setItem(CHAT_SIDE_PANEL_OPEN_STORAGE_KEY, sidePanelOpen ? '1' : '0');
-  }, [sidePanelOpen]);
-
-  useEffect(() => {
-    localStorage.setItem(CHAT_PANEL_OPEN_STORAGE_KEY, chatPanelOpen ? '1' : '0');
-  }, [chatPanelOpen]);
-
-  const handleChatSplitterPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = chatPaneWidth;
-    const minChatWidth = 240;
-    const maxChatWidth = Math.max(280, window.innerWidth - 720);
-    setResizingChatPane(true);
-    let pendingX = startX;
-    let rafId: number | null = null;
-
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      pendingX = moveEvent.clientX;
-      if (rafId !== null) return;
-      rafId = requestAnimationFrame(() => {
-        rafId = null;
-        setChatPaneWidth(Math.min(maxChatWidth, Math.max(minChatWidth, startWidth + (pendingX - startX))));
-      });
-    };
-
-    const handlePointerUp = () => {
-      if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
-      setResizingChatPane(false);
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-  }, [chatPaneWidth]);
-
-  useEffect(() => {
-    localStorage.setItem('terminal_dock_height', String(terminalHeight));
-  }, [terminalHeight]);
-
-  useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
         e.preventDefault();
@@ -410,36 +304,6 @@ const ChatPage: React.FC = () => {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, []);
-
-  const handleTerminalSplitterPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const startY = event.clientY;
-    const startHeight = terminalHeight;
-    const minHeight = 120;
-    const maxHeight = Math.max(180, window.innerHeight * 0.6);
-    setResizingTerminal(true);
-    let pendingY = startY;
-    let rafId: number | null = null;
-
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      pendingY = moveEvent.clientY;
-      if (rafId !== null) return;
-      rafId = requestAnimationFrame(() => {
-        rafId = null;
-        setTerminalHeight(Math.min(maxHeight, Math.max(minHeight, startHeight - (pendingY - startY))));
-      });
-    };
-
-    const handlePointerUp = () => {
-      if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
-      setResizingTerminal(false);
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', handlePointerUp);
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', handlePointerUp);
-  }, [terminalHeight]);
 
   const handleBreadcrumbClick = useCallback((_segment: string, fullPath: string) => {
     setFileTreeMode('workspace');
