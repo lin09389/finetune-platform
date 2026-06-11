@@ -24,6 +24,7 @@ import { useAgentSessionMessages } from './chatNew/useAgentSessionMessages';
 import { useAgentFileTree } from './chatNew/useAgentFileTree';
 import { useAgentSessionOverview } from './chatNew/useAgentSessionOverview';
 import { useAgentWorkspaceEditorState } from './chatNew/useAgentWorkspaceEditorState';
+import ChatNewEditorContent from './chatNew/ChatNewEditorContent';
 
 import ChatHeader from '../components/chat/ChatHeader';
 import ChatContextPanel from '../components/chat/ChatContextPanel';
@@ -33,8 +34,6 @@ import AgentPhaseIndicator from '../components/chat/AgentPhaseIndicator';
 import { WorkbenchEmpty } from '../components/chat/AgentWorkbenchPanel';
 import AgentWorkspaceStatusBar from '../components/chat/AgentWorkspaceStatusBar';
 import AgentWorkspaceContainer from '../components/chat/AgentWorkspaceContainer';
-import AgentWorkspaceEditor from '../components/chat/AgentWorkspaceEditor';
-import AgentTerminal from '../components/chat/AgentTerminal';
 import QuickFileOpener, { flattenFileNodes } from '../components/chat/QuickFileOpener';
 import { getFileIcon, isTextIcon } from '../utils/fileIcons';
 import { parseDiffHunks } from '../utils/diffHunks';
@@ -267,6 +266,12 @@ const ChatPage: React.FC = () => {
   // ── Integrated terminal dock ──────────────────────────────────────────────────
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
+  const handleToggleTerminal = useCallback(() => {
+    setTerminalOpen((open) => !open);
+  }, []);
+  const handleCloseTerminal = useCallback(() => {
+    setTerminalOpen(false);
+  }, []);
 
   // ── Ctrl+P Quick File Opener ──────────────────────────────────────────────────
   const [quickOpenVisible, setQuickOpenVisible] = useState(false);
@@ -1922,57 +1927,35 @@ const ChatPage: React.FC = () => {
   ]);
 
   const editorContent = useMemo(() => (
-    <div className={styles.editorWithTerminal}>
-      <div className={styles.editorPaneMain}>
-        <AgentWorkspaceEditor
-          openedFiles={openedFiles}
-          activeFilePath={activeFilePath}
-          onTabChange={setActiveFilePath}
-          onTabClose={handleCloseEditorTab}
-          onActiveContextChange={handleActiveEditorContextChange}
-          onAcceptHunk={handleAcceptHunk}
-          onRejectHunk={handleRejectHunk}
-          onAcceptAll={handleAcceptAll}
-          onRejectAll={handleRejectAll}
-          onSave={handleSaveFile}
-          activeTerminalId={activeTerminalId}
-          onToggleTerminal={() => setTerminalOpen((o) => !o)}
-          terminalOpen={terminalOpen}
-          workspaceRoot={workspaceTreeRoot}
-          onBreadcrumbClick={handleBreadcrumbClick}
-        />
-      </div>
-      {terminalOpen && activeTerminalId && (
-        <div
-          className={styles.terminalDock}
-          style={{ height: terminalHeight, minHeight: 120, maxHeight: '60%' }}
-        >
-          <div
-            className={`${styles.terminalDockResizer} ${resizingTerminal ? styles.terminalDockResizerActive : ''}`}
-            onPointerDown={handleTerminalSplitterPointerDown}
-          />
-          <div className={styles.terminalDockBar}>
-            <span className={styles.terminalDockTitle}>▷ Terminal</span>
-            <button
-              type="button"
-              className={styles.terminalDockClose}
-              onClick={() => setTerminalOpen(false)}
-              aria-label="关闭终端"
-            >×</button>
-          </div>
-          <AgentTerminal
-            terminalId={activeTerminalId}
-            running={latestAgentStatus === 'running'}
-          />
-        </div>
-      )}
-    </div>
+    <ChatNewEditorContent
+      openedFiles={openedFiles}
+      activeFilePath={activeFilePath}
+      onTabChange={setActiveFilePath}
+      onTabClose={handleCloseEditorTab}
+      onActiveContextChange={handleActiveEditorContextChange}
+      onAcceptHunk={handleAcceptHunk}
+      onRejectHunk={handleRejectHunk}
+      onAcceptAll={handleAcceptAll}
+      onRejectAll={handleRejectAll}
+      onSave={handleSaveFile}
+      activeTerminalId={activeTerminalId}
+      terminalOpen={terminalOpen}
+      onToggleTerminal={handleToggleTerminal}
+      onCloseTerminal={handleCloseTerminal}
+      terminalHeight={terminalHeight}
+      resizingTerminal={resizingTerminal}
+      onTerminalResizePointerDown={handleTerminalSplitterPointerDown}
+      terminalRunning={latestAgentStatus === 'running'}
+      workspaceRoot={workspaceTreeRoot}
+      onBreadcrumbClick={handleBreadcrumbClick}
+    />
   ), [
-    openedFiles, activeFilePath, handleCloseEditorTab,
-    handleAcceptHunk, handleRejectHunk, handleAcceptAll, handleRejectAll,
-    handleSaveFile, handleActiveEditorContextChange, activeTerminalId, terminalOpen, latestAgentStatus,
-    workspaceTreeRoot, handleBreadcrumbClick, terminalHeight, resizingTerminal,
-    handleTerminalSplitterPointerDown,
+    openedFiles, activeFilePath, setActiveFilePath, handleCloseEditorTab,
+    handleActiveEditorContextChange, handleAcceptHunk, handleRejectHunk,
+    handleAcceptAll, handleRejectAll, handleSaveFile, activeTerminalId,
+    terminalOpen, handleToggleTerminal, handleCloseTerminal, terminalHeight,
+    resizingTerminal, handleTerminalSplitterPointerDown, latestAgentStatus,
+    workspaceTreeRoot, handleBreadcrumbClick,
   ]);
 
   const workbenchRunPanel = (
