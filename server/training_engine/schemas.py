@@ -88,6 +88,7 @@ class TrainingConfigInput(BaseModel):
     galore_update_proj_gap: int = Field(default=50, ge=10, description="GaLore 投影更新间隔")
 
     output_path: str | None = Field(default=None, description="输出路径（运行时设置）")
+    resume_identity_warnings: list[str] = Field(default_factory=list, description="恢复训练语义校验兼容警告")
 
 
 class TrainingProgressResponse(BaseModel):
@@ -131,6 +132,13 @@ class TrainingRecordResponse(BaseModel):
     output_path: str
     adapter_path: str | None = None
     checkpoint_path: str | None
+    release_id: str | None = None
+    artifact_manifest_path: str | None = None
+    promotion_state: str = "draft"
+    evaluation_run_id: str | None = None
+    deployment_package_id: str | None = None
+    config_hash: str | None = None
+    dataset_fingerprint: str | None = None
     final_loss: float | None = None
     final_lr: float | None = None
     elapsed_time: float | None = None

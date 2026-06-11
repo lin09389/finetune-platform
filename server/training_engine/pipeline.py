@@ -727,9 +727,10 @@ class TrainingPipeline:
         self.ctx.record.elapsed_time = float(progress.elapsed_time)
         self.ctx.record.total_steps = int(progress.step)
 
-        from training_engine.reporter import enrich_record_metrics, sync_training_record_metadata
+        from training_engine.reporter import enrich_record_metrics, sync_training_record_metadata, write_training_artifact_manifest
         sync_training_record_metadata(self.ctx.record)
         enrich_record_metrics(self.ctx.record)
+        write_training_artifact_manifest(self.ctx.record)
         self.ctx.state.add_to_history_sync(self.ctx.record)
 
         self.bus.publish_progress(
@@ -772,9 +773,10 @@ class TrainingPipeline:
         self.ctx.record.elapsed_time = float(progress_snapshot.elapsed_time)
         self.ctx.record.total_steps = int(progress_snapshot.step or self.ctx.total_steps)
 
-        from training_engine.reporter import enrich_record_metrics, sync_training_record_metadata
+        from training_engine.reporter import enrich_record_metrics, sync_training_record_metadata, write_training_artifact_manifest
         sync_training_record_metadata(self.ctx.record)
         enrich_record_metrics(self.ctx.record)
+        write_training_artifact_manifest(self.ctx.record)
 
         self.ctx.state.add_to_history_sync(self.ctx.record)
         logger.info(f"训练历史已保存：{self.ctx.record.id}")

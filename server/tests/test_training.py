@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.config import get_settings
 from core.training_state import TrainingRecord, TrainingState
+from training_engine.reporter import write_training_artifact_manifest
 
 TRAINING_MODULE_PATH = Path(__file__).resolve().parents[1] / "api" / "training.py"
 TRAINING_SPEC = importlib.util.spec_from_file_location("training_module", TRAINING_MODULE_PATH)
@@ -457,6 +458,64 @@ class TestTrainingReleaseFeatureGuards:
         assert synced.dataset_id == "train-dataset"
         assert synced.task_goal == "structured_extraction"
         assert synced.adapter_path == str(adapter_path)
+
+    def test_write_training_artifact_manifest_creates_release_contract(self, tmp_path):
+        adapter_path = tmp_path / "outputs" / "train_demo" / "lora_adapter"
+        adapter_path.mkdir(parents=True)
+        record = TrainingRecord(
+            id="task-release",
+            model_name="display-model",
+            dataset_name="display-dataset",
+            method="qlora",
+            status="completed",
+            start_time="2026-04-02T00:00:00",
+            end_time="2026-04-02T00:10:00",
+            config={"model_id": "local-base-model", "dataset_id": "train-dataset"},
+            output_path=str(tmp_path / "outputs" / "train_demo"),
+            checkpoint_path=str(adapter_path),
+            adapter_path=str(adapter_path),
+        )
+
+        manifest = write_training_artifact_manifest(record)
+
+        assert record.release_id == "release_task-release"
+        assert record.artifact_manifest_path
+        assert Path(record.artifact_manifest_path).exists()
+        assert manifest["quality_gate"]["validation_status"] == "passed"
+        assert manifest["artifacts"]["final_artifact_exists"] is True
+        assert manifest["config_hash"] == record.config_hash
+
+    def test_resume_identity_validation_rejects_mismatched_checkpoint_metadata(self, tmp_path):
+        checkpoint_dir = tmp_path / "checkpoint-10"
+        checkpoint_dir.mkdir()
+        (checkpoint_dir / "checkpoint_metadata.json").write_text(
+            json.dumps(
+                {
+                    "base_model_id": "other-model",
+                    "dataset_id": "train-dataset",
+                }
+            ),
+            encoding="utf-8",
+        )
+        record = TrainingRecord(
+            id="task-resume-identity",
+            model_name="local-base-model",
+            dataset_name="train-dataset",
+            base_model_id="local-base-model",
+            dataset_id="train-dataset",
+            method="qlora",
+            status="stopped",
+            start_time="2026-04-02T00:00:00",
+            config={"model_id": "local-base-model", "dataset_id": "train-dataset"},
+            output_path=str(tmp_path / "outputs" / "train_demo"),
+        )
+
+        with pytest.raises(training_module.HTTPException, match="base model mismatch"):
+            training_module._validate_resume_identity(
+                original_record=record,
+                config_dict=dict(record.config),
+                checkpoint_path=checkpoint_dir,
+            )
 
     @pytest.mark.asyncio
     async def test_resume_training_creates_new_task_id_and_output_path(self, tmp_path, monkeypatch):

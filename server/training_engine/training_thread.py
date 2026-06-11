@@ -17,7 +17,7 @@ from training_engine.callbacks import queue_training_progress
 from training_engine.errors import RecoverableError, UnrecoverableError
 from training_engine.events import TrainingEventBus
 from training_engine.pipeline import PipelineContext, TrainingPhase, TrainingPipeline
-from training_engine.reporter import enrich_record_metrics, sync_training_record_metadata
+from training_engine.reporter import enrich_record_metrics, sync_training_record_metadata, write_training_artifact_manifest
 from training_engine.schemas import TrainingConfigInput
 from training_engine.strategies import (
     AutoDatasetFormatter,
@@ -58,6 +58,7 @@ def handle_training_failure(state: TrainingState, record: TrainingRecord, error:
     record.total_steps = int(latest_progress.step)
     sync_training_record_metadata(record)
     enrich_record_metrics(record)
+    write_training_artifact_manifest(record)
 
     if train_logger:
         train_logger.log_error(error)
@@ -106,6 +107,7 @@ def finalize_stop_requested(
     record.total_steps = int(latest_progress.step)
     sync_training_record_metadata(record)
     enrich_record_metrics(record)
+    write_training_artifact_manifest(record)
     state.add_to_history_sync(record)
     logger.info(f"训练已停止并保存历史：{record.id}")
 

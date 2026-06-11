@@ -2,6 +2,7 @@
 训练报告与辅助工具 - 失败分析、进度转换、记录增强
 """
 import json
+import hashlib
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -179,7 +180,74 @@ def sync_training_record_metadata(record: TrainingRecord) -> TrainingRecord:
         or "qa_assistant"
     )
     record.adapter_path = record.adapter_path or record.checkpoint_path
+    record.release_id = record.release_id or f"release_{record.id}"
+    if not record.config_hash:
+        config_payload = json.dumps(config, ensure_ascii=False, sort_keys=True)
+        record.config_hash = hashlib.sha256(config_payload.encode("utf-8")).hexdigest()
+    if not record.dataset_fingerprint:
+        dataset_payload = json.dumps(
+            {
+                "dataset_id": record.dataset_id,
+                "dataset_name": record.dataset_name,
+                "config_dataset_id": config.get("dataset_id") or config.get("datasetId"),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        record.dataset_fingerprint = hashlib.sha256(dataset_payload.encode("utf-8")).hexdigest()
     return record
+
+
+def write_training_artifact_manifest(record: TrainingRecord) -> dict[str, Any]:
+    """Write a stable release manifest next to the training output."""
+    sync_training_record_metadata(record)
+    output_dir = Path(record.output_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = output_dir / "artifact_manifest.json"
+
+    artifact_path = record.adapter_path or record.checkpoint_path
+    artifact_kind = "adapter" if record.adapter_path else "full_model" if record.method == "full" else "checkpoint"
+    artifact_exists = bool(artifact_path and Path(artifact_path).exists())
+    validation_status = "passed" if record.status == "completed" and artifact_exists else "unverified"
+    if record.status in {"failed", "stopped"}:
+        validation_status = record.status
+
+    manifest: dict[str, Any] = {
+        "schema_version": 1,
+        "release_id": record.release_id,
+        "training_task_id": record.id,
+        "promotion_state": record.promotion_state,
+        "status": record.status,
+        "created_at": record.end_time or record.start_time,
+        "base_model_id": record.base_model_id,
+        "dataset_id": record.dataset_id,
+        "task_goal": record.task_goal,
+        "method": record.method,
+        "config_hash": record.config_hash,
+        "dataset_fingerprint": record.dataset_fingerprint,
+        "artifacts": {
+            "output_path": record.output_path,
+            "adapter_path": record.adapter_path,
+            "checkpoint_path": record.checkpoint_path,
+            "final_artifact_path": artifact_path,
+            "final_artifact_kind": artifact_kind,
+            "final_artifact_exists": artifact_exists,
+        },
+        "quality_gate": {
+            "validation_status": validation_status,
+            "evaluation_run_id": record.evaluation_run_id,
+            "deployment_package_id": record.deployment_package_id,
+        },
+        "rollback": {
+            "checkpoint_path": record.checkpoint_path,
+            "can_rollback": bool(record.checkpoint_path and Path(record.checkpoint_path).exists()),
+        },
+    }
+
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    record.artifact_manifest_path = str(manifest_path)
+    return manifest
 
 
 def build_failure_analytics_payload(records: list[TrainingRecord]) -> dict[str, Any]:

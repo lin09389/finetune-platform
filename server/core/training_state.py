@@ -7,6 +7,7 @@
 - PERF: TrainingProgress 从 Pydantic BaseModel 改为 dataclass，避免高频 model_copy 开销
 """
 import gc
+import hashlib
 import json
 import os
 import tempfile
@@ -90,10 +91,24 @@ class TrainingRecord(BaseModel):
     output_path: str
     adapter_path: str | None = None
     checkpoint_path: str | None = None
+    release_id: str | None = None
+    artifact_manifest_path: str | None = None
+    promotion_state: str = "draft"
+    evaluation_run_id: str | None = None
+    deployment_package_id: str | None = None
+    config_hash: str | None = None
+    dataset_fingerprint: str | None = None
     final_loss: float | None = None
     final_lr: float | None = None
     elapsed_time: float | None = None
     total_steps: int | None = None
+
+    def model_post_init(self, __context: Any) -> None:
+        if not self.release_id:
+            self.release_id = f"release_{self.id}"
+        if not self.config_hash:
+            payload = json.dumps(self.config or {}, ensure_ascii=False, sort_keys=True)
+            self.config_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 class StateUpdate:

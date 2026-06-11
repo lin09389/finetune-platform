@@ -12,6 +12,7 @@
 - services/training/ 验证、编排、报告
 """
 import asyncio
+import hashlib
 import json
 import uuid
 from datetime import datetime
@@ -71,6 +72,60 @@ from services.training.orchestrator import start_training_task, resolve_dataset_
 logger = get_logger(__name__)
 
 router = APIRouter()
+
+
+def _config_hash(config: dict[str, Any]) -> str:
+    payload = json.dumps(config or {}, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _validate_resume_identity(
+    *,
+    original_record: TrainingRecord,
+    config_dict: dict[str, Any],
+    checkpoint_path: Path,
+) -> list[str]:
+    """Validate semantic identity for checkpoint resume when metadata is available."""
+    warnings: list[str] = []
+    metadata_path = checkpoint_path / "checkpoint_metadata.json"
+    if not metadata_path.exists():
+        warnings.append("checkpoint_metadata.json 不存在，已按旧检查点兼容路径恢复；无法强校验模型/数据集/配置版本")
+        return warnings
+
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Checkpoint metadata is unreadable: {exc}") from exc
+
+    expected_model = (
+        getattr(original_record, "base_model_id", None)
+        or config_dict.get("model_id")
+        or config_dict.get("modelId")
+        or original_record.model_name
+    )
+    expected_dataset = (
+        getattr(original_record, "dataset_id", None)
+        or config_dict.get("dataset_id")
+        or config_dict.get("datasetId")
+        or original_record.dataset_name
+    )
+    metadata_model = metadata.get("base_model_id") or metadata.get("model_id") or metadata.get("model")
+    metadata_dataset = metadata.get("dataset_id") or metadata.get("dataset")
+    metadata_config_hash = metadata.get("config_hash")
+
+    mismatches = []
+    if metadata_model and expected_model and metadata_model != expected_model:
+        mismatches.append(f"base model mismatch: checkpoint={metadata_model}, record={expected_model}")
+    if metadata_dataset and expected_dataset and metadata_dataset != expected_dataset:
+        mismatches.append(f"dataset mismatch: checkpoint={metadata_dataset}, record={expected_dataset}")
+    record_config_hash = getattr(original_record, "config_hash", None) or _config_hash(original_record.config or {})
+    current_config_hash = _config_hash(config_dict)
+    if metadata_config_hash and metadata_config_hash not in {record_config_hash, current_config_hash}:
+        mismatches.append("training config hash mismatch")
+
+    if mismatches:
+        raise HTTPException(status_code=400, detail="Checkpoint identity validation failed: " + "; ".join(mismatches))
+    return warnings
 
 
 # ============================================================================
@@ -397,6 +452,9 @@ async def get_status():
     """获取训练状态"""
     state = get_training_context().state
     status = state.get_status()
+    if isinstance(status, dict) and "status" not in status:
+        progress_status = (status.get("progress") or {}).get("status") if isinstance(status.get("progress"), dict) else None
+        status["status"] = progress_status or ("running" if status.get("is_training") else "idle")
     latest_event = get_training_event_hub_v2().get_latest()
     if latest_event and isinstance(status, dict):
         progress = status.get("progress")
@@ -794,7 +852,16 @@ async def resume_training(task_id: str, checkpoint_name: str):
         )
 
     config_dict = dict(original_record.config)
+    resume_identity_warnings = _validate_resume_identity(
+        original_record=original_record,
+        config_dict=config_dict,
+        checkpoint_path=checkpoint_path,
+    )
     config_dict["resume_from_checkpoint"] = str(checkpoint_path)
+    if resume_identity_warnings:
+        for warning in resume_identity_warnings:
+            logger.warning(f"恢复训练语义校验警告：{warning}")
+        config_dict["resume_identity_warnings"] = resume_identity_warnings
     try:
         config = TrainingConfigInput(**config_dict)
     except Exception as e:
