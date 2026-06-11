@@ -45,6 +45,7 @@ const codeBlockStyle = {
 type DeploymentPackageSummary = {
   package_id: string;
   training_task_id?: string;
+  evaluation_run_id?: string;
   created_at?: string;
   base_model?: string;
   adapter_path?: string;
@@ -67,6 +68,7 @@ export default function Deployment() {
       base_model: payload.base_model,
       adapter_path: payload.adapter_path,
       merged_model_path: payload.merged_model_path,
+      evaluation_run_id: payload.evaluation_run_id,
       model_alias: payload.env_template?.MODEL_NAME,
       service_base_url: payload.env_template?.OPENAI_BASE_URL?.replace(/\/v1\/?$/, ''),
     });
@@ -96,6 +98,7 @@ export default function Deployment() {
       'base_model',
       'adapter_path',
       'merged_model_path',
+      'evaluation_run_id',
       'model_alias',
       'service_base_url',
     ].forEach((key) => {
@@ -148,6 +151,7 @@ export default function Deployment() {
     base_model: string;
     adapter_path: string;
     merged_model_path?: string;
+    evaluation_run_id?: string;
     model_alias?: string;
     service_base_url?: string;
   }) => {
@@ -259,6 +263,13 @@ export default function Deployment() {
               <Form.Item name="merged_model_path" label="合并模型路径">
                 <Input placeholder="outputs/run/merged" />
               </Form.Item>
+              <Form.Item
+                name="evaluation_run_id"
+                label="评估任务 ID"
+                rules={[{ required: true, message: '部署前需要绑定已通过的评估任务' }]}
+              >
+                <Input placeholder="eval_..." />
+              </Form.Item>
               <Form.Item name="model_alias" label="模型别名">
                 <Input placeholder="customer-support-v1" />
               </Form.Item>
@@ -310,6 +321,7 @@ export default function Deployment() {
                           <Text type="secondary">
                             {item.training_task_id || '-'} · {item.created_at || '-'}
                           </Text>
+                          <Text type="secondary">评估：{item.evaluation_run_id || '-'}</Text>
                         </Space>
                       }
                     />
@@ -350,6 +362,12 @@ export default function Deployment() {
               >
                 <Descriptions column={1} size="small">
                   <Descriptions.Item label="训练任务">{deploymentPackage.training_task_id}</Descriptions.Item>
+                  <Descriptions.Item label="评估任务">
+                    {deploymentPackage.evaluation_run_id || '-'}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="评估门禁">
+                    {deploymentPackage.evaluation_gate?.passed ? '已通过' : '未绑定'}
+                  </Descriptions.Item>
                   <Descriptions.Item label="Adapter">{deploymentPackage.adapter_path}</Descriptions.Item>
                   <Descriptions.Item label="合并模型">
                     {deploymentPackage.merged_model_path || '未提供，先以 Adapter 交付'}

@@ -24,6 +24,11 @@ class DeploymentPackageRequest(BaseModel):
     base_model: str | None = None
     adapter_path: str | None = None
     merged_model_path: str | None = None
+    evaluation_run_id: str | None = None
+    require_evaluation: bool = True
+    min_good_rate: float = 0.6
+    min_win_rate: float = 0.5
+    min_schema_match_rate: float = 0.8
     service_base_url: str = "http://127.0.0.1:8000"
     model_alias: str | None = None
 
@@ -36,6 +41,10 @@ def _deployment_dir() -> Path:
 
 def _package_path(package_id: str) -> Path:
     return _deployment_dir() / f"{package_id}.json"
+
+
+def _evaluation_path(run_id: str) -> Path:
+    return get_settings().outputs_dir_resolved / "evaluations" / f"{run_id}.json"
 
 
 def _read_package_file(path: Path) -> dict[str, Any] | None:
@@ -53,6 +62,97 @@ def _get_config_value(config: dict[str, Any], *keys: str) -> str | None:
         if isinstance(value, str) and value.strip():
             return value
     return None
+
+
+def _resolve_existing_path(path_value: str | None) -> str | None:
+    if not path_value:
+        return None
+    raw = Path(path_value)
+    candidates = [raw]
+    if not raw.is_absolute():
+        settings = get_settings()
+        candidates.extend([
+            settings.outputs_dir_resolved / raw,
+            Path.cwd() / raw,
+        ])
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    raise HTTPException(status_code=400, detail=f"部署产物路径不存在或不可访问：{path_value}")
+
+
+def _paths_match(left: str | None, right: str | None) -> bool:
+    if not left or not right:
+        return True
+    try:
+        return Path(_resolve_existing_path(left) or "").resolve() == Path(_resolve_existing_path(right) or "").resolve()
+    except HTTPException:
+        return left == right
+
+
+def _load_evaluation_run(run_id: str | None) -> dict[str, Any] | None:
+    if not run_id:
+        return None
+    path = _evaluation_path(run_id)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="绑定的评估任务不存在")
+    payload = _read_package_file(path)
+    if not payload:
+        raise HTTPException(status_code=500, detail="评估任务文件损坏")
+    return payload
+
+
+def _validate_evaluation_gate(
+    *,
+    request: DeploymentPackageRequest,
+    record: Any,
+    resolved: dict[str, str | None],
+) -> dict[str, Any] | None:
+    payload = _load_evaluation_run(request.evaluation_run_id)
+    if not payload:
+        if request.require_evaluation:
+            raise HTTPException(status_code=400, detail="部署包必须绑定通过门禁的 evaluation_run_id")
+        return None
+
+    if payload.get("status") not in {"completed", "completed_with_warnings"}:
+        raise HTTPException(status_code=400, detail="评估任务尚未完成，不能生成部署包")
+
+    if payload.get("training_task_id") and payload.get("training_task_id") != request.training_task_id:
+        raise HTTPException(status_code=400, detail="评估任务与训练任务不匹配")
+    release_id = getattr(record, "release_id", None) if record is not None else None
+    if release_id and payload.get("release_id") and payload.get("release_id") != release_id:
+        raise HTTPException(status_code=400, detail="评估任务与训练 release 不匹配")
+    if payload.get("base_model") and payload.get("base_model") != resolved.get("base_model"):
+        raise HTTPException(status_code=400, detail="评估基础模型与部署基础模型不一致")
+    if payload.get("adapter_path") and resolved.get("adapter_path") and not _paths_match(payload.get("adapter_path"), resolved.get("adapter_path")):
+        raise HTTPException(status_code=400, detail="评估 adapter 与部署 adapter 不一致")
+
+    metrics = payload.get("metrics") or {}
+    scenario = payload.get("scenario")
+    passed = True
+    reasons: list[str] = []
+    if scenario == "structured_extraction":
+        schema_rate = float(metrics.get("schema_match_rate", 0.0) or 0.0)
+        if schema_rate < request.min_schema_match_rate:
+            passed = False
+            reasons.append(f"schema_match_rate {schema_rate} < {request.min_schema_match_rate}")
+    else:
+        good_rate = float(metrics.get("good_rate", 0.0) or 0.0)
+        win_rate = float(metrics.get("win_rate", 0.0) or 0.0)
+        if good_rate < request.min_good_rate and win_rate < request.min_win_rate:
+            passed = False
+            reasons.append(f"good_rate {good_rate} / win_rate {win_rate} 未达到门禁")
+
+    if not passed:
+        raise HTTPException(status_code=400, detail="评估门禁未通过：" + "；".join(reasons))
+
+    return {
+        "evaluation_run_id": payload.get("run_id"),
+        "status": payload.get("status"),
+        "scenario": scenario,
+        "metrics": metrics,
+        "passed": True,
+    }
 
 
 def _find_training_record(training_task_id: str):
@@ -91,8 +191,8 @@ def _resolve_package_inputs(request: DeploymentPackageRequest) -> dict[str, str 
 
     return {
         "base_model": base_model,
-        "adapter_path": adapter_path,
-        "merged_model_path": merged_model_path,
+        "adapter_path": _resolve_existing_path(adapter_path),
+        "merged_model_path": _resolve_existing_path(merged_model_path),
     }
 
 
@@ -140,7 +240,9 @@ def _build_modelfile(model_name: str, adapter_path: str, merged_model_path: str 
 
 @router.post("/packages")
 async def create_deployment_package(request: DeploymentPackageRequest):
+    record = _find_training_record(request.training_task_id)
     resolved = _resolve_package_inputs(request)
+    evaluation_gate = _validate_evaluation_gate(request=request, record=record, resolved=resolved)
     base_model = resolved["base_model"] or ""
     adapter_path = resolved["adapter_path"] or ""
     merged_model_path = resolved["merged_model_path"]
@@ -160,6 +262,8 @@ async def create_deployment_package(request: DeploymentPackageRequest):
         "base_model": base_model,
         "adapter_path": adapter_path,
         "merged_model_path": merged_model_path,
+        "evaluation_run_id": request.evaluation_run_id,
+        "evaluation_gate": evaluation_gate,
         "ollama_modelfile": modelfile,
         "openai_compatible_examples": examples,
         "env_template": {
@@ -190,6 +294,7 @@ async def list_deployment_packages(limit: int = 20):
                 "base_model": payload.get("base_model"),
                 "adapter_path": payload.get("adapter_path"),
                 "merged_model_path": payload.get("merged_model_path"),
+                "evaluation_run_id": payload.get("evaluation_run_id"),
                 "model_name": (payload.get("env_template") or {}).get("MODEL_NAME"),
             }
         )

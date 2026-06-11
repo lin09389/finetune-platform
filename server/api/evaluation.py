@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import uuid
 import re
@@ -64,6 +65,9 @@ class EvaluationRunRequest(BaseModel):
     base_model: str
     finetuned_model: str | None = None
     adapter_path: str | None = None
+    training_task_id: str | None = None
+    release_id: str | None = None
+    system_prompt: str | None = None
     auto_merge_adapter: bool = True
     test_dataset_id: str | None = None
     cases: list[EvaluationCase] = Field(default_factory=list)
@@ -117,53 +121,163 @@ def _schema_keys(schema: dict[str, Any] | None) -> set[str]:
     return set(schema.keys())
 
 
+def _prompt_template_hash(scenario: Scenario, system_prompt: str | None) -> str:
+    payload = json.dumps(
+        {
+            "scenario": scenario,
+            "system_prompt": system_prompt or "",
+            "structured_prefix": "extract_json_v1",
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _expected_json_type(schema_value: Any) -> str | None:
+    if isinstance(schema_value, dict):
+        value = schema_value.get("type")
+        return str(value).lower() if value else None
+    if isinstance(schema_value, str):
+        mapping = {
+            "str": "string",
+            "text": "string",
+            "int": "number",
+            "float": "number",
+            "num": "number",
+            "bool": "boolean",
+        }
+        return mapping.get(schema_value.lower(), schema_value.lower())
+    return None
+
+
+def _value_matches_schema(value: Any, expected_type: str | None) -> bool:
+    if expected_type in (None, "any"):
+        return True
+    if expected_type in {"number", "integer"}:
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if expected_type == "string":
+        return isinstance(value, str)
+    if expected_type == "boolean":
+        return isinstance(value, bool)
+    if expected_type == "array":
+        return isinstance(value, list)
+    if expected_type == "object":
+        return isinstance(value, dict)
+    return True
+
+
+def _structured_quality(case: dict[str, Any], output_key: str) -> tuple[dict[str, Any], str | None]:
+    ok, parsed = _parse_json(case.get(output_key))
+    schema = case.get("schema") or {}
+    keys = _schema_keys(schema)
+    result = {
+        "json_valid": ok,
+        "schema_match": False,
+        "field_total": len(keys),
+        "field_present": 0,
+        "type_match": False,
+    }
+    if not ok:
+        return result, f"{output_key} is not valid JSON"
+    if not keys:
+        result["schema_match"] = True
+        result["type_match"] = True
+        return result, None
+    if not isinstance(parsed, dict):
+        return result, f"{output_key} JSON root is not an object"
+    present = [key for key in keys if key in parsed]
+    result["field_present"] = len(present)
+    result["schema_match"] = len(present) == len(keys)
+    properties = schema.get("properties") if isinstance(schema.get("properties"), dict) else schema
+    type_checks = [
+        _value_matches_schema(parsed[key], _expected_json_type(properties.get(key) if isinstance(properties, dict) else None))
+        for key in present
+    ]
+    result["type_match"] = bool(type_checks) and all(type_checks) and result["schema_match"]
+    if not result["schema_match"]:
+        return result, f"{output_key} missing schema fields"
+    if not result["type_match"]:
+        return result, f"{output_key} schema field type mismatch"
+    return result, None
+
+
 def _compute_metrics(scenario: Scenario, cases: list[dict[str, Any]]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     failed_cases: list[dict[str, Any]] = []
 
     if scenario == "structured_extraction":
-        valid_json = 0
-        schema_match = 0
-        field_total = 0
-        field_present = 0
+        base_valid_json = finetuned_valid_json = 0
+        base_schema_match = finetuned_schema_match = 0
+        base_type_match = finetuned_type_match = 0
+        field_total = base_field_present = finetuned_field_present = 0
+        wins = losses = ties = 0
 
         for index, case in enumerate(cases):
-            ok, parsed = _parse_json(case.get("finetuned_output"))
-            if ok:
-                valid_json += 1
+            base_quality, _ = _structured_quality(case, "base_output")
+            fine_quality, fine_reason = _structured_quality(case, "finetuned_output")
+            base_valid_json += int(base_quality["json_valid"])
+            finetuned_valid_json += int(fine_quality["json_valid"])
+            base_schema_match += int(base_quality["schema_match"])
+            finetuned_schema_match += int(fine_quality["schema_match"])
+            base_type_match += int(base_quality["type_match"])
+            finetuned_type_match += int(fine_quality["type_match"])
+            field_total += int(fine_quality["field_total"])
+            base_field_present += int(base_quality["field_present"])
+            finetuned_field_present += int(fine_quality["field_present"])
+            base_score = sum(int(base_quality[key]) for key in ("json_valid", "schema_match", "type_match"))
+            fine_score = sum(int(fine_quality[key]) for key in ("json_valid", "schema_match", "type_match"))
+            if fine_score > base_score:
+                wins += 1
+            elif fine_score < base_score:
+                losses += 1
             else:
-                failed_cases.append({"case_index": index, "reason": "finetuned_output is not valid JSON"})
-                continue
-
-            keys = _schema_keys(case.get("schema"))
-            if keys and isinstance(parsed, dict):
-                present = sum(1 for key in keys if key in parsed)
-                field_total += len(keys)
-                field_present += present
-                if present == len(keys):
-                    schema_match += 1
-                else:
-                    failed_cases.append({"case_index": index, "reason": "missing schema fields"})
-            elif not keys:
-                schema_match += 1
+                ties += 1
+            if fine_reason:
+                failed_cases.append({"case_index": index, "reason": fine_reason})
 
         total = len(cases) or 1
         return {
-            "json_valid_rate": round(valid_json / total, 4),
-            "schema_match_rate": round(schema_match / total, 4),
-            "field_completeness_rate": round(field_present / field_total, 4) if field_total else 0.0,
+            "json_valid_rate": round(finetuned_valid_json / total, 4),
+            "schema_match_rate": round(finetuned_schema_match / total, 4),
+            "field_completeness_rate": round(finetuned_field_present / field_total, 4) if field_total else 0.0,
+            "type_match_rate": round(finetuned_type_match / total, 4),
+            "base_json_valid_rate": round(base_valid_json / total, 4),
+            "base_schema_match_rate": round(base_schema_match / total, 4),
+            "base_field_completeness_rate": round(base_field_present / field_total, 4) if field_total else 0.0,
+            "base_type_match_rate": round(base_type_match / total, 4),
+            "json_valid_delta": round((finetuned_valid_json - base_valid_json) / total, 4),
+            "schema_match_delta": round((finetuned_schema_match - base_schema_match) / total, 4),
+            "type_match_delta": round((finetuned_type_match - base_type_match) / total, 4),
+            "finetuned_win_count": wins,
+            "finetuned_loss_count": losses,
+            "tie_count": ties,
+            "win_rate": round(wins / total, 4),
+            "net_win_rate": round((wins - losses) / total, 4),
         }, failed_cases
 
     scores = [case.get("human_score", {}).get("score") for case in cases if case.get("human_score")]
+    total_scored = len(scores) or 1
+    wins = scores.count("good")
+    losses = scores.count("bad")
+    ties = scores.count("neutral")
     return {
         "human_score_count": len(scores),
-        "good_rate": round(scores.count("good") / len(scores), 4) if scores else 0.0,
+        "good_rate": round(wins / len(scores), 4) if scores else 0.0,
+        "finetuned_win_count": wins,
+        "finetuned_loss_count": losses,
+        "tie_count": ties,
+        "win_rate": round(wins / total_scored, 4) if scores else 0.0,
+        "loss_rate": round(losses / total_scored, 4) if scores else 0.0,
+        "net_win_rate": round((wins - losses) / total_scored, 4) if scores else 0.0,
         "coverage_marked_count": sum(1 for case in cases if case.get("human_score", {}).get("answer_covered") is not None),
         "grounding_marked_count": sum(1 for case in cases if case.get("human_score", {}).get("grounded_in_context") is not None),
     }, failed_cases
 
 
-def _build_prompt(case: dict[str, Any], scenario: Scenario) -> str:
+def _build_prompt(case: dict[str, Any], scenario: Scenario, system_prompt: str | None = None) -> str:
     prompt = str(case.get("prompt") or "")
+    if system_prompt:
+        prompt = f"{system_prompt}\n\n{prompt}"
     schema = case.get("schema")
     if scenario == "structured_extraction" and schema:
         return (
@@ -267,6 +381,13 @@ async def _run_llm_judge_batch(
     judge_prompts = []
     for p, b_out, f_out, e_out in zip(prompts, base_outputs, finetuned_outputs, expected_outputs):
         judge_prompts.append(f"""请作为一名严谨的大模型评估专家，对两个模型的回答质量进行对比。
+请按照固定 rubric 判断，不要偏向更长或更自信的回答：
+- correctness: 是否正确回答问题
+- completeness: 是否覆盖关键点
+- faithfulness: 是否忠于参考答案或上下文
+- safety: 是否存在危险、不当或明显幻觉
+- style: 是否符合用户问题的表达场景
+
 原始问题：
 {p}
 
@@ -279,11 +400,14 @@ async def _run_llm_judge_batch(
 微调模型回答：
 {f_out}
 
-请评估“微调模型”相较于“基础模型”是否更好地回答了问题（或者在没有基础模型时，微调模型自身是否回答完美）。
-只允许输出三个单词之一，不要有任何其他字符：
-good - 微调模型明显更好，或完美回答了问题
-neutral - 两者差不多，或者各有千秋
-bad - 微调模型明显更差，或者存在严重事实错误
+请评估“微调模型”相较于“基础模型”是否更好地回答了问题。
+只允许输出 JSON，不要有任何其他字符：
+{{"verdict":"good|neutral|bad","reason":"一句话说明主要依据"}}
+
+verdict 定义：
+good = 微调模型整体明显更好
+neutral = 两者差不多，或者优劣相抵
+bad = 微调模型整体明显更差，或存在严重事实错误
 
 输出：""")
 
@@ -293,24 +417,28 @@ bad - 微调模型明显更差，或者存在严重事实错误
             model=judge_model,
             prompts=judge_prompts,
             backend=backend,
-            max_tokens=10,
+            max_tokens=128,
             temperature=0.1,
         )
         scores: list[Literal["good", "neutral", "bad"]] = []
         for result in results:
             result_lower = result.strip().lower()
-            if re.search(r'\bgood\b', result_lower):
-                scores.append("good")
-            elif re.search(r'\bbad\b', result_lower):
-                scores.append("bad")
-            else:
-                scores.append("neutral")
+            verdict = None
+            try:
+                parsed = json.loads(result)
+                if isinstance(parsed, dict):
+                    raw = str(parsed.get("verdict", "")).lower()
+                    if raw in {"good", "neutral", "bad"}:
+                        verdict = raw
+            except Exception:
+                pass
+            if verdict is None:
+                match = re.search(r'\b(good|neutral|bad)\b', result_lower)
+                verdict = match.group(1) if match else "neutral"
+            scores.append(verdict)  # type: ignore[arg-type]
         return scores
     except Exception as exc:
         raise RuntimeError(str(exc))
-        return "neutral"
-    except Exception:
-        return "neutral"
 
 
 async def _flush_progress(run_id: str, case_payloads: list[dict[str, Any]]):
@@ -340,14 +468,15 @@ async def _populate_inference_outputs(
     response_format = "json" if request.scenario == "structured_extraction" else None
     adapter_merge: dict[str, Any] | None = None
     finetuned_model = request.finetuned_model
+    base_backend = request.backend
     finetuned_backend = request.backend
     lora_adapter = None
 
     if request.run_inference and not finetuned_model and request.adapter_path:
         finetuned_model = request.base_model
         finetuned_backend = "huggingface"
+        base_backend = "huggingface"
         lora_adapter = request.adapter_path
-        request.backend = "huggingface" # 强制基础模型也使用 HuggingFace 保证对比公平性
         warnings.append("已采用动态加载方式挂载 adapter，并使用 HuggingFace 后端进行基础/微调模型评估。")
         adapter_merge = {
             "merged_model_path": request.base_model,
@@ -367,13 +496,13 @@ async def _populate_inference_outputs(
                 unprocessed = [c for c in chunk if not c.get("base_output")]
                 if not unprocessed:
                     return
-                prompts = [_build_prompt(c, request.scenario) for c in unprocessed]
+                prompts = [_build_prompt(c, request.scenario, request.system_prompt) for c in unprocessed]
                 try:
                     outputs = await run_model_inference_batch_with_retry(
                         max_retries=2,
                         model=request.base_model,
                         prompts=prompts,
-                        backend=request.backend,
+                        backend=base_backend,
                         max_tokens=request.max_tokens,
                         temperature=request.temperature,
                         response_format=response_format,
@@ -398,7 +527,7 @@ async def _populate_inference_outputs(
                     unprocessed = [c for c in chunk if not c.get("finetuned_output")]
                     if not unprocessed:
                         return
-                    prompts = [_build_prompt(c, request.scenario) for c in unprocessed]
+                    prompts = [_build_prompt(c, request.scenario, request.system_prompt) for c in unprocessed]
                     try:
                         outputs = await run_model_inference_batch_with_retry(
                             max_retries=2,
@@ -472,7 +601,7 @@ async def _run_judge_task(run_id: str, judge_model: str, backend: str, scenario:
                         b_out = case.get("base_output", "")
                         if f_out and not case.get("finetuned_output_error"):
                             unprocessed_indices.append(i)
-                            prompts.append(_build_prompt(case, scenario))
+                            prompts.append(_build_prompt(case, scenario, payload.get("system_prompt")))
                             base_outs.append(b_out)
                             finetuned_outs.append(f_out)
                             expected_outs.append(case.get("expected_output"))
@@ -620,6 +749,12 @@ async def _run_evaluation_task(request: EvaluationRunRequest, run_id: str, case_
             payload["status"] = status
             payload["finetuned_model"] = request.finetuned_model or (adapter_merge or {}).get("merged_model_path")
             payload["adapter_merge"] = adapter_merge
+            payload["execution"] = {
+                "base_backend": "huggingface" if adapter_merge else request.backend,
+                "finetuned_backend": (adapter_merge or {}).get("backend") or request.backend,
+                "dynamic_adapter": bool(adapter_merge and request.adapter_path),
+                "response_format": "json" if request.scenario == "structured_extraction" else None,
+            }
             payload["warnings"] = inference_warnings
             payload["base_outputs"] = [case.get("base_output") for case in case_payloads]
             payload["finetuned_outputs"] = [case.get("finetuned_output") for case in case_payloads]
@@ -681,10 +816,19 @@ async def create_evaluation_run(request: EvaluationRunRequest, background_tasks:
         "base_model": request.base_model,
         "finetuned_model": request.finetuned_model,
         "adapter_path": request.adapter_path,
+        "training_task_id": request.training_task_id,
+        "release_id": request.release_id,
         "adapter_merge": None,
         "test_dataset_id": request.test_dataset_id,
         "backend": request.backend,
+        "system_prompt": request.system_prompt,
         "run_inference": request.run_inference,
+        "reproducibility": {
+            "prompt_template_hash": _prompt_template_hash(request.scenario, request.system_prompt),
+            "prompt_builder_version": "evaluation_prompt_v2",
+            "backend": request.backend,
+            "judge_model": request.judge_model,
+        },
         "inference_options": {
             "max_tokens": request.max_tokens,
             "temperature": request.temperature,

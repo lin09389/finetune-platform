@@ -110,6 +110,9 @@ export interface EvaluationRun {
   base_model: string;
   finetuned_model?: string;
   adapter_path?: string;
+  training_task_id?: string;
+  release_id?: string;
+  system_prompt?: string;
   adapter_merge?: {
     merged_model_path?: string;
     adapter_path?: string;
@@ -125,6 +128,8 @@ export interface EvaluationRun {
   backend?: string;
   run_inference?: boolean;
   warnings?: string[];
+  execution?: Record<string, unknown>;
+  reproducibility?: Record<string, unknown>;
   inference_options?: {
     max_tokens?: number;
     temperature?: number;
@@ -140,6 +145,14 @@ export interface DeploymentPackage {
   base_model: string;
   adapter_path: string;
   merged_model_path?: string;
+  evaluation_run_id?: string;
+  evaluation_gate?: {
+    evaluation_run_id?: string;
+    status?: string;
+    scenario?: string;
+    metrics?: Record<string, number>;
+    passed?: boolean;
+  } | null;
   ollama_modelfile?: string;
   openai_compatible_examples: Record<string, string>;
   env_template: Record<string, string>;
@@ -186,6 +199,13 @@ export interface TrainingRecord {
   datasetId: string;
   taskGoal?: AppTaskGoal;
   adapterPath?: string;
+  releaseId?: string;
+  artifactManifestPath?: string;
+  promotionState?: string;
+  evaluationRunId?: string;
+  deploymentPackageId?: string;
+  configHash?: string;
+  datasetFingerprint?: string;
   method: string;
   status: 'running' | 'completed' | 'failed' | 'stopped';
   startTime: string;

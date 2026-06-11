@@ -44,8 +44,22 @@ const metricLabels: Record<string, string> = {
   json_valid_rate: 'JSON 合法率',
   schema_match_rate: 'Schema 符合率',
   field_completeness_rate: '字段完整率',
+  type_match_rate: '类型匹配率',
+  base_json_valid_rate: '基模 JSON 合法率',
+  base_schema_match_rate: '基模 Schema 符合率',
+  base_field_completeness_rate: '基模字段完整率',
+  base_type_match_rate: '基模类型匹配率',
+  json_valid_delta: 'JSON 合法率提升',
+  schema_match_delta: 'Schema 符合率提升',
+  type_match_delta: '类型匹配率提升',
   human_score_count: '人工评分数',
   good_rate: '好评率',
+  win_rate: '微调胜率',
+  loss_rate: '微调败率',
+  net_win_rate: '净胜率',
+  finetuned_win_count: '微调胜出数',
+  finetuned_loss_count: '微调落后数',
+  tie_count: '持平数',
   coverage_marked_count: '覆盖度标记数',
   grounding_marked_count: '依据上下文标记数',
 };
@@ -370,6 +384,7 @@ export default function Evaluation() {
         base_model: values.base_model,
         finetuned_model: values.finetuned_model,
         adapter_path: values.adapter_path,
+        training_task_id: values.training_task_id,
         backend: values.backend || 'ollama',
         run_inference: values.run_inference ?? true,
         auto_merge_adapter: values.auto_merge_adapter ?? true,
@@ -417,7 +432,7 @@ export default function Evaluation() {
     const mergedModelPath =
       run?.adapter_merge?.merged_model_path || run?.finetuned_model || watchedFinetunedModel || '';
     const baseModel = run?.base_model || watchedBaseModel || '';
-    const trainingTaskId = watchedTrainingTaskId || run?.run_id || '';
+    const trainingTaskId = run?.training_task_id || watchedTrainingTaskId || '';
 
     if (!baseModel) {
       message.warning('缺少基础模型，暂时无法生成部署包');
@@ -430,6 +445,7 @@ export default function Evaluation() {
 
     const params = new URLSearchParams();
     params.set('training_task_id', trainingTaskId || 'manual-evaluation');
+    if (run?.run_id) params.set('evaluation_run_id', run.run_id);
     params.set('base_model', baseModel);
     params.set('adapter_path', adapterPath);
     if (mergedModelPath) params.set('merged_model_path', mergedModelPath);
@@ -621,7 +637,20 @@ export default function Evaluation() {
                 {(run.status === 'completed' || run.status === 'completed_with_warnings') && metricEntries.length > 0 && (
                     <Row gutter={[16, 16]}>
                     {metricEntries.map(([key, value]) => {
-                        const isPercentage = ['json_valid_rate', 'schema_match_rate', 'field_completeness_rate', 'good_rate'].includes(key);
+                        const isPercentage = [
+                          'json_valid_rate',
+                          'schema_match_rate',
+                          'field_completeness_rate',
+                          'type_match_rate',
+                          'base_json_valid_rate',
+                          'base_schema_match_rate',
+                          'base_field_completeness_rate',
+                          'base_type_match_rate',
+                          'good_rate',
+                          'win_rate',
+                          'loss_rate',
+                          'net_win_rate',
+                        ].includes(key);
                         return (
                             <Col xs={12} md={8} key={key}>
                                 <MotionCard className={styles.evaluationCard} style={{ padding: '16px 24px', display: 'flex', alignItems: 'center', gap: 20 }}>
