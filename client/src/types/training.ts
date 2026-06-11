@@ -68,6 +68,14 @@ export interface TrainingRecord {
   config: TrainingConfig;
   output_path: string;
   checkpoint_path?: string;
+  adapter_path?: string;
+  release_id?: string;
+  artifact_manifest_path?: string;
+  promotion_state?: string;
+  evaluation_run_id?: string;
+  deployment_package_id?: string;
+  config_hash?: string;
+  dataset_fingerprint?: string;
 }
 
 export interface TrainingStatusResponse {

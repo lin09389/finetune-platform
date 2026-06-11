@@ -92,6 +92,13 @@ export const normalizeTrainingRecord = (record: any) => {
       config.task_goal ??
       'qa_assistant',
     adapterPath: record.adapterPath ?? record.adapter_path ?? checkpointPath ?? undefined,
+    releaseId: record.releaseId ?? record.release_id,
+    artifactManifestPath: record.artifactManifestPath ?? record.artifact_manifest_path,
+    promotionState: record.promotionState ?? record.promotion_state,
+    evaluationRunId: record.evaluationRunId ?? record.evaluation_run_id,
+    deploymentPackageId: record.deploymentPackageId ?? record.deployment_package_id,
+    configHash: record.configHash ?? record.config_hash,
+    datasetFingerprint: record.datasetFingerprint ?? record.dataset_fingerprint,
     method: record.method,
     status: record.status,
     startTime: record.startTime ?? record.start_time,
