@@ -25,13 +25,13 @@ import { useAgentFileTree } from './chatNew/useAgentFileTree';
 import { useAgentSessionOverview } from './chatNew/useAgentSessionOverview';
 import { useAgentWorkspaceEditorState } from './chatNew/useAgentWorkspaceEditorState';
 import ChatNewEditorContent from './chatNew/ChatNewEditorContent';
+import { ChatNewWorkbenchProgressPanel, ChatNewWorkbenchRunPanel } from './chatNew/ChatNewWorkbenchPanels';
 
 import ChatHeader from '../components/chat/ChatHeader';
 import ChatContextPanel from '../components/chat/ChatContextPanel';
 import ChatInput from '../components/chat/ChatInput';
 import HitlApprovalPanel from '../components/chat/HitlApprovalPanel';
 import AgentPhaseIndicator from '../components/chat/AgentPhaseIndicator';
-import { WorkbenchEmpty } from '../components/chat/AgentWorkbenchPanel';
 import AgentWorkspaceStatusBar from '../components/chat/AgentWorkspaceStatusBar';
 import AgentWorkspaceContainer from '../components/chat/AgentWorkspaceContainer';
 import QuickFileOpener, { flattenFileNodes } from '../components/chat/QuickFileOpener';
@@ -1959,40 +1959,13 @@ const ChatPage: React.FC = () => {
   ]);
 
   const workbenchRunPanel = (
-    <div style={{ display: 'grid', gap: 12 }}>
-      <div className={styles.projectSidePanel}>
-        <div className={styles.projectSideHeader}>
-          <div>
-            <div className={styles.projectSideKicker}>Current Run</div>
-            <div className={styles.projectSideTitle}>{latestAgentMetadata?.active_agent_id || selectedPrimaryAgent || 'build'}</div>
-          </div>
-          <Tag color={latestAgentStatus === 'completed' ? 'success' : latestAgentStatus === 'failed' ? 'error' : latestAgentStatus.includes('waiting') ? 'warning' : 'processing'}>
-            {latestAgentStatus}
-          </Tag>
-        </div>
-        <div className={styles.projectSideStatus}>
-          <span>{latestAgentMetadata?.execution_state_message || latestAgentMetadata?.final_summary || '等待新的 Agent 任务。'}</span>
-        </div>
-      </div>
-      {latestAgentParts.length > 0 ? (
-        <div className={styles.projectSidePanel}>
-          <div className={styles.projectSideTitle}>最近动作</div>
-          <div style={{ display: 'grid', gap: 8 }}>
-            {latestAgentParts.slice(-4).reverse().map((part) => (
-              <div key={part.id} className={styles.agentFileCardBody} style={{ padding: 0 }}>
-                <div className={styles.agentFileCardTop}>
-                  <span className={styles.agentFilePath} style={{ paddingLeft: 0 }}>{part.title || part.type}</span>
-                  <Tag className={styles.agentFileStatus}>{part.status || 'pending'}</Tag>
-                </div>
-                {part.content ? <div className={styles.agentFileSummary} style={{ paddingLeft: 0 }}>{part.content}</div> : null}
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <WorkbenchEmpty description="Agent 启动后，这里会显示最近动作与当前阻塞。" />
-      )}
-    </div>
+    <ChatNewWorkbenchRunPanel
+      activeAgentId={latestAgentMetadata?.active_agent_id}
+      fallbackAgentId={selectedPrimaryAgent}
+      status={latestAgentStatus}
+      statusMessage={latestAgentMetadata?.execution_state_message || latestAgentMetadata?.final_summary}
+      parts={latestAgentParts}
+    />
   );
 
   const agentIdeWorkspace = (
@@ -2047,32 +2020,11 @@ const ChatPage: React.FC = () => {
       </div>
     </section>
   );
-  const workbenchProgressPanel = latestAgentParts.length > 0 ? (
-    <div style={{ display: 'grid', gap: 10 }}>
-      {latestAgentParts.slice(-8).map((part) => (
-        <div key={part.id} className={styles.projectSidePanel}>
-          <div className={styles.projectSideHeader}>
-            <div className={styles.projectSideTitle}>{part.title || part.type}</div>
-            <Tag>{part.status || 'pending'}</Tag>
-          </div>
-          {part.content ? <div className={styles.agentFileSummary} style={{ paddingLeft: 0 }}>{part.content}</div> : null}
-        </div>
-      ))}
-    </div>
-  ) : agentSessionOverview?.recent_events?.length ? (
-    <div style={{ display: 'grid', gap: 10 }}>
-      {agentSessionOverview.recent_events.slice(-8).map((event) => (
-        <div key={event.id} className={styles.projectSidePanel}>
-          <div className={styles.projectSideHeader}>
-            <div className={styles.projectSideTitle}>{event.event_type || 'event'}</div>
-            <Tag>{event.created_at || 'recent'}</Tag>
-          </div>
-          {event.message ? <div className={styles.agentFileSummary} style={{ paddingLeft: 0 }}>{event.message}</div> : null}
-        </div>
-      ))}
-    </div>
-  ) : (
-    <WorkbenchEmpty description="执行开始后，这里会展示阶段、节点和工具调用。" />
+  const workbenchProgressPanel = (
+    <ChatNewWorkbenchProgressPanel
+      parts={latestAgentParts}
+      recentEvents={agentSessionOverview?.recent_events}
+    />
   );
 
 
