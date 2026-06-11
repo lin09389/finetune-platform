@@ -1,4 +1,4 @@
-import { Button, Drawer, Input, Modal, Tag, Tooltip } from 'antd';
+import { Button, Drawer, Modal, Tag } from 'antd';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
@@ -24,6 +24,7 @@ import { useAgentSessionMessages } from './chatNew/useAgentSessionMessages';
 import { useAgentFileTree } from './chatNew/useAgentFileTree';
 import { useAgentSessionOverview } from './chatNew/useAgentSessionOverview';
 import { useAgentWorkspaceEditorState } from './chatNew/useAgentWorkspaceEditorState';
+import ChatNewAgentIdeWorkspace from './chatNew/ChatNewAgentIdeWorkspace';
 import ChatNewEditorContent from './chatNew/ChatNewEditorContent';
 import { ChatNewWorkbenchProgressPanel, ChatNewWorkbenchRunPanel } from './chatNew/ChatNewWorkbenchPanels';
 
@@ -66,7 +67,7 @@ import {
 import type { ActiveFileContext, AgentHitlDecision, AgentInfo, AgentPart, AgentSession, AgentSkillSource, ExplicitContextMention, SavedCloudProvider, WorkspaceSummary, WorkspaceTreeNode } from '../services/api';
 import { transitions } from '../theme/animations';
 import { notify } from '../utils/notify';
-import { ArrowDownOutlined, FolderOpenOutlined } from '@ant-design/icons';
+import { ArrowDownOutlined } from '@ant-design/icons';
 import styles from './ChatNew.module.css';
 import {
   CHAT_AGENT_SKILL_SOURCES_STORAGE_KEY,
@@ -1969,56 +1970,18 @@ const ChatPage: React.FC = () => {
   );
 
   const agentIdeWorkspace = (
-    <section className={styles.agentIdeWorkspace} style={{ flex: '1 1 0', minWidth: 0 }} aria-label="AI 编程工作区">
-      <div className={styles.agentIdeHeader}>
-        <div style={{ minWidth: 0 }}>
-          <div className={styles.agentIdeKicker}>Agent IDE</div>
-          <div className={styles.agentIdeTitle}>代码审阅与补丁确认</div>
-          {effectiveProjectPath ? (
-            <div
-              className={styles.agentIdePath}
-              title={typeof window !== 'undefined' && (window as any).electronAPI ? '点击打开本地文件夹' : '点击编辑项目路径'}
-              onClick={handlePathClick}
-            >
-              <FolderOpenOutlined style={{ fontSize: 10, opacity: 0.7 }} />
-              <span className={styles.agentIdePathText}>{effectiveProjectPath}</span>
-            </div>
-          ) : (
-            <div className={styles.agentIdePathEmpty}>未绑定工作区目录</div>
-          )}
-        </div>
-        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flex: '0 0 auto' }}>
-          <Tooltip title={typeof window !== 'undefined' && (window as any).electronAPI ? '选择本地项目文件夹' : '手动输入项目路径'}>
-            <Button size="small" icon={<FolderOpenOutlined />} onClick={() => void handlePickFolder()}>
-              {effectiveProjectPath ? '更换' : '选择文件夹'}
-            </Button>
-          </Tooltip>
-          <Tag color={openedFiles.length ? 'processing' : 'default'} className={styles.agentIdeTag}>
-            {openedFiles.length ? `${openedFiles.length} opened` : 'No file opened'}
-          </Tag>
-        </div>
-      </div>
-      {showPathEdit && (
-        <div className={styles.agentIdePathEdit}>
-          <Input
-            size="small"
-            prefix={<FolderOpenOutlined style={{ opacity: 0.5 }} />}
-            placeholder="例如：C:\\Projects\\my-app"
-            value={workspaceProjectPath}
-            onChange={(e) => setWorkspaceProjectPath(e.target.value)}
-            onPressEnter={() => setShowPathEdit(false)}
-            autoFocus
-            suffix={
-              <Button type="link" size="small" style={{ height: 20, padding: 0 }} onClick={() => setShowPathEdit(false)}>确认</Button>
-            }
-          />
-        </div>
-      )}
-      <div className={styles.agentIdeBody}>
-        <aside className={styles.agentIdeTreePane}>{slimFilePanel}</aside>
-        <main className={styles.agentIdeEditorPane}>{editorContent}</main>
-      </div>
-    </section>
+    <ChatNewAgentIdeWorkspace
+      projectPath={effectiveProjectPath}
+      workspaceProjectPath={workspaceProjectPath}
+      openedFileCount={openedFiles.length}
+      showPathEdit={showPathEdit}
+      treePanel={slimFilePanel}
+      editorPanel={editorContent}
+      onPathClick={handlePathClick}
+      onPickFolder={handlePickFolder}
+      onProjectPathChange={setWorkspaceProjectPath}
+      onConfirmPath={() => setShowPathEdit(false)}
+    />
   );
   const workbenchProgressPanel = (
     <ChatNewWorkbenchProgressPanel
