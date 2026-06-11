@@ -2073,52 +2073,7 @@ const ChatPage: React.FC = () => {
         onClose={() => setContextPanelOpen(false)}
         destroyOnHidden={false}
       >
-        <ChatContextPanel
-          mobile
-          currentBackend={settings.backend}
-          backends={observed.inference.backends}
-          onBackendChange={handleBackendChange}
-          currentModel={settings.modelId}
-          models={modelOptions}
-          onModelChange={handleModelChange}
-          useCloudAI={useCloudAI}
-          onToggleCloudAI={handleToggleCloudAI}
-          cloudAIConfigured={!!(cloudAIConfig?.api_key || cloudAIConfig?.key_id)}
-          onOpenCloudAIConfig={() => setConfigModalOpen(true)}
-          currentCloudProvider={cloudAIConfig?.provider}
-          cloudProviders={cloudProviderOptions}
-          onCloudProviderChange={handleCloudProviderChange}
-          currentCloudModel={selectedCloudModel}
-          cloudModels={cloudModelOptions}
-          onCloudModelChange={handleCloudModelChange}
-          useKnowledge={settings.useKnowledge}
-          onToggleKnowledge={handleToggleKnowledge}
-          collectionsCount={observed.knowledge.collections.length}
-          currentKnowledgeCollection={derived.activeKnowledgeCollection}
-          knowledgeCollections={observed.knowledge.collections}
-          onKnowledgeCollectionChange={handleKnowledgeCollectionChange}
-          useMemory={settings.useMemory}
-          onToggleMemory={handleToggleMemory}
-          agentModeAvailable={primaryAgents.length > 0}
-          agentOptions={agentOptions}
-          selectedAgent={selectedPrimaryAgent}
-          onAgentChange={setSelectedPrimaryAgent}
-          skillSourceOptions={skillSourceOptions}
-          selectedSkillSources={selectedSkillSources}
-          onSkillSourcesChange={(sources) => {
-            setSkillsInitialized(true);
-            setSelectedSkillSources(sources);
-          }}
-          skillsLoading={skillsLoading}
-          routingMode={routingMode}
-          onRoutingModeChange={setRoutingMode}
-          routing={routingIntent}
-          autonomyMode={autonomyMode}
-          onAutonomyModeChange={setAutonomyMode}
-          creatingAgentSession={creatingAgentSession}
-          isLoading={isLoading}
-          isStreaming={isActivelyStreaming}
-        />
+        {React.cloneElement(contextPanel, { mobile: true })}
       </Drawer>
 
       <ChatHistoryDrawer
