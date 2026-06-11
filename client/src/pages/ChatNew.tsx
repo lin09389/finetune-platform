@@ -1,4 +1,4 @@
-import { Button, Drawer, Modal, Tag } from 'antd';
+import { Button, Drawer, Modal } from 'antd';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
@@ -26,6 +26,7 @@ import { useAgentSessionOverview } from './chatNew/useAgentSessionOverview';
 import { useAgentWorkspaceEditorState } from './chatNew/useAgentWorkspaceEditorState';
 import ChatNewAgentIdeWorkspace from './chatNew/ChatNewAgentIdeWorkspace';
 import ChatNewEditorContent from './chatNew/ChatNewEditorContent';
+import ChatNewFilePanel from './chatNew/ChatNewFilePanel';
 import { ChatNewWorkbenchProgressPanel, ChatNewWorkbenchRunPanel } from './chatNew/ChatNewWorkbenchPanels';
 
 import ChatHeader from '../components/chat/ChatHeader';
@@ -36,7 +37,6 @@ import AgentPhaseIndicator from '../components/chat/AgentPhaseIndicator';
 import AgentWorkspaceStatusBar from '../components/chat/AgentWorkspaceStatusBar';
 import AgentWorkspaceContainer from '../components/chat/AgentWorkspaceContainer';
 import QuickFileOpener, { flattenFileNodes } from '../components/chat/QuickFileOpener';
-import { getFileIcon, isTextIcon } from '../utils/fileIcons';
 import { parseDiffHunks } from '../utils/diffHunks';
 import type { OpenedFile } from '../components/chat/AgentWorkspaceEditor';
 import ChatHistoryDrawer from '../components/ChatHistoryDrawer';
@@ -1620,87 +1620,6 @@ const ChatPage: React.FC = () => {
     }
   }, [effectiveProjectPath]);
 
-  const renderTreeNode = useCallback((node: typeof agentFileTree, depth = 0): React.ReactNode => {
-    if (node.kind === 'file' && node.file) {
-      const file = node.file;
-      const statusLower = file.status.toLowerCase();
-      const statusTone = /add|new|create|新增/.test(statusLower)
-        ? 'success'
-        : /delete|remove|removed|删除/.test(statusLower)
-          ? 'error'
-          : /modify|update|change|edit|fix|modified|修改/.test(statusLower)
-            ? 'processing'
-            : 'default';
-      const icon = getFileIcon(node.name);
-      const isText = isTextIcon(icon.icon);
-      return (
-        <div
-          key={node.path}
-          className={`${styles.agentFileCard} ${styles.agentFileCardClickable}`}
-          style={{ ['--file-depth' as any]: String(depth) }}
-          onClick={() => handleOpenFile(file)}
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => e.key === 'Enter' && handleOpenFile(file)}
-        >
-          <div className={styles.agentFileTreeRow}>
-            <div className={styles.agentFileTreeLine} aria-hidden="true">
-              <span className={styles.agentFileTreeBranch} />
-              <span className={styles.agentFileTreeDot} data-tone={statusTone} />
-            </div>
-            <div className={styles.agentFileCardBody}>
-              <div className={styles.agentFileCardTop}>
-                <div className={styles.agentFilePath} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span
-                    className={isText ? styles.iconBadge : styles.iconEmoji}
-                    style={{ ['--icon-color' as any]: icon.color }}
-                  >
-                    {icon.icon}
-                  </span>
-                  <span>{node.name}</span>
-                </div>
-                <Tag className={styles.agentFileStatus} color={statusTone}>{file.status || 'modified'}</Tag>
-              </div>
-              <div className={styles.agentFileSummary}>{file.summary}</div>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    if (node.kind === 'folder') {
-      const isExpanded = !node.path || expandedFolders.has(node.path);
-      const childrenCount = node.children.length;
-      const fileCount = node.children.filter((child) => child.kind === 'file').length;
-      return (
-        <div key={node.path || 'root'} className={styles.agentFolderGroup} style={{ ['--folder-depth' as any]: String(depth) }}>
-          {node.path ? (
-            <button
-              type="button"
-              className={styles.agentFolderRow}
-              onClick={() => toggleFolder(node.path)}
-            >
-              <span className={`${styles.agentFolderChevron} ${isExpanded ? styles.agentFolderChevronOpen : ''}`}>▸</span>
-              <span className={styles.agentFolderEmoji} style={{ marginRight: '4px', fontSize: '14px' }}>
-                {isExpanded ? '📂' : '📁'}
-              </span>
-              <span className={styles.agentFolderName}>{node.name}</span>
-              <Tag className={styles.agentFolderTag}>{childrenCount}</Tag>
-              <Tag className={styles.agentFolderSubTag}>{fileCount} files</Tag>
-            </button>
-          ) : null}
-          {isExpanded && (
-            <div className={styles.agentFolderChildren}>
-              {node.children.map((child) => renderTreeNode(child, depth + 1))}
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    return null;
-  }, [expandedFolders, handleOpenFile, toggleFolder]);
-
   const contextPanel = (
     <ChatContextPanel
       currentBackend={settings.backend}
@@ -1804,127 +1723,43 @@ const ChatPage: React.FC = () => {
     handleOpenAsyncTask,
   ]);
 
-  const slimFilePanel = useMemo(() => {
-    const renderWsNode = (node: WorkspaceTreeNode, depth = 0): React.ReactNode => {
-      if (node.kind === 'file') {
-        const icon = getFileIcon(node.name);
-        const isText = isTextIcon(icon.icon);
-        return (
-          <div
-            key={node.path}
-            className={`${styles.agentFileCard} ${styles.agentFileCardClickable}`}
-            style={{ ['--file-depth' as any]: String(depth), margin: '0 4px 3px' }}
-            onClick={() => {
-              workspaceSelection.selectFile(node.path);
-              void handleOpenWorkspaceFile(node);
-            }}
-            onFocus={() => workspaceSelection.selectFile(node.path)}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                workspaceSelection.selectFile(node.path);
-                void handleOpenWorkspaceFile(node);
-              }
-            }}
-          >
-            <div className={styles.agentFileCardBody} style={{ padding: '8px 8px 8px 0' }}>
-              <div className={styles.agentFileCardTop}>
-                <div className={styles.agentFilePath} style={{ paddingLeft: `${depth * 10}px`, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span
-                    className={isText ? styles.iconBadge : styles.iconEmoji}
-                    style={{ ['--icon-color' as any]: icon.color }}
-                  >
-                    {icon.icon}
-                  </span>
-                  <span>{node.name}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-      }
-      if (node.kind === 'folder') {
-        const isExpanded = wsExpandedFolders.has(node.path);
-        return (
-          <div key={node.path} className={styles.agentFolderGroup} style={{ ['--folder-depth' as any]: String(depth) }}>
-            <button
-              type="button"
-              className={styles.agentFolderRow}
-              onClick={() => setWsExpandedFolders((prev) => { const next = new Set(prev); if (next.has(node.path)) next.delete(node.path); else next.add(node.path); return next; })}
-            >
-              <span className={`${styles.agentFolderChevron} ${isExpanded ? styles.agentFolderChevronOpen : ''}`}>▸</span>
-              <span className={styles.agentFolderEmoji} style={{ marginRight: '4px', fontSize: '14px' }}>
-                {isExpanded ? '📂' : '📁'}
-              </span>
-              <span className={styles.agentFolderName}>{node.name}</span>
-            </button>
-            {isExpanded && node.children && (
-              <div className={styles.agentFolderChildren}>
-                {node.children.map((child) => renderWsNode(child, depth + 1))}
-              </div>
-            )}
-          </div>
-        );
-      }
-      return null;
-    };
+  const handleToggleWorkspaceFolder = useCallback((path: string) => {
+    setWsExpandedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
 
-    return (
-      <div className={styles.slimFilePanel}>
-        <div className={styles.slimFilePanelHeader}>
-          <div className={styles.fileTreeToggle}>
-            <button
-              type="button"
-              className={`${styles.fileTreeToggleBtn} ${fileTreeMode === 'agent' ? styles.fileTreeToggleBtnActive : ''}`}
-              onClick={() => setFileTreeMode('agent')}
-            >变更</button>
-            <button
-              type="button"
-              className={`${styles.fileTreeToggleBtn} ${fileTreeMode === 'workspace' ? styles.fileTreeToggleBtnActive : ''}`}
-              onClick={() => { setFileTreeMode('workspace'); }}
-            >工作区</button>
-          </div>
-          {fileTreeMode === 'agent' && agentFileSummaries.length > 0 && (
-            <span className={styles.slimFileCount}>{agentFileSummaries.length}</span>
-          )}
-          {fileTreeMode === 'workspace' && (
-            <button
-              type="button"
-              className={styles.fileTreeRefreshBtn}
-              onClick={() => void loadWorkspaceTree(effectiveProjectPath)}
-              disabled={workspaceTreeLoading}
-              title="刷新文件树"
-            >↺</button>
-          )}
-        </div>
-        {fileTreeMode === 'agent' ? (
-          agentFileSummaries.length > 0 ? (
-            <div className={styles.slimFileList}>
-              {renderTreeNode(agentFileTree)}
-            </div>
-          ) : (
-            <div className={styles.agentFileEmpty}>暂无变更文件</div>
-          )
-        ) : (
-          workspaceTreeLoading ? (
-            <div className={styles.agentFileEmpty}>正在加载文件树…</div>
-          ) : workspaceTreeNodes.length > 0 ? (
-            <div className={styles.slimFileList}>
-              {workspaceTreeNodes.map((node) => renderWsNode(node))}
-            </div>
-          ) : (
-            <div className={styles.agentFileEmpty}>
-              {effectiveProjectPath ? '文件树为空或无法访问' : '请先选择工作区目录'}
-            </div>
-          )
-        )}
-      </div>
-    );
-  }, [
-    agentFileSummaries, agentFileTree, renderTreeNode,
-    fileTreeMode, workspaceTreeNodes, workspaceTreeLoading, wsExpandedFolders,
-    effectiveProjectPath, handleOpenWorkspaceFile, loadWorkspaceTree, workspaceSelection,
+  const handleRefreshWorkspaceTree = useCallback(() => {
+    void loadWorkspaceTree(effectiveProjectPath);
+  }, [effectiveProjectPath, loadWorkspaceTree]);
+
+  const slimFilePanel = useMemo(() => (
+    <ChatNewFilePanel
+      mode={fileTreeMode}
+      onModeChange={setFileTreeMode}
+      agentFileSummaries={agentFileSummaries}
+      agentFileTree={agentFileTree}
+      expandedAgentFolders={expandedFolders}
+      onToggleAgentFolder={toggleFolder}
+      onOpenAgentFile={handleOpenFile}
+      workspaceTreeNodes={workspaceTreeNodes}
+      workspaceTreeLoading={workspaceTreeLoading}
+      expandedWorkspaceFolders={wsExpandedFolders}
+      projectPath={effectiveProjectPath}
+      onToggleWorkspaceFolder={handleToggleWorkspaceFolder}
+      onOpenWorkspaceFile={handleOpenWorkspaceFile}
+      onSelectWorkspaceFile={workspaceSelection.selectFile}
+      onRefreshWorkspaceTree={handleRefreshWorkspaceTree}
+    />
+  ), [
+    agentFileSummaries, agentFileTree, effectiveProjectPath, expandedFolders,
+    fileTreeMode, handleOpenFile, handleOpenWorkspaceFile,
+    handleRefreshWorkspaceTree, handleToggleWorkspaceFolder, toggleFolder,
+    workspaceSelection.selectFile, workspaceTreeLoading, workspaceTreeNodes,
+    wsExpandedFolders,
   ]);
 
   const editorContent = useMemo(() => (
