@@ -225,6 +225,15 @@ async def index_project(request: IndexRequest, service: ContextService = Depends
         return IndexResponse(success=False, message=str(e))
 
 
+@router.get("/index")
+async def get_index_status(service: ContextService = Depends(get_context_service)):
+    return {
+        "success": True,
+        "status": "ready",
+        "projects": service.list_projects(),
+    }
+
+
 @router.post("/retrieve", response_model=RetrieveResponse)
 async def retrieve_context(request: RetrieveRequest, service: ContextService = Depends(get_context_service)):
     try:

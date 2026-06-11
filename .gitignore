@@ -18,6 +18,9 @@ release/
 # Models & Data
 models/
 datasets/
+!server/datasets/
+server/datasets/*
+!server/datasets/__init__.py
 outputs/
 *.h5
 *.ckpt

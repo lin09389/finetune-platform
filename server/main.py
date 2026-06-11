@@ -109,15 +109,17 @@ rate_limiter = get_rate_limiter()
 
 def check_rate_limit(client_ip: str, path: str = "") -> tuple[bool, dict]:
     """
-    ???????????
+    检查请求速率限制
 
     Args:
-        client_ip: ??? IP
-        path: API ??
+        client_ip: 客户端 IP
+        path: API 路径
 
     Returns:
-        (????, ????)
+        (是否允许, 限制信息)
     """
+    if os.getenv("ENABLE_RATE_LIMIT", "true").lower() == "false":
+        return True, {}
     return rate_limiter.is_allowed(client_ip, endpoint=path)
 
 
