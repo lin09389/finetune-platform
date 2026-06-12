@@ -589,6 +589,56 @@ def test_async_subagent_service_cancel_prevents_stale_child_completion(monkeypat
     assert repository.get_session(child_id)["status"] == "interrupted"
 
 
+def test_async_subagent_child_inherits_runtime_context_without_latches(monkeypatch, tmp_path: Path):
+    repository = AgentSessionRepository(str(tmp_path / "agents.db"))
+    parent = repository.create_session(
+        {
+            "agent_id": "build",
+            "title": "parent",
+            "project_path": str(tmp_path),
+            "provider": "openai",
+            "model": "gpt-test",
+            "metadata": {
+                "autonomy_mode": "manual",
+                "deepagents_interrupt_on": {"write_file": False, "edit_file": True},
+                "enabled_skill_sources": ["/skills/project-deepagents/"],
+                "memory_user_id": "memory-alice",
+                "org_id": "org-1",
+                "user_id": "alice",
+                "active_prompt_id": "prompt-parent",
+                "background_run": True,
+                "pending_deepagents_interrupt": {"tool": "edit_file"},
+                "ui_state": {"pending_permission": {"part_id": "permission-parent"}},
+            },
+        }
+    )
+    service = AsyncSubagentService(repository, notify_event=lambda *_args: None, model_call=lambda _messages: "ok")
+
+    def fake_create_task(coro):
+        coro.close()
+        return object()
+
+    monkeypatch.setattr("agent_session.async_subagents.asyncio.create_task", fake_create_task)
+    started = asyncio.run(service.start_task(parent["id"], "explore", "inspect code"))
+    child = repository.get_session(started["child_session_id"])
+    metadata = child["metadata"]
+
+    assert child["provider"] == "openai"
+    assert child["model"] == "gpt-test"
+    assert metadata["autonomy_mode"] == "manual"
+    assert metadata["deepagents_interrupt_on"] == {"write_file": False, "edit_file": True}
+    assert metadata["enabled_skill_sources"] == ["/skills/project-deepagents/"]
+    assert metadata["memory_user_id"] == "memory-alice"
+    assert metadata["org_id"] == "org-1"
+    assert metadata["user_id"] == "alice"
+    assert metadata["parent_session_id"] == parent["id"]
+    assert metadata["async_subagent"] is True
+    assert "active_prompt_id" not in metadata
+    assert "background_run" not in metadata
+    assert "pending_deepagents_interrupt" not in metadata
+    assert "ui_state" not in metadata
+
+
 def test_async_subagent_service_update_restarts_same_task(monkeypatch, tmp_path: Path):
     repository = AgentSessionRepository(str(tmp_path / "agents.db"))
     parent = repository.create_session({"agent_id": "build", "title": "parent", "project_path": str(tmp_path)})

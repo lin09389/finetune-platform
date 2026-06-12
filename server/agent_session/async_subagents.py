@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 import logging
 from contextlib import suppress
 from datetime import datetime
@@ -22,6 +23,15 @@ CHILD_FAILURE_STATUSES = {"failed", "interrupted", "needs_manual_review"}
 NotifyEvent = Callable[[str, dict[str, Any]], None]
 InterruptSession = Callable[[str, str | None], Any]
 ModelCall = Callable[[list[dict[str, str]]], Awaitable[str]]
+
+INHERITED_CHILD_METADATA_KEYS = {
+    "autonomy_mode",
+    "deepagents_interrupt_on",
+    "enabled_skill_sources",
+    "memory_user_id",
+    "org_id",
+    "user_id",
+}
 
 
 def _now() -> str:
@@ -343,6 +353,7 @@ class AsyncSubagentService:
         return self._semaphore
 
     def _create_child_session(self, parent: dict[str, Any], target: AgentDefinition, task_id: str, revision: int) -> dict[str, Any]:
+        parent_metadata = dict(parent.get("metadata") or {})
         return self.repository.create_session(
             {
                 "chat_session_id": parent.get("chat_session_id"),
@@ -353,14 +364,23 @@ class AsyncSubagentService:
                 "provider": parent.get("provider"),
                 "model": parent.get("model"),
                 "metadata": {
+                    **default_deepagents_permission_metadata(),
+                    **self._child_inherited_metadata(parent_metadata),
                     "parent_session_id": parent.get("id"),
                     "async_task_id": task_id,
                     "async_task_revision": revision,
                     "async_subagent": True,
-                    **default_deepagents_permission_metadata(),
                 },
             }
         )
+
+    @staticmethod
+    def _child_inherited_metadata(parent_metadata: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: deepcopy(parent_metadata[key])
+            for key in INHERITED_CHILD_METADATA_KEYS
+            if key in parent_metadata
+        }
 
     def _require_parent(self, parent_session_id: str) -> dict[str, Any]:
         parent = self.repository.get_session(parent_session_id)
