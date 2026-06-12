@@ -7,7 +7,9 @@ import asyncio
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
 from agent_session.terminal_manager import terminal_manager
-from api.agent_sessions import get_agent_session_user
+from agent_session.service import AgentSessionService
+from api.agent_sessions import _user_can_access_session, get_agent_session_service, get_agent_session_user
+from core.db_manager import run_sync
 from security.jwt_auth import TokenPayload
 
 router = APIRouter(prefix="/agent-terminals", tags=["Agent Terminals"])
@@ -17,14 +19,24 @@ router = APIRouter(prefix="/agent-terminals", tags=["Agent Terminals"])
 async def agent_terminal_websocket(
     websocket: WebSocket,
     terminal_id: str,
+    service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
-    _ = current_user
     await websocket.accept()
     session = terminal_manager.get(terminal_id)
     if not session:
         await websocket.send_text(json.dumps({"type": "error", "message": "Terminal not found"}, ensure_ascii=False))
         await websocket.close(code=4404)
+        return
+    try:
+        agent_session = await run_sync(service.get_session, session.session_id)
+    except ValueError:
+        await websocket.send_text(json.dumps({"type": "error", "message": "Agent session not found"}, ensure_ascii=False))
+        await websocket.close(code=4404)
+        return
+    if not _user_can_access_session(agent_session, current_user):
+        await websocket.send_text(json.dumps({"type": "error", "message": "Terminal access denied"}, ensure_ascii=False))
+        await websocket.close(code=4403)
         return
 
     queue = session.subscribe()

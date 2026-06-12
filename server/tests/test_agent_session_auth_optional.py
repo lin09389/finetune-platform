@@ -4,10 +4,13 @@ import json
 from pathlib import Path
 from urllib.parse import quote
 
+import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from agent_session.repository import AgentSessionRepository
 from agent_session.service import AgentSessionService
+from agent_session.terminal_manager import TerminalSession, terminal_manager
 from api.agent_sessions import get_agent_session_service, get_agent_session_user
 from core.config import settings
 from main import app
@@ -95,6 +98,48 @@ def test_agent_session_endpoints_enforce_session_owner(tmp_path: Path):
         _override_agent_user("admin", Role.ADMIN)
         assert client.get(f"/agent-sessions/{session_id}").status_code == 200
     finally:
+        app.dependency_overrides.clear()
+
+
+def test_agent_terminal_websocket_enforces_session_owner(tmp_path: Path):
+    client, service = _client_with_service(tmp_path)
+    terminal_id = "terminal-owner-test"
+    try:
+        session = service.repository.create_session(
+            {
+                "agent_id": "build",
+                "title": "terminal",
+                "project_path": str(tmp_path),
+                "metadata": {"user_id": "alice"},
+            }
+        )
+        terminal = TerminalSession(
+            id=terminal_id,
+            part_id="part-terminal",
+            session_id=session["id"],
+            command=["python", "--version"],
+            cwd=str(tmp_path),
+            interactive=False,
+        )
+        with terminal_manager._lock:
+            terminal_manager._sessions[terminal_id] = terminal
+
+        _override_agent_user("alice")
+        with client.websocket_connect(f"/agent-terminals/{terminal_id}/ws") as websocket:
+            ready = json.loads(websocket.receive_text())
+            assert ready["type"] == "ready"
+            assert ready["terminal_id"] == terminal_id
+
+        _override_agent_user("bob")
+        with client.websocket_connect(f"/agent-terminals/{terminal_id}/ws") as websocket:
+            error = json.loads(websocket.receive_text())
+            assert error == {"type": "error", "message": "Terminal access denied"}
+            with pytest.raises(WebSocketDisconnect) as disconnect:
+                websocket.receive_text()
+            assert disconnect.value.code == 4403
+    finally:
+        with terminal_manager._lock:
+            terminal_manager._sessions.pop(terminal_id, None)
         app.dependency_overrides.clear()
 
 
