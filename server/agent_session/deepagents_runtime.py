@@ -18,14 +18,12 @@ from .deepagents_events import DeepAgentsEventMapper
 from .execution_context import AgentDefinition, RuntimeExecutionContext
 from .deepagents_checkpoint import get_checkpoint_db_path
 from .model_adapter import get_chat_model
-from .permission import filesystem_permissions_for_agent
+from .permission import permission_policy_for_agent
 from .runtime import (
     DeepAgentRuntimeConfig,
     build_deep_agent_runtime,
     memory_files_for_project,
     resolve_enabled_skill_sources,
-    resolve_interrupt_on,
-    validate_skill_tool_compatibility,
 )
 from .state import ensure_session_state, set_phase
 
@@ -52,6 +50,31 @@ LOCAL_ASYNC_TOOL_NAMES = frozenset(
         "update_async_task",
         "cancel_async_task",
     }
+)
+
+PLATFORM_IDENTITY_PROMPT = "你是 Finetune Platform 的代码 Agent。你需要先理解项目，再使用工具完成任务。"
+FILESYSTEM_PROMPT = (
+    "文件操作使用 DeepAgents harness 内置的 ls/read_file/glob/grep/write_file/edit_file。"
+    "项目文件位于 `/workspace/`；DeepAgents 内部文件和上下文文件位于状态后端，"
+    "包括 /context/、/large_tool_results/ 和 /conversation_history/。"
+    "长期记忆位于 `/memories/`，Agent 自身记忆位于 `/agent-memory/`，"
+    "组织策略位于只读的 `/policies/`。"
+    "读取或修改项目文件时必须使用 `/workspace/...` 路径。"
+)
+CONTEXT_PROMPT = (
+    "用户当前任务相关的大上下文会作为 /context/ 下的虚拟文件传入，"
+    "你需要按需读取 /context/task.md、/context/editor/active-file.md、"
+    "/context/mentions/ 或 /context/retrieval/ 下的文件，"
+    "不要把这些文件完整复述给用户。"
+)
+SKILLS_PROMPT = (
+    "Skills 使用 DeepAgents 官方 Skills System 加载；你需要先依据 skills 列表匹配任务，"
+    "只在适用时读取对应 SKILL.md 和其中引用的附属文件，不要把全部 skill 内容塞进主上下文。"
+)
+EXECUTION_PROMPT = (
+    "需要运行测试、安装依赖或调用 CLI 时，直接使用官方 sandbox execute 工具；"
+    "命令不需要平台白名单审批。"
+    "执行命令前优先说明意图，执行后根据 execute 输出继续判断。"
 )
 
 class StartAsyncTaskInput(BaseModel):
@@ -292,7 +315,8 @@ class DeepAgentsSessionRunner:
         enabled_skill_sources = metadata.get("enabled_skill_sources")
         if enabled_skill_sources is not None and not isinstance(enabled_skill_sources, list):
             enabled_skill_sources = None
-        self._validate_skill_policy(project_path, agent, agent_id, enabled_skill_sources)
+        permission_policy = permission_policy_for_agent(agent, agent_id, metadata)
+        permission_policy.validate_enabled_skills(project_path, enabled_skill_sources)
         context = RuntimeExecutionContext(
             session_id=session_id,
             goal=prompt,
@@ -325,10 +349,10 @@ class DeepAgentsSessionRunner:
                     enabled_skill_sources=enabled_skill_sources,
                 ),
                 enabled_skill_sources=enabled_skill_sources,
-                permissions=filesystem_permissions_for_agent(agent_id),
-                middleware=self._tool_constraint_middleware(agent),
+                permissions=permission_policy.filesystem_permissions(),
+                middleware=permission_policy.tool_constraint_middleware(DEEPAGENTS_BUILTIN_TOOLS, logger),
                 subagents=self._subagents_for_agent(agent_id, model),
-                interrupt_on=resolve_interrupt_on(metadata),
+                interrupt_on=permission_policy.interrupt_on(),
                 checkpointer=await self._get_checkpointer(),
             )
         )
@@ -415,10 +439,7 @@ class DeepAgentsSessionRunner:
                 args_schema=CancelAsyncTaskInput,
             ),
         ]
-        if agent.tools:
-            allowed = self._effective_tool_allowlist(agent)
-            tools = [tool for tool in tools if tool.name in allowed]
-        return tools
+        return permission_policy_for_agent(agent, agent_id, dict(session.get("metadata") or {})).filter_named_tools(tools)
 
     def _async_subagent_service(self) -> AsyncSubagentService:
         if self.async_subagent_service is None:
@@ -467,14 +488,15 @@ class DeepAgentsSessionRunner:
         return subagents
 
     def _subagent_spec(self, agent: AgentDefinition, model: Any) -> dict[str, Any]:
+        permission_policy = permission_policy_for_agent(agent, agent.id)
         return {
             "name": agent.id,
             "description": agent.description or agent.name,
             "system_prompt": self._agent_system_prompt(agent),
             "model": model,
             "tools": [],
-            "middleware": self._tool_constraint_middleware(agent),
-            "permissions": filesystem_permissions_for_agent(agent.id),
+            "middleware": permission_policy.tool_constraint_middleware(DEEPAGENTS_BUILTIN_TOOLS, logger),
+            "permissions": permission_policy.filesystem_permissions(),
         }
 
     def _graph_config(self, session: dict[str, Any]) -> dict[str, Any]:
@@ -503,39 +525,6 @@ class DeepAgentsSessionRunner:
     def _recursion_limit_for_agent(agent: AgentDefinition) -> int:
         return max(2, int(agent.max_iterations)) * 4 + 8
 
-    def _tool_constraint_middleware(self, agent: AgentDefinition | None) -> list[Any]:
-        if not agent or not agent.tools:
-            return []
-        excluded = DEEPAGENTS_BUILTIN_TOOLS - set(self._effective_tool_allowlist(agent))
-        if not excluded:
-            return []
-        try:
-            from deepagents.middleware._tool_exclusion import _ToolExclusionMiddleware
-        except Exception:
-            logger.warning("DeepAgents tool exclusion middleware is unavailable; AgentDefinition.tools cannot be enforced")
-            return []
-        return [_ToolExclusionMiddleware(excluded=frozenset(excluded))]
-
-    def _validate_skill_policy(
-        self,
-        project_path: str,
-        agent: AgentDefinition | None,
-        agent_id: str,
-        enabled_skill_sources: list[str] | None,
-    ) -> None:
-        if not agent or not agent.tools:
-            return
-        validate_skill_tool_compatibility(
-            project_path,
-            agent_id=agent_id,
-            enabled_skill_sources=enabled_skill_sources,
-            allowed_tools=self._effective_tool_allowlist(agent),
-        )
-
-    @staticmethod
-    def _effective_tool_allowlist(agent: AgentDefinition) -> set[str]:
-        return {str(tool).strip() for tool in agent.tools if str(tool).strip()}
-
     @staticmethod
     def _agent_system_prompt(agent: AgentDefinition) -> str:
         prompt = agent.system_prompt.strip()
@@ -543,6 +532,42 @@ class DeepAgentsSessionRunner:
         if not requirements:
             return prompt
         return f"{prompt}\n\n## 输出要求\n{requirements}" if prompt else f"## 输出要求\n{requirements}"
+
+    def _system_prompt_sections(self, agent: AgentDefinition | None) -> list[str]:
+        sections: list[str] = []
+        if agent:
+            agent_prompt = self._agent_system_prompt(agent)
+            if agent_prompt:
+                sections.append(agent_prompt)
+        sections.extend(self._platform_prompt_sections())
+        async_section = self._async_subagent_prompt(agent)
+        if async_section:
+            sections.append(async_section)
+        return sections
+
+    @staticmethod
+    def _platform_prompt_sections() -> list[str]:
+        return [
+            PLATFORM_IDENTITY_PROMPT,
+            FILESYSTEM_PROMPT,
+            CONTEXT_PROMPT,
+            SKILLS_PROMPT,
+            EXECUTION_PROMPT,
+        ]
+
+    @staticmethod
+    def _async_subagent_prompt(agent: AgentDefinition | None) -> str:
+        if not agent or not agent.can_delegate or not agent.handoff_targets:
+            return ""
+        available = "、".join(agent.handoff_targets)
+        return (
+            "你还可以启动本地异步子代理任务："
+            f"可用子代理类型是 {available}。"
+            "使用 start_async_task 启动后台只读任务后，必须立刻把完整 task_id 告诉用户并停止，"
+            "不要在同一轮里马上轮询。只有用户要求查看状态或结果时，才使用 check_async_task 或 list_async_tasks。"
+            "用户要求调整或停止异步任务时，使用 update_async_task 或 cancel_async_task。"
+            "不要凭历史消息报告任务状态，必须调用工具获取最新状态。"
+        )
 
     async def _get_checkpointer(self) -> Any:
         loop = asyncio.get_running_loop()
@@ -623,38 +648,7 @@ class DeepAgentsSessionRunner:
 
     def _system_prompt(self, agent_id: str) -> str:
         agent = self.agent_registry.get(agent_id)
-        agent_system_prompt = self._agent_system_prompt(agent) if agent else ""
-        agent_prompt = (agent_system_prompt + "\n\n") if agent_system_prompt else ""
-        async_prompt = ""
-        if agent and agent.can_delegate and agent.handoff_targets:
-            available = "、".join(agent.handoff_targets)
-            async_prompt = (
-                "\n\n你还可以启动本地异步子代理任务："
-                f"可用子代理类型是 {available}。"
-                "使用 start_async_task 启动后台只读任务后，必须立刻把完整 task_id 告诉用户并停止，"
-                "不要在同一轮里马上轮询。只有用户要求查看状态或结果时，才使用 check_async_task 或 list_async_tasks。"
-                "用户要求调整或停止异步任务时，使用 update_async_task 或 cancel_async_task。"
-                "不要凭历史消息报告任务状态，必须调用工具获取最新状态。"
-            )
-        return agent_prompt + (
-            "你是 Finetune Platform 的代码 Agent。你需要先理解项目，再使用工具完成任务。"
-            "文件操作使用 DeepAgents harness 内置的 ls/read_file/glob/grep/write_file/edit_file。"
-            "项目文件位于 `/workspace/`；DeepAgents 内部文件和上下文文件位于状态后端，"
-            "包括 /context/、/large_tool_results/ 和 /conversation_history/。"
-            "长期记忆位于 `/memories/`，Agent 自身记忆位于 `/agent-memory/`，"
-            "组织策略位于只读的 `/policies/`。"
-            "读取或修改项目文件时必须使用 `/workspace/...` 路径。"
-            "用户当前任务相关的大上下文会作为 /context/ 下的虚拟文件传入，"
-            "你需要按需读取 /context/task.md、/context/editor/active-file.md、"
-            "/context/mentions/ 或 /context/retrieval/ 下的文件，"
-            "不要把这些文件完整复述给用户。"
-            "Skills 使用 DeepAgents 官方 Skills System 加载；你需要先依据 skills 列表匹配任务，"
-            "只在适用时读取对应 SKILL.md 和其中引用的附属文件，不要把全部 skill 内容塞进主上下文。"
-            "需要运行测试、安装依赖或调用 CLI 时，直接使用官方 sandbox execute 工具；"
-            "命令不需要平台白名单审批。"
-            "执行命令前优先说明意图，执行后根据 execute 输出继续判断。"
-            + async_prompt
-        )
+        return "\n\n".join(self._system_prompt_sections(agent))
 
 
 __all__ = ["DeepAgentsSessionRunner", "DeepAgentsUnavailable", "deepagents_thread_id"]

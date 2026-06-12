@@ -346,14 +346,9 @@ def _enabled_skill_source_set(enabled_skill_sources: list[str] | None) -> set[st
 
 
 def resolve_interrupt_on(metadata: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Read optional DeepAgents HITL interrupt configuration from session metadata."""
+    from .permission import resolve_deepagents_interrupt_on
 
-    raw = dict(metadata or {}).get("deepagents_interrupt_on")
-    if raw is True:
-        return {"write_file": True, "edit_file": True, "execute": True}
-    if isinstance(raw, dict):
-        return raw
-    return None
+    return resolve_deepagents_interrupt_on(metadata)
 
 
 def memory_files_for_project(

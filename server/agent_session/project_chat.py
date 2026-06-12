@@ -8,7 +8,7 @@ from typing import Any, AsyncIterator
 from .deepagents_runtime import CallableToolCallingChatModel
 from .execution_context import RuntimeExecutionContext
 from .model_adapter import ProviderAdapterError, get_chat_model, resolve_official_model_spec
-from .permission import filesystem_permissions_for_agent
+from .permission import permission_policy_for_agent
 
 
 @dataclass(frozen=True)
@@ -126,13 +126,14 @@ class DeepAgentsProjectChatRunner:
             },
         )
         memory = ["/workspace/AGENTS.md"] if (Path(self.project_path) / "AGENTS.md").is_file() else []
+        permission_policy = permission_policy_for_agent(None, "project_chat", self.metadata)
         return create_deep_agent(
             model=model,
             tools=[],
             system_prompt=_project_chat_system_prompt(),
             backend=backend,
             memory=memory,
-            permissions=filesystem_permissions_for_agent("project_chat"),
+            permissions=permission_policy.filesystem_permissions(),
             checkpointer=False,
         )
 

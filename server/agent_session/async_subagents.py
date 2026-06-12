@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable
 
 from .agent_registry import AgentRegistry
 from .execution_context import AgentDefinition
+from .permission import default_deepagents_permission_metadata
 from .repository import AgentSessionRepository
 
 logger = logging.getLogger(__name__)
@@ -355,7 +356,7 @@ class AsyncSubagentService:
                     "async_task_id": task_id,
                     "async_task_revision": revision,
                     "async_subagent": True,
-                    "deepagents_interrupt_on": True,
+                    **default_deepagents_permission_metadata(),
                 },
             }
         )

@@ -241,6 +241,21 @@ def test_deepagents_runtime_enforces_agent_definition_fields(monkeypatch, tmp_pa
     assert captured["subagents"] == []
 
 
+def test_deepagents_system_prompt_is_composed_from_named_sections():
+    runner = DeepAgentsSessionRunner(repository=object(), notify_event=lambda *_args: None, model_call=lambda _messages: "ok")
+    build = runner.agent_registry.require("build")
+
+    sections = runner._system_prompt_sections(build)
+    prompt = runner._system_prompt("build")
+
+    assert sections[0] == runner._agent_system_prompt(build)
+    assert any("Finetune Platform 的代码 Agent" in section for section in sections)
+    assert any("/workspace/" in section for section in sections)
+    assert any("Skills 使用 DeepAgents 官方 Skills System" in section for section in sections)
+    assert sections[-1].startswith("你还可以启动本地异步子代理任务")
+    assert prompt == "\n\n".join(sections)
+
+
 def test_agent_session_create_rejects_subagent_mode(tmp_path: Path):
     service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
 

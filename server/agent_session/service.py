@@ -33,6 +33,7 @@ from .models import (
     AgentSessionResponse,
     AgentWorkspaceResponse,
 )
+from .permission import default_deepagents_permission_metadata, validate_hitl_decisions
 from .repository import AgentSessionRepository
 from .state import ensure_session_state, record_fallback_summary, set_phase
 from .workspace_view import AgentWorkspaceViewService
@@ -194,7 +195,7 @@ class AgentSessionService:
                 "model": model,
                 "metadata": {
                     "autonomy_mode": request.autonomy_mode or "safe_auto",
-                    "deepagents_interrupt_on": True,
+                    **default_deepagents_permission_metadata(),
                     "enabled_skill_sources": enabled_skill_sources,
                 },
             }
@@ -547,7 +548,7 @@ class AgentSessionService:
                 raise ValueError("Legacy permission approvals accept exactly one decision")
             return self.approve_permission(part_id, decisions[0].get("type") == "approve"), None
 
-        normalized_decisions = self._validate_hitl_decisions(part, decisions)
+        normalized_decisions = validate_hitl_decisions(part, decisions)
         result = self._decide_deepagents_permission(part, normalized_decisions)
         self._sync_async_service_model_call()
         decision = permission_decisions(part_id, normalized_decisions)
@@ -745,52 +746,6 @@ class AgentSessionService:
         result = self.repository.get_session(session_id) or session
         result["parts"] = self.repository.list_parts(session_id)
         return result
-
-    def _validate_hitl_decisions(self, part: dict[str, Any], decisions: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        if part.get("type") != "permission":
-            raise ValueError("HITL decisions only apply to permission parts")
-        if part.get("status") != "pending":
-            raise ValueError("Permission part is not pending")
-        payload = dict(part.get("payload") or {})
-        action_requests = payload.get("action_requests") if isinstance(payload.get("action_requests"), list) else []
-        actions = payload.get("actions") if isinstance(payload.get("actions"), list) else []
-        action_count = len(action_requests) or len(actions) or 1
-        if len(decisions) != action_count:
-            raise ValueError(f"Expected {action_count} HITL decision(s), got {len(decisions)}")
-
-        normalized: list[dict[str, Any]] = []
-        for index, raw_decision in enumerate(decisions):
-            if not isinstance(raw_decision, dict):
-                raise ValueError("Each HITL decision must be an object")
-            decision_type = str(raw_decision.get("type") or "").strip()
-            if decision_type not in {"approve", "edit", "reject", "respond"}:
-                raise ValueError(f"Unsupported HITL decision type: {decision_type}")
-            action = actions[index] if index < len(actions) and isinstance(actions[index], dict) else {}
-            allowed = action.get("allowed_decisions") or payload.get("allowed_decisions") or ["approve", "edit", "reject", "respond"]
-            allowed_set = {str(item) for item in allowed} if isinstance(allowed, (list, tuple)) else {"approve", "reject"}
-            if decision_type not in allowed_set:
-                raise ValueError(f"Decision '{decision_type}' is not allowed for action {index + 1}")
-
-            decision: dict[str, Any] = {"type": decision_type}
-            message = str(raw_decision.get("message") or "").strip()
-            if decision_type in {"reject", "respond"}:
-                if decision_type == "respond" and not message:
-                    raise ValueError("Respond decisions require a message")
-                if message:
-                    decision["message"] = message
-            if decision_type == "edit":
-                edited_action = raw_decision.get("edited_action") or raw_decision.get("editedAction")
-                if not isinstance(edited_action, dict):
-                    raise ValueError("Edit decisions require edited_action")
-                name = str(edited_action.get("name") or "").strip()
-                args = edited_action.get("args")
-                if not name:
-                    raise ValueError("edited_action.name is required")
-                if not isinstance(args, dict):
-                    raise ValueError("edited_action.args must be an object")
-                decision["edited_action"] = {"name": name, "args": dict(args)}
-            normalized.append(decision)
-        return normalized
 
     def list_events(self, session_id: str, since_event_id: str | None = None) -> list[dict[str, Any]]:
         return self.repository.list_events_after(session_id, since_event_id)
