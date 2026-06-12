@@ -9,6 +9,7 @@ Deleted packages:
   - context.unified_manager
   - context.manager / context.compressor / context.context_retriever
   - api.memory_new
+  - skills class-based execution framework
 """
 from __future__ import annotations
 
@@ -29,6 +30,21 @@ BANNED_PREFIXES = (
     "context.compressor",
     "context.context_retriever",
     "api.memory_new",
+    "skills.base",
+    "skills.models",
+    "skills.registry",
+    "skills.enhanced_registry",
+    "skills.executor",
+    "skills.cache",
+    "skills.decision_engine",
+    "skills.param_extractor",
+    "skills.result_processor",
+    "skills.lifecycle",
+    "skills.scanner",
+    "skills.sandbox",
+    "skills.operation_memory",
+    "skills.md_skill_loader",
+    "skills.implemented",
 )
 
 EXCLUDED_DIRS = {

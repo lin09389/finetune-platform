@@ -6,21 +6,36 @@ from typing import Any
 
 from mcp.server_manager import get_mcp_server_manager
 from mcp.types import MCPTool, MCPToolResult
-from skills.base import SkillBase
-from skills.models import (
-    SkillCategory,
-    SkillMetadata,
-    SkillParameter,
-    SkillParameterType,
-    SkillResult,
-)
+
+
+@dataclass
+class MCPToolParameter:
+    name: str
+    type: str
+    description: str = ""
+    required: bool = False
+    default: Any = None
+    enum_values: list[Any] | None = None
+    min_value: int | float | None = None
+    max_value: int | float | None = None
+
+
+@dataclass
+class MCPToolMetadata:
+    name: str
+    display_name: str
+    description: str
+    version: str
+    category: str
+    tags: list[str]
+    parameters: list[MCPToolParameter]
 
 
 @dataclass
 class RegisteredTool:
     tool: MCPTool
     server_name: str
-    skill_class: type[SkillBase]
+    metadata: MCPToolMetadata
     last_used: float | None = None
     use_count: int = 0
     cache_enabled: bool = True
@@ -44,12 +59,12 @@ class MCPToolRegistry:
         if tool.name in self._registered_tools:
             return False
 
-        skill_class = self.create_skill_class(tool, server_name)
+        metadata = self.create_tool_metadata(tool, server_name)
 
         self._registered_tools[tool.name] = RegisteredTool(
             tool=tool,
             server_name=server_name,
-            skill_class=skill_class,
+            metadata=metadata,
         )
         return True
 
@@ -73,65 +88,21 @@ class MCPToolRegistry:
             if t.server_name == server_name
         ]
 
-    def create_skill_class(self, tool: MCPTool, server_name: str) -> type[SkillBase]:
-        registry = self
-
-        class MCPToolSkill(SkillBase):
-            _tool_name = tool.name
-            _server_name = server_name
-            _tool_description = tool.description
-            _input_schema = tool.input_schema
-
-            @classmethod
-            def get_metadata(cls) -> SkillMetadata:
-                parameters = registry._convert_schema_to_parameters(
-                    cls._input_schema
-                )
-
-                return SkillMetadata(
-                    name=cls._tool_name,
-                    display_name=cls._tool_name.replace("_", " ").title(),
-                    description=cls._tool_description,
-                    version="1.0.0",
-                    category=SkillCategory.EXTENSION,
-                    tags=["mcp", "external", cls._server_name],
-                    parameters=parameters,
-                )
-
-            async def execute(self, **kwargs) -> SkillResult:
-                try:
-                    result = await registry.call_tool(
-                        type(self)._tool_name,
-                        kwargs,
-                        use_cache=True
-                    )
-
-                    if result.is_error:
-                        return SkillResult(
-                            success=False,
-                            message=f"Tool call failed: {result.content}",
-                            data=None,
-                        )
-
-                    return SkillResult(
-                        success=True,
-                        message=f"Tool {type(self)._tool_name} executed successfully",
-                        data=result.content,
-                    )
-                except Exception as e:
-                    return SkillResult(
-                        success=False,
-                        message=f"Error calling tool: {str(e)}",
-                        data=None,
-                    )
-
-        MCPToolSkill.__name__ = f"MCP_{tool.name}"
-        return MCPToolSkill
+    def create_tool_metadata(self, tool: MCPTool, server_name: str) -> MCPToolMetadata:
+        return MCPToolMetadata(
+            name=tool.name,
+            display_name=tool.name.replace("_", " ").title(),
+            description=tool.description,
+            version="1.0.0",
+            category="extension",
+            tags=["mcp", "external", server_name],
+            parameters=self._convert_schema_to_parameters(tool.input_schema),
+        )
 
     def _convert_schema_to_parameters(
         self,
         input_schema: dict[str, Any]
-    ) -> list[SkillParameter]:
+    ) -> list[MCPToolParameter]:
         parameters = []
 
         if not input_schema:
@@ -146,7 +117,7 @@ class MCPToolRegistry:
                 schema
             )
 
-            parameters.append(SkillParameter(
+            parameters.append(MCPToolParameter(
                 name=name,
                 type=param_type,
                 description=schema.get("description", ""),
@@ -163,20 +134,20 @@ class MCPToolRegistry:
         self,
         json_type: str,
         schema: dict[str, Any]
-    ) -> SkillParameterType:
+    ) -> str:
         type_mapping = {
-            "string": SkillParameterType.STRING,
-            "integer": SkillParameterType.INTEGER,
-            "number": SkillParameterType.FLOAT,
-            "boolean": SkillParameterType.BOOLEAN,
-            "array": SkillParameterType.ARRAY,
-            "object": SkillParameterType.OBJECT,
+            "string": "string",
+            "integer": "integer",
+            "number": "float",
+            "boolean": "boolean",
+            "array": "array",
+            "object": "object",
         }
 
         if "enum" in schema:
-            return SkillParameterType.ENUM
+            return "enum"
 
-        return type_mapping.get(json_type, SkillParameterType.STRING)
+        return type_mapping.get(json_type, "string")
 
     async def call_tool(
         self,
@@ -285,17 +256,8 @@ class MCPToolRegistry:
 
         return results
 
-    def get_all_skill_classes(self) -> dict[str, type[SkillBase]]:
-        return {
-            name: registered.skill_class
-            for name, registered in self._registered_tools.items()
-        }
-
-    def get_all_metadata(self) -> list[SkillMetadata]:
-        return [
-            registered.skill_class.get_metadata()
-            for registered in self._registered_tools.values()
-        ]
+    def get_all_metadata(self) -> list[MCPToolMetadata]:
+        return [registered.metadata for registered in self._registered_tools.values()]
 
 
 _mcp_tool_registry: MCPToolRegistry | None = None
@@ -314,10 +276,10 @@ def reset_mcp_tool_registry() -> MCPToolRegistry:
     return _mcp_tool_registry
 
 
-def create_mcp_skill_class(
+def create_mcp_tool_metadata(
     tool: MCPTool,
     server_name: str,
     server_manager=None
-) -> type[SkillBase]:
+) -> MCPToolMetadata:
     registry = MCPToolRegistry(server_manager)
-    return registry.create_skill_class(tool, server_name)
+    return registry.create_tool_metadata(tool, server_name)

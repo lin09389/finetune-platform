@@ -177,3 +177,26 @@ class TestMCPToolRegistry:
         registry = MCPToolRegistry()
         key = registry.get_cache_key("test_tool", {"arg": "value"})
         assert "test_tool:" in key
+
+    def test_create_tool_metadata_without_skill_base(self):
+        from mcp.tool_registry import MCPToolRegistry
+
+        registry = MCPToolRegistry()
+        tool = MCPTool(
+            name="lookup_repo",
+            description="Lookup a repository",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "repo": {"type": "string", "description": "Repository name"}
+                },
+                "required": ["repo"],
+            },
+        )
+
+        metadata = registry.create_tool_metadata(tool, "github")
+
+        assert metadata.name == "lookup_repo"
+        assert metadata.category == "extension"
+        assert metadata.parameters[0].name == "repo"
+        assert metadata.parameters[0].type == "string"

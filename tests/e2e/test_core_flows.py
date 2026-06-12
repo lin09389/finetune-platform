@@ -160,22 +160,15 @@ class TestFileOperations:
 
 
 class TestSkillsAPI:
-    """技能系统测试"""
+    """Agent 技能系统测试"""
     
-    def test_list_skills(self, api_context):
-        """测试技能列表"""
-        response = api_context.get("/skills")
+    def test_agent_skill_registry(self, api_context):
+        """测试 Agent 技能源注册表"""
+        response = api_context.get("/agents/skills")
         assert response.status_code == 200
         data = response.json()
-        assert "skills" in data
-        assert isinstance(data["skills"], list)
-    
-    def test_skill_stats(self, api_context):
-        """测试技能统计"""
-        response = api_context.get("/skills/stats")
-        assert response.status_code == 200
-        data = response.json()
-        assert "total_skills" in data
+        assert "sources" in data
+        assert isinstance(data["sources"], list)
 
 
 class TestMCPAPI:
