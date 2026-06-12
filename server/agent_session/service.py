@@ -35,7 +35,7 @@ from .models import (
 )
 from .permission import default_deepagents_permission_metadata, validate_hitl_decisions
 from .repository import AgentSessionRepository
-from .state import ensure_session_state, record_fallback_summary, set_phase
+from .state import clear_runtime_latches, ensure_session_state, record_fallback_summary, set_phase
 from .workspace_view import AgentWorkspaceViewService
 
 logger = logging.getLogger(__name__)
@@ -286,12 +286,20 @@ class AgentSessionService:
     ) -> tuple[str, str, str]:
         normalized = path.strip().replace("\\", "/")
         if normalized.startswith("/memories/"):
-            return "user", user_id, normalized.removeprefix("/memories/").lstrip("/")
+            return "user", user_id, AgentSessionService._validate_memory_relative_path(normalized.removeprefix("/memories/").lstrip("/"))
         if normalized.startswith("/agent-memory/"):
-            return "agent", agent_id, normalized.removeprefix("/agent-memory/").lstrip("/")
+            return "agent", agent_id, AgentSessionService._validate_memory_relative_path(normalized.removeprefix("/agent-memory/").lstrip("/"))
         if normalized.startswith("/policies/"):
-            return "org", org_id, normalized.removeprefix("/policies/").lstrip("/")
+            return "org", org_id, AgentSessionService._validate_memory_relative_path(normalized.removeprefix("/policies/").lstrip("/"))
         raise ValueError("Unsupported memory path")
+
+    @staticmethod
+    def _validate_memory_relative_path(relative_path: str) -> str:
+        candidate = relative_path.strip().replace("\\", "/")
+        path = Path(candidate)
+        if not candidate or path.is_absolute() or ".." in path.parts or not candidate.endswith(".md"):
+            raise ValueError("Unsupported memory path")
+        return candidate
 
     async def prompt(self, session_id: str, request: AgentPromptRequest) -> AgentSessionResponse:
         session = self.repository.get_session(session_id)
@@ -451,7 +459,7 @@ class AgentSessionService:
         metadata["interrupt_requested"] = True
         metadata["interrupt_recorded"] = True
         metadata["interrupted_at"] = datetime.now().isoformat()
-        metadata["active_prompt_id"] = None
+        metadata = clear_runtime_latches(metadata)
         state = dict(metadata.get("state") or {})
         state["latest_error"] = message
         metadata["state"] = state
@@ -564,9 +572,12 @@ class AgentSessionService:
         background_tasks: BackgroundTasks,
     ) -> AgentSessionResponse:
         response, decision = self._record_permission_decision(part_id, decisions)
-        if decision is not None and (self.deepagents_runner.model_call is not None or response.provider):
+        if decision is not None and self._can_resume_permission(response):
             background_tasks.add_task(self._resume_permission_background, response.id, decision)
         return response
+
+    def _can_resume_permission(self, response: AgentSessionResponse) -> bool:
+        return self.deepagents_runner.model_call is not None or bool(response.provider)
 
     async def _resume_permission_background(self, session_id: str, decision: dict[str, Any]) -> None:
         try:
@@ -584,7 +595,10 @@ class AgentSessionService:
                 self._record_background_failure_fallback(session_id, exc, failure_exc)
 
     async def decide_permission_async(self, part_id: str, decisions: list[dict[str, Any]]) -> AgentSessionResponse:
-        response, _decision = await run_sync(self._record_permission_decision, part_id, decisions)
+        response, decision = await run_sync(self._record_permission_decision, part_id, decisions)
+        if decision is not None and self._can_resume_permission(response):
+            await self._resume_permission_background(response.id, decision)
+            return self.get_session(response.id)
         return response
 
     def _approve_deepagents_action(self, part: dict[str, Any], approved: bool) -> dict[str, Any]:
@@ -758,7 +772,7 @@ class AgentSessionService:
         payload_part = payload.get("part")
         event_type = str(event.get("event_type") or "")
         computed_part = payload_part if isinstance(payload_part, dict) else None
-        if computed_part is None or event_type == "part_delta":
+        if computed_part is None or event_type in {"part_delta", "model_stream_started", "model_stream_completed", "model_stream_failed"}:
             computed_part = self._stream_part_snapshot(event, payload)
         chunk_type = payload_chunk_type if isinstance(payload_chunk_type, str) else self._stream_chunk_type(event_type, payload, computed_part)
         return {
@@ -820,6 +834,7 @@ class AgentSessionService:
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
         metadata = record_fallback_summary(metadata)
         metadata = set_phase(metadata, "needs_manual_review")
+        metadata = clear_runtime_latches(metadata)
         metadata["latest_error"] = message
         metadata["model_protocol_status"] = "needs_manual_review"
         state = dict(metadata.get("state") or {})
@@ -864,7 +879,7 @@ class AgentSessionService:
             if event_type == "part_delta":
                 status = str(payload.get("status") or (stored_part or {}).get("status") or "running")
             elif event_type == "model_stream_completed":
-                status = str(payload.get("status") or payload_part.get("status") or (stored_part or {}).get("status") or "completed")
+                status = self._completed_stream_status(payload, stored_part, payload_part)
             else:
                 status = str(payload.get("status") or (stored_part or {}).get("status") or ("failed" if event_type == "model_stream_failed" else "running"))
             stored_payload = dict((stored_part or {}).get("payload") or {})
@@ -882,7 +897,7 @@ class AgentSessionService:
                 "type": part_type,
                 "status": status,
                 "title": payload_part.get("title") or (stored_part or {}).get("title") or ("流式输出失败" if event_type == "model_stream_failed" else "生成中"),
-                "content": str(payload.get("content") or payload_part.get("content") or (stored_part or {}).get("content") or ""),
+                "content": self._completed_stream_content(payload, stored_part, payload_part) if event_type == "model_stream_completed" else str(payload.get("content") or (stored_part or {}).get("content") or payload_part.get("content") or ""),
                 "payload": stored_payload,
                 "created_at": (stored_part or {}).get("created_at") or event.get("created_at"),
                 "updated_at": event.get("created_at"),
@@ -900,6 +915,35 @@ class AgentSessionService:
             "created_at": event.get("created_at"),
             "updated_at": event.get("created_at"),
         }
+
+    @staticmethod
+    def _completed_stream_status(payload: dict[str, Any], stored_part: dict[str, Any] | None, payload_part: dict[str, Any]) -> str:
+        explicit = str(payload.get("status") or "").strip()
+        if explicit:
+            return explicit
+        candidates = [
+            str((stored_part or {}).get("status") or "").strip(),
+            str(payload_part.get("status") or "").strip(),
+        ]
+        if "completed" in candidates:
+            return "completed"
+        for candidate in candidates:
+            if candidate and candidate != "running":
+                return candidate
+        return "completed"
+
+    @staticmethod
+    def _completed_stream_content(payload: dict[str, Any], stored_part: dict[str, Any] | None, payload_part: dict[str, Any]) -> str:
+        explicit = payload.get("content")
+        if explicit is not None:
+            return str(explicit)
+        stored_status = str((stored_part or {}).get("status") or "").strip()
+        payload_status = str(payload_part.get("status") or "").strip()
+        if stored_status == "completed":
+            return str((stored_part or {}).get("content") or "")
+        if payload_status == "completed":
+            return str(payload_part.get("content") or "")
+        return str((stored_part or {}).get("content") or payload_part.get("content") or "")
 
     @staticmethod
     def _stream_chunk_type(event_type: str, payload: dict[str, Any], part: dict[str, Any] | None) -> str:

@@ -53,9 +53,9 @@ class AgentRegistry:
         raw["name"] = raw.get("name") or raw["id"]
         raw["system_prompt"] = prompt
         raw.pop("permission", None)
-        raw["tools"] = list(raw.get("tools") or [])
-        raw["handoff_targets"] = list(raw.get("handoff_targets") or [])
-        raw["async_subagent_targets"] = list(raw.get("async_subagent_targets") or [])
+        raw["tools"] = self._clean_list(raw.get("tools"))
+        raw["handoff_targets"] = self._clean_list(raw.get("handoff_targets"))
+        raw["async_subagent_targets"] = self._clean_list(raw.get("async_subagent_targets"))
         return AgentDefinition(**raw)
 
     def _parse_frontmatter(self, frontmatter: str) -> dict[str, Any]:
@@ -111,6 +111,29 @@ class AgentRegistry:
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
             return value[1:-1]
         return value
+
+    def _clean_list(self, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, tuple):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return []
+            if stripped.startswith("[") and stripped.endswith("]"):
+                body = stripped[1:-1].strip()
+                if not body:
+                    return []
+                return [
+                    str(self._clean_scalar(item.strip())).strip()
+                    for item in body.split(",")
+                    if item.strip()
+                ]
+            return [stripped]
+        raise ValueError(f"Expected list-compatible frontmatter value, got {type(value).__name__}")
 
     def _validate_handoff_graph(self) -> None:
         for agent in self._agents.values():

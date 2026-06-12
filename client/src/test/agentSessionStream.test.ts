@@ -11,9 +11,9 @@ describe('agent session stream reconnect helpers', () => {
   });
 
   it('builds a resumable SSE URL with the last event id', () => {
-    const url = buildAgentSessionStreamUrl('session-1', 'evt 1');
+    const url = buildAgentSessionStreamUrl('session 1/child', 'evt 1');
 
-    expect(url).toContain('/agent-sessions/session-1/events/stream');
+    expect(url).toContain('/agent-sessions/session%201%2Fchild/events/stream');
     expect(url).toContain('since_event_id=evt+1');
   });
 });

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi.testclient import TestClient
 
@@ -49,6 +50,15 @@ def test_agent_sessions_allow_desktop_optional_auth_without_token(tmp_path: Path
 
         with client.stream("GET", f"/agent-sessions/{body['id']}/events/stream") as stream:
             assert stream.status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_agent_session_stream_returns_404_for_missing_session(tmp_path: Path):
+    client, _ = _client_with_service(tmp_path)
+    try:
+        response = client.get("/agent-sessions/missing-session/events/stream")
+        assert response.status_code == 404
     finally:
         app.dependency_overrides.clear()
 
@@ -140,6 +150,74 @@ def test_agent_sessions_async_task_rest_lifecycle(tmp_path: Path, monkeypatch):
         other = service.repository.create_session({"agent_id": "build", "title": "other", "project_path": str(workspace)})
         missing = client.get(f"/agent-sessions/{other['id']}/async-tasks/{task['task_id']}")
         assert missing.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_agent_artifact_original_reads_matched_session_artifact(tmp_path: Path):
+    client, service = _client_with_service(tmp_path)
+    project = tmp_path / "project"
+    target = project / "src" / "app.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("print('hello')\n", encoding="utf-8")
+    try:
+        session = service.repository.create_session(
+            {
+                "agent_id": "build",
+                "title": "artifact original",
+                "project_path": str(project),
+                "status": "completed",
+                "metadata": {},
+            }
+        )
+        service.repository.add_part(
+            session["id"],
+            "diff",
+            status="completed",
+            title="src/app.py",
+            content="changed",
+            payload={"changed_files": ["/workspace/src/app.py"], "diff": "--- old\n+++ new\n"},
+        )
+        artifact = service.get_overview(session["id"]).artifacts[0]
+
+        response = client.get(f"/agent-sessions/{session['id']}/artifacts/{quote(artifact.id, safe='')}/original")
+
+        assert response.status_code == 200
+        assert response.json() == "print('hello')\n"
+
+        missing = client.get(f"/agent-sessions/{session['id']}/artifacts/part_missing:src/app.py:1/original")
+        assert missing.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_agent_artifact_original_blocks_workspace_path_escape(tmp_path: Path):
+    client, service = _client_with_service(tmp_path)
+    project = tmp_path / "project"
+    project.mkdir()
+    try:
+        session = service.repository.create_session(
+            {
+                "agent_id": "build",
+                "title": "artifact escape",
+                "project_path": str(project),
+                "status": "completed",
+                "metadata": {},
+            }
+        )
+        service.repository.add_part(
+            session["id"],
+            "diff",
+            status="completed",
+            title="escape",
+            content="changed",
+            payload={"changed_files": ["/workspace/../secret.txt"], "diff": "--- old\n+++ new\n"},
+        )
+        artifact = service.get_overview(session["id"]).artifacts[0]
+
+        response = client.get(f"/agent-sessions/{session['id']}/artifacts/{quote(artifact.id, safe='')}/original")
+
+        assert response.status_code == 403
     finally:
         app.dependency_overrides.clear()
 
@@ -395,6 +473,18 @@ def test_agent_session_memory_files_are_listed_and_read_only_readable(tmp_path: 
         body = file_response.json()
         assert body["path"] == "/memories/user.md"
         assert "# User Memory" in body["content"]
+
+        escape_response = client.get(
+            f"/agent-sessions/{session['id']}/memory-file",
+            params={"path": "/memories/../agent.md"},
+        )
+        assert escape_response.status_code == 404
+
+        non_markdown_response = client.get(
+            f"/agent-sessions/{session['id']}/memory-file",
+            params={"path": "/memories/user.txt"},
+        )
+        assert non_markdown_response.status_code == 404
     finally:
         app.dependency_overrides.clear()
         reset_memory_service()

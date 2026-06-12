@@ -49,6 +49,34 @@ def test_registry_treats_all_mode_as_direct_and_handoff_capable(tmp_path: Path):
     assert registry.require("helper").can_be_handoff_target is True
 
 
+def test_registry_parses_scalar_and_inline_list_fields(tmp_path: Path):
+    (tmp_path / "parent.md").write_text(
+        (
+            "---\n"
+            "id: parent\n"
+            "name: Parent\n"
+            "mode: primary\n"
+            "tools: [read_file, grep]\n"
+            "handoff_targets: helper\n"
+            "async_subagent_targets: [helper]\n"
+            "---\n"
+            "Parent prompt.\n"
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "helper.md").write_text(
+        "---\nid: helper\nname: Helper\nmode: subagent\n---\nHelper prompt.\n",
+        encoding="utf-8",
+    )
+
+    registry = AgentRegistry(tmp_path)
+    parent = registry.require("parent")
+
+    assert parent.tools == ["read_file", "grep"]
+    assert parent.handoff_targets == ["helper"]
+    assert parent.async_subagent_targets == ["helper"]
+
+
 def test_registry_rejects_invalid_handoff_modes(tmp_path: Path):
     (tmp_path / "parent.md").write_text(
         "---\nid: parent\nname: Parent\nmode: primary\nhandoff_targets:\n  - direct_only\n---\nParent prompt.\n",

@@ -481,6 +481,7 @@ export interface AgentInfo {
   max_iterations?: number;
   tools?: string[];
   handoff_targets?: string[];
+  async_subagent_targets?: string[];
   hidden?: boolean;
 }
 
@@ -1230,7 +1231,7 @@ export const getArtifactOriginal = async (
   sessionId: string,
   artifactId: string
 ): Promise<string | null> => {
-  const response = await apiClient.get(`/agent-sessions/${sessionId}/artifacts/${artifactId}/original`);
+  const response = await apiClient.get(`/agent-sessions/${sessionId}/artifacts/${encodeURIComponent(artifactId)}/original`);
   return response.data;
 };
 

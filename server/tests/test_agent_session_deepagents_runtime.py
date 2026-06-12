@@ -44,12 +44,26 @@ def test_agent_session_deepagents_reads_file_and_completes(tmp_path: Path):
             return next(responses)
 
         service.model_call = model_call
+        service.repository.update_session(
+            session.id,
+            metadata={
+                **session.metadata,
+                "active_prompt_id": "prompt-1",
+                "background_run": True,
+                "pending_deepagents_interrupt": {"part_id": "pending"},
+                "ui_state": {"pending_permission": {"part_id": "pending"}},
+            },
+        )
 
         result = asyncio.run(service.prompt(session.id, AgentPromptRequest(content="读取 hello.txt 并总结")))
         events = service.list_events(session.id)
 
         assert result.status == "completed"
         assert result.metadata["runtime"] == "deepagents"
+        assert result.metadata["active_prompt_id"] is None
+        assert result.metadata["background_run"] is False
+        assert result.metadata["pending_deepagents_interrupt"] is None
+        assert result.metadata["ui_state"]["pending_permission"] is None
         assert any(part.type == "summary" and "DeepAgents" in (part.content or "") for part in result.parts)
         assert any(event["event_type"] == "session_started" for event in events)
         assert any(event["event_type"] == "tool_call_completed" for event in events)
@@ -683,15 +697,8 @@ def test_agent_session_deepagents_interrupt_creates_permission_card(tmp_path: Pa
         assert permission.payload["tool"] == "edit_file"
         assert target.read_text(encoding="utf-8") == "hello\n"
 
-        approved = asyncio.run(service.approve_permission_async(permission.id, True))
+        completed = asyncio.run(service.approve_permission_async(permission.id, True))
 
-        assert approved.status == "running"
-        assert target.read_text(encoding="utf-8") == "hello\n"
-        decision = approved.metadata["last_resume_decision"]
-
-        asyncio.run(service._resume_permission_background(session.id, decision))
-
-        completed = service.get_session(session.id)
         assert completed.status == "completed"
         assert target.read_text(encoding="utf-8") == "hi\n"
     finally:
@@ -754,7 +761,18 @@ def test_agent_session_permission_resume_is_queued_for_http_approval(tmp_path: P
 def test_agent_session_permission_background_resume_failure_is_recorded(tmp_path: Path):
     service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
     session = service.create_session(AgentSessionCreate(title="resume failure", project_path=str(Path.cwd())))
-    service.repository.update_session(session.id, provider="mock", model="mock-model", metadata={"runtime": "deepagents"})
+    service.repository.update_session(
+        session.id,
+        provider="mock",
+        model="mock-model",
+        metadata={
+            "runtime": "deepagents",
+            "active_prompt_id": "prompt-1",
+            "background_run": True,
+            "pending_deepagents_interrupt": {"part_id": "pending"},
+            "ui_state": {"pending_permission": {"part_id": "pending"}},
+        },
+    )
     part = service.repository.add_part(
         session.id,
         "permission",
@@ -768,17 +786,19 @@ def test_agent_session_permission_background_resume_failure_is_recorded(tmp_path
         },
     )
 
-    queued = asyncio.run(service.decide_permission_async(part["id"], [{"type": "approve"}]))
-    assert queued.status == "running"
-
     async def failing_resume(_session_id, _decision):
         raise RuntimeError("resume exploded")
 
     service.deepagents_runner.resume = failing_resume
-    asyncio.run(service._resume_permission_background(session.id, queued.metadata["last_resume_decision"]))
+    queued = asyncio.run(service.decide_permission_async(part["id"], [{"type": "approve"}]))
+    assert queued.status == "needs_manual_review"
 
     failed = service.get_session(session.id)
     assert failed.status == "needs_manual_review"
+    assert failed.metadata["active_prompt_id"] is None
+    assert failed.metadata["background_run"] is False
+    assert failed.metadata["pending_deepagents_interrupt"] is None
+    assert failed.metadata["ui_state"]["pending_permission"] is None
     assert any(part.type == "summary" and "resume exploded" in part.content for part in failed.parts)
 
 
@@ -948,7 +968,17 @@ def test_agent_session_hitl_decision_cannot_be_recorded_twice(tmp_path: Path):
 async def test_agent_session_interrupt_cancels_running_prompt_task(tmp_path: Path):
     service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
     session = service.create_session(AgentSessionCreate(title="interrupt task", project_path=str(Path.cwd())))
-    service.repository.update_session(session.id, status="running", metadata={"runtime": "deepagents", "active_prompt_id": "prompt-1"})
+    service.repository.update_session(
+        session.id,
+        status="running",
+        metadata={
+            "runtime": "deepagents",
+            "active_prompt_id": "prompt-1",
+            "background_run": True,
+            "pending_deepagents_interrupt": {"part_id": "pending"},
+            "ui_state": {"pending_permission": {"part_id": "pending"}},
+        },
+    )
     started = asyncio.Event()
     cancelled = asyncio.Event()
 
@@ -969,7 +999,12 @@ async def test_agent_session_interrupt_cancels_running_prompt_task(tmp_path: Pat
     await asyncio.wait_for(task, timeout=2)
 
     assert interrupted.status == "interrupted"
-    assert service.get_session(session.id).status == "interrupted"
+    current = service.get_session(session.id)
+    assert current.status == "interrupted"
+    assert current.metadata["active_prompt_id"] is None
+    assert current.metadata["background_run"] is False
+    assert current.metadata["pending_deepagents_interrupt"] is None
+    assert current.metadata["ui_state"]["pending_permission"] is None
 
 
 def test_agent_session_hitl_decision_validation_rejects_bad_batches(tmp_path: Path):
@@ -1077,6 +1112,38 @@ def test_agent_session_stream_snapshot_uses_model_stream_completed_payload(tmp_p
     assert snapshot["status"] == "completed"
     assert snapshot["content"] == "new"
     assert snapshot["payload"]["streaming"] is False
+
+
+def test_agent_session_stream_chunk_recomputes_model_stream_completion_part(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="stream chunk completion", project_path=str(Path.cwd())))
+    part = service.repository.add_part(
+        session.id,
+        "text",
+        status="running",
+        title="AI 正在思考...",
+        content="old",
+        payload={"streaming": True},
+    )
+    service.repository.update_part(part["id"], status="completed", content="new", payload={"streaming": False})
+    event = service.repository.add_event(
+        session.id,
+        "model_stream_completed",
+        "done",
+        {
+            "session_id": session.id,
+            "part_id": part["id"],
+            "part_type": "text",
+            "part": {**part, "status": "running", "content": "old", "payload": {"streaming": True}},
+        },
+    )
+
+    chunk = service.build_stream_chunk(event)
+
+    assert chunk["chunk_type"] == "part_complete"
+    assert chunk["part"]["status"] == "completed"
+    assert chunk["part"]["content"] == "new"
+    assert chunk["part"]["payload"]["streaming"] is False
 
 
 def test_async_subtask_metrics_uses_sql_aggregation_without_loading_all_events(tmp_path: Path, monkeypatch):

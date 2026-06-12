@@ -26,7 +26,7 @@ from .runtime import (
     memory_files_for_project,
     resolve_enabled_skill_sources,
 )
-from .state import ensure_session_state, set_phase
+from .state import clear_runtime_latches, ensure_session_state, set_phase
 
 logger = logging.getLogger(__name__)
 
@@ -266,6 +266,7 @@ class DeepAgentsSessionRunner:
                 return self._with_parts(session_id)
             metadata = ensure_session_state(dict(session.get("metadata") or {}))
             metadata = set_phase(metadata, "completed")
+            metadata = clear_runtime_latches(metadata)
             summary = last_summary or "DeepAgents 执行完成。"
             mapper.complete_summary(summary)
             self.repository.update_session(session_id, status="completed", metadata=metadata)
@@ -297,6 +298,7 @@ class DeepAgentsSessionRunner:
                 return self._with_parts(session_id)
             metadata = ensure_session_state(dict(session.get("metadata") or {}))
             metadata = set_phase(metadata, "completed")
+            metadata = clear_runtime_latches(metadata)
             mapper.complete_summary(last_summary or "DeepAgents 已继续执行并完成。")
             self.repository.update_session(session_id, status="completed", metadata=metadata)
             return self._with_parts(session_id)

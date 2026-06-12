@@ -53,6 +53,18 @@ def set_phase(metadata: dict[str, Any], phase: str, *, stage: str | None = None,
     return metadata
 
 
+def clear_runtime_latches(metadata: dict[str, Any]) -> dict[str, Any]:
+    metadata["active_prompt_id"] = None
+    metadata["background_run"] = False
+    metadata["pending_deepagents_interrupt"] = None
+    ui_state = metadata.get("ui_state")
+    if isinstance(ui_state, dict):
+        ui_state = dict(ui_state)
+        ui_state["pending_permission"] = None
+        metadata["ui_state"] = ui_state
+    return metadata
+
+
 def add_touched_paths(metadata: dict[str, Any], paths: Iterable[Any]) -> dict[str, Any]:
     touched = {normalize_path(path) for path in metadata.get("touched_paths") or [] if path}
     touched.update(normalize_path(path) for path in paths if path)

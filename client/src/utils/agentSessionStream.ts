@@ -12,5 +12,5 @@ export function buildAgentSessionStreamUrl(sessionId: string, lastEventId = ''):
   const params = new URLSearchParams();
   if (lastEventId) params.set('since_event_id', lastEventId);
   const qs = params.toString();
-  return `${API_BASE_URL}/agent-sessions/${sessionId}/events/stream${qs ? `?${qs}` : ''}`;
+  return `${API_BASE_URL}/agent-sessions/${encodeURIComponent(sessionId)}/events/stream${qs ? `?${qs}` : ''}`;
 }

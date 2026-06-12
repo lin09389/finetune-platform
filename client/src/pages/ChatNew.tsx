@@ -793,7 +793,8 @@ const ChatPage: React.FC = () => {
       new Set(
         (!currentSessionId || currentSessionId.startsWith('local_') ? [] : messages)
           .map((message) => message.agent_metadata?.agent_session_id)
-          .filter((sessionId): sessionId is string => Boolean(sessionId)),
+          // 过滤掉 agent_error_ 开头的本地错误占位 ID，这些 ID 在后端不存在，不应建立 SSE 流
+          .filter((sessionId): sessionId is string => typeof sessionId === 'string' && !sessionId.startsWith('agent_error_')),
       ),
     );
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
@@ -40,6 +41,31 @@ def _session_status(session: Any) -> str | None:
     if isinstance(session, dict):
         return session.get("status")
     return getattr(session, "status", None)
+
+
+def _resolve_artifact_project_path(project_root: Path, artifact_path: str) -> Path:
+    raw_path = str(artifact_path or "").strip()
+    if not raw_path:
+        raise HTTPException(status_code=400, detail="Artifact path is empty")
+    normalized = raw_path.replace("\\", "/")
+    if normalized == "/workspace":
+        normalized = ""
+    elif normalized.startswith("/workspace/"):
+        normalized = normalized[len("/workspace/"):]
+    elif normalized.startswith("workspace/"):
+        normalized = normalized[len("workspace/"):]
+
+    candidate = Path(normalized)
+    target_path = candidate if candidate.is_absolute() else project_root / normalized
+    try:
+        resolved_target = target_path.resolve()
+        if not resolved_target.is_relative_to(project_root):
+            raise HTTPException(status_code=403, detail="Access denied: target path is outside project root")
+        return resolved_target
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid target path")
 
 
 def get_agent_session_service() -> AgentSessionService:
@@ -297,6 +323,11 @@ async def stream_agent_session_events(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
+    try:
+        await run_sync(service.get_session, session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     async def event_stream():
         seen = {since_event_id: True} if since_event_id else {}
         since_id = since_event_id
@@ -367,7 +398,7 @@ async def stream_agent_session_events(
     )
 
 
-@router.get("/{session_id}/artifacts/{artifact_id}/original")
+@router.get("/{session_id}/artifacts/{artifact_id:path}/original")
 async def get_artifact_original(
     session_id: str,
     artifact_id: str,
@@ -375,41 +406,28 @@ async def get_artifact_original(
     current_user: TokenPayload = Depends(get_agent_session_user),
 ) -> str:
     """Retrieve the original content of a modified artifact before changes were applied."""
-    from pathlib import Path
     try:
         session = await run_sync(service.get_session, session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Agent session not found")
-        
-        parts = artifact_id.split(":")
-        if len(parts) < 2:
-            raise HTTPException(status_code=400, detail="Invalid artifact ID format")
-        
-        # The file path is everything after part_id and before the seen_count
-        file_path = ":".join(parts[1:-1]) if len(parts) > 2 else parts[1]
-        
-        project_path = session.get("project_path")
+
+        overview = await run_sync(service.get_overview, session_id)
+        artifact = next((item for item in overview.artifacts if item.id == artifact_id), None)
+        if artifact is None:
+            raise HTTPException(status_code=404, detail="Artifact not found")
+
+        project_path = session.project_path
         if not project_path:
             raise HTTPException(status_code=400, detail="Session has no project path configured")
+
+        project_root = Path(project_path).resolve()
+        resolved_target = _resolve_artifact_project_path(project_root, artifact.path)
             
-        target_path = Path(project_path).resolve() / file_path
-        
-        # Path safety verification
-        try:
-            resolved_target = target_path.resolve()
-            resolved_project = Path(project_path).resolve()
-            if not resolved_target.is_relative_to(resolved_project):
-                raise HTTPException(status_code=403, detail="Access denied: target path is outside project root")
-        except HTTPException:
-            raise
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid target path")
-            
-        if not target_path.exists() or not target_path.is_file():
+        if not resolved_target.exists() or not resolved_target.is_file():
             raise HTTPException(status_code=404, detail="File not found")
             
         try:
-            return target_path.read_text(encoding="utf-8", errors="ignore")
+            return resolved_target.read_text(encoding="utf-8", errors="ignore")
         except Exception as read_exc:
             raise HTTPException(status_code=500, detail=f"Failed to read file: {read_exc}")
     except HTTPException:

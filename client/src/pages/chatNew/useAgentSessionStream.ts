@@ -212,14 +212,34 @@ export function useAgentSessionStream(params: {
             setAgentPhase({ phase: '', visible: false });
           }
         })
-        .catch(() => undefined);
+        .catch((err) => {
+          // session 不存在（404）时直接关闭流，不再重试
+          const status = err?.response?.status ?? err?.status;
+          if (status === 404) {
+            closeStream(sessionId);
+            setAgentPhase({ phase: '', visible: false });
+            return;
+          }
+        });
       closeStream(sessionId, false);
+      // 只有当 session 确实存在时（非 404）才安排重试
       if (!retryState.timer) {
         const delay = getAgentStreamRetryDelay(retryState.attempt);
         retryState.attempt += 1;
         retryState.timer = setTimeout(() => {
           retryState.timer = null;
-          startRef.current?.(sessionId, true);
+          // 重试前再次确认 session 是否存在
+          getAgentSession(sessionId)
+            .then(() => { startRef.current?.(sessionId, true); })
+            .catch((err) => {
+              const status = err?.response?.status ?? err?.status;
+              if (status === 404) {
+                closeStream(sessionId);
+                setAgentPhase({ phase: '', visible: false });
+              } else {
+                startRef.current?.(sessionId, true);
+              }
+            });
         }, delay);
       }
     };
