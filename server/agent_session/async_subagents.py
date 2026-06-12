@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any, Awaitable, Callable
 
 from .agent_registry import AgentRegistry
+from .async_subagent_policy import resolve_async_subagent_target
 from .execution_context import AgentDefinition
 from .permission import default_deepagents_permission_metadata
 from .repository import AgentSessionRepository
@@ -374,18 +375,7 @@ class AsyncSubagentService:
         return task
 
     def _resolve_async_subagent(self, parent_agent_id: str, subagent_type: str) -> AgentDefinition:
-        parent = self.agent_registry.get(parent_agent_id)
-        requested = subagent_type.strip()
-        if not parent or not parent.can_delegate:
-            raise ValueError(f"Agent '{parent_agent_id}' cannot start async subagents")
-        target_id = requested if parent and requested in parent.handoff_targets else requested.lower()
-        if target_id not in parent.handoff_targets:
-            allowed = ", ".join(parent.handoff_targets)
-            raise ValueError(f"Unknown async subagent type '{subagent_type}'. Available types: {allowed}")
-        target = self.agent_registry.get(target_id)
-        if target is None or not target.can_be_handoff_target:
-            raise ValueError(f"Async target '{subagent_type}' is not a subagent")
-        return target
+        return resolve_async_subagent_target(self.agent_registry, parent_agent_id, subagent_type)
 
     def _refresh_from_child(self, task: dict[str, Any]) -> dict[str, Any]:
         if task.get("status") not in {"pending", "running"} or not task.get("child_session_id"):

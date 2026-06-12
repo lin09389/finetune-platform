@@ -241,6 +241,31 @@ def test_deepagents_runtime_enforces_agent_definition_fields(monkeypatch, tmp_pa
     assert captured["subagents"] == []
 
 
+def test_handoff_targets_do_not_implicitly_expose_async_tools(tmp_path: Path):
+    runner = DeepAgentsSessionRunner(repository=object(), notify_event=lambda *_args: None, model_call=lambda _messages: "ok")
+    runner.agent_registry._agents["handoff_only"] = AgentDefinition(
+        id="handoff_only",
+        name="Handoff Only",
+        mode="primary",
+        tools=[
+            "start_async_task",
+            "check_async_task",
+            "list_async_tasks",
+            "update_async_task",
+            "cancel_async_task",
+        ],
+        handoff_targets=["explore"],
+    )
+
+    tools = runner._local_async_tools_for_session(
+        {"id": "session", "agent_id": "handoff_only", "project_path": str(tmp_path), "metadata": {}}
+    )
+
+    assert tools == []
+    assert "start_async_task" not in runner._system_prompt("handoff_only")
+    assert [item["name"] for item in runner._subagents_for_agent("handoff_only", object())] == ["explore"]
+
+
 def test_deepagents_system_prompt_is_composed_from_named_sections():
     runner = DeepAgentsSessionRunner(repository=object(), notify_event=lambda *_args: None, model_call=lambda _messages: "ok")
     build = runner.agent_registry.require("build")

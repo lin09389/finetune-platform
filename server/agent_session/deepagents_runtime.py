@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from langgraph.types import Command
 
 from .agent_registry import AgentRegistry
+from .async_subagent_policy import ASYNC_SUBAGENT_TOOL_NAMES, async_subagent_manifest_for_agent
 from .async_subagents import AsyncSubagentService
 from .deepagents_compat import patch_torch_pytree_for_transformers
 from .deepagents_events import DeepAgentsEventMapper
@@ -360,7 +361,8 @@ class DeepAgentsSessionRunner:
     def _local_async_tools_for_session(self, session: dict[str, Any]) -> list[Any]:
         agent_id = str(session.get("agent_id") or "build")
         agent = self.agent_registry.get(agent_id)
-        if not agent or not agent.can_delegate or not agent.handoff_targets:
+        manifest = async_subagent_manifest_for_agent(self.agent_registry, agent)
+        if not manifest.enabled:
             return []
 
         from langchain_core.tools import StructuredTool
@@ -403,7 +405,7 @@ class DeepAgentsSessionRunner:
                 result = {"status": "not_found", "task_id": task_id, "error": str(exc)}
             return self._json_tool_result(result)
 
-        available = ", ".join(agent.handoff_targets)
+        available = manifest.available_label()
         tools = [
             StructuredTool.from_function(
                 coroutine=start_async_task,
@@ -555,11 +557,14 @@ class DeepAgentsSessionRunner:
             EXECUTION_PROMPT,
         ]
 
-    @staticmethod
-    def _async_subagent_prompt(agent: AgentDefinition | None) -> str:
-        if not agent or not agent.can_delegate or not agent.handoff_targets:
+    def _async_subagent_prompt(self, agent: AgentDefinition | None) -> str:
+        manifest = async_subagent_manifest_for_agent(self.agent_registry, agent)
+        if not agent or not manifest.enabled:
             return ""
-        available = "、".join(agent.handoff_targets)
+        enabled_tools = set(agent.tools or [])
+        if not ASYNC_SUBAGENT_TOOL_NAMES.issubset(enabled_tools):
+            return ""
+        available = "、".join(manifest.target_ids)
         return (
             "你还可以启动本地异步子代理任务："
             f"可用子代理类型是 {available}。"

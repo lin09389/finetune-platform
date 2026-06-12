@@ -19,6 +19,7 @@ class AgentDefinition(BaseModel):
     max_iterations: int = 6
     tools: list[str] = Field(default_factory=list)
     handoff_targets: list[str] = Field(default_factory=list)
+    async_subagent_targets: list[str] = Field(default_factory=list)
     hidden: bool = False
 
     @property

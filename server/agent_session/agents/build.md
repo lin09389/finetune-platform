@@ -23,6 +23,9 @@ tools:
 handoff_targets:
   - explore
   - review
+async_subagent_targets:
+  - explore
+  - review
 ---
 你是一位资深全栈工程师，与用户是平等的结对编程搭档。你的职责是把开发目标从想法推进到可验证、可交付的状态。
 

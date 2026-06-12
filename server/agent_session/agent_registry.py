@@ -55,6 +55,7 @@ class AgentRegistry:
         raw.pop("permission", None)
         raw["tools"] = list(raw.get("tools") or [])
         raw["handoff_targets"] = list(raw.get("handoff_targets") or [])
+        raw["async_subagent_targets"] = list(raw.get("async_subagent_targets") or [])
         return AgentDefinition(**raw)
 
     def _parse_frontmatter(self, frontmatter: str) -> dict[str, Any]:
@@ -88,7 +89,7 @@ class AgentRegistry:
             key = key.strip()
             value = value.strip()
             if not value:
-                if key in {"tools", "handoff_targets"}:
+                if key in {"tools", "handoff_targets", "async_subagent_targets"}:
                     raw[key] = []
                     current_list_key = key
                 else:
@@ -122,6 +123,18 @@ class AgentRegistry:
                 if not target.can_be_handoff_target:
                     raise ValueError(
                         f"Handoff target '{target_id}' for agent '{agent.id}' cannot be used as a subagent in mode '{target.mode}'"
+                    )
+            for target_id in agent.async_subagent_targets:
+                if target_id not in agent.handoff_targets:
+                    raise ValueError(
+                        f"Async subagent target '{target_id}' for agent '{agent.id}' must also be declared in handoff_targets"
+                    )
+                target = self._agents.get(target_id)
+                if target is None:
+                    raise ValueError(f"Unknown async subagent target '{target_id}' for agent '{agent.id}'")
+                if not target.can_be_handoff_target:
+                    raise ValueError(
+                        f"Async subagent target '{target_id}' for agent '{agent.id}' cannot be used as a subagent in mode '{target.mode}'"
                     )
 
 __all__ = ["AgentRegistry"]

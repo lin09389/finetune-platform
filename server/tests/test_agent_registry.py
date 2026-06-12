@@ -26,6 +26,8 @@ def test_build_agent_allows_official_harness_edit_and_execute_tools():
     assert not hasattr(build, "permission_rules")
     assert build.default_provider == "openai"
     assert build.default_model == "gpt-4o"
+    assert build.handoff_targets == ["explore", "review"]
+    assert build.async_subagent_targets == ["explore", "review"]
     assert "官方 sandbox execute" in build.system_prompt
     assert "只分析" in build.system_prompt
 
@@ -58,5 +60,34 @@ def test_registry_rejects_invalid_handoff_modes(tmp_path: Path):
     )
 
     with pytest.raises(ValueError, match="cannot be used as a subagent"):
+        AgentRegistry(tmp_path)
+
+
+def test_registry_requires_async_subagents_to_be_explicit_handoff_targets(tmp_path: Path):
+    (tmp_path / "parent.md").write_text(
+        (
+            "---\n"
+            "id: parent\n"
+            "name: Parent\n"
+            "mode: primary\n"
+            "handoff_targets:\n"
+            "  - helper\n"
+            "async_subagent_targets:\n"
+            "  - other\n"
+            "---\n"
+            "Parent prompt.\n"
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "helper.md").write_text(
+        "---\nid: helper\nname: Helper\nmode: subagent\n---\nHelper prompt.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "other.md").write_text(
+        "---\nid: other\nname: Other\nmode: subagent\n---\nOther prompt.\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="must also be declared in handoff_targets"):
         AgentRegistry(tmp_path)
 
