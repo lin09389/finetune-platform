@@ -19,10 +19,40 @@ from .execution_context import AgentDefinition, RuntimeExecutionContext
 from .deepagents_checkpoint import get_checkpoint_db_path
 from .model_adapter import get_chat_model
 from .permission import filesystem_permissions_for_agent
-from .runtime import DeepAgentRuntimeConfig, build_deep_agent_runtime, memory_files_for_project, resolve_enabled_skill_sources, resolve_interrupt_on
+from .runtime import (
+    DeepAgentRuntimeConfig,
+    build_deep_agent_runtime,
+    memory_files_for_project,
+    resolve_enabled_skill_sources,
+    resolve_interrupt_on,
+    validate_skill_tool_compatibility,
+)
 from .state import ensure_session_state, set_phase
 
 logger = logging.getLogger(__name__)
+
+DEEPAGENTS_BUILTIN_TOOLS = frozenset(
+    {
+        "write_todos",
+        "ls",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "glob",
+        "grep",
+        "execute",
+        "task",
+    }
+)
+LOCAL_ASYNC_TOOL_NAMES = frozenset(
+    {
+        "start_async_task",
+        "check_async_task",
+        "list_async_tasks",
+        "update_async_task",
+        "cancel_async_task",
+    }
+)
 
 class StartAsyncTaskInput(BaseModel):
     subagent_type: str = Field(
@@ -189,7 +219,7 @@ class DeepAgentsSessionRunner:
             if not session:
                 raise ValueError("Agent session not found")
             graph = await self._build_graph(session, prompt)
-            config = {"configurable": {"thread_id": deepagents_thread_id(session_id)}}
+            config = self._graph_config(session)
             mapper = DeepAgentsEventMapper(self.repository, self.notify_event, session_id)
             mapper.session_started()
             last_summary = ""
@@ -227,7 +257,7 @@ class DeepAgentsSessionRunner:
             prompt = str((session.get("metadata") or {}).get("current_goal") or "继续执行。")
             graph = await self._build_graph(session, prompt)
             mapper = DeepAgentsEventMapper(self.repository, self.notify_event, session_id)
-            config = {"configurable": {"thread_id": deepagents_thread_id(session_id)}}
+            config = self._graph_config(session)
             last_summary = ""
             async for event in graph.astream_events(Command(resume=self._resume_payload(decision)), config=config, version="v2"):
                 mapper.handle(event)
@@ -255,11 +285,14 @@ class DeepAgentsSessionRunner:
         project_path = str(session.get("project_path") or Path.cwd())
         metadata = dict(session.get("metadata") or {})
         agent_id = str(session.get("agent_id") or "build")
+        agent = self.agent_registry.get(agent_id)
+        self._validate_session_agent_mode(agent, session)
         user_id = str(metadata.get("user_id") or metadata.get("memory_user_id") or "default")
         org_id = str(metadata.get("org_id") or "default-org")
         enabled_skill_sources = metadata.get("enabled_skill_sources")
         if enabled_skill_sources is not None and not isinstance(enabled_skill_sources, list):
             enabled_skill_sources = None
+        self._validate_skill_policy(project_path, agent, agent_id, enabled_skill_sources)
         context = RuntimeExecutionContext(
             session_id=session_id,
             goal=prompt,
@@ -293,6 +326,7 @@ class DeepAgentsSessionRunner:
                 ),
                 enabled_skill_sources=enabled_skill_sources,
                 permissions=filesystem_permissions_for_agent(agent_id),
+                middleware=self._tool_constraint_middleware(agent),
                 subagents=self._subagents_for_agent(agent_id, model),
                 interrupt_on=resolve_interrupt_on(metadata),
                 checkpointer=await self._get_checkpointer(),
@@ -302,7 +336,7 @@ class DeepAgentsSessionRunner:
     def _local_async_tools_for_session(self, session: dict[str, Any]) -> list[Any]:
         agent_id = str(session.get("agent_id") or "build")
         agent = self.agent_registry.get(agent_id)
-        if not agent or agent.mode == "subagent" or not agent.handoff_targets:
+        if not agent or not agent.can_delegate or not agent.handoff_targets:
             return []
 
         from langchain_core.tools import StructuredTool
@@ -346,7 +380,7 @@ class DeepAgentsSessionRunner:
             return self._json_tool_result(result)
 
         available = ", ".join(agent.handoff_targets)
-        return [
+        tools = [
             StructuredTool.from_function(
                 coroutine=start_async_task,
                 name="start_async_task",
@@ -381,6 +415,10 @@ class DeepAgentsSessionRunner:
                 args_schema=CancelAsyncTaskInput,
             ),
         ]
+        if agent.tools:
+            allowed = self._effective_tool_allowlist(agent)
+            tools = [tool for tool in tools if tool.name in allowed]
+        return tools
 
     def _async_subagent_service(self) -> AsyncSubagentService:
         if self.async_subagent_service is None:
@@ -416,15 +454,15 @@ class DeepAgentsSessionRunner:
 
     def _subagents_for_agent(self, agent_id: str, model: Any) -> list[dict[str, Any]]:
         agent = self.agent_registry.get(agent_id)
-        if not agent:
+        if not agent or not agent.can_delegate:
             return []
         subagents: list[dict[str, Any]] = []
         for target_id in agent.handoff_targets:
             target = self.agent_registry.get(target_id)
             if target is None:
                 raise ValueError(f"Unknown handoff target '{target_id}' for agent '{agent_id}'")
-            if target.mode != "subagent":
-                raise ValueError(f"Handoff target '{target_id}' for agent '{agent_id}' is not a subagent")
+            if not target.can_be_handoff_target:
+                raise ValueError(f"Handoff target '{target_id}' for agent '{agent_id}' cannot be used as a subagent")
             subagents.append(self._subagent_spec(target, model))
         return subagents
 
@@ -432,10 +470,79 @@ class DeepAgentsSessionRunner:
         return {
             "name": agent.id,
             "description": agent.description or agent.name,
-            "system_prompt": agent.system_prompt,
+            "system_prompt": self._agent_system_prompt(agent),
             "model": model,
+            "tools": [],
+            "middleware": self._tool_constraint_middleware(agent),
             "permissions": filesystem_permissions_for_agent(agent.id),
         }
+
+    def _graph_config(self, session: dict[str, Any]) -> dict[str, Any]:
+        session_id = str(session.get("id"))
+        agent = self.agent_registry.get(str(session.get("agent_id") or "build"))
+        config: dict[str, Any] = {"configurable": {"thread_id": deepagents_thread_id(session_id)}}
+        if agent:
+            config["recursion_limit"] = self._recursion_limit_for_agent(agent)
+        return config
+
+    @staticmethod
+    def _validate_session_agent_mode(agent: AgentDefinition | None, session: dict[str, Any]) -> None:
+        agent_id = str(session.get("agent_id") or "build")
+        if agent is None:
+            raise ValueError(f"Unknown agent id: {agent_id}")
+        metadata = dict(session.get("metadata") or {})
+        is_async_child = bool(metadata.get("async_subagent"))
+        if is_async_child:
+            if not agent.can_be_handoff_target:
+                raise ValueError(f"Agent '{agent_id}' cannot run as a subagent in mode '{agent.mode}'")
+            return
+        if not agent.can_start_directly:
+            raise ValueError(f"Agent '{agent_id}' cannot be started directly in mode '{agent.mode}'")
+
+    @staticmethod
+    def _recursion_limit_for_agent(agent: AgentDefinition) -> int:
+        return max(2, int(agent.max_iterations)) * 4 + 8
+
+    def _tool_constraint_middleware(self, agent: AgentDefinition | None) -> list[Any]:
+        if not agent or not agent.tools:
+            return []
+        excluded = DEEPAGENTS_BUILTIN_TOOLS - set(self._effective_tool_allowlist(agent))
+        if not excluded:
+            return []
+        try:
+            from deepagents.middleware._tool_exclusion import _ToolExclusionMiddleware
+        except Exception:
+            logger.warning("DeepAgents tool exclusion middleware is unavailable; AgentDefinition.tools cannot be enforced")
+            return []
+        return [_ToolExclusionMiddleware(excluded=frozenset(excluded))]
+
+    def _validate_skill_policy(
+        self,
+        project_path: str,
+        agent: AgentDefinition | None,
+        agent_id: str,
+        enabled_skill_sources: list[str] | None,
+    ) -> None:
+        if not agent or not agent.tools:
+            return
+        validate_skill_tool_compatibility(
+            project_path,
+            agent_id=agent_id,
+            enabled_skill_sources=enabled_skill_sources,
+            allowed_tools=self._effective_tool_allowlist(agent),
+        )
+
+    @staticmethod
+    def _effective_tool_allowlist(agent: AgentDefinition) -> set[str]:
+        return {str(tool).strip() for tool in agent.tools if str(tool).strip()}
+
+    @staticmethod
+    def _agent_system_prompt(agent: AgentDefinition) -> str:
+        prompt = agent.system_prompt.strip()
+        requirements = agent.output_requirements.strip()
+        if not requirements:
+            return prompt
+        return f"{prompt}\n\n## 输出要求\n{requirements}" if prompt else f"## 输出要求\n{requirements}"
 
     async def _get_checkpointer(self) -> Any:
         loop = asyncio.get_running_loop()
@@ -516,9 +623,10 @@ class DeepAgentsSessionRunner:
 
     def _system_prompt(self, agent_id: str) -> str:
         agent = self.agent_registry.get(agent_id)
-        agent_prompt = (agent.system_prompt.strip() + "\n\n") if agent and agent.system_prompt.strip() else ""
+        agent_system_prompt = self._agent_system_prompt(agent) if agent else ""
+        agent_prompt = (agent_system_prompt + "\n\n") if agent_system_prompt else ""
         async_prompt = ""
-        if agent and agent.mode != "subagent" and agent.handoff_targets:
+        if agent and agent.can_delegate and agent.handoff_targets:
             available = "、".join(agent.handoff_targets)
             async_prompt = (
                 "\n\n你还可以启动本地异步子代理任务："

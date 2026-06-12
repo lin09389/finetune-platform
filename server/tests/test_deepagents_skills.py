@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from agent_session.runtime import DeepAgentRuntimeConfig, build_deep_agent_runtime, resolve_skill_sources
+from agent_session.runtime import (
+    DeepAgentRuntimeConfig,
+    build_deep_agent_runtime,
+    resolve_skill_sources,
+    validate_skill_tool_compatibility,
+)
 from skills import (
     MAX_DESCRIPTION_LENGTH,
     SkillSource,
@@ -133,6 +138,33 @@ def test_build_deep_agent_runtime_passes_skills(monkeypatch: pytest.MonkeyPatch,
 
     assert runtime is not None
     assert captured["skills"] == ["/skills/builtin/"]
+
+
+def test_validate_skill_tool_compatibility_rejects_denied_tools(tmp_path: Path):
+    project = tmp_path / "project"
+    source = project / ".deepagents" / "skills"
+    _write_skill(source, "runner", "Needs command access.")
+
+    with pytest.raises(ValueError, match="requires grep"):
+        validate_skill_tool_compatibility(
+            str(project),
+            enabled_skill_sources=["/skills/project-deepagents/"],
+            allowed_tools={"read_file"},
+        )
+
+
+def test_validate_skill_tool_compatibility_accepts_subset_tools(tmp_path: Path):
+    project = tmp_path / "project"
+    source = project / ".deepagents" / "skills"
+    _write_skill(source, "reader", "Read files.")
+
+    result = validate_skill_tool_compatibility(
+        str(project),
+        enabled_skill_sources=["/skills/project-deepagents/"],
+        allowed_tools={"read_file", "grep"},
+    )
+
+    assert result == []
 
 
 def test_frontmatter_without_block_returns_empty_metadata():

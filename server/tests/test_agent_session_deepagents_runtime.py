@@ -15,6 +15,7 @@ from agent_session.async_subagents import AsyncSubagentService
 from agent_session.repository import AgentSessionRepository
 from agent_session.service import AgentSessionService
 from agent_session.deepagents_runtime import DeepAgentsSessionRunner
+from agent_session.execution_context import AgentDefinition
 from agent_session.runtime import (
     EPHEMERAL_BACKEND_ROUTES,
     FALLBACK_STATE_BACKEND_ROUTE,
@@ -136,10 +137,12 @@ def test_deepagents_runtime_registers_local_async_tools(monkeypatch, tmp_path: P
 
     def fake_build_runtime(config):
         captured["tools"] = config.tools
+        captured["middleware"] = config.middleware
         captured["subagents"] = config.subagents
         captured["interrupt_on"] = config.interrupt_on
         captured["project_path"] = config.project_path
         captured["permissions"] = config.permissions
+        captured["system_prompt"] = config.system_prompt
         captured["skills"] = config.skills
         return object()
 
@@ -175,11 +178,171 @@ def test_deepagents_runtime_registers_local_async_tools(monkeypatch, tmp_path: P
     assert [item["name"] for item in subagents] == ["explore", "review"]
     assert all(item["model"] is not None for item in subagents)
     assert all(item["permissions"] for item in subagents)
-    assert all("tools" not in item for item in subagents)
+    assert all(item["tools"] == [] for item in subagents)
+    assert all(item["middleware"] for item in subagents)
     assert captured["interrupt_on"] is None
     assert captured["project_path"] == str(tmp_path)
     assert captured["permissions"]
     assert "/skills/builtin/" in captured["skills"]
+    assert captured["middleware"]
+
+
+def test_deepagents_runtime_enforces_agent_definition_fields(monkeypatch, tmp_path: Path):
+    captured: dict[str, object] = {}
+
+    def fake_build_runtime(config):
+        captured["middleware"] = config.middleware
+        captured["subagents"] = config.subagents
+        captured["system_prompt"] = config.system_prompt
+        return object()
+
+    monkeypatch.setattr("agent_session.deepagents_runtime.build_deep_agent_runtime", fake_build_runtime)
+    monkeypatch.setattr("agent_session.deepagents_runtime._load_create_deep_agent", lambda: object())
+
+    async def model_call(_messages):
+        return json.dumps({"type": "final", "content": "ok"}, ensure_ascii=False)
+
+    runner = DeepAgentsSessionRunner(repository=object(), notify_event=lambda *_args: None, model_call=model_call)
+    runner.agent_registry._agents["limited"] = AgentDefinition(
+        id="limited",
+        name="Limited",
+        mode="primary",
+        system_prompt="Base prompt.",
+        output_requirements="Return a concise checklist.",
+        max_iterations=3,
+        tools=["read_file", "grep"],
+    )
+    graph = asyncio.run(
+        runner._build_graph(
+            {
+                "id": "session",
+                "project_path": str(tmp_path),
+                "provider": "",
+                "model": None,
+                "metadata": {},
+                "agent_id": "limited",
+            },
+            "审查",
+        )
+    )
+    config = runner._graph_config({"id": "session", "agent_id": "limited"})
+
+    assert graph is not None
+    assert config["recursion_limit"] == 20
+    assert "输出要求" in captured["system_prompt"]
+    assert "Return a concise checklist." in captured["system_prompt"]
+    assert captured["middleware"]
+    excluded = captured["middleware"][0]._excluded
+    assert "write_file" in excluded
+    assert "edit_file" in excluded
+    assert "execute" in excluded
+    assert "read_file" not in excluded
+    assert "grep" not in excluded
+    assert captured["subagents"] == []
+
+
+def test_agent_session_create_rejects_subagent_mode(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+
+    with pytest.raises(ValueError, match="cannot be started directly"):
+        service.create_session(AgentSessionCreate(agent_id="explore", title="bad direct subagent"))
+
+
+def test_deepagents_runtime_rejects_direct_subagent_session(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr("agent_session.deepagents_runtime._load_create_deep_agent", lambda: object())
+
+    async def model_call(_messages):
+        return json.dumps({"type": "final", "content": "ok"}, ensure_ascii=False)
+
+    runner = DeepAgentsSessionRunner(repository=object(), notify_event=lambda *_args: None, model_call=model_call)
+
+    with pytest.raises(ValueError, match="cannot be started directly"):
+        asyncio.run(
+            runner._build_graph(
+                {
+                    "id": "session",
+                    "project_path": str(tmp_path),
+                    "provider": "",
+                    "model": None,
+                    "metadata": {},
+                    "agent_id": "explore",
+                },
+                "直接运行 subagent",
+            )
+        )
+
+
+def test_deepagents_runtime_allows_async_subagent_session(monkeypatch, tmp_path: Path):
+    captured: dict[str, object] = {}
+
+    def fake_build_runtime(config):
+        captured["subagents"] = config.subagents
+        captured["tools"] = config.tools
+        return object()
+
+    monkeypatch.setattr("agent_session.deepagents_runtime.build_deep_agent_runtime", fake_build_runtime)
+    monkeypatch.setattr("agent_session.deepagents_runtime._load_create_deep_agent", lambda: object())
+
+    async def model_call(_messages):
+        return json.dumps({"type": "final", "content": "ok"}, ensure_ascii=False)
+
+    runner = DeepAgentsSessionRunner(repository=object(), notify_event=lambda *_args: None, model_call=model_call)
+    graph = asyncio.run(
+        runner._build_graph(
+            {
+                "id": "session",
+                "project_path": str(tmp_path),
+                "provider": "",
+                "model": None,
+                "metadata": {"async_subagent": True},
+                "agent_id": "explore",
+            },
+            "作为子代理运行",
+        )
+    )
+
+    assert graph is not None
+    assert captured["subagents"] == []
+    assert captured["tools"] == []
+
+
+def test_deepagents_runtime_rejects_skill_requiring_denied_agent_tool(monkeypatch, tmp_path: Path):
+    project = tmp_path / "project"
+    skill_dir = project / ".deepagents" / "skills" / "shell-helper"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: shell-helper\ndescription: Needs shell access.\nallowed-tools: execute\n---\n# Shell Helper\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("agent_session.deepagents_runtime._load_create_deep_agent", lambda: object())
+
+    async def model_call(_messages):
+        return json.dumps({"type": "final", "content": "ok"}, ensure_ascii=False)
+
+    runner = DeepAgentsSessionRunner(repository=object(), notify_event=lambda *_args: None, model_call=model_call)
+    runner.agent_registry._agents["limited"] = AgentDefinition(
+        id="limited",
+        name="Limited",
+        mode="primary",
+        system_prompt="Base prompt.",
+        max_iterations=3,
+        tools=["read_file"],
+    )
+
+    with pytest.raises(ValueError, match="shell-helper requires execute"):
+        asyncio.run(
+            runner._build_graph(
+                {
+                    "id": "session",
+                    "project_path": str(project),
+                    "provider": "",
+                    "model": None,
+                    "metadata": {"enabled_skill_sources": ["/skills/project-deepagents/"]},
+                    "agent_id": "limited",
+                },
+                "使用技能",
+            )
+        )
 
 
 def test_agent_session_repository_persists_async_subtasks(tmp_path: Path):

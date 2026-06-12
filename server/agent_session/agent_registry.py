@@ -20,6 +20,7 @@ class AgentRegistry:
         for path in sorted(self.agents_dir.glob("*.md")):
             agent = self._load_markdown_agent(path)
             self._agents[agent.id] = agent
+        self._validate_handoff_graph()
 
     def list_agents(self, include_hidden: bool = False) -> list[AgentDefinition]:
         agents = list(self._agents.values())
@@ -28,7 +29,7 @@ class AgentRegistry:
         return [agent for agent in agents if not agent.hidden]
 
     def list_primary_agents(self) -> list[AgentDefinition]:
-        return [agent for agent in self.list_agents() if agent.mode == "primary"]
+        return [agent for agent in self.list_agents() if agent.can_start_directly]
 
     def get(self, agent_id: str) -> AgentDefinition | None:
         return self._agents.get(agent_id)
@@ -109,5 +110,18 @@ class AgentRegistry:
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
             return value[1:-1]
         return value
+
+    def _validate_handoff_graph(self) -> None:
+        for agent in self._agents.values():
+            if agent.handoff_targets and not agent.can_delegate:
+                raise ValueError(f"Agent '{agent.id}' cannot declare handoff_targets in mode '{agent.mode}'")
+            for target_id in agent.handoff_targets:
+                target = self._agents.get(target_id)
+                if target is None:
+                    raise ValueError(f"Unknown handoff target '{target_id}' for agent '{agent.id}'")
+                if not target.can_be_handoff_target:
+                    raise ValueError(
+                        f"Handoff target '{target_id}' for agent '{agent.id}' cannot be used as a subagent in mode '{target.mode}'"
+                    )
 
 __all__ = ["AgentRegistry"]

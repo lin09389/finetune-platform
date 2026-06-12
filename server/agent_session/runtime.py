@@ -26,6 +26,7 @@ class DeepAgentRuntimeConfig:
     org_id: str = "default-org"
     interrupt_on: dict[str, Any] | None = None
     permissions: list[Any] | None = None
+    middleware: list[Any] | None = None
     tools: list[Any] | None = None
     skills: list[str] | None = None
     enabled_skill_sources: list[str] | None = None
@@ -42,6 +43,7 @@ def build_deep_agent_runtime(config: DeepAgentRuntimeConfig) -> Any:
         model=config.model,
         tools=config.tools or [],
         system_prompt=config.system_prompt,
+        middleware=config.middleware or (),
         backend=build_deepagents_backend(
             config.project_path,
             user_id=config.user_id,
@@ -246,6 +248,7 @@ def describe_skill_registry(project_path: str, *, agent_id: str = "build") -> di
                 "description": manifest.description,
                 "virtual_skill_file": manifest.virtual_skill_file,
                 "allowed_tools": manifest.allowed_tools,
+                "source": source_path,
             }
         )
     return {
@@ -293,6 +296,47 @@ def resolve_enabled_skill_sources(
             enabled_skill_sources=enabled_skill_sources,
         )
     ]
+
+
+def validate_skill_tool_compatibility(
+    project_path: str,
+    *,
+    agent_id: str = "build",
+    enabled_skill_sources: list[str] | None = None,
+    allowed_tools: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Ensure enabled DeepAgents skills do not require tools denied to the agent.
+
+    `allowed-tools` is optional in SKILL.md. When present, it is treated as a
+    capability declaration that must fit within the agent's runtime tool policy.
+    """
+
+    if allowed_tools is None:
+        return []
+    sources = resolve_enabled_skill_source_specs(
+        project_path,
+        agent_id=agent_id,
+        enabled_skill_sources=enabled_skill_sources,
+    )
+    violations: list[dict[str, Any]] = []
+    for manifest in scan_skill_manifests(sources):
+        missing = sorted(set(manifest.allowed_tools) - allowed_tools)
+        if missing:
+            violations.append(
+                {
+                    "skill": manifest.name,
+                    "virtual_skill_file": manifest.virtual_skill_file,
+                    "missing_tools": missing,
+                    "allowed_tools": sorted(allowed_tools),
+                }
+            )
+    if violations:
+        details = "; ".join(
+            f"{item['skill']} requires {', '.join(item['missing_tools'])}"
+            for item in violations
+        )
+        raise ValueError(f"Enabled skills require tools denied by agent '{agent_id}': {details}")
+    return []
 
 
 def _enabled_skill_source_set(enabled_skill_sources: list[str] | None) -> set[str] | None:
@@ -347,5 +391,6 @@ __all__ = [
     "resolve_enabled_skill_source_specs",
     "resolve_skill_sources",
     "resolve_interrupt_on",
+    "validate_skill_tool_compatibility",
 ]
 

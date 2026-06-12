@@ -181,12 +181,13 @@ class AgentSessionService:
 
     def create_session(self, request: AgentSessionCreate) -> AgentSessionResponse:
         project_path = self._validate_project_path(request.project_path)
-        provider, model = self._resolve_session_model_defaults(request.agent_id, request.provider, request.model)
+        agent = self._require_direct_agent(request.agent_id)
+        provider, model = self._resolve_session_model_defaults(agent.id, request.provider, request.model)
         enabled_skill_sources = self._normalize_enabled_skill_sources(request.enabled_skill_sources)
         session = self.repository.create_session(
             {
                 "chat_session_id": request.chat_session_id,
-                "agent_id": request.agent_id,
+                "agent_id": agent.id,
                 "title": request.title or "Agent Session",
                 "project_path": project_path,
                 "provider": provider,
@@ -200,6 +201,14 @@ class AgentSessionService:
         )
         session["parts"] = []
         return AgentSessionResponse(**self._attach_recovery_diagnostics(session))
+
+    def _require_direct_agent(self, agent_id: str):
+        agent = self.agent_registry.get(agent_id)
+        if agent is None:
+            raise ValueError(f"Unknown agent id: {agent_id}")
+        if not agent.can_start_directly:
+            raise ValueError(f"Agent '{agent_id}' cannot be started directly in mode '{agent.mode}'")
+        return agent
 
     def _resolve_session_model_defaults(self, agent_id: str, provider: str | None, model: str | None) -> tuple[str | None, str | None]:
         if provider and model:

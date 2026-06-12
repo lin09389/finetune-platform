@@ -375,12 +375,14 @@ class AsyncSubagentService:
     def _resolve_async_subagent(self, parent_agent_id: str, subagent_type: str) -> AgentDefinition:
         parent = self.agent_registry.get(parent_agent_id)
         requested = subagent_type.strip()
+        if not parent or not parent.can_delegate:
+            raise ValueError(f"Agent '{parent_agent_id}' cannot start async subagents")
         target_id = requested if parent and requested in parent.handoff_targets else requested.lower()
-        if not parent or target_id not in parent.handoff_targets:
-            allowed = ", ".join(parent.handoff_targets if parent else [])
+        if target_id not in parent.handoff_targets:
+            allowed = ", ".join(parent.handoff_targets)
             raise ValueError(f"Unknown async subagent type '{subagent_type}'. Available types: {allowed}")
         target = self.agent_registry.get(target_id)
-        if target is None or target.mode != "subagent":
+        if target is None or not target.can_be_handoff_target:
             raise ValueError(f"Async target '{subagent_type}' is not a subagent")
         return target
 

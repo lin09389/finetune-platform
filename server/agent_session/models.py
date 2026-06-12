@@ -330,6 +330,7 @@ class AgentSkillManifestResponse(BaseModel):
     name: str
     description: str = ""
     virtual_skill_file: str | None = None
+    source: str | None = None
     allowed_tools: list[str] = Field(default_factory=list)
 
 

@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
+
+AgentMode = Literal["primary", "subagent", "all"]
 
 
 class AgentDefinition(BaseModel):
     id: str
     name: str
     description: str = ""
-    mode: str = "all"
+    mode: AgentMode = "all"
     system_prompt: str = ""
     output_requirements: str = ""
     default_provider: str = "openai"
@@ -18,6 +20,18 @@ class AgentDefinition(BaseModel):
     tools: list[str] = Field(default_factory=list)
     handoff_targets: list[str] = Field(default_factory=list)
     hidden: bool = False
+
+    @property
+    def can_start_directly(self) -> bool:
+        return self.mode in {"primary", "all"}
+
+    @property
+    def can_delegate(self) -> bool:
+        return self.mode in {"primary", "all"}
+
+    @property
+    def can_be_handoff_target(self) -> bool:
+        return self.mode in {"subagent", "all"}
 
 
 class RuntimeExecutionContext(BaseModel):

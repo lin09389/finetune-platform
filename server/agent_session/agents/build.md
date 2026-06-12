@@ -14,6 +14,12 @@ tools:
   - write_file
   - edit_file
   - execute
+  - task
+  - start_async_task
+  - check_async_task
+  - list_async_tasks
+  - update_async_task
+  - cancel_async_task
 handoff_targets:
   - explore
   - review
