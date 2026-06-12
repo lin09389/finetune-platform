@@ -255,6 +255,42 @@ def test_deepagents_runtime_enforces_agent_definition_fields(monkeypatch, tmp_pa
     assert captured["subagents"] == []
 
 
+def test_handoff_subagents_inherit_interrupt_policy(monkeypatch, tmp_path: Path):
+    captured: dict[str, object] = {}
+
+    def fake_build_runtime(config):
+        captured["subagents"] = config.subagents
+        captured["interrupt_on"] = config.interrupt_on
+        return object()
+
+    monkeypatch.setattr("agent_session.deepagents_runtime.build_deep_agent_runtime", fake_build_runtime)
+    monkeypatch.setattr("agent_session.deepagents_runtime._load_create_deep_agent", lambda: object())
+
+    async def model_call(_messages):
+        return json.dumps({"type": "final", "content": "ok"}, ensure_ascii=False)
+
+    interrupt_on = {"write_file": False, "edit_file": True}
+    runner = DeepAgentsSessionRunner(repository=object(), notify_event=lambda *_args: None, model_call=model_call)
+    graph = asyncio.run(
+        runner._build_graph(
+            {
+                "id": "session",
+                "project_path": str(tmp_path),
+                "provider": "",
+                "model": None,
+                "metadata": {"deepagents_interrupt_on": interrupt_on},
+                "agent_id": "build",
+            },
+            "审查",
+        )
+    )
+
+    assert graph is not None
+    assert captured["interrupt_on"] == interrupt_on
+    assert {item["name"] for item in captured["subagents"]} == {"explore", "review"}
+    assert all(item["interrupt_on"] == interrupt_on for item in captured["subagents"])
+
+
 def test_handoff_targets_do_not_implicitly_expose_async_tools(tmp_path: Path):
     runner = DeepAgentsSessionRunner(repository=object(), notify_event=lambda *_args: None, model_call=lambda _messages: "ok")
     runner.agent_registry._agents["handoff_only"] = AgentDefinition(

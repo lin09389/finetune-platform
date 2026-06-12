@@ -354,7 +354,7 @@ class DeepAgentsSessionRunner:
                 enabled_skill_sources=enabled_skill_sources,
                 permissions=permission_policy.filesystem_permissions(),
                 middleware=permission_policy.tool_constraint_middleware(DEEPAGENTS_BUILTIN_TOOLS, logger),
-                subagents=self._subagents_for_agent(agent_id, model),
+                subagents=self._subagents_for_agent(agent_id, model, metadata),
                 interrupt_on=permission_policy.interrupt_on(),
                 checkpointer=await self._get_checkpointer(),
             )
@@ -477,7 +477,7 @@ class DeepAgentsSessionRunner:
     def _json_tool_result(result: dict[str, Any]) -> str:
         return json.dumps(result, ensure_ascii=False)
 
-    def _subagents_for_agent(self, agent_id: str, model: Any) -> list[dict[str, Any]]:
+    def _subagents_for_agent(self, agent_id: str, model: Any, metadata: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         agent = self.agent_registry.get(agent_id)
         if not agent or not agent.can_delegate:
             return []
@@ -488,11 +488,11 @@ class DeepAgentsSessionRunner:
                 raise ValueError(f"Unknown handoff target '{target_id}' for agent '{agent_id}'")
             if not target.can_be_handoff_target:
                 raise ValueError(f"Handoff target '{target_id}' for agent '{agent_id}' cannot be used as a subagent")
-            subagents.append(self._subagent_spec(target, model))
+            subagents.append(self._subagent_spec(target, model, metadata))
         return subagents
 
-    def _subagent_spec(self, agent: AgentDefinition, model: Any) -> dict[str, Any]:
-        permission_policy = permission_policy_for_agent(agent, agent.id)
+    def _subagent_spec(self, agent: AgentDefinition, model: Any, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+        permission_policy = permission_policy_for_agent(agent, agent.id, metadata)
         return {
             "name": agent.id,
             "description": agent.description or agent.name,
@@ -501,6 +501,7 @@ class DeepAgentsSessionRunner:
             "tools": [],
             "middleware": permission_policy.tool_constraint_middleware(DEEPAGENTS_BUILTIN_TOOLS, logger),
             "permissions": permission_policy.filesystem_permissions(),
+            "interrupt_on": permission_policy.interrupt_on(),
         }
 
     def _graph_config(self, session: dict[str, Any]) -> dict[str, Any]:
