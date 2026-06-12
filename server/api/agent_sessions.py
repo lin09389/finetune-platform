@@ -97,7 +97,7 @@ async def create_agent_session(
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
     try:
-        return await run_sync(service.create_session, request)
+        return await run_sync(service.create_session, request, current_user.user_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

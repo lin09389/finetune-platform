@@ -38,6 +38,7 @@ def test_agent_sessions_allow_desktop_optional_auth_without_token(tmp_path: Path
         body = response.json()
         assert body["title"] == "desktop smoke"
         assert Path(body["project_path"]).name == workspace.name
+        assert body["metadata"]["user_id"] == "desktop-local-user"
 
         prompt = client.post(
             f"/agent-sessions/{body['id']}/prompt",

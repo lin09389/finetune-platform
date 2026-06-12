@@ -180,11 +180,18 @@ class AgentSessionService:
             raise ValueError(f"project_path must be inside the workspace. Allowed roots: {allowed}")
         return str(resolved)
 
-    def create_session(self, request: AgentSessionCreate) -> AgentSessionResponse:
+    def create_session(self, request: AgentSessionCreate, user_id: str | None = None) -> AgentSessionResponse:
         project_path = self._validate_project_path(request.project_path)
         agent = self._require_direct_agent(request.agent_id)
         provider, model = self._resolve_session_model_defaults(agent.id, request.provider, request.model)
         enabled_skill_sources = self._normalize_enabled_skill_sources(request.enabled_skill_sources)
+        metadata: dict[str, Any] = {
+            "autonomy_mode": request.autonomy_mode or "safe_auto",
+            **default_deepagents_permission_metadata(),
+            "enabled_skill_sources": enabled_skill_sources,
+        }
+        if user_id:
+            metadata["user_id"] = user_id
         session = self.repository.create_session(
             {
                 "chat_session_id": request.chat_session_id,
@@ -193,11 +200,7 @@ class AgentSessionService:
                 "project_path": project_path,
                 "provider": provider,
                 "model": model,
-                "metadata": {
-                    "autonomy_mode": request.autonomy_mode or "safe_auto",
-                    **default_deepagents_permission_metadata(),
-                    "enabled_skill_sources": enabled_skill_sources,
-                },
+                "metadata": metadata,
             }
         )
         session["parts"] = []
