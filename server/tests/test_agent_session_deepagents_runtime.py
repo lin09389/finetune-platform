@@ -911,6 +911,31 @@ def test_agent_session_prompt_background_failure_fallback_marks_terminal(tmp_pat
     assert any("Failed to record Agent background failure" in record.message for record in caplog.records)
 
 
+def test_agent_session_stale_background_prompt_is_ignored(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="stale prompt", project_path=str(Path.cwd())))
+    service.repository.update_session(
+        session.id,
+        status="running",
+        metadata={"runtime": "deepagents", "active_prompt_id": "prompt-new", "background_run": True},
+    )
+    called = False
+
+    async def stale_prompt(_session_id, _request):
+        nonlocal called
+        called = True
+        raise RuntimeError("stale prompt should not run")
+
+    service.prompt = stale_prompt
+    asyncio.run(service._run_prompt_background(session.id, AgentPromptRequest(content="run"), "prompt-old"))
+
+    current = service.get_session(session.id)
+    assert called is False
+    assert current.status == "running"
+    assert current.metadata["active_prompt_id"] == "prompt-new"
+    assert current.metadata.get("latest_error") in {None, ""}
+
+
 def test_agent_session_background_failure_fallback_retries_locked_writes(tmp_path: Path, monkeypatch):
     service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
     session = service.create_session(AgentSessionCreate(title="locked fallback", project_path=str(Path.cwd())))

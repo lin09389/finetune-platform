@@ -428,6 +428,8 @@ class AgentSessionService:
             with self._prompt_tasks_lock:
                 self._prompt_tasks[session_id] = (loop, current_task)
         try:
+            if not self._is_active_prompt(session_id, prompt_id):
+                return
             await self.prompt(session_id, request)
             session = self.repository.get_session(session_id)
             if session:
@@ -442,14 +444,23 @@ class AgentSessionService:
                 self.interrupt_session(session_id, "Agent 后台任务已取消。")
         except Exception as exc:
             try:
-                self.record_prompt_failure(session_id, exc)
+                if self._is_active_prompt(session_id, prompt_id):
+                    self.record_prompt_failure(session_id, exc)
             except Exception as failure_exc:
-                self._record_background_failure_fallback(session_id, exc, failure_exc)
+                if self._is_active_prompt(session_id, prompt_id):
+                    self._record_background_failure_fallback(session_id, exc, failure_exc)
         finally:
             with self._prompt_tasks_lock:
                 record = self._prompt_tasks.get(session_id)
                 if record and record[1] is current_task:
                     self._prompt_tasks.pop(session_id, None)
+
+    def _is_active_prompt(self, session_id: str, prompt_id: str) -> bool:
+        session = self.repository.get_session(session_id)
+        if not session:
+            return False
+        metadata = dict(session.get("metadata") or {})
+        return metadata.get("active_prompt_id") == prompt_id
 
     def interrupt_session(self, session_id: str, reason: str | None = None) -> AgentSessionResponse:
         session = self.repository.get_session(session_id)
