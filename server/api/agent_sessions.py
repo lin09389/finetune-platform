@@ -43,6 +43,55 @@ def _session_status(session: Any) -> str | None:
     return getattr(session, "status", None)
 
 
+def _session_metadata(session: Any) -> dict[str, Any]:
+    metadata = session.get("metadata") if isinstance(session, dict) else getattr(session, "metadata", None)
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _session_owner_id(session: Any) -> str | None:
+    metadata = _session_metadata(session)
+    owner = str(metadata.get("user_id") or "").strip()
+    return owner or None
+
+
+def _user_can_access_session(session: Any, current_user: TokenPayload) -> bool:
+    owner = _session_owner_id(session)
+    if not owner:
+        return True
+    if owner == current_user.user_id:
+        return True
+    return current_user.role in {Role.ADMIN, Role.SUPER_ADMIN}
+
+
+def _enforce_session_access(session: Any, current_user: TokenPayload) -> None:
+    if not _user_can_access_session(session, current_user):
+        raise HTTPException(status_code=403, detail="Agent session access denied")
+
+
+async def _require_accessible_session(
+    service: AgentSessionService,
+    session_id: str,
+    current_user: TokenPayload,
+) -> AgentSessionResponse:
+    try:
+        session = await run_sync(service.get_session, session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    _enforce_session_access(session, current_user)
+    return session
+
+
+async def _require_accessible_part_session(
+    service: AgentSessionService,
+    part_id: str,
+    current_user: TokenPayload,
+) -> AgentSessionResponse:
+    part = await run_sync(service.repository.get_part, part_id)
+    if not part:
+        raise HTTPException(status_code=404, detail="Agent part not found")
+    return await _require_accessible_session(service, str(part.get("session_id") or ""), current_user)
+
+
 def _resolve_artifact_project_path(project_root: Path, artifact_path: str) -> Path:
     raw_path = str(artifact_path or "").strip()
     if not raw_path:
@@ -108,10 +157,7 @@ async def get_agent_session(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
-    try:
-        return await run_sync(service.get_session, session_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return await _require_accessible_session(service, session_id, current_user)
 
 
 @router.get("/{session_id}/overview", response_model=AgentSessionOverviewResponse)
@@ -120,6 +166,7 @@ async def get_agent_session_overview(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
+    await _require_accessible_session(service, session_id, current_user)
     try:
         return await run_sync(service.get_overview, session_id)
     except ValueError as exc:
@@ -132,6 +179,7 @@ async def get_agent_session_workspace(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
+    await _require_accessible_session(service, session_id, current_user)
     try:
         return await run_sync(service.get_workspace, session_id)
     except ValueError as exc:
@@ -144,6 +192,7 @@ async def list_agent_session_memory_files(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
+    await _require_accessible_session(service, session_id, current_user)
     try:
         return await run_sync(service.list_memory_files, session_id)
     except ValueError as exc:
@@ -157,6 +206,7 @@ async def read_agent_session_memory_file(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
+    await _require_accessible_session(service, session_id, current_user)
     try:
         return await run_sync(service.read_memory_file, session_id, path)
     except ValueError as exc:
@@ -171,6 +221,7 @@ async def prompt_agent_session(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
+    await _require_accessible_session(service, session_id, current_user)
     try:
         return await run_sync(service.start_prompt_background, session_id, request, background_tasks)
     except ValueError as exc:
@@ -190,6 +241,7 @@ async def interrupt_agent_session(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
+    await _require_accessible_session(service, session_id, current_user)
     try:
         return await run_sync(service.interrupt_session, session_id)
     except ValueError as exc:
@@ -203,6 +255,7 @@ async def start_async_agent_task(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
+    await _require_accessible_session(service, session_id, current_user)
     try:
         return await service.start_async_subtask(session_id, request.subagent_type, request.description)
     except ValueError as exc:
@@ -216,6 +269,7 @@ async def list_async_agent_tasks(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
+    await _require_accessible_session(service, session_id, current_user)
     try:
         return await run_sync(service.list_async_subtasks, session_id, status_filter)
     except ValueError as exc:
@@ -228,6 +282,7 @@ async def get_async_agent_task_metrics(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
+    await _require_accessible_session(service, session_id, current_user)
     try:
         return await run_sync(service.get_async_subtask_metrics, session_id)
     except ValueError as exc:
@@ -241,6 +296,7 @@ async def list_async_agent_task_events(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
+    await _require_accessible_session(service, session_id, current_user)
     try:
         return await run_sync(service.list_async_subtask_events, session_id, None, limit)
     except ValueError as exc:
@@ -254,6 +310,7 @@ async def get_async_agent_task(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
+    await _require_accessible_session(service, session_id, current_user)
     try:
         return await run_sync(service.check_async_subtask, session_id, task_id)
     except ValueError as exc:
@@ -268,6 +325,7 @@ async def list_single_async_agent_task_events(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
+    await _require_accessible_session(service, session_id, current_user)
     try:
         return await run_sync(service.list_async_subtask_events, session_id, task_id, limit)
     except ValueError as exc:
@@ -282,6 +340,7 @@ async def update_async_agent_task(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
+    await _require_accessible_session(service, session_id, current_user)
     try:
         return await service.update_async_subtask(session_id, task_id, request.description)
     except ValueError as exc:
@@ -296,6 +355,7 @@ async def cancel_async_agent_task(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
+    await _require_accessible_session(service, session_id, current_user)
     try:
         reason = request.reason if request else None
         return await service.cancel_async_subtask(session_id, task_id, reason)
@@ -309,10 +369,7 @@ async def list_agent_session_events(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
-    try:
-        await run_sync(service.get_session, session_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await _require_accessible_session(service, session_id, current_user)
     return await run_sync(service.list_events, session_id)
 
 
@@ -323,10 +380,7 @@ async def stream_agent_session_events(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
-    try:
-        await run_sync(service.get_session, session_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await _require_accessible_session(service, session_id, current_user)
 
     async def event_stream():
         seen = {since_event_id: True} if since_event_id else {}
@@ -407,9 +461,7 @@ async def get_artifact_original(
 ) -> str:
     """Retrieve the original content of a modified artifact before changes were applied."""
     try:
-        session = await run_sync(service.get_session, session_id)
-        if not session:
-            raise HTTPException(status_code=404, detail="Agent session not found")
+        session = await _require_accessible_session(service, session_id, current_user)
 
         overview = await run_sync(service.get_overview, session_id)
         artifact = next((item for item in overview.artifacts if item.id == artifact_id), None)
@@ -445,6 +497,7 @@ async def approve_agent_permission(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
+    await _require_accessible_part_session(service, permission_id, current_user)
     try:
         session = await run_sync(
             service.start_permission_resume_background,
@@ -467,6 +520,7 @@ async def reject_agent_permission(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
+    await _require_accessible_part_session(service, permission_id, current_user)
     try:
         session = await run_sync(
             service.start_permission_resume_background,
@@ -490,6 +544,7 @@ async def decide_agent_permission(
     service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
+    await _require_accessible_part_session(service, permission_id, current_user)
     try:
         decisions = [decision.model_dump(exclude_none=True) for decision in request.decisions]
         session = await run_sync(

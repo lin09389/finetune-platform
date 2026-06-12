@@ -8,10 +8,11 @@ from fastapi.testclient import TestClient
 
 from agent_session.repository import AgentSessionRepository
 from agent_session.service import AgentSessionService
-from api.agent_sessions import get_agent_session_service
+from api.agent_sessions import get_agent_session_service, get_agent_session_user
 from core.config import settings
 from main import app
 from memory.memory_service import reset_memory_service
+from security.jwt_auth import Role, TokenPayload
 from workspace import local_paths as workspace_local_paths
 
 
@@ -24,6 +25,15 @@ def _client_with_service(tmp_path: Path) -> tuple[TestClient, AgentSessionServic
 def _workspace_root() -> Path:
     cwd = Path.cwd().resolve()
     return cwd.parent if cwd.name == "server" else cwd
+
+
+def _override_agent_user(user_id: str, role: Role = Role.USER) -> None:
+    app.dependency_overrides[get_agent_session_user] = lambda: TokenPayload(
+        user_id=user_id,
+        username=user_id,
+        role=role,
+        permissions=["agent_sessions:test"],
+    )
 
 
 def test_agent_sessions_allow_desktop_optional_auth_without_token(tmp_path: Path):
@@ -51,6 +61,39 @@ def test_agent_sessions_allow_desktop_optional_auth_without_token(tmp_path: Path
 
         with client.stream("GET", f"/agent-sessions/{body['id']}/events/stream") as stream:
             assert stream.status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_agent_session_endpoints_enforce_session_owner(tmp_path: Path):
+    client, service = _client_with_service(tmp_path)
+    workspace = _workspace_root()
+    try:
+        _override_agent_user("alice")
+        created = client.post(
+            "/agent-sessions",
+            json={"title": "owned", "agent_id": "build", "project_path": str(workspace)},
+        )
+        assert created.status_code == 200
+        session_id = created.json()["id"]
+        permission = service.repository.add_part(
+            session_id,
+            "permission",
+            status="pending",
+            title="Permission",
+            payload={"official_hitl": True, "actions": [{"name": "edit_file"}]},
+        )
+
+        _override_agent_user("bob")
+        assert client.get(f"/agent-sessions/{session_id}").status_code == 403
+        assert client.get(f"/agent-sessions/{session_id}/events").status_code == 403
+        assert client.get(f"/agent-sessions/{session_id}/events/stream").status_code == 403
+        assert client.post(f"/agent-sessions/{session_id}/prompt", json={"content": "hi"}).status_code == 403
+        assert client.post(f"/agent-permissions/{permission['id']}/approve").status_code == 403
+        assert service.repository.get_part(permission["id"])["status"] == "pending"
+
+        _override_agent_user("admin", Role.ADMIN)
+        assert client.get(f"/agent-sessions/{session_id}").status_code == 200
     finally:
         app.dependency_overrides.clear()
 
@@ -457,6 +500,7 @@ def test_agent_session_memory_files_are_listed_and_read_only_readable(tmp_path: 
                 "metadata": {"user_id": "alice"},
             }
         )
+        _override_agent_user("alice")
 
         files_response = client.get(f"/agent-sessions/{session['id']}/memory-files")
         assert files_response.status_code == 200
