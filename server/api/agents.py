@@ -6,7 +6,8 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from agent_session.agent_registry import AgentRegistry
 from agent_session.models import AgentSkillRegistryResponse
 from agent_session.runtime import describe_skill_registry
-from api.agent_sessions import get_agent_session_user
+from agent_session.service import AgentSessionService
+from api.agent_sessions import get_agent_session_service, get_agent_session_user
 from security.jwt_auth import TokenPayload
 from core.db_manager import run_sync
 
@@ -34,11 +35,15 @@ async def list_primary_agents(current_user: TokenPayload = Depends(get_agent_ses
 async def list_agent_skills(
     project_path: str | None = Query(default=None),
     agent_id: str = Query(default="build"),
+    service: AgentSessionService = Depends(get_agent_session_service),
     current_user: TokenPayload = Depends(get_agent_session_user),
 ):
     try:
-        result = await run_sync(describe_skill_registry, project_path or ".", agent_id=agent_id)
+        resolved_project_path = await run_sync(service.validate_project_path, project_path)
+        result = await run_sync(describe_skill_registry, resolved_project_path, agent_id=agent_id)
         return AgentSkillRegistryResponse(**result)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

@@ -473,6 +473,26 @@ def test_agent_sessions_reject_unregistered_external_project_path(tmp_path: Path
         app.dependency_overrides.clear()
 
 
+def test_agent_skills_reject_unregistered_external_project_path(tmp_path: Path, monkeypatch):
+    external_root = tmp_path / "unregistered-skills-workspace"
+    external_root.mkdir(parents=True, exist_ok=True)
+    (external_root / ".deepagents" / "skills" / "leak").mkdir(parents=True, exist_ok=True)
+    metadata_file = tmp_path / "workspace-metadata-empty.json"
+    metadata_file.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(workspace_local_paths, "WORKSPACE_METADATA_FILE", metadata_file)
+    client, _ = _client_with_service(tmp_path)
+    try:
+        response = client.get(
+            "/agents/skills",
+            params={"project_path": str(external_root), "agent_id": "build"},
+        )
+
+        assert response.status_code == 400
+        assert "project_path must be inside the workspace" in str(response.json())
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_agent_session_workspace_normalizes_metadata_todos(tmp_path: Path):
     client, service = _client_with_service(tmp_path)
     try:

@@ -164,7 +164,7 @@ class AgentSessionService:
         workspace = base_dir.parent if base_dir.name == "server" else base_dir
         return str(workspace)
 
-    def _validate_project_path(self, project_path: str | None) -> str:
+    def validate_project_path(self, project_path: str | None) -> str:
         if not project_path or not project_path.strip():
             return self._default_project_path()
         resolved = Path(project_path).expanduser().resolve()
@@ -179,6 +179,9 @@ class AgentSessionService:
             allowed = ", ".join(sorted(str(path) for path in allowed_roots))
             raise ValueError(f"project_path must be inside the workspace. Allowed roots: {allowed}")
         return str(resolved)
+
+    def _validate_project_path(self, project_path: str | None) -> str:
+        return self.validate_project_path(project_path)
 
     def create_session(self, request: AgentSessionCreate, user_id: str | None = None) -> AgentSessionResponse:
         project_path = self._validate_project_path(request.project_path)
