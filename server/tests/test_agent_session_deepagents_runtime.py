@@ -308,7 +308,7 @@ def test_deepagents_runtime_registers_local_async_tools(monkeypatch, tmp_path: P
     assert captured["project_path"] == str(tmp_path)
     assert captured["permissions"]
     assert "/skills/builtin/" in captured["skills"]
-    assert captured["middleware"]
+    assert captured["middleware"] == []
 
 
 def test_deepagents_runtime_enforces_agent_definition_fields(monkeypatch, tmp_path: Path):

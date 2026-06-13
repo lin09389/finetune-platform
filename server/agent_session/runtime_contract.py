@@ -8,7 +8,7 @@ from .agent_registry import AgentRegistry
 from .async_subagent_policy import ASYNC_SUBAGENT_TOOL_NAMES, async_subagent_manifest_for_agent
 from .execution_context import AgentDefinition
 from .permission import AgentRuntimePermissionPolicy, permission_policy_for_agent
-from .runtime import memory_files_for_project, resolve_enabled_skill_sources
+from .runtime_policy import AgentRuntimePolicy, build_agent_runtime_policy, enabled_skill_paths
 
 
 RuntimeKind = Literal["agent_session", "project_chat"]
@@ -73,6 +73,7 @@ class AgentRuntimeContract:
     backend_mode: BackendMode = "workspace"
     graph_thread_id: str | None = None
     recursion_limit: int | None = None
+    runtime_policy: AgentRuntimePolicy | None = None
 
     @classmethod
     def for_agent_session(
@@ -98,13 +99,25 @@ class AgentRuntimeContract:
         org_id = str(metadata.get("org_id") or "default-org")
         permission_policy = permission_policy_for_agent(agent, agent_id, metadata)
         permission_policy.validate_enabled_skills(project_path, enabled_skill_sources)
+        runtime_policy = build_agent_runtime_policy(
+            agent=agent,
+            agent_id=agent_id,
+            project_path=project_path,
+            metadata=metadata,
+            provider=str(session.get("provider") or ""),
+            model=session.get("model"),
+            runtime_kind="agent_session",
+            thread_id=f"agent_session:{session_id}:deepagents",
+            checkpointer=True,
+            agent_registry=agent_registry,
+        )
         return cls(
             runtime_kind="agent_session",
             session_id=session_id,
             project_path=project_path,
             model=model,
             system_prompt=build_system_prompt(agent_registry, agent),
-            memory=memory_files_for_project(project_path, user_id=user_id, agent_id=agent_id, org_id=org_id),
+            memory=runtime_policy.memory_files,
             checkpointer=checkpointer,
             user_id=user_id,
             agent_id=agent_id,
@@ -114,19 +127,14 @@ class AgentRuntimeContract:
             tools=permission_policy.filter_named_tools(tools),
             permissions=permission_policy.filesystem_permissions(),
             middleware=middleware,
-            skills=resolve_enabled_skill_sources(
-                project_path,
-                user_id=user_id,
-                agent_id=agent_id,
-                org_id=org_id,
-                enabled_skill_sources=enabled_skill_sources,
-            ),
-            enabled_skill_sources=enabled_skill_sources,
+            skills=enabled_skill_paths(runtime_policy),
+            enabled_skill_sources=runtime_policy.enabled_skill_sources,
             subagents=subagents,
-            interrupt_on=permission_policy.interrupt_on(),
-            backend_mode="workspace",
-            graph_thread_id=f"agent_session:{session_id}:deepagents",
-            recursion_limit=recursion_limit_for_agent(agent),
+            interrupt_on=runtime_policy.interrupt_on,
+            backend_mode=runtime_policy.execution_plan.backend_mode,
+            graph_thread_id=runtime_policy.execution_plan.thread_id,
+            recursion_limit=runtime_policy.execution_plan.recursion_limit,
+            runtime_policy=runtime_policy,
         )
 
     @classmethod
@@ -139,30 +147,38 @@ class AgentRuntimeContract:
         session_id: str = "project_chat",
     ) -> "AgentRuntimeContract":
         root = str(Path(project_path).resolve())
-        policy = permission_policy_for_agent(None, "project_chat", dict(metadata or {}))
-        memory = ["/workspace/AGENTS.md"] if (Path(root) / "AGENTS.md").is_file() else []
+        permission_policy = permission_policy_for_agent(None, "project_chat", dict(metadata or {}))
+        runtime_policy = build_agent_runtime_policy(
+            agent=None,
+            agent_id="project_chat",
+            project_path=root,
+            metadata=metadata,
+            runtime_kind="project_chat",
+            thread_id=session_id,
+            checkpointer=False,
+        )
         return cls(
             runtime_kind="project_chat",
             session_id=session_id,
             project_path=root,
             model=model,
             system_prompt=PROJECT_CHAT_PROMPT,
-            memory=memory,
+            memory=runtime_policy.memory_files,
             checkpointer=False,
             agent_id="project_chat",
             metadata=dict(metadata or {}),
             tools=[],
-            permissions=policy.filesystem_permissions(),
-            backend_mode="project_chat_readonly",
-            graph_thread_id=session_id,
+            permissions=permission_policy.filesystem_permissions(),
+            backend_mode=runtime_policy.execution_plan.backend_mode,
+            graph_thread_id=runtime_policy.execution_plan.thread_id,
+            runtime_policy=runtime_policy,
         )
 
 
 def normalize_enabled_skill_sources(value: Any) -> list[str] | None:
     if value is None or not isinstance(value, list):
         return None
-    normalized = [str(item).strip() for item in value if str(item).strip()]
-    return normalized or None
+    return [str(item).strip() for item in value if str(item).strip()]
 
 
 def validate_agent_launch(agent: AgentDefinition | None, agent_id: str, metadata: dict[str, Any]) -> None:

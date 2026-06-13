@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from .execution_plan import sync_execution_plan_status
 from .state import clear_runtime_latches, ensure_session_state, set_phase
 
 
@@ -25,6 +26,7 @@ class AgentSessionStateMachine:
         session = self._require_session(session_id)
         next_metadata = ensure_session_state(dict(metadata if metadata is not None else session.get("metadata") or {}))
         next_metadata = set_phase(next_metadata, "running")
+        next_metadata = sync_execution_plan_status(next_metadata, "running")
         return self.repository.update_session(session_id, status="running", metadata=next_metadata, **updates)
 
     def mark_waiting_approval(
@@ -39,6 +41,7 @@ class AgentSessionStateMachine:
         next_metadata = set_phase(next_metadata, "waiting_approval")
         if pending_interrupt is not None:
             next_metadata["pending_deepagents_interrupt"] = pending_interrupt
+        next_metadata = sync_execution_plan_status(next_metadata, "waiting_approval")
         return self.repository.update_session(session_id, status="waiting_approval", metadata=next_metadata)
 
     def mark_completed(self, session_id: str, *, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -47,6 +50,7 @@ class AgentSessionStateMachine:
         next_metadata = set_phase(next_metadata, "completed")
         next_metadata = clear_runtime_latches(next_metadata)
         next_metadata["last_prompt_completed_at"] = datetime.now().isoformat()
+        next_metadata = sync_execution_plan_status(next_metadata, "completed")
         return self.repository.update_session(session_id, status="completed", metadata=next_metadata)
 
     def mark_failed(
@@ -70,6 +74,7 @@ class AgentSessionStateMachine:
             state["latest_error"] = error
             next_metadata["latest_error"] = error
             next_metadata["state"] = state
+        next_metadata = sync_execution_plan_status(next_metadata, status, error=error)
         return self.repository.update_session(session_id, status=status, metadata=next_metadata)
 
     def mark_interrupted(
@@ -91,6 +96,7 @@ class AgentSessionStateMachine:
             state["latest_error"] = reason
             next_metadata["latest_error"] = reason
             next_metadata["state"] = state
+        next_metadata = sync_execution_plan_status(next_metadata, "interrupted", error=reason)
         return self.repository.update_session(session_id, status="interrupted", metadata=next_metadata)
 
     def clear_active_prompt(self, session_id: str, prompt_id: str) -> dict[str, Any] | None:

@@ -1,0 +1,281 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+
+from .runtime_policy import AgentRuntimePolicy
+
+
+PLAN_SCHEMA_VERSION = "agent.execution.plan.v1"
+PLAN_STATUS_BY_SESSION_STATUS = {
+    "idle": "planned",
+    "running": "running",
+    "verifying": "running",
+    "repairing": "running",
+    "waiting_permission": "blocked",
+    "waiting_approval": "blocked",
+    "completed": "completed",
+    "failed": "failed",
+    "needs_manual_review": "blocked",
+    "interrupted": "interrupted",
+}
+
+
+def build_initial_execution_plan(
+    *,
+    session: dict[str, Any],
+    policy: AgentRuntimePolicy,
+    goal: str,
+    status: str = "running",
+) -> dict[str, Any]:
+    now = _now()
+    session_id = str(session.get("id") or "")
+    agent_id = str(session.get("agent_id") or policy.agent_id or "build")
+    plan_status = PLAN_STATUS_BY_SESSION_STATUS.get(status, status)
+    nodes = [
+        _node(
+            "understand_task",
+            "理解任务与运行约束",
+            "读取用户目标、runtime policy、resource profile，并确认当前执行边界。",
+            agent_id,
+            status="completed" if plan_status == "running" else "pending",
+            input_contract={"goal": "user_prompt", "runtime_policy": policy.schema_version},
+            output_contract={"summary": "task_understanding", "constraints": "runtime_policy_constraints"},
+        ),
+        _node(
+            "execute_primary_agent",
+            "执行主 Agent 任务",
+            "由主 Agent 根据目标调用工具、写文件或启动后续子任务。",
+            agent_id,
+            status="running" if plan_status == "running" else "pending",
+            depends_on=["understand_task"],
+            input_contract={
+                "goal": "user_prompt",
+                "available_tools": policy.tools,
+                "resource_profile": policy.resource_profile.schema_version,
+            },
+            output_contract=policy.output_contract,
+            retry_policy=_retry_policy(policy),
+            approval_policy=_approval_policy(policy),
+        ),
+        _node(
+            "summarize_result",
+            "汇总结果与下一步",
+            "把执行结果、风险、变更文件、验证建议整理成用户可读总结。",
+            agent_id,
+            status="pending",
+            depends_on=["execute_primary_agent"],
+            input_contract={"primary_output": "execute_primary_agent.output"},
+            output_contract=policy.output_contract,
+        ),
+    ]
+    return {
+        **policy.execution_plan.model_dump(),
+        "schema_version": PLAN_SCHEMA_VERSION,
+        "plan_id": f"plan_{session_id}" if session_id else f"plan_{agent_id}",
+        "session_id": session_id or None,
+        "goal": goal,
+        "status": plan_status,
+        "current_node_id": _current_node_id(nodes),
+        "nodes": nodes,
+        "edges": _edges_from_nodes(nodes),
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+def normalize_execution_plan(
+    raw: Any,
+    *,
+    session: dict[str, Any],
+    policy: AgentRuntimePolicy,
+    goal: str | None = None,
+) -> dict[str, Any]:
+    if isinstance(raw, dict) and raw.get("schema_version") == PLAN_SCHEMA_VERSION:
+        plan = {**policy.execution_plan.model_dump(), **raw}
+        plan["nodes"] = [_normalize_node(item, policy.agent_id) for item in plan.get("nodes") or []]
+        plan["edges"] = list(plan.get("edges") or _edges_from_nodes(plan["nodes"]))
+        plan.setdefault("plan_id", f"plan_{session.get('id')}")
+        plan.setdefault("session_id", session.get("id"))
+        plan.setdefault("goal", goal or "")
+        plan.setdefault("status", "planned")
+        plan["current_node_id"] = plan.get("current_node_id") or _current_node_id(plan["nodes"])
+        plan["updated_at"] = _now()
+        return plan
+    return build_initial_execution_plan(
+        session=session,
+        policy=policy,
+        goal=str(goal or ""),
+        status=str(session.get("status") or "planned"),
+    )
+
+
+def sync_execution_plan_status(metadata: dict[str, Any], session_status: str, *, error: str | None = None) -> dict[str, Any]:
+    raw = metadata.get("execution_plan")
+    if not isinstance(raw, dict) or raw.get("schema_version") != PLAN_SCHEMA_VERSION:
+        return metadata
+    plan = dict(raw)
+    target = PLAN_STATUS_BY_SESSION_STATUS.get(session_status, session_status)
+    plan["status"] = target
+    plan["updated_at"] = _now()
+    nodes = [_normalize_node(item, str(plan.get("agent_id") or "build")) for item in plan.get("nodes") or []]
+    current_id = str(plan.get("current_node_id") or _current_node_id(nodes) or "")
+    if target == "completed":
+        nodes = [{**node, "status": "completed"} for node in nodes]
+        plan["current_node_id"] = None
+    elif target in {"failed", "interrupted", "blocked"}:
+        updated = []
+        for node in nodes:
+            if node["id"] == current_id or node["status"] == "running":
+                node = {**node, "status": "blocked" if target == "blocked" else "failed"}
+                if error:
+                    node["error"] = error
+            updated.append(node)
+        nodes = updated
+        plan["current_node_id"] = current_id or _current_node_id(nodes)
+    elif target == "running":
+        if not any(node["status"] == "running" for node in nodes):
+            resume_index = None
+            for index, node in enumerate(nodes):
+                if current_id and node["id"] == current_id and node["status"] in {"pending", "blocked", "failed"}:
+                    resume_index = index
+                    break
+            if resume_index is None:
+                for index, node in enumerate(nodes):
+                    if node["status"] == "pending":
+                        resume_index = index
+                        break
+            if resume_index is not None:
+                nodes[resume_index] = {**nodes[resume_index], "status": "running", "error": None}
+                for index, node in enumerate(nodes):
+                    if index != resume_index and node["status"] == "running":
+                        nodes[index] = {**node, "status": "pending"}
+        plan["current_node_id"] = _current_node_id(nodes)
+    plan["nodes"] = nodes
+    plan["edges"] = list(plan.get("edges") or _edges_from_nodes(nodes))
+    metadata["execution_plan"] = plan
+    return metadata
+
+
+def todos_from_execution_plan(plan: Any) -> list[dict[str, Any]]:
+    if not isinstance(plan, dict) or plan.get("schema_version") != PLAN_SCHEMA_VERSION:
+        return []
+    todos: list[dict[str, Any]] = []
+    for node in plan.get("nodes") or []:
+        if not isinstance(node, dict):
+            continue
+        todos.append(
+            {
+                "id": str(node.get("id") or f"node_{len(todos) + 1}"),
+                "title": str(node.get("title") or node.get("id") or "任务"),
+                "status": _todo_status(str(node.get("status") or "pending")),
+                "summary": str(node.get("description") or ""),
+                "owner_agent": str(node.get("agent_id") or "") or None,
+                "source": "execution_plan",
+                "linked_task_id": node.get("source_task_id"),
+            }
+        )
+    return todos
+
+
+def _node(
+    node_id: str,
+    title: str,
+    description: str,
+    agent_id: str,
+    *,
+    status: str = "pending",
+    depends_on: list[str] | None = None,
+    input_contract: dict[str, Any] | None = None,
+    output_contract: dict[str, Any] | None = None,
+    retry_policy: dict[str, Any] | None = None,
+    approval_policy: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": node_id,
+        "title": title,
+        "description": description,
+        "agent_id": agent_id,
+        "kind": "agent",
+        "status": status,
+        "depends_on": list(depends_on or []),
+        "input_contract": input_contract or {},
+        "output_contract": output_contract or {},
+        "retry_policy": retry_policy or {"max_attempts": 0, "retry_on": []},
+        "approval_policy": approval_policy or {"requires_approval": False, "tools": []},
+        "output": {},
+        "error": None,
+        "source_task_id": None,
+    }
+
+
+def _normalize_node(raw: Any, default_agent_id: str) -> dict[str, Any]:
+    item = dict(raw or {}) if isinstance(raw, dict) else {}
+    return {
+        "id": str(item.get("id") or f"node_{abs(hash(str(item))) % 10000}"),
+        "title": str(item.get("title") or item.get("id") or "任务"),
+        "description": str(item.get("description") or ""),
+        "agent_id": str(item.get("agent_id") or default_agent_id or "build"),
+        "kind": str(item.get("kind") or "agent"),
+        "status": str(item.get("status") or "pending"),
+        "depends_on": [str(value) for value in item.get("depends_on") or []],
+        "input_contract": dict(item.get("input_contract") or {}),
+        "output_contract": dict(item.get("output_contract") or {}),
+        "retry_policy": dict(item.get("retry_policy") or {"max_attempts": 0, "retry_on": []}),
+        "approval_policy": dict(item.get("approval_policy") or {"requires_approval": False, "tools": []}),
+        "output": dict(item.get("output") or {}),
+        "error": item.get("error"),
+        "source_task_id": item.get("source_task_id"),
+    }
+
+
+def _edges_from_nodes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    edges: list[dict[str, Any]] = []
+    for node in nodes:
+        for dependency in node.get("depends_on") or []:
+            edges.append({"from": str(dependency), "to": str(node.get("id") or ""), "type": "depends_on"})
+    return edges
+
+
+def _current_node_id(nodes: list[dict[str, Any]]) -> str | None:
+    for node in nodes:
+        if node.get("status") == "running":
+            return str(node.get("id"))
+    for node in nodes:
+        if node.get("status") in {"pending", "blocked"}:
+            return str(node.get("id"))
+    return None
+
+
+def _retry_policy(policy: AgentRuntimePolicy) -> dict[str, Any]:
+    recovery = dict(policy.recovery_policy or {})
+    return {"max_attempts": 1 if recovery.get("restart_recovery") else 0, "retry_on": ["failed"] if recovery.get("restart_recovery") else []}
+
+
+def _approval_policy(policy: AgentRuntimePolicy) -> dict[str, Any]:
+    interrupt = dict(policy.interrupt_on or {})
+    tools = [name for name, enabled in interrupt.items() if enabled]
+    return {"requires_approval": bool(tools), "tools": tools}
+
+
+def _todo_status(status: str) -> str:
+    if status in {"running"}:
+        return "in_progress"
+    if status in {"completed"}:
+        return "completed"
+    if status in {"blocked", "failed", "waiting_approval", "waiting_permission", "interrupted"}:
+        return "blocked"
+    return "pending"
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+__all__ = [
+    "PLAN_SCHEMA_VERSION",
+    "build_initial_execution_plan",
+    "normalize_execution_plan",
+    "sync_execution_plan_status",
+    "todos_from_execution_plan",
+]

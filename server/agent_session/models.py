@@ -22,38 +22,6 @@ AgentPartStatus = Literal["pending", "running", "completed", "failed", "blocked"
 AgentAsyncTaskStatus = Literal["pending", "running", "completed", "failed", "cancelled"]
 AgentAsyncTaskHealthStatus = Literal["ok", "waiting", "attention", "failed", "cancelled"]
 AgentHitlDecisionType = Literal["approve", "edit", "reject", "respond"]
-TaskStageStatus = Literal["pending", "running", "blocked", "completed", "failed", "waiting_approval"]
-TaskNodeStatus = Literal["pending", "running", "blocked", "completed", "failed", "waiting_approval"]
-
-
-class TaskNode(BaseModel):
-    id: str
-    title: str
-    description: str | None = None
-    tool: str | None = None
-    args: dict[str, Any] = Field(default_factory=dict)
-    status: TaskNodeStatus = "pending"
-    depends_on: list[str] = Field(default_factory=list)
-    summary: str | None = None
-    artifacts: dict[str, Any] = Field(default_factory=dict)
-
-
-class TaskStage(BaseModel):
-    id: str
-    title: str
-    description: str | None = None
-    status: TaskStageStatus = "pending"
-    nodes: list[TaskNode] = Field(default_factory=list)
-    summary: str | None = None
-
-
-class TaskPlan(BaseModel):
-    task_id: str
-    goal: str
-    stages: list[TaskStage] = Field(default_factory=list)
-    status: Literal["planned", "running", "blocked", "completed", "failed"] = "planned"
-    summary: str | None = None
-    next_action: str | None = None
 
 
 class AgentSessionCreate(BaseModel):
@@ -299,11 +267,68 @@ class AgentWorkspaceSkillSource(BaseModel):
     enabled: bool = True
 
 
+class AgentExecutionPlanResponse(BaseModel):
+    schema_version: str = "agent.execution.plan.v1"
+    runtime: str = "deepagents"
+    backend_mode: str = "workspace"
+    thread_id: str | None = None
+    recursion_limit: int | None = None
+    checkpointer: bool = True
+    state_machine: str = "agent_session.v1"
+    plan_id: str | None = None
+    session_id: str | None = None
+    goal: str = ""
+    status: str = "planned"
+    current_node_id: str | None = None
+    nodes: list[dict[str, Any]] = Field(default_factory=list)
+    edges: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: str | None = None
+    updated_at: str | None = None
+    lifecycle: list[str] = Field(default_factory=list)
+
+
+class AgentResourceProfileResponse(BaseModel):
+    schema_version: str = "agent.resource.profile.v1"
+    agent: dict[str, Any] = Field(default_factory=dict)
+    memory: dict[str, Any] = Field(default_factory=dict)
+    skills: dict[str, Any] = Field(default_factory=dict)
+    mounts: list[AgentWorkspaceMount] = Field(default_factory=list)
+
+
+class AgentRuntimePolicyResponse(BaseModel):
+    schema_version: str = "agent.runtime.policy.v1"
+    runtime_kind: str = "agent_session"
+    agent_id: str = "build"
+    agent_name: str = "Build"
+    mode: str = "all"
+    readonly: bool = False
+    workspace_root: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    capabilities: dict[str, bool] = Field(default_factory=dict)
+    tools: dict[str, Any] = Field(default_factory=dict)
+    output_contract: dict[str, Any] = Field(default_factory=dict)
+    recovery_policy: dict[str, Any] = Field(default_factory=dict)
+    handoff_targets: list[str] = Field(default_factory=list)
+    async_subagent_targets: list[str] = Field(default_factory=list)
+    filesystem_profile: str = "deny_all"
+    interrupt_on: dict[str, Any] | None = None
+    enabled_skill_sources: list[str] | None = None
+    skill_sources: list[AgentWorkspaceSkillSource] = Field(default_factory=list)
+    vfs_mounts: list[AgentWorkspaceMount] = Field(default_factory=list)
+    memory_files: list[str] = Field(default_factory=list)
+    resource_profile: AgentResourceProfileResponse = Field(default_factory=AgentResourceProfileResponse)
+    execution_plan: AgentExecutionPlanResponse = Field(default_factory=AgentExecutionPlanResponse)
+
+
 class AgentWorkspaceRuntimeContext(BaseModel):
     workspace_root: str | None = None
     vfs_mounts: list[AgentWorkspaceMount] = Field(default_factory=list)
     skill_sources: list[AgentWorkspaceSkillSource] = Field(default_factory=list)
     memory_files: list[str] = Field(default_factory=list)
+    policy: AgentRuntimePolicyResponse | None = None
+    resource_profile: AgentResourceProfileResponse | None = None
+    execution_plan: AgentExecutionPlanResponse | None = None
 
 
 class AgentWorkspaceResponse(BaseModel):
@@ -311,7 +336,6 @@ class AgentWorkspaceResponse(BaseModel):
     status_text: dict[str, Any] = Field(default_factory=dict)
     timeline: list[dict[str, Any]] = Field(default_factory=list)
     pending_permission: dict[str, Any] | None = None
-    task_plan: dict[str, Any] | None = None
     plan: AgentWorkspacePlan = Field(default_factory=AgentWorkspacePlan)
     todos: list[AgentTodoItem] = Field(default_factory=list)
     diagnostics: dict[str, Any] = Field(default_factory=dict)
@@ -322,6 +346,9 @@ class AgentWorkspaceResponse(BaseModel):
     execution_timeline: list[AgentExecutionTimelineItem] = Field(default_factory=list)
     recent_events: list[dict[str, Any]] = Field(default_factory=list)
     runtime: AgentWorkspaceRuntimeContext = Field(default_factory=AgentWorkspaceRuntimeContext)
+    runtime_policy: AgentRuntimePolicyResponse | None = None
+    resource_profile: AgentResourceProfileResponse | None = None
+    execution_plan: AgentExecutionPlanResponse | None = None
     vfs_mounts: list[AgentWorkspaceMount] = Field(default_factory=list)
     skill_sources: list[AgentWorkspaceSkillSource] = Field(default_factory=list)
 
@@ -345,6 +372,8 @@ class AgentSkillSourceResponse(BaseModel):
 
 class AgentSkillRegistryResponse(BaseModel):
     sources: list[AgentSkillSourceResponse] = Field(default_factory=list)
+    runtime_policy: AgentRuntimePolicyResponse | None = None
+    resource_profile: AgentResourceProfileResponse | None = None
 
 
 class AgentMemoryFileResponse(BaseModel):
@@ -362,7 +391,6 @@ class AgentMemoryFileResponse(BaseModel):
 
 class AgentSessionOverviewResponse(BaseModel):
     session: AgentSessionResponse
-    task_plan: dict[str, Any] | None = None
     recent_events: list[dict[str, Any]] = Field(default_factory=list)
     artifacts: list[AgentArtifactResponse] = Field(default_factory=list)
     diagnostics: dict[str, Any] = Field(default_factory=dict)

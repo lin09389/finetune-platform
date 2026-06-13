@@ -24,6 +24,7 @@ from .approval import permission_decisions
 from .async_subagents import AsyncSubagentService
 from .deepagents_runtime import DeepAgentsSessionRunner
 from .events import AgentSessionEventBus
+from .execution_plan import build_initial_execution_plan
 from .models import (
     AgentArtifactResponse,
     AgentMemoryFileResponse,
@@ -35,6 +36,7 @@ from .models import (
 )
 from .permission import default_deepagents_permission_metadata, validate_hitl_decisions
 from .repository import AgentSessionRepository
+from .runtime_policy import build_agent_runtime_policy
 from .session_state_machine import AgentSessionStateMachine
 from .state import clear_runtime_latches, ensure_session_state, record_fallback_summary
 from .workspace_view import AgentWorkspaceViewService
@@ -238,7 +240,6 @@ class AgentSessionService:
         diagnostics = dict(metadata.get("diagnostics") or {})
         return AgentSessionOverviewResponse(
             session=session,
-            task_plan=metadata.get("task_plan"),
             recent_events=list(diagnostics.get("recent_events") or []),
             artifacts=self._build_artifacts(session.parts),
             diagnostics=diagnostics,
@@ -249,27 +250,23 @@ class AgentSessionService:
 
     def list_memory_files(self, session_id: str) -> list[AgentMemoryFileResponse]:
         session = self.get_session(session_id)
-        metadata = dict(session.metadata or {})
-        user_id = str(metadata.get("user_id") or metadata.get("memory_user_id") or "default")
-        agent_id = str(session.agent_id or "build")
-        org_id = str(metadata.get("org_id") or "default-org")
         from memory.memory_service import get_memory_service
 
         service = get_memory_service()
-        files = [
-            *service.list_files("user", user_id),
-            *service.list_files("agent", agent_id),
-            *service.list_files("org", org_id),
-        ]
+        namespaces = self._resource_profile_for_session(session).memory.get("namespaces") or []
+        files = []
+        for namespace in namespaces:
+            if not isinstance(namespace, dict):
+                continue
+            files.extend(service.list_files(str(namespace.get("scope") or ""), str(namespace.get("namespace") or "")))
         return [AgentMemoryFileResponse(**file) for file in files]
 
     def read_memory_file(self, session_id: str, path: str) -> AgentMemoryFileResponse:
         session = self.get_session(session_id)
-        metadata = dict(session.metadata or {})
-        user_id = str(metadata.get("user_id") or metadata.get("memory_user_id") or "default")
-        agent_id = str(session.agent_id or "build")
-        org_id = str(metadata.get("org_id") or "default-org")
-        scope, namespace, relative_path = self._resolve_memory_file_path(path, user_id=user_id, agent_id=agent_id, org_id=org_id)
+        scope, namespace, relative_path = self._resolve_memory_file_path(
+            path,
+            resource_profile=self._resource_profile_for_session(session).model_dump(),
+        )
         from memory.memory_service import get_memory_service
 
         try:
@@ -277,6 +274,23 @@ class AgentSessionService:
         except (FileNotFoundError, ValueError) as exc:
             raise ValueError("Memory file not found") from exc
         return AgentMemoryFileResponse(**file)
+
+    def _resource_profile_for_session(self, session: AgentSessionResponse):
+        agent_id = str(session.agent_id or "build")
+        agent = self.agent_registry.get(agent_id)
+        policy = build_agent_runtime_policy(
+            agent=agent,
+            agent_id=agent_id,
+            project_path=session.project_path or ".",
+            metadata=dict(session.metadata or {}),
+            provider=session.provider,
+            model=session.model,
+            runtime_kind="agent_session",
+            thread_id=str((session.metadata or {}).get("deepagents_thread_id") or f"agent_session:{session.id}:deepagents"),
+            checkpointer=True,
+            agent_registry=self.agent_registry,
+        )
+        return policy.resource_profile
 
     @staticmethod
     def _normalize_enabled_skill_sources(enabled_skill_sources: list[str] | None) -> list[str] | None:
@@ -288,17 +302,20 @@ class AgentSessionService:
     def _resolve_memory_file_path(
         path: str,
         *,
-        user_id: str,
-        agent_id: str,
-        org_id: str,
+        resource_profile: dict[str, Any],
     ) -> tuple[str, str, str]:
         normalized = path.strip().replace("\\", "/")
-        if normalized.startswith("/memories/"):
-            return "user", user_id, AgentSessionService._validate_memory_relative_path(normalized.removeprefix("/memories/").lstrip("/"))
-        if normalized.startswith("/agent-memory/"):
-            return "agent", agent_id, AgentSessionService._validate_memory_relative_path(normalized.removeprefix("/agent-memory/").lstrip("/"))
-        if normalized.startswith("/policies/"):
-            return "org", org_id, AgentSessionService._validate_memory_relative_path(normalized.removeprefix("/policies/").lstrip("/"))
+        for namespace in dict(resource_profile.get("memory") or {}).get("namespaces") or []:
+            if not isinstance(namespace, dict):
+                continue
+            mount = str(namespace.get("mount") or "").rstrip("/") + "/"
+            if normalized.startswith(mount):
+                relative = normalized.removeprefix(mount).lstrip("/")
+                return (
+                    str(namespace.get("scope") or ""),
+                    str(namespace.get("namespace") or ""),
+                    AgentSessionService._validate_memory_relative_path(relative),
+                )
         raise ValueError("Unsupported memory path")
 
     @staticmethod
@@ -400,6 +417,27 @@ class AgentSessionService:
         metadata["background_run"] = True
         metadata["last_prompt_started_at"] = now
         metadata["current_goal"] = request.content
+        effective_provider = request.provider or session.get("provider")
+        effective_model = request.model or session.get("model")
+        agent_id = str(session.get("agent_id") or "build")
+        policy = build_agent_runtime_policy(
+            agent=self.agent_registry.get(agent_id),
+            agent_id=agent_id,
+            project_path=session.get("project_path"),
+            metadata=metadata,
+            provider=effective_provider,
+            model=effective_model,
+            runtime_kind="agent_session",
+            thread_id=f"agent_session:{session_id}:deepagents",
+            checkpointer=True,
+            agent_registry=self.agent_registry,
+        )
+        metadata["execution_plan"] = build_initial_execution_plan(
+            session={**session, "provider": effective_provider, "model": effective_model},
+            policy=policy,
+            goal=request.content,
+            status="running",
+        )
         if request.active_context or request.explicit_context:
             metadata["deep_context"] = {
                 "active_context": request.active_context,
@@ -407,8 +445,8 @@ class AgentSessionService:
             }
         session = self.state_machine.mark_running(
             session_id,
-            provider=request.provider or session.get("provider"),
-            model=request.model or session.get("model"),
+            provider=effective_provider,
+            model=effective_model,
             metadata=metadata,
         )
         self.repository.add_event(

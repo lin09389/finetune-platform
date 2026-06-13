@@ -432,6 +432,22 @@ def test_agent_session_workspace_read_model_returns_deepagents_view(tmp_path: Pa
         assert body["plan"]["todos"] == []
         assert any(mount["path"] == "/workspace/" for mount in body["vfs_mounts"])
         assert body["runtime"]["workspace_root"] == body["session"]["project_path"]
+        assert body["runtime"]["policy"]["schema_version"] == "agent.runtime.policy.v1"
+        assert body["runtime_policy"]["agent_id"] == body["session"]["agent_id"]
+        assert body["execution_plan"]["state_machine"] == "agent_session.v1"
+        assert body["runtime"]["policy"]["execution_plan"] == body["execution_plan"]
+        assert body["runtime_policy"]["output_contract"]["source"] == "agent_definition"
+        assert body["runtime_policy"]["recovery_policy"]["failure_status"] == "needs_manual_review"
+        assert body["runtime_policy"]["recovery_policy"]["resume_after_permission"] is True
+        assert body["resource_profile"]["schema_version"] == "agent.resource.profile.v1"
+        assert body["resource_profile"] == body["runtime_policy"]["resource_profile"]
+        assert body["runtime"]["resource_profile"] == body["resource_profile"]
+        assert body["resource_profile"]["agent"]["id"] == body["session"]["agent_id"]
+        assert {item["mount"] for item in body["resource_profile"]["memory"]["namespaces"]} == {
+            "/memories/",
+            "/agent-memory/",
+            "/policies/",
+        }
         assert isinstance(body["skill_sources"], list)
         artifact_types = {artifact["artifact_type"] for artifact in body["artifacts"]}
         assert {"file_change", "command_result", "test_result", "subtask_result", "finding", "risk"}.issubset(artifact_types)
@@ -493,7 +509,7 @@ def test_agent_skills_reject_unregistered_external_project_path(tmp_path: Path, 
         app.dependency_overrides.clear()
 
 
-def test_agent_session_workspace_normalizes_metadata_todos(tmp_path: Path):
+def test_agent_session_workspace_ignores_legacy_metadata_todos(tmp_path: Path):
     client, service = _client_with_service(tmp_path)
     try:
         session = service.repository.create_session(
@@ -514,9 +530,9 @@ def test_agent_session_workspace_normalizes_metadata_todos(tmp_path: Path):
 
         assert response.status_code == 200
         body = response.json()
-        assert body["plan"]["source"] == "metadata"
-        assert [todo["status"] for todo in body["todos"]] == ["in_progress", "completed"]
-        assert body["todos"][0]["owner_agent"] == "build"
+        assert "task_plan" not in body
+        assert body["plan"]["source"] == "execution_plan"
+        assert body["todos"] == []
     finally:
         app.dependency_overrides.clear()
 
@@ -528,6 +544,8 @@ def test_agent_session_skill_sources_can_be_disabled_for_session(tmp_path: Path)
         registry = client.get("/agents/skills", params={"project_path": str(workspace), "agent_id": "build"})
         assert registry.status_code == 200
         assert any(source["virtual_path"] == "/skills/builtin/" for source in registry.json()["sources"])
+        assert registry.json()["runtime_policy"]["agent_id"] == "build"
+        assert registry.json()["resource_profile"]["skills"]["sources"]
 
         session_response = client.post(
             "/agent-sessions",
@@ -548,7 +566,27 @@ def test_agent_session_skill_sources_can_be_disabled_for_session(tmp_path: Path)
         builtin = next(source for source in body["skill_sources"] if source["virtual_path"] == "/skills/builtin/")
         assert builtin["available"] is True
         assert builtin["enabled"] is False
+        assert body["runtime_policy"]["enabled_skill_sources"] == []
+        assert body["resource_profile"]["skills"]["enabled_skill_sources"] == []
+        assert body["resource_profile"]["skills"]["sources"][0]["enabled"] is False
         assert all(mount["kind"] != "skills" for mount in body["vfs_mounts"])
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_agents_api_exposes_runtime_policy(tmp_path: Path):
+    client, _ = _client_with_service(tmp_path)
+    try:
+        response = client.get("/agents/primary")
+
+        assert response.status_code == 200
+        build = next(agent for agent in response.json() if agent["id"] == "build")
+        assert build["runtime_policy"]["schema_version"] == "agent.runtime.policy.v1"
+        assert build["runtime_policy"]["capabilities"]["can_start_directly"] is True
+        assert build["runtime_policy"]["output_contract"]["requirements"]
+        assert build["runtime_policy"]["recovery_policy"]["state_machine"] == "agent_session.v1"
+        assert build["runtime_policy"]["execution_plan"]["runtime"] == "deepagents"
+        assert build["execution_plan"] == build["runtime_policy"]["execution_plan"]
     finally:
         app.dependency_overrides.clear()
 
@@ -573,6 +611,8 @@ def test_agent_session_memory_files_are_listed_and_read_only_readable(tmp_path: 
         assert "/memories/user.md" in paths
         assert "/memories/project.md" in paths
         assert "/agent-memory/agent.md" in paths
+        workspace = client.get(f"/agent-sessions/{session['id']}/workspace").json()
+        assert sorted(workspace["resource_profile"]["memory"]["files"]) == sorted(paths)
 
         file_response = client.get(
             f"/agent-sessions/{session['id']}/memory-file",

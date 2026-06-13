@@ -38,7 +38,6 @@ logger = logging.getLogger(__name__)
 
 DEEPAGENTS_BUILTIN_TOOLS = frozenset(
     {
-        "write_todos",
         "ls",
         "read_file",
         "write_file",
