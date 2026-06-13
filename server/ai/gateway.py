@@ -22,45 +22,53 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-_http_clients: dict[str, httpx.AsyncClient] = {}
+# 全局共享单一连接池——所有 provider 共用，keepalive 连接不再因 timeout 不同而割裂
+_shared_client: httpx.AsyncClient | None = None
 
 
 def get_http_client(timeout: float = 60.0) -> httpx.AsyncClient:
     """
-    获取或创建 HTTP 客户端（复用连接池）
+    获取共享 HTTP 客户端。
+
+    连接池全局唯一，避免多超时值导致的池分裂。
+    read timeout 通过调用方的请求级参数控制（httpx 支持请求级 timeout 覆盖）。
 
     Args:
-        timeout: 超时时间（秒）
+        timeout: 已废弃，保留签名兼容性；请求级 timeout 在调用处传入。
 
     Returns:
-        HTTP 客户端实例
+        全局共享的 AsyncClient 实例
     """
-    timeout_key = f"timeout_{int(timeout)}"
-
-    if timeout_key not in _http_clients:
-        _http_clients[timeout_key] = httpx.AsyncClient(
+    global _shared_client
+    if _shared_client is None:
+        _shared_client = httpx.AsyncClient(
             timeout=httpx.Timeout(
-                connect=10.0,
-                read=timeout,
+                connect=3.0,   # 快速失败：连接超时从 10s 缩短至 3s
+                read=120.0,    # 默认读超时（流式场景），调用处可覆盖
                 write=30.0,
-                pool=5.0
+                pool=5.0,
             ),
             limits=httpx.Limits(
                 max_keepalive_connections=20,
                 max_connections=50,
-                keepalive_expiry=30.0
+                keepalive_expiry=30.0,
             ),
-            follow_redirects=True
+            follow_redirects=True,
         )
+    return _shared_client
 
-    return _http_clients[timeout_key]
+
+def _req_timeout(read: float) -> httpx.Timeout:
+    """构造请求级超时——connect 统一 3s，read 按需指定。"""
+    return httpx.Timeout(connect=3.0, read=read, write=30.0, pool=5.0)
 
 
 async def close_http_clients():
-    """关闭所有 HTTP 客户端（应用关闭时调用）"""
-    for client in _http_clients.values():
-        await client.aclose()
-    _http_clients.clear()
+    """关闭共享 HTTP 客户端（应用关闭时调用）"""
+    global _shared_client
+    if _shared_client is not None:
+        await _shared_client.aclose()
+        _shared_client = None
 
 
 class AIProvider(ABC):
@@ -198,7 +206,7 @@ class MinimaxProvider(AIProvider):
 
         api_key = api_key or self._api_key
 
-        client = get_http_client(timeout=60.0)
+        client = get_http_client()
 
         default_params = {
             "temperature": 0.7,
@@ -221,6 +229,7 @@ class MinimaxProvider(AIProvider):
                         "messages": messages,
                         **params
                     },
+                    timeout=_req_timeout(read=60.0),
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -325,7 +334,7 @@ class MinimaxProvider(AIProvider):
 
         api_key = api_key or self._api_key
 
-        client = get_http_client(timeout=120.0)
+        client = get_http_client()
 
         default_params = {
             "temperature": 0.7,
@@ -349,6 +358,7 @@ class MinimaxProvider(AIProvider):
                     "stream": True,
                     **params
                 },
+                timeout=_req_timeout(read=120.0),
             ) as response:
                 response.raise_for_status()
 
@@ -471,7 +481,7 @@ class GLMProvider(AIProvider):
 
         api_key = api_key or self._api_key
 
-        client = get_http_client(timeout=60.0)
+        client = get_http_client()
 
         default_params = {
             "temperature": 0.7,
@@ -493,6 +503,7 @@ class GLMProvider(AIProvider):
                         "messages": messages,
                         **params
                     },
+                    timeout=_req_timeout(read=60.0),
                 )
                 response.raise_for_status()
                 data = response.json()
@@ -540,7 +551,7 @@ class GLMProvider(AIProvider):
 
         api_key = api_key or self._api_key
 
-        client = get_http_client(timeout=120.0)
+        client = get_http_client()
 
         default_params = {
             "temperature": 0.7,
@@ -562,6 +573,7 @@ class GLMProvider(AIProvider):
                     "stream": True,
                     **params
                 },
+                timeout=_req_timeout(read=120.0),
             ) as response:
                 response.raise_for_status()
 
@@ -643,7 +655,8 @@ class OpenAICompatibleProvider(AIProvider):
     async def chat(self, messages: list[dict], model: str, api_key: str, **kwargs) -> dict[str, Any]:
         if not self.base_url:
             raise ValueError("OpenAI-compatible Base URL is required")
-        client = get_http_client(timeout=float(kwargs.get("timeout", 120.0)))
+        client = get_http_client()
+        read_timeout = float(kwargs.get("timeout", 60.0))
         payload = {
             "model": model or self.get_default_model(),
             "messages": messages,
@@ -655,6 +668,7 @@ class OpenAICompatibleProvider(AIProvider):
             f"{self.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json=payload,
+            timeout=_req_timeout(read=read_timeout),
         )
         response.raise_for_status()
         data = response.json()
@@ -665,7 +679,8 @@ class OpenAICompatibleProvider(AIProvider):
     async def chat_stream(self, messages: list[dict], model: str, api_key: str, **kwargs) -> AsyncGenerator[dict[str, Any], None]:
         if not self.base_url:
             raise ValueError("OpenAI-compatible Base URL is required")
-        client = get_http_client(timeout=float(kwargs.get("timeout", 120.0)))
+        client = get_http_client()
+        read_timeout = float(kwargs.get("timeout", 120.0))
         payload = {
             "model": model or self.get_default_model(),
             "messages": messages,
@@ -678,6 +693,7 @@ class OpenAICompatibleProvider(AIProvider):
             f"{self.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json=payload,
+            timeout=_req_timeout(read=read_timeout),
         ) as response:
             response.raise_for_status()
             async for line in response.aiter_lines():
@@ -729,7 +745,8 @@ class AnthropicMessagesProvider(AIProvider):
         self.default_model = default_model or "claude-3-5-sonnet-latest"
 
     async def chat(self, messages: list[dict], model: str, api_key: str, **kwargs) -> dict[str, Any]:
-        client = get_http_client(timeout=float(kwargs.get("timeout", 120.0)))
+        client = get_http_client()
+        read_timeout = float(kwargs.get("timeout", 60.0))
         system, anthropic_messages = self._convert_messages(messages)
         payload: dict[str, Any] = {
             "model": model or self.get_default_model(),
@@ -747,6 +764,7 @@ class AnthropicMessagesProvider(AIProvider):
                 "Content-Type": "application/json",
             },
             json=payload,
+            timeout=_req_timeout(read=read_timeout),
         )
         response.raise_for_status()
         data = response.json()
@@ -754,7 +772,8 @@ class AnthropicMessagesProvider(AIProvider):
         return {"content": content, "raw": data}
 
     async def chat_stream(self, messages: list[dict], model: str, api_key: str, **kwargs) -> AsyncGenerator[dict[str, Any], None]:
-        client = get_http_client(timeout=float(kwargs.get("timeout", 120.0)))
+        client = get_http_client()
+        read_timeout = float(kwargs.get("timeout", 120.0))
         system, anthropic_messages = self._convert_messages(messages)
         payload: dict[str, Any] = {
             "model": model or self.get_default_model(),
@@ -774,6 +793,7 @@ class AnthropicMessagesProvider(AIProvider):
                 "Content-Type": "application/json",
             },
             json=payload,
+            timeout=_req_timeout(read=read_timeout),
         ) as response:
             response.raise_for_status()
             async for line in response.aiter_lines():
