@@ -243,6 +243,38 @@ def test_project_chat_requires_explicit_context_flag(monkeypatch):
     ) is True
 
 
+def test_project_chat_rejects_unregistered_project_path(monkeypatch, tmp_path):
+    import asyncio
+    import importlib
+
+    from fastapi import HTTPException
+    from workspace import local_paths as workspace_local_paths
+    from api.cloud_chat import CloudChatRequest
+
+    cloud_chat = importlib.import_module("api.cloud_chat")
+    external_root = tmp_path / "outside-project"
+    external_root.mkdir()
+    metadata_file = tmp_path / "workspace-metadata-empty.json"
+    metadata_file.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(workspace_local_paths, "WORKSPACE_METADATA_FILE", metadata_file)
+    monkeypatch.setattr(cloud_chat, "can_use_deepagents_project_chat", lambda *_args: True)
+
+    request = CloudChatRequest(
+        provider="mock",
+        api_key="test-key",
+        model="mock-cloud-model",
+        messages=[{"role": "user", "content": "explain this project"}],
+        context={"use_context": True, "project_chat": True, "project_path": str(external_root)},
+    )
+
+    try:
+        asyncio.run(cloud_chat._try_project_chat(request, model="mock-cloud-model", api_key="test-key", base_url=None))
+        assert False, "expected project path validation failure"
+    except HTTPException as exc:
+        assert exc.status_code == 400
+        assert "project_path must be inside the workspace" in str(exc.detail)
+
+
 def test_provider_stream_probe_persists_success_metadata(monkeypatch):
     import asyncio
     import importlib

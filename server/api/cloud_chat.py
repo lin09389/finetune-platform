@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 
 from ai.gateway import AnthropicMessagesProvider, OpenAICompatibleProvider, get_provider, list_providers
 from api.types import KnowledgeSource, MemoryContextInfo, UnifiedContextInfo
+from agent_session.service import AgentSessionService
 from agent_session.project_chat import DeepAgentsProjectChatRunner, ProjectChatResult, can_use_deepagents_project_chat
 from context.deepagents import build_deepagents_context_pack
 from security.audit_log import audit_logger
@@ -196,6 +197,16 @@ def _last_user_text(messages: list[dict[str, Any]]) -> str:
     return str(last_user_message or "")
 
 
+def _validated_cloud_project_path(project_path: str | None) -> str:
+    value = str(project_path or "").strip()
+    if not value:
+        return ""
+    try:
+        return AgentSessionService().validate_project_path(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 def _should_use_deepagents_project_chat(request: CloudChatRequest, model: str, context_options: dict[str, Any]) -> bool:
     project_path = str(context_options.get("project_path") or "").strip()
     if not project_path:
@@ -234,9 +245,9 @@ async def _try_project_chat(
 ) -> ProjectChatResult | None:
     context_options = request.context or {}
     session_options = request.session or {}
-    project_path = str(context_options.get("project_path") or "").strip()
     if not _should_use_deepagents_project_chat(request, model, context_options):
         return None
+    project_path = _validated_cloud_project_path(context_options.get("project_path"))
     goal = _last_user_text(request.messages)
     if not goal:
         return None
@@ -453,6 +464,8 @@ async def _build_cloud_context(request: CloudChatRequest) -> tuple[list[dict[str
                 logger.warning("project_path 为空且无已注册项目，项目上下文将不可用。请先扫描并索引项目。")
         except Exception as _e:
             logger.warning(f"查找已注册项目失败: {_e}")
+    if use_project_context and project_path:
+        project_path = _validated_cloud_project_path(str(project_path))
 
     max_context_tokens = max(
         512,
@@ -737,8 +750,8 @@ async def cloud_chat_stream(request: CloudChatRequest):
             model = request.model or key_data.get("default_model") or provider.get_default_model()
             context_options = request.context or {}
             session_options = request.session or {}
-            project_path = str(context_options.get("project_path") or "").strip()
             if _should_use_deepagents_project_chat(request, model, context_options):
+                project_path = _validated_cloud_project_path(context_options.get("project_path"))
                 try:
                     goal = _last_user_text(request.messages)
                     prompt, context_files, pack_metadata = await _build_project_chat_context_files(
