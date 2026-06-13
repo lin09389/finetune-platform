@@ -3,7 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .state import ensure_session_state, set_phase
+from .session_state_machine import AgentSessionStateMachine
+from .state import ensure_session_state
 
 
 @dataclass
@@ -14,6 +15,9 @@ class DeepAgentsEventMapper:
     active_text_part_id: str | None = None
     active_text: str = ""
     tool_parts: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self.state_machine = AgentSessionStateMachine(self.repository)
 
     def publish(self, event_type: str, message: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         event = self.repository.add_event(self.session_id, event_type, message, payload or {})
@@ -222,14 +226,17 @@ class DeepAgentsEventMapper:
             },
         )
         session = self.repository.get_session(self.session_id) or {}
-        metadata = set_phase(ensure_session_state(dict(session.get("metadata") or {})), "waiting_approval")
-        metadata["pending_deepagents_interrupt"] = {
-            "part_id": part.get("id"),
-            "tool": first_action.get("name"),
-            "action_count": len(actions),
-            "action_requests": action_requests,
-        }
-        self.repository.update_session(self.session_id, status="waiting_approval", metadata=metadata)
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        self.state_machine.mark_waiting_approval(
+            self.session_id,
+            metadata=metadata,
+            pending_interrupt={
+                "part_id": part.get("id"),
+                "tool": first_action.get("name"),
+                "action_count": len(actions),
+                "action_requests": action_requests,
+            },
+        )
         self.publish(
             "permission_asked",
             description,

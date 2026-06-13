@@ -8,7 +8,8 @@ from typing import Any, AsyncIterator
 from .deepagents_runtime import CallableToolCallingChatModel
 from .execution_context import RuntimeExecutionContext
 from .model_adapter import ProviderAdapterError, get_chat_model, resolve_official_model_spec
-from .permission import permission_policy_for_agent
+from .runtime_contract import AgentRuntimeContract, PROJECT_CHAT_PROMPT
+from .runtime_factory import DeepAgentsRuntimeFactory
 
 
 @dataclass(frozen=True)
@@ -100,9 +101,6 @@ class DeepAgentsProjectChatRunner:
         }
 
     def _build_graph(self) -> Any:
-        from deepagents import create_deep_agent
-        from deepagents.backends import CompositeBackend, FilesystemBackend, StateBackend
-
         if self.model_call is not None:
             model = CallableToolCallingChatModel(self.model_call).model
         else:
@@ -119,35 +117,17 @@ class DeepAgentsProjectChatRunner:
             except ProviderAdapterError:
                 raise
 
-        backend = CompositeBackend(
-            default=StateBackend(),
-            routes={
-                "/workspace/": FilesystemBackend(root_dir=self.project_path, virtual_mode=True),
-            },
-        )
-        memory = ["/workspace/AGENTS.md"] if (Path(self.project_path) / "AGENTS.md").is_file() else []
-        permission_policy = permission_policy_for_agent(None, "project_chat", self.metadata)
-        return create_deep_agent(
+        contract = AgentRuntimeContract.for_project_chat(
+            project_path=self.project_path,
             model=model,
-            tools=[],
-            system_prompt=_project_chat_system_prompt(),
-            backend=backend,
-            memory=memory,
-            permissions=permission_policy.filesystem_permissions(),
-            checkpointer=False,
+            metadata=self.metadata,
+            session_id=f"project_chat:{uuid.uuid4().hex}",
         )
+        return DeepAgentsRuntimeFactory().build(contract)
 
 
 def _project_chat_system_prompt() -> str:
-    return (
-        "你是 Finetune Platform 的只读项目讨论助手。"
-        "用户在普通 Chat 中讨论项目时，你可以使用 DeepAgents 官方文件系统工具查看项目。"
-        "真实项目根目录挂载在 `/workspace/`，优先使用 ls、glob、grep、read_file 理解代码。"
-        "上下文文件可能位于 `/context/`。"
-        "你禁止写入文件、编辑文件或执行命令；不要调用 write_file、edit_file、execute。"
-        "如果用户需要修改代码、安装依赖、运行测试或执行命令，请明确说明需要升级为 Agent Task。"
-        "回答时直接给出基于项目文件的结论，并尽量引用具体文件路径。"
-    )
+    return PROJECT_CHAT_PROMPT
 
 
 def _event_text_delta(event: dict[str, Any]) -> str:

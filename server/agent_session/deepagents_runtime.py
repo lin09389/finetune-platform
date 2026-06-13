@@ -12,21 +12,27 @@ from pydantic import BaseModel, Field
 from langgraph.types import Command
 
 from .agent_registry import AgentRegistry
-from .async_subagent_policy import ASYNC_SUBAGENT_TOOL_NAMES, async_subagent_manifest_for_agent
+from .async_subagent_policy import async_subagent_manifest_for_agent
 from .async_subagents import AsyncSubagentService
-from .deepagents_compat import patch_torch_pytree_for_transformers
 from .deepagents_events import DeepAgentsEventMapper
 from .execution_context import AgentDefinition, RuntimeExecutionContext
 from .deepagents_checkpoint import get_checkpoint_db_path
 from .model_adapter import get_chat_model
 from .permission import permission_policy_for_agent
-from .runtime import (
-    DeepAgentRuntimeConfig,
-    build_deep_agent_runtime,
-    memory_files_for_project,
-    resolve_enabled_skill_sources,
+from .runtime_contract import (
+    AgentRuntimeContract,
+    agent_system_prompt,
+    build_system_prompt,
+    platform_prompt_sections,
+    recursion_limit_for_agent,
+    system_prompt_sections,
+    validate_agent_launch,
 )
-from .state import clear_runtime_latches, ensure_session_state, set_phase
+from .runtime_factory import ensure_deepagents_available
+from .runtime import (
+    build_deep_agent_runtime,
+)
+from .session_state_machine import AgentSessionStateMachine
 
 logger = logging.getLogger(__name__)
 
@@ -51,31 +57,6 @@ LOCAL_ASYNC_TOOL_NAMES = frozenset(
         "update_async_task",
         "cancel_async_task",
     }
-)
-
-PLATFORM_IDENTITY_PROMPT = "你是 Finetune Platform 的代码 Agent。你需要先理解项目，再使用工具完成任务。"
-FILESYSTEM_PROMPT = (
-    "文件操作使用 DeepAgents harness 内置的 ls/read_file/glob/grep/write_file/edit_file。"
-    "项目文件位于 `/workspace/`；DeepAgents 内部文件和上下文文件位于状态后端，"
-    "包括 /context/、/large_tool_results/ 和 /conversation_history/。"
-    "长期记忆位于 `/memories/`，Agent 自身记忆位于 `/agent-memory/`，"
-    "组织策略位于只读的 `/policies/`。"
-    "读取或修改项目文件时必须使用 `/workspace/...` 路径。"
-)
-CONTEXT_PROMPT = (
-    "用户当前任务相关的大上下文会作为 /context/ 下的虚拟文件传入，"
-    "你需要按需读取 /context/task.md、/context/editor/active-file.md、"
-    "/context/mentions/ 或 /context/retrieval/ 下的文件，"
-    "不要把这些文件完整复述给用户。"
-)
-SKILLS_PROMPT = (
-    "Skills 使用 DeepAgents 官方 Skills System 加载；你需要先依据 skills 列表匹配任务，"
-    "只在适用时读取对应 SKILL.md 和其中引用的附属文件，不要把全部 skill 内容塞进主上下文。"
-)
-EXECUTION_PROMPT = (
-    "需要运行测试、安装依赖或调用 CLI 时，直接使用官方 sandbox execute 工具；"
-    "命令不需要平台白名单审批。"
-    "执行命令前优先说明意图，执行后根据 execute 输出继续判断。"
 )
 
 class StartAsyncTaskInput(BaseModel):
@@ -115,12 +96,8 @@ def deepagents_thread_id(session_id: str) -> str:
 
 
 def _load_create_deep_agent() -> Any:
-    try:
-        patch_torch_pytree_for_transformers()
-        from deepagents import create_deep_agent
-    except Exception as exc:  # pragma: no cover - depends on optional runtime dependency
-        raise DeepAgentsUnavailable(f"DeepAgents is not installed or failed to import: {exc}") from exc
-    return create_deep_agent
+    ensure_deepagents_available()
+    return True
 
 
 class CallableToolCallingChatModel:
@@ -236,6 +213,7 @@ class DeepAgentsSessionRunner:
         self._checkpointer = None
         self._checkpointer_context = None
         self._checkpointer_loop = None
+        self.state_machine = AgentSessionStateMachine(repository)
 
     async def run_prompt(self, session_id: str, prompt: str, *, context_files: dict[str, str] | None = None) -> dict[str, Any]:
         try:
@@ -264,12 +242,9 @@ class DeepAgentsSessionRunner:
                 return self._with_parts(session_id)
             if self._has_pending_permission(session_id):
                 return self._with_parts(session_id)
-            metadata = ensure_session_state(dict(session.get("metadata") or {}))
-            metadata = set_phase(metadata, "completed")
-            metadata = clear_runtime_latches(metadata)
             summary = last_summary or "DeepAgents 执行完成。"
             mapper.complete_summary(summary)
-            self.repository.update_session(session_id, status="completed", metadata=metadata)
+            self.state_machine.mark_completed(session_id)
             return self._with_parts(session_id)
         finally:
             await self._close_checkpointer()
@@ -296,11 +271,8 @@ class DeepAgentsSessionRunner:
                 return self._with_parts(session_id)
             if self._has_pending_permission(session_id):
                 return self._with_parts(session_id)
-            metadata = ensure_session_state(dict(session.get("metadata") or {}))
-            metadata = set_phase(metadata, "completed")
-            metadata = clear_runtime_latches(metadata)
             mapper.complete_summary(last_summary or "DeepAgents 已继续执行并完成。")
-            self.repository.update_session(session_id, status="completed", metadata=metadata)
+            self.state_machine.mark_completed(session_id)
             return self._with_parts(session_id)
         finally:
             await self._close_checkpointer()
@@ -309,17 +281,10 @@ class DeepAgentsSessionRunner:
         _load_create_deep_agent()
         session_id = str(session.get("id"))
         project_path = str(session.get("project_path") or Path.cwd())
-        metadata = dict(session.get("metadata") or {})
         agent_id = str(session.get("agent_id") or "build")
         agent = self.agent_registry.get(agent_id)
-        self._validate_session_agent_mode(agent, session)
-        user_id = str(metadata.get("user_id") or metadata.get("memory_user_id") or "default")
-        org_id = str(metadata.get("org_id") or "default-org")
-        enabled_skill_sources = metadata.get("enabled_skill_sources")
-        if enabled_skill_sources is not None and not isinstance(enabled_skill_sources, list):
-            enabled_skill_sources = None
+        metadata = dict(session.get("metadata") or {})
         permission_policy = permission_policy_for_agent(agent, agent_id, metadata)
-        permission_policy.validate_enabled_skills(project_path, enabled_skill_sources)
         context = RuntimeExecutionContext(
             session_id=session_id,
             goal=prompt,
@@ -334,31 +299,17 @@ class DeepAgentsSessionRunner:
             model = get_chat_model(context)
         else:
             raise RuntimeError("DeepAgents requires a configured provider/model or injected model_call")
-        return build_deep_agent_runtime(
-            DeepAgentRuntimeConfig(
-                model=model,
-                tools=self._local_async_tools_for_session(session),
-                system_prompt=self._system_prompt(agent_id),
-                project_path=project_path,
-                user_id=user_id,
-                agent_id=agent_id,
-                org_id=org_id,
-                memory=memory_files_for_project(project_path, user_id=user_id, agent_id=agent_id, org_id=org_id),
-                skills=resolve_enabled_skill_sources(
-                    project_path,
-                    user_id=user_id,
-                    agent_id=agent_id,
-                    org_id=org_id,
-                    enabled_skill_sources=enabled_skill_sources,
-                ),
-                enabled_skill_sources=enabled_skill_sources,
-                permissions=permission_policy.filesystem_permissions(),
-                middleware=permission_policy.tool_constraint_middleware(DEEPAGENTS_BUILTIN_TOOLS, logger),
-                subagents=self._subagents_for_agent(agent_id, model, metadata),
-                interrupt_on=permission_policy.interrupt_on(),
-                checkpointer=await self._get_checkpointer(),
-            )
+        contract = AgentRuntimeContract.for_agent_session(
+            session=session,
+            goal=prompt,
+            model=model,
+            agent_registry=self.agent_registry,
+            tools=self._local_async_tools_for_session(session),
+            middleware=permission_policy.tool_constraint_middleware(DEEPAGENTS_BUILTIN_TOOLS, logger),
+            subagents=self._subagents_for_agent(agent_id, model, metadata),
+            checkpointer=await self._get_checkpointer(),
         )
+        return build_deep_agent_runtime(contract)
 
     def _local_async_tools_for_session(self, session: dict[str, Any]) -> list[Any]:
         agent_id = str(session.get("agent_id") or "build")
@@ -509,73 +460,33 @@ class DeepAgentsSessionRunner:
         agent = self.agent_registry.get(str(session.get("agent_id") or "build"))
         config: dict[str, Any] = {"configurable": {"thread_id": deepagents_thread_id(session_id)}}
         if agent:
-            config["recursion_limit"] = self._recursion_limit_for_agent(agent)
+            config["recursion_limit"] = recursion_limit_for_agent(agent)
         return config
 
     @staticmethod
     def _validate_session_agent_mode(agent: AgentDefinition | None, session: dict[str, Any]) -> None:
         agent_id = str(session.get("agent_id") or "build")
-        if agent is None:
-            raise ValueError(f"Unknown agent id: {agent_id}")
-        metadata = dict(session.get("metadata") or {})
-        is_async_child = bool(metadata.get("async_subagent"))
-        if is_async_child:
-            if not agent.can_be_handoff_target:
-                raise ValueError(f"Agent '{agent_id}' cannot run as a subagent in mode '{agent.mode}'")
-            return
-        if not agent.can_start_directly:
-            raise ValueError(f"Agent '{agent_id}' cannot be started directly in mode '{agent.mode}'")
+        validate_agent_launch(agent, agent_id, dict(session.get("metadata") or {}))
 
     @staticmethod
     def _recursion_limit_for_agent(agent: AgentDefinition) -> int:
-        return max(2, int(agent.max_iterations)) * 4 + 8
+        return recursion_limit_for_agent(agent) or 0
 
     @staticmethod
     def _agent_system_prompt(agent: AgentDefinition) -> str:
-        prompt = agent.system_prompt.strip()
-        requirements = agent.output_requirements.strip()
-        if not requirements:
-            return prompt
-        return f"{prompt}\n\n## 输出要求\n{requirements}" if prompt else f"## 输出要求\n{requirements}"
+        return agent_system_prompt(agent)
 
     def _system_prompt_sections(self, agent: AgentDefinition | None) -> list[str]:
-        sections: list[str] = []
-        if agent:
-            agent_prompt = self._agent_system_prompt(agent)
-            if agent_prompt:
-                sections.append(agent_prompt)
-        sections.extend(self._platform_prompt_sections())
-        async_section = self._async_subagent_prompt(agent)
-        if async_section:
-            sections.append(async_section)
-        return sections
+        return system_prompt_sections(self.agent_registry, agent)
 
     @staticmethod
     def _platform_prompt_sections() -> list[str]:
-        return [
-            PLATFORM_IDENTITY_PROMPT,
-            FILESYSTEM_PROMPT,
-            CONTEXT_PROMPT,
-            SKILLS_PROMPT,
-            EXECUTION_PROMPT,
-        ]
+        return platform_prompt_sections()
 
     def _async_subagent_prompt(self, agent: AgentDefinition | None) -> str:
-        manifest = async_subagent_manifest_for_agent(self.agent_registry, agent)
-        if not agent or not manifest.enabled:
-            return ""
-        enabled_tools = set(agent.tools or [])
-        if not ASYNC_SUBAGENT_TOOL_NAMES.issubset(enabled_tools):
-            return ""
-        available = "、".join(manifest.target_ids)
-        return (
-            "你还可以启动本地异步子代理任务："
-            f"可用子代理类型是 {available}。"
-            "使用 start_async_task 启动后台只读任务后，必须立刻把完整 task_id 告诉用户并停止，"
-            "不要在同一轮里马上轮询。只有用户要求查看状态或结果时，才使用 check_async_task 或 list_async_tasks。"
-            "用户要求调整或停止异步任务时，使用 update_async_task 或 cancel_async_task。"
-            "不要凭历史消息报告任务状态，必须调用工具获取最新状态。"
-        )
+        from .runtime_contract import async_subagent_prompt
+
+        return async_subagent_prompt(self.agent_registry, agent)
 
     async def _get_checkpointer(self) -> Any:
         loop = asyncio.get_running_loop()
@@ -656,7 +567,7 @@ class DeepAgentsSessionRunner:
 
     def _system_prompt(self, agent_id: str) -> str:
         agent = self.agent_registry.get(agent_id)
-        return "\n\n".join(self._system_prompt_sections(agent))
+        return build_system_prompt(self.agent_registry, agent)
 
 
 __all__ = ["DeepAgentsSessionRunner", "DeepAgentsUnavailable", "deepagents_thread_id"]

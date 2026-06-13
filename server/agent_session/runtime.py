@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .deepagents_compat import patch_torch_pytree_for_transformers
 from skills import resolve_skill_source_specs, resolve_skill_sources, scan_skill_manifests
 
 
@@ -34,29 +32,32 @@ class DeepAgentRuntimeConfig:
 
 
 def build_deep_agent_runtime(config: DeepAgentRuntimeConfig) -> Any:
-    """Build the official DeepAgents runtime for an AgentSession."""
+    """Compatibility wrapper for the unified DeepAgents runtime factory."""
 
-    patch_torch_pytree_for_transformers()
-    from deepagents import create_deep_agent
+    from .runtime_contract import AgentRuntimeContract
+    from .runtime_factory import build_deep_agent_from_contract
 
-    return create_deep_agent(
-        model=config.model,
-        tools=config.tools or [],
-        system_prompt=config.system_prompt,
-        middleware=config.middleware or (),
-        backend=build_deepagents_backend(
-            config.project_path,
+    return build_deep_agent_from_contract(
+        AgentRuntimeContract(
+            runtime_kind="agent_session",
+            session_id="compat",
+            project_path=config.project_path,
             user_id=config.user_id,
             agent_id=config.agent_id,
             org_id=config.org_id,
+            model=config.model,
+            tools=config.tools or [],
+            system_prompt=config.system_prompt,
+            memory=config.memory,
+            skills=config.skills or [],
             enabled_skill_sources=config.enabled_skill_sources,
-        ),
-        memory=config.memory,
-        skills=config.skills or [],
-        subagents=config.subagents or [],
-        permissions=config.permissions,
-        interrupt_on=config.interrupt_on,
-        checkpointer=config.checkpointer,
+            permissions=config.permissions,
+            middleware=config.middleware,
+            subagents=config.subagents,
+            interrupt_on=config.interrupt_on,
+            checkpointer=config.checkpointer,
+            backend_mode="workspace",
+        )
     )
 
 
@@ -79,11 +80,9 @@ def build_deepagents_backend(
     from deepagents.backends import CompositeBackend, LocalShellBackend, StateBackend
     from memory.memory_service import get_memory_service
 
-    env = {
-        key: value
-        for key, value in os.environ.items()
-        if key.upper() in {"PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "SYSTEMDRIVE", "COMSPEC", "TEMP", "TMP"}
-    }
+    from .runtime_factory import deepagents_shell_env
+
+    env = deepagents_shell_env()
     project_backend = LocalShellBackend(
         root_dir=str(Path(project_path).resolve()),
         virtual_mode=True,

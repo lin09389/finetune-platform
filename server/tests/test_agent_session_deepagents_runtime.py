@@ -16,6 +16,10 @@ from agent_session.repository import AgentSessionRepository
 from agent_session.service import AgentSessionService
 from agent_session.deepagents_runtime import DeepAgentsSessionRunner
 from agent_session.execution_context import AgentDefinition
+from agent_session.agent_registry import AgentRegistry
+from agent_session.runtime_contract import AgentRuntimeContract
+from agent_session.runtime_factory import DeepAgentsRuntimeFactory
+from agent_session.session_state_machine import AgentSessionStateMachine
 from agent_session.runtime import (
     EPHEMERAL_BACKEND_ROUTES,
     FALLBACK_STATE_BACKEND_ROUTE,
@@ -23,6 +27,112 @@ from agent_session.runtime import (
     build_deepagents_backend,
     resolve_interrupt_on,
 )
+
+
+def test_runtime_contract_enforces_agent_launch_modes(tmp_path: Path):
+    registry = AgentRegistry()
+
+    with pytest.raises(ValueError, match="cannot be started directly"):
+        AgentRuntimeContract.for_agent_session(
+            session={"id": "session", "project_path": str(tmp_path), "agent_id": "explore", "metadata": {}},
+            goal="direct subagent",
+            model=object(),
+            agent_registry=registry,
+            tools=[],
+            middleware=[],
+            subagents=[],
+            checkpointer=False,
+        )
+
+    contract = AgentRuntimeContract.for_agent_session(
+        session={
+            "id": "session",
+            "project_path": str(tmp_path),
+            "agent_id": "explore",
+            "metadata": {"async_subagent": True},
+        },
+        goal="async child",
+        model=object(),
+        agent_registry=registry,
+        tools=[],
+        middleware=[],
+        subagents=[],
+        checkpointer=False,
+    )
+
+    assert contract.runtime_kind == "agent_session"
+    assert contract.agent_id == "explore"
+    assert contract.recursion_limit is not None
+
+
+def test_project_chat_contract_is_readonly(tmp_path: Path):
+    (tmp_path / "AGENTS.md").write_text("# rules\n", encoding="utf-8")
+
+    contract = AgentRuntimeContract.for_project_chat(project_path=str(tmp_path), model=object())
+
+    assert contract.runtime_kind == "project_chat"
+    assert contract.backend_mode == "project_chat_readonly"
+    assert contract.tools == []
+    assert contract.skills is None
+    assert contract.memory == ["/workspace/AGENTS.md"]
+    assert "只读项目讨论助手" in contract.system_prompt
+
+
+def test_runtime_factory_is_deepagents_creation_boundary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    captured: dict[str, object] = {}
+
+    def fake_create_deep_agent(**kwargs):
+        captured.update(kwargs)
+        return {"graph": True}
+
+    class FakeFilesystemPermission:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    fake_module = type(
+        "DeepAgentsModule",
+        (),
+        {
+            "create_deep_agent": staticmethod(fake_create_deep_agent),
+            "FilesystemPermission": FakeFilesystemPermission,
+        },
+    )
+    monkeypatch.setitem(__import__("sys").modules, "deepagents", fake_module)
+    monkeypatch.setattr(DeepAgentsRuntimeFactory, "_readonly_project_backend", staticmethod(lambda _project_path: object()))
+
+    contract = AgentRuntimeContract.for_project_chat(project_path=str(tmp_path), model=object())
+    graph = DeepAgentsRuntimeFactory().build(contract)
+
+    assert graph == {"graph": True}
+    assert captured["system_prompt"] == contract.system_prompt
+    assert captured["checkpointer"] is False
+    assert captured["tools"] == []
+
+
+def test_agent_session_state_machine_clears_latches(tmp_path: Path):
+    repository = AgentSessionRepository(str(tmp_path / "agents.db"))
+    session = repository.create_session(
+        {
+            "agent_id": "build",
+            "title": "state",
+            "metadata": {
+                "active_prompt_id": "prompt-1",
+                "background_run": True,
+                "pending_deepagents_interrupt": {"part_id": "part"},
+            },
+        }
+    )
+    machine = AgentSessionStateMachine(repository)
+
+    running = machine.mark_running(session["id"])
+    completed = machine.mark_completed(session["id"])
+
+    assert running["status"] == "running"
+    assert completed["status"] == "completed"
+    assert completed["metadata"]["current_phase"] == "completed"
+    assert completed["metadata"]["active_prompt_id"] is None
+    assert completed["metadata"]["background_run"] is False
+    assert completed["metadata"]["pending_deepagents_interrupt"] is None
 
 
 def test_agent_session_deepagents_reads_file_and_completes(tmp_path: Path):

@@ -35,7 +35,8 @@ from .models import (
 )
 from .permission import default_deepagents_permission_metadata, validate_hitl_decisions
 from .repository import AgentSessionRepository
-from .state import clear_runtime_latches, ensure_session_state, record_fallback_summary, set_phase
+from .session_state_machine import AgentSessionStateMachine
+from .state import clear_runtime_latches, ensure_session_state, record_fallback_summary
 from .workspace_view import AgentWorkspaceViewService
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,7 @@ class AgentSessionService:
             async_subagent_service=self.async_subagent_service,
         )
         self.workspace_view_service = AgentWorkspaceViewService(self)
+        self.state_machine = AgentSessionStateMachine(self.repository)
         self._prompt_tasks: dict[str, PromptTaskRecord] = {}
         self._prompt_tasks_lock = threading.Lock()
 
@@ -403,10 +405,8 @@ class AgentSessionService:
                 "active_context": request.active_context,
                 "explicit_context": request.explicit_context,
             }
-        metadata = set_phase(metadata, "running")
-        session = self.repository.update_session(
+        session = self.state_machine.mark_running(
             session_id,
-            status="running",
             provider=request.provider or session.get("provider"),
             model=request.model or session.get("model"),
             metadata=metadata,
@@ -433,11 +433,7 @@ class AgentSessionService:
             await self.prompt(session_id, request)
             session = self.repository.get_session(session_id)
             if session:
-                metadata = ensure_session_state(dict(session.get("metadata") or {}))
-                if metadata.get("active_prompt_id") == prompt_id:
-                    metadata["last_prompt_completed_at"] = datetime.now().isoformat()
-                    metadata["active_prompt_id"] = None
-                    self.repository.update_session(session_id, metadata=metadata)
+                self.state_machine.clear_active_prompt(session_id, prompt_id)
         except asyncio.CancelledError:
             session = self.repository.get_session(session_id)
             if session and str(session.get("status") or "") not in self.TERMINAL_STATUSES:
@@ -471,16 +467,6 @@ class AgentSessionService:
 
         message = reason or "用户已中断 Agent 任务。"
         self._cancel_prompt_task(session_id)
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        metadata = set_phase(metadata, "interrupted")
-        metadata["interrupt_requested"] = True
-        metadata["interrupt_recorded"] = True
-        metadata["interrupted_at"] = datetime.now().isoformat()
-        metadata = clear_runtime_latches(metadata)
-        state = dict(metadata.get("state") or {})
-        state["latest_error"] = message
-        metadata["state"] = state
-
         for part in self.repository.list_parts(session_id):
             if part.get("status") == "running":
                 payload = dict(part.get("payload") or {})
@@ -493,7 +479,7 @@ class AgentSessionService:
                     payload=payload,
                 )
 
-        self.repository.update_session(session_id, status="interrupted", metadata=metadata)
+        self.state_machine.mark_interrupted(session_id, reason=message)
         self.repository.add_part(
             session_id,
             "summary",
@@ -534,7 +520,7 @@ class AgentSessionService:
             content=message,
             payload={"summary": message, "fallback": False, "error": str(exc)[:1200]},
         )
-        self.repository.update_session(session_id, status="needs_manual_review", metadata=metadata)
+        self.state_machine.mark_failed(session_id, metadata=metadata, status="needs_manual_review")
         self._event(
             session_id,
             "session_failed",
@@ -626,8 +612,7 @@ class AgentSessionService:
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
         if not approved:
             updated = self.repository.update_part(part["id"], status="blocked")
-            metadata = set_phase(metadata, "failed")
-            self.repository.update_session(session_id, status="failed", metadata=metadata)
+            self.state_machine.mark_failed(session_id, metadata=metadata, status="failed")
             event = self.repository.add_event(
                 session_id,
                 "action_rejected",
@@ -647,8 +632,7 @@ class AgentSessionService:
             return result
 
         updated = self.repository.update_part(part["id"], status="approved")
-        metadata = set_phase(metadata, "waiting_approval")
-        self.repository.update_session(session_id, status="waiting_approval", metadata=metadata)
+        self.state_machine.mark_waiting_approval(session_id, metadata=metadata)
         event = self.repository.add_event(
             session_id,
             "action_approved",
@@ -684,7 +668,7 @@ class AgentSessionService:
                     f"原始错误：{str(original_exc)[:500]}；记录错误：{str(failure_exc)[:500]}"
                 )
                 metadata = self._ensure_failed_metadata(session, message)
-                self.repository.update_session(session_id, status="needs_manual_review", metadata=metadata)
+                self.state_machine.mark_failed(session_id, metadata=metadata, status="needs_manual_review")
                 event = self.repository.add_event(
                     session_id,
                     "session_failed",
@@ -724,7 +708,7 @@ class AgentSessionService:
                 content=message,
                 payload={"summary": message, "fallback": True, "recovered_after_restart": True},
             )
-            self.repository.update_session(session_id, status="needs_manual_review", metadata=metadata)
+            self.state_machine.mark_failed(session_id, metadata=metadata, status="needs_manual_review")
             event = self.repository.add_event(
                 session_id,
                 "session_failed",
@@ -756,9 +740,8 @@ class AgentSessionService:
         updated = self.repository.update_part_if_status(part["id"], "pending", status="approved", payload=payload)
         if not updated:
             raise ValueError("Permission part is not pending")
-        metadata = set_phase(metadata, "running")
         metadata["pending_deepagents_interrupt"] = None
-        self.repository.update_session(session_id, status="running", metadata=metadata)
+        self.state_machine.mark_running(session_id, metadata=metadata)
         event = self.repository.add_event(
             session_id,
             "permission_decided",
@@ -850,7 +833,6 @@ class AgentSessionService:
     def _ensure_failed_metadata(self, session: dict[str, Any], message: str) -> dict[str, Any]:
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
         metadata = record_fallback_summary(metadata)
-        metadata = set_phase(metadata, "needs_manual_review")
         metadata = clear_runtime_latches(metadata)
         metadata["latest_error"] = message
         metadata["model_protocol_status"] = "needs_manual_review"
@@ -1287,7 +1269,6 @@ class AgentSessionService:
         if not session:
             raise ValueError("Agent session not found")
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        metadata = set_phase(metadata, "needs_manual_review")
         metadata["fallback_reason"] = None
         metadata["last_graph_error"] = message[:600] if code == "langgraph_init_failed" else metadata.get("last_graph_error")
         metadata["last_model_error"] = message[:600]
@@ -1312,7 +1293,7 @@ class AgentSessionService:
             content=message,
             payload={"summary": message, "error_code": code, "fallback": False},
         )
-        self.repository.update_session(session_id, status="needs_manual_review", metadata=metadata)
+        self.state_machine.mark_failed(session_id, metadata=metadata, status="needs_manual_review")
         self._event(
             session_id,
             "agent_chain_failed",
