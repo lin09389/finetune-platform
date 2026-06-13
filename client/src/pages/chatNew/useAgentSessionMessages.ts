@@ -82,7 +82,7 @@ export function useAgentSessionMessages() {
       ui_state: uiState,
       ui_item: uiItem,
       active_agent_id: session.agent_id,
-      task_plan: session.metadata?.task_plan,
+      execution_plan: session.metadata?.execution_plan,
       current_stage_id: session.metadata?.current_stage_id,
       current_node_id: session.metadata?.current_node_id,
       agent_part: part,

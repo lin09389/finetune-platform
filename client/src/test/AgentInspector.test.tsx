@@ -59,7 +59,6 @@ function workspace(): AgentWorkspace {
         },
       ],
     },
-    task_plan: null,
     diagnostics: {},
     async_tasks: {
       tasks: [

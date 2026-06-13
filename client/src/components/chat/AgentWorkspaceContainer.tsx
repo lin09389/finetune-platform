@@ -8,7 +8,7 @@ import AgentAsyncTasksPanel from './AgentAsyncTasksPanel';
 import AgentArtifactLedger from './AgentArtifactLedger';
 import AgentExecutionTimeline from './AgentExecutionTimeline';
 import AgentInspector from './AgentInspector';
-import AgentPlanPanel from './AgentPlanPanel';
+import AgentOrchestrationPanel from './AgentOrchestrationPanel';
 import AgentRuntimePanel from './AgentRuntimePanel';
 import AgentWorkbenchPanel, { WorkbenchEmpty } from './AgentWorkbenchPanel';
 import styles from './AgentWorkspacePanels.module.css';
@@ -71,10 +71,12 @@ export default function AgentWorkspaceContainer({
       configContent={configContent}
       progressContent={progressContent}
       planContent={(
-        <AgentPlanPanel
-          plan={agentWorkspace.workspace?.plan ?? null}
+        <AgentOrchestrationPanel
+          executionPlan={agentWorkspace.workspace?.execution_plan ?? agentWorkspace.workspace?.runtime?.execution_plan ?? null}
+          runtimePolicy={agentWorkspace.workspace?.runtime_policy ?? agentWorkspace.workspace?.runtime?.policy ?? null}
+          resourceProfile={agentWorkspace.workspace?.resource_profile ?? agentWorkspace.workspace?.runtime?.resource_profile ?? null}
+          asyncTasks={agentWorkspace.workspace?.async_tasks.tasks ?? []}
           onSelectTask={selectTask}
-          onSelectArtifact={selectArtifact}
         />
       )}
       artifactLedgerContent={(

@@ -483,6 +483,8 @@ export interface AgentInfo {
   handoff_targets?: string[];
   async_subagent_targets?: string[];
   hidden?: boolean;
+  runtime_policy?: AgentRuntimePolicy;
+  execution_plan?: AgentExecutionPlan;
 }
 
 export interface AgentSessionCreate {
@@ -789,7 +791,6 @@ export interface AgentArtifact {
 
 export interface AgentSessionOverview {
   session: AgentSession;
-  task_plan?: Record<string, any> | null;
   recent_events: AgentSessionDiagnosticItem[];
   artifacts: AgentArtifact[];
   diagnostics: AgentSessionDiagnostics;
@@ -949,23 +950,6 @@ export interface AgentApprovalInboxItem {
   updated_at?: string | null;
 }
 
-export interface AgentTodoItem {
-  id: string;
-  title: string;
-  status: 'pending' | 'in_progress' | 'completed' | 'blocked';
-  summary: string;
-  owner_agent?: string | null;
-  source: string;
-  linked_artifact_id?: string | null;
-  linked_task_id?: string | null;
-}
-
-export interface AgentWorkspacePlan {
-  todos: AgentTodoItem[];
-  source: string;
-  updated_at?: string | null;
-}
-
 export interface AgentWorkspaceMount {
   path: string;
   kind: string;
@@ -982,11 +966,127 @@ export interface AgentWorkspaceSkillSource {
   enabled?: boolean;
 }
 
+export interface AgentExecutionPlan {
+  schema_version: 'agent.execution.plan.v1' | string;
+  runtime: string;
+  backend_mode: string;
+  thread_id?: string | null;
+  recursion_limit?: number | null;
+  checkpointer: boolean;
+  state_machine: string;
+  plan_id?: string | null;
+  session_id?: string | null;
+  goal: string;
+  status: string;
+  current_node_id?: string | null;
+  nodes: AgentExecutionPlanNode[];
+  edges: AgentExecutionPlanEdge[];
+  created_at?: string | null;
+  updated_at?: string | null;
+  lifecycle: string[];
+}
+
+export interface AgentExecutionPlanNode {
+  id: string;
+  title: string;
+  description?: string;
+  agent_id?: string;
+  kind?: string;
+  status: string;
+  depends_on?: string[];
+  input_contract?: Record<string, any>;
+  output_contract?: Record<string, any>;
+  retry_policy?: Record<string, any>;
+  approval_policy?: Record<string, any>;
+  output?: Record<string, any>;
+  error?: string | null;
+  source_task_id?: string | null;
+}
+
+export interface AgentExecutionPlanEdge {
+  from: string;
+  to: string;
+  type: string;
+}
+
+export interface AgentRuntimePolicy {
+  schema_version: 'agent.runtime.policy.v1' | string;
+  runtime_kind: string;
+  agent_id: string;
+  agent_name: string;
+  mode: string;
+  readonly: boolean;
+  workspace_root?: string | null;
+  provider?: string | null;
+  model?: string | null;
+  capabilities: Record<string, boolean>;
+  tools: {
+    allowed?: string[];
+    allow_all_builtin?: boolean;
+    async_tools_enabled?: boolean;
+    async_tool_names?: string[];
+    [key: string]: any;
+  };
+  output_contract: {
+    source?: string;
+    format?: string;
+    requirements?: string;
+    enforced_in_prompt?: boolean;
+    [key: string]: any;
+  };
+  recovery_policy: {
+    failure_status?: string | null;
+    manual_review_status?: string | null;
+    resume_after_permission?: boolean;
+    restart_recovery?: boolean;
+    records_fallback_summary?: boolean;
+    state_machine?: string;
+    [key: string]: any;
+  };
+  handoff_targets: string[];
+  async_subagent_targets: string[];
+  filesystem_profile: string;
+  interrupt_on?: Record<string, any> | null;
+  enabled_skill_sources?: string[] | null;
+  skill_sources: AgentWorkspaceSkillSource[];
+  vfs_mounts: AgentWorkspaceMount[];
+  memory_files: string[];
+  resource_profile: AgentResourceProfile;
+  execution_plan: AgentExecutionPlan;
+}
+
+export interface AgentResourceProfile {
+  schema_version: 'agent.resource.profile.v1' | string;
+  agent: Record<string, any>;
+  memory: {
+    user_id?: string;
+    agent_id?: string;
+    org_id?: string;
+    namespaces?: Array<{
+      scope: string;
+      namespace: string;
+      mount: string;
+      writable: boolean;
+    }>;
+    files?: string[];
+    [key: string]: any;
+  };
+  skills: {
+    enabled_skill_sources?: string[] | null;
+    sources?: AgentWorkspaceSkillSource[];
+    [key: string]: any;
+  };
+  mounts: AgentWorkspaceMount[];
+}
+
 export interface AgentWorkspaceRuntimeContext {
   workspace_root?: string | null;
   vfs_mounts: AgentWorkspaceMount[];
   skill_sources: AgentWorkspaceSkillSource[];
   memory_files: string[];
+  policy?: AgentRuntimePolicy | null;
+  resource_profile?: AgentResourceProfile | null;
+  execution_plan?: AgentExecutionPlan | null;
 }
 
 export interface AgentWorkspace {
@@ -998,9 +1098,6 @@ export interface AgentWorkspace {
   };
   timeline: AgentSessionUiTimelineItem[];
   pending_permission?: AgentSessionUiPendingPermission | null;
-  task_plan?: Record<string, any> | null;
-  plan?: AgentWorkspacePlan;
-  todos?: AgentTodoItem[];
   diagnostics: AgentSessionDiagnostics & Record<string, any>;
   async_tasks: {
     tasks: AgentAsyncTask[];
@@ -1012,6 +1109,9 @@ export interface AgentWorkspace {
   execution_timeline?: AgentExecutionTimelineItem[];
   recent_events: AgentWorkspaceRecentEvent[];
   runtime?: AgentWorkspaceRuntimeContext;
+  runtime_policy?: AgentRuntimePolicy | null;
+  resource_profile?: AgentResourceProfile | null;
+  execution_plan?: AgentExecutionPlan | null;
   vfs_mounts?: AgentWorkspaceMount[];
   skill_sources?: AgentWorkspaceSkillSource[];
 }
@@ -1034,6 +1134,8 @@ export interface AgentSkillSource {
 
 export interface AgentSkillRegistry {
   sources: AgentSkillSource[];
+  runtime_policy?: AgentRuntimePolicy | null;
+  resource_profile?: AgentResourceProfile | null;
 }
 
 export interface AgentMemoryFile {

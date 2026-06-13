@@ -55,7 +55,6 @@ function workspace(tasks: AgentAsyncTask[] = [task('agt_1', 'running'), task('ag
     status_text: { current_phase: 'running' },
     timeline: [],
     pending_permission: null,
-    task_plan: null,
     diagnostics: {},
     async_tasks: {
       tasks,

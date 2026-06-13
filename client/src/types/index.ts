@@ -455,7 +455,7 @@ export interface ChatAgentMetadata {
   agent_parts?: unknown[];
   agent_part?: unknown;
   agent_session_state?: unknown;
-  task_plan?: unknown;
+  execution_plan?: unknown;
   current_stage_id?: string;
   current_node_id?: string;
   agent_streaming_diagnostics?: {

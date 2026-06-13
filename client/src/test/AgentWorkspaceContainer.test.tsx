@@ -43,29 +43,6 @@ function workspace(): AgentWorkspace {
         allowed_decisions: ['approve', 'reject'],
       }],
     },
-    task_plan: null,
-    plan: {
-      source: 'metadata',
-      updated_at: '2026-01-01T00:00:00',
-      todos: [
-        {
-          id: 'todo_1',
-          title: 'Read project',
-          status: 'in_progress',
-          summary: 'Inspect files',
-          source: 'metadata',
-        },
-      ],
-    },
-    todos: [
-      {
-        id: 'todo_1',
-        title: 'Read project',
-        status: 'in_progress',
-        summary: 'Inspect files',
-        source: 'metadata',
-      },
-    ],
     diagnostics: {},
     async_tasks: {
       tasks: [{
@@ -128,6 +105,46 @@ function workspace(): AgentWorkspace {
       payload_excerpt: { tool: 'read_file' },
     }],
     recent_events: [],
+    execution_plan: {
+      schema_version: 'agent.execution.plan.v1',
+      runtime: 'deepagents',
+      backend_mode: 'workspace',
+      thread_id: 'agent_session:ags_parent:deepagents',
+      recursion_limit: 20,
+      checkpointer: true,
+      state_machine: 'agent_session.v1',
+      plan_id: 'plan_ags_parent',
+      session_id: 'ags_parent',
+      goal: 'Build',
+      status: 'running',
+      current_node_id: 'execute_primary_agent',
+      nodes: [
+        {
+          id: 'understand_task',
+          title: '理解任务与运行约束',
+          description: '读取 runtime contract',
+          agent_id: 'build',
+          kind: 'agent',
+          status: 'completed',
+          depends_on: [],
+        },
+        {
+          id: 'execute_primary_agent',
+          title: '执行主 Agent 任务',
+          description: '调用工具并产出结果',
+          agent_id: 'build',
+          kind: 'agent',
+          status: 'running',
+          depends_on: ['understand_task'],
+          approval_policy: { requires_approval: true, tools: ['edit_file'] },
+          retry_policy: { max_attempts: 1 },
+        },
+      ],
+      edges: [{ from: 'understand_task', to: 'execute_primary_agent', type: 'depends_on' }],
+      created_at: '2026-01-01T00:00:00',
+      updated_at: '2026-01-01T00:00:00',
+      lifecycle: ['idle', 'running', 'completed'],
+    },
     runtime: {
       workspace_root: 'C:/workspace',
       vfs_mounts: [{
@@ -144,6 +161,25 @@ function workspace(): AgentWorkspace {
         available: true,
       }],
       memory_files: ['/memories/user.md'],
+      execution_plan: {
+        schema_version: 'agent.execution.plan.v1',
+        runtime: 'deepagents',
+        backend_mode: 'workspace',
+        thread_id: 'agent_session:ags_parent:deepagents',
+        recursion_limit: 20,
+        checkpointer: true,
+        state_machine: 'agent_session.v1',
+        plan_id: 'plan_ags_parent',
+        session_id: 'ags_parent',
+        goal: 'Build',
+        status: 'running',
+        current_node_id: 'execute_primary_agent',
+        nodes: [],
+        edges: [],
+        created_at: '2026-01-01T00:00:00',
+        updated_at: '2026-01-01T00:00:00',
+        lifecycle: ['idle', 'running', 'completed'],
+      },
     },
     vfs_mounts: [{
       path: '/workspace/',
@@ -221,7 +257,8 @@ describe('AgentWorkspaceContainer', () => {
     rerender(<AgentWorkspaceContainer activeKey="subagents" {...props} />);
     expect(screen.getByTestId('async-tasks')).toHaveTextContent('1:1');
     rerender(<AgentWorkspaceContainer activeKey="plan" {...props} />);
-    expect(screen.getByText('Read project')).toBeInTheDocument();
+    expect(screen.getByText('Agent Orchestration')).toBeInTheDocument();
+    expect(screen.getAllByText('执行主 Agent 任务').length).toBeGreaterThan(0);
     rerender(<AgentWorkspaceContainer activeKey="artifacts" {...props} />);
     expect(screen.getByText('Key finding')).toBeInTheDocument();
     rerender(<AgentWorkspaceContainer activeKey="approvals" {...props} />);

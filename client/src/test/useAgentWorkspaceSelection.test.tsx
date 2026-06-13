@@ -18,7 +18,6 @@ function workspace(id = 'ags_parent'): AgentWorkspace {
     status_text: {},
     timeline: [],
     pending_permission: null,
-    task_plan: null,
     diagnostics: {},
     async_tasks: {
       tasks: [],

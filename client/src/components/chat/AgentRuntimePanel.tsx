@@ -17,6 +17,9 @@ export default function AgentRuntimePanel({ runtime, sessionId }: AgentRuntimePa
   if (!runtime) {
     return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无运行时上下文" />;
   }
+  const policy = runtime.policy;
+  const resourceProfile = runtime.resource_profile || policy?.resource_profile;
+  const executionPlan = runtime.execution_plan || policy?.execution_plan;
 
   const openMemoryFile = async (path: string) => {
     if (!sessionId) return;
@@ -36,10 +39,72 @@ export default function AgentRuntimePanel({ runtime, sessionId }: AgentRuntimePa
     <div className={styles.panel}>
       <div className={styles.panelHeader}>
         <div>
-          <Typography.Text strong>Runtime Context</Typography.Text>
-          <Typography.Text type="secondary">{runtime.workspace_root || '未绑定工作区'}</Typography.Text>
+          <Typography.Text strong>Runtime Policy</Typography.Text>
+          <Typography.Text type="secondary">{policy?.schema_version || 'legacy runtime context'}</Typography.Text>
+        </div>
+        <div className={styles.tagRow}>
+          <Tag color={policy?.readonly ? 'default' : 'processing'}>{policy?.readonly ? '只读' : '可写'}</Tag>
+          <Tag>{executionPlan?.backend_mode || 'workspace'}</Tag>
         </div>
       </div>
+
+      <section className={styles.section}>
+        <Typography.Text strong>Execution Plan</Typography.Text>
+        <div className={styles.compactList}>
+          <div className={styles.compactItem}>
+            <span>Workspace</span>
+            <Typography.Text code>{policy?.workspace_root || runtime.workspace_root || '未绑定'}</Typography.Text>
+          </div>
+          <div className={styles.compactItem}>
+            <span>Agent</span>
+            <Typography.Text code>{resourceProfile?.agent?.id || policy?.agent_id || 'unknown'}</Typography.Text>
+            <div className={styles.tagRow}>
+              <Tag>{resourceProfile?.agent?.mode || policy?.mode || 'all'}</Tag>
+              <Tag>{policy?.filesystem_profile || 'unknown'}</Tag>
+            </div>
+          </div>
+          <div className={styles.compactItem}>
+            <span>Resources</span>
+            <Typography.Text code>{resourceProfile?.schema_version || 'legacy'}</Typography.Text>
+            <div className={styles.tagRow}>
+              <Tag>{resourceProfile?.memory?.namespaces?.length ?? 0} memory</Tag>
+              <Tag>{resourceProfile?.skills?.sources?.length ?? runtime.skill_sources.length} skills</Tag>
+              <Tag>{resourceProfile?.mounts?.length ?? runtime.vfs_mounts.length} mounts</Tag>
+            </div>
+          </div>
+          <div className={styles.compactItem}>
+            <span>Runtime</span>
+            <Typography.Text code>{executionPlan?.runtime || 'deepagents'}</Typography.Text>
+            <div className={styles.tagRow}>
+              <Tag>limit {executionPlan?.recursion_limit ?? 'auto'}</Tag>
+              <Tag color={executionPlan?.checkpointer === false ? 'default' : 'processing'}>
+                {executionPlan?.checkpointer === false ? 'no checkpoint' : 'checkpoint'}
+              </Tag>
+            </div>
+          </div>
+          <div className={styles.compactItem}>
+            <span>Output</span>
+            <Typography.Text code>{policy?.output_contract?.format || 'plain_text'}</Typography.Text>
+            <div className={styles.tagRow}>
+              <Tag color={policy?.output_contract?.enforced_in_prompt ? 'processing' : 'default'}>
+                {policy?.output_contract?.enforced_in_prompt ? 'prompt enforced' : 'default'}
+              </Tag>
+            </div>
+          </div>
+          <div className={styles.compactItem}>
+            <span>Recovery</span>
+            <Typography.Text code>{policy?.recovery_policy?.failure_status || 'failed'}</Typography.Text>
+            <div className={styles.tagRow}>
+              <Tag color={policy?.recovery_policy?.resume_after_permission ? 'processing' : 'default'}>
+                {policy?.recovery_policy?.resume_after_permission ? 'resume' : 'no resume'}
+              </Tag>
+              <Tag color={policy?.recovery_policy?.restart_recovery ? 'processing' : 'default'}>
+                {policy?.recovery_policy?.restart_recovery ? 'restart recovery' : 'no restart recovery'}
+              </Tag>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section className={styles.section}>
         <Typography.Text strong>VFS Mounts</Typography.Text>
