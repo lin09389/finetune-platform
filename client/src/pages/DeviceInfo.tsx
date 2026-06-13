@@ -198,7 +198,9 @@ export default function DeviceInfo() {
                       <div className={styles.platformName}>
                         {getPlatformName(deviceInfo.platform)}
                       </div>
-                      {/* 不显示设备名称 */}
+                      {deviceInfo.device_name && (
+                        <div className={styles.deviceName}>{deviceInfo.device_name}</div>
+                      )}
                     </div>
 
                     <div className={styles.metricsRow}>

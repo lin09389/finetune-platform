@@ -535,12 +535,23 @@ export default function Dashboard() {
                               className={styles.metricBarFill}
                               style={{ 
                                 width: `${vramPercent}%`,
-                                background: 'var(--gradient-brand)'
+                                background: vramPercent > 90
+                                  ? 'linear-gradient(90deg, #ef4444, #f87171)'
+                                  : vramPercent > 75
+                                    ? 'linear-gradient(90deg, #f59e0b, #fbbf24)'
+                                    : 'var(--gradient-brand)',
+                                transition: 'width 0.8s ease, background 0.6s ease',
                               }}
                             />
                           </div>
-                          <span style={{ fontSize: 11, color: 'var(--text-tertiary)', textAlign: 'right' }}>
-                            已占用 {vramPercent}%
+                          <span style={{ fontSize: 11, textAlign: 'right', display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ color: 'var(--text-tertiary)' }}>已占用 {vramPercent}%</span>
+                            {vramPercent > 90 && (
+                              <span style={{ color: '#ef4444', fontWeight: 600, fontSize: 10, padding: '1px 6px', background: 'rgba(239,68,68,0.12)', borderRadius: 4, border: '1px solid rgba(239,68,68,0.3)' }}>危险</span>
+                            )}
+                            {vramPercent > 75 && vramPercent <= 90 && (
+                              <span style={{ color: '#f59e0b', fontWeight: 600, fontSize: 10, padding: '1px 6px', background: 'rgba(245,158,11,0.12)', borderRadius: 4, border: '1px solid rgba(245,158,11,0.3)' }}>警告</span>
+                            )}
                           </span>
                         </div>
 

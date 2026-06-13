@@ -149,6 +149,43 @@
   color: var(--accent-neon-red);
 }
 
+.actionBtnDisabled,
+.actionBtnDisabled:hover {
+  opacity: 0.38;
+  cursor: not-allowed;
+  background: rgba(255, 255, 255, 0.02) !important;
+  border-color: rgba(255, 255, 255, 0.06) !important;
+  color: var(--text-tertiary) !important;
+}
+
+/* Size bar (replaces old health bar fill) */
+.sizeBarFill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #818cf8);
+  border-radius: 2px;
+  transition: width 0.9s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Size score header row */
+.sizeScoreHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Size label badge */
+.sizeBadge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #818cf8;
+  letter-spacing: 0.03em;
+}
+
+
 /* Dropzone */
 .dropzone {
   border: 2px dashed rgba(255, 255, 255, 0.2);

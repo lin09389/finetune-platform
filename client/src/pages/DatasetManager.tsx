@@ -233,8 +233,25 @@ export default function DatasetManager() {
     return 'var(--accent-primary, #6366f1)';
   };
 
+  const isElectron = typeof window !== 'undefined' && Boolean(window.electronAPI);
+
   const renderDatasetCard = (record: DatasetInfo) => {
-    const healthPercentage = Math.min(100, Math.max(10, (record.samples / 5000) * 100));
+    // 规模等级：< 500 微型, < 2000 小型, < 10000 中型, >= 10000 大型
+    const sizePercent = record.samples < 500
+      ? Math.max(8, (record.samples / 500) * 25)
+      : record.samples < 2000
+        ? 25 + ((record.samples - 500) / 1500) * 25
+        : record.samples < 10000
+          ? 50 + ((record.samples - 2000) / 8000) * 35
+          : Math.min(100, 85 + ((record.samples - 10000) / 90000) * 15);
+
+    const sizeLabel = record.samples < 500
+      ? '微型'
+      : record.samples < 2000
+        ? '小型'
+        : record.samples < 10000
+          ? '中型'
+          : '大型';
 
     return (
       <MotionItem layout key={record.id}>
@@ -262,9 +279,12 @@ export default function DatasetManager() {
           </div>
 
           <div className={styles.healthScore}>
-            <div className={styles.metricLabel}>数据健康参考</div>
+            <div className={styles.sizeScoreHeader}>
+              <span className={styles.metricLabel}>数据集规模参考</span>
+              <span className={styles.sizeBadge}>{sizeLabel}</span>
+            </div>
             <div className={styles.healthBar}>
-              <div className={styles.healthFill} style={{ width: `${healthPercentage}%` }} />
+              <div className={styles.sizeBarFill} style={{ width: `${sizePercent}%` }} />
             </div>
           </div>
 
@@ -275,7 +295,12 @@ export default function DatasetManager() {
             <button className={styles.actionBtn} onClick={() => handlePreview(record.id)}>
               <EyeOutlined /> 预览
             </button>
-            <button className={styles.actionBtn} onClick={() => handleOpenFolder(record.path)}>
+            <button
+              className={`${styles.actionBtn} ${!isElectron ? styles.actionBtnDisabled : ''}`}
+              onClick={() => handleOpenFolder(record.path)}
+              disabled={!isElectron}
+              title={!isElectron ? '仅支持桌面端（Electron）' : '在文件管理器中打开目录'}
+            >
               <FolderOpenOutlined /> 打开
             </button>
             <Popconfirm

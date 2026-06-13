@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Area, AreaChart,
   Tooltip as RechartsTooltip, ResponsiveContainer,
@@ -6,10 +6,11 @@ import {
 import {
   CodeOutlined, SaveOutlined,
   RocketOutlined, CheckCircleOutlined, CloseCircleOutlined,
-  ThunderboltOutlined,
+  ThunderboltOutlined, PauseCircleOutlined, PlayCircleOutlined,
+  CopyOutlined, FilterOutlined,
 } from '@ant-design/icons';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Tag } from 'antd';
+import { Tag, Tooltip, message } from 'antd';
 import styles from './TrainingDashboard.module.css';
 import type { TrainingProgress as TrainingProgressType } from '../../../types';
 import { getTrainingCheckpoints, subscribeTrainingLogs } from '../../../services/trainingApi';
@@ -75,6 +76,8 @@ const TerminalStream = React.memo(({ logs = [] }: { logs: string[] }) => {
   const htmlCache = useRef<Map<string, string>>(new Map());
   const counterRef = useRef(0);
   const keysRef = useRef<number[]>([]);
+  const [paused, setPaused] = useState(false);
+  const [filter, setFilter] = useState<'ALL' | 'ERROR' | 'WARN' | 'INFO'>('ALL');
 
   // Build stable keys: reuse existing keys for unchanged lines, assign new ones for appended lines
   const prevLen = keysRef.current.length;
@@ -86,14 +89,13 @@ const TerminalStream = React.memo(({ logs = [] }: { logs: string[] }) => {
     keysRef.current.length = logs.length;
   }
 
-  // Pre-compute highlighted HTML for new lines only (cached for unchanged lines)
+  // Pre-compute highlighted HTML for all lines (cached for unchanged lines)
   const htmls: string[] = new Array(logs.length);
   for (let i = 0; i < logs.length; i++) {
     const log = logs[i]!;
     let cached = htmlCache.current.get(log);
     if (cached === undefined) {
       cached = highlightLog(log);
-      // Cap cache size at 300 entries
       if (htmlCache.current.size > 300) {
         const first = htmlCache.current.keys().next().value;
         if (first !== undefined) htmlCache.current.delete(first);
@@ -103,11 +105,37 @@ const TerminalStream = React.memo(({ logs = [] }: { logs: string[] }) => {
     htmls[i] = cached;
   }
 
+  // Filter logs by level
+  const filteredIndices = useMemo(() => {
+    return logs.reduce<number[]>((acc, log, i) => {
+      if (filter === 'ALL') { acc.push(i); return acc; }
+      const upper = log.toUpperCase();
+      if (filter === 'ERROR' && (upper.includes('[ERROR]') || upper.includes('| ERROR |'))) acc.push(i);
+      else if (filter === 'WARN' && (upper.includes('[WARN]') || upper.includes('| WARNING |'))) acc.push(i);
+      else if (filter === 'INFO' && !upper.includes('[ERROR]') && !upper.includes('[WARN]') && !upper.includes('| ERROR |') && !upper.includes('| WARNING |')) acc.push(i);
+      return acc;
+    }, []);
+  }, [logs, filter]);
+
+  // Auto-scroll unless paused
   useEffect(() => {
-    if (terminalRef.current) {
+    if (!paused && terminalRef.current) {
       terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
     }
-  }, [logs.length]);
+  }, [logs.length, paused]);
+
+  const handleCopy = useCallback(() => {
+    const text = logs.join('\n');
+    navigator.clipboard.writeText(text).then(() => message.success('日志已复制', 1.5)).catch(() => message.error('复制失败'));
+  }, [logs]);
+
+  const filterLabels: Array<'ALL' | 'ERROR' | 'WARN' | 'INFO'> = ['ALL', 'ERROR', 'WARN', 'INFO'];
+  const filterColors: Record<string, string> = {
+    ALL: '#94a3b8',
+    ERROR: '#ef4444',
+    WARN: '#f59e0b',
+    INFO: '#22c55e',
+  };
 
   return (
     <div className={styles.terminalContainer}>
@@ -118,11 +146,57 @@ const TerminalStream = React.memo(({ logs = [] }: { logs: string[] }) => {
           <span className={styles.dot} />
         </div>
         <CodeOutlined style={{ fontSize: 11 }} />
-        <span>系统输出</span>
+        <span style={{ flex: 1 }}>系统输出</span>
+        {/* Log level filter */}
+        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <FilterOutlined style={{ fontSize: 10, color: '#64748b', marginRight: 2 }} />
+          {filterLabels.map(f => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              style={{
+                fontSize: 9, padding: '1px 6px', borderRadius: 3,
+                border: `1px solid ${filter === f ? filterColors[f] : 'rgba(255,255,255,0.08)'}`,
+                background: filter === f ? `${filterColors[f]}22` : 'transparent',
+                color: filter === f ? filterColors[f] : '#64748b',
+                cursor: 'pointer', fontWeight: 600, letterSpacing: '0.03em',
+                transition: 'all 0.2s',
+              }}
+            >{f}</button>
+          ))}
+        </div>
+        {/* Pause scroll toggle */}
+        <Tooltip title={paused ? '恢复自动滚动' : '暂停自动滚动'} placement="top">
+          <button
+            onClick={() => setPaused(p => !p)}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px',
+              color: paused ? '#f59e0b' : '#475569', fontSize: 13, lineHeight: 1,
+              transition: 'color 0.2s',
+            }}
+            aria-label={paused ? '恢复滚动' : '暂停滚动'}
+          >
+            {paused ? <PlayCircleOutlined /> : <PauseCircleOutlined />}
+          </button>
+        </Tooltip>
+        {/* Copy all logs */}
+        <Tooltip title="复制全部日志" placement="top">
+          <button
+            onClick={handleCopy}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer', padding: '0 4px',
+              color: '#475569', fontSize: 12, lineHeight: 1,
+              transition: 'color 0.2s',
+            }}
+            aria-label="复制日志"
+          >
+            <CopyOutlined />
+          </button>
+        </Tooltip>
       </div>
       <div className={styles.terminalBody} ref={terminalRef}>
-        {logs.length > 0 ? (
-          logs.map((_, i) => (
+        {filteredIndices.length > 0 ? (
+          filteredIndices.map(i => (
             <div
               key={keysRef.current[i]}
               className={styles.logLine}
@@ -130,12 +204,15 @@ const TerminalStream = React.memo(({ logs = [] }: { logs: string[] }) => {
             />
           ))
         ) : (
-          <div className={styles.logLine}>$ 等待训练进程...</div>
+          <div className={styles.logLine}>
+            {logs.length === 0 ? '$ 等待训练进程...' : `无 ${filter} 级别日志`}
+          </div>
         )}
       </div>
     </div>
   );
 });
+
 
 /* ── Pulse Gauge for VRAM ── */
 const PulseGauge = ({ value, label }: { value: number; label: string }) => (
