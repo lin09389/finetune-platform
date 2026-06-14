@@ -1,10 +1,19 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import AgentWorkspaceContainer from '../components/chat/AgentWorkspaceContainer';
 import type { UseAgentAsyncTasksResult } from '../hooks/chat/useAgentAsyncTasks';
 import type { UseAgentWorkspaceResult } from '../hooks/chat/useAgentWorkspace';
 import type { UseAgentWorkspaceSelectionResult } from '../hooks/chat/useAgentWorkspaceSelection';
+import { recoverAgentExecutionPlanNode } from '../services/api';
 import type { AgentAsyncTask, AgentAsyncTaskMetrics, AgentWorkspace } from '../services/api';
+
+vi.mock('../services/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/api')>();
+  return {
+    ...actual,
+    recoverAgentExecutionPlanNode: vi.fn(async (_sessionId: string, _nodeId: string) => ({ workspace: workspace() })),
+  };
+});
 
 vi.mock('../components/chat/AgentInspector', () => ({
   default: ({ workspace }: { workspace: AgentWorkspace | null }) => (
@@ -151,6 +160,10 @@ function workspace(): AgentWorkspace {
           source_permission_part_id: 'part_permission',
           tool: 'edit_file',
           blocked_reason: '等待文件修改审批',
+          recoverable: true,
+          recovery_action: 'resume_node',
+          recovery_reason: '审批被拒绝后可恢复',
+          recovery_attempts: 0,
           started_at: '2026-01-01T00:00:00',
         },
         {
@@ -159,9 +172,22 @@ function workspace(): AgentWorkspace {
           description: '探索项目结构',
           agent_id: 'explore',
           kind: 'subagent',
-          status: 'running',
+          status: 'failed',
           depends_on: ['execute_primary_agent'],
           source_task_id: 'agt_1',
+          recoverable: true,
+          recovery_action: 'restart_subagent',
+          recovery_error: 'child failed',
+          recovery_attempts: 1,
+          last_recovery_at: '2026-01-01T00:01:00',
+          output: {
+            recovery_history: [{
+              recovery_id: 'rec_1',
+              action: 'restart_subagent',
+              status: 'started',
+              new_task_id: 'agt_2',
+            }],
+          },
           started_at: '2026-01-01T00:00:00',
         },
       ],
@@ -227,7 +253,7 @@ function workspace(): AgentWorkspace {
 }
 
 describe('AgentWorkspaceContainer', () => {
-  it('passes one workspace-derived data source to inspector and async task panel', () => {
+  it('passes one workspace-derived data source to inspector and async task panel', async () => {
     const currentWorkspace = workspace();
     const agentWorkspace = {
       workspace: currentWorkspace,
@@ -293,6 +319,13 @@ describe('AgentWorkspaceContainer', () => {
     expect(screen.getAllByText('permission part_permission').length).toBeGreaterThan(0);
     expect(screen.getAllByText('task agt_1').length).toBeGreaterThan(0);
     expect(screen.getAllByText('等待文件修改审批').length).toBeGreaterThan(0);
+    expect(screen.getByText('审批被拒绝后可恢复')).toBeInTheDocument();
+    expect(screen.getByText('recovery started -> agt_2')).toBeInTheDocument();
+    expect(screen.getByText('重启子任务')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('恢复执行'));
+    await waitFor(() => expect(recoverAgentExecutionPlanNode).toHaveBeenCalledWith('ags_parent', 'tool:part_tool', { action: 'resume_node' }));
+    expect(agentWorkspace.refresh).toHaveBeenCalled();
+    expect(asyncTasks.refresh).toHaveBeenCalled();
     rerender(<AgentWorkspaceContainer activeKey="artifacts" {...props} />);
     expect(screen.getByText('Key finding')).toBeInTheDocument();
     rerender(<AgentWorkspaceContainer activeKey="approvals" {...props} />);

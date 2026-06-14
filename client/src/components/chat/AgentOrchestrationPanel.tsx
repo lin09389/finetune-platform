@@ -1,4 +1,5 @@
-import { Empty, Progress, Tag, Typography } from 'antd';
+import { Button, Empty, Progress, Tag, Typography } from 'antd';
+import { useState } from 'react';
 import type {
   AgentAsyncTask,
   AgentExecutionPlan,
@@ -34,6 +35,7 @@ interface AgentOrchestrationPanelProps {
   resourceProfile?: AgentResourceProfile | null;
   asyncTasks?: AgentAsyncTask[];
   onSelectTask?: (taskId: string) => void;
+  onRecoverNode?: (node: AgentExecutionPlanNode, action?: string | null) => void | Promise<void>;
 }
 
 export default function AgentOrchestrationPanel({
@@ -42,6 +44,7 @@ export default function AgentOrchestrationPanel({
   resourceProfile,
   asyncTasks = [],
   onSelectTask,
+  onRecoverNode,
 }: AgentOrchestrationPanelProps) {
   const nodes = executionPlan?.nodes ?? [];
   const completed = nodes.filter((node) => normalizeNodeStatus(node.status) === 'completed').length;
@@ -104,6 +107,7 @@ export default function AgentOrchestrationPanel({
             isCurrent={executionPlan?.current_node_id === node.id}
             linkedTask={node.source_task_id ? asyncTasks.find((task) => task.task_id === node.source_task_id) : undefined}
             onSelectTask={onSelectTask}
+            onRecoverNode={onRecoverNode}
           />
         ))}
       </div>
@@ -116,22 +120,37 @@ function ExecutionNode({
   isCurrent,
   linkedTask,
   onSelectTask,
+  onRecoverNode,
 }: {
   node: AgentExecutionPlanNode;
   isCurrent: boolean;
   linkedTask?: AgentAsyncTask;
   onSelectTask?: (taskId: string) => void;
+  onRecoverNode?: (node: AgentExecutionPlanNode, action?: string | null) => void | Promise<void>;
 }) {
   const status = normalizeNodeStatus(node.status);
   const approvalTools = Array.isArray(node.approval_policy?.tools) ? node.approval_policy.tools : [];
   const retryAttempts = Number(node.retry_policy?.max_attempts || 0);
+  const recoveryAction = node.recovery_action || (node.kind === 'subagent' ? 'restart_subagent' : 'retry_node');
+  const recoverLabel = recoveryAction === 'restart_subagent' ? '重启子任务' : '恢复执行';
+  const canSelectTask = Boolean(node.source_task_id && onSelectTask);
+  const [recovering, setRecovering] = useState(false);
+  const recoveryHistory = Array.isArray(node.output?.recovery_history) ? node.output.recovery_history : [];
+  const latestRecovery = recoveryHistory.length ? recoveryHistory[recoveryHistory.length - 1] : null;
 
   return (
-    <button
-      type="button"
+    <div
+      role={canSelectTask ? 'button' : undefined}
+      tabIndex={canSelectTask ? 0 : undefined}
       className={styles.timelineItem}
       onClick={() => node.source_task_id && onSelectTask?.(node.source_task_id)}
-      disabled={!node.source_task_id}
+      onKeyDown={(event) => {
+        if (!canSelectTask) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          node.source_task_id && onSelectTask?.(node.source_task_id);
+        }
+      }}
     >
       <span className={styles.timelineRail} data-type={status === 'failed' ? 'error' : status === 'blocked' ? 'permission' : 'tool_call'} />
       <span className={styles.timelineBody}>
@@ -154,11 +173,43 @@ function ExecutionNode({
           {retryAttempts ? <span>retry {retryAttempts}</span> : null}
           {node.started_at ? <span>started {formatTime(node.started_at)}</span> : null}
           {node.completed_at ? <span>done {formatTime(node.completed_at)}</span> : null}
+          {node.recovery_attempts ? <span>recovered {node.recovery_attempts}</span> : null}
+          {node.last_recovery_at ? <span>last recovery {formatTime(node.last_recovery_at)}</span> : null}
         </span>
         {node.blocked_reason ? <Typography.Text type="warning">{node.blocked_reason}</Typography.Text> : null}
         {node.error ? <Typography.Text type="danger">{node.error}</Typography.Text> : null}
+        {node.recovery_reason ? <Typography.Text type="secondary">{node.recovery_reason}</Typography.Text> : null}
+        {node.recovery_error ? <Typography.Text type="danger">{node.recovery_error}</Typography.Text> : null}
+        {latestRecovery ? (
+          <Typography.Text type="secondary">
+            recovery {String(latestRecovery.status || 'updated')}
+            {latestRecovery.new_task_id ? ` -> ${latestRecovery.new_task_id}` : ''}
+          </Typography.Text>
+        ) : null}
+        {node.recoverable ? (
+          <span className={styles.metaRow}>
+            <Button
+              size="small"
+              type="primary"
+              loading={recovering}
+              disabled={recovering}
+              onClick={async (event) => {
+                event.stopPropagation();
+                if (recovering) return;
+                setRecovering(true);
+                try {
+                  await onRecoverNode?.(node, recoveryAction);
+                } finally {
+                  setRecovering(false);
+                }
+              }}
+            >
+              {recoverLabel}
+            </Button>
+          </span>
+        ) : null}
       </span>
-    </button>
+    </div>
   );
 }
 

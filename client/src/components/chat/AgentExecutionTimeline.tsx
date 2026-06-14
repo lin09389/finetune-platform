@@ -14,6 +14,7 @@ const typeLabel: Record<AgentExecutionTimelineItem['type'], string> = {
   permission: '确认',
   summary: '摘要',
   error: '错误',
+  recovery: '恢复',
 };
 
 const typeColor: Record<AgentExecutionTimelineItem['type'], string> = {
@@ -23,6 +24,7 @@ const typeColor: Record<AgentExecutionTimelineItem['type'], string> = {
   permission: 'warning',
   summary: 'success',
   error: 'error',
+  recovery: 'purple',
 };
 
 export default function AgentExecutionTimeline({ items, onSelectItem }: AgentExecutionTimelineProps) {

@@ -926,7 +926,7 @@ export interface AgentWorkspaceRecentEvent {
 
 export interface AgentExecutionTimelineItem {
   id: string;
-  type: 'tool_call' | 'tool_result' | 'command' | 'permission' | 'summary' | 'error';
+  type: 'tool_call' | 'tool_result' | 'command' | 'permission' | 'summary' | 'error' | 'recovery';
   title: string;
   status?: string | null;
   summary: string;
@@ -1008,12 +1008,27 @@ export interface AgentExecutionPlanNode {
   started_at?: string | null;
   completed_at?: string | null;
   blocked_reason?: string | null;
+  recoverable?: boolean;
+  recovery_action?: 'retry_node' | 'resume_node' | 'restart_subagent' | 'manual_review' | string | null;
+  recovery_reason?: string | null;
+  recovery_attempts?: number;
+  last_recovery_at?: string | null;
+  recovery_error?: string | null;
 }
 
 export interface AgentExecutionPlanEdge {
   from: string;
   to: string;
   type: string;
+}
+
+export interface AgentExecutionPlanRecoveryResponse {
+  session: AgentSession;
+  execution_plan?: AgentExecutionPlan | null;
+  workspace: AgentWorkspace;
+  node_id: string;
+  action: 'retry_node' | 'resume_node' | 'restart_subagent' | 'manual_review' | string;
+  started_task_id?: string | null;
 }
 
 export interface AgentRuntimePolicy {
@@ -1354,6 +1369,18 @@ export const promptAgentSession = async (
 
 export const interruptAgentSession = async (sessionId: string): Promise<AgentSession> => {
   const response = await apiClient.post(`/agent-sessions/${sessionId}/interrupt`);
+  return response.data;
+};
+
+export const recoverAgentExecutionPlanNode = async (
+  sessionId: string,
+  nodeId: string,
+  payload: { action?: string | null; instruction?: string | null } = {},
+): Promise<AgentExecutionPlanRecoveryResponse> => {
+  const response = await apiClient.post(
+    `/agent-sessions/${sessionId}/execution-plan/nodes/${encodeURIComponent(nodeId)}/recover`,
+    payload,
+  );
   return response.data;
 };
 

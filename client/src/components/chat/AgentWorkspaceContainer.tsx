@@ -1,5 +1,7 @@
 import React from 'react';
-import type { AgentHitlDecision, AgentWorkspaceNextAction } from '../../services/api';
+import { message } from 'antd';
+import { recoverAgentExecutionPlanNode } from '../../services/api';
+import type { AgentExecutionPlanNode, AgentHitlDecision, AgentWorkspaceNextAction } from '../../services/api';
 import type { UseAgentAsyncTasksResult } from '../../hooks/chat/useAgentAsyncTasks';
 import type { UseAgentWorkspaceResult } from '../../hooks/chat/useAgentWorkspace';
 import type { UseAgentWorkspaceSelectionResult } from '../../hooks/chat/useAgentWorkspaceSelection';
@@ -61,6 +63,18 @@ export default function AgentWorkspaceContainer({
     workspaceSelection.selectTimelineItem(`exec:${partId}`, partId);
     onActiveKeyChange('execution');
   };
+  const recoverNode = async (node: AgentExecutionPlanNode, action?: string | null) => {
+    if (!sessionId) return;
+    try {
+      await recoverAgentExecutionPlanNode(sessionId, node.id, { action });
+      message.success(action === 'restart_subagent' ? '子任务恢复已启动' : '节点恢复已启动');
+      await agentWorkspace.refresh();
+      await asyncTasks.refresh();
+    } catch (error: any) {
+      message.error(error?.response?.data?.detail || error?.message || '节点恢复失败');
+      throw error;
+    }
+  };
 
   return (
     <AgentWorkbenchPanel
@@ -77,6 +91,7 @@ export default function AgentWorkspaceContainer({
           resourceProfile={agentWorkspace.workspace?.resource_profile ?? agentWorkspace.workspace?.runtime?.resource_profile ?? null}
           asyncTasks={agentWorkspace.workspace?.async_tasks.tasks ?? []}
           onSelectTask={selectTask}
+          onRecoverNode={recoverNode}
         />
       )}
       artifactLedgerContent={(
