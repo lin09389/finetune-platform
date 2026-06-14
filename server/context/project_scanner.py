@@ -10,6 +10,7 @@
 """
 import json
 import logging
+import tomllib
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -207,33 +208,20 @@ class ProjectScanner:
 
     def _detect_python_frameworks(self, tech_stack: TechStack):
         """检测 Python 框架"""
-        req_file = self.project_path / "requirements.txt"
-        if req_file.exists():
-            try:
-                with open(req_file, encoding="utf-8") as f:
-                    content = f.read().lower()
+        dependency_names = set(self._parse_requirements_dependencies())
+        pyproject_deps, pyproject_optional = self._parse_pyproject_dependencies()
+        dependency_names.update(pyproject_deps)
+        for optional_deps in pyproject_optional.values():
+            dependency_names.update(optional_deps)
 
-                for framework, patterns in self.LANGUAGE_CONFIGS["python"]["framework_patterns"].items():
-                    if any(pattern in content for pattern in patterns):
-                        if framework in ["FastAPI", "Flask", "Django"]:
-                            if framework not in tech_stack.frameworks:
-                                tech_stack.frameworks.append(framework)
-                        elif framework in ["PyTorch", "TensorFlow", "Transformers", "LangChain"] and framework not in tech_stack.libraries:
-                            tech_stack.libraries.append(framework)
-            except Exception as e:
-                logger.warning(f"解析 requirements.txt 失败：{e}")
-
-        pyproject_file = self.project_path / "pyproject.toml"
-        if pyproject_file.exists():
-            try:
-                with open(pyproject_file, encoding="utf-8") as f:
-                    content = f.read().lower()
-                    if "fastapi" in content:
-                        tech_stack.frameworks.append("FastAPI")
-                    if "flask" in content:
-                        tech_stack.frameworks.append("Flask")
-            except Exception as e:
-                logger.warning(f"解析 pyproject.toml 失败：{e}")
+        content = " ".join(dependency_names).lower()
+        for framework, patterns in self.LANGUAGE_CONFIGS["python"]["framework_patterns"].items():
+            if any(pattern in content for pattern in patterns):
+                if framework in ["FastAPI", "Flask", "Django"]:
+                    if framework not in tech_stack.frameworks:
+                        tech_stack.frameworks.append(framework)
+                elif framework in ["PyTorch", "TensorFlow", "Transformers", "LangChain"] and framework not in tech_stack.libraries:
+                    tech_stack.libraries.append(framework)
 
     def _detect_java_frameworks(self, tech_stack: TechStack):
         """检测 Java 框架"""
@@ -313,19 +301,15 @@ class ProjectScanner:
         """解析项目依赖"""
         deps = {}
 
-        req_file = self.project_path / "requirements.txt"
-        if req_file.exists():
-            try:
-                with open(req_file, encoding="utf-8") as f:
-                    python_deps = []
-                    for line in f:
-                        line = line.strip()
-                        if line and not line.startswith("#"):
-                            pkg_name = line.split("==")[0].split(">=")[0].split("<=")[0].strip()
-                            python_deps.append(pkg_name)
-                    deps["python"] = python_deps
-            except Exception as e:
-                logger.warning(f"解析 requirements.txt 失败：{e}")
+        python_deps = self._parse_requirements_dependencies()
+        pyproject_deps, pyproject_optional = self._parse_pyproject_dependencies()
+        for dep_name in pyproject_deps:
+            if dep_name not in python_deps:
+                python_deps.append(dep_name)
+        if python_deps:
+            deps["python"] = python_deps
+        if pyproject_optional:
+            deps["python_optional"] = pyproject_optional
 
         pkg_file = self.project_path / "package.json"
         if pkg_file.exists():
@@ -340,6 +324,80 @@ class ProjectScanner:
                 logger.warning(f"解析 package.json 失败：{e}")
 
         return deps
+
+    def _parse_requirements_dependencies(self) -> list[str]:
+        """解析 requirements.txt 中的 Python 依赖名"""
+        req_file = self.project_path / "requirements.txt"
+        if not req_file.exists():
+            return []
+
+        try:
+            python_deps = []
+            with open(req_file, encoding="utf-8") as f:
+                for line in f:
+                    dep_name = self._dependency_name_from_spec(line)
+                    if dep_name and dep_name not in python_deps:
+                        python_deps.append(dep_name)
+            return python_deps
+        except Exception as e:
+            logger.warning(f"解析 requirements.txt 失败：{e}")
+            return []
+
+    def _parse_pyproject_dependencies(self) -> tuple[list[str], dict[str, list[str]]]:
+        """解析 pyproject.toml 中的 PEP 621 依赖"""
+        pyproject_file = self.project_path / "pyproject.toml"
+        if not pyproject_file.exists():
+            return [], {}
+
+        try:
+            with open(pyproject_file, "rb") as f:
+                pyproject = tomllib.load(f)
+
+            project = pyproject.get("project", {})
+            dependencies = [
+                dep_name
+                for dep in project.get("dependencies", [])
+                if (dep_name := self._dependency_name_from_spec(dep))
+            ]
+
+            optional_dependencies = {}
+            for extra_name, extra_deps in project.get("optional-dependencies", {}).items():
+                parsed_extra_deps = [
+                    dep_name
+                    for dep in extra_deps
+                    if (dep_name := self._dependency_name_from_spec(dep))
+                ]
+                if parsed_extra_deps:
+                    optional_dependencies[extra_name] = parsed_extra_deps
+
+            return dependencies, optional_dependencies
+        except Exception as e:
+            logger.warning(f"解析 pyproject.toml 失败：{e}")
+            return [], {}
+
+    @staticmethod
+    def _dependency_name_from_spec(spec: str) -> str:
+        """从依赖声明中提取包名，兼容版本约束、extras、markers 和 uv export 注释"""
+        line = spec.strip()
+        if not line or line.startswith("#") or line.startswith("-"):
+            return ""
+
+        line = line.split("#", 1)[0].split(";", 1)[0].strip()
+        if not line:
+            return ""
+
+        if " @ " in line:
+            line = line.split(" @ ", 1)[0].strip()
+
+        for separator in ["==", ">=", "<=", "~=", "!=", ">", "<", "="]:
+            if separator in line:
+                line = line.split(separator, 1)[0].strip()
+                break
+
+        if "[" in line:
+            line = line.split("[", 1)[0].strip()
+
+        return line
 
     def _analyze_code_style(self) -> dict[str, Any]:
         """分析代码风格"""
