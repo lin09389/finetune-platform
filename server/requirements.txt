@@ -10,6 +10,7 @@ aiohappyeyeballs==2.6.2
     # via aiohttp
 aiohttp==3.14.1
     # via
+    #   finetune-platform
     #   fsspec
     #   kubernetes
 aiosignal==1.4.0
@@ -27,6 +28,7 @@ anthropic==0.109.1
 anyio==4.13.0
     # via
     #   anthropic
+    #   finetune-platform
     #   google-genai
     #   httpx
     #   openai
@@ -81,8 +83,9 @@ coloredlogs==15.0.1
     # via onnxruntime
 croniter==1.4.1
     # via finetune-platform
-cryptography==49.0.0
+cryptography==45.0.7
     # via
+    #   finetune-platform
     #   google-auth
     #   pdfminer-six
 datasets==3.6.0
@@ -408,7 +411,9 @@ packaging==26.2
     #   pytesseract
     #   transformers
 pandas==2.3.3
-    # via datasets
+    # via
+    #   datasets
+    #   finetune-platform
 pdfminer-six==20221105
     # via pdfplumber
 pdfplumber==0.10.4

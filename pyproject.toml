@@ -36,6 +36,7 @@ dependencies = [
     "datasets==3.6.0",
     "huggingface-hub==0.36.0",
     "safetensors==0.7.0",
+    "pandas>=2.1,<3",  # structured table store (rag/structured/table_store.py)
     "modelscope>=1.10.0,<2",
     # ── Runtime utilities ──────────────────────────────────────────
     "psutil==5.9.8",
@@ -43,6 +44,8 @@ dependencies = [
     "chardet==5.2.0",
     "httpx==0.28.1",  # runtime HTTP client (ai/gateway.py, inference scheduler)
     "aiofiles>=23.0,<24",  # async file I/O for evaluation runs (api/evaluation.py)
+    "aiohttp>=3.9,<4",  # Ollama inference backend HTTP client (api/inference/backends/ollama.py)
+    "anyio>=4.0,<5",  # async primitives (core/db_manager.py)
     # ── Screen capture and OCR ─────────────────────────────────────
     "mss==9.0.1",
     "Pillow==10.2.0",
@@ -63,6 +66,7 @@ dependencies = [
     "python-magic-bin==0.4.14; sys_platform == 'win32'",
     "python-magic==0.4.27; sys_platform != 'win32'",
     "bcrypt>=4.0.0,<5",
+    "cryptography>=42.0,<46",  # Fernet encryption (security/encryption.py)
     # ── MCP and parsing ────────────────────────────────────────────
     "websockets>=14.0,<16",
     "pdfplumber>=0.10.0,<0.11",
