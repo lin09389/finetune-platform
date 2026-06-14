@@ -1,0 +1,404 @@
+from __future__ import annotations
+
+from copy import deepcopy
+from datetime import datetime, timezone
+import logging
+from typing import Any
+
+from .execution_plan import PLAN_SCHEMA_VERSION
+from .state import ensure_session_state
+
+logger = logging.getLogger(__name__)
+
+
+EVENT_TYPES = {
+    "tool_call_started",
+    "tool_call_completed",
+    "permission_asked",
+    "permission_decided",
+    "summary_completed",
+    "session_failed",
+    "session_interrupted",
+    "async_subtask_started",
+    "async_subtask_completed",
+    "async_subtask_failed",
+    "async_subtask_cancelled",
+    "async_subtask_running",
+    "async_subtask_updated",
+}
+
+
+def apply_execution_event(metadata: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
+    metadata = ensure_session_state(dict(metadata or {}))
+    plan = metadata.get("execution_plan")
+    if not isinstance(plan, dict) or plan.get("schema_version") != PLAN_SCHEMA_VERSION:
+        return metadata
+
+    event_type = _event_type(event)
+    if event_type not in EVENT_TYPES:
+        return metadata
+
+    payload = _payload(event)
+    event_key = _event_key(event_type, event, payload)
+    plan = deepcopy(plan)
+    applied = [str(item) for item in plan.get("applied_event_ids") or [] if str(item)]
+    if event_key and event_key in set(applied):
+        metadata["execution_plan"] = plan
+        return metadata
+
+    nodes = [_normalize_node(item) for item in plan.get("nodes") or []]
+    if event_type == "tool_call_started":
+        _tool_started(plan, nodes, payload, event)
+    elif event_type == "tool_call_completed":
+        _tool_completed(plan, nodes, payload, event)
+    elif event_type == "permission_asked":
+        _permission_asked(plan, nodes, payload, event)
+    elif event_type == "permission_decided":
+        _permission_decided(plan, nodes, payload, event)
+    elif event_type == "summary_completed":
+        _summary_completed(plan, nodes, payload, event)
+    elif event_type in {"session_failed", "session_interrupted"}:
+        _runtime_stopped(plan, nodes, payload, event, event_type)
+    elif event_type.startswith("async_subtask_"):
+        _async_subtask_event(plan, nodes, payload, event, event_type)
+
+    plan["nodes"] = nodes
+    plan["edges"] = _edges_from_nodes(nodes)
+    plan["current_node_id"] = _current_node_id(nodes)
+    plan["updated_at"] = _now()
+    if event_key:
+        applied.append(event_key)
+        plan["applied_event_ids"] = applied[-200:]
+    metadata["execution_plan"] = plan
+    return metadata
+
+
+def apply_execution_event_to_session(repository: Any, session_id: str, event: dict[str, Any]) -> None:
+    try:
+        if not hasattr(repository, "get_session") or not hasattr(repository, "update_session"):
+            return
+        session = repository.get_session(session_id)
+        if not session:
+            return
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        updated = apply_execution_event(metadata, event)
+        if updated != metadata:
+            repository.update_session(session_id, metadata=updated)
+    except Exception:
+        logger.exception("Failed to apply execution plan event for session %s", session_id)
+
+
+def _tool_started(plan: dict[str, Any], nodes: list[dict[str, Any]], payload: dict[str, Any], event: dict[str, Any]) -> None:
+    part_id = _str(payload.get("part_id"))
+    tool = _str(payload.get("tool"))
+    node = _find_by(nodes, "source_part_id", part_id) if part_id else None
+    if node is None:
+        parent = _primary_node(nodes)
+        node = _append_node(
+            nodes,
+            {
+                "id": f"tool:{part_id or _str(event.get('id')) or len(nodes) + 1}",
+                "title": f"工具调用：{tool or 'tool'}",
+                "description": "运行时工具调用节点。",
+                "agent_id": _str(payload.get("agent_name")) or _str(parent.get("agent_id")) or _str(plan.get("agent_id")) or "build",
+                "kind": "tool",
+                "depends_on": [parent["id"]] if parent else [],
+                "input_contract": {},
+                "output_contract": {},
+                "retry_policy": {"max_attempts": 0, "retry_on": []},
+                "approval_policy": {"requires_approval": False, "tools": []},
+                "output": {},
+            },
+        )
+    node.update(
+        {
+            "status": "running",
+            "source_part_id": part_id or node.get("source_part_id"),
+            "source_event_id": _str(event.get("id")) or node.get("source_event_id"),
+            "tool": tool or node.get("tool"),
+            "started_at": node.get("started_at") or _event_time(event),
+            "blocked_reason": None,
+            "error": None,
+        }
+    )
+    plan["status"] = "running"
+
+
+def _tool_completed(plan: dict[str, Any], nodes: list[dict[str, Any]], payload: dict[str, Any], event: dict[str, Any]) -> None:
+    part = payload.get("part") if isinstance(payload.get("part"), dict) else {}
+    part_id = _str(payload.get("part_id") or part.get("id"))
+    tool = _str(payload.get("tool") or part.get("title"))
+    node = _find_by(nodes, "source_part_id", part_id) or _current_node(nodes)
+    if not node:
+        return
+    node.update(
+        {
+            "status": "completed",
+            "source_part_id": part_id or node.get("source_part_id"),
+            "source_event_id": _str(event.get("id")) or node.get("source_event_id"),
+            "tool": tool or node.get("tool"),
+            "completed_at": node.get("completed_at") or _event_time(event),
+            "output": _compact_output(part or payload),
+            "error": None,
+            "blocked_reason": None,
+        }
+    )
+    primary = _primary_node(nodes)
+    if primary and primary.get("status") not in {"completed", "failed", "interrupted", "blocked"}:
+        primary["status"] = "running"
+    plan["status"] = "running"
+
+
+def _permission_asked(plan: dict[str, Any], nodes: list[dict[str, Any]], payload: dict[str, Any], event: dict[str, Any]) -> None:
+    node = _current_node(nodes) or _primary_node(nodes)
+    if not node:
+        return
+    reason = _str(payload.get("summary") or payload.get("message") or event.get("message") or "等待审批")
+    node.update(
+        {
+            "status": "blocked",
+            "source_permission_part_id": _str(payload.get("part_id")) or node.get("source_permission_part_id"),
+            "source_event_id": _str(event.get("id")) or node.get("source_event_id"),
+            "tool": _str(payload.get("tool")) or node.get("tool"),
+            "blocked_reason": reason,
+        }
+    )
+    plan["status"] = "blocked"
+
+
+def _permission_decided(plan: dict[str, Any], nodes: list[dict[str, Any]], payload: dict[str, Any], event: dict[str, Any]) -> None:
+    part_id = _str(payload.get("part_id"))
+    node = _find_by(nodes, "source_permission_part_id", part_id) or _find_by(nodes, "source_part_id", part_id) or _current_node(nodes)
+    if not node:
+        return
+    node.update(
+        {
+            "status": "running",
+            "source_event_id": _str(event.get("id")) or node.get("source_event_id"),
+            "blocked_reason": None,
+            "error": None,
+        }
+    )
+    plan["status"] = "running"
+
+
+def _summary_completed(plan: dict[str, Any], nodes: list[dict[str, Any]], payload: dict[str, Any], event: dict[str, Any]) -> None:
+    primary = _find_by(nodes, "id", "execute_primary_agent")
+    if primary and primary.get("status") not in {"failed", "interrupted"}:
+        primary["status"] = "completed"
+        primary.setdefault("completed_at", _event_time(event))
+    node = _find_by(nodes, "id", "summarize_result")
+    if not node:
+        return
+    node.update(
+        {
+            "status": "completed",
+            "source_part_id": _str(payload.get("part_id")) or node.get("source_part_id"),
+            "source_event_id": _str(event.get("id")) or node.get("source_event_id"),
+            "completed_at": node.get("completed_at") or _event_time(event),
+            "output": {"summary": _str(payload.get("summary") or event.get("message"))},
+            "error": None,
+        }
+    )
+    plan["status"] = "completed"
+
+
+def _runtime_stopped(plan: dict[str, Any], nodes: list[dict[str, Any]], payload: dict[str, Any], event: dict[str, Any], event_type: str) -> None:
+    node = _current_node(nodes) or _primary_node(nodes)
+    if not node:
+        return
+    status = "interrupted" if event_type == "session_interrupted" else "failed"
+    message = _str(payload.get("error") or payload.get("summary") or event.get("message"))
+    node.update(
+        {
+            "status": status,
+            "source_event_id": _str(event.get("id")) or node.get("source_event_id"),
+            "error": message or node.get("error"),
+            "completed_at": node.get("completed_at") or _event_time(event),
+        }
+    )
+    plan["status"] = status
+
+
+def _async_subtask_event(plan: dict[str, Any], nodes: list[dict[str, Any]], payload: dict[str, Any], event: dict[str, Any], event_type: str) -> None:
+    task_id = _str(payload.get("task_id"))
+    if not task_id:
+        return
+    node = _find_by(nodes, "source_task_id", task_id)
+    status = _async_status(payload, event_type)
+    if node is None:
+        parent = _primary_node(nodes)
+        node = _append_node(
+            nodes,
+            {
+                "id": f"subagent:{task_id}",
+                "title": f"子 Agent：{_str(payload.get('agent_name')) or 'subagent'}",
+                "description": _str(payload.get("summary") or event.get("message") or "异步子任务"),
+                "agent_id": _str(payload.get("agent_name")) or "subagent",
+                "kind": "subagent",
+                "depends_on": [parent["id"]] if parent else [],
+                "input_contract": {"task_id": task_id},
+                "output_contract": {},
+                "retry_policy": {"max_attempts": 1 if status == "failed" else 0, "retry_on": ["failed"] if status == "failed" else []},
+                "approval_policy": {"requires_approval": False, "tools": []},
+                "output": {},
+            },
+        )
+    node.update(
+        {
+            "status": status,
+            "source_task_id": task_id,
+            "source_event_id": _str(event.get("id")) or node.get("source_event_id"),
+            "agent_id": _str(payload.get("agent_name")) or node.get("agent_id"),
+            "started_at": node.get("started_at") or _event_time(event),
+            "completed_at": _event_time(event) if status in {"completed", "failed", "interrupted"} else node.get("completed_at"),
+            "blocked_reason": _str(payload.get("child_status")) if status == "blocked" else None,
+            "error": _str(payload.get("error") or payload.get("summary")) if status == "failed" else None,
+            "output": _compact_output(payload),
+        }
+    )
+    if status == "failed":
+        node["retry_policy"] = {"max_attempts": 1, "retry_on": ["failed"]}
+    plan["status"] = "blocked" if status in {"blocked", "failed"} else "running"
+
+
+def _normalize_node(raw: Any) -> dict[str, Any]:
+    item = dict(raw or {}) if isinstance(raw, dict) else {}
+    return {
+        "id": _str(item.get("id")) or "node",
+        "title": _str(item.get("title") or item.get("id") or "任务"),
+        "description": _str(item.get("description")),
+        "agent_id": _str(item.get("agent_id") or "build"),
+        "kind": _str(item.get("kind") or "agent"),
+        "status": _str(item.get("status") or "pending"),
+        "depends_on": [_str(value) for value in item.get("depends_on") or [] if _str(value)],
+        "input_contract": dict(item.get("input_contract") or {}),
+        "output_contract": dict(item.get("output_contract") or {}),
+        "retry_policy": dict(item.get("retry_policy") or {"max_attempts": 0, "retry_on": []}),
+        "approval_policy": dict(item.get("approval_policy") or {"requires_approval": False, "tools": []}),
+        "output": dict(item.get("output") or {}),
+        "error": item.get("error"),
+        "source_part_id": item.get("source_part_id"),
+        "source_permission_part_id": item.get("source_permission_part_id"),
+        "source_event_id": item.get("source_event_id"),
+        "source_task_id": item.get("source_task_id"),
+        "tool": item.get("tool"),
+        "started_at": item.get("started_at"),
+        "completed_at": item.get("completed_at"),
+        "blocked_reason": item.get("blocked_reason"),
+    }
+
+
+def _append_node(nodes: list[dict[str, Any]], node: dict[str, Any]) -> dict[str, Any]:
+    nodes.append(_normalize_node(node))
+    return nodes[-1]
+
+
+def _current_node(nodes: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for node in nodes:
+        if node.get("status") in {"running", "blocked"} and node.get("id") != "execute_primary_agent":
+            return node
+    for node in nodes:
+        if node.get("status") in {"running", "blocked"}:
+            return node
+    current_id = _current_node_id(nodes)
+    return _find_by(nodes, "id", current_id) if current_id else None
+
+
+def _primary_node(nodes: list[dict[str, Any]]) -> dict[str, Any] | None:
+    return _find_by(nodes, "id", "execute_primary_agent") or _current_node(nodes)
+
+
+def _find_by(nodes: list[dict[str, Any]], key: str, value: Any) -> dict[str, Any] | None:
+    if not value:
+        return None
+    for node in nodes:
+        if node.get(key) == value:
+            return node
+    return None
+
+
+def _current_node_id(nodes: list[dict[str, Any]]) -> str | None:
+    for node in nodes:
+        if node.get("status") in {"failed", "interrupted"} and node.get("id") != "execute_primary_agent":
+            return _str(node.get("id")) or None
+    for node in nodes:
+        if node.get("status") == "running" and node.get("id") != "execute_primary_agent":
+            return _str(node.get("id")) or None
+    for node in nodes:
+        if node.get("status") == "blocked" and node.get("id") != "execute_primary_agent":
+            return _str(node.get("id")) or None
+    for node in nodes:
+        if node.get("status") == "running":
+            return _str(node.get("id")) or None
+    for node in nodes:
+        if node.get("status") == "blocked":
+            return _str(node.get("id")) or None
+    for node in nodes:
+        if node.get("status") == "pending":
+            return _str(node.get("id")) or None
+    return None
+
+
+def _edges_from_nodes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {"from": dependency, "to": _str(node.get("id")), "type": "depends_on"}
+        for node in nodes
+        for dependency in node.get("depends_on") or []
+        if dependency and node.get("id")
+    ]
+
+
+def _async_status(payload: dict[str, Any], event_type: str) -> str:
+    raw = _str(payload.get("async_status") or payload.get("status") or event_type.removeprefix("async_subtask_"))
+    if raw in {"completed"}:
+        return "completed"
+    if raw in {"failed"}:
+        return "failed"
+    if raw in {"cancelled", "canceled"}:
+        return "interrupted"
+    if raw in {"waiting_approval", "waiting_permission"} or _str(payload.get("child_status")) in {"waiting_approval", "waiting_permission"}:
+        return "blocked"
+    return "running"
+
+
+def _event_type(event: dict[str, Any]) -> str:
+    return _str(event.get("event_type") or event.get("type") or event.get("event"))
+
+
+def _payload(event: dict[str, Any]) -> dict[str, Any]:
+    return dict(event.get("payload") or {}) if isinstance(event.get("payload"), dict) else {}
+
+
+def _event_key(event_type: str, event: dict[str, Any], payload: dict[str, Any]) -> str:
+    identity = _str(event.get("id") or payload.get("part_id") or payload.get("task_id") or payload.get("source_event_id"))
+    return f"{event_type}:{identity}" if identity else ""
+
+
+def _event_time(event: dict[str, Any]) -> str:
+    return _str(event.get("created_at")) or _now()
+
+
+def _compact_output(value: dict[str, Any]) -> dict[str, Any]:
+    output: dict[str, Any] = {}
+    if value.get("id"):
+        output["part_id"] = value.get("id")
+    for key in ("summary", "content", "status", "tool", "async_status", "child_status", "health_status"):
+        if key in value and value[key] is not None:
+            output[key] = str(value[key])[:1000] if isinstance(value[key], str) else value[key]
+    part = value.get("part") if isinstance(value.get("part"), dict) else None
+    if part:
+        output["part_id"] = part.get("id")
+        output["content"] = _str(part.get("content"))[:1000]
+    return output
+
+
+def _str(value: Any) -> str:
+    return str(value).strip() if value is not None else ""
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+__all__ = ["apply_execution_event", "apply_execution_event_to_session"]

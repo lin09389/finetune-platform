@@ -117,7 +117,7 @@ function workspace(): AgentWorkspace {
       session_id: 'ags_parent',
       goal: 'Build',
       status: 'running',
-      current_node_id: 'execute_primary_agent',
+      current_node_id: 'tool:part_tool',
       nodes: [
         {
           id: 'understand_task',
@@ -139,8 +139,37 @@ function workspace(): AgentWorkspace {
           approval_policy: { requires_approval: true, tools: ['edit_file'] },
           retry_policy: { max_attempts: 1 },
         },
+        {
+          id: 'tool:part_tool',
+          title: '工具调用：edit_file',
+          description: '运行时工具调用节点。',
+          agent_id: 'build',
+          kind: 'tool',
+          status: 'blocked',
+          depends_on: ['execute_primary_agent'],
+          source_part_id: 'part_tool',
+          source_permission_part_id: 'part_permission',
+          tool: 'edit_file',
+          blocked_reason: '等待文件修改审批',
+          started_at: '2026-01-01T00:00:00',
+        },
+        {
+          id: 'subagent:agt_1',
+          title: '子 Agent：explore',
+          description: '探索项目结构',
+          agent_id: 'explore',
+          kind: 'subagent',
+          status: 'running',
+          depends_on: ['execute_primary_agent'],
+          source_task_id: 'agt_1',
+          started_at: '2026-01-01T00:00:00',
+        },
       ],
-      edges: [{ from: 'understand_task', to: 'execute_primary_agent', type: 'depends_on' }],
+      edges: [
+        { from: 'understand_task', to: 'execute_primary_agent', type: 'depends_on' },
+        { from: 'execute_primary_agent', to: 'tool:part_tool', type: 'depends_on' },
+        { from: 'execute_primary_agent', to: 'subagent:agt_1', type: 'depends_on' },
+      ],
       created_at: '2026-01-01T00:00:00',
       updated_at: '2026-01-01T00:00:00',
       lifecycle: ['idle', 'running', 'completed'],
@@ -259,6 +288,11 @@ describe('AgentWorkspaceContainer', () => {
     rerender(<AgentWorkspaceContainer activeKey="plan" {...props} />);
     expect(screen.getByText('Agent Orchestration')).toBeInTheDocument();
     expect(screen.getAllByText('执行主 Agent 任务').length).toBeGreaterThan(0);
+    expect(screen.getByText('tool edit_file')).toBeInTheDocument();
+    expect(screen.getAllByText('part part_tool').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('permission part_permission').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('task agt_1').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('等待文件修改审批').length).toBeGreaterThan(0);
     rerender(<AgentWorkspaceContainer activeKey="artifacts" {...props} />);
     expect(screen.getByText('Key finding')).toBeInTheDocument();
     rerender(<AgentWorkspaceContainer activeKey="approvals" {...props} />);

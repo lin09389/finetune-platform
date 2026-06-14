@@ -25,6 +25,7 @@ from .async_subagents import AsyncSubagentService
 from .deepagents_runtime import DeepAgentsSessionRunner
 from .events import AgentSessionEventBus
 from .execution_plan import build_initial_execution_plan
+from .execution_plan_events import apply_execution_event_to_session
 from .models import (
     AgentArtifactResponse,
     AgentMemoryFileResponse,
@@ -89,6 +90,7 @@ class AgentSessionService:
         self._event_bus.unsubscribe(session_id, queue)
 
     def _notify_event(self, session_id: str, event: dict[str, Any]) -> None:
+        apply_execution_event_to_session(self.repository, session_id, event)
         self._event_bus.notify(session_id, event)
 
     def _sync_async_service_model_call(self) -> None:

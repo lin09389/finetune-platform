@@ -145,10 +145,17 @@ function ExecutionNode({
         <span className={styles.metaRow}>
           {node.agent_id ? <span>agent {node.agent_id}</span> : null}
           {node.kind ? <span>{node.kind}</span> : null}
+          {node.tool ? <span>tool {node.tool}</span> : null}
+          {node.source_part_id ? <span>part {node.source_part_id}</span> : null}
+          {node.source_permission_part_id ? <span>permission {node.source_permission_part_id}</span> : null}
+          {node.source_task_id ? <span>task {node.source_task_id}</span> : null}
           {node.depends_on?.length ? <span>depends on {node.depends_on.join(', ')}</span> : null}
           {approvalTools.length ? <span>approval {approvalTools.join(', ')}</span> : null}
           {retryAttempts ? <span>retry {retryAttempts}</span> : null}
+          {node.started_at ? <span>started {formatTime(node.started_at)}</span> : null}
+          {node.completed_at ? <span>done {formatTime(node.completed_at)}</span> : null}
         </span>
+        {node.blocked_reason ? <Typography.Text type="warning">{node.blocked_reason}</Typography.Text> : null}
         {node.error ? <Typography.Text type="danger">{node.error}</Typography.Text> : null}
       </span>
     </button>
@@ -172,4 +179,12 @@ function normalizeNodeStatus(status: string): NodeUiStatus {
     return 'blocked';
   }
   return 'pending';
+}
+
+function formatTime(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }

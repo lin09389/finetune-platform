@@ -205,7 +205,14 @@ def _node(
         "approval_policy": approval_policy or {"requires_approval": False, "tools": []},
         "output": {},
         "error": None,
+        "source_part_id": None,
+        "source_permission_part_id": None,
+        "source_event_id": None,
         "source_task_id": None,
+        "tool": None,
+        "started_at": None,
+        "completed_at": None,
+        "blocked_reason": None,
     }
 
 
@@ -225,7 +232,14 @@ def _normalize_node(raw: Any, default_agent_id: str) -> dict[str, Any]:
         "approval_policy": dict(item.get("approval_policy") or {"requires_approval": False, "tools": []}),
         "output": dict(item.get("output") or {}),
         "error": item.get("error"),
+        "source_part_id": item.get("source_part_id"),
+        "source_permission_part_id": item.get("source_permission_part_id"),
+        "source_event_id": item.get("source_event_id"),
         "source_task_id": item.get("source_task_id"),
+        "tool": item.get("tool"),
+        "started_at": item.get("started_at"),
+        "completed_at": item.get("completed_at"),
+        "blocked_reason": item.get("blocked_reason"),
     }
 
 

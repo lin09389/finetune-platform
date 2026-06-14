@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 from agent_session.deepagents_events import DeepAgentsEventMapper
+from agent_session.execution_context import AgentDefinition
+from agent_session.execution_plan import build_initial_execution_plan
+from agent_session.runtime_policy import build_agent_runtime_policy
 
 
 class FakeRepository:
     def __init__(self):
         self.parts = []
         self.events = []
+        self.session = {"id": "session-1", "metadata": {}}
 
     def add_part(self, session_id, part_type, *, status, title, content, payload):
         part = {
@@ -22,9 +26,16 @@ class FakeRepository:
         return part
 
     def add_event(self, session_id, event_type, message, payload):
-        event = {"session_id": session_id, "type": event_type, "message": message, "payload": payload}
+        event = {"id": f"event-{len(self.events) + 1}", "session_id": session_id, "type": event_type, "message": message, "payload": payload}
         self.events.append(event)
         return event
+
+    def get_session(self, _session_id):
+        return self.session
+
+    def update_session(self, _session_id, **updates):
+        self.session.update(updates)
+        return self.session
 
 
 def test_deepagents_event_mapper_wraps_string_tool_input():
@@ -63,6 +74,43 @@ def test_deepagents_event_mapper_tags_subagent_tool_parts():
     assert repo.parts[0]["payload"]["agent_name"] == "explore"
     assert repo.parts[0]["payload"]["agent_role"] == "subagent"
     assert emitted[0]["payload"]["agent_name"] == "explore"
+
+
+def test_deepagents_event_mapper_updates_execution_plan_from_tool_event():
+    repo = FakeRepository()
+    agent = AgentDefinition(id="build", name="Build", mode="primary", tools=["read_file"])
+    policy = build_agent_runtime_policy(
+        agent=agent,
+        agent_id="build",
+        project_path=".",
+        metadata={},
+        runtime_kind="agent_session",
+        thread_id="agent_session:session-1:deepagents",
+        checkpointer=True,
+    )
+    repo.session["metadata"] = {
+        "execution_plan": build_initial_execution_plan(
+            session={"id": "session-1", "agent_id": "build", "status": "running"},
+            policy=policy,
+            goal="inspect",
+            status="running",
+        )
+    }
+    mapper = DeepAgentsEventMapper(repo, lambda *_args: None, "session-1")
+
+    mapper.handle(
+        {
+            "event": "on_tool_start",
+            "name": "read_file",
+            "run_id": "run-1",
+            "data": {"input": {"file_path": "/workspace/README.md"}},
+        }
+    )
+
+    plan = repo.session["metadata"]["execution_plan"]
+    node = next(item for item in plan["nodes"] if item.get("source_part_id") == "part-1")
+    assert node["status"] == "running"
+    assert node["tool"] == "read_file"
 
 
 def test_deepagents_event_mapper_accepts_dict_interrupt_payload():

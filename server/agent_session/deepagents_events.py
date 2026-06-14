@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .session_state_machine import AgentSessionStateMachine
+from .execution_plan_events import apply_execution_event_to_session
 from .state import ensure_session_state
 
 
@@ -21,6 +22,7 @@ class DeepAgentsEventMapper:
 
     def publish(self, event_type: str, message: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         event = self.repository.add_event(self.session_id, event_type, message, payload or {})
+        apply_execution_event_to_session(self.repository, self.session_id, event)
         self.notify_event(self.session_id, event)
         return event
 

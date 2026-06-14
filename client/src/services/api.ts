@@ -1000,7 +1000,14 @@ export interface AgentExecutionPlanNode {
   approval_policy?: Record<string, any>;
   output?: Record<string, any>;
   error?: string | null;
+  source_part_id?: string | null;
+  source_permission_part_id?: string | null;
+  source_event_id?: string | null;
   source_task_id?: string | null;
+  tool?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  blocked_reason?: string | null;
 }
 
 export interface AgentExecutionPlanEdge {
