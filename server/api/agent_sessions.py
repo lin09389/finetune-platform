@@ -18,6 +18,8 @@ from agent_session.models import (
     AgentAsyncTaskStartRequest,
     AgentAsyncTaskUpdateRequest,
     AgentApprovalResponse,
+    AgentExecutionPlanRecoverRequest,
+    AgentExecutionPlanRecoveryResponse,
     AgentEventResponse,
     AgentHitlDecisionRequest,
     AgentMemoryFileResponse,
@@ -246,6 +248,24 @@ async def interrupt_agent_session(
         return await run_sync(service.interrupt_session, session_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/{session_id}/execution-plan/nodes/{node_id}/recover", response_model=AgentExecutionPlanRecoveryResponse)
+async def recover_agent_execution_plan_node(
+    session_id: str,
+    node_id: str,
+    request: AgentExecutionPlanRecoverRequest,
+    background_tasks: BackgroundTasks,
+    service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    await _require_accessible_session(service, session_id, current_user)
+    try:
+        return await service.recover_execution_node(session_id, node_id, request, background_tasks)
+    except ValueError as exc:
+        message = str(exc)
+        status_code = 404 if "not found" in message.lower() else 422
+        raise HTTPException(status_code=status_code, detail=message) from exc
 
 
 @router.post("/{session_id}/async-tasks", response_model=AgentAsyncTaskResponse)

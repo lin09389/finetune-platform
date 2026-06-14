@@ -106,6 +106,8 @@ def test_runtime_failure_lands_on_current_node():
     node = next(item for item in updated["execution_plan"]["nodes"] if item["id"] == updated["execution_plan"]["current_node_id"])
     assert node["status"] == "failed"
     assert node["error"] == "boom"
+    assert node["recoverable"] is True
+    assert node["recovery_action"] == "retry_node"
 
 
 def test_async_subtask_events_bind_and_update_subagent_node():
@@ -127,3 +129,55 @@ def test_async_subtask_events_bind_and_update_subagent_node():
     assert node["status"] == "failed"
     assert node["error"] == "child failed"
     assert node["retry_policy"]["retry_on"] == ["failed"]
+    assert node["recoverable"] is True
+    assert node["recovery_action"] == "restart_subagent"
+
+
+def test_permission_reject_marks_blocked_node_recoverable():
+    metadata = apply_execution_event(_metadata(), _event("tool_call_started", part_id="part_tool", tool="edit_file"))
+    blocked = apply_execution_event(metadata, _event("permission_asked", part_id="part_perm", tool="edit_file", summary="needs approval"))
+
+    rejected = apply_execution_event(
+        blocked,
+        _event("permission_decided", part_id="part_perm", decisions=[{"type": "reject"}], summary="rejected"),
+    )
+
+    node = next(item for item in rejected["execution_plan"]["nodes"] if item["id"] == rejected["execution_plan"]["current_node_id"])
+    assert node["status"] == "blocked"
+    assert node["recoverable"] is True
+    assert node["recovery_action"] == "manual_review"
+    assert node["blocked_reason"] == "rejected"
+
+
+def test_recovery_started_updates_original_node_idempotently():
+    metadata = apply_execution_event(_metadata(), _event("tool_call_started", part_id="part_tool", tool="execute"))
+    failed = apply_execution_event(metadata, _event("session_failed", error="boom"))
+    node_id = failed["execution_plan"]["current_node_id"]
+    event = _event("node_recovery_started", node_id=node_id, recovery_id="rec_1", action="retry_node", summary="recover")
+
+    recovered = apply_execution_event(failed, event)
+    replayed = apply_execution_event(recovered, event)
+
+    node = next(item for item in replayed["execution_plan"]["nodes"] if item["id"] == node_id)
+    assert node["status"] == "running"
+    assert node["recoverable"] is False
+    assert node["recovery_attempts"] == 1
+    assert node["recovery_error"] is None
+    assert node["output"]["recovery_history"][0]["recovery_id"] == "rec_1"
+    assert len(node["output"]["recovery_history"]) == 1
+
+
+def test_recovery_failed_keeps_node_recoverable_with_error():
+    metadata = apply_execution_event(_metadata(), _event("tool_call_started", part_id="part_tool", tool="execute"))
+    failed = apply_execution_event(metadata, _event("session_failed", error="boom"))
+    node_id = failed["execution_plan"]["current_node_id"]
+
+    updated = apply_execution_event(
+        failed,
+        _event("node_recovery_failed", node_id=node_id, action="retry_node", error="cannot recover", summary="failed"),
+    )
+
+    node = next(item for item in updated["execution_plan"]["nodes"] if item["id"] == node_id)
+    assert node["status"] == "failed"
+    assert node["recoverable"] is True
+    assert node["recovery_error"] == "cannot recover"

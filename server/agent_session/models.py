@@ -22,6 +22,7 @@ AgentPartStatus = Literal["pending", "running", "completed", "failed", "blocked"
 AgentAsyncTaskStatus = Literal["pending", "running", "completed", "failed", "cancelled"]
 AgentAsyncTaskHealthStatus = Literal["ok", "waiting", "attention", "failed", "cancelled"]
 AgentHitlDecisionType = Literal["approve", "edit", "reject", "respond"]
+AgentExecutionRecoveryAction = Literal["retry_node", "resume_node", "restart_subagent", "manual_review"]
 
 
 class AgentSessionCreate(BaseModel):
@@ -54,6 +55,11 @@ class AgentAsyncTaskUpdateRequest(BaseModel):
 
 class AgentAsyncTaskCancelRequest(BaseModel):
     reason: str | None = None
+
+
+class AgentExecutionPlanRecoverRequest(BaseModel):
+    action: AgentExecutionRecoveryAction | None = None
+    instruction: str | None = None
 
 
 class AgentAsyncTaskResponse(BaseModel):
@@ -241,7 +247,7 @@ class AgentWorkspaceNextAction(BaseModel):
 
 class AgentExecutionTimelineItem(BaseModel):
     id: str
-    type: Literal["tool_call", "tool_result", "command", "permission", "summary", "error"]
+    type: Literal["tool_call", "tool_result", "command", "permission", "summary", "error", "recovery"]
     title: str
     status: str | None = None
     summary: str = ""
@@ -351,6 +357,15 @@ class AgentWorkspaceResponse(BaseModel):
     execution_plan: AgentExecutionPlanResponse | None = None
     vfs_mounts: list[AgentWorkspaceMount] = Field(default_factory=list)
     skill_sources: list[AgentWorkspaceSkillSource] = Field(default_factory=list)
+
+
+class AgentExecutionPlanRecoveryResponse(BaseModel):
+    session: AgentSessionResponse
+    execution_plan: AgentExecutionPlanResponse | None = None
+    workspace: AgentWorkspaceResponse
+    node_id: str
+    action: AgentExecutionRecoveryAction
+    started_task_id: str | None = None
 
 
 class AgentSkillManifestResponse(BaseModel):

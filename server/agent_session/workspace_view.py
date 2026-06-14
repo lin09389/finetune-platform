@@ -16,7 +16,7 @@ from .models import (
     AgentWorkspaceSkillSource,
 )
 from .orchestration_planner import AgentOrchestrationPlanner
-from .execution_plan import todos_from_execution_plan
+from .execution_plan import repair_execution_plan, todos_from_execution_plan
 from .runtime_policy import AgentRuntimePolicy, build_agent_runtime_policy
 
 
@@ -40,9 +40,12 @@ class AgentWorkspaceViewService:
         policy = self._runtime_policy(session, metadata)
         raw_execution_plan = metadata.get("execution_plan")
         execution_plan = raw_execution_plan if isinstance(raw_execution_plan, dict) else policy.execution_plan.model_dump()
+        execution_plan, plan_warnings = repair_execution_plan(execution_plan, default_agent_id=str(getattr(session, "agent_id", None) or "build"))
+        if plan_warnings:
+            diagnostics["execution_plan_warnings"] = plan_warnings[-20:]
         plan = self._extract_plan(session, ui_state, execution_plan=execution_plan)
         runtime = self._runtime_context(session, metadata, policy=policy, execution_plan=execution_plan)
-        execution_timeline = self._execution_timeline(getattr(session, "parts", []) or [])
+        execution_timeline = self._execution_timeline(getattr(session, "parts", []) or [], list(overview.recent_events or []))
         next_actions = self.orchestration_planner.plan(
             session=session,
             artifacts=artifacts,
@@ -87,7 +90,7 @@ class AgentWorkspaceViewService:
             )
         return AgentWorkspacePlan(todos=[], source="execution_plan", updated_at=getattr(session, "updated_at", None))
 
-    def _execution_timeline(self, parts: list[Any]) -> list[AgentExecutionTimelineItem]:
+    def _execution_timeline(self, parts: list[Any], events: list[dict[str, Any]] | None = None) -> list[AgentExecutionTimelineItem]:
         items: list[AgentExecutionTimelineItem] = []
         for part in parts:
             part_type = str(getattr(part, "type", "") or "")
@@ -116,6 +119,25 @@ class AgentWorkspaceViewService:
                     payload_excerpt=self._payload_excerpt(payload),
                 )
             )
+        for event in events or []:
+            event_type = str(event.get("event_type") or "")
+            if not event_type.startswith("node_recovery_"):
+                continue
+            payload = dict(event.get("payload") or {})
+            source_id = str(payload.get("node_id") or payload.get("recovery_id") or event.get("id") or "")
+            items.append(
+                AgentExecutionTimelineItem(
+                    id=f"exec:{event.get('id')}",
+                    type="recovery",
+                    title=self._recovery_title(event_type),
+                    status=event_type.removeprefix("node_recovery_"),
+                    summary=str(event.get("message") or payload.get("summary") or "")[:300],
+                    source_part_id=source_id,
+                    created_at=event.get("created_at"),
+                    duration_ms=None,
+                    payload_excerpt=self._payload_excerpt(payload),
+                )
+            )
         return items
 
     @staticmethod
@@ -134,6 +156,16 @@ class AgentWorkspaceViewService:
             "summary": "Summary",
             "error": "Error",
         }.get(item_type, item_type)
+
+    @staticmethod
+    def _recovery_title(event_type: str) -> str:
+        return {
+            "node_recovery_requested": "Recovery requested",
+            "node_recovery_started": "Recovery started",
+            "node_recovery_completed": "Recovery completed",
+            "node_recovery_failed": "Recovery failed",
+            "node_recovery_rejected": "Recovery rejected",
+        }.get(event_type, "Recovery")
 
     @staticmethod
     def _tool_name(payload: dict[str, Any]) -> str:
@@ -164,6 +196,10 @@ class AgentWorkspaceViewService:
             "stderr",
             "error",
             "message",
+            "node_id",
+            "recovery_id",
+            "old_task_id",
+            "new_task_id",
         )
         excerpt: dict[str, Any] = {}
         for key in keys:

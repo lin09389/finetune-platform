@@ -28,6 +28,8 @@ from .execution_plan import build_initial_execution_plan
 from .execution_plan_events import apply_execution_event_to_session
 from .models import (
     AgentArtifactResponse,
+    AgentExecutionPlanRecoverRequest,
+    AgentExecutionPlanRecoveryResponse,
     AgentMemoryFileResponse,
     AgentPromptRequest,
     AgentSessionCreate,
@@ -91,6 +93,7 @@ class AgentSessionService:
 
     def _notify_event(self, session_id: str, event: dict[str, Any]) -> None:
         apply_execution_event_to_session(self.repository, session_id, event)
+        self._clear_recovery_latches_for_event(session_id, event)
         self._event_bus.notify(session_id, event)
 
     def _sync_async_service_model_call(self) -> None:
@@ -122,6 +125,95 @@ class AgentSessionService:
     async def update_async_subtask(self, session_id: str, task_id: str, description: str) -> dict[str, Any]:
         self._sync_async_service_model_call()
         return await self.async_subagent_service.update_task(session_id, task_id, description)
+
+    async def recover_execution_node(
+        self,
+        session_id: str,
+        node_id: str,
+        request: AgentExecutionPlanRecoverRequest,
+        background_tasks: BackgroundTasks,
+    ) -> AgentExecutionPlanRecoveryResponse:
+        session = self.repository.get_session(session_id)
+        if not session:
+            raise ValueError("Agent session not found")
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        plan = metadata.get("execution_plan")
+        if not isinstance(plan, dict):
+            raise ValueError("Execution plan not found")
+        node = self._find_execution_node(plan, node_id)
+        if not node:
+            raise ValueError("Execution plan node not found")
+        if not bool(node.get("recoverable")):
+            raise ValueError("Execution plan node is not recoverable")
+        if self._has_running_prompt_task(session_id):
+            raise ValueError("Agent session already has a running background task")
+
+        action = str(request.action or node.get("recovery_action") or "").strip()
+        if action not in {"retry_node", "resume_node", "restart_subagent", "manual_review"}:
+            raise ValueError("Unsupported recovery action")
+        instruction = (request.instruction or "").strip()
+        existing_latch = self._get_recovery_latch(metadata, node_id)
+        if existing_latch:
+            workspace = self.get_workspace(session_id)
+            return AgentExecutionPlanRecoveryResponse(
+                session=workspace.session,
+                execution_plan=workspace.execution_plan,
+                workspace=workspace,
+                node_id=node_id,
+                action=str(existing_latch.get("action") or action),  # type: ignore[arg-type]
+                started_task_id=existing_latch.get("new_task_id"),
+            )
+        recovery_id = f"agrecovery_{uuid.uuid4().hex}"
+        self._set_recovery_latch(session_id, node_id, recovery_id, action)
+        self._event(
+            session_id,
+            "node_recovery_requested",
+            "用户请求恢复执行节点。",
+            {
+                "session_id": session_id,
+                "node_id": node_id,
+                "recovery_id": recovery_id,
+                "action": action,
+                "instruction": instruction,
+                "summary": "用户请求恢复执行节点。",
+            },
+        )
+
+        started_task_id: str | None = None
+        try:
+            if action == "restart_subagent":
+                started_task_id = await self._recover_subagent_node(session_id, node, instruction, recovery_id)
+            else:
+                self._start_recovery_prompt_background(session_id, node, action, instruction, recovery_id, background_tasks)
+        except Exception as exc:
+            self._event(
+                session_id,
+                "node_recovery_failed",
+                "节点恢复启动失败。",
+                {
+                    "session_id": session_id,
+                    "node_id": node_id,
+                    "recovery_id": recovery_id,
+                    "action": action,
+                    "error": str(exc)[:1200],
+                    "summary": "节点恢复启动失败。",
+                },
+            )
+            self._clear_recovery_latch(session_id, node_id)
+            failed_session = self.repository.get_session(session_id) or session
+            failed_metadata = ensure_session_state(dict(failed_session.get("metadata") or {}))
+            self.state_machine.mark_failed(session_id, metadata=failed_metadata, status="needs_manual_review")
+            raise
+
+        workspace = self.get_workspace(session_id)
+        return AgentExecutionPlanRecoveryResponse(
+            session=workspace.session,
+            execution_plan=workspace.execution_plan,
+            workspace=workspace,
+            node_id=node_id,
+            action=action,  # type: ignore[arg-type]
+            started_task_id=started_task_id,
+        )
 
     async def recover_async_subtasks(self) -> dict[str, Any]:
         self._sync_async_service_model_call()
@@ -486,6 +578,7 @@ class AgentSessionService:
                 if self._is_active_prompt(session_id, prompt_id):
                     self._record_background_failure_fallback(session_id, exc, failure_exc)
         finally:
+            self._clear_recovery_latch_for_prompt(session_id, prompt_id)
             with self._prompt_tasks_lock:
                 record = self._prompt_tasks.get(session_id)
                 if record and record[1] is current_task:
@@ -545,6 +638,200 @@ class AgentSessionService:
         if task.done():
             return
         loop.call_soon_threadsafe(task.cancel)
+
+    def _has_running_prompt_task(self, session_id: str) -> bool:
+        with self._prompt_tasks_lock:
+            record = self._prompt_tasks.get(session_id)
+        if not record:
+            return False
+        return not record[1].done()
+
+    def _get_recovery_latch(self, metadata: dict[str, Any], node_id: str) -> dict[str, Any] | None:
+        latches = metadata.get("recovery_latches")
+        if not isinstance(latches, dict):
+            return None
+        latch = latches.get(node_id)
+        return dict(latch) if isinstance(latch, dict) else None
+
+    def _set_recovery_latch(self, session_id: str, node_id: str, recovery_id: str, action: str) -> None:
+        session = self.repository.get_session(session_id)
+        if not session:
+            return
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        latches = dict(metadata.get("recovery_latches") or {})
+        latches[node_id] = {"recovery_id": recovery_id, "action": action, "started_at": datetime.now().isoformat()}
+        metadata["recovery_latches"] = latches
+        self.repository.update_session(session_id, metadata=metadata)
+
+    def _update_recovery_latch(self, session_id: str, node_id: str, **updates: Any) -> None:
+        session = self.repository.get_session(session_id)
+        if not session:
+            return
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        latches = dict(metadata.get("recovery_latches") or {})
+        latch = dict(latches.get(node_id) or {})
+        if not latch:
+            return
+        latch.update({key: value for key, value in updates.items() if value is not None})
+        latches[node_id] = latch
+        metadata["recovery_latches"] = latches
+        self.repository.update_session(session_id, metadata=metadata)
+
+    def _clear_recovery_latch(self, session_id: str, node_id: str) -> None:
+        session = self.repository.get_session(session_id)
+        if not session:
+            return
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        latches = dict(metadata.get("recovery_latches") or {})
+        if node_id not in latches:
+            return
+        latches.pop(node_id, None)
+        metadata["recovery_latches"] = latches
+        self.repository.update_session(session_id, metadata=metadata)
+
+    def _clear_recovery_latches_for_event(self, session_id: str, event: dict[str, Any]) -> None:
+        event_type = str(event.get("event_type") or "")
+        payload = dict(event.get("payload") or {}) if isinstance(event.get("payload"), dict) else {}
+        if event_type in {"node_recovery_failed", "node_recovery_rejected", "node_recovery_completed"}:
+            node_id = str(payload.get("node_id") or "")
+            if node_id:
+                self._clear_recovery_latch(session_id, node_id)
+            return
+        if event_type not in {"async_subtask_completed", "async_subtask_failed", "async_subtask_cancelled"}:
+            return
+        task_id = str(payload.get("task_id") or "")
+        if not task_id:
+            return
+        session = self.repository.get_session(session_id)
+        if not session:
+            return
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        latches = dict(metadata.get("recovery_latches") or {})
+        for node_id, latch in list(latches.items()):
+            if isinstance(latch, dict) and latch.get("new_task_id") == task_id:
+                latches.pop(node_id, None)
+        metadata["recovery_latches"] = latches
+        self.repository.update_session(session_id, metadata=metadata)
+
+    @staticmethod
+    def _find_execution_node(plan: dict[str, Any], node_id: str) -> dict[str, Any] | None:
+        for node in plan.get("nodes") or []:
+            if isinstance(node, dict) and str(node.get("id") or "") == node_id:
+                return node
+        return None
+
+    def _start_recovery_prompt_background(
+        self,
+        session_id: str,
+        node: dict[str, Any],
+        action: str,
+        instruction: str,
+        recovery_id: str,
+        background_tasks: BackgroundTasks,
+    ) -> None:
+        prompt_id = f"agrecover_{uuid.uuid4().hex}"
+        session = self.repository.get_session(session_id)
+        if not session:
+            raise ValueError("Agent session not found")
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        plan = dict(metadata.get("execution_plan") or {})
+        if isinstance(plan, dict):
+            plan["current_node_id"] = str(node.get("id") or "")
+            metadata["execution_plan"] = plan
+        now = datetime.now().isoformat()
+        metadata["active_prompt_id"] = prompt_id
+        metadata["background_run"] = True
+        metadata["last_prompt_started_at"] = now
+        metadata["last_recovery"] = {
+            "node_id": str(node.get("id") or ""),
+            "recovery_id": recovery_id,
+            "action": action,
+            "instruction": instruction,
+            "active_prompt_id": prompt_id,
+            "started_at": now,
+        }
+        prompt = self._recovery_prompt(node, action, instruction)
+        self.state_machine.mark_running(session_id, metadata=metadata)
+        self._event(
+            session_id,
+            "node_recovery_started",
+            "节点恢复已进入后台执行。",
+            {
+                "session_id": session_id,
+                "node_id": str(node.get("id") or ""),
+                "recovery_id": recovery_id,
+                "action": action,
+                "active_prompt_id": prompt_id,
+                "keeps_running": True,
+                "summary": "节点恢复已进入后台执行。",
+            },
+        )
+        background_tasks.add_task(self._run_prompt_background, session_id, AgentPromptRequest(content=prompt), prompt_id)
+
+    def _clear_recovery_latch_for_prompt(self, session_id: str, prompt_id: str) -> None:
+        session = self.repository.get_session(session_id)
+        if not session:
+            return
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        last_recovery = dict(metadata.get("last_recovery") or {})
+        if last_recovery.get("active_prompt_id") != prompt_id:
+            return
+        node_id = str(last_recovery.get("node_id") or "")
+        if node_id:
+            self._clear_recovery_latch(session_id, node_id)
+
+    async def _recover_subagent_node(self, session_id: str, node: dict[str, Any], instruction: str, recovery_id: str) -> str:
+        old_task_id = str(node.get("source_task_id") or "")
+        task = self.repository.get_subtask(old_task_id) if old_task_id else None
+        input_json = dict((task or {}).get("input_json") or {})
+        agent_name = str((task or {}).get("agent_name") or node.get("agent_id") or "").strip()
+        description = str(input_json.get("description") or node.get("description") or "").strip()
+        if instruction:
+            description = f"{description}\n\n恢复补充说明：{instruction}" if description else instruction
+        if not agent_name or not description:
+            raise ValueError("Subagent recovery requires agent name and description")
+        self._sync_async_service_model_call()
+        recovered = await self.async_subagent_service.start_task(session_id, agent_name, description)
+        new_task_id = str(recovered.get("task_id") or "")
+        self._update_recovery_latch(session_id, str(node.get("id") or ""), new_task_id=new_task_id)
+        self._event(
+            session_id,
+            "node_recovery_started",
+            "子 Agent 节点已重启。",
+            {
+                "session_id": session_id,
+                "node_id": str(node.get("id") or ""),
+                "recovery_id": recovery_id,
+                "action": "restart_subagent",
+                "old_task_id": old_task_id,
+                "new_task_id": new_task_id,
+                "summary": "子 Agent 节点已重启。",
+            },
+        )
+        return new_task_id
+
+    @staticmethod
+    def _recovery_prompt(node: dict[str, Any], action: str, instruction: str) -> str:
+        details = {
+            "node_id": node.get("id"),
+            "title": node.get("title"),
+            "kind": node.get("kind"),
+            "status": node.get("status"),
+            "tool": node.get("tool"),
+            "source_part_id": node.get("source_part_id"),
+            "source_task_id": node.get("source_task_id"),
+            "error": node.get("error"),
+            "blocked_reason": node.get("blocked_reason"),
+            "recovery_action": action,
+        }
+        prompt = (
+            "请从 Agent execution_plan 中的失败/阻塞节点继续恢复执行。\n"
+            "不要盲目重放已有副作用；先读取上下文，判断已完成内容，再执行必要的最小后续步骤。\n"
+            f"恢复节点：{json.dumps(details, ensure_ascii=False)}"
+        )
+        if instruction:
+            prompt += f"\n用户补充恢复说明：{instruction}"
+        return prompt
 
     def record_prompt_failure(self, session_id: str, exc: Exception) -> dict[str, Any]:
         session = self.repository.get_session(session_id)

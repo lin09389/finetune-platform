@@ -19,6 +19,8 @@ PLAN_STATUS_BY_SESSION_STATUS = {
     "needs_manual_review": "blocked",
     "interrupted": "interrupted",
 }
+VALID_NODE_STATUSES = {"pending", "running", "blocked", "completed", "failed", "interrupted", "waiting_approval", "waiting_permission"}
+VALID_RECOVERY_ACTIONS = {"retry_node", "resume_node", "restart_subagent", "manual_review"}
 
 
 def build_initial_execution_plan(
@@ -108,6 +110,93 @@ def normalize_execution_plan(
         goal=str(goal or ""),
         status=str(session.get("status") or "planned"),
     )
+
+
+def validate_execution_plan(plan: Any) -> list[str]:
+    if not isinstance(plan, dict) or plan.get("schema_version") != PLAN_SCHEMA_VERSION:
+        return ["execution_plan schema is missing or unsupported"]
+    warnings: list[str] = []
+    nodes = plan.get("nodes")
+    if not isinstance(nodes, list):
+        return ["execution_plan nodes must be a list"]
+    ids: set[str] = set()
+    for index, raw in enumerate(nodes):
+        if not isinstance(raw, dict):
+            warnings.append(f"node[{index}] is not an object")
+            continue
+        node_id = str(raw.get("id") or "").strip()
+        if not node_id:
+            warnings.append(f"node[{index}] is missing id")
+        elif node_id in ids:
+            warnings.append(f"duplicate node id: {node_id}")
+        ids.add(node_id)
+        status = str(raw.get("status") or "pending")
+        if status not in VALID_NODE_STATUSES:
+            warnings.append(f"node {node_id or index} has invalid status: {status}")
+        action = raw.get("recovery_action")
+        if action is not None and str(action) not in VALID_RECOVERY_ACTIONS:
+            warnings.append(f"node {node_id or index} has invalid recovery_action: {action}")
+        try:
+            attempts = int(raw.get("recovery_attempts") or 0)
+            if attempts < 0:
+                warnings.append(f"node {node_id or index} has negative recovery_attempts")
+        except (TypeError, ValueError):
+            warnings.append(f"node {node_id or index} has invalid recovery_attempts")
+    current = plan.get("current_node_id")
+    if current and str(current) not in ids:
+        warnings.append(f"current_node_id points to missing node: {current}")
+    for edge in plan.get("edges") or []:
+        if not isinstance(edge, dict):
+            warnings.append("edge is not an object")
+            continue
+        source = str(edge.get("from") or "")
+        target = str(edge.get("to") or "")
+        if source and source not in ids:
+            warnings.append(f"edge source missing node: {source}")
+        if target and target not in ids:
+            warnings.append(f"edge target missing node: {target}")
+    return warnings
+
+
+def repair_execution_plan(plan: Any, *, default_agent_id: str = "build") -> tuple[dict[str, Any], list[str]]:
+    if not isinstance(plan, dict) or plan.get("schema_version") != PLAN_SCHEMA_VERSION:
+        return plan if isinstance(plan, dict) else {}, validate_execution_plan(plan)
+    warnings = validate_execution_plan(plan)
+    repaired = dict(plan)
+    nodes: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, raw in enumerate(repaired.get("nodes") or []):
+        node = _normalize_node(raw, default_agent_id)
+        original_id = node["id"]
+        if not original_id or original_id in seen:
+            suffix = 2
+            base = original_id or f"node_{index + 1}"
+            candidate = f"{base}_{suffix}"
+            while candidate in seen:
+                suffix += 1
+                candidate = f"{base}_{suffix}"
+            node["id"] = candidate
+        seen.add(node["id"])
+        if node["status"] not in VALID_NODE_STATUSES:
+            node["status"] = "pending"
+        if node.get("recovery_action") is not None and str(node.get("recovery_action")) not in VALID_RECOVERY_ACTIONS:
+            node["recovery_action"] = None
+        if int(node.get("recovery_attempts") or 0) < 0:
+            node["recovery_attempts"] = 0
+        node["depends_on"] = [dependency for dependency in node.get("depends_on") or [] if dependency in seen or dependency in {item.get("id") for item in nodes}]
+        nodes.append(node)
+    node_ids = {node["id"] for node in nodes}
+    edges = [
+        {"from": str(edge.get("from")), "to": str(edge.get("to")), "type": str(edge.get("type") or "depends_on")}
+        for edge in repaired.get("edges") or _edges_from_nodes(nodes)
+        if isinstance(edge, dict) and str(edge.get("from") or "") in node_ids and str(edge.get("to") or "") in node_ids
+    ]
+    repaired["nodes"] = nodes
+    repaired["edges"] = edges or _edges_from_nodes(nodes)
+    current = str(repaired.get("current_node_id") or "")
+    repaired["current_node_id"] = current if current in node_ids else _current_node_id(nodes)
+    repaired["updated_at"] = repaired.get("updated_at") or _now()
+    return repaired, warnings
 
 
 def sync_execution_plan_status(metadata: dict[str, Any], session_status: str, *, error: str | None = None) -> dict[str, Any]:
@@ -213,6 +302,12 @@ def _node(
         "started_at": None,
         "completed_at": None,
         "blocked_reason": None,
+        "recoverable": False,
+        "recovery_action": None,
+        "recovery_reason": None,
+        "recovery_attempts": 0,
+        "last_recovery_at": None,
+        "recovery_error": None,
     }
 
 
@@ -240,6 +335,12 @@ def _normalize_node(raw: Any, default_agent_id: str) -> dict[str, Any]:
         "started_at": item.get("started_at"),
         "completed_at": item.get("completed_at"),
         "blocked_reason": item.get("blocked_reason"),
+        "recoverable": bool(item.get("recoverable") or False),
+        "recovery_action": item.get("recovery_action"),
+        "recovery_reason": item.get("recovery_reason"),
+        "recovery_attempts": _safe_int(item.get("recovery_attempts"), 0),
+        "last_recovery_at": item.get("last_recovery_at"),
+        "recovery_error": item.get("recovery_error"),
     }
 
 
@@ -282,6 +383,13 @@ def _todo_status(status: str) -> str:
     return "pending"
 
 
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -290,6 +398,8 @@ __all__ = [
     "PLAN_SCHEMA_VERSION",
     "build_initial_execution_plan",
     "normalize_execution_plan",
+    "repair_execution_plan",
     "sync_execution_plan_status",
     "todos_from_execution_plan",
+    "validate_execution_plan",
 ]

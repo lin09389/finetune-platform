@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import logging
 from typing import Any
 
-from .execution_plan import PLAN_SCHEMA_VERSION
+from .execution_plan import PLAN_SCHEMA_VERSION, repair_execution_plan
 from .state import ensure_session_state
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,12 @@ EVENT_TYPES = {
     "async_subtask_cancelled",
     "async_subtask_running",
     "async_subtask_updated",
+    "async_subtask_restarted",
+    "node_recovery_requested",
+    "node_recovery_started",
+    "node_recovery_completed",
+    "node_recovery_failed",
+    "node_recovery_rejected",
 }
 
 
@@ -43,6 +49,9 @@ def apply_execution_event(metadata: dict[str, Any], event: dict[str, Any]) -> di
     plan = deepcopy(plan)
     applied = [str(item) for item in plan.get("applied_event_ids") or [] if str(item)]
     if event_key and event_key in set(applied):
+        plan, warnings = repair_execution_plan(plan, default_agent_id=_str(plan.get("agent_id") or "build") or "build")
+        if warnings:
+            plan["validation_warnings"] = warnings[-20:]
         metadata["execution_plan"] = plan
         return metadata
 
@@ -61,6 +70,8 @@ def apply_execution_event(metadata: dict[str, Any], event: dict[str, Any]) -> di
         _runtime_stopped(plan, nodes, payload, event, event_type)
     elif event_type.startswith("async_subtask_"):
         _async_subtask_event(plan, nodes, payload, event, event_type)
+    elif event_type.startswith("node_recovery_"):
+        _node_recovery_event(plan, nodes, payload, event, event_type)
 
     plan["nodes"] = nodes
     plan["edges"] = _edges_from_nodes(nodes)
@@ -69,6 +80,9 @@ def apply_execution_event(metadata: dict[str, Any], event: dict[str, Any]) -> di
     if event_key:
         applied.append(event_key)
         plan["applied_event_ids"] = applied[-200:]
+    plan, warnings = repair_execution_plan(plan, default_agent_id=_str(plan.get("agent_id") or "build") or "build")
+    if warnings:
+        plan["validation_warnings"] = warnings[-20:]
     metadata["execution_plan"] = plan
     return metadata
 
@@ -171,15 +185,29 @@ def _permission_decided(plan: dict[str, Any], nodes: list[dict[str, Any]], paylo
     node = _find_by(nodes, "source_permission_part_id", part_id) or _find_by(nodes, "source_part_id", part_id) or _current_node(nodes)
     if not node:
         return
-    node.update(
-        {
-            "status": "running",
-            "source_event_id": _str(event.get("id")) or node.get("source_event_id"),
-            "blocked_reason": None,
-            "error": None,
-        }
-    )
-    plan["status"] = "running"
+    decision_type = _decision_type(payload)
+    if decision_type == "reject":
+        node.update(
+            {
+                "status": "blocked",
+                "source_event_id": _str(event.get("id")) or node.get("source_event_id"),
+                "blocked_reason": _str(payload.get("summary") or event.get("message") or "审批已拒绝，需要人工恢复。"),
+                "error": _str(payload.get("message") or payload.get("summary") or "permission rejected"),
+            }
+        )
+        _mark_recoverable(node, action="manual_review", reason="Permission was rejected.")
+        plan["status"] = "blocked"
+    else:
+        node.update(
+            {
+                "status": "running",
+                "source_event_id": _str(event.get("id")) or node.get("source_event_id"),
+                "blocked_reason": None,
+                "error": None,
+                "recovery_error": None,
+            }
+        )
+        plan["status"] = "running"
 
 
 def _summary_completed(plan: dict[str, Any], nodes: list[dict[str, Any]], payload: dict[str, Any], event: dict[str, Any]) -> None:
@@ -217,6 +245,7 @@ def _runtime_stopped(plan: dict[str, Any], nodes: list[dict[str, Any]], payload:
             "completed_at": node.get("completed_at") or _event_time(event),
         }
     )
+    _mark_recoverable(node, action=_recovery_action_for(node), reason=message or "Runtime stopped before the node completed.")
     plan["status"] = status
 
 
@@ -259,7 +288,100 @@ def _async_subtask_event(plan: dict[str, Any], nodes: list[dict[str, Any]], payl
     )
     if status == "failed":
         node["retry_policy"] = {"max_attempts": 1, "retry_on": ["failed"]}
-    plan["status"] = "blocked" if status in {"blocked", "failed"} else "running"
+        _mark_recoverable(node, action="restart_subagent", reason=node.get("error") or "Async subagent failed.")
+    elif status == "interrupted":
+        _mark_recoverable(node, action="restart_subagent", reason="Async subagent was interrupted.")
+    elif status == "completed":
+        node.update({"recoverable": False, "recovery_action": None, "recovery_reason": None, "recovery_error": None})
+    plan["status"] = "blocked" if status in {"blocked", "failed", "interrupted"} else "running"
+
+
+def _node_recovery_event(plan: dict[str, Any], nodes: list[dict[str, Any]], payload: dict[str, Any], event: dict[str, Any], event_type: str) -> None:
+    node_id = _str(payload.get("node_id"))
+    node = _find_by(nodes, "id", node_id) or _current_node(nodes)
+    if not node:
+        return
+    action = _str(payload.get("action")) or _recovery_action_for(node)
+    message = _str(payload.get("summary") or event.get("message"))
+    recovery_id = _recovery_id(payload, event)
+    if event_type == "node_recovery_requested":
+        _append_recovery_history(node, recovery_id, action, "requested", event, message=message)
+        node.update(
+            {
+                "recoverable": True,
+                "recovery_action": action,
+                "recovery_reason": message or node.get("recovery_reason"),
+                "last_recovery_at": _event_time(event),
+                "source_event_id": _str(event.get("id")) or node.get("source_event_id"),
+            }
+        )
+        plan["status"] = "blocked"
+    elif event_type == "node_recovery_started":
+        output = dict(node.get("output") or {})
+        if payload.get("new_task_id"):
+            output["recovery_task_id"] = payload.get("new_task_id")
+        if payload.get("old_task_id"):
+            output["previous_task_id"] = payload.get("old_task_id")
+        node["output"] = output
+        _append_recovery_history(
+            node,
+            recovery_id,
+            action,
+            "started",
+            event,
+            old_task_id=_str(payload.get("old_task_id")),
+            new_task_id=_str(payload.get("new_task_id")),
+            message=message,
+        )
+        node.update(
+            {
+                "status": "running",
+                "recoverable": False,
+                "recovery_action": action,
+                "recovery_attempts": int(node.get("recovery_attempts") or 0) + 1,
+                "last_recovery_at": _event_time(event),
+                "recovery_error": None,
+                "blocked_reason": None,
+                "error": None,
+                "output": node.get("output") or output,
+                "source_event_id": _str(event.get("id")) or node.get("source_event_id"),
+            }
+        )
+        plan["status"] = "running"
+    elif event_type == "node_recovery_completed":
+        _append_recovery_history(node, recovery_id, action, "completed", event, message=message)
+        node.update(
+            {
+                "status": "running" if _str(payload.get("keeps_running")) else "completed",
+                "recoverable": False,
+                "recovery_error": None,
+                "completed_at": _event_time(event) if not _str(payload.get("keeps_running")) else node.get("completed_at"),
+                "source_event_id": _str(event.get("id")) or node.get("source_event_id"),
+            }
+        )
+        plan["status"] = "running" if node["status"] == "running" else plan.get("status", "running")
+    elif event_type in {"node_recovery_failed", "node_recovery_rejected"}:
+        _append_recovery_history(
+            node,
+            recovery_id,
+            action,
+            "failed" if event_type == "node_recovery_failed" else "rejected",
+            event,
+            error=_str(payload.get("error") or message),
+            message=message,
+        )
+        node.update(
+            {
+                "status": "failed" if event_type == "node_recovery_failed" else "blocked",
+                "recoverable": event_type == "node_recovery_failed",
+                "recovery_action": action,
+                "recovery_error": _str(payload.get("error") or message) or node.get("recovery_error"),
+                "blocked_reason": message or node.get("blocked_reason"),
+                "last_recovery_at": _event_time(event),
+                "source_event_id": _str(event.get("id")) or node.get("source_event_id"),
+            }
+        )
+        plan["status"] = "failed" if event_type == "node_recovery_failed" else "blocked"
 
 
 def _normalize_node(raw: Any) -> dict[str, Any]:
@@ -286,6 +408,12 @@ def _normalize_node(raw: Any) -> dict[str, Any]:
         "started_at": item.get("started_at"),
         "completed_at": item.get("completed_at"),
         "blocked_reason": item.get("blocked_reason"),
+        "recoverable": bool(item.get("recoverable") or False),
+        "recovery_action": item.get("recovery_action"),
+        "recovery_reason": item.get("recovery_reason"),
+        "recovery_attempts": _safe_int(item.get("recovery_attempts"), 0),
+        "last_recovery_at": item.get("last_recovery_at"),
+        "recovery_error": item.get("recovery_error"),
     }
 
 
@@ -362,6 +490,79 @@ def _async_status(payload: dict[str, Any], event_type: str) -> str:
     return "running"
 
 
+def _mark_recoverable(node: dict[str, Any], *, action: str, reason: str) -> None:
+    if node.get("status") == "completed":
+        return
+    node.update(
+        {
+            "recoverable": True,
+            "recovery_action": action,
+            "recovery_reason": reason,
+        }
+    )
+
+
+def _recovery_action_for(node: dict[str, Any]) -> str:
+    if node.get("kind") == "subagent" or node.get("source_task_id"):
+        return "restart_subagent"
+    if node.get("kind") == "tool" or node.get("tool"):
+        return "retry_node"
+    if node.get("status") == "blocked":
+        return "resume_node"
+    return "manual_review"
+
+
+def _decision_type(payload: dict[str, Any]) -> str:
+    decisions = payload.get("decisions")
+    if isinstance(decisions, list) and decisions:
+        first = decisions[0] if isinstance(decisions[0], dict) else {}
+        return _str(first.get("type"))
+    decision = payload.get("decision")
+    if isinstance(decision, dict):
+        return _str(decision.get("type"))
+    return _str(payload.get("decision_type") or payload.get("type"))
+
+
+def _recovery_id(payload: dict[str, Any], event: dict[str, Any]) -> str:
+    return _str(payload.get("recovery_id") or event.get("recovery_id") or event.get("id"))
+
+
+def _append_recovery_history(
+    node: dict[str, Any],
+    recovery_id: str,
+    action: str,
+    status: str,
+    event: dict[str, Any],
+    *,
+    error: str = "",
+    old_task_id: str = "",
+    new_task_id: str = "",
+    message: str = "",
+) -> None:
+    output = dict(node.get("output") or {})
+    history = [dict(item) for item in output.get("recovery_history") or [] if isinstance(item, dict)]
+    if recovery_id and any(item.get("recovery_id") == recovery_id and item.get("status") == status for item in history):
+        node["output"] = output
+        return
+    item = {
+        "recovery_id": recovery_id,
+        "action": action,
+        "status": status,
+        "at": _event_time(event),
+    }
+    if message:
+        item["message"] = message
+    if error:
+        item["error"] = error
+    if old_task_id:
+        item["old_task_id"] = old_task_id
+    if new_task_id:
+        item["new_task_id"] = new_task_id
+    history.append(item)
+    output["recovery_history"] = history[-20:]
+    node["output"] = output
+
+
 def _event_type(event: dict[str, Any]) -> str:
     return _str(event.get("event_type") or event.get("type") or event.get("event"))
 
@@ -371,7 +572,7 @@ def _payload(event: dict[str, Any]) -> dict[str, Any]:
 
 
 def _event_key(event_type: str, event: dict[str, Any], payload: dict[str, Any]) -> str:
-    identity = _str(event.get("id") or payload.get("part_id") or payload.get("task_id") or payload.get("source_event_id"))
+    identity = _str(payload.get("recovery_id") or event.get("id") or payload.get("part_id") or payload.get("task_id") or payload.get("source_event_id"))
     return f"{event_type}:{identity}" if identity else ""
 
 
@@ -395,6 +596,13 @@ def _compact_output(value: dict[str, Any]) -> dict[str, Any]:
 
 def _str(value: Any) -> str:
     return str(value).strip() if value is not None else ""
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _now() -> str:

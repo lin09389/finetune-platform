@@ -5,8 +5,10 @@ from server.agent_session.execution_plan import (
     PLAN_SCHEMA_VERSION,
     build_initial_execution_plan,
     normalize_execution_plan,
+    repair_execution_plan,
     sync_execution_plan_status,
     todos_from_execution_plan,
+    validate_execution_plan,
 )
 from server.agent_session.runtime_policy import build_agent_runtime_policy
 
@@ -125,3 +127,28 @@ def test_todos_from_execution_plan_projects_nodes_for_workspace():
 
     assert [todo["source"] for todo in todos] == ["execution_plan", "execution_plan", "execution_plan"]
     assert todos[1]["status"] == "in_progress"
+
+
+def test_repair_execution_plan_fixes_bad_invariants():
+    plan = build_initial_execution_plan(
+        session={"id": "s1", "agent_id": "build", "status": "running"},
+        policy=_policy(),
+        goal="运行",
+        status="running",
+    )
+    plan["current_node_id"] = "missing"
+    plan["nodes"].append({**plan["nodes"][1], "status": "bogus", "recovery_action": "auto", "recovery_attempts": "bad"})
+    plan["edges"].append({"from": "missing", "to": "also_missing", "type": "depends_on"})
+
+    warnings = validate_execution_plan(plan)
+    repaired, repair_warnings = repair_execution_plan(plan)
+
+    assert warnings
+    assert repair_warnings
+    assert repaired["current_node_id"] in {node["id"] for node in repaired["nodes"]}
+    assert len({node["id"] for node in repaired["nodes"]}) == len(repaired["nodes"])
+    assert all(edge["from"] != "missing" for edge in repaired["edges"])
+    repaired_duplicate = next(node for node in repaired["nodes"] if node["id"].startswith("execute_primary_agent_"))
+    assert repaired_duplicate["status"] == "pending"
+    assert repaired_duplicate["recovery_action"] is None
+    assert repaired_duplicate["recovery_attempts"] == 0
