@@ -48,11 +48,11 @@ class DocumentParser:
     def _parse_pdf(self, file_path: str) -> str:
         """解析 PDF 文件"""
         try:
-            import PyPDF2
+            import pypdf
 
             text_parts = []
             with open(file_path, 'rb') as f:
-                reader = PyPDF2.PdfReader(f)
+                reader = pypdf.PdfReader(f)
                 for i, page in enumerate(reader.pages):
                     text = page.extract_text()
                     if text:

@@ -544,7 +544,7 @@ async def get_supported_types():
             for ext, ft in parser.SUPPORTED_EXTENSIONS.items()
         ],
         "description": {
-            "pdf": "PDF 文档，使用 pdfplumber 或 PyPDF2 解析",
+            "pdf": "PDF 文档，使用 pdfplumber 或 pypdf 解析",
             "word": "Word 文档 (.docx, .doc)，使用 python-docx 解析",
             "excel": "Excel 表格 (.xlsx, .xls)，使用 openpyxl 解析",
             "txt": "纯文本文件",

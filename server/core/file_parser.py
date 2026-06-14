@@ -232,9 +232,9 @@ class FileParser:
 
             return "\n\n".join(text_parts)
         except ImportError:
-            logger.warning("pdfplumber 未安装，尝试使用 PyPDF2")
+            logger.warning("pdfplumber 未安装，尝试使用 pypdf")
             try:
-                from PyPDF2 import PdfReader
+                from pypdf import PdfReader
 
                 reader = PdfReader(file_path)
                 text_parts = []
@@ -246,8 +246,8 @@ class FileParser:
                 return "\n\n".join(text_parts)
             except ImportError:
                 raise ImportError(
-                    "PDF 解析需要安装 pdfplumber 或 PyPDF2: "
-                    "pip install pdfplumber 或 pip install PyPDF2"
+                    "PDF 解析需要安装 pdfplumber 或 pypdf: "
+                    "pip install pdfplumber 或 pip install pypdf"
                 )
 
     async def _extract_word(self, file_path: str) -> str:

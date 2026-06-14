@@ -28,28 +28,32 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
       - name: Install tools
         run: |
-          python -m pip install --upgrade pip
-          pip install ruff mypy black
-          pip install -r server/requirements.txt
+          uv sync --frozen --extra dev
 
       - name: Check encoding hygiene
-        run: python scripts/check_encoding.py
+        run: uv run python scripts/check_encoding.py
 
       - name: Ruff (focused gate)
-        run: ruff check server --select W291,W293,I001,UP015,UP012 --output-format=github
+        run: uv run ruff check server --select W291,W293,I001,UP015,UP012 --output-format=github
 
       - name: Ruff (full lint - advisory)
-        run: ruff check server --output-format=github
+        run: uv run ruff check server --output-format=github
         continue-on-error: true
 
       - name: Black format check
-        run: black --check server
+        run: uv run black --check server
         continue-on-error: true
 
       - name: MyPy type check
-        run: mypy server --ignore-missing-imports --no-error-summary
+        run: uv run mypy server --ignore-missing-imports --no-error-summary
         continue-on-error: true
 
   # ── Backend unit tests ──────────────────────────────────────────
@@ -66,27 +70,29 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install pytest pytest-asyncio pytest-cov
-          pip install -r server/requirements.txt
+          uv sync --frozen --extra dev
 
       - name: Run unit tests
         run: |
-          cd server
-          pytest tests/ -v --tb=short -m "not integration and not e2e" --cov=. --cov-report=xml --cov-report=term-missing
+          uv run pytest server/tests/ -v --tb=short -m "not integration and not e2e" --cov=server --cov-report=xml --cov-report=term-missing
 
       - name: Run smoke tests (always)
         if: always()
         run: |
-          cd server
-          pytest tests/test_training.py tests/test_gateway_api_signature_contract.py tests/test_device.py tests/test_datasets.py tests/test_models.py -q
+          uv run pytest server/tests/test_training.py server/tests/test_gateway_api_signature_contract.py server/tests/test_device.py server/tests/test_datasets.py server/tests/test_models.py -q
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         with:
-          files: ./server/coverage.xml
+          files: ./coverage.xml
           flags: unittests
           fail_ci_if_error: false
 
@@ -104,21 +110,24 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install pytest pytest-asyncio pytest-cov httpx
-          pip install -r server/requirements.txt
+          uv sync --frozen --extra dev
 
       - name: Run integration tests
         run: |
-          cd server
-          pytest tests/ -v --tb=short -m "integration" --cov=. --cov-report=xml
+          uv run pytest server/tests/ -v --tb=short -m "integration" --cov=server --cov-report=xml
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         with:
-          files: ./server/coverage.xml
+          files: ./coverage.xml
           flags: integration
           fail_ci_if_error: false
 

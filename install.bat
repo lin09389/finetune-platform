@@ -64,4 +64,8 @@ echo   2. 或手动启动:
 echo      cd server ^&^& uvicorn main:app --reload
 echo      cd client ^&^& npm run dev
 echo.
+echo 提示: 推荐使用 uv 管理依赖（更快、可复现）:
+echo   pip install uv
+echo   uv sync --extra dev
+echo.
 pause

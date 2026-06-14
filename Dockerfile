@@ -1,13 +1,14 @@
 # Finetune Platform Dockerfile
 # 大模型微调平台 - Docker 镜像
 
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 # 设置环境变量
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PATH="/app/.venv/bin:$PATH" \
     MODELS_DIR=/app/models \
     DATASETS_DIR=/app/datasets \
     OUTPUTS_DIR=/app/outputs \
@@ -27,10 +28,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制依赖文件
-COPY server/requirements.txt .
+COPY pyproject.toml uv.lock ./
 
 # 安装 Python 依赖
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir uv \
+    && uv sync --frozen --no-dev
 
 # 复制服务器代码
 COPY server/ ./server/
