@@ -1,33 +1,51 @@
 @echo off
 chcp 65001 >nul
+setlocal
+title PyTorch GPU 安装器
+
 echo ========================================
-echo   安装 GPU 版 PyTorch
+echo   PyTorch GPU 版本安装
 echo ========================================
 echo.
-echo 显卡：NVIDIA GeForce RTX 3060 6GB
-echo CUDA: 13.1 (驱动支持)
-echo 目标：PyTorch 2.1.2 + CUDA 11.8
-echo.
-echo 正在安装 GPU 版 PyTorch...
+echo 目标版本：PyTorch 2.2.2 + CUDA 12.1
+echo 依赖来源：pyproject.toml + uv.lock，GPU extra 安装 bitsandbytes
 echo.
 
-REM 卸载当前 CPU 版本
-echo [1/3] 卸载当前 PyTorch...
-pip uninstall -y torch torchvision torchaudio
+cd /d "%~dp0.."
 
-REM 安装 CUDA 11.8 版本（最稳定兼容）
-echo [2/3] 安装 GPU 版 PyTorch (CUDA 11.8)...
-pip install torch==2.1.2 torchvision torchaudio --index-url https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
-
+echo [1/4] 检查 uv...
+where uv >nul 2>&1
 if errorlevel 1 (
-    echo.
-    echo [错误] 安装失败，尝试备用镜像源...
-    pip install torch==2.1.2 torchvision torchaudio --index-url https://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+    echo 未检测到 uv，正在安装 uv...
+    python -m pip install uv
+    if errorlevel 1 (
+        echo [错误] uv 安装失败
+        pause
+        exit /b 1
+    )
 )
 
 echo.
-echo [3/3] 验证安装...
-python -c "import torch; print('PyTorch:', torch.__version__); print('CUDA:', torch.cuda.is_available()); print('CUDA Version:', torch.version.cuda if hasattr(torch.version, 'cuda') else 'N/A')"
+echo [2/4] 同步项目依赖（含 GPU extra）...
+uv sync --frozen --extra gpu
+if errorlevel 1 (
+    echo [错误] uv sync --extra gpu 失败
+    pause
+    exit /b 1
+)
+
+echo.
+echo [3/4] 安装 CUDA 12.1 PyTorch wheel...
+uv pip install --reinstall torch==2.2.2 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+if errorlevel 1 (
+    echo [错误] CUDA 12.1 PyTorch wheel 安装失败
+    pause
+    exit /b 1
+)
+
+echo.
+echo [4/4] 验证安装...
+uv run python -c "import torch; print('PyTorch:', torch.__version__); print('CUDA 可用:', torch.cuda.is_available()); print('CUDA 版本:', torch.version.cuda); print('GPU 名称:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'N/A')"
 
 echo.
 echo ========================================

@@ -1,5 +1,8 @@
 services:
   api:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
     deploy:
       resources:
         reservations:

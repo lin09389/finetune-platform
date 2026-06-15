@@ -16,7 +16,7 @@ REM 检查 Python
 echo [1/4] 检查 Python...
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo [错误] 未找到 Python，请先安装 Python 3.10+
+    echo [错误] 未找到 Python，请先安装 Python 3.11
     pause
     exit /b 1
 )
@@ -34,29 +34,30 @@ echo [OK] Node.js 已安装
 
 REM 检查后端依赖
 echo [3/4] 检查后端依赖...
-cd /d "%~dp0server"
-
-REM 优先使用 server/.venv 虚拟环境
-set "VENV_PYTHON=%~dp0server\.venv\Scripts\python.exe"
-set "VENV_PIP=%~dp0server\.venv\Scripts\pip.exe"
-if exist "%VENV_PYTHON%" (
-    echo [INFO] 检测到虚拟环境，使用 .venv
-    set "PYTHON_CMD=%VENV_PYTHON%"
-    set "PIP_CMD=%VENV_PIP%"
-) else (
-    echo [INFO] 未检测到虚拟环境，使用全局 Python
-    set "PYTHON_CMD=python"
-    set "PIP_CMD=pip"
-)
-
-"%PIP_CMD%" show fastapi >nul 2>&1
-if errorlevel 1 (
-    echo 正在安装后端依赖...
-    "%PIP_CMD%" install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
+cd /d "%~dp0"
+set "USE_UV=0"
+where uv >nul 2>&1
+if not errorlevel 1 (
+    echo [INFO] 使用 uv sync --frozen 检查后端依赖
+    uv sync --frozen
     if errorlevel 1 (
-        echo [错误] 后端依赖安装失败
+        echo [错误] uv 依赖同步失败
         pause
         exit /b 1
+    )
+    set "USE_UV=1"
+) else (
+    echo [INFO] 未检测到 uv，使用 pip 回退兼容路径
+    cd /d "%~dp0server"
+    python -c "import fastapi" >nul 2>&1
+    if errorlevel 1 (
+    echo 正在安装后端依赖...
+        pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
+        if errorlevel 1 (
+            echo [错误] 后端依赖安装失败
+            pause
+            exit /b 1
+        )
     )
 )
 echo [OK] 后端依赖已就绪
@@ -83,7 +84,11 @@ echo.
 
 REM 启动后端
 echo [后端] 启动中...
-start "Finetune - 后端" /d "%~dp0server" cmd /k "%PYTHON_CMD%" -m uvicorn main:app --host 127.0.0.1 --port 8010
+if "%USE_UV%"=="1" (
+    start "Finetune - 后端" /d "%~dp0" cmd /k uv run python -m uvicorn server.main:app --host 127.0.0.1 --port 8010
+) else (
+    start "Finetune - 后端" /d "%~dp0server" cmd /k python -m uvicorn main:app --host 127.0.0.1 --port 8010
+)
 
 REM 等待后端启动
 echo 等待后端启动 (5 秒)...

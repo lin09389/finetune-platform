@@ -3,7 +3,7 @@
 功能：
 - 技术栈检测（Python/JS 框架识别）
 - 项目结构分析（目录树）
-- 依赖解析（requirements.txt / package.json）
+- 依赖解析（pyproject.toml / requirements.txt / package.json）
 - 关键文件识别
 - 代码风格分析
 - Git 信息获取

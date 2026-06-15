@@ -36,18 +36,39 @@ try {
 # 检查后端依赖
 Write-Host "[3/4] 检查后端依赖..." -ForegroundColor Yellow
 $serverDir = Join-Path $projectRoot "server"
-Push-Location $serverDir
-try {
-    python -c "import fastapi" 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  正在安装后端依赖..." -ForegroundColor Yellow
-        pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
+$useUv = $false
+if (Get-Command uv -ErrorAction SilentlyContinue) {
+    Push-Location $projectRoot
+    try {
+        Write-Host "  使用 uv sync --frozen" -ForegroundColor Yellow
+        uv sync --frozen
+        if ($LASTEXITCODE -ne 0) {
+            throw "uv sync failed"
+        }
+        $useUv = $true
+        Write-Host "  [OK] 后端依赖已就绪" -ForegroundColor Green
+    } catch {
+        Write-Host "  [错误] uv 依赖同步失败：$_" -ForegroundColor Red
+        Read-Host "按回车退出"
+        exit 1
+    } finally {
+        Pop-Location
     }
-    Write-Host "  [OK] 后端依赖已就绪" -ForegroundColor Green
-} catch {
-    Write-Host "  [警告] 依赖检查失败" -ForegroundColor Yellow
+} else {
+    Push-Location $serverDir
+    try {
+        python -c "import fastapi" 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  未检测到 uv，使用 pip 回退兼容路径..." -ForegroundColor Yellow
+            pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn
+        }
+        Write-Host "  [OK] 后端依赖已就绪" -ForegroundColor Green
+    } catch {
+        Write-Host "  [警告] 依赖检查失败" -ForegroundColor Yellow
+    } finally {
+        Pop-Location
+    }
 }
-Pop-Location
 
 # 检查前端依赖
 Write-Host "[4/4] 检查前端依赖..." -ForegroundColor Yellow
@@ -69,13 +90,18 @@ Write-Host ""
 # 启动后端
 Write-Host "[后端] 启动中..." -ForegroundColor Yellow
 $backendJob = Start-Job -ScriptBlock {
-    param($dir)
+    param($dir, $useUv)
     if (-not $env:SystemRoot) { $env:SystemRoot = "C:\Windows" }
     if (-not $env:WINDIR) { $env:WINDIR = "C:\Windows" }
     if (-not $env:SystemDrive) { $env:SystemDrive = "C:" }
     Set-Location $dir
-    python -m uvicorn main:app --host 127.0.0.1 --port 8010
-} -ArgumentList $serverDir
+    if ($useUv) {
+        uv run python -m uvicorn server.main:app --host 127.0.0.1 --port 8010
+    } else {
+        Set-Location (Join-Path $dir "server")
+        python -m uvicorn main:app --host 127.0.0.1 --port 8010
+    }
+} -ArgumentList $projectRoot, $useUv
 
 # 等待后端启动
 Write-Host "  等待后端启动 (5 秒)..." -ForegroundColor Gray

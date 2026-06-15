@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from main import app
+from rag.vector_store import reset_vector_store
 
 
 class TestDialogueAPIIntegration:
@@ -310,7 +311,8 @@ class TestWorkspaceAPIIntegration:
     """工作空间 API 集成测试"""
 
     @pytest.fixture
-    def client(self):
+    def client(self, tmp_path):
+        reset_vector_store(str(tmp_path / "vectors"))
         return TestClient(app)
 
     def test_workspace_list(self, client):

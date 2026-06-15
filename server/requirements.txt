@@ -482,6 +482,8 @@ pygetwindow==0.0.9
     # via pyautogui
 pygments==2.20.0
     # via rich
+pyjwt==2.13.0
+    # via finetune-platform
 pymsgbox==2.0.1
     # via pyautogui
 pynput==1.7.6

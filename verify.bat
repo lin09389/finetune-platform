@@ -8,8 +8,8 @@ echo ========================================
 echo.
 
 REM 检查后端
-echo 检查后端服务 (127.0.0.1:8000)...
-powershell -Command "try { $r = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/' -TimeoutSec 3 -ErrorAction Stop; Write-Host '[OK] 后端运行中' -ForegroundColor Green } catch { Write-Host '[FAIL] 后端未运行' -ForegroundColor Red }"
+echo 检查后端服务 (127.0.0.1:8010)...
+powershell -Command "try { $r = Invoke-RestMethod -Uri 'http://127.0.0.1:8010/' -TimeoutSec 3 -ErrorAction Stop; Write-Host '[OK] 后端运行中' -ForegroundColor Green } catch { Write-Host '[FAIL] 后端未运行' -ForegroundColor Red }"
 
 echo.
 
@@ -21,7 +21,7 @@ echo.
 
 REM 检查 API 文档
 echo 检查 API 文档...
-powershell -Command "try { $null = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/docs' -TimeoutSec 3 -ErrorAction Stop; Write-Host '[OK] API 文档可访问' -ForegroundColor Green } catch { Write-Host '[WARN] API 文档访问失败' -ForegroundColor Yellow }"
+powershell -Command "try { $null = Invoke-RestMethod -Uri 'http://127.0.0.1:8010/docs' -TimeoutSec 3 -ErrorAction Stop; Write-Host '[OK] API 文档可访问' -ForegroundColor Green } catch { Write-Host '[WARN] API 文档访问失败' -ForegroundColor Yellow }"
 
 echo.
 echo ========================================
