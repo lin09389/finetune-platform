@@ -1228,6 +1228,52 @@ async def test_agent_session_interrupt_cancels_running_prompt_task(tmp_path: Pat
     assert current.metadata["ui_state"]["pending_permission"] is None
 
 
+@pytest.mark.asyncio
+async def test_agent_session_interrupt_keeps_permission_resume_interrupted(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="interrupt resume", project_path=str(Path.cwd())))
+    service.repository.update_session(
+        session.id,
+        status="running",
+        provider="mock",
+        model="mock-model",
+        metadata={
+            "runtime": "deepagents",
+            "active_prompt_id": "prompt-1",
+            "background_run": True,
+            "pending_deepagents_interrupt": {"part_id": "pending"},
+            "ui_state": {"pending_permission": {"part_id": "pending"}},
+        },
+    )
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def waiting_resume(_session_id, _decision):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    service.deepagents_runner.resume = waiting_resume
+    task = asyncio.create_task(service._resume_permission_background(session.id, {"decisions": [{"type": "approve"}]}))
+    await started.wait()
+
+    interrupted = service.interrupt_session(session.id)
+    await asyncio.wait_for(cancelled.wait(), timeout=2)
+    await asyncio.wait_for(task, timeout=2)
+
+    assert interrupted.status == "interrupted"
+    current = service.get_session(session.id)
+    assert current.status == "interrupted"
+    assert current.metadata["active_prompt_id"] is None
+    assert current.metadata["background_run"] is False
+    assert current.metadata["pending_deepagents_interrupt"] is None
+    assert current.metadata["ui_state"]["pending_permission"] is None
+    assert not any(part.type == "summary" and "权限审批后的 Agent 恢复执行被取消" in (part.content or "") for part in current.parts)
+
+
 def test_agent_session_hitl_decision_validation_rejects_bad_batches(tmp_path: Path):
     service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
     session = service.create_session(AgentSessionCreate(title="hitl decisions", project_path=str(Path.cwd())))

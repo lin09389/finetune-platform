@@ -910,19 +910,36 @@ class AgentSessionService:
         return self.deepagents_runner.model_call is not None or bool(response.provider)
 
     async def _resume_permission_background(self, session_id: str, decision: dict[str, Any]) -> None:
+        # Register the resume coroutine so interrupt_session/_cancel_prompt_task
+        # can actually cancel an in-flight permission resume. Without this the
+        # resume keeps running after an interrupt and may still fire side-effect
+        # tools (even though resume() re-checks _is_interrupted before completion).
+        loop = asyncio.get_running_loop()
+        current_task = asyncio.current_task()
+        if current_task is not None:
+            with self._prompt_tasks_lock:
+                existing = self._prompt_tasks.get(session_id)
+                # Only take over the slot when no other live task owns it, so we
+                # never displace a still-running prompt task.
+                if existing is None or existing[1].done():
+                    self._prompt_tasks[session_id] = (loop, current_task)
         try:
             self._sync_async_service_model_call()
             await self.deepagents_runner.resume(session_id, decision)
-        except asyncio.CancelledError as exc:
-            try:
-                self.record_prompt_failure(session_id, RuntimeError(f"权限审批后的 Agent 恢复执行被取消：{exc}"))
-            except Exception as failure_exc:
-                self._record_background_failure_fallback(session_id, exc, failure_exc)
+        except asyncio.CancelledError:
+            session = self.repository.get_session(session_id)
+            if session and str(session.get("status") or "") not in self.TERMINAL_STATUSES:
+                self.interrupt_session(session_id, "权限审批后的 Agent 恢复执行已取消。")
         except Exception as exc:
             try:
                 self.record_prompt_failure(session_id, exc)
             except Exception as failure_exc:
                 self._record_background_failure_fallback(session_id, exc, failure_exc)
+        finally:
+            with self._prompt_tasks_lock:
+                record = self._prompt_tasks.get(session_id)
+                if record and record[1] is current_task:
+                    self._prompt_tasks.pop(session_id, None)
 
     async def decide_permission_async(self, part_id: str, decisions: list[dict[str, Any]]) -> AgentSessionResponse:
         response, decision = await run_sync(self._record_permission_decision, part_id, decisions)
@@ -937,38 +954,30 @@ class AgentSessionService:
             raise ValueError("Agent part session not found")
         session = self.repository.get_session(session_id) or {}
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        if not approved:
-            updated = self.repository.update_part(part["id"], status="blocked")
-            self.state_machine.mark_failed(session_id, metadata=metadata, status="failed")
-            event = self.repository.add_event(
-                session_id,
-                "action_rejected",
-                "动作已拒绝",
-                {
-                    "session_id": session_id,
-                    "part_id": part["id"],
-                    "part_type": part.get("type"),
-                    "status": "blocked",
-                    "runtime": "deepagents",
-                    "part": updated,
-                },
-            )
-            self._notify_event(session_id, event)
+        # CAS guard: only transition a still-pending action. A repeated
+        # approve/reject (double click, retry) must not flip an already-decided
+        # part again or re-trigger state transitions. Return current state idempotently.
+        next_status = "blocked" if not approved else "approved"
+        updated = self.repository.update_part_if_status(part["id"], "pending", status=next_status)
+        if updated is None:
             result = self.repository.get_session(session_id) or session
             result["parts"] = self.repository.list_parts(session_id)
             return result
-
-        updated = self.repository.update_part(part["id"], status="approved")
-        self.state_machine.mark_waiting_approval(session_id, metadata=metadata)
+        if not approved:
+            self.state_machine.mark_failed(session_id, metadata=metadata, status="failed")
+            event_type, event_message = "action_rejected", "动作已拒绝"
+        else:
+            self.state_machine.mark_waiting_approval(session_id, metadata=metadata)
+            event_type, event_message = "action_approved", "动作已批准"
         event = self.repository.add_event(
             session_id,
-            "action_approved",
-            "动作已批准",
+            event_type,
+            event_message,
             {
                 "session_id": session_id,
                 "part_id": part["id"],
                 "part_type": part.get("type"),
-                "status": "approved",
+                "status": next_status,
                 "runtime": "deepagents",
                 "part": updated,
             },
@@ -1582,62 +1591,6 @@ class AgentSessionService:
         if len(value) <= limit:
             return value
         return value[:limit].rstrip() + "...[truncated]"
-
-    def _record_agent_chain_failure(
-        self,
-        session_id: str,
-        code: str,
-        message: str,
-        *,
-        provider: str | None = None,
-        model: str | None = None,
-    ) -> dict[str, Any]:
-        session = self.repository.get_session(session_id)
-        if not session:
-            raise ValueError("Agent session not found")
-        metadata = ensure_session_state(dict(session.get("metadata") or {}))
-        metadata["fallback_reason"] = None
-        metadata["last_graph_error"] = message[:600] if code == "langgraph_init_failed" else metadata.get("last_graph_error")
-        metadata["last_model_error"] = message[:600]
-        trace = dict(metadata.get("execution_trace") or {})
-        trace.update(
-            {
-                "runtime": metadata.get("runtime") or "pending",
-                "provider": provider or session.get("provider") or "",
-                "model": model or session.get("model") or "",
-                "status": "failed",
-                "failure_code": code,
-                "fallback_used": False,
-                "last_model_error": message[:600],
-            }
-        )
-        metadata["execution_trace"] = trace
-        summary = self.repository.add_part(
-            session_id,
-            "summary",
-            status="completed",
-            title="执行链路未启动",
-            content=message,
-            payload={"summary": message, "error_code": code, "fallback": False},
-        )
-        self.state_machine.mark_failed(session_id, metadata=metadata, status="needs_manual_review")
-        self._event(
-            session_id,
-            "agent_chain_failed",
-            message,
-            {
-                "session_id": session_id,
-                "part_id": summary["id"],
-                "part_type": "summary",
-                "status": "needs_manual_review",
-                "summary": message,
-                "error_code": code,
-                "fallback": False,
-            },
-        )
-        result = self.repository.get_session(session_id) or session
-        result["parts"] = self.repository.list_parts(session_id)
-        return result
 
     def _record_resume_decision(self, session_id: str, decision: dict[str, Any]) -> None:
         session = self.repository.get_session(session_id)
