@@ -13,8 +13,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from .command_policy import summarize_failure
-
 
 MAX_CAPTURE_BYTES = 1024 * 1024
 TerminalExitCallback = Callable[["TerminalSession"], None]
@@ -34,6 +32,14 @@ def _launch_command(command: list[str]) -> list[str]:
     if resolved:
         return [resolved, *command[1:]]
     return command
+
+
+def summarize_failure(stdout: str = "", stderr: str = "", error: str | None = None, limit: int = 1600) -> str:
+    text = "\n".join(part for part in [error or "", stderr or "", stdout or ""] if part).strip()
+    if not text:
+        return ""
+    lines = [line.rstrip() for line in text.splitlines() if line.strip()]
+    return "\n".join(lines[-20:])[:limit]
 
 
 @dataclass

@@ -78,13 +78,23 @@ async def build_deepagents_context_pack(
         metadata["retrieval"] = retrieved_pack.to_dict()
 
     file_lines = [f"- `{path}` ({estimate_tokens(content)} tokens est.)" for path, content in files.items()]
+
+    inline_context_hints = []
+    if active_context and active_context.get("file_path"):
+        inline_context_hints.append(f"👉 当前焦点文件: `{active_context.get('file_path')}`")
+    if explicit_context:
+        mentions = [str(item.get("label") or item.get("path") or "") for item in explicit_context if item.get("label") or item.get("path")]
+        if mentions:
+            inline_context_hints.append(f"👉 提及的上下文: {', '.join(mentions)}")
+    inline_hints_text = "\n\n【核心上下文速览】\n" + "\n".join(inline_context_hints) if inline_context_hints else ""
+
     prompt_context = (
-        "\n\n上下文已按 DeepAgents 官方 context engineering 方式放入虚拟文件系统。"
-        "\n需要细节时请使用 read_file/grep/glob 读取这些文件，不要依赖主消息中的长文本。"
-        "\n如果你想读取任务索引，优先读取 `/context/task.md`；`/task.md` 只是兼容别名。"
-        "\n如果你想读取当前编辑器文件，优先读取 `/context/editor/active-file.md`；"
-        "`/editor/active-file.md` 和 `/active-file.md` 是兼容别名。"
-        "\n可用上下文文件：\n"
+        inline_hints_text +
+        "\n\n【虚拟文件系统上下文】"
+        "\n大量长文本上下文已放入虚拟文件系统。需要阅读长篇代码细节时请使用 read_file/grep/glob 读取这些文件。"
+        "\n- 如果你想读取完整的任务目标索引，优先读取 `/context/task.md`"
+        "\n- 如果你想读取当前焦点文件或提及上下文的完整代码，从下方的可用文件列表中读取"
+        "\n可用虚拟上下文文件：\n"
         + "\n".join(file_lines)
     )
     prompt = _limit(goal.strip(), MAX_INLINE_PROMPT_CHARS) + prompt_context

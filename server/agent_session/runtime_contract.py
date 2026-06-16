@@ -47,6 +47,14 @@ PROJECT_CHAT_PROMPT = (
     "如果用户需要修改代码、安装依赖、运行测试或执行命令，请明确说明需要升级为 Agent Task。"
     "回答时直接给出基于项目文件的结论，并尽量引用具体文件路径。"
 )
+REASONING_PROMPT = (
+    "【强制推理规范】在调用任何工具之前，你必须先进行简短的内部思考规划（Chain of Thought）。想清楚你目前的进展是什么，"
+    "下一步需要哪些信息或操作，为什么要这么做，预期的结果是什么。这能帮助你避免迷失方向。"
+)
+ERROR_RECOVERY_PROMPT = (
+    "【强制错误恢复机制】如果执行工具报错（例如 execute 失败、edit_file 后出现语法错误、grep 找不到预期内容），"
+    "绝对禁止盲目重试或瞎猜修改。你必须立刻停下来，使用 read_file 检查具体报错位置的真实代码内容，理清原因后再尝试修复。"
+)
 
 
 @dataclass(frozen=True)
@@ -209,10 +217,12 @@ def agent_system_prompt(agent: AgentDefinition) -> str:
 def platform_prompt_sections() -> list[str]:
     return [
         PLATFORM_IDENTITY_PROMPT,
+        REASONING_PROMPT,
         FILESYSTEM_PROMPT,
         CONTEXT_PROMPT,
         SKILLS_PROMPT,
         EXECUTION_PROMPT,
+        ERROR_RECOVERY_PROMPT,
     ]
 
 

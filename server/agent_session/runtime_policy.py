@@ -340,12 +340,48 @@ def _output_contract(agent: AgentDefinition | None, *, runtime_kind: RuntimePoli
             "enforced_in_prompt": True,
         }
     requirements = str(agent.output_requirements if agent else "").strip()
+    output_schema = dict(agent.output_schema if agent else {})
+    required_sections = _clean_string_list(output_schema.get("required_sections"))
+    required_fields = _clean_string_list(output_schema.get("required_fields"))
+    schema_payload = output_schema.get("schema") if isinstance(output_schema.get("schema"), dict) else {}
+    reflection_rules = dict(agent.reflection_rules if agent else {})
+    reflection_rule_count = _reflection_rule_count(reflection_rules)
+    few_shot_count = len(agent.few_shot_examples if agent else [])
     return {
         "source": "agent_definition",
-        "format": "agent_defined" if requirements else "plain_text",
+        "schema_version": agent.schema_version if agent else 1,
+        "definition_format": agent.definition_format if agent else "runtime",
+        "format": str(output_schema.get("format") or ("agent_defined" if requirements else "plain_text")),
         "requirements": requirements or "返回面向用户的简洁任务总结；如产生文件、命令、风险或后续动作，应在总结中明确说明。",
+        "required_sections": required_sections,
+        "required_fields": required_fields,
+        "schema": schema_payload,
+        "few_shot_examples": few_shot_count,
+        "reflection_rules": reflection_rule_count,
         "enforced_in_prompt": bool(requirements),
     }
+
+
+def _clean_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _reflection_rule_count(reflection_rules: dict[str, Any]) -> int:
+    total = 0
+    for key in ("before_tool_use", "before_edit", "before_final", "on_error", "rules"):
+        value = reflection_rules.get(key)
+        if isinstance(value, list):
+            total += len([item for item in value if item])
+    sections = reflection_rules.get("sections")
+    if isinstance(sections, dict):
+        for value in sections.values():
+            if isinstance(value, list):
+                total += len([item for item in value if item])
+            elif value:
+                total += 1
+    return total
 
 
 def _recovery_policy(*, runtime_kind: RuntimePolicyKind) -> dict[str, Any]:
