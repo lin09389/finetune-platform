@@ -1,5 +1,7 @@
 # OpenCode Agent 整合统一基线（finetune-platform）
 
+> 历史说明：本文是旧 OpenCode 整合基线。当前 Agent 定义系统已经升级为 Agent Manifest v2 YAML，早期 Markdown Agent 定义路径不再作为实现基线。运行时事实源见 `server/agent_session/agent_registry.py` 和 `server/agent_session/agents/*.agent.yaml`。
+
 ## 1. 文档目的
 
 本文件是以下三份文档的统一执行版本：
@@ -17,7 +19,7 @@
 1. 不推倒现有系统，基于现有 `server/agent_runtime`、`server/chat_agent`、`/workflows` 增量增强。
 2. 聊天页 ` /chat ` 保持主入口，`/workflows` 保持观测与审批入口。
 3. OpenCode 借鉴重点是三件事：
-- 声明式 Agent 定义（Markdown + frontmatter）
+- 声明式 Agent 定义（Agent Manifest v2 YAML）
 - 细粒度权限（allow/deny/ask）
 - 工具执行前权限评估 + 可审计事件
 
@@ -102,16 +104,15 @@ OpenCode 语义 → 本项目统一工具名：
 
 实施文件：
 
-- 新增 `server/agent_runtime/agent_loader.py`
-- 新增 `server/agent_runtime/agent_manager.py`
-- 新增目录 `server/agent_runtime/agents/`
-- 新增示例 `developer.md`、`reviewer.md`、`planner.md`
-- 修改 `server/agent_runtime/runner.py`（读取 Agent prompt/参数）
-- 修改 `server/agent_runtime/engine.py`（step 绑定 agent 定义）
+- 使用 `server/agent_session/agent_registry.py`
+- 使用 `server/agent_session/execution_context.py` 的 `AgentManifestV2`
+- 使用目录 `server/agent_session/agents/`
+- 新增示例 `developer.agent.yaml`、`reviewer.agent.yaml`、`planner.agent.yaml`
+- 运行时通过 `server/agent_session/runtime_contract.py` 和 `runtime_policy.py` 消费编译后的 AgentDefinition
 
 行为标准：
 
-1. 允许从 Markdown 加载内置 Agent
+1. 只允许从 Agent Manifest v2 YAML 加载内置 Agent
 2. 支持用户目录热加载可放到后续，但至少支持手动 reload
 3. 缺失 agent 时回退到现有模板定义，不中断流程
 

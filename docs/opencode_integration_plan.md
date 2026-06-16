@@ -206,140 +206,93 @@ class AgentDefinition(BaseModel):
     hidden: bool = False  # 是否在 UI 隐藏
 ```
 
-**2.2 创建 Markdown 加载器** (`server/agent_runtime/agent_loader.py`)
+**2.2 当前方案：Agent Manifest v2 Registry** (`server/agent_session/agent_registry.py`)
+
+> 已废弃：当前实现不再加载 Markdown Agent。请使用 `server/agent_session/agents/*.agent.yaml` 的 Agent Manifest v2，并由 `server/agent_session/agent_registry.py` 解析。
 ```python
-class AgentLoader:
-    @staticmethod
-    def load_from_markdown(file_path: Path) -> AgentDefinition:
-        """解析 Markdown Agent 文档"""
-        content = file_path.read_text(encoding='utf-8')
-
-        # 分离 frontmatter 和 prompt
-        if content.startswith('---'):
-            parts = content.split('---', 2)
-            frontmatter = yaml.safe_load(parts[1])
-            system_prompt = parts[2].strip()
-        else:
-            raise ValueError("Missing frontmatter")
-
-        # 解析权限
-        permission_rules = []
-        if 'permission' in frontmatter:
-            permission_rules = PermissionManager.from_config(frontmatter.pop('permission'))
-
-        return AgentDefinition(
-            **frontmatter,
-            system_prompt=system_prompt,
-            permission=permission_rules
-        )
-
-    @staticmethod
-    def load_builtin_agents() -> dict[str, AgentDefinition]:
-        """加载内置 Agent"""
-        builtin_dir = Path(__file__).parent / "agents"
-        agents = {}
-        for md_file in builtin_dir.glob("*.md"):
-            agent = AgentLoader.load_from_markdown(md_file)
-            agent.native = True
-            agents[agent.name] = agent
-        return agents
+class AgentRegistry:
+    def _load_yaml_agent(self, path: Path) -> AgentDefinition:
+        """解析 Agent Manifest v2 YAML"""
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        manifest = AgentManifestV2(**raw)
+        return self._compile_manifest(manifest)
 ```
 
-**2.3 创建 Agent 管理器** (`server/agent_runtime/agent_manager.py`)
+**2.3 当前 Agent 管理入口** (`server/agent_session/agent_registry.py`)
 ```python
 class AgentManager:
     def __init__(self):
-        self._agents: dict[str, AgentDefinition] = {}
-        self._load_builtin_agents()
-
-    def _load_builtin_agents(self):
-        """加载内置 Agent"""
-        builtin = AgentLoader.load_builtin_agents()
-        self._agents.update(builtin)
+        self._registry = AgentRegistry()
 
     def load_user_agents(self, agents_dir: Path):
-        """从目录加载用户自定义 Agent"""
-        for md_file in agents_dir.rglob("*.md"):
-            agent = AgentLoader.load_from_markdown(md_file)
-            self._agents[agent.name] = agent
+        """从目录加载用户自定义 Agent Manifest v2 YAML"""
+        self._registry = AgentRegistry(agents_dir)
 
     def get(self, name: str) -> AgentDefinition | None:
-        return self._agents.get(name)
+        return self._registry.get(name)
 
     def list_primary(self) -> list[AgentDefinition]:
-        return [a for a in self._agents.values()
-                if a.mode in (AgentMode.PRIMARY, AgentMode.ALL) and not a.hidden]
+        return self._registry.list_primary_agents()
 ```
 
 **2.4 创建内置 Agent 定义**
 
-`server/agent_runtime/agents/developer.md`:
-```markdown
----
-name: developer
-description: "软件开发 Agent，负责编写和修改代码"
+`server/agent_session/agents/developer.agent.yaml`:
+```yaml
+schema_version: 2
+id: developer
+name: Developer
+description: 软件开发 Agent，负责编写和修改代码
 mode: primary
-provider: minimax
-temperature: 0.3
-tools:
-  - list_files
-  - search_code
-  - read_file
-  - propose_patch
-  - propose_command
-permission:
-  read: allow
-  write: allow
-  propose_patch: allow
-  propose_command: ask
-  bash: deny
----
-
-你是一个专业的软件开发工程师。
-
-你的职责：
-- 理解需求并编写高质量代码
-- 遵循项目现有的代码风格
-- 提出代码修改建议（patch）
-
-工作流程：
-1. 使用 list_files 和 search_code 了解项目结构
-2. 使用 read_file 阅读相关文件
-3. 使用 propose_patch 提出代码修改
-4. 等待用户审批后执行
+Runtime:
+  default_provider: minimax
+  max_iterations: 8
+Tools:
+  allowed:
+    - read_file
+    - grep
+    - edit_file
+    - execute
+SystemPrompt:
+  identity: 你是一个专业的软件开发工程师。
+  responsibilities:
+    - 理解需求并编写高质量代码。
+    - 遵循项目现有的代码风格。
+    - 提出并验证代码修改。
+OutputSchema:
+  format: structured_markdown
+  required_sections:
+    - summary
+    - changed_files
+    - verification
 ```
 
-`server/agent_runtime/agents/reviewer.md`:
-```markdown
----
-name: reviewer
-description: "代码审查 Agent，只读权限"
+`server/agent_session/agents/reviewer.agent.yaml`:
+```yaml
+schema_version: 2
+id: reviewer
+name: Reviewer
+description: 代码审查 Agent，只读权限
 mode: subagent
-provider: minimax
-temperature: 0.2
-tools:
-  - list_files
-  - search_code
-  - read_file
-permission:
-  read: allow
-  write: deny
-  propose_patch: deny
-  propose_command: deny
----
-
-你是一个代码审查专家。
-
-你的职责：
-- 检查代码质量和最佳实践
-- 发现潜在的 bug 和安全问题
-- 提供改进建议（但不能直接修改代码）
-
-审查重点：
-- 代码可读性
-- 性能优化
-- 安全漏洞
-- 测试覆盖率
+Runtime:
+  default_provider: minimax
+  max_iterations: 4
+Tools:
+  allowed:
+    - read_file
+    - grep
+SystemPrompt:
+  identity: 你是一个代码审查专家。
+  responsibilities:
+    - 检查代码质量和最佳实践。
+    - 发现潜在的 bug 和安全问题。
+    - 提供改进建议，但不能直接修改代码。
+OutputSchema:
+  format: structured_markdown
+  required_sections:
+    - conclusion
+    - risks
+    - verification
 ```
 
 **2.5 集成到现有系统**
@@ -759,11 +712,11 @@ def test_permission_evaluate():
     assert PermissionManager.evaluate("read", "file.py", rules) == "allow"
     assert PermissionManager.evaluate("read", ".env", rules) == "ask"
 
-# tests/test_agent_loader.py
-def test_load_markdown_agent():
-    agent = AgentLoader.load_from_markdown(Path("agents/developer.md"))
-    assert agent.name == "developer"
-    assert agent.mode == AgentMode.PRIMARY
+# tests/test_agent_registry.py
+def test_load_manifest_v2_agent():
+    agent = AgentRegistry(Path("agents")).require("developer")
+    assert agent.id == "developer"
+    assert agent.mode == "primary"
 ```
 
 ### 集成测试

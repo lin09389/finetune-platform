@@ -1,5 +1,7 @@
 # OpenCode Agent 系统移植设计文档
 
+> 历史说明：本文是早期 OpenCode 移植设计稿，里面的 Markdown + YAML frontmatter Agent 加载方案已经废弃。当前实现以 `server/agent_session/agent_registry.py` 为准，只加载 Agent Manifest v2（`*.agent.yaml` / `*.yaml` / `*.yml`），结构化字段包括 `SystemPrompt`、`OutputSchema`、`FewShotExamples`、`ReflectionRules`、`Runtime`、`Tools` 和 `Handoff`。
+
 ## 目录
 1. [概述](#概述)
 2. [核心架构](#核心架构)
@@ -17,7 +19,7 @@
 
 ### OpenCode Agent 系统核心特性
 
-- **声明式 Agent 定义**: 使用 Markdown + YAML frontmatter 定义 Agent
+- **声明式 Agent 定义**: 当前平台使用 Agent Manifest v2 YAML；早期 Markdown + YAML frontmatter 方案已废弃
 - **细粒度权限控制**: 基于规则的权限系统 (allow/deny/ask)
 - **Agent 模式分类**: primary/subagent/all 三种模式
 - **工具调用抽象**: 统一的工具注册和执行机制
@@ -39,13 +41,13 @@ server/
 │   ├── __init__.py
 │   ├── schema.py              # Agent 数据模型
 │   ├── manager.py             # Agent 管理器
-│   ├── loader.py              # Markdown Agent 加载器
+│   ├── loader.py              # 历史设计：Markdown Agent 加载器（已废弃）
 │   ├── permission.py          # 权限系统
 │   └── builtin/               # 内置 Agent 定义
-│       ├── build.md
-│       ├── plan.md
-│       ├── explore.md
-│       └── general.md
+│       ├── build.agent.yaml
+│       ├── plan.agent.yaml
+│       ├── explore.agent.yaml
+│       └── general.agent.yaml
 ├── tools/                      # 工具系统
 │   ├── __init__.py
 │   ├── registry.py            # 工具注册表
@@ -149,81 +151,20 @@ Guidelines:
 - Complete the user's search request efficiently
 ```
 
-### 2.3 Agent 加载器 (loader.py)
+### 2.3 Agent Manifest v2 加载器
 
 ```python
 import yaml
 from pathlib import Path
-from typing import Dict
-from .schema import AgentInfo, AgentMode, PermissionRule, PermissionAction
+from .execution_context import AgentDefinition, AgentManifestV2
 
-class AgentLoader:
-    """从 Markdown 文件加载 Agent 定义"""
+class AgentRegistry:
+    """从 Agent Manifest v2 YAML 加载 Agent 定义"""
 
-    @staticmethod
-    def load_from_markdown(file_path: Path) -> AgentInfo:
-        """解析 Markdown Agent 文件"""
-        content = file_path.read_text(encoding='utf-8')
-
-        # 分离 frontmatter 和 prompt
-        if content.startswith('---'):
-            parts = content.split('---', 2)
-            if len(parts) >= 3:
-                frontmatter = yaml.safe_load(parts[1])
-                prompt = parts[2].strip()
-            else:
-                raise ValueError(f"Invalid markdown format in {file_path}")
-        else:
-            raise ValueError(f"Missing frontmatter in {file_path}")
-
-        # 解析权限规则
-        permission_rules = []
-        if 'permission' in frontmatter:
-            permission_rules = AgentLoader._parse_permissions(
-                frontmatter.pop('permission')
-            )
-
-        # 构建 AgentInfo
-        return AgentInfo(
-            **frontmatter,
-            prompt=prompt,
-            permission=permission_rules
-        )
-
-    @staticmethod
-    def _parse_permissions(config: Dict) -> list[PermissionRule]:
-        """解析权限配置"""
-        rules = []
-        for key, value in config.items():
-            if isinstance(value, str):
-                # 简单格式: "read": "allow"
-                rules.append(PermissionRule(
-                    permission=key,
-                    pattern="*",
-                    action=PermissionAction(value)
-                ))
-            elif isinstance(value, dict):
-                # 嵌套格式: "external_directory": {"*": "ask"}
-                for pattern, action in value.items():
-                    rules.append(PermissionRule(
-                        permission=key,
-                        pattern=pattern,
-                        action=PermissionAction(action)
-                    ))
-        return rules
-
-    @staticmethod
-    def load_builtin_agents() -> Dict[str, AgentInfo]:
-        """加载所有内置 Agent"""
-        builtin_dir = Path(__file__).parent / "builtin"
-        agents = {}
-
-        for md_file in builtin_dir.glob("*.md"):
-            agent = AgentLoader.load_from_markdown(md_file)
-            agent.native = True
-            agents[agent.name] = agent
-
-        return agents
+    def _load_yaml_agent(self, path: Path) -> AgentDefinition:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        manifest = AgentManifestV2(**raw)
+        return self._compile_manifest(manifest)
 ```
 
 ### 2.4 Agent 管理器 (manager.py)
@@ -232,60 +173,43 @@ class AgentLoader:
 from typing import Dict, Optional, List
 from pathlib import Path
 from .schema import AgentInfo, AgentMode
-from .loader import AgentLoader
+from .agent_registry import AgentRegistry
 from .permission import PermissionManager
 
 class AgentManager:
     """Agent 管理器 - 负责注册、查询、权限检查"""
 
     def __init__(self):
-        self._agents: Dict[str, AgentInfo] = {}
+        self._registry = AgentRegistry()
         self._permission_manager = PermissionManager()
-        self._load_builtin_agents()
-
-    def _load_builtin_agents(self):
-        """加载内置 Agent"""
-        builtin = AgentLoader.load_builtin_agents()
-        self._agents.update(builtin)
 
     def load_user_agents(self, agents_dir: Path):
-        """从目录加载用户自定义 Agent"""
-        for md_file in agents_dir.rglob("*.md"):
-            try:
-                agent = AgentLoader.load_from_markdown(md_file)
-                self._agents[agent.name] = agent
-            except Exception as e:
-                print(f"Failed to load agent from {md_file}: {e}")
+        """从目录加载用户自定义 Agent Manifest v2 YAML"""
+        self._registry = AgentRegistry(agents_dir)
 
     def get(self, name: str) -> Optional[AgentInfo]:
         """获取 Agent"""
-        return self._agents.get(name)
+        return self._registry.get(name)
 
     def list(self, include_hidden: bool = False) -> List[AgentInfo]:
         """列出所有 Agent"""
-        agents = list(self._agents.values())
-        if not include_hidden:
-            agents = [a for a in agents if not a.hidden]
-        return agents
+        return self._registry.list_agents(include_hidden=include_hidden)
 
     def list_primary(self) -> List[AgentInfo]:
         """列出所有主 Agent"""
-        return [
-            a for a in self._agents.values()
-            if a.mode in (AgentMode.PRIMARY, AgentMode.ALL) and not a.hidden
-        ]
+        return self._registry.list_primary_agents()
 
     def list_subagents(self) -> List[AgentInfo]:
         """列出所有子 Agent"""
         return [
-            a for a in self._agents.values()
+            a for a in self._registry.list_agents(include_hidden=True)
             if a.mode in (AgentMode.SUBAGENT, AgentMode.ALL)
         ]
 
     def get_default_agent(self) -> str:
         """获取默认 Agent"""
         # 优先返回 build agent
-        if "build" in self._agents:
+        if self._registry.get("build"):
             return "build"
 
         # 否则返回第一个可见的主 Agent

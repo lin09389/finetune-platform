@@ -225,8 +225,8 @@ The repository includes broad automated coverage for agent session lifecycle, tr
 - Upload validation (file type, size, and content checks)
 - Optional JWT authentication
 - Rate limiting and security response headers
-- Agent action boundaries via workspace checks + command allowlist
-- HITL approval gates for sensitive patch/command actions
+- Agent action boundaries via DeepAgents workspace isolation
+- HITL approval gates for sensitive write/edit/execute tool calls
 
 ## Environment Variables
 
