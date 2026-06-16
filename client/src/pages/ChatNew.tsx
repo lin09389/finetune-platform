@@ -1328,6 +1328,25 @@ const ChatPage: React.FC = () => {
     ? selectedCloudModel || '未选择模型'
     : settings.modelId || '未选择模型';
   const agentOptions = primaryAgents.map((agent) => ({ value: agent.id, label: agent.name }));
+  const selectedAgentDefinition = useMemo(
+    () => primaryAgents.find((agent) => agent.id === selectedPrimaryAgent) || null,
+    [primaryAgents, selectedPrimaryAgent],
+  );
+  const selectedAgentReflectionRuleCount = useMemo(() => {
+    if (!selectedAgentDefinition?.reflection_rules) return 0;
+    const rules = selectedAgentDefinition.reflection_rules;
+    return [
+      ...(rules.before_tool_use || []),
+      ...(rules.before_edit || []),
+      ...(rules.before_final || []),
+      ...(rules.on_error || []),
+      ...(rules.rules || []),
+      ...Object.values(rules.sections || {}).flatMap((value) => Array.isArray(value) ? value : [value]),
+    ].filter(Boolean).length;
+  }, [selectedAgentDefinition]);
+  const selectedAgentRequiredOutputs = selectedAgentDefinition?.output_schema?.required_sections
+    || selectedAgentDefinition?.output_schema?.required_fields
+    || [];
   const skillSourceOptions = agentSkillSources.map((source) => ({
     value: source.virtual_path,
     label: `${source.name}${source.skills.length ? ` (${source.skills.length})` : ''}`,
@@ -1979,6 +1998,24 @@ const ChatPage: React.FC = () => {
               prefersReducedMotion={Boolean(prefersReducedMotion)}
               onSubmit={handleSubmitHitlDecisions}
             />
+
+            {selectedAgentDefinition && primaryAgents.length > 0 && (
+              <div className={styles.agentManifestStrip}>
+                <div className={styles.agentManifestMain}>
+                  <span className={styles.agentManifestName}>{selectedAgentDefinition.name}</span>
+                  <span className={styles.agentManifestDescription}>
+                    {selectedAgentDefinition.description || '结构化 Agent 定义'}
+                  </span>
+                </div>
+                <div className={styles.agentManifestMeta}>
+                  <span>{selectedAgentDefinition.definition_format === 'agent_manifest_v2' ? 'Manifest v2' : 'Runtime'}</span>
+                  <span>{selectedAgentDefinition.output_schema?.format || 'plain_text'}</span>
+                  <span>{selectedAgentRequiredOutputs.length} 输出项</span>
+                  <span>{selectedAgentDefinition.few_shot_examples?.length || 0} 示例</span>
+                  <span>{selectedAgentReflectionRuleCount} 反思规则</span>
+                </div>
+              </div>
+            )}
 
             <ChatInput
               onSend={handleSend}

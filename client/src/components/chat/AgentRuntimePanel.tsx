@@ -20,6 +20,7 @@ export default function AgentRuntimePanel({ runtime, sessionId }: AgentRuntimePa
   const policy = runtime.policy;
   const resourceProfile = runtime.resource_profile || policy?.resource_profile;
   const executionPlan = runtime.execution_plan || policy?.execution_plan;
+  const outputContract = policy?.output_contract || {};
 
   const openMemoryFile = async (path: string) => {
     if (!sessionId) return;
@@ -84,11 +85,15 @@ export default function AgentRuntimePanel({ runtime, sessionId }: AgentRuntimePa
           </div>
           <div className={styles.compactItem}>
             <span>Output</span>
-            <Typography.Text code>{policy?.output_contract?.format || 'plain_text'}</Typography.Text>
+            <Typography.Text code>{outputContract.format || 'plain_text'}</Typography.Text>
             <div className={styles.tagRow}>
-              <Tag color={policy?.output_contract?.enforced_in_prompt ? 'processing' : 'default'}>
-                {policy?.output_contract?.enforced_in_prompt ? 'prompt enforced' : 'default'}
+              <Tag color={outputContract.enforced_in_prompt ? 'processing' : 'default'}>
+                {outputContract.enforced_in_prompt ? 'prompt enforced' : 'default'}
               </Tag>
+              <Tag>{outputContract.definition_format || 'legacy'}</Tag>
+              <Tag>{outputContract.required_sections?.length || outputContract.required_fields?.length || 0} required</Tag>
+              <Tag>{outputContract.few_shot_examples || 0} examples</Tag>
+              <Tag>{outputContract.reflection_rules || 0} reflection</Tag>
             </div>
           </div>
           <div className={styles.compactItem}>

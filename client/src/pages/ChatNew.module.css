@@ -361,6 +361,66 @@
   pointer-events: none;
 }
 
+.agentManifestStrip {
+  width: min(760px, calc(100% - 32px));
+  margin: 0 auto 8px;
+  padding: 9px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  pointer-events: auto;
+  border: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-elevated) 94%, transparent);
+  box-shadow: 0 10px 32px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.agentManifestMain {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.agentManifestName {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.agentManifestDescription {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.agentManifestMeta {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.agentManifestMeta span {
+  height: 22px;
+  padding: 0 7px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+  white-space: nowrap;
+}
+
 .approvalPopover {
   position: absolute;
   left: 0;
@@ -1453,6 +1513,23 @@ box-shadow: 0 0 12px var(--accent-primary);
 }
 
 @media (max-width: 640px) {
+  .agentManifestStrip {
+    width: min(100% - 20px, 560px);
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .agentManifestMain {
+    width: 100%;
+  }
+
+  .agentManifestMeta {
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: 1px;
+  }
+
   .starterSuggestions {
     grid-template-columns: 1fr;
   }

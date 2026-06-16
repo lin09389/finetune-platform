@@ -476,6 +476,7 @@ export interface AgentInfo {
   description?: string;
   mode: 'primary' | 'subagent' | 'all' | string;
   system_prompt?: string;
+  output_requirements?: string;
   default_provider?: string;
   default_model?: string;
   max_iterations?: number;
@@ -483,6 +484,49 @@ export interface AgentInfo {
   handoff_targets?: string[];
   async_subagent_targets?: string[];
   hidden?: boolean;
+  schema_version?: number | string;
+  definition_format?: 'agent_manifest_v2' | 'runtime' | string;
+  system_prompt_definition?: {
+    identity?: string;
+    role?: string;
+    tone?: string;
+    responsibilities?: string[];
+    constraints?: string[];
+    workflow?: unknown[];
+    sections?: Record<string, unknown>;
+  };
+  output_schema?: {
+    format?: string;
+    instructions?: string;
+    required_sections?: string[];
+    required_fields?: string[];
+    schema?: Record<string, unknown>;
+  };
+  few_shot_examples?: Array<{
+    name?: string;
+    user?: string;
+    assistant?: string;
+    context?: string;
+  }>;
+  reflection_rules?: {
+    before_tool_use?: string[];
+    before_edit?: string[];
+    before_final?: string[];
+    on_error?: string[];
+    rules?: string[];
+    sections?: Record<string, unknown>;
+  };
+  tool_policy?: {
+    allowed?: string[];
+    denied?: string[];
+    notes?: string;
+  };
+  handoff_policy?: {
+    targets?: string[];
+    async_targets?: string[];
+    notes?: string;
+  };
+  metadata?: Record<string, unknown>;
   runtime_policy?: AgentRuntimePolicy;
   execution_plan?: AgentExecutionPlan;
 }
