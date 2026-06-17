@@ -41,6 +41,8 @@ class DeepAgentsEventMapper:
             self._tool_start(event)
         elif kind == "on_tool_end":
             self._tool_end(event)
+        elif kind == "on_tool_error":
+            self._tool_error(event)
         elif kind == "on_chain_stream":
             self._chain_stream(event)
         elif kind == "on_chain_end":
@@ -170,6 +172,42 @@ class DeepAgentsEventMapper:
             "tool_call_completed",
             f"工具调用完成：{name}",
             {"session_id": self.session_id, "part_id": part.get("id"), "part_type": part.get("type"), "tool": name, "part": part, **agent_context},
+        )
+
+    def _tool_error(self, event: dict[str, Any]) -> None:
+        name = str(event.get("name") or "tool")
+        run_id = str(event.get("run_id") or "")
+        data = event.get("data") if isinstance(event.get("data"), dict) else {}
+        error = data.get("error") or data.get("exception") or event.get("error") or "Tool call failed."
+        content = str(error)
+        part_id = self.tool_parts.pop(run_id, None)
+        agent_context = self._agent_context(event)
+        if part_id:
+            part = self.repository.update_part(part_id, status="failed", content=content)
+        else:
+            part = self.repository.add_part(
+                self.session_id,
+                "tool_result",
+                status="failed",
+                title=name,
+                content=content,
+                payload={"tool": name, "runtime": "deepagents", "run_id": run_id, **agent_context},
+            )
+        agent_context = self._agent_context_from_part(part) or agent_context
+        self.publish(
+            "tool_call_failed",
+            f"工具调用失败：{name}",
+            {
+                "session_id": self.session_id,
+                "part_id": part.get("id"),
+                "part_type": part.get("type"),
+                "status": "failed",
+                "tool": name,
+                "error": content,
+                "summary": content,
+                "part": part,
+                **agent_context,
+            },
         )
 
     def _chain_stream(self, event: dict[str, Any]) -> None:

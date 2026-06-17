@@ -26,6 +26,7 @@ from .deepagents_runtime import DeepAgentsSessionRunner
 from .events import AgentSessionEventBus
 from .execution_plan import build_initial_execution_plan
 from .execution_plan_events import apply_execution_event_to_session
+from .failure_guard import AgentFailureGuard, AgentLoopGuardTriggered
 from .models import (
     AgentArtifactResponse,
     AgentExecutionPlanRecoverRequest,
@@ -79,6 +80,7 @@ class AgentSessionService:
         )
         self.workspace_view_service = AgentWorkspaceViewService(self)
         self.state_machine = AgentSessionStateMachine(self.repository)
+        self.failure_guard = AgentFailureGuard(self.repository, self.state_machine, self._event_bus.notify)
         self._prompt_tasks: dict[str, PromptTaskRecord] = {}
         self._prompt_tasks_lock = threading.Lock()
 
@@ -96,6 +98,7 @@ class AgentSessionService:
         apply_execution_event_to_session(self.repository, session_id, event)
         self._clear_recovery_latches_for_event(session_id, event)
         self._event_bus.notify(session_id, event)
+        self.failure_guard.observe_event(session_id, event)
 
     def _sync_async_service_model_call(self) -> None:
         self.async_subagent_service.set_model_call(self.model_call)
@@ -481,6 +484,9 @@ class AgentSessionService:
         try:
             self._sync_async_service_model_call()
             result = await self.deepagents_runner.run_prompt(session_id, prompt_content, context_files=context_pack.files)
+        except AgentLoopGuardTriggered:
+            result = self.repository.get_session(session_id) or session
+            result["parts"] = self.repository.list_parts(session_id)
         except Exception as exc:
             result = self.record_prompt_failure(session_id, exc)
 
@@ -927,6 +933,8 @@ class AgentSessionService:
         try:
             self._sync_async_service_model_call()
             await self.deepagents_runner.resume(session_id, decision)
+        except AgentLoopGuardTriggered:
+            return
         except asyncio.CancelledError:
             session = self.repository.get_session(session_id)
             if session and str(session.get("status") or "") not in self.TERMINAL_STATUSES:

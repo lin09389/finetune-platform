@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 EVENT_TYPES = {
     "tool_call_started",
     "tool_call_completed",
+    "tool_call_failed",
     "permission_asked",
     "permission_decided",
     "summary_completed",
@@ -60,6 +61,8 @@ def apply_execution_event(metadata: dict[str, Any], event: dict[str, Any]) -> di
         _tool_started(plan, nodes, payload, event)
     elif event_type == "tool_call_completed":
         _tool_completed(plan, nodes, payload, event)
+    elif event_type == "tool_call_failed":
+        _tool_failed(plan, nodes, payload, event)
     elif event_type == "permission_asked":
         _permission_asked(plan, nodes, payload, event)
     elif event_type == "permission_decided":
@@ -161,6 +164,47 @@ def _tool_completed(plan: dict[str, Any], nodes: list[dict[str, Any]], payload: 
     if primary and primary.get("status") not in {"completed", "failed", "interrupted", "blocked"}:
         primary["status"] = "running"
     plan["status"] = "running"
+
+
+def _tool_failed(plan: dict[str, Any], nodes: list[dict[str, Any]], payload: dict[str, Any], event: dict[str, Any]) -> None:
+    part = payload.get("part") if isinstance(payload.get("part"), dict) else {}
+    part_id = _str(payload.get("part_id") or part.get("id"))
+    tool = _str(payload.get("tool") or part.get("title"))
+    error = _str(payload.get("error") or payload.get("summary") or part.get("content") or event.get("message"))
+    node = _find_by(nodes, "source_part_id", part_id) or _current_node(nodes)
+    if not node:
+        parent = _primary_node(nodes)
+        node = _append_node(
+            nodes,
+            {
+                "id": f"tool:{part_id or _str(event.get('id')) or len(nodes) + 1}",
+                "title": f"工具调用：{tool or 'tool'}",
+                "description": "运行时工具调用节点。",
+                "agent_id": _str(payload.get("agent_name")) or _str(parent.get("agent_id")) or _str(plan.get("agent_id")) or "build",
+                "kind": "tool",
+                "depends_on": [parent["id"]] if parent else [],
+                "input_contract": {},
+                "output_contract": {},
+                "retry_policy": {"max_attempts": 1, "retry_on": ["failed"]},
+                "approval_policy": {"requires_approval": False, "tools": []},
+                "output": {},
+            },
+        )
+    node.update(
+        {
+            "status": "failed",
+            "source_part_id": part_id or node.get("source_part_id"),
+            "source_event_id": _str(event.get("id")) or node.get("source_event_id"),
+            "tool": tool or node.get("tool"),
+            "completed_at": _event_time(event),
+            "output": _compact_output(part or payload),
+            "error": error,
+            "blocked_reason": None,
+            "retry_policy": {"max_attempts": 1, "retry_on": ["failed"]},
+        }
+    )
+    _mark_recoverable(node, action="retry_node", reason=error or "Tool call failed.")
+    plan["status"] = "failed"
 
 
 def _permission_asked(plan: dict[str, Any], nodes: list[dict[str, Any]], payload: dict[str, Any], event: dict[str, Any]) -> None:

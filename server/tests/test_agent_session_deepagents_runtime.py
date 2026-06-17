@@ -15,7 +15,9 @@ from agent_session.async_subagents import AsyncSubagentService
 from agent_session.repository import AgentSessionRepository
 from agent_session.service import AgentSessionService
 from agent_session.deepagents_runtime import DeepAgentsSessionRunner
+from agent_session.deepagents_events import DeepAgentsEventMapper
 from agent_session.execution_context import AgentDefinition
+from agent_session.failure_guard import AgentLoopGuardTriggered
 from agent_session.agent_registry import AgentRegistry
 from agent_session.runtime_contract import AgentRuntimeContract
 from agent_session.runtime_factory import DeepAgentsRuntimeFactory
@@ -1117,6 +1119,222 @@ def test_interrupt_session_is_idempotent_on_needs_manual_review(tmp_path: Path):
     # extra summary/event pollution appended.
     assert result.status == "needs_manual_review"
     assert len(service.repository.list_parts(session.id)) == before_parts
+
+
+def test_loop_guard_blocks_repeated_identical_tool_failures(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="loop guard", project_path=str(Path.cwd())))
+    service.repository.update_session(session.id, status="running", metadata={"runtime": "deepagents"})
+
+    def repeated_failure_event(index: int) -> dict[str, object]:
+        part = service.repository.add_part(
+            session.id,
+            "tool_call",
+            status="completed",
+            title="grep",
+            content="No matches found for pattern missing_symbol",
+            payload={"tool": "grep", "input": {"pattern": "missing_symbol", "path": "/workspace/server"}},
+        )
+        return {
+            "id": f"event-{index}",
+            "session_id": session.id,
+            "event_type": "tool_call_completed",
+            "message": "工具调用完成：grep",
+            "payload": {"session_id": session.id, "part_id": part["id"], "part_type": "tool_call", "tool": "grep", "part": part},
+        }
+
+    service._notify_event(session.id, repeated_failure_event(1))
+    service._notify_event(session.id, repeated_failure_event(2))
+    with pytest.raises(AgentLoopGuardTriggered):
+        service._notify_event(session.id, repeated_failure_event(3))
+
+    blocked = service.get_session(session.id)
+    assert blocked.status == "needs_manual_review"
+    assert blocked.metadata["loop_guard"]["blocked"] is True
+    assert blocked.metadata["loop_guard"]["repeat_count"] == 3
+    assert any(part.type == "error" and "连续 3 次" in (part.content or "") for part in blocked.parts)
+    assert any(event["event_type"] == "loop_guard_triggered" for event in service.list_events(session.id))
+
+
+def test_loop_guard_resets_after_successful_tool_result(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="loop guard reset", project_path=str(Path.cwd())))
+    service.repository.update_session(session.id, status="running", metadata={"runtime": "deepagents"})
+
+    def tool_event(index: int, content: str, pattern: str = "missing_symbol") -> dict[str, object]:
+        part = service.repository.add_part(
+            session.id,
+            "tool_call",
+            status="completed",
+            title="grep",
+            content=content,
+            payload={"tool": "grep", "input": {"pattern": pattern, "path": "/workspace/server"}},
+        )
+        return {
+            "id": f"event-{index}",
+            "session_id": session.id,
+            "event_type": "tool_call_completed",
+            "message": "工具调用完成：grep",
+            "payload": {"session_id": session.id, "part_id": part["id"], "part_type": "tool_call", "tool": "grep", "part": part},
+        }
+
+    service._notify_event(session.id, tool_event(1, "No matches found for pattern missing_symbol"))
+    service._notify_event(session.id, tool_event(2, "server/agent_session/service.py:95:def _notify_event"))
+    service._notify_event(session.id, tool_event(3, "No matches found for pattern missing_symbol"))
+    service._notify_event(session.id, tool_event(4, "No matches found for pattern missing_symbol"))
+
+    current = service.get_session(session.id)
+    assert current.status == "running"
+    assert current.metadata["loop_guard"]["repeat_count"] == 2
+
+
+def test_loop_guard_blocks_same_failure_family_with_varying_error_text(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="loop guard family", project_path=str(Path.cwd())))
+    service.repository.update_session(session.id, status="running", metadata={"runtime": "deepagents"})
+
+    def failed_execute_event(index: int) -> dict[str, object]:
+        part = service.repository.add_part(
+            session.id,
+            "tool_call",
+            status="failed",
+            title="execute",
+            content=f"Command failed with exit code 1 at line {index}: AssertionError",
+            payload={"tool": "execute", "input": {"command": "python -m pytest server/tests/test_demo.py"}},
+        )
+        return {
+            "id": f"event-family-{index}",
+            "session_id": session.id,
+            "event_type": "tool_call_failed",
+            "message": "工具调用失败：execute",
+            "payload": {
+                "session_id": session.id,
+                "part_id": part["id"],
+                "part_type": "tool_call",
+                "status": "failed",
+                "tool": "execute",
+                "error": part["content"],
+                "part": part,
+            },
+        }
+
+    service._notify_event(session.id, failed_execute_event(12))
+    service._notify_event(session.id, failed_execute_event(13))
+    with pytest.raises(AgentLoopGuardTriggered):
+        service._notify_event(session.id, failed_execute_event(14))
+
+    blocked = service.get_session(session.id)
+    assert blocked.status == "needs_manual_review"
+    assert blocked.metadata["loop_guard"]["blocked_reason_code"] == "repeated_failure_family"
+    assert blocked.metadata["loop_guard"]["family_repeat_count"] == 3
+
+
+def test_loop_guard_blocks_alternating_tool_failures(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="loop guard alternating", project_path=str(Path.cwd())))
+    service.repository.update_session(session.id, status="running", metadata={"runtime": "deepagents"})
+
+    def failed_tool_event(index: int, tool: str, input_payload: dict[str, str], error: str) -> dict[str, object]:
+        part = service.repository.add_part(
+            session.id,
+            "tool_call",
+            status="failed",
+            title=tool,
+            content=error,
+            payload={"tool": tool, "input": input_payload},
+        )
+        return {
+            "id": f"event-alternating-{index}",
+            "session_id": session.id,
+            "event_type": "tool_call_failed",
+            "message": f"工具调用失败：{tool}",
+            "payload": {
+                "session_id": session.id,
+                "part_id": part["id"],
+                "part_type": "tool_call",
+                "status": "failed",
+                "tool": tool,
+                "error": error,
+                "part": part,
+            },
+        }
+
+    service._notify_event(session.id, failed_tool_event(1, "grep", {"pattern": "missing_symbol"}, "No matches found"))
+    service._notify_event(session.id, failed_tool_event(2, "read_file", {"file_path": "/workspace/missing.py"}, "FileNotFoundError: missing.py"))
+    service._notify_event(session.id, failed_tool_event(3, "glob", {"pattern": "**/missing*.py"}, "No matches found"))
+    with pytest.raises(AgentLoopGuardTriggered):
+        service._notify_event(session.id, failed_tool_event(4, "read_file", {"file_path": "/workspace/other.py"}, "FileNotFoundError: other.py"))
+
+    blocked = service.get_session(session.id)
+    assert blocked.status == "needs_manual_review"
+    assert blocked.metadata["loop_guard"]["blocked_reason_code"] == "consecutive_failures"
+    assert blocked.metadata["loop_guard"]["consecutive_failure_count"] == 4
+
+
+def test_loop_guard_blocks_repeated_no_progress_reads(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="loop guard no progress", project_path=str(Path.cwd())))
+    service.repository.update_session(session.id, status="running", metadata={"runtime": "deepagents"})
+
+    def read_event(index: int) -> dict[str, object]:
+        part = service.repository.add_part(
+            session.id,
+            "tool_call",
+            status="completed",
+            title="read_file",
+            content="def target():\n    return 1\n",
+            payload={"tool": "read_file", "input": {"file_path": "/workspace/app.py"}},
+        )
+        return {
+            "id": f"event-read-{index}",
+            "session_id": session.id,
+            "event_type": "tool_call_completed",
+            "message": "工具调用完成：read_file",
+            "payload": {"session_id": session.id, "part_id": part["id"], "part_type": "tool_call", "tool": "read_file", "part": part},
+        }
+
+    service._notify_event(session.id, read_event(1))
+    service._notify_event(session.id, read_event(2))
+    service._notify_event(session.id, read_event(3))
+    with pytest.raises(AgentLoopGuardTriggered):
+        service._notify_event(session.id, read_event(4))
+
+    blocked = service.get_session(session.id)
+    assert blocked.status == "needs_manual_review"
+    assert blocked.metadata["loop_guard"]["blocked_reason_code"] == "repeated_no_progress"
+    assert blocked.metadata["loop_guard"]["no_progress_repeat_count"] == 4
+
+
+def test_deepagents_mapper_records_tool_error_event(tmp_path: Path):
+    repository = AgentSessionRepository(str(tmp_path / "agents.db"))
+    session = repository.create_session({"agent_id": "build", "title": "tool error", "project_path": str(Path.cwd())})
+    emitted: list[dict[str, object]] = []
+    mapper = DeepAgentsEventMapper(repository, lambda _session_id, event: emitted.append(event), session["id"])
+
+    mapper.handle(
+        {
+            "event": "on_tool_start",
+            "name": "read_file",
+            "run_id": "run-1",
+            "data": {"input": {"file_path": "/workspace/missing.py"}},
+        }
+    )
+    mapper.handle(
+        {
+            "event": "on_tool_error",
+            "name": "read_file",
+            "run_id": "run-1",
+            "data": {"error": FileNotFoundError("missing.py")},
+        }
+    )
+
+    parts = repository.list_parts(session["id"])
+    events = repository.list_events(session["id"])
+    assert parts[-1]["type"] == "tool_call"
+    assert parts[-1]["status"] == "failed"
+    assert "missing.py" in parts[-1]["content"]
+    assert events[-1]["event_type"] == "tool_call_failed"
+    assert emitted[-1]["event_type"] == "tool_call_failed"
 
 
 @pytest.mark.asyncio
