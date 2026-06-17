@@ -13,6 +13,7 @@ MAX_RECENT_FAILURES = 8
 FAILURE_WINDOW_SIZE = 6
 MAX_CONSECUTIVE_FAILURES = 4
 NO_PROGRESS_THRESHOLD = 4
+MODEL_NO_ACTION_THRESHOLD = 3
 MAX_RECENT_OBSERVATIONS = 10
 
 _OBSERVATION_TOOLS = {"read_file", "grep", "glob", "ls"}
@@ -66,6 +67,7 @@ class NoProgressObservation:
     output_excerpt: str
     event_type: str
     part_id: str
+    threshold: int
 
 
 class AgentFailureGuard:
@@ -197,13 +199,13 @@ class AgentFailureGuard:
                 "recent_failures": [],
                 "last_no_progress_signature": observation.signature,
                 "no_progress_repeat_count": repeat_count,
-                "no_progress_threshold": NO_PROGRESS_THRESHOLD,
+                "no_progress_threshold": observation.threshold,
                 "recent_observations": recent[-MAX_RECENT_OBSERVATIONS:],
             }
         )
         metadata["loop_guard"] = guard
         self.repository.update_session(session_id, metadata=metadata)
-        if repeat_count < NO_PROGRESS_THRESHOLD:
+        if repeat_count < observation.threshold:
             return
 
         message = (
@@ -299,7 +301,7 @@ class AgentFailureGuard:
         guard["family_repeat_count"] = 0
         guard["consecutive_failure_count"] = 0
         guard["recent_failures"] = []
-        if event_type != "tool_call_completed":
+        if event_type not in {"tool_call_completed", "model_stream_completed"}:
             guard["last_no_progress_signature"] = ""
             guard["no_progress_repeat_count"] = 0
         metadata["loop_guard"] = guard
@@ -356,23 +358,33 @@ class AgentFailureGuard:
 
     def _no_progress_observation(self, event: dict[str, Any]) -> NoProgressObservation | None:
         event_type = str(event.get("event_type") or "")
-        if event_type != "tool_call_completed":
-            return None
         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
         part = payload.get("part") if isinstance(payload.get("part"), dict) else {}
         part_payload = part.get("payload") if isinstance(part.get("payload"), dict) else {}
-        tool = str(payload.get("tool") or part_payload.get("tool") or part.get("title") or "")
-        if tool not in _OBSERVATION_TOOLS:
-            return None
         content = str(part.get("content") or payload.get("content") or event.get("message") or "")
         if self._looks_like_failure(content):
             return None
-        input_value = part_payload.get("input") if "input" in part_payload else payload.get("input")
+        if event_type == "tool_call_completed":
+            tool = str(payload.get("tool") or part_payload.get("tool") or part.get("title") or "")
+            if tool not in _OBSERVATION_TOOLS:
+                return None
+            input_value = part_payload.get("input") if "input" in part_payload else payload.get("input")
+            threshold = NO_PROGRESS_THRESHOLD
+            signature_event_type = "tool_no_progress"
+        elif event_type == "model_stream_completed":
+            if not content.strip():
+                return None
+            tool = "assistant_output"
+            input_value = ""
+            threshold = MODEL_NO_ACTION_THRESHOLD
+            signature_event_type = "model_no_action"
+        else:
+            return None
         input_excerpt = self._stable_excerpt(input_value, limit=500)
         output_excerpt = self._normalize_text(content, limit=500)
         signature = self._stable_json(
             {
-                "event_type": "tool_no_progress",
+                "event_type": signature_event_type,
                 "tool": tool,
                 "input": input_excerpt,
                 "output": output_excerpt,
@@ -385,6 +397,7 @@ class AgentFailureGuard:
             output_excerpt=output_excerpt,
             event_type=event_type,
             part_id=str(payload.get("part_id") or part.get("id") or ""),
+            threshold=threshold,
         )
 
     @staticmethod

@@ -1305,6 +1305,39 @@ def test_loop_guard_blocks_repeated_no_progress_reads(tmp_path: Path):
     assert blocked.metadata["loop_guard"]["no_progress_repeat_count"] == 4
 
 
+def test_loop_guard_blocks_repeated_model_no_action_output(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="loop guard model output", project_path=str(Path.cwd())))
+    service.repository.update_session(session.id, status="running", metadata={"runtime": "deepagents"})
+
+    def model_output_event(index: int) -> dict[str, object]:
+        part = service.repository.add_part(
+            session.id,
+            "text",
+            status="completed",
+            title="AI 输出",
+            content="I need to inspect the file before making changes.",
+            payload={"runtime": "deepagents"},
+        )
+        return {
+            "id": f"event-model-{index}",
+            "session_id": session.id,
+            "event_type": "model_stream_completed",
+            "message": "AI 输出完成。",
+            "payload": {"session_id": session.id, "part_id": part["id"], "part_type": "text", "part": part},
+        }
+
+    service._notify_event(session.id, model_output_event(1))
+    service._notify_event(session.id, model_output_event(2))
+    with pytest.raises(AgentLoopGuardTriggered):
+        service._notify_event(session.id, model_output_event(3))
+
+    blocked = service.get_session(session.id)
+    assert blocked.status == "needs_manual_review"
+    assert blocked.metadata["loop_guard"]["blocked_reason_code"] == "repeated_no_progress"
+    assert blocked.metadata["loop_guard"]["no_progress_repeat_count"] == 3
+
+
 def test_deepagents_mapper_records_tool_error_event(tmp_path: Path):
     repository = AgentSessionRepository(str(tmp_path / "agents.db"))
     session = repository.create_session({"agent_id": "build", "title": "tool error", "project_path": str(Path.cwd())})
