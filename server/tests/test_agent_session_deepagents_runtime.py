@@ -1087,6 +1087,38 @@ def test_agent_session_restart_recovery_marks_stale_running_sessions(tmp_path: P
     assert done.status == "completed"
 
 
+@pytest.mark.parametrize("waiting_status", ["waiting_approval", "waiting_permission"])
+def test_agent_session_restart_recovery_marks_waiting_sessions(tmp_path: Path, waiting_status: str):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    waiting = service.create_session(AgentSessionCreate(title="stale waiting", project_path=str(Path.cwd())))
+    service.repository.update_session(waiting.id, status=waiting_status, metadata={"runtime": "deepagents"})
+
+    recovered = service.recover_active_sessions_after_restart()
+
+    # waiting_approval / waiting_permission lose their executor on restart and
+    # must be recovered alongside running/verifying/repairing.
+    assert recovered["recovered"] == 1
+    stale = service.get_session(waiting.id)
+    assert stale.status == "needs_manual_review"
+    assert stale.metadata["recovered_after_restart"] is True
+
+
+def test_interrupt_session_is_idempotent_on_needs_manual_review(tmp_path: Path):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="manual review", project_path=str(Path.cwd())))
+    service.repository.update_session(
+        session.id, status="needs_manual_review", metadata={"runtime": "deepagents"}
+    )
+    before_parts = len(service.repository.list_parts(session.id))
+
+    result = service.interrupt_session(session.id, reason="late interrupt")
+
+    # A terminal session must not be re-interrupted: status unchanged and no
+    # extra summary/event pollution appended.
+    assert result.status == "needs_manual_review"
+    assert len(service.repository.list_parts(session.id)) == before_parts
+
+
 @pytest.mark.asyncio
 async def test_async_subtask_cancel_cancels_registered_task(tmp_path: Path):
     repository = AgentSessionRepository(str(tmp_path / "agents.db"))

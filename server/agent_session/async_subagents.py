@@ -12,13 +12,17 @@ from .async_subagent_policy import resolve_async_subagent_target
 from .execution_context import AgentDefinition
 from .permission import default_deepagents_permission_metadata
 from .repository import AgentSessionRepository
+from .status import (
+    ASYNC_SUBTASK_STATUSES,
+    ASYNC_SUBTASK_TERMINAL_STATUSES,
+    FAILED_SESSION_STATUSES,
+    WAITING_SESSION_STATUSES,
+)
 
 logger = logging.getLogger(__name__)
 
-ASYNC_SUBTASK_STATUSES = {"pending", "running", "completed", "failed", "cancelled"}
-ASYNC_SUBTASK_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
-CHILD_WAITING_STATUSES = {"waiting_approval", "waiting_permission"}
-CHILD_FAILURE_STATUSES = {"failed", "interrupted", "needs_manual_review"}
+CHILD_WAITING_STATUSES = WAITING_SESSION_STATUSES
+CHILD_FAILURE_STATUSES = FAILED_SESSION_STATUSES
 
 NotifyEvent = Callable[[str, dict[str, Any]], None]
 InterruptSession = Callable[[str, str | None], Any]
@@ -546,7 +550,7 @@ class AsyncSubagentService:
             if isinstance(pending_permission, dict)
             else None
         )
-        has_pending_permission = bool(pending_permission) or child_status in {"waiting_permission", "waiting_approval"}
+        has_pending_permission = bool(pending_permission) or child_status in CHILD_WAITING_STATUSES
         return {
             "child_status": child_status or None,
             "has_pending_permission": has_pending_permission,

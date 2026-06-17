@@ -42,6 +42,7 @@ from .repository import AgentSessionRepository
 from .runtime_policy import build_agent_runtime_policy
 from .session_state_machine import AgentSessionStateMachine
 from .state import clear_runtime_latches, ensure_session_state, record_fallback_summary
+from .status import ACTIVE_SESSION_STATUSES, TERMINAL_SESSION_STATUSES
 from .workspace_view import AgentWorkspaceViewService
 
 logger = logging.getLogger(__name__)
@@ -81,9 +82,9 @@ class AgentSessionService:
         self._prompt_tasks: dict[str, PromptTaskRecord] = {}
         self._prompt_tasks_lock = threading.Lock()
 
-    ACTIVE_STATUSES = {"running", "verifying", "repairing", "waiting_approval", "waiting_permission"}
+    ACTIVE_STATUSES = ACTIVE_SESSION_STATUSES
 
-    TERMINAL_STATUSES = {"completed", "failed", "interrupted", "needs_manual_review"}
+    TERMINAL_STATUSES = TERMINAL_SESSION_STATUSES
 
     def subscribe_events(self, session_id: str) -> asyncio.Queue[dict[str, Any]]:
         return self._event_bus.subscribe(session_id)
@@ -220,7 +221,7 @@ class AgentSessionService:
         return await self.async_subagent_service.recover_running_tasks()
 
     def recover_active_sessions_after_restart(self) -> dict[str, Any]:
-        sessions = self.repository.list_sessions_by_status({"running", "verifying", "repairing"})
+        sessions = self.repository.list_sessions_by_status(self.ACTIVE_STATUSES)
         recovered = 0
         failed = 0
         for session in sessions:
@@ -595,7 +596,7 @@ class AgentSessionService:
         session = self.repository.get_session(session_id)
         if not session:
             raise ValueError("Agent session not found")
-        if str(session.get("status") or "") in {"completed", "failed", "interrupted"}:
+        if str(session.get("status") or "") in self.TERMINAL_STATUSES:
             return self.get_session(session_id)
 
         message = reason or "用户已中断 Agent 任务。"
@@ -1032,7 +1033,7 @@ class AgentSessionService:
 
         def write_recovery() -> None:
             current = self.repository.get_session(session_id) or session
-            if str(current.get("status") or "") not in {"running", "verifying", "repairing"}:
+            if str(current.get("status") or "") not in self.ACTIVE_STATUSES:
                 return
             metadata = self._ensure_failed_metadata(current, message)
             metadata["recovered_after_restart"] = True

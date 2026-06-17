@@ -4,22 +4,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from .status import AgentAsyncTaskStatus, AgentSessionStatus
 
-AgentSessionStatus = Literal[
-    "idle",
-    "running",
-    "waiting_permission",
-    "waiting_approval",
-    "verifying",
-    "repairing",
-    "needs_manual_review",
-    "interrupted",
-    "completed",
-    "failed",
-]
 AgentPartType = Literal["text", "tool_call", "tool_result", "diff", "command", "permission", "summary", "error"]
 AgentPartStatus = Literal["pending", "running", "completed", "failed", "blocked", "approved", "executed"]
-AgentAsyncTaskStatus = Literal["pending", "running", "completed", "failed", "cancelled"]
 AgentAsyncTaskHealthStatus = Literal["ok", "waiting", "attention", "failed", "cancelled"]
 AgentHitlDecisionType = Literal["approve", "edit", "reject", "respond"]
 AgentExecutionRecoveryAction = Literal["retry_node", "resume_node", "restart_subagent", "manual_review"]

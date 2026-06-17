@@ -9,6 +9,7 @@ from .async_subagent_policy import ASYNC_SUBAGENT_TOOL_NAMES, async_subagent_man
 from .execution_context import AgentDefinition
 from .permission import filesystem_permission_profile_for_agent, permission_policy_for_agent
 from .runtime import describe_deepagents_mounts, describe_skill_sources, memory_files_for_project, resolve_enabled_skill_sources
+from .status import SESSION_LIFECYCLE
 
 
 RuntimePolicyKind = Literal["agent_session", "project_chat", "agent_definition"]
@@ -35,18 +36,7 @@ class AgentExecutionPlan:
     edges: list[dict[str, Any]] = field(default_factory=list)
     created_at: str | None = None
     updated_at: str | None = None
-    lifecycle: list[str] = field(
-        default_factory=lambda: [
-            "idle",
-            "running",
-            "waiting_permission",
-            "waiting_approval",
-            "completed",
-            "failed",
-            "interrupted",
-            "needs_manual_review",
-        ]
-    )
+    lifecycle: list[str] = field(default_factory=lambda: list(SESSION_LIFECYCLE))
 
     def model_dump(self) -> dict[str, Any]:
         return {
