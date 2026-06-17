@@ -36,8 +36,18 @@ async def test_context_pack_offloads_editor_context_to_virtual_files():
     assert "/active-file.md" in pack.files
     assert any(path.startswith("/context/mentions/") for path in pack.files)
     assert "def broken" not in pack.prompt
+    assert "【启动速览】" in pack.prompt
+    assert "server/example.py" in pack.prompt
+    assert "@helper" in pack.prompt
+    assert "server/helper.py" in pack.prompt
     assert "read_file/grep/glob" in pack.prompt
-    assert pack.metadata["strategy"] == "deepagents_context_files_v2"
+    assert "优先读取 `/context/task.md`" not in pack.prompt
+    assert "只有需要完整原文" in pack.prompt
+    assert pack.metadata["strategy"] == "deepagents_kickoff_brief_v1"
+    assert pack.metadata["kickoff_brief_chars"] > 0
+    assert pack.metadata["kickoff_brief_tokens"] > 0
+    assert pack.metadata["virtual_file_count"] == len(pack.files)
+    assert pack.metadata["virtual_file_tokens"] > 0
 
 
 @pytest.mark.asyncio
@@ -87,6 +97,48 @@ async def test_context_pack_splits_retrieval_context_by_kind(monkeypatch):
     assert "file-memory snippets" in pack.files["/context/retrieval/memory.md"]
     assert "read full files" in pack.files["/context/retrieval/index.md"]
     assert "server/agent_session/service.py" in pack.files["/context/retrieval/project.md"]
+    assert "Retrieved context summary" in pack.prompt
+    assert "/memories/preferences.md" in pack.prompt
+    assert "server/agent_session/service.py" in pack.prompt
+    assert "DeepAgents 使用文件系统管理长上下文" in pack.prompt
+
+
+@pytest.mark.asyncio
+async def test_context_pack_keeps_long_retrieval_content_out_of_prompt(monkeypatch):
+    long_project_context = "IMPORTANT_START " + ("implementation detail " * 500) + " IMPORTANT_END"
+
+    class FakeBuilder:
+        async def build(self, **_kwargs):
+            return ContextPack(
+                query="解释长上下文",
+                sources=[
+                    ContextSource(
+                        id="project:long",
+                        kind="project",
+                        content=long_project_context,
+                        score=0.95,
+                        tokens=900,
+                        metadata={"path": "server/context/deepagents.py"},
+                    )
+                ],
+                context_text="combined",
+                budget=ContextBudget(max_tokens=3200, used_tokens=900),
+            )
+
+    monkeypatch.setattr("context.deepagents.get_context_builder", lambda: FakeBuilder())
+
+    pack = await build_deepagents_context_pack(
+        goal="解释长上下文",
+        active_context=None,
+        explicit_context=[],
+        project_path="C:/workspace/project",
+    )
+
+    assert "IMPORTANT_START" in pack.prompt
+    assert "IMPORTANT_END" not in pack.prompt
+    assert "IMPORTANT_END" in pack.files["/context/retrieval/project.md"]
+    assert "server/context/deepagents.py" in pack.prompt
+    assert len(pack.metadata["files"]) == pack.metadata["virtual_file_count"]
 
 
 def test_agent_session_deepagents_reads_offloaded_context_file(tmp_path: Path):

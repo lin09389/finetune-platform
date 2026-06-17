@@ -20,8 +20,11 @@ logger = logging.getLogger(__name__)
 
 CONTEXT_ROOT = "/context"
 MAX_INLINE_PROMPT_CHARS = 1600
+MAX_KICKOFF_BRIEF_CHARS = 4_200
 MAX_CONTEXT_FILE_CHARS = 24_000
 MAX_CONTEXT_FILES = 12
+MAX_RETRIEVAL_BRIEF_SOURCES = 8
+MAX_RETRIEVAL_BRIEF_SOURCES_PER_KIND = 3
 
 
 @dataclass(frozen=True)
@@ -49,7 +52,7 @@ async def build_deepagents_context_pack(
     """Build a bounded prompt plus /context files for a DeepAgents run."""
 
     files: dict[str, str] = {}
-    metadata: dict[str, Any] = {"strategy": "deepagents_context_files_v2"}
+    metadata: dict[str, Any] = {"strategy": "deepagents_kickoff_brief_v1"}
 
     task_index = _task_index(goal, active_context, explicit_context)
     files[f"{CONTEXT_ROOT}/task.md"] = task_index
@@ -77,30 +80,38 @@ async def build_deepagents_context_pack(
         files.update(_context_pack_files(retrieved_pack))
         metadata["retrieval"] = retrieved_pack.to_dict()
 
-    file_lines = [f"- `{path}` ({estimate_tokens(content)} tokens est.)" for path, content in files.items()]
-
-    inline_context_hints = []
-    if active_context and active_context.get("file_path"):
-        inline_context_hints.append(f"👉 当前焦点文件: `{active_context.get('file_path')}`")
-    if explicit_context:
-        mentions = [str(item.get("label") or item.get("path") or "") for item in explicit_context if item.get("label") or item.get("path")]
-        if mentions:
-            inline_context_hints.append(f"👉 提及的上下文: {', '.join(mentions)}")
-    inline_hints_text = "\n\n【核心上下文速览】\n" + "\n".join(inline_context_hints) if inline_context_hints else ""
-
-    prompt_context = (
-        inline_hints_text +
-        "\n\n【虚拟文件系统上下文】"
-        "\n大量长文本上下文已放入虚拟文件系统。需要阅读长篇代码细节时请使用 read_file/grep/glob 读取这些文件。"
-        "\n- 如果你想读取完整的任务目标索引，优先读取 `/context/task.md`"
-        "\n- 如果你想读取当前焦点文件或提及上下文的完整代码，从下方的可用文件列表中读取"
-        "\n可用虚拟上下文文件：\n"
-        + "\n".join(file_lines)
+    kickoff_brief = _kickoff_brief(
+        goal=goal,
+        active_context=active_context,
+        explicit_context=explicit_context,
+        related=related,
+        retrieved_pack=retrieved_pack,
     )
-    prompt = _limit(goal.strip(), MAX_INLINE_PROMPT_CHARS) + prompt_context
+    file_lines = [f"- `{path}` ({estimate_tokens(content)} tokens est.)" for path, content in files.items()]
+    virtual_file_list = "\n".join(file_lines) if file_lines else "- 无"
+
+    prompt = "\n\n".join(
+        [
+            "【用户目标】\n" + _limit(goal.strip() or "继续执行当前任务。", MAX_INLINE_PROMPT_CHARS),
+            "【启动速览】\n" + kickoff_brief,
+            (
+                "【虚拟文件系统补充材料】\n"
+                "速览已包含启动所需信息；只有需要完整原文、长上下文或更细代码片段时，再按需读取 `/context/...` 下的虚拟文件。\n"
+                "长文本上下文仍保留在虚拟文件系统中，可用 read_file/grep/glob 深挖，但这些文件不是启动必读步骤。\n"
+                "读取或修改真实项目文件时优先使用 `/workspace/...` 路径。\n"
+                "可用虚拟上下文文件：\n"
+                f"{virtual_file_list}"
+            ),
+        ]
+    )
+    virtual_file_tokens = sum(estimate_tokens(content) for content in files.values())
     metadata.update(
         {
             "file_count": len(files),
+            "virtual_file_count": len(files),
+            "virtual_file_tokens": virtual_file_tokens,
+            "kickoff_brief_chars": len(kickoff_brief),
+            "kickoff_brief_tokens": estimate_tokens(kickoff_brief),
             "files": [{"path": path, "tokens": estimate_tokens(content), "chars": len(content)} for path, content in files.items()],
             "prompt_tokens": estimate_tokens(prompt),
             "source_hash": hashlib.sha256(json.dumps(_metadata_seed(active_context, explicit_context), ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest(),
@@ -192,6 +203,129 @@ def _context_sources_text(pack: ContextPack, kind: str) -> str:
             ]
         )
     return "\n".join(parts).strip() + "\n"
+
+
+def _kickoff_brief(
+    *,
+    goal: str,
+    active_context: dict[str, Any] | None,
+    explicit_context: list[dict[str, Any]] | None,
+    related: list[dict[str, Any]],
+    retrieved_pack: ContextPack | None,
+) -> str:
+    lines = [
+        "## Task",
+        f"- goal: {_text_preview(goal.strip() or '继续执行当前任务。', 700)}",
+    ]
+    if active_context:
+        lines.extend(_active_context_brief(active_context))
+    if explicit_context:
+        lines.extend(_explicit_context_brief(explicit_context))
+    if related:
+        lines.extend(_related_context_brief(related))
+    if retrieved_pack and retrieved_pack.sources:
+        lines.extend(_retrieval_sources_brief(retrieved_pack))
+    lines.extend(_recommended_first_actions(active_context, explicit_context, related, retrieved_pack))
+    return _limit("\n".join(lines).strip(), MAX_KICKOFF_BRIEF_CHARS)
+
+
+def _active_context_brief(active_context: dict[str, Any]) -> list[str]:
+    cursor = active_context.get("cursor") or {}
+    selection = active_context.get("selection") or {}
+    selected_text = str(selection.get("text") or "").strip() if isinstance(selection, dict) else ""
+    preview = _text_preview(str(active_context.get("content_preview") or ""), 240)
+    lines = [
+        "",
+        "## Active editor",
+        f"- file: `{active_context.get('file_path') or 'unknown'}`",
+        f"- cursor: line {cursor.get('line', 1)}, column {cursor.get('column', 1)}",
+    ]
+    if selected_text:
+        lines.append(f"- selected_text: {len(selected_text)} chars stored at `/context/editor/active-file.md`")
+    if preview:
+        lines.append(f"- preview: {preview}")
+    return lines
+
+
+def _explicit_context_brief(explicit_context: list[dict[str, Any]]) -> list[str]:
+    lines = ["", "## Explicit mentions"]
+    for index, item in enumerate(explicit_context[:MAX_CONTEXT_FILES], start=1):
+        label = item.get("label") or item.get("path") or "context"
+        path = item.get("path") or ""
+        line = f":{item.get('line')}" if item.get("line") else ""
+        content = str(item.get("content") or "").strip()
+        suffix = f" - {_text_preview(content, 180)}" if content else ""
+        lines.append(f"- {index}. @{label}: `{path}{line}`{suffix}")
+    return lines
+
+
+def _related_context_brief(related: list[dict[str, Any]]) -> list[str]:
+    lines = ["", "## Related files"]
+    for index, item in enumerate(related[:MAX_RETRIEVAL_BRIEF_SOURCES], start=1):
+        relation = item.get("relation") or "related"
+        path = item.get("path") or ""
+        line = f":{item.get('line')}" if item.get("line") else ""
+        content = _text_preview(str(item.get("content") or ""), 160)
+        suffix = f" - {content}" if content else ""
+        lines.append(f"- {index}. {relation}: `{path}{line}`{suffix}")
+    return lines
+
+
+def _retrieval_sources_brief(pack: ContextPack) -> list[str]:
+    lines = ["", "## Retrieved context summary"]
+    total = 0
+    for kind in ("memory", "project", "knowledge"):
+        sources = [source for source in pack.sources if source.kind == kind][:MAX_RETRIEVAL_BRIEF_SOURCES_PER_KIND]
+        if not sources:
+            continue
+        lines.append(f"- {kind}:")
+        for source in sources:
+            if total >= MAX_RETRIEVAL_BRIEF_SOURCES:
+                break
+            lines.append(f"  - {_source_brief(source)}")
+            total += 1
+        if total >= MAX_RETRIEVAL_BRIEF_SOURCES:
+            break
+    if pack.warnings:
+        lines.append(f"- warnings: {_text_preview('; '.join(pack.warnings), 240)}")
+    return lines if total else []
+
+
+def _source_brief(source: Any) -> str:
+    path = source.metadata.get("memory_path") or source.path or source.source
+    preview = _text_preview(str(source.content or ""), 220)
+    return f"`{path}` | kind={source.kind} | score={source.score:.3g} | tokens={source.tokens} | {preview}"
+
+
+def _recommended_first_actions(
+    active_context: dict[str, Any] | None,
+    explicit_context: list[dict[str, Any]] | None,
+    related: list[dict[str, Any]],
+    retrieved_pack: ContextPack | None,
+) -> list[str]:
+    candidate_paths: list[str] = []
+    if active_context and active_context.get("file_path"):
+        candidate_paths.append(str(active_context.get("file_path")))
+    for item in explicit_context or []:
+        if item.get("path"):
+            candidate_paths.append(str(item.get("path")))
+    for item in related[:3]:
+        if item.get("path"):
+            candidate_paths.append(str(item.get("path")))
+    if retrieved_pack:
+        for source in retrieved_pack.sources:
+            if source.kind == "project" and source.path and _looks_like_file_path(str(source.path)):
+                candidate_paths.append(str(source.path))
+    unique_paths = list(dict.fromkeys(candidate_paths))[:5]
+    lines = ["", "## Recommended first actions"]
+    if unique_paths:
+        workspace_paths = ", ".join(f"`/workspace/{path.lstrip('/')}`" for path in unique_paths)
+        lines.append(f"- Start from the real project file(s): {workspace_paths}.")
+    else:
+        lines.append("- Start from the user goal and search real project files under `/workspace/` as needed.")
+    lines.append("- Use virtual `/context/...` files only when the brief is insufficient or full offloaded text is required.")
+    lines.append("- After reading the necessary real files, edit and verify according to the task.")
+    return lines
 
 
 def _memory_sources_index_text(sources: list[Any]) -> str:
@@ -318,6 +452,22 @@ def _safe_slug(item: dict[str, Any]) -> str:
     raw = str(item.get("label") or item.get("path") or item.get("type") or "context")
     slug = "".join(ch.lower() if ch.isalnum() else "-" for ch in raw).strip("-")
     return (slug or "context")[:48]
+
+
+def _text_preview(text: str, max_chars: int) -> str:
+    cleaned = " ".join(
+        line.strip()
+        for line in text.replace("```", "").splitlines()
+        if line.strip()
+    )
+    if len(cleaned) <= max_chars:
+        return cleaned
+    return cleaned[:max_chars].rstrip() + "..."
+
+
+def _looks_like_file_path(path: str) -> bool:
+    name = path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+    return "." in name
 
 
 def _limit(text: str, max_chars: int) -> str:
