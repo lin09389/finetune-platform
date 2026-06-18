@@ -195,6 +195,13 @@ def test_agent_session_deepagents_edit_file_uses_official_hitl(tmp_path: Path):
             [
                 json.dumps(
                     {
+                        "tool": "read_file",
+                        "arguments": {"file_path": "/workspace/hello.txt"},
+                    },
+                    ensure_ascii=False,
+                ),
+                json.dumps(
+                    {
                         "tool": "edit_file",
                         "arguments": {
                             "file_path": "/workspace/hello.txt",
@@ -310,7 +317,8 @@ def test_deepagents_runtime_registers_local_async_tools(monkeypatch, tmp_path: P
     assert captured["project_path"] == str(tmp_path)
     assert captured["permissions"]
     assert "/skills/builtin/" in captured["skills"]
-    assert captured["middleware"] == []
+    assert len(captured["middleware"]) == 1
+    assert captured["middleware"][0].__class__.__name__ == "TrajectoryGuardMiddleware"
 
 
 def test_deepagents_runtime_enforces_agent_definition_fields(monkeypatch, tmp_path: Path):
@@ -868,6 +876,10 @@ def test_agent_session_deepagents_interrupt_creates_permission_card(tmp_path: Pa
         responses = iter(
             [
                 json.dumps(
+                    {"tool": "read_file", "arguments": {"file_path": "/workspace/hello.txt"}},
+                    ensure_ascii=False,
+                ),
+                json.dumps(
                     {
                         "tool": "edit_file",
                         "arguments": {
@@ -876,6 +888,10 @@ def test_agent_session_deepagents_interrupt_creates_permission_card(tmp_path: Pa
                             "new_string": "hi\n",
                         },
                     },
+                    ensure_ascii=False,
+                ),
+                json.dumps(
+                    {"tool": "read_file", "arguments": {"file_path": "/workspace/hello.txt"}},
                     ensure_ascii=False,
                 ),
                 json.dumps({"type": "final", "content": "已完成。"}, ensure_ascii=False),
@@ -899,6 +915,8 @@ def test_agent_session_deepagents_interrupt_creates_permission_card(tmp_path: Pa
 
         assert completed.status == "completed"
         assert target.read_text(encoding="utf-8") == "hi\n"
+        assert "/workspace/hello.txt" in completed.metadata["trajectory_guard"]["writes"]
+        assert completed.metadata["trajectory_guard"]["auto_corrections"] == 0
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
 
@@ -915,6 +933,10 @@ def test_agent_session_permission_resume_is_queued_for_http_approval(tmp_path: P
         responses = iter(
             [
                 json.dumps(
+                    {"tool": "read_file", "arguments": {"file_path": "/workspace/hello.txt"}},
+                    ensure_ascii=False,
+                ),
+                json.dumps(
                     {
                         "tool": "edit_file",
                         "arguments": {
@@ -923,6 +945,10 @@ def test_agent_session_permission_resume_is_queued_for_http_approval(tmp_path: P
                             "new_string": "hi\n",
                         },
                     },
+                    ensure_ascii=False,
+                ),
+                json.dumps(
+                    {"tool": "read_file", "arguments": {"file_path": "/workspace/hello.txt"}},
                     ensure_ascii=False,
                 ),
                 json.dumps({"type": "final", "content": "已完成。"}, ensure_ascii=False),

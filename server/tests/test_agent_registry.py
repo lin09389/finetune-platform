@@ -34,7 +34,14 @@ def test_build_agent_allows_official_harness_edit_and_execute_tools():
     assert build.schema_version == 2
     assert build.system_prompt_definition["identity"].startswith("你是一位资深全栈工程师")
     assert build.output_schema["format"] == "structured_markdown"
-    assert build.few_shot_examples[0]["name"] == "targeted_code_change"
+    assert build.few_shot_examples[0]["name"] == "modify_existing_code"
+    assert build.trajectory_policy["enabled"] is True
+    assert build.trajectory_policy["require_read_before_write"] is True
+    assert build.trajectory_policy["validate_after_write"] is True
+    assert build.trajectory_policy["rollback_on_validation_failure"] is True
+    assert build.few_shot_examples[0]["steps"][1]["type"] == "tool_call"
+    assert "Trajectory:" in build.system_prompt
+    assert "tool_call: grep" in build.system_prompt
     assert "before_final" in build.reflection_rules
     assert "官方 sandbox execute" in build.system_prompt
     assert "只分析" in build.system_prompt
@@ -79,6 +86,19 @@ FewShotExamples:
   - name: small_fix
     user: Fix it.
     assistant: I will inspect and patch.
+  - name: traced_fix
+    user: Trace it.
+    steps:
+      - type: tool_call
+        tool: read_file
+        arguments:
+          file_path: /workspace/a.py
+      - type: tool_result
+        tool: read_file
+        result: file content
+TrajectoryPolicy:
+  enabled: true
+  require_read_before_write: true
 ReflectionRules:
   before_final:
     - Verify the result.
@@ -110,6 +130,8 @@ SystemPrompt:
     assert "## 身份\nParent identity." in parent.system_prompt
     assert "## Extra\nExtra prompt." in parent.system_prompt
     assert "## Few-shot Examples" in parent.system_prompt
+    assert "tool_call: read_file" in parent.system_prompt
+    assert parent.trajectory_policy["enabled"] is True
     assert "### Before final" in parent.system_prompt
     assert "Required fields" in parent.output_requirements
     assert "type: object" in parent.output_requirements
@@ -150,8 +172,9 @@ def test_agent_definition_policy_exposes_manifest_v2_output_contract():
     assert output_contract["schema_version"] == 2
     assert output_contract["format"] == "structured_markdown"
     assert output_contract["required_sections"] == ["已完成项", "变更文件", "验证结果", "后续建议或风险"]
-    assert output_contract["few_shot_examples"] == 2
+    assert output_contract["few_shot_examples"] == 4
     assert output_contract["reflection_rules"] >= 8
+    assert output_contract["trajectory_policy"]["enabled"] is True
 
 
 def test_registry_treats_all_mode_as_direct_and_handoff_capable(tmp_path: Path):

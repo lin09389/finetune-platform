@@ -68,6 +68,15 @@ def start_training_task(
         event_loop = None
 
     def run_training():
+        if use_queue:
+            import time
+            while not state.try_claim_training_slot():
+                if state.should_stop():
+                    logger.info(f"队列任务取消执行: {record_id}")
+                    return
+                time.sleep(5)
+
+        state.register_training_task(record_id, threading.current_thread())
         training_thread(
             config,
             str(model_path),

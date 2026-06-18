@@ -348,6 +348,7 @@ def _output_contract(agent: AgentDefinition | None, *, runtime_kind: RuntimePoli
         "schema": schema_payload,
         "few_shot_examples": few_shot_count,
         "reflection_rules": reflection_rule_count,
+        "trajectory_policy": dict(agent.trajectory_policy if agent else {}),
         "enforced_in_prompt": bool(requirements),
     }
 

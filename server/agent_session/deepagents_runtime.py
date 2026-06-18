@@ -33,6 +33,11 @@ from .runtime import (
     build_deep_agent_runtime,
 )
 from .session_state_machine import AgentSessionStateMachine
+from .trajectory import (
+    TrajectoryStateStore,
+    build_trajectory_middleware,
+    trajectory_policy_for_agent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +224,11 @@ class DeepAgentsSessionRunner:
             session = self.repository.get_session(session_id)
             if not session:
                 raise ValueError("Agent session not found")
+            agent = self.agent_registry.get(str(session.get("agent_id") or "build"))
+            policy = trajectory_policy_for_agent(agent)
+            trajectory_store = TrajectoryStateStore(self.repository, self.notify_event, session_id)
+            if policy["enabled"]:
+                trajectory_store.begin_run()
             graph = await self._build_graph(session, prompt)
             config = self._graph_config(session)
             mapper = DeepAgentsEventMapper(self.repository, self.notify_event, session_id)
@@ -241,6 +251,18 @@ class DeepAgentsSessionRunner:
                 return self._with_parts(session_id)
             if self._has_pending_permission(session_id):
                 return self._with_parts(session_id)
+            ready, correction_summary = await self._complete_trajectory_requirements(
+                graph,
+                config,
+                mapper,
+                session_id,
+                policy,
+                trajectory_store,
+            )
+            if not ready:
+                return self._with_parts(session_id)
+            if correction_summary:
+                last_summary = correction_summary
             summary = last_summary or "DeepAgents 执行完成。"
             mapper.complete_summary(summary)
             self.state_machine.mark_completed(session_id)
@@ -270,6 +292,21 @@ class DeepAgentsSessionRunner:
                 return self._with_parts(session_id)
             if self._has_pending_permission(session_id):
                 return self._with_parts(session_id)
+            agent = self.agent_registry.get(str(session.get("agent_id") or "build"))
+            policy = trajectory_policy_for_agent(agent)
+            trajectory_store = TrajectoryStateStore(self.repository, self.notify_event, session_id)
+            ready, correction_summary = await self._complete_trajectory_requirements(
+                graph,
+                config,
+                mapper,
+                session_id,
+                policy,
+                trajectory_store,
+            )
+            if not ready:
+                return self._with_parts(session_id)
+            if correction_summary:
+                last_summary = correction_summary
             mapper.complete_summary(last_summary or "DeepAgents 已继续执行并完成。")
             self.state_machine.mark_completed(session_id)
             return self._with_parts(session_id)
@@ -298,17 +335,116 @@ class DeepAgentsSessionRunner:
             model = get_chat_model(context)
         else:
             raise RuntimeError("DeepAgents requires a configured provider/model or injected model_call")
+        trajectory_middleware = build_trajectory_middleware(
+            repository=self.repository,
+            notify_event=self.notify_event,
+            session_id=session_id,
+            project_path=project_path,
+            agent=agent,
+        )
         contract = AgentRuntimeContract.for_agent_session(
             session=session,
             goal=prompt,
             model=model,
             agent_registry=self.agent_registry,
             tools=self._local_async_tools_for_session(session),
-            middleware=permission_policy.tool_constraint_middleware(DEEPAGENTS_BUILTIN_TOOLS, logger),
+            middleware=[
+                *trajectory_middleware,
+                *permission_policy.tool_constraint_middleware(DEEPAGENTS_BUILTIN_TOOLS, logger),
+            ],
             subagents=self._subagents_for_agent(agent_id, model, metadata),
             checkpointer=await self._get_checkpointer(),
         )
         return build_deep_agent_runtime(contract)
+
+    async def _complete_trajectory_requirements(
+        self,
+        graph: Any,
+        config: dict[str, Any],
+        mapper: DeepAgentsEventMapper,
+        session_id: str,
+        policy: dict[str, Any],
+        store: TrajectoryStateStore,
+    ) -> tuple[bool, str]:
+        if not policy.get("enabled"):
+            return True, ""
+        last_summary = ""
+        while issues := store.completion_issues(policy):
+            state = store.load()
+            correction_count = int(state.get("auto_corrections") or 0)
+            if correction_count >= int(policy.get("max_auto_corrections") or 0):
+                self._mark_trajectory_manual_review(session_id, issues, store)
+                return False, last_summary
+            attempt = store.increment_correction(issues)
+            prompt = self._trajectory_correction_prompt(issues, attempt)
+            async for event in graph.astream_events({"messages": prompt}, config=config, version="v2"):
+                mapper.handle(event)
+                summary = self._extract_summary(event)
+                if summary:
+                    last_summary = summary
+                if self._is_interrupted(session_id) or self._has_pending_permission(session_id):
+                    return False, last_summary
+        return True, last_summary
+
+    def _mark_trajectory_manual_review(
+        self,
+        session_id: str,
+        issues: list[dict[str, Any]],
+        store: TrajectoryStateStore,
+    ) -> None:
+        message = "轨迹验证要求在自动纠正次数耗尽后仍未满足：" + "；".join(
+            str(issue.get("message") or "") for issue in issues
+        )
+        part = self.repository.add_part(
+            session_id,
+            "error",
+            status="failed",
+            title="轨迹验证未完成",
+            content=message,
+            payload={
+                "guard": "trajectory_guard",
+                "issues": issues,
+                "trajectory_guard": store.public_summary(),
+            },
+        )
+        event = self.repository.add_event(
+            session_id,
+            "trajectory_validation_required",
+            message,
+            {
+                "session_id": session_id,
+                "part_id": part.get("id"),
+                "part_type": "error",
+                "status": "failed",
+                "guard": "trajectory_guard",
+                "issues": issues,
+                "part": part,
+            },
+        )
+        self.notify_event(session_id, event)
+        session = self.repository.get_session(session_id) or {}
+        metadata = dict(session.get("metadata") or {})
+        metadata["latest_error"] = message
+        self.state_machine.mark_failed(
+            session_id,
+            metadata=metadata,
+            status="needs_manual_review",
+            error=message,
+        )
+
+    @staticmethod
+    def _trajectory_correction_prompt(issues: list[dict[str, Any]], attempt: int) -> str:
+        issue_text = "\n".join(
+            f"- {issue.get('message')} 涉及：{', '.join(issue.get('paths') or [])}"
+            for issue in issues
+        )
+        return (
+            f"这是第 {attempt} 次轨迹自动纠正。你刚才准备结束任务，但尚未满足平台验证要求：\n"
+            f"{issue_text}\n"
+            "请立即完成缺失的验证。源码、测试或配置应运行相关测试、构建、类型检查、lint 或语法检查；"
+            "文档可重新读取最终内容确认。若验证失败，先重新读取受影响文件，再修复并重新验证。"
+            "不要只解释计划，必须实际执行验证。"
+        )
 
     def _local_async_tools_for_session(self, session: dict[str, Any]) -> list[Any]:
         agent_id = str(session.get("agent_id") or "build")
