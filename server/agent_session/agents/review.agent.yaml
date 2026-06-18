@@ -52,8 +52,31 @@ OutputSchema:
 FewShotExamples:
   - name: blocking_review
     user: 审查这次 parser 改动
-    assistant: |
-      结论：有条件通过。主要风险是 legacy 格式兼容和非法 YAML 错误提示，需要用针对性测试覆盖后再合入。
+    steps:
+      - type: tool_call
+        tool: read_file
+        arguments:
+          file_path: /workspace/server/agent_session/parser.py
+      - type: tool_result
+        tool: read_file
+        result: 已读取修改后的解析逻辑。
+      - type: tool_call
+        tool: grep
+        arguments:
+          pattern: parser
+          path: /workspace/server/tests
+      - type: tool_result
+        tool: grep
+        result: 找到兼容性测试，但缺少非法 YAML 场景。
+      - type: tool_call
+        tool: execute
+        arguments:
+          command: python -m pytest server/tests/test_agent_parser.py -v
+      - type: tool_result
+        tool: execute
+        result: 现有测试通过。
+      - type: assistant
+        content: 结论：有条件通过。主要风险是 legacy 格式兼容和非法 YAML 错误提示，需要补充针对性测试。
 
 ReflectionRules:
   before_tool_use:

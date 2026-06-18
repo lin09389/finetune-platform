@@ -81,6 +81,7 @@ class AgentRegistry:
             "SystemPrompt": "system_prompt",
             "OutputSchema": "output_schema",
             "FewShotExamples": "few_shot_examples",
+            "TrajectoryPolicy": "trajectory_policy",
             "ReflectionRules": "reflection_rules",
             "Runtime": "runtime",
             "Tools": "tools",
@@ -137,6 +138,7 @@ class AgentRegistry:
             system_prompt_definition=manifest.system_prompt.model_dump(),
             output_schema=manifest.output_schema.model_dump(by_alias=True),
             few_shot_examples=[example.model_dump() for example in manifest.few_shot_examples],
+            trajectory_policy=manifest.trajectory_policy.model_dump(),
             reflection_rules=manifest.reflection_rules.model_dump(),
             tool_policy=manifest.tools.model_dump(),
             handoff_policy=manifest.handoff.model_dump(),
@@ -173,13 +175,36 @@ class AgentRegistry:
                 if example.context.strip():
                     parts.append(f"Context: {example.context.strip()}")
                 parts.append(f"User: {example.user.strip()}")
-                parts.append(f"Assistant: {example.assistant.strip()}")
+                if example.steps:
+                    parts.append("Trajectory:")
+                    parts.extend(self._compile_few_shot_steps(example.steps))
+                elif example.assistant.strip():
+                    parts.append(f"Assistant: {example.assistant.strip()}")
                 examples.append("\n".join(parts))
             sections.append("## Few-shot Examples\n" + "\n\n".join(examples))
         reflection = self._compile_reflection_rules(manifest)
         if reflection:
             sections.append(reflection)
         return "\n\n".join(section for section in sections if section.strip()).strip()
+
+    @staticmethod
+    def _compile_few_shot_steps(steps: list[Any]) -> list[str]:
+        rendered: list[str] = []
+        for index, step in enumerate(steps, start=1):
+            if step.type == "assistant":
+                detail = step.content.strip()
+            elif step.type == "tool_call":
+                arguments = yaml.safe_dump(
+                    step.arguments,
+                    allow_unicode=True,
+                    sort_keys=False,
+                    default_flow_style=True,
+                ).strip()
+                detail = f"{step.tool} {arguments}"
+            else:
+                detail = f"{step.tool}: {(step.result or step.content).strip()}"
+            rendered.append(f"{index}. {step.type}: {detail}")
+        return rendered
 
     def _compile_output_requirements(self, manifest: AgentManifestV2) -> str:
         schema = manifest.output_schema

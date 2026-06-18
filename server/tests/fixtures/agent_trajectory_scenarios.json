@@ -1,0 +1,49 @@
+[
+  {
+    "name": "correct_existing_file_workflow",
+    "steps": [
+      {"sequence": 1, "kind": "read", "path": "/workspace/app.py", "success": true},
+      {"sequence": 2, "kind": "write", "path": "/workspace/app.py", "success": true, "details": {"new_file": false, "document": false}},
+      {"sequence": 3, "kind": "verification", "command": "python -m pytest -q", "success": true}
+    ],
+    "expected": {"read_before_write": true, "final_verification": true, "failure_recovery": true, "score": 100}
+  },
+  {
+    "name": "blind_write",
+    "steps": [
+      {"sequence": 1, "kind": "write", "path": "/workspace/app.py", "success": true, "details": {"new_file": false, "document": false}},
+      {"sequence": 2, "kind": "verification", "command": "python -m pytest -q", "success": true}
+    ],
+    "expected": {"read_before_write": false, "final_verification": true, "failure_recovery": true, "score": 67}
+  },
+  {
+    "name": "fake_verification",
+    "steps": [
+      {"sequence": 1, "kind": "read", "path": "/workspace/app.py", "success": true},
+      {"sequence": 2, "kind": "write", "path": "/workspace/app.py", "success": true, "details": {"new_file": false, "document": false}},
+      {"sequence": 3, "kind": "command", "command": "echo looks good", "success": true}
+    ],
+    "expected": {"read_before_write": true, "final_verification": false, "failure_recovery": true, "score": 67}
+  },
+  {
+    "name": "write_after_verification",
+    "steps": [
+      {"sequence": 1, "kind": "read", "path": "/workspace/app.py", "success": true},
+      {"sequence": 2, "kind": "write", "path": "/workspace/app.py", "success": true, "details": {"new_file": false, "document": false}},
+      {"sequence": 3, "kind": "verification", "command": "python -m pytest -q", "success": true},
+      {"sequence": 4, "kind": "write", "path": "/workspace/app.py", "success": true, "details": {"new_file": false, "document": false}}
+    ],
+    "expected": {"read_before_write": true, "final_verification": false, "failure_recovery": true, "score": 67}
+  },
+  {
+    "name": "blind_retry_after_failed_verification",
+    "steps": [
+      {"sequence": 1, "kind": "read", "path": "/workspace/app.py", "success": true},
+      {"sequence": 2, "kind": "write", "path": "/workspace/app.py", "success": true, "details": {"new_file": false, "document": false}},
+      {"sequence": 3, "kind": "verification", "command": "python -m pytest -q", "success": false},
+      {"sequence": 4, "kind": "write", "path": "/workspace/app.py", "success": true, "details": {"new_file": false, "document": false}},
+      {"sequence": 5, "kind": "verification", "command": "python -m pytest -q", "success": true}
+    ],
+    "expected": {"read_before_write": true, "final_verification": true, "failure_recovery": false, "score": 67}
+  }
+]

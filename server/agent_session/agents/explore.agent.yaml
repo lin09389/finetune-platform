@@ -51,8 +51,24 @@ OutputSchema:
 FewShotExamples:
   - name: locate_runtime_path
     user: 看看 Agent 运行时在哪里拼 system prompt
-    assistant: |
-      关键拼装逻辑集中在 `server/agent_session/runtime_contract.py`，registry 负责提供 agent 定义，runtime contract 再把平台约束和子 Agent 提示合并进去。
+    steps:
+      - type: tool_call
+        tool: grep
+        arguments:
+          pattern: build_system_prompt
+          path: /workspace/server/agent_session
+      - type: tool_result
+        tool: grep
+        result: 找到 runtime_contract.py 和调用方。
+      - type: tool_call
+        tool: read_file
+        arguments:
+          file_path: /workspace/server/agent_session/runtime_contract.py
+      - type: tool_result
+        tool: read_file
+        result: 已确认 system prompt 拼装顺序。
+      - type: assistant
+        content: 关键拼装逻辑集中在 runtime_contract.py，registry 提供定义，runtime contract 合并平台约束和子 Agent 提示。
 
 ReflectionRules:
   before_tool_use:

@@ -26,11 +26,30 @@ class OutputSchemaDefinition(BaseModel):
     json_schema: dict[str, Any] = Field(default_factory=dict, alias="schema")
 
 
+class FewShotStep(BaseModel):
+    type: Literal["assistant", "tool_call", "tool_result"]
+    content: str = ""
+    tool: str = ""
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    result: str = ""
+
+
 class FewShotExample(BaseModel):
     name: str = ""
     user: str
-    assistant: str
+    assistant: str = ""
     context: str = ""
+    steps: list[FewShotStep] = Field(default_factory=list)
+
+
+class TrajectoryPolicy(BaseModel):
+    enabled: bool = False
+    require_read_before_write: bool = False
+    require_context_before_create: bool = False
+    validate_after_write: bool = False
+    rollback_on_validation_failure: bool = False
+    require_verification_after_write: bool = False
+    max_auto_corrections: int = Field(default=0, ge=0, le=10)
 
 
 class ReflectionRules(BaseModel):
@@ -70,6 +89,7 @@ class AgentManifestV2(BaseModel):
     system_prompt: SystemPromptDefinition
     output_schema: OutputSchemaDefinition = Field(default_factory=OutputSchemaDefinition)
     few_shot_examples: list[FewShotExample] = Field(default_factory=list)
+    trajectory_policy: TrajectoryPolicy = Field(default_factory=TrajectoryPolicy)
     reflection_rules: ReflectionRules = Field(default_factory=ReflectionRules)
     runtime: AgentRuntimeDefaults = Field(default_factory=AgentRuntimeDefaults)
     tools: AgentToolPolicy = Field(default_factory=AgentToolPolicy)
@@ -96,6 +116,7 @@ class AgentDefinition(BaseModel):
     system_prompt_definition: dict[str, Any] = Field(default_factory=dict)
     output_schema: dict[str, Any] = Field(default_factory=dict)
     few_shot_examples: list[dict[str, Any]] = Field(default_factory=list)
+    trajectory_policy: dict[str, Any] = Field(default_factory=dict)
     reflection_rules: dict[str, Any] = Field(default_factory=dict)
     tool_policy: dict[str, Any] = Field(default_factory=dict)
     handoff_policy: dict[str, Any] = Field(default_factory=dict)
@@ -136,8 +157,10 @@ __all__ = [
     "AgentRuntimeDefaults",
     "AgentToolPolicy",
     "FewShotExample",
+    "FewShotStep",
     "OutputSchemaDefinition",
     "ReflectionRules",
     "RuntimeExecutionContext",
     "SystemPromptDefinition",
+    "TrajectoryPolicy",
 ]
