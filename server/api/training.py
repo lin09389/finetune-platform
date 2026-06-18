@@ -1066,7 +1066,7 @@ async def start_training(
     settings = get_settings()
     state = get_training_context().state
 
-    if state.is_training():
+    if not use_queue and state.is_training():
         raise HTTPException(status_code=400, detail="Training already in progress")
 
     validate_release_supported_features(config)
@@ -1131,8 +1131,9 @@ async def start_training(
             if "max_seq_length" in recommended:
                 config.max_seq_length = recommended["max_seq_length"]
 
-    if not state.try_claim_training_slot():
-        raise HTTPException(status_code=400, detail="Training already in progress")
+    if not use_queue:
+        if not state.try_claim_training_slot():
+            raise HTTPException(status_code=400, detail="Training already in progress")
     try:
         return _start_training_task(
             config=config,
