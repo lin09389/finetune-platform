@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from .state import ensure_session_state
@@ -15,6 +16,7 @@ MAX_CONSECUTIVE_FAILURES = 4
 NO_PROGRESS_THRESHOLD = 4
 MODEL_NO_ACTION_THRESHOLD = 3
 MAX_RECENT_OBSERVATIONS = 10
+MAX_GUARD_HISTORY = 10
 
 _OBSERVATION_TOOLS = {"read_file", "grep", "glob", "ls"}
 _ERROR_PATTERNS = (
@@ -89,6 +91,49 @@ class AgentFailureGuard:
             return
 
         self._reset_on_progress(session_id, event)
+
+    def reset_for_recovery(self, session_id: str) -> None:
+        session = self.repository.get_session(session_id)
+        if not session:
+            return
+        metadata = ensure_session_state(dict(session.get("metadata") or {}))
+        guard = dict(metadata.get("loop_guard") or {})
+        if not guard.get("blocked"):
+            return
+
+        blocked_snapshot = {
+            key: guard.get(key)
+            for key in (
+                "blocked_reason",
+                "blocked_reason_code",
+                "blocked_signature",
+                "repeat_count",
+                "threshold",
+                "tool",
+                "input_excerpt",
+                "error_excerpt",
+                "output_excerpt",
+            )
+            if guard.get(key) not in (None, "")
+        }
+        blocked_snapshot["recovered_at"] = datetime.now(timezone.utc).isoformat()
+        history = [dict(item) for item in guard.get("history") or [] if isinstance(item, dict)]
+        history.append(blocked_snapshot)
+        metadata["loop_guard"] = {
+            "blocked": False,
+            "repeat_count": 0,
+            "family_repeat_count": 0,
+            "consecutive_failure_count": 0,
+            "no_progress_repeat_count": 0,
+            "last_signature": "",
+            "last_family_signature": "",
+            "last_no_progress_signature": "",
+            "recent_failures": [],
+            "recent_observations": [],
+            "history": history[-MAX_GUARD_HISTORY:],
+            "last_block": blocked_snapshot,
+        }
+        self.repository.update_session(session_id, metadata=metadata)
 
     def _observe_failure(self, session_id: str, observation: FailureObservation) -> None:
         session = self.repository.get_session(session_id)
@@ -227,6 +272,7 @@ class AgentFailureGuard:
         session = self.repository.get_session(session_id) or {}
         metadata = ensure_session_state(dict(session.get("metadata") or {}))
         guard = dict(metadata.get("loop_guard") or {})
+        effective_threshold = observation.threshold if isinstance(observation, NoProgressObservation) else self.threshold
         guard.update(
             {
                 "blocked": True,
@@ -234,6 +280,11 @@ class AgentFailureGuard:
                 "blocked_reason_code": reason_code,
                 "blocked_signature": observation.signature,
                 "repeat_count": reason_count,
+                "threshold": effective_threshold,
+                "tool": observation.tool,
+                "input_excerpt": observation.input_excerpt,
+                "error_excerpt": getattr(observation, "error_excerpt", ""),
+                "output_excerpt": getattr(observation, "output_excerpt", ""),
             }
         )
         metadata["loop_guard"] = guard
@@ -252,7 +303,7 @@ class AgentFailureGuard:
                 "guard": "loop_guard",
                 "reason_code": reason_code,
                 "repeat_count": reason_count,
-                "threshold": self.threshold,
+                "threshold": effective_threshold,
                 "tool": observation.tool,
                 "input_excerpt": observation.input_excerpt,
                 "error_excerpt": getattr(observation, "error_excerpt", ""),
@@ -274,7 +325,7 @@ class AgentFailureGuard:
                 "guard": "loop_guard",
                 "reason_code": reason_code,
                 "repeat_count": reason_count,
-                "threshold": self.threshold,
+                "threshold": effective_threshold,
                 "tool": observation.tool,
                 "input_excerpt": observation.input_excerpt,
                 "error_excerpt": getattr(observation, "error_excerpt", ""),

@@ -7,6 +7,7 @@ import pytest
 from fastapi import BackgroundTasks
 
 from agent_session.execution_plan_events import apply_execution_event
+from agent_session.failure_guard import AgentLoopGuardTriggered
 from agent_session.models import AgentExecutionPlanRecoverRequest, AgentPromptRequest, AgentSessionCreate
 from agent_session.repository import AgentSessionRepository
 from agent_session.service import AgentSessionService
@@ -105,6 +106,76 @@ def test_retry_node_queues_recovery_prompt_and_keeps_current_node(tmp_path: Path
     assert node["recoverable"] is False
     assert node["recovery_attempts"] == 1
     assert node["output"]["recovery_history"]
+
+
+def test_retry_node_rearms_loop_guard_and_preserves_block_history(tmp_path: Path):
+    service = _service(tmp_path)
+    session_id = _session_with_plan(service, tmp_path)
+    node_id = _mark_tool_failed(service, session_id)
+    session = service.repository.get_session(session_id)
+    assert session
+    metadata = dict(session.get("metadata") or {})
+    metadata["loop_guard"] = {
+        "blocked": True,
+        "blocked_reason": "连续 3 次遇到相同工具失败。",
+        "blocked_reason_code": "repeated_identical_failure",
+        "blocked_signature": "signature-1",
+        "repeat_count": 3,
+        "threshold": 3,
+        "tool": "execute",
+        "input_excerpt": "python -m pytest",
+        "error_excerpt": "exit code 1",
+    }
+    service.repository.update_session(session_id, metadata=metadata)
+
+    response = asyncio.run(
+        service.recover_execution_node(
+            session_id,
+            node_id,
+            AgentExecutionPlanRecoverRequest(action="retry_node"),
+            BackgroundTasks(),
+        )
+    )
+
+    guard = response.session.metadata["loop_guard"]
+    assert guard["blocked"] is False
+    assert guard["repeat_count"] == 0
+    assert guard["last_block"]["blocked_reason_code"] == "repeated_identical_failure"
+    assert guard["history"][-1]["tool"] == "execute"
+
+    def failed_event(index: int) -> dict[str, object]:
+        part = service.repository.add_part(
+            session_id,
+            "tool_call",
+            status="failed",
+            title="execute",
+            content="Command failed with exit code 1",
+            payload={"tool": "execute", "input": {"command": "python -m pytest"}},
+        )
+        return {
+            "id": f"event-rearmed-{index}",
+            "session_id": session_id,
+            "event_type": "tool_call_failed",
+            "message": "工具调用失败：execute",
+            "payload": {
+                "session_id": session_id,
+                "part_id": part["id"],
+                "part_type": "tool_call",
+                "status": "failed",
+                "tool": "execute",
+                "error": part["content"],
+                "part": part,
+            },
+        }
+
+    service._notify_event(session_id, failed_event(1))
+    service._notify_event(session_id, failed_event(2))
+    with pytest.raises(AgentLoopGuardTriggered):
+        service._notify_event(session_id, failed_event(3))
+
+    blocked = service.get_session(session_id)
+    assert blocked.status == "needs_manual_review"
+    assert blocked.metadata["loop_guard"]["blocked"] is True
 
 
 def test_recover_with_existing_latch_does_not_queue_duplicate_prompt(tmp_path: Path):

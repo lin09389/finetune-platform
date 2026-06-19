@@ -9,6 +9,7 @@ import {
 import type React from 'react';
 import type {
   AgentHitlDecision,
+  AgentLoopGuardSnapshot,
   AgentPart,
   AgentWorkspace,
   AgentWorkspaceArtifact,
@@ -150,6 +151,9 @@ export default function AgentInspector({
         {workspace.status_text?.stop_reason || workspace.status_text?.current_phase || '当前 Agent 运行状态。'}
       </Typography.Paragraph>
       {workspace.status_text?.next_action ? <InfoRow label="下一步" value={workspace.status_text.next_action} /> : null}
+      {workspace.session.metadata?.loop_guard?.blocked ? (
+        <LoopGuardInspector guard={workspace.session.metadata.loop_guard} />
+      ) : null}
       <div className={styles.statsGrid}>
         <Stat label="子任务" value={workspace.async_tasks.metrics.total} />
         <Stat label="运行" value={workspace.async_tasks.metrics.running} />
@@ -176,6 +180,28 @@ export default function AgentInspector({
           ))}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function LoopGuardInspector({ guard }: { guard: AgentLoopGuardSnapshot }) {
+  const reasonLabels: Record<string, string> = {
+    repeated_identical_failure: '重复相同失败',
+    repeated_failure_family: '重复同类失败',
+    consecutive_failures: '连续工具失败',
+    repeated_no_progress: '重复操作但无进展',
+  };
+  const reason = reasonLabels[String(guard.blocked_reason_code || '')] || guard.blocked_reason_code || '循环保护';
+  return (
+    <div className={styles.artifactList}>
+      <div className={styles.sectionTitle}>循环阻断诊断</div>
+      <InfoRow label="类型" value={String(reason)} />
+      {guard.repeat_count ? <InfoRow label="触发次数" value={String(guard.repeat_count)} /> : null}
+      {guard.threshold ? <InfoRow label="阈值" value={String(guard.threshold)} /> : null}
+      {guard.tool ? <InfoRow label="工具" value={guard.tool} /> : null}
+      {guard.input_excerpt ? <Typography.Paragraph className={styles.summary}>输入：{guard.input_excerpt}</Typography.Paragraph> : null}
+      {guard.error_excerpt ? <Typography.Paragraph type="danger" className={styles.summary}>错误：{guard.error_excerpt}</Typography.Paragraph> : null}
+      {guard.output_excerpt ? <Typography.Paragraph className={styles.summary}>重复输出：{guard.output_excerpt}</Typography.Paragraph> : null}
     </div>
   );
 }

@@ -123,4 +123,59 @@ describe('AgentPartMessage terminal rendering', () => {
 
     expect(onOpenAsyncTask).toHaveBeenCalledWith('ast_wait', 'ags_child_wait', { expandDetail: true });
   });
+
+  it('marks child manual review as attention and opens the blocked task', () => {
+    const onOpenAsyncTask = vi.fn();
+    const part: AgentPart = {
+      id: 'agp_async_blocked',
+      session_id: 'ags_1',
+      type: 'summary',
+      status: 'failed',
+      title: '异步子任务需要人工处理',
+      content: '子任务触发循环保护。',
+      payload: {
+        agent_role: 'async_subagent',
+        agent_name: 'review',
+        async_status: 'failed',
+        child_status: 'needs_manual_review',
+        task_id: 'ast_blocked',
+        child_session_id: 'ags_child_blocked',
+      },
+      created_at: '2026-01-01T00:00:00',
+    };
+
+    render(<AgentPartMessage content="" metadata={metadata(part)} onOpenAsyncTask={onOpenAsyncTask} />);
+
+    fireEvent.click(screen.getByText('查看阻断'));
+    expect(onOpenAsyncTask).toHaveBeenCalledWith('ast_blocked', 'ags_child_blocked', { expandDetail: true });
+  });
+
+  it('renders structured loop guard diagnostics', () => {
+    const part: AgentPart = {
+      id: 'agp_loop_guard',
+      session_id: 'ags_1',
+      type: 'error',
+      status: 'failed',
+      title: '连续失败阻断',
+      content: '连续 3 次遇到同类工具失败。',
+      payload: {
+        guard: 'loop_guard',
+        reason_code: 'repeated_failure_family',
+        repeat_count: 3,
+        threshold: 3,
+        tool: 'execute',
+        input_excerpt: 'python -m pytest',
+        error_excerpt: 'Command failed with exit code 1',
+      },
+      created_at: '2026-01-01T00:00:00',
+    };
+
+    render(<AgentPartMessage content="" metadata={metadata(part)} />);
+
+    expect(screen.getByText('阻断类型：重复同类失败')).toBeInTheDocument();
+    expect(screen.getByText('触发次数：3 / 阈值 3')).toBeInTheDocument();
+    expect(screen.getByText('工具：execute')).toBeInTheDocument();
+    expect(screen.getByText('输入：python -m pytest')).toBeInTheDocument();
+    expect(screen.getByText('错误：Command failed with exit code 1')).toBeInTheDocument();
+  });
 });

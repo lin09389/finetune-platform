@@ -196,6 +196,30 @@ describe('AgentInspector', () => {
     expect(screen.getByText('启动审查子任务')).toBeInTheDocument();
   });
 
+  it('renders loop guard diagnostics for a blocked run', () => {
+    const currentWorkspace = workspace();
+    currentWorkspace.session.status = 'needs_manual_review';
+    currentWorkspace.session.metadata = {
+      loop_guard: {
+        blocked: true,
+        blocked_reason_code: 'repeated_no_progress',
+        repeat_count: 4,
+        threshold: 4,
+        tool: 'read_file',
+        input_excerpt: '/workspace/app.py',
+        output_excerpt: 'same file contents',
+      },
+    };
+
+    render(<AgentInspector workspace={currentWorkspace} selection={{ type: 'run', sessionId: 'ags_parent' }} />);
+
+    expect(screen.getByText('循环阻断诊断')).toBeInTheDocument();
+    expect(screen.getByText('重复操作但无进展')).toBeInTheDocument();
+    expect(screen.getByText('read_file')).toBeInTheDocument();
+    expect(screen.getByText('输入：/workspace/app.py')).toBeInTheDocument();
+    expect(screen.getByText('重复输出：same file contents')).toBeInTheDocument();
+  });
+
   it('emits next action callbacks from the run inspector', () => {
     const onRunNextAction = vi.fn();
     render(

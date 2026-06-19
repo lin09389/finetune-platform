@@ -15,7 +15,7 @@ import React, { type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
-import type { AgentPart } from '../../services/api';
+import type { AgentLoopGuardSnapshot, AgentPart } from '../../services/api';
 import type { ChatAgentMetadata } from '../../types';
 import AgentTerminal from './AgentTerminal';
 import styles from './AgentPartMessage.module.css';
@@ -283,7 +283,16 @@ const AgentPartMessage = React.memo(({
   const asyncChildSessionId = typeof payload.child_session_id === 'string' ? payload.child_session_id : undefined;
   const childStatus = typeof payload.child_status === 'string' ? payload.child_status : '';
   const hasPendingPermission = payload.has_pending_permission === true;
-  const asyncNeedsAttention = hasPendingPermission || childStatus === 'waiting_permission' || childStatus === 'waiting_approval';
+  const asyncNeedsAttention =
+    hasPendingPermission
+    || childStatus === 'waiting_permission'
+    || childStatus === 'waiting_approval'
+    || childStatus === 'needs_manual_review';
+  const asyncActionLabel = hasPendingPermission || childStatus === 'waiting_permission' || childStatus === 'waiting_approval'
+    ? '处理确认'
+    : childStatus === 'needs_manual_review'
+      ? '查看阻断'
+      : '查看任务';
   const files = changedFiles(payload);
   const diffItems = extractFileDiffs(payload);
   const canApprove = false;
@@ -396,7 +405,7 @@ const AgentPartMessage = React.memo(({
                   icon={<EyeOutlined />}
                   onClick={() => onOpenAsyncTask(asyncTaskId, asyncChildSessionId, { expandDetail: true })}
                 >
-                  {asyncNeedsAttention ? '处理确认' : '查看任务'}
+                  {asyncActionLabel}
                 </Button>
               ) : null}
             </div>
@@ -521,6 +530,7 @@ const AgentPartMessage = React.memo(({
   }
 
   if (part.type === 'error' || isProblem) {
+    const isLoopGuard = payload.guard === 'loop_guard';
     return shell(
       <Space direction="vertical" size={6}>
         <Space>
@@ -528,6 +538,7 @@ const AgentPartMessage = React.memo(({
           <Typography.Text type="danger">{partTitle(part, content)}</Typography.Text>
           <Tag color={statusColor[status] || 'warning'}>{statusLabel[status] || status}</Tag>
         </Space>
+        {isLoopGuard ? <LoopGuardDetails guard={payload} /> : null}
         {payload.guidance && <Typography.Text type="secondary">{payload.guidance}</Typography.Text>}
         {diagnosticBlock}
       </Space>,
@@ -626,5 +637,35 @@ const AgentPartMessage = React.memo(({
     </Space>,
   );
 });
+
+function LoopGuardDetails({ guard }: { guard: AgentLoopGuardSnapshot & { reason_code?: string } }) {
+  const count = Number(guard.repeat_count || 0);
+  const threshold = Number(guard.threshold || 0);
+  const reason = loopGuardReasonLabel(String(guard.reason_code || guard.blocked_reason_code || ''));
+  return (
+    <Space direction="vertical" size={2}>
+      <Typography.Text type="secondary">阻断类型：{reason}</Typography.Text>
+      {count ? (
+        <Typography.Text type="secondary">
+          触发次数：{count}{threshold ? ` / 阈值 ${threshold}` : ''}
+        </Typography.Text>
+      ) : null}
+      {guard.tool ? <Typography.Text type="secondary">工具：{String(guard.tool)}</Typography.Text> : null}
+      {guard.input_excerpt ? <Typography.Text type="secondary">输入：{String(guard.input_excerpt)}</Typography.Text> : null}
+      {guard.error_excerpt ? <Typography.Text type="danger">错误：{String(guard.error_excerpt)}</Typography.Text> : null}
+      {guard.output_excerpt ? <Typography.Text type="secondary">重复输出：{String(guard.output_excerpt)}</Typography.Text> : null}
+    </Space>
+  );
+}
+
+function loopGuardReasonLabel(reason: string) {
+  const labels: Record<string, string> = {
+    repeated_identical_failure: '重复相同失败',
+    repeated_failure_family: '重复同类失败',
+    consecutive_failures: '连续工具失败',
+    repeated_no_progress: '重复操作但无进展',
+  };
+  return labels[reason] || reason || '循环保护';
+}
 
 export default AgentPartMessage;

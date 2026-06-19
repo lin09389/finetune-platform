@@ -172,6 +172,11 @@ export function useAgentSessionStream(params: {
         setAgentPhase({ phase: 'tool_execution', tool: chunk.tool || (chunk.payload?.tool as string | undefined), detail: (chunk.payload?.detail as string | undefined), visible: true });
       } else if (chunk.chunk_type === 'tool_result' || chunk.chunk_type === 'summary' || chunk.chunk_type === 'action') {
         setAgentPhase((prev) => ({ ...prev, visible: false }));
+      } else if (
+        chunk.chunk_type === 'error'
+        && ['tool_call_failed', 'loop_guard_triggered'].includes(chunk.event_type)
+      ) {
+        setAgentPhase({ phase: '', visible: false });
       } else if (chunk.chunk_type === 'error') {
         setAgentPhase({ phase: 'model_thinking_fallback', visible: true });
       }

@@ -783,6 +783,33 @@ export interface AgentSessionStreamingDiagnostics {
   updated_at?: string;
 }
 
+export interface AgentLoopGuardSnapshot {
+  blocked_reason?: string;
+  blocked_reason_code?: string;
+  blocked_signature?: string;
+  repeat_count?: number;
+  threshold?: number;
+  tool?: string;
+  input_excerpt?: string;
+  error_excerpt?: string;
+  output_excerpt?: string;
+  recovered_at?: string;
+}
+
+export interface AgentLoopGuardState extends AgentLoopGuardSnapshot {
+  blocked?: boolean;
+  family_repeat_count?: number;
+  consecutive_failure_count?: number;
+  no_progress_repeat_count?: number;
+  last_signature?: string;
+  last_family_signature?: string;
+  last_no_progress_signature?: string;
+  recent_failures?: Array<Record<string, unknown>>;
+  recent_observations?: Array<Record<string, unknown>>;
+  history?: AgentLoopGuardSnapshot[];
+  last_block?: AgentLoopGuardSnapshot;
+}
+
 export interface AgentSession {
   id: string;
   chat_session_id?: string;
@@ -807,6 +834,7 @@ export interface AgentSession {
     diagnostics?: AgentSessionDiagnostics;
     streaming_diagnostics?: AgentSessionStreamingDiagnostics;
     ui_state?: AgentSessionUiState;
+    loop_guard?: AgentLoopGuardState;
   };
   parts: AgentPart[];
   created_at: string;

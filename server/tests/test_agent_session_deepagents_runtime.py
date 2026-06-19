@@ -1722,6 +1722,39 @@ def test_agent_session_stream_chunk_recomputes_model_stream_completion_part(tmp_
     assert chunk["part"]["payload"]["streaming"] is False
 
 
+@pytest.mark.parametrize("event_type", ["tool_call_failed", "loop_guard_triggered"])
+def test_agent_session_stream_maps_runtime_guard_failures_to_error_chunks(tmp_path: Path, event_type: str):
+    service = AgentSessionService(AgentSessionRepository(str(tmp_path / "agents.db")))
+    session = service.create_session(AgentSessionCreate(title="stream error", project_path=str(Path.cwd())))
+    part = service.repository.add_part(
+        session.id,
+        "error" if event_type == "loop_guard_triggered" else "tool_call",
+        status="failed",
+        title="连续失败阻断" if event_type == "loop_guard_triggered" else "execute",
+        content="Command failed with exit code 1",
+        payload={"guard": "loop_guard"} if event_type == "loop_guard_triggered" else {"tool": "execute"},
+    )
+    event = service.repository.add_event(
+        session.id,
+        event_type,
+        "Agent execution stopped",
+        {
+            "session_id": session.id,
+            "part_id": part["id"],
+            "part_type": part["type"],
+            "status": "failed",
+            "tool": "execute",
+            "part": part,
+        },
+    )
+
+    chunk = service.build_stream_chunk(event)
+
+    assert chunk["chunk_type"] == "error"
+    assert chunk["part"]["id"] == part["id"]
+    assert chunk["part"]["status"] == "failed"
+
+
 def test_async_subtask_metrics_uses_sql_aggregation_without_loading_all_events(tmp_path: Path, monkeypatch):
     repository = AgentSessionRepository(str(tmp_path / "agents.db"))
     parent = repository.create_session({"agent_id": "build", "title": "parent", "status": "running", "metadata": {}})

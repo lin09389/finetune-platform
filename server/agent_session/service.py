@@ -189,6 +189,7 @@ class AgentSessionService:
                 started_task_id = await self._recover_subagent_node(session_id, node, instruction, recovery_id)
             else:
                 self._start_recovery_prompt_background(session_id, node, action, instruction, recovery_id, background_tasks)
+            self.failure_guard.reset_for_recovery(session_id)
         except Exception as exc:
             self._event(
                 session_id,
@@ -1313,7 +1314,14 @@ class AgentSessionService:
             return "part_delta"
         if event_type in {"action_proposed", "action_approved", "action_rejected", "action_executed", "action_failed", "command_started", "command_completed", "command_failed"}:
             return "action"
-        if event_type in {"model_stream_failed", "session_failed", "session_blocked", "session_interrupted"}:
+        if event_type in {
+            "tool_call_failed",
+            "loop_guard_triggered",
+            "model_stream_failed",
+            "session_failed",
+            "session_blocked",
+            "session_interrupted",
+        }:
             return "error"
         if event_type in {"session_started", "prompt_queued", "prompt_already_running"}:
             return "status"
