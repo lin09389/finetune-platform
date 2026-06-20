@@ -86,10 +86,13 @@ describe('CUAControl', () => {
   });
 
   it('handles fetch failures without crashing', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     mockApiGet.mockRejectedValueOnce(new Error('Network error'));
     render(<CUAControl />);
     await waitFor(() => {
       expect(mockApiGet).toHaveBeenCalled();
     });
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 });

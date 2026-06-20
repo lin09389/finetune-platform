@@ -4,7 +4,11 @@ import { MemoryRouter } from 'react-router-dom';
 import History from '../pages/History';
 
 const renderHistory = (props?: { mode?: 'history' | 'compare' }) =>
-  render(<MemoryRouter><History {...(props ?? {})} /></MemoryRouter>);
+  render(
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <History {...(props ?? {})} />
+    </MemoryRouter>,
+  );
 
 const mockUseAppStore = vi.hoisted(() => vi.fn());
 const mockGetTrainingHistory = vi.hoisted(() => vi.fn());
@@ -41,6 +45,19 @@ vi.mock('antd', async () => {
       error: messageError,
       warning: messageWarning,
     },
+  };
+});
+
+vi.mock('recharts', async () => {
+  const actual = (await vi.importActual('recharts')) as Record<string, any>;
+  const React = await import('react');
+  return {
+    ...actual,
+    ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
+      React.isValidElement(children)
+        ? React.cloneElement(children as React.ReactElement, { width: 800, height: 320 })
+        : children
+    ),
   };
 });
 

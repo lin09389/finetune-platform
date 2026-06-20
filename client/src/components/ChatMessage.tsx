@@ -17,13 +17,12 @@ import ReactMarkdown from 'react-markdown';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
-import AgentPartMessage from '../components/chat/AgentPartMessage';
 import ThinkingProcess from '../components/ThinkingProcess';
 
 const CodePreview = lazy(() => import('../components/CodePreview'));
 import { useTypewriter } from '../hooks/chat/useTypewriter';
 import { messageVariants, transitions } from '../theme/animations';
-import type { ChatAgentMetadata, KnowledgeSource, RetrievalInfo } from '../types';
+import type { KnowledgeSource, RetrievalInfo } from '../types';
 import styles from './ChatMessage.module.css';
 
 interface ChatMessageProps {
@@ -41,10 +40,6 @@ interface ChatMessageProps {
   typewriterSpeed?: number;
   knowledge_sources?: KnowledgeSource[];
   retrieval_info?: RetrievalInfo;
-  agent_metadata?: ChatAgentMetadata;
-  agentFlowPosition?: 'first' | 'middle' | 'last' | 'only' | null;
-  onRefreshAgentRun?: (runId: string) => void | Promise<void>;
-  onOpenAsyncTask?: (taskId: string, childSessionId?: string, options?: { expandDetail?: boolean }) => void;
 }
 
 const customSanitizeSchema = {
@@ -70,10 +65,6 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
     enableTypewriter = true,
     typewriterSpeed = 50,
     knowledge_sources,
-    agent_metadata,
-    agentFlowPosition = null,
-    onRefreshAgentRun,
-    onOpenAsyncTask,
   }) => {
     const [copied, setCopied] = useState(false);
     const [showKnowledgeSources, setShowKnowledgeSources] = useState(false);
@@ -319,13 +310,7 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
 
     return (
       <motion.div
-        className={`${styles.messageContainer} ${isUser ? styles.userContainer : styles.assistantContainer} ${
-          agentFlowPosition === 'middle' ? styles.agentFlowMiddle
-            : agentFlowPosition === 'last' ? styles.agentFlowLast
-            : agentFlowPosition === 'first' ? styles.agentFlowFirst
-            : agentFlowPosition === 'only' ? styles.agentFlowOnly
-            : ''
-        }`}
+        className={`${styles.messageContainer} ${isUser ? styles.userContainer : styles.assistantContainer}`}
         role="article"
         aria-label={isUser ? '用户消息' : 'AI 回复'}
         variants={messageVariants}
@@ -413,13 +398,6 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
                 ) : (
                   <div>{content}</div>
                 )
-              ) : agent_metadata?.kind === 'agent_part' ? (
-                <AgentPartMessage
-                  content={content}
-                  metadata={agent_metadata}
-                  onRefreshRun={onRefreshAgentRun}
-                  onOpenAsyncTask={onOpenAsyncTask}
-                />
               ) : (
                 <>
                   {thinkingContent && (

@@ -263,7 +263,14 @@ import KnowledgeBase from '../pages/KnowledgeBase';
 import TrainingPage from '../pages/Training';
 
 const renderWithRouter = (ui: React.ReactElement, initialEntries = ['/']) =>
-  render(<MemoryRouter initialEntries={initialEntries}>{ui}</MemoryRouter>);
+  render(
+    <MemoryRouter
+      initialEntries={initialEntries}
+      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+    >
+      {ui}
+    </MemoryRouter>,
+  );
 
 describe('GA smoke pages', () => {
   beforeEach(() => {

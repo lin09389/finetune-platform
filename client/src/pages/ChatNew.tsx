@@ -1,2173 +1,311 @@
-import { Button, Drawer, Modal } from 'antd';
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
-import { Virtuoso, type VirtuosoHandle } from 'react-virtuoso';
-
-import { useChatStream } from '../hooks/chat/useChatStream';
-import { useAgentAsyncTasks } from '../hooks/chat/useAgentAsyncTasks';
-import { useAgentWorkspace } from '../hooks/chat/useAgentWorkspace';
-import { useAgentWorkspaceNextActionRouter } from '../hooks/chat/useAgentWorkspaceNextActionRouter';
-import { useAgentWorkspaceSelection } from '../hooks/chat/useAgentWorkspaceSelection';
-import { useResponsive } from '../hooks/useResponsive';
-import { useOperation } from '../hooks/useOperation';
+import { SettingOutlined } from '@ant-design/icons';
+import { Button, Drawer, Select, Switch } from 'antd';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { useChatStore } from '../store/chatStore';
-import { useAppStore } from '../store/appStore';
-import { useTheme } from '../theme';
-import { appModal } from '../utils/modal';
-import { useChatScrollPersistence } from './chatNew/useChatScrollPersistence';
-import { useAgentSessionStream } from './chatNew/useAgentSessionStream';
-import { useChatLayoutPersistence } from './chatNew/useChatLayoutPersistence';
-import { useCloudModelConfig } from './chatNew/useCloudModelConfig';
-import { useAgentSessionMessages } from './chatNew/useAgentSessionMessages';
-import { useAgentFileTree } from './chatNew/useAgentFileTree';
-import { useAgentSessionOverview } from './chatNew/useAgentSessionOverview';
-import { useAgentWorkspaceEditorState } from './chatNew/useAgentWorkspaceEditorState';
-import ChatNewAgentIdeWorkspace from './chatNew/ChatNewAgentIdeWorkspace';
-import ChatNewEditorContent from './chatNew/ChatNewEditorContent';
-import ChatNewFilePanel from './chatNew/ChatNewFilePanel';
-import { ChatNewWorkbenchProgressPanel, ChatNewWorkbenchRunPanel } from './chatNew/ChatNewWorkbenchPanels';
-
-import ChatHeader from '../components/chat/ChatHeader';
-import ChatContextPanel from '../components/chat/ChatContextPanel';
-import ChatInput from '../components/chat/ChatInput';
-import HitlApprovalPanel from '../components/chat/HitlApprovalPanel';
-import AgentPhaseIndicator from '../components/chat/AgentPhaseIndicator';
-import AgentWorkspaceStatusBar from '../components/chat/AgentWorkspaceStatusBar';
-import AgentWorkspaceContainer from '../components/chat/AgentWorkspaceContainer';
-import QuickFileOpener, { flattenFileNodes } from '../components/chat/QuickFileOpener';
-import { parseDiffHunks } from '../utils/diffHunks';
-import type { OpenedFile } from '../components/chat/AgentWorkspaceEditor';
 import ChatHistoryDrawer from '../components/ChatHistoryDrawer';
 import ChatMessage from '../components/ChatMessage';
 import MemoryManager from '../components/MemoryManager';
-import APIKeyManager from '../pages/APIKeyManager';
-
-import { useRuntimeContext } from '../runtime/RuntimeContext';
-import {
-  classifyChatAgentIntent,
-  createAgentSession,
-  decideAgentPermission,
-  extractApiErrorMessage,
-  getArtifactOriginal,
-  getAgentSession,
-  getAgentSkills,
-  getPrimaryAgents,
-  getSavedCloudProviderData,
-  getSavedCloudProviders,
-  interruptAgentSession,
-  listWorkspaces,
-  browseFolderBackend,
-  getWorkspaceTree,
-  readWorkspaceFile,
-  writeWorkspaceFile,
-  promptAgentSession,
-} from '../services/api';
-import type { ActiveFileContext, AgentHitlDecision, AgentInfo, AgentPart, AgentSession, AgentSkillSource, ExplicitContextMention, SavedCloudProvider, WorkspaceSummary, WorkspaceTreeNode } from '../services/api';
-import { transitions } from '../theme/animations';
-import { notify } from '../utils/notify';
-import { ArrowDownOutlined } from '@ant-design/icons';
+import ChatHeader from '../components/chat/ChatHeader';
+import ChatInput from '../components/chat/ChatInput';
+import { useChatStream } from '../hooks/chat/useChatStream';
+import { useResponsive } from '../hooks/useResponsive';
+import APIKeyManager from './APIKeyManager';
+import { getSavedCloudProviders, type SavedCloudProvider } from '../services/api';
+import { useChatStore } from '../store/chatStore';
 import styles from './ChatNew.module.css';
-import {
-  CHAT_AGENT_SKILL_SOURCES_STORAGE_KEY,
-  CHAT_PROJECT_PATH_STORAGE_KEY,
-  CHAT_WORKSPACE_EVENT,
-  CHAT_WORKSPACE_ID_STORAGE_KEY,
-  INTENT_ROUTING_TIMEOUT_MS,
-  STARTER_IDEAS,
-  clampMessageIndex,
-  getChangedFilesFromPayload,
-  resolveArtifactStatus,
-  resolveAgentModelConfig,
-  sectionMotion,
-  withTimeout,
-  type APIKeyConfig,
-} from './chatNew/chatNewUtils';
 
-const ChatPage: React.FC = () => {
-  useTheme();
-  const { isMobile, isDesktop } = useResponsive();
-  const operation = useOperation();
-  const prefersReducedMotion = useReducedMotion();
-  const runtime = useRuntimeContext();
-  const { actions, derived, observed } = runtime;
-  const {
-    refreshInference,
-    refreshKnowledge,
-    setInferenceSelection,
-    setKnowledgeSelection,
-    syncKnowledgeCollection,
-  } = actions;
+const STARTERS = [
+  '解释一个我正在学习的技术概念',
+  '帮我整理一份清晰的学习计划',
+  '总结并改写一段文字',
+];
 
-  const enableVirtualScroll = false;
-
+export default function ChatPage() {
+  const { isMobile } = useResponsive();
+  const messageEndRef = useRef<HTMLDivElement | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [apiKeysOpen, setApiKeysOpen] = useState(false);
+  const [savedProviders, setSavedProviders] = useState<SavedCloudProvider[]>([]);
   const {
     sessions,
-    currentSessionId,
     messages,
     settings,
     isLoading,
-    addMessage,
-    createSession,
+    isStreaming,
+    error,
+    cloudConfig,
+    loadSessions,
     loadSession,
     deleteSession,
-    loadSessions,
-    deleteMessage,
-    removeLocalMessage,
     clearMessages,
-    replaceCurrentSessionMessages,
+    deleteMessage,
+    editMessage,
     updateSettings,
+    setCloudConfig,
   } = useChatStore(useShallow((state) => ({
     sessions: state.sessions,
-    currentSessionId: state.currentSessionId,
     messages: state.messages,
     settings: state.settings,
     isLoading: state.isLoading,
-    addMessage: state.addMessage,
-    createSession: state.createSession,
+    isStreaming: state.isStreaming,
+    error: state.error,
+    cloudConfig: state.cloudConfig,
+    loadSessions: state.loadSessions,
     loadSession: state.loadSession,
     deleteSession: state.deleteSession,
-    loadSessions: state.loadSessions,
-    deleteMessage: state.deleteMessage,
-    removeLocalMessage: state.removeLocalMessage,
     clearMessages: state.clearMessages,
-    replaceCurrentSessionMessages: state.replaceCurrentSessionMessages,
+    deleteMessage: state.deleteMessage,
+    editMessage: state.editMessage,
     updateSettings: state.updateSettings,
-  })));
-
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [memoryManagerOpen, setMemoryManagerOpen] = useState(false);
-  const [configModalOpen, setConfigModalOpen] = useState(false);
-  const [contextPanelOpen, setContextPanelOpen] = useState(false);
-
-  const { cloudConfig, setCloudConfig } = useChatStore(useShallow((state) => ({
-    cloudConfig: state.cloudConfig,
     setCloudConfig: state.setCloudConfig,
   })));
-  const useCloudAI = cloudConfig.useCloudAI;
-  const setUseCloudAI = (val: boolean | ((prev: boolean) => boolean)) => {
-    const next = typeof val === 'function' ? val(cloudConfig.useCloudAI) : val;
-    setCloudConfig({ useCloudAI: next });
-  };
-  const cloudAIConfig = cloudConfig.config as APIKeyConfig | null;
-  const setCloudAIConfig = (cfg: APIKeyConfig | null) => setCloudConfig({ config: cfg });
-  const cloudProviders = cloudConfig.providers as SavedCloudProvider[];
-  const setCloudProviders = (providers: SavedCloudProvider[]) => setCloudConfig({ providers: providers as any });
-  const selectedCloudModel = cloudConfig.selectedModel;
-  const setSelectedCloudModel = (model: string) => setCloudConfig({ selectedModel: model });
-  const {
-    cloudProviderOptions,
-    cloudModelOptions,
-    handleCloudProviderChange,
-    handleCloudModelChange,
-    handleToggleCloudAI,
-  } = useCloudModelConfig({
-    cloudAIConfig,
-    cloudProviders,
-    setCloudAIConfig,
-    setSelectedCloudModel,
-    setUseCloudAI,
-    openConfigModal: () => setConfigModalOpen(true),
-  });
-  const [primaryAgents, setPrimaryAgents] = useState<AgentInfo[]>([]);
-  const [selectedPrimaryAgent, setSelectedPrimaryAgent] = useState('build');
-  const [agentSkillSources, setAgentSkillSources] = useState<AgentSkillSource[]>([]);
-  const [selectedSkillSources, setSelectedSkillSources] = useState<string[]>(() => {
+
+  const stream = useChatStream();
+  const activeModel = cloudConfig.useCloudAI
+    ? cloudConfig.selectedModel || cloudConfig.config?.model || '云端模型'
+    : settings.modelId || settings.backend;
+
+  const refreshProviders = useCallback(async () => {
     try {
-      const parsed = JSON.parse(localStorage.getItem(CHAT_AGENT_SKILL_SOURCES_STORAGE_KEY) || 'null');
-      return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : [];
+      const response = await getSavedCloudProviders();
+      const providers = Array.isArray(response) ? response : response.keys || response.providers || [];
+      setSavedProviders(providers);
+      setCloudConfig({ providers });
     } catch {
-      return [];
+      setSavedProviders([]);
     }
-  });
-  const [skillsInitialized, setSkillsInitialized] = useState(() => localStorage.getItem(CHAT_AGENT_SKILL_SOURCES_STORAGE_KEY) !== null);
-  const [skillsLoading, setSkillsLoading] = useState(false);
-  const [routingMode, setRoutingMode] = useState<'auto' | 'chat' | 'agent'>(
-    () => {
-      const saved = localStorage.getItem('chat_routing_mode');
-      return saved === 'chat' || saved === 'agent' || saved === 'auto' ? saved : 'auto';
-    },
-  );
-  const [autonomyMode, setAutonomyMode] = useState<'safe_auto' | 'confirm_all' | 'read_only'>(
-    () => {
-      const saved = localStorage.getItem('chat_agent_autonomy_mode');
-      return saved === 'confirm_all' || saved === 'read_only' || saved === 'safe_auto' ? saved : 'safe_auto';
-    },
-  );
-  const [routingIntent, setRoutingIntent] = useState(false);
-  const [creatingAgentSession, setCreatingAgentSession] = useState(false);
-  const [availableWorkspaces, setAvailableWorkspaces] = useState<WorkspaceSummary[]>([]);
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>(() => localStorage.getItem(CHAT_WORKSPACE_ID_STORAGE_KEY) || '');
-  const [workspaceProjectPath, setWorkspaceProjectPath] = useState<string>(() => localStorage.getItem(CHAT_PROJECT_PATH_STORAGE_KEY) || '');
-  const [workbenchActiveTab, setWorkbenchActiveTab] = useState('execution');
-  const agentWorkspaceRefreshRef = useRef<(() => Promise<void>) | null>(null);
-  const [agentPhase, setAgentPhase] = useState<{ phase: string; tool?: string; detail?: string; visible: boolean }>({ phase: '', visible: false });
+  }, [setCloudConfig]);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const virtuosoRef = useRef<VirtuosoHandle | null>(null);
-  const restoredSessionRef = useRef<string | null>(null);
-  const {
-    visibleRangeStartRef,
-    isAutoScrollEnabledRef,
-    showScrollButton,
-    setShowScrollButton,
-    setIsAtBottom,
-    initialTopMostItemIndex,
-    saveCurrentScrollState,
-  } = useChatScrollPersistence({
-    sessionId: currentSessionId,
-    messageCount: messages.length,
-  });
-  const {
-    sidePanelWidth,
-    resizingSidePanel,
-    chatPaneWidth,
-    resizingChatPane,
-    sidePanelOpen,
-    setSidePanelOpen,
-    chatPanelOpen,
-    setChatPanelOpen,
-    terminalHeight,
-    resizingTerminal,
-    handleSplitterPointerDown,
-    handleChatSplitterPointerDown,
-    handleTerminalSplitterPointerDown,
-  } = useChatLayoutPersistence({
-    resizingClassName: styles.resizing,
-  });
-  const [showPathEdit, setShowPathEdit] = useState(false);
-  const {
-    openedFiles,
-    activeFilePath,
-    setActiveFilePath,
-    upsertOpenedFile,
-    addOpenedFile,
-    setOpenedFileOriginal,
-    focusAutoOpenedPart,
-    handleAcceptHunk,
-    handleRejectHunk,
-    handleAcceptAll,
-    handleRejectAll,
-    handleCloseEditorTab,
-  } = useAgentWorkspaceEditorState();
-  const activeFileContext = useAppStore((state) => state.activeFileContext);
-  const setActiveFileContext = useAppStore((state) => state.setActiveFileContext);
-  const [explicitContextMentions, setExplicitContextMentions] = useState<ExplicitContextMention[]>([]);
-
-  // ── Dual-mode file tree: 'agent' = Agent's changed files, 'workspace' = full file tree ──
-  const [fileTreeMode, setFileTreeMode] = useState<'agent' | 'workspace'>('agent');
-  const [workspaceTreeNodes, setWorkspaceTreeNodes] = useState<WorkspaceTreeNode[]>([]);
-  const [workspaceTreeRoot, setWorkspaceTreeRoot] = useState<string>('');
-  const [workspaceTreeLoading, setWorkspaceTreeLoading] = useState(false);
-  const [wsExpandedFolders, setWsExpandedFolders] = useState<Set<string>>(new Set());
-  const workspaceFileNodes = useMemo(() => flattenFileNodes(workspaceTreeNodes), [workspaceTreeNodes]);
-
-  // ── Integrated terminal dock ──────────────────────────────────────────────────
-  const [terminalOpen, setTerminalOpen] = useState(false);
-  const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
-  const handleToggleTerminal = useCallback(() => {
-    setTerminalOpen((open) => !open);
-  }, []);
-  const handleCloseTerminal = useCallback(() => {
-    setTerminalOpen(false);
-  }, []);
-
-  // ── Ctrl+P Quick File Opener ──────────────────────────────────────────────────
-  const [quickOpenVisible, setQuickOpenVisible] = useState(false);
-  const [recentPaths, setRecentPaths] = useState<string[]>([]);
-
-  const autoScrollFrameRef = useRef<number | null>(null);
-
-  const pendingAutoScrollRef = useRef(false);
-
-  const selectedWorkspace = useMemo(
-    () => availableWorkspaces.find((workspace) => workspace.id === selectedWorkspaceId) || null,
-    [availableWorkspaces, selectedWorkspaceId],
-  );
-  const selectedWorkspaceLabel = selectedWorkspace
-    ? `${selectedWorkspace.name}${selectedWorkspace.local_path ? ` · ${selectedWorkspace.local_path}` : ''}`
-    : '未选择工作区';
-  const effectiveProjectPath = (workspaceProjectPath.trim() || selectedWorkspace?.local_path || '').trim();
   useEffect(() => {
-    if (settings.projectPath !== effectiveProjectPath) {
-      updateSettings({ projectPath: effectiveProjectPath });
+    void Promise.all([loadSessions(), refreshProviders()]);
+  }, [loadSessions, refreshProviders]);
+
+  useEffect(() => {
+    const target = messageEndRef.current;
+    if (target && typeof target.scrollIntoView === 'function') {
+      target.scrollIntoView({ behavior: isStreaming ? 'auto' : 'smooth' });
     }
-  }, [effectiveProjectPath, settings.projectPath, updateSettings]);
-
-  const loadAgentSkills = useCallback(async () => {
-    setSkillsLoading(true);
-    try {
-      const registry = await getAgentSkills({
-        project_path: effectiveProjectPath || undefined,
-        agent_id: selectedPrimaryAgent || 'build',
-      });
-      const sources = registry.sources || [];
-      setAgentSkillSources(sources);
-      setSelectedSkillSources((current) => {
-        const available = new Set(sources.filter((source) => source.available).map((source) => source.virtual_path));
-        if (!skillsInitialized) {
-          return sources
-            .filter((source) => source.available && source.enabled_by_default)
-            .map((source) => source.virtual_path);
-        }
-        return current.filter((source) => available.has(source));
-      });
-      setSkillsInitialized(true);
-    } catch {
-      setAgentSkillSources([]);
-    } finally {
-      setSkillsLoading(false);
-    }
-  }, [effectiveProjectPath, selectedPrimaryAgent, skillsInitialized]);
-
-  useEffect(() => () => {
-    saveCurrentScrollState();
-  }, [saveCurrentScrollState]);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
-        e.preventDefault();
-        setQuickOpenVisible(true);
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
-
-  const handleBreadcrumbClick = useCallback((_segment: string, fullPath: string) => {
-    setFileTreeMode('workspace');
-    let relPath = fullPath;
-    const root = workspaceTreeRoot.replace(/\\/g, '/');
-    if (relPath.startsWith(root)) {
-      relPath = relPath.slice(root.length).replace(/^\//, '');
-    }
-    const parts = relPath.split('/').filter(Boolean);
-    setWsExpandedFolders((prev) => {
-      const next = new Set(prev);
-      let cumulative = '';
-      for (const p of parts) {
-        cumulative = cumulative ? `${cumulative}/${p}` : p;
-        next.add(cumulative);
-      }
-      return next;
-    });
-  }, [workspaceTreeRoot]);
-
-  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    const target = e.currentTarget;
-    const { scrollTop, scrollHeight, clientHeight } = target;
-    const isAtBottom = scrollHeight - scrollTop - clientHeight < 150;
-    isAutoScrollEnabledRef.current = isAtBottom;
-    setShowScrollButton(!isAtBottom);
-  }, []);
-
-  const scrollToBottom = useCallback((smooth: boolean = true, force: boolean = false) => {
-    if (!force && !isAutoScrollEnabledRef.current) return;
-    if (messages.length === 0) return;
-
-    if (autoScrollFrameRef.current !== null) {
-      cancelAnimationFrame(autoScrollFrameRef.current);
-      autoScrollFrameRef.current = null;
-    }
-
-    autoScrollFrameRef.current = requestAnimationFrame(() => {
-      autoScrollFrameRef.current = null;
-      if (!force && !isAutoScrollEnabledRef.current) return;
-
-      if (virtuosoRef.current && enableVirtualScroll) {
-        virtuosoRef.current.scrollToIndex({
-          index: messages.length - 1,
-          align: 'end',
-          behavior: smooth ? 'smooth' : 'auto',
-        });
-        return;
-      }
-
-      if (scrollContainerRef.current) {
-        const { scrollHeight, clientHeight } = scrollContainerRef.current;
-        scrollContainerRef.current.scrollTo({
-          top: Math.max(0, scrollHeight - clientHeight),
-          behavior: smooth ? 'smooth' : 'auto',
-        });
-      }
-    });
-  }, [messages.length, enableVirtualScroll]);
-
-  const {
-    sendMessage,
-    sendCloudMessage,
-    stop: stopStream,
-    isStreaming: isActivelyStreaming,
-  } = useChatStream({
-    onChunk: () => {
-      // streaming chunk hook
-    },
-    onComplete: () => {
-      // stream completed
-    },
-    onError: (error) => {
-      notify.error(error);
-    },
-  });
-
-  const activeAgentSessionIds = useMemo(() => {
-    const stoppableStatuses = new Set(['running', 'verifying', 'repairing']);
-    return Array.from(
-      new Set(
-        messages
-          .filter((message) => {
-            const metadata = message.agent_metadata;
-            return Boolean(
-              metadata?.agent_session_id &&
-              (stoppableStatuses.has(metadata.status || '') || (message.isLoading && metadata.status !== 'waiting_approval' && metadata.status !== 'waiting_permission')),
-            );
-          })
-          .map((message) => message.agent_metadata?.agent_session_id)
-          .filter((sessionId): sessionId is string => Boolean(sessionId)),
-      ),
-    );
-  }, [messages]);
-
-  const isAgentSessionRunning = activeAgentSessionIds.length > 0;
-
-  // Keep the viewport pinned to the bottom while streaming when auto-scroll is enabled.
-  useEffect(() => {
-    if (enableVirtualScroll || !isAutoScrollEnabledRef.current) return;
-    pendingAutoScrollRef.current = true;
-    if (autoScrollFrameRef.current !== null) return;
-
-    autoScrollFrameRef.current = requestAnimationFrame(() => {
-      autoScrollFrameRef.current = null;
-      if (!pendingAutoScrollRef.current || !isAutoScrollEnabledRef.current) return;
-      pendingAutoScrollRef.current = false;
-      scrollToBottom(false, true);
-    });
-  }, [enableVirtualScroll, isActivelyStreaming, messages.length, scrollToBottom]);
-
-  // Use ResizeObserver for robust auto-scroll during content updates
-  useEffect(() => {
-    if (enableVirtualScroll || !scrollContainerRef.current) return;
-
-    const container = scrollContainerRef.current;
-    let lastHeight = container.scrollHeight;
-    let lastScrollTop = container.scrollTop;
-    let rafId: number | null = null;
-
-    const resizeObserver = new ResizeObserver(() => {
-      const newHeight = container.scrollHeight;
-      const newScrollTop = container.scrollTop;
-      if (newHeight === lastHeight && newScrollTop === lastScrollTop) return;
-
-      lastHeight = newHeight;
-      lastScrollTop = newScrollTop;
-
-      if (!isAutoScrollEnabledRef.current) return;
-
-      if (rafId !== null) cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        rafId = null;
-        const nextTop = Math.max(0, container.scrollHeight - container.clientHeight);
-        if (Math.abs(container.scrollTop - nextTop) > 1) {
-          container.scrollTop = nextTop;
-        }
-      });
-    });
-
-    resizeObserver.observe(container);
-    return () => {
-      resizeObserver.disconnect();
-      if (rafId !== null) cancelAnimationFrame(rafId);
-    };
-  }, [enableVirtualScroll]);
-
-  useEffect(() => {
-    Promise.allSettled([
-      refreshInference(),
-      loadSessions(),
-      loadCloudAIConfig(),
-      loadPrimaryAgents(),
-      loadAgentSkills(),
-      refreshKnowledge(),
-    ]).then((results) => {
-      const failed = results.filter((r) => r.status === 'rejected');
-      if (failed.length > 0) {
-        console.warn(`${failed.length} init requests failed`);
-      }
-    });
-  }, [loadAgentSkills, loadSessions, refreshInference, refreshKnowledge]);
-
-  useEffect(() => () => {
-    if (autoScrollFrameRef.current !== null) cancelAnimationFrame(autoScrollFrameRef.current);
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem('chat_primary_agent', selectedPrimaryAgent);
-  }, [selectedPrimaryAgent]);
-
-  useEffect(() => {
-    if (!skillsInitialized) return;
-    localStorage.setItem(CHAT_AGENT_SKILL_SOURCES_STORAGE_KEY, JSON.stringify(selectedSkillSources));
-  }, [selectedSkillSources, skillsInitialized]);
-
-  useEffect(() => {
-    localStorage.setItem('chat_routing_mode', routingMode);
-  }, [routingMode]);
-
-  useEffect(() => {
-    localStorage.setItem('chat_agent_autonomy_mode', autonomyMode);
-  }, [autonomyMode]);
-
-  useEffect(() => {
-    localStorage.setItem(CHAT_WORKSPACE_ID_STORAGE_KEY, selectedWorkspaceId);
-  }, [selectedWorkspaceId]);
-
-  useEffect(() => {
-    localStorage.setItem(CHAT_PROJECT_PATH_STORAGE_KEY, workspaceProjectPath);
-  }, [workspaceProjectPath]);
-
-  useEffect(() => {
-    void loadAgentSkills();
-  }, [loadAgentSkills]);
-
-  useEffect(() => {
-    const handleWorkspaceChange = (event: Event) => {
-      const detail = (event as CustomEvent<{ workspaceId?: string; projectPath?: string }>).detail || {};
-      setSelectedWorkspaceId(detail.workspaceId || '');
-      setWorkspaceProjectPath(detail.projectPath || '');
-    };
-    window.addEventListener(CHAT_WORKSPACE_EVENT, handleWorkspaceChange);
-    return () => window.removeEventListener(CHAT_WORKSPACE_EVENT, handleWorkspaceChange);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const loadWorkspaceOptions = async () => {
-      try {
-        const workspaces = await listWorkspaces();
-        if (cancelled) return;
-        setAvailableWorkspaces(workspaces);
-
-        const defaultWorkspace = workspaces.find((w) => w.status === 'default' && w.local_path) || workspaces.find((w) => w.local_path);
-
-        setSelectedWorkspaceId((currentId) => {
-          if (!currentId && defaultWorkspace?.id) return defaultWorkspace.id;
-          return currentId;
-        });
-
-        setWorkspaceProjectPath((currentPath) => {
-          if (!currentPath.trim() && defaultWorkspace?.local_path) return defaultWorkspace.local_path;
-          return currentPath;
-        });
-
-      } catch {
-        if (!cancelled) setAvailableWorkspaces([]);
-      }
-    };
-    void loadWorkspaceOptions();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!currentSessionId || currentSessionId.startsWith('local_')) return;
-    if (messages.length > 0) {
-      restoredSessionRef.current = currentSessionId;
-      return;
-    }
-    if (restoredSessionRef.current === currentSessionId) return;
-    restoredSessionRef.current = currentSessionId;
-    loadSession(currentSessionId).catch((error) => {
-      const message = error instanceof Error ? error.message : '历史会话恢复失败';
-      notify.error(`历史会话恢复失败：${message}`);
-    });
-  }, [currentSessionId, loadSession, messages.length]);
-
-  useEffect(() => {
-    localStorage.setItem('chat_use_cloud_ai', useCloudAI ? '1' : '0');
-  }, [useCloudAI]);
-
-  useEffect(() => {
-    if (settings.knowledgeCollection) {
-      setKnowledgeSelection({ collectionId: settings.knowledgeCollection });
-    }
-  }, [setKnowledgeSelection, settings.knowledgeCollection]);
-
-  useEffect(() => {
-    setInferenceSelection({
-      backend: settings.backend,
-      modelId: settings.modelId || undefined,
-    });
-  }, [setInferenceSelection, settings.backend, settings.modelId]);
-
-  // Virtuoso's followOutput handles auto-scrolling to bottom.
-  // We don't manually call scrollToBottom on messages change to prevent forcing users to the bottom when they scroll up.
-
-  const loadCloudAIConfig = async (force = false) => {
-    // If already loaded from store cache, skip re-fetching unless forced
-    if (!force && cloudConfig.providers.length > 0) {
-      // Apply use cloud AI preference from localStorage if needed
-      if (cloudConfig.config?.key_id || cloudConfig.config?.api_key) {
-        setUseCloudAI(localStorage.getItem('chat_use_cloud_ai') === '1');
-      }
-      return;
-    }
-    try {
-      const data = await getSavedCloudProviders();
-      const keys: SavedCloudProvider[] = data.keys || [];
-      setCloudProviders(keys);
-
-      if (keys.length > 0) {
-        const saved = localStorage.getItem('cloud_ai_config');
-        let preferredProvider = '';
-        let preferredModel = '';
-        if (saved) {
-          try {
-            const savedConfig = JSON.parse(saved);
-            preferredProvider = savedConfig.provider || '';
-            preferredModel = savedConfig.model || '';
-          } catch {
-            preferredProvider = '';
-          }
-        }
-
-        const firstKey = keys.find((key) => key.provider === preferredProvider) || keys[0];
-        if (firstKey) {
-          const keyData = await getSavedCloudProviderData(firstKey.id).catch(() => ({}));
-          const models = keyData.models || firstKey.models || [];
-          const selectedModel =
-            preferredModel ||
-            keyData.default_model ||
-            firstKey.default_model ||
-            models[0] ||
-            '';
-
-          const config: APIKeyConfig = {
-            provider: firstKey.provider,
-            api_key: '',
-            key_id: firstKey.id,
-            model: selectedModel,
-            group_id: keyData.group_id || '',
-            base_url: keyData.base_url || '',
-          };
-          setCloudAIConfig(config);
-          setUseCloudAI(localStorage.getItem('chat_use_cloud_ai') === '1');
-          setSelectedCloudModel(selectedModel);
-          localStorage.setItem('cloud_ai_config', JSON.stringify(config));
-          return;
-        }
-      }
-    } catch {
-      console.log('Failed to load cloud config from backend');
-    }
-
-    const saved = localStorage.getItem('cloud_ai_config');
-    if (saved) {
-      try {
-        const config = JSON.parse(saved);
-        setCloudAIConfig(config);
-        setUseCloudAI(localStorage.getItem('chat_use_cloud_ai') === '1');
-        if (config.model) {
-          setSelectedCloudModel(config.model);
-        }
-      } catch (e) {
-        console.error('Failed to parse cloud config:', e);
-      }
-    }
-  };
-
-  const loadPrimaryAgents = async () => {
-    try {
-      const agents = await getPrimaryAgents();
-      setPrimaryAgents(agents || []);
-      const saved = localStorage.getItem('chat_primary_agent') || 'build';
-      if (agents?.some((a: AgentInfo) => a.id === saved)) {
-        setSelectedPrimaryAgent(saved);
-      } else if (agents?.[0]?.id) {
-        setSelectedPrimaryAgent(agents[0].id);
-      }
-    } catch {
-      setPrimaryAgents([]);
-    }
-  };
-
-  const isLikelyAgentGoal = useCallback((content: string) => {
-    const text = content.trim().toLowerCase();
-    if (!text) return false;
-    if ([
-      '不要执行', '只讨论', '只分析', '解释一下', '帮我解释', '什么是', '为什么',
-      '怎么理解', '怎么用', '是什么意思', '有什么区别', '介绍一下', '帮我看看',
-      '分析一下', '看看代码', '这个代码', '这段代码', '看看逻辑', '怎么实现的',
-      '原理是什么', '怎么工作的', '帮我梳理', '帮我看看代码',
-      '示例', '例子', 'demo', '演示', 'sample', '怎么写', '如何写',
-    ].some((keyword) => text.includes(keyword))) {
-      return false;
-    }
-    return [
-      '修改代码', '新增功能', '新增接口', '新增页面',
-      '实现功能', '实现接口', '修复bug', '修复报错',
-      '重构代码', '优化代码',
-      '跑测试', '运行测试', 'typecheck', 'pytest', 'npm run',
-      '让agent做', '自动处理', '生成补丁', '写补丁',
-      '搜索项目', '写脚本', '排查报错', '排查问题',
-      '运行命令', '执行补丁',
-      '帮我改', '帮我修', '帮我写', '帮我实现',
-      '帮我新增', '帮我添加', '帮我重构',
-      '改成', '改为', '加个', '加一个',
-    ].some((keyword) => text.includes(keyword));
-  }, []);
-
-  const isReadOnlyProjectDiscussion = useCallback((content: string) => {
-    const text = content.trim().toLowerCase();
-    if (!text) return false;
-    const actionKeywords = [
-      '修改', '改代码', '新增', '添加', '实现', '修复', '重构', '优化代码',
-      '跑测试', '运行测试', '执行', '运行命令', '安装', '写入', '编辑',
-      '生成补丁', '写补丁', 'apply patch', 'pytest', 'npm run', 'typecheck',
-    ];
-    if (actionKeywords.some((keyword) => text.includes(keyword))) {
-      return false;
-    }
-    const projectKeywords = [
-      '这个项目', '当前项目', '项目结构', '项目代码', '项目里',
-      '检查一下', '检查下', '看一下项目', '看看项目', '分析一下项目',
-      '分析项目', '梳理项目', '理解项目', '项目问题', '深度问题',
-    ];
-    return projectKeywords.some((keyword) => text.includes(keyword));
-  }, []);
-
-  const {
-    buildAgentPartMetadata,
-    mergeAgentSessionPart,
-    ensureAgentSessionSnapshot,
-    upsertAgentSessionMessage,
-    upsertAgentSessionPartMessage,
-    appendAgentSessionError,
-  } = useAgentSessionMessages();
-
-  const scheduleAgentSessionRefresh = useCallback(
-    (sessionId: string, delays = [1000, 3000, 6000]) => {
-      delays.forEach((delay) => {
-        window.setTimeout(() => {
-          getAgentSession(sessionId)
-            .then((session) => upsertAgentSessionMessage(session))
-            .catch(() => undefined);
-        }, delay);
-      });
-    },
-    [upsertAgentSessionMessage],
-  );
-
-  const callbacksRef = useRef({
-    ensureAgentSessionSnapshot,
-    upsertAgentSessionMessage,
-    upsertAgentSessionPartMessage,
-    appendAgentSessionError,
-  });
-  useEffect(() => {
-    callbacksRef.current = {
-      ensureAgentSessionSnapshot,
-      upsertAgentSessionMessage,
-      upsertAgentSessionPartMessage,
-      appendAgentSessionError,
-    };
-  }, [ensureAgentSessionSnapshot, upsertAgentSessionMessage, upsertAgentSessionPartMessage, appendAgentSessionError]);
-
-  const agentStream = useAgentSessionStream({
-    enabled: true,
-    getAgentWorkspaceRefresh: () => agentWorkspaceRefreshRef.current,
-    setAgentPhase,
-    buildAgentPartMetadata,
-    mergeAgentSessionPart,
-    ensureAgentSessionSnapshot: (sessionId, overrides) => callbacksRef.current.ensureAgentSessionSnapshot(sessionId, overrides),
-    upsertAgentSessionMessage: (session) => callbacksRef.current.upsertAgentSessionMessage(session),
-    upsertAgentSessionPartMessage: (sessionId, part, overrides, options) => callbacksRef.current.upsertAgentSessionPartMessage(sessionId, part, overrides, options),
-    appendAgentSessionError: (content, session) => callbacksRef.current.appendAgentSessionError(content, session),
-  });
-
-  useEffect(() => {
-    const sessionIds = Array.from(
-      new Set(
-        (!currentSessionId || currentSessionId.startsWith('local_') ? [] : messages)
-          .map((message) => message.agent_metadata?.agent_session_id)
-          // 过滤掉 agent_error_ 开头的本地错误占位 ID，这些 ID 在后端不存在，不应建立 SSE 流
-          .filter((sessionId): sessionId is string => typeof sessionId === 'string' && !sessionId.startsWith('agent_error_')),
-      ),
-    );
-
-    const activeIdsSet = new Set(sessionIds);
-    Object.keys(agentStream.streamsRef.current).forEach((sessionId) => {
-      if (!activeIdsSet.has(sessionId)) {
-        agentStream.closeStream(sessionId);
-      }
-    });
-    Object.keys(agentStream.retryRef.current).forEach((sessionId) => {
-      if (!activeIdsSet.has(sessionId)) {
-        agentStream.closeStream(sessionId);
-      }
-    });
-
-    if (!sessionIds.length) return;
-    sessionIds.forEach((sessionId) => {
-      if (!agentStream.streamsRef.current[sessionId]) {
-        agentStream.startStream(sessionId);
-      }
-    });
-  }, [agentStream.closeStream, agentStream.retryRef, agentStream.startStream, agentStream.streamsRef, currentSessionId, messages]);
-
-  const buildDeepContextPayload = useCallback(() => ({
-    active_context: activeFileContext,
-    explicit_context: explicitContextMentions,
-  }), [activeFileContext, explicitContextMentions]);
-
-  const handleActiveEditorContextChange = useCallback((context: ActiveFileContext | null) => {
-    setActiveFileContext(context);
-  }, [setActiveFileContext]);
-
-  const handleAgentSession = useCallback(
-    async (
-      content: string,
-      forceAgent = false,
-      options: { agentId?: string; reason?: string; mode?: 'agent'; skipUserMessage?: boolean } = {},
-    ) => {
-      const goal = content.trim();
-      if (!goal) return false;
-      if (!forceAgent && !isLikelyAgentGoal(goal)) return false;
-
-      let sessionId = currentSessionId;
-      if (!sessionId) {
-        const session = await createSession();
-        sessionId = session.id;
-      }
-
-      if (!options.skipUserMessage) {
-        addMessage({ role: 'user', content: goal });
-      }
-      console.log('[Agent] Starting agent session...', { content, options });
-      setCreatingAgentSession(true);
-      setRoutingIntent(false);
-      let agentSession: AgentSession | undefined;
-      try {
-        const agentModel = resolveAgentModelConfig({
-          useCloudAI,
-          cloudConfig: cloudAIConfig,
-          selectedCloudModel,
-          localBackend: settings.backend,
-          localModel: settings.modelId,
-        });
-        const workspaceContext = selectedWorkspaceLabel !== '未选择工作区'
-          ? ` · ${selectedWorkspaceLabel}`
-          : '';
-        const session = await withTimeout(
-          createAgentSession({
-            chat_session_id: sessionId && !sessionId.startsWith('local_') ? sessionId : undefined,
-            agent_id: options?.agentId || selectedPrimaryAgent || 'build',
-            title:
-              options.mode === 'agent'
-                ? `${goal.slice(0, 26) || 'Agent Task'}${workspaceContext}`.slice(0, 64)
-                : '',
-            project_path: effectiveProjectPath || undefined,
-            provider: agentModel.provider,
-            model: agentModel.model,
-            autonomy_mode: autonomyMode,
-            enabled_skill_sources: skillsInitialized ? selectedSkillSources : null,
-          }),
-          15000,
-          'create_session_timeout',
-        );
-        agentSession = session;
-
-        if (options.reason) {
-          notify.info(options.reason);
-        }
-        const workspacePrefix = selectedWorkspaceLabel !== '未选择工作区'
-          ? `[${selectedWorkspaceLabel}] `
-          : '';
-        await upsertAgentSessionMessage(session, options.reason ? `${options.reason} ${workspacePrefix}${goal}` : `${workspacePrefix}${goal}`);
-        agentStream.startStream(session.id);
-        const started = await withTimeout(
-          promptAgentSession(session.id, {
-            content: goal,
-            provider: agentModel.provider,
-            model: agentModel.model,
-            ...buildDeepContextPayload(),
-          }),
-          15000,
-          'prompt_session_timeout',
-        );
-        await upsertAgentSessionMessage(started);
-        scheduleAgentSessionRefresh(session.id);
-        return true;
-      } catch (error: any) {
-        const isTimeout = error?.message === 'create_session_timeout' || error?.message === 'prompt_session_timeout';
-        const detail = isTimeout ? '服务器响应超时，请稍后重试' : extractApiErrorMessage(error, 'Agent 工作启动失败');
-        const fallback = `Agent 工作启动失败：${detail}`;
-        notify.error(fallback);
-        await appendAgentSessionError(fallback, agentSession || {
-          id: sessionId ? `agent_error_${sessionId}_${Date.now()}` : undefined,
-          chat_session_id: sessionId && !sessionId.startsWith('local_') ? sessionId : undefined,
-          agent_id: options?.agentId || selectedPrimaryAgent || 'build',
-          title: `${goal.slice(0, 26) || 'Agent Session'}${selectedWorkspaceLabel !== '未选择工作区' ? ` · ${selectedWorkspaceLabel}` : ''}`.slice(0, 64),
-          provider: undefined,
-          model: undefined,
-          metadata: { autonomy_mode: autonomyMode },
-        });
-        return true;
-      } finally {
-        setCreatingAgentSession(false);
-      }
-    },
-    [
-      addMessage,
-      autonomyMode,
-      buildDeepContextPayload,
-      cloudAIConfig?.model,
-      cloudAIConfig?.provider,
-      createSession,
-      currentSessionId,
-      appendAgentSessionError,
-      isLikelyAgentGoal,
-      effectiveProjectPath,
-      selectedCloudModel,
-      selectedPrimaryAgent,
-      selectedSkillSources,
-      selectedWorkspaceLabel,
-      skillsInitialized,
-      scheduleAgentSessionRefresh,
-      agentStream,
-      settings.backend,
-      settings.modelId,
-      upsertAgentSessionMessage,
-      useCloudAI,
-    ],
-  );
-
-  const handleSend = useCallback(
-    async (content: string) => {
-      if (!content.trim()) return;
-
-      isAutoScrollEnabledRef.current = true;
-      setTimeout(() => scrollToBottom(true, true), 100);
-
-      let tempUserId: string | undefined;
-      let tempLoadingId: string | undefined;
-      const readOnlyProjectDiscussion = isReadOnlyProjectDiscussion(content);
-      const shouldPreferAgent = routingMode === 'agent' || (routingMode === 'auto' && !readOnlyProjectDiscussion);
-
-      if (routingMode === 'agent' || shouldPreferAgent) {
-        if (routingMode === 'agent') {
-          const handledByAgent = await handleAgentSession(content, true, { reason: '已按 Agent 模式启动 Build Agent。', mode: 'agent' });
-          if (handledByAgent) return;
-        }
-
-        if (routingMode === 'auto') {
-          console.log('[Routing] Classifying intent via Cloud AI...');
-          tempUserId = addMessage({ role: 'user', content: content.trim() });
-          tempLoadingId = addMessage({ role: 'assistant', content: '', isLoading: true });
-          setRoutingIntent(true);
-          try {
-            const intent = await withTimeout(
-              classifyChatAgentIntent({
-                content,
-                provider: cloudAIConfig?.provider || undefined,
-                model: selectedCloudModel || cloudAIConfig?.model || undefined,
-                agent_id: selectedPrimaryAgent || 'build',
-                chat_session_id: currentSessionId && !currentSessionId.startsWith('local_') ? currentSessionId : undefined,
-                routing_mode: 'auto',
-                ...buildDeepContextPayload(),
-              }),
-              INTENT_ROUTING_TIMEOUT_MS,
-              'intent_routing_timeout',
-            );
-            console.log('[Routing] Intent classification result:', intent);
-            if (intent.mode === 'agent') {
-              removeLocalMessage(tempLoadingId!);
-              setRoutingIntent(false);
-              const handledByAgent = await handleAgentSession(content, true, {
-                agentId: intent.suggested_agent_id || selectedPrimaryAgent || 'build',
-                reason: intent.source === 'cloud'
-                  ? `云端判断需要 Agent Task：${intent.reason}`
-                  : `已识别为开发任务，启动 Agent Task：${intent.reason}`,
-                mode: 'agent',
-                skipUserMessage: true,
-              });
-              if (handledByAgent) return;
-            }
-            if (intent.source === 'fallback') {
-              notify.info(intent.reason);
-            }
-          } catch (error) {
-            if (isLikelyAgentGoal(content)) {
-              removeLocalMessage(tempLoadingId!);
-              setRoutingIntent(false);
-              const handledByAgent = await handleAgentSession(content, true, {
-                reason: '意图判断失败，已按本地规则启动 Agent Task。',
-                mode: 'agent',
-                skipUserMessage: true,
-              });
-              if (handledByAgent) return;
-            }
-            removeLocalMessage(tempLoadingId!);
-            notify.info('意图判断失败，已按普通对话处理。');
-          } finally {
-            setRoutingIntent(false);
-          }
-        }
-      }
-
-      if (tempUserId) removeLocalMessage(tempUserId);
-      if (tempLoadingId) removeLocalMessage(tempLoadingId);
-      if (useCloudAI && cloudAIConfig) {
-        const effectiveCloudModel = selectedCloudModel || cloudAIConfig.model || '';
-        await sendCloudMessage(
-          { prompt: content, deepContext: buildDeepContextPayload() },
-          {
-            provider: cloudAIConfig.provider,
-            apiKey: cloudAIConfig.api_key,
-            keyId: cloudAIConfig.key_id,
-            model: effectiveCloudModel,
-            groupId: cloudAIConfig.group_id,
-            baseUrl: cloudAIConfig.base_url,
-          },
-        );
-      } else {
-        await sendMessage({ prompt: content, deepContext: buildDeepContextPayload() });
-      }
-    },
-    [
-      addMessage,
-      cloudAIConfig,
-      buildDeepContextPayload,
-      currentSessionId,
-      deleteMessage,
-      handleAgentSession,
-      isLikelyAgentGoal,
-      isReadOnlyProjectDiscussion,
-      removeLocalMessage,
-      routingMode,
-      scrollToBottom,
-      selectedCloudModel,
-      selectedPrimaryAgent,
-      sendCloudMessage,
-      sendMessage,
-      useCloudAI,
-    ],
-  );
-
-  const handleStopCurrentRun = useCallback(async () => {
-    if (!activeAgentSessionIds.length) {
-      stopStream();
-      return;
-    }
-
-    await operation.run(async () => {
-      await Promise.all(
-        activeAgentSessionIds.map(async (sessionId) => {
-          const session = await interruptAgentSession(sessionId);
-          agentStream.closeStream(sessionId);
-          await upsertAgentSessionMessage(session);
-        }),
+  }, [isStreaming, messages.length]);
+
+  const send = useCallback(async (content: string) => {
+    if (cloudConfig.useCloudAI && cloudConfig.config) {
+      await stream.sendCloudMessage(
+        { prompt: content },
+        {
+          provider: cloudConfig.config.provider,
+          apiKey: cloudConfig.config.api_key,
+          keyId: cloudConfig.config.key_id,
+          groupId: cloudConfig.config.group_id,
+          baseUrl: cloudConfig.config.base_url,
+          model: cloudConfig.selectedModel || cloudConfig.config.model || '',
+        },
       );
-      setAgentPhase({ phase: '', visible: false });
-    }, {
-      key: 'stop-agent-runs',
-      loadingText: '正在中断 Agent 任务...',
-      successText: '已中断 Agent 任务',
-      errorText: '中断 Agent',
-    });
-  }, [activeAgentSessionIds, operation, stopStream, upsertAgentSessionMessage]);
+      return;
+    }
+    await stream.sendMessage({ prompt: content });
+  }, [cloudConfig, stream]);
 
-  const handleRefreshAgentRun = useCallback(
-    async (runId: string) => {
-      const session = await getAgentSession(runId);
-      await upsertAgentSessionMessage(session);
-    },
-    [upsertAgentSessionMessage],
-  );
-
-  const pendingApproval = useMemo(() => {
-    return [...messages]
-      .reverse()
-      .map((message) => message.agent_metadata)
-      .map((metadata) => (metadata?.ui_state as any)?.pending_permission)
-      .find((permission) => permission?.part_id) || null;
+  const exportChat = useCallback((format: 'markdown' | 'json') => {
+    const content = format === 'json'
+      ? JSON.stringify(messages, null, 2)
+      : messages.map((item) => `## ${item.role === 'user' ? '用户' : '助手'}\n\n${item.content}`).join('\n\n');
+    const blob = new Blob([content], { type: format === 'json' ? 'application/json' : 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `chat-${Date.now()}.${format === 'json' ? 'json' : 'md'}`;
+    anchor.click();
+    URL.revokeObjectURL(url);
   }, [messages]);
 
-  const handleSubmitHitlDecisions = useCallback(async (permissionId: string, decisions: AgentHitlDecision[]) => {
-    const response = await decideAgentPermission(permissionId, decisions);
-    await upsertAgentSessionMessage(response.session);
-    notify.success('HITL 决策已提交，Agent 正在继续执行');
-  }, [upsertAgentSessionMessage]);
-
-  const handleRetry = useCallback(
-    (messageId: string) => {
-      const msgIndex = messages.findIndex((m) => m.id === messageId);
-      if (msgIndex === -1) return;
-
-      const userMessage = messages[msgIndex - 1];
-      if (!userMessage || userMessage.role !== 'user') return;
-
-      const newMessages = messages.slice(0, msgIndex - 1);
-      useChatStore.setState({ messages: newMessages });
-
-      handleSend(userMessage.content);
-    },
-    [messages, handleSend],
-  );
-
-  const handleEditMessage = useCallback(
-    async (messageId: string, newContent: string) => {
-      const msgIndex = messages.findIndex((m) => m.id === messageId);
-      if (msgIndex === -1) return;
-
-      // 将对话截断到这根线，并用新内容重新发送
-      const newMessages = messages.slice(0, msgIndex);
-      try {
-        await replaceCurrentSessionMessages(newMessages);
-        await handleSend(newContent);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : '编辑消息失败';
-        notify.error(message);
-      }
-    },
-    [handleSend, messages, replaceCurrentSessionMessages],
-  );
-
-  const handleExportChat = useCallback(
-    (format: 'markdown' | 'json') => {
-      if (messages.length === 0) {
-        notify.warning('暂无对话内容');
-        return;
-      }
-
-      const title = messages.find((m) => m.role === 'user')?.content.slice(0, 20) || '新对话';
-
-      if (format === 'markdown') {
-        let content = `# ${title}\n\n`;
-        content += `导出时间: ${new Date().toLocaleString('zh-CN')}\n\n---\n\n`;
-
-        for (const msg of messages) {
-          const role = msg.role === 'user' ? '用户' : '助手';
-          content += `## ${role}\n\n${msg.content}\n\n`;
-        }
-
-        const blob = new Blob([content], { type: 'text/markdown' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${title}_${Date.now()}.md`;
-        a.click();
-        URL.revokeObjectURL(url);
-        notify.success('已导出为 Markdown');
-      } else {
-        const data = {
-          title,
-          exportedAt: new Date().toISOString(),
-          messages,
-        };
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `${title}_${Date.now()}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-        notify.success('已导出为 JSON');
-      }
-    },
-    [messages],
-  );
-
-  const handleClearChat = useCallback(() => {
-    appModal.confirm({
-      title: '确认清空',
-      content: '确定要清空当前对话吗？',
-      okText: '清空',
-      okButtonProps: { danger: true },
-      onOk: async () => {
-        try {
-          await clearMessages();
-          notify.success('对话已清空');
-        } catch (error) {
-          const message = error instanceof Error ? error.message : '清空会话失败';
-          notify.error(message);
-          throw error;
-        }
-      },
-    });
-  }, [clearMessages]);
-
-  const handleToggleKnowledge = useCallback(() => {
-    const nextUseKnowledge = !settings.useKnowledge;
-    const fallbackCollection =
-      settings.knowledgeCollection ||
-      derived.activeKnowledgeCollection ||
-      observed.knowledge.collections[0]?.id;
-
-    updateSettings({
-      useKnowledge: nextUseKnowledge,
-      knowledgeCollection: nextUseKnowledge ? fallbackCollection : settings.knowledgeCollection,
-    });
-
-    if (nextUseKnowledge && fallbackCollection) {
-      syncKnowledgeCollection(fallbackCollection);
-    }
-  }, [
-    derived.activeKnowledgeCollection,
-    observed.knowledge.collections,
-    settings.knowledgeCollection,
-    settings.useKnowledge,
-    syncKnowledgeCollection,
-    updateSettings,
-  ]);
-
-  const handleKnowledgeCollectionChange = useCallback(
-    (collectionId: string) => {
-      updateSettings({ useKnowledge: true });
-      syncKnowledgeCollection(collectionId);
-    },
-    [syncKnowledgeCollection, updateSettings],
-  );
-
-  const handleBackendChange = useCallback(
-    async (backend: string) => {
-      setUseCloudAI(false);
-      localStorage.setItem('chat_use_cloud_ai', '0');
-      updateSettings({ backend: backend as 'ollama' | 'huggingface' | 'cloud', modelId: '' });
-      setInferenceSelection({ backend, modelId: undefined });
-      await refreshInference();
-    },
-    [refreshInference, setInferenceSelection, updateSettings],
-  );
-
-  const handleModelChange = useCallback(
-    (model: string) => {
-      updateSettings({ modelId: model });
-      setInferenceSelection({ backend: settings.backend, modelId: model });
-    },
-    [setInferenceSelection, settings.backend, updateSettings],
-  );
-
-  const handleToggleMemory = useCallback(() => {
-    updateSettings({ useMemory: !settings.useMemory });
-  }, [settings.useMemory, updateSettings]);
-
-  const virtuosoFooter = useCallback(
-    () => (
-      <div style={{ paddingBottom: '20px' }}>
-        <AgentPhaseIndicator
-          phase={agentPhase.phase}
-          tool={agentPhase.tool}
-          detail={agentPhase.detail}
-          visible={agentPhase.visible}
-        />
-      </div>
-    ),
-    [
-      agentPhase.phase,
-      agentPhase.tool,
-      agentPhase.visible,
-      handleSend,
-      isActivelyStreaming,
-      isLoading,
-    ],
-  );
-
-  const virtuosoComponents = useMemo(
-    () => ({
-      Footer: virtuosoFooter,
-    }),
-    [virtuosoFooter],
-  );
-
-  const modelOptions =
-    settings.backend === 'ollama'
-      ? observed.inference.ollamaModels.map((m) => ({ id: m.id, name: m.name }))
-      : settings.backend === 'llama-cpp'
-        ? observed.inference.huggingfaceModels
-            .filter((m) => m.name.toLowerCase().includes('.gguf') || m.name.toLowerCase().includes('.ggml'))
-            .map((m) => ({ id: m.id, name: m.name }))
-        : observed.inference.huggingfaceModels.map((m) => ({ id: m.id, name: m.name }));
-
-  useEffect(() => {
-    if (settings.modelId) return;
-
-    if (settings.backend === 'ollama' && observed.inference.ollamaModels.length > 0) {
-      const firstOllamaModel = observed.inference.ollamaModels[0];
-      if (firstOllamaModel) {
-        updateSettings({ modelId: firstOllamaModel.id });
-      }
-      return;
-    }
-
-    if (settings.backend !== 'ollama' && observed.inference.huggingfaceModels.length > 0) {
-      const firstHfModel = observed.inference.huggingfaceModels[0];
-      if (firstHfModel) {
-        updateSettings({ modelId: firstHfModel.id });
-      }
-    }
-  }, [
-    observed.inference.huggingfaceModels,
-    observed.inference.ollamaModels,
-    settings.backend,
-    settings.modelId,
-    updateSettings,
-  ]);
-
-  const activeModeLabel = routingMode === 'agent'
-    ? 'Agent Task'
-    : routingMode === 'auto' && routingIntent
-      ? '正在判断'
-      : routingMode === 'chat'
-        ? 'Chat'
-        : '智能路由';
-  const activeModelLabel = useCloudAI
-    ? selectedCloudModel || '未选择模型'
-    : settings.modelId || '未选择模型';
-  const agentOptions = primaryAgents.map((agent) => ({ value: agent.id, label: agent.name }));
-  const selectedAgentDefinition = useMemo(
-    () => primaryAgents.find((agent) => agent.id === selectedPrimaryAgent) || null,
-    [primaryAgents, selectedPrimaryAgent],
-  );
-  const selectedAgentReflectionRuleCount = useMemo(() => {
-    if (!selectedAgentDefinition?.reflection_rules) return 0;
-    const rules = selectedAgentDefinition.reflection_rules;
-    return [
-      ...(rules.before_tool_use || []),
-      ...(rules.before_edit || []),
-      ...(rules.before_final || []),
-      ...(rules.on_error || []),
-      ...(rules.rules || []),
-      ...Object.values(rules.sections || {}).flatMap((value) => Array.isArray(value) ? value : [value]),
-    ].filter(Boolean).length;
-  }, [selectedAgentDefinition]);
-  const selectedAgentRequiredOutputs = selectedAgentDefinition?.output_schema?.required_sections
-    || selectedAgentDefinition?.output_schema?.required_fields
-    || [];
-  const skillSourceOptions = agentSkillSources.map((source) => ({
-    value: source.virtual_path,
-    label: `${source.name}${source.skills.length ? ` (${source.skills.length})` : ''}`,
-    disabled: !source.available,
-  }));
-  const latestAgentMetadata = useMemo(
-    () => [...messages].reverse().find((message) => message.agent_metadata)?.agent_metadata,
-    [messages],
-  );
-  const latestAgentSessionId = latestAgentMetadata?.agent_session_id;
-  const latestAgentSessionMessages = useMemo(
-    () => messages.filter((message) => message.agent_metadata?.agent_session_id === latestAgentSessionId),
-    [latestAgentSessionId, messages],
-  );
-  const latestAgentParts = latestAgentSessionMessages
-    .map((message) => message.agent_metadata?.agent_part as AgentPart | undefined)
-    .filter((part): part is AgentPart => Boolean(part));
-  const latestAgentStatus = latestAgentMetadata?.status || 'idle';
-  const agentSessionOverview = useAgentSessionOverview({
-    sessionId: latestAgentSessionId,
-    parts: latestAgentParts,
-    status: latestAgentStatus,
-  });
-  const workspaceAgentId = agentSessionOverview?.session?.agent_id || latestAgentMetadata?.active_agent_id || '';
-  const workspaceAgentName = primaryAgents.find((agent) => agent.id === workspaceAgentId)?.name || workspaceAgentId || '';
-  const agentWorkspace = useAgentWorkspace(latestAgentSessionId);
-  const workspaceSelection = useAgentWorkspaceSelection(agentWorkspace.workspace);
-  const asyncTasks = useAgentAsyncTasks(agentWorkspace);
-
-  useEffect(() => {
-    agentWorkspaceRefreshRef.current = agentWorkspace.refresh;
-    return () => {
-      if (agentWorkspaceRefreshRef.current === agentWorkspace.refresh) {
-        agentWorkspaceRefreshRef.current = null;
-      }
-    };
-  }, [agentWorkspace.refresh]);
-
-  const openAgentInspector = useCallback(() => {
-    setSidePanelOpen(true);
-    setWorkbenchActiveTab('execution');
-  }, []);
-
-  const handleOpenAsyncTask = useCallback((taskId?: string, childSessionId?: string, options?: { expandDetail?: boolean }) => {
-    if (taskId) {
-      asyncTasks.focusTask(taskId);
-      workspaceSelection.selectAsyncTask(taskId, childSessionId, options);
-      if (options?.expandDetail) {
-        asyncTasks.expandTask(taskId);
-      }
-    } else {
-      workspaceSelection.selectRun();
-    }
-    setSidePanelOpen(true);
-    setWorkbenchActiveTab('subagents');
-  }, [asyncTasks, workspaceSelection]);
-
-  const handleRunWorkspaceNextAction = useAgentWorkspaceNextActionRouter({
-    agentWorkspace,
-    workspaceSelection,
-    openInspector: openAgentInspector,
-    openWorkbenchTab: (tab) => {
-      setSidePanelOpen(true);
-      setWorkbenchActiveTab(tab);
-    },
-  });
-
-  // Auto-detect running terminal from command parts and show dock
-  useEffect(() => {
-    for (let i = latestAgentParts.length - 1; i >= 0; i--) {
-      const part = latestAgentParts[i];
-      if (part?.type === 'command' && part.payload?.terminal_id) {
-        const tid = String(part.payload.terminal_id);
-        setActiveTerminalId(tid);
-        if (part.status === 'running') setTerminalOpen(true);
-        break;
-      }
-    }
-  }, [latestAgentParts]);
-
-  // 自动将最新待审批的或正在修改的变动文件在右侧编辑器中聚焦并打开（编辑器焦点跟随 + 实时流式 Diff）
-  useEffect(() => {
-    for (let i = latestAgentParts.length - 1; i >= 0; i--) {
-      const part = latestAgentParts[i];
-      if (part && part.type === 'diff') {
-        const files = getChangedFilesFromPayload(part.payload);
-        const firstFile = files[0];
-        if (firstFile) {
-          const name = firstFile.replace(/\\/g, '/').split('/').pop() || firstFile;
-          const preview = part.content || '';
-          const status = resolveArtifactStatus(part.status || 'modified');
-          const hunks = preview ? parseDiffHunks(firstFile, preview) : undefined;
-
-          const fileEntry: OpenedFile = {
-            path: firstFile,
-            name,
-            content: preview,
-            status,
-            hunks,
-            actionId: part.id || undefined,
-          };
-
-          upsertOpenedFile(fileEntry);
-
-          // 只有在 Part ID 发生改变时，才强制切换 Tab 聚焦，避免在同一个文件流式渲染期间强行覆盖用户的手动 Tab 切换
-          focusAutoOpenedPart(part.id, firstFile);
-
-          // 获取原始文件内容以用于 DiffEditor 比对
-          if (status === 'modified' && latestAgentSessionId && part.id) {
-            const matchedArtifact = agentSessionOverview?.artifacts?.find(
-              (art) => art.source_part_id === part.id && art.path === firstFile
-            );
-            if (matchedArtifact) {
-              void getArtifactOriginal(latestAgentSessionId, matchedArtifact.id).then((original: string | null) => {
-                if (original === null) return;
-                setOpenedFileOriginal(firstFile, original);
-              });
-            }
-          }
-        }
-        break;
-      }
-    }
-  }, [agentSessionOverview?.artifacts, focusAutoOpenedPart, latestAgentParts, latestAgentSessionId, setOpenedFileOriginal, upsertOpenedFile]);
-  const {
-    agentFileSummaries,
-    agentFileTree,
-    expandedFolders,
-    toggleFolder,
-  } = useAgentFileTree(agentSessionOverview?.artifacts);
-
-  const handlePickFolder = useCallback(async () => {
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.selectFolder) {
-      const folder: string | null = await (window as any).electronAPI.selectFolder(workspaceProjectPath || undefined);
-      if (folder) { setWorkspaceProjectPath(folder); setShowPathEdit(false); }
-      return;
-    }
-
-    try {
-      const res = await browseFolderBackend(workspaceProjectPath || undefined);
-      if (res.status === 'success' && res.path) {
-        setWorkspaceProjectPath(res.path);
-        setShowPathEdit(false);
-        notify.success('选择路径成功');
-      } else {
-        setShowPathEdit((prev) => !prev);
-        notify.info('本地选择器不可用，已开启手动输入');
-      }
-    } catch {
-      setShowPathEdit((prev) => !prev);
-      notify.info('本地选择器不可用，已开启手动输入');
-    }
-  }, [workspaceProjectPath]);
-
-  const handlePathClick = useCallback(() => {
-    if (!effectiveProjectPath) return;
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.openFolder) {
-      void (window as any).electronAPI.openFolder(effectiveProjectPath);
-      notify.success('正在打开本地文件夹...');
-    } else {
-      setShowPathEdit((prev) => !prev);
-      notify.info('浏览器模式已激活路径输入，请手动打开/更改。');
-    }
-  }, [effectiveProjectPath]);
-
-  const handleOpenFile = useCallback((artifact: (typeof agentFileSummaries)[number]) => {
-    workspaceSelection.selectFile(artifact.path);
-    const name = artifact.path.replace(/\\/g, '/').split('/').pop() || artifact.path;
-    const status = resolveArtifactStatus(artifact.status);
-    const hunks = status === 'modified' && artifact.preview
-      ? parseDiffHunks(artifact.path, artifact.preview)
-      : undefined;
-    const fileEntry: OpenedFile = {
-      path: artifact.path,
-      name,
-      content: artifact.preview || '',
-      status,
-      hunks,
-      actionId: artifact.source_part_id || undefined,
-    };
-    upsertOpenedFile(fileEntry);
-    setActiveFilePath(artifact.path);
-    if (status === 'modified' && latestAgentSessionId) {
-      void getArtifactOriginal(latestAgentSessionId, artifact.id).then((original: string | null) => {
-        if (original === null) return;
-        setOpenedFileOriginal(artifact.path, original);
-      });
-    }
-  }, [latestAgentSessionId, setOpenedFileOriginal, upsertOpenedFile, workspaceSelection]);
-
-  // ── Load workspace file tree when mode switches to 'workspace' ────────────────
-  const loadWorkspaceTree = useCallback(async (projectPath: string) => {
-    if (!projectPath) return;
-    setWorkspaceTreeLoading(true);
-    try {
-      const result = await getWorkspaceTree({
-        project_path: projectPath,
-        max_depth: 4,
-        limit: 400,
-      });
-      setWorkspaceTreeNodes(result.nodes);
-      setWorkspaceTreeRoot(result.root);
-      // Auto-expand top-level folders
-      const topFolders = new Set<string>();
-      for (const node of result.nodes) {
-        if (node.kind === 'folder') topFolders.add(node.path);
-      }
-      setWsExpandedFolders(topFolders);
-    } catch (err) {
-      notify.error('加载工作区文件树失败');
-    } finally {
-      setWorkspaceTreeLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (fileTreeMode === 'workspace' && effectiveProjectPath) {
-      void loadWorkspaceTree(effectiveProjectPath);
-    }
-  }, [fileTreeMode, effectiveProjectPath, loadWorkspaceTree]);
-
-  // ── Open a file from the workspace disk tree ─────────────────────────────────
-  const handleOpenWorkspaceFile = useCallback(async (node: WorkspaceTreeNode) => {
-    if (node.kind !== 'file') return;
-    const absPath = workspaceTreeRoot
-      ? `${workspaceTreeRoot}/${node.path}`.replace(/\\/g, '/')
-      : node.path;
-    const recentPath = node.path;
-    // Already open - just switch focus
-    const existing = openedFiles.find((f) => f.path === absPath);
-    if (existing) {
-      setActiveFilePath(absPath);
-      setRecentPaths((prev) => {
-        const next = [recentPath, ...prev.filter((p) => p !== recentPath)];
-        return next.slice(0, 10);
-      });
-      return;
-    }
-
-    try {
-      const result = await readWorkspaceFile({
-        file_path: absPath,
-        project_path: effectiveProjectPath || undefined,
-      });
-      const fileName = node.name;
-      const newFile: OpenedFile = {
-        path: absPath,
-        name: fileName,
-        content: result.content,
-        status: 'unknown',
-        fromDisk: true,
-      };
-      addOpenedFile(newFile);
-      setActiveFilePath(absPath);
-      setRecentPaths((prev) => {
-        const next = [recentPath, ...prev.filter((p) => p !== recentPath)];
-        return next.slice(0, 10);
-      });
-    } catch (err: any) {
-      notify.error(`打开文件失败: ${extractApiErrorMessage(err, '未知错误')}`);
-    }
-  }, [addOpenedFile, effectiveProjectPath, openedFiles, workspaceTreeRoot]);
-
-  const handleOpenWorkspacePath = useCallback(async (path: string) => {
-    const normalized = path.replace(/\\/g, '/').replace(/^\/workspace\//, '');
-    const node = workspaceFileNodes.find((item) => {
-      if (item.kind !== 'file') return false;
-      const itemPath = item.path.replace(/\\/g, '/');
-      return itemPath === normalized || itemPath.endsWith(`/${normalized}`) || path.replace(/\\/g, '/') === itemPath;
-    });
-    if (!node) {
-      notify.warning('当前文件树中未找到该文件，请先刷新工作区文件树。');
-      setFileTreeMode('workspace');
-      return;
-    }
-    await handleOpenWorkspaceFile(node);
-  }, [handleOpenWorkspaceFile, workspaceFileNodes]);
-
-  // ── Save file back to disk ────────────────────────────────────────────────────
-  const handleSaveFile = useCallback(async (filePath: string, content: string) => {
-    try {
-      await writeWorkspaceFile({
-        file_path: filePath,
-        content,
-        project_path: effectiveProjectPath || undefined,
-      });
-      notify.success(`已保存: ${filePath.split('/').pop() || filePath}`);
-    } catch (err: any) {
-      notify.error(`保存失败: ${extractApiErrorMessage(err, '未知错误')}`);
-      throw err;
-    }
-  }, [effectiveProjectPath]);
-
-  const contextPanel = (
-    <ChatContextPanel
-      currentBackend={settings.backend}
-      backends={observed.inference.backends}
-      onBackendChange={handleBackendChange}
-      currentModel={settings.modelId}
-      models={modelOptions}
-      onModelChange={handleModelChange}
-      useCloudAI={useCloudAI}
-      onToggleCloudAI={handleToggleCloudAI}
-      cloudAIConfigured={!!(cloudAIConfig?.api_key || cloudAIConfig?.key_id)}
-      onOpenCloudAIConfig={() => setConfigModalOpen(true)}
-      currentCloudProvider={cloudAIConfig?.provider}
-      cloudProviders={cloudProviderOptions}
-      onCloudProviderChange={handleCloudProviderChange}
-      currentCloudModel={selectedCloudModel}
-      cloudModels={cloudModelOptions}
-      onCloudModelChange={handleCloudModelChange}
-      useKnowledge={settings.useKnowledge}
-      onToggleKnowledge={handleToggleKnowledge}
-      collectionsCount={observed.knowledge.collections.length}
-      currentKnowledgeCollection={derived.activeKnowledgeCollection}
-      knowledgeCollections={observed.knowledge.collections}
-      onKnowledgeCollectionChange={handleKnowledgeCollectionChange}
-      useMemory={settings.useMemory}
-      onToggleMemory={handleToggleMemory}
-      agentModeAvailable={primaryAgents.length > 0}
-      agentOptions={agentOptions}
-      selectedAgent={selectedPrimaryAgent}
-      onAgentChange={setSelectedPrimaryAgent}
-      skillSourceOptions={skillSourceOptions}
-      selectedSkillSources={selectedSkillSources}
-      onSkillSourcesChange={(sources) => {
-        setSkillsInitialized(true);
-        setSelectedSkillSources(sources);
-      }}
-      skillsLoading={skillsLoading}
-      routingMode={routingMode}
-      onRoutingModeChange={setRoutingMode}
-      routing={routingIntent}
-      autonomyMode={autonomyMode}
-      onAutonomyModeChange={setAutonomyMode}
-      creatingAgentSession={creatingAgentSession}
-      isLoading={isLoading}
-      isStreaming={isActivelyStreaming}
-    />
-  );
-
-  const renderMessageItem = useCallback((index: number, msg: any) => {
-    const prevMsg = index > 0 ? messages[index - 1] : null;
-    const nextMsg = index < messages.length - 1 ? messages[index + 1] : null;
-    const curSession = msg.agent_metadata?.agent_session_id;
-    const prevSession = prevMsg?.agent_metadata?.agent_session_id;
-    const nextSession = nextMsg?.agent_metadata?.agent_session_id;
-    const curIsPart = msg.agent_metadata?.kind === 'agent_part';
-    const prevIsPart = prevMsg?.agent_metadata?.kind === 'agent_part';
-    const nextIsPart = nextMsg?.agent_metadata?.kind === 'agent_part';
-    let agentFlowPosition: 'first' | 'middle' | 'last' | 'only' | null = null;
-    if (curIsPart && curSession) {
-      const sameSessionPrev = prevIsPart && prevSession === curSession;
-      const sameSessionNext = nextIsPart && nextSession === curSession;
-      if (sameSessionPrev && sameSessionNext) {
-        agentFlowPosition = 'middle';
-      } else if (sameSessionPrev && !sameSessionNext) {
-        agentFlowPosition = 'last';
-      } else if (!sameSessionPrev && sameSessionNext) {
-        agentFlowPosition = 'first';
-      } else {
-        agentFlowPosition = 'only';
-      }
-    }
-    return (
-    <ChatMessage
-      id={msg.id}
-      role={msg.role as 'user' | 'assistant'}
-      content={msg.content}
-      timestamp={msg.timestamp}
-      isLoading={msg.isLoading}
-      isStreaming={
-        isActivelyStreaming && index === messages.length - 1 && msg.role === 'assistant'
-      }
-      enableTypewriter={false}
-      onRetry={handleRetry}
-      onEdit={handleEditMessage}
-      onDelete={deleteMessage}
-      knowledge_sources={msg.knowledge_sources}
-      retrieval_info={msg.retrieval_info}
-      agent_metadata={msg.agent_metadata}
-      agentFlowPosition={agentFlowPosition}
-      onRefreshAgentRun={handleRefreshAgentRun}
-      onOpenAsyncTask={handleOpenAsyncTask}
-    />
-    );
-  }, [
-    isActivelyStreaming,
-    messages.length,
-    handleRetry,
-    handleEditMessage,
-    deleteMessage,
-    handleRefreshAgentRun,
-    handleOpenAsyncTask,
-  ]);
-
-  const handleToggleWorkspaceFolder = useCallback((path: string) => {
-    setWsExpandedFolders((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  }, []);
-
-  const handleRefreshWorkspaceTree = useCallback(() => {
-    void loadWorkspaceTree(effectiveProjectPath);
-  }, [effectiveProjectPath, loadWorkspaceTree]);
-
-  const slimFilePanel = useMemo(() => (
-    <ChatNewFilePanel
-      mode={fileTreeMode}
-      onModeChange={setFileTreeMode}
-      agentFileSummaries={agentFileSummaries}
-      agentFileTree={agentFileTree}
-      expandedAgentFolders={expandedFolders}
-      onToggleAgentFolder={toggleFolder}
-      onOpenAgentFile={handleOpenFile}
-      workspaceTreeNodes={workspaceTreeNodes}
-      workspaceTreeLoading={workspaceTreeLoading}
-      expandedWorkspaceFolders={wsExpandedFolders}
-      projectPath={effectiveProjectPath}
-      onToggleWorkspaceFolder={handleToggleWorkspaceFolder}
-      onOpenWorkspaceFile={handleOpenWorkspaceFile}
-      onSelectWorkspaceFile={workspaceSelection.selectFile}
-      onRefreshWorkspaceTree={handleRefreshWorkspaceTree}
-    />
-  ), [
-    agentFileSummaries, agentFileTree, effectiveProjectPath, expandedFolders,
-    fileTreeMode, handleOpenFile, handleOpenWorkspaceFile,
-    handleRefreshWorkspaceTree, handleToggleWorkspaceFolder, toggleFolder,
-    workspaceSelection.selectFile, workspaceTreeLoading, workspaceTreeNodes,
-    wsExpandedFolders,
-  ]);
-
-  const editorContent = useMemo(() => (
-    <ChatNewEditorContent
-      openedFiles={openedFiles}
-      activeFilePath={activeFilePath}
-      onTabChange={setActiveFilePath}
-      onTabClose={handleCloseEditorTab}
-      onActiveContextChange={handleActiveEditorContextChange}
-      onAcceptHunk={handleAcceptHunk}
-      onRejectHunk={handleRejectHunk}
-      onAcceptAll={handleAcceptAll}
-      onRejectAll={handleRejectAll}
-      onSave={handleSaveFile}
-      activeTerminalId={activeTerminalId}
-      terminalOpen={terminalOpen}
-      onToggleTerminal={handleToggleTerminal}
-      onCloseTerminal={handleCloseTerminal}
-      terminalHeight={terminalHeight}
-      resizingTerminal={resizingTerminal}
-      onTerminalResizePointerDown={handleTerminalSplitterPointerDown}
-      terminalRunning={latestAgentStatus === 'running'}
-      workspaceRoot={workspaceTreeRoot}
-      onBreadcrumbClick={handleBreadcrumbClick}
-    />
-  ), [
-    openedFiles, activeFilePath, setActiveFilePath, handleCloseEditorTab,
-    handleActiveEditorContextChange, handleAcceptHunk, handleRejectHunk,
-    handleAcceptAll, handleRejectAll, handleSaveFile, activeTerminalId,
-    terminalOpen, handleToggleTerminal, handleCloseTerminal, terminalHeight,
-    resizingTerminal, handleTerminalSplitterPointerDown, latestAgentStatus,
-    workspaceTreeRoot, handleBreadcrumbClick,
-  ]);
-
-  const workbenchRunPanel = (
-    <ChatNewWorkbenchRunPanel
-      activeAgentId={latestAgentMetadata?.active_agent_id}
-      fallbackAgentId={selectedPrimaryAgent}
-      status={latestAgentStatus}
-      statusMessage={latestAgentMetadata?.execution_state_message || latestAgentMetadata?.final_summary}
-      parts={latestAgentParts}
-    />
-  );
-
-  const agentIdeWorkspace = (
-    <ChatNewAgentIdeWorkspace
-      projectPath={effectiveProjectPath}
-      workspaceProjectPath={workspaceProjectPath}
-      openedFileCount={openedFiles.length}
-      showPathEdit={showPathEdit}
-      treePanel={slimFilePanel}
-      editorPanel={editorContent}
-      onPathClick={handlePathClick}
-      onPickFolder={handlePickFolder}
-      onProjectPathChange={setWorkspaceProjectPath}
-      onConfirmPath={() => setShowPathEdit(false)}
-    />
-  );
-  const workbenchProgressPanel = (
-    <ChatNewWorkbenchProgressPanel
-      parts={latestAgentParts}
-      recentEvents={agentSessionOverview?.recent_events}
-    />
-  );
-
+  const providerOptions = useMemo(() => savedProviders.map((provider) => ({
+    value: provider.id || provider.provider,
+    label: provider.name || provider.provider,
+  })), [savedProviders]);
 
   return (
-    <div
-      className={styles.chatContainer}
-      style={isMobile ? { height: 'calc(100vh - 64px)' } : undefined}
-    >
-      <div style={{ display: 'none' }}>
-        <ChatHeader
-          onNewChat={() => createSession()}
-          onOpenHistory={() => setHistoryOpen(true)}
-          onOpenMemory={() => setMemoryManagerOpen(true)}
-          onOpenContextPanel={() => setContextPanelOpen(true)}
-          onClearChat={handleClearChat}
-          onExportChat={handleExportChat}
-          messageCount={messages.length}
-          activeModeLabel={activeModeLabel}
-          activeModelLabel={activeModelLabel}
-        />
-      </div>
-      {isDesktop && latestAgentSessionId && (
-        <AgentWorkspaceStatusBar
-          agentName={workspaceAgentName}
-          sessionStatus={latestAgentStatus}
-          asyncMetrics={agentWorkspace.workspace?.async_tasks.metrics ?? null}
-          onOpenAsyncTasks={() => handleOpenAsyncTask()}
-        />
-      )}
-      <div className={styles.chatWorkspace}>
-        <main className={styles.mainChatPane} style={{ flex: `0 0 ${chatPaneWidth}px`, minWidth: 0, ...(isDesktop && !chatPanelOpen ? { flexBasis: 0, overflow: 'hidden', opacity: 0, pointerEvents: 'none' } : {}) }}>
-          <motion.div
-            {...sectionMotion}
-            className={styles.chatMessagesArea}
-            ref={scrollContainerRef}
-            onScroll={enableVirtualScroll ? undefined : handleScroll}
-          >
-            <MotionList className={styles.messagesInner} stagger={0.04}>
-              {messages.length === 0 ? (
-                <motion.div
-                  initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={prefersReducedMotion ? { duration: 0 } : { ...transitions.spring, delay: 0.1 }}
-                  className={styles.emptyState}
-                >
-                  <div className={styles.emptyKicker}>AI 工作台</div>
-                  <h3 className={styles.emptyTitle}>
-                    今天想处理点什么？
-                  </h3>
-                  <p className={styles.emptyDesc}>
-                    普通问题会停留在 Chat，开发任务会进入 Agent Task。
-                  </p>
+    <div className={styles.chatContainer}>
+      <ChatHeader
+        onNewChat={() => void useChatStore.getState().createSession('新对话')}
+        onOpenHistory={() => setHistoryOpen(true)}
+        onOpenMemory={() => setMemoryOpen(true)}
+        onOpenContextPanel={() => setSettingsOpen(true)}
+        onClearChat={() => void clearMessages()}
+        onExportChat={exportChat}
+        messageCount={messages.length}
+        activeModeLabel="纯聊天"
+        activeModelLabel={activeModel}
+      />
 
-                  <div className={styles.starterSuggestions}>
-                    {STARTER_IDEAS.map((idea, i) => (
-                      <motion.button
-                        key={idea.title}
-                        initial={prefersReducedMotion ? false : { opacity: 0, y: 12 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={prefersReducedMotion ? { duration: 0 } : { delay: 0.18 + i * 0.06, duration: 0.28 }}
-                        className={styles.starterBtn}
-                        onClick={() => handleSend(idea.desc)}
-                      >
-                        <div style={{ fontSize: 24, marginBottom: 4 }}>{idea.icon}</div>
-                        <div className={styles.starterBtnTitle}>{idea.title}</div>
-                        <div className={styles.starterBtnDesc}>{idea.desc}</div>
-                      </motion.button>
-                    ))}
-                  </div>
-                </motion.div>
-              ) : enableVirtualScroll ? (
-                <Virtuoso
-                  ref={virtuosoRef}
-                  data={messages}
-                  itemContent={renderMessageItem}
-                  components={virtuosoComponents}
-                  initialTopMostItemIndex={initialTopMostItemIndex}
-                  rangeChanged={(range) => {
-                    visibleRangeStartRef.current = range.startIndex;
-                    saveCurrentScrollState({
-                      topIndex: clampMessageIndex(range.startIndex, messages.length),
-                    });
-                  }}
-                  atBottomStateChange={(nextIsAtBottom) => {
-                    isAutoScrollEnabledRef.current = nextIsAtBottom;
-                    setIsAtBottom(nextIsAtBottom);
-                    setShowScrollButton(!nextIsAtBottom);
-                  }}
-                  followOutput={(isAtBottom) => isAtBottom ? 'smooth' : false}
-                  style={{ height: '100%' }}
-                  alignToBottom
-                />
-              ) : (
-                <MotionList stagger={0.03}>
-                  {messages.map((msg, index) => (
-                    <React.Fragment key={msg.id}>
-                      {renderMessageItem(index, msg)}
-                    </React.Fragment>
-                  ))}
-
-                  <MotionItem>
-                    <AgentPhaseIndicator
-                      phase={agentPhase.phase}
-                      tool={agentPhase.tool}
-                      detail={agentPhase.detail}
-                      visible={agentPhase.visible}
-                    />
-                  </MotionItem>
-
-                  <div ref={messagesEndRef} style={{ height: 1 }} />
-                </MotionList>
-              )}
-            </MotionList>
-          </motion.div>
-
-          <AnimatePresence>
-            {showScrollButton && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 20 }}
-                style={{
-                  position: 'absolute',
-                  bottom: isMobile ? 108 : 148,
-                  right: '50%',
-                  transform: 'translateX(50%)',
-                  zIndex: 90,
-                }}
-              >
-                <Button
-                  shape="circle"
-                  icon={<ArrowDownOutlined />}
-                  onClick={() => {
-                    isAutoScrollEnabledRef.current = true;
-                    setShowScrollButton(false);
-                    scrollToBottom(true, true);
-                  }}
-                  style={{
-                    boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
-                    border: '1px solid var(--border-color)',
-                    color: 'var(--text-secondary)',
-                    width: 40,
-                    height: 40,
-                  }}
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <div className={styles.composerAnchor}>
-            <HitlApprovalPanel
-              pendingPermission={pendingApproval}
-              prefersReducedMotion={Boolean(prefersReducedMotion)}
-              onSubmit={handleSubmitHitlDecisions}
-            />
-
-            {selectedAgentDefinition && primaryAgents.length > 0 && (
-              <div className={styles.agentManifestStrip}>
-                <div className={styles.agentManifestMain}>
-                  <span className={styles.agentManifestName}>{selectedAgentDefinition.name}</span>
-                  <span className={styles.agentManifestDescription}>
-                    {selectedAgentDefinition.description || '结构化 Agent 定义'}
-                  </span>
-                </div>
-                <div className={styles.agentManifestMeta}>
-                  <span>{selectedAgentDefinition.definition_format === 'agent_manifest_v2' ? 'Manifest v2' : 'Runtime'}</span>
-                  <span>{selectedAgentDefinition.output_schema?.format || 'plain_text'}</span>
-                  <span>{selectedAgentRequiredOutputs.length} 输出项</span>
-                  <span>{selectedAgentDefinition.few_shot_examples?.length || 0} 示例</span>
-                  <span>{selectedAgentReflectionRuleCount} 反思规则</span>
-                </div>
+      <main className={styles.chatMain} aria-label="AI 对话">
+        <div className={styles.messages}>
+          {messages.length === 0 ? (
+            <div className={styles.emptyState}>
+              <span>AI 对话</span>
+              <h1>从一个问题开始</h1>
+              <p>这里专注于对话、解释与内容生成。需要执行开发任务时，请进入 Agent 工作台。</p>
+              <div className={styles.starters}>
+                {STARTERS.map((starter) => (
+                  <button key={starter} type="button" onClick={() => void send(starter)}>
+                    {starter}
+                  </button>
+                ))}
               </div>
-            )}
-
-            <ChatInput
-              onSend={handleSend}
-              onStop={handleStopCurrentRun}
-              onClear={handleClearChat}
-              onNewChat={() => createSession()}
-              disabled={!settings.modelId && !useCloudAI}
-              loading={isLoading}
-              isStreaming={isActivelyStreaming || isAgentSessionRunning}
-              modelId={useCloudAI ? selectedCloudModel : settings.modelId}
-              agentModeAvailable={primaryAgents.length > 0}
-              routingMode={routingMode}
-              routing={routingIntent}
-              autonomyMode={autonomyMode}
-              workspaceFiles={workspaceFileNodes}
-              projectPath={effectiveProjectPath || undefined}
-              selectedMentions={explicitContextMentions}
-              onMentionsChange={setExplicitContextMentions}
-              activeFileContext={activeFileContext}
-            />
-          </div>
-        </main>
-
-        {isDesktop && (
-          <div
-            className={`${styles.splitter} ${resizingChatPane && chatPanelOpen ? styles.splitterDragging : ''} ${!chatPanelOpen ? styles.splitterCollapsed : ''}`}
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="调整聊天区和 IDE 工作区宽度"
-            onPointerDown={chatPanelOpen ? handleChatSplitterPointerDown : undefined}
-          >
-            <button
-              type="button"
-              className={styles.splitterToggleBtn}
-              onClick={() => setChatPanelOpen((o) => !o)}
-              aria-label={chatPanelOpen ? '收起左侧对话栏' : '展开左侧对话栏'}
-              title={chatPanelOpen ? '收起左侧对话栏' : '展开左侧对话栏'}
-            >
-              {chatPanelOpen ? '‹' : '›'}
-            </button>
-          </div>
-        )}
-        {isDesktop && agentIdeWorkspace}
-
-        {isDesktop && (
-          <>
-            <div
-              className={`${styles.splitter} ${resizingSidePanel && sidePanelOpen ? styles.splitterDragging : ''} ${!sidePanelOpen ? styles.splitterCollapsed : ''}`}
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="调整聊天区和工具区宽度"
-              onPointerDown={sidePanelOpen ? handleSplitterPointerDown : undefined}
-            >
-              <button
-                type="button"
-                className={styles.splitterToggleBtn}
-                onClick={() => setSidePanelOpen((o) => !o)}
-                aria-label={sidePanelOpen ? '收起右侧面板' : '展开右侧面板'}
-                title={sidePanelOpen ? '收起右侧面板' : '展开右侧面板'}
-              >
-                {sidePanelOpen ? '›' : '‹'}
-              </button>
             </div>
-            {sidePanelOpen && (
-              <div className={styles.sidePanels} style={{ flex: `0 0 ${sidePanelWidth}px` }}>
-                <AgentWorkspaceContainer
-                  activeKey={workbenchActiveTab}
-                  onActiveKeyChange={setWorkbenchActiveTab}
-                  changedFiles={agentFileSummaries.length}
-                  runContent={workbenchRunPanel}
-                  configContent={React.cloneElement(contextPanel, { embedded: true })}
-                  progressContent={workbenchProgressPanel}
-                  fileTreeContent={slimFilePanel}
-                  agentWorkspace={agentWorkspace}
-                  asyncTasks={asyncTasks}
-                  workspaceSelection={workspaceSelection}
-                  sessionId={latestAgentSessionId}
-                  onSubmitPermission={handleSubmitHitlDecisions}
-                  onOpenFile={handleOpenWorkspacePath}
-                  onRunNextAction={handleRunWorkspaceNextAction}
-                />
-              </div>
-            )}
-          </>
-        )}
-      </div>
+          ) : messages.map((item) => (
+            <ChatMessage
+              key={item.id}
+              id={item.id}
+              role={item.role}
+              content={item.content}
+              timestamp={item.timestamp}
+              isLoading={item.isLoading}
+              isStreaming={isStreaming && item.role === 'assistant' && item.isLoading}
+              knowledge_sources={item.knowledge_sources}
+              retrieval_info={item.retrieval_info}
+              onDelete={deleteMessage}
+              onEdit={(id, content) => void editMessage(id, content)}
+              onRetry={(_, content = item.content) => void send(content)}
+            />
+          ))}
+          <div ref={messageEndRef} />
+        </div>
 
-      <Drawer
-        title="对话设置"
-        placement="right"
-        width={360}
-        open={!isDesktop && contextPanelOpen}
-        onClose={() => setContextPanelOpen(false)}
-        destroyOnHidden={false}
-      >
-        {React.cloneElement(contextPanel, { mobile: true })}
-      </Drawer>
+        {error ? <div className={styles.errorBanner}>{error}</div> : null}
+        <div className={styles.composer}>
+          <ChatInput
+            onSend={(content) => void send(content)}
+            onStop={stream.stop}
+            onClear={() => void clearMessages()}
+            onNewChat={() => void useChatStore.getState().createSession('新对话')}
+            disabled={isLoading}
+            loading={isLoading}
+            isStreaming={isStreaming}
+            modelId={activeModel}
+            routingMode="chat"
+            placeholder="输入消息"
+          />
+        </div>
+      </main>
+
+      {!isMobile ? (
+        <Button
+          className={styles.settingsButton}
+          type="text"
+          icon={<SettingOutlined />}
+          onClick={() => setSettingsOpen(true)}
+          aria-label="对话设置"
+        />
+      ) : null}
 
       <ChatHistoryDrawer
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
-        sessions={sessions.map((s) => ({
-          id: s.id,
-          title: s.title,
-          created_at: s.createdAt,
-          updated_at: s.updatedAt,
-          message_count: s.messageCount,
-          metadata: s.metadata,
-          model_id: s.modelId,
+        sessions={sessions.map((session) => ({
+          id: session.id,
+          title: session.title,
+          model_id: session.modelId,
+          created_at: session.createdAt,
+          updated_at: session.updatedAt,
+          message_count: session.messageCount,
+          metadata: session.metadata,
         }))}
-        onLoadSession={(id) => {
-          loadSession(id)
-            .then(() => setHistoryOpen(false))
-            .catch((error) => {
-              const message = error instanceof Error ? error.message : '加载历史会话失败';
-              notify.error(message);
-            });
+        onLoadSession={async (sessionId) => {
+          await loadSession(sessionId);
+          setHistoryOpen(false);
         }}
-        onDeleteSession={(id) => {
-          return deleteSession(id);
-        }}
+        onDeleteSession={deleteSession}
       />
+      <MemoryManager open={memoryOpen} onClose={() => setMemoryOpen(false)} />
 
-      <MemoryManager open={memoryManagerOpen} onClose={() => setMemoryManagerOpen(false)} />
-
-      <Modal
-        open={configModalOpen}
-        onCancel={() => setConfigModalOpen(false)}
-        footer={null}
-        width={600}
+      <Drawer
+        title="对话设置"
+        placement="right"
+        width={isMobile ? '92vw' : 360}
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
       >
-        <APIKeyManager
-          onConfigChange={(config: APIKeyConfig) => {
-            setCloudAIConfig(config);
-            setSelectedCloudModel(config.model || '');
-            void loadCloudAIConfig(true);
-          }}
-          initialConfig={cloudAIConfig}
-        />
-      </Modal>
+        <div className={styles.settingsForm}>
+          <label>
+            <span>推理后端</span>
+            <Select
+              value={settings.backend}
+              onChange={(backend) => updateSettings({ backend })}
+              options={[
+                { value: 'ollama', label: 'Ollama' },
+                { value: 'huggingface', label: 'Hugging Face' },
+                { value: 'llama-cpp', label: 'llama.cpp' },
+                { value: 'cloud', label: '云端 API' },
+              ]}
+            />
+          </label>
+          <label>
+            <span>模型</span>
+            <Select
+              showSearch
+              value={settings.modelId || undefined}
+              placeholder="选择或输入模型"
+              onChange={(modelId) => updateSettings({ modelId })}
+              options={settings.modelId ? [{ value: settings.modelId, label: settings.modelId }] : []}
+            />
+          </label>
+          <label className={styles.switchRow}>
+            <span>知识库检索</span>
+            <Switch checked={settings.useKnowledge} onChange={(useKnowledge) => updateSettings({ useKnowledge })} />
+          </label>
+          <label className={styles.switchRow}>
+            <span>记忆</span>
+            <Switch checked={settings.useMemory} onChange={(useMemory) => updateSettings({ useMemory })} />
+          </label>
+          <label className={styles.switchRow}>
+            <span>使用云端模型</span>
+            <Switch
+              checked={cloudConfig.useCloudAI}
+              onChange={(useCloudAI) => setCloudConfig({ useCloudAI })}
+            />
+          </label>
+          {cloudConfig.useCloudAI ? (
+            <>
+              <label>
+                <span>云端提供商</span>
+                <Select
+                  options={providerOptions}
+                  value={cloudConfig.config?.key_id}
+                  placeholder="选择已保存的 API Key"
+                  onChange={(keyId) => {
+                    const provider = savedProviders.find((item) => (item.id || item.provider) === keyId);
+                    if (!provider) return;
+                    setCloudConfig({
+                      config: {
+                        provider: provider.provider,
+                        key_id: keyId,
+                        model: provider.default_model || provider.models?.[0] || '',
+                        base_url: provider.base_url,
+                      },
+                      selectedModel: provider.default_model || provider.models?.[0] || '',
+                    });
+                  }}
+                />
+              </label>
+              <Button onClick={() => setApiKeysOpen(true)}>管理 API Key</Button>
+            </>
+          ) : null}
+        </div>
+      </Drawer>
 
-      <QuickFileOpener
-        open={quickOpenVisible}
-        onClose={() => setQuickOpenVisible(false)}
-        nodes={workspaceTreeNodes}
-        rootPath={workspaceTreeRoot}
-        onSelectFile={handleOpenWorkspaceFile}
-        recentPaths={recentPaths}
-      />
-
+      <Drawer
+        title="API Key"
+        width={isMobile ? '96vw' : 760}
+        open={apiKeysOpen}
+        onClose={() => {
+          setApiKeysOpen(false);
+          void refreshProviders();
+        }}
+      >
+        <APIKeyManager />
+      </Drawer>
     </div>
   );
-};
-
-export default ChatPage;
+}

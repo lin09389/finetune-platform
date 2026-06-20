@@ -240,6 +240,14 @@ class AgentSessionRepository:
             ).fetchall()
         return [_row(row) or {} for row in rows]
 
+    def list_sessions(self, limit: int = 100) -> list[dict[str, Any]]:
+        with get_db_pool(self.db_path).get_readonly_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM agent_sessions ORDER BY updated_at DESC LIMIT ?",
+                (max(1, min(int(limit), 500)),),
+            ).fetchall()
+        return [_row(row) or {} for row in rows]
+
     _SESSION_UPDATABLE = {"status", "title", "project_path", "provider", "model", "metadata", "updated_at"}
 
     def update_session(self, session_id: str, **updates: Any) -> dict[str, Any]:

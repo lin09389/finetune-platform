@@ -540,14 +540,26 @@ class FileWriteRequest(BaseModel):
 def _validate_file_path_in_workspace(file_path: str, workspace_id: str | None, project_path: str | None) -> Path:
     """Resolve the file path and assert it lives inside an allowed workspace root."""
     try:
-        resolved = Path(file_path).expanduser().resolve()
+        raw_path = str(file_path or "").strip().replace("\\", "/")
+        project_root = Path(project_path).expanduser().resolve() if project_path else None
+        if raw_path == "/workspace":
+            raw_path = ""
+        elif raw_path.startswith("/workspace/"):
+            raw_path = raw_path[len("/workspace/"):]
+        elif raw_path.startswith("workspace/"):
+            raw_path = raw_path[len("workspace/"):]
+
+        candidate = Path(raw_path).expanduser()
+        if not candidate.is_absolute() and project_root is not None:
+            candidate = project_root / candidate
+        resolved = candidate.resolve()
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Invalid file path: {exc}") from exc
 
     # Build allowed roots: from project_path hint, from workspace metadata, from env
     extra_roots: set[Path] = set()
-    if project_path:
-        extra_roots.add(Path(project_path).expanduser().resolve())
+    if project_root:
+        extra_roots.add(project_root)
     if workspace_id:
         ws = workspaces.get(workspace_id)
         if ws and ws.get("local_path"):

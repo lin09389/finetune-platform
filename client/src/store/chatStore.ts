@@ -10,6 +10,7 @@ import {
   getChatSessionMessages,
   listChatSessions,
   replaceChatSessionMessages,
+  updateChatSessionTitle,
   updateChatSessionMessage,
 } from '../services/chatSessionApi';
 import type {
@@ -162,7 +163,6 @@ function messageMetadata(message: ChatMessage): Record<string, unknown> {
     ...(message.attachments ? { attachments: message.attachments } : {}),
     ...(message.experiment_config ? { experiment_config: message.experiment_config } : {}),
     ...(message.run_metrics ? { run_metrics: message.run_metrics } : {}),
-    ...(message.agent_metadata ? { agent_metadata: message.agent_metadata } : {}),
     ...(message.isEdited ? { isEdited: message.isEdited } : {}),
   };
 }
@@ -334,7 +334,6 @@ export const useChatStore = create<ChatStore>()(
 
         if (!sessionId.startsWith('local_')) {
           try {
-            const { updateChatSessionTitle } = await import('../services/chatSessionApi');
             await updateChatSessionTitle(sessionId, title);
           } catch (error) {
             console.error('更新会话标题失败：', error);
@@ -445,7 +444,6 @@ export const useChatStore = create<ChatStore>()(
       deleteMessage: async (id) => {
         const { currentSessionId, messages } = get();
         const previousMessages = messages;
-        const targetMessage = messages.find((m) => m.id === id);
 
         set((state) => ({
           messages: state.messages.filter((m) => m.id !== id),
@@ -457,12 +455,6 @@ export const useChatStore = create<ChatStore>()(
         }));
 
         if (!currentSessionId || currentSessionId.startsWith('local_')) {
-          return;
-        }
-
-        // Skip backend API call for purely local/pending placeholder messages
-        const agentPartId = targetMessage?.agent_metadata?.agent_part_id;
-        if (typeof agentPartId === 'string' && agentPartId.endsWith(':pending')) {
           return;
         }
 

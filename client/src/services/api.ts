@@ -1192,6 +1192,30 @@ export interface AgentWorkspace {
   };
   timeline: AgentSessionUiTimelineItem[];
   pending_permission?: AgentSessionUiPendingPermission | null;
+  plan?: {
+    todos: Array<{
+      id: string;
+      title: string;
+      status: 'pending' | 'in_progress' | 'completed' | 'blocked';
+      summary?: string;
+      owner_agent?: string | null;
+      source?: string;
+      linked_artifact_id?: string | null;
+      linked_task_id?: string | null;
+    }>;
+    source: string;
+    updated_at?: string | null;
+  };
+  todos?: Array<{
+    id: string;
+    title: string;
+    status: 'pending' | 'in_progress' | 'completed' | 'blocked';
+    summary?: string;
+    owner_agent?: string | null;
+    source?: string;
+    linked_artifact_id?: string | null;
+    linked_task_id?: string | null;
+  }>;
   diagnostics: AgentSessionDiagnostics & Record<string, any>;
   async_tasks: {
     tasks: AgentAsyncTask[];
@@ -1208,6 +1232,32 @@ export interface AgentWorkspace {
   execution_plan?: AgentExecutionPlan | null;
   vfs_mounts?: AgentWorkspaceMount[];
   skill_sources?: AgentWorkspaceSkillSource[];
+}
+
+export interface AgentDiagnosticsReport {
+  version: number;
+  sessionId: string | null;
+  protocolVersion: string;
+  unknownEvents: number;
+  parseFailures: number;
+  reconnects: number;
+  recoveryRequested: number;
+  recoverySucceeded: number;
+  recoveryFailed: number;
+  attentionByKind: Record<string, number>;
+  updatedAt: string;
+}
+
+export interface AgentDiagnosticsSummary {
+  sessions: number;
+  unknown_events: number;
+  parse_failures: number;
+  reconnects: number;
+  recovery_requested: number;
+  recovery_succeeded: number;
+  recovery_failed: number;
+  recovery_success_rate: number | null;
+  updated_at?: string | null;
 }
 
 export interface AgentSkillManifest {
@@ -1410,6 +1460,23 @@ export const getAgentSessionOverview = async (sessionId: string): Promise<AgentS
 
 export const getAgentWorkspace = async (sessionId: string): Promise<AgentWorkspace> => {
   const response = await apiClient.get(`/agent-sessions/${sessionId}/workspace`);
+  return response.data;
+};
+
+export const listAgentSessions = async (limit = 100): Promise<AgentSession[]> => {
+  const response = await apiClient.get('/agent-sessions', { params: { limit } });
+  return response.data;
+};
+
+export const reportAgentDiagnostics = async (
+  reports: AgentDiagnosticsReport[],
+): Promise<{ accepted: number }> => {
+  const response = await apiClient.post('/agent-sessions/diagnostics/batch', { reports });
+  return response.data;
+};
+
+export const getAgentDiagnosticsSummary = async (): Promise<AgentDiagnosticsSummary> => {
+  const response = await apiClient.get('/agent-sessions/diagnostics/summary');
   return response.data;
 };
 
@@ -2828,7 +2895,18 @@ export const startHealthCheck = (
     isClosed = true;
     if (reconnectTimer) clearTimeout(reconnectTimer);
     stopHttpFallback();
-    if (ws) ws.close();
+    if (ws) {
+      const currentSocket = ws;
+      ws = null;
+      currentSocket.onmessage = null;
+      currentSocket.onerror = null;
+      currentSocket.onclose = null;
+      if (currentSocket.readyState === WebSocket.OPEN) {
+        currentSocket.close();
+      } else if (currentSocket.readyState === WebSocket.CONNECTING) {
+        currentSocket.onopen = () => currentSocket.close();
+      }
+    }
   };
 };
 

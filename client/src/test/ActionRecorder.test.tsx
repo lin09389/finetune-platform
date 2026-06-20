@@ -202,6 +202,7 @@ describe('ActionRecorder', () => {
   });
 
   it('should handle API errors gracefully', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     mockApiGet.mockRejectedValueOnce(new Error('Network error'));
 
     render(<ActionRecorder />);
@@ -209,6 +210,8 @@ describe('ActionRecorder', () => {
     await waitFor(() => {
       expect(mockApiGet).toHaveBeenCalled();
     });
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 
   it('should display playback speed slider', async () => {

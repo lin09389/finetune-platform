@@ -102,3 +102,6 @@ Object.defineProperty(window, 'localStorage', { value: localStorageMock });
 // Mock URL.createObjectURL
 global.URL.createObjectURL = vi.fn(() => 'blob:mock-url');
 global.URL.revokeObjectURL = vi.fn();
+
+// Download helpers click temporary anchors; jsdom does not implement document navigation.
+window.HTMLAnchorElement.prototype.click = vi.fn();

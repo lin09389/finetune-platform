@@ -102,7 +102,7 @@ def test_frontend_api_integration():
 
 
 def test_chat_page_integration():
-    """?????????"""
+    """The production chat page supports local/cloud chat without Agent orchestration."""
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     candidate_paths = [
         os.path.join(repo_root, "client", "src", "pages", "ChatNew.tsx"),
@@ -112,11 +112,11 @@ def test_chat_page_integration():
     existing_paths = [path for path in candidate_paths if os.path.exists(path)]
     assert existing_paths
 
-    checks = ["handleSend", "useCloudAI", "sendCloudMessage"]
+    checks = ["useChatStream", "sendMessage", "sendCloudMessage", 'routingMode="chat"']
     for chat_page_path in existing_paths:
         with open(chat_page_path, encoding="utf-8") as f:
             content = f.read()
-        if all(pattern in content for pattern in checks):
+        if all(pattern in content for pattern in checks) and "createAgentSession" not in content:
             return
 
     assert False, "chat page integration markers not found"

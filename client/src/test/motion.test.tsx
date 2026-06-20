@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { GlassHoverCard, InteractiveButton, SmoothLoader } from '../components/motion';
 
@@ -22,7 +22,7 @@ describe('Motion Components', () => {
     it('handles click events', () => {
       const handleClick = vi.fn();
       render(<InteractiveButton onClick={handleClick}>Click Me</InteractiveButton>);
-      screen.getByText('Click Me').click();
+      fireEvent.click(screen.getByText('Click Me'));
       expect(handleClick).toHaveBeenCalledTimes(1);
     });
 
@@ -33,7 +33,7 @@ describe('Motion Components', () => {
           Disabled
         </InteractiveButton>
       );
-      screen.getByText('Disabled').click();
+      fireEvent.click(screen.getByText('Disabled'));
       expect(handleClick).not.toHaveBeenCalled();
     });
   });

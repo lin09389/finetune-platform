@@ -122,6 +122,24 @@ class AgentHitlDecisionRequest(BaseModel):
     decisions: list[AgentHitlDecision]
 
 
+class AgentFrontendDiagnosticsReport(BaseModel):
+    version: int = 1
+    sessionId: str
+    protocolVersion: str = "agent.session.v1"
+    unknownEvents: int = Field(default=0, ge=0)
+    parseFailures: int = Field(default=0, ge=0)
+    reconnects: int = Field(default=0, ge=0)
+    recoveryRequested: int = Field(default=0, ge=0)
+    recoverySucceeded: int = Field(default=0, ge=0)
+    recoveryFailed: int = Field(default=0, ge=0)
+    attentionByKind: dict[str, int] = Field(default_factory=dict)
+    updatedAt: str | None = None
+
+
+class AgentFrontendDiagnosticsBatch(BaseModel):
+    reports: list[AgentFrontendDiagnosticsReport] = Field(default_factory=list, max_length=100)
+
+
 class AgentSessionResponse(BaseModel):
     id: str
     chat_session_id: str | None = None

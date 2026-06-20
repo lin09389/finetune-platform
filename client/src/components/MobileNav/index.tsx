@@ -15,6 +15,7 @@ import {
   LineChartOutlined,
   MenuOutlined,
   MessageOutlined,
+  RobotOutlined,
   PlayCircleOutlined,
   SettingOutlined,
   ThunderboltOutlined,
@@ -38,6 +39,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘', category: 'main' },
   { key: '/training', icon: <PlayCircleOutlined />, label: '训练', category: 'main' },
+  { key: '/agent', icon: <RobotOutlined />, label: 'Agent', category: 'main' },
   { key: '/chat', icon: <MessageOutlined />, label: '对话', category: 'main' },
   { key: '/device', icon: <DesktopOutlined />, label: '设备信息', category: 'secondary' },
   { key: '/models', icon: <FolderOutlined />, label: '模型管理', category: 'secondary' },
@@ -57,8 +59,9 @@ const navItems: NavItem[] = [
 
 const bottomNavItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '首页' },
-  { key: '/training', icon: <PlayCircleOutlined />, label: '训练' },
+  { key: '/agent', icon: <RobotOutlined />, label: 'Agent' },
   { key: '/chat', icon: <MessageOutlined />, label: '对话' },
+  { key: '/training', icon: <PlayCircleOutlined />, label: '训练' },
   { key: '/settings', icon: <SettingOutlined />, label: '设置' },
 ];
 
