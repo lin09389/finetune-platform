@@ -2,10 +2,8 @@ import asyncio
 import json
 import pytest
 from pathlib import Path
-import aiofiles
 from fastapi import FastAPI
 from httpx import AsyncClient, ASGITransport
-from datetime import datetime
 
 from api import evaluation
 
@@ -34,8 +32,7 @@ async def test_sse_stream_receives_updates_incrementally(test_app, tmp_path: Pat
         "status": "running",
         "cases": []
     }
-    async with aiofiles.open(path, "w", encoding="utf-8") as f:
-        await f.write(json.dumps(payload, ensure_ascii=False))
+    await evaluation._write_run_payload(run_id, payload)
         
     async def simulate_background_flush():
         await asyncio.sleep(0.5)
@@ -44,8 +41,7 @@ async def test_sse_stream_receives_updates_incrementally(test_app, tmp_path: Pat
             if i == 3:
                 payload["status"] = "completed"
             async with evaluation._get_run_lock(run_id):
-                async with aiofiles.open(path, "w", encoding="utf-8") as f:
-                    await f.write(json.dumps(payload, ensure_ascii=False))
+                await evaluation._write_run_payload(run_id, payload)
             if run_id in evaluation._run_events:
                 evaluation._run_events[run_id].set()
             await asyncio.sleep(0.5)
@@ -93,13 +89,16 @@ async def test_standalone_judge_workflow(test_app, tmp_path: Path, monkeypatch):
             }
         ]
     }
-    async with aiofiles.open(path, "w", encoding="utf-8") as f:
-        await f.write(json.dumps(payload, ensure_ascii=False))
+    await evaluation._write_run_payload(run_id, payload)
         
     async def mock_run_model_inference_batch_with_retry(*args, **kwargs):
-        # Fake returning good for all prompts
+        # Select the fine-tuned answer in the deterministic blind A/B ordering.
         prompts = kwargs.get("prompts")
-        return ["good"] * len(prompts)
+        import hashlib
+
+        swapped = hashlib.sha256("Hello".encode("utf-8")).digest()[0] % 2 == 1
+        winner = "a" if swapped else "b"
+        return [json.dumps({"winner": winner, "reason": "better"})] * len(prompts)
         
     monkeypatch.setattr(evaluation, "run_model_inference_batch_with_retry", mock_run_model_inference_batch_with_retry)
         
@@ -115,6 +114,7 @@ async def test_standalone_judge_workflow(test_app, tmp_path: Path, monkeypatch):
             if data["status"] == "completed":
                 assert data["cases"][0]["human_score"]["score"] == "good"
                 assert data["cases"][0]["human_score"]["notes"] == "LLM Auto Evaluated"
+                assert data["cases"][0]["human_score"]["source"] == "llm_judge"
                 break
             await asyncio.sleep(0.1)
         else:

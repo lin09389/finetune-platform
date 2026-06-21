@@ -85,7 +85,6 @@ async def test_chat_stream_ttft_latency(monkeypatch):
 
     from api.inference.routes import chat_stream
     from api.types import ChatRequest, Message, InferenceOptions
-    from core.config import get_settings
 
     # 直接调用路由函数，绕过 httpx.ASGITransport 的缓冲问题
     request = ChatRequest(

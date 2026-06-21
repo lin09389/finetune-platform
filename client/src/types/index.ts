@@ -105,7 +105,14 @@ export interface TrainingConfig {
 export interface EvaluationRun {
   run_id: string;
   scenario: AppTaskGoal;
-  status: string;
+  status:
+    | 'pending'
+    | 'running'
+    | 'recovering'
+    | 'interrupted'
+    | 'completed'
+    | 'completed_with_warnings'
+    | 'failed';
   created_at: string;
   base_model: string;
   finetuned_model?: string;
@@ -115,8 +122,10 @@ export interface EvaluationRun {
   system_prompt?: string;
   adapter_merge?: {
     merged_model_path?: string;
+    base_model_path?: string;
     adapter_path?: string;
     backend?: string;
+    mode?: string;
   } | null;
   test_dataset_id?: string;
   base_outputs: unknown[];
@@ -136,6 +145,14 @@ export interface EvaluationRun {
     max_cases?: number;
     auto_merge_adapter?: boolean;
   };
+  error?: string | null;
+  recovery_history?: Array<{
+    scheduled_at: string;
+    reason: string;
+  }>;
+  retry_history?: Array<{
+    requested_at: string;
+  }>;
 }
 
 export interface DeploymentPackage {
@@ -143,7 +160,7 @@ export interface DeploymentPackage {
   training_task_id: string;
   created_at: string;
   base_model: string;
-  adapter_path: string;
+  adapter_path?: string;
   merged_model_path?: string;
   evaluation_run_id?: string;
   evaluation_gate?: {
@@ -151,8 +168,30 @@ export interface DeploymentPackage {
     status?: string;
     scenario?: string;
     metrics?: Record<string, number>;
+    artifact_digest?: string;
+    case_count?: number;
+    data_provenance?: {
+      source?: string;
+      isolated_from_training?: boolean;
+    };
     passed?: boolean;
   } | null;
+  status?: 'draft' | 'active' | 'inactive';
+  activated_at?: string | null;
+  deactivated_at?: string | null;
+  health?: {
+    status?: 'not_checked' | 'healthy' | 'failed';
+    checked_at?: string | null;
+    detail?: string | null;
+    artifact_digest?: string | null;
+  };
+  audit?: Array<Record<string, unknown>>;
+  inference_target?: {
+    model_alias?: string;
+    model_path?: string;
+    backend?: string;
+    lora_adapter?: string | null;
+  };
   ollama_modelfile?: string;
   openai_compatible_examples: Record<string, string>;
   env_template: Record<string, string>;
@@ -206,6 +245,9 @@ export interface TrainingRecord {
   deploymentPackageId?: string;
   configHash?: string;
   datasetFingerprint?: string;
+  evaluationSnapshotPath?: string;
+  evaluationSnapshotHash?: string;
+  artifactDigest?: string;
   method: string;
   status: 'running' | 'completed' | 'failed' | 'stopped';
   startTime: string;

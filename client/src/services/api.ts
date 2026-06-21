@@ -2279,8 +2279,19 @@ export const inference = async (config: {
   maxTokens?: number;
   temperature?: number;
   backend?: string;
+  loraAdapter?: string;
 }) => {
-  const response = await apiClient.post('/inference/generate', config);
+  const response = await apiClient.post('/inference/generate', {
+    model: config.modelId,
+    prompt: config.prompt,
+    lora_adapter: config.loraAdapter || undefined,
+    options: {
+      max_tokens: config.maxTokens,
+      temperature: config.temperature,
+      backend: config.backend,
+      lora_adapter: config.loraAdapter || undefined,
+    },
+  });
   return response.data;
 };
 
@@ -2291,6 +2302,7 @@ export const streamInference = async (
     maxTokens?: number;
     temperature?: number;
     backend?: string;
+    loraAdapter?: string;
   },
   onChunk: (text: string) => void,
   onStats?: (stats: any) => void,
@@ -2338,9 +2350,12 @@ export const streamInference = async (
         model: config.modelId,
         prompt: config.prompt,
         backend: config.backend,
+        lora_adapter: config.loraAdapter || undefined,
         options: {
           max_tokens: config.maxTokens,
           temperature: config.temperature,
+          backend: config.backend,
+          lora_adapter: config.loraAdapter || undefined,
         },
       }),
       signal: controller.signal,
@@ -2493,12 +2508,22 @@ export const streamInference = async (
 export const chatInference = async (
   modelId: string,
   messages: Array<{ role: string; content: string }>,
-  options?: { maxTokens?: number; temperature?: number },
+  options?: {
+    maxTokens?: number;
+    temperature?: number;
+    backend?: string;
+    loraAdapter?: string;
+  },
 ) => {
   const response = await apiClient.post('/inference/chat', {
     model_id: modelId,
     messages,
-    ...options,
+    options: {
+      max_tokens: options?.maxTokens,
+      temperature: options?.temperature,
+      backend: options?.backend,
+      lora_adapter: options?.loraAdapter,
+    },
   });
   return response.data;
 };
@@ -2908,6 +2933,31 @@ export const startHealthCheck = (
       }
     }
   };
+};
+
+export const retryEvaluationRun = async (runId: string) => {
+  const response = await apiClient.post(`/evaluation/runs/${runId}/retry`);
+  return response.data;
+};
+
+export const checkDeploymentHealth = async (packageId: string) => {
+  const response = await apiClient.post(`/deployment/packages/${packageId}/health`);
+  return response.data;
+};
+
+export const activateDeploymentPackage = async (packageId: string) => {
+  const response = await apiClient.post(`/deployment/packages/${packageId}/activate`);
+  return response.data;
+};
+
+export const deactivateDeploymentPackage = async (packageId: string) => {
+  const response = await apiClient.post(`/deployment/packages/${packageId}/deactivate`);
+  return response.data;
+};
+
+export const rollbackDeploymentPackage = async (packageId: string) => {
+  const response = await apiClient.post(`/deployment/packages/${packageId}/rollback`);
+  return response.data;
 };
 
 // ==================== CUA API ====================

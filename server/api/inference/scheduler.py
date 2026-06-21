@@ -86,6 +86,7 @@ class ModelScheduler:
         self._models: dict[str, ModelInfo] = {}
         self._loaded_models: dict[str, Any] = {}
         self._load_lock = asyncio.Lock()
+        self._release_cond = asyncio.Condition()
         self._request_queue: list[LoadRequest] = []
 
         self._default_backend = BackendType.HUGGINGFACE.value
@@ -134,6 +135,23 @@ class ModelScheduler:
 
         return model_name
 
+    async def _wait_until_released(self, model_name: str, timeout: float = 120.0) -> bool:
+        """Wait for active leases without ever invalidating an in-flight request."""
+        deadline = asyncio.get_running_loop().time() + timeout
+        while True:
+            info = self._models.get(model_name)
+            if info is None or info.ref_count == 0:
+                return True
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                logger.warning("等待模型租约释放超时: %s", model_name)
+                return False
+            async with self._release_cond:
+                try:
+                    await asyncio.wait_for(self._release_cond.wait(), timeout=remaining)
+                except asyncio.TimeoutError:
+                    return False
+
     async def _ensure_model_loaded(
         self,
         model_name: str,
@@ -146,9 +164,43 @@ class ModelScheduler:
 
         existing = self._models.get(model_name)
         if existing and model_name in self._loaded_models and existing.status == ModelStatus.LOADED:
-            self._stats["cache_hits"] += 1
-            existing.last_used = now
-            return True
+            loaded_policy = existing.metadata.get("runtime_policy") or {}
+            loaded_adapter = loaded_policy.get("lora_adapter")
+            requested_adapter = kwargs.get("lora_adapter")
+            loaded_model_path = loaded_policy.get("model_path") or existing.path
+            if (
+                loaded_adapter == requested_adapter
+                and loaded_model_path == model_path
+                and existing.backend == model_backend
+            ):
+                self._stats["cache_hits"] += 1
+                existing.last_used = now
+                return True
+
+            if existing.ref_count > 0:
+                logger.info(
+                    "模型运行时变体冲突，等待当前租约释放: %s "
+                    "(loaded_path=%s, requested_path=%s, loaded_adapter=%s, requested_adapter=%s)",
+                    model_name,
+                    loaded_model_path,
+                    model_path,
+                    loaded_adapter,
+                    requested_adapter,
+                )
+                if not await self._wait_until_released(model_name):
+                    return False
+
+            logger.info(
+                "模型运行时变体变化，重新加载: %s "
+                "(loaded_path=%s, requested_path=%s, loaded_adapter=%s, requested_adapter=%s)",
+                model_name,
+                loaded_model_path,
+                model_path,
+                loaded_adapter,
+                requested_adapter,
+            )
+            if not await self._unload_model_locked(model_name, force=True):
+                return False
 
         self._stats["cache_misses"] += 1
 
@@ -157,7 +209,10 @@ class ModelScheduler:
 
         current_backend_model = self._get_loaded_model_for_backend(model_backend)
         if current_backend_model and current_backend_model != model_name:
-            await self._unload_model_locked(current_backend_model, force=True)
+            if not await self._wait_until_released(current_backend_model):
+                return False
+            if not await self._unload_model_locked(current_backend_model, force=False):
+                return False
 
         model_info = existing or ModelInfo(
             name=model_name,
@@ -364,6 +419,8 @@ class ModelScheduler:
                 self._stats["active_leases"] -= 1
 
         model_info.last_used = datetime.now()
+        async with self._release_cond:
+            self._release_cond.notify_all()
 
         return True
 
@@ -550,11 +607,9 @@ class ModelScheduler:
                     return False
 
             elif backend_type == BackendType.LLAMACPP.value:
-                try:
-                    import llama_cpp
-                    return True
-                except ImportError:
-                    return False
+                import importlib.util
+
+                return importlib.util.find_spec("llama_cpp") is not None
 
             elif backend_type == BackendType.CLOUD.value:
                 # 云端后端总是可用的，因为 API Key 可以在运行时设置

@@ -500,12 +500,12 @@ describe('GA smoke pages', () => {
       merged_model_path: 'outputs/train-1/merged',
       ollama_modelfile: 'FROM base-model',
       openai_compatible_examples: {
-        curl: 'curl http://127.0.0.1:8000/v1/chat/completions',
+        curl: 'curl http://127.0.0.1:8010/inference/generate',
         Python: 'print("ok")',
         TypeScript: 'console.log("ok")',
       },
       env_template: {
-        OPENAI_BASE_URL: 'http://127.0.0.1:8000/v1',
+        FINETUNE_API_BASE_URL: 'http://127.0.0.1:8010',
         MODEL_NAME: 'qa-assistant',
       },
     });
@@ -674,14 +674,14 @@ describe('GA smoke pages', () => {
       ['/deployment?training_task_id=train-1&base_model=base-model&adapter_path=outputs/train-1/adapter&model_alias=qa-assistant'],
     );
 
-    expect(screen.getByText('部署接入台')).toBeInTheDocument();
-    expect(screen.getAllByText('生成部署包').length).toBeGreaterThan(0);
+    expect(screen.getByText('发布控制台')).toBeInTheDocument();
+    expect(screen.getAllByText('创建发布草稿').length).toBeGreaterThan(0);
     await waitFor(() => {
       expect(screen.getByDisplayValue('train-1')).toBeInTheDocument();
       expect(screen.getByDisplayValue('base-model')).toBeInTheDocument();
     });
     await waitFor(() => {
-      expect(screen.getByText('最近部署包')).toBeInTheDocument();
+      expect(screen.getByText('版本列表')).toBeInTheDocument();
       expect(screen.getByText('qa-assistant')).toBeInTheDocument();
     });
   });

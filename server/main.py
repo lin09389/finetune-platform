@@ -169,6 +169,15 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("SQLite storage initialized, JSON data migration skipped on startup")
 
+    try:
+        from api.evaluation import recover_evaluation_runs_after_restart
+
+        recovered_evaluations = await recover_evaluation_runs_after_restart()
+        if recovered_evaluations.get("scheduled") or recovered_evaluations.get("failed"):
+            logger.info("Evaluation restart recovery complete: %s", recovered_evaluations)
+    except Exception as e:
+        logger.warning(f"Evaluation restart recovery failed: {e}")
+
     logger.info(f"Models directory: {settings.models_dir_resolved}")
     logger.info(f"Datasets directory: {settings.datasets_dir_resolved}")
     logger.info(f"Outputs directory: {settings.outputs_dir_resolved}")

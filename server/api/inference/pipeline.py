@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from core.batching import BatchRequest, BatchScheduler, DynamicBatcher
+from core.batching import BatchRequest, BatchScheduler
 
 
 class LocalInferencePipeline:
