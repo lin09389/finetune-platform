@@ -17,6 +17,11 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src')
     }
   },
+  optimizeDeps: {
+    // Only crawl the application entry. Generated Storybook output may live
+    // beside it and must not participate in the development dependency scan.
+    entries: ['index.html']
+  },
   build: {
     cssCodeSplit: true,
     chunkSizeWarningLimit: 1400,

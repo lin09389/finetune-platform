@@ -27,15 +27,40 @@ export default function AgentTaskComposer({
   const [agentId, setAgentId] = useState('build');
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const isRunning = Boolean(session && ['running', 'verifying', 'repairing'].includes(session.status));
+  const draftKey = `finetune.agent.draft.v1:${session?.id || 'new'}`;
 
   useEffect(() => {
     if (session?.agent_id) setAgentId(session.agent_id);
   }, [session?.agent_id]);
 
+  useEffect(() => {
+    setDraft(sessionStorage.getItem(draftKey) || '');
+  }, [draftKey]);
+
+  useEffect(() => {
+    if (draft) sessionStorage.setItem(draftKey, draft);
+    else sessionStorage.removeItem(draftKey);
+  }, [draft, draftKey]);
+
+  useEffect(() => {
+    const focusComposer = (event: KeyboardEvent) => {
+      const target = event.target;
+      const isEditing = target instanceof HTMLElement
+        && target.matches('input, textarea, [contenteditable="true"]');
+      if ((event.key === '/' && !isEditing) || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k')) {
+        event.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', focusComposer);
+    return () => window.removeEventListener('keydown', focusComposer);
+  }, []);
+
   const submit = async () => {
     if (!draft.trim() || busy) return;
     const content = draft;
     setDraft('');
+    sessionStorage.removeItem(draftKey);
     try {
       await onSubmit(content, agentId);
     } catch {

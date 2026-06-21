@@ -21,6 +21,11 @@
   margin-right: auto;
 }
 
+.toolbar :global(.ant-tag) {
+  margin-inline-end: 0;
+  white-space: nowrap;
+}
+
 .toolbar :global(.ant-select-selector),
 .toolbar :global(.ant-select-arrow) {
   color: #e5e5e5 !important;

@@ -6,10 +6,12 @@ import {
   FolderOpenOutlined,
   NodeIndexOutlined,
   CodeOutlined,
+  ReloadOutlined,
+  SaveOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
-import { Button, Empty, Input, Spin, Tag, message } from 'antd';
-import { type ReactNode, useEffect, useState } from 'react';
+import { Button, Empty, Input, Modal, Progress, Spin, Tag, message } from 'antd';
+import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import {
   readWorkspaceFile,
   writeWorkspaceFile,
@@ -56,10 +58,64 @@ export default function AgentWorkspaceView({
   const [fileLoading, setFileLoading] = useState(false);
   const [fileSaving, setFileSaving] = useState(false);
   const projectPath = workspace?.session.project_path;
+  const isDirty = Boolean(selectedFile && fileContent !== savedContent);
+
+  const saveFile = useCallback(async () => {
+    if (!selectedFile || !projectPath || !isDirty || fileSaving) return;
+    setFileSaving(true);
+    try {
+      await writeWorkspaceFile({
+        file_path: selectedFile,
+        content: fileContent,
+        project_path: projectPath,
+      });
+      setSavedContent(fileContent);
+      message.success('文件已保存');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '文件保存失败');
+    } finally {
+      setFileSaving(false);
+    }
+  }, [fileContent, fileSaving, isDirty, projectPath, selectedFile]);
+
+  const selectFile = useCallback((path: string) => {
+    if (!isDirty || path === selectedFile) {
+      setSelectedFile(path);
+      return;
+    }
+    Modal.confirm({
+      title: '放弃未保存的修改？',
+      content: `切换到 ${path} 会丢失当前编辑内容。`,
+      okText: '放弃并切换',
+      okButtonProps: { danger: true },
+      cancelText: '继续编辑',
+      onOk: () => setSelectedFile(path),
+    });
+  }, [isDirty, selectedFile]);
 
   useEffect(() => {
-    if (requestedFilePath) setSelectedFile(requestedFilePath);
-  }, [requestedFilePath]);
+    if (requestedFilePath) selectFile(requestedFilePath);
+  }, [requestedFilePath, selectFile]);
+
+  useEffect(() => {
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isDirty) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    const saveShortcut = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's' && isDirty) {
+        event.preventDefault();
+        void saveFile();
+      }
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    window.addEventListener('keydown', saveShortcut);
+    return () => {
+      window.removeEventListener('beforeunload', warnBeforeUnload);
+      window.removeEventListener('keydown', saveShortcut);
+    };
+  }, [isDirty, saveFile]);
 
   useEffect(() => {
     if (!selectedFile || !projectPath) {
@@ -102,7 +158,7 @@ export default function AgentWorkspaceView({
                   key={file.path}
                   type="button"
                   className={`${styles.fileRow} ${selectedFile === file.path ? styles.fileRowActive : ''}`}
-                  onClick={() => setSelectedFile(file.path)}
+                  onClick={() => selectFile(file.path)}
                 >
                   <FileTextOutlined />
                   <span><strong>{file.path}</strong><small>{file.summary || file.status}</small></span>
@@ -114,29 +170,27 @@ export default function AgentWorkspaceView({
               {!selectedFile ? <Empty description="选择文件以预览和编辑" /> : fileLoading ? <Spin /> : (
                 <>
                   <header>
-                    <strong>{selectedFile}</strong>
-                    <Button
-                      size="small"
-                      type="primary"
-                      aria-label="保存文件"
-                      disabled={fileContent === savedContent || fileSaving}
-                      loading={fileSaving}
-                      onClick={() => {
-                        setFileSaving(true);
-                        void writeWorkspaceFile({
-                          file_path: selectedFile,
-                          content: fileContent,
-                          project_path: projectPath,
-                        }).then(() => {
-                          setSavedContent(fileContent);
-                          message.success('文件已保存');
-                        }).catch((error) => {
-                          message.error(error instanceof Error ? error.message : '文件保存失败');
-                        }).finally(() => setFileSaving(false));
-                      }}
-                    >
-                      保存
-                    </Button>
+                    <strong>{selectedFile}{isDirty ? ' · 未保存' : ''}</strong>
+                    <div className={styles.fileEditorActions}>
+                      <Button
+                        size="small"
+                        icon={<ReloadOutlined />}
+                        aria-label="还原文件"
+                        disabled={!isDirty || fileSaving}
+                        onClick={() => setFileContent(savedContent)}
+                      />
+                      <Button
+                        size="small"
+                        type="primary"
+                        icon={<SaveOutlined />}
+                        aria-label="保存文件"
+                        disabled={!isDirty || fileSaving}
+                        loading={fileSaving}
+                        onClick={() => void saveFile()}
+                      >
+                        保存
+                      </Button>
+                    </div>
                   </header>
                   <Input.TextArea
                     value={fileContent}
@@ -174,12 +228,24 @@ export default function AgentWorkspaceView({
 
   if (tab === 'plan') {
     const nodes = workspace.execution_plan?.nodes || [];
+    const completed = nodes.filter((node) => node.status === 'completed').length;
+    const blocked = nodes.filter((node) => node.status === 'blocked' || node.status === 'failed').length;
+    const progress = nodes.length ? Math.round((completed / nodes.length) * 100) : 0;
     return (
       <section className={styles.workspacePanel} aria-label="执行计划">
         <div className={styles.panelHeader}>执行计划 <span>{workspace.execution_plan?.status || '未规划'}</span></div>
         {nodes.length === 0 ? <Empty description="暂无执行计划" /> : (
-          <div className={styles.planList}>
-            {nodes.map((node, index) => (
+          <>
+            <div className={styles.planSummary}>
+              <Progress
+                percent={progress}
+                size="small"
+                status={blocked ? 'exception' : progress === 100 ? 'success' : 'active'}
+              />
+              <span>{completed} 已完成 · {nodes.length - completed - blocked} 进行中 · {blocked} 阻塞</span>
+            </div>
+            <div className={styles.planList}>
+              {nodes.map((node, index) => (
               <div key={node.id} className={styles.planNode}>
                 <span className={styles.planIndex}>{index + 1}</span>
                 <div className={styles.planNodeBody}>
@@ -200,8 +266,9 @@ export default function AgentWorkspaceView({
                   </Button>
                 ) : null}
               </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </>
         )}
       </section>
     );

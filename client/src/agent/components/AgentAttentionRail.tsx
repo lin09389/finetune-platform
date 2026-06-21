@@ -5,7 +5,8 @@ import {
   ReloadOutlined,
   UndoOutlined,
 } from '@ant-design/icons';
-import { Button, Tag } from 'antd';
+import { Button, Popconfirm, Tag } from 'antd';
+import { useMemo, useState } from 'react';
 import type {
   AgentExecutionPlanNode,
   AgentHitlDecision,
@@ -21,7 +22,7 @@ interface AgentAttentionRailProps {
   workspace: AgentWorkspace | null;
   onClearError: () => void;
   onRefresh: () => void;
-  onDecidePermission: (partId: string, decisions: AgentHitlDecision[]) => void;
+  onDecidePermission: (partId: string, decisions: AgentHitlDecision[]) => Promise<unknown> | void;
   onRecoverNode: (node: AgentExecutionPlanNode) => void;
   onRestartSubagent: (agentName: string, description: string) => void;
   embedded?: boolean;
@@ -52,6 +53,11 @@ export default function AgentAttentionRail({
   embedded = false,
 }: AgentAttentionRailProps) {
   const items = selectAttentionItems(state);
+  const [batchApproving, setBatchApproving] = useState(false);
+  const approvable = useMemo(() => items.flatMap((item) => {
+    const action = item.actions.find((candidate) => candidate.id === 'approve');
+    return action ? [action] : [];
+  }), [items]);
 
   const runAction = (action: AgentAttentionAction) => {
     if (action.id === 'refresh') {
@@ -71,7 +77,7 @@ export default function AgentAttentionRail({
             ? workspace.pending_permission.actions.length
             : 1),
       );
-      onDecidePermission(
+      return onDecidePermission(
         partId,
         Array.from({ length: count }, () => (
           action.id === 'approve'
@@ -79,7 +85,6 @@ export default function AgentAttentionRail({
             : { type: 'reject' as const, message: 'Rejected from Agent Workbench' }
         )),
       );
-      return;
     }
     if (action.id === 'recover') {
       const nodeId = String(action.payload?.nodeId || '');
@@ -104,6 +109,25 @@ export default function AgentAttentionRail({
         <BellOutlined />
         <span>Attention Center</span>
         <span className={styles.attentionCount}>{items.length}</span>
+        {approvable.length > 1 ? (
+          <Popconfirm
+            title={`批准 ${approvable.length} 项待处理权限？`}
+            okText="全部批准"
+            cancelText="取消"
+            onConfirm={async () => {
+              setBatchApproving(true);
+              try {
+                for (const action of approvable) {
+                  await Promise.resolve(runAction(action));
+                }
+              } finally {
+                setBatchApproving(false);
+              }
+            }}
+          >
+            <Button size="small" type="link" loading={batchApproving}>全部批准</Button>
+          </Popconfirm>
+        ) : null}
       </div>
       <div className={styles.attentionBody}>
         {items.map((item) => (

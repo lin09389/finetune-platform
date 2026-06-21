@@ -34,6 +34,7 @@ import type { AgentTransport } from '../transport/agentTransport';
 import { routeAgentNextAction } from '../commands/nextActionRouting';
 
 const AgentTerminalPanel = lazy(() => import('../components/AgentTerminalPanel'));
+const ACTIVE_TAB_KEY = 'finetune.agent.active-tab.v1';
 
 export interface AgentWorkbenchPageProps {
   transport?: AgentTransport;
@@ -45,7 +46,10 @@ export default function AgentWorkbenchPage({
   persistence,
 }: AgentWorkbenchPageProps = {}) {
   const { state, actions } = useAgentWorkbench(transport, persistence);
-  const [activeTab, setActiveTab] = useState<AgentWorkspaceTab>('activity');
+  const [activeTab, setActiveTab] = useState<AgentWorkspaceTab>(() => {
+    const stored = typeof sessionStorage === 'undefined' ? null : sessionStorage.getItem(ACTIVE_TAB_KEY);
+    return workspaceTabs.some((tab) => tab.key === stored) ? stored as AgentWorkspaceTab : 'activity';
+  });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [subagentOpen, setSubagentOpen] = useState(false);
   const [requestedFilePath, setRequestedFilePath] = useState<string | null>(null);
@@ -71,6 +75,23 @@ export default function AgentWorkbenchPage({
   useEffect(() => {
     persistAgentWorkbenchSettings(settings);
   }, [settings]);
+
+  useEffect(() => {
+    sessionStorage.setItem(ACTIVE_TAB_KEY, activeTab);
+  }, [activeTab]);
+
+  useEffect(() => {
+    const switchWorkspaceTab = (event: KeyboardEvent) => {
+      if (!event.altKey || event.ctrlKey || event.metaKey) return;
+      const index = Number(event.key) - 1;
+      const tab = workspaceTabs[index];
+      if (!tab) return;
+      event.preventDefault();
+      setActiveTab(tab.key);
+    };
+    window.addEventListener('keydown', switchWorkspaceTab);
+    return () => window.removeEventListener('keydown', switchWorkspaceTab);
+  }, []);
 
   const decidePermission = (partId: string, decisions: AgentHitlDecision[]) => {
     void actions.decidePermission(partId, decisions);
@@ -219,6 +240,7 @@ export default function AgentWorkbenchPage({
               type="button"
               className={activeTab === tab.key ? styles.activeTab : undefined}
               aria-current={activeTab === tab.key ? 'page' : undefined}
+              aria-label={`${tab.label}面板`}
               onClick={() => setActiveTab(tab.key)}
             >
               {tab.icon}

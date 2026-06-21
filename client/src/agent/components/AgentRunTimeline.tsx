@@ -8,9 +8,10 @@ import {
   SafetyCertificateOutlined,
   ToolOutlined,
 } from '@ant-design/icons';
-import { Empty } from 'antd';
+import { Empty, Input, Segmented, Switch } from 'antd';
 import ReactMarkdown from 'react-markdown';
 import { Virtuoso } from 'react-virtuoso';
+import { useDeferredValue, useMemo, useState } from 'react';
 import type { AgentSessionUiTimelineItem } from '../../services/api';
 import styles from '../workbench/AgentWorkbench.module.css';
 
@@ -45,6 +46,26 @@ interface AgentRunTimelineProps {
 }
 
 export default function AgentRunTimeline({ timeline }: AgentRunTimelineProps) {
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<'all' | 'output' | 'tools' | 'issues'>('all');
+  const [autoFollow, setAutoFollow] = useState(true);
+  const deferredQuery = useDeferredValue(query.trim().toLowerCase());
+  const visibleTimeline = useMemo(() => timeline.filter((item) => {
+    if (filter === 'output' && !['text', 'summary'].includes(item.type)) return false;
+    if (filter === 'tools' && !['tool_call', 'tool_result', 'command', 'diff'].includes(item.type)) return false;
+    if (filter === 'issues' && !['failed', 'blocked'].includes(item.status || '') && item.type !== 'error' && item.type !== 'permission') {
+      return false;
+    }
+    if (!deferredQuery) return true;
+    const haystack = [
+      itemTitle(item),
+      item.content,
+      item.tool,
+      JSON.stringify(item.payload || {}),
+    ].join(' ').toLowerCase();
+    return haystack.includes(deferredQuery);
+  }), [deferredQuery, filter, timeline]);
+
   if (timeline.length === 0) {
     return (
       <div className={styles.timelineEmpty}>
@@ -55,10 +76,39 @@ export default function AgentRunTimeline({ timeline }: AgentRunTimelineProps) {
 
   return (
     <div className={styles.timeline} aria-label="Agent 执行时间线">
+      <div className={styles.timelineToolbar}>
+        <Input.Search
+          allowClear
+          size="small"
+          value={query}
+          placeholder="搜索执行记录"
+          aria-label="搜索执行时间线"
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <Segmented
+          size="small"
+          value={filter}
+          onChange={(value) => setFilter(value as typeof filter)}
+          options={[
+            { value: 'all', label: '全部' },
+            { value: 'output', label: '输出' },
+            { value: 'tools', label: '工具' },
+            { value: 'issues', label: '异常' },
+          ]}
+        />
+        <label className={styles.followToggle}>
+          <Switch size="small" checked={autoFollow} onChange={setAutoFollow} />
+          <span>跟随</span>
+        </label>
+        <span className={styles.timelineCount}>{visibleTimeline.length}/{timeline.length}</span>
+      </div>
+      {visibleTimeline.length === 0 ? (
+        <div className={styles.timelineEmpty}><Empty description="没有匹配的执行记录" /></div>
+      ) : (
       <Virtuoso
-        data={timeline}
-        followOutput="smooth"
-        initialTopMostItemIndex={Math.max(0, timeline.length - 1)}
+        data={visibleTimeline}
+        followOutput={autoFollow ? 'smooth' : false}
+        initialTopMostItemIndex={Math.max(0, visibleTimeline.length - 1)}
         itemContent={(_, item) => (
           <article className={`${styles.timelineItem} ${styles[`timeline_${item.status || 'default'}`] || ''}`}>
             <div className={styles.timelineIcon}>{itemIcon(item)}</div>
@@ -79,6 +129,7 @@ export default function AgentRunTimeline({ timeline }: AgentRunTimelineProps) {
           </article>
         )}
       />
+      )}
     </div>
   );
 }

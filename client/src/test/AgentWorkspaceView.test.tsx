@@ -52,6 +52,57 @@ describe('Agent Workspace business chains', () => {
     }));
   });
 
+  it('saves a dirty file with Ctrl+S and exposes plan completion progress', async () => {
+    const { workspace } = createFlowScenario('files_diff_editor');
+    const { rerender } = render(
+      <AgentWorkspaceView
+        tab="files"
+        workspace={workspace}
+        onRecover={vi.fn()}
+        onCancelSubagent={vi.fn()}
+        onRunNextAction={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /src\/app.ts/ }));
+    const editor = await screen.findByLabelText('文件内容');
+    fireEvent.change(editor, { target: { value: 'const shortcutSaved = true;' } });
+    expect(screen.getByText(/未保存/)).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true });
+    await waitFor(() => expect(apiMocks.writeWorkspaceFile).toHaveBeenCalledWith({
+      file_path: 'src/app.ts',
+      content: 'const shortcutSaved = true;',
+      project_path: 'C:/workspace/project',
+    }));
+
+    const planScenario = createFlowScenario('execution_plan');
+    planScenario.workspace.execution_plan = {
+      ...planScenario.workspace.execution_plan!,
+      nodes: [
+        {
+          id: 'node_1',
+          title: 'Inspect',
+          status: 'completed',
+        },
+        {
+          id: 'node_2',
+          title: 'Implement',
+          status: 'running',
+        },
+      ],
+    };
+    rerender(
+      <AgentWorkspaceView
+        tab="plan"
+        workspace={planScenario.workspace}
+        onRecover={vi.fn()}
+        onCancelSubagent={vi.fn()}
+        onRunNextAction={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/已完成/)).toBeInTheDocument();
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+  });
+
   it('routes next-action buttons to the command owner', () => {
     const { workspace } = createFlowScenario('artifacts_next_actions');
     const onRunNextAction = vi.fn();

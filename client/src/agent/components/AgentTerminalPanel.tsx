@@ -1,9 +1,9 @@
-import { PauseCircleOutlined } from '@ant-design/icons';
+import { CopyOutlined, PauseCircleOutlined } from '@ant-design/icons';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
-import { Button, Empty, Select, Tag } from 'antd';
+import { Button, Empty, Select, Tag, message } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAgentTerminalWebSocketUrl, type AgentSessionUiTimelineItem } from '../../services/api';
 import styles from './AgentTerminalPanel.module.css';
@@ -38,6 +38,14 @@ function terminalRecords(timeline: AgentSessionUiTimelineItem[]): TerminalRecord
   }
   return Array.from(records.values()).reverse();
 }
+
+const stateLabels: Record<TerminalState, string> = {
+  snapshot: '历史快照',
+  connecting: '连接中',
+  connected: '实时连接',
+  closed: '已结束',
+  error: '连接错误',
+};
 
 interface AgentTerminalPanelProps {
   timeline: AgentSessionUiTimelineItem[];
@@ -162,7 +170,25 @@ export default function AgentTerminalPanel({ timeline }: AgentTerminalPanelProps
           options={records.map((record) => ({ value: record.id, label: record.title }))}
           aria-label="选择终端"
         />
-        <Tag>{state}</Tag>
+        <Tag color={state === 'error' ? 'red' : state === 'connected' ? 'green' : undefined}>
+          {stateLabels[state]}
+        </Tag>
+        <Button
+          size="small"
+          icon={<CopyOutlined />}
+          aria-label="复制终端输出"
+          onClick={() => {
+            const content = [
+              selected.command ? `$ ${selected.command}` : '',
+              selected.stdout,
+              selected.stderr,
+              selected.exitCode === undefined ? '' : `[process exited with code ${selected.exitCode}]`,
+            ].filter(Boolean).join('\n');
+            void navigator.clipboard.writeText(content)
+              .then(() => message.success('终端输出已复制'))
+              .catch(() => message.error('复制失败'));
+          }}
+        />
         {selected.running ? (
           <Button
             size="small"

@@ -34,6 +34,9 @@ Every workflow below must remain covered before an Agent change is merged:
 | Workspace artifacts | Preserve source links for files, diffs, results, risks, and verification evidence |
 | Protocol resilience | Retain unknown events for diagnostics without crashing the workbench |
 | Large histories | Remain responsive with 10,000 timeline events |
+| High-frequency navigation | Search, filter, pin, and restore sessions; filter timeline records; switch panels from the keyboard |
+| Edit safety | Preserve prompt drafts, warn before discarding file edits, and support keyboard save |
+| Responsive operation | Keep every production action reachable on desktop, narrow, and touch-only mobile layouts |
 
 ## Production Entry
 
@@ -45,7 +48,8 @@ Session-level diagnostic details remain in bounded, versioned browser storage. T
 
 - `npm run typecheck`
 - `npm run test:agent-foundation`
+- `npm run test:agent-e2e`
 - `npx vitest run --testTimeout=15000`
 - `npm run build`
 - Backend Agent Session, DeepAgents, execution plan, permission, recovery, workspace, async-task, and terminal contract tests
-- Browser verification of create, prompt, SSE state, model failure, node recovery, refresh restoration, desktop layout, and mobile layout
+- Browser verification of create, prompt, SSE state, model failure, node recovery, refresh restoration, session search, timeline filtering, desktop layout, and mobile drawers
