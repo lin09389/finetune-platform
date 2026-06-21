@@ -370,6 +370,50 @@ app.add_middleware(
 )
 
 
+_PUBLIC_PATHS = {
+    "/",
+    "/health",
+    "/api/info",
+    "/openapi.json",
+    "/docs",
+    "/redoc",
+    "/auth/login",
+    "/auth/register",
+    "/auth/refresh",
+}
+
+
+@app.middleware("http")
+async def authentication_middleware(request: Request, call_next):
+    """Enforce JWT authentication globally when ENABLE_AUTH is enabled."""
+    if not settings.enable_auth or request.method == "OPTIONS":
+        return await call_next(request)
+    path = request.url.path.rstrip("/") or "/"
+    if path in _PUBLIC_PATHS or path.startswith("/docs/") or path.startswith("/redoc/"):
+        return await call_next(request)
+
+    authorization = request.headers.get("Authorization", "")
+    if not authorization.startswith("Bearer "):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Missing bearer token"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    from security.jwt_auth import get_jwt_auth
+
+    try:
+        payload = get_jwt_auth().verify_token(authorization[7:].strip())
+    except Exception:
+        payload = None
+    if payload is None:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Invalid or expired token"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return await call_next(request)
+
+
 @app.middleware("http")
 async def trace_middleware(request: Request, call_next):
     """Trace middleware."""
