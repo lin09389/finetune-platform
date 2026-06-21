@@ -7,16 +7,14 @@ import gc
 import traceback as tb
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
-from core.config import Settings
 from core.logging import get_logger
 from core.training_state import TrainingRecord, TrainingState
 from core.utils import cleanup_gpu_memory, safe_cleanup_model
 from training_engine.callbacks import queue_training_progress
 from training_engine.errors import RecoverableError, UnrecoverableError
 from training_engine.events import TrainingEventBus
-from training_engine.pipeline import PipelineContext, TrainingPhase, TrainingPipeline
+from training_engine.pipeline import PipelineContext, TrainingPipeline
 from training_engine.reporter import enrich_record_metrics, sync_training_record_metadata, write_training_artifact_manifest
 from training_engine.schemas import TrainingConfigInput
 from training_engine.strategies import (

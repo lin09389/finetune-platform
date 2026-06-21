@@ -28,7 +28,9 @@ from agent_session.models import (
     AgentSessionOverviewResponse,
     AgentSessionResponse,
     AgentWorkspaceResponse,
+    AgentFrontendDiagnosticsBatch,
 )
+from agent_session.diagnostics import AgentFrontendDiagnosticsRepository
 from agent_session.service import AgentSessionService
 from core.config import settings
 from core.db_manager import run_sync
@@ -37,6 +39,7 @@ from security.jwt_auth import Role, TokenPayload
 
 router = APIRouter(prefix="/agent-sessions", tags=["Agent Sessions"])
 _AGENT_SESSION_SERVICE: AgentSessionService | None = None
+_AGENT_FRONTEND_DIAGNOSTICS_REPOSITORY: AgentFrontendDiagnosticsRepository | None = None
 
 
 def _session_status(session: Any) -> str | None:
@@ -126,6 +129,13 @@ def get_agent_session_service() -> AgentSessionService:
     return _AGENT_SESSION_SERVICE
 
 
+def get_agent_frontend_diagnostics_repository() -> AgentFrontendDiagnosticsRepository:
+    global _AGENT_FRONTEND_DIAGNOSTICS_REPOSITORY
+    if _AGENT_FRONTEND_DIAGNOSTICS_REPOSITORY is None:
+        _AGENT_FRONTEND_DIAGNOSTICS_REPOSITORY = AgentFrontendDiagnosticsRepository()
+    return _AGENT_FRONTEND_DIAGNOSTICS_REPOSITORY
+
+
 async def get_agent_session_user(
     current_user: TokenPayload | None = Depends(get_current_user_optional),
 ) -> TokenPayload:
@@ -141,6 +151,27 @@ async def get_agent_session_user(
     )
 
 
+@router.post("/diagnostics/batch")
+async def report_agent_frontend_diagnostics(
+    request: AgentFrontendDiagnosticsBatch,
+    repository: AgentFrontendDiagnosticsRepository = Depends(get_agent_frontend_diagnostics_repository),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    for report in request.reports:
+        await run_sync(repository.upsert, report.model_dump(), current_user.user_id)
+    return {"accepted": len(request.reports)}
+
+
+@router.get("/diagnostics/summary")
+async def get_agent_frontend_diagnostics_summary(
+    repository: AgentFrontendDiagnosticsRepository = Depends(get_agent_frontend_diagnostics_repository),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    if current_user.role not in {Role.ADMIN, Role.SUPER_ADMIN}:
+        raise HTTPException(status_code=403, detail="Agent diagnostics summary requires administrator access")
+    return await run_sync(repository.summary)
+
+
 @router.post("", response_model=AgentSessionResponse)
 async def create_agent_session(
     request: AgentSessionCreate,
@@ -151,6 +182,16 @@ async def create_agent_session(
         return await run_sync(service.create_session, request, current_user.user_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("", response_model=list[AgentSessionResponse])
+async def list_agent_sessions(
+    limit: int = Query(default=100, ge=1, le=500),
+    service: AgentSessionService = Depends(get_agent_session_service),
+    current_user: TokenPayload = Depends(get_agent_session_user),
+):
+    include_all = current_user.role in {Role.ADMIN, Role.SUPER_ADMIN}
+    return await run_sync(service.list_sessions, current_user.user_id, include_all, limit)
 
 
 @router.get("/{session_id}", response_model=AgentSessionResponse)

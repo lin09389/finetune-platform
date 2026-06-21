@@ -9,6 +9,7 @@
 import hashlib
 import json
 import os
+import random
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,63 @@ from core.logging import get_logger
 from training_engine.dataset_formatter import _detect_and_format, _mask_before_assistant, _mask_before_response
 
 logger = get_logger(__name__)
+
+
+def load_raw_dataset_records(dataset_path: str) -> list[dict[str, Any]]:
+    """Load source records without tokenization for immutable evaluation snapshots."""
+    if dataset_path.endswith(".jsonl"):
+        records: list[dict[str, Any]] = []
+        with open(dataset_path, encoding="utf-8") as stream:
+            for line in stream:
+                line = line.strip()
+                if not line:
+                    continue
+                item = json.loads(line)
+                if isinstance(item, dict):
+                    records.append(item)
+        return records
+
+    with open(dataset_path, encoding="utf-8") as stream:
+        payload = json.load(stream)
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    return [payload] if isinstance(payload, dict) else []
+
+
+def split_raw_dataset_records(
+    records: list[dict[str, Any]],
+    test_size: float = 0.1,
+    seed: int = 42,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Mirror the stable train/test policy while preserving original examples."""
+    sample_count = len(records)
+    if sample_count < 5:
+        return list(records), []
+    test_items = 1 if sample_count < 10 else max(1, int(round(sample_count * test_size)))
+    test_items = min(test_items, sample_count - 1)
+    indices = list(range(sample_count))
+    random.Random(seed).shuffle(indices)
+    test_indices = set(indices[:test_items])
+    train = [item for index, item in enumerate(records) if index not in test_indices]
+    test = [item for index, item in enumerate(records) if index in test_indices]
+    return train, test
+
+
+def write_evaluation_snapshot(dataset_path: str, output_dir: str | Path) -> tuple[str | None, str | None]:
+    """Persist the held-out source examples next to the release."""
+    from training_engine.reporter import hash_path
+
+    records = load_raw_dataset_records(dataset_path)
+    _, test_records = split_raw_dataset_records(records)
+    if not test_records:
+        return None, None
+    destination = Path(output_dir) / "evaluation_snapshot.json"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(
+        json.dumps(test_records, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return str(destination), hash_path(destination)
 
 
 def _dataset_cache_dir(dataset_path: str) -> str:
@@ -31,7 +89,7 @@ def _dataset_cache_dir(dataset_path: str) -> str:
 
 def load_dataset(dataset_path: str, tokenizer, max_length: int = 512):
     """加载数据集 - 支持多种格式，智能标签掩码，动态填充"""
-    from datasets import Dataset
+    from datasets import Dataset, DatasetDict
     try:
         from datasets.utils.logging import disable_progress_bar
         disable_progress_bar()
@@ -43,17 +101,8 @@ def load_dataset(dataset_path: str, tokenizer, max_length: int = 512):
 
     cache_dir = _dataset_cache_dir(dataset_path)
 
-    if dataset_path.endswith(".jsonl"):
-        from datasets import load_dataset as hf_load_dataset
-        dataset = hf_load_dataset("json", data_files=dataset_path, split="train")
-    else:
-        with open(dataset_path, encoding="utf-8") as f:
-            data = json.load(f)
-        dataset = Dataset.from_list(data)
-    dataset = dataset.map(
-        lambda ex: _detect_and_format(ex, tokenizer),
-        cache_file_name=os.path.join(cache_dir, "format_cache.arrow"),
-    )
+    source_records = load_raw_dataset_records(dataset_path)
+    train_records, test_records = split_raw_dataset_records(source_records)
 
     def tokenize_with_labels(examples):
         """Tokenize text and set labels based on sample format.
@@ -86,14 +135,24 @@ def load_dataset(dataset_path: str, tokenizer, max_length: int = 512):
         input_ids["labels"] = labels
         return input_ids
 
-    original_columns = dataset.column_names
-    dataset = dataset.map(
-        tokenize_with_labels,
-        batched=True,
-        remove_columns=original_columns,
-        cache_file_name=os.path.join(cache_dir, "tokenize_cache.arrow"),
-    )
-    dataset = split_train_test_dataset(dataset)
+    def prepare_split(records: list[dict[str, Any]], name: str):
+        split = Dataset.from_list(records)
+        split = split.map(
+            lambda ex: _detect_and_format(ex, tokenizer),
+            cache_file_name=os.path.join(cache_dir, f"{name}_format_cache.arrow"),
+        )
+        original_columns = split.column_names
+        return split.map(
+            tokenize_with_labels,
+            batched=True,
+            remove_columns=original_columns,
+            cache_file_name=os.path.join(cache_dir, f"{name}_tokenize_cache.arrow"),
+        )
+
+    dataset = DatasetDict({
+        "train": prepare_split(train_records, "train"),
+        "test": prepare_split(test_records, "test") if test_records else Dataset.from_list([]),
+    })
 
     logger.info(f"数据集大小：训练={len(dataset['train'])}, 测试={len(dataset.get('test', []))}")
     return dataset

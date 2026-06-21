@@ -14,15 +14,15 @@
   5. 异步安全包装：提供 run_sync 辅助函数，将同步 SQLite 操作移至线程池执行，
      避免阻塞 asyncio 事件循环。
 """
-import asyncio
 import logging
 import os
 import re
 import sqlite3
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional, List, Callable, Any, TypeVar
+from typing import List, Callable, Any, TypeVar
 
 import anyio
 
@@ -70,6 +70,7 @@ class DatabaseConnectionPool:
         self._active_connections: set[int] = set()  # 追踪借出连接的 id
         self._connections_lock = threading.Lock()
         self._closed = False  # 池是否已关闭
+        self._last_used = time.monotonic()
         logger.info(f"数据库多路连接池已初始化：{self._db_path} (Max: {self._max_connections})")
 
     def _create_connection(self) -> sqlite3.Connection:
@@ -108,6 +109,7 @@ class DatabaseConnectionPool:
 
     def _return_connection(self, conn: sqlite3.Connection) -> None:
         """安全地将连接归还到池中，或在池满/连接损坏/池已关闭时物理关闭"""
+        self._last_used = time.monotonic()
         conn_id = id(conn)
         with self._connections_lock:
             self._active_connections.discard(conn_id)
@@ -137,6 +139,7 @@ class DatabaseConnectionPool:
 
     def _acquire_connection(self) -> sqlite3.Connection:
         """从池中签出一个经过健康检查的连接，或创建新连接"""
+        self._last_used = time.monotonic()
         while True:
             conn = None
             with self._connections_lock:
@@ -282,6 +285,11 @@ class DatabaseConnectionPool:
             _global_connection_count = max(0, _global_connection_count - len(connections))
         logger.debug("数据库连接池中所有闲置连接已物理关闭")
 
+    @property
+    def active_connection_count(self) -> int:
+        with self._connections_lock:
+            return len(self._active_connections)
+
     def execute_query(self, query: str, params: tuple = ()):
         """执行查询并返回所有结果"""
         with self.get_readonly_connection() as conn:
@@ -353,6 +361,32 @@ _pool_lock = threading.Lock()
 _global_connection_count = 0
 _global_connection_lock = threading.Lock()
 _MAX_GLOBAL_CONNECTIONS = 100
+_MAX_CACHED_POOLS = int(os.environ.get("MAX_SQLITE_POOLS", "32"))
+
+
+def _evict_idle_pools_locked(exclude_path: str | None = None) -> list[DatabaseConnectionPool]:
+    """Remove least-recently-used pools that have no checked-out connections.
+
+    Caller must hold ``_pool_lock``. Returned pools are closed outside that
+    lock to keep lock ordering simple.
+    """
+    overflow = len(_db_pools) - _MAX_CACHED_POOLS + 1
+    if overflow <= 0:
+        return []
+    candidates = sorted(
+        (
+            (path, pool)
+            for path, pool in _db_pools.items()
+            if path != exclude_path and pool.active_connection_count == 0
+        ),
+        key=lambda item: item[1]._last_used,
+    )
+    evicted: list[DatabaseConnectionPool] = []
+    for path, pool in candidates[:overflow]:
+        if _db_pools.get(path) is pool:
+            _db_pools.pop(path, None)
+            evicted.append(pool)
+    return evicted
 
 
 def get_db_pool(db_path: str = None) -> DatabaseConnectionPool:
@@ -362,20 +396,33 @@ def get_db_pool(db_path: str = None) -> DatabaseConnectionPool:
         db_path = "data/app.db"
     db_path = str(Path(db_path))
 
+    evicted: list[DatabaseConnectionPool] = []
     with _pool_lock:
         pool = _db_pools.get(db_path)
         if pool is None or getattr(pool, "_closed", False):
+            evicted = _evict_idle_pools_locked(exclude_path=db_path)
             _db_pools[db_path] = DatabaseConnectionPool(db_path)
-        return _db_pools[db_path]
+        result = _db_pools[db_path]
+    for stale_pool in evicted:
+        stale_pool.close_all()
+    return result
 
 
 def init_db_pool(db_path: str) -> DatabaseConnectionPool:
     """初始化数据库连接池"""
     global _db_pools
     db_path = str(Path(db_path))
+    evicted: list[DatabaseConnectionPool] = []
     with _pool_lock:
+        previous = _db_pools.pop(db_path, None)
+        if previous is not None:
+            evicted.append(previous)
+        evicted.extend(_evict_idle_pools_locked(exclude_path=db_path))
         _db_pools[db_path] = DatabaseConnectionPool(db_path)
-        return _db_pools[db_path]
+        result = _db_pools[db_path]
+    for stale_pool in evicted:
+        stale_pool.close_all()
+    return result
 
 
 def close_all_pools():

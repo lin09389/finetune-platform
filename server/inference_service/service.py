@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import AsyncIterator
-from typing import Any
 
 from api.inference.backends.base import GenerationConfig
 from api.inference.pipeline import get_local_inference_pipeline

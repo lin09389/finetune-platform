@@ -86,9 +86,6 @@ function normalizeChatMessage(message: Record<string, unknown>): ChatMessage {
     run_metrics:
       (message.run_metrics as ChatMessage['run_metrics']) ||
       (metadata.run_metrics as ChatMessage['run_metrics']),
-    agent_metadata:
-      (message.agent_metadata as ChatMessage['agent_metadata']) ||
-      (metadata.agent_metadata as ChatMessage['agent_metadata']),
     isEdited: Boolean(message.isEdited),
   };
 }

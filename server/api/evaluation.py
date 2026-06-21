@@ -5,20 +5,21 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import uuid
 import re
-from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 from contextlib import asynccontextmanager
-import aiofiles
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from core.config import get_settings
+from core.db_manager import run_sync
+from core.release_registry import get_release_registry, make_release_owner_id
 
 router = APIRouter()
 
@@ -29,6 +30,11 @@ class RefCountedLock:
 
 _run_locks: dict[str, RefCountedLock] = {}
 _run_events: dict[str, asyncio.Event] = {}
+_worker_owner_id = make_release_owner_id()
+
+
+def _release_registry():
+    return get_release_registry(str(get_settings().outputs_dir_resolved.parent / "data" / "app.db"))
 
 @asynccontextmanager
 async def _get_run_lock(run_id: str):
@@ -70,6 +76,9 @@ class EvaluationRunRequest(BaseModel):
     system_prompt: str | None = None
     auto_merge_adapter: bool = True
     test_dataset_id: str | None = None
+    evaluation_snapshot_path: str | None = None
+    evaluation_snapshot_hash: str | None = None
+    artifact_digest: str | None = None
     cases: list[EvaluationCase] = Field(default_factory=list)
     backend: str = "ollama"
     run_inference: bool = True
@@ -100,6 +109,166 @@ def _evaluation_dir() -> Path:
 
 def _run_path(run_id: str) -> Path:
     return _evaluation_dir() / f"{run_id}.json"
+
+
+def _export_run_payload(run_id: str, payload: dict[str, Any]) -> None:
+    path = _run_path(run_id)
+    temporary = path.with_suffix(f".{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(temporary, path)
+
+
+async def _read_run_payload(run_id: str) -> dict[str, Any] | None:
+    registry = _release_registry()
+    stored = await run_sync(registry.get, "evaluation", run_id)
+    if stored is not None:
+        return stored[0]
+    path = _run_path(run_id)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(await run_sync(path.read_text, encoding="utf-8"))
+        await run_sync(registry.upsert, "evaluation", run_id, payload, expected_version=0)
+        return payload
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+async def _write_run_payload(run_id: str, payload: dict[str, Any]) -> None:
+    registry = _release_registry()
+    await run_sync(registry.upsert, "evaluation", run_id, payload)
+    await run_sync(_export_run_payload, run_id, payload)
+
+
+async def _mutate_run_payload(run_id: str, mutator) -> dict[str, Any] | None:
+    registry = _release_registry()
+    result = await run_sync(registry.mutate, "evaluation", run_id, mutator)
+    if result is None:
+        return None
+    payload = result[0]
+    await run_sync(_export_run_payload, run_id, payload)
+    return payload
+
+
+async def _heartbeat_lease(resource_id: str, ttl_seconds: int = 300) -> None:
+    registry = _release_registry()
+    try:
+        while True:
+            await asyncio.sleep(max(2, ttl_seconds // 3))
+            if not await run_sync(
+                registry.heartbeat,
+                resource_id,
+                _worker_owner_id,
+                ttl_seconds,
+            ):
+                return
+    except asyncio.CancelledError:
+        return
+
+
+def _find_training_record(training_task_id: str | None):
+    if not training_task_id:
+        return None
+    try:
+        from core.training_context import get_training_context
+
+        return next(
+            (
+                record
+                for record in get_training_context().state.get_history()
+                if record.id == training_task_id
+            ),
+            None,
+        )
+    except Exception:
+        return None
+
+
+def _resolve_evaluation_request(request: EvaluationRunRequest) -> EvaluationRunRequest:
+    """Resolve stable training artifacts and reject ambiguous training-linked evaluations."""
+    if not request.training_task_id:
+        return request
+
+    record = _find_training_record(request.training_task_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="训练任务不存在，无法创建关联评估")
+    if record.status != "completed":
+        raise HTTPException(status_code=400, detail="只有已完成且已保存产物的训练任务可以创建评估")
+
+    config = record.config or {}
+    request.base_model = (
+        request.base_model
+        or getattr(record, "base_model_id", None)
+        or config.get("model_id")
+        or config.get("modelId")
+        or record.model_name
+    )
+    request.release_id = request.release_id or getattr(record, "release_id", None)
+    request.test_dataset_id = (
+        request.test_dataset_id
+        or config.get("test_dataset_id")
+        or config.get("testDatasetId")
+        or config.get("validation_dataset_id")
+        or config.get("validationDatasetId")
+    )
+    request.evaluation_snapshot_path = getattr(record, "evaluation_snapshot_path", None)
+    request.evaluation_snapshot_hash = getattr(record, "evaluation_snapshot_hash", None)
+    request.artifact_digest = getattr(record, "artifact_digest", None)
+    if not request.test_dataset_id and not request.evaluation_snapshot_path:
+        raise HTTPException(
+            status_code=400,
+            detail="训练任务没有独立测试快照；请重新训练生成 held-out snapshot，或显式选择独立测试数据集",
+        )
+    training_dataset_id = (
+        getattr(record, "dataset_id", None)
+        or config.get("dataset_id")
+        or config.get("datasetId")
+    )
+    if request.test_dataset_id and request.test_dataset_id == training_dataset_id:
+        raise HTTPException(
+            status_code=400,
+            detail="评估数据集不能与训练数据集相同，请使用 held-out snapshot 或独立测试集",
+        )
+    request.scenario = getattr(record, "task_goal", None) or request.scenario
+
+    if record.method == "full":
+        request.finetuned_model = (
+            request.finetuned_model
+            or getattr(record, "checkpoint_path", None)
+            or getattr(record, "output_path", None)
+        )
+    else:
+        request.adapter_path = (
+            request.adapter_path
+            or getattr(record, "adapter_path", None)
+            or getattr(record, "checkpoint_path", None)
+        )
+
+    artifact_path = request.finetuned_model if record.method == "full" else request.adapter_path
+    if not artifact_path or not Path(artifact_path).exists():
+        raise HTTPException(status_code=400, detail="训练产物不存在或不可访问，无法创建真实评估")
+    return request
+
+
+def _persist_evaluation_link(training_task_id: str | None, run_id: str) -> str | None:
+    if not training_task_id:
+        return None
+    try:
+        from core.training_context import get_training_context
+        from training_engine.reporter import write_training_artifact_manifest
+
+        state = get_training_context().state
+        record = next((item for item in state.get_history() if item.id == training_task_id), None)
+        if record is None:
+            return "评估已完成，但未找到关联训练记录，release 状态未同步"
+        record.evaluation_run_id = run_id
+        record.promotion_state = "evaluated"
+        write_training_artifact_manifest(record)
+        state.add_to_history_sync(record)
+        return None
+    except Exception as exc:
+        logger.exception("failed to persist evaluation link for %s", training_task_id)
+        return f"评估已完成，但训练 release 状态同步失败：{exc}"
 
 
 def _parse_json(value: Any) -> tuple[bool, Any]:
@@ -177,12 +346,19 @@ def _structured_quality(case: dict[str, Any], output_key: str) -> tuple[dict[str
         "field_total": len(keys),
         "field_present": 0,
         "type_match": False,
+        "expected_available": False,
+        "expected_match": False,
     }
     if not ok:
         return result, f"{output_key} is not valid JSON"
     if not keys:
         result["schema_match"] = True
         result["type_match"] = True
+    expected_ok, expected = _parse_json(case.get("expected_output"))
+    if expected_ok:
+        result["expected_available"] = True
+        result["expected_match"] = parsed == expected
+    if not keys:
         return result, None
     if not isinstance(parsed, dict):
         return result, f"{output_key} JSON root is not an object"
@@ -209,6 +385,7 @@ def _compute_metrics(scenario: Scenario, cases: list[dict[str, Any]]) -> tuple[d
         base_valid_json = finetuned_valid_json = 0
         base_schema_match = finetuned_schema_match = 0
         base_type_match = finetuned_type_match = 0
+        base_expected_match = finetuned_expected_match = expected_total = 0
         field_total = base_field_present = finetuned_field_present = 0
         wins = losses = ties = 0
 
@@ -221,6 +398,10 @@ def _compute_metrics(scenario: Scenario, cases: list[dict[str, Any]]) -> tuple[d
             finetuned_schema_match += int(fine_quality["schema_match"])
             base_type_match += int(base_quality["type_match"])
             finetuned_type_match += int(fine_quality["type_match"])
+            if fine_quality["expected_available"]:
+                expected_total += 1
+                base_expected_match += int(base_quality["expected_match"])
+                finetuned_expected_match += int(fine_quality["expected_match"])
             field_total += int(fine_quality["field_total"])
             base_field_present += int(base_quality["field_present"])
             finetuned_field_present += int(fine_quality["field_present"])
@@ -241,13 +422,17 @@ def _compute_metrics(scenario: Scenario, cases: list[dict[str, Any]]) -> tuple[d
             "schema_match_rate": round(finetuned_schema_match / total, 4),
             "field_completeness_rate": round(finetuned_field_present / field_total, 4) if field_total else 0.0,
             "type_match_rate": round(finetuned_type_match / total, 4),
+            "expected_match_rate": round(finetuned_expected_match / expected_total, 4) if expected_total else None,
             "base_json_valid_rate": round(base_valid_json / total, 4),
             "base_schema_match_rate": round(base_schema_match / total, 4),
             "base_field_completeness_rate": round(base_field_present / field_total, 4) if field_total else 0.0,
             "base_type_match_rate": round(base_type_match / total, 4),
+            "base_expected_match_rate": round(base_expected_match / expected_total, 4) if expected_total else None,
             "json_valid_delta": round((finetuned_valid_json - base_valid_json) / total, 4),
             "schema_match_delta": round((finetuned_schema_match - base_schema_match) / total, 4),
             "type_match_delta": round((finetuned_type_match - base_type_match) / total, 4),
+            "expected_match_delta": round((finetuned_expected_match - base_expected_match) / expected_total, 4) if expected_total else None,
+            "expected_case_count": expected_total,
             "finetuned_win_count": wins,
             "finetuned_loss_count": losses,
             "tie_count": ties,
@@ -255,13 +440,23 @@ def _compute_metrics(scenario: Scenario, cases: list[dict[str, Any]]) -> tuple[d
             "net_win_rate": round((wins - losses) / total, 4),
         }, failed_cases
 
-    scores = [case.get("human_score", {}).get("score") for case in cases if case.get("human_score")]
+    scored_cases = [case for case in cases if case.get("human_score")]
+    scores = [case.get("human_score", {}).get("score") for case in scored_cases]
+    judge_score_count = sum(
+        1
+        for case in scored_cases
+        if case.get("human_score", {}).get("source") == "llm_judge"
+        or case.get("human_score", {}).get("notes") == "LLM Auto Evaluated"
+    )
+    human_score_count = len(scored_cases) - judge_score_count
     total_scored = len(scores) or 1
     wins = scores.count("good")
     losses = scores.count("bad")
     ties = scores.count("neutral")
     return {
-        "human_score_count": len(scores),
+        "scored_count": len(scores),
+        "human_score_count": human_score_count,
+        "judge_score_count": judge_score_count,
         "good_rate": round(wins / len(scores), 4) if scores else 0.0,
         "finetuned_win_count": wins,
         "finetuned_loss_count": losses,
@@ -364,7 +559,7 @@ async def run_model_inference_batch_with_retry(
     for attempt in range(max_retries + 1):
         try:
             return await run_model_inference_batch(**kwargs)
-        except Exception as exc:
+        except Exception:
             if attempt == max_retries:
                 raise
             await asyncio.sleep(2 ** attempt)
@@ -379,8 +574,12 @@ async def _run_llm_judge_batch(
     expected_outputs: list[str | None],
 ) -> list[Literal["good", "neutral", "bad"]]:
     judge_prompts = []
+    swap_flags: list[bool] = []
     for p, b_out, f_out, e_out in zip(prompts, base_outputs, finetuned_outputs, expected_outputs):
-        judge_prompts.append(f"""请作为一名严谨的大模型评估专家，对两个模型的回答质量进行对比。
+        swapped = hashlib.sha256(p.encode("utf-8")).digest()[0] % 2 == 1
+        swap_flags.append(swapped)
+        candidate_a, candidate_b = (f_out, b_out) if swapped else (b_out, f_out)
+        judge_prompts.append(f"""请作为一名严谨的大模型评估专家，对两个匿名候选回答进行盲评。
 请按照固定 rubric 判断，不要偏向更长或更自信的回答：
 - correctness: 是否正确回答问题
 - completeness: 是否覆盖关键点
@@ -394,20 +593,15 @@ async def _run_llm_judge_batch(
 参考答案：
 {e_out or "无"}
 
-基础模型回答：
-{b_out}
+候选回答 A：
+{candidate_a}
 
-微调模型回答：
-{f_out}
+候选回答 B：
+{candidate_b}
 
-请评估“微调模型”相较于“基础模型”是否更好地回答了问题。
+请判断 A、B 哪个整体更好；两者相当时选择 tie。
 只允许输出 JSON，不要有任何其他字符：
-{{"verdict":"good|neutral|bad","reason":"一句话说明主要依据"}}
-
-verdict 定义：
-good = 微调模型整体明显更好
-neutral = 两者差不多，或者优劣相抵
-bad = 微调模型整体明显更差，或存在严重事实错误
+{{"winner":"a|b|tie","reason":"一句话说明主要依据"}}
 
 输出：""")
 
@@ -421,20 +615,25 @@ bad = 微调模型整体明显更差，或存在严重事实错误
             temperature=0.1,
         )
         scores: list[Literal["good", "neutral", "bad"]] = []
-        for result in results:
+        for result, swapped in zip(results, swap_flags):
             result_lower = result.strip().lower()
-            verdict = None
+            winner = None
             try:
                 parsed = json.loads(result)
                 if isinstance(parsed, dict):
-                    raw = str(parsed.get("verdict", "")).lower()
-                    if raw in {"good", "neutral", "bad"}:
-                        verdict = raw
+                    raw = str(parsed.get("winner", "")).lower()
+                    if raw in {"a", "b", "tie"}:
+                        winner = raw
             except Exception:
                 pass
-            if verdict is None:
-                match = re.search(r'\b(good|neutral|bad)\b', result_lower)
-                verdict = match.group(1) if match else "neutral"
+            if winner is None:
+                match = re.search(r'\b(a|b|tie)\b', result_lower)
+                winner = match.group(1) if match else "tie"
+            if winner == "tie":
+                verdict = "neutral"
+            else:
+                fine_winner = (winner == "a" and swapped) or (winner == "b" and not swapped)
+                verdict = "good" if fine_winner else "bad"
             scores.append(verdict)  # type: ignore[arg-type]
         return scores
     except Exception as exc:
@@ -442,17 +641,15 @@ bad = 微调模型整体明显更差，或存在严重事实错误
 
 
 async def _flush_progress(run_id: str, case_payloads: list[dict[str, Any]]):
-    """Safely flush current cases to disk during an ongoing run."""
+    """Safely flush current cases during an ongoing run."""
     try:
         async with _get_run_lock(run_id):
-            path = _run_path(run_id)
-            if not path.exists():
+            payload = await _mutate_run_payload(
+                run_id,
+                lambda current: {**current, "cases": case_payloads},
+            )
+            if payload is None:
                 return
-            async with aiofiles.open(path, "r", encoding="utf-8") as f:
-                payload = json.loads(await f.read())
-            payload["cases"] = case_payloads
-            async with aiofiles.open(path, "w", encoding="utf-8") as f:
-                await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
         if run_id in _run_events:
             _run_events[run_id].set()
     except Exception:
@@ -472,16 +669,21 @@ async def _populate_inference_outputs(
     finetuned_backend = request.backend
     lora_adapter = None
 
-    if request.run_inference and not finetuned_model and request.adapter_path:
+    if (
+        request.run_inference
+        and request.auto_merge_adapter
+        and not finetuned_model
+        and request.adapter_path
+    ):
         finetuned_model = request.base_model
         finetuned_backend = "huggingface"
         base_backend = "huggingface"
         lora_adapter = request.adapter_path
-        warnings.append("已采用动态加载方式挂载 adapter，并使用 HuggingFace 后端进行基础/微调模型评估。")
         adapter_merge = {
-            "merged_model_path": request.base_model,
+            "base_model_path": request.base_model,
             "adapter_path": request.adapter_path,
-            "backend": "huggingface"
+            "backend": "huggingface",
+            "mode": "dynamic_lora",
         }
 
     if request.run_inference:
@@ -563,18 +765,20 @@ async def _populate_inference_outputs(
 
 async def _run_judge_task(run_id: str, judge_model: str, backend: str, scenario: str = "qa_assistant", force_rejudge: bool = False):
     """独立的后台判卷任务"""
+    registry = _release_registry()
+    lease_id = f"{run_id}:judge"
+    claimed = await run_sync(registry.claim, lease_id, "evaluation_judge", _worker_owner_id, 30)
+    if not claimed:
+        return
+    heartbeat_task = asyncio.create_task(_heartbeat_lease(lease_id, 30))
     try:
-        path = _run_path(run_id)
-        if not path.exists():
+        payload = await _read_run_payload(run_id)
+        if payload is None:
             return
 
         async with _get_run_lock(run_id):
-            async with aiofiles.open(path, "r", encoding="utf-8") as f:
-                payload = json.loads(await f.read())
-
             payload["status"] = "running"
-            async with aiofiles.open(path, "w", encoding="utf-8") as f:
-                await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
+            await _write_run_payload(run_id, payload)
         if run_id in _run_events:
             _run_events[run_id].set()
 
@@ -623,6 +827,7 @@ async def _run_judge_task(run_id: str, judge_model: str, backend: str, scenario:
                                 "case_index": i,
                                 "score": score,
                                 "notes": "LLM Auto Evaluated",
+                                "source": "llm_judge",
                                 "updated_at": datetime.now().isoformat(),
                             }
                     except Exception as exc:
@@ -635,8 +840,7 @@ async def _run_judge_task(run_id: str, judge_model: str, backend: str, scenario:
             await asyncio.gather(*(evaluate_batch_judge(idx_list) for idx_list in chunk_indices_list))
 
         async with _get_run_lock(run_id):
-            async with aiofiles.open(path, "r", encoding="utf-8") as f:
-                payload = json.loads(await f.read())
+            payload = await _read_run_payload(run_id) or payload
             payload["cases"] = case_payloads
             # 重新计算指标
             metrics, failed_cases = _compute_metrics(scenario, case_payloads)
@@ -647,37 +851,27 @@ async def _run_judge_task(run_id: str, judge_model: str, backend: str, scenario:
                 payload["status"] = "completed_with_warnings"
             else:
                 payload["status"] = "completed"
-            async with aiofiles.open(path, "w", encoding="utf-8") as f:
-                await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
+            await _write_run_payload(run_id, payload)
         if run_id in _run_events:
             _run_events[run_id].set()
 
     except Exception as exc:
         async with _get_run_lock(run_id):
-            if path.exists():
-                async with aiofiles.open(path, "r", encoding="utf-8") as f:
-                    payload = json.loads(await f.read())
+            payload = await _read_run_payload(run_id)
+            if payload is not None:
                 payload["status"] = "failed"
                 payload["error"] = f"裁判引擎执行异常: {str(exc)}"
-                async with aiofiles.open(path, "w", encoding="utf-8") as f:
-                    await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
+                await _write_run_payload(run_id, payload)
         if run_id in _run_events:
             _run_events[run_id].set()
+    finally:
+        heartbeat_task.cancel()
+        await asyncio.gather(heartbeat_task, return_exceptions=True)
+        await run_sync(registry.release, lease_id, _worker_owner_id)
 
 
-def _load_cases_from_dataset(dataset_id: str | None, limit: int = 100) -> list[EvaluationCase]:
-    if not dataset_id:
-        return []
-
-    dataset_path = get_settings().datasets_dir_resolved / dataset_id
-    if not dataset_path.exists():
-        raise HTTPException(status_code=404, detail="评估数据集不存在")
-
-    data_file = next((path for path in dataset_path.glob("*.jsonl")), None) or next(
-        (path for path in dataset_path.glob("*.json") if path.name != "info.json"),
-        None,
-    )
-    if not data_file:
+def _load_cases_from_file(data_file: Path, limit: int = 100) -> list[EvaluationCase]:
+    if not data_file.exists():
         return []
 
     cases: list[EvaluationCase] = []
@@ -729,25 +923,52 @@ def _load_cases_from_dataset(dataset_id: str | None, limit: int = 100) -> list[E
     return cases
 
 
+def _load_cases_from_dataset(dataset_id: str | None, limit: int = 100) -> list[EvaluationCase]:
+    if not dataset_id:
+        return []
+    dataset_path = get_settings().datasets_dir_resolved / dataset_id
+    if not dataset_path.exists():
+        raise HTTPException(status_code=404, detail="评估数据集不存在")
+    data_file = next((path for path in dataset_path.glob("*.jsonl")), None) or next(
+        (path for path in dataset_path.glob("*.json") if path.name != "info.json"),
+        None,
+    )
+    return _load_cases_from_file(data_file, limit) if data_file else []
+
+
 async def _run_evaluation_task(request: EvaluationRunRequest, run_id: str, case_payloads: list[dict[str, Any]]):
+    registry = _release_registry()
+    lease_id = f"{run_id}:run"
+    claimed = False
+    for _ in range(8):
+        claimed = await run_sync(registry.claim, lease_id, "evaluation_run", _worker_owner_id, 30)
+        if claimed:
+            break
+        current = await _read_run_payload(run_id)
+        if current is None or current.get("status") in {"completed", "completed_with_warnings", "failed"}:
+            return
+        await asyncio.sleep(5)
+    if not claimed:
+        return
+    heartbeat_task = asyncio.create_task(_heartbeat_lease(lease_id, 30))
     try:
         async with _get_run_lock(run_id):
-            async with aiofiles.open(_run_path(run_id), "r", encoding="utf-8") as f:
-                payload = json.loads(await f.read())
+            payload = await _read_run_payload(run_id)
+            if payload is None:
+                return
             payload["status"] = "running"
-            async with aiofiles.open(_run_path(run_id), "w", encoding="utf-8") as f:
-                await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
+            payload["recovery"] = None
+            await _write_run_payload(run_id, payload)
 
         inference_warnings, adapter_merge = await _populate_inference_outputs(request, case_payloads, run_id)
         metrics, failed_cases = _compute_metrics(request.scenario, case_payloads)
         status = "completed_with_warnings" if inference_warnings else "completed"
 
         async with _get_run_lock(run_id):
-            async with aiofiles.open(_run_path(run_id), "r", encoding="utf-8") as f:
-                payload = json.loads(await f.read())
+            payload = await _read_run_payload(run_id) or payload
 
             payload["status"] = status
-            payload["finetuned_model"] = request.finetuned_model or (adapter_merge or {}).get("merged_model_path")
+            payload["finetuned_model"] = request.finetuned_model
             payload["adapter_merge"] = adapter_merge
             payload["execution"] = {
                 "base_backend": "huggingface" if adapter_merge else request.backend,
@@ -762,8 +983,15 @@ async def _run_evaluation_task(request: EvaluationRunRequest, run_id: str, case_
             payload["metrics"] = metrics
             payload["failed_cases"] = failed_cases
 
-            async with aiofiles.open(_run_path(run_id), "w", encoding="utf-8") as f:
-                await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
+            await _write_run_payload(run_id, payload)
+
+        persistence_warning = _persist_evaluation_link(request.training_task_id, run_id)
+        if persistence_warning:
+            async with _get_run_lock(run_id):
+                payload = await _read_run_payload(run_id) or payload
+                payload.setdefault("warnings", []).append(persistence_warning)
+                payload["status"] = "completed_with_warnings"
+                await _write_run_payload(run_id, payload)
 
         # 抛出后台裁判任务
         if request.scenario == "qa_assistant" and request.judge_model:
@@ -773,38 +1001,64 @@ async def _run_evaluation_task(request: EvaluationRunRequest, run_id: str, case_
 
     except Exception as exc:
         async with _get_run_lock(run_id):
-            async with aiofiles.open(_run_path(run_id), "r", encoding="utf-8") as f:
-                payload = json.loads(await f.read())
-            payload["status"] = "failed"
-            payload["error"] = str(exc)
-            async with aiofiles.open(_run_path(run_id), "w", encoding="utf-8") as f:
-                await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
+            payload = await _read_run_payload(run_id)
+            if payload is not None:
+                payload["status"] = "failed"
+                payload["error"] = str(exc)
+                await _write_run_payload(run_id, payload)
+    finally:
+        heartbeat_task.cancel()
+        await asyncio.gather(heartbeat_task, return_exceptions=True)
+        await run_sync(registry.release, lease_id, _worker_owner_id)
 
 
 @router.get("/runs")
 async def list_evaluation_runs():
-    eval_dir = _evaluation_dir()
+    registry = _release_registry()
+    await run_sync(registry.migrate_json_directory, "evaluation", _evaluation_dir(), "eval_*.json")
     runs = []
-    for path in eval_dir.glob("*.json"):
-        try:
-            async with aiofiles.open(path, encoding="utf-8") as f:
-                payload = json.loads(await f.read())
-                runs.append({
-                    "run_id": payload.get("run_id"),
-                    "status": payload.get("status"),
-                    "scenario": payload.get("scenario"),
-                    "base_model": payload.get("base_model"),
-                    "created_at": payload.get("created_at"),
-                })
-        except Exception:
-            continue
+    for payload in await run_sync(registry.list, "evaluation"):
+        runs.append({
+            "run_id": payload.get("run_id"),
+            "status": payload.get("status"),
+            "scenario": payload.get("scenario"),
+            "base_model": payload.get("base_model"),
+            "created_at": payload.get("created_at"),
+        })
     runs.sort(key=lambda x: x.get("created_at") or "", reverse=True)
     return runs
 
 
 @router.post("/runs")
 async def create_evaluation_run(request: EvaluationRunRequest, background_tasks: BackgroundTasks):
-    cases = request.cases or _load_cases_from_dataset(request.test_dataset_id, request.max_cases)
+    request = _resolve_evaluation_request(request)
+    if (
+        request.run_inference
+        and request.adapter_path
+        and not request.finetuned_model
+        and not request.auto_merge_adapter
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="关闭 Adapter 动态挂载后必须提供已合并的 finetuned_model",
+        )
+    if request.cases:
+        cases = request.cases
+        evaluation_source = "manual_cases"
+    elif request.evaluation_snapshot_path:
+        snapshot_path = Path(request.evaluation_snapshot_path)
+        from training_engine.reporter import hash_path
+
+        actual_hash = hash_path(snapshot_path)
+        if request.evaluation_snapshot_hash and actual_hash != request.evaluation_snapshot_hash:
+            raise HTTPException(status_code=409, detail="训练测试快照内容已变化，拒绝运行不可复现评估")
+        cases = _load_cases_from_file(snapshot_path, request.max_cases)
+        evaluation_source = "training_held_out_snapshot"
+    else:
+        cases = _load_cases_from_dataset(request.test_dataset_id, request.max_cases)
+        evaluation_source = "independent_dataset"
+    if not cases:
+        raise HTTPException(status_code=400, detail="评估样本为空，请选择有效测试数据集或填写单条测试样本")
     run_id = f"eval_{uuid.uuid4().hex[:12]}"
     case_payloads = [case.model_dump(by_alias=True) for case in cases[:request.max_cases]]
 
@@ -820,6 +1074,16 @@ async def create_evaluation_run(request: EvaluationRunRequest, background_tasks:
         "release_id": request.release_id,
         "adapter_merge": None,
         "test_dataset_id": request.test_dataset_id,
+        "evaluation_snapshot_path": request.evaluation_snapshot_path,
+        "evaluation_snapshot_hash": request.evaluation_snapshot_hash,
+        "artifact_digest": request.artifact_digest,
+        "data_provenance": {
+            "source": evaluation_source,
+            "isolated_from_training": evaluation_source in {
+                "training_held_out_snapshot",
+                "independent_dataset",
+            },
+        },
         "backend": request.backend,
         "system_prompt": request.system_prompt,
         "run_inference": request.run_inference,
@@ -844,8 +1108,7 @@ async def create_evaluation_run(request: EvaluationRunRequest, background_tasks:
         "human_scores": [],
     }
 
-    async with aiofiles.open(_run_path(run_id), "w", encoding="utf-8") as f:
-        await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
+    await _write_run_payload(run_id, payload)
 
     background_tasks.add_task(_run_evaluation_task, request, run_id, case_payloads)
 
@@ -854,19 +1117,95 @@ async def create_evaluation_run(request: EvaluationRunRequest, background_tasks:
 
 @router.get("/runs/{run_id}")
 async def get_evaluation_run(run_id: str):
-    path = _run_path(run_id)
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="评估任务不存在")
     async with _get_run_lock(run_id):
-        async with aiofiles.open(path, encoding="utf-8") as f:
-            return json.loads(await f.read())
+        payload = await _read_run_payload(run_id)
+        if payload is None:
+            raise HTTPException(status_code=404, detail="评估任务不存在")
+        return payload
+
+
+def _request_from_run_payload(payload: dict[str, Any]) -> EvaluationRunRequest:
+    options = payload.get("inference_options") or {}
+    reproducibility = payload.get("reproducibility") or {}
+    return EvaluationRunRequest(
+        scenario=payload.get("scenario") or "qa_assistant",
+        base_model=payload.get("base_model") or "",
+        finetuned_model=payload.get("finetuned_model"),
+        adapter_path=payload.get("adapter_path"),
+        training_task_id=payload.get("training_task_id"),
+        release_id=payload.get("release_id"),
+        system_prompt=payload.get("system_prompt"),
+        auto_merge_adapter=bool(options.get("auto_merge_adapter", True)),
+        test_dataset_id=payload.get("test_dataset_id"),
+        evaluation_snapshot_path=payload.get("evaluation_snapshot_path"),
+        evaluation_snapshot_hash=payload.get("evaluation_snapshot_hash"),
+        artifact_digest=payload.get("artifact_digest"),
+        cases=[EvaluationCase(**case) for case in payload.get("cases", [])],
+        backend=payload.get("backend") or "ollama",
+        run_inference=bool(payload.get("run_inference", True)),
+        max_tokens=int(options.get("max_tokens", 512)),
+        temperature=float(options.get("temperature", 0.2)),
+        max_cases=int(options.get("max_cases", 20)),
+        judge_model=reproducibility.get("judge_model"),
+    )
+
+
+async def recover_evaluation_runs_after_restart() -> dict[str, int]:
+    """Resume durable runs that were pending or interrupted by process exit."""
+    registry = _release_registry()
+    await run_sync(registry.migrate_json_directory, "evaluation", _evaluation_dir(), "eval_*.json")
+    scheduled = 0
+    failed = 0
+    for payload in await run_sync(registry.list, "evaluation", 5000):
+        if payload.get("status") not in {"pending", "running", "recovering"}:
+            continue
+        run_id = str(payload.get("run_id") or "")
+        if not run_id:
+            continue
+        try:
+            request = _request_from_run_payload(payload)
+            case_payloads = payload.get("cases") or []
+            payload["status"] = "recovering"
+            payload.setdefault("recovery_history", []).append({
+                "scheduled_at": datetime.now().isoformat(),
+                "reason": "process_restart",
+            })
+            await _write_run_payload(run_id, payload)
+            asyncio.create_task(_run_evaluation_task(request, run_id, case_payloads))
+            scheduled += 1
+        except Exception as exc:
+            payload["status"] = "failed"
+            payload["error"] = f"启动恢复失败: {exc}"
+            await _write_run_payload(run_id, payload)
+            failed += 1
+    return {"scheduled": scheduled, "failed": failed}
+
+
+@router.post("/runs/{run_id}/retry")
+async def retry_evaluation_run(run_id: str, background_tasks: BackgroundTasks):
+    """Resume a failed/interrupted evaluation while reusing completed case outputs."""
+    async with _get_run_lock(run_id):
+        payload = await _read_run_payload(run_id)
+        if payload is None:
+            raise HTTPException(status_code=404, detail="评估任务不存在")
+        if payload.get("status") in {"pending", "running"}:
+            raise HTTPException(status_code=409, detail="评估任务正在运行")
+        request = _request_from_run_payload(payload)
+        case_payloads = payload.get("cases") or []
+        payload["status"] = "pending"
+        payload["error"] = None
+        payload.setdefault("retry_history", []).append({
+            "requested_at": datetime.now().isoformat(),
+        })
+        await _write_run_payload(run_id, payload)
+    background_tasks.add_task(_run_evaluation_task, request, run_id, case_payloads)
+    return payload
 
 
 @router.get("/runs/{run_id}/stream")
 async def stream_evaluation_run(run_id: str):
     """SSE endpoint for streaming evaluation progress updates."""
-    path = _run_path(run_id)
-    if not path.exists():
+    if await _read_run_payload(run_id) is None:
         raise HTTPException(status_code=404, detail="评估任务不存在")
 
     async def event_generator():
@@ -875,13 +1214,11 @@ async def stream_evaluation_run(run_id: str):
 
         try:
             while True:
-                if not path.exists():
-                    break
-
                 try:
                     async with _get_run_lock(run_id):
-                        async with aiofiles.open(path, "r", encoding="utf-8") as f:
-                            payload = json.loads(await f.read())
+                        payload = await _read_run_payload(run_id)
+                        if payload is None:
+                            break
                 except Exception:
                     await asyncio.sleep(1.0)
                     continue
@@ -921,13 +1258,10 @@ async def stream_evaluation_run(run_id: str):
 @router.post("/runs/{run_id}/judge")
 async def trigger_rejudge(run_id: str, request: JudgeRequest, background_tasks: BackgroundTasks):
     """独立的判卷触发接口，随时重置裁判打分"""
-    path = _run_path(run_id)
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="评估任务不存在")
-
     async with _get_run_lock(run_id):
-        async with aiofiles.open(path, encoding="utf-8") as f:
-            payload = json.loads(await f.read())
+        payload = await _read_run_payload(run_id)
+        if payload is None:
+            raise HTTPException(status_code=404, detail="评估任务不存在")
 
         if payload.get("scenario") != "qa_assistant":
             raise HTTPException(status_code=400, detail="只有 qa_assistant 场景支持模型判卷")
@@ -936,8 +1270,7 @@ async def trigger_rejudge(run_id: str, request: JudgeRequest, background_tasks: 
             raise HTTPException(status_code=400, detail="任务仍在运行中，无法触发裁判模型。")
 
         payload["status"] = "running"
-        async with aiofiles.open(path, "w", encoding="utf-8") as f:
-            await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
+        await _write_run_payload(run_id, payload)
 
     if run_id in _run_events:
         _run_events[run_id].set()
@@ -949,29 +1282,24 @@ async def trigger_rejudge(run_id: str, request: JudgeRequest, background_tasks: 
 @router.post("/runs/{run_id}/score")
 async def score_evaluation_case(run_id: str, request: EvaluationScoreRequest):
     async with _get_run_lock(run_id):
-        path = _run_path(run_id)
-        if not path.exists():
+        def apply_score(payload: dict[str, Any]) -> dict[str, Any]:
+            cases = payload.get("cases", [])
+            if request.case_index < 0 or request.case_index >= len(cases):
+                raise HTTPException(status_code=400, detail="case_index 超出范围")
+            score_payload = {
+                "case_index": request.case_index,
+                "score": request.score,
+                "notes": request.notes,
+                "answer_covered": request.answer_covered,
+                "grounded_in_context": request.grounded_in_context,
+                "updated_at": datetime.now().isoformat(),
+            }
+            cases[request.case_index]["human_score"] = score_payload
+            payload["human_scores"] = [case["human_score"] for case in cases if case.get("human_score")]
+            payload["metrics"], payload["failed_cases"] = _compute_metrics(payload["scenario"], cases)
+            return payload
+
+        payload = await _mutate_run_payload(run_id, apply_score)
+        if payload is None:
             raise HTTPException(status_code=404, detail="评估任务不存在")
-        async with aiofiles.open(path, encoding="utf-8") as f:
-            payload = json.loads(await f.read())
-
-        cases = payload.get("cases", [])
-        if request.case_index < 0 or request.case_index >= len(cases):
-            raise HTTPException(status_code=400, detail="case_index 超出范围")
-
-        score_payload = {
-            "case_index": request.case_index,
-            "score": request.score,
-            "notes": request.notes,
-            "answer_covered": request.answer_covered,
-            "grounded_in_context": request.grounded_in_context,
-            "updated_at": datetime.now().isoformat(),
-        }
-        cases[request.case_index]["human_score"] = score_payload
-        payload["human_scores"] = [case["human_score"] for case in cases if case.get("human_score")]
-        payload["metrics"], payload["failed_cases"] = _compute_metrics(payload["scenario"], cases)
-
-        async with aiofiles.open(path, "w", encoding="utf-8") as f:
-            await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
-
         return payload

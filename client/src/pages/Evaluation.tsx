@@ -24,7 +24,7 @@ import EmptyState from '../components/shared/EmptyState';
 import styles from './Evaluation.module.css';
 import {
   createEvaluationRun, getDatasetList, getInferenceModels, getModelList,
-  scoreEvaluationCase, getEvaluationRun, getEvaluationRuns
+  scoreEvaluationCase, getEvaluationRun, getEvaluationRuns, retryEvaluationRun
 } from '../services/api';
 import { useAppStore } from '../store/appStore';
 import type { AppTaskGoal, DatasetInfo, EvaluationRun, ModelInfo } from '../types';
@@ -45,14 +45,20 @@ const metricLabels: Record<string, string> = {
   schema_match_rate: 'Schema 符合率',
   field_completeness_rate: '字段完整率',
   type_match_rate: '类型匹配率',
+  expected_match_rate: '参考值匹配率',
   base_json_valid_rate: '基模 JSON 合法率',
   base_schema_match_rate: '基模 Schema 符合率',
   base_field_completeness_rate: '基模字段完整率',
   base_type_match_rate: '基模类型匹配率',
+  base_expected_match_rate: '基模参考值匹配率',
   json_valid_delta: 'JSON 合法率提升',
   schema_match_delta: 'Schema 符合率提升',
   type_match_delta: '类型匹配率提升',
+  expected_match_delta: '参考值匹配率提升',
+  expected_case_count: '带参考答案样本数',
+  scored_count: '已评分样本数',
   human_score_count: '人工评分数',
+  judge_score_count: '模型裁判评分数',
   good_rate: '好评率',
   win_rate: '微调胜率',
   loss_rate: '微调败率',
@@ -65,6 +71,12 @@ const metricLabels: Record<string, string> = {
 };
 
 type SelectOption = { label: string; value: string; backend?: string };
+
+const ACTIVE_EVALUATION_STATUSES = new Set<EvaluationRun['status']>([
+  'pending',
+  'running',
+  'recovering',
+]);
 
 const getStringValue = (item: Record<string, unknown>, keys: string[]) => {
   for (const key of keys) {
@@ -171,7 +183,10 @@ export default function Evaluation() {
   }, [allModelOptions, watchedBackend]);
 
   const initialDatasetId = searchParams.get('test_dataset_id');
-  const [testMode, setTestMode] = useState<'dataset' | 'single'>(initialDatasetId ? 'dataset' : 'single');
+  const initialTrainingTaskId = searchParams.get('training_task_id');
+  const [testMode, setTestMode] = useState<'release' | 'dataset' | 'single'>(
+    initialTrainingTaskId ? 'release' : initialDatasetId ? 'dataset' : 'single',
+  );
 
   const watchedScenario = Form.useWatch('scenario', form) as AppTaskGoal | undefined;
   const watchedBaseModel = Form.useWatch('base_model', form) as string | undefined;
@@ -243,6 +258,8 @@ export default function Evaluation() {
       form.setFieldsValue(values);
       if (values.test_dataset_id) {
         setTestMode('dataset');
+      } else if (values.training_task_id) {
+        setTestMode('release');
       }
     }
 
@@ -313,7 +330,7 @@ export default function Evaluation() {
     try {
       const data = await getEvaluationRun(runId);
       setRun(data);
-      if (data.status === 'pending' || data.status === 'running') {
+      if (ACTIVE_EVALUATION_STATUSES.has(data.status)) {
         setPollingRunId(runId);
         pollEvaluationStatus(runId);
       } else {
@@ -329,7 +346,7 @@ export default function Evaluation() {
     try {
       const data = await getEvaluationRun(runId);
       setRun(data);
-      if (data.status === 'pending' || data.status === 'running') {
+      if (ACTIVE_EVALUATION_STATUSES.has(data.status)) {
         pollingRef.current = window.setTimeout(() => pollEvaluationStatus(runId), 2000);
       } else {
         setPollingRunId(null);
@@ -379,6 +396,7 @@ export default function Evaluation() {
 
       const schema = values.schema ? (typeof values.schema === 'string' ? JSON.parse(values.schema) : values.schema) : undefined;
       const isDatasetMode = testMode === 'dataset';
+      const isSingleMode = testMode === 'single';
       const payload = {
         scenario: values.scenario,
         base_model: values.base_model,
@@ -392,7 +410,7 @@ export default function Evaluation() {
         temperature: values.temperature ?? 0.2,
         max_cases: values.max_cases ?? 20,
         test_dataset_id: isDatasetMode ? values.test_dataset_id : undefined,
-        cases: (!isDatasetMode && values.prompt)
+        cases: (isSingleMode && values.prompt)
           ? [
               {
                 prompt: values.prompt,
@@ -427,6 +445,44 @@ export default function Evaluation() {
     setRun(nextRun);
   };
 
+  const retryRun = async () => {
+    if (!run) return;
+    setLoading(true);
+    try {
+      const data = await retryEvaluationRun(run.run_id);
+      setRun(data);
+      setPollingRunId(run.run_id);
+      pollEvaluationStatus(run.run_id);
+      message.success('已从已完成的样本继续评估');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '重新运行失败');
+      setLoading(false);
+    }
+  };
+
+  const deploymentReadiness = (() => {
+    if (!run || !['completed', 'completed_with_warnings'].includes(run.status)) {
+      return { ready: false, reason: '评估尚未完成' };
+    }
+    const caseCount = run.cases?.length || 0;
+    if (caseCount < 5) return { ready: false, reason: '至少需要 5 个有效评估样本' };
+    if (run.failed_cases?.length) return { ready: false, reason: '存在推理失败或无效样本' };
+    if (run.scenario === 'structured_extraction') {
+      const schemaRate = Number(run.metrics?.schema_match_rate || 0);
+      const schemaDelta = Number(run.metrics?.schema_match_delta || 0);
+      if (schemaRate < 0.8 || schemaDelta < 0) {
+        return { ready: false, reason: 'Schema 质量或相对基线提升未达到发布门禁' };
+      }
+      return { ready: true, reason: '结构化质量门禁已满足' };
+    }
+    const scored = Number(run.metrics?.scored_count ?? run.metrics?.human_score_count ?? 0);
+    const coverage = caseCount ? scored / caseCount : 0;
+    const netWinRate = Number(run.metrics?.net_win_rate || 0);
+    if (coverage < 0.9) return { ready: false, reason: '评分覆盖率需要达到 90%' };
+    if (netWinRate <= 0) return { ready: false, reason: '微调模型尚未取得正向净胜率' };
+    return { ready: true, reason: '问答质量门禁已满足' };
+  })();
+
   const openDeployment = () => {
     const adapterPath = run?.adapter_merge?.adapter_path || run?.adapter_path || watchedAdapterPath || '';
     const mergedModelPath =
@@ -438,8 +494,12 @@ export default function Evaluation() {
       message.warning('缺少基础模型，暂时无法生成部署包');
       return;
     }
-    if (!adapterPath) {
-      message.warning('缺少 Adapter 路径，暂时无法生成部署包');
+    if (!adapterPath && !mergedModelPath) {
+      message.warning('缺少 Adapter 或合并模型路径，暂时无法生成部署包');
+      return;
+    }
+    if (!deploymentReadiness.ready) {
+      message.warning(deploymentReadiness.reason);
       return;
     }
 
@@ -447,7 +507,7 @@ export default function Evaluation() {
     params.set('training_task_id', trainingTaskId || 'manual-evaluation');
     if (run?.run_id) params.set('evaluation_run_id', run.run_id);
     params.set('base_model', baseModel);
-    params.set('adapter_path', adapterPath);
+    if (adapterPath) params.set('adapter_path', adapterPath);
     if (mergedModelPath) params.set('merged_model_path', mergedModelPath);
     params.set(
       'model_alias',
@@ -516,7 +576,8 @@ export default function Evaluation() {
                                     let statusType: StatusType = 'info';
                                     if (item.status === 'completed' || item.status === 'completed_with_warnings') statusType = 'success';
                                     else if (item.status === 'failed') statusType = 'error';
-                                    else if (item.status === 'running' || item.status === 'pending') statusType = 'processing';
+                                    else if (ACTIVE_EVALUATION_STATUSES.has(item.status)) statusType = 'processing';
+                                    else if (item.status === 'interrupted') statusType = 'warning';
 
                                     return (
                                         <MotionItem key={item.run_id}>
@@ -537,13 +598,25 @@ export default function Evaluation() {
                                                 <div style={{ width: '100%' }}>
                                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                                                         <Text style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }} ellipsis>{item.base_model}</Text>
-                                                        <StatusBadge status={statusType} text={item.status === 'completed_with_warnings' ? 'completed' : item.status} size="small" />
+                                                        <StatusBadge
+                                                          status={statusType}
+                                                          text={
+                                                            item.status === 'completed_with_warnings'
+                                                              ? '已完成（有提示）'
+                                                              : item.status === 'recovering'
+                                                                ? '恢复中'
+                                                                : item.status === 'interrupted'
+                                                                  ? '已中断'
+                                                                  : item.status
+                                                          }
+                                                          size="small"
+                                                        />
                                                     </div>
                                                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-tertiary)' }}>
                                                         <span style={{ background: 'rgba(0,0,0,0.3)', padding: '2px 6px', borderRadius: 4 }}>{getScenarioLabel(item.scenario)}</span>
                                                         <span>{new Date(item.created_at).toLocaleString('zh-CN', {month:'numeric', day:'numeric', hour:'numeric', minute:'numeric'})}</span>
                                                     </div>
-                                                    {(item.status === 'running' || item.status === 'pending') && (
+                                                    {ACTIVE_EVALUATION_STATUSES.has(item.status) && (
                                                         <Progress percent={99} status="active" showInfo={false} size="small" strokeColor="var(--accent-primary)" style={{ marginTop: 8, marginBottom: 0 }} />
                                                     )}
                                                 </div>
@@ -576,13 +649,24 @@ export default function Evaluation() {
                       <CheckCircleOutlined style={{ color: 'var(--accent-neon-green, #00FFC2)', fontSize: 20 }} />
                       <span style={{ fontSize: 18, fontWeight: 600 }}>{run.run_id}</span>
                       <Tag color="blue" style={{ marginLeft: 8 }}>{getScenarioLabel(run.scenario)}</Tag>
-                    {run.status === 'completed' && run.adapter_merge && (
+                    {['completed', 'completed_with_warnings'].includes(run.status) && run.adapter_merge && (
                       <MotionButton>
-                        <Button icon={<CloudUploadOutlined />} onClick={openDeployment} style={{ background: 'var(--glass-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}>
-                            部署到测试环境
-                        </Button>
+                        <Tooltip title={deploymentReadiness.reason}>
+                          <Button
+                            icon={<CloudUploadOutlined />}
+                            onClick={openDeployment}
+                            disabled={!deploymentReadiness.ready}
+                            style={{ background: 'var(--glass-bg)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+                          >
+                            创建发布草稿
+                          </Button>
+                        </Tooltip>
                       </MotionButton>
-                    )}</Space>
+                    )}
+                    {['completed', 'completed_with_warnings'].includes(run.status) && !deploymentReadiness.ready && (
+                      <Tag color="warning">{deploymentReadiness.reason}</Tag>
+                    )}
+                    </Space>
                   </div>
 
                   <Descriptions
@@ -601,7 +685,7 @@ export default function Evaluation() {
                     <Descriptions.Item label="自动合并">{run.adapter_merge ? '是' : '否'}</Descriptions.Item>
                   </Descriptions>
 
-                  {(run.status === 'pending' || run.status === 'running') && (
+                  {ACTIVE_EVALUATION_STATUSES.has(run.status) && (
                     <div style={{ textAlign: 'center', padding: '40px 0', background: 'rgba(0,0,0,0.1)', borderRadius: 12, marginTop: 16 }}>
                       <Progress
                         type="circle"
@@ -617,9 +701,26 @@ export default function Evaluation() {
                         strokeColor="var(--accent-primary)"
                       />
                       <div style={{ marginTop: 16, color: 'var(--text-secondary)' }}>
-                        模型正在进行推理，可能需要几分钟时间，请耐心等待...
+                        {run.status === 'recovering'
+                          ? '服务已恢复，正在从已保存的样本继续评估…'
+                          : '模型正在进行推理，可能需要几分钟时间，请耐心等待…'}
                       </div>
                     </div>
+                  )}
+
+                  {(run.status === 'failed' || run.status === 'interrupted') && (
+                    <Alert
+                      type="error"
+                      showIcon
+                      style={{ marginTop: 16 }}
+                      message={run.status === 'interrupted' ? '评估已中断' : '评估失败'}
+                      description={
+                        <Space direction="vertical">
+                          <span>{run.error || '可以复用已经完成的样本继续执行，无需从头开始。'}</span>
+                          <Button onClick={retryRun} loading={loading}>继续评估</Button>
+                        </Space>
+                      }
+                    />
                   )}
 
                   {run.warnings?.length ? (
@@ -838,8 +939,8 @@ export default function Evaluation() {
             <Form.Item name="adapter_path" label={<span style={{ fontWeight: 500 }}>Adapter 路径</span>} rules={[
                 {
                 validator: async (_, value) => {
-                    if (watchedAutoMergeAdapter && !value && watchedFinetunedModel === undefined) {
-                    return Promise.reject(new Error('开启自动合并时必须填写 Adapter 路径'));
+                    if (watchedAutoMergeAdapter && !value && !watchedFinetunedModel) {
+                      return Promise.reject(new Error('开启自动合并时必须填写 Adapter 路径'));
                     }
                     return Promise.resolve();
                 }
@@ -864,14 +965,30 @@ export default function Evaluation() {
                     测试内容
                 </div>
                 <Segmented
-                    options={[{label: '数据集测试', value: 'dataset'}, {label: '单条测试', value: 'single'}]}
+                    options={[
+                      ...(watchedTrainingTaskId ? [{ label: '训练留出集', value: 'release' }] : []),
+                      {label: '独立数据集', value: 'dataset'},
+                      {label: '单条测试', value: 'single'},
+                    ]}
                     value={testMode}
-                    onChange={(val) => setTestMode(val as 'dataset' | 'single')}
+                    onChange={(val) => setTestMode(val as 'release' | 'dataset' | 'single')}
                 />
             </div>
 
             <div style={{ background: 'var(--bg-elevated)', padding: 20, borderRadius: 12, border: '1px solid rgba(255,255,255,0.05)' }}>
-                {testMode === 'dataset' ? (
+                {testMode === 'release' ? (
+                    <div>
+                      <Alert
+                        type="success"
+                        showIcon
+                        message="使用训练时固化的独立留出集"
+                        description="服务端将校验快照 SHA-256，避免训练数据泄漏和评估内容被替换。"
+                      />
+                      <Form.Item name="max_cases" label="最大评估样本数" style={{ marginTop: 16, marginBottom: 0 }}>
+                        <InputNumber min={5} max={100} style={{ width: '100%' }} size="large" />
+                      </Form.Item>
+                    </div>
+                ) : testMode === 'dataset' ? (
                     <div>
                         <Form.Item name="test_dataset_id" label="测试数据集" rules={[{ required: true }]}>
                         <Select

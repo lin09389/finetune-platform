@@ -33,6 +33,7 @@ export default function Inference() {
   const [loading, setLoading] = useState(false);
   const [maxTokens, setMaxTokens] = useState(1024);
   const [temperature, setTemperature] = useState(0.7);
+  const [loraAdapter, setLoraAdapter] = useState('');
   const [currentBackend, setCurrentBackend] = useState<string>(
     observed.inference.currentBackend || 'huggingface',
   );
@@ -125,6 +126,7 @@ export default function Inference() {
           maxTokens: maxTokens,
           temperature: temperature,
           backend: currentBackend,
+          loraAdapter: loraAdapter.trim() || undefined,
         },
         (text: string) => {
           setResponse((prev) => prev + text);
@@ -263,6 +265,16 @@ export default function Inference() {
                         loading={modelOptions.length === 0}
                       />
                     </div>
+                    {currentBackend === 'huggingface' && (
+                      <div style={{ marginBottom: 16 }}>
+                        <Input
+                          value={loraAdapter}
+                          onChange={(event) => setLoraAdapter(event.target.value)}
+                          placeholder="可选：LoRA Adapter 路径；部署别名会自动解析"
+                          disabled={loading}
+                        />
+                      </div>
+                    )}
                     <div className={`${styles.chatBox} ${loading ? styles.generatingGlow : ''}`}>
                       {response || '模型输出将显示在这里...'}
                       {loading && <LoadingOutlined style={{ marginLeft: 8 }} spin />}

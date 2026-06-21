@@ -260,29 +260,28 @@ export default function History({ mode = 'history' }: HistoryProps) {
   };
 
   const canOpenEvaluation = (record: TrainingRecord | null) =>
-    Boolean(record && (record.status === 'completed' || record.status === 'stopped'));
+    Boolean(record && record.status === 'completed');
 
   const openEvaluation = (record: TrainingRecord | null) => {
     if (!canOpenEvaluation(record)) {
-      message.warning('只有已完成或已停止的训练记录可以进入评估');
+      message.warning('只有已完成并保存最终产物的训练记录可以进入评估');
       return;
     }
 
     const params = new URLSearchParams();
     const baseModel = getBaseModelId(record);
-    const datasetId = getEvaluationDatasetId(record);
     const adapterPath = getAdapterPath(record);
 
     params.set('scenario', getTaskGoal(record));
-    params.set('backend', 'ollama');
+    params.set('backend', 'huggingface');
     params.set('run_inference', 'true');
     params.set('auto_merge_adapter', 'true');
     if (record?.id) params.set('training_task_id', record.id);
     if (baseModel) params.set('base_model', baseModel);
-    if (datasetId) params.set('test_dataset_id', datasetId);
+    // Training-linked evaluation resolves the immutable held-out snapshot on the server.
     if (adapterPath) params.set('adapter_path', adapterPath);
-    if (record?.method === 'full' && record.outputPath) {
-      params.set('finetuned_model', record.outputPath);
+    if (record?.method === 'full' && (record.checkpointPath || record.outputPath)) {
+      params.set('finetuned_model', record.checkpointPath || record.outputPath);
     }
 
     navigate(`/evaluation?${params.toString()}`);

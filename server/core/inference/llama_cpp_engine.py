@@ -5,9 +5,7 @@ llama.cpp 推理引擎
 """
 import asyncio
 import logging
-import time
 from collections.abc import AsyncGenerator
-from typing import Any
 
 from .engine_base import (
     BaseInferenceEngine,

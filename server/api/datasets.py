@@ -14,7 +14,6 @@ from pydantic import BaseModel
 from core.config import get_settings
 from core.logging import get_logger
 from core.utils import (
-    calculate_file_hash,
     format_bytes,
     safe_filename,
 )
@@ -751,7 +750,6 @@ async def upload_dataset(
     sha256 = hashlib.sha256()
     file_size = 0
     samples: list[dict[str, Any]] | None = None
-    is_jsonl = file_ext == ".jsonl"
 
     try:
         with open(dest_file, "wb") as f:

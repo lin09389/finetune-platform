@@ -74,6 +74,16 @@ def _current_backend_name(explicit_backend: str | None) -> str:
     return explicit_backend or scheduler.get_stats().get("default_backend", "huggingface")
 
 
+def _resolve_deployment_target(model_name: str) -> dict[str, Any] | None:
+    try:
+        from api.deployment import resolve_deployed_model
+
+        return resolve_deployed_model(model_name)
+    except Exception:
+        logger.debug("failed to resolve deployment alias %s", model_name, exc_info=True)
+        return None
+
+
 def _resource_snapshot() -> dict[str, float]:
     runtime_info = get_runtime_device_info(use_cache=False)
     memory = psutil.virtual_memory()
@@ -155,11 +165,20 @@ _inference_kv_cache = get_kv_cache(
 
 
 def _build_generate_cache_key(request: GenerateRequest, backend_name: str) -> str:
+    deployment_target = _resolve_deployment_target(request.model)
+    lora_adapter = (
+        deployment_target.get("lora_adapter")
+        if deployment_target
+        else request.lora_adapter or request.options.lora_adapter
+    )
     return get_offline_cache().build_key(
         "generate",
         {
             "backend": backend_name,
             "model": request.model,
+            "model_path": deployment_target.get("model_path") if deployment_target else None,
+            "package_id": deployment_target.get("package_id") if deployment_target else None,
+            "lora_adapter": lora_adapter,
             "prompt": request.prompt,
             "temperature": request.options.temperature,
             "top_p": request.options.top_p,
@@ -171,11 +190,19 @@ def _build_generate_cache_key(request: GenerateRequest, backend_name: str) -> st
 
 
 def _build_chat_cache_key(request: ChatRequest, backend_name: str) -> str:
+    deployment_target = _resolve_deployment_target(request.model)
     return get_offline_cache().build_key(
         "chat",
         {
             "backend": backend_name,
             "model": request.model,
+            "model_path": deployment_target.get("model_path") if deployment_target else None,
+            "package_id": deployment_target.get("package_id") if deployment_target else None,
+            "lora_adapter": (
+                deployment_target.get("lora_adapter")
+                if deployment_target
+                else request.options.lora_adapter
+            ),
             "messages": [
                 {
                     "role": msg.role.value if hasattr(msg.role, "value") else msg.role,
@@ -487,7 +514,17 @@ async def generate(request: GenerateRequest):
     request.prompt = sanitize_input(request.prompt)
 
     scheduler = get_scheduler()
-    backend_name = _current_backend_name(request.options.backend)
+    deployment_target = _resolve_deployment_target(request.model)
+    backend_name = (
+        deployment_target.get("backend")
+        if deployment_target
+        else _current_backend_name(request.options.backend)
+    )
+    lora_adapter = (
+        deployment_target.get("lora_adapter")
+        if deployment_target
+        else request.lora_adapter or request.options.lora_adapter
+    )
     leased_model = None
     load_duration_ms = 0.0
     cache_key = _build_generate_cache_key(request, backend_name)
@@ -531,7 +568,9 @@ async def generate(request: GenerateRequest):
         )
         if backend_name != BackendType.CLOUD.value:
             model_path = (
-                scheduler.resolve_model_path(request.model, backend_name)
+                deployment_target.get("model_path")
+                if deployment_target
+                else scheduler.resolve_model_path(request.model, backend_name)
                 if hasattr(scheduler, "resolve_model_path")
                 else request.model
             )
@@ -543,7 +582,7 @@ async def generate(request: GenerateRequest):
                     num_ctx=request.options.num_ctx,
                     num_batch=request.options.num_batch,
                     max_tokens=request.options.max_tokens,
-                    lora_adapter=getattr(request.options, "lora_adapter", None),
+                    lora_adapter=lora_adapter,
                 )
                 if leased_model is None:
                     raise HTTPException(status_code=503, detail=f"模型加载失败: {request.model}")
@@ -554,7 +593,7 @@ async def generate(request: GenerateRequest):
 
         if _should_use_batching(backend_name):
             return await get_local_inference_pipeline().submit(
-                pipeline_key=f"{backend_name}:{request.model}:generate",
+                pipeline_key=f"{backend_name}:{request.model}:{lora_adapter or 'base'}:generate",
                 prompt=request.prompt,
                 max_batch_size=min(request.options.num_batch, get_settings().max_batch_size),
                 max_wait_ms=get_settings().max_batch_wait_ms,
@@ -676,7 +715,17 @@ async def generate_stream(request: GenerateRequest):
     request.prompt = sanitize_input(request.prompt)
 
     scheduler = get_scheduler()
-    backend_name = _current_backend_name(request.options.backend)
+    deployment_target = _resolve_deployment_target(request.model)
+    backend_name = (
+        deployment_target.get("backend")
+        if deployment_target
+        else _current_backend_name(request.options.backend)
+    )
+    lora_adapter = (
+        deployment_target.get("lora_adapter")
+        if deployment_target
+        else request.lora_adapter or request.options.lora_adapter
+    )
     load_duration_ms = 0.0
     leased_model = None
 
@@ -685,7 +734,9 @@ async def generate_stream(request: GenerateRequest):
         backend = await scheduler.get_backend(backend_name)
         if backend_name != BackendType.CLOUD.value:
             model_path = (
-                scheduler.resolve_model_path(request.model, backend_name)
+                deployment_target.get("model_path")
+                if deployment_target
+                else scheduler.resolve_model_path(request.model, backend_name)
                 if hasattr(scheduler, "resolve_model_path")
                 else request.model
             )
@@ -697,7 +748,7 @@ async def generate_stream(request: GenerateRequest):
                     num_ctx=request.options.num_ctx,
                     num_batch=request.options.num_batch,
                     max_tokens=request.options.max_tokens,
-                    lora_adapter=getattr(request.options, "lora_adapter", None),
+                    lora_adapter=lora_adapter,
                 )
                 if leased_model is None:
                     raise HTTPException(status_code=503, detail=f"模型加载失败: {request.model}")
@@ -863,7 +914,17 @@ async def chat(request: ChatRequest):
     _inject_system_prompt_message(request, system_prompt)
 
     scheduler = get_scheduler()
-    backend_name = _current_backend_name(request.options.backend)
+    deployment_target = _resolve_deployment_target(request.model)
+    backend_name = (
+        deployment_target.get("backend")
+        if deployment_target
+        else _current_backend_name(request.options.backend)
+    )
+    lora_adapter = (
+        deployment_target.get("lora_adapter")
+        if deployment_target
+        else request.options.lora_adapter
+    )
     leased_model = None
     load_duration_ms = 0.0
 
@@ -880,7 +941,9 @@ async def chat(request: ChatRequest):
 
         if backend_name != BackendType.CLOUD.value:
             model_path = (
-                scheduler.resolve_model_path(request.model, backend_name)
+                deployment_target.get("model_path")
+                if deployment_target
+                else scheduler.resolve_model_path(request.model, backend_name)
                 if hasattr(scheduler, "resolve_model_path")
                 else request.model
             )
@@ -892,7 +955,7 @@ async def chat(request: ChatRequest):
                     num_ctx=request.options.num_ctx,
                     num_batch=request.options.num_batch,
                     max_tokens=request.options.max_tokens,
-                    lora_adapter=getattr(request.options, "lora_adapter", None),
+                    lora_adapter=lora_adapter,
                 )
                 if leased_model is None:
                     raise HTTPException(status_code=503, detail=f"模型加载失败: {request.model}")
@@ -1155,7 +1218,17 @@ async def chat_stream(request: ChatRequest):
     )
 
     scheduler = get_scheduler()
-    backend_name = _current_backend_name(request.options.backend)
+    deployment_target = _resolve_deployment_target(request.model)
+    backend_name = (
+        deployment_target.get("backend")
+        if deployment_target
+        else _current_backend_name(request.options.backend)
+    )
+    lora_adapter = (
+        deployment_target.get("lora_adapter")
+        if deployment_target
+        else request.options.lora_adapter
+    )
     model_name = request.model
     leased_model = None
     load_duration_ms = 0.0
@@ -1166,7 +1239,9 @@ async def chat_stream(request: ChatRequest):
 
         if backend_name != BackendType.CLOUD.value:
             model_path = (
-                scheduler.resolve_model_path(model_name, backend_name)
+                deployment_target.get("model_path")
+                if deployment_target
+                else scheduler.resolve_model_path(model_name, backend_name)
                 if hasattr(scheduler, "resolve_model_path")
                 else model_name
             )
@@ -1178,7 +1253,7 @@ async def chat_stream(request: ChatRequest):
                     num_ctx=request.options.num_ctx,
                     num_batch=request.options.num_batch,
                     max_tokens=request.options.max_tokens,
-                    lora_adapter=getattr(request.options, "lora_adapter", None),
+                    lora_adapter=lora_adapter,
                 )
                 if leased_model is None:
                     raise HTTPException(status_code=503, detail=f"模型加载失败: {model_name}")
@@ -1382,6 +1457,30 @@ async def list_models(backend: str | None = Query(None, description="后端类�
     try:
         scheduler = get_scheduler()
         models = await scheduler.list_models(backend)
+        if backend in (None, BackendType.HUGGINGFACE.value):
+            try:
+                from api.deployment import list_deployment_packages
+
+                packages = await list_deployment_packages(limit=100)
+                existing_ids = {
+                    item.get("id") or item.get("name")
+                    for item in models
+                    if isinstance(item, dict)
+                }
+                for package in packages:
+                    alias = package.get("model_name")
+                    if alias and alias not in existing_ids:
+                        models.append(
+                            {
+                                "id": alias,
+                                "name": alias,
+                                "backend": "huggingface",
+                                "source": "deployment",
+                                "package_id": package.get("package_id"),
+                            }
+                        )
+            except Exception:
+                logger.debug("failed to append deployment aliases", exc_info=True)
         return models
     except Exception as e:
         logger.error(f"获取模型列表失败: {e}")

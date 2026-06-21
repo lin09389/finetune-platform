@@ -12,7 +12,6 @@ from __future__ import annotations
 import gc
 import inspect
 import os
-from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -344,6 +343,15 @@ class TrainingPipeline:
         finally:
             _stop_ds_hb.set()
 
+        from training_engine.dataset_loader import write_evaluation_snapshot
+
+        snapshot_path, snapshot_hash = write_evaluation_snapshot(
+            self.ctx.dataset_path,
+            self.ctx.record.output_path,
+        )
+        self.ctx.record.evaluation_snapshot_path = snapshot_path
+        self.ctx.record.evaluation_snapshot_hash = snapshot_hash
+
         if self._check_stop():
             # 由 run() 的 phase 间守卫调用 _handle_stop，这里仅 return
             return
@@ -352,12 +360,13 @@ class TrainingPipeline:
             "dataset_path": self.ctx.dataset_path,
             "train_size": len(self.ctx.dataset["train"]),
             "test_size": len(self.ctx.dataset.get("test", [])),
+            "evaluation_snapshot_path": snapshot_path,
+            "evaluation_snapshot_hash": snapshot_hash,
         })
 
     def _phase_build_trainer(self) -> None:
         self._set_phase(TrainingPhase.BUILD_TRAINER)
 
-        import torch
         from transformers import TrainingArguments
         try:
             from transformers import Trainer

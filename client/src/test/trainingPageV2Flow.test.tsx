@@ -233,7 +233,7 @@ describe('TrainingPage V2 event flow', () => {
 
   it('applies queued -> running -> completed transitions from V2 events', async () => {
     render(
-      <MemoryRouter>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <TrainingPage />
       </MemoryRouter>,
     );

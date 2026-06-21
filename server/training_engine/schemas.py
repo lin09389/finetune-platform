@@ -139,6 +139,9 @@ class TrainingRecordResponse(BaseModel):
     deployment_package_id: str | None = None
     config_hash: str | None = None
     dataset_fingerprint: str | None = None
+    evaluation_snapshot_path: str | None = None
+    evaluation_snapshot_hash: str | None = None
+    artifact_digest: str | None = None
     final_loss: float | None = None
     final_lr: float | None = None
     elapsed_time: float | None = None

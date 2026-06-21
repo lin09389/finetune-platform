@@ -8,7 +8,41 @@ export default function TechBackground() {
 
   const isDark = theme === 'dark';
 
-  // If accessibility settings prefer reduced motion, render a gorgeous high-fidelity static visual
+  // Pixel-based mouse coordinates initialized to center screen safely
+  const mouseX = useMotionValue(typeof window !== 'undefined' ? window.innerWidth / 2 : 0);
+  const mouseY = useMotionValue(typeof window !== 'undefined' ? window.innerHeight / 2 : 0);
+
+  // Premium spring physics for ultra-smooth responsiveness
+  const springConfig = { damping: 50, stiffness: 150, mass: 0.6 };
+  const smoothX = useSpring(mouseX, springConfig);
+  const smoothY = useSpring(mouseY, springConfig);
+
+  useEffect(() => {
+    if (reduceMotion) return undefined;
+    let rafId: number;
+    const handleMouseMove = (e: MouseEvent) => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        mouseX.set(e.clientX);
+        mouseY.set(e.clientY);
+      });
+    };
+
+    window.addEventListener('mousemove', handleMouseMove, { passive: true });
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      cancelAnimationFrame(rafId);
+    };
+  }, [mouseX, mouseY, reduceMotion]);
+
+  // Dynamic vector spotlight mask following the cursor
+  const maskImage = useMotionTemplate`radial-gradient(450px circle at ${smoothX}px ${smoothY}px, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 80%)`;
+
+  // Compute a highly subtle grid parallax shift for a 3D sense of depth
+  const parallaxIntensity = isDark ? 16 : 6;
+  const gridParallaxX = useTransform(smoothX, [0, typeof window !== 'undefined' ? window.innerWidth : 1920], [-parallaxIntensity, parallaxIntensity]);
+  const gridParallaxY = useTransform(smoothY, [0, typeof window !== 'undefined' ? window.innerHeight : 1080], [-parallaxIntensity, parallaxIntensity]);
+
   if (reduceMotion) {
     return (
       <div
@@ -18,10 +52,9 @@ export default function TechBackground() {
           pointerEvents: 'none',
           zIndex: -1,
           overflow: 'hidden',
-          background: 'var(--bg-primary)'
+          background: 'var(--bg-primary)',
         }}
       >
-        {/* Static Subtle Grid */}
         <div
           style={{
             position: 'absolute',
@@ -31,7 +64,6 @@ export default function TechBackground() {
             opacity: 0.5,
           }}
         />
-        {/* Static Premium Ambient Glow */}
         <div
           style={{
             position: 'absolute',
@@ -48,40 +80,6 @@ export default function TechBackground() {
       </div>
     );
   }
-
-  // Pixel-based mouse coordinates initialized to center screen safely
-  const mouseX = useMotionValue(typeof window !== 'undefined' ? window.innerWidth / 2 : 0);
-  const mouseY = useMotionValue(typeof window !== 'undefined' ? window.innerHeight / 2 : 0);
-
-  // Premium spring physics for ultra-smooth responsiveness
-  const springConfig = { damping: 50, stiffness: 150, mass: 0.6 };
-  const smoothX = useSpring(mouseX, springConfig);
-  const smoothY = useSpring(mouseY, springConfig);
-
-  useEffect(() => {
-    let rafId: number;
-    const handleMouseMove = (e: MouseEvent) => {
-      cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        mouseX.set(e.clientX);
-        mouseY.set(e.clientY);
-      });
-    };
-
-    window.addEventListener('mousemove', handleMouseMove, { passive: true });
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      cancelAnimationFrame(rafId);
-    };
-  }, [mouseX, mouseY]);
-
-  // Dynamic vector spotlight mask following the cursor
-  const maskImage = useMotionTemplate`radial-gradient(450px circle at ${smoothX}px ${smoothY}px, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 80%)`;
-
-  // Compute a highly subtle grid parallax shift for a 3D sense of depth
-  const parallaxIntensity = isDark ? 16 : 6;
-  const gridParallaxX = useTransform(smoothX, [0, typeof window !== 'undefined' ? window.innerWidth : 1920], [-parallaxIntensity, parallaxIntensity]);
-  const gridParallaxY = useTransform(smoothY, [0, typeof window !== 'undefined' ? window.innerHeight : 1080], [-parallaxIntensity, parallaxIntensity]);
 
   return (
     <div

@@ -99,6 +99,11 @@ export const normalizeTrainingRecord = (record: any) => {
     deploymentPackageId: record.deploymentPackageId ?? record.deployment_package_id,
     configHash: record.configHash ?? record.config_hash,
     datasetFingerprint: record.datasetFingerprint ?? record.dataset_fingerprint,
+    evaluationSnapshotPath:
+      record.evaluationSnapshotPath ?? record.evaluation_snapshot_path,
+    evaluationSnapshotHash:
+      record.evaluationSnapshotHash ?? record.evaluation_snapshot_hash,
+    artifactDigest: record.artifactDigest ?? record.artifact_digest,
     method: record.method,
     status: record.status,
     startTime: record.startTime ?? record.start_time,

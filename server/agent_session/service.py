@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import threading
 import uuid
 from datetime import datetime
@@ -12,7 +11,6 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi import BackgroundTasks
-from fastapi import HTTPException
 
 from context.deepagents import build_deepagents_context_pack
 from core.config import settings
@@ -332,6 +330,16 @@ class AgentSessionService:
             raise ValueError("Agent session not found")
         session["parts"] = self.repository.list_parts(session_id)
         return AgentSessionResponse(**self._attach_recovery_diagnostics(session))
+
+    def list_sessions(self, user_id: str, include_all: bool = False, limit: int = 100) -> list[AgentSessionResponse]:
+        sessions = self.repository.list_sessions(limit)
+        visible = []
+        for session in sessions:
+            owner = str((session.get("metadata") or {}).get("user_id") or "").strip()
+            if include_all or not owner or owner == user_id:
+                session["parts"] = []
+                visible.append(AgentSessionResponse(**self._attach_recovery_diagnostics(session)))
+        return visible
 
     def get_overview(self, session_id: str) -> AgentSessionOverviewResponse:
         session = self.get_session(session_id)

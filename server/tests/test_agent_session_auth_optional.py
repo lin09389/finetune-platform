@@ -311,6 +311,40 @@ def test_agent_artifact_original_blocks_workspace_path_escape(tmp_path: Path):
         app.dependency_overrides.clear()
 
 
+def test_workspace_file_api_resolves_agent_virtual_and_relative_paths(tmp_path: Path):
+    client, _ = _client_with_service(tmp_path)
+    project = tmp_path / "project"
+    target = project / "src" / "app.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("before\n", encoding="utf-8")
+    try:
+        relative = client.get(
+            "/workspace/read-file",
+            params={"file_path": "src/app.py", "project_path": str(project)},
+        )
+        assert relative.status_code == 200
+        assert relative.json()["content"] == "before\n"
+
+        virtual = client.post(
+            "/workspace/write-file",
+            json={
+                "file_path": "/workspace/src/app.py",
+                "project_path": str(project),
+                "content": "after\n",
+            },
+        )
+        assert virtual.status_code == 200
+        assert target.read_text(encoding="utf-8") == "after\n"
+
+        escape = client.get(
+            "/workspace/read-file",
+            params={"file_path": "/workspace/../outside.txt", "project_path": str(project)},
+        )
+        assert escape.status_code == 403
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_agent_session_workspace_read_model_returns_deepagents_view(tmp_path: Path):
     client, service = _client_with_service(tmp_path)
     workspace = _workspace_root()

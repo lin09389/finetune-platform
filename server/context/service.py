@@ -2,7 +2,6 @@
 项目上下文服务
 封装项目扫描、索引、检索、@ mention 和轻量依赖拓扑扩展。
 """
-import hashlib
 import logging
 import re
 from datetime import datetime

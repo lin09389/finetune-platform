@@ -1,0 +1,110 @@
+{
+  "fixture_version": "agent-frontend-baseline.v1",
+  "source": {
+    "backend_contract": "AgentSessionService.build_session_snapshot_chunk/build_stream_chunk",
+    "captured_from": [
+      "server/tests/test_agent_session_deepagents_runtime.py",
+      "server/tests/test_agent_execution_plan_recovery.py"
+    ],
+    "sanitized": true
+  },
+  "snapshot": {
+    "id": "snap_ags_demo",
+    "session_id": "ags_demo",
+    "event_type": "session_snapshot",
+    "chunk_type": "session_snapshot",
+    "message": "Session state snapshot",
+    "payload": {},
+    "created_at": "2026-06-19T08:00:00Z",
+    "session_status": "running",
+    "agent_id": "build",
+    "part": null,
+    "session_snapshot": {
+      "id": "ags_demo",
+      "agent_id": "build",
+      "status": "running",
+      "title": "Sanitized rewrite baseline",
+      "project_path": "C:/workspace/demo",
+      "metadata": {
+        "runtime": "deepagents",
+        "execution_plan": {
+          "schema_version": "agent.execution.plan.v1",
+          "status": "running",
+          "current_node_id": "execute_task",
+          "nodes": [],
+          "edges": [],
+          "lifecycle": []
+        }
+      },
+      "parts": [],
+      "created_at": "2026-06-19T08:00:00Z",
+      "updated_at": "2026-06-19T08:00:00Z"
+    }
+  },
+  "events": [
+    {
+      "id": "agevt_001",
+      "session_id": "ags_demo",
+      "event_type": "session_started",
+      "chunk_type": "status",
+      "message": "DeepAgents started.",
+      "payload": { "session_id": "ags_demo", "status": "running" },
+      "created_at": "2026-06-19T08:00:01Z",
+      "session_status": "running",
+      "agent_id": "build"
+    },
+    {
+      "id": "agevt_002",
+      "session_id": "ags_demo",
+      "event_type": "tool_call_started",
+      "chunk_type": "tool_call",
+      "message": "Calling tool: read_file",
+      "payload": { "session_id": "ags_demo", "part_id": "agp_tool", "tool": "read_file" },
+      "created_at": "2026-06-19T08:00:02Z",
+      "session_status": "running",
+      "agent_id": "build",
+      "tool": "read_file",
+      "part": {
+        "id": "agp_tool",
+        "session_id": "ags_demo",
+        "type": "tool_call",
+        "status": "running",
+        "title": "read_file",
+        "content": "",
+        "payload": { "tool": "read_file", "input": { "file_path": "/workspace/app.py" } },
+        "created_at": "2026-06-19T08:00:02Z"
+      }
+    },
+    {
+      "id": "agevt_003",
+      "session_id": "ags_demo",
+      "event_type": "permission_asked",
+      "chunk_type": "permission_request",
+      "message": "Tool call requires confirmation.",
+      "payload": { "session_id": "ags_demo", "part_id": "agp_permission", "status": "pending" },
+      "created_at": "2026-06-19T08:00:03Z",
+      "session_status": "waiting_permission",
+      "agent_id": "build"
+    },
+    {
+      "id": "agevt_004",
+      "session_id": "ags_demo",
+      "event_type": "loop_guard_triggered",
+      "chunk_type": "error",
+      "message": "Repeated tool failures stopped the agent.",
+      "payload": {
+        "session_id": "ags_demo",
+        "part_id": "agp_error",
+        "status": "failed",
+        "guard": "loop_guard",
+        "reason_code": "repeated_failure_family",
+        "repeat_count": 3,
+        "threshold": 3,
+        "tool": "execute"
+      },
+      "created_at": "2026-06-19T08:00:04Z",
+      "session_status": "needs_manual_review",
+      "agent_id": "build"
+    }
+  ]
+}

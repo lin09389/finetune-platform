@@ -29,6 +29,7 @@ const ModelManager = lazy(() => import('./pages/ModelManager'));
 const DatasetManager = lazy(() => import('./pages/DatasetManager'));
 const Training = lazy(() => import('./pages/Training'));
 const Chat = lazy(() => import('./pages/ChatNew'));
+const AgentWorkbench = lazy(() => import('./agent/workbench/AgentWorkbenchRoute'));
 const KnowledgeBase = lazy(() => import('./pages/KnowledgeBase'));
 const WorkspaceManager = lazy(() => import('./pages/WorkspaceManager'));
 const ModelHub = lazy(() => import('./pages/ModelHub'));
@@ -132,6 +133,7 @@ const routes = [
   { path: '/datasets', element: <DatasetManager /> },
   { path: '/training', element: <Training /> },
   { path: '/chat', element: <Chat /> },
+  { path: '/agent', element: <AgentWorkbench /> },
   { path: '/knowledge', element: <KnowledgeBase /> },
   { path: '/workspace', element: <WorkspaceManager /> },
   { path: '/memory', element: <MemoryPage /> },
@@ -161,6 +163,7 @@ const routeTitles: Record<string, string> = {
   '/datasets': '数据集',
   '/training': '训练',
   '/chat': 'Chat',
+  '/agent': 'Agent 工作台',
   '/knowledge': '知识库',
   '/workspace': '工作区',
   '/memory': '记忆',
@@ -186,6 +189,8 @@ function AppContent() {
   const { message, modal } = AntApp.useApp();
   const location = useLocation();
   const isChatRoute = location.pathname === '/chat';
+  const isAgentWorkbenchRoute = location.pathname === '/agent';
+  const isImmersiveRoute = isChatRoute || isAgentWorkbenchRoute;
   const { setBackendUrl, setBackendStatus, sidebarCollapsed } = useAppStore(useShallow(state => ({
     setBackendUrl: state.setBackendUrl,
     setBackendStatus: state.setBackendStatus,
@@ -347,24 +352,24 @@ function AppContent() {
             background: 'transparent',
           }}
         >
-          {!useCompactNav && <Sidebar />}
-          <MobileNav />
+          {!useCompactNav && !isAgentWorkbenchRoute && <Sidebar />}
+          {!isAgentWorkbenchRoute && <MobileNav />}
           <Layout
             className="app-main"
             style={{
-              marginLeft: useCompactNav ? 0 : sidebarCollapsed ? 104 : 272,
+              marginLeft: isAgentWorkbenchRoute ? 0 : useCompactNav ? 0 : sidebarCollapsed ? 104 : 272,
               transition: 'margin-left 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
               minHeight: '100vh',
               background: 'transparent',
             }}
           >
-            {!isChatRoute && <HeaderBar />}
+            {!isImmersiveRoute && <HeaderBar />}
             <Content
               id="main-content"
               className="app-content"
               tabIndex={-1}
               style={{
-                margin: isChatRoute
+                margin: isImmersiveRoute
                   ? 0
                   : isMobile
                     ? '12px 10px 76px'
@@ -372,15 +377,15 @@ function AppContent() {
                       ? '16px 14px 84px'
                       : '16px 24px 24px 24px',
                 padding: 0,
-                height: isChatRoute ? '100vh' : undefined,
-                minHeight: isChatRoute ? '100vh' : 'calc(100vh - 56px - 40px)',
-                borderRadius: isChatRoute ? 0 : '16px', // Rounded corners for content area
+                height: isImmersiveRoute ? '100vh' : undefined,
+                minHeight: isImmersiveRoute ? '100vh' : 'calc(100vh - 56px - 40px)',
+                borderRadius: isImmersiveRoute ? 0 : '16px', // Rounded corners for content area
                 overflow: 'hidden', // Contain content
               }}
             >
               <AnimatePresence mode="wait">
                 <Routes location={location} key={location.pathname}>
-                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                  <Route path="/" element={<Navigate to="/agent" replace />} />
                   {routes.map(({ path, element }) => (
                     <Route
                       key={path}
@@ -395,7 +400,7 @@ function AppContent() {
                 </Routes>
               </AnimatePresence>
             </Content>
-            <MobileBottomNav />
+            {!isAgentWorkbenchRoute && <MobileBottomNav />}
           </Layout>
         </Layout>
       </ConfigProvider>

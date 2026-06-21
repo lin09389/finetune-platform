@@ -23,7 +23,10 @@ import {
   subscribeTrainingProgress,
 } from '../../services/trainingApi';
 import { useAppStore } from '../../store/appStore';
-import type { TrainingProgress as TrainingProgressType } from '../../types';
+import type {
+  TrainingProgress as TrainingProgressType,
+  TrainingRecord as TrainingRecordType,
+} from '../../types';
 import { notify } from '../../utils/notify';
 import { appModal } from '../../utils/modal';
 import HyperparameterPanel from './components/HyperparameterPanel';
@@ -90,6 +93,7 @@ const TrainingPage: React.FC = () => {
   const [lastV2EventAt, setLastV2EventAt] = useState<number>(0);
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
+  const [currentTrainingRecord, setCurrentTrainingRecord] = useState<TrainingRecordType | null>(null);
   const [backendTraining, setBackendTraining] = useState(false);
   const [phaseDurations, setPhaseDurations] = useState<Record<string, number>>({});
   const [currentPhase, setCurrentPhase] = useState<string>('');
@@ -247,6 +251,7 @@ const TrainingPage: React.FC = () => {
       setBackendTraining(data.is_training);
       if (data.record?.id) {
         setCurrentTaskId(data.record.id);
+        setCurrentTrainingRecord(data.record);
       }
       if (data.progress) {
         // Don't overwrite progress if V2 stream is actively sending data
@@ -492,6 +497,7 @@ const TrainingPage: React.FC = () => {
       setIsTraining(true);
       addTrainingRecord(result);
       setCurrentTaskId(result.id);
+      setCurrentTrainingRecord(result);
       notify.success('训练任务已提交');
     } catch (error: any) {
       setTrainingStatus('idle');
@@ -518,6 +524,7 @@ const TrainingPage: React.FC = () => {
       setIsTraining(true);
       addTrainingRecord(result);
       setCurrentTaskId(result.id);
+      setCurrentTrainingRecord(result);
       setChartData([]);
       notify.success('已从检查点恢复训练');
     } catch (error: any) {
@@ -647,12 +654,19 @@ const TrainingPage: React.FC = () => {
       values.taskGoal === 'structured_extraction' ? 'structured_extraction' : 'qa_assistant';
 
     params.set('scenario', scenario);
-    params.set('backend', 'ollama');
+    params.set('backend', 'huggingface');
     params.set('run_inference', 'true');
     params.set('auto_merge_adapter', 'true');
     if (currentTaskId) params.set('training_task_id', currentTaskId);
     if (values.modelId) params.set('base_model', values.modelId);
-    if (values.datasetId) params.set('test_dataset_id', values.datasetId);
+    // Do not reuse the training dataset for release evaluation. The backend binds
+    // this run to the held-out snapshot created during training.
+    if (currentTrainingRecord?.adapterPath) {
+      params.set('adapter_path', currentTrainingRecord.adapterPath);
+    }
+    if (currentTrainingRecord?.method === 'full' && currentTrainingRecord.checkpointPath) {
+      params.set('finetuned_model', currentTrainingRecord.checkpointPath);
+    }
 
     navigate(`/evaluation?${params.toString()}`);
   };

@@ -169,6 +169,15 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("SQLite storage initialized, JSON data migration skipped on startup")
 
+    try:
+        from api.evaluation import recover_evaluation_runs_after_restart
+
+        recovered_evaluations = await recover_evaluation_runs_after_restart()
+        if recovered_evaluations.get("scheduled") or recovered_evaluations.get("failed"):
+            logger.info("Evaluation restart recovery complete: %s", recovered_evaluations)
+    except Exception as e:
+        logger.warning(f"Evaluation restart recovery failed: {e}")
+
     logger.info(f"Models directory: {settings.models_dir_resolved}")
     logger.info(f"Datasets directory: {settings.datasets_dir_resolved}")
     logger.info(f"Outputs directory: {settings.outputs_dir_resolved}")
@@ -359,6 +368,50 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Requested-With", "X-Trace-Id"],
 )
+
+
+_PUBLIC_PATHS = {
+    "/",
+    "/health",
+    "/api/info",
+    "/openapi.json",
+    "/docs",
+    "/redoc",
+    "/auth/login",
+    "/auth/register",
+    "/auth/refresh",
+}
+
+
+@app.middleware("http")
+async def authentication_middleware(request: Request, call_next):
+    """Enforce JWT authentication globally when ENABLE_AUTH is enabled."""
+    if not settings.enable_auth or request.method == "OPTIONS":
+        return await call_next(request)
+    path = request.url.path.rstrip("/") or "/"
+    if path in _PUBLIC_PATHS or path.startswith("/docs/") or path.startswith("/redoc/"):
+        return await call_next(request)
+
+    authorization = request.headers.get("Authorization", "")
+    if not authorization.startswith("Bearer "):
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Missing bearer token"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    from security.jwt_auth import get_jwt_auth
+
+    try:
+        payload = get_jwt_auth().verify_token(authorization[7:].strip())
+    except Exception:
+        payload = None
+    if payload is None:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Invalid or expired token"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return await call_next(request)
 
 
 @app.middleware("http")

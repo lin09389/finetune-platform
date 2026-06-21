@@ -18,6 +18,7 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   MessageOutlined,
+  RobotOutlined,
   PlayCircleOutlined,
   QuestionCircleOutlined,
   ThunderboltOutlined,
@@ -69,7 +70,8 @@ const menuGroups: MenuGroup[] = [
         label: '训练对比',
         description: '指标横评',
       },
-      { key: '/chat', icon: <MessageOutlined />, label: 'AI 对话', description: '智能助手' },
+      { key: '/agent', icon: <RobotOutlined />, label: 'Agent 工作台', description: '任务执行' },
+      { key: '/chat', icon: <MessageOutlined />, label: 'AI 对话', description: '纯聊天' },
       {
         key: '/inference',
         icon: <ThunderboltOutlined />,

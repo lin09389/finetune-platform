@@ -105,7 +105,14 @@ export interface TrainingConfig {
 export interface EvaluationRun {
   run_id: string;
   scenario: AppTaskGoal;
-  status: string;
+  status:
+    | 'pending'
+    | 'running'
+    | 'recovering'
+    | 'interrupted'
+    | 'completed'
+    | 'completed_with_warnings'
+    | 'failed';
   created_at: string;
   base_model: string;
   finetuned_model?: string;
@@ -115,8 +122,10 @@ export interface EvaluationRun {
   system_prompt?: string;
   adapter_merge?: {
     merged_model_path?: string;
+    base_model_path?: string;
     adapter_path?: string;
     backend?: string;
+    mode?: string;
   } | null;
   test_dataset_id?: string;
   base_outputs: unknown[];
@@ -136,6 +145,14 @@ export interface EvaluationRun {
     max_cases?: number;
     auto_merge_adapter?: boolean;
   };
+  error?: string | null;
+  recovery_history?: Array<{
+    scheduled_at: string;
+    reason: string;
+  }>;
+  retry_history?: Array<{
+    requested_at: string;
+  }>;
 }
 
 export interface DeploymentPackage {
@@ -143,7 +160,7 @@ export interface DeploymentPackage {
   training_task_id: string;
   created_at: string;
   base_model: string;
-  adapter_path: string;
+  adapter_path?: string;
   merged_model_path?: string;
   evaluation_run_id?: string;
   evaluation_gate?: {
@@ -151,8 +168,30 @@ export interface DeploymentPackage {
     status?: string;
     scenario?: string;
     metrics?: Record<string, number>;
+    artifact_digest?: string;
+    case_count?: number;
+    data_provenance?: {
+      source?: string;
+      isolated_from_training?: boolean;
+    };
     passed?: boolean;
   } | null;
+  status?: 'draft' | 'active' | 'inactive';
+  activated_at?: string | null;
+  deactivated_at?: string | null;
+  health?: {
+    status?: 'not_checked' | 'healthy' | 'failed';
+    checked_at?: string | null;
+    detail?: string | null;
+    artifact_digest?: string | null;
+  };
+  audit?: Array<Record<string, unknown>>;
+  inference_target?: {
+    model_alias?: string;
+    model_path?: string;
+    backend?: string;
+    lora_adapter?: string | null;
+  };
   ollama_modelfile?: string;
   openai_compatible_examples: Record<string, string>;
   env_template: Record<string, string>;
@@ -206,6 +245,9 @@ export interface TrainingRecord {
   deploymentPackageId?: string;
   configHash?: string;
   datasetFingerprint?: string;
+  evaluationSnapshotPath?: string;
+  evaluationSnapshotHash?: string;
+  artifactDigest?: string;
   method: string;
   status: 'running' | 'completed' | 'failed' | 'stopped';
   startTime: string;
@@ -406,95 +448,6 @@ export interface ChatMessage {
   experiment_config?: Partial<PlaygroundExperimentConfig>;
   run_metrics?: PlaygroundRunMetrics;
   isEdited?: boolean;
-  agent_metadata?: ChatAgentMetadata;
-}
-
-export type ChatAgentMessageKind = 'agent_part';
-
-export interface ChatAgentMetadata {
-  agent_run_id: string;
-  agent_session_id?: string;
-  agent_part_id?: string;
-  kind: ChatAgentMessageKind;
-  status: string;
-  step_id?: string;
-  action_id?: string;
-  action_type?: 'patch' | 'command' | string;
-  can_approve?: boolean;
-  can_execute?: boolean;
-  details_url?: string;
-  active_agent_id?: string;
-  subagent_runs?: Array<Record<string, unknown>>;
-  observability?: unknown;
-  tool_calls?: unknown[];
-  permission_pending?: boolean;
-  latest_blocked_tool?: string;
-  execution_state?: string;
-  execution_state_message?: string;
-  final_summary?: string;
-  recoverable?: boolean;
-  model_protocol_status?: 'ok' | 'repaired' | 'fallback_summary' | 'needs_manual_review' | string;
-  last_model_output_preview?: string;
-  parse_repair_count?: number;
-  fallback_summary_used?: boolean;
-  acceptance_report?: ChatAgentAcceptanceReport;
-  acceptance_report_source?: 'model' | 'fallback' | string;
-  acceptance_report_raw?: string;
-  blocked_state?: Record<string, unknown> | null;
-  autonomy_mode?: 'safe_auto' | 'confirm_all' | 'read_only';
-  auto_execution_policy?: Record<string, unknown>;
-  repair_attempts?: number;
-  max_repair_attempts?: number;
-  action?: unknown;
-  event?: unknown;
-  latest_event?: unknown;
-  latest_tool_call?: unknown;
-  latest_action?: unknown;
-  ui_state?: unknown;
-  ui_item?: unknown;
-  agent_parts?: unknown[];
-  agent_part?: unknown;
-  agent_session_state?: unknown;
-  execution_plan?: unknown;
-  current_stage_id?: string;
-  current_node_id?: string;
-  agent_streaming_diagnostics?: {
-    mode?: string;
-    status?: string;
-    provider?: string;
-    model?: string;
-    reason?: string;
-    error?: string;
-    fallback_to_non_stream?: boolean;
-    content_length?: number;
-    updated_at?: string;
-  };
-  agent_session_diagnostics?: {
-    status?: string;
-    current_phase?: string;
-    stop_reason?: string;
-    next_action?: string;
-    refresh_safe?: boolean;
-    latest_event?: unknown;
-    latest_tool_call?: unknown;
-    latest_tool_result?: unknown;
-    latest_action?: unknown;
-    latest_command?: unknown;
-    latest_summary?: unknown;
-    latest_error?: unknown;
-    recent_events?: unknown[];
-  };
-}
-
-export interface ChatAgentAcceptanceReport {
-  result: 'passed' | 'partial' | 'blocked' | 'failed';
-  summary: string;
-  completed_items?: string[];
-  changed_files?: string[];
-  commands_run?: string[];
-  verification_result?: string;
-  blocking_reason?: string;
-  next_action?: string;
 }
 
 export interface ChatSession {

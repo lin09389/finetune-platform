@@ -131,14 +131,16 @@ def _ensure_workspace_exists(workspace_id: str) -> dict[str, Any]:
 
 
 def _refresh_workspace_counts(workspace: dict[str, Any]) -> Workspace:
-    vector_store = get_vector_store()
     collection_name = workspace.get("vector_collection_name", workspace["id"])
 
     try:
+        vector_store = get_vector_store()
         stats = vector_store.get_collection_stats(collection_name)
         vector_count = stats.get("count", 0)
-    except Exception:
+    except Exception as exc:
         vector_count = 0
+        workspace["status"] = "degraded"
+        workspace["vector_store_error"] = str(exc)
 
     workspace["vector_collection_name"] = collection_name
     workspace["vector_count"] = vector_count
@@ -281,7 +283,12 @@ async def create_workspace(data: WorkspaceCreate):
         vector_store = get_vector_store()
         vector_store.get_or_create_collection(collection_name)
 
-    await run_sync(_create_collection)
+    try:
+        await run_sync(_create_collection)
+    except (ImportError, ModuleNotFoundError) as exc:
+        logger.warning("Vector store unavailable; workspace created in degraded mode: %s", exc)
+        workspace["status"] = "degraded"
+        workspace["vector_store_error"] = str(exc)
 
     workspaces[workspace_id] = workspace
     await run_sync(_persist_workspaces)
@@ -540,14 +547,26 @@ class FileWriteRequest(BaseModel):
 def _validate_file_path_in_workspace(file_path: str, workspace_id: str | None, project_path: str | None) -> Path:
     """Resolve the file path and assert it lives inside an allowed workspace root."""
     try:
-        resolved = Path(file_path).expanduser().resolve()
+        raw_path = str(file_path or "").strip().replace("\\", "/")
+        project_root = Path(project_path).expanduser().resolve() if project_path else None
+        if raw_path == "/workspace":
+            raw_path = ""
+        elif raw_path.startswith("/workspace/"):
+            raw_path = raw_path[len("/workspace/"):]
+        elif raw_path.startswith("workspace/"):
+            raw_path = raw_path[len("workspace/"):]
+
+        candidate = Path(raw_path).expanduser()
+        if not candidate.is_absolute() and project_root is not None:
+            candidate = project_root / candidate
+        resolved = candidate.resolve()
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Invalid file path: {exc}") from exc
 
     # Build allowed roots: from project_path hint, from workspace metadata, from env
     extra_roots: set[Path] = set()
-    if project_path:
-        extra_roots.add(Path(project_path).expanduser().resolve())
+    if project_root:
+        extra_roots.add(project_root)
     if workspace_id:
         ws = workspaces.get(workspace_id)
         if ws and ws.get("local_path"):
