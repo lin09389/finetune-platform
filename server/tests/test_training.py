@@ -14,6 +14,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.config import get_settings
 from core.training_state import TrainingRecord, TrainingState
 from training_engine.reporter import write_training_artifact_manifest
+from training_engine.dataset_loader import (
+    split_raw_dataset_records,
+    write_evaluation_snapshot,
+)
+from training_engine.reporter import hash_path
 
 TRAINING_MODULE_PATH = Path(__file__).resolve().parents[1] / "api" / "training.py"
 TRAINING_SPEC = importlib.util.spec_from_file_location("training_module", TRAINING_MODULE_PATH)
@@ -291,6 +296,32 @@ class TestTrainingDatasetValidation:
 
         assert len(dataset["train"]) == 1
         assert len(dataset["test"]) == 0
+
+    def test_release_snapshot_is_deterministic_and_held_out(self, tmp_path):
+        source = tmp_path / "dataset.json"
+        records = [
+            {"instruction": f"question-{index}", "output": f"answer-{index}"}
+            for index in range(20)
+        ]
+        source.write_text(json.dumps(records), encoding="utf-8")
+
+        train_a, test_a = split_raw_dataset_records(records)
+        train_b, test_b = split_raw_dataset_records(records)
+        assert test_a == test_b
+        assert train_a == train_b
+        assert test_a
+        assert {item["instruction"] for item in train_a}.isdisjoint(
+            {item["instruction"] for item in test_a}
+        )
+
+        snapshot_path, snapshot_hash = write_evaluation_snapshot(
+            str(source),
+            tmp_path / "output",
+        )
+        assert snapshot_path is not None
+        assert snapshot_hash == hash_path(snapshot_path)
+        snapshot_records = json.loads(Path(snapshot_path).read_text(encoding="utf-8"))
+        assert snapshot_records == test_a
 
     def test_split_train_test_dataset_keeps_small_dataset_non_empty(self):
         from datasets import Dataset

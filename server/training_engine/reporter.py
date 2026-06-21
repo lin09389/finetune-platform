@@ -3,6 +3,8 @@
 """
 import json
 import hashlib
+import platform
+import sys
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -10,9 +12,54 @@ from typing import Any
 
 from core.logging import get_logger
 from core.training_state import TrainingRecord
-from training_engine.schemas import TrainingConfigInput
 
 logger = get_logger(__name__)
+
+
+def hash_path(path_value: str | Path | None) -> str | None:
+    """Return a deterministic SHA-256 digest for a file or directory tree."""
+    if not path_value:
+        return None
+    path = Path(path_value)
+    if not path.exists():
+        return None
+
+    digest = hashlib.sha256()
+    if path.is_file():
+        digest.update(path.name.encode("utf-8"))
+        with open(path, "rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    files = sorted(item for item in path.rglob("*") if item.is_file())
+    for item in files:
+        digest.update(item.relative_to(path).as_posix().encode("utf-8"))
+        with open(item, "rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _package_version(name: str) -> str | None:
+    try:
+        from importlib.metadata import version
+
+        return version(name)
+    except Exception:
+        return None
+
+
+def runtime_provenance() -> dict[str, Any]:
+    """Capture the minimum runtime facts needed to reproduce a release."""
+    return {
+        "python": sys.version.split()[0],
+        "platform": platform.platform(),
+        "pytorch": _package_version("torch"),
+        "transformers": _package_version("transformers"),
+        "peft": _package_version("peft"),
+        "datasets": _package_version("datasets"),
+    }
 
 
 def build_failure_feedback(error_message: str) -> dict[str, Any]:
@@ -185,6 +232,14 @@ def sync_training_record_metadata(record: TrainingRecord) -> TrainingRecord:
         config_payload = json.dumps(config, ensure_ascii=False, sort_keys=True)
         record.config_hash = hashlib.sha256(config_payload.encode("utf-8")).hexdigest()
     if not record.dataset_fingerprint:
+        try:
+            from core.config import get_settings
+
+            dataset_dir = get_settings().datasets_dir_resolved / str(record.dataset_id or "")
+            record.dataset_fingerprint = hash_path(dataset_dir)
+        except Exception:
+            record.dataset_fingerprint = None
+    if not record.dataset_fingerprint:
         dataset_payload = json.dumps(
             {
                 "dataset_id": record.dataset_id,
@@ -195,6 +250,11 @@ def sync_training_record_metadata(record: TrainingRecord) -> TrainingRecord:
             sort_keys=True,
         )
         record.dataset_fingerprint = hashlib.sha256(dataset_payload.encode("utf-8")).hexdigest()
+    if record.evaluation_snapshot_path and not record.evaluation_snapshot_hash:
+        record.evaluation_snapshot_hash = hash_path(record.evaluation_snapshot_path)
+    artifact_path = record.adapter_path or record.checkpoint_path
+    if artifact_path and not record.artifact_digest:
+        record.artifact_digest = hash_path(artifact_path)
     return record
 
 
@@ -213,7 +273,7 @@ def write_training_artifact_manifest(record: TrainingRecord) -> dict[str, Any]:
         validation_status = record.status
 
     manifest: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "release_id": record.release_id,
         "training_task_id": record.id,
         "promotion_state": record.promotion_state,
@@ -225,6 +285,11 @@ def write_training_artifact_manifest(record: TrainingRecord) -> dict[str, Any]:
         "method": record.method,
         "config_hash": record.config_hash,
         "dataset_fingerprint": record.dataset_fingerprint,
+        "evaluation_snapshot": {
+            "path": record.evaluation_snapshot_path,
+            "sha256": record.evaluation_snapshot_hash,
+            "isolated_from_training": bool(record.evaluation_snapshot_path),
+        },
         "artifacts": {
             "output_path": record.output_path,
             "adapter_path": record.adapter_path,
@@ -232,7 +297,9 @@ def write_training_artifact_manifest(record: TrainingRecord) -> dict[str, Any]:
             "final_artifact_path": artifact_path,
             "final_artifact_kind": artifact_kind,
             "final_artifact_exists": artifact_exists,
+            "final_artifact_sha256": record.artifact_digest,
         },
+        "runtime": runtime_provenance(),
         "quality_gate": {
             "validation_status": validation_status,
             "evaluation_run_id": record.evaluation_run_id,

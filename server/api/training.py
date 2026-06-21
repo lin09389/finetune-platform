@@ -509,6 +509,12 @@ async def start_swift_training(config: TrainingConfigInput):
     record_id = str(uuid.uuid4())
     output_path = settings.outputs_dir_resolved / f"train_{record_id[:8]}"
     output_path.mkdir(parents=True, exist_ok=True)
+    from training_engine.dataset_loader import write_evaluation_snapshot
+
+    evaluation_snapshot_path, evaluation_snapshot_hash = write_evaluation_snapshot(
+        str(dataset_file),
+        output_path,
+    )
 
     record = TrainingRecord(
         id=record_id,
@@ -524,6 +530,8 @@ async def start_swift_training(config: TrainingConfigInput):
         output_path=str(output_path),
         adapter_path=None,
         checkpoint_path=None,
+        evaluation_snapshot_path=evaluation_snapshot_path,
+        evaluation_snapshot_hash=evaluation_snapshot_hash,
     )
     sync_training_record_metadata(record)
 

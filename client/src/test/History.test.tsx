@@ -19,6 +19,15 @@ const mockMergeLora = vi.hoisted(() => vi.fn());
 const messageSuccess = vi.hoisted(() => vi.fn());
 const messageError = vi.hoisted(() => vi.fn());
 const messageWarning = vi.hoisted(() => vi.fn());
+const mockNavigate = vi.hoisted(() => vi.fn());
+
+vi.mock('react-router-dom', async () => {
+  const actual = (await vi.importActual('react-router-dom')) as Record<string, any>;
+  return {
+    ...actual,
+    useNavigate: () => mockNavigate,
+  };
+});
 
 vi.mock('../store/appStore', () => ({
   useAppStore: mockUseAppStore,
@@ -198,6 +207,22 @@ describe('History page', () => {
       expect(mockGetTrainingHistory).toHaveBeenCalled();
       expect(mockSetTrainingRecords).toHaveBeenCalled();
     });
+  });
+
+  it('opens completed LoRA training in HuggingFace evaluation with its adapter', async () => {
+    renderHistory();
+
+    const evaluationButtons = screen.getAllByRole('button', { name: /评估/ });
+    fireEvent.click(evaluationButtons[0]!);
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledTimes(1);
+    });
+    const target = mockNavigate.mock.calls[0][0] as string;
+    expect(target).toContain('/evaluation?');
+    expect(target).toContain('backend=huggingface');
+    expect(target).toContain('training_task_id=task-2');
+    expect(target).toContain('adapter_path=%2Ftmp%2Foutput-2%2Flora_adapter');
   });
 
   it('can render as the training comparison module', async () => {
