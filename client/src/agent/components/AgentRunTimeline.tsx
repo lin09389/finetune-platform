@@ -7,8 +7,10 @@ import {
   LoadingOutlined,
   SafetyCertificateOutlined,
   ToolOutlined,
+  DownOutlined,
+  UpOutlined,
 } from '@ant-design/icons';
-import { Empty, Input, Segmented, Switch } from 'antd';
+import { Button, Empty, Input, Segmented, Switch } from 'antd';
 import ReactMarkdown from 'react-markdown';
 import { Virtuoso } from 'react-virtuoso';
 import { useDeferredValue, useMemo, useState } from 'react';
@@ -43,6 +45,29 @@ function itemTitle(item: AgentSessionUiTimelineItem) {
 
 interface AgentRunTimelineProps {
   timeline: AgentSessionUiTimelineItem[];
+}
+
+export function TimelineContent({ content }: { content: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const collapsible = content.length > 600 || content.split('\n').length > 10;
+  return (
+    <>
+      <div className={`${styles.timelineContent} ${collapsible && !expanded ? styles.timelineContentCollapsed : ''}`}>
+        <ReactMarkdown>{content}</ReactMarkdown>
+      </div>
+      {collapsible ? (
+        <Button
+          className={styles.timelineExpand}
+          type="link"
+          size="small"
+          icon={expanded ? <UpOutlined /> : <DownOutlined />}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded ? '收起' : '展开'}
+        </Button>
+      ) : null}
+    </>
+  );
 }
 
 export default function AgentRunTimeline({ timeline }: AgentRunTimelineProps) {
@@ -118,9 +143,7 @@ export default function AgentRunTimeline({ timeline }: AgentRunTimelineProps) {
                 <span>{item.status || item.type}</span>
               </div>
               {item.content ? (
-                <div className={styles.timelineContent}>
-                  <ReactMarkdown>{item.content}</ReactMarkdown>
-                </div>
+                <TimelineContent content={item.content} />
               ) : null}
               {!item.content && item.payload ? (
                 <pre className={styles.timelinePayload}>{JSON.stringify(item.payload, null, 2)}</pre>

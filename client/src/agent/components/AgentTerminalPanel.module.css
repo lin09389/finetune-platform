@@ -18,7 +18,12 @@
 
 .toolbar :global(.ant-select) {
   min-width: 180px;
-  margin-right: auto;
+}
+
+.search {
+  min-width: 120px;
+  max-width: 220px;
+  margin-left: auto;
 }
 
 .toolbar :global(.ant-tag) {
@@ -49,5 +54,11 @@
   .toolbar :global(.ant-select) {
     min-width: 0;
     flex: 1;
+  }
+
+  .search {
+    width: 110px;
+    min-width: 80px;
+    margin-left: 0;
   }
 }

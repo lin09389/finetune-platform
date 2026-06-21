@@ -1,6 +1,7 @@
 import {
   BranchesOutlined,
   CheckCircleOutlined,
+  CloseOutlined,
   CloseCircleOutlined,
   FileTextOutlined,
   FolderOpenOutlined,
@@ -33,6 +34,17 @@ export const workspaceTabs: Array<{ key: AgentWorkspaceTab; label: string; icon:
   { key: 'artifacts', label: '产物', icon: <FileTextOutlined /> },
 ];
 
+function formatNodeDuration(startedAt?: string | null, completedAt?: string | null): string | null {
+  if (!startedAt) return null;
+  const start = new Date(startedAt).getTime();
+  const end = completedAt ? new Date(completedAt).getTime() : Date.now();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  const seconds = Math.round((end - start) / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${seconds % 60}s`;
+}
+
 interface AgentWorkspaceViewProps {
   tab: Exclude<AgentWorkspaceTab, 'activity' | 'terminal'>;
   workspace: AgentWorkspace | null;
@@ -53,6 +65,7 @@ export default function AgentWorkspaceView({
   onRunNextAction,
 }: AgentWorkspaceViewProps) {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [openFiles, setOpenFiles] = useState<string[]>([]);
   const [fileContent, setFileContent] = useState('');
   const [savedContent, setSavedContent] = useState('');
   const [fileLoading, setFileLoading] = useState(false);
@@ -79,6 +92,7 @@ export default function AgentWorkspaceView({
   }, [fileContent, fileSaving, isDirty, projectPath, selectedFile]);
 
   const selectFile = useCallback((path: string) => {
+    setOpenFiles((current) => current.includes(path) ? current : [...current, path].slice(-8));
     if (!isDirty || path === selectedFile) {
       setSelectedFile(path);
       return;
@@ -91,6 +105,31 @@ export default function AgentWorkspaceView({
       cancelText: '继续编辑',
       onOk: () => setSelectedFile(path),
     });
+  }, [isDirty, selectedFile]);
+
+  const closeFile = useCallback((path: string) => {
+    const doClose = () => {
+      setOpenFiles((current) => {
+        const index = current.indexOf(path);
+        const next = current.filter((item) => item !== path);
+        if (selectedFile === path) {
+          setSelectedFile(next[Math.min(index, Math.max(0, next.length - 1))] || null);
+        }
+        return next;
+      });
+    };
+    if (path === selectedFile && isDirty) {
+      Modal.confirm({
+        title: '关闭未保存的文件？',
+        content: `${path} 的修改尚未保存。`,
+        okText: '放弃并关闭',
+        okButtonProps: { danger: true },
+        cancelText: '继续编辑',
+        onOk: doClose,
+      });
+      return;
+    }
+    doClose();
   }, [isDirty, selectedFile]);
 
   useEffect(() => {
@@ -169,6 +208,31 @@ export default function AgentWorkspaceView({
             <div className={styles.fileEditor}>
               {!selectedFile ? <Empty description="选择文件以预览和编辑" /> : fileLoading ? <Spin /> : (
                 <>
+                  <div className={styles.fileTabs} role="tablist" aria-label="已打开文件">
+                    {openFiles.map((path) => (
+                      <div
+                        key={path}
+                        className={path === selectedFile ? styles.fileTabActive : styles.fileTab}
+                      >
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={path === selectedFile}
+                          onClick={() => selectFile(path)}
+                        >
+                          {path.split(/[\\/]/).pop()}
+                          {path === selectedFile && isDirty ? ' *' : ''}
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`关闭 ${path}`}
+                          onClick={() => closeFile(path)}
+                        >
+                          <CloseOutlined />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                   <header>
                     <strong>{selectedFile}{isDirty ? ' · 未保存' : ''}</strong>
                     <div className={styles.fileEditorActions}>
@@ -251,6 +315,14 @@ export default function AgentWorkspaceView({
                 <div className={styles.planNodeBody}>
                   <div><strong>{node.title}</strong><Tag>{node.status}</Tag></div>
                   {node.description ? <p>{node.description}</p> : null}
+                  <div className={styles.planMeta}>
+                    {node.agent_id ? <span>Agent: {node.agent_id}</span> : null}
+                    {node.depends_on?.length ? <span>依赖: {node.depends_on.join(', ')}</span> : null}
+                    {formatNodeDuration(node.started_at, node.completed_at) ? (
+                      <span>耗时: {formatNodeDuration(node.started_at, node.completed_at)}</span>
+                    ) : null}
+                    {node.recovery_attempts ? <span>恢复: {node.recovery_attempts} 次</span> : null}
+                  </div>
                   {node.error || node.blocked_reason ? (
                     <p className={styles.errorText}>{node.error || node.blocked_reason}</p>
                   ) : null}

@@ -52,6 +52,36 @@ describe('Agent Workspace business chains', () => {
     }));
   });
 
+  it('keeps multiple changed files in closable editor tabs', async () => {
+    const { workspace } = createFlowScenario('files_diff_editor');
+    workspace.changed_files.push({
+      path: 'src/second.ts',
+      status: 'modified',
+      summary: 'Updated second file',
+    });
+    apiMocks.readWorkspaceFile.mockImplementation(({ file_path }: { file_path: string }) => Promise.resolve({
+      path: file_path,
+      content: `content:${file_path}`,
+    }));
+    render(
+      <AgentWorkspaceView
+        tab="files"
+        workspace={workspace}
+        onRecover={vi.fn()}
+        onCancelSubagent={vi.fn()}
+        onRunNextAction={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /src\/app.ts/ }));
+    await screen.findByDisplayValue('content:src/app.ts');
+    fireEvent.click(screen.getByRole('button', { name: /src\/second.ts/ }));
+    await screen.findByDisplayValue('content:src/second.ts');
+    expect(screen.getByRole('tablist', { name: '已打开文件' })).toBeInTheDocument();
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: '关闭 src/app.ts' }));
+    expect(screen.getAllByRole('tab')).toHaveLength(1);
+  });
+
   it('saves a dirty file with Ctrl+S and exposes plan completion progress', async () => {
     const { workspace } = createFlowScenario('files_diff_editor');
     const { rerender } = render(
@@ -87,6 +117,10 @@ describe('Agent Workspace business chains', () => {
           id: 'node_2',
           title: 'Implement',
           status: 'running',
+          agent_id: 'build',
+          depends_on: ['node_1'],
+          started_at: '2026-06-20T00:00:00Z',
+          completed_at: '2026-06-20T00:01:05Z',
         },
       ],
     };
@@ -101,6 +135,8 @@ describe('Agent Workspace business chains', () => {
     );
     expect(screen.getByText(/已完成/)).toBeInTheDocument();
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(screen.getByText('依赖: node_1')).toBeInTheDocument();
+    expect(screen.getByText('耗时: 1m 5s')).toBeInTheDocument();
   });
 
   it('routes next-action buttons to the command owner', () => {

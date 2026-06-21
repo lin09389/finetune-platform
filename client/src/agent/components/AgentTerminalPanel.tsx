@@ -3,7 +3,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
-import { Button, Empty, Select, Tag, message } from 'antd';
+import { Button, Empty, Input, Select, Tag, message } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getAgentTerminalWebSocketUrl, type AgentSessionUiTimelineItem } from '../../services/api';
 import styles from './AgentTerminalPanel.module.css';
@@ -59,7 +59,16 @@ export default function AgentTerminalPanel({ timeline }: AgentTerminalPanelProps
   const terminalRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const [state, setState] = useState<TerminalState>('snapshot');
+  const [searchQuery, setSearchQuery] = useState('');
   const selected = records.find((record) => record.id === selectedId) || records[0];
+  const terminalText = selected
+    ? [selected.command, selected.stdout, selected.stderr].filter(Boolean).join('\n')
+    : '';
+  const matchCount = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return 0;
+    return terminalText.toLowerCase().split(query).length - 1;
+  }, [searchQuery, terminalText]);
 
   useEffect(() => {
     if (!selectedId && records[0]) setSelectedId(records[0].id);
@@ -170,6 +179,16 @@ export default function AgentTerminalPanel({ timeline }: AgentTerminalPanelProps
           options={records.map((record) => ({ value: record.id, label: record.title }))}
           aria-label="选择终端"
         />
+        <Input
+          className={styles.search}
+          size="small"
+          allowClear
+          value={searchQuery}
+          placeholder="搜索输出"
+          aria-label="搜索终端输出"
+          onChange={(event) => setSearchQuery(event.target.value)}
+        />
+        {searchQuery ? <Tag>{matchCount} 处</Tag> : null}
         <Tag color={state === 'error' ? 'red' : state === 'connected' ? 'green' : undefined}>
           {stateLabels[state]}
         </Tag>

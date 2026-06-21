@@ -1,6 +1,7 @@
 import {
   BellOutlined,
   CheckOutlined,
+  ClearOutlined,
   CloseOutlined,
   ReloadOutlined,
   UndoOutlined,
@@ -34,6 +35,25 @@ const severityLabels = {
   medium: '中',
   low: '低',
 };
+const ATTENTION_HISTORY_KEY = 'finetune.agent.attention-history.v1';
+
+interface AttentionHistoryEntry {
+  id: string;
+  sessionId: string | null;
+  title: string;
+  action: string;
+  resolvedAt: string;
+}
+
+function readAttentionHistory(): AttentionHistoryEntry[] {
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    const value = JSON.parse(localStorage.getItem(ATTENTION_HISTORY_KEY) || '[]');
+    return Array.isArray(value) ? value.slice(0, 20) : [];
+  } catch {
+    return [];
+  }
+}
 
 function actionIcon(action: AgentAttentionAction) {
   if (action.id === 'approve') return <CheckOutlined />;
@@ -54,18 +74,37 @@ export default function AgentAttentionRail({
 }: AgentAttentionRailProps) {
   const items = selectAttentionItems(state);
   const [batchApproving, setBatchApproving] = useState(false);
+  const [history, setHistory] = useState<AttentionHistoryEntry[]>(readAttentionHistory);
   const approvable = useMemo(() => items.flatMap((item) => {
     const action = item.actions.find((candidate) => candidate.id === 'approve');
     return action ? [action] : [];
   }), [items]);
 
-  const runAction = (action: AgentAttentionAction) => {
+  const recordHistory = (title: string, action: AgentAttentionAction) => {
+    setHistory((current) => {
+      const next = [{
+        id: `${Date.now()}:${action.id}:${title}`,
+        sessionId: state.activeSessionId,
+        title,
+        action: action.label,
+        resolvedAt: new Date().toISOString(),
+      }, ...current].slice(0, 20);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(ATTENTION_HISTORY_KEY, JSON.stringify(next));
+      }
+      return next;
+    });
+  };
+
+  const runAction = async (action: AgentAttentionAction, title: string) => {
     if (action.id === 'refresh') {
       onRefresh();
+      recordHistory(title, action);
       return;
     }
     if (action.id === 'dismiss') {
       onClearError();
+      recordHistory(title, action);
       return;
     }
     if (action.id === 'approve' || action.id === 'reject') {
@@ -77,19 +116,22 @@ export default function AgentAttentionRail({
             ? workspace.pending_permission.actions.length
             : 1),
       );
-      return onDecidePermission(
+      await Promise.resolve(onDecidePermission(
         partId,
         Array.from({ length: count }, () => (
           action.id === 'approve'
             ? { type: 'approve' as const }
             : { type: 'reject' as const, message: 'Rejected from Agent Workbench' }
         )),
-      );
+      ));
+      recordHistory(title, action);
+      return;
     }
     if (action.id === 'recover') {
       const nodeId = String(action.payload?.nodeId || '');
       const node = workspace?.execution_plan?.nodes.find((candidate) => candidate.id === nodeId);
       if (node) onRecoverNode(node);
+      recordHistory(title, action);
       return;
     }
     if (action.id === 'restart_subagent') {
@@ -97,6 +139,7 @@ export default function AgentAttentionRail({
         String(action.payload?.agentName || 'explore'),
         String(action.payload?.description || '重试未完成的子任务'),
       );
+      recordHistory(title, action);
     }
   };
 
@@ -118,7 +161,8 @@ export default function AgentAttentionRail({
               setBatchApproving(true);
               try {
                 for (const action of approvable) {
-                  await Promise.resolve(runAction(action));
+                  const item = items.find((candidate) => candidate.actions.includes(action));
+                  await runAction(action, item?.title || '待处理权限');
                 }
               } finally {
                 setBatchApproving(false);
@@ -174,7 +218,7 @@ export default function AgentAttentionRail({
                     action.id === 'recover'
                     && Boolean(state.operations[`recover:${state.activeSessionId}:${String(action.payload?.nodeId || '')}`])
                   )}
-                  onClick={() => runAction(action)}
+                  onClick={() => void runAction(action, item.title)}
                 >
                   {action.label}
                 </Button>
@@ -183,6 +227,31 @@ export default function AgentAttentionRail({
           </section>
         ))}
         {items.length === 0 ? <div className={styles.attentionEmpty}>暂无需要处理的事项</div> : null}
+        {history.length > 0 ? (
+          <section className={styles.attentionHistory} aria-label="最近处理">
+            <header>
+              <span>最近处理</span>
+              <Button
+                type="text"
+                size="small"
+                icon={<ClearOutlined />}
+                aria-label="清空处理历史"
+                onClick={() => {
+                  if (typeof localStorage !== 'undefined') {
+                    localStorage.removeItem(ATTENTION_HISTORY_KEY);
+                  }
+                  setHistory([]);
+                }}
+              />
+            </header>
+            {history.slice(0, 5).map((entry) => (
+              <div key={entry.id}>
+                <span>{entry.title}</span>
+                <small>{entry.action} · {new Date(entry.resolvedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
+              </div>
+            ))}
+          </section>
+        ) : null}
       </div>
     </aside>
   );

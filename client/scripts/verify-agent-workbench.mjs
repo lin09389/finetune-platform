@@ -29,6 +29,23 @@ const timeline = [
     payload: {},
   },
   {
+    id: 'part_command',
+    part_id: 'part_command',
+    session_id: session.id,
+    type: 'command',
+    status: 'completed',
+    title: 'npm test',
+    content: 'alpha complete\nalpha verified',
+    created_at: '2026-06-21T00:04:00Z',
+    payload: {
+      terminal_id: 'terminal_e2e',
+      command: 'npm test',
+      stdout: 'alpha complete\nalpha verified',
+      stderr: '',
+      exit_code: 0,
+    },
+  },
+  {
     id: 'part_tool',
     part_id: 'part_tool',
     session_id: session.id,
@@ -207,9 +224,13 @@ try {
   );
 
   await page.getByText('异常', { exact: true }).click();
-  await page.getByText('1/3', { exact: true }).waitFor();
+  await page.getByText('1/4', { exact: true }).waitFor();
   await page.getByLabel('搜索 Agent 会话').press('Alt+2');
   await page.getByRole('region', { name: '变更文件' }).waitFor();
+  await page.getByLabel('搜索 Agent 会话').press('Alt+5');
+  await page.getByLabel('搜索终端输出').waitFor();
+  await page.getByLabel('搜索终端输出').fill('alpha');
+  await page.getByText('2 处', { exact: true }).waitFor();
 
   const desktopMetrics = await page.evaluate(() => ({
     width: document.documentElement.clientWidth,

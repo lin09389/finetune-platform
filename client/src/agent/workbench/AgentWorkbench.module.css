@@ -179,7 +179,7 @@
 .sessionItemActive {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 26px;
+  grid-template-columns: minmax(0, 1fr) 26px 26px;
   align-items: stretch;
   width: 100%;
   min-height: 52px;
@@ -203,7 +203,8 @@
   cursor: pointer;
 }
 
-.sessionPin {
+.sessionPin,
+.sessionMore {
   display: grid;
   place-items: center;
   padding: 0;
@@ -215,8 +216,11 @@
 }
 
 .sessionItem:hover .sessionPin,
+.sessionItem:hover .sessionMore,
 .sessionItemActive .sessionPin,
-.sessionPin:focus-visible {
+.sessionItemActive .sessionMore,
+.sessionPin:focus-visible,
+.sessionMore:focus-visible {
   opacity: 1;
 }
 
@@ -389,10 +393,23 @@
 }
 
 .timelineContent {
+  position: relative;
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.65;
   overflow-wrap: anywhere;
+}
+
+.timelineContentCollapsed {
+  max-height: 170px;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 72%, transparent);
+}
+
+.timelineExpand {
+  height: 24px;
+  padding-inline: 0;
+  font-size: 10px;
 }
 
 .timelineContent p {
@@ -595,7 +612,57 @@
   min-width: 0;
   min-height: 420px;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.fileTabs {
+  min-width: 0;
+  display: flex;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.fileTab,
+.fileTabActive {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  border-right: 1px solid var(--border-color);
+}
+
+.fileTabActive {
+  background: var(--bg-primary);
+}
+
+.fileTab > button,
+.fileTabActive > button {
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.fileTab > button:first-child,
+.fileTabActive > button:first-child {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileTab > button:last-child,
+.fileTabActive > button:last-child {
+  width: 24px;
+  padding: 0;
+}
+
+.fileTabActive > button {
+  color: var(--text-primary);
 }
 
 .fileEditor > header {
@@ -721,6 +788,15 @@
   color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.5;
+}
+
+.planMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  margin-top: 5px;
+  color: var(--text-tertiary);
+  font-size: 9px;
 }
 
 .errorText {
@@ -893,6 +969,45 @@
   margin-top: 10px;
 }
 
+.attentionHistory {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+}
+
+.attentionHistory header {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.attentionHistory > div {
+  display: grid;
+  gap: 2px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.attentionHistory > div span,
+.attentionHistory > div small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attentionHistory > div span {
+  font-size: 10px;
+}
+
+.attentionHistory > div small {
+  color: var(--text-tertiary);
+  font-size: 9px;
+}
+
 @media (max-width: 1100px) {
   .workbench {
     grid-template-columns: 210px minmax(0, 1fr);
@@ -937,7 +1052,8 @@
     display: block;
   }
 
-  .sessionPin {
+  .sessionPin,
+  .sessionMore {
     opacity: 1;
   }
 

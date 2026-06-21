@@ -1,12 +1,31 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AgentAttentionRail from '../agent/components/AgentAttentionRail';
-import AgentRunTimeline from '../agent/components/AgentRunTimeline';
+import AgentRunTimeline, { TimelineContent } from '../agent/components/AgentRunTimeline';
 import AgentSessionRail from '../agent/components/AgentSessionRail';
 import AgentTaskComposer from '../agent/components/AgentTaskComposer';
 import { initialAgentRuntimeState } from '../agent/runtime/agentRuntime';
 import { createFlowScenario } from '../agent/testing/agentFlowScenarios';
 import type { AgentSessionUiTimelineItem } from '../services/api';
+
+const recentSessions = [
+  {
+    id: 'ses_done',
+    title: 'Completed review',
+    status: 'completed' as const,
+    agentId: 'review',
+    projectPath: 'C:/projects/review',
+    updatedAt: '2026-06-20T10:00:00Z',
+  },
+  {
+    id: 'ses_run',
+    title: 'Build dashboard',
+    status: 'running' as const,
+    agentId: 'build',
+    projectPath: 'C:/projects/dashboard',
+    updatedAt: '2026-06-20T11:00:00Z',
+  },
+];
 
 describe('Agent product polish', () => {
   beforeEach(() => {
@@ -15,27 +34,9 @@ describe('Agent product polish', () => {
   });
 
   it('searches, filters, and pins recent sessions', async () => {
-    const sessions = [
-      {
-        id: 'ses_done',
-        title: 'Completed review',
-        status: 'completed' as const,
-        agentId: 'review',
-        projectPath: 'C:/projects/review',
-        updatedAt: '2026-06-20T10:00:00Z',
-      },
-      {
-        id: 'ses_run',
-        title: 'Build dashboard',
-        status: 'running' as const,
-        agentId: 'build',
-        projectPath: 'C:/projects/dashboard',
-        updatedAt: '2026-06-20T11:00:00Z',
-      },
-    ];
     render(
       <AgentSessionRail
-        sessions={sessions}
+        sessions={recentSessions}
         activeSessionId={null}
         onNew={vi.fn()}
         onSelect={vi.fn()}
@@ -56,6 +57,30 @@ describe('Agent product polish', () => {
     await waitFor(() => expect(
       screen.getByRole('button', { name: '取消置顶 Completed review' }),
     ).toHaveAttribute('aria-pressed', 'true'));
+
+    fireEvent.click(screen.getByRole('button', { name: '会话操作 Completed review' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /归档/ }));
+    await waitFor(() => expect(screen.queryByText('Completed review')).not.toBeInTheDocument());
+    fireEvent.click(screen.getByTitle('归档'));
+    expect(await screen.findByText('Completed review')).toBeInTheDocument();
+  });
+
+  it('renames a session without changing the server-owned session record', async () => {
+    render(
+      <AgentSessionRail
+        sessions={recentSessions}
+        activeSessionId="ses_run"
+        onSelect={vi.fn()}
+        onNew={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '会话操作 Build dashboard' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /重命名/ }));
+    const input = await screen.findByDisplayValue('Build dashboard');
+    fireEvent.change(input, { target: { value: 'Dashboard polish' } });
+    fireEvent.click(screen.getByRole('button', { name: /保\s*存/ }));
+    expect(await screen.findByText('Dashboard polish')).toBeInTheDocument();
+    expect(recentSessions[1]?.title).toBe('Build dashboard');
   });
 
   it('filters a virtualized timeline without losing the total count', () => {
@@ -93,6 +118,14 @@ describe('Agent product polish', () => {
     fireEvent.click(screen.getByText('全部'));
     fireEvent.change(screen.getByLabelText('搜索执行时间线'), { target: { value: 'package' } });
     expect(screen.getByText('1/3')).toBeInTheDocument();
+  });
+
+  it('collapses and expands long timeline output', () => {
+    render(<TimelineContent content={Array.from({ length: 20 }, (_, index) => `Line ${index}`).join('\n')} />);
+    const expand = screen.getByRole('button', { name: /展开/ });
+    expect(expand).toBeInTheDocument();
+    fireEvent.click(expand);
+    expect(screen.getByRole('button', { name: /收起/ })).toBeInTheDocument();
   });
 
   it('restores a draft per session and focuses the composer with Ctrl+K', () => {
@@ -143,5 +176,7 @@ describe('Agent product polish', () => {
     fireEvent.click(screen.getByRole('button', { name: '全部批准' }));
     fireEvent.click(await screen.findByText('全部批准', { selector: '.ant-popconfirm-buttons button span' }));
     await waitFor(() => expect(onDecidePermission).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole('region', { name: '最近处理' })).toBeInTheDocument();
+    expect(screen.getAllByText(/批准/).length).toBeGreaterThan(1);
   });
 });
