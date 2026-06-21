@@ -10,7 +10,9 @@
 """
 import json
 import logging
+import os
 import tomllib
+from fnmatch import fnmatch
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -98,6 +100,29 @@ class ProjectScanner:
         "医疗": ["health", "patient", "hospital", "medical", "disease"],
         "通用": []
     }
+    GLOBAL_IGNORED_DIRS = {
+        ".git",
+        ".venv",
+        "venv",
+        "node_modules",
+        "dist",
+        "build",
+        "coverage",
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".cache",
+        "outputs",
+        "models",
+        "modelscope_cache",
+        "logs",
+        "data",
+        "workspaces",
+        "agent_kernel",
+        "chroma",
+    }
+    MAX_SCAN_FILES = 2500
 
     def __init__(self, project_path: str = ""):
         """
@@ -286,6 +311,8 @@ class ProjectScanner:
         """检查是否应该忽略该路径"""
         path_str = str(path)
         name = path.name
+        if path.is_dir() and name in self.GLOBAL_IGNORED_DIRS:
+            return True
 
         for config in self.LANGUAGE_CONFIGS.values():
             for pattern in config["ignore_patterns"]:
@@ -296,6 +323,28 @@ class ProjectScanner:
                     return True
 
         return False
+
+    def _iter_project_files(self, limit: int | None = None):
+        """Yield a bounded file stream while pruning runtime and dependency trees."""
+        maximum = limit or self.MAX_SCAN_FILES
+        emitted = 0
+        for root, dirnames, filenames in os.walk(self.project_path):
+            root_path = Path(root)
+            dirnames[:] = [
+                name
+                for name in dirnames
+                if name not in self.GLOBAL_IGNORED_DIRS
+                and not self._should_ignore(root_path / name)
+            ]
+            for filename in filenames:
+                path = root_path / filename
+                if self._should_ignore(path):
+                    continue
+                yield path
+                emitted += 1
+                if emitted >= maximum:
+                    logger.warning("项目扫描达到文件预算上限：%s", maximum)
+                    return
 
     def _parse_dependencies(self) -> dict[str, Any]:
         """解析项目依赖"""
@@ -408,7 +457,7 @@ class ProjectScanner:
             "naming_convention": "snake_case"
         }
 
-        py_files = list(self.project_path.glob("**/*.py"))[:10]
+        py_files = [path for path in self._iter_project_files(limit=500) if path.suffix == ".py"][:10]
         if py_files:
             indent_counts = {"space": 0, "tab": 0}
             quote_counts = {"single": 0, "double": 0}
@@ -440,29 +489,29 @@ class ProjectScanner:
     def _find_key_files(self) -> list[FileInfo]:
         """查找关键文件"""
         key_files = []
-
-        for _category, patterns in self.KEY_FILE_PATTERNS.items():
+        counts: dict[tuple[str, str], int] = {}
+        files = list(self._iter_project_files())
+        for category, patterns in self.KEY_FILE_PATTERNS.items():
             for pattern in patterns:
-                try:
-                    if "*" in pattern:
-                        matches = list(self.project_path.glob(f"**/{pattern}"))
-                    else:
-                        matches = list(self.project_path.glob(f"**/{pattern}"))
-
-                    for match in matches[:3]:
-                        try:
-                            rel_path = str(match.relative_to(self.project_path))
-                            file_info = FileInfo(
-                                path=rel_path,
+                key = (category, pattern)
+                for match in files:
+                    relative = match.relative_to(self.project_path).as_posix()
+                    if not (fnmatch(match.name, pattern) or fnmatch(relative, pattern)):
+                        continue
+                    if counts.get(key, 0) >= 3:
+                        break
+                    try:
+                        key_files.append(
+                            FileInfo(
+                                path=relative,
                                 name=match.name,
                                 size=match.stat().st_size,
                                 language=self._detect_language(match),
                             )
-                            key_files.append(file_info)
-                        except (PermissionError, OSError):
-                            continue
-                except Exception:
-                    continue
+                        )
+                        counts[key] = counts.get(key, 0) + 1
+                    except (PermissionError, OSError):
+                        continue
 
         return key_files
 

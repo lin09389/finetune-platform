@@ -131,14 +131,16 @@ def _ensure_workspace_exists(workspace_id: str) -> dict[str, Any]:
 
 
 def _refresh_workspace_counts(workspace: dict[str, Any]) -> Workspace:
-    vector_store = get_vector_store()
     collection_name = workspace.get("vector_collection_name", workspace["id"])
 
     try:
+        vector_store = get_vector_store()
         stats = vector_store.get_collection_stats(collection_name)
         vector_count = stats.get("count", 0)
-    except Exception:
+    except Exception as exc:
         vector_count = 0
+        workspace["status"] = "degraded"
+        workspace["vector_store_error"] = str(exc)
 
     workspace["vector_collection_name"] = collection_name
     workspace["vector_count"] = vector_count
@@ -281,7 +283,12 @@ async def create_workspace(data: WorkspaceCreate):
         vector_store = get_vector_store()
         vector_store.get_or_create_collection(collection_name)
 
-    await run_sync(_create_collection)
+    try:
+        await run_sync(_create_collection)
+    except (ImportError, ModuleNotFoundError) as exc:
+        logger.warning("Vector store unavailable; workspace created in degraded mode: %s", exc)
+        workspace["status"] = "degraded"
+        workspace["vector_store_error"] = str(exc)
 
     workspaces[workspace_id] = workspace
     await run_sync(_persist_workspaces)
