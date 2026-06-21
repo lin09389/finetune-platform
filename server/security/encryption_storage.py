@@ -3,7 +3,6 @@
 使用 Fernet 对称加密保护敏感数据
 """
 import base64
-import hashlib
 import json
 import logging
 import os

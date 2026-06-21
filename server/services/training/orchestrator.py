@@ -5,7 +5,6 @@ import asyncio
 import threading
 import uuid
 from pathlib import Path
-from typing import Any
 
 from fastapi import HTTPException
 
@@ -15,9 +14,6 @@ from core.training_events_v2 import get_training_event_hub_v2
 from core.training_queue import TaskPriority
 from core.training_state import TrainingRecord, TrainingState
 from core.training_context import get_training_context
-from core.utils import pre_training_resource_check
-from training_engine.checkpoint_manager import _resolve_training_output_dir as resolve_training_output_dir, load_checkpoints_for_task
-from training_engine.config_builder import apply_memory_preset, apply_precision_preset
 from training_engine.schemas import TrainingConfigInput, TrainingRecordResponse
 from training_engine.training_thread import training_thread
 

@@ -7,7 +7,6 @@ import re
 import threading
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field

@@ -1574,7 +1574,6 @@ def check_storage(db_path: str = APP_DB_PATH, initialize: bool = True) -> dict[s
 def backup_storage(db_path: str = APP_DB_PATH, backup_dir: str | Path = BACKUP_DIR) -> dict[str, Any]:
     """使用 sqlite3.backup API 创建一致性备份，安全兼容 WAL 模式。"""
     init_storage(db_path)
-    source = Path(db_path)
     backup_root = Path(backup_dir)
     backup_root.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")

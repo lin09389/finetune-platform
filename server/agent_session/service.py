@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import threading
 import uuid
 from datetime import datetime
@@ -12,7 +11,6 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi import BackgroundTasks
-from fastapi import HTTPException
 
 from context.deepagents import build_deepagents_context_pack
 from core.config import settings

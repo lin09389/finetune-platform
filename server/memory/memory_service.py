@@ -21,7 +21,7 @@ from typing import Any
 
 from core.storage import MemoryRepository
 
-from .models import MEMORY_IMPORTANCE, MEMORY_TYPE_LABELS, MemoryScope, MemorySearchResult, MemoryType
+from .models import MEMORY_IMPORTANCE, MemoryScope, MemorySearchResult, MemoryType
 
 logger = logging.getLogger(__name__)
 
