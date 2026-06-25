@@ -1,286 +1,327 @@
-# Finetune Platform 2.0
+# Finetune Platform 2.1
 
-Enterprise-Ready LLM Fine-Tuning Platform for Consumer GPUs (4GB+ VRAM)
+面向独立开发者和小团队的本地大模型微调工作台：在消费级显卡上完成数据集管理、LoRA/QLoRA 微调、评估、推理、部署打包，并把 Agent 工作台、项目上下文、记忆和知识库放在同一个产品里。
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-green.svg)](https://fastapi.tiangolo.com)
-[![React](https://img.shields.io/badge/React-18+-61dafb.svg)](https://reactjs.org)
-[![DeepAgents](https://img.shields.io/badge/DeepAgents-0.6+-orange.svg)](https://github.com/langchain-ai/deepagents)
-[![LangGraph](https://img.shields.io/badge/LangGraph-1.2+-orange.svg)](https://github.com/langchain-ai/langgraph)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+![Python](https://img.shields.io/badge/Python-3.11-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688)
+![React](https://img.shields.io/badge/React-18-61DAFB)
+![Vite](https://img.shields.io/badge/Vite-5-646CFF)
+![DeepAgents](https://img.shields.io/badge/DeepAgents-0.6-orange)
+![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 
-## What This Project Is
+## 项目定位
 
-Finetune Platform 2.0 is a local AI workbench for developers who need practical LLM adaptation on affordable hardware. It provides an end-to-end workflow from dataset preparation and LoRA/QLoRA training to evaluation, deployment packaging, and agent-assisted development.
+Finetune Platform 不是一个只跑 demo 的训练脚本集合，而是一套可落地的本地 AI 工作台。它围绕“拿到数据、训练小模型、评估效果、部署使用、让 Agent 辅助项目开发”这条链路组织功能，尽量降低个人设备上的微调和实验成本。
 
-Recommended first run:
+适合你在这些场景里使用：
 
-1. Upload a small dataset (5-20 examples) in `Datasets`.
-2. Start a lightweight LoRA/QLoRA job in `Training` and monitor SSE progress.
-3. Compare base vs fine-tuned outputs in `Evaluation`.
-4. Export deployment artifacts in `Deployment` (LoRA adapter, Ollama Modelfile, API samples, `.env` template).
+- 用 4GB+ 显存的消费级 NVIDIA 显卡做 LoRA/QLoRA 实验。
+- 管理本地模型、数据集、训练历史、评估记录和部署产物。
+- 在一个 Web UI 里完成推理测试、知识库问答、模型中心下载和工作区管理。
+- 使用 Agent 工作台读取项目上下文、执行任务、查看计划、审批敏感操作。
+- 研究本地 AI 平台、RAG、Agent Session、MCP、CUA 等工程集成方式。
 
-## Capability Tiers
+## 能力分层
 
-| Tier | Scope |
-|------|-------|
-| **GA** | Training, inference, model/dataset management, chat sessions, core knowledge base |
-| **Beta** | Project context, memory, model center, workspace, Agent Session + DeepAgents |
-| **Experimental** | CUA, Action Recorder, MCP, Heartbeat, Gateway extension paths |
+后端 `/api/info` 会暴露当前能力分层，README 以该接口为准。
 
-Experimental pages may be visible but are not considered stable production commitments.
+| 分层 | 能力 | 稳定性 |
+| --- | --- | --- |
+| GA | device、models、datasets、training、inference、chat_sessions、knowledge_base | 主流程能力，适合日常使用和回归测试 |
+| Beta | project_context、memory、model_center、workspace | 已可用，但接口和 UI 仍可能调整 |
+| Experimental | cua、heartbeat、mcp、gateway、ocr_fallbacks、action_recorder | 实验能力，适合探索和二次开发 |
 
-## Core Features
+## 核心功能
 
-### Product Capabilities
-- Low-VRAM tuning optimized for 4GB+ GPUs (`LoRA` / `QLoRA`)
-- Model and dataset lifecycle management (HuggingFace + ModelScope)
-- Training Monitor V2 with SSE streaming, checkpoint resume, and training history
-- Multi-backend inference: HuggingFace / vLLM / LlamaCPP / Ollama
-- Unified Chat + Agent workflow with `auto / chat / agent` routing
-- DeepAgents runtime with HITL approval/resume flow
-- Workspace + Context + Memory integration (ChromaDB + sentence-transformers)
-- Document parsing (PDF / DOCX / XLSX / OCR)
+### 微调与推理
 
-### Engineering Capabilities
-- SQLite persistence with migrations and periodic backups
-- Security layers: WAF checks, JWT auth (optional), rate limiting, audit boundaries
-- Structured logging with per-request Trace ID
-- Broad test coverage across training, inference, agent session, gateway, and frontend
-- Docker Compose profiles (dev/GPU/Ollama) + optional Electron packaging
-- Cloud model gateway (`ai.gateway`) with OpenAI-compatible interfaces
+- 模型管理：本地模型列表、下载、删除、导出和 ModelScope/HuggingFace 集成。
+- 数据集管理：上传、解析、预处理和训练数据准备。
+- LoRA/QLoRA 训练：面向低显存设备优化，支持任务状态、训练历史和检查点恢复。
+- 实时训练进度：基于 SSE 的训练事件流，前端可实时展示 loss、step、状态和日志。
+- 评估与对比：支持模型评估、人工评分、历史对比和部署前检查。
+- 多后端推理：HuggingFace、Ollama、llama.cpp、vLLM 等后端可按环境切换。
+- 部署打包：导出适配器、推理样例、Ollama Modelfile、环境模板等部署材料。
 
-## Architecture Overview
+### Agent 与工作台
 
-The repository has four main surfaces:
+- `/agent` 是默认入口，提供沉浸式 Agent Workbench。
+- Agent Session 通过 FastAPI + SSE 管理会话生命周期、事件、状态和输出 parts。
+- DeepAgents 作为执行引擎，项目目录以虚拟 `/workspace/` 挂载。
+- 支持人类审批门控：文件写入、工具调用或敏感动作可进入等待审批状态，再从后台恢复执行。
+- 内置 Build、Explore、Review Agent manifest，可扩展自己的 Agent 定义。
+- 工作区视图、终端事件、执行计划、Diff、子 Agent 状态和产物预览统一展示。
 
-- **Finetune Runtime**: models, datasets, training, inference, evaluation, deployment
-- **Chat Surface**: chat sessions, streaming messages, context panel, sharing/branching
-- **Agent Surface**: intent routing, agent sessions, DeepAgents execution, approval gates
-- **Workspace Surface**: project files, context retrieval, local development collaboration
+### 知识、上下文与记忆
 
-### Backend
+- RAG 知识库：ChromaDB + sentence-transformers，支持文档解析、切片、检索和问答。
+- 项目上下文：扫描本地项目结构，提取代码符号，构建上下文包。
+- 记忆系统：短期、中期、长期记忆分层，为聊天和 Agent 任务提供背景。
+- 文件解析：支持 PDF、DOCX、XLSX、OCR 等常见输入。
 
-```text
-server/
-├── api/                       # FastAPI routes
-├── agent_session/             # Canonical agent runtime (DeepAgents)
-├── chat_agent/                # Intent classification only (chat vs agent)
-├── training_engine/           # Fine-tuning pipelines
-├── inference_service/         # Inference backends and serving
-├── context/                   # Project scan/index/retrieval
-├── memory/                    # Multi-layer memory
-├── rag/                       # ChromaDB + embeddings
-├── security/                  # Rate limit, auth, sandbox, guards
-├── workspace/                 # Workspace/file/task APIs
-├── gateway/                   # Experimental gateway
-├── heartbeat/                 # Experimental heartbeat scheduler
-└── main.py
-```
+## 技术栈
 
-### Frontend
+| 层 | 技术 |
+| --- | --- |
+| 后端 | FastAPI、Python 3.11、Pydantic、SQLite、PyTorch、Transformers、PEFT |
+| 前端 | React 18、TypeScript、Vite、Ant Design、Zustand、Framer Motion |
+| Agent | DeepAgents、LangGraph、SSE、虚拟 workspace、HITL 审批 |
+| RAG | ChromaDB、sentence-transformers、pdfplumber、python-docx、openpyxl |
+| 部署 | Docker Compose、可选 Electron 桌面端、Ollama profile、GPU compose 覆盖 |
 
-```text
-client/src/
-├── pages/                     # Feature pages
-├── components/                # Reusable UI
-├── services/                  # API client
-├── store/                     # Zustand state
-├── theme/                     # Motion/theme tokens
-└── test/                      # Vitest suites
-```
+## 快速开始
 
-## System Requirements
+### 环境要求
 
-### Hardware Guidance
-
-| VRAM | Typical Model Range | Training Mode | Notes |
-|------|---------------------|---------------|-------|
-| 4GB  | 0.5B-1.5B (INT4)    | QLoRA         | Minimum |
-| 6GB  | 3B-7B (INT4)        | QLoRA         | Entry |
-| 8GB  | 7B (INT4)           | LoRA          | Recommended |
-| 12GB | 7B/13B              | LoRA/QLoRA    | Ideal |
-| 24GB | 13B/30B             | LoRA          | Professional |
-
-### Software
-
-- Python 3.10+
+- Python 3.11.x
 - Node.js 18+
-- CUDA 11.8+ (for NVIDIA acceleration)
-- Docker 20.10+ (optional)
-- Windows 10/11, Linux, or macOS
+- Git
+- NVIDIA GPU + CUDA 环境，推荐用于训练和本地推理
+- Docker Desktop，可选
 
-## Quick Start
+显存参考：
 
-### Option 1: Windows One-Click Startup (Recommended)
+| 显存 | 适合模型 | 建议方式 |
+| --- | --- | --- |
+| 4GB | 0.5B-1.5B INT4 | QLoRA，小 batch，短序列 |
+| 6GB | 1.5B-3B INT4 | QLoRA |
+| 8GB | 3B-7B INT4 | QLoRA 或轻量 LoRA |
+| 12GB+ | 7B/13B | LoRA/QLoRA 更从容 |
 
-Run `start.bat` from the project root. It will:
+### Windows 一键启动
 
-1. Validate Python/Node environments
-2. Install missing backend/frontend dependencies
-3. Start backend (`:8010`) and frontend (`:5173`) in separate terminals
+在仓库根目录执行：
 
-Endpoints:
-- Frontend: http://localhost:5173
-- Swagger API docs: http://localhost:8010/docs
-- Health endpoint: http://localhost:8010/health
+```bat
+start.bat
+```
 
-### Option 2: Manual Startup (Cross-Platform)
+脚本会检查 Python/Node 环境，安装必要依赖，并分别启动：
+
+- 前端：http://127.0.0.1:5173
+- 后端：http://127.0.0.1:8010
+- Swagger：http://127.0.0.1:8010/docs
+- 健康检查：http://127.0.0.1:8010/health
+
+如果你需要先验证环境：
+
+```bat
+verify.bat
+```
+
+如果你使用 NVIDIA 显卡并希望安装 GPU 版 PyTorch：
+
+```bat
+install-pytorch-gpu.bat
+```
+
+### 手动启动
+
+推荐使用 `uv` 管理后端依赖：
 
 ```bash
 git clone https://github.com/lin09389/finetune-platform.git
 cd finetune-platform
 cp .env.example .env
 
-cd server
-pip install -r requirements.txt
-cd ../client
-npm install
+uv sync
 ```
 
-Start services in two terminals:
-
-```bash
-# Terminal 1
-cd server
-python -m uvicorn main:app --host 127.0.0.1 --port 8010
-```
-
-```bash
-# Terminal 2
-cd client
-npm run dev
-```
-
-### Option 3: Docker
-
-```bash
-docker compose up -d --build
-
-docker compose --profile ollama up -d --build
-
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
-```
-
-View logs:
-
-```bash
-docker compose logs -f api frontend
-```
-
-## Key API Endpoints
-
-- `GET /health`
-- `GET /device/info`
-- `POST /training/start`
-- `GET /training/v2/events/stream`
-- `POST /inference/stream`
-- `POST /chat-agent/intent`
-- `POST /agent-sessions`
-- `POST /agent-sessions/{id}/prompt`
-- `GET /agent-sessions/{id}/events/stream`
-- `POST /agent-permissions/{permission_id}/decide`
-
-## Development Commands
-
-### Backend
+启动后端：
 
 ```bash
 cd server
 python -m uvicorn main:app --host 127.0.0.1 --port 8010 --reload
-pytest
-pytest -m "not integration and not e2e"
-pytest --cov=server --cov-report=html
 ```
 
-### Frontend
+启动前端：
+
+```bash
+cd client
+npm install
+npm run dev
+```
+
+前端开发服务器默认固定在 `5173`，并直接访问 `http://127.0.0.1:8010`，不依赖 Vite proxy。
+
+### Docker 启动
+
+仅启动 API：
+
+```bash
+docker compose up -d api
+```
+
+启动开发栈：
+
+```bash
+docker compose --profile dev up -d
+```
+
+启动 Ollama：
+
+```bash
+docker compose --profile ollama up -d
+```
+
+使用 GPU 覆盖配置：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+```
+
+查看日志：
+
+```bash
+docker compose logs -f api
+```
+
+## 常用命令
+
+### 后端
+
+```bash
+cd server
+python -m uvicorn main:app --host 127.0.0.1 --port 8010 --reload
+python -m pytest
+python -m pytest -m "not integration and not e2e"
+python -m pytest -m integration
+python -m pytest --cov=server --cov-report=html
+```
+
+### 前端
 
 ```bash
 cd client
 npm run dev
 npm run build
-npm test
 npm run typecheck
 npm run lint
+npm run test:smoke
+npm run test:runtime
 ```
 
-## Testing
+注意：`npm test` 是 Vitest watch 模式；CI 或一次性验证建议使用 `npx vitest run` 或上面的专项脚本。
+
+### 依赖管理
 
 ```bash
-# Backend
-cd server
-pytest -v
-
-# Frontend
-cd client
-npm test
-npm run test:smoke
+uv sync
+uv lock
+uv export --no-dev --no-hashes --format requirements-txt -o server/requirements.txt
 ```
 
-The repository includes broad automated coverage for agent session lifecycle, training/inference paths, gateway components, and frontend smoke tests.
+`server/requirements.txt` 由 `uv export` 生成，不建议手工编辑。
 
-## Security Highlights
+## 主要页面
 
-- Path traversal protection for workspace/file operations
-- Upload validation (file type, size, and content checks)
-- Optional JWT authentication
-- Rate limiting and security response headers
-- Agent action boundaries via DeepAgents workspace isolation
-- HITL approval gates for sensitive write/edit/execute tool calls
+| 路由 | 页面 |
+| --- | --- |
+| `/agent` | Agent 工作台，默认入口 |
+| `/dashboard` | 平台概览 |
+| `/device` | 设备与显存监控 |
+| `/models` | 本地模型管理 |
+| `/datasets` | 数据集管理 |
+| `/training` | 训练任务 |
+| `/chat` | 纯聊天界面 |
+| `/knowledge` | 知识库 |
+| `/inference` | 推理测试 |
+| `/evaluation` | 模型评估 |
+| `/deployment` | 部署包 |
+| `/workspace` | 工作区管理 |
+| `/memory` | 记忆系统 |
+| `/modelhub` | 模型中心 |
+| `/project-context` | 项目上下文 |
+| `/mcp`、`/gateway`、`/heartbeat`、`/cua-control` | 实验能力 |
 
-## Environment Variables
+## 关键 API
 
-Common variables (see `.env.example` for full list):
+| API | 说明 |
+| --- | --- |
+| `GET /health` | 服务健康检查 |
+| `GET /api/info` | API 元信息和能力分层 |
+| `GET /device` | 设备信息 |
+| `GET /models` | 模型管理 |
+| `GET /datasets` | 数据集管理 |
+| `POST /training/start` | 启动训练 |
+| `GET /training/progress/stream` | 训练进度 SSE |
+| `POST /inference/*` | 推理服务 |
+| `GET /chat/sessions` | 聊天会话 |
+| `POST /agent-sessions` | 创建 Agent Session |
+| `POST /agent-sessions/{id}/prompt` | 向 Agent Session 发送任务 |
+| `GET /agent-sessions/{id}/events/stream` | Agent 事件 SSE |
+| `POST /agent-permissions/{permission_id}/approve` | 审批 Agent 权限请求 |
+| `POST /agent-permissions/{permission_id}/reject` | 拒绝 Agent 权限请求 |
 
-- `HOST`, `PORT`
-- `ALLOWED_ORIGINS`
-- `INFERENCE_ENGINE` (`huggingface` / `vllm` / `llamacpp` / `ollama`)
-- `OLLAMA_BASE_URL`
-- `HF_MIRROR`
-- `MAX_CONCURRENT_TRAINING`
-- `RATE_LIMIT`, `RATE_WINDOW`
-- `MAX_UPLOAD_SIZE`
-- `ENABLE_AUTH`, `JWT_SECRET_KEY`
-- `LOG_LEVEL`, `LOG_FORMAT`
-
-## Project Structure
+## 项目结构
 
 ```text
 finetune-platform/
-├── server/                   # FastAPI backend
-├── client/                   # React + TypeScript frontend
-├── electron/                 # Optional desktop wrapper
-├── models/                   # Local models
-├── datasets/                 # Dataset storage
-├── outputs/                  # Training outputs
-├── logs/                     # Runtime logs
-├── docs/                     # Project documentation
-└── scripts/                  # Validation/utility scripts
+├── server/                 # FastAPI 后端
+│   ├── api/                # 路由层
+│   ├── agent_session/      # Agent Session 与 DeepAgents 运行时
+│   ├── core/               # 配置、存储、训练状态、事件总线
+│   ├── training_engine/    # 微调管线
+│   ├── inference_service/  # 推理服务层
+│   ├── rag/                # RAG 知识库
+│   ├── memory/             # 记忆系统
+│   ├── context/            # 项目上下文
+│   ├── workspace/          # 文件和任务 API
+│   └── tests/              # 后端正式测试
+├── client/                 # React 前端
+│   └── src/
+│       ├── agent/          # Agent Workbench
+│       ├── pages/          # 页面
+│       ├── components/     # 通用组件
+│       ├── services/       # API 客户端
+│       └── test/           # Vitest 测试
+├── electron/               # 可选桌面端封装
+├── docs/                   # 设计、迁移、部署和能力文档
+├── scripts/                # 工具脚本
+├── models/                 # 本地模型目录
+├── datasets/               # 数据集目录
+├── outputs/                # 训练输出
+└── workspaces/             # 运行时工作区数据
 ```
 
-## Documentation
+## 配置说明
 
-- [AGENTS.md](AGENTS.md): project structure, commands, capability boundaries
-- [CLAUDE.md](CLAUDE.md): engineering conventions and constraints
-- [Docker Notes](docs/notes/DOCKER.md): container deployment and GPU setup
-- [Capability Truth Table](docs/capability-truth-table.md): maturity/dependency/failure modes
-- [Agent Session Design](docs/agent_session_migration.md): migration and design history
+复制 `.env.example` 到 `.env` 后按需修改。常见配置包括：
 
-## Roadmap Note
+| 变量 | 用途 |
+| --- | --- |
+| `HOST`、`PORT` | 后端监听地址和端口 |
+| `ALLOWED_ORIGINS` | CORS 白名单 |
+| `INFERENCE_ENGINE` | 推理后端选择 |
+| `OLLAMA_BASE_URL` | Ollama 服务地址 |
+| `HF_MIRROR` | HuggingFace 镜像源 |
+| `MAX_CONCURRENT_TRAINING` | 最大并发训练数 |
+| `MAX_UPLOAD_SIZE` | 上传文件大小限制 |
+| `ENABLE_AUTH`、`JWT_SECRET_KEY` | 可选认证配置 |
+| `LOG_LEVEL`、`LOG_FORMAT` | 日志级别和格式 |
 
-Finetune Platform is under active iteration. Core tuning and inference flows are available, while several advanced modules are still evolving quickly in Beta/Experimental stages.
+## 文档入口
 
-## License
+- [AGENTS.md](AGENTS.md)：当前项目结构、开发命令和能力边界。
+- [docs/agent_system_design.md](docs/agent_system_design.md)：Agent 系统设计。
+- [docs/agent_session_migration.md](docs/agent_session_migration.md)：Agent Session 迁移记录。
+- [docs/capability-truth-table.md](docs/capability-truth-table.md)：能力成熟度和依赖说明。
+- [docs/local-inference-deployment.md](docs/local-inference-deployment.md)：本地推理部署说明。
+- [docs/MCP_INTEGRATION.md](docs/MCP_INTEGRATION.md)：MCP 集成说明。
+- [docs/CUA_USAGE.md](docs/CUA_USAGE.md)：CUA 使用说明。
 
-MIT
+## 开发约定
 
-## Acknowledgements
+- 后端依赖事实源是根目录 `pyproject.toml` 和 `uv.lock`。
+- 前端 API 地址默认是 `http://127.0.0.1:8010`。
+- 正式后端测试主要位于 `server/tests/`，根目录零散脚本多为调试用途。
+- 改动 GA 能力时应补充或更新回归测试。
+- Experimental 能力可以快速迭代，但 README 和 `/api/info` 应保持诚实一致。
 
-- HuggingFace Transformers
-- PEFT
-- DeepAgents
-- LangGraph
-- FastAPI
-- React
-- Ant Design
-- ChromaDB
+## 当前状态
+
+项目处于活跃开发阶段。训练、推理、模型/数据集管理、知识库、聊天和 Agent Session 已形成主流程；CUA、MCP、Gateway、Heartbeat 等模块仍是实验区，更适合研究、扩展和二次开发。
+
+## 致谢
+
+本项目建立在 FastAPI、React、Ant Design、PyTorch、Transformers、PEFT、DeepAgents、LangGraph、ChromaDB、Ollama 等开源生态之上。
