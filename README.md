@@ -1,5 +1,7 @@
 # Finetune Platform 2.1
 
+[English](README_EN.md) | 简体中文
+
 面向独立开发者和小团队的本地大模型微调工作台：在消费级显卡上完成数据集管理、LoRA/QLoRA 微调、评估、推理、部署打包，并把 Agent 工作台、项目上下文、记忆和知识库放在同一个产品里。
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue)
