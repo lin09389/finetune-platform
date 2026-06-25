@@ -10,6 +10,7 @@ A local LLM fine-tuning workbench for independent developers and small teams. It
 ![Vite](https://img.shields.io/badge/Vite-5-646CFF)
 ![DeepAgents](https://img.shields.io/badge/DeepAgents-0.6-orange)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+[![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
 ## What It Is
 
