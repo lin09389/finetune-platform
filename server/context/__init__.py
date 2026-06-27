@@ -5,6 +5,9 @@
 - 代码索引：提取符号、向量化、构建索引
 - 上下文检索：语义搜索、相关代码片段
 """
+from context.budget import ContextBuildOptions, estimate_tokens
+from context.builder import ContextBuilder, get_context_builder
+from context.deepagents import DeepAgentsContextPack, build_deepagents_context_pack
 from context.models import (
     ContextResult,
     FileInfo,
@@ -14,17 +17,6 @@ from context.models import (
     SymbolInfo,
     TechStack,
 )
-from context.project_scanner import (
-    ProjectScanner,
-    scan_project,
-)
-from context.service import (
-    ContextService,
-    get_context_service,
-)
-from context.budget import ContextBuildOptions, estimate_tokens
-from context.builder import ContextBuilder, get_context_builder
-from context.deepagents import DeepAgentsContextPack, build_deepagents_context_pack
 from context.pack import (
     ContextBudget,
     ContextBuildResult,
@@ -36,6 +28,14 @@ from context.pack import (
     ContextTiming,
     ContextTrace,
     PromptArtifact,
+)
+from context.project_scanner import (
+    ProjectScanner,
+    scan_project,
+)
+from context.service import (
+    ContextService,
+    get_context_service,
 )
 
 __all__ = [

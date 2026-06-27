@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 
 from context.pack import ContextBudget, ContextSource
 
-
 _EN_WORD_RE = re.compile(r"[A-Za-z0-9_]+")
 
 

@@ -406,9 +406,13 @@ class ContextService:
 
     def _iter_code_files(self, project_root: Path):
         for ext in self.code_indexer.config["supported_extensions"]:
-            for file_path in project_root.glob(f"**/*{ext}"):
-                if not self.code_indexer._should_ignore(file_path):
-                    yield file_path
+            try:
+                candidates = project_root.glob(f"**/*{ext}")
+                for file_path in candidates:
+                    if not self.code_indexer._should_ignore(file_path):
+                        yield file_path
+            except OSError as exc:
+                logger.warning("跳过不可访问的项目路径：%s", exc)
 
     def _index_one_file(self, project_root: Path, file_path: Path) -> dict[str, Any] | None:
         try:

@@ -5,14 +5,14 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, ConfigDict
-from pydantic import field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from core.config import get_settings
 from core.release_registry import get_release_registry
@@ -445,6 +445,7 @@ async def create_deployment_package(request: DeploymentPackageRequest):
         "package_id": package_id,
         "training_task_id": request.training_task_id,
         "created_at": datetime.now().isoformat(),
+        "created_order": time.time_ns(),
         "base_model": base_model,
         "adapter_path": adapter_path,
         "merged_model_path": merged_model_path,
@@ -624,7 +625,15 @@ async def rollback_deployment_package(package_id: str):
 @router.get("/packages")
 async def list_deployment_packages(limit: int = 20):
     packages: list[dict[str, Any]] = []
-    for payload in _list_package_payloads():
+    payloads = sorted(
+        (payload for payload in _list_package_payloads() if payload),
+        key=lambda item: (
+            item.get("created_at") or "",
+            int(item.get("created_order") or 0),
+        ),
+        reverse=True,
+    )
+    for payload in payloads:
         if not payload:
             continue
         packages.append(
@@ -643,7 +652,6 @@ async def list_deployment_packages(limit: int = 20):
             }
         )
 
-    packages.sort(key=lambda item: item.get("created_at") or "", reverse=True)
     return packages[: max(1, min(limit, 100))]
 
 

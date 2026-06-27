@@ -18,6 +18,15 @@ from .symbol_extractor import get_symbol_extractor
 
 logger = logging.getLogger(__name__)
 
+WINDOWS_RESERVED_NAMES = {
+    "con",
+    "prn",
+    "aux",
+    "nul",
+    *(f"com{i}" for i in range(1, 10)),
+    *(f"lpt{i}" for i in range(1, 10)),
+}
+
 
 class CodeIndexer:
     """代码索引器"""
@@ -352,6 +361,8 @@ class CodeIndexer:
     def _should_ignore(self, path: Path) -> bool:
         """检查是否应该忽略该路径"""
         path_str = str(path)
+        if path.name.split(".", 1)[0].lower() in WINDOWS_RESERVED_NAMES:
+            return True
         return any(pattern in path_str for pattern in self.config["ignore_patterns"])
 
     def get_index_info(self, collection_name: str) -> dict | None:

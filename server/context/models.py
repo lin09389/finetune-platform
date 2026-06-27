@@ -1,13 +1,13 @@
 """
 项目上下文数据模型
 """
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class TechStackType(str, Enum):
+class TechStackType(StrEnum):
     """技术栈类型"""
     PYTHON = "python"
     JAVASCRIPT = "javascript"
@@ -18,7 +18,7 @@ class TechStackType(str, Enum):
     UNKNOWN = "unknown"
 
 
-class SymbolType(str, Enum):
+class SymbolType(StrEnum):
     """符号类型"""
     CLASS = "class"
     FUNCTION = "function"

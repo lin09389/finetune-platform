@@ -12,8 +12,8 @@ import json
 import logging
 import os
 import tomllib
-from fnmatch import fnmatch
 from datetime import datetime
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +26,15 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+WINDOWS_RESERVED_NAMES = {
+    "con",
+    "prn",
+    "aux",
+    "nul",
+    *(f"com{i}" for i in range(1, 10)),
+    *(f"lpt{i}" for i in range(1, 10)),
+}
 
 
 class ProjectScanner:
@@ -311,7 +320,16 @@ class ProjectScanner:
         """检查是否应该忽略该路径"""
         path_str = str(path)
         name = path.name
-        if path.is_dir() and name in self.GLOBAL_IGNORED_DIRS:
+        normalized_name = name.split(".", 1)[0].lower()
+        if normalized_name in WINDOWS_RESERVED_NAMES:
+            return True
+
+        try:
+            is_dir = path.is_dir()
+        except OSError:
+            return True
+
+        if is_dir and name in self.GLOBAL_IGNORED_DIRS:
             return True
 
         for config in self.LANGUAGE_CONFIGS.values():

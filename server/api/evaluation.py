@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
-import uuid
 import re
+import uuid
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
-from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import StreamingResponse
@@ -22,6 +23,8 @@ from core.db_manager import run_sync
 from core.release_registry import get_release_registry, make_release_owner_id
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
 
 class RefCountedLock:
     def __init__(self):
@@ -254,8 +257,9 @@ def _persist_evaluation_link(training_task_id: str | None, run_id: str) -> str |
     if not training_task_id:
         return None
     try:
-        from core.training_context import get_training_context
         from training_engine.reporter import write_training_artifact_manifest
+
+        from core.training_context import get_training_context
 
         state = get_training_context().state
         record = next((item for item in state.get_history() if item.id == training_task_id), None)
@@ -494,8 +498,8 @@ async def run_model_inference_batch(
     lora_adapter: str | None = None,
 ) -> list[str]:
     """Run batch inference call directly via the ModelScheduler."""
-    from api.inference.scheduler import get_scheduler
     from api.inference.backends.base import GenerationConfig
+    from api.inference.scheduler import get_scheduler
 
     try:
         scheduler = get_scheduler()
@@ -575,7 +579,13 @@ async def _run_llm_judge_batch(
 ) -> list[Literal["good", "neutral", "bad"]]:
     judge_prompts = []
     swap_flags: list[bool] = []
-    for p, b_out, f_out, e_out in zip(prompts, base_outputs, finetuned_outputs, expected_outputs):
+    for p, b_out, f_out, e_out in zip(
+        prompts,
+        base_outputs,
+        finetuned_outputs,
+        expected_outputs,
+        strict=False,
+    ):
         swapped = hashlib.sha256(p.encode("utf-8")).digest()[0] % 2 == 1
         swap_flags.append(swapped)
         candidate_a, candidate_b = (f_out, b_out) if swapped else (b_out, f_out)
@@ -615,7 +625,7 @@ async def _run_llm_judge_batch(
             temperature=0.1,
         )
         scores: list[Literal["good", "neutral", "bad"]] = []
-        for result, swapped in zip(results, swap_flags):
+        for result, swapped in zip(results, swap_flags, strict=False):
             result_lower = result.strip().lower()
             winner = None
             try:
@@ -709,7 +719,7 @@ async def _populate_inference_outputs(
                         temperature=request.temperature,
                         response_format=response_format,
                     )
-                    for c, out in zip(unprocessed, outputs):
+                    for c, out in zip(unprocessed, outputs, strict=False):
                         c["base_output"] = out
                 except Exception as exc:
                     for c in unprocessed:
@@ -741,7 +751,7 @@ async def _populate_inference_outputs(
                             response_format=response_format,
                             lora_adapter=lora_adapter,
                         )
-                        for c, out in zip(unprocessed, outputs):
+                        for c, out in zip(unprocessed, outputs, strict=False):
                             c["finetuned_output"] = out
                     except Exception as exc:
                         for c in unprocessed:
@@ -822,7 +832,7 @@ async def _run_judge_task(run_id: str, judge_model: str, backend: str, scenario:
                             finetuned_outputs=finetuned_outs,
                             expected_outputs=expected_outs,
                         )
-                        for i, score in zip(unprocessed_indices, scores):
+                        for i, score in zip(unprocessed_indices, scores, strict=False):
                             case_payloads[i]["human_score"] = {
                                 "case_index": i,
                                 "score": score,
@@ -1237,10 +1247,8 @@ async def stream_evaluation_run(run_id: str):
                     break
 
                 event.clear()
-                try:
+                with suppress(TimeoutError):
                     await asyncio.wait_for(event.wait(), timeout=3.0)
-                except asyncio.TimeoutError:
-                    pass
         finally:
             _run_events.pop(run_id, None)
 
