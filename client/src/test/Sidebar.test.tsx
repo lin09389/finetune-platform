@@ -25,8 +25,8 @@ describe('Sidebar capability labels', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('模型中心')).toBeInTheDocument();
-    expect(screen.getByText('外部模型下载')).toBeInTheDocument();
+    expect(screen.getByText('模型运行')).toBeInTheDocument();
+    expect(screen.getByText('接入与 Agent')).toBeInTheDocument();
     expect(screen.getByText('智能记忆')).toBeInTheDocument();
     expect(screen.getByText('三层记忆系统')).toBeInTheDocument();
     expect(screen.getByText('工作空间')).toBeInTheDocument();

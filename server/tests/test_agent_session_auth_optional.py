@@ -152,6 +152,42 @@ def test_agent_session_stream_returns_404_for_missing_session(tmp_path: Path):
         app.dependency_overrides.clear()
 
 
+def test_agent_session_stream_emits_sse_ids_and_accepts_last_event_id(tmp_path: Path):
+    client, service = _client_with_service(tmp_path)
+    try:
+        session = service.repository.create_session(
+            {
+                "agent_id": "build",
+                "title": "stream resume",
+                "project_path": str(tmp_path),
+                "status": "completed",
+                "metadata": {},
+            }
+        )
+        first = service.repository.add_event(session["id"], "phase_change", "first", {"phase": "inspect"})
+        second = service.repository.add_event(session["id"], "phase_change", "second", {"phase": "verify"})
+
+        lines: list[str] = []
+        with client.stream(
+            "GET",
+            f"/agent-sessions/{session['id']}/events/stream",
+            headers={"Last-Event-ID": first["id"]},
+        ) as response:
+            assert response.status_code == 200
+            for line in response.iter_lines():
+                lines.append(line)
+                if line == "event: agent_session_done":
+                    break
+
+        body = "\n".join(lines) + "\n"
+        assert f"id: snap_{session['id']}\n" in body
+        assert f"id: {first['id']}\n" not in body
+        assert f"id: {second['id']}\n" in body
+        assert "event: agent_session_done\n" in body
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_agent_sessions_require_token_in_production_without_fallback(tmp_path: Path, monkeypatch):
     original_environment = settings.environment
     monkeypatch.setattr(settings, "environment", "production")

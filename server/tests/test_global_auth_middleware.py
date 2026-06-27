@@ -29,3 +29,20 @@ def test_global_auth_middleware_protects_business_routes(monkeypatch):
     assert invalid.status_code == 401
     assert valid.status_code == 200
     assert public.status_code == 200
+
+
+def test_global_auth_middleware_allows_local_agent_fallback_only_in_development(monkeypatch):
+    monkeypatch.setattr(main.settings, "enable_auth", True)
+    monkeypatch.setattr(main.settings, "environment", "development")
+    client = TestClient(main.app)
+
+    local_agents = client.get("/agents", headers={"Origin": "http://127.0.0.1:5173"})
+
+    assert local_agents.status_code == 200
+    assert local_agents.headers["access-control-allow-origin"] in {"*", "http://127.0.0.1:5173"}
+
+    monkeypatch.setattr(main.settings, "environment", "production")
+    protected_agents = client.get("/agents", headers={"Origin": "http://127.0.0.1:5173"})
+
+    assert protected_agents.status_code == 401
+    assert "access-control-allow-origin" in protected_agents.headers

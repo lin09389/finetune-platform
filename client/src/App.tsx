@@ -25,14 +25,13 @@ const { Content } = Layout;
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const DeviceInfo = lazy(() => import('./pages/DeviceInfo'));
-const ModelManager = lazy(() => import('./pages/ModelManager'));
+const ModelRuntimeCenter = lazy(() => import('./pages/ModelRuntimeCenter'));
 const DatasetManager = lazy(() => import('./pages/DatasetManager'));
 const Training = lazy(() => import('./pages/Training'));
 const Chat = lazy(() => import('./pages/ChatNew'));
 const AgentWorkbench = lazy(() => import('./agent/workbench/AgentWorkbenchRoute'));
 const KnowledgeBase = lazy(() => import('./pages/KnowledgeBase'));
 const WorkspaceManager = lazy(() => import('./pages/WorkspaceManager'));
-const ModelHub = lazy(() => import('./pages/ModelHub'));
 const Inference = lazy(() => import('./pages/Inference'));
 const Evaluation = lazy(() => import('./pages/Evaluation'));
 const Deployment = lazy(() => import('./pages/Deployment'));
@@ -129,7 +128,7 @@ const PageLoader = () => (
 const routes = [
   { path: '/dashboard', element: <Dashboard /> },
   { path: '/device', element: <DeviceInfo /> },
-  { path: '/models', element: <ModelManager /> },
+  { path: '/models', element: <ModelRuntimeCenter /> },
   { path: '/datasets', element: <DatasetManager /> },
   { path: '/training', element: <Training /> },
   { path: '/chat', element: <Chat /> },
@@ -137,7 +136,7 @@ const routes = [
   { path: '/knowledge', element: <KnowledgeBase /> },
   { path: '/workspace', element: <WorkspaceManager /> },
   { path: '/memory', element: <MemoryPage /> },
-  { path: '/modelhub', element: <ModelHub /> },
+  { path: '/modelhub', element: <ModelRuntimeCenter /> },
   { path: '/inference', element: <Inference /> },
   { path: '/evaluation', element: <Evaluation /> },
   { path: '/deployment', element: <Deployment /> },
@@ -159,7 +158,7 @@ const routes = [
 const routeTitles: Record<string, string> = {
   '/dashboard': '概览',
   '/device': '设备监控',
-  '/models': '模型管理',
+  '/models': '模型运行中心',
   '/datasets': '数据集',
   '/training': '训练',
   '/chat': 'Chat',
@@ -167,7 +166,7 @@ const routeTitles: Record<string, string> = {
   '/knowledge': '知识库',
   '/workspace': '工作区',
   '/memory': '记忆',
-  '/modelhub': '模型中心',
+  '/modelhub': '模型运行中心',
   '/inference': '推理',
   '/evaluation': '评估',
   '/deployment': '部署',
@@ -251,8 +250,7 @@ function AppContent() {
 
         const isHealthy = await checkBackendHealth();
         applyBackendStatus(isHealthy);
-      } catch (error) {
-        console.error('Init error:', error);
+      } catch {
         applyBackendStatus(false);
       } finally {
         setLoading(false);

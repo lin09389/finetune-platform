@@ -810,6 +810,19 @@ export interface AgentLoopGuardState extends AgentLoopGuardSnapshot {
   last_block?: AgentLoopGuardSnapshot;
 }
 
+export interface AgentSessionPreferences {
+  display_title?: string | null;
+  pinned: boolean;
+  archived: boolean;
+  updated_at?: string | null;
+}
+
+export interface AgentSessionPreferencesUpdate {
+  display_title?: string | null;
+  pinned?: boolean | null;
+  archived?: boolean | null;
+}
+
 export interface AgentSession {
   id: string;
   chat_session_id?: string;
@@ -837,6 +850,7 @@ export interface AgentSession {
     loop_guard?: AgentLoopGuardState;
   };
   parts: AgentPart[];
+  preferences: AgentSessionPreferences;
   created_at: string;
   updated_at: string;
 }
@@ -1384,7 +1398,7 @@ export const searchContextMentions = async (payload: {
 };
 
 export const createAgentSession = async (payload: AgentSessionCreate): Promise<AgentSession> => {
-  const response = await apiClient.post('/agent-sessions', payload);
+  const response = await apiClient.post('/agent-sessions', payload, { timeout: 15000 });
   return response.data;
 };
 
@@ -1502,7 +1516,15 @@ export const promptAgentSession = async (
   sessionId: string,
   payload: AgentPromptRequest,
 ): Promise<AgentSession> => {
-  const response = await apiClient.post(`/agent-sessions/${sessionId}/prompt`, payload);
+  const response = await apiClient.post(`/agent-sessions/${sessionId}/prompt`, payload, { timeout: 15000 });
+  return response.data;
+};
+
+export const updateAgentSessionPreferences = async (
+  sessionId: string,
+  update: AgentSessionPreferencesUpdate
+): Promise<AgentSession> => {
+  const response = await apiClient.patch(`/agent-sessions/${sessionId}/preferences`, update);
   return response.data;
 };
 
@@ -2892,7 +2914,7 @@ export const startHealthCheck = (
     };
 
     ws.onmessage = () => {
-      onStatusChange(true);
+      // onopen 已上报 connected，此处仅处理离线队列，不重复触发状态变更
       processOfflineQueue();
     };
 
@@ -3159,6 +3181,135 @@ export const getInferenceModelInfo = async (modelId: string, backend?: string) =
 
 export const getInferenceEngineStats = async () => {
   const response = await apiClient.get('/inference-engine/stats');
+  return response.data;
+};
+
+/**
+ * Extract a human-readable error message from an API error response.
+ * Falls back to the provided defaultMessage (or a generic one) if no detail is available.
+ */
+export function getApiErrorMessage(error: unknown, defaultMessage = '操作失败'): string {
+  if (!error) return defaultMessage;
+  // Axios error with a response body
+  const axiosError = error as any;
+  if (axiosError?.response?.data) {
+    const data = axiosError.response.data;
+    if (typeof data === 'string') return data;
+    if (data.detail) {
+      if (typeof data.detail === 'string') return data.detail;
+      if (Array.isArray(data.detail)) {
+        // FastAPI validation error format
+        return data.detail.map((d: any) => d.msg ?? JSON.stringify(d)).join('; ');
+      }
+      return JSON.stringify(data.detail);
+    }
+    if (data.message) return data.message;
+    if (data.error) return data.error;
+  }
+  if (axiosError?.message) return axiosError.message;
+  if (error instanceof Error) return error.message;
+  return defaultMessage;
+}
+
+// ==================== Model Runtime Center ====================
+
+export interface ModelRuntimeReadiness {
+  state: 'ready' | 'blocked' | 'pending';
+  label: string;
+  message: string;
+  fix_action: string | null;
+}
+
+export interface ModelRuntimeModel {
+  id: string;
+  name: string;
+  backend: string;
+  source: string;
+  path: string | null;
+  size: number;
+  size_label: string;
+  capabilities: string[];
+  readiness: ModelRuntimeReadiness;
+  recommended_for: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface ModelRuntimeRecommendation {
+  repo_id: string;
+  name: string;
+  description: string;
+  size: string;
+  source: string;
+  category: string;
+  fit: string;
+  why: string;
+}
+
+export interface ModelRuntimeEnvironment {
+  models_dir?: string;
+  model_source?: string;
+  ollama_base_url?: string;
+  hardware_profile?: {
+    profile?: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+export interface ModelRuntimeDiagnostic {
+  kind: string;
+  severity?: 'info' | 'warning' | 'error' | string;
+  message: string;
+  [key: string]: unknown;
+}
+
+export interface ModelRuntimeOverview {
+  schema_version: string;
+  generated_at: string;
+  summary: {
+    state: string;
+    headline: string;
+    total_models: number;
+    agent_ready_models: number;
+    local_ready_models: number;
+    ollama_available: boolean;
+  };
+  active_selection: {
+    backend: string | null;
+    model_id: string | null;
+    scope: string;
+  };
+  agent: {
+    ready: boolean;
+    provider: string | null;
+    model: string | null;
+    model_string: string | null;
+    message: string;
+  };
+  backends: unknown[];
+  local_models: ModelRuntimeModel[];
+  recommended_models: ModelRuntimeRecommendation[];
+  quick_actions: Array<{
+    id: string;
+    label: string;
+    kind: string;
+    target: string;
+  }>;
+  environment: ModelRuntimeEnvironment;
+  diagnostics: ModelRuntimeDiagnostic[];
+}
+
+export const getModelRuntimeOverview = async (): Promise<ModelRuntimeOverview> => {
+  const response = await apiClient.get('/model-runtime/overview');
+  return response.data;
+};
+
+export const setModelRuntimeSelection = async (payload: {
+  backend: 'huggingface' | 'ollama' | 'llama-cpp';
+  model_id?: string | null;
+  scope?: 'global' | 'agent';
+}): Promise<unknown> => {
+  const response = await apiClient.post('/model-runtime/selection', payload);
   return response.data;
 };
 

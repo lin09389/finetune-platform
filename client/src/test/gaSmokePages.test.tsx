@@ -23,6 +23,8 @@ const mockDeleteDataset = vi.hoisted(() => vi.fn());
 const mockUploadDataset = vi.hoisted(() => vi.fn());
 const mockGetBackends = vi.hoisted(() => vi.fn());
 const mockGetModelList = vi.hoisted(() => vi.fn());
+const mockGetModelRuntimeOverview = vi.hoisted(() => vi.fn());
+const mockSetModelRuntimeSelection = vi.hoisted(() => vi.fn());
 const mockGetInferenceModels = vi.hoisted(() => vi.fn());
 const mockGetOllamaStatus = vi.hoisted(() => vi.fn());
 const mockListInferenceEngines = vi.hoisted(() => vi.fn());
@@ -104,6 +106,7 @@ vi.mock('../services/api', () => ({
   getDeviceInfo: mockGetDeviceInfo,
   getInferenceModels: mockGetInferenceModels,
   getModelList: mockGetModelList,
+  getModelRuntimeOverview: mockGetModelRuntimeOverview,
   getOllamaStatus: mockGetOllamaStatus,
   listDeploymentPackages: mockListDeploymentPackages,
   listInferenceEngines: mockListInferenceEngines,
@@ -120,6 +123,14 @@ vi.mock('../services/api', () => ({
   streamInference: vi.fn(),
   streamGenerate: vi.fn(),
   switchBackend: vi.fn(),
+  setModelRuntimeSelection: mockSetModelRuntimeSelection,
+  downloadModelFromModelScope: vi.fn(),
+  downloadModelFromHuggingFace: vi.fn(),
+  getDownloadProgress: vi.fn(),
+  importModelFromModelScope: vi.fn(),
+  deleteLocalModel: vi.fn(),
+  searchModels: vi.fn(),
+  extractApiErrorMessage: (_error: unknown, fallback: string) => fallback,
 }));
 
 vi.mock('../store/chatStore', () => ({
@@ -260,6 +271,7 @@ import Deployment from '../pages/Deployment';
 import Evaluation from '../pages/Evaluation';
 import Inference from '../pages/Inference';
 import KnowledgeBase from '../pages/KnowledgeBase';
+import ModelRuntimeCenter from '../pages/ModelRuntimeCenter';
 import TrainingPage from '../pages/Training';
 
 const renderWithRouter = (ui: React.ReactElement, initialEntries = ['/']) =>
@@ -467,6 +479,59 @@ describe('GA smoke pages', () => {
       ],
     });
     mockGetModelList.mockResolvedValue([{ id: 'base-model', name: '基础模型' }]);
+    mockGetModelRuntimeOverview.mockResolvedValue({
+      schema_version: 'model.runtime.overview.v1',
+      generated_at: new Date().toISOString(),
+      summary: {
+        state: 'ready',
+        headline: 'Agent 和本地对话已就绪',
+        total_models: 1,
+        agent_ready_models: 1,
+        local_ready_models: 1,
+        ollama_available: true,
+      },
+      active_selection: {
+        backend: 'ollama',
+        model_id: 'qwen2.5:7b',
+        scope: 'agent',
+      },
+      agent: {
+        ready: true,
+        provider: 'ollama',
+        model: 'qwen2.5:7b',
+        model_string: 'ollama:qwen2.5:7b',
+        message: 'Agent Workbench 会优先使用该 Ollama 模型。',
+      },
+      backends: [{ id: 'ollama', name: 'Ollama', available: true }],
+      local_models: [
+        {
+          id: 'qwen2.5:7b',
+          name: 'qwen2.5:7b',
+          backend: 'ollama',
+          source: 'ollama',
+          path: null,
+          size: 100,
+          size_label: '100 B',
+          capabilities: ['agent', 'chat', 'inference'],
+          readiness: {
+            state: 'ready',
+            label: 'Agent 就绪',
+            message: '可直接作为 Agent Workbench 的默认模型。',
+          },
+          recommended_for: ['agent', 'chat'],
+          metadata: {},
+        },
+      ],
+      recommended_models: [],
+      quick_actions: [],
+      environment: {
+        models_dir: 'C:/models',
+        model_source: 'modelscope',
+        ollama_base_url: 'http://localhost:11434',
+        hardware_profile: { profile: 'low_vram' },
+      },
+      diagnostics: [],
+    });
     mockGetInferenceModels.mockResolvedValue([{ id: 'hf-model', name: 'HF Model' }]);
     mockCreateEvaluationRun.mockResolvedValue({
       run_id: 'eval-1',
@@ -603,6 +668,14 @@ describe('GA smoke pages', () => {
       expect(screen.getAllByText('Ollama 未运行').length).toBeGreaterThan(0);
       expect(screen.getByText('请确保 Ollama 已启动，然后刷新页面')).toBeInTheDocument();
     });
+  });
+
+  it('renders the unified model runtime center as the model entry', async () => {
+    renderWithRouter(<ModelRuntimeCenter />);
+
+    expect(await screen.findByText('模型运行中心')).toBeInTheDocument();
+    expect(screen.getByText('Agent 和本地对话已就绪')).toBeInTheDocument();
+    expect(screen.getByText('ollama:qwen2.5:7b')).toBeInTheDocument();
   });
 
   it('renders knowledge embedder warning state', async () => {

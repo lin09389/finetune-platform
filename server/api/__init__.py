@@ -21,6 +21,7 @@ from api.knowledge import router as knowledge
 from api.mcp import router as mcp
 from api.memory import router as memory
 from api.model_center import router as model_center
+from api.model_runtime import router as model_runtime
 from api.models import router as models
 from api.training import router as training
 from api.workspace import router as workspace
@@ -52,6 +53,7 @@ __all__ = [
     "mcp",
     "memory",
     "model_center",
+    "model_runtime",
     "models",
     "training",
     "workspace",

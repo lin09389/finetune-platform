@@ -55,7 +55,7 @@ const menuGroups: MenuGroup[] = [
         label: '设备信息',
         description: 'GPU / CPU 状态',
       },
-      { key: '/models', icon: <FolderOutlined />, label: '模型管理', description: '本地模型' },
+      { key: '/models', icon: <FolderOutlined />, label: '模型运行', description: '接入与 Agent' },
       { key: '/datasets', icon: <DatabaseOutlined />, label: '数据集', description: '训练数据' },
       {
         key: '/training',
@@ -96,12 +96,6 @@ const menuGroups: MenuGroup[] = [
   {
     label: 'Beta 功能',
     items: [
-      {
-        key: '/modelhub',
-        icon: <CloudOutlined />,
-        label: '模型中心',
-        description: '外部模型下载',
-      },
       {
         key: '/memory',
         icon: <BulbOutlined />,

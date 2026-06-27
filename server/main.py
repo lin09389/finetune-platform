@@ -8,7 +8,7 @@ import os
 import re
 import sys
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime
 from pathlib import Path
 
@@ -29,34 +29,35 @@ if hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
-from api.cloud_chat import router as cloud_chat
-from api.chat_agent import router as chat_agent
 from api.agent_sessions import permission_router as agent_session_permissions
 from api.agent_sessions import router as agent_sessions
 from api.agent_terminals import router as agent_terminals
-from api.datasets import router as datasets
-from api.deployment import router as deployment
-from api.device import router as device
-
-from api.evaluation import router as evaluation
-from api.chat.routes import router as chat
 from api.agents import router as agents
+from api.auth import router as auth_router
+from api.chat.routes import router as chat
+from api.chat_agent import router as chat_agent
 from api.chat_branch import router as chat_branch
 from api.chat_share import router as chat_share
+from api.cloud_chat import router as cloud_chat
 from api.code_executor import router as code_executor
 from api.compat import router as compat_router
 from api.context import router as context
 from api.cua import router as cua
+from api.datasets import router as datasets
+from api.deployment import router as deployment
+from api.device import router as device
 from api.entity import router as entity
+from api.evaluation import router as evaluation
 from api.file_parser import router as file_parser
 from api.gateway_api.routes import router as gateway
 from api.heartbeat import router as heartbeat
 from api.inference import router as inference
 from api.inference_engine import router as inference_engine
 from api.knowledge import router as knowledge
-from api.memory import router as memory
 from api.mcp import router as mcp
+from api.memory import router as memory
 from api.model_center import router as model_center
+from api.model_runtime import router as model_runtime
 from api.models import router as models
 from api.ocr import router as ocr
 from api.runtime import router as runtime
@@ -281,10 +282,8 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down application...")
 
     _backup_task.cancel()
-    try:
+    with suppress(_asyncio.CancelledError):
         await _backup_task
-    except _asyncio.CancelledError:
-        pass
 
     if grpc_server:
         try:
@@ -292,10 +291,10 @@ async def lifespan(app: FastAPI):
             logger.info("Inference gRPC shutdown complete")
         except Exception as e:
             logger.warning(f"Inference gRPC shutdown failed: {e}")
-    
+
     try:
-        from api.inference.routes import get_scheduler
         from api.inference.pipeline import get_local_inference_pipeline
+        from api.inference.routes import get_scheduler
         await get_local_inference_pipeline().shutdown()
         await get_scheduler().shutdown()
         logger.info("Inference scheduler shutdown complete")
@@ -343,12 +342,30 @@ app = FastAPI(
     default_response_class=UnicodeJSONResponse,
 )
 
+_DEFAULT_DEV_CORS_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+]
+
+
 def _build_cors_origins(origins):
     if isinstance(origins, list):
-        return origins
-    if isinstance(origins, str):
-        return [origins]
-    return ["http://localhost:3000", "http://localhost:5173"]
+        normalized = [origin for origin in origins if origin]
+    elif isinstance(origins, str):
+        normalized = [origins]
+    else:
+        normalized = list(_DEFAULT_DEV_CORS_ORIGINS)
+
+    if "*" in normalized:
+        return normalized
+
+    if settings.environment == "development":
+        for origin in _DEFAULT_DEV_CORS_ORIGINS:
+            if origin not in normalized:
+                normalized.append(origin)
+    return normalized
 
 
 _cors_origins = _build_cors_origins(ALLOWED_ORIGINS)
@@ -360,6 +377,21 @@ if "*" in _cors_origins:
     _allow_credentials = False
 else:
     _allow_credentials = True
+
+
+def _cors_response_headers_for_request(request: Request) -> dict[str, str]:
+    origin = request.headers.get("origin")
+    if not origin:
+        return {}
+    if "*" not in _cors_origins and origin not in _cors_origins:
+        return {}
+    headers = {
+        "Access-Control-Allow-Origin": "*" if "*" in _cors_origins and not _allow_credentials else origin,
+        "Vary": "Origin",
+    }
+    if _allow_credentials:
+        headers["Access-Control-Allow-Credentials"] = "true"
+    return headers
 
 app.add_middleware(
     CORSMiddleware,
@@ -382,6 +414,17 @@ _PUBLIC_PATHS = {
     "/auth/refresh",
 }
 
+_LOCAL_AGENT_AUTH_FALLBACK_PREFIXES = (
+    "/agents",
+    "/agent-sessions",
+    "/agent-permissions",
+    "/agent-actions",
+)
+
+
+def _allows_local_agent_auth_fallback(path: str) -> bool:
+    return settings.environment == "development" and path.startswith(_LOCAL_AGENT_AUTH_FALLBACK_PREFIXES)
+
 
 @app.middleware("http")
 async def authentication_middleware(request: Request, call_next):
@@ -389,7 +432,12 @@ async def authentication_middleware(request: Request, call_next):
     if not settings.enable_auth or request.method == "OPTIONS":
         return await call_next(request)
     path = request.url.path.rstrip("/") or "/"
-    if path in _PUBLIC_PATHS or path.startswith("/docs/") or path.startswith("/redoc/"):
+    if (
+        path in _PUBLIC_PATHS
+        or path.startswith("/docs/")
+        or path.startswith("/redoc/")
+        or _allows_local_agent_auth_fallback(path)
+    ):
         return await call_next(request)
 
     authorization = request.headers.get("Authorization", "")
@@ -397,7 +445,7 @@ async def authentication_middleware(request: Request, call_next):
         return JSONResponse(
             status_code=401,
             content={"detail": "Missing bearer token"},
-            headers={"WWW-Authenticate": "Bearer"},
+            headers={"WWW-Authenticate": "Bearer", **_cors_response_headers_for_request(request)},
         )
     from security.jwt_auth import get_jwt_auth
 
@@ -409,7 +457,7 @@ async def authentication_middleware(request: Request, call_next):
         return JSONResponse(
             status_code=401,
             content={"detail": "Invalid or expired token"},
-            headers={"WWW-Authenticate": "Bearer"},
+            headers={"WWW-Authenticate": "Bearer", **_cors_response_headers_for_request(request)},
         )
     return await call_next(request)
 
@@ -564,7 +612,6 @@ async def security_headers_middleware(request: Request, call_next):
     return response
 
 
-from api.auth import router as auth_router
 app.include_router(auth_router)
 
 app.include_router(device, prefix="/device", tags=["Device"])
@@ -586,6 +633,7 @@ app.include_router(agent_sessions)
 app.include_router(agent_session_permissions)
 app.include_router(agent_terminals)
 app.include_router(model_center, prefix="/model-center", tags=["Model Center"])
+app.include_router(model_runtime, prefix="/model-runtime", tags=["Model Runtime"])
 app.include_router(memory, tags=["Memory"])
 app.include_router(compat_router, tags=["Compatibility"])
 app.include_router(context, prefix="/context", tags=["Context"])
