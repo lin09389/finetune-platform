@@ -50,6 +50,15 @@ const customSanitizeSchema = {
   },
 };
 
+type MarkdownChildProps = {
+  children?: React.ReactNode;
+};
+
+type MarkdownCodeProps = MarkdownChildProps & {
+  inline?: boolean;
+  className?: string;
+};
+
 const ChatMessage: React.FC<ChatMessageProps> = memo(
   ({
     id,
@@ -140,7 +149,7 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
     // Memoize markdown components to avoid unnecessary remounts
     const markdownComponents = useMemo(
       () => ({
-        code({ inline, className, children, ...props }: any) {
+        code({ inline, className, children, ...props }: MarkdownCodeProps) {
           const match = /language-(\w+)/.exec(className || '');
           const language = match ? match[1] : 'text';
           
@@ -266,46 +275,46 @@ const ChatMessage: React.FC<ChatMessageProps> = memo(
             </Suspense>
           );
         },
-        p: ({ children }: any) => (
+        p: ({ children }: MarkdownChildProps) => (
           <p>{children}</p>
         ),
-        ul: ({ children }: any) => (
+        ul: ({ children }: MarkdownChildProps) => (
           <ul>{children}</ul>
         ),
-        ol: ({ children }: any) => (
+        ol: ({ children }: MarkdownChildProps) => (
           <ol>{children}</ol>
         ),
-        li: ({ children }: any) => (
+        li: ({ children }: MarkdownChildProps) => (
           <li>{children}</li>
         ),
-        h1: ({ children }: any) => (
+        h1: ({ children }: MarkdownChildProps) => (
           <h1>{children}</h1>
         ),
-        h2: ({ children }: any) => (
+        h2: ({ children }: MarkdownChildProps) => (
           <h2>{children}</h2>
         ),
-        h3: ({ children }: any) => (
+        h3: ({ children }: MarkdownChildProps) => (
           <h3>{children}</h3>
         ),
-        blockquote: ({ children }: any) => (
+        blockquote: ({ children }: MarkdownChildProps) => (
           <blockquote>{children}</blockquote>
         ),
-        table: ({ children }: any) => (
+        table: ({ children }: MarkdownChildProps) => (
           <table>{children}</table>
         ),
-        th: ({ children }: any) => (
+        th: ({ children }: MarkdownChildProps) => (
           <th>{children}</th>
         ),
-        td: ({ children }: any) => (
+        td: ({ children }: MarkdownChildProps) => (
           <td>{children}</td>
         ),
-        tr: ({ children }: any) => (
+        tr: ({ children }: MarkdownChildProps) => (
           <tr className={styles.tableRow}>
             {children}
           </tr>
         ),
       }),
-      [isPathLike]
+      [isPathLike, shouldShowOpenFenceFallback, shouldUseSplitStreaming]
     );
 
     return (

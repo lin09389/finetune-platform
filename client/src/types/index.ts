@@ -155,6 +155,43 @@ export interface EvaluationRun {
   }>;
 }
 
+export interface CreateEvaluationRunPayload {
+  scenario: AppTaskGoal;
+  base_model: string;
+  finetuned_model?: string;
+  adapter_path?: string;
+  training_task_id?: string;
+  backend?: string;
+  run_inference?: boolean;
+  auto_merge_adapter?: boolean;
+  max_tokens?: number;
+  temperature?: number;
+  max_cases?: number;
+  test_dataset_id?: string;
+  cases?: Array<{
+    prompt?: string;
+    expected_output?: unknown;
+    schema?: unknown;
+    base_output?: unknown;
+    finetuned_output?: unknown;
+  }>;
+}
+
+export interface EvaluationScorePayload {
+  case_index: number;
+  score: 'good' | 'neutral' | 'bad';
+}
+
+export interface CreateDeploymentPackagePayload {
+  training_task_id: string;
+  base_model: string;
+  adapter_path?: string;
+  merged_model_path?: string;
+  evaluation_run_id?: string;
+  model_alias?: string;
+  service_base_url?: string;
+}
+
 export interface DeploymentPackage {
   package_id: string;
   training_task_id: string;
@@ -208,9 +245,11 @@ export interface TrainingProgress {
   eta: number;
   status?:
     | 'idle'
+    | 'queued'
     | 'loading'
     | 'training'
     | 'running'
+    | 'saving'
     | 'stopping'
     | 'completed'
     | 'failed'

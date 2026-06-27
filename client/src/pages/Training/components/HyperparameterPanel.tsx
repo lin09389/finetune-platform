@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Form, InputNumber, Select, Switch, Slider } from 'antd';
+import type { FormInstance } from 'antd';
 import { motion } from 'framer-motion';
 import {
   ThunderboltOutlined,
@@ -31,8 +32,8 @@ interface PreflightStatus {
 }
 
 interface HyperparameterPanelProps {
-  form: any;
-  onFinish: (values: any) => void;
+  form: FormInstance;
+  onFinish: (values: Record<string, unknown>) => void;
   onPreflightCheck: () => void;
   isTraining: boolean;
   starting: boolean;
@@ -43,18 +44,26 @@ interface HyperparameterPanelProps {
   useSwift: boolean;
   onSwiftChange: (checked: boolean) => void;
   precisionPreset?: 'max' | 'balanced' | 'fast';
-  onPrecisionChange?: (preset: any) => void;
+  onPrecisionChange?: (preset: 'max' | 'balanced' | 'fast') => void;
   memoryPreset?: 'auto' | '6gb' | '8gb' | '12gb';
-  onMemoryChange?: (preset: any) => void;
+  onMemoryChange?: (preset: 'auto' | '6gb' | '8gb' | '12gb') => void;
   quantizationBit: 0 | 4 | 8;
-  onQuantizationChange: (bit: any) => void;
+  onQuantizationChange: (bit: 0 | 4 | 8) => void;
   gradientAccumulation?: number;
   onGradAccChange?: (val: number) => void;
   preflightResult?: PreflightStatus | null;
   onApplyConservativePreset?: () => void;
 }
 
-const GlowingSwitch = ({ checked, onChange, disabled }: any) => (
+const GlowingSwitch = ({
+  checked,
+  onChange,
+  disabled,
+}: {
+  checked?: boolean;
+  onChange?: (checked: boolean) => void;
+  disabled?: boolean;
+}) => (
   <div className={`${styles.glowingSwitch} ${checked ? styles.active : ''}`}>
     <Switch checked={checked} onChange={onChange} disabled={disabled} />
   </div>

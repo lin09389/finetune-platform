@@ -121,6 +121,33 @@ const FileUpload: React.FC<FileUploadProps> = ({
     [acceptArray, maxSize],
   );
 
+  const simulateUpload = useCallback((files: FileItem[]) => {
+    files.forEach((fileItem) => {
+      setFileList((prev) =>
+        prev.map((f) => (f.id === fileItem.id ? { ...f, status: 'uploading' as const } : f)),
+      );
+
+      const totalSteps = 10;
+      let currentStep = 0;
+
+      const interval = setInterval(() => {
+        currentStep++;
+        const progress = Math.min((currentStep / totalSteps) * 100, 100);
+
+        setFileList((prev) => prev.map((f) => (f.id === fileItem.id ? { ...f, progress } : f)));
+
+        if (currentStep >= totalSteps) {
+          clearInterval(interval);
+          setFileList((prev) =>
+            prev.map((f) =>
+              f.id === fileItem.id ? { ...f, status: 'done' as const, progress: 100 } : f,
+            ),
+          );
+        }
+      }, 100);
+    });
+  }, []);
+
   const addFiles = useCallback(
     (files: File[]) => {
       const newFiles: FileItem[] = [];
@@ -156,35 +183,8 @@ const FileUpload: React.FC<FileUploadProps> = ({
         simulateUpload(newFiles);
       }
     },
-    [fileList.length, maxCount, validateFile],
+    [fileList.length, maxCount, simulateUpload, validateFile],
   );
-
-  const simulateUpload = useCallback((files: FileItem[]) => {
-    files.forEach((fileItem) => {
-      setFileList((prev) =>
-        prev.map((f) => (f.id === fileItem.id ? { ...f, status: 'uploading' as const } : f)),
-      );
-
-      const totalSteps = 10;
-      let currentStep = 0;
-
-      const interval = setInterval(() => {
-        currentStep++;
-        const progress = Math.min((currentStep / totalSteps) * 100, 100);
-
-        setFileList((prev) => prev.map((f) => (f.id === fileItem.id ? { ...f, progress } : f)));
-
-        if (currentStep >= totalSteps) {
-          clearInterval(interval);
-          setFileList((prev) =>
-            prev.map((f) =>
-              f.id === fileItem.id ? { ...f, status: 'done' as const, progress: 100 } : f,
-            ),
-          );
-        }
-      }, 100);
-    });
-  }, []);
 
   const removeFile = useCallback((id: string) => {
     setFileList((prev) => prev.filter((f) => f.id !== id));

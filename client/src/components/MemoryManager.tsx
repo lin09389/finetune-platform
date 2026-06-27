@@ -22,7 +22,7 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
   EpisodeEvent,
@@ -68,39 +68,38 @@ export default function MemoryManager({ open, onClose }: MemoryManagerProps) {
     setNamespace(DEFAULT_NAMESPACE[scope]);
   }, [scope]);
 
-  useEffect(() => {
-    if (open) {
-      loadFiles();
-      loadEpisodes();
-    }
-  }, [open, scope, namespace]);
-
-  useEffect(() => {
-    setDraft(selectedFile?.content || '');
-    setSelectedFileId(selectedFile?.id);
-  }, [selectedFile?.id]);
-
-  const loadFiles = async () => {
+  const loadFiles = useCallback(async () => {
     setLoading(true);
     try {
       const nextFiles = await memoryApi.listFiles(scope, namespace);
       setFiles(nextFiles);
       setSelectedFileId((current) => current || nextFiles[0]?.id);
-    } catch (error) {
-      console.error('加载记忆文件失败:', error);
+    } catch {
       message.error('加载记忆文件失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, [namespace, scope]);
 
-  const loadEpisodes = async () => {
+  const loadEpisodes = useCallback(async () => {
     try {
       setEpisodes(await memoryApi.listEpisodes('default'));
-    } catch (error) {
-      console.error('加载 episode 失败:', error);
+    } catch {
+      setEpisodes([]);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      void loadFiles();
+      void loadEpisodes();
+    }
+  }, [loadEpisodes, loadFiles, open]);
+
+  useEffect(() => {
+    setDraft(selectedFile?.content || '');
+    setSelectedFileId(selectedFile?.id);
+  }, [selectedFile?.content, selectedFile?.id]);
 
   const saveFile = async () => {
     if (!selectedFile) return;
@@ -115,8 +114,7 @@ export default function MemoryManager({ open, onClose }: MemoryManagerProps) {
       });
       setFiles((current) => current.map((file) => (file.id === updated.id ? updated : file)));
       message.success('记忆文件已保存');
-    } catch (error) {
-      console.error('保存失败:', error);
+    } catch {
       message.error('保存失败');
     } finally {
       setSaving(false);
@@ -139,8 +137,7 @@ export default function MemoryManager({ open, onClose }: MemoryManagerProps) {
           top_k: 20,
         }),
       );
-    } catch (error) {
-      console.error('搜索失败:', error);
+    } catch {
       message.error('搜索失败');
     } finally {
       setLoading(false);
@@ -152,8 +149,7 @@ export default function MemoryManager({ open, onClose }: MemoryManagerProps) {
       const result = await memoryApi.consolidate('default');
       message.success(`整理完成：写入 ${result.memories_written} 条`);
       await loadFiles();
-    } catch (error) {
-      console.error('整理失败:', error);
+    } catch {
       message.error('整理失败');
     }
   };
@@ -163,8 +159,7 @@ export default function MemoryManager({ open, onClose }: MemoryManagerProps) {
       const result = await memoryApi.migrateFromItems('default');
       message.success(`迁移完成：新增 ${result.migrated} 条，跳过 ${result.skipped} 条`);
       await loadFiles();
-    } catch (error) {
-      console.error('迁移失败:', error);
+    } catch {
       message.error('迁移失败');
     }
   };

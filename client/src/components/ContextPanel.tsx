@@ -124,6 +124,31 @@ interface ContextPanelProps {
   onContextEnhanced?: (result: EnhanceResult) => void;
 }
 
+interface EngineStatus {
+  enabled?: boolean;
+  status?: string;
+  backend?: string;
+  message?: string;
+  window_manager?: {
+    max_tokens?: number;
+    reserved_tokens?: number;
+  };
+  pronoun_resolver?: {
+    personal_pronouns?: number;
+    demonstrative_pronouns?: number;
+    entity_patterns?: number;
+  };
+  omission_completer?: {
+    patterns?: number;
+    question_patterns?: number;
+  };
+  summarizer?: {
+    keyword_weights?: number;
+    llm_enabled?: boolean;
+  };
+  [key: string]: unknown;
+}
+
 export default function ContextPanel({ messages = [], onContextEnhanced }: ContextPanelProps) {
   const [activeTab, setActiveTab] = useState('process');
   const [loading, setLoading] = useState(false);
@@ -141,7 +166,7 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
   const [maxTokens, setMaxTokens] = useState(4096);
   const [keepRecent, setKeepRecent] = useState(3);
 
-  const [engineStatus, setEngineStatus] = useState<any>(null);
+  const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
 
   useEffect(() => {
     fetchEngineStatus();
@@ -151,8 +176,8 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
     try {
       const response = await axios.get(`${API_BASE_URL}/context/understanding/status`);
       setEngineStatus(response.data.status);
-    } catch (error) {
-      console.error('获取引擎状态失败:', error);
+    } catch {
+      setEngineStatus(null);
     }
   };
 
@@ -174,8 +199,7 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
         })),
       });
       setProcessResult(response.data);
-    } catch (error) {
-      console.error('处理消息失败:', error);
+    } catch {
       message.error('处理消息失败');
     } finally {
       setLoading(false);
@@ -201,8 +225,7 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
       });
       setEnhanceResult(response.data);
       onContextEnhanced?.(response.data);
-    } catch (error) {
-      console.error('增强上下文失败:', error);
+    } catch {
       message.error('增强上下文失败');
     } finally {
       setLoading(false);
@@ -226,8 +249,7 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
         use_llm: useLlm,
       });
       setSummaryResult(response.data);
-    } catch (error) {
-      console.error('生成摘要失败:', error);
+    } catch {
       message.error('生成摘要失败');
     } finally {
       setLoading(false);
@@ -252,8 +274,7 @@ export default function ContextPanel({ messages = [], onContextEnhanced }: Conte
         keep_recent: keepRecent,
       });
       setWindowResult(response.data);
-    } catch (error) {
-      console.error('管理窗口失败:', error);
+    } catch {
       message.error('管理窗口失败');
     } finally {
       setLoading(false);

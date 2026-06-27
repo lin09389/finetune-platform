@@ -1,6 +1,6 @@
 import { ArrowRightOutlined, CheckOutlined, DeleteOutlined, EditOutlined, FolderOpenOutlined, FolderOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { App, Badge, Button, Form, Input, Modal, Space, Tag, Tooltip } from 'antd';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import { API_BASE_URL, browseFolderBackend } from '../services/api';
@@ -31,6 +31,11 @@ function normalizeWorkspaces(data: WorkspaceListResponse): Workspace[] {
 function normalizePath(value: string | undefined | null) {
   return value?.trim().replace(/[\\/]+$/, '') || '';
 }
+
+type ElectronWorkspaceApi = typeof window.electronAPI & {
+  openFolder?: (path: string) => void | Promise<void>;
+  selectFolder?: (initialPath?: string) => Promise<string | null>;
+};
 
 export default function WorkspaceManager() {
   const { message } = App.useApp();
@@ -90,18 +95,16 @@ export default function WorkspaceManager() {
 
   const handleOpenFolder = (path: string | undefined | null) => {
     if (!path) return;
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.openFolder) {
-      void (window as any).electronAPI.openFolder(path);
+    const electronApi =
+      typeof window !== 'undefined' ? (window.electronAPI as ElectronWorkspaceApi | undefined) : undefined;
+    if (typeof window !== 'undefined' && electronApi?.openFolder) {
+      void electronApi.openFolder(path);
       return;
     }
     message.info('浏览器模式无法直接打开本地目录，请手动打开文件夹。');
   };
 
-  useEffect(() => {
-    void loadWorkspaces();
-  }, []);
-
-  const loadWorkspaces = async () => {
+  const loadWorkspaces = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/workspace/workspaces`);
       if (!response.ok) {
@@ -110,11 +113,14 @@ export default function WorkspaceManager() {
       }
       const data = (await response.json()) as WorkspaceListResponse;
       setWorkspaces(normalizeWorkspaces(data));
-    } catch (error) {
-      console.error('Failed to load workspaces:', error);
+    } catch {
       message.error('加载工作空间失败');
     }
-  };
+  }, [message]);
+
+  useEffect(() => {
+    void loadWorkspaces();
+  }, [loadWorkspaces]);
 
   const handleCreate = async (values: { name: string; description?: string; local_path?: string }) => {
     try {
@@ -196,10 +202,11 @@ export default function WorkspaceManager() {
   };
 
   const handleBrowseFolder = async () => {
-    if (typeof window !== 'undefined' && (window as any).electronAPI?.selectFolder) {
-      const folder: string | null = await (window as any).electronAPI.selectFolder(
-        form.getFieldValue('local_path') || undefined,
-      );
+    const electronApi =
+      typeof window !== 'undefined' ? (window.electronAPI as ElectronWorkspaceApi | undefined) : undefined;
+    if (typeof window !== 'undefined' && electronApi?.selectFolder) {
+      const initialPath = form.getFieldValue('local_path') || undefined;
+      const folder = await electronApi.selectFolder(initialPath);
       if (folder) form.setFieldValue('local_path', folder);
       return;
     }

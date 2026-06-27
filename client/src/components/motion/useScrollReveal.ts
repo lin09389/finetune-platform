@@ -1,6 +1,9 @@
 import { useAnimation, useInView } from 'framer-motion';
 import { useEffect, useRef } from 'react';
 
+type InViewOptions = NonNullable<Parameters<typeof useInView>[1]>;
+type InViewMargin = InViewOptions['margin'];
+
 /**
  * useScrollReveal 配置项
  */
@@ -27,7 +30,7 @@ export function useScrollReveal(options: ScrollRevealOptions = {}) {
   // 监听是否在视口中
   const isInView = useInView(ref, {
     amount,
-    margin: margin as any,
+    margin: margin as InViewMargin,
     once,
   });
 

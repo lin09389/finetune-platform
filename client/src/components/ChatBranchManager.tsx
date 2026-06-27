@@ -59,8 +59,7 @@ const ChatBranchManager: React.FC<ChatBranchManagerProps> = ({
       setRootId(state.tree.root_id || null);
       setCurrentBranchId(state.tree.current_branch_id || null);
       setBranches(state.branches || []);
-    } catch (error) {
-      console.error('Failed to fetch branch data:', error);
+    } catch {
       message.error('加载分支数据失败');
     } finally {
       setLoading(false);
@@ -133,7 +132,6 @@ const ChatBranchManager: React.FC<ChatBranchManagerProps> = ({
       await loadBranchState();
       onBranchCreate?.(data.branch.id);
     } catch (error) {
-      console.error('Failed to create branch:', error);
       message.error(error instanceof Error ? error.message : '创建分支失败');
     }
   }, [loadBranchState, newBranchName, onBranchCreate, selectedNode, sessionId]);
@@ -147,7 +145,6 @@ const ChatBranchManager: React.FC<ChatBranchManagerProps> = ({
         await loadBranchState();
         onBranchSwitch?.(branchId);
       } catch (error) {
-        console.error('Failed to switch branch:', error);
         message.error(error instanceof Error ? error.message : '切换分支失败');
       }
     },
@@ -161,7 +158,6 @@ const ChatBranchManager: React.FC<ChatBranchManagerProps> = ({
         message.success('分支已删除');
         await loadBranchState();
       } catch (error) {
-        console.error('Failed to delete branch:', error);
         message.error(error instanceof Error ? error.message : '删除分支失败');
       }
     },
@@ -178,7 +174,6 @@ const ChatBranchManager: React.FC<ChatBranchManagerProps> = ({
         );
         await loadBranchState();
       } catch (error) {
-        console.error('Failed to merge branch:', error);
         message.warning(error instanceof Error ? error.message : '合并分支失败');
       }
     },

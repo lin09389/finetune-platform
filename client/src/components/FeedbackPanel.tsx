@@ -94,8 +94,8 @@ const FeedbackPanel: React.FC = () => {
     try {
       const response = await apiClient.get<FeedbackStats>('/feedback/stats');
       setStats(response.data);
-    } catch (error) {
-      console.error('加载统计数据失败:', error);
+    } catch {
+      setStats(null);
     }
   };
 
@@ -105,8 +105,8 @@ const FeedbackPanel: React.FC = () => {
         '/feedback/recent?limit=20',
       );
       setRecentFeedbacks(response.data.feedbacks || []);
-    } catch (error) {
-      console.error('加载反馈列表失败:', error);
+    } catch {
+      setRecentFeedbacks([]);
     }
   };
 
@@ -114,8 +114,8 @@ const FeedbackPanel: React.FC = () => {
     try {
       const response = await apiClient.get<IntentCorrection[]>('/feedback/corrections');
       setCorrections(response.data);
-    } catch (error) {
-      console.error('加载纠正数据失败:', error);
+    } catch {
+      setCorrections([]);
     }
   };
 
@@ -123,8 +123,8 @@ const FeedbackPanel: React.FC = () => {
     try {
       const response = await apiClient.get<ImprovementSuggestion[]>('/feedback/suggestions');
       setSuggestions(response.data);
-    } catch (error) {
-      console.error('加载建议失败:', error);
+    } catch {
+      setSuggestions([]);
     }
   };
 

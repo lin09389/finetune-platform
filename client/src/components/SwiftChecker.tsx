@@ -5,7 +5,7 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { Alert, Button, Card, Space, Tag } from 'antd';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { API_BASE_URL } from '../services/api';
 
 interface SwiftStatus {
@@ -25,7 +25,7 @@ export const SwiftChecker: React.FC<SwiftCheckerProps> = ({ onStatusChange }) =>
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<SwiftStatus | null>(null);
 
-  const checkSwift = async () => {
+  const checkSwift = useCallback(async () => {
     try {
       setLoading(true);
       const response = await fetch(`${API_BASE_URL}/training/check-swift`);
@@ -35,8 +35,7 @@ export const SwiftChecker: React.FC<SwiftCheckerProps> = ({ onStatusChange }) =>
       const data = await response.json();
       setStatus(data);
       onStatusChange?.(data);
-    } catch (error) {
-      console.error('检查 SWIFT 失败:', error);
+    } catch {
       setStatus({
         available: false,
         version: '',
@@ -45,11 +44,11 @@ export const SwiftChecker: React.FC<SwiftCheckerProps> = ({ onStatusChange }) =>
     } finally {
       setLoading(false);
     }
-  };
+  }, [onStatusChange]);
 
   useEffect(() => {
     checkSwift();
-  }, []);
+  }, [checkSwift]);
 
   if (loading) {
     return (

@@ -18,7 +18,7 @@ import {
 } from '@ant-design/icons';
 import { Button, Empty, Table, Tag } from 'antd';
 import { motion } from 'framer-motion';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useShallow } from 'zustand/react/shallow';
 import { InteractiveButton, GlassHoverCard } from '../components/motion';
@@ -30,7 +30,7 @@ import { CountUp } from '../components/shared/MotionWrapper';
 import { getDatasetList, getDeviceInfo, getModelList, listDeploymentPackages } from '../services/api';
 import { getTrainingCheckpoints, getTrainingHistory } from '../services/trainingApi';
 import { useAppStore } from '../store/appStore';
-import type { TrainingRecord } from '../types';
+import type { Checkpoint, TrainingRecord } from '../types';
 import { useRuntimeContext } from '../runtime/RuntimeContext';
 import styles from './Dashboard.module.css';
 
@@ -83,21 +83,21 @@ export default function Dashboard() {
   })));
   const { inference, summary } = useRuntimeContext();
   const [deploymentPackageCount, setDeploymentPackageCount] = useState(0);
-  const [latestCheckpoints, setLatestCheckpoints] = useState<Record<string, any>>({});
+  const [latestCheckpoints, setLatestCheckpoints] = useState<Record<string, Checkpoint>>({});
 
-  const fetchDeviceInfo = async () => {
+  const fetchDeviceInfo = useCallback(async () => {
     if (backendStatus !== 'connected') return;
     try {
       const info = await getDeviceInfo();
       setDeviceInfo(info);
-    } catch (error) {
-      console.error('Failed to fetch device info:', error);
+    } catch {
+      // Device status is also represented by backendStatus; keep dashboard usable.
     }
-  };
+  }, [backendStatus, setDeviceInfo]);
 
   useEffect(() => {
-    fetchDeviceInfo();
-  }, [backendStatus]);
+    void fetchDeviceInfo();
+  }, [fetchDeviceInfo]);
 
   useEffect(() => {
     if (backendStatus !== 'connected') return;
@@ -122,14 +122,15 @@ export default function Dashboard() {
           setTrainingRecords(trainingResult.value);
           // 加载最近 5 条训练记录的检查点
           const recent = trainingResult.value.slice(-5).reverse();
-          const checkpointMap: Record<string, any> = {};
+          const checkpointMap: Record<string, Checkpoint> = {};
           await Promise.all(
             recent.map(async (record: TrainingRecord) => {
               try {
-                const cps = await getTrainingCheckpoints(record.id);
-                const validCps = cps.filter((cp: any) => cp.valid !== false);
+                const cps = (await getTrainingCheckpoints(record.id)) as Checkpoint[];
+                const validCps = cps.filter((cp) => cp.valid !== false);
                 if (validCps.length > 0) {
-                  checkpointMap[record.id] = validCps[validCps.length - 1];
+                  const latest = validCps[validCps.length - 1];
+                  if (latest) checkpointMap[record.id] = latest;
                 }
               } catch {
                 // ignore checkpoint load errors
@@ -141,8 +142,8 @@ export default function Dashboard() {
         if (deploymentResult.status === 'fulfilled' && Array.isArray(deploymentResult.value)) {
           setDeploymentPackageCount(deploymentResult.value.length);
         }
-      } catch (error) {
-        console.error('Failed to load chain health:', error);
+      } catch {
+        setDeploymentPackageCount(0);
       }
     };
 

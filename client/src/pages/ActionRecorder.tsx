@@ -82,8 +82,7 @@ export const ActionRecorder: React.FC = () => {
       setIsRecording(Boolean(response.data.is_recording));
       setIsPaused(Boolean(response.data.is_paused));
       setCapabilityMessage(null);
-    } catch (error) {
-      console.error('Failed to fetch actions:', error);
+    } catch {
       setCapabilityMessage('当前环境无法读取录制器状态，请确认本机交互能力已启用。');
     }
   };
@@ -99,8 +98,8 @@ export const ActionRecorder: React.FC = () => {
           )
           .filter((file: SavedRecording) => Boolean(file.filename)),
       );
-    } catch (error) {
-      console.error('Failed to fetch saved files:', error);
+    } catch {
+      setSavedFiles([]);
     }
   };
 

@@ -65,8 +65,8 @@ const HelpPanel: React.FC = () => {
     try {
       const response = await apiClient.get<HelpOverview>('/help');
       setOverview(response.data);
-    } catch (error) {
-      console.error('加载帮助概览失败:', error);
+    } catch {
+      setOverview(null);
     }
   };
 
@@ -82,8 +82,8 @@ const HelpPanel: React.FC = () => {
         params: { q: keyword, limit: 10 },
       });
       setSearchResults(response.data);
-    } catch (error) {
-      console.error('搜索失败:', error);
+    } catch {
+      setSearchResults([]);
     } finally {
       setLoading(false);
     }
@@ -96,8 +96,8 @@ const HelpPanel: React.FC = () => {
       );
       setSelectedCommand(response.data);
       setActiveTab('detail');
-    } catch (error) {
-      console.error('加载命令帮助失败:', error);
+    } catch {
+      setSelectedCommand(null);
     }
   };
 

@@ -18,7 +18,7 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import { useOperation } from '../hooks/useOperation';
 import { notify } from '../utils/notify';
@@ -142,19 +142,18 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
   const localConfig = useMemo(() => (initialConfig ? null : loadLocalConfig()), [initialConfig]);
   const operation = useOperation();
 
-  const loadSavedKeys = async () => {
+  const loadSavedKeys = useCallback(async (): Promise<APIKeyInfo[]> => {
     try {
       const data = await getSavedCloudProviders();
       const keys = data.keys || [];
       setSavedKeys(keys);
       return keys;
-    } catch (error) {
-      console.error('加载 API Keys 失败:', error);
+    } catch {
       return [];
     }
-  };
+  }, []);
 
-  const fillFormFromSavedKey = async (key: APIKeyInfo) => {
+  const fillFormFromSavedKey = useCallback(async (key: APIKeyInfo) => {
     setSelectedProvider(key.provider);
     try {
       const data = await getSavedCloudProviderData(key.provider);
@@ -171,11 +170,10 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
         models_text: modelsToText(data.models || key.models),
         group_id: data.group_id || '',
       });
-    } catch (error) {
-      console.error('加载供应商配置失败:', error);
+    } catch {
       notify.error('加载配置失败');
     }
-  };
+  }, [form]);
 
   useEffect(() => {
     let cancelled = false;
@@ -216,7 +214,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
     return () => {
       cancelled = true;
     };
-  }, [form, initialConfig, localConfig, selectedProvider]);
+  }, [fillFormFromSavedKey, form, initialConfig, loadSavedKeys, localConfig, selectedProvider]);
 
   const handleSave = async () => {
     let values: ProviderFormValues;
@@ -301,7 +299,7 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
         return data;
       }, {
         key: 'test-provider',
-        successText: (data: any) => data.message || '连接测试成功',
+        successText: (data: { message?: string }) => data.message || '连接测试成功',
         errorText: '连接测试',
       });
     } finally {
@@ -333,7 +331,8 @@ export const APIKeyManager: React.FC<APIKeyManagerProps> = ({ onConfigChange, in
         return data;
       }, {
         key: `stream-test:${provider}`,
-        successText: (data: any) => `流式测试通过，收到 ${data.streaming_chunks || 0} 个增量片段`,
+        successText: (data: { streaming_chunks?: number }) =>
+          `流式测试通过，收到 ${data.streaming_chunks || 0} 个增量片段`,
         errorText: '流式测试',
       });
     } finally {

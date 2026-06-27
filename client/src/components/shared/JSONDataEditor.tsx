@@ -2,7 +2,7 @@ import React from 'react';
 import Editor from '@monaco-editor/react';
 
 interface JSONDataEditorProps {
-  data?: any;
+  data?: unknown;
   value?: string;
   readOnly?: boolean;
   onChange?: (value: string | undefined) => void;

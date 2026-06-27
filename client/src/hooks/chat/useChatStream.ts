@@ -509,9 +509,11 @@ export function useChatStream(config: StreamConfig = {}) {
                 payload.parameterOverrides?.modelId || currentState.settings.modelId,
                 payload.parameterOverrides?.backend || currentState.settings.backend,
                 combinedContent
-              ).then(title => {
-                if (title) persistedStore.updateSessionTitle(sessionId, title);
-              }).catch(e => console.error('Failed to generate local title:', e));
+              )
+                .then((title) => {
+                  if (title) persistedStore.updateSessionTitle(sessionId, title);
+                })
+                .catch(() => undefined);
             }
           } catch (persistError) {
             const message =
@@ -772,9 +774,11 @@ const throttleMs = 50; // Throttle to ~20fps for better performance during strea
                 keyId: cloudConfig.keyId,
                 groupId: cloudConfig.groupId,
                 baseUrl: cloudConfig.baseUrl,
-              }).then(title => {
-                if (title) persistedStore.updateSessionTitle(sessionId, title);
-              }).catch(e => console.error('Failed to generate cloud title:', e));
+              })
+                .then((title) => {
+                  if (title) persistedStore.updateSessionTitle(sessionId, title);
+                })
+                .catch(() => undefined);
             }
           } catch (persistError) {
             const message =

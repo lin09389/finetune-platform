@@ -36,12 +36,13 @@ import {
   createDeploymentPackage,
   deactivateDeploymentPackage,
   deleteDeploymentPackage,
+  getApiErrorMessage,
   getDeploymentPackage,
   listDeploymentPackages,
   rollbackDeploymentPackage,
 } from '../services/api';
 import { getTrainingHistory } from '../services/trainingApi';
-import type { DeploymentPackage } from '../types';
+import type { CreateDeploymentPackagePayload, DeploymentPackage } from '../types';
 import styles from './Deployment.module.css';
 
 const { Text, Title } = Typography;
@@ -137,14 +138,14 @@ export default function Deployment() {
         evaluation_run_id: payload.evaluation_run_id,
         model_alias: payload.inference_target?.model_alias,
       });
-    } catch (error: any) {
-      message.error(error?.response?.data?.detail || '打开发布版本失败');
+    } catch (error: unknown) {
+      message.error(getApiErrorMessage(error, '打开发布版本失败'));
     } finally {
       setAction(null);
     }
   };
 
-  const createPackage = async (values: Record<string, string>) => {
+  const createPackage = async (values: CreateDeploymentPackagePayload) => {
     setAction('create');
     try {
       const payload = await createDeploymentPackage({
@@ -154,8 +155,8 @@ export default function Deployment() {
       setSelected(payload);
       await loadHistory();
       message.success('发布草稿已创建，健康检查通过后即可激活');
-    } catch (error: any) {
-      message.error(error?.response?.data?.detail || error.message || '创建发布草稿失败');
+    } catch (error: unknown) {
+      message.error(getApiErrorMessage(error, '创建发布草稿失败'));
     } finally {
       setAction(null);
     }
@@ -173,8 +174,8 @@ export default function Deployment() {
       setSelected(payload);
       await loadHistory();
       message.success(success);
-    } catch (error: any) {
-      message.error(error?.response?.data?.detail || error.message || '操作失败');
+    } catch (error: unknown) {
+      message.error(getApiErrorMessage(error));
     } finally {
       setAction(null);
     }
@@ -187,8 +188,8 @@ export default function Deployment() {
       if (selected?.package_id === packageId) setSelected(null);
       await loadHistory();
       message.success('发布草稿已删除');
-    } catch (error: any) {
-      message.error(error?.response?.data?.detail || '删除失败');
+    } catch (error: unknown) {
+      message.error(getApiErrorMessage(error, '删除失败'));
     } finally {
       setAction(null);
     }

@@ -75,8 +75,9 @@ export default function ModelHub() {
         setModelSource(data.current_source);
         setDefaultSource(data.default_source);
       }
-    } catch (error) {
-      console.error('Failed to load model source:', error);
+    } catch {
+      setModelSource('modelscope');
+      setDefaultSource('modelscope');
     }
   };
 
@@ -88,8 +89,8 @@ export default function ModelHub() {
         setSuggestions(data.suggestions);
         setDefaultSource(data.default_source || 'modelscope');
       }
-    } catch (error) {
-      console.error('Failed to load suggestions:', error);
+    } catch {
+      setSuggestions([]);
     }
   };
 
@@ -100,8 +101,8 @@ export default function ModelHub() {
         const data = await response.json();
         setLocalModels(data);
       }
-    } catch (error) {
-      console.error('Failed to load local models:', error);
+    } catch {
+      setLocalModels([]);
     }
   };
 
@@ -183,8 +184,15 @@ export default function ModelHub() {
             setTimeout(poll, 2000);
           }
         }
-      } catch (error) {
-        console.error('Failed to poll progress:', error);
+      } catch {
+        setDownloadTasks((prev) => ({
+          ...prev,
+          [taskId]: {
+            ...(prev[taskId] || { task_id: taskId, progress: 0 }),
+            status: 'failed',
+            error: '无法读取下载进度',
+          },
+        }));
       }
     };
     setTimeout(poll, 2000);

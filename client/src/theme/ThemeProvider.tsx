@@ -28,7 +28,7 @@ function getStoredThemeMode(): ThemeMode | null {
       return stored as ThemeMode;
     }
   } catch {
-    console.warn('Failed to read theme from localStorage');
+    return null;
   }
   return null;
 }
@@ -38,7 +38,7 @@ function setStoredThemeMode(mode: ThemeMode): void {
   try {
     localStorage.setItem(THEME_STORAGE_KEY, mode);
   } catch {
-    console.warn('Failed to save theme to localStorage');
+    // Ignore storage failures, e.g. private mode or disabled localStorage.
   }
 }
 

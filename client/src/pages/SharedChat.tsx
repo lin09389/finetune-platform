@@ -59,8 +59,7 @@ const SharedChatPage: React.FC = () => {
 
         const data = await response.json();
         setShare(data);
-      } catch (err) {
-        console.error('Failed to fetch share:', err);
+      } catch {
         setError('加载失败，请检查网络连接');
       } finally {
         setLoading(false);
@@ -89,8 +88,7 @@ const SharedChatPage: React.FC = () => {
       link.click();
       URL.revokeObjectURL(url);
       message.success('已导出 Markdown');
-    } catch (err) {
-      console.error('Failed to export markdown:', err);
+    } catch {
       message.error('导出失败');
     }
   };
@@ -99,8 +97,7 @@ const SharedChatPage: React.FC = () => {
     try {
       await navigator.clipboard.writeText(window.location.href);
       message.success('链接已复制');
-    } catch (err) {
-      console.error('Failed to copy link:', err);
+    } catch {
       message.error('复制失败');
     }
   };

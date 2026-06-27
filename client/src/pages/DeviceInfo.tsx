@@ -10,7 +10,7 @@ import {
 } from '@ant-design/icons';
 import { Button, Spin, Tag } from 'antd';
 import { motion } from 'framer-motion';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { GlassHoverCard, NeonProgressRing } from '../components/motion';
 import { CountUp } from '../components/shared/MotionWrapper';
@@ -48,7 +48,7 @@ export default function DeviceInfo() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchInfo = async () => {
+  const fetchInfo = useCallback(async () => {
     if (backendStatus !== 'connected') {
       setError('后端服务未连接');
       return;
@@ -59,16 +59,16 @@ export default function DeviceInfo() {
     try {
       const info = await getDeviceInfo();
       setDeviceInfo(info);
-    } catch (err: any) {
-      setError(err.message || '获取设备信息失败');
+    } catch (error: unknown) {
+      setError(error instanceof Error && error.message ? error.message : '获取设备信息失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, [backendStatus, setDeviceInfo]);
 
   useEffect(() => {
     fetchInfo();
-  }, [backendStatus]);
+  }, [fetchInfo]);
 
   const getPlatformIcon = (platform: string) => {
     switch (platform) {

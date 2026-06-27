@@ -237,8 +237,8 @@ const CodePreview: React.FC<CodePreviewProps> = ({
         } else {
           await loadLanguageModule(hljsInstance, lang);
         }
-      } catch (error) {
-        console.error('Failed to load highlight.js core', error);
+      } catch {
+        if (isMounted && !cancelled) setHighlightedCode(code);
       } finally {
         if (isMounted && !cancelled) setIsLoadingHighlight(false);
       }
@@ -250,7 +250,7 @@ const CodePreview: React.FC<CodePreviewProps> = ({
       cancelled = true;
       isMounted = false;
     };
-  }, [isVisible, selectedLanguage, detectedLanguage, hljsInstance]);
+  }, [code, isVisible, selectedLanguage, detectedLanguage, hljsInstance]);
 
   useEffect(() => {
     if (!isVisible || !hljsInstance) return;
@@ -320,7 +320,7 @@ const CodePreview: React.FC<CodePreviewProps> = ({
   return (
     <>
       <div
-        ref={containerRef as any}
+        ref={containerRef}
         className={`code-preview ${className}`}
         style={{
           borderRadius: isSimpleSnippet ? 4 : 14,

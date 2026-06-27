@@ -4,7 +4,7 @@ import {
 } from '@ant-design/icons';
 import { Avatar, Button, Layout, Space, Tooltip } from 'antd';
 import { motion } from 'framer-motion';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getDeviceInfo } from '../services/api';
 import { useAppStore } from '../store/appStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -23,25 +23,32 @@ export default function HeaderBar() {
   const { notifications, addNotification, markAsRead, markAllAsRead, deleteNotification } =
     useNotifications();
 
-  const fetchDeviceInfo = async () => {
+  const fetchDeviceInfo = useCallback(async () => {
     setLoading(true);
     try {
       const info = await getDeviceInfo();
       setDeviceInfo(info);
-    } catch (error) {
-      console.error('Failed to fetch device info:', error);
+    } catch {
+      // Keep the last known device snapshot; backend connection state is surfaced separately.
     } finally {
       setLoading(false);
     }
-  };
+  }, [setDeviceInfo]);
 
   useEffect(() => {
     if (backendStatus === 'connected') {
       fetchDeviceInfo();
     }
-  }, [backendStatus]);
+  }, [backendStatus, fetchDeviceInfo]);
+
+  // 用 ref 记录上次推送通知时的状态，防止因 React re-render 或 WS 消息
+  // 重复触发 onStatusChange 而疯狂弹出"后端已连接"通知
+  const prevStatusRef = useRef<string | null>(null);
 
   useEffect(() => {
+    if (backendStatus === prevStatusRef.current) return;
+    prevStatusRef.current = backendStatus;
+
     if (backendStatus === 'connected') {
       addNotification({
         type: 'success',
@@ -55,9 +62,7 @@ export default function HeaderBar() {
         message: '无法连接到后端服务，请检查是否已启动',
       });
     }
-  }, [backendStatus]);
-
-
+  }, [addNotification, backendStatus]);
 
   return (
     <motion.div

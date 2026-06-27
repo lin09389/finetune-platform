@@ -12,7 +12,7 @@ vi.mock('../services/api', () => ({
 }));
 
 vi.mock('antd', async () => {
-  const actual = (await vi.importActual('antd')) as Record<string, any>;
+  const actual = await vi.importActual<typeof import('antd')>('antd');
   return {
     ...actual,
     message: {
@@ -86,13 +86,11 @@ describe('CUAControl', () => {
   });
 
   it('handles fetch failures without crashing', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     mockApiGet.mockRejectedValueOnce(new Error('Network error'));
     render(<CUAControl />);
     await waitFor(() => {
       expect(mockApiGet).toHaveBeenCalled();
     });
-    expect(consoleError).toHaveBeenCalled();
-    consoleError.mockRestore();
+    expect(screen.getByText(/当前环境无法读取屏幕能力/)).toBeInTheDocument();
   });
 });

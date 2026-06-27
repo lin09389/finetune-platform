@@ -25,7 +25,7 @@ import {
   Checkbox,
   Popconfirm,
 } from 'antd';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import GlassCard from '../components/shared/GlassCard';
 import { useOperation } from '../hooks/useOperation';
@@ -42,7 +42,7 @@ import {
 import glassStyles from '../components/shared/GlassCard.module.css';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import PageHeader from '../components/shared/PageHeader';
-import { mergeLora } from '../services/api';
+import { getApiErrorMessage, mergeLora } from '../services/api';
 import {
   cleanupTrainingCheckpoints,
   compareTrainingCheckpoints,
@@ -76,6 +76,27 @@ type TrainingMetricsPage = {
 };
 
 type CompareChartRow = { step: number } & Record<string, number | null>;
+type CheckpointCompareMetadata = {
+  loss?: number;
+  lr?: number;
+  epoch?: number;
+  tags?: string[];
+};
+type CheckpointCompareEntry = {
+  name: string;
+  step?: number;
+  metadata?: CheckpointCompareMetadata;
+};
+type CheckpointDifference = {
+  from?: unknown;
+  to?: unknown;
+  delta?: unknown;
+};
+type CheckpointCompareResult = {
+  checkpoints?: CheckpointCompareEntry[];
+  differences?: Record<string, CheckpointDifference>;
+  trend?: Record<string, string>;
+};
 
 interface HistoryProps {
   mode?: 'history' | 'compare';
@@ -179,12 +200,9 @@ export default function History({ mode = 'history' }: HistoryProps) {
   const [cleanupLoading, setCleanupLoading] = useState(false);
   const [checkpointCompareOpen, setCheckpointCompareOpen] = useState(false);
   const [checkpointCompareLoading, setCheckpointCompareLoading] = useState(false);
-  const [checkpointCompareResult, setCheckpointCompareResult] = useState<any>(null);
+  const [checkpointCompareResult, setCheckpointCompareResult] =
+    useState<CheckpointCompareResult | null>(null);
   const [selectedCheckpointNames, setSelectedCheckpointNames] = useState<string[]>([]);
-
-  useEffect(() => {
-    void loadRecords();
-  }, []);
 
   useEffect(() => {
     if (mode !== 'compare' || compareSelectionTouchedRef.current) return;
@@ -201,22 +219,21 @@ export default function History({ mode = 'history' }: HistoryProps) {
     setCompareIds(defaultCompareIds);
   }, [compareIds, mode, trainingRecords]);
 
-  const loadRecords = async () => {
+  const loadRecords = useCallback(async () => {
     setLoading(true);
     try {
       const records = await getTrainingHistory();
       setTrainingRecords(records);
-    } catch (error) {
-      console.error('Failed to load records:', error);
-      message.error(getErrorMessage(error, '加载训练历史失败'));
+    } catch (error: unknown) {
+      message.error(getApiErrorMessage(error, '加载训练历史失败'));
     } finally {
       setLoading(false);
     }
-  };
+  }, [setTrainingRecords]);
 
-  const getErrorMessage = (error: any, fallback: string) => {
-    return error?.response?.data?.detail || error?.message || fallback;
-  };
+  useEffect(() => {
+    void loadRecords();
+  }, [loadRecords]);
 
   const isEligibleForMerge = (record: TrainingRecord | null) =>
     Boolean(
@@ -333,9 +350,8 @@ export default function History({ mode = 'history' }: HistoryProps) {
           const result = await cleanupTrainingCheckpoints(selectedRecord.id);
           message.success(`已清理 ${result.removed} 个无效检查点，释放 ${(result.freed_bytes / 1024 / 1024).toFixed(2)} MB`);
           await loadCheckpoints(selectedRecord);
-        } catch (error) {
-          console.error('Failed to cleanup checkpoints:', error);
-          message.error(getErrorMessage(error, '清理检查点失败'));
+        } catch (error: unknown) {
+          message.error(getApiErrorMessage(error, '清理检查点失败'));
         } finally {
           setCleanupLoading(false);
         }
@@ -363,9 +379,8 @@ export default function History({ mode = 'history' }: HistoryProps) {
       const selected = checkpoints.filter((cp) => selectedCheckpointNames.includes(cp.name));
       const result = await compareTrainingCheckpoints(selected);
       setCheckpointCompareResult(result);
-    } catch (error) {
-      console.error('Failed to compare checkpoints:', error);
-      message.error(getErrorMessage(error, '对比检查点失败'));
+    } catch (error: unknown) {
+      message.error(getApiErrorMessage(error, '对比检查点失败'));
     } finally {
       setCheckpointCompareLoading(false);
     }
@@ -376,10 +391,9 @@ export default function History({ mode = 'history' }: HistoryProps) {
     try {
       const items = await getTrainingCheckpoints(record.id);
       setCheckpoints(items);
-    } catch (error) {
-      console.error('Failed to load checkpoints:', error);
+    } catch (error: unknown) {
       setCheckpoints([]);
-      message.error(getErrorMessage(error, '加载检查点失败'));
+      message.error(getApiErrorMessage(error, '加载检查点失败'));
     } finally {
       setCheckpointsLoading(false);
     }
@@ -441,9 +455,8 @@ export default function History({ mode = 'history' }: HistoryProps) {
       message.success('合并导出已提交');
       setMergeOpen(false);
       mergeForm.resetFields();
-    } catch (error) {
-      console.error('Failed to merge and export LoRA:', error);
-      message.error(getErrorMessage(error, '合并导出失败'));
+    } catch (error: unknown) {
+      message.error(getApiErrorMessage(error, '合并导出失败'));
     } finally {
       setMerging(false);
     }
@@ -530,9 +543,8 @@ export default function History({ mode = 'history' }: HistoryProps) {
         }),
       );
       setCompareMetrics(Object.fromEntries(metricEntries));
-    } catch (error) {
-      console.error('Failed to load compare metrics:', error);
-      message.error(getErrorMessage(error, '加载训练对比指标失败'));
+    } catch (error: unknown) {
+      message.error(getApiErrorMessage(error, '加载训练对比指标失败'));
     } finally {
       setCompareLoading(false);
     }
@@ -572,7 +584,7 @@ export default function History({ mode = 'history' }: HistoryProps) {
   };
 
   const getConfigValue = (record: TrainingRecord, key: string, fallback: string = '-') => {
-    const config = record.config as any;
+    const config = record.config as unknown as Record<string, unknown>;
     const value = config?.[key];
     if (value === undefined || value === null || value === '') return fallback;
     if (typeof value === 'number') {
@@ -808,9 +820,8 @@ export default function History({ mode = 'history' }: HistoryProps) {
       setIsTraining(true);
       message.success(`已从 ${checkpointName} 恢复训练`);
       await loadRecords();
-    } catch (error) {
-      console.error('Failed to resume training:', error);
-      message.error(getErrorMessage(error, '恢复训练失败'));
+    } catch (error: unknown) {
+      message.error(getApiErrorMessage(error, '恢复训练失败'));
     } finally {
       setResumingCheckpoint(null);
     }
@@ -1432,7 +1443,7 @@ export default function History({ mode = 'history' }: HistoryProps) {
           {checkpointCompareResult && (
             <div>
               <div style={{ fontWeight: 600, marginBottom: 12 }}>对比结果</div>
-              {checkpointCompareResult.checkpoints?.map((cp: any, index: number) => (
+              {checkpointCompareResult.checkpoints?.map((cp, index) => (
                 <div
                   key={index}
                   style={{
@@ -1483,7 +1494,7 @@ export default function History({ mode = 'history' }: HistoryProps) {
                       },
                     ]}
                     dataSource={Object.entries(checkpointCompareResult.differences || {}).map(
-                      ([field, diff]: [string, any]) => ({
+                      ([field, diff]) => ({
                         key: field,
                         field: field.toUpperCase(),
                         from:

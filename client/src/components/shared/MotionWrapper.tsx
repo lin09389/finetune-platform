@@ -157,17 +157,22 @@ export function CountUp({
   style,
 }: CountUpProps) {
   const [display, setDisplay] = useState(0);
+  const displayRef = useRef(0);
   const frameRef = useRef<number>(0);
   const startRef = useRef<number | null>(null);
   const startValRef = useRef(0);
   const { skip } = useMotion();
 
   useEffect(() => {
+    displayRef.current = display;
+  }, [display]);
+
+  useEffect(() => {
     if (skip) {
       setDisplay(value);
       return;
     }
-    startValRef.current = display;
+    startValRef.current = displayRef.current;
     startRef.current = null;
 
     const animateNum = (ts: number) => {
@@ -186,7 +191,7 @@ export function CountUp({
 
     frameRef.current = requestAnimationFrame(animateNum);
     return () => cancelAnimationFrame(frameRef.current);
-  }, [value]);
+  }, [duration, skip, value]);
 
   const formatted = display.toFixed(decimals);
   const combinedClassName = `${className || ''} tabular-nums`.trim();

@@ -8,7 +8,7 @@ import {
   PlayCircleOutlined,
 } from '@ant-design/icons';
 import { Drawer, Popconfirm, Progress, Space, Tag, message } from 'antd';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import GlassCard from '../components/shared/GlassCard';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
@@ -18,6 +18,7 @@ import { useOperation } from '../hooks/useOperation';
 import {
   analyzeDataset,
   deleteDataset,
+  getApiErrorMessage,
   getDatasetList,
   previewDataset,
   splitDataset,
@@ -46,7 +47,7 @@ export default function DatasetManager() {
   const [analysisDatasetName, setAnalysisDatasetName] = useState('');
   const [analysisDatasetId, setAnalysisDatasetId] = useState('');
 
-  const fetchDatasets = async () => {
+  const fetchDatasets = useCallback(async () => {
     if (backendStatus !== 'connected') return;
     setLoading(true);
     try {
@@ -57,11 +58,11 @@ export default function DatasetManager() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [backendStatus, setDatasets]);
 
   useEffect(() => {
-    fetchDatasets();
-  }, [backendStatus]);
+    void fetchDatasets();
+  }, [fetchDatasets]);
 
   const handleSelectFile = async () => {
     if (window.electronAPI) {
@@ -82,9 +83,9 @@ export default function DatasetManager() {
           const result = await uploadDataset(file, undefined, undefined, setUploadProgress);
           message.success('数据集上传成功');
           addDataset(result);
-          fetchDatasets();
-        } catch (error: any) {
-          message.error(error.message || '数据集上传失败');
+          void fetchDatasets();
+        } catch (error: unknown) {
+          message.error(getApiErrorMessage(error, '数据集上传失败'));
         } finally {
           setLoading(false);
           setUploadProgress(null);
@@ -104,9 +105,9 @@ export default function DatasetManager() {
       const result = await uploadDataset(file, undefined, undefined, setUploadProgress);
       message.success('数据集上传成功');
       addDataset(result);
-      fetchDatasets();
-    } catch (error: any) {
-      message.error(error.message || '数据集上传失败');
+      void fetchDatasets();
+    } catch (error: unknown) {
+      message.error(getApiErrorMessage(error, '数据集上传失败'));
     } finally {
       setLoading(false);
       setUploadProgress(null);
@@ -130,7 +131,7 @@ export default function DatasetManager() {
       },
     );
     if (!deleted) {
-      fetchDatasets();
+      void fetchDatasets();
     }
   };
 
@@ -167,8 +168,8 @@ export default function DatasetManager() {
       setAnalysisDatasetName(record.name);
       setAnalysisDatasetId(record.id);
       setAnalysisVisible(true);
-    } catch (error: any) {
-      message.error(error?.response?.data?.detail || error.message || '分析失败');
+    } catch (error: unknown) {
+      message.error(getApiErrorMessage(error, '分析失败'));
     }
   };
 
@@ -199,8 +200,8 @@ export default function DatasetManager() {
       });
       message.success(`已导出 ${result.sample_count} 条标准训练样本`);
       void fetchDatasets();
-    } catch (error: any) {
-      message.error(error?.response?.data?.detail || error.message || '转换失败');
+    } catch (error: unknown) {
+      message.error(getApiErrorMessage(error, '转换失败'));
     }
   };
 
@@ -214,8 +215,8 @@ export default function DatasetManager() {
         seed: 42,
       });
       message.success('已生成 train / validation / test 切分');
-    } catch (error: any) {
-      message.error(error?.response?.data?.detail || error.message || '切分失败');
+    } catch (error: unknown) {
+      message.error(getApiErrorMessage(error, '切分失败'));
     }
   };
 

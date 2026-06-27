@@ -74,8 +74,8 @@ export default function MCPTools() {
     try {
       const response = await apiClient.get('/mcp/tools');
       setTools(response.data.tools || []);
-    } catch (error) {
-      console.error('Failed to fetch tools:', error);
+    } catch {
+      setTools([]);
     } finally {
       setLoading(false);
     }
@@ -85,8 +85,8 @@ export default function MCPTools() {
     try {
       const response = await apiClient.get('/mcp/servers');
       setServers(response.data.servers || []);
-    } catch (error) {
-      console.error('Failed to fetch servers:', error);
+    } catch {
+      setServers([]);
     }
   };
 
@@ -95,8 +95,7 @@ export default function MCPTools() {
       const response = await apiClient.get('/mcp/status');
       setStatus(response.data || null);
       setStatusNotice('');
-    } catch (error) {
-      console.error('Failed to fetch MCP status:', error);
+    } catch {
       setStatus(null);
       setStatusNotice(
         'MCP 状态接口当前不可用，服务器列表只能反映页面请求结果，不能证明外部 MCP 服务已可调用。',

@@ -7,6 +7,7 @@ import {
   StopOutlined,
 } from '@ant-design/icons';
 import { Button, Input, Tooltip, Typography, message } from 'antd';
+import type { TextAreaRef } from 'antd/es/input/TextArea';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useResponsive } from '../../hooks/useResponsive';
 import { searchContextMentions } from '../../services/api';
@@ -43,6 +44,26 @@ interface MentionSuggestion extends ExplicitContextMention {
   detail?: string;
 }
 
+type SpeechRecognitionConstructor = new () => {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onstart: (() => void) | null;
+  onresult: ((event: SpeechRecognitionResultEventLike) => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+};
+
+type SpeechRecognitionResultEventLike = {
+  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+};
+
+type SpeechRecognitionWindow = Window & {
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  SpeechRecognition?: SpeechRecognitionConstructor;
+};
+
 const ChatInput: React.FC<ChatInputProps> = ({
   onSend,
   onStop,
@@ -66,7 +87,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
   const { isMobile } = useResponsive();
   const [value, setValue] = useState('');
   const [isFocused, setIsFocused] = useState(false);
-  const textareaRef = useRef<any>(null);
+  const textareaRef = useRef<TextAreaRef | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [cursorIndex, setCursorIndex] = useState(0);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -75,7 +96,7 @@ const ChatInput: React.FC<ChatInputProps> = ({
 
   const canSend = value.trim().length > 0 && !loading;
   const getTextareaElement = useCallback((): HTMLTextAreaElement | null => {
-    return textareaRef.current?.resizableTextArea?.textArea || textareaRef.current?.textarea || null;
+    return textareaRef.current?.resizableTextArea?.textArea || null;
   }, []);
 
   const localFileSuggestions = useMemo<MentionSuggestion[]>(() => {
@@ -221,13 +242,15 @@ const ChatInput: React.FC<ChatInputProps> = ({
   );
 
   const handleVoiceInput = useCallback(() => {
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+    const speechWindow = window as SpeechRecognitionWindow;
+    if (!speechWindow.webkitSpeechRecognition && !speechWindow.SpeechRecognition) {
       message.warning('当前浏览器不支持语音输入');
       return;
     }
 
     const SpeechRecognition =
-      (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+      speechWindow.webkitSpeechRecognition || speechWindow.SpeechRecognition;
+    if (!SpeechRecognition) return;
     const recognition = new SpeechRecognition();
 
     recognition.lang = 'zh-CN';
@@ -239,13 +262,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
       message.info('开始录音...');
     };
 
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
+    recognition.onresult = (event) => {
+      const transcript = event.results[0]?.[0]?.transcript || '';
       setValue((prev) => prev + transcript);
     };
 
-    recognition.onerror = (event: any) => {
-      console.error('Voice input error:', event.error);
+    recognition.onerror = () => {
       message.error('语音识别失败');
       setIsRecording(false);
     };

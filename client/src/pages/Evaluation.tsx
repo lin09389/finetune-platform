@@ -24,10 +24,17 @@ import EmptyState from '../components/shared/EmptyState';
 import styles from './Evaluation.module.css';
 import {
   createEvaluationRun, getDatasetList, getInferenceModels, getModelList,
-  scoreEvaluationCase, getEvaluationRun, getEvaluationRuns, retryEvaluationRun
+  scoreEvaluationCase, getEvaluationRun, getEvaluationRuns, retryEvaluationRun,
+  getApiErrorMessage,
 } from '../services/api';
 import { useAppStore } from '../store/appStore';
-import type { AppTaskGoal, DatasetInfo, EvaluationRun, ModelInfo } from '../types';
+import type {
+  AppTaskGoal,
+  CreateEvaluationRunPayload,
+  DatasetInfo,
+  EvaluationRun,
+  ModelInfo,
+} from '../types';
 import JSONDataEditor from '../components/shared/JSONDataEditor';
 
 const { Text } = Typography;
@@ -71,6 +78,21 @@ const metricLabels: Record<string, string> = {
 };
 
 type SelectOption = { label: string; value: string; backend?: string };
+type EvaluationCaseRecord = EvaluationRun['cases'][number] & {
+  prompt?: unknown;
+  base_output?: unknown;
+  base_output_error?: unknown;
+  finetuned_output?: unknown;
+  finetuned_output_error?: unknown;
+  human_score?: { score?: 'good' | 'neutral' | 'bad' };
+};
+type EvaluationFormValues = Omit<CreateEvaluationRunPayload, 'cases'> & {
+  schema?: string | Record<string, unknown>;
+  prompt?: string;
+  expected_output?: unknown;
+  base_output?: unknown;
+  finetuned_output?: unknown;
+};
 
 const ACTIVE_EVALUATION_STATUSES = new Set<EvaluationRun['status']>([
   'pending',
@@ -143,7 +165,7 @@ export default function Evaluation() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { models, datasets, trainingRecords, setModels, setDatasets, backendStatus } = useAppStore();
-  const [historyRuns, setHistoryRuns] = useState<any[]>([]);
+  const [historyRuns, setHistoryRuns] = useState<EvaluationRun[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [run, setRun] = useState<EvaluationRun | null>(null);
   const [loading, setLoading] = useState(false);
@@ -200,8 +222,8 @@ export default function Evaluation() {
     try {
       const runs = await getEvaluationRuns();
       setHistoryRuns(runs || []);
-    } catch (err) {
-      console.error('Failed to load history', err);
+    } catch {
+      setHistoryRuns([]);
     } finally {
       setHistoryLoading(false);
     }
@@ -351,20 +373,19 @@ export default function Evaluation() {
       } else {
         setPollingRunId(null);
         setLoading(false);
-        loadHistory();
+        void loadHistory();
         if (data.status === 'completed' || data.status === 'completed_with_warnings') {
           message.success('评估完成');
         } else {
           message.error(`评估失败: ${data.error || '未知错误'}`);
         }
       }
-    } catch (error) {
-      console.error('Polling error:', error);
+    } catch {
       pollingRef.current = window.setTimeout(() => pollEvaluationStatus(runId), 2000);
     }
   };
 
-  const handleCreateRun = async (values: any) => {
+  const handleCreateRun = async (values: EvaluationFormValues) => {
     setLoading(true);
     try {
       const selectedBackend = values.backend || 'ollama';
@@ -397,7 +418,7 @@ export default function Evaluation() {
       const schema = values.schema ? (typeof values.schema === 'string' ? JSON.parse(values.schema) : values.schema) : undefined;
       const isDatasetMode = testMode === 'dataset';
       const isSingleMode = testMode === 'single';
-      const payload = {
+      const payload: CreateEvaluationRunPayload = {
         scenario: values.scenario,
         base_model: values.base_model,
         finetuned_model: values.finetuned_model,
@@ -425,7 +446,7 @@ export default function Evaluation() {
       const response = await createEvaluationRun(payload);
       setRun(response);
       setDrawerOpen(false); // Close drawer after creation
-      loadHistory(); // refresh history
+      void loadHistory(); // refresh history
 
       if (response.status === 'pending' || response.status === 'running') {
         setPollingRunId(response.run_id);
@@ -433,9 +454,9 @@ export default function Evaluation() {
       } else {
         setLoading(false);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       setLoading(false);
-      message.error(error?.message || '创建评估失败，请检查 JSON schema');
+      message.error(getApiErrorMessage(error, '创建评估失败，请检查 JSON schema'));
     }
   };
 
@@ -452,10 +473,10 @@ export default function Evaluation() {
       const data = await retryEvaluationRun(run.run_id);
       setRun(data);
       setPollingRunId(run.run_id);
-      pollEvaluationStatus(run.run_id);
+      void pollEvaluationStatus(run.run_id);
       message.success('已从已完成的样本继续评估');
     } catch (error) {
-      message.error(error instanceof Error ? error.message : '重新运行失败');
+      message.error(getApiErrorMessage(error, '重新运行失败'));
       setLoading(false);
     }
   };
@@ -693,8 +714,16 @@ export default function Evaluation() {
                             if (!run?.cases?.length) return 0;
                             const hasFinetuned = !!(run.finetuned_model || run.adapter_path || run.adapter_merge);
                             const total = run.cases.length * (hasFinetuned ? 2 : 1);
-                            const completedBase = run.cases.filter((c: any) => c.base_output || c.base_output_error).length;
-                            const completedFinetuned = hasFinetuned ? run.cases.filter((c: any) => c.finetuned_output || c.finetuned_output_error).length : 0;
+                            const completedBase = run.cases.filter((c) => {
+                              const record = c as EvaluationCaseRecord;
+                              return record.base_output || record.base_output_error;
+                            }).length;
+                            const completedFinetuned = hasFinetuned
+                              ? run.cases.filter((c) => {
+                                  const record = c as EvaluationCaseRecord;
+                                  return record.finetuned_output || record.finetuned_output_error;
+                                }).length
+                              : 0;
                             return Math.round(((completedBase + completedFinetuned) / total) * 100);
                         })()}
                         status="active"
@@ -783,7 +812,7 @@ export default function Evaluation() {
                 {/* Test Cases */}
                 {(run.status === 'completed' || run.status === 'completed_with_warnings') && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                      {run.cases?.map((record: any, index: number) => (
+                      {run.cases?.map((record: EvaluationCaseRecord, index: number) => (
                         <MotionCard
                           key={index}
                           className={styles.evaluationCard}

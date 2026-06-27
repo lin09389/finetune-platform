@@ -19,6 +19,11 @@ interface UseOllamaConnectionOptions {
   onStatusChange?: (status: ConnectionState['status']) => void;
 }
 
+const isAbortError = (error: unknown) =>
+  error instanceof DOMException
+    ? error.name === 'AbortError'
+    : error instanceof Error && error.name === 'AbortError';
+
 export function useOllamaConnection(options: UseOllamaConnectionOptions = {}) {
   const {
     healthCheckInterval = 30000,
@@ -46,7 +51,6 @@ export function useOllamaConnection(options: UseOllamaConnectionOptions = {}) {
       if (now - circuitOpenTimeRef.current < recoveryTimeout) {
         return false;
       }
-      console.log('Circuit breaker entering half-open state');
     }
 
     try {
@@ -79,19 +83,16 @@ export function useOllamaConnection(options: UseOllamaConnectionOptions = {}) {
       } else {
         throw new Error(`Health check failed: ${response.status}`);
       }
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
         return false;
       }
-
-      console.warn('Ollama health check failed:', error.message);
 
       setState((prev) => {
         const newFailureCount = prev.failureCount + 1;
         const shouldOpenCircuit = newFailureCount >= maxFailures;
 
         if (shouldOpenCircuit && !prev.isCircuitOpen) {
-          console.error(`Circuit breaker opened after ${newFailureCount} failures`);
           circuitOpenTimeRef.current = Date.now();
         }
 
@@ -130,12 +131,10 @@ export function useOllamaConnection(options: UseOllamaConnectionOptions = {}) {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        console.warn('Heartbeat failed, triggering health check');
         await checkHealth();
       }
-    } catch (error: any) {
-      if (error.name !== 'AbortError') {
-        console.warn('Heartbeat error:', error.message);
+    } catch (error: unknown) {
+      if (!isAbortError(error)) {
         await checkHealth();
       }
     }

@@ -14,7 +14,7 @@ vi.mock('../services/api', () => ({
 }));
 
 vi.mock('antd', async () => {
-  const actual = (await vi.importActual('antd')) as Record<string, any>;
+  const actual = await vi.importActual<typeof import('antd')>('antd');
   const Modal = Object.assign(actual.Modal, {
     confirm: vi.fn(({ onOk }: { onOk: () => void }) => onOk?.()),
   });
@@ -202,7 +202,6 @@ describe('ActionRecorder', () => {
   });
 
   it('should handle API errors gracefully', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     mockApiGet.mockRejectedValueOnce(new Error('Network error'));
 
     render(<ActionRecorder />);
@@ -210,8 +209,7 @@ describe('ActionRecorder', () => {
     await waitFor(() => {
       expect(mockApiGet).toHaveBeenCalled();
     });
-    expect(consoleError).toHaveBeenCalled();
-    consoleError.mockRestore();
+    expect(screen.getByText(/当前环境无法读取录制器状态/)).toBeInTheDocument();
   });
 
   it('should display playback speed slider', async () => {

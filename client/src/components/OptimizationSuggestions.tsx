@@ -22,8 +22,8 @@ interface OptimizationSuggestion {
   title: string;
   description: string;
   impact: 'high' | 'medium' | 'low';
-  currentValue?: any;
-  suggestedValue?: any;
+  currentValue?: unknown;
+  suggestedValue?: unknown;
   estimatedImprovement?: string;
   applied?: boolean;
 }

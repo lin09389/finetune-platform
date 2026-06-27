@@ -82,8 +82,7 @@ export const CUAControl: React.FC = () => {
         monitorCount: data.monitorCount ?? data.monitor_count ?? monitors.length ?? 0,
       });
       setCapabilityNotice(null);
-    } catch (error) {
-      console.error('Failed to fetch screen info:', error);
+    } catch {
       setCapabilityNotice({
         kind: 'warning',
         message: '当前环境无法读取屏幕能力，部分 CUA 功能可能不可用。',
@@ -95,8 +94,8 @@ export const CUAControl: React.FC = () => {
     try {
       const response = await apiClient.get('/cua/mouse/position');
       setMousePos(response.data);
-    } catch (error) {
-      console.error('Failed to fetch mouse position:', error);
+    } catch {
+      setMousePos({ x: 0, y: 0 });
     }
   };
 
@@ -110,8 +109,8 @@ export const CUAControl: React.FC = () => {
         failsafeEnabled: data.failsafeEnabled ?? data.failsafe_enabled ?? false,
         auditEnabled: data.auditEnabled ?? false,
       });
-    } catch (error) {
-      console.error('Failed to fetch safety status:', error);
+    } catch {
+      setSafetyStatus(null);
     }
   };
 
@@ -367,7 +366,12 @@ export const CUAControl: React.FC = () => {
                     <select
                       className={styles.formSelect}
                       value={mouseButton}
-                      onChange={(e) => setMouseButton(e.target.value as any)}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === 'left' || value === 'right' || value === 'middle') {
+                          setMouseButton(value);
+                        }
+                      }}
                     >
                       <option value="left">左键</option>
                       <option value="right">右键</option>

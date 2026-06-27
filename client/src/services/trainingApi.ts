@@ -15,8 +15,14 @@ import {
   subscribeTrainingProgress as subscribeRawTrainingProgress,
   type TrainingEventV2,
 } from './api';
+import type { TrainingConfig, TrainingProgress, TrainingRecord } from '../types';
 
-const normalizeTrainingConfig = (config: any = {}) => ({
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+
+const normalizeTrainingConfig = (configInput: unknown = {}): TrainingConfig => {
+  const config = asRecord(configInput);
+  return {
   modelId: config.modelId ?? config.model_id ?? '',
   model_id: config.model_id ?? config.modelId ?? '',
   datasetId: config.datasetId ?? config.dataset_id ?? '',
@@ -58,9 +64,11 @@ const normalizeTrainingConfig = (config: any = {}) => ({
   validation_dataset_id: config.validation_dataset_id ?? config.validationDatasetId ?? '',
   resume_from_checkpoint: config.resume_from_checkpoint,
   resume_from_adapter: config.resume_from_adapter,
-});
+  } as unknown as TrainingConfig;
+};
 
-export const normalizeTrainingRecord = (record: any) => {
+export const normalizeTrainingRecord = (recordInput: unknown): TrainingRecord => {
+  const record = asRecord(recordInput);
   const config = normalizeTrainingConfig(record.config);
   const outputPath = record.outputPath ?? record.output_path ?? '';
   const checkpointPath = record.checkpointPath ?? record.checkpoint_path;
@@ -115,10 +123,12 @@ export const normalizeTrainingRecord = (record: any) => {
     finalLr: record.finalLr ?? record.final_lr,
     elapsedTime: record.elapsedTime ?? record.elapsed_time,
     totalSteps: record.totalSteps ?? record.total_steps,
-  };
+  } as TrainingRecord;
 };
 
-export const normalizeTrainingProgress = (progress: any) => ({
+export const normalizeTrainingProgress = (progressInput: unknown): TrainingProgress => {
+  const progress = asRecord(progressInput);
+  return {
   epoch: progress.epoch ?? 0,
   step: progress.step ?? 0,
   totalSteps: progress.totalSteps ?? progress.total_steps ?? 0,
@@ -134,12 +144,16 @@ export const normalizeTrainingProgress = (progress: any) => ({
   errorCode: progress.errorCode ?? progress.error_code,
   errorCategory: progress.errorCategory ?? progress.error_category,
   actionableSuggestions: progress.actionableSuggestions ?? progress.actionable_suggestions,
-});
+  } as TrainingProgress;
+};
 
-export const startTraining = async (config: any, options?: { applyRecommendedConfig?: boolean }) =>
+export const startTraining = async (
+  config: unknown,
+  options?: { applyRecommendedConfig?: boolean },
+) =>
   normalizeTrainingRecord(await startRawTraining(config, options));
 
-export const startSwiftTraining = async (config: any) =>
+export const startSwiftTraining = async (config: unknown) =>
   normalizeTrainingRecord(await startRawSwiftTraining(config));
 
 export const getTrainingHistory = async () => {
@@ -154,7 +168,7 @@ export const resumeTraining = async (trainingId: string, checkpoint: string) =>
   normalizeTrainingRecord(await resumeRawTraining(trainingId, checkpoint));
 
 export const subscribeTrainingProgress = (
-  onProgress: (progress: any) => void,
+  onProgress: (progress: TrainingProgress) => void,
   onError?: (error: Error) => void,
 ) =>
   subscribeRawTrainingProgress(
@@ -197,7 +211,8 @@ export const checkTrainingResources = async (params: {
   requiredVram?: number;
 }) => checkRawTrainingResources(params);
 
-export const checkTrainingPreflight = async (config: any) => checkRawTrainingPreflight(config);
+export const checkTrainingPreflight = async (config: unknown) =>
+  checkRawTrainingPreflight(config);
 
 export {
   cleanupTrainingCheckpoints,

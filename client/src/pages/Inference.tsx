@@ -22,6 +22,14 @@ import styles from './Inference.module.css';
 
 const { TextArea } = Input;
 
+type PerformanceRecommendations = {
+  hardware_profile?: {
+    recommended_backend?: string;
+    recommended_quantization?: string;
+    profile?: string;
+  };
+};
+
 export default function Inference() {
   const runtime = useRuntimeContext();
   const { actions, derived, observed } = runtime;
@@ -37,7 +45,7 @@ export default function Inference() {
   const [currentBackend, setCurrentBackend] = useState<string>(
     observed.inference.currentBackend || 'huggingface',
   );
-  const [performanceContext, setPerformanceContext] = useState<any>(null);
+  const [performanceContext, setPerformanceContext] = useState<PerformanceRecommendations | null>(null);
   const [comparisonMode, setComparisonMode] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -68,12 +76,8 @@ export default function Inference() {
   }, [currentBackend, selectedModel, setInferenceSelection]);
 
   const loadPerformance = async () => {
-    try {
-      const recommendations = await getPerformanceRecommendations().catch(() => null);
-      setPerformanceContext(recommendations);
-    } catch (error) {
-      console.error('Failed to load performance info:', error);
-    }
+    const recommendations = await getPerformanceRecommendations().catch(() => null);
+    setPerformanceContext(recommendations as PerformanceRecommendations | null);
   };
 
   const handleBackendChange = async (backend: string) => {

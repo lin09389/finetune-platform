@@ -16,9 +16,9 @@ import {
   WarningOutlined,
 } from '@ant-design/icons';
 import { Form, Switch, message } from 'antd';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
-import { apiClient } from '../services/api';
+import { apiClient, getApiErrorMessage } from '../services/api';
 import styles from './HeartbeatPage.module.css';
 
 interface Task {
@@ -36,11 +36,24 @@ interface Task {
 interface TaskResult {
   task_id: string;
   status: string;
-  result?: any;
+  result?: {
+    metrics?: {
+      cpu_percent?: number;
+      memory_percent?: number;
+      disk_percent?: number;
+    };
+  };
   error?: string;
   duration_ms?: number;
   executed_at: string;
 }
+
+type CreateTaskValues = {
+  name: string;
+  description?: string;
+  schedule: string;
+  task_type?: string;
+};
 
 interface HeartbeatStatus {
   tier?: string;
@@ -70,16 +83,7 @@ export default function HeartbeatPage() {
   const [createForm] = Form.useForm();
   const [statusNotice, setStatusNotice] = useState('');
 
-  useEffect(() => {
-    fetchHeartbeatData();
-    const interval = setInterval(fetchHeartbeatData, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const getApiErrorMessage = (error: any, fallback: string) =>
-    error?.response?.data?.detail || error?.response?.data?.message || fallback;
-
-  const fetchHeartbeatData = async () => {
+  const fetchHeartbeatData = useCallback(async () => {
     setLoading(true);
     try {
       const [statusRes, tasksRes, resultsRes] = await Promise.all([
@@ -95,15 +99,20 @@ export default function HeartbeatPage() {
       );
       setTasks(tasksRes.data?.tasks || []);
       setResults(resultsRes.data?.results || []);
-    } catch (error) {
-      console.error('Failed to fetch heartbeat data:', error);
+    } catch {
       setStatusNotice('Heartbeat 数据获取失败，当前页面无法确认实验调度能力是否可用。');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleCreateTask = async (values: any) => {
+  useEffect(() => {
+    void fetchHeartbeatData();
+    const interval = setInterval(fetchHeartbeatData, 5000);
+    return () => clearInterval(interval);
+  }, [fetchHeartbeatData]);
+
+  const handleCreateTask = async (values: CreateTaskValues) => {
     try {
       const response = await apiClient.post('/heartbeat/tasks', {
         name: values.name,
@@ -117,11 +126,11 @@ export default function HeartbeatPage() {
         message.success('任务创建成功');
         setCreateModalVisible(false);
         createForm.resetFields();
-        fetchHeartbeatData();
+        void fetchHeartbeatData();
       } else {
         message.error(response.data?.message || '创建失败');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       message.error(getApiErrorMessage(error, '创建失败'));
     }
   };
@@ -135,8 +144,8 @@ export default function HeartbeatPage() {
         return;
       }
       message.success(enabled ? '任务已启用' : '任务已禁用');
-      fetchHeartbeatData();
-    } catch (error: any) {
+      void fetchHeartbeatData();
+    } catch (error: unknown) {
       message.error(getApiErrorMessage(error, '操作失败'));
     }
   };
@@ -149,8 +158,8 @@ export default function HeartbeatPage() {
         return;
       }
       message.success('任务已删除');
-      fetchHeartbeatData();
-    } catch (error: any) {
+      void fetchHeartbeatData();
+    } catch (error: unknown) {
       message.error(getApiErrorMessage(error, '删除失败'));
     }
   };
@@ -160,11 +169,11 @@ export default function HeartbeatPage() {
       const response = await apiClient.post('/heartbeat/start');
       if (response.data?.success) {
         message.success('调度器已启动');
-        fetchHeartbeatData();
+        void fetchHeartbeatData();
       } else {
         message.warning(response.data?.message || '启动失败');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       message.error(getApiErrorMessage(error, '启动失败'));
     }
   };
@@ -174,11 +183,11 @@ export default function HeartbeatPage() {
       const response = await apiClient.post('/heartbeat/stop');
       if (response.data?.success) {
         message.success('调度器已停止');
-        fetchHeartbeatData();
+        void fetchHeartbeatData();
       } else {
         message.warning(response.data?.message || '停止失败');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       message.error(getApiErrorMessage(error, '停止失败'));
     }
   };

@@ -103,8 +103,7 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
       setOcrResult(result);
       onOCR?.(result);
       message.success('OCR 识别完成');
-    } catch (error) {
-      console.error('OCR error:', error);
+    } catch {
       message.error('OCR 识别失败');
     } finally {
       setOcrLoading(false);
@@ -117,8 +116,7 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
     try {
       await navigator.clipboard.writeText(ocrResult.text);
       message.success('文本已复制');
-    } catch (error) {
-      console.error('Copy OCR text failed:', error);
+    } catch {
       message.error('复制失败');
     }
   }, [ocrResult]);

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { GlassHoverCard, InteractiveButton, SmoothLoader } from '../components/motion';
+import type { Variants } from 'framer-motion';
 
 // Mock useMotionConfig
 vi.mock('../components/motion/useMotionConfig', () => ({
@@ -8,7 +9,7 @@ vi.mock('../components/motion/useMotionConfig', () => ({
     shouldReduceMotion: false,
     getDuration: (d: number) => d,
     safeTransition: { duration: 0.2 },
-    getSafeVariants: (v: any) => v,
+    getSafeVariants: (v: Variants) => v,
   }),
 }));
 

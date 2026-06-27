@@ -87,7 +87,7 @@ const PerformanceMonitor: React.FC = () => {
   });
   const [suggestions, setSuggestions] = useState<OptimizationSuggestion[]>([]);
 
-  const mapMetrics = (data: PerformanceApiMetrics): PerformanceMetrics => ({
+  const mapMetrics = useCallback((data: PerformanceApiMetrics): PerformanceMetrics => ({
     tokensPerSecond: Number(data.tokens_per_second || 0),
     firstTokenLatency: Number(data.average_latency_ms || 0),
     memoryUsage: Number(data.gpu_memory_used_mb || 0),
@@ -95,7 +95,7 @@ const PerformanceMonitor: React.FC = () => {
     cacheHitRate: 0,
     batchSize: config.batchSize,
     queueLength: Number(data.queue_length || 0),
-  });
+  }), [config.batchSize]);
 
   const mapSuggestion = (item: SuggestionApiItem): OptimizationSuggestion => ({
     type: item.category === 'memory' ? 'memory' : 'performance',
@@ -114,10 +114,10 @@ const PerformanceMonitor: React.FC = () => {
         ...prev,
         ...mapMetrics(data),
       }));
-    } catch (error) {
-      console.error('Failed to fetch metrics:', error);
+    } catch {
+      setMetrics((prev) => ({ ...prev, queueLength: 0 }));
     }
-  }, [config.batchSize]);
+  }, [mapMetrics]);
 
   const fetchSuggestions = useCallback(async () => {
     try {
@@ -126,8 +126,8 @@ const PerformanceMonitor: React.FC = () => {
 
       const data: SuggestionApiItem[] = await response.json();
       setSuggestions((data || []).map(mapSuggestion));
-    } catch (error) {
-      console.error('Failed to fetch suggestions:', error);
+    } catch {
+      setSuggestions([]);
     }
   }, []);
 

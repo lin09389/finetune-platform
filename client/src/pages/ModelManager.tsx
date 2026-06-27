@@ -21,7 +21,7 @@ import {
   Tabs,
   Tag,
 } from 'antd';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import GlassCard from '../components/shared/GlassCard';
 import glassStyles from '../components/shared/GlassCard.module.css';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
@@ -64,7 +64,7 @@ export default function ModelManager() {
   const [downloadForm] = Form.useForm();
   const [importModelScopeForm] = Form.useForm();
 
-  const fetchModels = async () => {
+  const fetchModels = useCallback(async () => {
     if (backendStatus !== 'connected') return;
     setLoading(true);
     try {
@@ -75,11 +75,11 @@ export default function ModelManager() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [backendStatus, setModels]);
 
   useEffect(() => {
     fetchModels();
-  }, [backendStatus]);
+  }, [fetchModels]);
 
   const filteredModels = useMemo(() => {
     if (!searchText) return models;

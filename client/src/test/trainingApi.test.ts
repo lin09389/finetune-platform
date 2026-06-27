@@ -17,7 +17,7 @@ vi.mock('../services/api', () => ({
     post: mockApiClientPost,
   },
   checkTrainingPreflight: vi.fn((config) =>
-    mockApiClientPost('/training/preflight', config).then((r: any) => r.data),
+    mockApiClientPost('/training/preflight', config).then((r: { data: unknown }) => r.data),
   ),
   getTrainingCheckpoints: mockGetTrainingCheckpoints,
   getTrainingHistory: mockGetTrainingHistory,

@@ -7,13 +7,16 @@ import {
   WarningOutlined,
 } from '@ant-design/icons';
 import { Button, Input, message, Popconfirm, Progress, Tag } from 'antd';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import { useOperation } from '../hooks/useOperation';
 import { API_BASE_URL } from '../services/api';
 import styles from './ProjectContext.module.css';
 
 const API_BASE = API_BASE_URL;
+
+const getErrorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error && error.message ? error.message : fallback;
 
 interface Project {
   name: string;
@@ -44,21 +47,21 @@ export default function ProjectContext() {
     progress: 0,
   });
 
-  const loadProjects = async () => {
+  const loadProjects = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE}/context/projects`);
       const data = await response.json();
       if (data.success) {
         setProjects(data.projects || []);
       }
-    } catch (error) {
-      console.error('加载项目失败:', error);
+    } catch {
+      setProjects([]);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadProjects();
-  }, []);
+  }, [loadProjects]);
 
   const handleScanProject = async () => {
     if (!searchPath.trim()) {
@@ -99,9 +102,10 @@ export default function ProjectContext() {
       loadProjects();
       setSearchPath('');
       setTimeout(() => setIndexingStatus({ status: 'idle', message: '', progress: 0 }), 3000);
-    } catch (error: any) {
-      setIndexingStatus({ status: 'error', message: error.message, progress: 0 });
-      message.error(`操作失败：${error.message}`);
+    } catch (error: unknown) {
+      const errorMessage = getErrorMessage(error, '操作失败');
+      setIndexingStatus({ status: 'error', message: errorMessage, progress: 0 });
+      message.error(`操作失败：${errorMessage}`);
     } finally {
       setLoading(false);
     }

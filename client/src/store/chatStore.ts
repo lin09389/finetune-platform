@@ -260,8 +260,7 @@ export const useChatStore = create<ChatStore>()(
           }));
 
           return session;
-        } catch (error) {
-          console.error('创建会话失败：', error);
+        } catch {
           const localSession: ChatSession = {
             id: `local_${Date.now()}`,
             title,
@@ -297,7 +296,6 @@ export const useChatStore = create<ChatStore>()(
             ),
           });
         } catch (error) {
-          console.error('加载会话失败：', error);
           set({
             error: error instanceof Error ? error.message : '加载会话失败',
           });
@@ -318,8 +316,7 @@ export const useChatStore = create<ChatStore>()(
           if (!sessionId.startsWith('local_')) {
             await deleteChatSession(sessionId);
           }
-        } catch (error) {
-          console.error('删除会话失败：', error);
+        } catch {
           // 可以选择如果失败是否把会话加回来（通常没必要，直接重载一次列表即可）
           get().loadSessions();
         }
@@ -335,8 +332,8 @@ export const useChatStore = create<ChatStore>()(
         if (!sessionId.startsWith('local_')) {
           try {
             await updateChatSessionTitle(sessionId, title);
-          } catch (error) {
-            console.error('更新会话标题失败：', error);
+          } catch {
+            // 标题已乐观更新；下一次加载会话列表会与服务端状态对齐。
           }
         }
       },
@@ -356,8 +353,8 @@ export const useChatStore = create<ChatStore>()(
             currentSessionId: hasCurrentSession ? currentSessionId : null,
             messages: hasCurrentSession ? get().messages : [],
           });
-        } catch (error) {
-          console.error('加载会话列表失败：', error);
+        } catch {
+          set({ error: '加载会话列表失败' });
         }
       },
 

@@ -8,7 +8,7 @@ import {
   InfoCircleOutlined,
 } from '@ant-design/icons';
 import { Avatar, Badge, Button, Drawer, Empty, List, Space, Tag, Tooltip } from 'antd';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 
 export interface Notification {
   id: string;
@@ -358,32 +358,35 @@ export const NotificationPanel: React.FC<NotificationPanelProps> = ({
 export const useNotifications = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  const addNotification = (notification: Omit<Notification, 'id' | 'timestamp' | 'read'>) => {
-    const newNotification: Notification = {
-      ...notification,
-      id: Date.now().toString(),
-      timestamp: Date.now(),
-      read: false,
-    };
-    setNotifications((prev) => [newNotification, ...prev].slice(0, 100));
-    return newNotification.id;
-  };
+  const addNotification = useCallback(
+    (notification: Omit<Notification, 'id' | 'timestamp' | 'read'>) => {
+      const newNotification: Notification = {
+        ...notification,
+        id: Date.now().toString(),
+        timestamp: Date.now(),
+        read: false,
+      };
+      setNotifications((prev) => [newNotification, ...prev].slice(0, 100));
+      return newNotification.id;
+    },
+    []
+  );
 
-  const markAsRead = (id: string) => {
+  const markAsRead = useCallback((id: string) => {
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
-  };
+  }, []);
 
-  const markAllAsRead = () => {
+  const markAllAsRead = useCallback(() => {
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-  };
+  }, []);
 
-  const deleteNotification = (id: string) => {
+  const deleteNotification = useCallback((id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
-  };
+  }, []);
 
-  const clearAll = () => {
+  const clearAll = useCallback(() => {
     setNotifications([]);
-  };
+  }, []);
 
   return {
     notifications,

@@ -41,9 +41,22 @@ export interface StreamEvent {
     | 'resumed'
     | 'completed'
     | 'partial_saved';
-  data?: any;
+  data?: unknown;
   timestamp: number;
 }
+
+type StreamChunkPayload = {
+  content?: string;
+  done?: boolean;
+};
+
+const isAbortError = (error: unknown) =>
+  error instanceof DOMException
+    ? error.name === 'AbortError'
+    : error instanceof Error && error.name === 'AbortError';
+
+const toError = (error: unknown): Error =>
+  error instanceof Error ? error : new Error(String(error || 'Unknown stream error'));
 
 const DEFAULT_CONFIG: StreamConfig = {
   heartbeatInterval: 30000,
@@ -126,7 +139,7 @@ export class StreamManager {
     options: {
       method?: string;
       headers?: Record<string, string>;
-      body?: any;
+      body?: unknown;
     } = {},
   ): Promise<void> {
     if (this.state.connectionState === ConnectionState.STREAMING) {
@@ -182,13 +195,13 @@ export class StreamManager {
       this.startPartialSave();
 
       await this.readStream();
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
         this.handleDisconnect();
         return;
       }
 
-      this.handleError(error);
+      this.handleError(toError(error));
 
       if (!this.isManualStop && this.state.retryCount < this.config.maxRetries) {
         await this.attemptReconnect(url, options);
@@ -223,8 +236,8 @@ export class StreamManager {
 
         this.processBuffer();
       }
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
         this.handleDisconnect();
       } else {
         throw error;
@@ -247,10 +260,10 @@ export class StreamManager {
         continue;
       }
 
-      if (parsed.eventType === 'error' || parsed.data?.error) {
+      if (parsed.eventType === 'error') {
         this.emit({
           type: 'error',
-          data: parsed.data?.error || parsed.data,
+          data: parsed.data,
           timestamp: Date.now(),
         });
         continue;
@@ -263,7 +276,7 @@ export class StreamManager {
 
       if (parsed.data && parsed.data !== '[DONE]') {
         try {
-          const data = typeof parsed.data === 'string' ? JSON.parse(parsed.data) : parsed.data;
+          const data = JSON.parse(parsed.data) as StreamChunkPayload;
 
           if (data.content) {
             this.updateState({
@@ -280,7 +293,7 @@ export class StreamManager {
           if (data.done) {
             this.handleCompletion();
           }
-        } catch (e) {
+        } catch {
           this.emit({
             type: 'chunk',
             data: { raw: parsed.data },
@@ -293,7 +306,7 @@ export class StreamManager {
     }
   }
 
-  private parseSSEEvent(eventStr: string): { eventType: string; data: any } | null {
+  private parseSSEEvent(eventStr: string): { eventType: string; data: string } | null {
     const lines = eventStr.split('\n');
     let eventType = 'message';
     let dataLine = '';
@@ -411,7 +424,7 @@ export class StreamManager {
 
   private async attemptReconnect(
     url: string,
-    options: { method?: string; headers?: Record<string, string>; body?: any },
+    options: { method?: string; headers?: Record<string, string>; body?: unknown },
   ): Promise<void> {
     this.updateState({
       connectionState: ConnectionState.RECONNECTING,

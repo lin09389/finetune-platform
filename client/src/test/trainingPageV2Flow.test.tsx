@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { TrainingEventV2 } from '../services/api';
 
 const mockNavigate = vi.hoisted(() => vi.fn());
 const mockSetIsTraining = vi.hoisted(() => vi.fn());
@@ -122,7 +123,7 @@ vi.mock('../pages/Training/useTrainingEventStreamV2', () => ({
     onEvent,
   }: {
     enabled?: boolean;
-    onEvent?: (event: any) => void;
+    onEvent?: (event: TrainingEventV2) => void;
   }) => {
     const firedRef = React.useRef(false);
     React.useEffect(() => {
@@ -214,7 +215,7 @@ vi.mock('../pages/Training/components/ConfigForm', () => ({
 }));
 
 vi.mock('../pages/Training/components/ProgressPanel', () => ({
-  default: ({ status, progress }: { status: string; progress: any }) => (
+  default: ({ status, progress }: { status: string; progress: { message?: string } }) => (
     <div>
       <div data-testid="progress-status">{status}</div>
       <div data-testid="progress-message">{progress?.message || ''}</div>

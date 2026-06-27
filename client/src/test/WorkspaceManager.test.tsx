@@ -5,13 +5,19 @@ import WorkspaceManager from '../pages/WorkspaceManager';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
+const mockMessage = {
+  success: vi.fn(),
+  error: vi.fn(),
+  warning: vi.fn(),
+  info: vi.fn(),
+};
 
 vi.mock('../services/api', () => ({
   API_BASE_URL: 'http://localhost:8000',
 }));
 
 vi.mock('antd', async () => {
-  const actual = (await vi.importActual('antd')) as Record<string, any>;
+  const actual = await vi.importActual<typeof import('antd')>('antd');
   const Modal = Object.assign(actual.Modal, {
     confirm: vi.fn(({ onOk }: { onOk?: () => void }) => onOk?.()),
   });
@@ -19,11 +25,7 @@ vi.mock('antd', async () => {
     ...actual,
     App: {
       useApp: () => ({
-        message: {
-          success: vi.fn(),
-          error: vi.fn(),
-          warning: vi.fn(),
-        },
+        message: mockMessage,
       }),
     },
     Modal,
@@ -33,6 +35,7 @@ vi.mock('antd', async () => {
 describe('WorkspaceManager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.values(mockMessage).forEach((mock) => mock.mockClear());
     mockFetch.mockImplementation((url: string | URL | Request, init?: RequestInit) => {
       const resolvedUrl = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
       if (

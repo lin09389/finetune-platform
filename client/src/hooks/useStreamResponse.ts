@@ -32,7 +32,7 @@ interface UseStreamResponseReturn {
   state: StreamState;
   partialResponse: PartialResponse | null;
   isStreaming: boolean;
-  connect: (url: string, body?: any) => Promise<void>;
+  connect: (url: string, body?: unknown) => Promise<void>;
   stop: () => void;
   savePartial: () => PartialResponse | null;
   resume: () => Promise<void>;
@@ -41,6 +41,28 @@ interface UseStreamResponseReturn {
 }
 
 const PARTIAL_STORAGE_KEY = 'stream_partial_responses';
+
+type ChunkEventData = { content?: string };
+type ErrorEventData = { error?: string };
+type ReconnectEventData = { retryCount?: number };
+type CompletedEventData = { content?: string; chunksReceived?: number };
+type PartialSavedEventData = {
+  content?: string;
+  resumeToken?: string | null;
+  chunksReceived?: number;
+};
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+
+const asChunkData = (value: unknown): ChunkEventData => asRecord(value) as ChunkEventData;
+const asErrorData = (value: unknown): ErrorEventData => asRecord(value) as ErrorEventData;
+const asReconnectData = (value: unknown): ReconnectEventData =>
+  asRecord(value) as ReconnectEventData;
+const asCompletedData = (value: unknown): CompletedEventData =>
+  asRecord(value) as CompletedEventData;
+const asPartialSavedData = (value: unknown): PartialSavedEventData =>
+  asRecord(value) as PartialSavedEventData;
 
 export function useStreamResponse(options: UseStreamResponseOptions = {}): UseStreamResponseReturn {
   const {
@@ -67,7 +89,7 @@ export function useStreamResponse(options: UseStreamResponseOptions = {}): UseSt
   });
   const [partialResponse, setPartialResponse] = useState<PartialResponse | null>(null);
   const lastUrlRef = useRef<string>('');
-  const lastBodyRef = useRef<any>(null);
+  const lastBodyRef = useRef<unknown>(null);
 
   if (!streamManagerRef.current) {
     streamManagerRef.current = createStreamManager({
@@ -84,11 +106,13 @@ export function useStreamResponse(options: UseStreamResponseOptions = {}): UseSt
 
     unsubscribers.push(
       streamManager.on('chunk', (event) => {
-        const data = event.data;
+        const data = asChunkData(event.data);
         if (data?.content) {
-          const newContent = state.partialContent + data.content;
-          setState((prev) => ({ ...prev, partialContent: newContent }));
-          onChunk?.(data.content, newContent);
+          setState((prev) => {
+            const newContent = prev.partialContent + data.content;
+            onChunk?.(data.content || '', newContent);
+            return { ...prev, partialContent: newContent };
+          });
         }
       }),
     );
@@ -114,7 +138,7 @@ export function useStreamResponse(options: UseStreamResponseOptions = {}): UseSt
 
     unsubscribers.push(
       streamManager.on('error', (event) => {
-        const errorMsg = event.data?.error || 'Unknown error';
+        const errorMsg = asErrorData(event.data).error || 'Unknown error';
         setState((prev) => ({
           ...prev,
           connectionState: ConnectionState.ERROR,
@@ -126,18 +150,20 @@ export function useStreamResponse(options: UseStreamResponseOptions = {}): UseSt
 
     unsubscribers.push(
       streamManager.on('reconnecting', (event) => {
+        const data = asReconnectData(event.data);
         setState((prev) => ({
           ...prev,
           connectionState: ConnectionState.RECONNECTING,
-          retryCount: event.data?.retryCount || prev.retryCount + 1,
+          retryCount: data.retryCount || prev.retryCount + 1,
         }));
-        onReconnecting?.(event.data?.retryCount || 1);
+        onReconnecting?.(data.retryCount || 1);
       }),
     );
 
     unsubscribers.push(
       streamManager.on('completed', (event) => {
-        const content = event.data?.content || '';
+        const data = asCompletedData(event.data);
+        const content = data.content || '';
         setState((prev) => ({
           ...prev,
           connectionState: ConnectionState.IDLE,
@@ -151,7 +177,7 @@ export function useStreamResponse(options: UseStreamResponseOptions = {}): UseSt
             content,
             timestamp: Date.now(),
             resumeToken: streamManager.getResumeToken(),
-            chunksReceived: event.data?.chunksReceived || 0,
+            chunksReceived: data.chunksReceived || 0,
             saved: true,
           });
         }
@@ -160,12 +186,13 @@ export function useStreamResponse(options: UseStreamResponseOptions = {}): UseSt
 
     unsubscribers.push(
       streamManager.on('partial_saved', (event) => {
+        const data = asPartialSavedData(event.data);
         const partial: PartialResponse = {
           id: `partial_${Date.now()}`,
-          content: event.data?.content || '',
+          content: data.content || '',
           timestamp: event.timestamp,
-          resumeToken: event.data?.resumeToken,
-          chunksReceived: event.data?.chunksReceived || 0,
+          resumeToken: data.resumeToken || null,
+          chunksReceived: data.chunksReceived || 0,
           saved: true,
         };
         setPartialResponse(partial);
@@ -183,7 +210,7 @@ export function useStreamResponse(options: UseStreamResponseOptions = {}): UseSt
   }, [streamManager, autoSave, onChunk, onComplete, onError, onReconnecting, onPartialSave]);
 
   const connect = useCallback(
-    async (url: string, body?: any) => {
+    async (url: string, body?: unknown) => {
       lastUrlRef.current = url;
       lastBodyRef.current = body;
 
@@ -263,13 +290,14 @@ export function useStreamResponse(options: UseStreamResponseOptions = {}): UseSt
     try {
       await streamManager.connect(lastUrlRef.current, {
         body: {
-          ...lastBodyRef.current,
+          ...asRecord(lastBodyRef.current),
           resume_token: resumeToken,
         },
       });
       message.success('已恢复连接');
-    } catch (error: any) {
-      message.error(`恢复失败: ${error.message}`);
+    } catch (error: unknown) {
+      const text = error instanceof Error ? error.message : '未知错误';
+      message.error(`恢复失败: ${text}`);
     }
   }, [streamManager]);
 
@@ -324,15 +352,16 @@ function savePartialToStorage(partial: PartialResponse): void {
     const toStore = stored.slice(0, maxPartials);
 
     localStorage.setItem(PARTIAL_STORAGE_KEY, JSON.stringify(toStore));
-  } catch (error) {
-    console.error('Failed to save partial response:', error);
+  } catch {
+    // localStorage may be unavailable or full; streaming should continue.
   }
 }
 
 function getPartialsFromStorage(): PartialResponse[] {
   try {
     const stored = localStorage.getItem(PARTIAL_STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
+    const parsed = stored ? JSON.parse(stored) : [];
+    return Array.isArray(parsed) ? (parsed as PartialResponse[]) : [];
   } catch {
     return [];
   }

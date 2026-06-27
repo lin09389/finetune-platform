@@ -22,7 +22,7 @@ const messageWarning = vi.hoisted(() => vi.fn());
 const mockNavigate = vi.hoisted(() => vi.fn());
 
 vi.mock('react-router-dom', async () => {
-  const actual = (await vi.importActual('react-router-dom')) as Record<string, any>;
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
   return {
     ...actual,
     useNavigate: () => mockNavigate,
@@ -46,7 +46,7 @@ vi.mock('../services/trainingApi', () => ({
 }));
 
 vi.mock('antd', async () => {
-  const actual = (await vi.importActual('antd')) as Record<string, any>;
+  const actual = await vi.importActual<typeof import('antd')>('antd');
   return {
     ...actual,
     message: {
@@ -58,7 +58,7 @@ vi.mock('antd', async () => {
 });
 
 vi.mock('recharts', async () => {
-  const actual = (await vi.importActual('recharts')) as Record<string, any>;
+  const actual = await vi.importActual<typeof import('recharts')>('recharts');
   const React = await import('react');
   return {
     ...actual,

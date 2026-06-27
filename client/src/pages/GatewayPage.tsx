@@ -12,10 +12,10 @@ import {
 } from '@ant-design/icons';
 import { Alert, Badge, Button, Form, Input, Modal, Select, Space, Table, Tag, message } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import { useOperation } from '../hooks/useOperation';
-import { API_BASE_URL, apiClient } from '../services/api';
+import { API_BASE_URL, apiClient, getApiErrorMessage } from '../services/api';
 import styles from './GatewayPage.module.css';
 
 const gatewayWebSocketUrl = API_BASE_URL.replace(/^http/i, 'ws') + '/gateway/ws';
@@ -65,6 +65,24 @@ interface Agent {
 }
 
 type TabKey = 'devices' | 'bindings' | 'messages';
+type RegisterDeviceValues = {
+  name: string;
+  type: string;
+  permissions?: string[];
+};
+type BindingValues = {
+  name: string;
+  peer_id?: string;
+  guild_id?: string;
+  channel_id?: string;
+  agent_id: string;
+  priority?: number;
+};
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+const asStringArray = (value: unknown): string[] =>
+  Array.isArray(value) ? value.map(String) : [];
 
 export default function GatewayPage() {
   const operation = useOperation();
@@ -80,37 +98,34 @@ export default function GatewayPage() {
   const [gatewayStatus, setGatewayStatus] = useState<GatewayStatus>({});
   const [statusNotice, setStatusNotice] = useState('');
 
-  useEffect(() => {
-    fetchGatewayData();
-    const interval = setInterval(fetchGatewayData, 10000);
-    return () => clearInterval(interval);
+  const normalizeDevice = useCallback((deviceInput: unknown): Device => {
+    const device = asRecord(deviceInput);
+    return {
+      id: String(device.id || device.device_id || ''),
+      name: String(device.name || device.device_name || device.id || device.device_id || ''),
+      type: String(device.type || device.device_type || 'unknown'),
+      status: String(device.status || 'unknown'),
+      permissions: asStringArray(device.permissions || device.allowed_actions),
+      last_seen: String(device.last_seen || device.last_active || ''),
+      created_at: String(device.created_at || ''),
+    };
   }, []);
 
-  const getApiErrorMessage = (error: any, fallback: string) =>
-    error?.response?.data?.detail || error?.response?.data?.message || fallback;
+  const normalizeBinding = useCallback((bindingInput: unknown): Binding => {
+    const binding = asRecord(bindingInput);
+    return {
+      id: String(binding.id || ''),
+      name: String(binding.name || binding.id || ''),
+      peer_id: typeof binding.peer_id === 'string' ? binding.peer_id : undefined,
+      guild_id: typeof binding.guild_id === 'string' ? binding.guild_id : undefined,
+      channel_id: typeof binding.channel_id === 'string' ? binding.channel_id : undefined,
+      agent_id: String(binding.agent_id || ''),
+      priority: Number(binding.priority ?? 0),
+      enabled: typeof binding.enabled === 'boolean' ? binding.enabled : true,
+    };
+  }, []);
 
-  const normalizeDevice = (device: any): Device => ({
-    id: device.id || device.device_id,
-    name: device.name || device.device_name || device.id || device.device_id,
-    type: device.type || device.device_type || 'unknown',
-    status: device.status || 'unknown',
-    permissions: device.permissions || device.allowed_actions || [],
-    last_seen: device.last_seen || device.last_active || '',
-    created_at: device.created_at || '',
-  });
-
-  const normalizeBinding = (binding: any): Binding => ({
-    id: binding.id,
-    name: binding.name || binding.id,
-    peer_id: binding.peer_id,
-    guild_id: binding.guild_id,
-    channel_id: binding.channel_id,
-    agent_id: binding.agent_id,
-    priority: binding.priority ?? 0,
-    enabled: binding.enabled ?? true,
-  });
-
-  const fetchGatewayData = async () => {
+  const fetchGatewayData = useCallback(async () => {
     setLoading(true);
     try {
       const [statusRes, devicesRes, bindingsRes] = await Promise.all([
@@ -126,15 +141,20 @@ export default function GatewayPage() {
       );
       setDevices((devicesRes.data?.devices || []).map(normalizeDevice));
       setBindings((bindingsRes.data?.bindings || []).map(normalizeBinding));
-    } catch (error) {
-      console.error('Failed to fetch gateway data:', error);
+    } catch {
       setStatusNotice('Gateway 数据获取失败，当前页面无法确认实验连接与路由能力。');
     } finally {
       setLoading(false);
     }
-  };
+  }, [normalizeBinding, normalizeDevice]);
 
-  const handleRegisterDevice = async (values: any) => {
+  useEffect(() => {
+    void fetchGatewayData();
+    const interval = setInterval(fetchGatewayData, 10000);
+    return () => clearInterval(interval);
+  }, [fetchGatewayData]);
+
+  const handleRegisterDevice = async (values: RegisterDeviceValues) => {
     try {
       const response = await apiClient.post('/gateway/devices/register', {
         device_name: values.name,
@@ -145,16 +165,16 @@ export default function GatewayPage() {
         message.success('设备注册成功');
         setRegisterModalVisible(false);
         registerForm.resetFields();
-        fetchGatewayData();
+        void fetchGatewayData();
       } else {
         message.error(response.data?.message || '注册失败');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       message.error(getApiErrorMessage(error, '注册失败'));
     }
   };
 
-  const handleCreateBinding = async (values: any) => {
+  const handleCreateBinding = async (values: BindingValues) => {
     try {
       const response = await apiClient.post('/gateway/bindings', {
         name: values.name,
@@ -169,11 +189,11 @@ export default function GatewayPage() {
         message.success('绑定规则创建成功');
         setBindingModalVisible(false);
         bindingForm.resetFields();
-        fetchGatewayData();
+        void fetchGatewayData();
       } else {
         message.error(response.data?.message || '创建失败');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       message.error(getApiErrorMessage(error, '创建失败'));
     }
   };

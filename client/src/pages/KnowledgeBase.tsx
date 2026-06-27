@@ -10,7 +10,7 @@ import {
 } from '@ant-design/icons';
 import { Button, Progress, Select, Tag, Upload } from 'antd';
 import type { UploadProps } from 'antd/es/upload/interface';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import glassStyles from '../components/shared/GlassCard.module.css';
 import { MotionItem, MotionList } from '../components/shared/MotionWrapper';
 import { useOperation } from '../hooks/useOperation';
@@ -53,6 +53,9 @@ interface UploadTaskStatus {
   error?: string;
 }
 
+const getErrorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error && error.message ? error.message : fallback;
+
 export default function KnowledgeBase() {
   const runtime = useRuntimeContext();
   const { actions, derived, observed } = runtime;
@@ -67,9 +70,23 @@ export default function KnowledgeBase() {
   const [activeUploadTask, setActiveUploadTask] = useState<UploadTaskStatus | null>(null);
   const embedderStatus = observed.knowledge.embedderStatus as EmbedderStatus | null;
 
+  const loadCollectionInfo = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/knowledge/collections/${collectionId}`, {
+        signal: AbortSignal.timeout(30000),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setCollectionInfo(data);
+      }
+    } catch {
+      setCollectionInfo(null);
+    }
+  }, [collectionId]);
+
   useEffect(() => {
     loadCollectionInfo();
-  }, [collectionId]);
+  }, [loadCollectionInfo]);
 
   useEffect(() => {
     syncKnowledgeCollection(collectionId);
@@ -90,8 +107,8 @@ export default function KnowledgeBase() {
         const error = await response.json();
         notify.error(error.detail || '预加载失败');
       }
-    } catch (error: any) {
-      notify.error(error.message || '预加载失败');
+    } catch (error: unknown) {
+      notify.error(getErrorMessage(error, '预加载失败'));
     } finally {
       setPreloading(false);
     }
@@ -175,14 +192,14 @@ export default function KnowledgeBase() {
         setUploadStatus(result.message || '文档上传中');
         await pollUploadStatus(result.task_id);
         onSuccess?.(result);
-      } catch (error: any) {
+      } catch (error: unknown) {
         clearTimeout(timeoutId);
-        if (error.name === 'AbortError') {
+        if (error instanceof Error && error.name === 'AbortError') {
           notify.error('上传超时，请检查服务器状态');
         } else {
-          notify.error(error.message || '上传失败');
+          notify.error(getErrorMessage(error, '上传失败'));
         }
-        onError?.(error);
+        onError?.(error instanceof Error ? error : new Error('上传失败'));
       } finally {
         setTimeout(() => {
           setUploading(false);
@@ -220,20 +237,6 @@ export default function KnowledgeBase() {
       } else {
         await new Promise((resolve) => setTimeout(resolve, 1200));
       }
-    }
-  };
-
-  const loadCollectionInfo = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/knowledge/collections/${collectionId}`, {
-        signal: AbortSignal.timeout(30000),
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setCollectionInfo(data);
-      }
-    } catch (error) {
-      console.warn('Failed to load collection info:', error);
     }
   };
 

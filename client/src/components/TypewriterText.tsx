@@ -77,7 +77,7 @@ const TypewriterText = forwardRef<TypewriterTextRef, TypewriterTextProps>(
       if (paused !== isPaused) {
         setIsPaused(paused);
       }
-    }, [paused]);
+    }, [isPaused, paused]);
 
     useEffect(() => {
       reset();

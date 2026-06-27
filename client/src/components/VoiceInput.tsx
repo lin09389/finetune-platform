@@ -70,6 +70,22 @@ const VoiceInput: React.FC<VoiceInputProps> = ({
     };
   }, []);
 
+  const getErrorMessage = useCallback(
+    (error: string): string => {
+      const errorMessages: Record<string, string> = {
+        'no-speech': '未检测到语音输入',
+        'audio-capture': '无法访问麦克风，请检查权限设置',
+        'not-allowed': '麦克风权限被拒绝，请在浏览器设置中允许访问',
+        network: '网络错误，请检查网络连接',
+        aborted: '语音识别已取消',
+        'service-not-allowed': '语音识别服务不可用',
+        'language-not-supported': `不支持的语言: ${language}`,
+      };
+      return errorMessages[error] || `语音识别错误: ${error}`;
+    },
+    [language],
+  );
+
   const initRecognition = useCallback(() => {
     if (!isSupported) return null;
 
@@ -131,20 +147,7 @@ const VoiceInput: React.FC<VoiceInputProps> = ({
     };
 
     return recognition;
-  }, [isSupported, continuous, language, onResult, onError, status]);
-
-  const getErrorMessage = (error: string): string => {
-    const errorMessages: Record<string, string> = {
-      'no-speech': '未检测到语音输入',
-      'audio-capture': '无法访问麦克风，请检查权限设置',
-      'not-allowed': '麦克风权限被拒绝，请在浏览器设置中允许访问',
-      network: '网络错误，请检查网络连接',
-      aborted: '语音识别已取消',
-      'service-not-allowed': '语音识别服务不可用',
-      'language-not-supported': `不支持的语言: ${language}`,
-    };
-    return errorMessages[error] || `语音识别错误: ${error}`;
-  };
+  }, [isSupported, continuous, language, onResult, onError, status, getErrorMessage]);
 
   const startRecognition = useCallback(() => {
     if (!isSupported) {

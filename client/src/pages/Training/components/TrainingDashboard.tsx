@@ -20,7 +20,7 @@ interface CheckpointInfo {
   path: string;
   step: number;
   created: string;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
   valid: boolean;
 }
 
@@ -38,6 +38,13 @@ interface TrainingDashboardProps {
   currentTaskId?: string | null;
   onResume?: (taskId: string, checkpointName: string) => void;
 }
+
+const formatCheckpointTime = (value: unknown) => {
+  if (typeof value === 'string' || typeof value === 'number' || value instanceof Date) {
+    return new Date(value).toLocaleString();
+  }
+  return '';
+};
 
 /* ── Animated Metric Value ── */
 const AnimatedValue = ({ value, className }: { value: string; className?: string }) => (
@@ -357,11 +364,7 @@ const CheckpointsSection = ({
               {cp.metadata?.loss != null ? `Loss: ${Number(cp.metadata.loss).toFixed(4)}` : '--'}
             </div>
             <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>
-              {cp.metadata?.saved_at
-                ? new Date(cp.metadata.saved_at).toLocaleString()
-                : cp.created
-                ? new Date(cp.created).toLocaleString()
-                : ''}
+              {formatCheckpointTime(cp.metadata?.saved_at) || formatCheckpointTime(cp.created)}
             </div>
             {onResume && currentTaskId && cp.valid && (status === 'idle' || status === 'completed' || status === 'failed') && (
               <button

@@ -111,18 +111,18 @@ const CodeExecutor: React.FC = () => {
   const [stdin, setStdin] = useState<string>('');
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    fetchLanguages();
-  }, []);
-
-  const fetchLanguages = async () => {
+  const fetchLanguages = useCallback(async () => {
     try {
       const response = await apiClient.get('/code/languages');
       setLanguages(response.data.languages || []);
-    } catch (error) {
-      console.error('获取语言列表失败:', error);
+    } catch {
+      setLanguages([]);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchLanguages();
+  }, [fetchLanguages]);
 
   const handleLanguageChange = (newLanguage: string) => {
     setLanguage(newLanguage);
@@ -172,11 +172,12 @@ const CodeExecutor: React.FC = () => {
       } else {
         message.warning('代码执行完成，但有错误');
       }
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === 'AbortError') {
         message.info('执行已取消');
       } else {
-        message.error('执行失败: ' + (error.message || '未知错误'));
+        const errorMessage = error instanceof Error && error.message ? error.message : '未知错误';
+        message.error(`执行失败: ${errorMessage}`);
       }
     } finally {
       setLoading(false);

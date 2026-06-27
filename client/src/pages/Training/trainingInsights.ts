@@ -1,5 +1,5 @@
 export const buildTrainingPreflightFingerprint = (
-  values: Record<string, any>,
+  values: Record<string, unknown>,
   runtimeConfig: {
     gradientAccumulation: number;
     precisionPreset: 'max' | 'balanced' | 'fast';

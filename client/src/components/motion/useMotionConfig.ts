@@ -1,4 +1,5 @@
 import { useReducedMotion } from 'framer-motion';
+import type { Variants } from 'framer-motion';
 import { useMemo } from 'react';
 import { transitions } from '../../theme/motion-tokens';
 
@@ -36,11 +37,11 @@ export function useMotionConfig({ removeOnReduce = false }: MotionConfigOptions 
   }, [shouldReduceMotion, removeOnReduce]);
 
   // 针对变体 (Variants) 进行安全处理
-  const getSafeVariants = (variants: any) => {
+  const getSafeVariants = (variants: Variants): Variants => {
     if (!shouldReduceMotion) return variants;
 
     // 若减弱动态效果，只保留 opacity 变化，去掉位移(x,y)与缩放(scale)
-    const reducedVariants: any = {};
+    const reducedVariants: Variants = {};
     for (const key in variants) {
       if (variants[key]) {
         reducedVariants[key] = {

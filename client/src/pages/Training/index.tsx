@@ -10,7 +10,12 @@ import {
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import AnimatedLayout from '../../components/shared/AnimatedLayout';
 import { useRuntimeContext } from '../../runtime/RuntimeContext';
-import { getDatasetList, getModelList, type TrainingEventV2 } from '../../services/api';
+import {
+  getApiErrorMessage,
+  getDatasetList,
+  getModelList,
+  type TrainingEventV2,
+} from '../../services/api';
 import {
   checkTrainingResources,
   checkTrainingPreflight,
@@ -39,7 +44,105 @@ interface ChartDataPoint {
   step: number;
   loss: number;
   lr: number;
+  vram?: number;
 }
+
+interface TrainingFormValues {
+  modelId?: string;
+  datasetId?: string;
+  taskGoal?: 'qa_assistant' | 'structured_extraction';
+  method?: string;
+  rank?: number;
+  alpha?: number;
+  learningRate?: number;
+  epochs?: number;
+  batchSize?: number;
+  maxSeqLength?: number;
+  warmupSteps?: number;
+  saveSteps?: number;
+  loggingSteps?: number;
+}
+
+interface TrainingStartConfig {
+  model_id: string;
+  dataset_id: string;
+  task_goal: 'qa_assistant' | 'structured_extraction';
+  method: string;
+  rank: number;
+  alpha: number;
+  learning_rate: number;
+  epochs: number;
+  batch_size: number;
+  gradient_accumulation: number;
+  max_seq_length: number;
+  warmup_steps: number;
+  save_steps: number;
+  logging_steps: number;
+  precision_preset: 'max' | 'balanced' | 'fast';
+  memory_preset: 'auto' | '6gb' | '8gb' | '12gb';
+  use_flash_attn: boolean;
+  quantization: 4 | 8 | 0;
+}
+
+type IncomingTrainingProgress = Omit<TrainingProgressType, 'status'> & {
+  status?: TrainingProgressType['status'] | 'queued' | 'saving';
+  current_phase?: string;
+  phase_durations?: Record<string, number>;
+  retry_count?: number;
+  vram_used?: number;
+};
+
+type TrainingMetricV2 = {
+  step?: number | string;
+  loss?: number | string;
+  lr?: number | string;
+};
+
+const asNumber = (value: unknown, fallback = 0): number => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+};
+
+const asString = (value: unknown, fallback = ''): string =>
+  typeof value === 'string' ? value : fallback;
+
+const asOptionalNumber = (value: unknown): number | undefined => {
+  if (typeof value === 'undefined' || value === null) return undefined;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+};
+
+const asOptionalString = (value: unknown): string | undefined =>
+  typeof value === 'string' ? value : undefined;
+
+const normalizeProgressStatus = (
+  value: unknown,
+  fallback: IncomingTrainingProgress['status'],
+): IncomingTrainingProgress['status'] => {
+  if (
+    value === 'running' ||
+    value === 'completed' ||
+    value === 'failed' ||
+    value === 'idle' ||
+    value === 'queued' ||
+    value === 'loading' ||
+    value === 'training' ||
+    value === 'saving' ||
+    value === 'stopping' ||
+    value === 'stopped'
+  ) {
+    return value;
+  }
+  return fallback;
+};
 
 interface PreflightResult {
   passed: boolean;
@@ -57,15 +160,9 @@ interface PreflightResult {
   required_vram: number | null;
   suggestions: string[];
   warnings: string[];
-  recommended_config: Record<string, any>;
+  recommended_config: Record<string, unknown>;
   device_name?: string;
 }
-
-const getErrorMessage = (error: any, fallback: string) =>
-  error?.response?.data?.detail?.message ||
-  error?.response?.data?.detail ||
-  error?.message ||
-  fallback;
 
 const TrainingPage: React.FC = () => {
   const navigate = useNavigate();
@@ -148,8 +245,9 @@ const TrainingPage: React.FC = () => {
       const [modelList, datasetList] = await Promise.all([getModelList(), getDatasetList()]);
       setModels(Array.isArray(modelList) ? modelList : []);
       setDatasets(Array.isArray(datasetList) ? datasetList : []);
-    } catch (error) {
-      console.error('Failed to sync training catalog:', error);
+    } catch {
+      setModels([]);
+      setDatasets([]);
     }
   }, [backendStatus, setDatasets, setModels]);
 
@@ -174,7 +272,7 @@ const TrainingPage: React.FC = () => {
   ]);
 
   const applyIncomingProgress = useCallback(
-    (nextProgress: any, source: 'v1' | 'v2') => {
+    (nextProgress: IncomingTrainingProgress, source: 'v1' | 'v2') => {
       setProgress(nextProgress);
       if (nextProgress.loss !== undefined && nextProgress.step !== undefined) {
         setChartData((prev) => {
@@ -195,10 +293,10 @@ const TrainingPage: React.FC = () => {
 
       // 阶段信息
       if (nextProgress.currentPhase || nextProgress.current_phase) {
-        setCurrentPhase(nextProgress.currentPhase || nextProgress.current_phase);
+        setCurrentPhase(nextProgress.currentPhase || nextProgress.current_phase || '');
       }
       if (nextProgress.phaseDurations || nextProgress.phase_durations) {
-        setPhaseDurations(nextProgress.phaseDurations || nextProgress.phase_durations);
+        setPhaseDurations(nextProgress.phaseDurations || nextProgress.phase_durations || {});
       }
       if (nextProgress.retryCount !== undefined || nextProgress.retry_count !== undefined) {
         setRetryCount(nextProgress.retryCount || nextProgress.retry_count || 0);
@@ -278,8 +376,8 @@ const TrainingPage: React.FC = () => {
           setIsTraining(true);
         }
       }
-    } catch (error) {
-      console.error('Failed to check training status:', error);
+    } catch {
+      setBackendTraining(false);
     }
   }, [setIsTraining]);
 
@@ -300,11 +398,11 @@ const TrainingPage: React.FC = () => {
       setTrainingStatus('training');
       setChartData([]);
       unsubscribeRef.current = subscribeTrainingProgress(
-        (nextProgress: any) => {
+        (nextProgress: IncomingTrainingProgress) => {
           applyIncomingProgress(nextProgress, 'v1');
         },
-        (error: Error) => {
-          console.error('SSE error:', error);
+        () => {
+          // The V2 stream is authoritative; legacy SSE is only a temporary fallback.
         },
       );
     }
@@ -329,26 +427,32 @@ const TrainingPage: React.FC = () => {
       const payload = event.payload || {};
       const currentProgress = progressRef.current;
       const normalizedProgress = {
-        epoch: payload.epoch ?? currentProgress?.epoch ?? 0,
-        step: payload.step ?? currentProgress?.step ?? 0,
-        totalSteps: payload.total_steps ?? payload.totalSteps ?? currentProgress?.totalSteps ?? 0,
-        loss: payload.loss ?? payload.final_loss ?? currentProgress?.loss ?? 0,
-        lr: payload.lr ?? payload.final_lr ?? currentProgress?.lr ?? 0,
-        vramUsed: payload.vram_used ?? payload.vramUsed ?? currentProgress?.vramUsed ?? 0,
+        epoch: asNumber(payload.epoch, currentProgress?.epoch ?? 0),
+        step: asNumber(payload.step, currentProgress?.step ?? 0),
+        totalSteps: asNumber(payload.total_steps ?? payload.totalSteps, currentProgress?.totalSteps ?? 0),
+        loss: asNumber(payload.loss ?? payload.final_loss, currentProgress?.loss ?? 0),
+        lr: asNumber(payload.lr ?? payload.final_lr, currentProgress?.lr ?? 0),
+        vramUsed: asNumber(payload.vram_used ?? payload.vramUsed, currentProgress?.vramUsed ?? 0),
         elapsedTime:
-          payload.elapsed_time ??
-          payload.elapsedTime ??
-          payload.final_elapsed_time ??
-          currentProgress?.elapsedTime ??
-          0,
-        eta: payload.eta ?? currentProgress?.eta ?? 0,
-        status: event.phase === 'queued' ? 'queued' : payload.status || event.phase,
-        message: payload.message || currentProgress?.message || '',
-        queuePosition: payload.queue_position ?? payload.queuePosition,
-        estimatedWaitSeconds: payload.estimated_wait_seconds ?? payload.estimatedWaitSeconds,
-        errorCode: payload.error_code ?? payload.errorCode,
-        errorCategory: payload.error_category ?? payload.errorCategory,
-        actionableSuggestions: payload.actionable_suggestions ?? payload.actionableSuggestions,
+          asNumber(
+            payload.elapsed_time ?? payload.elapsedTime ?? payload.final_elapsed_time,
+            currentProgress?.elapsedTime ?? 0,
+          ),
+        eta: asNumber(payload.eta, currentProgress?.eta ?? 0),
+        status:
+          event.phase === 'queued'
+            ? 'queued'
+            : normalizeProgressStatus(payload.status, event.phase),
+        message: asString(payload.message, currentProgress?.message || ''),
+        queuePosition: asOptionalNumber(payload.queue_position ?? payload.queuePosition),
+        estimatedWaitSeconds: asOptionalNumber(payload.estimated_wait_seconds ?? payload.estimatedWaitSeconds),
+        errorCode: asOptionalString(payload.error_code ?? payload.errorCode),
+        errorCategory: asOptionalString(payload.error_category ?? payload.errorCategory),
+        actionableSuggestions: Array.isArray(payload.actionable_suggestions)
+          ? payload.actionable_suggestions.filter((item): item is string => typeof item === 'string')
+          : Array.isArray(payload.actionableSuggestions)
+          ? payload.actionableSuggestions.filter((item): item is string => typeof item === 'string')
+          : undefined,
       };
       applyIncomingProgress(normalizedProgress, 'v2');
     },
@@ -359,7 +463,7 @@ const TrainingPage: React.FC = () => {
     if (!currentTaskId) return;
     try {
       const backfill = await getTrainingTaskMetricsV2(currentTaskId, 0, 1000);
-      const items: any[] = Array.isArray(backfill)
+      const items: TrainingMetricV2[] = Array.isArray(backfill)
         ? backfill
         : Array.isArray(backfill?.items)
         ? backfill.items
@@ -380,8 +484,8 @@ const TrainingPage: React.FC = () => {
         merged.sort((a, b) => a.step - b.step);
         return merged.slice(-800);
       });
-    } catch (error) {
-      console.error('Failed to backfill metrics after V2 sequence gap:', error);
+    } catch {
+      // Metrics backfill is best-effort; live progress continues through the active stream.
     }
   }, [currentTaskId]);
 
@@ -435,9 +539,9 @@ const TrainingPage: React.FC = () => {
   );
 
   const buildTrainingConfig = useCallback(
-    (values: any) => ({
-      model_id: values.modelId,
-      dataset_id: values.datasetId,
+    (values: TrainingFormValues): TrainingStartConfig => ({
+      model_id: values.modelId || '',
+      dataset_id: values.datasetId || '',
       task_goal: values.taskGoal || 'qa_assistant',
       method: values.method || 'qlora',
       rank: values.rank || 8,
@@ -458,7 +562,7 @@ const TrainingPage: React.FC = () => {
     [gradientAccumulation, memoryPreset, precisionPreset, quantizationBit, useFlashAttn],
   );
 
-  const handleStart = async (values: any) => {
+  const handleStart = async (values: TrainingFormValues) => {
     if (starting || isTraining) return;
 
     const latestFingerprint = getCurrentPreflightFingerprint();
@@ -499,9 +603,9 @@ const TrainingPage: React.FC = () => {
       setCurrentTaskId(result.id);
       setCurrentTrainingRecord(result);
       notify.success('训练任务已提交');
-    } catch (error: any) {
+    } catch (error: unknown) {
       setTrainingStatus('idle');
-      notify.error(getErrorMessage(error, '启动训练失败'));
+      notify.error(getApiErrorMessage(error, '启动训练失败'));
     } finally {
       setStarting(false);
     }
@@ -513,7 +617,7 @@ const TrainingPage: React.FC = () => {
       setTrainingStatus('stopping');
       notify.info('已发送停止请求，等待当前步骤安全退出');
     } catch (error) {
-      notify.error(getErrorMessage(error, '停止训练失败'));
+      notify.error(getApiErrorMessage(error, '停止训练失败'));
     }
   };
 
@@ -527,9 +631,9 @@ const TrainingPage: React.FC = () => {
       setCurrentTrainingRecord(result);
       setChartData([]);
       notify.success('已从检查点恢复训练');
-    } catch (error: any) {
+    } catch (error: unknown) {
       setTrainingStatus('idle');
-      notify.error(getErrorMessage(error, '恢复训练失败'));
+      notify.error(getApiErrorMessage(error, '恢复训练失败'));
     }
   };
 
@@ -542,7 +646,7 @@ const TrainingPage: React.FC = () => {
     return '7B';
   };
 
-  const estimateRequiredVram = (values: any) => {
+  const estimateRequiredVram = (values: TrainingFormValues) => {
     const size = estimateModelSize(values.modelId);
     const batchSize = Number(values.batchSize || 1);
     const seqLength = Number(values.maxSeqLength || 512);
@@ -574,7 +678,7 @@ const TrainingPage: React.FC = () => {
       } else {
         notify.success('训练前预检通过');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       try {
         const fallback = await checkTrainingResources({
           method: values.method || 'qlora',
@@ -598,7 +702,7 @@ const TrainingPage: React.FC = () => {
         setPreflightFingerprint(getCurrentPreflightFingerprint());
         notify.warning('完整预检不可用，已回退到资源预检');
       } catch {
-        notify.error(getErrorMessage(error, '训练前预检失败'));
+        notify.error(getApiErrorMessage(error, '训练前预检失败'));
       }
     } finally {
       setPreflightChecking(false);

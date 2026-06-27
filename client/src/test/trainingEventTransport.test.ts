@@ -45,8 +45,8 @@ describe('training event transport fallback', () => {
     vi.useFakeTimers();
     MockEventSource.instances = [];
     MockWebSocket.instances = [];
-    vi.stubGlobal('EventSource', MockEventSource as any);
-    vi.stubGlobal('WebSocket', MockWebSocket as any);
+    vi.stubGlobal('EventSource', MockEventSource as unknown as typeof EventSource);
+    vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket);
   });
 
   afterEach(() => {
