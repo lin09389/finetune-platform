@@ -4,11 +4,12 @@ FROM node:20-slim AS build
 
 WORKDIR /app/client
 
-ARG VITE_API_URL=http://localhost:8000
+ARG VITE_API_URL=http://localhost:8010
 ENV VITE_API_URL=${VITE_API_URL}
 
+# 使用淘宝 npm 镜像
 COPY client/package*.json ./
-RUN npm ci
+RUN npm config set registry https://registry.npmmirror.com && npm ci
 
 COPY client/ ./
 RUN npm run build

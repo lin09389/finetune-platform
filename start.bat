@@ -86,6 +86,8 @@ REM 启动后端
 echo [后端] 启动中...
 if "%USE_UV%"=="1" (
     start "Finetune - 后端" /d "%~dp0" cmd /k uv run python -m uvicorn server.main:app --host 127.0.0.1 --port 8010
+) else if exist "%~dp0.venv\Scripts\python.exe" (
+    start "Finetune - 后端" /d "%~dp0server" cmd /k "%~dp0.venv\Scripts\python.exe" -m uvicorn main:app --host 127.0.0.1 --port 8010
 ) else (
     start "Finetune - 后端" /d "%~dp0server" cmd /k python -m uvicorn main:app --host 127.0.0.1 --port 8010
 )

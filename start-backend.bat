@@ -16,6 +16,10 @@ if not errorlevel 1 (
     uv run python -m uvicorn server.main:app --host 127.0.0.1 --port 8010 --log-level debug
 ) else (
     cd /d "%~dp0server"
-    python -m uvicorn main:app --host 127.0.0.1 --port 8010 --log-level debug
+    if exist "%~dp0.venv\Scripts\python.exe" (
+        "%~dp0.venv\Scripts\python.exe" -m uvicorn main:app --host 127.0.0.1 --port 8010 --log-level debug
+    ) else (
+        python -m uvicorn main:app --host 127.0.0.1 --port 8010 --log-level debug
+    )
 )
 pause
